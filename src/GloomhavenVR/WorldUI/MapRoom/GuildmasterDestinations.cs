@@ -27,7 +27,7 @@ namespace GloomhavenVR.WorldUI.MapRoom;
 ///
 /// <para>1 — THE BACKGROUND TRAVELS WITH THE WINDOW. The destination's art is a single shared
 /// <c>UIGuildmasterBanner</c> that lives in the HUD's own banner container, NOT inside the
-    /// destination window — so floating the window alone still leaves the merchant's backdrop
+/// destination window — so floating the window alone still leaves the merchant's backdrop
 /// drawing in a flat HUD nothing renders in VR. The game itself already demonstrates the move:
 /// entering the temple runs <c>banner.transform.SetParent(TempleWindow.transform)</c> +
 /// <c>SetSiblingIndex(1)</c> (UIGuildmasterHUD.cs:198-200). This class makes the same move for
@@ -1632,6 +1632,9 @@ internal static class GuildmasterDestinations
             return hud.banner.transform;
         if (_bannerFallback != null)
             return _bannerFallback.transform;
+        if (--_bannerSweepDue > 0)
+            return null;
+        _bannerSweepDue = HudSweepCadenceTicks;
         _bannerSweeps++;
         _bannerFallback = Object.FindObjectOfType<UIGuildmasterBanner>(true);
         return _bannerFallback != null ? _bannerFallback.transform : null;
@@ -1651,6 +1654,7 @@ internal static class GuildmasterDestinations
     private static int _hudSweeps;
     private static int _hudSingletonHits;
     private static UIGuildmasterBanner? _bannerFallback;
+    private static int _bannerSweepDue;
     private static int _bannerSweeps;
     private static int _slotSweeps;
 
@@ -2435,6 +2439,7 @@ internal static class GuildmasterDestinations
         _outcomeProbeWarned = false;
         _hudFallback = null;
         _bannerFallback = null;
+        _bannerSweepDue = 0;
         _hudSweepDue = 0;
         // ModBuild 231: an armed open watch belongs to the session that pressed the cap. Dropped
         // SILENTLY rather than judged — the module going away is not a window failing to appear.

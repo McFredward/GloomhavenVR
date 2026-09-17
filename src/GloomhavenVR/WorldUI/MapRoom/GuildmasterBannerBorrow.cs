@@ -62,10 +62,11 @@ internal sealed class GuildmasterBannerBorrow
         _home = null;
         if (banner == null) return;
 
-        if (host != null && banner.parent == host && home != null)
+        if (host != null && banner.parent == host)
         {
-            banner.SetParent(home, worldPositionStays: false);
-            banner.SetSiblingIndex(Mathf.Clamp(_index, 0, Mathf.Max(0, home.childCount - 1)));
+            banner.SetParent(home != null ? home : null, worldPositionStays: false);
+            if (home != null)
+                banner.SetSiblingIndex(Mathf.Clamp(_index, 0, Mathf.Max(0, home.childCount - 1)));
         }
         // If the game moved it first, retain that exact parent and sibling choice. Restore only
         // the saved root-local geometry, removing worldPositionStays' VR scale/position carryover.
