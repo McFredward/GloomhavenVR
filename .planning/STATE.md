@@ -1,6 +1,6 @@
 # State — where the project stands
 
-**Updated 2026-09-17 for anchored window openings, ModBuild 527 on dev.** The file this replaces had gone 168 builds
+**Updated 2026-09-18 for local burn continuity and Guildmaster fixes, ModBuild 528 on dev.** The file this replaces had gone 168 builds
 stale while still saying "read this first"; it is kept as `STATE-ARCHIVE-through-2026-08.md` for
 its round-by-round narrative and for nothing else.
 
@@ -12,6 +12,26 @@ change per build) → this file (where things stand and what is owed) → the bu
 ---
 
 ## 1. Position
+
+- **dev / 1.0.5 / ModBuild 528** addresses the owner's local short-rest flash, Guildmaster
+  table/standing quest list, and a native Swift Bow UI initialization error in the latest
+  build-527 logs. Original faces retain animated materials through temporary ownership;
+  raw progress/material diagnostics separate a restart from a material swap. Native card
+  hierarchy returns before teardown/recycling, with damaged-copy rejection before reuse.
+  The original quest widget returns after temporary story/journey withdrawal. Guildmaster
+  discovers and fits the campaign table's original assets without moving native furniture.
+  Records: [BURN-528.md](BURN-528.md), [CARD-POOL-528.md](CARD-POOL-528.md),
+  [GUILD-QUESTS-528.md](GUILD-QUESTS-528.md), [GUILD-TABLE-528.md](GUILD-TABLE-528.md).
+  **Hardware remains unverified:** exact flash writer, cold Guildmaster asset availability,
+  final furniture fit, repeated scene transitions and current multiplayer observers.
+  Remote logs remain build 500, not current evidence. No release was requested this round.
+  Integrated validation: full guard source/presentation checks and real-runtime wire vectors
+  pass (254,565 wire assertions). Focused totals: burn 534, material ownership 543, native
+  pool lifetime 169, standing quest log 26, table fit/material lifecycle 1,530, plus bindings
+  and rejected mutations. Strict Release zero warnings/errors; bilingual docs and Actionlint
+  pass. Guard exit 1 is the expected compiled difference from baseline 080c505e9.
+  Surfaces: 625 config keys / 174 patch attributes / 4,738 log tokens; two new registered
+  pool hooks and five new diagnostic tokens versus 527. No existing surface was removed.
 
 - **1.0.4 release authorized after the build-527 hardware report.** The maintainer reports
   no visible issues. Current local logs show completed encounter room making with the new

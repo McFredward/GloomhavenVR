@@ -56,5 +56,5 @@ and the same permanence contract. It has no new remote widget or network state.
   The quest list should return to normal browsing, stay nonblocking, and still withdraw
   during committed quest/story/loadout flow. Automated tests do not establish the HMD view.
 
-Integration: add `bash scripts/permanent-quest-log-tests.sh` to the guard and hosted
-development checks; the worker intentionally does not own those shared files.
+Integration completed: the production harness runs through `scripts/wire-tests.sh` in the
+local guard and in the hosted development presentation checks.

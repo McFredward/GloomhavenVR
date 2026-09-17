@@ -57,3 +57,10 @@ scheduling. A broken original template is deliberately not reconstructed, and th
 does not assert complete integrity of every field on a native card. Final headset checks
 must repeat short rests followed by scenario/map transitions and hand respawning. Look
 for `CARD POOL REPAIR` and any recurrence of `Unable to initialise ability card`.
+
+Integrated build-528 validation passed all source/presentation checks and 254,565 real-runtime
+wire assertions. Strict Release reports zero warnings/errors; bilingual docs and Actionlint
+pass. The full guard returns 1 only for the expected compiled difference versus its historical
+080c505e9 baseline (89 changed types, 69 added/removed, one ordering-only project move); it
+reports no removed config, patch or diagnostic surfaces. New focused tests are included in
+both the local guard's wire runner and development CI.

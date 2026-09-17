@@ -494,13 +494,9 @@ internal static class CardHalfTone
     // ---------------------------------------------------------------- ownership --
 
     /// <summary>
-    /// True only for a face the mod built for itself and nobody else can be holding: NOT a
-    /// registered adopted live widget, and with no <c>AbilityCardUI</c> anywhere above it. The
-    /// second half of the test is the game's own invariant, not a guess — <c>ObjectPool.RecycleCard</c>
-    /// re-parents every game-owned <c>fullAbilityCard</c> back under its row
-    /// (<c>fullAbilityCard.transform.SetParent(component.transform)</c>, ObjectPool.cs:545-547), and
-    /// the only faces that escape that parent are the ones <see cref="CardFace.Adopt"/> re-hosted,
-    /// which the first half already excludes.
+    /// True only for an inert copy: no live native effects, original-owner record, adoption
+    /// record or native widget ancestor. Native dialogs can borrow original faces outside their
+    /// widget hierarchy, so missing ancestry alone never establishes clone ownership.
     /// </summary>
     private static bool IsModOwnedCopy(FullAbilityCard face)
     {

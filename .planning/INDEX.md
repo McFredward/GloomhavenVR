@@ -1,6 +1,6 @@
 # Planning index
 
-Updated 2026-09-17 for anchored window openings, build 527 on dev. This directory holds internal
+Updated 2026-09-18 for local burns, native card lifetime and Guildmaster, build 528 on dev. This directory holds internal
 engineering evidence, historical decisions and current status; it is not the player manual.
 
 ## Current entry points
@@ -17,6 +17,11 @@ engineering evidence, historical decisions and current status; it is not the pla
 | [PROJECT.md](PROJECT.md), [ARCHITECTURE.md](ARCHITECTURE.md) | Product scope and architectural reasoning |
 
 ## Latest measured work
+
+- [BURN-528.md](BURN-528.md): local native burn-material ownership and bounded continuity evidence.
+- [CARD-POOL-528.md](CARD-POOL-528.md): native card initialization failure, original hierarchy and recycled-copy repair.
+- [GUILD-QUESTS-528.md](GUILD-QUESTS-528.md): return of the original standing quest list after story curtains.
+- [GUILD-TABLE-528.md](GUILD-TABLE-528.md): original campaign tabletop reuse, furniture fit and cold-start asset limits.
 
 - [RELEASE-104.md](RELEASE-104.md): build-527 hardware review and authorized 1.0.4 publication.
 

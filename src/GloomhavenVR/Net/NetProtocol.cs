@@ -514,8 +514,22 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 527;
+    public const ushort ModBuild = 528;
 
+    // ModBuild 528 — local burn continuity, Guildmaster map presentation and native card lifetime.
+    // Native dialog-owned faces no longer qualify for clone material normalization; preserve
+    // the running burn materials independently of temporary hierarchy/adoption changes. Ignore
+    // unconfirmed short-rest burn previews and record bounded raw-progress/material continuity.
+    // Return all native hand faces to their owning widgets before scene teardown and recycling;
+    // discard damaged recycled copies only when the native pool retains an intact template.
+    // This addresses the build-527 SwiftBow initialization error; the exact destruction writer
+    // and the reported local flash still need the next hardware log/picture to confirm.
+    // Restore the original standing quest log after temporary story/journey withdrawal without
+    // changing native hide requests. Guildmaster reuses the original campaign tabletop assets,
+    // asynchronously discovered and fitted around bench/barrel bounds. Cold-start native asset
+    // availability and the final furniture fit remain hardware-unverified.
+    // No wire layout or visibility-rule changes. Evidence: .planning/*528.md.
+    //
     // ModBuild 527 — keep newly opened map windows at their chosen spawn pose.
     //   Build-526 logs show UI Quest Popup reflow three times, moving only the new window.
     //   Opening room making now anchors that window and moves only older overlapping members;

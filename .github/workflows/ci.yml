@@ -363,6 +363,10 @@ jobs:
           bash scripts/mr-backing-materialise-tests.sh
           bash scripts/mr-backing-animation-tests.sh
           bash scripts/card-scene-lifetime-tests.sh
+          bash scripts/card-pool-lifetime-tests.sh
+          bash scripts/burn-material-ownership-tests.sh
+          bash scripts/permanent-quest-log-tests.sh
+          bash scripts/guildmaster-table-tests.sh
           bash scripts/remote-burn-sequencing-tests.sh
           bash scripts/burn-completion-tests.sh
           bash scripts/item-burn-tests.sh
