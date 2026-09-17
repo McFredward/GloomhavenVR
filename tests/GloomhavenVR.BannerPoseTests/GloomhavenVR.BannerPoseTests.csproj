@@ -1,0 +1,8 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType><TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable><TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <BannerSource Condition="'$(BannerSource)' == ''">../../src/GloomhavenVR/WorldUI/MapRoom/GuildmasterBannerBorrow.cs</BannerSource>
+  </PropertyGroup>
+  <ItemGroup><Compile Include="$(BannerSource)" Link="Production/GuildmasterBannerBorrow.cs" /></ItemGroup>
+</Project>

@@ -514,7 +514,21 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 524;
+    public const ushort ModBuild = 525;
+
+    // ModBuild 525 — restore the shared map header after native reparenting.
+    //   Build-524 MR diagnostics identify UI Adventure Header/Icon as the growing top edge:
+    //   y 1369.8 on the second merchant opening, then 1938/2318/2572/2742 and 2855 at temple.
+    //   Native SetParent(true) retained the floated window's world pose/scale; the old return
+    //   path skipped restoration once the game had taken the banner into a different parent.
+    //   Borrow the original with its complete root-local pose and restore that pose on either
+    //   return path. Respect native parent/sibling ownership and preserve all child content,
+    //   mode configuration, visibility and callbacks. Repair before any subsequent capture.
+    //   MR/ink/capture geometry and window animations are unchanged; the misplaced source is fixed.
+    //   Focused production-linked tests cover repeated openings, direct destination switches,
+    //   native handoff, replacement, destroyed parents and exactly-once release.
+    //   Version 1.0.4 on dev; no bundle/config/wire change. All VR peers use 525.
+    //   See .planning/MAP-HEADER-525.md for evidence, validation and hardware limits.
 
     // ModBuild 524 — diagnose map-window MR growth on reopening.
     //   Hardware build 523 still shows the merchant/map backing growing on the second open.

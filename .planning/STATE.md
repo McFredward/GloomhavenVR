@@ -1,6 +1,6 @@
 # State — where the project stands
 
-**Updated 2026-09-17 for map-window MR reopen diagnostics, ModBuild 524 on dev.** The file this replaces had gone 168 builds
+**Updated 2026-09-17 for shared map-header pose restoration, ModBuild 525 on dev.** The file this replaces had gone 168 builds
 stale while still saying "read this first"; it is kept as `STATE-ARCHIVE-through-2026-08.md` for
 its round-by-round narrative and for nothing else.
 
@@ -12,6 +12,20 @@ change per build) → this file (where things stand and what is owed) → the bu
 ---
 
 ## 1. Position
+
+- **dev / 1.0.4 / ModBuild 525 repairs the native header that inflated reopened MR windows.**
+  Build-524 diagnostics identify the same shared `UI Adventure Header/Icon` drifting upwards
+  and shrinking on every merchant reopening, then carrying the defect into temple.
+  The native world-preserving parent change retained the converted window's pose/scale;
+  the old mod return path skipped geometry restoration after native ownership resumed.
+  A tracked borrow now restores the original root-local layout/pose on both return paths,
+  preserving native parent/sibling choices and child content. No MR geometry clamp or
+  animation change. Source cause and reproduction are in [MAP-HEADER-525.md](MAP-HEADER-525.md);
+  corrected headset appearance still needs confirmation.
+  Validation: 180 runtime assertions, three bindings, four runtime negatives and one binding
+  negative; strict Release zero warnings/errors. Frame-order, bilingual docs, Actionlint,
+  shell syntax and whitespace pass. Config/patch/log surfaces unchanged: 625 / 172 / 4,733.
+
 
 - **dev / 1.0.4 / ModBuild 524 is a diagnostic build; the MR reopen defect remains open.**
   The user reports first merchant/map opening correct and subsequent openings too tall.

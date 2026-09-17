@@ -241,6 +241,11 @@ clipped pixels retain their exclusions. It also tests placement-only annotation 
 in the ink walk and drawn-content union, while hit/chrome bounds retain the hint controls.
 Original reward-heading glyph overflow is included without broadening native masks or affecting
 other text; transformed, empty and invalid glyph bounds have dedicated negative controls.
+`scripts/banner-pose-tests.sh` exercises the original guildmaster header's borrow/return
+transaction across repeated openings and destination changes. A transformed-parent fixture
+reproduces native world-preserving reparenting; checks cover root layout/pose restoration,
+native parent/sibling ownership, unchanged child configuration, replacement/destruction and
+repeated release. Integration bindings and mutations reject the missing native-handoff repair.
 `scripts/hint-tests.sh` checks queued native message
 ownership, pending standalone dissolve cancellation and native sibling text/frame reflow/restoration
 before composite adoption. Their
