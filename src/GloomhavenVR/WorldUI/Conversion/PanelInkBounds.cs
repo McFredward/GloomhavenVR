@@ -449,9 +449,12 @@ internal static class PanelInkBounds
     // parent/sibling artwork; visible images inside it are ink even if they fill the row's frame.
     // Optional MR witnesses reuse this walk's scope, clipping and transient exclusions. The caller
     // can check native visibility every frame without remeasuring geometry or retaining old samples.
+    // backingGeometry measures native paint instead of layout boxes and includes original backdrop
+    // artwork in that union. It is MR-only; hit, grab and capture queries retain their old contract.
     internal static bool TryMeasure(ConvertedPanel panel, out Ink ink, bool includeParkedHint = true,
                                     Rect? frameOverride = null, ISet<Transform>? excludedRoots = null,
-                                    Transform? contentRoot = null, List<Graphic>? visibleWitnesses = null)
+                                    Transform? contentRoot = null, List<Graphic>? visibleWitnesses = null,
+                                    bool backingGeometry = false)
     {
         visibleWitnesses?.Clear();
         ink = default;
@@ -463,7 +466,7 @@ internal static class PanelInkBounds
         ink.PlateBottomName = string.Empty;
         try
         {
-            return MeasureCore(panel, ref ink, includeParkedHint, frameOverride, excludedRoots, contentRoot, visibleWitnesses);
+            return MeasureCore(panel, ref ink, includeParkedHint, frameOverride, excludedRoots, contentRoot, visibleWitnesses, backingGeometry);
         }
         catch (System.Exception)
         {
@@ -475,7 +478,8 @@ internal static class PanelInkBounds
     }
 
     private static bool MeasureCore(ConvertedPanel panel, ref Ink ink, bool includeParkedHint, Rect? frameOverride,
-                                    ISet<Transform>? excludedRoots, Transform? contentRoot, List<Graphic>? visibleWitnesses)
+                                    ISet<Transform>? excludedRoots, Transform? contentRoot, List<Graphic>? visibleWitnesses,
+                                    bool backingGeometry)
     {
         RectTransform? host = panel.HostRect;
         Transform? target = panel.Target;
@@ -570,8 +574,10 @@ internal static class PanelInkBounds
                     var graphic = t.GetComponent<Graphic>();
                     // Expand drawn glyphs only; clip geometry and the authored scale census
                     // must retain the original RectTransform bounds.
-                    Rect drawBounds = RewardHeadingBounds.Expand(host, graphic, bounds);
-                    if (MrBackingScope.Paint(t, contentRoot)
+                    Rect drawBounds = backingGeometry ? default : RewardHeadingBounds.Expand(host, graphic, bounds);
+                    bool hasPicture = !backingGeometry
+                        || (family == 0 && MrBackingPaintedBounds.TryMeasure(host, graphic, out drawBounds));
+                    if (hasPicture && MrBackingScope.Paint(t, contentRoot)
                         && Draws(graphic) && Intersect(clip, drawBounds, out Rect visible)
                         && visible.width > 0f && visible.height > 0f)
                     {
@@ -617,7 +623,7 @@ internal static class PanelInkBounds
                         // build 505 the generic backdrop exclusion left no ink and hid its grab
                         // bar after two empty samples. Exempt only the declared content identity:
                         // all visibility/alpha/clip checks above and other backdrop rules remain.
-                        else if (contentRoot == null && !ReferenceEquals(graphic, panel.ContentGraphic)
+                        else if (!backingGeometry && contentRoot == null && !ReferenceEquals(graphic, panel.ContentGraphic)
                                  && plateTestUsable && visible.width >= plateW && visible.height >= plateH)
                         {
                             ink.Plates++;

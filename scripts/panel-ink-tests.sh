@@ -21,6 +21,20 @@ for name, needle, replacement in [
 ]:
     assert visibility.count(needle) == 1, name
     (root / (name+'.fixture')).write_text(visibility.replace(needle,replacement))
+painted = (repo / 'src/GloomhavenVR/WorldUI/Conversion/MrBackingPaintedBounds.cs').read_text()
+for name, needle, replacement in [
+    ('paint-mask', 'mask != null && mask.enabled && !mask.showMaskGraphic', 'mask != null && !graphic.enabled'),
+    ('paint-alpha', 'colorsPresent && Colors[i].a == 0', 'colorsPresent && Vertices.Count < 0'),
+    ('paint-transform', 'toHost.MultiplyPoint3x4(Vertices[i])', 'Vertices[i]'),
+]:
+    assert painted.count(needle) == 1, name
+    (root / (name+'.fixture')).write_text(painted.replace(needle,replacement))
+needle = '!backingGeometry && contentRoot == null'
+assert source.count(needle) == 1
+(root / 'paint-backdrop.fixture').write_text(source.replace(needle,'contentRoot == null'))
+needle = 'MrBackingPaintedBounds.TryMeasure(host, graphic, out drawBounds)'
+assert source.count(needle) == 1
+(root / 'paint-layout.fixture').write_text(source.replace(needle,'TryHostLocalBounds(host, rt, out drawBounds)'))
 needle = 'visibleWitnesses?.Clear();'
 assert source.count(needle) == 2
 (root / 'live-clear.fixture').write_text(source.replace(needle, '', 1))
@@ -87,10 +101,15 @@ assert 'out content, out contributors, out _, out _, includeParkedHint)' in code
 print('Placement binding negative control: inclusion of owner annotation rejected.')
 PY
 dotnet run --project "$project" --configuration Release --property:DrawnUnionSource="$mutation_dir/union.fixture"
-for mutation in missing broad hint-ink hint-union reward-heading mr-frame mr-hover mr-scope mr-scope-plate mr-scope-clip live-hidden live-alpha live-canvas live-clear; do
+for mutation in missing broad hint-ink hint-union reward-heading mr-frame mr-hover mr-scope mr-scope-plate mr-scope-clip live-hidden live-alpha live-canvas live-clear paint-mask paint-alpha paint-transform paint-backdrop paint-layout; do
     ink_source="$mutation_dir/$mutation.fixture"
     union_source="$mutation_dir/union.fixture"
     visibility_source="$repo_root/src/GloomhavenVR/WorldUI/MrBackingVisibility.cs"
+    painted_source="$repo_root/src/GloomhavenVR/WorldUI/Conversion/MrBackingPaintedBounds.cs"
+    if [[ "$mutation" == paint-mask || "$mutation" == paint-alpha || "$mutation" == paint-transform ]]; then
+        ink_source="$source_file"
+        painted_source="$mutation_dir/$mutation.fixture"
+    fi
     if [[ "$mutation" == live-hidden || "$mutation" == live-alpha || "$mutation" == live-canvas ]]; then
         ink_source="$source_file"
         visibility_source="$mutation_dir/$mutation.fixture"
@@ -100,7 +119,7 @@ for mutation in missing broad hint-ink hint-union reward-heading mr-frame mr-hov
         union_source="$mutation_dir/hint-union.fixture"
     fi
     if dotnet run --project "$mutation_dir/GloomhavenVR.PanelInkTests.csproj" --configuration Release \
-        --property:VisibilitySource="$visibility_source" --property:ScopeSource="$repo_root/src/GloomhavenVR/WorldUI/MrBackingScope.cs" --property:InkSource="$ink_source" --property:HeadingSource="$heading_source" --property:DrawnUnionSource="$union_source" > "$mutation_dir/$mutation.log" 2>&1; then
+        --property:PaintedSource="$painted_source" --property:VisibilitySource="$visibility_source" --property:ScopeSource="$repo_root/src/GloomhavenVR/WorldUI/MrBackingScope.cs" --property:InkSource="$ink_source" --property:HeadingSource="$heading_source" --property:DrawnUnionSource="$union_source" > "$mutation_dir/$mutation.log" 2>&1; then
         cat "$mutation_dir/$mutation.log"
         echo "FAIL: $mutation mutation escaped the ink test." >&2
         exit 1
@@ -119,9 +138,13 @@ for mutation in missing broad hint-ink hint-union reward-heading mr-frame mr-hov
     if [[ "$mutation" == live-alpha ]]; then expected='backing alpha follows current native effective alpha'; fi
     if [[ "$mutation" == live-canvas ]]; then expected='native disabled canvas immediately hides backing'; fi
     if [[ "$mutation" == live-clear ]]; then expected='empty geometry sample clears stale witness references'; fi
+    if [[ "$mutation" == paint-mask ]]; then expected='nonpainting stencil keeps descendant clipping'; fi
+    if [[ "$mutation" == paint-alpha ]]; then expected='fully transparent mesh has no painted backing'; fi
+    if [[ "$mutation" == paint-transform ]]; then expected='painted vertices retain the complete native transform chain'; fi
+    if [[ "$mutation" == paint-backdrop || "$mutation" == paint-layout ]]; then expected='painted merchant bounds exclude a tall empty label layout rectangle'; fi
     if ! rg -q "$expected" "$mutation_dir/$mutation.log"; then
         cat "$mutation_dir/$mutation.log"
         exit 1
     fi
 done
-echo "Panel ink negative controls: fourteen runtime mutations and one placement binding mutation rejected."
+echo "Panel ink negative controls: nineteen runtime mutations and one placement binding mutation rejected."
