@@ -514,7 +514,20 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 526;
+    public const ushort ModBuild = 527;
+
+    // ModBuild 527 — keep newly opened map windows at their chosen spawn pose.
+    //   Build-526 logs show UI Quest Popup reflow three times, moving only the new window.
+    //   Opening room making now anchors that window and moves only older overlapping members;
+    //   late fits cannot displace newer dialogs. Protected corners remain fixed obstacles.
+    //   Occupancy uses native painted geometry, visibility and displayed capture bounds instead
+    //   of transparent host/hit rectangles. Partial materialisation or pending meshes retry only
+    //   within the existing opening deadline; native reveal and continuation remain independent.
+    //   The legacy quest seat preference now retains a free gaze centre while the quest log is
+    //   standing. Private quest selection with a hidden log keeps its original right corner.
+    //   Shared movement retains one author and cancels when the anchored opening closes or is
+    //   grabbed. No config, wire or bundle changes. Version 1.0.4 on dev; all VR peers use 527.
+    //   See .planning/WINDOW-ANCHOR-527.md for evidence and focused validation.
 
     // ModBuild 526 — native banner coordinate frames and visible-only MR extents.
     //   Build-525 hardware confirms merchant reopen improvement but repeated temple entry

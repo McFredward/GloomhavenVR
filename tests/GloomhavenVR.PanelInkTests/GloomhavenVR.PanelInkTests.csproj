@@ -5,6 +5,7 @@
     <Nullable>enable</Nullable>
     <GenerateDocumentationFile>false</GenerateDocumentationFile>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <ReflowBoundsSource Condition="'$(ReflowBoundsSource)' == ''">../../src/GloomhavenVR/WorldUI/Modal/WindowReflowBounds.cs</ReflowBoundsSource>
     <RootWatchSource Condition="'$(RootWatchSource)' == ''">../../src/GloomhavenVR/WorldUI/MrBackingSampleWatch.cs</RootWatchSource>
     <CaptureBoundsSource Condition="'$(CaptureBoundsSource)' == ''">../../src/GloomhavenVR/WorldUI/Conversion/MrBackingCaptureBounds.cs</CaptureBoundsSource>
     <CaptureAccessorSource Condition="'$(CaptureAccessorSource)' == ''">../../src/GloomhavenVR/WorldUI/Sharpness/PanelSupersample.MrBacking.cs</CaptureAccessorSource>
@@ -16,6 +17,7 @@
     <InkSource Condition="'$(InkSource)' == ''">../../src/GloomhavenVR/WorldUI/Conversion/PanelInkBounds.cs</InkSource>
   </PropertyGroup>
   <ItemGroup>
+    <Compile Include="$(ReflowBoundsSource)" Link="Production/WindowReflowBounds.cs" />
     <Compile Include="$(RootWatchSource)" Link="Production/MrBackingSampleWatch.cs" />
     <Compile Include="$(CaptureBoundsSource)" Link="Production/MrBackingCaptureBounds.cs" />
     <Compile Include="$(CaptureAccessorSource)" Link="Production/PanelSupersample.MrBacking.cs" />

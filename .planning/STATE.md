@@ -1,6 +1,6 @@
 # State — where the project stands
 
-**Updated 2026-09-17 for native header frames and visible MR extents, ModBuild 526 on dev.** The file this replaces had gone 168 builds
+**Updated 2026-09-17 for anchored window openings, ModBuild 527 on dev.** The file this replaces had gone 168 builds
 stale while still saying "read this first"; it is kept as `STATE-ARCHIVE-through-2026-08.md` for
 its round-by-round narrative and for nothing else.
 
@@ -12,6 +12,19 @@ change per build) → this file (where things stand and what is owed) → the bu
 ---
 
 ## 1. Position
+
+- **dev / 1.0.4 / ModBuild 527 preserves the newly opened map window's spawn pose.**
+  Build-526 logs show three quest-popup animations moving only the newcomer. The solver now
+  anchors incoming windows and admits only older movable overlaps. Visual occupancy uses
+  original painted/cropped content instead of transparent host/hit rectangles, after opening
+  effects settle. The legacy standing-quest-log preference now keeps a free gaze centre;
+  hidden-log private quest selection retains its established corner placement.
+  Evidence and focused validation: [WINDOW-ANCHOR-527.md](WINDOW-ANCHOR-527.md).
+  Validation: reflow 1,322 assertions / 18 bindings / three negatives; quest seat 43 / three
+  negatives; painted occupancy 453 / 29 negatives; shared reflow 74 / six bindings / four
+  negatives. Strict Release zero warnings/errors. Frame-order, partial-order, bilingual docs,
+  Actionlint, shell syntax and whitespace pass. Config/patch/log census unchanged:
+  625 / 172 / 4,733. Corrected headset placement and matching-peer behavior await hardware.
 
 - **dev / 1.0.4 / ModBuild 526 addresses temple-first/repeated temple header drift and
   general invisible MR contributors.** The build-525 report confirms merchant improvement,
@@ -25,7 +38,7 @@ change per build) → this file (where things stand and what is owed) → the bu
   Validation: banner 314 assertions; ink/capture/watch 447; MR layout 258; animation 552,
   with integration bindings and mutation negatives. Strict Release zero warnings/errors.
   Source/frame/docs checks pass; config/patch/log surfaces unchanged: 625 / 172 / 4,733.
-  Headset confirmation remains pending.
+  The user confirms the MR reopen defect is fixed in the build-526 hardware test.
 
 
 - **dev / 1.0.4 / ModBuild 525 repairs the native header that inflated reopened MR windows.**

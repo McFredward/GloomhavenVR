@@ -381,6 +381,7 @@ jobs:
           bash scripts/tutorial-scope-tests.sh
           bash scripts/tutorial-controller-tests.sh
           bash scripts/retry-start-tests.sh
+          bash scripts/quest-seat-tests.sh
           bash scripts/window-reflow-tests.sh
           bash scripts/shared-window-reflow-tests.sh
 

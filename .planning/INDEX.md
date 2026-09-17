@@ -1,6 +1,6 @@
 # Planning index
 
-Updated 2026-09-17 for native header frames and visible MR extents, build 526 on dev. This directory holds internal
+Updated 2026-09-17 for anchored window openings, build 527 on dev. This directory holds internal
 engineering evidence, historical decisions and current status; it is not the player manual.
 
 ## Current entry points
@@ -17,6 +17,8 @@ engineering evidence, historical decisions and current status; it is not the pla
 | [PROJECT.md](PROJECT.md), [ARCHITECTURE.md](ARCHITECTURE.md) | Product scope and architectural reasoning |
 
 ## Latest measured work
+
+- [WINDOW-ANCHOR-527.md](WINDOW-ANCHOR-527.md): incoming window anchor, visible overlap and centre-first quest placement.
 
 - [MR-VISIBLE-526.md](MR-VISIBLE-526.md): temple coordinate-frame regression and general transparent/cropped MR contributors.
 - [MAP-HEADER-525.md](MAP-HEADER-525.md): diagnosed shared header pose contamination and repeated-opening restoration.

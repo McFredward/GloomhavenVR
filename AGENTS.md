@@ -64,6 +64,9 @@ room making when a new window would overlap an existing visible window. Keep aff
 windows in view and use one author for shared movement. This narrowly supersedes the
 historical fixed-window rule; it does not authorize periodic head-following or lost-window
 recall. Manual grabs take precedence, and layout must never gate native continuation.
+The build-526 hardware clarification fixes the newly opened window at its spawn pose: only
+older, visibly overlapping windows may move. Transparent host/hit areas are not visual overlap;
+a free quest-popup gaze centre takes precedence over the legacy beside-quest-log preference.
 
 The user's 2026-09-17 tutorial clarification restores the original task-specific hands/controller
 choice and animated transitions. Card handling and physical fingertip tasks show hands; key

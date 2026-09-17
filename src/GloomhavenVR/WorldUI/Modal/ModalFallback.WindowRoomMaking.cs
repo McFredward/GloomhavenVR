@@ -27,6 +27,9 @@ internal static partial class ModalFallback
     private static int _reflowCount;
     private static float _reflowStarted;
     private static bool _reflowRunning;
+    private static WindowPanel? _reflowIncoming;
+    private static SharedWindowKind _reflowIncomingKind;
+    private static int _reflowIncomingRevision;
 
     internal static bool AnySharedReflowActive => _reflowRunning;
 
@@ -108,21 +111,36 @@ internal static partial class ModalFallback
         forward.Normalize();
         Vector3 right = Vector3.Cross(Vector3.up, forward);
         int incomingIndex = -1;
+        int incomingOrder = Converted.IndexOf(incoming);
+        if (incomingOrder < 0) return false;
         _reflowCount = 0;
         for (int i = 0; i < Converted.Count; i++)
         {
             WindowPanel wp = Converted[i];
             if (!ReflowVisible(wp)) continue;
+            // Partial dissolve geometry is not the window's settled occupancy. Retry only
+            // within this opening's existing deadline; never delay native reveal or input.
+            if (WindowMaterialise.IsAnimating(wp.Panel)) { retry = true; return false; }
+            bool measured = WindowReflowBounds.TryRead(wp.Panel, out Rect bounds, out bool pending);
+            if (pending) { retry = true; return false; }
+            if (!measured)
+            {
+                if (ReferenceEquals(incoming, wp)) { retry = true; return false; }
+                continue;
+            }
             if (_reflowCount == ReflowCapacity) return false;
             int n = _reflowCount++;
             ReflowWindows[n] = wp;
             SharedWindowKind kind = SharedWindows.KindOf(wp.Window);
             ReflowKinds[n] = kind;
-            ReflowGeometry[n] = MeasureReflowWindow(wp, eye, forward, right, out ReflowCentres[n]);
+            ReflowGeometry[n] = MeasureReflowWindow(wp, bounds, eye, forward, right, out ReflowCentres[n]);
             for (int c = 0; c < 4; c++) ReflowFootprints[n, c] = ReflowCorners[c];
             bool inView = ReadReflowViewport(camera, n, out ReflowViewports[n]);
             bool corner = ReferenceEquals(_questCornerPanel, wp.Panel) && _questCornerTaken;
-            ReflowGeometry[n].Movable = inView && ReflowKind(kind) && !corner && !wp.Grab!.IsGrabbed;
+            // Converted is append-ordered. A late fit of an older opening must never
+            // acquire permission to move a newer window, including the current incoming one.
+            ReflowGeometry[n].Movable = i < incomingOrder && inView && ReflowKind(kind)
+                && !corner && !wp.Grab!.IsGrabbed;
             if (ReferenceEquals(incoming, wp))
             {
                 if (!inView) return false;
@@ -154,8 +172,7 @@ internal static partial class ModalFallback
             claimed++;
             WindowPanel wp = ReflowWindows[i]!;
             wp.Grab!.ReadRoomMakingStart(out ReflowFrom[i], out ReflowFromRotation[i]);
-            // Keep vertical position and scale. Width includes the full native hit rect, not just
-            // visible ink, so the transparent canvas cannot keep intercepting the other window.
+            // Keep vertical position and scale; only displayed native content owns visual space.
             Vector3 target = eye + forward * depth + right * ReflowTargetX[i];
             target.y = ReflowCentres[i].y;
             ReflowToRotation[i] = Quaternion.LookRotation(forward, Vector3.up);
@@ -187,11 +204,15 @@ internal static partial class ModalFallback
                 if (ReflowIncluded[j]) SharedWindowReflowBridge.End?.Invoke(ReflowKinds[j]);
             return false;
         }
+        _reflowIncoming = incoming;
+        _reflowIncomingKind = SharedWindows.KindOf(incoming.Window);
+        _reflowIncomingRevision = online
+            ? (SharedWindowReflowBridge.Revision?.Invoke(_reflowIncomingKind) ?? 0) : 0;
         _reflowStarted = Time.unscaledTime;
         _reflowRunning = true;
         VRLog.Note("WorldUI", $"WINDOW ROOM MAKING: '{incoming.Window.name}' opens into an overlap; "
             + $"animating {claimed} windows over {ReflowSeconds:F2}s, depth {depth / physicalScale:F2}m. "
-            + "One author, existing shared pose stream, no native UI callbacks.");
+            + "One author, existing shared pose stream, no native UI callbacks. Incoming window stays fixed.");
         return true;
     }
 
@@ -211,15 +232,10 @@ internal static partial class ModalFallback
         return right > 0f && left < 1f && top > 0f && bottom < 1f;
     }
 
-    private static WindowReflowLayout.Window MeasureReflowWindow(WindowPanel wp, Vector3 eye,
+    private static WindowReflowLayout.Window MeasureReflowWindow(WindowPanel wp, Rect bounds, Vector3 eye,
         Vector3 forward, Vector3 right, out Vector3 worldCentre)
     {
         RectTransform rect = wp.Panel.HostRect;
-        Rect bounds = rect.rect;
-        if (CanvasConversion.TryGetHitRect(wp.Panel.HostCanvas, out Rect hit)
-            && hit.width > 0f && hit.height > 0f)
-            bounds = Rect.MinMaxRect(Mathf.Min(bounds.xMin, hit.xMin), Mathf.Min(bounds.yMin, hit.yMin),
-                Mathf.Max(bounds.xMax, hit.xMax), Mathf.Max(bounds.yMax, hit.yMax));
         ReflowCorners[0] = rect.TransformPoint(new Vector3(bounds.xMin, bounds.yMin, 0f));
         ReflowCorners[1] = rect.TransformPoint(new Vector3(bounds.xMin, bounds.yMax, 0f));
         ReflowCorners[2] = rect.TransformPoint(new Vector3(bounds.xMax, bounds.yMax, 0f));
@@ -257,6 +273,14 @@ internal static partial class ModalFallback
             CancelWindowRoomMaking();
             return;
         }
+        if (_reflowIncoming == null || !Converted.Contains(_reflowIncoming)
+            || !ReflowVisible(_reflowIncoming) || _reflowIncoming.Grab!.IsGrabbed
+            || (online && (SharedWindowReflowBridge.Revision?.Invoke(_reflowIncomingKind) ?? 0)
+                != _reflowIncomingRevision))
+        {
+            CancelWindowRoomMaking();
+            return;
+        }
         for (int i = 0; i < _reflowCount; i++)
         {
             if (!ReflowIncluded[i]) continue;
@@ -283,6 +307,7 @@ internal static partial class ModalFallback
 
     private static void CancelWindowRoomMaking(bool completed = false)
     {
+        _reflowIncoming = null;
         if (!_reflowRunning)
         {
             System.Array.Clear(ReflowWindows, 0, ReflowWindows.Length);

@@ -113,6 +113,7 @@ static partial class Program
         TestBackingDiagnostics();
         TestCaptureBacking();
         TestSampleWatch();
+        TestReflowBounds();
         Console.WriteLine($"Panel ink tests: {_assertions} assertions passed.");
     }
 }

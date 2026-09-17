@@ -123,7 +123,7 @@ assert not placement_binding(arc.replace('includeParkedHint: false', 'includePar
 assert 'out content, out contributors, out _, out _, includeParkedHint)' in code(fit)
 print('Placement binding negative control: inclusion of owner annotation rejected.')
 PY
-dotnet run --project "$project" --configuration Release --property:RootWatchSource="$watch_source" --property:DrawnUnionSource="$mutation_dir/union.fixture"
+dotnet run --project "$project" --configuration Release --property:ReflowBoundsSource="$repo_root/src/GloomhavenVR/WorldUI/Modal/WindowReflowBounds.cs" --property:RootWatchSource="$watch_source" --property:DrawnUnionSource="$mutation_dir/union.fixture"
 for mutation in missing broad hint-ink hint-union reward-heading mr-frame mr-hover mr-scope mr-scope-plate mr-scope-clip live-hidden live-alpha live-canvas live-clear paint-mask paint-alpha paint-transform paint-backdrop paint-layout trace-cap trace-steady trace-throw trace-binding live-own-alpha paint-own-alpha paint-original-alpha capture-clip capture-host; do
     ink_source="$mutation_dir/$mutation.fixture"
     capture_bounds_source="$repo_root/src/GloomhavenVR/WorldUI/Conversion/MrBackingCaptureBounds.cs"
@@ -157,7 +157,7 @@ for mutation in missing broad hint-ink hint-union reward-heading mr-frame mr-hov
         union_source="$mutation_dir/hint-union.fixture"
     fi
     if dotnet run --project "$mutation_dir/GloomhavenVR.PanelInkTests.csproj" --configuration Release \
-        --property:RootWatchSource="$watch_source" --property:CaptureBoundsSource="$capture_bounds_source" --property:CaptureAccessorSource="$capture_accessor_source" --property:TraceSource="$trace_source" --property:PaintedSource="$painted_source" --property:VisibilitySource="$visibility_source" --property:ScopeSource="$repo_root/src/GloomhavenVR/WorldUI/MrBackingScope.cs" --property:InkSource="$ink_source" --property:HeadingSource="$heading_source" --property:DrawnUnionSource="$union_source" > "$mutation_dir/$mutation.log" 2>&1; then
+        --property:ReflowBoundsSource="$repo_root/src/GloomhavenVR/WorldUI/Modal/WindowReflowBounds.cs" --property:RootWatchSource="$watch_source" --property:CaptureBoundsSource="$capture_bounds_source" --property:CaptureAccessorSource="$capture_accessor_source" --property:TraceSource="$trace_source" --property:PaintedSource="$painted_source" --property:VisibilitySource="$visibility_source" --property:ScopeSource="$repo_root/src/GloomhavenVR/WorldUI/MrBackingScope.cs" --property:InkSource="$ink_source" --property:HeadingSource="$heading_source" --property:DrawnUnionSource="$union_source" > "$mutation_dir/$mutation.log" 2>&1; then
         cat "$mutation_dir/$mutation.log"
         echo "FAIL: $mutation mutation escaped the ink test." >&2
         exit 1
