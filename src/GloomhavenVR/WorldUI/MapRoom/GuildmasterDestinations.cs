@@ -153,7 +153,7 @@ internal static class GuildmasterDestinations
     private const string Scope = "MapRoom";
 
     /// <summary>The exact borrowed original and its complete root-local pose.</summary>
-    private static readonly GuildmasterBannerBorrow BannerBorrow = new();
+    private static readonly GuildmasterBannerBorrow BannerBorrow = new(GuildmasterBannerFrame.Native);
 
     /// <summary>The window the banner is currently parked under, or null.</summary>
     private static UIWindow? _bannerHost;
@@ -261,6 +261,8 @@ internal static class GuildmasterDestinations
         if (floated == null)
         {
             ReleaseBanner("no destination window is floated");
+            Transform? nativeBanner = Banner();
+            if (nativeBanner != null) BannerBorrow.ObserveNative(nativeBanner);
             return;
         }
 
@@ -288,6 +290,15 @@ internal static class GuildmasterDestinations
                           + "temple. It goes back the moment this window releases; the game takes it back by "
                           + "itself on OnReturnToMap. Root-local geometry is restored in either case; native parent ownership is preserved.");
         ReportPartySlots($"'{floated.name}' opened");
+    }
+
+    /// <summary>Temple entry already parents the header into its native window. Observe before
+    /// that window is converted, not when Reconcile sees the resulting world-space panel.</summary>
+    internal static void PrepareBannerForConversion(UIWindow window)
+    {
+        if (!MapRoomDriver.Active || !IsDestination(window)) return;
+        Transform? banner = Banner();
+        if (banner != null) BannerBorrow.ObserveNative(banner);
     }
 
     /// <summary>Restore the borrowed original's geometry, respecting any native parent change.</summary>
@@ -2429,6 +2440,7 @@ internal static class GuildmasterDestinations
     internal static void Reset()
     {
         ReleaseBanner("module teardown");
+        BannerBorrow.Reset();
         _rootChoice.Clear();
         _homeMode = EGuildmasterMode.WorldMap;
         _reArmFightTicks = 0;

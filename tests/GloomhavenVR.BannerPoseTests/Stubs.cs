@@ -39,6 +39,19 @@ namespace UnityEngine
         internal static Quaternion From(N.Quaternion q) => new(q.X,q.Y,q.Z,q.W);
         internal static Quaternion Yaw(float radians) => From(N.Quaternion.CreateFromAxisAngle(N.Vector3.UnitY,radians));
     }
+    internal struct Matrix4x4
+    {
+        private N.Matrix4x4 _value;
+        internal Matrix4x4(N.Matrix4x4 value) { _value=value; }
+        public static Matrix4x4 identity => new(N.Matrix4x4.Identity);
+        public static Matrix4x4 TRS(Vector3 p,Quaternion r,Vector3 s) => new(N.Matrix4x4.CreateScale(s.Native)
+            *N.Matrix4x4.CreateFromQuaternion(r.Native)*N.Matrix4x4.CreateTranslation(p.Native));
+        public static Matrix4x4 operator *(Matrix4x4 a,Matrix4x4 b)=>new(b._value*a._value);
+        public Matrix4x4 inverse {get {N.Matrix4x4.Invert(_value,out var v);return new(v);}}
+        public Vector3 GetColumn(int column) => column==3?new(_value.M41,_value.M42,_value.M43):throw new Exception("fixture only requests translation");
+        public Quaternion rotation {get {N.Matrix4x4.Decompose(_value,out _,out var r,out _);return Quaternion.From(r);}}
+        public Vector3 lossyScale {get {N.Matrix4x4.Decompose(_value,out var s,out _,out _);return Vector3.From(s);}}
+    }
     internal class Transform : Object
     {
         private readonly List<Transform> _children = new();
@@ -47,6 +60,7 @@ namespace UnityEngine
         public Vector3 localScale = Vector3.one;
         public Quaternion localRotation = Quaternion.identity;
         public int childCount => _children.Count;
+        public Matrix4x4 localToWorldMatrix => new(World);
         internal N.Matrix4x4 World => N.Matrix4x4.CreateScale(localScale.Native)
             * N.Matrix4x4.CreateFromQuaternion(localRotation.Native)
             * N.Matrix4x4.CreateTranslation(localPosition.Native) * (parent?.World ?? N.Matrix4x4.Identity);
@@ -78,4 +92,20 @@ namespace UnityEngine
         public Vector3 anchoredPosition3D { get => localPosition; set => localPosition=value; }
     }
     internal static class Mathf { public static int Clamp(int v,int min,int max)=>Math.Clamp(v,min,max); public static int Max(int a,int b)=>Math.Max(a,b); }
+}
+
+namespace GloomhavenVR.WorldUI
+{
+    internal sealed class ConvertedPanel
+    {
+        public UnityEngine.Transform Target=null!;
+        public UnityEngine.Transform? OriginalParent;
+        public UnityEngine.Vector3 OriginalLocalPosition;
+        public UnityEngine.Quaternion OriginalLocalRotation;
+        public UnityEngine.Vector3 OriginalLocalScale;
+    }
+    internal static class CanvasConversion
+    {
+        public static readonly List<ConvertedPanel> ActivePanels=new();
+    }
 }

@@ -1,5 +1,6 @@
 using System;
 using GloomhavenVR.WorldUI.MapRoom;
+using GloomhavenVR.WorldUI;
 using UnityEngine;
 
 internal static class Program
@@ -27,10 +28,14 @@ internal static class Program
     }
     public static void Main()
     {
+        TestNativeWindowLifecycle();
+        CanvasConversion.ActivePanels.Clear();
         var home=Parent(1,0);new Transform().SetParent(home,false);var banner=Header(home);int originalIndex=banner.GetSiblingIndex();
         var shop=Parent(.669f,1200,.8f);var temple=Parent(.5f,900,-.6f);var quest=Parent(1,0);
         var child=new RectTransform{sizeDelta=new(10,25)};child.SetParent(banner,false);
-        var borrow=new GuildmasterBannerBorrow();
+        foreach(var target in new[]{shop,temple}) CanvasConversion.ActivePanels.Add(new ConvertedPanel {
+            Target=target,OriginalLocalPosition=home.localPosition,OriginalLocalRotation=home.localRotation,OriginalLocalScale=home.localScale});
+        var borrow=new GuildmasterBannerBorrow(GuildmasterBannerFrame.Native);
         for(int opening=0;opening<12;opening++)
         {
             Transform destination=opening%2==0?shop:temple;
@@ -43,7 +48,7 @@ internal static class Program
             Check(Near(child.sizeDelta.y,100+opening),"native header child configuration must survive release");
             banner.SetParent(home,true); // Native ResetBannerParent uses worldPositionStays=true too.
         }
-        borrow.Borrow(banner,shop);banner.anchorMin=new(0,0);banner.anchorMax=new(0,0);banner.pivot=new(0,0);banner.sizeDelta=new(1,1);
+        borrow.Borrow(banner,shop);
         borrow.Release();Check(ReferenceEquals(banner.parent,home),"still-owned banner returns to original parent");Pose(banner);
         // Sibling restore is separate from native handoff: put it in its original home slot first.
         banner.SetSiblingIndex(originalIndex);borrow.Borrow(banner,shop);borrow.Release();
@@ -54,8 +59,8 @@ internal static class Program
         var old=Header(home);var replacement=Header(home);borrow.Borrow(old,shop);old.SetParent(quest,true);
         borrow.Borrow(replacement,temple);Pose(old);Check(ReferenceEquals(old.parent,quest),"replacement never reparents previously released native instance");borrow.Release();Pose(replacement);
         var gone=Header(home);borrow.Borrow(gone,shop);gone.Destroyed=true;borrow.Release();borrow.Release();
-        var lostHome=Parent(1,0);var orphan=Header(lostHome);borrow.Borrow(orphan,shop);lostHome.Destroyed=true;borrow.Release();
-        Check(ReferenceEquals(orphan.parent,null),"lost native home must not leave banner under disposable host");Pose(orphan);
+        var lostHome=Parent(1,0);var orphan=Header(lostHome);var orphanWorld=orphan.localToWorldMatrix;borrow.Borrow(orphan,shop);lostHome.Destroyed=true;borrow.Release();
+        Check(ReferenceEquals(orphan.parent,null),"lost native home must not leave banner under disposable host");NativePose(orphan,orphanWorld,"lost home retains last native world pose");
         var rootBanner=Header(home);rootBanner.SetParent(null,false);borrow.Borrow(rootBanner,shop);borrow.Release();
         Check(ReferenceEquals(rootBanner.parent,null),"original scene root is restored on release");Pose(rootBanner);
         var plain=new Transform{localPosition=new(1,2,3),localScale=new(.8f,.8f,.8f)};plain.SetParent(home,false);
@@ -63,4 +68,74 @@ internal static class Program
         Check(Same(plain.localPosition,new Vector3(1,2,3))&&Same(plain.localScale,new Vector3(.8f,.8f,.8f)),"plain transform fallback restores local pose");
         Console.WriteLine($"Banner pose: {_checks} runtime assertions passed.");
     }
+    private static ConvertedPanel Convert(Transform target,Transform vr)
+    {
+        var panel=new ConvertedPanel{Target=target,OriginalParent=target.parent,OriginalLocalPosition=target.localPosition,
+            OriginalLocalRotation=target.localRotation,OriginalLocalScale=target.localScale};
+        CanvasConversion.ActivePanels.Add(panel);
+        target.SetParent(vr,false);target.localPosition=Vector3.zero;target.localRotation=Quaternion.identity;target.localScale=Vector3.one;
+        return panel;
+    }
+    private static void Restore(ConvertedPanel panel)
+    {
+        var t=panel.Target;t.SetParent(panel.OriginalParent,false);t.localPosition=panel.OriginalLocalPosition;
+        t.localRotation=panel.OriginalLocalRotation;t.localScale=panel.OriginalLocalScale;CanvasConversion.ActivePanels.Remove(panel);
+    }
+    private static void NativePose(Transform banner, Matrix4x4 expected,string message)
+    {
+        var actual=GuildmasterBannerFrame.Native(banner.parent)*Matrix4x4.TRS(banner.localPosition,banner.localRotation,banner.localScale);
+        Check(Same(actual.GetColumn(3),expected.GetColumn(3)),message+" position");
+        Check(Same(actual.lossyScale,expected.lossyScale),message+" scale");
+        Check(Same(actual.rotation,expected.rotation),message+" rotation");
+    }
+    private static void TestNativeWindowLifecycle()
+    {
+        CanvasConversion.ActivePanels.Clear();
+        var screen=Parent(1.3f,20,.1f);var quest=Parent(.8f,70,-.2f);quest.SetParent(screen,false);
+        var temple=Parent(.7f,-180,.4f);temple.SetParent(screen,false);
+        var shop=Parent(1.15f,95,-.3f);shop.SetParent(screen,false);
+        var vr=Parent(.35f,1800,1.1f);var header=Header(quest);
+        Matrix4x4 nativeHeader=header.localToWorldMatrix;
+        // First-ever destination is temple: native parent change precedes the conversion hook.
+        header.SetParent(temple,true);
+        var borrow=new GuildmasterBannerBorrow(GuildmasterBannerFrame.Native);
+        borrow.ObserveNative(header);
+        for(int opening=0;opening<12;opening++)
+        {
+            header.SetParent(temple,true);
+            borrow.ObserveNative(header); // A repeated conversion must not overwrite the baseline.
+            var expectedLocal=temple.localToWorldMatrix.inverse*nativeHeader;
+            var panel=Convert(temple,vr);
+            borrow.Borrow(header,temple);
+            NativePose(header,nativeHeader,"temple native coordinate frame stays stable");
+            Check(Same(header.localPosition,expectedLocal.GetColumn(3)),"converted temple uses independently captured native parent position");
+            Check(Same(header.localScale,expectedLocal.lossyScale),"converted temple uses independently captured native parent scale");
+            Check(Same(header.localRotation,expectedLocal.rotation),"converted temple uses independently captured native parent rotation");
+            header.sizeDelta=new Vector2(740,150+opening); // ShowMode may configure the root itself.
+            header.SetParent(quest,true);
+            // The missing build-525 fixture: native target restore can precede banner release.
+            if((opening&1)==0) Restore(panel);
+            borrow.Release();
+            if((opening&1)!=0) Restore(panel);
+            NativePose(header,nativeHeader,"temple return survives either window restore order");
+            Check(Near(header.sizeDelta.y,150+opening),"native root configuration survives borrow and return");
+        }
+        // Native temple entry into a still-converted parallel window, followed by merchant.
+        var stillOpen=Convert(temple,vr);
+        header.SetParent(temple,true);borrow.ObserveNative(header);borrow.Borrow(header,temple);
+        NativePose(header,nativeHeader,"already-converted temple does not become canonical");
+        header.SetParent(quest,true);Restore(stillOpen);borrow.Release();
+        var merchantPanel=Convert(shop,vr);borrow.Borrow(header,shop);
+        NativePose(header,nativeHeader,"merchant after repeated temples does not inherit drift");
+        Restore(merchantPanel);header.SetParent(quest,true);borrow.Release();
+        NativePose(header,nativeHeader,"merchant final return uses native parent coordinates");
+        // ObserveNative is per exact object; Reset deliberately forgets a terminated session.
+        var fresh=Header(quest);var freshWorld=fresh.localToWorldMatrix;borrow.ObserveNative(fresh);
+        var freshPanel=Convert(temple,vr);borrow.Borrow(fresh,temple);NativePose(fresh,freshWorld,"new banner gets its own canonical pose");
+        fresh.SetParent(quest,true);Restore(freshPanel);borrow.Reset();
+        fresh.localPosition=new Vector3(3,2,1);freshWorld=fresh.localToWorldMatrix;borrow.ObserveNative(fresh);
+        var resetPanel=Convert(temple,vr);borrow.Borrow(fresh,temple);NativePose(fresh,freshWorld,"reset permits a new session baseline");
+        fresh.SetParent(quest,true);borrow.Release();Restore(resetPanel);
+    }
+
 }

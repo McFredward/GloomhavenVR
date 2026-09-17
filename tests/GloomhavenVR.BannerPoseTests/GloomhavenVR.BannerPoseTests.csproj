@@ -3,6 +3,7 @@
     <OutputType>Exe</OutputType><TargetFramework>net8.0</TargetFramework>
     <Nullable>enable</Nullable><TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <BannerSource Condition="'$(BannerSource)' == ''">../../src/GloomhavenVR/WorldUI/MapRoom/GuildmasterBannerBorrow.cs</BannerSource>
+      <FrameSource Condition="'$(FrameSource)' == ''">../../src/GloomhavenVR/WorldUI/MapRoom/GuildmasterBannerFrame.cs</FrameSource>
   </PropertyGroup>
-  <ItemGroup><Compile Include="$(BannerSource)" Link="Production/GuildmasterBannerBorrow.cs" /></ItemGroup>
+  <ItemGroup><Compile Include="$(BannerSource)" Link="Production/GuildmasterBannerBorrow.cs" /><Compile Include="$(FrameSource)" Link="Production/GuildmasterBannerFrame.cs" /></ItemGroup>
 </Project>
