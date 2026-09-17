@@ -1,6 +1,6 @@
 # State — where the project stands
 
-**Updated 2026-09-17 for animated map-window room making, ModBuild 519 on dev.** The file this replaces had gone 168 builds
+**Updated 2026-09-17 for scoped MR row backgrounds and CI evidence reuse, ModBuild 520 on dev.** The file this replaces had gone 168 builds
 stale while still saying "read this first"; it is kept as `STATE-ARCHIVE-through-2026-08.md` for
 its round-by-round narrative and for nothing else.
 
@@ -12,6 +12,18 @@ change per build) → this file (where things stand and what is owed) → the bu
 ---
 
 ## 1. Position
+
+- **dev / 1.0.4 / ModBuild 520 scopes initiative and element MR backgrounds to their
+  original native rows, locally and on inert remote clones.** Transparent host extents
+  and sibling UI cannot inflate those backgrounds. Normal window artwork and smooth
+  sizing remain. Local evidence is build 519; remote files remain historical build 500.
+  See [MR-CI-520.md](MR-CI-520.md) for evidence, validation and hardware limits.
+
+- **CI now reuses trusted successful dev evidence for identical source trees.** Dev
+  still runs full checks; unchanged internal PRs can reuse them, while forks and changed
+  merges run full validation. Main releases require successful full-test evidence, then
+  build/package the actual main commit without repeating the full suite. No proof
+  artifacts are stored. No release or main update is part of this change.
 
 - **dev / 1.0.4 / ModBuild 519 adds opening-time window room making.** Overlapping
   encounter/story windows can move together with a brief animation inside the view.

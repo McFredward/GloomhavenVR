@@ -514,7 +514,17 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 519;
+    public const ushort ModBuild = 520;
+
+    // ModBuild 520 — scoped MR backgrounds for native board rows.
+    //   Initiative/element backgrounds measure the same native content root as their
+    //   surface fit. Full-screen siblings and transparent host extents cannot stretch
+    //   the plate; local surfaces and inert remote clones retain matching bounds.
+    //   Normal window artwork and the existing smooth size transition remain intact.
+    //   CI reuses trusted successful dev checks for identical source trees; releases
+    //   still build/package the actual main commit and require that evidence first.
+    //   Version 1.0.4 on dev; no bundle or wire grammar changes. All VR peers use 520.
+    //   See .planning/MR-CI-520.md for evidence, validation and hardware limits.
 
     // ModBuild 519 — animated opening-time room making for overlapping map windows.
     //   Encounter/story arrivals may shift overlapping windows together within the measured

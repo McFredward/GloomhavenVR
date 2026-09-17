@@ -110,10 +110,14 @@ A number that has moved is not automatically wrong — but it must be explained 
 two wire vectors from being reached; the suite stayed green while the assertion count fell by two,
 and only the count caught it. Print counts in commit messages.
 
-The workflow definitions and [CI/CD guide](docs/CI-CD.md) describe hosted validation. Both CI
-and Release run the source checks and production presentation harnesses. Full golden wire vectors
-still require the game's real Unity runtime and must run locally; hosted runners compile them
-against metadata references. A hosted green run does not replace that local gate.
+The workflow definitions and [CI/CD guide](docs/CI-CD.md) describe hosted validation. Full CI
+on `dev` runs the source checks and production presentation harnesses. Per the user's
+2026-09-17 instruction, a PR may reuse successful trusted validation of the identical Git tree;
+otherwise it runs the full checks. Releases require that evidence before building and packaging
+the actual `main` commit, without repeating the full suite. Missing or invalid evidence blocks
+publication. Full golden wire vectors still require the game's real Unity runtime and must run
+locally; hosted runners compile them against metadata references. A hosted green run does not
+replace that local gate.
 
 **Bundles are built ONLY with `/home/claw/unity-2021.3.5`**, never `unity-2021.3`. The wrong
 editor produces a bundle that loads nothing and fails silently into the procedural fallback;
