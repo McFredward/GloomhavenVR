@@ -99,6 +99,16 @@ static class Program {
             var other=new CPlayerActor();var foreign=Card(other);other.CharacterClass.LostAbilityCards.Add(foreign.GameCard!.AbilityCard!);d.Add(foreign);d.Tick();
             Check(!d.Pending,"A different character's historical original must never create a local flight claim");
         }
+        {
+            var actor=new CPlayerActor();var d=new CardsDriver();d.Bind(actor);var original=Card(actor);
+            var replacement=Card(actor);replacement.GameCard!.AbilityCard=original.GameCard!.AbilityCard;
+            actor.CharacterClass.LostAbilityCards.Add(original.GameCard.AbilityCard!);d.SeedClaims();
+            Check(d.KnownModel(original.GameCard)&&!d.CompletedModel(replacement.GameCard),"Initial historical seeding must not suppress a first round or active burn handover");
+            d.Complete(original.GameCard);
+            Check(d.CompletedModel(replacement.GameCard),"A second dock or active wrapper must recognize an actually completed original burn");
+            actor.CharacterClass.LostAbilityCards.Clear();actor.CharacterClass.HandAbilityCards.Add(original.GameCard.AbilityCard!);d.ObserveRecovery();
+            Check(!d.CompletedModel(replacement.GameCard),"Real recovery must also clear completed round or active flight claims");
+        }
         Console.WriteLine($"Burn layout: {checks} assertions passed.");
     }
 }

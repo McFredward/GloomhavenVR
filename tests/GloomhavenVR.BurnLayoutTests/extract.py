@@ -32,8 +32,10 @@ assert 'if (CardsDriver.BurnLayoutPending) return;' in method(active,'private vo
 assert '_knownBurntCards.Clear();' not in method(source,'private void TickBurnToPile(').split('PruneRecoveredBurns(hand);')[1], 'Visible widget snapshots must not clear native burn claims'
 assert 'SeedKnownBurns(hand);' in method(source,'private void TickBurnToPile('), 'First sight must seed authoritative lost models, including unbuilt widgets'
 assert '!_burnHoldSince.ContainsKey(widget) && HasBurnHold(widget)' in method(source,'private bool TryTakeBurnFlightSlot('), 'Replacement widgets must not create a second pending episode'
-assert 'if (fate == PileKind.Burnt) RememberBurn(card.GameCard);' in method(source,'private bool TryStartFlyToPile('), 'Round and active burn exits must claim the original immediately'
-assert 'arcUp, widget, minArc);\n        RememberBurn(widget);' in method(source,'private void LaunchBurnFlight('), 'Fallback slab launch must claim the original immediately'
+assert 'if (fate == PileKind.Burnt && card.GameCard != null && IsCompletedBurn(card.GameCard)) return false;' in method(source,'private bool TryStartFlyToPile('), 'Round/active wrappers must not bypass completed original claims'
+assert 'if (IsCompletedBurn(widget)) { ClearBurnHold(widget); continue; }' in method(source,'private void FlushBurnHolds('), 'Duplicate holds must not bypass completed original claims'
+assert 'if (fate == PileKind.Burnt) CompleteBurnClaim(card.GameCard);' in method(source,'private bool TryStartFlyToPile('), 'Round and active burn exits must claim the original immediately'
+assert 'arcUp, widget, minArc);\n        CompleteBurnClaim(widget);' in method(source,'private void LaunchBurnFlight('), 'Fallback slab launch must claim the original immediately'
 assert 'if (w != null && !HasBurnHold(w)) RememberBurn(w);' in source, 'Pending replacement widgets must not prematurely claim a burn'
 result=(cards/'Driver/CardsDriver.8.BurnSequencing.cs').read_text()
 claims=(cards/'Driver/CardsDriver.9.BurnClaims.cs').read_text()

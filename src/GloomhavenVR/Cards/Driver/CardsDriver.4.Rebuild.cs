@@ -2608,6 +2608,10 @@ internal sealed partial class CardsDriver
                 LogFlightRefused(card, exit, owner);
                 return false;
         }
+        // Initial hand seeding is only a historical baseline: it must not cancel the first
+        // round/active handover. An actual completed claim, however, also excludes replacement
+        // wrappers that still occur in the previous dock/active sets for this same original.
+        if (fate == PileKind.Burnt && card.GameCard != null && IsCompletedBurn(card.GameCard)) return false;
         if (wasActive && card.GameCard != null && !_activeExitOrigins.ContainsKey(card.GameCard))
             _activeExitOrigins[card.GameCard] = CapturedActiveSource(card.GameCard, owner);
         // The card really moved — a later dock change for it is a different event and may log again.
@@ -2672,7 +2676,7 @@ internal sealed partial class CardsDriver
         if (card.GameCard != null)
         {
             ClearBurnHold(card.GameCard);
-            if (fate == PileKind.Burnt) RememberBurn(card.GameCard);
+            if (fate == PileKind.Burnt) CompleteBurnClaim(card.GameCard);
         }
         VRCard flying = card;
         PileKind dest = fate;
@@ -3031,7 +3035,7 @@ internal sealed partial class CardsDriver
         Vector3 from = card.transform.position;
         float arcHeight = Mathf.Max(minArc, Vector3.Distance(from, burntPos) * VRCard.FlyArcHeightFraction);
         _flyingToPile.Add(card);
-        RememberBurn(widget); // claim before the watcher's diff sees it (no double animation)
+        CompleteBurnClaim(widget); // claim before the watcher's diff sees it (no double animation)
         _lastCardWorldPos.Remove(widget); // consumed — the real card is flying, no fallback slab wanted
         _lastCardWorldRot.Remove(widget);
         _lastCardWorldWidth.Remove(widget);
@@ -3567,6 +3571,7 @@ internal sealed partial class CardsDriver
                            $"'{(hand.PlayerActor != null ? CardsGameApi.ActorLabel(hand.PlayerActor) : "?")}'");
             _burnWatchHand = hand;
             _knownBurntCards.Clear();
+            _completedBurnClaims.Clear();
             _burnHoldLogged.Clear();
             SeedKnownBurns(hand);
             return;
@@ -3722,6 +3727,7 @@ internal sealed partial class CardsDriver
             AbilityCardUI widget = _burnHoldPruneScratch[i];
             if (widget == null || widget.AbilityCard == null || widget.PlayerActor == null)
             { ClearBurnHold(widget); continue; }
+            if (IsCompletedBurn(widget)) { ClearBurnHold(widget); continue; }
             CCharacterClass cc = widget.PlayerActor.CharacterClass;
             if (!cc.LostAbilityCards.Contains(widget.AbilityCard)
                 && !cc.PermanentlyLostAbilityCards.Contains(widget.AbilityCard))
@@ -3731,7 +3737,7 @@ internal sealed partial class CardsDriver
             if (!TryTakeBurnFlightSlot(widget, card)) continue;
             VRLog.Info("Cards", $"BURN ANIM: FLUSHING the held flight of '{CardsGameApi.CardName(widget)}' — " +
                 $"{reason}; the native artwork and loss sequence have completed.");
-            RememberBurn(widget);
+            CompleteBurnClaim(widget);
             LaunchBurnFlight(widget, "completed burn hold");
         }
         _burnHoldPruneScratch.Clear();
@@ -3796,7 +3802,7 @@ internal sealed partial class CardsDriver
                 // The owner never adopted this burn, so its actual native completion has no
                 // originating VR flight. Retire this read-only hold without inventing one.
                 if (durableNoFlight && owner != null) _retiredForeignNoFlight[(owner.PlayerId, widget.AbilityCard)] = noFlightClock;
-                ClearBurnHold(widget); _activeExitOrigins.Remove(widget); RememberBurn(widget);
+                ClearBurnHold(widget); _activeExitOrigins.Remove(widget); CompleteBurnClaim(widget);
                 _dirty = true;
                 return false;
             }
@@ -4014,7 +4020,7 @@ internal sealed partial class CardsDriver
                 _factory.Park(flying);
                 VRLog.Info("Cards", $"BURN ANIM: '{flying.name}' reached the Burnt pile — parked.");
             }, minArc);
-            RememberBurn(widget); // claim (same contract as TryStartBurnFly) — animate once
+            CompleteBurnClaim(widget); // claim (same contract as TryStartBurnFly) — animate once
             _lastCardWorldPos.Remove(widget); // consumed
             _lastCardWorldRot.Remove(widget);
             _lastCardWorldWidth.Remove(widget);
@@ -4053,7 +4059,7 @@ internal sealed partial class CardsDriver
         byte flightFlags = Net.CardFlightVisibility.ConsumeBurn(widget.AbilityCard);
         BurnSlab.Launch(anchor, fromPos, fromRot, burntPos, fromWidth, slabWidth, FlyToPileSeconds,
             arcUp, widget, minArc);
-        RememberBurn(widget);
+        CompleteBurnClaim(widget);
         LogBurnAttribution(widget, origin + "/slab");
         CardFlightLedger.Note("own", "Burnt", "own-burn/" + origin + "/slab", CardsGameApi.CardName(widget));
         // MP parity (report 6): the fallback slab is the same event on the wire.

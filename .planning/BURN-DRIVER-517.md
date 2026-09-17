@@ -28,13 +28,24 @@ and owning-hand completion remain the release authority; no animation is shorten
 a timeout. Character admission, damage batches, short/long rest and played lost actions
 continue through the existing shared layout barrier.
 
+## Integrator review follow-up
+
+The wrapper-based previous dock/active sets do not prove that a round/active flight is
+unique. Unlike the generic fresh-burn producer, this path intentionally accepts first
+handoffs while the watched hand changes. Rejecting every historical known claim there
+would break that behavior. A separate completed-presentation claim now rejects a second
+wrapper only after a real flight/completion consumed that original. Historical baseline
+seeding does not count as completion; real recovery clears both kinds of claim. The
+pending-hold flush also discards an already completed original before releasing a flight.
+
 ## Verification
 
-- Existing production burn-layout harness: **216 runtime assertions**, up from 204.
-- **14 runtime negative controls**, including five new faults covering forgotten model
+- Existing production burn-layout harness: **219 runtime assertions**, up from 204.
+- **16 runtime negative controls**, including seven new faults covering forgotten model
   identity, treating a still-lost card as recovered, missing real recovery, duplicate
-  holds for a rebuilt widget and absent historical native baselines.
-- Six added production bindings cover authoritative baseline admission, retained claims,
+  holds for a rebuilt widget, absent historical native baselines, confusing historical
+  baselines with completed presentations and missing completed-claim recovery.
+- Eight added production bindings cover authoritative baseline admission, retained claims,
   the common flight hold, pending claims, and immediate round/active and slab claims.
 - Scenarios include widget replacement during/after a burn, missing UI observations,
   permanent loss, actual recovery followed by another burn, initial hidden historical

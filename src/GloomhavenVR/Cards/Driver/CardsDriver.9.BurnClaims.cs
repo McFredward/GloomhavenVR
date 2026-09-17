@@ -5,6 +5,7 @@ namespace GloomhavenVR.Cards;
 
 internal sealed partial class CardsDriver
 {
+    private readonly HashSet<CAbilityCard> _completedBurnClaims = new();
     private readonly List<CAbilityCard> _recoveredBurnClaims = new(8);
 
     // MB517: widgets are pooled presentation objects, not burn episodes. Rebuilding a lost-pile
@@ -17,6 +18,17 @@ internal sealed partial class CardsDriver
     private void RememberBurn(AbilityCardUI widget)
     {
         if (widget.AbilityCard != null) _knownBurntCards.Add(widget.AbilityCard);
+    }
+
+    // A historical baseline is not proof that this presentation already flew. The round/active
+    // handover must still finish its first real burn while the presented hand is changing.
+    private bool IsCompletedBurn(AbilityCardUI widget) =>
+        widget.AbilityCard != null && _completedBurnClaims.Contains(widget.AbilityCard);
+
+    private void CompleteBurnClaim(AbilityCardUI widget)
+    {
+        RememberBurn(widget);
+        if (widget.AbilityCard != null) _completedBurnClaims.Add(widget.AbilityCard);
     }
 
     private bool HasBurnHold(AbilityCardUI widget)
@@ -45,7 +57,11 @@ internal sealed partial class CardsDriver
         foreach (CAbilityCard card in _knownBurntCards)
             if (!character.LostAbilityCards.Contains(card)
                 && !character.PermanentlyLostAbilityCards.Contains(card)) _recoveredBurnClaims.Add(card);
-        foreach (CAbilityCard card in _recoveredBurnClaims) _knownBurntCards.Remove(card);
+        foreach (CAbilityCard card in _recoveredBurnClaims)
+        {
+            _knownBurntCards.Remove(card);
+            _completedBurnClaims.Remove(card);
+        }
         _recoveredBurnClaims.Clear();
     }
 }

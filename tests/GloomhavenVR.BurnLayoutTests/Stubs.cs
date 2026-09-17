@@ -49,6 +49,8 @@ namespace GloomhavenVR.Cards {
         internal void Known(AbilityCardUI card) => RememberBurn(card);
         internal void ActiveCard(VRCard card) => _active.Cards.Add(card);
         internal bool HasSource(AbilityCardUI card) => _activeExitOrigins.ContainsKey(card);
+        internal bool CompletedModel(AbilityCardUI widget) => IsCompletedBurn(widget);
+        internal void Complete(AbilityCardUI widget) => CompleteBurnClaim(widget);
         internal bool KnownModel(AbilityCardUI widget) => IsKnownBurn(widget);
         internal void SeedClaims() => SeedKnownBurns(_boundHand!);
         internal void ObserveRecovery() => PruneRecoveredBurns(_boundHand!);
@@ -66,7 +68,7 @@ namespace GloomhavenVR.Cards {
             if (_burnLayoutNativeActive || NativeLossActive) return;
             foreach (var pair in _burnHoldSince.ToArray()) {
                 if (UnityEngine.Time.unscaledTime-pair.Value.Since < .5f) continue;
-                _burnHoldSince.Remove(pair.Key);RememberBurn(pair.Key); Flights++;
+                _burnHoldSince.Remove(pair.Key);CompleteBurnClaim(pair.Key); Flights++;
                 var card=_factory.All.Find(x=>ReferenceEquals(x.GameCard,pair.Key));if(card!=null) card.IsFlying=true;
             }
         }
