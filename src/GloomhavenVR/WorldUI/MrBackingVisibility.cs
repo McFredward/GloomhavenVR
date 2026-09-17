@@ -24,24 +24,29 @@ internal sealed class MrBackingVisibility
             float alpha = 0f;
             for (int i = 0; i < Witnesses.Count; i++)
             {
-                Graphic graphic = Witnesses[i];
-                if (graphic == null || !graphic.enabled || !graphic.gameObject.activeInHierarchy)
-                    continue;
-                if (Root != null && !ReferenceEquals(graphic.transform, Root)
-                    && !graphic.transform.IsChildOf(Root)) continue;
-                if (graphic is TMP_Text tmp && string.IsNullOrWhiteSpace(tmp.text)) continue;
-                if (graphic is Text text && string.IsNullOrWhiteSpace(text.text)) continue;
-                Canvas? canvas = graphic.canvas;
-                CanvasRenderer? renderer = graphic.canvasRenderer;
-                if (canvas == null || !canvas.isActiveAndEnabled || renderer == null || renderer.cull)
-                    continue;
-                float current = graphic.color.a * renderer.GetInheritedAlpha();
-                if (float.IsNaN(current)) continue;
-                alpha = Mathf.Max(alpha, Mathf.Clamp01(current));
+                alpha = Mathf.Max(alpha, GraphicAlpha(Witnesses[i], Root));
                 if (alpha >= 1f) return 1f;
             }
             return alpha;
         }
+    }
+
+    // The modal owner also probes its four measured extrema before reusing a cached extent.
+    // Keep the same native visibility policy without scanning every witness to invalidate it.
+    internal static float GraphicAlpha(Graphic? graphic, Transform? root)
+    {
+        if (graphic == null || !graphic.enabled || !graphic.gameObject.activeInHierarchy)
+            return 0f;
+        if (root != null && !ReferenceEquals(graphic.transform, root)
+            && !graphic.transform.IsChildOf(root)) return 0f;
+        if (graphic is TMP_Text tmp && string.IsNullOrWhiteSpace(tmp.text)) return 0f;
+        if (graphic is Text text && string.IsNullOrWhiteSpace(text.text)) return 0f;
+        Canvas? canvas = graphic.canvas;
+        CanvasRenderer? renderer = graphic.canvasRenderer;
+        if (canvas == null || !canvas.isActiveAndEnabled || renderer == null || renderer.cull)
+            return 0f;
+        float current = graphic.color.a * renderer.GetInheritedAlpha() * renderer.GetAlpha();
+        return float.IsNaN(current) ? 0f : Mathf.Clamp01(current);
     }
 
     internal void Reset()

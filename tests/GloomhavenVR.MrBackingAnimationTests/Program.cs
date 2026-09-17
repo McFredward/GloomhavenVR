@@ -9,7 +9,7 @@ internal static class Program
     private static ConvertedPanel Start(bool appear,out WindowMaterialiseRunner runner,Action? done=null)
     {
         var p=new ConvertedPanel();runner=new(p,appear,done??(()=>{}));
-        MrBacking.BeginWindowMaterialise(p);runner.Frame(0);return p;
+        runner.BeginBacking();runner.Frame(0);return p;
     }
     private static void Main()
     {
@@ -70,10 +70,8 @@ internal static class Program
         Check(MrBacking.Plate(p)!.Renderer.sharedMaterial!=null,"first backing is not an unmaterialed primitive");
         runner.Frame(0.8f);runner.Finish("completed",true);
 
-        MrBacking.ResetTest();MixedReality.BackingsWanted=false;GrabbableModal.Cached=true;
-        PanelInkBounds.Throw=true;p=Start(false,out runner);
-        Check(MrBacking.Active(p),"off-start cached geometry avoids a new native ink walk");
-        Near(MrBacking.Bounds(p).width,GrabbableModal.CachedRect.width,"uses original cached geometry");
+        MrBacking.ResetTest();MixedReality.BackingsWanted=false;p=Start(false,out runner);
+        Check(MrBacking.Active(p),"off-start retains per-graphic snapshot");
         Check(MrBacking.Plate(p)==null,"off-start does not allocate a GPU plate");
         runner.Finish("completed while off",true);
         Check(MrBacking.EntryCount==0,"off-only episode does not leak metadata");
@@ -104,6 +102,36 @@ internal static class Program
         Near(MrBacking.Progress(p),1f-0.41f/WindowMaterialiseField.ElementSpan,
             "deferred first mesh retains original appearance progress");
         runner.Finish("cancelled",true);Check(!MrBacking.Active(p),"cancel releases animation ownership");
+
+        // Capture engages after Begin on a real first reveal. Reclip raw pieces individually
+        // without sampling the window again after the runner has hidden its native elements.
+        MrBacking.ResetTest();PanelInkBounds.Bounds=new(-10,-10,20,20);
+        PanelInkBounds.ExtraPieces.Add(new(200,-10,20,20));p=Start(true,out runner);
+        Near(MrBacking.Bounds(p).width,246,"uncaptured reveal retains complete native snapshot");
+        PanelInkBounds.Throw=true;PanelSupersample.Captured=true;PanelSupersample.CaptureFrame=new(-100,-80,200,160);
+        runner.Frame(.1f);Near(MrBacking.Bounds(p).width,36,"late capture excludes fully cropped outlier before union");
+        PanelSupersample.CaptureFrame=new(-100,-80,400,160);runner.Frame(.2f);
+        Near(MrBacking.Bounds(p).width,246,"later capture expansion recovers original raw piece without remeasure");
+        runner.Finish("completed",true);
+
+        MrBacking.ResetTest();PanelInkBounds.Bounds=new(200,200,20,20);
+        PanelSupersample.Captured=true;PanelSupersample.CaptureFrame=new(-100,-80,200,160);
+        p=Start(true,out runner);Check(!MrBacking.Visible(p),"all snapshot pieces outside capture produce no backing");
+        PanelInkBounds.Throw=true;PanelSupersample.CaptureFrame=new(-100,-80,400,400);
+        runner.Frame(.3f);Check(MrBacking.Visible(p),"all-cropped snapshot recovers on camera expansion without native rewalk");
+        runner.Finish("completed",true);
+
+        MrBacking.ResetTest();PanelInkBounds.Bounds=new(-10,-10,20,20);PanelInkBounds.Pending=1;
+        p=new();runner=new(p,true,()=>{});PanelInkBounds.OriginalRenderer=runner.NativeRenderer;
+        runner.BeginBacking();runner.Frame(0);Near(runner.Alpha,0,"effect owns alpha zero before late partial mesh arrives");
+        PanelInkBounds.ExtraPieces.Add(new(100,-10,20,20));PanelInkBounds.Pending=0;
+        runner.Frame(.01f);Near(MrBacking.Bounds(p).width,146,"partial missing mesh joins whole pre-effect snapshot using original alpha");
+        runner.Finish("completed",true);
+
+        MrBacking.ResetTest();p=new();runner=new(p,true,()=>{});runner.SetOriginal(0);
+        PanelInkBounds.OriginalRenderer=runner.NativeRenderer;runner.BeginBacking();runner.Frame(.3f);
+        Check(!MrBacking.Visible(p),"native pre-effect zero alpha is not bypassed by original-alpha snapshot");
+        runner.Finish("completed",true);
 
         foreach(bool hideThrows in new[]{false,true})foreach(bool logThrows in new[]{false,true})
         {

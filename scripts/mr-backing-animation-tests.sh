@@ -10,7 +10,7 @@ python3 - "$source_root" "$test_dir" <<'PY'
 from pathlib import Path
 import re,sys
 root,out=map(Path,sys.argv[1:]);ui=root/'src/GloomhavenVR/WorldUI'
-for file in ('MrBackingAnimation.cs','MrBackingLayout.cs','Materialise/WindowMaterialiseField.cs'):
+for file in ('MrBackingAnimation.cs','MrBackingLayout.cs','Materialise/WindowMaterialiseField.cs','Conversion/MrBackingCaptureBounds.cs'):
     (out/Path(file).name).write_text((ui/file).read_text())
 runner=(ui/'Materialise/WindowMaterialiseRunner.cs').read_text()
 def method(text,signature):
@@ -24,7 +24,7 @@ apply=method(runner,'    private void Apply(float k)')
 finish=method(runner,'    internal void Finish(string reason, bool restore)')
 (out/'RunnerProduction.cs').write_text('using System; using System.Collections.Generic; using UnityEngine; namespace GloomhavenVR.WorldUI; internal sealed partial class WindowMaterialiseRunner {\n'+apply+'\n'+finish+'\n}')
 code=re.sub(r'/\*.*?\*/|//[^\n]*','',runner,flags=re.S)
-assert code.index('runner.CollectElements(host);')<code.index('MrBacking.BeginWindowMaterialise(panel);')<code.index('runner.Apply(0f);')
+assert code.index('runner.CollectElements(host);')<code.index('MrBacking.BeginWindowMaterialise(panel, runner._renderers, runner._origAlpha);')<code.index('runner.Apply(0f);')
 assert apply.index('MrBacking.ApplyWindowMaterialise(Panel, elementProgress);')<apply.index('cr.SetAlpha(')
 assert finish.index('MrBacking.EndWindowMaterialise(Panel, Vanishing);')<finish.index('done?.Invoke();')
 print('MR backing animation: 3 runner integration bindings passed.')
@@ -34,13 +34,15 @@ for name,needle,replacement in (
     ('tail','visible &= MrBackingLayout.ReadyForSample(true, rect) && entry.Animation.Progress < 1f;',
      'visible &= MrBackingLayout.ReadyForSample(true, rect);'),
     ('settle','entry.Layout.Settle(entry.Animation.Bounds, Time.unscaledTime);','entry.Layout.Reset();'),
-    ('callback','catch { /* Best-effort cleanup of an already failed, mod-owned decoration. */ }','catch { throw; }')):
+    ('callback','catch { /* Best-effort cleanup of an already failed, mod-owned decoration. */ }','catch { throw; }'),
+    ('capture','        RefreshAnimationCapture(entry);',''),
+    ('pending',' || entry.Animation.PendingGeometry','')):
     assert src.count(needle)==1,name
     (out/(name+'.fixture')).write_text(src.replace(needle,replacement))
 PY
 dotnet run --project "$test_dir/GloomhavenVR.MrBackingAnimationTests.csproj" --configuration Release --verbosity quiet
 cp "$test_dir/MrBackingAnimation.cs" "$test_dir/original.fixture"
-for mutation in tail settle callback; do
+for mutation in tail settle callback capture pending; do
     cp "$test_dir/$mutation.fixture" "$test_dir/MrBackingAnimation.cs"
     if dotnet run --project "$test_dir/GloomhavenVR.MrBackingAnimationTests.csproj" --configuration Release --verbosity quiet >"$test_dir/$mutation.log" 2>&1; then
         echo "ERROR: MR backing animation accepted mutation $mutation" >&2
@@ -51,4 +53,4 @@ for mutation in tail settle callback; do
         exit 1
     fi
 done
-echo 'MR backing animation: 3 negative controls rejected.'
+echo 'MR backing animation: 5 negative controls rejected.'

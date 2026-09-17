@@ -341,6 +341,8 @@ internal static class PanelInkBounds
     /// comparable and the log can print both.</summary>
     internal struct Ink
     {
+        internal int PendingPaint; // Visible native text whose mesh is not built yet.
+
         internal bool Valid;
         internal Rect Rect;
         internal int Graphics;
@@ -457,9 +459,11 @@ internal static class PanelInkBounds
     internal static bool TryMeasure(ConvertedPanel panel, out Ink ink, bool includeParkedHint = true,
                                     Rect? frameOverride = null, ISet<Transform>? excludedRoots = null,
                                     Transform? contentRoot = null, List<Graphic>? visibleWitnesses = null,
-                                    bool backingGeometry = false)
+                                    bool backingGeometry = false, List<Rect>? backingPieces = null,
+                                    IReadOnlyDictionary<CanvasRenderer, float>? backingOriginalAlpha = null)
     {
         visibleWitnesses?.Clear();
+        backingPieces?.Clear();
         ink = default;
         ink.BottomName = string.Empty;
         // NOT ZERO. `default` leaves this at 0, which is a host-local y INSIDE every centred frame
@@ -469,7 +473,7 @@ internal static class PanelInkBounds
         ink.PlateBottomName = string.Empty;
         try
         {
-            bool measured = MeasureCore(panel, ref ink, includeParkedHint, frameOverride, excludedRoots, contentRoot, visibleWitnesses, backingGeometry);
+            bool measured = MeasureCore(panel, ref ink, includeParkedHint, frameOverride, excludedRoots, contentRoot, visibleWitnesses, backingGeometry, backingPieces, backingOriginalAlpha);
             if (backingGeometry) MrBackingBoundsTrace.Observe(panel, ink, measured);
             return measured;
         }
@@ -477,6 +481,7 @@ internal static class PanelInkBounds
         {
             Stack.Clear();
             visibleWitnesses?.Clear();
+            backingPieces?.Clear();
             ink.Valid = false;
             return false;
         }
@@ -484,7 +489,8 @@ internal static class PanelInkBounds
 
     private static bool MeasureCore(ConvertedPanel panel, ref Ink ink, bool includeParkedHint, Rect? frameOverride,
                                     ISet<Transform>? excludedRoots, Transform? contentRoot, List<Graphic>? visibleWitnesses,
-                                    bool backingGeometry)
+                                    bool backingGeometry, List<Rect>? backingPieces,
+                                    IReadOnlyDictionary<CanvasRenderer, float>? backingOriginalAlpha)
     {
         RectTransform? host = panel.HostRect;
         Transform? target = panel.Target;
@@ -495,6 +501,8 @@ internal static class PanelInkBounds
         // Native mirror pivots carry the original parent layout, while the owner's fitted frame
         // is separate sampled presentation data. Only backdrop classification reads this override;
         // all actual geometry is still transformed through the original host/pivot.
+        Rect captureFrame = default;
+        bool captured = backingGeometry && PanelSupersample.TryGetBackingCaptureRect(panel, out captureFrame);
         Rect hostRect = frameOverride ?? host.rect;
         float plateW = hostRect.width * PlateWidthFraction;
         float plateH = hostRect.height * PlateHeightFraction;
@@ -580,8 +588,13 @@ internal static class PanelInkBounds
                     // Expand drawn glyphs only; clip geometry and the authored scale census
                     // must retain the original RectTransform bounds.
                     Rect drawBounds = backingGeometry ? default : RewardHeadingBounds.Expand(host, graphic, bounds);
-                    bool hasPicture = !backingGeometry
-                        || (family == 0 && MrBackingPaintedBounds.TryMeasure(host, graphic, out drawBounds));
+                    bool hasPicture = !backingGeometry;
+                    if (backingGeometry && family == 0)
+                    {
+                        hasPicture = MrBackingPaintedBounds.TryMeasure(host, graphic, out drawBounds,
+                            backingOriginalAlpha, out bool pendingPaint);
+                        if (pendingPaint && MrBackingScope.Paint(t, contentRoot)) ink.PendingPaint++;
+                    }
                     if (hasPicture && MrBackingScope.Paint(t, contentRoot)
                         && Draws(graphic) && Intersect(clip, drawBounds, out Rect visible)
                         && visible.width > 0f && visible.height > 0f)
@@ -646,6 +659,13 @@ internal static class PanelInkBounds
                         else if (IsEmptyText(graphic))
                         {
                             ink.EmptyText++;
+                        }
+                        else if (backingGeometry && !MrBackingCaptureBounds.RecordAndClip(visible,
+                                     backingPieces, captured, captureFrame, out visible))
+                        {
+                            // Keep raw admitted pieces for a running materialise episode, but an
+                            // off-capture graphic contributes nothing to the current MR union.
+                            // Continue visiting its children: they may still fall inside the picture.
                         }
                         else
                         {

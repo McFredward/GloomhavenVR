@@ -73,13 +73,27 @@ namespace GloomhavenVR.WorldUI
     internal sealed class MrBackingVisibility { public Transform? Root;public readonly List<CanvasRenderer> Witnesses=new(); }
     internal static class PanelInkBounds
     {
-        internal struct Ink { public bool Valid;public Rect Rect;public int Plates;public float PlateBottom; }
+        internal struct Ink { public bool Valid;public Rect Rect;public int Plates,PendingPaint;public float PlateBottom; }
+        public static readonly List<Rect> ExtraPieces=new();
+        public static CanvasRenderer? OriginalRenderer;public static float NativeOriginal=1;
+        public static int Pending;
         public static bool Valid=true,Throw,PaintedQuery;public static Rect Bounds=new(20,30,200,120);public static Action? OnMeasure;
-        public static bool TryMeasure(ConvertedPanel p,out Ink ink,Transform? contentRoot=null,List<CanvasRenderer>? visibleWitnesses=null,bool backingGeometry=false)
+        public static bool TryMeasure(ConvertedPanel p,out Ink ink,Transform? contentRoot=null,List<CanvasRenderer>? visibleWitnesses=null,bool backingGeometry=false,List<Rect>? backingPieces=null,IReadOnlyDictionary<CanvasRenderer,float>? backingOriginalAlpha=null)
         {
             PaintedQuery=backingGeometry;
-            if(Throw)throw new InvalidOperationException("measure");OnMeasure?.Invoke();ink=new(){Valid=Valid,Rect=Bounds};return Valid;
+            backingPieces?.Clear();
+            if(Throw)throw new InvalidOperationException("measure");OnMeasure?.Invoke();
+            float alpha=OriginalRenderer?.Alpha??1;
+            if(OriginalRenderer!=null && backingOriginalAlpha!=null && backingOriginalAlpha.TryGetValue(OriginalRenderer,out float original)) alpha=original;
+            bool valid=Valid&&alpha>=.05f;
+            if(valid){backingPieces?.Add(Bounds);if(backingPieces!=null)backingPieces.AddRange(ExtraPieces);}
+            ink=new(){Valid=valid,Rect=Bounds,PendingPaint=Pending};return valid;
         }
+    }
+    internal static class PanelSupersample
+    {
+        public static bool Captured;public static Rect CaptureFrame;
+        public static bool TryGetBackingCaptureRect(ConvertedPanel p,out Rect rect){rect=CaptureFrame;return Captured;}
     }
     internal static class GrabbableModal
     {
@@ -118,7 +132,7 @@ namespace GloomhavenVR.WorldUI
         private static Material CreateFadeMaterial()=>new();private static Transform CreatePlate(RectTransform host) { var plate=new Transform();plate.Renderer.sharedMaterial=_plateMat;return plate; }
         private static void Fit(Transform plate,RectTransform host,Vector2 size,Vector2 center) { }
         private static void LogPaintedExtent(PanelEntry entry,RectTransform host,Rect frame,Rect fitted) { }
-        internal static void ResetTest() { Panels.Clear();GrabbableModal.Cached=false;_applied=false;_plateMat=null;MixedReality.BackingsWanted=true;PanelInkBounds.Valid=true;PanelInkBounds.Throw=false;PanelInkBounds.OnMeasure=null;MrBackingMaterialise.ThrowApply=false;MrBackingMaterialise.ThrowRestore=false;MrBackingMaterialise.Disposals=0;GloomhavenVR.Core.VRLog.Throw=false;GloomhavenVR.Core.VRLog.Warnings=0;Time.unscaledTime=0; }
+        internal static void ResetTest() { Panels.Clear();PanelSupersample.Captured=false;PanelInkBounds.ExtraPieces.Clear();PanelInkBounds.OriginalRenderer=null;PanelInkBounds.Pending=0;GrabbableModal.Cached=false;_applied=false;_plateMat=null;MixedReality.BackingsWanted=true;PanelInkBounds.Valid=true;PanelInkBounds.Throw=false;PanelInkBounds.OnMeasure=null;MrBackingMaterialise.ThrowApply=false;MrBackingMaterialise.ThrowRestore=false;MrBackingMaterialise.Disposals=0;GloomhavenVR.Core.VRLog.Throw=false;GloomhavenVR.Core.VRLog.Warnings=0;Time.unscaledTime=0; }
         internal static int EntryCount=>Panels.Count;
         internal static bool Ready=>_applied&&_plateMat!=null;
         internal static bool Active(ConvertedPanel p)=>FindAnimationEntry(p)?.Animation.Active??false;
@@ -146,6 +160,9 @@ namespace GloomhavenVR.WorldUI
         private List<float>? _threshold=new(){0.1f,0.25f,0.5f,0.75f,0.9f};
         private GameObject gameObject=new();internal int Restores,Returns;
         internal WindowMaterialiseRunner(ConvertedPanel panel,bool appear,Action done) { Panel=panel;_materialising=appear;_onDone=done; }
+        internal void BeginBacking()=>MrBacking.BeginWindowMaterialise(Panel,_renderers,_origAlpha);
+        internal CanvasRenderer NativeRenderer=>_renderers![0];
+        internal void SetOriginal(float value){_origAlpha![0]=value;_renderers![0].Alpha=value;}
         internal void Frame(float time)=>Apply(time);internal float Alpha=>_renderers![0].Alpha;
         private void Report(string reason){}private void ReturnBuffers(){Returns++;}
         private static void Destroy(Object o)=>Object.Destroy(o);

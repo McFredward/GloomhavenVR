@@ -13,16 +13,29 @@ internal static class MrBackingPaintedBounds
     private static readonly List<Vector3> Vertices = new(128);
     private static readonly List<Color32> Colors = new(128);
 
-    internal static bool TryMeasure(RectTransform host, Graphic? graphic, out Rect bounds)
+    internal static bool TryMeasure(RectTransform host, Graphic? graphic, out Rect bounds,
+                                    IReadOnlyDictionary<CanvasRenderer, float>? originalAlpha = null)
+        => TryMeasure(host, graphic, out bounds, originalAlpha, out _);
+
+    internal static bool TryMeasure(RectTransform host, Graphic? graphic, out Rect bounds,
+        IReadOnlyDictionary<CanvasRenderer, float>? originalAlpha, out bool pendingGeometry)
     {
         bounds = default;
+        pendingGeometry = false;
         if (graphic == null || !graphic.enabled || !graphic.gameObject.activeInHierarchy)
             return false;
         Canvas? canvas = graphic.canvas;
         CanvasRenderer? renderer = graphic.canvasRenderer;
         if (canvas == null || !canvas.isActiveAndEnabled || renderer == null || renderer.cull)
             return false;
-        if (graphic.color.a * renderer.GetInheritedAlpha() < CanvasConversion.FitMinAlpha)
+        float ownAlpha = renderer.GetAlpha();
+        // Only the window runner supplies this pre-effect snapshot. It permits first-mesh
+        // retries while that runner temporarily writes alpha zero, without admitting graphics
+        // which the native game had already hidden before the effect started.
+        if (originalAlpha != null && originalAlpha.TryGetValue(renderer, out float beforeEffect))
+            ownAlpha = beforeEffect;
+        float alpha = graphic.color.a * renderer.GetInheritedAlpha() * ownAlpha;
+        if (float.IsNaN(alpha) || alpha < CanvasConversion.FitMinAlpha)
             return false;
         Mask? mask = graphic.GetComponent<Mask>();
         if (mask != null && mask.enabled && !mask.showMaskGraphic)
@@ -30,11 +43,18 @@ internal static class MrBackingPaintedBounds
 
         Matrix4x4 toHost = host.worldToLocalMatrix * graphic.transform.localToWorldMatrix;
         if (graphic is TMP_Text text)
-            return MeshBounds(text.mesh, toHost, out bounds);
+        {
+            if (string.IsNullOrWhiteSpace(text.text)) return false;
+            return MeshBounds(text.mesh, toHost, out bounds, out pendingGeometry);
+        }
         if (graphic is TMP_SubMeshUI subMesh)
-            return MeshBounds(subMesh.mesh, toHost, out bounds);
+            return MeshBounds(subMesh.mesh, toHost, out bounds, out pendingGeometry);
         if (graphic is Text legacy)
+        {
+            if (string.IsNullOrWhiteSpace(legacy.text)) return false;
+            pendingGeometry = legacy.cachedTextGenerator.verts.Count == 0;
             return LegacyTextBounds(legacy, toHost, out bounds);
+        }
 
         Rect draw = graphic.GetPixelAdjustedRect();
         if (graphic is Image image && !ImageRect(image, ref draw))
@@ -44,13 +64,15 @@ internal static class MrBackingPaintedBounds
         return RectBounds(draw, toHost, out bounds);
     }
 
-    private static bool MeshBounds(Mesh? mesh, Matrix4x4 toHost, out Rect bounds)
+    private static bool MeshBounds(Mesh? mesh, Matrix4x4 toHost, out Rect bounds, out bool pendingGeometry)
     {
         bounds = default;
+        pendingGeometry = mesh == null;
         if (mesh == null)
             return false;
         Vertices.Clear(); Colors.Clear();
         mesh.GetVertices(Vertices); mesh.GetColors(Colors);
+        pendingGeometry = Vertices.Count == 0;
         bool colorsPresent = Colors.Count == Vertices.Count;
         float minX = float.PositiveInfinity, minY = float.PositiveInfinity;
         float maxX = float.NegativeInfinity, maxY = float.NegativeInfinity;

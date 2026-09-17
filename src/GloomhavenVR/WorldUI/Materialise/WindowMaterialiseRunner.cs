@@ -244,7 +244,7 @@ internal sealed class WindowMaterialiseRunner : MonoBehaviour
         try
         {
             runner.CollectElements(host);
-            MrBacking.BeginWindowMaterialise(panel);
+            MrBacking.BeginWindowMaterialise(panel, runner._renderers, runner._origAlpha);
         }
         catch (Exception ex)
         {

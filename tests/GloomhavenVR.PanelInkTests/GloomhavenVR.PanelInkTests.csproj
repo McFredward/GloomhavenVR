@@ -5,6 +5,10 @@
     <Nullable>enable</Nullable>
     <GenerateDocumentationFile>false</GenerateDocumentationFile>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <RootWatchSource Condition="'$(RootWatchSource)' == ''">../../src/GloomhavenVR/WorldUI/MrBackingSampleWatch.cs</RootWatchSource>
+    <LayoutSource Condition="'$(LayoutSource)' == ''">../../src/GloomhavenVR/WorldUI/MrBackingLayout.cs</LayoutSource>
+    <CaptureBoundsSource Condition="'$(CaptureBoundsSource)' == ''">../../src/GloomhavenVR/WorldUI/Conversion/MrBackingCaptureBounds.cs</CaptureBoundsSource>
+    <CaptureAccessorSource Condition="'$(CaptureAccessorSource)' == ''">../../src/GloomhavenVR/WorldUI/Sharpness/PanelSupersample.MrBacking.cs</CaptureAccessorSource>
     <TraceSource Condition="'$(TraceSource)' == ''">../../src/GloomhavenVR/WorldUI/Conversion/MrBackingBoundsTrace.cs</TraceSource>
     <PaintedSource Condition="'$(PaintedSource)' == ''">../../src/GloomhavenVR/WorldUI/Conversion/MrBackingPaintedBounds.cs</PaintedSource>
     <VisibilitySource Condition="'$(VisibilitySource)' == ''">../../src/GloomhavenVR/WorldUI/MrBackingVisibility.cs</VisibilitySource>
@@ -13,6 +17,10 @@
     <InkSource Condition="'$(InkSource)' == ''">../../src/GloomhavenVR/WorldUI/Conversion/PanelInkBounds.cs</InkSource>
   </PropertyGroup>
   <ItemGroup>
+    <Compile Include="$(RootWatchSource)" Link="Production/MrBackingSampleWatch.cs" />
+    <Compile Include="$(LayoutSource)" Link="Production/MrBackingLayout.cs" />
+    <Compile Include="$(CaptureBoundsSource)" Link="Production/MrBackingCaptureBounds.cs" />
+    <Compile Include="$(CaptureAccessorSource)" Link="Production/PanelSupersample.MrBacking.cs" />
     <Compile Include="$(TraceSource)" Link="Production/MrBackingBoundsTrace.cs" />
     <Compile Include="$(PaintedSource)" Link="Production/MrBackingPaintedBounds.cs" />
     <Compile Include="$(VisibilitySource)" Link="Production/MrBackingVisibility.cs" />

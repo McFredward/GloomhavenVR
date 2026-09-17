@@ -59,6 +59,7 @@ static partial class Program
 
     static void Main()
     {
+        TestCaptureBacking();
         var host = new GameObject("Host");
         var movie = new GameObject("Movie");
         movie.transform.SetParent(host.transform);

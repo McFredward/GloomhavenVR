@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using GloomhavenVR.Core;
 using UnityEngine;
 
@@ -10,14 +11,18 @@ internal static partial class MrBacking
     {
         internal bool Active, Closed;
         internal float Progress;
-        internal Rect Bounds, Frame;
+        internal Rect Bounds, Frame, CaptureFrame;
+        internal bool CaptureKnown, Captured, PendingGeometry;
+        internal readonly List<Rect> Pieces = new();
+        internal readonly Dictionary<CanvasRenderer, float> OriginalAlpha = new();
     }
 
     // Build 522: the window's elements finish before its dust. Keeping an opaque MR quad
     // until host destruction left an empty wall over newly opened windows. Snapshot geometry
     // BEFORE the first element-alpha write, then consume that runner's exact field progress.
     // There is no backing timer and this decoration never owns a native close callback.
-    internal static void BeginWindowMaterialise(ConvertedPanel panel)
+    internal static void BeginWindowMaterialise(ConvertedPanel panel,
+        IList<CanvasRenderer>? renderers = null, IList<float>? originalAlpha = null)
     {
         if (panel.MrBackingSuppressed || panel.HostRect == null)
             return;
@@ -37,17 +42,17 @@ internal static partial class MrBacking
             entry.Animation.Active = true;
             entry.Animation.Closed = false;
             entry.Animation.Frame = panel.HostRect.rect;
-            entry.Animation.Bounds = entry.Shown;
+            entry.Animation.Bounds = default;
+            entry.Animation.Pieces.Clear();
+            entry.Animation.OriginalAlpha.Clear();
+            entry.Animation.CaptureKnown = false;
+            entry.Animation.PendingGeometry = false;
+            if (renderers != null && originalAlpha != null)
+                for (int i = 0; i < renderers.Count && i < originalAlpha.Count; i++)
+                    if (renderers[i] != null) entry.Animation.OriginalAlpha[renderers[i]] = originalAlpha[i];
             entry.Visibility.Root = panel.FitContentRoot ?? panel.Target;
-            // Retain the episode while MR is off as well: enabling it during the dust-only
-            // tail must not create an opaque plate. Reuse an existing owner's geometry when
-            // possible; GPU resources are still created only while MR is actually enabled.
-            if (!wanted && GrabbableModal.TryGetMrBackingRect(panel, out Rect cached,
-                    out bool cachedVisible, out _) && cachedVisible)
-            {
-                entry.Animation.Bounds = cached;
-                return;
-            }
+            // Keep per-graphic pre-effect geometry while MR is off too: a single cached union
+            // cannot later distinguish a wholly cropped outlier from legitimate visible overflow.
             // The reveal can start before Tick has ever built a plate. Measure the same native
             // ink now, while it is still whole; never substitute the transparent host rectangle.
             CaptureAnimationBounds(entry);
@@ -102,6 +107,8 @@ internal static partial class MrBacking
                     UnityEngine.Object.Destroy(entry.FadeMat);
                 entry.FadeMat = null;
             }
+            entry.Animation.Pieces.Clear();
+            entry.Animation.OriginalAlpha.Clear();
             if (!vanishing)
                 entry.Layout.Settle(entry.Animation.Bounds, Time.unscaledTime);
             if (!MixedReality.BackingsWanted)
@@ -122,8 +129,9 @@ internal static partial class MrBacking
         // uGUI may not have built its first mesh when the native reveal starts. Wait for that
         // real geometry, then join the current field; do not invent a layout-sized rectangle.
         if (visible && entry.Animation.Progress < 1f
-            && !MrBackingLayout.ReadyForSample(true, entry.Animation.Bounds))
+            && (entry.Animation.Pieces.Count == 0 || entry.Animation.PendingGeometry))
             CaptureAnimationBounds(entry);
+        RefreshAnimationCapture(entry);
         Rect rect = entry.Animation.Bounds;
         visible &= MrBackingLayout.ReadyForSample(true, rect) && entry.Animation.Progress < 1f;
         RectTransform? host = entry.Panel.HostRect;
@@ -160,14 +168,34 @@ internal static partial class MrBacking
         ConvertedPanel panel = entry.Panel;
         if (panel.HostRect == null)
             return;
-        if (PanelInkBounds.TryMeasure(panel, out PanelInkBounds.Ink ink,
-                contentRoot: panel.FitContentRoot, visibleWitnesses: entry.Visibility.Witnesses,
-                backingGeometry: true) && ink.Valid)
+        bool measured = PanelInkBounds.TryMeasure(panel, out PanelInkBounds.Ink ink,
+            contentRoot: panel.FitContentRoot, visibleWitnesses: entry.Visibility.Witnesses,
+            backingGeometry: true, backingPieces: entry.Animation.Pieces,
+            backingOriginalAlpha: entry.Animation.OriginalAlpha);
+        entry.Animation.PendingGeometry = ink.PendingPaint > 0;
+        entry.Animation.CaptureKnown = false;
+        if (measured && ink.Valid)
         {
             entry.Animation.Bounds = MrBackingLayout.WindowRect(panel.HostRect.rect,
                 ink.Rect, ink.Plates > 0, ink.PlateBottom, fitScoped: true);
             LogPaintedExtent(entry, panel.HostRect, panel.HostRect.rect, entry.Animation.Bounds);
         }
+    }
+
+    private static void RefreshAnimationCapture(PanelEntry entry)
+    {
+        MrBackingAnimationState state = entry.Animation;
+        bool captured = PanelSupersample.TryGetBackingCaptureRect(entry.Panel, out Rect frame);
+        if (state.CaptureKnown && state.Captured == captured && (!captured
+            || (Mathf.Abs(state.CaptureFrame.xMin - frame.xMin) <= 0.001f
+                && Mathf.Abs(state.CaptureFrame.yMin - frame.yMin) <= 0.001f
+                && Mathf.Abs(state.CaptureFrame.width - frame.width) <= 0.001f
+                && Mathf.Abs(state.CaptureFrame.height - frame.height) <= 0.001f))) return;
+        state.CaptureKnown = true;
+        state.Captured = captured;
+        state.CaptureFrame = frame;
+        state.Bounds = MrBackingCaptureBounds.Union(state.Pieces, captured, frame, out Rect ink)
+            ? MrBackingLayout.WindowRect(state.Frame, ink, false, ink.yMin, fitScoped: true) : default;
     }
 
     private static PanelEntry? FindAnimationEntry(ConvertedPanel panel)
