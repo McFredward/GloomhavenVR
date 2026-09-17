@@ -13,6 +13,17 @@ python3 - "$repo_root" "$mutation_dir" <<'PY'
 import pathlib, re, sys
 repo, root = map(pathlib.Path, sys.argv[1:])
 source = (repo / 'src/GloomhavenVR/WorldUI/Conversion/PanelInkBounds.cs').read_text()
+visibility = (repo / 'src/GloomhavenVR/WorldUI/MrBackingVisibility.cs').read_text()
+for name, needle, replacement in [
+    ('live-hidden', ' || !graphic.gameObject.activeInHierarchy', ''),
+    ('live-alpha', 'graphic.color.a * renderer.GetInheritedAlpha()', 'graphic.color.a'),
+    ('live-canvas', ' || !canvas.isActiveAndEnabled', ''),
+]:
+    assert visibility.count(needle) == 1, name
+    (root / (name+'.fixture')).write_text(visibility.replace(needle,replacement))
+needle = 'visibleWitnesses?.Clear();'
+assert source.count(needle) == 2
+(root / 'live-clear.fixture').write_text(source.replace(needle, '', 1))
 needle = '!ReferenceEquals(graphic, panel.ContentGraphic)'
 assert source.count(needle) == 1
 (root / 'missing.fixture').write_text(source.replace(needle, 'true'))
@@ -76,15 +87,20 @@ assert 'out content, out contributors, out _, out _, includeParkedHint)' in code
 print('Placement binding negative control: inclusion of owner annotation rejected.')
 PY
 dotnet run --project "$project" --configuration Release --property:DrawnUnionSource="$mutation_dir/union.fixture"
-for mutation in missing broad hint-ink hint-union reward-heading mr-frame mr-hover mr-scope mr-scope-plate mr-scope-clip; do
+for mutation in missing broad hint-ink hint-union reward-heading mr-frame mr-hover mr-scope mr-scope-plate mr-scope-clip live-hidden live-alpha live-canvas live-clear; do
     ink_source="$mutation_dir/$mutation.fixture"
     union_source="$mutation_dir/union.fixture"
+    visibility_source="$repo_root/src/GloomhavenVR/WorldUI/MrBackingVisibility.cs"
+    if [[ "$mutation" == live-hidden || "$mutation" == live-alpha || "$mutation" == live-canvas ]]; then
+        ink_source="$source_file"
+        visibility_source="$mutation_dir/$mutation.fixture"
+    fi
     if [[ "$mutation" == hint-union ]]; then
         ink_source="$source_file"
         union_source="$mutation_dir/hint-union.fixture"
     fi
     if dotnet run --project "$mutation_dir/GloomhavenVR.PanelInkTests.csproj" --configuration Release \
-        --property:ScopeSource="$repo_root/src/GloomhavenVR/WorldUI/MrBackingScope.cs" --property:InkSource="$ink_source" --property:HeadingSource="$heading_source" --property:DrawnUnionSource="$union_source" > "$mutation_dir/$mutation.log" 2>&1; then
+        --property:VisibilitySource="$visibility_source" --property:ScopeSource="$repo_root/src/GloomhavenVR/WorldUI/MrBackingScope.cs" --property:InkSource="$ink_source" --property:HeadingSource="$heading_source" --property:DrawnUnionSource="$union_source" > "$mutation_dir/$mutation.log" 2>&1; then
         cat "$mutation_dir/$mutation.log"
         echo "FAIL: $mutation mutation escaped the ink test." >&2
         exit 1
@@ -99,9 +115,13 @@ for mutation in missing broad hint-ink hint-union reward-heading mr-frame mr-hov
     if [[ "$mutation" == mr-scope ]]; then expected='scoped initiative excludes ancestor screen artwork'; fi
     if [[ "$mutation" == mr-scope-plate ]]; then expected='scoped full-frame portrait is real content'; fi
     if [[ "$mutation" == mr-scope-clip ]]; then expected='scoped portrait retains ancestor clipping'; fi
+    if [[ "$mutation" == live-hidden ]]; then expected='native hidden ancestor immediately hides backing'; fi
+    if [[ "$mutation" == live-alpha ]]; then expected='backing alpha follows current native effective alpha'; fi
+    if [[ "$mutation" == live-canvas ]]; then expected='native disabled canvas immediately hides backing'; fi
+    if [[ "$mutation" == live-clear ]]; then expected='empty geometry sample clears stale witness references'; fi
     if ! rg -q "$expected" "$mutation_dir/$mutation.log"; then
         cat "$mutation_dir/$mutation.log"
         exit 1
     fi
 done
-echo "Panel ink negative controls: ten runtime mutations and one placement binding mutation rejected."
+echo "Panel ink negative controls: fourteen runtime mutations and one placement binding mutation rejected."

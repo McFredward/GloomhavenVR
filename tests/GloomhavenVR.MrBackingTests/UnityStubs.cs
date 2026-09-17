@@ -43,7 +43,10 @@ namespace UnityEngine
 }
 namespace GloomhavenVR.WorldUI
 {
-    internal sealed class ConvertedPanel { public bool Owed; }
+    internal sealed class ConvertedPanel { public bool Owed, Animating; }
+    internal static class WindowMaterialise { internal static bool IsAnimating(ConvertedPanel panel) => panel.Animating; }
+    // Live graphic witnesses are exercised by PanelInkTests; this harness isolates the actual modal accessor.
+    internal sealed class MrBackingVisibility { internal bool VisibleNow = true; }
     internal static class ModalFallback
     {
         internal static bool AppearStillOwed(ConvertedPanel p,out string why) { why=""; return p.Owed; }
@@ -56,6 +59,7 @@ namespace GloomhavenVR.WorldUI
         internal int _mrInkSampleFrame = -1;
         internal bool _mrInkValid;
         internal bool _barHiddenForEmpty;
+        internal MrBackingVisibility _mrVisibility = new();
     }
 }
 

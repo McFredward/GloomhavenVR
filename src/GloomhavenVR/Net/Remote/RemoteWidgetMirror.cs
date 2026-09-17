@@ -26,7 +26,7 @@ namespace GloomhavenVR.Net;
 /// local converted dock; other mirrors keep their existing source/layout policy. The fitted
 /// original envelope also drives the same MrBacking treatment used by local converted panels.
 /// </summary>
-internal sealed class RemoteWidgetMirror : WorldUI.MrBacking.IBackedSurface, WorldUI.MrBacking.ISampledBacking
+internal sealed class RemoteWidgetMirror : WorldUI.MrBacking.IBackedSurface, WorldUI.MrBacking.ISampledBacking, WorldUI.MrBacking.IFadedBacking
 {
     /// <summary>Which mechanism a mirrored section is currently drawing with — reported per section
     /// in the <c>Remote board content</c> diagnostic so a hardware log PROVES parity instead of
@@ -350,6 +350,7 @@ internal sealed class RemoteWidgetMirror : WorldUI.MrBacking.IBackedSurface, Wor
     private readonly WorldUI.ConvertedPanel _mrInkPanel = new();
     private readonly HashSet<Transform> _mrExcluded = new();
     private Rect _mrFrame, _mrBounds;
+    private readonly WorldUI.MrBackingVisibility _mrVisibility = new();
     private bool _mrBoundsVisible;
     private int _mrSampleFrame = -1;
     private int _mrNextSampleFrame;
@@ -383,12 +384,14 @@ internal sealed class RemoteWidgetMirror : WorldUI.MrBacking.IBackedSurface, Wor
                 // A missing holder/clone is not permission to back the full-screen parent.
                 _mrBounds = default;
                 _mrBoundsVisible = false;
+                _mrVisibility.Reset();
                 return;
             }
         }
+        _mrVisibility.Root = contentRoot ?? _cloneRect;
         _mrBoundsVisible = WorldUI.PanelInkBounds.TryMeasure(_mrInkPanel,
             out WorldUI.PanelInkBounds.Ink ink, frameOverride: _mrFrame, excludedRoots: _mrExcluded,
-            contentRoot: contentRoot) && ink.Valid;
+            contentRoot: contentRoot, visibleWitnesses: _mrVisibility.Witnesses) && ink.Valid;
         if (!_mrBoundsVisible)
         {
             _mrBounds = default;
@@ -433,7 +436,10 @@ internal sealed class RemoteWidgetMirror : WorldUI.MrBacking.IBackedSurface, Wor
     /// carries its own MR treatment. An opaque plate left standing behind a hidden mirror would be
     /// a dark rectangle floating on the peer's board.</summary>
     bool WorldUI.MrBacking.IBackedSurface.BackingVisible
-        => _host != null && _host.activeInHierarchy && _clone != null && _mrBoundsVisible;
+        => _host != null && _host.activeInHierarchy && _clone != null && _mrBoundsVisible
+           && _mrVisibility.VisibleNow;
+
+    float WorldUI.MrBacking.IFadedBacking.BackingAlpha => _mrVisibility.AlphaNow;
 
     Vector2 WorldUI.MrBacking.IBackedSurface.BackingSize
     {
@@ -1406,6 +1412,7 @@ internal sealed class RemoteWidgetMirror : WorldUI.MrBacking.IBackedSurface, Wor
         _mrFrame = default;
         _mrBounds = default;
         _mrSampleFrame = -1;
+        _mrVisibility.Reset();
         _mrInkPanel.Target = null!;
         _mrSourceContentRoot = null;
         _mrCloneContentRoot = null;

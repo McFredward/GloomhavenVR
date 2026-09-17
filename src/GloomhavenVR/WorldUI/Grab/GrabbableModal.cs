@@ -435,6 +435,7 @@ internal sealed class GrabbableModal : IPanelGrabOwner
 
     // MR backs the latest measured picture, not the grab bar's monotone envelope. The latter
     // deliberately retains old extents through a tab transition and can be mostly empty air.
+    private readonly MrBackingVisibility _mrVisibility = new();
     private bool _mrInkValid;
     private Rect _mrInkRect;
     private int _mrInkSampleFrame = -1;
@@ -454,11 +455,22 @@ internal sealed class GrabbableModal : IPanelGrabOwner
                 continue;
             rect = holder._mrInkRect;
             sampleFrame = holder._mrInkSampleFrame;
-            visible = holder._mrInkValid && !holder._barHiddenForEmpty
+            bool animating = WindowMaterialise.IsAnimating(panel);
+            visible = holder._mrInkValid && (animating || !holder._barHiddenForEmpty)
+                      && (animating || holder._mrVisibility.VisibleNow)
                       && !ModalFallback.AppearStillOwed(panel, out _);
             return true;
         }
         return false;
+    }
+
+    /// <summary>Native alpha of the cached MR picture. Window materialisation has its own
+    /// authoritative element progress, applied by the backing presenter while that effect runs.</summary>
+    internal static float GetMrBackingAlpha(ConvertedPanel panel)
+    {
+        for (int i = 0; i < LiveHolders.Count; i++)
+            if (ReferenceEquals(LiveHolders[i]._panel, panel)) return LiveHolders[i]._mrVisibility.AlphaNow;
+        return 1f;
     }
 
     private bool _inkValid;                     // a committed rectangle exists (survives a generation reset)
@@ -2919,14 +2931,22 @@ internal sealed class GrabbableModal : IPanelGrabOwner
         bool settling = now <= _inkSettleUntilFrame;
         _inkNextSampleFrame = now + (settling ? InkSettleStrideFrames : InkVerifyStrideFrames);
 
-        bool measured = PanelInkBounds.TryMeasure(_panel, out PanelInkBounds.Ink ink) && ink.Valid;
+        bool holdMrPicture = _mrInkValid && WindowMaterialise.IsAnimating(_panel);
+        _mrVisibility.Root = _panel.Target;
+        bool measured = PanelInkBounds.TryMeasure(_panel, out PanelInkBounds.Ink ink,
+            visibleWitnesses: holdMrPicture ? null : _mrVisibility.Witnesses) && ink.Valid;
         // Publish the RAW sample before any envelope/recession logic. Modal backing must shrink
         // with the current window and must never invent a frame for an empty map conversion.
-        _mrInkSampleFrame = now;
-        _mrInkValid = measured;
-        _mrInkRect = measured
-            ? MrBackingLayout.WindowRect(hostRect, ink.Rect, ink.Plates > 0, ink.PlateBottom)
-            : default;
+        // WindowMaterialise moves/fades individual glyphs and images. Keep its last complete MR
+        // picture while it runs; the presenter follows the runner's actual element progress.
+        if (!holdMrPicture)
+        {
+            _mrInkSampleFrame = now;
+            _mrInkValid = measured;
+            _mrInkRect = measured
+                ? MrBackingLayout.WindowRect(hostRect, ink.Rect, ink.Plates > 0, ink.PlateBottom)
+                : default;
+        }
         // THE MOUSEOVER LEDGER IS TAKEN ON EVERY SAMPLE, including one that could not be measured —
         // "every drawn graphic in this window turned out to be a hover widget" is precisely the
         // failure the exclusion could cause, and it must be readable on the line that reports it.
@@ -3886,6 +3906,7 @@ internal sealed class GrabbableModal : IPanelGrabOwner
         _inkSigTransientChildren = 0;
         _inkSigTransientLife = 0;
         _inkModChromeMask = 0;
+        _mrVisibility.Reset();
         _mrInkValid = false;
         _mrInkRect = default;
         _mrInkSampleFrame = -1;

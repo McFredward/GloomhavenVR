@@ -133,6 +133,15 @@ internal static class Program
         Check(GrabbableModal.TryGetMrBackingRect(panel,out _,out visible,out _)&&!visible,"never-drawn map window stays withheld");
         panel.Owed=false;holder._barHiddenForEmpty=true;
         Check(GrabbableModal.TryGetMrBackingRect(panel,out _,out visible,out _)&&!visible,"empty owner chrome cannot leave an MR plate");
+        holder._barHiddenForEmpty=false;holder._mrVisibility.VisibleNow=false;
+        Check(GrabbableModal.TryGetMrBackingRect(panel,out _,out visible,out _)&&!visible,"native hide bypasses cached modal bounds immediately");
+        panel.Animating=true;holder._barHiddenForEmpty=true;
+        Check(GrabbableModal.TryGetMrBackingRect(panel,out raw,out visible,out int heldRevision)&&visible&&heldRevision==42,"running materialisation preserves original picture for runner-owned alpha");
+        Equal(raw,Narrow,"materialisation does not shrink the last complete picture");
+        panel.Owed=true;
+        Check(GrabbableModal.TryGetMrBackingRect(panel,out _,out visible,out _)&&!visible,"materialisation cannot reveal an owed panel");
+        panel.Owed=false;panel.Animating=false;
+        Check(GrabbableModal.TryGetMrBackingRect(panel,out _,out visible,out _)&&!visible,"finished effect immediately returns to native visibility");
         Check(!GrabbableModal.TryGetMrBackingRect(new ConvertedPanel(),out _,out _,out _),"unrelated window cannot borrow owner bounds");
         Console.WriteLine($"MR backing production tests: {_assertions} assertions passed.");
     }

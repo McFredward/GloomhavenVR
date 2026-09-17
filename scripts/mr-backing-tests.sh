@@ -95,7 +95,7 @@ assert '_mrCloneContentRoot = sourceRoot != null ? CloneOf(sourceRoot) : null;' 
 assert '_mrContentRootStamp != RebuildStamp || !ReferenceEquals(sourceRoot, _mrSourceContentRoot)' in mirror
 assert '_mrSourceContentRoot = null;' in mirror and '_mrCloneContentRoot = null;' in mirror
 assert 'if (contentRoot == null)' in mirror
-assert 'contentRoot: contentRoot) && ink.Valid;' in mirror
+assert 'contentRoot: contentRoot, visibleWitnesses: _mrVisibility.Witnesses) && ink.Valid;' in mirror
 assert 'fitScoped: contentRoot != null' in mirror
 assert 'out _, _mrExcluded, contentRoot);' in mirror
 assert 'backingContentRoot: source => source.GetComponent<InitiativeTrack>()?.initiativeTrackHolder' in initiative
@@ -104,7 +104,14 @@ for needle,replacement in [('visible &= ownerVisible;','visible = true;'),('fitt
     try:bindings(mr.replace(needle,replacement),m,mirror)
     except AssertionError:pass
     else:raise AssertionError('MR binding mutation escaped: '+needle)
-print('MR backing integration bindings: 41 assertions and three negative controls passed.')
+assert re.search(r'_mrBoundsVisible\s*&& _mrVisibility.VisibleNow', mirror)
+assert 'float WorldUI.MrBacking.IFadedBacking.BackingAlpha => _mrVisibility.AlphaNow;' in mirror
+assert '_mrVisibility.Reset();' in mirror
+assert 'visibleWitnesses: holdMrPicture ? null : _mrVisibility.Witnesses' in m
+assert 'bool holdMrPicture = _mrInkValid && WindowMaterialise.IsAnimating(_panel);' in m
+assert 'if (!holdMrPicture)' in m
+assert 'internal static float GetMrBackingAlpha(ConvertedPanel panel)' in m
+print('MR backing integration bindings: 48 assertions and three negative controls passed.')
 PY
 dotnet run --project "$project" --configuration Release --property:AccessorSource="$mutation_dir/accessor.fixture"
 for mutation in host margin plate confirm sample snap hidden starve ready owed scope scope-siblings scope-ancestor; do

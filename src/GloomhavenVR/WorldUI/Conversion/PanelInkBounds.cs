@@ -447,10 +447,13 @@ internal static class PanelInkBounds
     // contentRoot is an optional MR-only content boundary. Null preserves all existing window,
     // grab and capture queries. A declared board row retains ancestor masks but never measures
     // parent/sibling artwork; visible images inside it are ink even if they fill the row's frame.
+    // Optional MR witnesses reuse this walk's scope, clipping and transient exclusions. The caller
+    // can check native visibility every frame without remeasuring geometry or retaining old samples.
     internal static bool TryMeasure(ConvertedPanel panel, out Ink ink, bool includeParkedHint = true,
                                     Rect? frameOverride = null, ISet<Transform>? excludedRoots = null,
-                                    Transform? contentRoot = null)
+                                    Transform? contentRoot = null, List<Graphic>? visibleWitnesses = null)
     {
+        visibleWitnesses?.Clear();
         ink = default;
         ink.BottomName = string.Empty;
         // NOT ZERO. `default` leaves this at 0, which is a host-local y INSIDE every centred frame
@@ -460,18 +463,19 @@ internal static class PanelInkBounds
         ink.PlateBottomName = string.Empty;
         try
         {
-            return MeasureCore(panel, ref ink, includeParkedHint, frameOverride, excludedRoots, contentRoot);
+            return MeasureCore(panel, ref ink, includeParkedHint, frameOverride, excludedRoots, contentRoot, visibleWitnesses);
         }
         catch (System.Exception)
         {
             Stack.Clear();
+            visibleWitnesses?.Clear();
             ink.Valid = false;
             return false;
         }
     }
 
     private static bool MeasureCore(ConvertedPanel panel, ref Ink ink, bool includeParkedHint, Rect? frameOverride,
-                                    ISet<Transform>? excludedRoots, Transform? contentRoot)
+                                    ISet<Transform>? excludedRoots, Transform? contentRoot, List<Graphic>? visibleWitnesses)
     {
         RectTransform? host = panel.HostRect;
         Transform? target = panel.Target;
@@ -617,6 +621,7 @@ internal static class PanelInkBounds
                                  && plateTestUsable && visible.width >= plateW && visible.height >= plateH)
                         {
                             ink.Plates++;
+                            visibleWitnesses?.Add(graphic!);
                             // ModBuild 449 — THE PLATE STILL CONTRIBUTES NOTHING TO THE UNION, and
                             // one number beside it. See Ink.PlateBottom for the co-player's merchant
                             // that made a plate's bottom edge worth measuring; the HORIZONTAL
@@ -651,6 +656,7 @@ internal static class PanelInkBounds
                                 }
                             }
                             ink.Graphics++;
+                            visibleWitnesses?.Add(graphic!);
                         }
                     }
                 }

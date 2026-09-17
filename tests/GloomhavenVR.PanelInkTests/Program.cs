@@ -108,6 +108,7 @@ static partial class Program
         TestRewardHeading();
         TestMirrorBackingInk();
         TestScopedBoardBacking();
+        TestBackingVisibility();
         Console.WriteLine($"Panel ink tests: {_assertions} assertions passed.");
     }
 }

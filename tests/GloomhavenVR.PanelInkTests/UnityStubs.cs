@@ -107,6 +107,7 @@ namespace UnityEngine
         public static Vector2 Max(Vector2 a, Vector2 b) => new(Math.Max(a.x, b.x), Math.Max(a.y, b.y));
     }
     public struct Color { public float a; }
+    public class Canvas : Component { public bool isActiveAndEnabled => enabled && gameObject.activeInHierarchy; }
     public class CanvasRenderer : Component
     {
         public bool cull;
@@ -117,6 +118,7 @@ namespace UnityEngine
     {
         public static float Max(float a, float b) => Math.Max(a, b);
         public static float Min(float a, float b) => Math.Min(a, b);
+        public static float Clamp01(float value) => Math.Clamp(value,0,1);
     }
     public static class Time { public static int frameCount => 1; }
 }
@@ -124,6 +126,7 @@ namespace UnityEngine.UI
 {
     public class Graphic : UnityEngine.Component
     {
+        public UnityEngine.Canvas? canvas;
         public UnityEngine.Color color = new() { a = 1 };
         public UnityEngine.CanvasRenderer canvasRenderer = new();
     }
