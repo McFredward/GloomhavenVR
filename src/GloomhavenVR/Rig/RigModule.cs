@@ -43,6 +43,8 @@ internal sealed class RigModule : IVRModule
             // false, so applying them here is safe even if VR later shuts down.
             VRSession.Harmony?.PatchAll(typeof(CameraController_LateUpdate_Patch));
             VRSession.Harmony?.PatchAll(typeof(CameraController_RefreshFocusPosition_Patch));
+            VRSession.Harmony?.PatchAll(typeof(ScenarioRetryStart_Patch));
+            VRSession.Harmony?.PatchAll(typeof(ScenarioRetryDestination_Patch));
         }
 
         _driverGo = new GameObject("GloomhavenVR.RigDriver");

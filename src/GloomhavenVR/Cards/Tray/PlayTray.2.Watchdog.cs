@@ -139,6 +139,8 @@ internal sealed partial class PlayTray
         // a pose that is about to be replaced, and the carry would then undo the correction from a
         // rig-local cache taken before it — the classic "measured the wrong stage" shape.
         TickArrivalSeatGuard();
+        TryRestoreRetryStart();
+        RememberRetryStart();
         // NO world-tilt compensation (user decision 2026-08, supersedes item 11): a PINNED
         // board is deliberately WORLD-static — a tilt change leaves it untouched (it then
         // looks tilted like the rest of the world; the user re-adjusts it in Free mode).
