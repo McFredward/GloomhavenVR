@@ -56,3 +56,18 @@ pending-hold flush also discards an already completed original before releasing 
 
 This is source and automated evidence. It does not establish a headset result or that
 these driver hazards caused the user's latest short-rest symptom.
+
+## Historical consumed-item host hook
+
+A separate read-only item audit found another replay entry: `ItemsPile.Populate` can
+recreate a chip for the same consumed original, while native `ItemCardUI.OnReturnedToPool`
+resets `lastState` to `None`. The new host's `Show()` then requests the consumed effect
+again. Native `ItemCardEffects` uses a 0.001-second ramp here, so this is chiefly a fresh
+material/smoke start rather than the two-second ability burn. Remote item clones already
+paint the settled state without calling `Show`/`UpdateState`.
+
+`TryHostRealCard` now calls `ItemBurnPlayback.ObserveInitialState(cardUI)` immediately
+after assigning `cardUI.item` and before `Show`. The native playback lane owns the helper,
+its original no-animation material initialization, and its tests. This hook does not alter
+retained-host `TickUseFx` updates or infer a new consumption from widget creation. This
+checkpoint requires that companion helper; the integration build validates both together.

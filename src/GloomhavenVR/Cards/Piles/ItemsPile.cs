@@ -5364,6 +5364,10 @@ internal sealed class ItemsPile
                     return false;
                 }
                 cardUI.item = item;
+                // A newly hosted consumed item is historical presentation, not another use.
+                // Capture that initial state before Show requests the native effect so it paints
+                // the original settled artwork without replaying the consumption animation.
+                ItemBurnPlayback.ObserveInitialState(cardUI);
                 // The game's ItemCardEffects runs ON the card (Show()/UpdateState() →
                 // cardEffects.ToggleEffect(Consumed/Spent)) and is KEPT LIVE: the "verbraucht"
                 // look the user wants back — the burn tint + dissolve + grey-out material sweep
