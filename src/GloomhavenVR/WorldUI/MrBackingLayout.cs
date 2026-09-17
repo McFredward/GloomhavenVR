@@ -85,6 +85,18 @@ internal sealed class MrBackingLayout
         return _seeded;
     }
 
+    // A window reveal already animated this extent with its own erosion field. Continue from
+    // that exact rectangle; restarting the normal resize tween would make it collapse/reappear.
+    internal void Settle(Rect bounds, float now)
+    {
+        Reset();
+        if (!Usable(bounds))
+            return;
+        _seeded = true;
+        _shown = _from = _target = bounds;
+        _started = now;
+    }
+
     internal void Reset()
     {
         _seeded = false;

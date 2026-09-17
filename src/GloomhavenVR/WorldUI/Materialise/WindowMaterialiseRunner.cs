@@ -244,6 +244,7 @@ internal sealed class WindowMaterialiseRunner : MonoBehaviour
         try
         {
             runner.CollectElements(host);
+            MrBacking.BeginWindowMaterialise(panel);
         }
         catch (Exception ex)
         {
@@ -520,6 +521,7 @@ internal sealed class WindowMaterialiseRunner : MonoBehaviour
 
         WindowMaterialiseField.Progresses(k, _materialising,
                                           out float elementProgress, out float debrisFront);
+        MrBacking.ApplyWindowMaterialise(Panel, elementProgress);
 
         // THE PANE IS A POINTER SURFACE ONLY WHILE IT IS WHOLE. A vanish is blind from its first
         // frame to its last; an appear is blind exactly while the element front is still moving
@@ -608,6 +610,8 @@ internal sealed class WindowMaterialiseRunner : MonoBehaviour
         if (_finished)
             return;
         _finished = true;
+
+        MrBacking.EndWindowMaterialise(Panel, Vanishing);
 
         if (restore)
             RestoreAll();

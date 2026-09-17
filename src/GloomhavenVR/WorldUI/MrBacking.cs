@@ -130,7 +130,7 @@ namespace GloomhavenVR.WorldUI;
 /// is lifted to a brighter warm gray instead. Re-checked every tick (the key is live-cycled
 /// from the VR options tab).
 /// </summary>
-internal static class MrBacking
+internal static partial class MrBacking
 {
     /// <summary>
     /// A MOD-OWNED world surface that wants the converted-panel treatment WITHOUT being a
@@ -298,6 +298,12 @@ internal static class MrBacking
         public int NextSampleFrame;
         public Transform? ContentRoot;
         public bool ScopeNoted;
+        public readonly MrBackingVisibility Visibility = new();
+        public readonly MrBackingAnimationState Animation = new();
+        public MrBackingMaterialise? Materialise;
+        public Material? FadeMat;
+        public bool Faded;
+        public Rect Shown;
 
         /// <summary>Change-dedup for the plate-extent line (rounded px) — see <see cref="LogPlateExtent"/>.</summary>
         public string? LoggedExtent;
@@ -597,6 +603,22 @@ internal static class MrBacking
             return; // MR off (or never ticked on): no plate exists — one bool per frame
 
         int fixes = 0;
+        // Native visibility can change after Update. Geometry still uses its bounded sample
+        // cadence, but a dead/transparent window must not leave an opaque plate for four frames.
+        for (int i = 0; i < Panels.Count; i++)
+        {
+            PanelEntry e = Panels[i];
+            if (e.Plate == null || e.Animation.Active)
+                continue; // The materialise runner writes the exact same frame's field itself.
+            bool owned = GrabbableModal.TryGetMrBackingRect(e.Panel, out _, out bool shown, out _);
+            bool visible = !e.Animation.Closed && !e.Panel.RenderHidden && !e.Panel.OwnerRenderHidden
+                && (owned ? shown : e.Visibility.VisibleNow);
+            if (!visible)
+                e.Plate.gameObject.SetActive(false);
+            else
+                ApplyPlateAlpha(e.Plate.GetComponent<Renderer>(), ref e.FadeMat, ref e.Faded,
+                    owned ? GrabbableModal.GetMrBackingAlpha(e.Panel) : e.Visibility.AlphaNow);
+        }
         for (int i = 0; i < Labels.Count; i++)
         {
             LabelEntry e = Labels[i];
@@ -618,6 +640,11 @@ internal static class MrBacking
             // a safe 0 — but asking a dead one is pointless work, so the liveness flag gates it.
             if (plate == null || !e.Surface.BackingAlive)
                 continue;
+            float alpha = e.Fade != null ? Mathf.Clamp01(e.Fade.BackingAlpha) : 1f;
+            if (!e.Surface.BackingVisible || alpha <= PlateFadeCutoff)
+                plate.gameObject.SetActive(false);
+            else
+                ApplyPlateAlpha(plate, ref e.FadeMat, ref e.Faded, alpha);
             int order = e.Surface.BackingOrder;
             if (plate.sortingOrder == order)
                 continue;
@@ -811,8 +838,8 @@ internal static class MrBacking
             {
                 // A released panel's plate died with its host (Unity-null here); a suppressed
                 // live panel's plate is mod-owned and must go explicitly.
-                if (Panels[i].Plate != null)
-                    Object.Destroy(Panels[i].Plate!.gameObject);
+                Panels[i].Materialise?.Dispose();
+                DestroyPlate(Panels[i].Plate, Panels[i].FadeMat);
                 Panels.RemoveAt(i);
             }
         }
@@ -863,7 +890,15 @@ internal static class MrBacking
             // and an already-built one is deactivated below in that same frame.
             bool visible = panel.HostGo.activeInHierarchy
                            && !panel.RenderHidden && !panel.OwnerRenderHidden
+                           && !entry.Animation.Closed
                            && r.width > 2f && r.height > 2f;
+            if (entry.Animation.Active)
+            {
+                // The runner already owns the window's fade. Do not remeasure progressively
+                // vanishing ink, shrink its backing, or wait for the debris-only tail.
+                DrawWindowAnimation(entry, visible);
+                continue;
+            }
             // ModBuild 516: a modal host is often a transparent full-screen layout frame, not
             // the visible window (too_big_mixed_reality_backgorunds.jpg). Reuse the holder's RAW
             // ink sample and liveness. Its grab envelope intentionally holds old extents and is
@@ -881,6 +916,7 @@ internal static class MrBacking
                 // real ink instead on a four-frame cadence; retain genuine unclipped glyph overflow.
                 if (visible && Time.frameCount >= entry.NextSampleFrame)
                 {
+                    entry.Visibility.Root = panel.FitContentRoot ?? panel.Target;
                     entry.SampleFrame = Time.frameCount;
                     entry.NextSampleFrame = Time.frameCount + MrBackingLayout.SampleStrideFrames;
                     // Build 519 hardware: the initiative backing extended down through the board.
@@ -889,7 +925,8 @@ internal static class MrBacking
                     // siblings again. Reuse the explicit owner's content boundary for BOTH ink
                     // and overflow glyphs; never change native geometry to fix a backing plate.
                     entry.BoundsVisible = PanelInkBounds.TryMeasure(panel, out PanelInkBounds.Ink ink,
-                                              contentRoot: panel.FitContentRoot)
+                                              contentRoot: panel.FitContentRoot,
+                                              visibleWitnesses: entry.Visibility.Witnesses)
                                           && ink.Valid;
                     entry.Bounds = entry.BoundsVisible
                         ? GlyphTrueRect(panel, host,
@@ -912,6 +949,7 @@ internal static class MrBacking
                 fitted = entry.Bounds;
                 sampleFrame = entry.SampleFrame;
                 visible &= entry.BoundsVisible;
+                visible &= entry.Visibility.VisibleNow;
             }
             visible = entry.Layout.Present(fitted, visible, sampleFrame, Time.unscaledTime,
                 MrBackingLayout.DurationSeconds, out Rect shown);
@@ -935,6 +973,9 @@ internal static class MrBacking
                 continue;
 
             Fit(entry.Plate, host, shown.size, shown.center);
+            entry.Shown = shown;
+            float alpha = owned ? GrabbableModal.GetMrBackingAlpha(panel) : entry.Visibility.AlphaNow;
+            ApplyPlateAlpha(entry.Plate.GetComponent<Renderer>(), ref entry.FadeMat, ref entry.Faded, alpha);
         }
     }
 
@@ -1314,8 +1355,18 @@ internal static class MrBacking
             Panels[i].Layout.Reset();
             Panels[i].NextSampleFrame = 0;
             Panels[i].BoundsVisible = false;
+            Panels[i].Materialise?.Dispose();
+            Panels[i].Materialise = null;
+            if (Panels[i].FadeMat != null)
+                Object.Destroy(Panels[i].FadeMat);
+            Panels[i].FadeMat = null;
+            Panels[i].Faded = false;
+            Panels[i].Visibility.Reset();
             if (Panels[i].Plate != null)
+            {
+                Panels[i].Plate!.GetComponent<Renderer>().sharedMaterial = _plateMat;
                 Panels[i].Plate!.gameObject.SetActive(false);
+            }
         }
         // Non-panel surfaces: same rule, same reason — the plate is mod-owned, so deactivating it
         // returns the remote board to bit-identical non-MR rendering. Dead registrants are pruned
