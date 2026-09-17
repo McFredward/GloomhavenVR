@@ -51,6 +51,7 @@ internal static class Program
             // and a truncated entry that ended the walk would swallow the FINISHED bit that clears
             // an ActionProcessor halt — a stuck party, with nothing thrown and nothing logged.
             MapSyncVectors.Run(t);
+            SharedWindowMotionVectors.Run(t);
             RelaunchVectors.Run(t);
             ConfigStepVectors.Run(t, repoRoot);
             ScrollTurnGateVectors.Run(t);

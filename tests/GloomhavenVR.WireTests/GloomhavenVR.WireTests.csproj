@@ -618,5 +618,6 @@
     <Compile Include="DecisionAttributionVectors.cs" />
     <Compile Include="CardFlightHistoryVectors.cs" />
     <Compile Include="CardBurnCompletionVectors.cs" />
+    <Compile Include="SharedWindowMotionVectors.cs" />
   </ItemGroup>
 </Project>

@@ -87,6 +87,15 @@ internal static class NetProtocol
     /// <summary>Key/generation-scoped explicit declines of shared reward first-placement candidacy.</summary>
     public const byte ExtIdRewardPoseHandshake = 74;
     public const byte ExtIdCardBurnCompletion = 75;
+    /// <summary>Explicit shared map-window ownership: held mask, then automatic-motion mask.
+    /// Each byte uses bits 0/1/2 for story/quest/encounter. Zero explicitly clears ownership;
+    /// absence means the peer supplied no ownership statement. Additive TLV; 78 is next free.</summary>
+    public const byte ExtIdSharedWindowMotion = 77;
+    public const byte SharedWindowMotionRecordBytes = 2;
+    public const byte SharedWindowMotionMapStoryBit = 1;
+    public const byte SharedWindowMotionQuestConfirmBit = 2;
+    public const byte SharedWindowMotionEncounterBit = 4;
+    public const byte SharedWindowMotionDefinedMask = 7;
     /// <summary>Record 73 only: absolute scenario game-world pose, independent of local camera pan/seat.
     /// Legacy record 21 retains its existing frame 0/1 grammar.</summary>
     public const byte RewardFrameScenario = 2;
