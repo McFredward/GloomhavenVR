@@ -505,7 +505,18 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 517;
+    public const ushort ModBuild = 518;
+
+    // ModBuild 518 — persistent tutorial controllers and original defeat-retry placement.
+    //   Both controller models remain visible throughout the first tutorial's custom VR
+    //   controls lesson; only the task's applicable buttons and hands are highlighted.
+    //   Controller descendants and key markers use the VR layer, protecting them from
+    //   scenery fading and camera masks that omit the prefab's authored default layer.
+    //   Defeat retry restores each participant's original scenario arrival and control
+    //   board instead of solving a new seat from moved peers or the failed attempt's zoom.
+    //   Native ready-up and restart callbacks remain authoritative on every client.
+    //   Version 1.0.4 on dev; no bundle or wire grammar changes. All VR peers use 518.
+    //   See .planning/TUTORIAL-RETRY-518.md for evidence, coverage and hardware limits.
 
     // ModBuild 517 — one uninterrupted burn episode per original card.
     //   Native rest, pile refresh and action effect requests must not reset a running burn

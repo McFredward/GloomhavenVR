@@ -143,7 +143,7 @@ internal sealed partial class VRRigDriver
 /// native ready-up. Patching only UIResultsManager.Retry would miss non-host clients. Ordinary
 /// round restart preserves the baseline without requesting a teleport. Native methods run unchanged.
 /// </summary>
-[HarmonyPatch]
+[HarmonyPatch(typeof(SceneController))]
 internal static class ScenarioRetryStart_Patch
 {
     private static IEnumerable<MethodBase> TargetMethods()

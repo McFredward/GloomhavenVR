@@ -1,6 +1,6 @@
 # State — where the project stands
 
-**Updated 2026-09-17 for the burn replay review, ModBuild 517 on dev.** The file this replaces had gone 168 builds
+**Updated 2026-09-17 for tutorial visibility and defeat retry, ModBuild 518 on dev.** The file this replaces had gone 168 builds
 stale while still saying "read this first"; it is kept as `STATE-ARCHIVE-through-2026-08.md` for
 its round-by-round narrative and for nothing else.
 
@@ -13,7 +13,17 @@ change per build) → this file (where things stand and what is owed) → the bu
 
 ## 1. Position
 
-- **dev / 1.0.4 / ModBuild 517 addresses repeated burn playback.** Native effect aliases,
+- **dev / 1.0.4 / ModBuild 518 addresses tutorial controllers and defeat Retry.** Both
+  controllers stay visible throughout the custom first-tutorial lesson, with task-specific
+  highlights on the applicable hands. Recursive VR-layer assignment protects their parts
+  from scenery fading; missing models and rebuilt hands recover during the lesson.
+  Retry restores each participant's original scenario head pose, scale and board pose.
+  Round reloads preserve that baseline, and later peer movement or saved zoom cannot
+  redefine it. See [TUTORIAL-RETRY-518.md](TUTORIAL-RETRY-518.md) for source evidence,
+  focused coverage and final integration results. Hardware confirmation remains open;
+  supplied logs still identify local 515 / remote 500. No bundle, wire or release changes.
+
+- **Build 517 addresses repeated burn playback.** Native effect aliases,
   pile refresh and hover cleanup cannot restart or truncate an owned ability burn. Historical
   lost/consumed widget construction paints the original settled output; a replacement during
   playback waits for the original with cancellation-safe ownership. Actual recovery permits

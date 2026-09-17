@@ -56,6 +56,7 @@ namespace HarmonyLib
     internal sealed class HarmonyPatch : Attribute
     {
         internal HarmonyPatch() { }
+        internal HarmonyPatch(Type type) { }
         internal HarmonyPatch(Type type, string name) { }
     }
     internal static class AccessTools

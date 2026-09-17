@@ -1,6 +1,6 @@
 # Planning index
 
-Updated 2026-09-17 for the burn replay review, build 517 on dev. This directory holds internal
+Updated 2026-09-17 for tutorial visibility and defeat retry, build 518 on dev. This directory holds internal
 engineering evidence, historical decisions and current status; it is not the player manual.
 
 ## Current entry points
@@ -17,6 +17,10 @@ engineering evidence, historical decisions and current status; it is not the pla
 | [PROJECT.md](PROJECT.md), [ARCHITECTURE.md](ARCHITECTURE.md) | Product scope and architectural reasoning |
 
 ## Latest measured work
+
+- [TUTORIAL-RETRY-518.md](TUTORIAL-RETRY-518.md): integrated controller visibility and original defeat-retry placement, with evidence and validation limits.
+- [TUTORIAL-CONTROLLERS-518.md](TUTORIAL-CONTROLLERS-518.md): persistent models, per-hand highlights, VR render layers and model/hand lifetime recovery.
+- [RETRY-START-518.md](RETRY-START-518.md): per-participant original arrival and board restoration across defeat retries and round reloads.
 
 - [BURN-517.md](BURN-517.md): integrated one-episode burn review, all producer paths and validation limits.
 - [BURN-LOCAL-517.md](BURN-LOCAL-517.md): native reset/replay protection, historical reconstruction, replacement waiters and consumed items.

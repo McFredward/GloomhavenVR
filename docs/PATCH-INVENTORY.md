@@ -32,7 +32,7 @@ runtime, which is why a runtime audit could never do this job (see
 `.planning/refactor/REVIEW-Hands-Board-Core.md` §P1).
 
 
-**128 patch classes, 195 patched methods.**
+**130 patch classes, 197 patched methods.**
 
 ## Board
 
@@ -164,6 +164,8 @@ runtime, which is why a runtime audit could never do this job (see
 |---|---|---|---|
 | `CameraController_LateUpdate_Patch`<br/><sub>src/GloomhavenVR/Rig/CameraControllerPatches.cs:32</sub> | `CameraController.LateUpdate()` *(private)* | prefix | `RigModule`:44 |
 | `CameraController_RefreshFocusPosition_Patch`<br/><sub>src/GloomhavenVR/Rig/CameraControllerPatches.cs:50</sub> | `CameraController.RefreshFocusPosition()` *(private)* | prefix | `RigModule`:45 |
+| `ScenarioRetryStart_Patch` *(degrades by design)*<br/><sub>src/GloomhavenVR/Rig/VRRigDriver.RetryStart.cs:148</sub> | `SceneController.?()` | prefix | `RigModule`:46 |
+| `ScenarioRetryDestination_Patch`<br/><sub>src/GloomhavenVR/Rig/VRRigDriver.RetryStart.cs:163</sub> | `SceneController.LoadSceneCoroutine()` *(private)* | prefix | `RigModule`:47 |
 
 ## WorldUI
 
@@ -275,7 +277,7 @@ runtime, which is why a runtime audit could never do this job (see
 | `src/GloomhavenVR/Core/SceneRegistry.cs` | `ProceduralTileObserver_OnEnable_RegisterPatch`, `TilesOcclusionVolume_Start_RegisterPatch`, `UnityGameEditorDoorProp_Start_RegisterPatch` |
 | `src/GloomhavenVR/Core/Water/WaterTerrainVR.cs` | `ProceduralBase_NotifyContentPlacementComplete_WaterPatch` |
 | `src/GloomhavenVR/Net/NetModule.cs` | `ClientButtonLocker_TryLockButton_Patch`, `UIDistributePointsPopup_Hide_AssignmentPatch`, `UIDistributePointsPopup_RefreshAssignedPoints_Patch`, `UIDistributePointsSlot_AddPoint_Patch`, `UIDistributePointsSlot_EnableAddPoints_Patch`, `UIDistributePointsSlot_EnableRemovePoints_Patch`, `UIDistributePointsSlot_RemovePoint_Patch`, `UIDistributeReward_Distribute_Patch`, `UIDistributeReward_OnConfirmClick_Patch`, `UIDistributeReward_SetButtonInteractable_Patch`, `UIEventPanel_ClientContinueRoadEvent_Patch`, `UIEventPanel_CompleteEvent_Patch`, `UIEventPanel_ContinueEvent_Patch` |
-| `src/GloomhavenVR/Rig/RigModule.cs` | `CameraController_LateUpdate_Patch`, `CameraController_RefreshFocusPosition_Patch` |
+| `src/GloomhavenVR/Rig/RigModule.cs` | `CameraController_LateUpdate_Patch`, `CameraController_RefreshFocusPosition_Patch`, `ScenarioRetryDestination_Patch`, `ScenarioRetryStart_Patch` |
 | `src/GloomhavenVR/WorldUI/MapRoom/MapQuestReadyUp.cs` | `ClientQuestPromptSeam` |
 | `src/GloomhavenVR/WorldUI/MapRoom/MapTravelConfirm.cs` | `MapQuestReadyPress`, `TravelDrivePatches`, `TravelShortcutGate` |
 | `src/GloomhavenVR/WorldUI/Patches/EscMenuInputBlock.cs` | `EscMenuEscapeSuppressor`, `EscMenuMultiplayerCheckFinalizer`, `EscMenuTransitionFinalizer`, `ShowUIWindowSuppressor` |
