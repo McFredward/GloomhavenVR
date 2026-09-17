@@ -23,10 +23,13 @@ internal sealed class MrBackingLayout
     private bool _pending;
     private int _sample = -1, _candidateSamples;
 
-    internal static Rect WindowRect(Rect frame, Rect ink, bool painted, float plateBottom)
+    internal static Rect WindowRect(Rect frame, Rect ink, bool painted, float plateBottom,
+                                    bool fitScoped = false)
     {
         Rect content = ink;
-        if (painted)
+        // Scoped rows include their own painted images in ink. The parent host may still be a
+        // full-screen layout rectangle, so it cannot be a floor for their backing dimensions.
+        if (painted && !fitScoped)
             content = Rect.MinMaxRect(Mathf.Min(ink.xMin, frame.xMin),
                 Mathf.Min(Mathf.Min(ink.yMin, frame.yMin), plateBottom),
                 Mathf.Max(ink.xMax, frame.xMax), Mathf.Max(ink.yMax, frame.yMax));

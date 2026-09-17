@@ -127,6 +127,10 @@ internal sealed class RemoteWidgetMirror : WorldUI.MrBacking.IBackedSurface, Wor
     // Native use bars fit their full visible union, including pickers outside the strip rect.
     private readonly bool _contentOutsideFrame;
 
+    // Source identity, not viewer geometry: scoped board surfaces use the same original holder
+    // locally and on their inert clone. Its siblings are layout/input furniture, not MR content.
+    private readonly System.Func<Transform, Transform?>? _backingContentRoot;
+
     /// <summary>Whose resolved layout this mirror shows — see <see cref="LayoutOwner"/>. Every
     /// behaviour change this flag buys is written as <c>if (_layoutOwner == ...)</c> and nothing
     /// else reads it, so <see cref="LayoutOwner.Source"/> (member 0, the default) is the code path
@@ -288,9 +292,11 @@ internal sealed class RemoteWidgetMirror : WorldUI.MrBacking.IBackedSurface, Wor
         Vector2 grow, bool fitWidth = true, float densityScale = 1f, bool driveFromSource = true,
         LayoutOwner layoutOwner = LayoutOwner.Source,
         System.Func<Transform, bool>? externallyShownBranch = null, bool contentOutsideFrame = false,
-        System.Func<Transform, bool>? excludedFromFitBranch = null)
+        System.Func<Transform, bool>? excludedFromFitBranch = null,
+        System.Func<Transform, Transform?>? backingContentRoot = null)
     {
         _contentOutsideFrame = contentOutsideFrame;
+        _backingContentRoot = backingContentRoot;
         _layoutOwner = layoutOwner;
         _externalBranch = externallyShownBranch;
         _excludedFromFitBranch = excludedFromFitBranch;
@@ -347,6 +353,8 @@ internal sealed class RemoteWidgetMirror : WorldUI.MrBacking.IBackedSurface, Wor
     private bool _mrBoundsVisible;
     private int _mrSampleFrame = -1;
     private int _mrNextSampleFrame;
+    private Transform? _mrSourceContentRoot, _mrCloneContentRoot;
+    private int _mrContentRootStamp = -1;
 
     private void SampleMrBacking()
     {
@@ -358,16 +366,38 @@ internal sealed class RemoteWidgetMirror : WorldUI.MrBacking.IBackedSurface, Wor
         _mrNextSampleFrame = Time.frameCount + WorldUI.MrBackingLayout.SampleStrideFrames;
         _mrInkPanel.Target = _cloneRect;
         _mrInkPanel.HostRect = _pivot;
+        Transform? contentRoot = null;
+        if (_backingContentRoot != null)
+        {
+            Transform? sourceRoot = _source != null ? _backingContentRoot(_source) : null;
+            if (_mrContentRootStamp != RebuildStamp || !ReferenceEquals(sourceRoot, _mrSourceContentRoot)
+                || (sourceRoot != null && _mrCloneContentRoot == null))
+            {
+                _mrContentRootStamp = RebuildStamp;
+                _mrSourceContentRoot = sourceRoot;
+                _mrCloneContentRoot = sourceRoot != null ? CloneOf(sourceRoot) : null;
+            }
+            contentRoot = _mrCloneContentRoot;
+            if (contentRoot == null)
+            {
+                // A missing holder/clone is not permission to back the full-screen parent.
+                _mrBounds = default;
+                _mrBoundsVisible = false;
+                return;
+            }
+        }
         _mrBoundsVisible = WorldUI.PanelInkBounds.TryMeasure(_mrInkPanel,
-            out WorldUI.PanelInkBounds.Ink ink, frameOverride: _mrFrame, excludedRoots: _mrExcluded) && ink.Valid;
+            out WorldUI.PanelInkBounds.Ink ink, frameOverride: _mrFrame, excludedRoots: _mrExcluded,
+            contentRoot: contentRoot) && ink.Valid;
         if (!_mrBoundsVisible)
         {
             _mrBounds = default;
             return;
         }
         Rect bounds = WorldUI.MrBacking.GlyphTrueRect(_mrInkPanel, _pivot,
-            WorldUI.MrBackingLayout.WindowRect(_mrFrame, ink.Rect, ink.Plates > 0, ink.PlateBottom),
-            out _, _mrExcluded);
+            WorldUI.MrBackingLayout.WindowRect(_mrFrame, ink.Rect, ink.Plates > 0, ink.PlateBottom,
+                fitScoped: contentRoot != null),
+            out _, _mrExcluded, contentRoot);
         // Ink is measured in the native-layout pivot's px. The MR plate is parented one level
         // above it, so carry the same measured centre into host coordinates without re-fitting UI.
         Vector3 center = _host.transform.InverseTransformPoint(
@@ -1377,6 +1407,9 @@ internal sealed class RemoteWidgetMirror : WorldUI.MrBacking.IBackedSurface, Wor
         _mrBounds = default;
         _mrSampleFrame = -1;
         _mrInkPanel.Target = null!;
+        _mrSourceContentRoot = null;
+        _mrCloneContentRoot = null;
+        _mrContentRootStamp = -1;
         _mrInkPanel.HostRect = null!;
         _pairs = System.Array.Empty<Pair>();
         _mrExcluded.Clear();

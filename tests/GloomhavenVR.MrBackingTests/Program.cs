@@ -30,6 +30,48 @@ internal static class Program
         Near(overflow.width,2416,"real out-of-frame ink is not cropped");
         Near(overflow.yMin,-658,"unpainted frame does not borrow an unrelated plate floor");
 
+        // Hardware regression: a row-sized portrait must not back the parent's 1080 px screen
+        // canvas, even when a native portrait background is classified as painted artwork.
+        Rect row = new(-90, -95, 180, 190);
+        Rect scoped = MrBackingLayout.WindowRect(Huge, row, true, -1080, fitScoped:true);
+        Near(scoped.width,196,"scoped initiative backing must fit original portrait width");
+        Near(scoped.height,206,"scoped initiative backing must not inherit tall parent artwork");
+        Near(scoped.center.y,row.center.y,"scoped backing stays centred on the original row");
+        var source = new Transform();
+        var mask = new Transform { parent=source };
+        var rowHolder = new Transform { parent=mask };
+        var portrait = new Transform { parent=rowHolder };
+        var sibling = new Transform { parent=source };
+        var siblingText = new Transform { parent=sibling };
+        Check(MrBackingScope.Valid(source,rowHolder),"original rowHolder is a valid scope");
+        Check(!MrBackingScope.Valid(source,new Transform()),"unrelated rowHolder cannot measure this panel");
+        Check(MrBackingScope.Visit(source,rowHolder)&&MrBackingScope.Visit(mask,rowHolder),
+            "scope ancestors must still be visited for native clipping");
+        Check(!MrBackingScope.Paint(source,rowHolder)&&!MrBackingScope.Paint(mask,rowHolder),
+            "parent layout graphics must not paint the row backing");
+        Check(MrBackingScope.Visit(rowHolder,rowHolder)&&MrBackingScope.Paint(rowHolder,rowHolder),
+            "the original rowHolder's own real artwork remains content");
+        Check(MrBackingScope.Visit(portrait,rowHolder)&&MrBackingScope.Paint(portrait,rowHolder),
+            "native portrait graphics remain measurable");
+        Check(!MrBackingScope.Visit(sibling,rowHolder)&&!MrBackingScope.Paint(siblingText,rowHolder),
+            "fullscreen sibling graphics and text cannot inflate the backing");
+        Check(MrBackingScope.Valid(source,null)&&MrBackingScope.Visit(sibling,null)
+            &&MrBackingScope.Paint(siblingText,null),"ordinary windows retain their complete artwork");
+        var clone = new Transform();
+        var cloneMask = new Transform { parent=clone };
+        var cloneHolder = new Transform { parent=cloneMask };
+        var clonePortrait = new Transform { parent=cloneHolder };
+        var cloneSibling = new Transform { parent=clone };
+        Check(MrBackingScope.Valid(clone,cloneHolder)&&MrBackingScope.Visit(cloneMask,cloneHolder)
+            &&MrBackingScope.Paint(clonePortrait,cloneHolder)&&!MrBackingScope.Paint(cloneSibling,cloneHolder),
+            "remote inert hierarchy uses the same original rowHolder boundary");
+        var shrinkScope = Seed(Huge);
+        Tick(shrinkScope,scoped,50,1);Tick(shrinkScope,scoped,51,1.05f);
+        Rect shrinkingScope=Tick(shrinkScope,scoped,51,1.1f);
+        Check(shrinkingScope.height>scoped.height&&shrinkingScope.height<Huge.height,
+            "corrected backing shrinks visibly instead of popping");
+        Equal(Tick(shrinkScope,scoped,51,1.3f),scoped,"corrected backing settles on the original row");
+
         var first=new MrBackingLayout();
         Check(!first.Present(Huge,true,1,0,0.15f,out _),"first sample must not reveal a giant initial frame");
         Check(!first.Present(Huge,true,1,0.01f,0.15f,out _),"same sample is not independent confirmation");

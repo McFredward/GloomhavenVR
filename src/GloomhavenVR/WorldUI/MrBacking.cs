@@ -296,6 +296,8 @@ internal static class MrBacking
         public bool BoundsVisible;
         public int SampleFrame = -1;
         public int NextSampleFrame;
+        public Transform? ContentRoot;
+        public bool ScopeNoted;
 
         /// <summary>Change-dedup for the plate-extent line (rounded px) — see <see cref="LogPlateExtent"/>.</summary>
         public string? LoggedExtent;
@@ -881,14 +883,31 @@ internal static class MrBacking
                 {
                     entry.SampleFrame = Time.frameCount;
                     entry.NextSampleFrame = Time.frameCount + MrBackingLayout.SampleStrideFrames;
-                    entry.BoundsVisible = PanelInkBounds.TryMeasure(panel, out PanelInkBounds.Ink ink)
+                    // Build 519 hardware: the initiative backing extended down through the board.
+                    // Its original owner fits only initiativeTrackHolder, while the outer canvas
+                    // retains full-screen input/reveal siblings. The 516 ink walk measured those
+                    // siblings again. Reuse the explicit owner's content boundary for BOTH ink
+                    // and overflow glyphs; never change native geometry to fix a backing plate.
+                    entry.BoundsVisible = PanelInkBounds.TryMeasure(panel, out PanelInkBounds.Ink ink,
+                                              contentRoot: panel.FitContentRoot)
                                           && ink.Valid;
                     entry.Bounds = entry.BoundsVisible
                         ? GlyphTrueRect(panel, host,
-                            MrBackingLayout.WindowRect(r, ink.Rect, ink.Plates > 0, ink.PlateBottom),
-                            out overflowing)
+                            MrBackingLayout.WindowRect(r, ink.Rect, ink.Plates > 0, ink.PlateBottom,
+                                fitScoped: panel.FitContentRoot != null),
+                            out overflowing, contentRoot: panel.FitContentRoot)
                         : default;
                     LogPlateExtent(entry, host, r, entry.Bounds, overflowing);
+                    if (panel.FitContentRoot != null && (!entry.ScopeNoted
+                        || !ReferenceEquals(entry.ContentRoot, panel.FitContentRoot)))
+                    {
+                        entry.ContentRoot = panel.FitContentRoot;
+                        entry.ScopeNoted = true;
+                        VRLog.Note("WorldUI", $"MR BACKING SCOPE: '{host.name}' follows its original "
+                            + $"content root '{panel.FitContentRoot.name}', not parent layout siblings; "
+                            + $"host {r.width:F0}x{r.height:F0}px, measured backing "
+                            + $"{entry.Bounds.width:F0}x{entry.Bounds.height:F0}px, visible={entry.BoundsVisible}.");
+                    }
                 }
                 fitted = entry.Bounds;
                 sampleFrame = entry.SampleFrame;
@@ -994,7 +1013,7 @@ internal static class MrBacking
     /// their enlarged plates unchanged.</para>
     /// </summary>
     internal static Rect GlyphTrueRect(ConvertedPanel panel, RectTransform host, Rect hostRect,
-                                      out int overflowing, ISet<Transform>? excludedRoots = null)
+                                      out int overflowing, ISet<Transform>? excludedRoots = null, Transform? contentRoot = null)
     {
         overflowing = 0;
         for (int i = 0; i < OverflowNameCap; i++)
@@ -1019,7 +1038,8 @@ internal static class MrBacking
         for (int i = 0; i < TextScratch.Count; i++)
         {
             Graphic g = TextScratch[i];
-            if (g == null || g is not TMP_Text t || string.IsNullOrEmpty(t.text))
+            if (g == null || g is not TMP_Text t || string.IsNullOrEmpty(t.text)
+                || !MrBackingScope.Paint(g.transform, contentRoot))
                 continue;
             if (IsClipped(t.rectTransform, host) || ExcludedByOwner(t.transform, host, excludedRoots))
                 continue;

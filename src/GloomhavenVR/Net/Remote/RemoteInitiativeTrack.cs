@@ -212,7 +212,8 @@ internal sealed class RemoteInitiativeTrack
 
         _mirror = new RemoteWidgetMirror("InitiativeTrack", _root,
             PlayTray.InitiativeMountWidth, PlayTray.InitiativeMountMaxHeight, Vector2.up,
-            externallyShownBranch: IsEnemyInfoPopup);
+            externallyShownBranch: IsEnemyInfoPopup,
+            backingContentRoot: source => source.GetComponent<InitiativeTrack>()?.initiativeTrackHolder);
 
         _fallbackRoot = new GameObject("Fallback").transform;
         _fallbackRoot.gameObject.SetActive(false); // retired surrogate: never visible, including construction failure

@@ -2,6 +2,16 @@ using System;
 using System.Collections.Generic;
 namespace UnityEngine
 {
+    internal sealed class Transform
+    {
+        internal Transform? parent;
+        internal bool IsChildOf(Transform ancestor)
+        {
+            for (Transform? node = this; node != null; node = node.parent)
+                if (ReferenceEquals(node, ancestor)) return true;
+            return false;
+        }
+    }
     internal struct Vector2
     {
         public float x, y;

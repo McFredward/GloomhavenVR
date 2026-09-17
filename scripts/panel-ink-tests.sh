@@ -26,6 +26,13 @@ assert source.count(needle) == 1
 needle = '(excludedRoots != null && excludedRoots.Contains(t))'
 assert source.count(needle) == 1
 (root / 'mr-hover.fixture').write_text(source.replace(needle, 'false'))
+for name, needle, replacement in [
+    ('mr-scope', 'MrBackingScope.Paint(t, contentRoot)', 'true'),
+    ('mr-scope-plate', 'contentRoot == null && !ReferenceEquals(graphic, panel.ContentGraphic)', '!ReferenceEquals(graphic, panel.ContentGraphic)'),
+    ('mr-scope-clip', 'if (ClipsChildren(t) && !Intersect(clip, bounds, out clip))', 'if (contentRoot == null && ClipsChildren(t) && !Intersect(clip, bounds, out clip))'),
+]:
+    assert source.count(needle) == 1, name
+    (root / (name+'.fixture')).write_text(source.replace(needle, replacement))
 needle = 'RewardHeadingBounds.Expand(host, graphic, bounds)'
 capture = (repo / 'src/GloomhavenVR/WorldUI/Sharpness/PanelSupersample.4.Content.cs').read_text()
 measure = capture[capture.index('    private static void MeasureFrame('):]
@@ -69,7 +76,7 @@ assert 'out content, out contributors, out _, out _, includeParkedHint)' in code
 print('Placement binding negative control: inclusion of owner annotation rejected.')
 PY
 dotnet run --project "$project" --configuration Release --property:DrawnUnionSource="$mutation_dir/union.fixture"
-for mutation in missing broad hint-ink hint-union reward-heading mr-frame mr-hover; do
+for mutation in missing broad hint-ink hint-union reward-heading mr-frame mr-hover mr-scope mr-scope-plate mr-scope-clip; do
     ink_source="$mutation_dir/$mutation.fixture"
     union_source="$mutation_dir/union.fixture"
     if [[ "$mutation" == hint-union ]]; then
@@ -77,7 +84,7 @@ for mutation in missing broad hint-ink hint-union reward-heading mr-frame mr-hov
         union_source="$mutation_dir/hint-union.fixture"
     fi
     if dotnet run --project "$mutation_dir/GloomhavenVR.PanelInkTests.csproj" --configuration Release \
-        --property:InkSource="$ink_source" --property:HeadingSource="$heading_source" --property:DrawnUnionSource="$union_source" > "$mutation_dir/$mutation.log" 2>&1; then
+        --property:ScopeSource="$repo_root/src/GloomhavenVR/WorldUI/MrBackingScope.cs" --property:InkSource="$ink_source" --property:HeadingSource="$heading_source" --property:DrawnUnionSource="$union_source" > "$mutation_dir/$mutation.log" 2>&1; then
         cat "$mutation_dir/$mutation.log"
         echo "FAIL: $mutation mutation escaped the ink test." >&2
         exit 1
@@ -89,9 +96,12 @@ for mutation in missing broad hint-ink hint-union reward-heading mr-frame mr-hov
     if [[ "$mutation" == hint-union ]]; then expected='visible placement excludes hint'; fi
     if [[ "$mutation" == mr-frame ]]; then expected='mirror backdrop classification uses the sampled owner frame'; fi
     if [[ "$mutation" == mr-hover ]]; then expected='neutralized remote hover branch must not inflate'; fi
+    if [[ "$mutation" == mr-scope ]]; then expected='scoped initiative excludes ancestor screen artwork'; fi
+    if [[ "$mutation" == mr-scope-plate ]]; then expected='scoped full-frame portrait is real content'; fi
+    if [[ "$mutation" == mr-scope-clip ]]; then expected='scoped portrait retains ancestor clipping'; fi
     if ! rg -q "$expected" "$mutation_dir/$mutation.log"; then
         cat "$mutation_dir/$mutation.log"
         exit 1
     fi
 done
-echo "Panel ink negative controls: seven runtime mutations and one placement binding mutation rejected."
+echo "Panel ink negative controls: ten runtime mutations and one placement binding mutation rejected."

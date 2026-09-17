@@ -444,8 +444,12 @@ internal static class PanelInkBounds
     /// nothing measurable, which the caller must treat as "keep the frame-based placement".
     /// Never throws: a throw here would stand down a window's whole follow tick.
     /// </summary>
+    // contentRoot is an optional MR-only content boundary. Null preserves all existing window,
+    // grab and capture queries. A declared board row retains ancestor masks but never measures
+    // parent/sibling artwork; visible images inside it are ink even if they fill the row's frame.
     internal static bool TryMeasure(ConvertedPanel panel, out Ink ink, bool includeParkedHint = true,
-                                    Rect? frameOverride = null, ISet<Transform>? excludedRoots = null)
+                                    Rect? frameOverride = null, ISet<Transform>? excludedRoots = null,
+                                    Transform? contentRoot = null)
     {
         ink = default;
         ink.BottomName = string.Empty;
@@ -456,7 +460,7 @@ internal static class PanelInkBounds
         ink.PlateBottomName = string.Empty;
         try
         {
-            return MeasureCore(panel, ref ink, includeParkedHint, frameOverride, excludedRoots);
+            return MeasureCore(panel, ref ink, includeParkedHint, frameOverride, excludedRoots, contentRoot);
         }
         catch (System.Exception)
         {
@@ -467,11 +471,12 @@ internal static class PanelInkBounds
     }
 
     private static bool MeasureCore(ConvertedPanel panel, ref Ink ink, bool includeParkedHint, Rect? frameOverride,
-                                    ISet<Transform>? excludedRoots)
+                                    ISet<Transform>? excludedRoots, Transform? contentRoot)
     {
         RectTransform? host = panel.HostRect;
         Transform? target = panel.Target;
-        if (host == null || target == null || !target.gameObject.activeInHierarchy)
+        if (host == null || target == null || !target.gameObject.activeInHierarchy
+            || !MrBackingScope.Valid(target, contentRoot))
             return false;
 
         // Native mirror pivots carry the original parent layout, while the owner's fitted frame
@@ -505,7 +510,8 @@ internal static class PanelInkBounds
             ClipFrame node = Stack[last];
             Stack.RemoveAt(last);
             Transform t = node.Transform;
-            if (t == null || !t.gameObject.activeSelf || (excludedRoots != null && excludedRoots.Contains(t)))
+            if (t == null || !t.gameObject.activeSelf || (excludedRoots != null && excludedRoots.Contains(t))
+                || !MrBackingScope.Visit(t, contentRoot))
                 continue;
             if (++nodes > MaxNodes)
             {
@@ -561,7 +567,8 @@ internal static class PanelInkBounds
                     // Expand drawn glyphs only; clip geometry and the authored scale census
                     // must retain the original RectTransform bounds.
                     Rect drawBounds = RewardHeadingBounds.Expand(host, graphic, bounds);
-                    if (Draws(graphic) && Intersect(clip, drawBounds, out Rect visible)
+                    if (MrBackingScope.Paint(t, contentRoot)
+                        && Draws(graphic) && Intersect(clip, drawBounds, out Rect visible)
                         && visible.width > 0f && visible.height > 0f)
                     {
                         // ---- ModBuild 449 - THE HANDLE FOLLOWED AN ANIMATION, NOT THE CONTENT. ---
@@ -599,11 +606,14 @@ internal static class PanelInkBounds
                             ink.Transient++;
                             ink.TransientMask |= 1 << family;
                         }
+                        // An explicitly scoped board row measures its actual painted images,
+                        // including portrait backgrounds. Calling these a full-frame backdrop
+                        // would substitute the obsolete screen-sized parent for a small row.
                         // A movie's sole RawImage IS its content, despite filling the frame. In
                         // build 505 the generic backdrop exclusion left no ink and hid its grab
                         // bar after two empty samples. Exempt only the declared content identity:
                         // all visibility/alpha/clip checks above and other backdrop rules remain.
-                        else if (!ReferenceEquals(graphic, panel.ContentGraphic)
+                        else if (contentRoot == null && !ReferenceEquals(graphic, panel.ContentGraphic)
                                  && plateTestUsable && visible.width >= plateW && visible.height >= plateH)
                         {
                             ink.Plates++;

@@ -22,6 +22,7 @@ accessor='using UnityEngine; namespace GloomhavenVR.WorldUI; internal partial cl
 layout=(repo/'src/GloomhavenVR/WorldUI/MrBackingLayout.cs').read_text()
 mutations={
  'host':('Rect content = ink;','Rect content = frame;'),
+ 'scope':('if (painted && !fitScoped)','if (painted)'),
  'margin':('const float margin = 8f;','const float margin = 80f;'),
  'plate':('Mathf.Min(Mathf.Min(ink.yMin, frame.yMin), plateBottom)','Mathf.Min(ink.yMin, frame.yMin)'),
  'confirm':('_candidateSamples >= 2\n                    && (agrees || now - _candidateStarted >= Mathf.Max(duration, 0.05f))','true'),
@@ -34,6 +35,15 @@ mutations={
 for name,(needle,replacement) in mutations.items():
     assert layout.count(needle)==1,name
     (out/(name+'.fixture')).write_text(layout.replace(needle,replacement))
+scope=(repo/'src/GloomhavenVR/WorldUI/MrBackingScope.cs').read_text()
+needle='|| ReferenceEquals(node, contentRoot) || node.IsChildOf(contentRoot);'
+assert scope.count(needle)==1
+(out/'scope-siblings.fixture').write_text(scope.replace(needle,
+    '|| !ReferenceEquals(node, contentRoot) || node.IsChildOf(contentRoot);'))
+needle='|| ReferenceEquals(node, contentRoot) || node.IsChildOf(contentRoot) || contentRoot.IsChildOf(node);'
+assert scope.count(needle)==1
+(out/'scope-ancestor.fixture').write_text(scope.replace(needle,
+    '|| ReferenceEquals(node, contentRoot) || node.IsChildOf(contentRoot);'))
 needle='&& !ModalFallback.AppearStillOwed(panel, out _)'
 assert accessor.count(needle)==1
 (out/'owed.fixture').write_text(accessor.replace(needle,''))
@@ -60,8 +70,8 @@ def bindings(mr,m,mirror):
     assert 'Panels[i].Layout.Reset();' in mr and 'e.Layout.Reset();' in mr
     assert 'if (!WorldUI.MrBacking.WantOpaque' in mirror
     assert '_mrNextSampleFrame = Time.frameCount + WorldUI.MrBackingLayout.SampleStrideFrames;' in mirror
-    assert 'out WorldUI.PanelInkBounds.Ink ink, frameOverride: _mrFrame, excludedRoots: _mrExcluded)' in mirror
-    assert 'WorldUI.MrBackingLayout.WindowRect(_mrFrame, ink.Rect, ink.Plates > 0, ink.PlateBottom)' in mirror
+    assert 'out WorldUI.PanelInkBounds.Ink ink, frameOverride: _mrFrame, excludedRoots: _mrExcluded,' in mirror
+    assert 'WorldUI.MrBackingLayout.WindowRect(_mrFrame, ink.Rect, ink.Plates > 0, ink.PlateBottom,' in mirror
     assert 'WorldUI.TransientFamilies.Self(srcNodes[i])' in mirror
     assert 'WorldUI.TransientFamilies.IsDeclaredEffectQuad(srcNodes[i], _source)' in mirror
     assert 'BackingCenter => _mrBounds.center;' in mirror
@@ -69,19 +79,40 @@ def bindings(mr,m,mirror):
     assert '_mrFrame = default;' in mirror and '_mrBounds = default;' in mirror
     assert '_mrInkPanel.Target = null!;' in mirror and '_mrSampleFrame = -1;' in mirror
 bindings(mr,m,mirror)
+ink=code((repo/'src/GloomhavenVR/WorldUI/Conversion/PanelInkBounds.cs').read_text())
+initiative=code((repo/'src/GloomhavenVR/Net/Remote/RemoteInitiativeTrack.cs').read_text())
+elements=code((repo/'src/GloomhavenVR/Net/Remote/RemoteElementStrip.cs').read_text())
+assert '!MrBackingScope.Valid(target, contentRoot)' in ink
+assert '!MrBackingScope.Visit(t, contentRoot)' in ink
+assert 'if (MrBackingScope.Paint(t, contentRoot)' in ink
+assert 'else if (contentRoot == null && !ReferenceEquals(graphic, panel.ContentGraphic)' in ink
+assert mr.count('contentRoot: panel.FitContentRoot') == 2
+assert 'fitScoped: panel.FitContentRoot != null' in mr
+assert '!MrBackingScope.Paint(g.transform, contentRoot)' in mr
+assert '_mrCloneContentRoot = sourceRoot != null ? CloneOf(sourceRoot) : null;' in mirror
+assert '_mrContentRootStamp != RebuildStamp || !ReferenceEquals(sourceRoot, _mrSourceContentRoot)' in mirror
+assert '_mrSourceContentRoot = null;' in mirror and '_mrCloneContentRoot = null;' in mirror
+assert 'if (contentRoot == null)' in mirror
+assert 'contentRoot: contentRoot) && ink.Valid;' in mirror
+assert 'fitScoped: contentRoot != null' in mirror
+assert 'out _, _mrExcluded, contentRoot);' in mirror
+assert 'backingContentRoot: source => source.GetComponent<InitiativeTrack>()?.initiativeTrackHolder' in initiative
+assert 'backingContentRoot: source => source.GetComponent<InfusionBoardUI>()?.elementsHolder' in elements
 for needle,replacement in [('visible &= ownerVisible;','visible = true;'),('fitted = entry.Bounds;','fitted = r;'),('Fit(entry.Plate, host, shown.size, shown.center);','Fit(entry.Plate, host, fitted.size, fitted.center);')]:
     try:bindings(mr.replace(needle,replacement),m,mirror)
     except AssertionError:pass
     else:raise AssertionError('MR binding mutation escaped: '+needle)
-print('MR backing integration bindings: 25 assertions and three negative controls passed.')
+print('MR backing integration bindings: 41 assertions and three negative controls passed.')
 PY
 dotnet run --project "$project" --configuration Release --property:AccessorSource="$mutation_dir/accessor.fixture"
-for mutation in host margin plate confirm sample snap hidden starve ready owed; do
+for mutation in host margin plate confirm sample snap hidden starve ready owed scope scope-siblings scope-ancestor; do
     layout_source="$mutation_dir/$mutation.fixture"
     accessor_source="$mutation_dir/accessor.fixture"
+    scope_source="$repo_root/src/GloomhavenVR/WorldUI/MrBackingScope.cs"
+    if [[ "$mutation" == scope-siblings || "$mutation" == scope-ancestor ]]; then layout_source="$layout"; scope_source="$mutation_dir/$mutation.fixture"; fi
     if [[ "$mutation" == owed ]]; then layout_source="$layout"; accessor_source="$mutation_dir/owed.fixture"; fi
     if dotnet run --project "$mutation_dir/GloomhavenVR.MrBackingTests.csproj" --configuration Release \
-        --property:LayoutSource="$layout_source" --property:AccessorSource="$accessor_source" > "$mutation_dir/$mutation.log" 2>&1; then
+        --property:LayoutSource="$layout_source" --property:AccessorSource="$accessor_source" --property:ScopeSource="$scope_source" > "$mutation_dir/$mutation.log" 2>&1; then
         cat "$mutation_dir/$mutation.log"
         echo "FAIL: $mutation mutation escaped MR backing tests." >&2
         exit 1
@@ -91,12 +122,15 @@ for mutation in host margin plate confirm sample snap hidden starve ready owed; 
         plate) expected='ultrawide artwork below frame';;
         confirm) expected='first sample must not reveal';;
         sample) expected='same sample is not independent';;
-        snap) expected='first plate grows rather than popping';;
+        snap) expected='corrected backing shrinks visibly instead of popping';;
         hidden) expected='invisible content cannot leave';;
         starve) expected='continuously changing native layout cannot starve';;
         ready) expected='unfitted clone cannot invent';;
         owed) expected='never-drawn map window stays withheld';;
+        scope) expected='scoped initiative backing must fit original portrait width';;
+        scope-siblings) expected='parent layout graphics must not paint the row backing';;
+        scope-ancestor) expected='scope ancestors must still be visited for native clipping';;
     esac
     if ! rg -q "$expected" "$mutation_dir/$mutation.log"; then cat "$mutation_dir/$mutation.log"; exit 1; fi
 done
-echo 'MR backing negative controls: ten production mutations rejected.'
+echo 'MR backing negative controls: thirteen production mutations rejected.'
