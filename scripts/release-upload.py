@@ -98,6 +98,8 @@ def verified_asset(api, release, archive, digest):
         return False
     asset = assets[0]
     if asset.get('state') == 'starter':
+        if not release.get('draft'):
+            raise Refused('Published asset is incomplete; it will not be modified.')
         api.remove_starter(asset)  # GitHub documents this empty remnant after HTTP 502.
         return False
     if asset.get('state') != 'uploaded' or asset.get('size') != archive.stat().st_size or api.digest(asset) != digest:

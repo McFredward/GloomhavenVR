@@ -149,6 +149,12 @@ class UploadTests(unittest.TestCase):
         self.publish()
         self.assertEqual((self.api.deletes, self.api.uploads, self.api.publishes), (1, 1, 1))
 
+    def test_verification_never_cleans_up_published_assets(self):
+        release = {'draft': False, 'assets': [{'id': 7, 'name': self.archive.name, 'state': 'starter'}]}
+        with self.assertRaises(M.Refused):
+            M.verified_asset(self.api, release, self.archive, 'unused')
+        self.assertEqual(self.api.deletes, 0)
+
     def test_wrong_tag_or_main_history_prevents_upload(self):
         for field in ('tag_sha', 'main_base'):
             self.api = API()
