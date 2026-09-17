@@ -32,6 +32,9 @@ factory = source(base+'VRCardFactory.cs')
 require('if (!existing.HasAdoptedFace && !CardsDriver.NativeSceneLoadInProgress)' in factory and 'existing.AttachGameCard(widget);' in factory, 'Abort rebuild must reattach existing wrapper')
 card = source(base+'VRCard.cs').split('internal void ReturnBorrowedFaceForSceneLoad()',1)[1].split('internal void DetachGameCard()',1)[0]
 require(card.index('AbilityCardUI? widget = GameCard;') < card.index('DetachGameCard();') < card.index('GameCard = widget;'), 'Scene release must preserve selected wrapper identity')
+require(card.index('BurnArtwork.RetireBurnPlayback(') < card.index('DetachGameCard();'), 'Scene release must retire playback before returning native hierarchy')
+require('[HarmonyPatch(typeof(AbilityCardUI), nameof(AbilityCardUI.OnReturnedToPool))]' in patch and '() => BurnArtwork.RetireBurnPlayback(BurnArtwork.EffectsOf(__instance))' in patch, 'Pool reset must retire protection even without an adopted VR wrapper')
+require('PatchAll(typeof(AbilityCardUI_OnReturnedToPool_BurnLifetime))' in source(base+'CardsModule.cs'), 'Pool burn lifetime patch must be registered')
 
 require(source(base+'VRCard.cs').count('if (CardsDriver.NativeSceneLoadInProgress) return;') == 2, 'VR card updates must not reapply native FX during scene loading')
 require('if (CardsDriver.NativeSceneLoadInProgress) return false;' in source(base+'VRCard.cs').split('internal bool AttachGameCard(',1)[1].split('internal bool HasAdoptedFace',1)[0], 'Direct card attachment must not bypass native load admission')

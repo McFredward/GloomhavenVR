@@ -94,7 +94,10 @@ internal static class Program
         var first = new AbilityCardUI();
         var second = new AbilityCardUI();
         var selected = new[] { factory.GetOrCreate(first), factory.GetOrCreate(second) };
+        first.Face.BurnProtected = second.Face.BurnProtected = true;
         factory.ReturnBorrowedFacesBeforeSceneLoad();
+        Require(!first.Face.BurnProtected && !second.Face.BurnProtected,
+            "Scene release must retire burn protection so native pool resets remain possible");
         Require(ReferenceEquals(selected[0].GameCard, first) && ReferenceEquals(selected[1].GameCard, second),
             "Scene release must retain selected wrapper game identity");
         Require(ReferenceEquals(first.Face.Parent, first.Owner) && ReferenceEquals(second.Face.Parent, second.Owner),

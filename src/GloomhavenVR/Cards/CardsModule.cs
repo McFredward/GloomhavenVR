@@ -80,6 +80,7 @@ internal sealed class CardsModule : IVRModule
         // once the loads are quiet (see Cards/CardArtGuard.cs).
         VRSession.Harmony?.PatchAll(typeof(FullAbilityCard_ShowCard_ArtGuard));
         VRSession.Harmony?.PatchAll(typeof(BurnArtwork.ToggleEffect_PreserveSpentStart_Patch));
+        VRSession.Harmony?.PatchAll(typeof(AbilityCardUI_OnReturnedToPool_BurnLifetime));
         VRSession.Harmony?.PatchAll(typeof(BurnArtwork.BurnCardTimeline_PreserveSpentStart_Patch));
         VRSession.Harmony?.PatchAll(typeof(ItemBurnPlayback.BurnCardTimeline_Track));
 

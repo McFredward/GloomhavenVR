@@ -33,6 +33,7 @@ namespace GloomhavenVR.Cards
     {
         internal Node? Parent;
         internal bool Alive = true;
+        internal bool BurnProtected;
         internal readonly List<Node> Children = new();
         internal void ParentTo(Node parent)
         { Parent?.Children.Remove(this); Parent = parent; parent.Children.Add(this); }
@@ -50,6 +51,7 @@ namespace GloomhavenVR.Cards
         internal bool HasAdoptedFace;
         internal int Adoptions;
         internal bool AttachmentUnavailable;
+        internal Node? FullCard => GameCard?.Face;
         internal sealed class BurnFx { internal void Detach() { } }
         private readonly BurnFx _burnFx = new();
         internal bool AttachGameCard(AbilityCardUI widget)
@@ -62,6 +64,12 @@ namespace GloomhavenVR.Cards
             if (GameCard != null && HasAdoptedFace) GameCard.Face.ParentTo(GameCard.Owner);
             HasAdoptedFace = false; GameCard = null;
         }
+    }
+    internal static class BurnArtwork
+    {
+        internal static Node? EffectsOf(Node? face) => face;
+        internal static void RetireBurnPlayback(Node? effect)
+        { if (effect != null) effect.BurnProtected = false; }
     }
     internal partial class VRCardFactory
     {

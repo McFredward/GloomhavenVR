@@ -631,6 +631,7 @@ internal sealed class VRCard : GrabbableBehaviour, IGrabHighlight, IPokeable, IG
     internal void ReturnBorrowedFaceForSceneLoad()
     {
         AbilityCardUI? widget = GameCard;
+        BurnArtwork.RetireBurnPlayback(BurnArtwork.EffectsOf(FullCard));
         _burnFx.Detach();
         DetachGameCard();
         GameCard = widget;
