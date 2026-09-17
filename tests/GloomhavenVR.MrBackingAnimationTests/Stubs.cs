@@ -111,14 +111,15 @@ namespace GloomhavenVR.WorldUI
             internal bool Faded;internal Rect Shown;
         }
         private static readonly List<PanelEntry> Panels=new();private static bool _applied;
-        private static Material _plateMat=new();private static Color _plateColor;
-        private static void EnsurePlateMaterial() { }
+        private static Material? _plateMat;private static Color _plateColor;
+        private static void EnsurePlateMaterial() { _plateMat ??= new(); }
         private static void DestroyPlate(Transform? t,Material? m){Object.Destroy(t);Object.Destroy(m);}
-        private static Material CreateFadeMaterial()=>new();private static Transform CreatePlate(RectTransform host)=>new();
+        private static Material CreateFadeMaterial()=>new();private static Transform CreatePlate(RectTransform host) { var plate=new Transform();plate.Renderer.sharedMaterial=_plateMat;return plate; }
         private static void Fit(Transform plate,RectTransform host,Vector2 size,Vector2 center) { }
         private static Rect GlyphTrueRect(ConvertedPanel panel,RectTransform host,Rect rect,out bool glyph,Transform? contentRoot=null) {glyph=false;return rect;}
-        internal static void ResetTest() { Panels.Clear();GrabbableModal.Cached=false;_applied=false;MixedReality.BackingsWanted=true;PanelInkBounds.Valid=true;PanelInkBounds.Throw=false;PanelInkBounds.OnMeasure=null;MrBackingMaterialise.ThrowApply=false;MrBackingMaterialise.ThrowRestore=false;MrBackingMaterialise.Disposals=0;GloomhavenVR.Core.VRLog.Throw=false;GloomhavenVR.Core.VRLog.Warnings=0;Time.unscaledTime=0; }
+        internal static void ResetTest() { Panels.Clear();GrabbableModal.Cached=false;_applied=false;_plateMat=null;MixedReality.BackingsWanted=true;PanelInkBounds.Valid=true;PanelInkBounds.Throw=false;PanelInkBounds.OnMeasure=null;MrBackingMaterialise.ThrowApply=false;MrBackingMaterialise.ThrowRestore=false;MrBackingMaterialise.Disposals=0;GloomhavenVR.Core.VRLog.Throw=false;GloomhavenVR.Core.VRLog.Warnings=0;Time.unscaledTime=0; }
         internal static int EntryCount=>Panels.Count;
+        internal static bool Ready=>_applied&&_plateMat!=null;
         internal static bool Active(ConvertedPanel p)=>FindAnimationEntry(p)?.Animation.Active??false;
         internal static bool Closed(ConvertedPanel p)=>FindAnimationEntry(p)?.Animation.Closed??false;
         internal static Transform? Plate(ConvertedPanel p)=>FindAnimationEntry(p)?.Plate;

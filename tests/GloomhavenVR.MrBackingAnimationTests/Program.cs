@@ -62,6 +62,13 @@ internal static class Program
         Check(!MrBacking.Visible(p),"enabling MR during debris tail stays empty");
         runner.Finish("completed",true);Check(MrBacking.Closed(p),"MR-off origin still closes");
 
+        MrBacking.ResetTest();MixedReality.BackingsWanted=false;p=Start(true,out runner);
+        Check(!MrBacking.Ready,"first MR-off reveal has no initial material");
+        MixedReality.BackingsWanted=true;runner.Frame(0.2f);
+        Check(MrBacking.Visible(p)&&MrBacking.Ready,"first MR-on runner frame prepares material before regular Tick");
+        Check(MrBacking.Plate(p)!.Renderer.sharedMaterial!=null,"first backing is not an unmaterialed primitive");
+        runner.Frame(0.8f);runner.Finish("completed",true);
+
         MrBacking.ResetTest();MixedReality.BackingsWanted=false;GrabbableModal.Cached=true;
         PanelInkBounds.Throw=true;p=Start(false,out runner);
         Check(MrBacking.Active(p),"off-start cached geometry avoids a new native ink walk");
