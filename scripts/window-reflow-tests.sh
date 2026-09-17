@@ -14,9 +14,9 @@ from pathlib import Path
 import sys
 root, dest = map(Path, sys.argv[1:])
 s = (root/'src/GloomhavenVR/WorldUI/Modal/WindowReflowLayout.cs').read_text()
-old = 'if (!collision || members == 0) return false;'
+old = 'if (!included[j] || !Overlap(candidate, windows[j])) continue;'
 assert s.count(old) == 1
-(dest/'broken.cs').write_text(s.replace(old, 'if ((!collision || members == 0) && count < 0) return false;'))
+(dest/'broken.cs').write_text(s.replace(old, 'if (!included[j]) continue;'))
 PY
 if dotnet run --project "$fixture/GloomhavenVR.WindowReflowTests.csproj" --configuration Release \
     -p:LayoutSource="$fixture/broken.cs" -p:PoseSource="$root/src/GloomhavenVR/WorldUI/Modal/WindowReflowPose.cs" >"$fixture/output" 2>&1; then
@@ -49,4 +49,25 @@ if ! rg -q 'Off-centre hit rectangles must finish at the packed centre after yaw
     cat "$fixture/pose-output"
     exit 1
 fi
-echo 'Window reflow: 2 runtime negative controls passed.'
+python3 - "$root" "$fixture" <<'PYCODE'
+from pathlib import Path
+import sys
+root, dest = map(Path, sys.argv[1:])
+s = (root/'src/GloomhavenVR/WorldUI/Modal/WindowReflowLayout.cs').read_text()
+old = 'included[incoming] = false;\n        members--;'
+assert s.count(old) == 1
+(dest/'broken-anchor.cs').write_text(s.replace(old,
+    'if (!fresh.Movable) { included[incoming] = false; members--; }'))
+PYCODE
+if dotnet run --project "$fixture/GloomhavenVR.WindowReflowTests.csproj" --configuration Release \
+    -p:LayoutSource="$fixture/broken-anchor.cs" \
+    -p:PoseSource="$root/src/GloomhavenVR/WorldUI/Modal/WindowReflowPose.cs" >"$fixture/anchor-output" 2>&1; then
+    cat "$fixture/anchor-output"
+    echo 'ERROR: moving-newcomer negative control was not detected' >&2
+    exit 1
+fi
+if ! rg -q 'A fixed older corner must never relocate the incoming window' "$fixture/anchor-output"; then
+    cat "$fixture/anchor-output"
+    exit 1
+fi
+echo 'Window reflow: 3 runtime negative controls passed.'

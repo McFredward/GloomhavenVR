@@ -31,9 +31,9 @@ internal static class Program
             "Vertical separation must not trigger horizontal rearrangement");
         Check(!Arrange(new[]{W(5f,1f),W(5f,1f)},out _,out _,out _),
             "Offscreen windows must not trigger a recall");
-        Check(Arrange(new[]{W(0f,1f),W(0f,1f,movable:false)},out _,out var held,out _),
-            "A protected corner must leave room for the new window elsewhere");
-        Check(held[0] && !held[1], "Protected corner geometry must never move");
+        Check(!Arrange(new[]{W(0f,1f),W(0f,1f,movable:false)},out _,out var held,out _),
+            "A fixed older corner must never relocate the incoming window");
+        Check(!held[0] && !held[1], "Neither incoming nor protected corner may move");
         Check(!Arrange(new[]{W(0f,4f),W(0f,4f)},out _,out _,out _),
             "Impossible readable fit must leave the native window playable");
         Check(!Arrange(new[]{W(float.NaN,1f),W(0f,1f)},out _,out _,out _),
@@ -42,20 +42,29 @@ internal static class Program
             "Windows above the view must not trigger a recall");
         var mixed = new[]{ W(-0.2f,1.1f), W(0.2f,1.1f), W(2f,0.4f) };
         Check(Arrange(mixed,out _,out var affected,out _), "Overlapping visible pair must arrange");
-        Check(affected[0] && affected[1] && !affected[2], "An unrelated parked window must remain unchanged");
+        Check(!affected[0] && affected[1] && !affected[2], "Only the overlapping older window may move");
         var cornerIncoming = new[]{W(0f,0.7f,movable:false),W(-0.3f,0.9f)};
         Check(Arrange(cornerIncoming,out _,out affected,out _), "A fixed incoming quest may move its blocking story");
         Check(!affected[0] && affected[1], "The new quest must retain its authored corner");
         Check(!Arrange(new[]{W(0f,1f,movable:false),W(0f,1f,movable:false)},out _,out _,out _),
             "Two fixed colliders must not claim successful movement");
         var crowded = new[]{W(-0.15f,1.1f),W(0.15f,1.1f),W(0.75f,0.6f,movable:false)};
-        Check(Arrange(crowded,out _,out affected,out _), "A fixed quest corner must not veto the encounter pair");
-        Check(affected[0] && affected[1] && !affected[2], "The quest corner must remain fixed");
+        Check(!Arrange(crowded,out _,out affected,out _),
+            "An anchored opening and occupied side must refuse an unreadable fit");
+        Check(!affected[0] && affected[1] && !affected[2], "Incoming and quest corner must remain fixed");
         var chain = new[]{ W(-0.6f,0.8f), W(0f,0.8f), W(0.6f,0.8f) };
-        Check(Arrange(chain,out _,out affected,out _), "Transitive collision must arrange as one group");
-        Check(affected[0] && affected[1] && affected[2], "The third colliding window must be included");
-        // Measured hardware shape: ~49 + 48 degree-wide windows cannot fit side-by-side at their
-        // original depth inside the usable 70 degree cone. Moving farther preserves their size.
+        Check(Arrange(chain,out var chainX,out affected,out float chainDepth),
+            "Transitive collision must arrange as one group");
+        Check(!affected[0] && affected[1] && affected[2], "Only older transitive colliders must be included");
+        var arrangedChain = new[]{chain[0],W(chainX[1],0.8f,chainDepth),W(chainX[2],0.8f,chainDepth)};
+        for (int i = 0; i < arrangedChain.Length; i++)
+            Check(!WindowReflowLayout.HasVisibleOverlap(arrangedChain,3,i,0.7f),
+                "A transitive arrangement must clear every affected window");
+        Check(chainX[1] < chainX[2], "Older transitive windows retain their visual order");
+        Check(!Arrange(arrangedChain,out _,out _,out _),
+            "An already arranged transitive component must not oscillate");
+        // Measured hardware shape: the newly opened window retains its original reading pose;
+        // only the old window may move farther to fit beside it inside the usable cone.
         var wide = new[]{W(-0.2f,1.24f,1.36f),W(0.1f,1.21f,1.36f)};
         Check(Arrange(wide,out var wx,out _,out var dz), "Hardware overlap must find a layout");
         Check(dz > 1.36f, "Wide windows must move farther instead of offscreen");
@@ -68,21 +77,57 @@ internal static class Program
             "Stable parchment units reproduce the false distance refusal");
         Check(WindowReflowLayout.TryArrange(zoomed,2,0,cone,6.9342f,3.5f*424.63f,zi,zx,out float zd),
             "Readable zoomed hardware windows must fit in physical metres");
-        Check(zd/424.63f < 1.8f,"The hardware correction remains a comfortable reading distance");
+        Check(zd/424.63f <= 3.5f,"The anchored hardware correction remains within the reading limit");
+        var centeredQuest = new[]{W(0.65f,0.3f,movable:false),W(0f,0.6f)};
+        Check(!Arrange(centeredQuest,out _,out affected,out _,incoming:1),
+            "A centred quest clear of the right-side quest list must not move");
+        var laterIncoming = new[]{W(-0.05f,0.8f),W(0.05f,0.8f),W(0.85f,0.2f,movable:false)};
+        Check(Arrange(laterIncoming,out var laterX,out affected,out float laterDepth,incoming:1),
+            "An opening outside array slot zero must make room in older windows");
+        Check(affected[0] && !affected[1] && !affected[2],
+            "Incoming identity, not enumeration order, determines the fixed anchor");
+        Check(!WindowReflowLayout.HasVisibleOverlap(new[]{W(laterX[0],0.8f,laterDepth),
+            laterIncoming[1],laterIncoming[2]},3,1,0.7f),
+            "Older-window placement must clear the original incoming pose");
+        var blocked = new[]{W(0f,1.9f),W(0f,0.5f)};
+        Check(!Arrange(blocked,out _,out affected,out _),
+            "An incoming frame covering the view must not be moved as a fit fallback");
+        Check(!affected[0], "An impossible layout must not admit incoming movement");
+        var fixedAndMoving = new[]{W(0f,0.8f),W(0f,0.8f),W(0.7f,0.25f,movable:false)};
+        Check(Arrange(fixedAndMoving,out var obstacleX,out affected,out float obstacleDepth),
+            "A fixed side obstacle must leave the opposite side available to old windows");
+        var moved = W(obstacleX[1],0.8f,obstacleDepth);
+        Check(moved.Right <= fixedAndMoving[0].Left || moved.Left >= fixedAndMoving[0].Right,
+            "An old frame must not cover the new opening");
+        Check(moved.Right <= fixedAndMoving[2].Left || moved.Left >= fixedAndMoving[2].Right,
+            "An old frame must not cover a protected side obstacle");
+        int fitted = 0, refused = 0;
         for (int seed = 0; seed < 240; seed++)
         {
             var random = new Random(seed);
             float a = 0.3f + (float)random.NextDouble(), b = 0.3f + (float)random.NextDouble();
             float x0 = -0.05f + (float)random.NextDouble() * 0.1f;
             var pair = new[]{W(x0,a),W(x0 + 0.05f,b)};
-            Check(Arrange(pair,out var x,out affected,out float depth), "Overlapping pair must fit");
+            bool fits = Arrange(pair,out var x,out affected,out float depth);
+            Check(!affected[0], "No feasible or refused layout may move the incoming window");
+            if (!fits)
+            {
+                refused++;
+                continue;
+            }
+            fitted++;
             Check(depth >= 1.3f && depth <= 3.5f, "Depth remains within readable bounds");
-            Check(x[0] + a/2 + 0.0399f <= x[1] - b/2, "Full hit rects must be separated");
-            Check(x[0] - a/2 >= -depth*0.7f-0.0001f && x[1]+b/2 <= depth*0.7f+0.0001f,
-                "Both complete frames must stay inside the usable view");
-            var final = new[]{W(x[0],a,depth),W(x[1],b,depth)};
+            Check(!affected[0] && affected[1], "The opening is always anchored even when movable");
+            Check((x[1] + b/2) / depth <= pair[0].Left - 0.0399f/depth
+                || (x[1] - b/2) / depth >= pair[0].Right + 0.0399f/depth,
+                "The older frame must clear the anchored opening with a readable gap");
+            Check(x[1] - b/2 >= -depth*0.7f-0.0001f && x[1]+b/2 <= depth*0.7f+0.0001f,
+                "The complete moved frame must stay inside the usable view");
+            var final = new[]{pair[0],W(x[1],b,depth)};
             Check(!Arrange(final,out _,out _,out _), "An already-arranged pair must not oscillate");
         }
+        Check(fitted > 150 && refused > 0,
+            "Randomized coverage must include feasible and constrained anchored layouts");
         for (int yaw = -180; yaw <= 180; yaw += 15)
         {
             var origin = new UnityEngine.Vector3(2f, 1f, -3f);

@@ -13,8 +13,11 @@ internal static class WindowReflowLayout
         internal bool Movable;
     }
 
-    // Keep existing order. A newly opened window can join an overlapping component, but a parked
-    // window outside it is not permission to rearrange the room. Bounds are the actual four corners.
+    // The new window owns its opening pose. It identifies the affected component, then becomes
+    // a fixed obstacle: only older overlapping windows may make room. Build 526 instead packed
+    // the newcomer too, so a protected quest-list corner could pull a correctly centred quest
+    // popup sideways. Movable grants permission to move an OLD window, never this opening.
+    // Preserve older windows' order; unrelated parked windows remain fixed obstacles.
     internal static bool TryArrange(Window[] windows, int count, int incoming, float halfView,
         float gap, float maxDepth, bool[] included, float[] targetX, out float depth)
     {
@@ -50,11 +53,8 @@ internal static class WindowReflowLayout
                 }
             }
         } while (changed);
-        if (!fresh.Movable)
-        {
-            included[incoming] = false;
-            members--;
-        }
+        included[incoming] = false;
+        members--;
         if (!collision || members == 0) return false;
         float width = gap * (members - 1), centre = 0f;
         for (int i = 0; i < count; i++)
@@ -107,7 +107,8 @@ internal static class WindowReflowLayout
                     bool blocked = false;
                     for (int j = 0; j < count; j++)
                     {
-                        if (included[j] || !Valid(windows[j]) || !Overlap(target, windows[j])) continue;
+                        if (included[j] || !Valid(windows[j])
+                            || !OverlapWithGap(target, windows[j], gap / depth)) continue;
                         cursor = Math.Max(cursor, windows[j].Right * depth + gap);
                         blocked = true;
                     }
@@ -142,6 +143,10 @@ internal static class WindowReflowLayout
 
     private static bool InView(Window w, float halfView) => w.Right > -halfView
         && w.Left < halfView && w.Top > -halfView && w.Bottom < halfView;
+
+    private static bool OverlapWithGap(Window a, Window b, float gap) =>
+        a.Left < b.Right + gap && b.Left < a.Right + gap
+        && a.Bottom < b.Top && b.Bottom < a.Top;
 
     private static bool Overlap(Window a, Window b) => a.Left < b.Right && b.Left < a.Right
         && a.Bottom < b.Top && b.Bottom < a.Top;
