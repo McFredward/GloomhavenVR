@@ -178,6 +178,7 @@ internal static class ControlsTutorial
 
     private static Phase _phase;
     private static ControllerVisual? _left, _right;
+    private static float _nextControllerRetryAt;
     private static int _index = -1;
     private static float _openAt;        // earliest allowed open time
     private static float _armedAt;       // when the lesson was queued for this scenario
@@ -425,6 +426,7 @@ internal static class ControlsTutorial
         }
 
         ControlsBox.Tick();
+        SetControllersVisible(true, "lesson recovery");
         _left?.Tick();
         _right?.Tick();
 
@@ -603,14 +605,8 @@ internal static class ControlsTutorial
     /// <summary>
     /// PRINT THE RESOLVED STEP TABLE, once, at the top of a run.
     ///
-    /// <para>It used to WARN whenever <see cref="ControlsStep.ShowsController"/> disagreed with
-    /// <see cref="ControlsStep.Key"/> being non-null, on the argument that the two agreed for every
-    /// row and a disagreement was therefore a typo. Since the 2026-09-02 per-step ruling three rows
-    /// disagree ON PURPOSE — take a card, hold a card and the fingertip pick all name a key and
-    /// still show the player's own hand — so that warning would now fire three times a run and
-    /// mean nothing. What is worth having instead is the table itself: one line saying what the
-    /// headset was told to show for each step, so a hardware log answers "did my decision arrive"
-    /// without a screenshot per card.</para>
+    /// <para>Both controller models remain visible throughout the lesson. The table records
+    /// the current key and its acting hands, not the retired per-step hand/model policy.</para>
     ///
     /// <para>SINCE 2026-09-03 EACH ROW ALSO CARRIES ITS AVAILABILITY VERDICT, and it is deliberately
     /// this line rather than a second table. The lesson now adapts to the player's settings, so the
@@ -628,7 +624,7 @@ internal static class ControlsTutorial
             if (i > 0)
                 table.Append(", ");
             table.Append(s.Id).Append('=')
-                 .Append(s.ShowsController ? "controller" : "hand");
+                 .Append("controller");
             if (s.Key != null)
                 table.Append('(').Append(s.Key).Append(')');
             ControlsLesson.StepAvailability verdict = ControlsLesson.Availability(in s);
@@ -753,12 +749,10 @@ internal static class ControlsTutorial
     }
 
     /// <summary>
-    /// THE RULE THAT DECIDES WHETHER A CONTROLLER MESH IS ON SCREEN (user ruling 2026-09-02): the
-    /// running step's own <see cref="ControlsStep.ShowsController"/> declaration, and nothing else.
-    /// A step that declares it gets both models plus the key highlight; every other step — the
-    /// welcome card, the closing card, and any future step that asks for no press — gets the
-    /// player's hands back. Show/Hide are idempotent, and Hide restores only the renderers this
-    /// class switched off, by identity.
+    /// Both controllers remain visible for the entire custom lesson (user ruling, build 518),
+    /// including card/fingertip and prose steps. The earlier hand-only step policy caused
+    /// models to disappear between tasks and is superseded. Only highlights change per step;
+    /// completion, skip-to-end, scope loss and scene teardown still restore the ordinary hands.
     ///
     /// <para>WHICH MODEL LIGHTS UP IS A SECOND, SEPARATE QUESTION, and since 2026-09-03 it is
     /// answered per hand (user: <i>"sollte nur derjenige joystick (links/rechts) leuchten, der auch
@@ -782,11 +776,8 @@ internal static class ControlsTutorial
     private static void ApplyStep(int index)
     {
         ref readonly ControlsStep step = ref ControlsLesson.Steps[index];
-        SetControllersVisible(step.ShowsController, step.Id);
-        // A hand step lights NOTHING even when it names a key — there is no model to light it on,
-        // and leaving `_lit` pointing at a key would make Highlight early-return on the next
-        // controller step that happens to want the same one.
-        string? key = step.ShowsController ? step.Key : null;
+        SetControllersVisible(true, step.Id);
+        string? key = step.Key;
         ControlsLesson.StepAvailability verdict = ControlsLesson.Availability(in step);
         _left?.Highlight((verdict.Hands & ControlsLesson.LessonHands.Left) != 0 ? key : null);
         _right?.Highlight((verdict.Hands & ControlsLesson.LessonHands.Right) != 0 ? key : null);
@@ -794,23 +785,41 @@ internal static class ControlsTutorial
 
     private static void SetControllersVisible(bool visible, string stepId)
     {
-        if (visible == _controllersUp)
+        bool changed = visible != _controllersUp;
+        if (!changed && (!visible ||
+            (_left != null && _right != null && _left.IsShowing && _right.IsShowing &&
+             _left.IsBoundTo(VRHands.Left) && _right.IsBoundTo(VRHands.Right))))
             return;
-        _controllersUp = visible;
         if (visible)
         {
-            if (VRHands.Left == null || VRHands.Right == null)
-            {
-                _controllersUp = false;
+            // A previously missing prefab or a rebuilt tracked hand must not leave a single
+            // controller absent until the next lesson. The normal pair takes the fast return
+            // above; failed construction retries at most twice per second, without log spam.
+            if (!changed && Time.unscaledTime < _nextControllerRetryAt)
                 return;
+            _nextControllerRetryAt = Time.unscaledTime + 0.5f;
+            if (VRHands.Left == null || VRHands.Right == null)
+                return;
+            if (_left == null || !_left.IsBoundTo(VRHands.Left))
+            {
+                string? key = _left?.HighlightedKey;
+                _left?.Hide();
+                _left = new ControllerVisual(VRHands.Left);
+                _left.Highlight(key);
             }
-            _left ??= new ControllerVisual(VRHands.Left);
-            _right ??= new ControllerVisual(VRHands.Right);
+            if (_right == null || !_right.IsBoundTo(VRHands.Right))
+            {
+                string? key = _right?.HighlightedKey;
+                _right?.Hide();
+                _right = new ControllerVisual(VRHands.Right);
+                _right.Highlight(key);
+            }
             _left.Show();
             _right.Show();
         }
         else
         {
+            _nextControllerRetryAt = 0f;
             // ANIMATED, not torn down: BeginHide shrinks the model and destroys it when it reaches
             // nothing. The teardown paths (Stop, Reset, Shutdown) call Hide() straight afterwards,
             // which forces it gone in the same frame — a lesson that is ending must not leave a
@@ -818,12 +827,15 @@ internal static class ControlsTutorial
             _left?.BeginHide();
             _right?.BeginHide();
         }
+        _controllersUp = visible;
+        if (!changed)
+            return;
         // HW-VERIFY: a standing hardware question is waiting on this line — it must stay at a tier
         // the DEFAULT log level prints (Note/Alert/Error). scripts/check-hw-verify.py enforces it.
         VRLog.Note("Tutorial", $"Controls lesson: controller meshes swapping "
             + $"{(visible ? "IN over the hands" : "OUT, giving the player's own hands back")} for "
-            + $"step '{stepId}' — they are up only while a step asks for or demonstrates a key "
-            + "press, and the swap itself is animated (see the swap measurement line).");
+            + $"step '{stepId}' — both remain visible throughout the lesson; only the applicable "
+            + "keys pulse, and the swap itself is animated (see the swap measurement line).");
     }
 
     /// <summary>Write the running card, in the state <see cref="_state"/> currently says it is in.
