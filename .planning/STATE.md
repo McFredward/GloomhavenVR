@@ -16,8 +16,12 @@ change per build) → this file (where things stand and what is owed) → the bu
 - **1.0.4 release authorized after the build-527 hardware report.** The maintainer reports
   no visible issues. Current local logs show completed encounter room making with the new
   window fixed and no mod Error/Fatal entries. Old remote logs are not current evidence.
-  Release preparation and audit: [RELEASE-104.md](RELEASE-104.md). Publication still pending
-  final local/CI gates and the reviewed main merge.
+  Release preparation and audit: [RELEASE-104.md](RELEASE-104.md).
+  PR #7 is merged; full dev CI, reused PR CI and local release gates passed. Tag v1.0.4
+  targets main a6d044c4. Publication is blocked by repeated GitHub upload HTTP 500 responses;
+  prepared draft 391041682 remains unpublished with no assets, and latest stays v1.0.3.
+  The verified main-built ZIP is saved in dist/recovery-1.0.4/. Dev remains 1.0.4 until upload
+  and publication succeed; resume instructions are in the release record.
 
 - **dev / 1.0.4 / ModBuild 527 preserves the newly opened map window's spawn pose.**
   Build-526 logs show three quest-popup animations moving only the newcomer. The solver now
