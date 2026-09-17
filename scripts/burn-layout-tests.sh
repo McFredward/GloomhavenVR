@@ -7,12 +7,17 @@ trap 'rm -rf "$work_dir"' EXIT
 cp "$repo_root/tests/GloomhavenVR.BurnLayoutTests/"*.cs "$repo_root/tests/GloomhavenVR.BurnLayoutTests/"*.csproj "$work_dir/"
 python3 "$repo_root/tests/GloomhavenVR.BurnLayoutTests/extract.py" "$repo_root" "$work_dir/Production.cs"
 dotnet run --project "$work_dir/GloomhavenVR.BurnLayoutTests.csproj" --configuration Release
-for mutation in early-layout missed-model missed-native no-retry last-card-only missed-incoming historical-incoming missed-foreign missed-progress; do
+for mutation in early-layout missed-model missed-native no-retry last-card-only missed-incoming historical-incoming missed-foreign missed-progress forgotten-model lost-is-recovered missed-recovery duplicate-original no-native-baseline; do
     cp "$work_dir/Production.cs" "$work_dir/original.txt"
     python3 - "$work_dir/Production.cs" "$mutation" <<'PY'
 import pathlib,sys
 p=pathlib.Path(sys.argv[1]);s=p.read_text()
 old,new={
+'forgotten-model':('widget.AbilityCard != null && _knownBurntCards.Contains(widget.AbilityCard)', 'false'),
+'lost-is-recovered':('!character.LostAbilityCards.Contains(card)', 'true'),
+'missed-recovery':('foreach (CAbilityCard card in _recoveredBurnClaims) _knownBurntCards.Remove(card);', '_recoveredBurnClaims.Clear();'),
+'duplicate-original':('&& ReferenceEquals(held.AbilityCard, widget.AbilityCard)', '&& ReferenceEquals(held, widget)'),
+'no-native-baseline':('foreach (CAbilityCard card in character.LostAbilityCards) _knownBurntCards.Add(card);', '// omitted baseline'),
 'early-layout':('if (DeferLayoutForBurn()) return;','if (false) return;'),
 'missed-model':('if (card.IsHeld || !IsFreshBurn(_boundHand, card)','if (true || card.IsHeld || !IsFreshBurn(_boundHand, card)'),
 'missed-native':('_burnLayoutNativeActive |= BurnArtwork.Playing(BurnArtwork.EffectsOf(card.FullCard))','_burnLayoutNativeActive |= false && BurnArtwork.Playing(BurnArtwork.EffectsOf(card.FullCard))'),
@@ -27,6 +32,11 @@ assert old in s;p.write_text(s.replace(old,new).replace('if (false)', 'if (bool.
 PY
     if dotnet run --project "$work_dir/GloomhavenVR.BurnLayoutTests.csproj" --configuration Release > "$work_dir/negative.log" 2>&1; then cat "$work_dir/negative.log"; exit 1; fi
     case "$mutation" in
+        forgotten-model) expected='Already-burnt browse cards must not restart a hold';;
+        lost-is-recovered) expected='Replacing a completed lost widget must not replay its original burn';;
+        missed-recovery) expected='Authoritative recovery must re-arm a real later burn';;
+        duplicate-original) expected='Two widgets for one original must share one pending burn hold';;
+        no-native-baseline) expected='Historical native loss with no initial widget must not become a fresh burn on later UI creation';;
         early-layout|missed-model) expected='Model-first loss must retain the outgoing layout';;
         missed-native) expected='Live burn must never admit sibling movement or replacement';;
         no-retry) expected='Retained card input must wait and rebuild must remain scheduled';;

@@ -2648,7 +2648,7 @@ internal sealed partial class CardsDriver
         // removing it while the flight still went unwaited would trade a missing wait for a double
         // flight. (b) Making this method DECLINE a Burnt fate and letting the else-if below take
         // it: TryStartBurnFly requires IsFreshBurn, which demands hand == _burnWatchHand, an owner
-        // match and absence from _knownBurntWidgets — on the first frame after a hand change those
+        // match and absence from _knownBurntCards — on the first frame after a hand change those
         // are false, the card would fall through to the Vanish branch, and that is verbatim the
         // "burn artwork plays, then the card just VANISHES" report of 2026-08-04. Narrowing a burn's
         // safety net to widen its wait is the wrong trade.
@@ -2670,7 +2670,10 @@ internal sealed partial class CardsDriver
         // taken against the same widget by another producer, and because deleting a line whose
         // absence would strand state is the edit this file has been burned by before.
         if (card.GameCard != null)
+        {
             ClearBurnHold(card.GameCard);
+            if (fate == PileKind.Burnt) RememberBurn(card.GameCard);
+        }
         VRCard flying = card;
         PileKind dest = fate;
         // MP parity (report 6): peers replay this exact flight (slot → discard/burnt stack) against
@@ -2932,8 +2935,8 @@ internal sealed partial class CardsDriver
     /// <summary>
     /// BURN ANIM: has <paramref name="card"/> JUST been burned — i.e. is its ability card in the
     /// owner's LOST / PERMANENTLY-LOST list (<see cref="PileFateOf"/>, the game's own authoritative
-    /// piles) while the burn watcher's previous-tick baseline (<see cref="_knownBurntWidgets"/>) did
-    /// NOT yet contain its widget? Read-only on game state.
+    /// piles) while the burn watcher's native-model claims (<see cref="_knownBurntCards"/>) did
+    /// NOT yet contain its original card? Read-only on game state.
     ///
     /// The baseline is only trustworthy once <see cref="TickBurnToPile"/> has seeded it for THIS
     /// hand, so the check demands <c>hand == _burnWatchHand</c>: on a hand change (character tab
@@ -2949,7 +2952,7 @@ internal sealed partial class CardsDriver
         // OWNERSHIP GATE (user report 2026-08-07: "die verbrannte Karte taucht ploetzlich wieder
         // auf dem Board an derselben Stelle auf, obwohl der Charakter gewechselt wurde").
         //
-        // ROOT CAUSE this line fixes. The baseline (_knownBurntWidgets) is re-seeded from the
+        // ROOT CAUSE this line fixes. The baseline (_knownBurntCards) is re-seeded from the
         // PRESENTED hand's burnt pile on every hand change, and PileFateOf deliberately reads the
         // card's OWN owner. Without an ownership test the two disagree the instant characters
         // switch: character A's long-burned card is (a) not in B's freshly seeded baseline and
@@ -2970,7 +2973,7 @@ internal sealed partial class CardsDriver
         CPlayerActor? owner = widget.PlayerActor;
         if (owner != null && hand.PlayerActor != null && !ReferenceEquals(owner, hand.PlayerActor))
             return false;
-        if (_knownBurntWidgets.Contains(widget))
+        if (IsKnownBurn(widget))
             return false; // already in the burnt pile before this tick — not a fresh burn
         return PileFateOf(hand, card) == PileKind.Burnt;
     }
@@ -2998,7 +3001,7 @@ internal sealed partial class CardsDriver
     /// (a pooled/parked or inactive card cannot animate: its Update does not run), not a fresh
     /// burn, or the burnt pile is off / not built.
     ///
-    /// Claiming: on LAUNCH the widget is added to <see cref="_knownBurntWidgets"/> immediately, so
+    /// Claiming: on LAUNCH the native card is added to <see cref="_knownBurntCards"/> immediately, so
     /// the burn watcher running LATER in this same frame treats it as already-known and cannot
     /// start a second animation for it. A HELD widget is deliberately NOT claimed.
     /// </summary>
@@ -3028,7 +3031,7 @@ internal sealed partial class CardsDriver
         Vector3 from = card.transform.position;
         float arcHeight = Mathf.Max(minArc, Vector3.Distance(from, burntPos) * VRCard.FlyArcHeightFraction);
         _flyingToPile.Add(card);
-        _knownBurntWidgets.Add(widget); // claim before the watcher's diff sees it (no double animation)
+        RememberBurn(widget); // claim before the watcher's diff sees it (no double animation)
         _lastCardWorldPos.Remove(widget); // consumed — the real card is flying, no fallback slab wanted
         _lastCardWorldRot.Remove(widget);
         _lastCardWorldWidth.Remove(widget);
@@ -3063,7 +3066,7 @@ internal sealed partial class CardsDriver
     /// <summary>
     /// HARDWARE VERIFICATION (2026-09-05 item 11a, "der Mitspieler sieht eine andere Karte die verbrannt wurde
     /// als ich"): name the card THIS client attributed the burn to. One line per launched burn (the
-    /// launch sites claim the widget into <see cref="_knownBurntWidgets"/> first, so a burn cannot
+    /// launch sites claim the original card into <see cref="_knownBurntCards"/> first, so a burn cannot
     /// print twice), never per frame.
     ///
     /// <para>Grep token: <c>BURN CARD</c>. Its RECEIVER twin is <c>RemoteBurnFx</c>'s line with the
@@ -3563,43 +3566,28 @@ internal sealed partial class CardsDriver
             FlushBurnHolds("the presented hand changed to " +
                            $"'{(hand.PlayerActor != null ? CardsGameApi.ActorLabel(hand.PlayerActor) : "?")}'");
             _burnWatchHand = hand;
-            _knownBurntWidgets.Clear();
+            _knownBurntCards.Clear();
             _burnHoldLogged.Clear();
-            for (int i = 0; i < _burntWidgetBuffer.Count; i++)
-                if (_burntWidgetBuffer[i] != null)
-                    _knownBurntWidgets.Add(_burntWidgetBuffer[i]);
+            SeedKnownBurns(hand);
             return;
         }
 
+        PruneRecoveredBurns(hand);
         for (int i = 0; i < _burntWidgetBuffer.Count; i++)
         {
             AbilityCardUI widget = _burntWidgetBuffer[i];
-            if (widget == null || _knownBurntWidgets.Contains(widget))
+            if (widget == null || IsKnownBurn(widget))
                 continue;
             TryAnimateBurn(widget); // newly entered the burnt pile this tick
         }
 
-        // The rebuilt baseline both records the new arrivals (so they animate exactly once) and
-        // drops any that left (a recovered lost card), so a re-burn later animates again.
-        //
-        // ROOT CAUSE of the "burn artwork plays, then the card just VANISHES" report
-        // (user 2026-08-04; hardware log: "BURN ANIM: holding ... ON THE BOARD" at 11379/13331/
-        // 17950/19039 with NOT ONE "waited ... flying to the Burnt pile now" release line in the
-        // whole session): this very re-baseline used to add EVERY burnt widget — including one
-        // whose flight TryTakeBurnFlightSlot had just DECLINED to keep the artwork playing on the
-        // lying card. The next tick's loop above then skipped it as already-known, so
-        // TryAnimateBurn was never re-offered, the hold never released, and the card was left for
-        // a later Rebuild park sweep to swallow (IsFreshBurn false → the Vanish/Park fallback) —
-        // the reported disappearance. A widget whose flight is still HELD must therefore stay OUT
-        // of the baseline: it remains "fresh", the watch re-offers it every tick, and when the
-        // artwork completes (or the deadline passes) the release actually launches the same
-        // FlyToPile arc the discard flow uses.
-        _knownBurntWidgets.Clear();
+        // Preserve the model claim through UI widget replacement or a temporarily empty
+        // pile-widget list. Only authoritative recovery re-arms this card. Pending holds stay
+        // unclaimed so native completion can release their single real flight.
         for (int i = 0; i < _burntWidgetBuffer.Count; i++)
         {
             AbilityCardUI w = _burntWidgetBuffer[i];
-            if (w != null && !_burnHoldSince.ContainsKey(w))
-                _knownBurntWidgets.Add(w);
+            if (w != null && !HasBurnHold(w)) RememberBurn(w);
         }
 
         // Hold hygiene: a held widget that LEFT the burnt pile again (a recovered lost card —
@@ -3743,7 +3731,7 @@ internal sealed partial class CardsDriver
             if (!TryTakeBurnFlightSlot(widget, card)) continue;
             VRLog.Info("Cards", $"BURN ANIM: FLUSHING the held flight of '{CardsGameApi.CardName(widget)}' — " +
                 $"{reason}; the native artwork and loss sequence have completed.");
-            _knownBurntWidgets.Add(widget);
+            RememberBurn(widget);
             LaunchBurnFlight(widget, "completed burn hold");
         }
         _burnHoldPruneScratch.Clear();
@@ -3756,6 +3744,9 @@ internal sealed partial class CardsDriver
     /// </summary>
     private bool TryTakeBurnFlightSlot(AbilityCardUI widget, VRCard? card)
     {
+        // A rebuilt native widget can represent the same still-burning model. Its original
+        // hold owns completion and the flight; a replacement must not start a second episode.
+        if (!_burnHoldSince.ContainsKey(widget) && HasBurnHold(widget)) return false;
         float now = Time.unscaledTime;
         if (!_burnHoldSince.TryGetValue(widget, out BurnHold hold))
         {
@@ -3805,7 +3796,7 @@ internal sealed partial class CardsDriver
                 // The owner never adopted this burn, so its actual native completion has no
                 // originating VR flight. Retire this read-only hold without inventing one.
                 if (durableNoFlight && owner != null) _retiredForeignNoFlight[(owner.PlayerId, widget.AbilityCard)] = noFlightClock;
-                ClearBurnHold(widget); _activeExitOrigins.Remove(widget); _knownBurntWidgets.Add(widget);
+                ClearBurnHold(widget); _activeExitOrigins.Remove(widget); RememberBurn(widget);
                 _dirty = true;
                 return false;
             }
@@ -4023,7 +4014,7 @@ internal sealed partial class CardsDriver
                 _factory.Park(flying);
                 VRLog.Info("Cards", $"BURN ANIM: '{flying.name}' reached the Burnt pile — parked.");
             }, minArc);
-            _knownBurntWidgets.Add(widget); // claim (same contract as TryStartBurnFly) — animate once
+            RememberBurn(widget); // claim (same contract as TryStartBurnFly) — animate once
             _lastCardWorldPos.Remove(widget); // consumed
             _lastCardWorldRot.Remove(widget);
             _lastCardWorldWidth.Remove(widget);
@@ -4062,6 +4053,7 @@ internal sealed partial class CardsDriver
         byte flightFlags = Net.CardFlightVisibility.ConsumeBurn(widget.AbilityCard);
         BurnSlab.Launch(anchor, fromPos, fromRot, burntPos, fromWidth, slabWidth, FlyToPileSeconds,
             arcUp, widget, minArc);
+        RememberBurn(widget);
         LogBurnAttribution(widget, origin + "/slab");
         CardFlightLedger.Note("own", "Burnt", "own-burn/" + origin + "/slab", CardsGameApi.CardName(widget));
         // MP parity (report 6): the fallback slab is the same event on the wire.

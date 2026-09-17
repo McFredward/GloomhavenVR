@@ -331,7 +331,7 @@ internal sealed partial class CardsDriver
         _lastCardWorldRot.Clear();
         _lastCardWorldWidth.Clear();
         _burnWatchHand = null; // issue B
-        _knownBurntWidgets.Clear();
+        _knownBurntCards.Clear();
         _foreignBurnProgress.Clear();
         _retiredForeignNoFlight.Clear();
         _burnHoldSince.Clear(); // artwork holds die with the driver — no orphaned release later
@@ -482,7 +482,7 @@ internal sealed partial class CardsDriver
                                  // pick-field pre-filter is a membership test on exactly this set
         _dockAnimSuppressed = true; // issue 2: the next hand's cards populate silently (no storm)
         _burnWatchHand = null; // issue B: re-baseline the burnt set for the next hand
-        _knownBurntWidgets.Clear();
+        _knownBurntCards.Clear();
         _loggedStaleHandCard.Clear(); // ditto the item 10 model-belt dedupe (widgets are recycled)
         _shortRestCard = null; // ditto the sacrifice display (item 1d, reversibility)
         _shortRestPresented = null;

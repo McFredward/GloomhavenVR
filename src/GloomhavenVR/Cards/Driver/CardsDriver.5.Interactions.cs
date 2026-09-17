@@ -1939,7 +1939,7 @@ internal sealed partial class CardsDriver
             //
             // THE FIX IS TO USE THE RETURN VALUE. Held or flying, the burn path owns the card and
             // parks it itself: TickBurnToPile re-offers a held widget every tick (a held widget is
-            // deliberately kept OUT of _knownBurntWidgets), and the release launches the same
+            // deliberately kept OUT of _knownBurntCards), and the release launches the same
             // FlyToPile arc from the card's true, still-live pose — so the sequence becomes the one
             // the user asked for: burn artwork to completion, THEN the flight, the card
             // disappearing as part of it. `IsFlying` STAYS as the belt for the OTHER flight that

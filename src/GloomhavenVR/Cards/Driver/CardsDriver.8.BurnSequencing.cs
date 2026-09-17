@@ -40,7 +40,7 @@ internal sealed partial class CardsDriver
                 // during that gap, while the outgoing slot/grid address is still authoritative.
                 // Previously-burnt cards browsed from the lost pile never qualify as fresh.
                 if (card.IsHeld || !IsFreshBurn(_boundHand, card)
-                    || _burnHoldSince.ContainsKey(widget)) continue;
+                    || HasBurnHold(widget)) continue;
                 if (_active.Contains(card))
                     _activeExitOrigins[widget] = CapturedActiveSource(widget, widget.PlayerActor);
                 _burnHoldSince[widget] = new BurnHold(Time.unscaledTime, artworkSeen: false);
