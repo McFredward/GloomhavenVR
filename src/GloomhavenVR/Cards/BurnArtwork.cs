@@ -105,32 +105,123 @@ internal static class BurnArtwork
     private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<CardEffects, BurnStartRecord> BurnStarts = new();
     private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<CardEffects, NativeBurnEnumerator> BurnTimelines = new();
 
+    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<CardEffects, NativeBurnEpisode<ScenarioRuleLibrary.CAbilityCard>> BurnEpisodes = new();
+
+    private static FullAbilityCard? ResolveOwner(CardEffects fx, out AbilityCardUI? widget)
+    {
+        FullAbilityCard? full = fx.GetComponent<FullAbilityCard>();
+        if (full == null) full = fx.GetComponentInParent<FullAbilityCard>();
+        widget = CardFace.OwnerOf(full);
+        if (widget == null && full != null)
+        {
+            AbilityCardUI? parent = full.GetComponentInParent<AbilityCardUI>();
+            if (parent != null && ReferenceEquals(parent.fullAbilityCard, full)) widget = parent;
+        }
+        return full;
+    }
+
+    private static bool Recovered(ScenarioRuleLibrary.CAbilityCard card, ScenarioRuleLibrary.CPlayerActor? owner)
+    {
+        if (owner?.CharacterClass != null)
+            return owner.CharacterClass.HandAbilityCards.Contains(card)
+                || owner.CharacterClass.RoundAbilityCards.Contains(card);
+        return card.CurrentCardPile == ScenarioRuleLibrary.CBaseCard.ECardPile.Hand
+            || card.CurrentCardPile == ScenarioRuleLibrary.CBaseCard.ECardPile.Round;
+    }
+
+    private static bool Durable(ScenarioRuleLibrary.CAbilityCard card, ScenarioRuleLibrary.CPlayerActor? owner)
+    {
+        if (owner?.CharacterClass != null)
+            return owner.CharacterClass.LostAbilityCards.Contains(card)
+                || owner.CharacterClass.PermanentlyLostAbilityCards.Contains(card);
+        return card.CurrentCardPile == ScenarioRuleLibrary.CBaseCard.ECardPile.Lost
+            || card.CurrentCardPile == ScenarioRuleLibrary.CBaseCard.ECardPile.PermanentlyLost;
+    }
+
+    private static bool PreservePlayback(CardEffects fx, bool resetting)
+    {
+        if (!BurnEpisodes.TryGetValue(fx, out var episode)) return false;
+        if (BurnTimelines.TryGetValue(fx, out var timeline) && timeline.Finished)
+            episode.CancelIfRunning();
+        FullAbilityCard? full = ResolveOwner(fx, out var widget);
+        var card = widget != null ? widget.AbilityCard : full?.AbilityCard;
+        if (card == null) { episode.Clear(); return false; }
+        var owner = widget != null ? widget.PlayerActor : full?.playerActor;
+        return episode.Preserve(card, Recovered(card, owner), Durable(card, owner), resetting);
+    }
+
+    /// <summary>Actual pool recycle and scene teardown retire ownership before native reset.</summary>
+    internal static void RetireBurnPlayback(CardEffects? fx)
+    {
+        if (fx == null) return;
+        BurnEpisodes.Remove(fx);
+        BurnTimelines.Remove(fx);
+        BurnStarts.Remove(fx);
+        Forget(fx);
+    }
+
+    // FinalizeShortRest starts BurnCard before ShortRestPlayer moves the model to Lost.
+    // SetPile then requests LostMode, and RefreshPile requests its no-ramp arm. All three
+    // native calls reset paint and stop the previous coroutine before starting another.
+    // Preserve the first original iterator instead: the task names are aliases for one
+    // presentation episode, not permission to replay it. No game model/callback is skipped.
+    private static bool AllowEffect(CardEffects fx, bool active, CardEffects.FXTask effect)
+    {
+        bool burn = effect == CardEffects.FXTask.BurnCard || effect == CardEffects.FXTask.LostMode;
+        if (!PreservePlayback(fx, resetting: !burn)) return true;
+        if (burn && active) fx.toggledEffects.Add(effect);
+        // Keep the original burn latch through RefreshPile(false) while it is playing.
+        // The first real recovery/reset clears the complete native set normally.
+        return false;
+    }
+
     [HarmonyPatch(typeof(CardEffects), nameof(CardEffects.ToggleEffect))]
     internal static class ToggleEffect_PreserveSpentStart_Patch
     {
-        private static void Prefix(CardEffects __instance, bool active, CardEffects.FXTask effect)
+        private static bool Prefix(CardEffects __instance, bool active, CardEffects.FXTask effect)
         {
             try
             {
-                FullAbilityCard? full = __instance.GetComponent<FullAbilityCard>();
-                if (full == null) full = __instance.GetComponentInParent<FullAbilityCard>();
+                if (!AllowEffect(__instance, active, effect)) return false;
+                FullAbilityCard? full = ResolveOwner(__instance, out var widget);
                 ClearRecoveredSpentBurnStart(__instance, full);
-                if (!active || effect != CardEffects.FXTask.BurnCard && effect != CardEffects.FXTask.LostMode) return;
-                // Native Initialize/RestoreCard must still run normally. Only already initialized
-                // original output can supply a starting picture, including on its first VR frame.
-                PreserveSpentBurnStart(__instance, full?.AbilityCard, full?.playerActor, beforeReset: true);
+                if (!active || effect != CardEffects.FXTask.BurnCard && effect != CardEffects.FXTask.LostMode) return true;
+                PreserveSpentBurnStart(__instance, widget != null ? widget.AbilityCard : full?.AbilityCard,
+                    widget != null ? widget.PlayerActor : full?.playerActor, beforeReset: true);
             }
             catch (System.Exception ex)
             {
                 Core.VRLog.Warn("Cards", $"Could not retain native spent burn start: {ex.Message}");
             }
+            return true;
+        }
+    }
+
+    [HarmonyPatch(typeof(CardEffects), nameof(CardEffects.ToggleAdditiveEffect))]
+    internal static class ToggleAdditiveEffect_PreservePlayback_Patch
+    {
+        private static bool Prefix(CardEffects __instance, bool active, CardEffects.FXTask effect)
+        {
+            try { return AllowEffect(__instance, active, effect); }
+            catch { return true; }
+        }
+    }
+
+    [HarmonyPatch(typeof(CardEffects), nameof(CardEffects.RestoreCard))]
+    internal static class RestoreCard_PreservePlayback_Patch
+    {
+        private static bool Prefix(CardEffects __instance)
+        {
+            try { return !PreservePlayback(__instance, resetting: true); }
+            catch { return true; }
         }
     }
 
     private static void ClearRecoveredSpentBurnStart(CardEffects fx, FullAbilityCard? full)
     {
-        var card = full != null ? full.AbilityCard : null;
-        var cards = full != null ? full.playerActor?.CharacterClass : null;
+        ResolveOwner(fx, out var widget);
+        var card = widget != null ? widget.AbilityCard : full?.AbilityCard;
+        var cards = (widget != null ? widget.PlayerActor : full?.playerActor)?.CharacterClass;
         if (card == null || cards == null || cards.HandAbilityCards.Contains(card) || cards.RoundAbilityCards.Contains(card)
             || BurnStarts.TryGetValue(fx, out var record) && !ReferenceEquals(record.Card, card))
             BurnStarts.Remove(fx);
@@ -154,10 +245,23 @@ internal static class BurnArtwork
         private static void Postfix(CardEffects __instance, bool burnAnim, ref System.Collections.IEnumerator __result)
         {
             bool firstStep = true;
-            var playback = new NativeBurnEnumerator(__result,
-                () => RestoreNativeBurnChannels(__instance),
+            NativeBurnEnumerator? playback = null;
+            playback = new NativeBurnEnumerator(__result,
+                () =>
+                {
+                    if (firstStep)
+                    {
+                        BurnTimelines.Remove(__instance);
+                        BurnTimelines.Add(__instance, playback!);
+                    }
+                    RestoreNativeBurnChannels(__instance);
+                },
                 running =>
                 {
+                    // A retired/recycled face may still have an old enumerator disposed by
+                    // Unity. Only the currently owned iterator may publish this episode.
+                    if (!BurnTimelines.TryGetValue(__instance, out var current)
+                        || !ReferenceEquals(current, playback)) return;
                     if (firstStep)
                     {
                         firstStep = false;
@@ -170,14 +274,14 @@ internal static class BurnArtwork
                         if (BurnStarts.TryGetValue(__instance, out var settled)) settled.HasFloor = false;
                         return;
                     }
-                    FullAbilityCard? full = __instance.GetComponent<FullAbilityCard>();
-                    if (full == null) full = __instance.GetComponentInParent<FullAbilityCard>();
-                    PreserveSpentBurnStart(__instance, full?.AbilityCard, full?.playerActor,
+                    FullAbilityCard? full = ResolveOwner(__instance, out var widget);
+                    var card = widget != null ? widget.AbilityCard : full?.AbilityCard;
+                    if (card != null)
+                        BurnEpisodes.GetValue(__instance, _ => new()).Observe(card, Recovered(card, widget != null ? widget.PlayerActor : full?.playerActor), running);
+                    PreserveSpentBurnStart(__instance, card, widget != null ? widget.PlayerActor : full?.playerActor,
                         beforeReset: false, nativeStep: running);
                 },
                 ex => Core.VRLog.Warn("Cards", $"Could not preserve native burn step: {ex.Message}"));
-            BurnTimelines.Remove(__instance);
-            BurnTimelines.Add(__instance, playback);
             __result = playback;
         }
     }
