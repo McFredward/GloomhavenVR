@@ -722,14 +722,13 @@ internal sealed class RemoteBurnFx
     }
 
     /// <summary>
-    /// Diff the displayed character's BURNT pile against the previous walk. A new entry is a burn
-    /// this client has just learned about, at the same instant the owner's own watcher learns it —
-    /// both read the same host-replicated list.
+    /// Discover original cards entering the displayed character's lost populations. UI widgets
+    /// bind presentation to those originals; replacing or temporarily missing a widget is not a
+    /// new loss. Owner native output and completion receipts establish animation timing.
     ///
-    /// <para>THE BASELINE IS SEEDED SILENTLY on the first walk and on every actor change, exactly
-    /// as <c>CardsDriver.TickBurnToPile</c> re-seeds <c>_knownBurntWidgets</c> on a hand change and
-    /// for the same reason: a character's long-burned cards must never animate retroactively when
-    /// the board starts presenting them.</para>
+    /// <para>The baseline is seeded silently on the first walk and on every actor change. As in
+    /// the local burn watcher, historical lost originals must never animate retroactively merely
+    /// because their board or native widgets become available.</para>
     ///
     /// <para>It keeps walking while the peer's board is HIDDEN and simply presents nothing, so
     /// switching <c>[Net] RemoteBoards</c> back on cannot replay a scenario's worth of burns.</para>
