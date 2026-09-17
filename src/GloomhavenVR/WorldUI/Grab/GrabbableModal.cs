@@ -829,6 +829,22 @@ internal sealed class GrabbableModal : IPanelGrabOwner
         Tick();
     }
 
+    /// <summary>Start from the currently drawn pose, including an unfinished peer glide.</summary>
+    internal void ReadRoomMakingStart(out Vector3 position, out Quaternion rotation)
+    {
+        position = _visualValid ? _visualPos : _frame!.position;
+        rotation = _visualValid ? _visualRot : _frame!.rotation;
+    }
+
+    /// <summary>One sample of the finite opening-layout tween. Frame, hit geometry and picture
+    /// use the same sample; a second peer-easing pass would lag behind the published pose.</summary>
+    internal void PlaceRoomMakingSample(Vector3 position, Quaternion rotation)
+    {
+        PanelPoseWatch.Announce(_panel, PanelPoseWatch.Writer.RoomMaking,
+            "opening an overlapping map window");
+        SnapFrameTo(position, rotation);
+    }
+
     // ---- IPanelGrabOwner --------------------------------------------------------------------
 
     Transform? IPanelGrabOwner.GrabRoot => _frame;

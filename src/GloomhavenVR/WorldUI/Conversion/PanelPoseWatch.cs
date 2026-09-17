@@ -114,6 +114,9 @@ internal static class PanelPoseWatch
         /// <summary>Nobody announced this write. By construction it is not one the ruling allows,
         /// so it is refused: the locked pose is written back and the caller is named ONCE.</summary>
         Unattributed,
+
+        /// <summary>User-authorized, opening-only room making for overlapping map windows.</summary>
+        RoomMaking,
     }
 
     private sealed class Entry
@@ -423,6 +426,7 @@ internal static class PanelPoseWatch
 
         switch (writer)
         {
+            case Writer.RoomMaking:
             case Writer.UserGrab:
                 // The one allowed writer: re-baseline in silence. This is the pose the player chose.
                 entry.LockedPos = subject.position;
@@ -509,6 +513,7 @@ internal static class PanelPoseWatch
     private static string CallerName(Entry entry, Writer writer) => writer switch
     {
         Writer.UserGrab => "the player's own grab",
+        Writer.RoomMaking => "ModalFallback opening-only window room making",
         Writer.Placement => "ModalFallback.ComputeHmdPose (spawn / presence-regain refloat / re-place)",
         Writer.Peer => "Net.RemoteStorySync / Net.RemoteMapStory (a remote player's grab)",
         _ => "unattributed — no mod placement path announced this write",
