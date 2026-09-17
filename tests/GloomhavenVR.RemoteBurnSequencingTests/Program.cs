@@ -144,6 +144,68 @@ internal static class Program
         Check(!receiver.TryBurnNoFlightCompletion(4,new CAbilityCard(31),out _),"No-flight completion cannot attach to another original card with the same id");
         receiver.ApplyBurnCompletions(new CardBurnCompletionHistory {Entries=new[]{new CardBurnCompletion(0,4,4,0,32,32f,true)}});
         Check(!receiver.TryBurnNoFlightCompletion(4,card,out _),"A new owner burn invalidates the old no-flight completion before playback");
+        // The actual production discovery method must survive pooled widget replacement and
+        // absent pile UI without admitting another burn for the same original model card.
+        var original=new CAbilityCard(101);
+        var burnActor=new CPlayerActor(51);
+        var discovery=new BurnDiscoveryFixture();
+        discovery.DiscoverBurns(burnActor);
+        burnActor.CharacterClass.LostAbilityCards.Add(original);
+        discovery._burntBuf.Add(new AbilityCardUI {AbilityCard=original});
+        discovery.DiscoverBurns(burnActor);
+        Check(discovery.Presented.Count==1,"The initial native loss starts one remote presentation");
+        for(int refresh=0;refresh<5;refresh++)
+        {
+            discovery._burntBuf.Clear();discovery.DiscoverBurns(burnActor);
+            discovery._burntBuf.Add(new AbilityCardUI {AbilityCard=original});
+            discovery.DiscoverBurns(burnActor);
+            Check(discovery.Presented.Count==1,"Pile rebuild must not replay an original burn");
+        }
+        burnActor.CharacterClass.LostAbilityCards.Clear();
+        burnActor.CharacterClass.HandAbilityCards.Add(original);discovery.DiscoverBurns(burnActor);
+        Check(discovery.Presented.Count==1,"Stale lost UI cannot burn a recovered original");
+        burnActor.CharacterClass.HandAbilityCards.Clear();burnActor.CharacterClass.LostAbilityCards.Add(original);
+        discovery.DiscoverBurns(burnActor);
+        Check(discovery.Presented.Count==2,"Genuine recovery permits a later independent burn");
+        burnActor.CharacterClass.LostAbilityCards.Clear();burnActor.CharacterClass.PermanentlyLostAbilityCards.Add(original);
+        discovery._burntBuf.Clear();discovery.DiscoverBurns(burnActor);
+        discovery._burntBuf.Add(new AbilityCardUI {AbilityCard=original});discovery.DiscoverBurns(burnActor);
+        Check(discovery.Presented.Count==2,"Moving between lost populations does not restart a burn");
+        var historicalDiscovery=new BurnDiscoveryFixture();historicalDiscovery.DiscoverBurns(burnActor);
+        historicalDiscovery._burntBuf.Add(new AbilityCardUI {AbilityCard=original});historicalDiscovery.DiscoverBurns(burnActor);
+        Check(historicalDiscovery.Presented.Count==0,"Historical originals seed even before their UI exists");
+        var delayed=new CAbilityCard(102);burnActor.CharacterClass.LostAbilityCards.Add(delayed);
+        historicalDiscovery._burntBuf.Add(new AbilityCardUI {AbilityCard=delayed,ArcMember=false});historicalDiscovery.DiscoverBurns(burnActor);
+        Check(historicalDiscovery.Presented.Count==0,"Placeholder widgets do not consume the burn claim");
+        historicalDiscovery._burntBuf[1].ArcMember=true;historicalDiscovery.DiscoverBurns(burnActor);
+        Check(historicalDiscovery.Presented.Count==1,"A newly usable original widget starts its pending burn exactly once");
+        historicalDiscovery._burntBuf.Add(new AbilityCardUI {AbilityCard=delayed});historicalDiscovery.DiscoverBurns(burnActor);
+        Check(historicalDiscovery.Presented.Count==1,"Duplicate simultaneous wrappers still identify only one native card");
+        var sameId=new CAbilityCard(102);burnActor.CharacterClass.LostAbilityCards.Add(sameId);
+        historicalDiscovery._burntBuf.Add(new AbilityCardUI {AbilityCard=sameId});historicalDiscovery.DiscoverBurns(burnActor);
+        Check(historicalDiscovery.Presented.Count==2,"Different originals never share a claim merely because an id matches");
+
+        // Execute ApplyNativeAppearance itself: a temporary Lost address miss is neither a
+        // recovery nor a licence to erase the owner's already painted burn material state.
+        foreach(NativeOutputFixture.FxSurface surface in Enum.GetValues<NativeOutputFixture.FxSurface>())
+        {
+            MirrorFixture.Available=true;MirrorFixture.From=MirrorFixture.To=new CardAppearanceState();
+            var output=new NativeOutputFixture {Surface=surface};
+            output.SetNativeAppearance(7,burnActor,original);
+            int before=output.Clears;
+            MirrorFixture.Available=false;
+            for(int frame=0;frame<4;frame++) output.ApplyNativeAppearance();
+            Check(output._nativeOutputApplied&&output.Clears==before,"Missing lost-list samples must not clear a painted burn to blue");
+            MirrorFixture.Available=true;output.ApplyNativeAppearance();
+            Check(output.Paints==2,"The next native frame resumes the existing burn presentation");
+            MirrorFixture.Available=false;burnActor.CharacterClass.HandAbilityCards.Add(original);
+            output.ApplyNativeAppearance();
+            Check(!output._nativeOutputApplied,"Actual recovery releases the previous burn output");
+            burnActor.CharacterClass.HandAbilityCards.Clear();
+            MirrorFixture.Available=true;output.SetNativeAppearance(7,burnActor,original);
+            MirrorFixture.Available=false;output.SetNativeAppearance(7,burnActor,sameId);
+            Check(!output._nativeOutputApplied,"Retargeting never transfers the previous original's burn picture");
+        }
         Console.WriteLine($"Remote burn sequencing: {assertions} assertions passed.");
     }
 }

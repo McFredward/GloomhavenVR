@@ -3437,7 +3437,6 @@ internal sealed partial class RemoteCardArt
         _nativeExtraDefaults = null;
         _localNativeFrame = null;
         _nativeOutputApplied = false;
-        _nativeLastSourceList = 0;
         _nativeMaterials.Clear();
         // Let CardHalfTone have this face back before it goes: an id Unity is free to reuse must
         // never inherit a hold from a clone that is gone, which is the same argument the heal

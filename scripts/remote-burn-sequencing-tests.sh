@@ -7,7 +7,7 @@ trap 'rm -rf "$work_dir"' EXIT
 cp "$repo_root/tests/GloomhavenVR.RemoteBurnSequencingTests/"*.cs "$repo_root/tests/GloomhavenVR.RemoteBurnSequencingTests/"*.csproj "$work_dir/"
 python3 "$repo_root/tests/GloomhavenVR.RemoteBurnSequencingTests/extract.py" "$repo_root" "$work_dir/Production.cs"
 dotnet run --project "$work_dir/GloomhavenVR.RemoteBurnSequencingTests.csproj" --configuration Release
-for mutation in active-layout recess-layout early-native wrong-provenance release-bypass discovery-order following-flight recovery-address pending-actor initial-history duplicate-terminal incoming-progress progress-is-release retire-with-release retire-before-native freeze-running; do
+for mutation in active-layout recess-layout early-native wrong-provenance release-bypass discovery-order following-flight recovery-address pending-actor initial-history duplicate-terminal incoming-progress progress-is-release retire-with-release retire-before-native freeze-running lost-ui-gap lost-seed lost-membership clear-burn-output; do
   mkdir -p "$work_dir/source/src/GloomhavenVR/Net/Remote"
   cp "$repo_root/src/GloomhavenVR/Net/Remote/"*.cs "$work_dir/source/src/GloomhavenVR/Net/Remote/"
   cp "$repo_root/src/GloomhavenVR/Net/BurnReleasePolicy.cs" "$work_dir/source/src/GloomhavenVR/Net/"
@@ -16,6 +16,10 @@ for mutation in active-layout recess-layout early-native wrong-provenance releas
 import pathlib,sys
 root=pathlib.Path(sys.argv[1]); mutation=sys.argv[2]
 file,old,new={
+'lost-ui-gap':('Remote/RemoteBurnFx.cs','        _pruneScratch.Clear();\n        foreach (CAbilityCard card in _known)','        _known.Clear();\n        _pruneScratch.Clear();\n        foreach (CAbilityCard card in _known)'),
+'lost-seed':('Remote/RemoteBurnFx.cs','            foreach (var card in cards.PermanentlyLostAbilityCards) _known.Add(card);',''),
+'lost-membership':('Remote/RemoteBurnFx.cs','                || (!cards.LostAbilityCards.Contains(card) && !cards.PermanentlyLostAbilityCards.Contains(card))',''),
+'clear-burn-output':('Remote/RemoteCardArt.Native.cs','            if (_nativeOutputApplied && RetainNativeOutputDuringBurn()) return;','            if (bool.Parse(\"false\") && _nativeOutputApplied && RetainNativeOutputDuringBurn()) return;'),
 'retire-with-release':('BurnReleasePolicy.cs',' && !hasOwnerRelease',''),
 'retire-before-native':('BurnReleasePolicy.cs',' && !nativePlaying',''),
 'initial-history':('Remote/RemoteAvatar.cs','if ((initial || _burnProgressKeys.ContainsKey(entry.Key)) && (card == null || !_burnFx.HasObservedBurn(card)))','if (bool.Parse("false") && (initial || _burnProgressKeys.ContainsKey(entry.Key)) && (card == null || !_burnFx.HasObservedBurn(card)))'),
@@ -41,6 +45,10 @@ PY
     fi
   fi
   case "$mutation" in
+    lost-ui-gap) expected='Pile rebuild must not replay an original burn';;
+    lost-seed) expected='Historical originals seed even before their UI exists';;
+    lost-membership) expected='Stale lost UI cannot burn a recovered original';;
+    clear-burn-output) expected='Missing lost-list samples must not clear a painted burn to blue';;
     retire-with-release) expected='An actual terminal release must retain its native flight path';;
     retire-before-native) expected='No-flight retirement still waits for native presentation completion';;
     incoming-progress) expected='Explicit owner progress retains the previous card actor during an incoming switch';;
