@@ -10,10 +10,9 @@ import json
 import os
 from pathlib import Path
 import re
-import subprocess
-import tempfile
 import time
 from urllib.error import HTTPError
+from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
 
@@ -25,6 +24,7 @@ class GitHub:
     def __init__(self, repository, token):
         if not re.fullmatch(r'[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+', repository):
             raise Refused('Invalid repository.')
+        self.release_ids = {}
         self.repository = repository
         self.base = 'https://api.github.com/repos/' + repository
         self.headers = {'Authorization': 'Bearer ' + token,
@@ -32,28 +32,77 @@ class GitHub:
                         'X-GitHub-Api-Version': '2022-11-28'}
 
     def request(self, path, method='GET', data=None):
-        request = Request(self.base + path, headers=self.headers, method=method,
+        headers = dict(self.headers)
+        if data is not None:
+            headers['Content-Type'] = 'application/json'
+        request = Request(self.base + path, headers=headers, method=method,
                           data=None if data is None else json.dumps(data).encode())
         try:
             with urlopen(request, timeout=60) as response:
                 return json.load(response) if response.status != 204 else None
         except HTTPError as error:
+            error.close()
             if error.code == 404 and method == 'GET':
                 return None
             raise
 
     def release(self, tag):
-        return self.request('/releases/tags/' + tag)
+        if tag in self.release_ids:
+            release = self.request('/releases/' + str(self.release_ids[tag]))
+            if release is None:
+                raise OSError('Pinned release is not readable; refusing to create another draft.')
+            if release.get('tag_name') != tag:
+                raise Refused('Pinned release no longer names the requested tag.')
+            return release
+        # The by-tag endpoint resolves published releases only. Authenticated release
+        # listings include drafts; relying on by-tag alone can create duplicate drafts.
+        published = self.request('/releases/tags/' + tag)
+        if published is not None:
+            self.release_ids[tag] = published['id']
+            return published
+        matches = []
+        for page in range(1, 21):
+            batch = self.request(f'/releases?per_page=100&page={page}')
+            if not isinstance(batch, list):
+                raise OSError('Release listing is unavailable.')
+            matches.extend(release for release in batch if release.get('tag_name') == tag)
+            if len(matches) > 1:
+                raise Refused('Multiple releases name this tag; inspect the drafts before recovery.')
+            if len(batch) < 100:
+                if matches:
+                    self.release_ids[tag] = matches[0]['id']
+                    return matches[0]
+                return None
+        raise Refused('Release listing exceeds the recovery search bound.')
 
     def create(self, tag, title, notes):
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.md') as body:
-            body.write(notes)
-            body.flush()
-            subprocess.run(['gh', 'release', 'create', tag, '--repo', self.repository,
-                            '--title', title, '--notes-file', body.name, '--verify-tag', '--draft'], check=True)
+        # Like gh --verify-tag, verify the remote tag before POST; GitHub otherwise
+        # invents a tag when creating a release. Never supply a replacement target.
+        if self.request('/git/ref/tags/' + tag) is None:
+            raise Refused('Existing remote tag is required before draft creation.')
+        release = self.request('/releases', 'POST', {
+            'tag_name': tag, 'name': title, 'body': notes,
+            'draft': True, 'prerelease': False})
+        if not release or not release.get('id') or release.get('tag_name') != tag:
+            raise OSError('Draft creation response did not identify the requested release.')
+        self.release_ids[tag] = release['id']
+        return release
 
     def upload(self, tag, archive):
-        subprocess.run(['gh', 'release', 'upload', tag, str(archive), '--repo', self.repository], check=True)
+        release = self.release(tag)
+        if release is None:
+            raise Refused('Cannot upload without a known draft release.')
+        require_draft(release)
+        # Drafts cannot reliably be resolved by tag by the CLI. Upload directly to
+        # the pinned release ID and stream bytes without buffering the full archive.
+        url = ('https://uploads.github.com/repos/' + self.repository + '/releases/'
+               + str(release['id']) + '/assets?' + urlencode({'name': archive.name}))
+        headers = dict(self.headers, **{'Content-Type': 'application/zip',
+                                       'Content-Length': str(archive.stat().st_size)})
+        with archive.open('rb') as stream:
+            request = Request(url, headers=headers, method='POST', data=stream)
+            with urlopen(request, timeout=300) as response:
+                return json.load(response)
 
     def remove_starter(self, asset):
         self.request('/releases/assets/' + str(asset['id']), 'DELETE')
@@ -115,6 +164,7 @@ def publish(api, tag, source, archive, notes, sleep=time.sleep, attempts=5):
     title = 'GloomhavenVR ' + tag[1:]
     last_error = None
     publication_started = False
+    creation_started = False
     for attempt in range(attempts):
         try:
             check_source(api, tag, source)
@@ -123,7 +173,8 @@ def publish(api, tag, source, archive, notes, sleep=time.sleep, attempts=5):
                 if publication_started and verified_asset(api, release, archive, digest):
                     return  # Publish succeeded remotely but its response was lost.
                 require_draft(release)
-            if release is None:
+            if release is None and not creation_started:
+                creation_started = True  # A lost POST response must never create a second draft.
                 api.create(tag, title, notes)
                 release = api.release(tag)
             if release is None:
@@ -144,7 +195,9 @@ def publish(api, tag, source, archive, notes, sleep=time.sleep, attempts=5):
             return
         except Refused:
             raise
-        except (OSError, subprocess.CalledProcessError) as error:
+        except OSError as error:
+            if isinstance(error, HTTPError):
+                error.close()
             last_error = error
             print(f'Release transport attempt {attempt + 1}/{attempts} failed: {error}', flush=True)
             if attempt + 1 < attempts:
