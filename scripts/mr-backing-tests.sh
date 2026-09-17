@@ -82,6 +82,8 @@ bindings(mr,m,mirror)
 ink=code((repo/'src/GloomhavenVR/WorldUI/Conversion/PanelInkBounds.cs').read_text())
 initiative=code((repo/'src/GloomhavenVR/Net/Remote/RemoteInitiativeTrack.cs').read_text())
 elements=code((repo/'src/GloomhavenVR/Net/Remote/RemoteElementStrip.cs').read_text())
+local_surfaces=code((repo/'src/GloomhavenVR/WorldUI/Surfaces/TablePanelSurfaces.cs').read_text())
+assert 'Panel.FitContentRoot = InitiativeTrack.Instance.initiativeTrackHolder as RectTransform;' in local_surfaces and 'Panel.FitContentRoot = InfusionBoardUI.Instance.elementsHolder as RectTransform;' in local_surfaces
 assert '!MrBackingScope.Valid(target, contentRoot)' in ink
 assert '!MrBackingScope.Visit(t, contentRoot)' in ink
 assert 'if (MrBackingScope.Paint(t, contentRoot)' in ink
