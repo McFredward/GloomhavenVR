@@ -53,11 +53,12 @@ namespace GloomhavenVR.WorldUI;
 //      corner, facing the spawn point, no seat search, no depth step, corner re-asserted after
 //      the clamps, registry refreshed at the pre-reveal re-place (TryRefreshCornerClaim), and
 //      the MAP ROOM CORNER falsifier when it was NOT corner-placed.
-//   2. While the quest log IS standing on that corner, the popup goes IMMEDIATELY INSIDE IT
-//      toward the centre: the seat search is offered that one angle first — the quest log's
-//      inner edge less the popup's half-width and the chooser clearance (2° + 4° = 6°) — and
-//      takes it when it is free and inside the field of view; otherwise the ordinary search
-//      runs exactly as before.
+//   2. While the quest log IS standing on that corner, prefer the free gaze centre. Only when
+//      the centre is occupied, try immediately inside the log toward the centre, with the
+//      existing chooser clearance. ModBuild 527: the old unconditional adjacent preference
+//      placed the quest popup 6–7° to the side even with a free centre (build-526 BESIDE logs).
+//      The user's 2026-09-17 correction explicitly keeps that newly opened window centred.
+//      Private quest selection with the hidden quest log still uses clause 1 unchanged.
 //
 // WHAT THIS DOES NOT DECIDE. Where the CHARACTER SCREEN stands during selection is the map-room
 // lane's: the handover at :5925 moves it off its corner onto the loadout's seat, and while that
@@ -130,8 +131,8 @@ internal static partial class ModalFallback
                   + "left corner, the table's width apart (user request 2026-09-03: 'NEBENEINANDER "
                   + "... Abstand wie die Tischkanten')"
                 : " QUEST SELECTION: the quest log is standing on the right corner, so the popup is "
-                  + "offered the seat IMMEDIATELY INSIDE it toward the centre first (the quest log's "
-                  + "inner edge less this window's half-width and the 6° chooser clearance)";
+                  + "offered the free gaze centre first, with the seat immediately inside the log "
+                  + "used only when the centre is occupied";
             return corner;
         }
         catch (System.Exception)
@@ -141,10 +142,10 @@ internal static partial class ModalFallback
     }
 
     /// <summary>
-    /// CLAUSE 2: the one angle the search is offered FIRST when the arriving window is the quest
-    /// info popup and the quest log stands — inside the quest log toward the centre, at the chooser
-    /// clearance. Taken only when it is free of every standing seat and its edges are inside the
-    /// field of view (<paramref name="centreLimit"/>); false hands the search back unchanged.
+    /// CLAUSE 2: prefer the gaze centre for a quest popup beside a standing quest log. If occupied,
+    /// try inside the log at the chooser clearance. Both choices must be free of standing seats
+    /// and fit inside the field of view (<paramref name="centreLimit"/>). A failed choice hands
+    /// the search back unchanged; this method does not move an existing window.
     /// </summary>
     private static bool TryQuestSelectionPreferredSeat(float gazeYawDeg, float centreLimit,
         float halfAngle, out float offsetDeg)
@@ -157,6 +158,15 @@ internal static partial class ModalFallback
             int log = StandingQuestLogSlot();
             if (log < 0)
                 return false;
+            // A standing quest log does not justify moving a newly opened popup away from an
+            // unobstructed centre. This check precedes the historical adjacent-seat preference;
+            // returning false here would let the general map-channel pass choose another side.
+            if (centreLimit >= -1e-3f && ArcSeatIsFree(gazeYawDeg, halfAngle))
+            {
+                _questSelectionNote = " QUEST SELECTION: the quest log is standing on the right "
+                                      + "corner, and the popup keeps the free spawn gaze centre";
+                return true;
+            }
             float logOffset = Mathf.DeltaAngle(gazeYawDeg, _arcSeatWorldYaw[log]);
             float clearance = _arcClaims[log].HalfWidthDeg + halfAngle + NeighbourGapDegrees
                               + ChooserSlotExtraGapDegrees;

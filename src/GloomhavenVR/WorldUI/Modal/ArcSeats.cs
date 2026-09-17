@@ -1953,8 +1953,8 @@ internal static partial class ModalFallback
             }
         }
 
-        // ---- 2026-09-03 (second round): the quest info popup beside a STANDING quest log is
-        //      offered the seat immediately inside it first — ModalFallback.13.QuestSelectionSeat.
+        // ---- The quest popup beside a STANDING quest log prefers a free gaze centre, then
+        //      the historical adjacent seat — ModalFallback.13.QuestSelectionSeat (build 527).
         if (TryQuestSelectionPreferredSeat(gazeYawDeg, centreLimit, halfAngle, out float preferred))
         {
             best = preferred;
