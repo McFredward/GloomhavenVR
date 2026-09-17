@@ -57,7 +57,7 @@ assert source.count(needle) == 1
 (root / 'paint-backdrop.fixture').write_text(source.replace(needle,'contentRoot == null'))
 needle = 'MrBackingPaintedBounds.TryMeasure(host, graphic, out drawBounds,\n                            backingOriginalAlpha, out bool pendingPaint)'
 assert source.count(needle) == 1
-(root / 'paint-layout.fixture').write_text(source.replace(needle,'TryHostLocalBounds(host, rt, out drawBounds)').replace('if (pendingPaint && MrBackingScope.Paint(t, contentRoot)) ink.PendingPaint++;',''))
+(root / 'paint-layout.fixture').write_text(source.replace(needle,'TryHostLocalBounds(host, rt, out drawBounds)').replace('if (pendingPaint && MrBackingScope.Paint(t, contentRoot)) ink.PendingPaint++;','ink.PendingPaint = 0;'))
 needle = 'visibleWitnesses?.Clear();'
 assert source.count(needle) == 2
 (root / 'live-clear.fixture').write_text(source.replace(needle, '', 1))
@@ -157,7 +157,7 @@ for mutation in missing broad hint-ink hint-union reward-heading mr-frame mr-hov
         union_source="$mutation_dir/hint-union.fixture"
     fi
     if dotnet run --project "$mutation_dir/GloomhavenVR.PanelInkTests.csproj" --configuration Release \
-        --property:RootWatchSource="$watch_source" --property:LayoutSource="$repo_root/src/GloomhavenVR/WorldUI/MrBackingLayout.cs" --property:CaptureBoundsSource="$capture_bounds_source" --property:CaptureAccessorSource="$capture_accessor_source" --property:TraceSource="$trace_source" --property:PaintedSource="$painted_source" --property:VisibilitySource="$visibility_source" --property:ScopeSource="$repo_root/src/GloomhavenVR/WorldUI/MrBackingScope.cs" --property:InkSource="$ink_source" --property:HeadingSource="$heading_source" --property:DrawnUnionSource="$union_source" > "$mutation_dir/$mutation.log" 2>&1; then
+        --property:RootWatchSource="$watch_source" --property:CaptureBoundsSource="$capture_bounds_source" --property:CaptureAccessorSource="$capture_accessor_source" --property:TraceSource="$trace_source" --property:PaintedSource="$painted_source" --property:VisibilitySource="$visibility_source" --property:ScopeSource="$repo_root/src/GloomhavenVR/WorldUI/MrBackingScope.cs" --property:InkSource="$ink_source" --property:HeadingSource="$heading_source" --property:DrawnUnionSource="$union_source" > "$mutation_dir/$mutation.log" 2>&1; then
         cat "$mutation_dir/$mutation.log"
         echo "FAIL: $mutation mutation escaped the ink test." >&2
         exit 1

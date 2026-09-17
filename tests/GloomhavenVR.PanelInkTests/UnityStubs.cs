@@ -114,8 +114,6 @@ namespace UnityEngine
         public float x { get=>xMin; set { float w=width;xMin=value;width=w; } }
         public float y { get=>yMin; set { float h=height;yMin=value;height=h; } }
         public Rect(float x, float y, float w, float h) { xMin = x; yMin = y; xMax = x + w; yMax = y + h; }
-        public Rect(Vector2 position,Vector2 size):this(position.x,position.y,size.x,size.y){}
-        public Vector2 position=>new(xMin,yMin); public Vector2 size=>new(width,height); public Vector2 center=>new((xMin+xMax)/2,(yMin+yMax)/2);
         public static Rect MinMaxRect(float x, float y, float right, float top)
             => new Rect(x, y, right - x, top - y);
     }
@@ -123,8 +121,6 @@ namespace UnityEngine
     {
         public float x, y;
         public Vector2(float a, float b) { x = a; y = b; }
-        public static Vector2 zero=>default;
-        public static Vector2 Lerp(Vector2 a,Vector2 b,float t)=>new(a.x+(b.x-a.x)*t,a.y+(b.y-a.y)*t);
         public static Vector2 Min(Vector2 a, Vector2 b) => new(Math.Min(a.x, b.x), Math.Min(a.y, b.y));
         public static Vector2 Max(Vector2 a, Vector2 b) => new(Math.Max(a.x, b.x), Math.Max(a.y, b.y));
     }
@@ -259,5 +255,3 @@ namespace GloomhavenVR.Core
         { if(ThrowOnNote) throw new InvalidOperationException("log unavailable");Lines.Add(message); }
     }
 }
-
-namespace GloomhavenVR { internal static class Defaults { internal const float GrabBarTweenMs=150f; } }

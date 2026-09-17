@@ -59,7 +59,6 @@ static partial class Program
 
     static void Main()
     {
-        TestCaptureBacking();
         var host = new GameObject("Host");
         var movie = new GameObject("Movie");
         movie.transform.SetParent(host.transform);
@@ -112,6 +111,7 @@ static partial class Program
         TestBackingVisibility();
         TestPaintedBacking();
         TestBackingDiagnostics();
+        TestCaptureBacking();
         Console.WriteLine($"Panel ink tests: {_assertions} assertions passed.");
     }
 }
