@@ -3,6 +3,21 @@ using System.Collections;
 using UnityEngine;
 using Chronos;
 public class ItemCardEffects {
+    internal GloomhavenVR.Cards.ItemCardUI? Owner;
+    internal T? GetComponentInParent<T>() where T:class=>Owner as T;
+    internal System.Collections.IEnumerator? Playing;
+    internal int Starts,Resets;
+    internal enum FXTask {Consumed,Spent}
+    internal void ToggleEffect(bool active,FXTask effect){
+        if(!GloomhavenVR.Cards.ItemTestHooks.Allow(typeof(GloomhavenVR.Cards.ItemBurnPlayback.ToggleEffect_Once),this))return;
+        RestoreCard();ToggleAdditiveEffect(active,effect);
+    }
+    internal void ToggleAdditiveEffect(bool active,FXTask effect){
+        if(!GloomhavenVR.Cards.ItemTestHooks.Allow(typeof(GloomhavenVR.Cards.ItemBurnPlayback.ToggleAdditiveEffect_Once),this))return;
+        Starts++;Playing=GloomhavenVR.Cards.ItemBurnPlayback.Track(this,BurnCardTimeline(active));Playing.MoveNext();
+    }
+    internal void RestoreCard(){if(GloomhavenVR.Cards.ItemTestHooks.Allow(typeof(GloomhavenVR.Cards.ItemBurnPlayback.RestoreCard_Once),this))Resets++;}
+
     public float fx_Overlay_FlowSpeed;
     public float fx_Overlay_Flow_NoiseTiling;
     public float fx_Overlay_Glow;

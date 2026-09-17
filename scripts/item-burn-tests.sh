@@ -34,3 +34,27 @@ PY
     mv "$work_dir/playback.txt" "$work_dir/Playback.cs"
     echo "Item burn negative control: $mutation failed as expected."
 done
+for mutation in repeat-item completed-item recovered-item retired-item; do
+    cp "$work_dir/Playback.cs" "$work_dir/playback.txt"
+    python3 - "$work_dir" "$mutation" <<'PY'
+import pathlib,sys
+p=pathlib.Path(sys.argv[1])/'Playback.cs';s=p.read_text()
+a,b={
+'repeat-item':('return state.Active != 0 || state.Completed;', 'return state.Completed;'),
+'completed-item':('return state.Active != 0 || state.Completed;', 'return state.Active != 0;'),
+'recovered-item':('|| item.SlotState != CItem.EItemSlotState.Consumed', ''),
+'retired-item':('if (_state.Retired) { Finish(); return false; }', ''),
+}[sys.argv[2]]
+assert s.count(a)==1;p.write_text(s.replace(a,b))
+PY
+    if dotnet run --project "$work_dir/GloomhavenVR.ItemBurnTests.csproj" --configuration Release > "$work_dir/negative.log" 2>&1; then cat "$work_dir/negative.log"; exit 1; fi
+    case "$mutation" in
+        repeat-item) expected='Forced item state refresh must keep one original consumed timeline';;
+        completed-item) expected='Completed consumed items must not restart from forced state refresh';;
+        recovered-item) expected='Recovered item state must permit normal native reset';;
+        retired-item) expected='Retired item iterators must not write into recycled artwork';;
+    esac
+    if ! grep -Fq "$expected" "$work_dir/negative.log"; then cat "$work_dir/negative.log"; exit 1; fi
+    mv "$work_dir/playback.txt" "$work_dir/Playback.cs"
+    echo "Item burn replay negative control: $mutation failed as expected."
+done

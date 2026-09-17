@@ -24,7 +24,7 @@ assert 'bool firstStep = true;' in hook and 'firstStep = false;' in hook, 'Nativ
 layout=(r/'src/GloomhavenVR/Cards/Driver/CardsDriver.8.BurnSequencing.cs').read_text()
 assert layout.index('ObserveForeignBurnProgress(widget);') < layout.index('FlushBurnHolds('), 'Progress must be observed while the native layout barrier still blocks Flush'
 retire=(r/'src/GloomhavenVR/Cards/Driver/CardsDriver.4.Rebuild.cs').read_text()
-assert 'Net.BurnReleasePolicy.RetireWithoutFlight(witnessedOriginal || durableNoFlight,' in retire and 'ClearBurnHold(widget); _activeExitOrigins.Remove(widget); _knownBurntWidgets.Add(widget);' in retire, 'No-flight completion retires exact local holds instead of fabricating a flight'
+assert 'Net.BurnReleasePolicy.RetireWithoutFlight(witnessedOriginal || durableNoFlight,' in retire and 'ClearBurnHold(widget); _activeExitOrigins.Remove(widget); RememberBurn(widget);' in retire, 'No-flight completion retires exact local holds instead of fabricating a flight'
 cleanup=(r/'src/GloomhavenVR/Cards/Driver/CardsDriver.2.Update.cs').read_text()
 assert '_foreignBurnProgress.Clear();' in cleanup, 'Progress observations cannot retain old native widgets after teardown'
 print('Burn completion production binding: sampler, legacy/history admission and canonical observer dispatch verified.')

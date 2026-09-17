@@ -2,6 +2,7 @@ using System;
 using System.Collections;
 using System.Runtime.CompilerServices;
 using HarmonyLib;
+using ScenarioRuleLibrary;
 
 namespace GloomhavenVR.Cards;
 
@@ -13,30 +14,59 @@ namespace GloomhavenVR.Cards;
 /// </summary>
 internal static class ItemBurnPlayback
 {
-    private sealed class State { internal int Active; }
+    private sealed class State
+    {
+        internal int Active;
+        internal CItem? Model;
+        internal bool Completed, Retired;
+    }
     private static readonly ConditionalWeakTable<ItemCardEffects, State> States = new();
 
     internal static bool Playing(ItemCardEffects? effect) => effect != null
         && States.TryGetValue(effect, out State? state) && state != null && state.Active != 0;
 
-    internal static IEnumerator Track(ItemCardEffects effect, IEnumerator original) =>
-        new Playback(States.GetValue(effect, _ => new State()), original);
+    private static ItemCardUI? Owner(ItemCardEffects effect) => effect.GetComponentInParent<ItemCardUI>();
+
+    internal static void Retire(ItemCardEffects? effect)
+    {
+        if (effect == null) return;
+        if (States.TryGetValue(effect, out var old)) old.Retired = true;
+        States.Remove(effect);
+    }
+
+    private static bool Preserve(ItemCardEffects effect)
+    {
+        if (!States.TryGetValue(effect, out var state)) return false;
+        var item = Owner(effect)?.item;
+        if (item == null || !ReferenceEquals(item, state.Model) || item.SlotState != CItem.EItemSlotState.Consumed)
+        { Retire(effect); return false; }
+        return state.Active != 0 || state.Completed;
+    }
+
+    internal static IEnumerator Track(ItemCardEffects effect, IEnumerator original)
+    {
+        var item = Owner(effect)?.item;
+        if (States.TryGetValue(effect, out var old) && !ReferenceEquals(old.Model, item)) Retire(effect);
+        return new Playback(States.GetValue(effect, _ => new State { Model = item }), original);
+    }
 
     private sealed class Playback : IEnumerator, IDisposable
     {
         private readonly State _state;
         private readonly IEnumerator _original;
-        private bool _started, _finished, _disposed;
+        private bool _started, _finished, _disposed, _yielded;
         internal Playback(State state, IEnumerator original) { _state = state; _original = original; }
         public object Current => _original.Current;
         public bool MoveNext()
         {
             if (_finished) return false;
+            if (_state.Retired) { Finish(); return false; }
             if (!_started) { _started = true; _state.Active++; }
             try
             {
                 bool next = _original.MoveNext();
-                if (!next) Finish();
+                _yielded |= next;
+                if (!next) { _state.Completed |= _yielded; Finish(); }
                 return next;
             }
             catch { Finish(); throw; }
@@ -55,6 +85,37 @@ internal static class ItemBurnPlayback
             _finished = true;
             if (_started) _state.Active--;
         }
+    }
+
+    // ItemCardUI.Show and a subsequent forced UpdateState can request Consumed twice.
+    // Unlike ability effects, the native item effect stores no coroutine handle: both ramps
+    // then write the same materials concurrently. Stop the duplicate before RestoreCard.
+    [HarmonyPatch(typeof(ItemCardEffects), nameof(ItemCardEffects.ToggleEffect))]
+    internal static class ToggleEffect_Once
+    {
+        private static bool Prefix(ItemCardEffects __instance)
+        { try { return !Preserve(__instance); } catch { return true; } }
+    }
+
+    [HarmonyPatch(typeof(ItemCardEffects), nameof(ItemCardEffects.ToggleAdditiveEffect))]
+    internal static class ToggleAdditiveEffect_Once
+    {
+        private static bool Prefix(ItemCardEffects __instance)
+        { try { return !Preserve(__instance); } catch { return true; } }
+    }
+
+    [HarmonyPatch(typeof(ItemCardEffects), nameof(ItemCardEffects.RestoreCard))]
+    internal static class RestoreCard_Once
+    {
+        private static bool Prefix(ItemCardEffects __instance)
+        { try { return !Preserve(__instance); } catch { return true; } }
+    }
+
+    [HarmonyPatch(typeof(ItemCardUI), nameof(ItemCardUI.OnReturnedToPool))]
+    internal static class ReturnedToPool_Retire
+    {
+        private static void Prefix(ItemCardUI __instance)
+        { try { Retire(__instance.cardEffects); } catch { /* Native pool cleanup must continue. */ } }
     }
 
     [HarmonyPatch(typeof(ItemCardEffects), nameof(ItemCardEffects.BurnCardTimeline))]
