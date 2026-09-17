@@ -44,6 +44,11 @@ confirmation dialog stands, including the interval before a queued grab-to-reope
 actually cancels it. Once native cancel lands, the existing restart clears the page
 prefix, queues all completed page returns and resumes page 1. Normal two-card
 selection resumes after native confirm and the existing exit-animation barrier.
+Integration review additionally identified native recycling of a locked page card:
+`OnCardRecycling` removed the entry without decreasing the locked prefix, incorrectly
+classifying the next visible card as locked. `RetirePickFieldCard` now updates the
+prefix and exit claim before relayout and wrapper destruction. The production tests
+cover first/middle locked entries, visible entries and absent cards.
 No gameplay selection, native callback, wire record or card-face policy changes.
 
 Remote boards receive the owner's exact wanted mask through existing board-UI
@@ -54,15 +59,16 @@ output is not captured by the supplied historical remote files.
 
 ## Validation
 
-- `bash scripts/pick-tray-tests.sh`: **217 production assertions**, **6 source
-  bindings**, **3 runtime negative controls**. Extracts and executes the actual
+- `bash scripts/pick-tray-tests.sh`: **245 production assertions**, **8 source
+  bindings**, **6 runtime negative controls**. Extracts and executes the actual
   production prune, wanted-mask, placement target and restart methods. Tests one
   through eight total cards, odd/even pages, partial and complete batches, final
   confirmation, undo return claims, native deselection inside a locked prefix,
   stale/dead parked cards, queued reopen, two-card damage sacrifice/recovery,
   normal selection, modal/ownership/rest/end-flow gates and exit-animation waiting.
 - Negative controls restore unconditional parked pruning, remove confirmation
-  admission and retain deselected parked pages. Each fails its intended behavioral
+  admission and retain deselected parked pages; the added controls remove recycle-prefix
+  adjustment, retain a dead flight claim or incorrectly shrink the prefix for a live-page removal. Each fails its intended behavioral
   assertion; compilation failures are not accepted as a passing negative control.
 - `bash scripts/ci-build.sh Release`: **zero warnings / zero errors**.
 - Existing `bash scripts/burn-layout-tests.sh`: **204 assertions** and all **9**

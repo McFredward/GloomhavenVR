@@ -505,7 +505,19 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 515;
+    public const ushort ModBuild = 516;
+
+    // ModBuild 516 — paged discard cues, fitted MR windows and safe card scene lifetime.
+    //   Completed discard pages retain their selected, flown bookkeeping until the native
+    //   decision ends. The final one-card page cannot re-arm the right recess, and native
+    //   confirmation suppresses new-placement hints locally and through the owner mask.
+    //   MR window backings use current visible content instead of transparent host extents;
+    //   empty/revealing windows stay unbacked and geometry changes use the default grab-bar timing.
+    //   Return borrowed native card hierarchies before the scene loader can destroy their
+    //   VR hosts. Native loading state prevents re-adoption during teardown, while pending
+    //   EndScenarioSafely decisions retain input. The original loader and pool callbacks run.
+    //   Version 1.0.4 on dev; no asset bundle or wire grammar changes. All VR peers use 516.
+    //   See .planning/HARDWARE-516.md for evidence, regression checks and headset limits.
 
     // ModBuild 515 — soften the Glove fingers' authored surface relief (FULL INSTALL).
     //   Baked normal-map cracks remained too strong at the previous 0.5 strength.

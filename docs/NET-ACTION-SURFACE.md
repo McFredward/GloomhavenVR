@@ -18,18 +18,15 @@ thrown anywhere under that dispatch — **including out of one of our patch bodi
 not logged as a mod bug. It is shown to the player as the *game's* "Desynchronization
 occurred" dialog, and the session is shut down with a single Main Menu button.
 
-`check-desync-surface.py` knows **37** such receiver types, weighted by how many of the
-~121 dispatch entries reach each one. The mod patches **seven** of them, and the table
-below carries **18** patch classes (3 CANNOT-THROW, 4 GUARDED-DEEPER, 6 ISOLATED,
-5 SELF-GUARDED) — the gate prints those figures every run, so read them from it rather
-than from here.
+`check-desync-surface.py` identifies receiver types reachable from the native action
+dispatch and prints the current patch/verdict counts. The table below is the reviewed
+classification; use the checker output for totals as patches are added.
 
-The seven, with their weight: `Choreographer` (27 actions — the heaviest in the game),
-`CardsHandManager` (13), `NewPartyDisplayUI` (10), `UIReadyToggle` (8),
-`TakeDamagePanel` (3), `UIAbilityCardPicker` (2), `UIEventPanel` (1). Note that this is
-*not* "the top seven": `MapChoreographer` (11) outweighs four of them and the mod does
-not patch it. Weight is how much traffic a receiver sees, not how exposed our patch is —
-`UIEventPanel` is one action and is the most carefully guarded row in the table.
+Frequently reached receivers include `Choreographer`, `CardsHandManager`,
+`NewPartyDisplayUI` and `UIReadyToggle`. `SceneController` is included as of build 516:
+its load-iterator hook must preserve native loading and callback behavior even when
+mod presentation cleanup fails. Dispatch frequency alone does not determine safety;
+even a rarely invoked handler can end a multiplayer session if an exception escapes.
 
 Full analysis, with the evidence:
 [`.planning/multiplayer/DESYNC-ANALYSIS.md`](../.planning/multiplayer/DESYNC-ANALYSIS.md).
@@ -60,6 +57,7 @@ Full analysis, with the evidence:
 | `MapQuestReadyPress` | UIReadyToggle | **SELF-GUARDED** | A **diagnostic** postfix on `UIReadyToggle.ReadyUp(bool, bool)` — the method every quest/city-event/rewards ready-up press funnels through, on a type that receives the `ReadyUpPlayer` / `AllPlayersReady` / `ReadyProceed` actions. No return value and no `__result`, so it cannot change what the press did. Its whole body is inside its own `try/catch` with an empty handler and a stated reason: this line exists so a hardware round can tell a press the game REFUSED from a press that never arrived, and a diagnostic must never be able to take the ready-up — or somebody's multiplayer evening — down with it. |
 | `PartyPanelStackingHide` | NewPartyDisplayUI | **ISOLATED** | A *skip* prefix on `NewPartyDisplayUI.Hide`, on a type that receives 10 actions. Wrapped in ModBuild 334; on a throw it returns `true`, so vanilla `Hide` runs — the behaviour this suppression refines, not one it may depend on. |
 | `Placement_Click_Diagnostics` | Choreographer | **ISOLATED** | A **diagnostic** prefix on the heaviest receiver in the game. Wrapped in ModBuild 334: a log line must never be able to end somebody's multiplayer evening. |
+| `SceneController_LoadScene_CardLifetime` | SceneController | **SELF-GUARDED** | The postfix preserves the original iterator if wrapper construction fails. At first execution, the mod-only ownership release is guarded separately from the native iterator; hover cleanup failures cannot skip returning other borrowed faces. Native `MoveNext`, yields, disposal and exceptions are forwarded unchanged. No native load or mandatory decision is skipped. |
 | `TakeDamagePanelSafety` | TakeDamagePanel | **SELF-GUARDED** | `Live`/`Allow` are null-safe by construction and the one body that does real work, `AutoUseMandatoryActiveBonuses`, is wholly inside its own `try`. |
 | `TakeDamagePanel_BurnHover_Skip` | TakeDamagePanel | **CANNOT-THROW** | Four expression-bodied `=> false`. |
 | `UIEventPanel_ClientContinueRoadEvent_Patch` | UIEventPanel | **ISOLATED** | The host's judgement seam for the encounter-choice feature (`Net/EncounterChoice.cs`), and the one patch here that runs INSIDE `ProcessSideAction`, whose own `catch` calls `HandleDesync` **and rethrows**. The whole body is inside `DispatchGuard.Run`. Its `onThrow` is chosen per case and is not a shrug: a VANILLA arrival falls back to `true` so the game's own replay runs untouched; a CLIENT REQUEST falls back to `false`, because letting vanilla run on one would read the side action's unset `SupplementaryDataIDMed` as option 0 and either press the wrong option or throw "No button with ID 0 found" into the dialog this ledger exists to prevent. The replay depth is raised as the prefix's first statement and released from a `[HarmonyFinalizer]` returning `void`, so the game's own exception is preserved exactly and the latch cannot leak through it. |

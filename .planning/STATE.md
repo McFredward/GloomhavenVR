@@ -1,6 +1,6 @@
 # State — where the project stands
 
-**Updated 2026-09-16 for the verified 1.0.3 release, ModBuild 515.** The file this replaces had gone 168 builds
+**Updated 2026-09-17 for the build-515 hardware follow-up, ModBuild 516 on dev.** The file this replaces had gone 168 builds
 stale while still saying "read this first"; it is kept as `STATE-ARCHIVE-through-2026-08.md` for
 its round-by-round narrative and for nothing else.
 
@@ -12,6 +12,26 @@ change per build) → this file (where things stand and what is owed) → the bu
 ---
 
 ## 1. Position
+
+- **dev / 1.0.4 / ModBuild 516 addresses the latest hardware findings.**
+  Completed discard pages retain their native selected claims; final confirmation cannot
+  light an unavailable second recess. Native recycling updates the locked prefix, and undo
+  keeps earlier page return flights. MR backings fit visible native content with a small margin,
+  reject empty/transient measurements and animate over a shared 150 ms locally and remotely.
+  Borrowed native card hierarchies return before scene unload; native loading state blocks
+  re-adoption, while aborted loads restore retained selected identities and original callbacks.
+  Supplied local evidence is release 515; remote files remain historical 500. The exact first
+  Unity destruction order is not logged. Hardware retest remains open; see
+  [HARDWARE-516.md](HARDWARE-516.md) and its three lane reports.
+
+- **516 integration checks pass:** all 17 guard checkers and production suites; 254,019 wire
+  assertions; strict Release zero warnings/errors. Pick tray: 245 runtime + eight bindings /
+  six negatives. MR: 233 + 25 / ten runtime + three binding negatives. Scene lifetime:
+  35 + 20 / seven negatives. Native ink: 243 assertions. Retained build-502 compiled diff:
+  76 changed / 45 added / zero removed; private build-515 comparison: 21 changed / three
+  added / zero removed, with 13 changes limited to version/build constants. Reviewed surfaces:
+  625 config / 164 patch signatures / 4,729 log tokens; patch inventory 120 classes / 187
+  methods. Bilingual docs, shell syntax and whitespace pass. Published 1.0.3 is unchanged.
 
 - **1.0.3 / ModBuild 515 is published from main.** PR #6 merged the accepted runtime/assets
   with bilingual release highlights as `fd76de86`. Release run 35151926513 passed; tag,

@@ -1,6 +1,6 @@
 # Planning index
 
-Updated 2026-09-16 for the verified 1.0.3 release, build 515. This directory holds internal
+Updated 2026-09-17 for the latest hardware follow-up, build 516 on dev. This directory holds internal
 engineering evidence, historical decisions and current status; it is not the player manual.
 
 ## Current entry points
@@ -17,6 +17,11 @@ engineering evidence, historical decisions and current status; it is not the pla
 | [PROJECT.md](PROJECT.md), [ARCHITECTURE.md](ARCHITECTURE.md) | Product scope and architectural reasoning |
 
 ## Latest measured work
+
+- [HARDWARE-516.md](HARDWARE-516.md): integrated latest hardware findings, log/screenshot evidence, regression coverage and limits.
+- [TRAY-516.md](TRAY-516.md): paged discard cues, retained selection and recycle/undo lifetime.
+- [MR-BACKING-516.md](MR-BACKING-516.md): visible-content MR fitting and matching local/remote geometry animation.
+- [RESTART-516.md](RESTART-516.md): pooled native card ownership before scene reload, guarded continuation and aborted-load recovery.
 
 - [RELEASE-1.0.3.md](RELEASE-1.0.3.md): maintainer acceptance, main release provenance and verified public package with the updated Glove assets.
 
