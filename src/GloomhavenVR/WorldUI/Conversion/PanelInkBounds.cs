@@ -344,6 +344,9 @@ internal static class PanelInkBounds
         internal bool Valid;
         internal Rect Rect;
         internal int Graphics;
+        // Diagnostic-only witnesses from the actual clipped MR union, never a second measure.
+        internal Graphic? MrTop, MrBottom, MrLeft, MrRight;
+        internal Rect MrTopRect, MrBottomRect, MrLeftRect, MrRightRect;
         /// <summary>Graphics refused as FULL-FRAME BACKDROP PLATES — a surface covering at least
         /// 0.80 of the host rect's width and 0.95 of its height, at an effective alpha the fit calls
         /// visible. ModBuild 447: this is no longer only a census number. A non-zero count is the
@@ -466,7 +469,9 @@ internal static class PanelInkBounds
         ink.PlateBottomName = string.Empty;
         try
         {
-            return MeasureCore(panel, ref ink, includeParkedHint, frameOverride, excludedRoots, contentRoot, visibleWitnesses, backingGeometry);
+            bool measured = MeasureCore(panel, ref ink, includeParkedHint, frameOverride, excludedRoots, contentRoot, visibleWitnesses, backingGeometry);
+            if (backingGeometry) MrBackingBoundsTrace.Observe(panel, ink, measured);
+            return measured;
         }
         catch (System.Exception)
         {
@@ -663,6 +668,17 @@ internal static class PanelInkBounds
                             }
                             ink.Graphics++;
                             visibleWitnesses?.Add(graphic!);
+                            if (backingGeometry)
+                            {
+                                if (ink.MrTop == null || visible.yMax > ink.MrTopRect.yMax)
+                                { ink.MrTop = graphic; ink.MrTopRect = visible; }
+                                if (ink.MrBottom == null || visible.yMin < ink.MrBottomRect.yMin)
+                                { ink.MrBottom = graphic; ink.MrBottomRect = visible; }
+                                if (ink.MrLeft == null || visible.xMin < ink.MrLeftRect.xMin)
+                                { ink.MrLeft = graphic; ink.MrLeftRect = visible; }
+                                if (ink.MrRight == null || visible.xMax > ink.MrRightRect.xMax)
+                                { ink.MrRight = graphic; ink.MrRightRect = visible; }
+                            }
                         }
                     }
                 }

@@ -5,6 +5,7 @@
     <Nullable>enable</Nullable>
     <GenerateDocumentationFile>false</GenerateDocumentationFile>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <TraceSource Condition="'$(TraceSource)' == ''">../../src/GloomhavenVR/WorldUI/Conversion/MrBackingBoundsTrace.cs</TraceSource>
     <PaintedSource Condition="'$(PaintedSource)' == ''">../../src/GloomhavenVR/WorldUI/Conversion/MrBackingPaintedBounds.cs</PaintedSource>
     <VisibilitySource Condition="'$(VisibilitySource)' == ''">../../src/GloomhavenVR/WorldUI/MrBackingVisibility.cs</VisibilitySource>
     <ScopeSource Condition="'$(ScopeSource)' == ''">../../src/GloomhavenVR/WorldUI/MrBackingScope.cs</ScopeSource>
@@ -12,6 +13,7 @@
     <InkSource Condition="'$(InkSource)' == ''">../../src/GloomhavenVR/WorldUI/Conversion/PanelInkBounds.cs</InkSource>
   </PropertyGroup>
   <ItemGroup>
+    <Compile Include="$(TraceSource)" Link="Production/MrBackingBoundsTrace.cs" />
     <Compile Include="$(PaintedSource)" Link="Production/MrBackingPaintedBounds.cs" />
     <Compile Include="$(VisibilitySource)" Link="Production/MrBackingVisibility.cs" />
     <Compile Include="$(ScopeSource)" Link="Production/MrBackingScope.cs" />

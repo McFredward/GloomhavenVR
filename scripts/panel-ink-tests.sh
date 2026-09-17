@@ -14,6 +14,17 @@ import pathlib, re, sys
 repo, root = map(pathlib.Path, sys.argv[1:])
 source = (repo / 'src/GloomhavenVR/WorldUI/Conversion/PanelInkBounds.cs').read_text()
 visibility = (repo / 'src/GloomhavenVR/WorldUI/MrBackingVisibility.cs').read_text()
+trace = (repo / 'src/GloomhavenVR/WorldUI/Conversion/MrBackingBoundsTrace.cs').read_text()
+for name, needle, replacement in [
+    ('trace-cap', 'Reports >= 8', 'Reports >= 800'),
+    ('trace-steady', 'if (Seen && Valid == valid && (!valid || !moved))', 'if (Seen && Valid == valid && (!valid || !moved) && Reports < 0)'),
+    ('trace-throw', 'catch (Exception)', 'catch (Exception) when (panel == null)'),
+]:
+    assert trace.count(needle) == 1, name
+    (root / (name+'.fixture')).write_text(trace.replace(needle,replacement))
+needle = 'if (backingGeometry) MrBackingBoundsTrace.Observe(panel, ink, measured);'
+assert source.count(needle) == 1
+(root / 'trace-binding.fixture').write_text(source.replace(needle,''))
 for name, needle, replacement in [
     ('live-hidden', ' || !graphic.gameObject.activeInHierarchy', ''),
     ('live-alpha', 'graphic.color.a * renderer.GetInheritedAlpha()', 'graphic.color.a'),
@@ -101,10 +112,15 @@ assert 'out content, out contributors, out _, out _, includeParkedHint)' in code
 print('Placement binding negative control: inclusion of owner annotation rejected.')
 PY
 dotnet run --project "$project" --configuration Release --property:DrawnUnionSource="$mutation_dir/union.fixture"
-for mutation in missing broad hint-ink hint-union reward-heading mr-frame mr-hover mr-scope mr-scope-plate mr-scope-clip live-hidden live-alpha live-canvas live-clear paint-mask paint-alpha paint-transform paint-backdrop paint-layout; do
+for mutation in missing broad hint-ink hint-union reward-heading mr-frame mr-hover mr-scope mr-scope-plate mr-scope-clip live-hidden live-alpha live-canvas live-clear paint-mask paint-alpha paint-transform paint-backdrop paint-layout trace-cap trace-steady trace-throw trace-binding; do
     ink_source="$mutation_dir/$mutation.fixture"
     union_source="$mutation_dir/union.fixture"
     visibility_source="$repo_root/src/GloomhavenVR/WorldUI/MrBackingVisibility.cs"
+    trace_source="$repo_root/src/GloomhavenVR/WorldUI/Conversion/MrBackingBoundsTrace.cs"
+    if [[ "$mutation" == trace-cap || "$mutation" == trace-steady || "$mutation" == trace-throw ]]; then
+        ink_source="$source_file"
+        trace_source="$mutation_dir/$mutation.fixture"
+    fi
     painted_source="$repo_root/src/GloomhavenVR/WorldUI/Conversion/MrBackingPaintedBounds.cs"
     if [[ "$mutation" == paint-mask || "$mutation" == paint-alpha || "$mutation" == paint-transform ]]; then
         ink_source="$source_file"
@@ -119,7 +135,7 @@ for mutation in missing broad hint-ink hint-union reward-heading mr-frame mr-hov
         union_source="$mutation_dir/hint-union.fixture"
     fi
     if dotnet run --project "$mutation_dir/GloomhavenVR.PanelInkTests.csproj" --configuration Release \
-        --property:PaintedSource="$painted_source" --property:VisibilitySource="$visibility_source" --property:ScopeSource="$repo_root/src/GloomhavenVR/WorldUI/MrBackingScope.cs" --property:InkSource="$ink_source" --property:HeadingSource="$heading_source" --property:DrawnUnionSource="$union_source" > "$mutation_dir/$mutation.log" 2>&1; then
+        --property:TraceSource="$trace_source" --property:PaintedSource="$painted_source" --property:VisibilitySource="$visibility_source" --property:ScopeSource="$repo_root/src/GloomhavenVR/WorldUI/MrBackingScope.cs" --property:InkSource="$ink_source" --property:HeadingSource="$heading_source" --property:DrawnUnionSource="$union_source" > "$mutation_dir/$mutation.log" 2>&1; then
         cat "$mutation_dir/$mutation.log"
         echo "FAIL: $mutation mutation escaped the ink test." >&2
         exit 1
@@ -142,9 +158,13 @@ for mutation in missing broad hint-ink hint-union reward-heading mr-frame mr-hov
     if [[ "$mutation" == paint-alpha ]]; then expected='fully transparent mesh has no painted backing'; fi
     if [[ "$mutation" == paint-transform ]]; then expected='painted vertices retain the complete native transform chain'; fi
     if [[ "$mutation" == paint-backdrop || "$mutation" == paint-layout ]]; then expected='painted merchant bounds exclude a tall empty label layout rectangle'; fi
+    if [[ "$mutation" == trace-cap ]]; then expected='each converted panel has an eight-record diagnostic ceiling'; fi
+    if [[ "$mutation" == trace-steady ]]; then expected='unchanged diagnostics emit no duplicate records or allocations'; fi
+    if [[ "$mutation" == trace-throw ]]; then expected='throwing diagnostic getter cannot invalidate'; fi
+    if [[ "$mutation" == trace-binding ]]; then expected='first MR trace identifies original extrema'; fi
     if ! rg -q "$expected" "$mutation_dir/$mutation.log"; then
         cat "$mutation_dir/$mutation.log"
         exit 1
     fi
 done
-echo "Panel ink negative controls: nineteen runtime mutations and one placement binding mutation rejected."
+echo "Panel ink negative controls: twenty-three runtime mutations and one placement binding mutation rejected."

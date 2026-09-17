@@ -125,7 +125,7 @@ namespace UnityEngine
         public static Vector2 Max(Vector2 a, Vector2 b) => new(Math.Max(a.x, b.x), Math.Max(a.y, b.y));
     }
     public struct Vector4 { public float x,y,z,w; public Vector4(float a,float b,float c,float d) { x=a;y=b;z=c;w=d; } }
-    public class Sprite { public Rect rect; public Vector4 Padding; }
+    public class Sprite { public string name="OriginalSprite";public Rect rect; public Vector4 Padding; }
     public struct UIVertex { public Vector3 position;public Color32 color; }
     public class TextGenerator { public readonly List<UIVertex> verts=new(); }
     public struct Color { public float a; }
@@ -142,11 +142,15 @@ namespace UnityEngine
         public void GetVertices(List<Vector3> output) { Reads++; output.Clear(); output.AddRange(Points); }
         public void GetColors(List<Color32> output) { output.Clear(); output.AddRange(Colors); }
     }
+    public class Shader { public string name="NativeShader"; }
+    public class Material { public string name="NativeMaterial";public Shader? shader=new(); public bool HasProperty(string _) => true;public Color GetColor(string _) => new Color{a=.75f}; }
+    public class CanvasGroup : Component { public float alpha=1;public bool ignoreParentGroups; }
     public class Canvas : Component { public bool isActiveAndEnabled => enabled && gameObject.activeInHierarchy; }
     public class CanvasRenderer : Component
     {
         public bool cull;
         public float Alpha = 1;
+        public float GetAlpha() => Alpha;
         public float GetInheritedAlpha() => Alpha;
     }
     public static class Mathf
@@ -162,6 +166,9 @@ namespace UnityEngine.UI
 {
     public class Graphic : UnityEngine.Component
     {
+        public bool ThrowOnMaterial;
+        public UnityEngine.Material? material
+        { get { if(ThrowOnMaterial) throw new InvalidOperationException("destroyed diagnostic getter");return new UnityEngine.Material(); } }
         public UnityEngine.RectTransform rectTransform => gameObject.transform;
         public UnityEngine.Rect GetPixelAdjustedRect() => rectTransform.rect;
         public UnityEngine.Vector2 PixelAdjustPoint(UnityEngine.Vector2 point) => point;
@@ -233,3 +240,16 @@ public class Singleton<T> where T : class
     public static bool IsInitialized => Instance != null;
 }
 public sealed class UIRewardsManager { public TMPro.TMP_Text? rewardAnnouncementText; }
+
+namespace GloomhavenVR.Core
+{
+    internal enum VRLogLevel { Info }
+    internal static class VRLog
+    {
+        internal static bool Enabled, ThrowOnNote;
+        internal static readonly List<string> Lines=new();
+        internal static bool Wants(VRLogLevel _) => Enabled;
+        internal static void Note(string scope,string message)
+        { if(ThrowOnNote) throw new InvalidOperationException("log unavailable");Lines.Add(message); }
+    }
+}
