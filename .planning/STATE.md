@@ -1,6 +1,6 @@
 # State — where the project stands
 
-**Updated 2026-09-17 for painted map-window MR bounds, ModBuild 523 on dev.** The file this replaces had gone 168 builds
+**Updated 2026-09-17 for map-window MR reopen diagnostics, ModBuild 524 on dev.** The file this replaces had gone 168 builds
 stale while still saying "read this first"; it is kept as `STATE-ARCHIVE-through-2026-08.md` for
 its round-by-round narrative and for nothing else.
 
@@ -13,9 +13,18 @@ change per build) → this file (where things stand and what is owed) → the bu
 
 ## 1. Position
 
+- **dev / 1.0.4 / ModBuild 524 is a diagnostic build; the MR reopen defect remains open.**
+  The user reports first merchant/map opening correct and subsequent openings too tall.
+  Local logs identify 523; remote logs remain historical 500. Capture/hit bounds grow,
+  but their extrema do not establish the actual MR contributor. Previous MR diagnostics
+  were Debug-only. Bounded normal-level records now identify actual MR edge graphics,
+  masks/alpha/material state and target/host instances across conversion lifetimes.
+  No further rendering or native-flow change is claimed. See [MR-REOPEN-524.md](MR-REOPEN-524.md).
+
+
 - **dev / 1.0.4 / ModBuild 523 fits MR backgrounds to native painted geometry.**
-  Merchant/map backgrounds no longer include empty text-layout height or reintroduced
-  tooltip glyphs. Local steady/effect paths and inert remote surfaces share the original
+  Source changes exclude empty text-layout height and reintroduced tooltip glyphs,
+  but build-523 hardware evidence confirms that merchant/map reopen growth persists. Local steady/effect paths and inert remote surfaces share the original
   text/image/clip/visibility policy and a small margin. Native layout, hit/capture and grab
   geometry remain unchanged. Source fixes and build-522 screenshot/log evidence are in
   [MR-MAP-BOUNDS-523.md](MR-MAP-BOUNDS-523.md); headset confirmation remains open.

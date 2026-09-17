@@ -514,7 +514,18 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 523;
+    public const ushort ModBuild = 524;
+
+    // ModBuild 524 — diagnose map-window MR growth on reopening.
+    //   Hardware build 523 still shows the merchant/map backing growing on the second open.
+    //   Capture/hit envelopes grow while the authored frame stays 1920x1080, but those logs
+    //   do not identify a contributing MR graphic. Existing MR messages required Debug.
+    //   Record bounded, normal-level actual MR extents and native edge contributors across
+    //   openings, including object identity, masks, alpha and sprite/material information.
+    //   Diagnostic only: no further geometry, visibility, animation or native-flow changes;
+    //   the visible defect remains open pending a short first/open-close-reopen capture.
+    //   Version 1.0.4 on dev; no bundle, config or wire changes. All VR peers use 524.
+    //   See .planning/MR-REOPEN-524.md for evidence and focused validation.
 
     // ModBuild 523 — fit map-window MR backings to native painted geometry.
     //   Merchant/map backgrounds no longer inherit empty layout height from native text

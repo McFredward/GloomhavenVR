@@ -1,6 +1,6 @@
 # Planning index
 
-Updated 2026-09-17 for painted map-window MR bounds, build 523 on dev. This directory holds internal
+Updated 2026-09-17 for map-window MR reopen diagnostics, build 524 on dev. This directory holds internal
 engineering evidence, historical decisions and current status; it is not the player manual.
 
 ## Current entry points
@@ -18,6 +18,7 @@ engineering evidence, historical decisions and current status; it is not the pla
 
 ## Latest measured work
 
+- [MR-REOPEN-524.md](MR-REOPEN-524.md): unresolved second-open backing growth; bounded actual MR edge diagnostics.
 - [MR-MAP-BOUNDS-523.md](MR-MAP-BOUNDS-523.md): merchant/map screenshot evidence, original painted geometry, unified local/remote/effect bounds.
 
 - [MR-ANIMATION-522.md](MR-ANIMATION-522.md): immediate native visibility, shared window erosion field, safe close/reopen and owned-resource cleanup.

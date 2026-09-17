@@ -306,6 +306,7 @@ internal static partial class MrBacking
         public Rect Shown;
 
         public bool ExtentNoted;
+        public int ExtentNotes;
         public Rect LoggedBounds;
     }
 
@@ -499,7 +500,7 @@ internal static partial class MrBacking
         if (!_loggedOn)
         {
             _loggedOn = true;
-            VRLog.Info("WorldUI", $"MR backings ON — {Labels.Count} label plate(s), " +
+            VRLog.Note("WorldUI", $"MR backings ON — {Labels.Count} label plate(s), " +
                                   $"{Panels.Count} panel plate(s), {Surfaces.Count} registered " +
                                   $"non-panel surface(s) (remote-board mirror canvases), " +
                                   $"{Graphics.Count + Materials.Count} " +
@@ -977,17 +978,23 @@ internal static partial class MrBacking
     // for the secondary glyph sweep, so the merchant report had no measured MR rectangle.
     private static void LogPaintedExtent(PanelEntry entry, RectTransform host, Rect frame, Rect fitted)
     {
+        if (entry.ExtentNotes >= 12)
+            return;
         if (entry.ExtentNoted && Mathf.Abs(entry.LoggedBounds.xMin - fitted.xMin) < 1f
             && Mathf.Abs(entry.LoggedBounds.yMin - fitted.yMin) < 1f
             && Mathf.Abs(entry.LoggedBounds.width - fitted.width) < 1f
             && Mathf.Abs(entry.LoggedBounds.height - fitted.height) < 1f)
             return;
         entry.ExtentNoted = true;
+        entry.ExtentNotes++;
         entry.LoggedBounds = fitted;
-        VRLog.Info("WorldUI", $"MR PLATE EXTENT: '{host.gameObject.name}' painted content plus margin "
+        VRLog.Note("WorldUI", $"MR PLATE EXTENT: '{host.gameObject.name}' painted content plus margin "
             + $"{fitted.width:F0}x{fitted.height:F0}px, x {fitted.xMin:F0}..{fitted.xMax:F0}, "
             + $"y {fitted.yMin:F0}..{fitted.yMax:F0}; layout frame {frame.width:F0}x{frame.height:F0}px. "
-            + "Native text/image geometry, masks and transient exclusions share one measurement.");
+            + "Native text/image geometry, masks and transient exclusions share one measurement. "
+            + $"Target instance {(entry.Panel.Target != null ? entry.Panel.Target.GetInstanceID() : 0)}, "
+            + $"host instance {host.GetInstanceID()}, frame {Time.frameCount}, "
+            + $"animation={entry.Animation.Active}, sample {entry.ExtentNotes}/12.");
     }
 
     /// <summary>
