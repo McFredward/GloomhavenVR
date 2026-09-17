@@ -27,7 +27,7 @@ namespace GloomhavenVR.WorldUI.MapRoom;
 ///
 /// <para>1 — THE BACKGROUND TRAVELS WITH THE WINDOW. The destination's art is a single shared
 /// <c>UIGuildmasterBanner</c> that lives in the HUD's own banner container, NOT inside the
-/// destination window — so floating the window alone still leaves the merchant's backdrop
+    /// destination window — so floating the window alone still leaves the merchant's backdrop
 /// drawing in a flat HUD nothing renders in VR. The game itself already demonstrates the move:
 /// entering the temple runs <c>banner.transform.SetParent(TempleWindow.transform)</c> +
 /// <c>SetSiblingIndex(1)</c> (UIGuildmasterHUD.cs:198-200). This class makes the same move for
@@ -152,9 +152,8 @@ internal static class GuildmasterDestinations
 {
     private const string Scope = "MapRoom";
 
-    /// <summary>The banner's home parent, recorded the first time it is borrowed.</summary>
-    private static Transform? _bannerHome;
-    private static int _bannerHomeIndex;
+    /// <summary>The exact borrowed original and its complete root-local pose.</summary>
+    private static readonly GuildmasterBannerBorrow BannerBorrow = new();
 
     /// <summary>The window the banner is currently parked under, or null.</summary>
     private static UIWindow? _bannerHost;
@@ -265,52 +264,44 @@ internal static class GuildmasterDestinations
             return;
         }
 
-        if (ReferenceEquals(_bannerHost, floated))
-            return; // already parked where it belongs
-
-        ReleaseBanner("a different destination took over");
-
         Transform? banner = Banner();
         if (banner == null || floated.transform == null)
+        {
+            ReleaseBanner("destination banner is no longer available");
             return;
+        }
+
+        if (ReferenceEquals(_bannerHost, floated) && BannerBorrow.Owns(banner)
+            && BannerBorrow.IsUnder(floated.transform))
+            return; // both identity and actual parent still belong to this borrow
+
+        ReleaseBanner("a different destination took over");
 
         // The game's own move for the temple (UIGuildmasterHUD.cs:198-200), applied to whichever
         // destination is floated. Sibling index 1 keeps it behind the window's content, which is
         // what makes it read as a BACKGROUND rather than as an overlay.
-        _bannerHome = banner.parent;
-        _bannerHomeIndex = banner.GetSiblingIndex();
         _bannerHost = floated;
-        banner.SetParent(floated.transform, worldPositionStays: false);
-        banner.SetSiblingIndex(1);
+        BannerBorrow.Borrow(banner, floated.transform);
         VRLog.Info(Scope, $"GUILDMASTER WINDOW: '{floated.name}' floated WITH its background — the shared "
-                          + $"UIGuildmasterBanner was moved from '{(_bannerHome != null ? _bannerHome.name : "<none>")}' "
+                          + $"UIGuildmasterBanner was moved from '{(BannerBorrow.Home != null ? BannerBorrow.Home.name : "<none>")}' "
                           + "into the window (sibling 1), the same move the game itself makes when it enters the "
                           + "temple. It goes back the moment this window releases; the game takes it back by "
-                          + "itself on OnReturnToMap, and this only restores it if it is still ours.");
+                          + "itself on OnReturnToMap. Root-local geometry is restored in either case; native parent ownership is preserved.");
         ReportPartySlots($"'{floated.name}' opened");
     }
 
-    /// <summary>Put the banner back if — and only if — it is still parked under our host.</summary>
+    /// <summary>Restore the borrowed original's geometry, respecting any native parent change.</summary>
     private static void ReleaseBanner(string why)
     {
-        if (_bannerHost == null)
-            return;
-        Transform? banner = Banner();
-        UIWindow? host = _bannerHost;
-        Transform? home = _bannerHome;
+        bool hadHost = !ReferenceEquals(_bannerHost, null);
         _bannerHost = null;
-        _bannerHome = null;
-        // ONLY IF IT IS STILL OURS. The game moves the banner itself the moment the mode exits
-        // (OnReturnToMap → SetParent(QuestManager)), and that hand-off is the normal case — taking
-        // it back from wherever the game has since put it would be winning a write war we have no
-        // business being in.
-        bool stillOurs = banner != null && host != null && host.transform != null
-                         && banner.parent != null && banner.parent.IsChildOf(host.transform);
-        if (stillOurs && home != null)
-        {
-            banner!.SetParent(home, worldPositionStays: false);
-            banner.SetSiblingIndex(Mathf.Clamp(_bannerHomeIndex, 0, Mathf.Max(0, home.childCount - 1)));
-        }
+        // Build 524 measured the same UI Adventure Header/Icon moving progressively upwards
+        // and shrinking on each reopening. Native ResetBannerParent/OnReturnToMap/temple entry
+        // call SetParent(true). The old parent-only restore skipped their hand-off, allowing
+        // the converted host's world pose into the next native local pose and next snapshot.
+        // Release the stored object (not a fresh Banner lookup), including after host destruction.
+        BannerBorrow.Release();
+        if (!hadHost) return;
         VRLog.Info(Scope, $"GUILDMASTER WINDOW: background handed back ({why}).");
         ReportPartySlots(why);
     }
@@ -1631,9 +1622,9 @@ internal static class GuildmasterDestinations
         }
     }
 
-    /// <summary>The shared guildmaster banner, off the HUD's own serialized reference. Called on
-    /// TRANSITIONS only (acquire and release), never in the steady state — the sweep fallback below
-    /// is therefore a rare cost, and it is cached and counted all the same.</summary>
+    /// <summary>The shared guildmaster banner, off the HUD's own serialized reference. The
+    /// HUD's cached identity is checked while borrowed so a replacement cannot inherit the
+    /// old object's snapshot. The fallback is cached; no scene sweep occurs while it is alive.</summary>
     private static Transform? Banner()
     {
         UIGuildmasterHUD? hud = Hud();
