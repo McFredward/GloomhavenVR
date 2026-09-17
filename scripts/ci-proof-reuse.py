@@ -14,6 +14,7 @@ from pathlib import Path
 import re
 import subprocess
 import sys
+import xml.etree.ElementTree as ET
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
@@ -42,7 +43,7 @@ def tree(root, ref):
     return git(root, 'rev-parse', '--verify', ref + '^{tree}')
 
 
-def candidate(root, event, mode, repository, expected_sha):
+def candidate(root, event, mode, repository, expected_sha, event_name=None, event_ref=None):
     """Bind checkout to the actual event, including both synthetic PR merge parents."""
     head = commit(root, 'HEAD')
     if head != expected_sha or not SHA.fullmatch(head):
@@ -56,6 +57,25 @@ def candidate(root, event, mode, repository, expected_sha):
         parents = git(root, 'show', '-s', '--format=%P', head).split()
         if parents != [pr.get('base', {}).get('sha'), pr.get('head', {}).get('sha')]:
             raise NoProof('PR checkout is not the current base/head merge; run full checks.')
+    elif mode == 'release-resume':
+        if event_name != 'workflow_dispatch' or event_ref != 'refs/heads/main' or event.get('ref') not in ('main', 'refs/heads/main'):
+            raise NoProof('Release recovery requires a workflow dispatch on main.')
+        tag = event.get('inputs', {}).get('resume_tag', '')
+        if not re.fullmatch(r'v[0-9]+\.[0-9]+\.[0-9]+', tag):
+            raise NoProof('Recovery requires an explicit stable release tag.')
+        source = commit(root, 'refs/tags/' + tag)
+        try:
+            git(root, 'merge-base', '--is-ancestor', source, head)
+            git(root, 'merge-base', '--is-ancestor', head, 'refs/remotes/origin/main')
+        except subprocess.CalledProcessError as error:
+            raise NoProof('Recovery source and workflow must belong to current main history.') from error
+        try:
+            project = ET.fromstring(git(root, 'show', source + ':src/GloomhavenVR/GloomhavenVR.csproj'))
+        except ET.ParseError as error:
+            raise NoProof('Tagged project version is not readable.') from error
+        if project.findtext('.//Version') != tag[1:]:
+            raise NoProof('Tagged source version does not match the requested release.')
+        return source, tree(root, source)
     elif mode == 'release':
         if event.get('ref') != 'refs/heads/main' or event.get('after') != head:
             raise NoProof('Release proof is only valid for the exact pushed main commit.')
@@ -167,15 +187,17 @@ def find_proof(root, repository, wanted_tree, api, now=None):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--mode', required=True, choices=('pr', 'release'))
+    parser.add_argument('--mode', required=True, choices=('pr', 'release', 'release-resume'))
     args = parser.parse_args()
     root = Path.cwd()
     reused, proof_url, reason = False, '', ''
+    source_sha = commit(root, 'HEAD')
     wanted_tree = tree(root, 'HEAD')
     try:
         repository = os.environ['GITHUB_REPOSITORY']
         event = json.loads(Path(os.environ['GITHUB_EVENT_PATH']).read_text())
-        _, wanted_tree = candidate(root, event, args.mode, repository, os.environ['GITHUB_SHA'])
+        source_sha, wanted_tree = candidate(root, event, args.mode, repository, os.environ['GITHUB_SHA'],
+                                           os.environ.get('GITHUB_EVENT_NAME'), os.environ.get('GITHUB_REF'))
         proof_url = find_proof(root, repository, wanted_tree, GitHub(repository, os.environ['GH_TOKEN']))
         reused = True
         reason = 'Successful full dev CI verified for the exact source tree.'
@@ -184,7 +206,7 @@ def main():
     output = os.environ.get('GITHUB_OUTPUT')
     if output:
         with open(output, 'a') as stream:
-            stream.write(f'reuse={str(reused).lower()}\ntree={wanted_tree}\nproof_url={proof_url}\n')
+            stream.write(f'reuse={str(reused).lower()}\ntree={wanted_tree}\nproof_url={proof_url}\nsource_sha={source_sha}\n')
     print(reason)
     summary = os.environ.get('GITHUB_STEP_SUMMARY')
     if summary:
@@ -194,7 +216,7 @@ def main():
                 stream.write(f'[Full-check run]({proof_url}).\n')
             else:
                 stream.write('Run full CI on dev for this exact tree, then retry the PR or release.\n')
-    if args.mode == 'release' and not reused:
+    if args.mode in ('release', 'release-resume') and not reused:
         print('::error::Release blocked: run successful full CI on dev for this exact source tree, then rerun Release. Nothing was published.')
         return 1
     return 0
