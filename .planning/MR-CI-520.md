@@ -50,6 +50,10 @@ consume GitHub storage. See `docs/CI-CD.md` for the implementation and recovery 
 - Release topology: 36 assertions pass; optional artifact cleanup: 20 tests pass.
   Actionlint 1.7.7 accepts both workflows. All 37 existing CI step names and all
   33 production harness commands remain; the PR surface comparison also runs on reuse.
+- A live API check rejects the first still-running dev job as non-reusable. The first
+  hosted run also exposed unnecessary full-history checkout in dev planning; only PR
+  planning now fetches history. Dev reads its tree from a shallow checkout, covered by
+  the workflow binding test. Runtime validation is unchanged by this CI-only follow-up.
 - MR background: 250 runtime assertions and 41 source bindings; 13 runtime and
   three binding negative controls reject the broken alternatives.
 - Native ink: 259 assertions, ten runtime and one binding negative control.

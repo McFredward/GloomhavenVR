@@ -258,6 +258,7 @@ class WorkflowBindings(unittest.TestCase):
         self.assertIn('pull_request.head.repo.full_name == github.repository', source)
         self.assertIn("needs.plan.outputs.reuse != 'true'", source)
         self.assertIn('persist-credentials: false', source)
+        self.assertIn("fetch-depth: ${{ github.event_name == 'pull_request' && '0' || '1' }}", source)
         self.assertNotIn('pull_request_target:', source)
         self.assertIn('"$FORK_PR" != true', source)
         self.assertIn('Record full-check completion', source)

@@ -58,7 +58,9 @@ jobs:
       - name: Checkout the event source
         uses: actions/checkout@v6.1.0
         with:
-          fetch-depth: 0
+          # Dev always validates fully and only needs its current tree. History is
+          # needed for PR merge ancestry/proof, not on every normal dev push.
+          fetch-depth: ${{ github.event_name == 'pull_request' && '0' || '1' }}
           persist-credentials: false
       - name: Identify the checked-out tree
         id: source

@@ -149,6 +149,8 @@ and manual CI run executes them. Internal PRs may reuse that evidence only for a
 merged Git tree; fork PRs always execute full checks with read-only permissions and no secrets.
 The PR surface diff still runs when evidence is reused. Locally, `refactor-guard.sh` compares
 against the stored baseline even without a PR.
+Dev planning checks out only the current commit; PR planning loads history for merge ancestry
+and proof lookup. Normal dev pushes do not download historical asset versions just to name a tree.
 
 Release verifies existing full CI evidence before rebuilding the exact main commit with
 release flags. It does not duplicate source checks or regression harnesses. The fresh build,
