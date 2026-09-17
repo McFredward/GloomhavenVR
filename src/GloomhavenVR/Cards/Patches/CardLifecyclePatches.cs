@@ -3,6 +3,30 @@ using ScenarioRuleLibrary;
 
 namespace GloomhavenVR.Cards.Patches;
 
+[HarmonyPatch(typeof(ObjectPool), nameof(ObjectPool.RecycleCard))]
+internal static class ObjectPool_RecycleCard_NativeHierarchy
+{
+    private static void Prefix(ObjectPool.ECardType cardType, UnityEngine.GameObject cardInstance)
+    {
+        if (cardType != ObjectPool.ECardType.Ability || cardInstance == null) return;
+        GloomhavenVR.Core.TickGuard.Run("Cards.NativePoolReturn", () =>
+        {
+            AbilityCardUI widget = cardInstance.GetComponent<AbilityCardUI>();
+            if (widget == null) return;
+            CardsSignals.RaiseCardRecycling(widget);
+            NativeCardPoolLifetime.ReturnToOwner(widget);
+        }, "Cards");
+    }
+}
+
+[HarmonyPatch(typeof(ObjectPool), "GetCardInstance")]
+internal static class ObjectPool_GetCardInstance_NativeHierarchy
+{
+    private static void Prefix(ObjectPool.CardPool pool) =>
+        GloomhavenVR.Core.TickGuard.Run("Cards.NativePoolIntegrity",
+            () => NativeCardPoolLifetime.PruneDamagedCopies(pool), "Cards");
+}
+
 /// <summary>Pooling is a real lifetime boundary, even when the old model is still lost.
 /// Let the native pool reset every shader and coroutine before this widget is reused.</summary>
 [HarmonyPatch(typeof(AbilityCardUI), nameof(AbilityCardUI.OnReturnedToPool))]

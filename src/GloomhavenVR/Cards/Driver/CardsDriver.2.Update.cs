@@ -585,6 +585,7 @@ internal sealed partial class CardsDriver
         if (driver == null) return;
         driver._sceneFacesReturned = true;
         driver._factory.ReturnBorrowedFacesBeforeSceneLoad();
+        Core.TickGuard.Run("Cards.SceneNativeHierarchy", NativeCardPoolLifetime.ReturnSceneHands, "Cards");
         Core.TickGuard.Run("Cards.SceneLaserHover", driver.ClearLaserHover, "Cards");
         Core.TickGuard.Run("Cards.SceneActiveHover", driver.ClearActiveHover, "Cards");
         CardActionQueue.Clear();
