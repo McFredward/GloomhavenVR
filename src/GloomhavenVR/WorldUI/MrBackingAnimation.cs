@@ -130,6 +130,12 @@ internal static partial class MrBacking
         RectTransform? host = entry.Panel.HostRect;
         if (host == null)
             return;
+        if (visible)
+        {
+            // MR may have been enabled after Begin and before its regular Update driver.
+            EnsurePlateMaterial();
+            _applied = true;
+        }
         if (entry.Plate == null && visible)
         {
             entry.Plate = CreatePlate(host);
