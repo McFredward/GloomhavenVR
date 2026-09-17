@@ -866,6 +866,7 @@ internal static partial class ModalFallback
                 wp.PoseRePlaceDone = true;
             }
             Converted.Add(wp);
+            CompletePermanentQuestLogReturn(window);
             // CHAIN CONTINUITY: every scripted PLACEMENT — the rule-1 first spawn just as much
             // as a rule-2 verbatim re-float — makes THIS window the shared chain anchor. This
             // is what welds the kinds together: the first tutorial box's rule-1 pose is stored

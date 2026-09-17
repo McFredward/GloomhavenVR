@@ -2450,6 +2450,7 @@ internal static partial class ModalFallback
     /// </summary>
     internal static void ReleaseMapRoomFloats(string reason)
     {
+        ResetPermanentQuestLog();
         // WINDOW MATERIALISE — same reasoning as ReleaseAllWindows: a map-room stand-down must not
         // wait on decoration, and this path does not run through the prune loop either, so this
         // only ENDS running effects and restores what they wrote.
