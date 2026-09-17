@@ -108,6 +108,61 @@ class ProofTests(unittest.TestCase):
         M.candidate(self.root, {'ref': 'refs/heads/main', 'after': merged}, 'release', REPO, merged)
         self.assertTrue(self.proof())
 
+    def resume_fixture(self):
+        self.write('src/GloomhavenVR/GloomhavenVR.csproj', '<Project><PropertyGroup><Version>1.0.4</Version></PropertyGroup></Project>')
+        tagged = self.save('release source')
+        self.g('tag', 'v1.0.4')
+        self.g('checkout', '-q', 'main')
+        self.g('merge', '--no-ff', '-qm', 'release merge', 'dev')
+        self.write(M.HELPER, 'new trusted recovery verifier')
+        workflow = self.save('recovery workflow')
+        self.g('update-ref', 'refs/remotes/origin/dev', workflow)
+        self.g('update-ref', 'refs/remotes/origin/main', workflow)
+        return tagged, workflow
+
+    def resume_candidate(self, event, workflow, **kwargs):
+        return M.candidate(self.root, event, 'release-resume', REPO, workflow,
+                           kwargs.get('event_name', 'workflow_dispatch'),
+                           kwargs.get('event_ref', 'refs/heads/main'))
+
+    def test_resume_binds_current_workflow_but_returns_original_tagged_tree(self):
+        tagged, workflow = self.resume_fixture()
+        for ref in ('main', 'refs/heads/main'):
+            event = {'ref': ref, 'inputs': {'resume_tag': 'v1.0.4'}}
+            self.assertEqual(self.resume_candidate(event, workflow), (tagged, M.tree(self.root, tagged)))
+        # Original exact-tree evidence remains usable even though the recovery verifier
+        # is newer: trust its CURRENT main/dev version, not code from the old checkout.
+        wanted = M.tree(self.root, tagged)
+        self.api = API([dict(self.run, head_sha=tagged)], [dict(self.job, head_sha=tagged, name=f'Full checks [{wanted}]')])
+        self.assertTrue(M.find_proof(self.root, REPO, wanted, self.api, NOW))
+
+    def test_resume_rejects_wrong_event_branch_head_missing_tag_and_version(self):
+        tagged, workflow = self.resume_fixture()
+        event = {'ref': 'main', 'inputs': {'resume_tag': 'v1.0.4'}}
+        for kwargs in ({'event_name': 'push'}, {'event_ref': 'refs/heads/dev'}):
+            with self.subTest(kwargs=kwargs), self.assertRaises(M.NoProof):
+                self.resume_candidate(event, workflow, **kwargs)
+        with self.assertRaises(M.NoProof):
+            self.resume_candidate(event, tagged)
+        for bad in ('', '../main', 'main', 'v1.0.4\n'):
+            with self.subTest(tag=bad), self.assertRaises(M.NoProof):
+                self.resume_candidate(dict(event, inputs={'resume_tag': bad}), workflow)
+        self.g('tag', 'v1.0.5', tagged)
+        with self.assertRaises(M.NoProof):
+            self.resume_candidate(dict(event, inputs={'resume_tag': 'v1.0.5'}), workflow)
+
+    def test_resume_rejects_source_outside_main_and_rewritten_workflow_history(self):
+        tagged, workflow = self.resume_fixture()
+        event = {'ref': 'main', 'inputs': {'resume_tag': 'v1.0.4'}}
+        orphan = self.g('commit-tree', M.tree(self.root, tagged), '-m', 'not main')
+        self.g('tag', '-f', 'v1.0.4', orphan)
+        with self.assertRaises(M.NoProof):
+            self.resume_candidate(event, workflow)
+        self.g('tag', '-f', 'v1.0.4', tagged)
+        self.g('update-ref', 'refs/remotes/origin/main', tagged)
+        with self.assertRaises(M.NoProof):
+            self.resume_candidate(event, workflow)
+
     def test_pr_validates_both_merge_parents(self):
         merged = self.merge()
         self.assertEqual(M.candidate(self.root, self.pr_event(), 'pr', REPO, merged)[1], self.tree)
@@ -278,9 +333,16 @@ class WorkflowBindings(unittest.TestCase):
         self.assertIn('scripts/ci-proof-reuse.py --mode release', source)
         self.assertLess(source.index('--mode release'), source.index('scripts/ci-build.sh Release'))
         self.assertNotIn('Native presentation regression harnesses', source)
+        self.assertIn('workflow_dispatch:', source)
+        self.assertIn('scripts/ci-proof-reuse.py --mode release-resume', source)
+        self.assertIn('cp scripts/release-upload.py "$RUNNER_TEMP/release-upload.py"', source)
+        self.assertLess(source.index('cp scripts/release-upload.py'), source.index('git checkout --detach "$SOURCE_SHA"'))
+        self.assertIn("steps.version.outputs.resuming != 'true'", source)
+        self.assertIn('"$RUNNER_TEMP/release-upload.py" publish', source)
+        self.assertNotIn('"$GITHUB_SHA"', source)
         for token in ('scripts/release-provenance.sh check', 'scripts/ci-build.sh Release',
                       'scripts/package-release.sh', 'scripts/check-bundle-format.sh', '--verify-tag',
-                      'git merge-base --is-ancestor "$GITHUB_SHA"'):
+                      'git merge-base --is-ancestor "$RELEASE_SOURCE_SHA"'):
             self.assertIn(token, source)
 
 

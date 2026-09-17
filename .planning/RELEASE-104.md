@@ -32,3 +32,38 @@ establish every headset configuration or replace a fresh matching-build multipla
 - Merge dev into main with a merge commit; do not create a dev release or manually move tags.
 - Follow Release through ZIP upload and next-dev-version bookkeeping.
 - Verify v1.0.4 targets the main merge and the expected archive is attached.
+
+## Publication status — upload blocked
+
+PR #7 merged as a6d044c4b0f684556bdb5f240f15978a2f554aa7. Its tree matches the final dev
+candidate exactly. Full dev CI 35269595138 and reused PR CI 35270754550 succeeded. Local
+release gates passed, including 254,565 wire assertions, strict Release with zero warnings
+and errors, and bundle validation. The compiled comparison against the older 080c505e
+baseline reports the intended intervening development changes (86 types changed, 63
+added/removed, one order-only move); no config, patch or log surface was removed.
+
+Release workflow 35270985542 built and validated the package, pushed v1.0.4 to the main
+merge, then failed at asset upload with HTTP 500: Error saving asset. No release was
+published. The tag is valid and was not changed. A normal workflow rerun would reject that
+existing tag; do not delete or move it to work around publication.
+
+Recovery rebuilt the exact clean main commit in /tmp/gvr-release104-publish using the
+committed metadata references, pinned RuntimeDeps and verified OpenXR natives, with
+GhvrReleaseBuild=true. BuildInfo identifies a6d044c4b and IsDevBuild=false. The package
+layout/text/bundle checks pass. Durable local archive:
+
+    dist/recovery-1.0.4/GloomhavenVR-1.0.4.zip
+    SHA256 d8f8f383137d3ff8406d14f0670c0b0b456137d36e660ba48cce465e598f4555
+
+Draft release 391041682 now holds the prepared notes for v1.0.4 and no assets. Both the
+separate CLI upload and direct REST upload failed with HTTP 500: Error creating asset temp
+dir. The final request ID was 970A:CC3F6:14CB701:16BF1E4:6AAC4EF4. GitHub's public status
+endpoint reported operational, which does not negate these actual endpoint failures.
+Latest public release remains v1.0.3. Dev has deliberately not been bumped before publication.
+
+The maintainer subsequently requested recovery through the main build pipeline, keeping
+full tests on dev. The local recovery archive is therefore not the publication source.
+A main-only manual resume path is being integrated: it will verify the original tagged main
+source against existing full CI proof, rebuild and package it on the main runner, preserve
+the tag, retry draft uploads and verify the uploaded archive before publication. Normal
+post-publication dev bookkeeping follows. No game code or ModBuild change is involved.

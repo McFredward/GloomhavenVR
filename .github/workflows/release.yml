@@ -1,4 +1,6 @@
-# Releases build and tag the exact commit pushed to main. Protected main is updated
+# Releases build and tag the exact commit pushed to main. Manual recovery rebuilds an
+# existing unpublished tag in main history; it never moves or republishes a tag.
+# Protected main is updated
 # through a reviewed dev -> main PR using a merge commit; a fast-forward is also valid.
 # Provenance requires either existing dev ancestry or an unchanged merge of a dev
 # ancestor. The workflow never commits to main. After publication it records the
@@ -8,6 +10,12 @@
 name: Release
 
 on:
+  workflow_dispatch:
+    inputs:
+      resume_tag:
+        description: 'Existing unpublished tag to rebuild from main (for example v1.0.4)'
+        required: true
+        type: string
   push:
     branches: [main]
 
@@ -52,12 +60,35 @@ jobs:
           rg --version
 
       - name: Require successful full dev CI for this exact source tree
+        id: proof
         env:
           GH_TOKEN: ${{ github.token }}
-        run: python3 scripts/ci-proof-reuse.py --mode release
+        run: |
+          if [[ "$GITHUB_EVENT_NAME" == workflow_dispatch ]]; then
+            python3 scripts/ci-proof-reuse.py --mode release-resume
+          else
+            python3 scripts/ci-proof-reuse.py --mode release
+          fi
+
+      - name: Retain current release helper and select the verified source
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RESUME_TAG: ${{ inputs.resume_tag }}
+          SOURCE_SHA: ${{ steps.proof.outputs.source_sha }}
+        run: |
+          set -euo pipefail
+          cp scripts/release-upload.py "$RUNNER_TEMP/release-upload.py"
+          if [[ "$GITHUB_EVENT_NAME" == workflow_dispatch ]]; then
+            python3 "$RUNNER_TEMP/release-upload.py" check --tag "$RESUME_TAG" --source "$SOURCE_SHA"
+            git checkout --detach "$SOURCE_SHA"
+          fi
+          [[ "$(git rev-parse HEAD)" == "$SOURCE_SHA" ]]
+          echo "RELEASE_SOURCE_SHA=$SOURCE_SHA" >> "$GITHUB_ENV"
 
       - name: Determine the version and check it can be released
         id: version
+        env:
+          RESUME_TAG: ${{ inputs.resume_tag }}
         run: |
           set -euo pipefail
 
@@ -66,7 +97,7 @@ jobs:
           # the workflow no longer writes it, so there is no bump commit to place on
           # `main` and no dirty tree to stamp around.
           VERSION="$(bash scripts/bump-version.sh)"
-          echo "Releasing $VERSION from ${GITHUB_SHA}"
+          echo "Releasing $VERSION from ${RELEASE_SOURCE_SHA}"
 
           # BUILD 503 RECOVERY — v1.0.0 was published before the maintainer's final
           # hardware hotfixes landed. The maintainer explicitly asked for the existing
@@ -77,12 +108,20 @@ jobs:
           # identically named ZIP and release body, then the normal dev bookkeeping moves
           # the next development version to 1.0.1.
           REFRESH_EXISTING=false
+          RESUMING=false
+          if [[ "$GITHUB_EVENT_NAME" == workflow_dispatch ]]; then
+            [[ "$RESUME_TAG" == "v$VERSION" ]]
+            [[ "$(git rev-parse "refs/tags/$RESUME_TAG^{}")" == "$RELEASE_SOURCE_SHA" ]]
+            RESUMING=true
+          fi
           FINAL_100_TAG_TARGET="b691d493519dca619215131004c811dfd6f98498"
           if git rev-parse -q --verify "refs/tags/v$VERSION" >/dev/null; then
             TAG_TARGET="$(git rev-parse "refs/tags/v$VERSION^{}")"
-            if [[ "$VERSION" == "1.0.0" && "$TAG_TARGET" == "$FINAL_100_TAG_TARGET" ]]; then
+            if [[ "$RESUMING" == true ]]; then
+              echo "Rebuilding immutable $RESUME_TAG from $RELEASE_SOURCE_SHA"
+            elif [[ "$VERSION" == "1.0.0" && "$TAG_TARGET" == "$FINAL_100_TAG_TARGET" ]]; then
               REFRESH_EXISTING=true
-              echo "::notice title=Final 1.0.0 package refresh::Keeping immutable v1.0.0 tag at $TAG_TARGET; replacing its ZIP from $GITHUB_SHA."
+              echo "::notice title=Final 1.0.0 package refresh::Keeping immutable v1.0.0 tag at $TAG_TARGET; replacing its ZIP from $RELEASE_SOURCE_SHA."
             else
               echo "::error title=Version already released::Tag v$VERSION already exists."
               echo "::error::Nothing was built. Two ways this happens:"
@@ -100,7 +139,7 @@ jobs:
           DEV_TIP="$(git rev-parse FETCH_HEAD)"
           git fetch --no-tags origin main
           MAIN_TIP="$(git rev-parse FETCH_HEAD)"
-          bash scripts/release-provenance.sh check "$PWD" "$GITHUB_SHA" "$DEV_TIP" "$MAIN_TIP"
+          bash scripts/release-provenance.sh check "$PWD" "$RELEASE_SOURCE_SHA" "$DEV_TIP" "$MAIN_TIP"
 
           # A release stamped `…-dirty` is a bug report waiting to happen. The old
           # design created a bump commit to guarantee a clean tree; this design starts
@@ -115,6 +154,7 @@ jobs:
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "tag=v$VERSION"    >> "$GITHUB_OUTPUT"
           echo "refresh_existing=$REFRESH_EXISTING" >> "$GITHUB_OUTPUT"
+          echo "resuming=$RESUMING" >> "$GITHUB_OUTPUT"
 
       - name: Set up .NET SDK
         uses: actions/setup-dotnet@v5.4.0
@@ -191,14 +231,14 @@ jobs:
         run: bash scripts/release-notes.sh "${{ steps.version.outputs.version }}" RELEASE_NOTES.md
 
       # -----------------------------------------------------------------------------
-      # Publish. Tag FIRST, release SECOND: a rejected tag push must leave nothing
-      # behind, and `gh release create --verify-tag` refuses to invent one.
+      # Publish. Tag FIRST, draft SECOND, verified upload THIRD, publication LAST.
+      # Recovery keeps the existing tag; `--verify-tag` refuses to invent one.
       #
       # No commit is pushed to main. The tag names the tested main commit, including
       # a PR merge commit when that is how the release branch was updated.
       # -----------------------------------------------------------------------------
       - name: Push the tag
-        if: ${{ steps.version.outputs.refresh_existing != 'true' }}
+        if: ${{ steps.version.outputs.refresh_existing != 'true' && steps.version.outputs.resuming != 'true' }}
         run: |
           set -euo pipefail
           TAG="${{ steps.version.outputs.tag }}"
@@ -216,17 +256,17 @@ jobs:
           # is not fine is `main` having moved AWAY from it (a force-push backwards):
           # the tag would then advertise a commit the release branch no longer has.
           git fetch --no-tags origin main          # FETCH_HEAD — see the version step
-          if ! git merge-base --is-ancestor "$GITHUB_SHA" "$(git rev-parse FETCH_HEAD)"; then
-            echo "::error::main no longer contains $GITHUB_SHA — it was rewritten while"
+          if ! git merge-base --is-ancestor "$RELEASE_SOURCE_SHA" "$(git rev-parse FETCH_HEAD)"; then
+            echo "::error::main no longer contains $RELEASE_SOURCE_SHA — it was rewritten while"
             echo "::error::this release was building. Nothing was published."
             exit 1
           fi
 
           git config user.name  'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git tag -a "$TAG" -m "GloomhavenVR ${{ steps.version.outputs.version }}" "$GITHUB_SHA"
+          git tag -a "$TAG" -m "GloomhavenVR ${{ steps.version.outputs.version }}" "$RELEASE_SOURCE_SHA"
           git push origin "refs/tags/$TAG"
-          echo "pushed $TAG -> $GITHUB_SHA"
+          echo "pushed $TAG -> $RELEASE_SOURCE_SHA"
 
       - name: Create the GitHub Release
         env:
@@ -240,14 +280,11 @@ jobs:
               --title "GloomhavenVR ${{ steps.version.outputs.version }}" \
               --notes-file RELEASE_NOTES.md \
               --latest
-            echo "Refreshed ${{ steps.version.outputs.tag }} from ${GITHUB_SHA}; immutable tag retained."
+            echo "Refreshed ${{ steps.version.outputs.tag }} from ${RELEASE_SOURCE_SHA}; immutable tag retained."
           else
-            gh release create "${{ steps.version.outputs.tag }}" \
-              "$ZIP" \
-              --title "GloomhavenVR ${{ steps.version.outputs.version }}" \
-              --notes-file RELEASE_NOTES.md \
-              --verify-tag \
-              --latest
+            python3 "$RUNNER_TEMP/release-upload.py" publish \
+              --tag "${{ steps.version.outputs.tag }}" --source "$RELEASE_SOURCE_SHA" \
+              --archive "$ZIP" --notes RELEASE_NOTES.md
             echo "Published ${{ steps.version.outputs.tag }}"
           fi
 
@@ -279,7 +316,7 @@ jobs:
             DEV_TIP="$(git rev-parse FETCH_HEAD)"
             git fetch --no-tags origin main
             MAIN_TIP="$(git rev-parse FETCH_HEAD)"
-            if ! bash "$PROVENANCE_SCRIPT" prepare "$PWD" "$GITHUB_SHA" "$DEV_TIP" "$MAIN_TIP" "$VERSION"; then
+            if ! bash "$PROVENANCE_SCRIPT" prepare "$PWD" "$RELEASE_SOURCE_SHA" "$DEV_TIP" "$MAIN_TIP" "$VERSION"; then
               echo "::error::Release $TAG is already published; local dev bookkeeping failed. Review the provenance/merge error above and repair dev without rerunning publication."
               exit 1
             fi
@@ -295,7 +332,7 @@ jobs:
           echo "::error::complete — the tag, the zip and the release are all correct and nothing"
           echo "::error::needs re-running. ONLY the bookkeeping bump did not land."
           echo "::error::"
-          echo "::error::Fetch current dev/main, merge $GITHUB_SHA into dev, then advance"
+          echo "::error::Fetch current dev/main, merge $RELEASE_SOURCE_SHA into dev, then advance"
           echo "::error::the version only if it still says $VERSION. Push dev normally."
           echo "::error::scripts/release-provenance.sh prepare performs that local bookkeeping."
           echo "::error::"

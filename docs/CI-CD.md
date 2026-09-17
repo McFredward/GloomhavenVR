@@ -35,6 +35,7 @@ both packaging paths. Validate the update path when changing the package.
 | Pull request to `dev` or `main` | `ci.yml` | Reuse full dev CI for an identical merged tree, otherwise full checks; always compare surfaces against the PR base |
 | Manual CI on `dev`, `upload_dev_build=true` | `ci.yml` | Full build and gates, then an optional temporary DLL download |
 | Push to `main` | `.github/workflows/release.yml` | Require exact-tree full CI evidence, then build, package, tag and publish; advance the next version on `dev` |
+| Manual Release on `main` with `resume_tag` | `release.yml` | Rebuild an unpublished tagged main commit using its existing full CI proof, retry upload and finish publication without moving the tag |
 
 **Every release comes from `main`.** Integrate work into `dev`, then merge a reviewed
 `dev` → `main` pull request when a release is authorized. Use a merge commit, not a
@@ -126,6 +127,21 @@ must match the reviewed `dev` source; resolve any content conflicts on `dev` fir
 that version first. Follow the Release run through publication and the `dev` bump;
 verify the tag names the tested `main` commit and the expected archive is attached.
 Do not create a release from a worker branch or directly from a `dev` artifact.
+
+If GitHub rejects the asset upload after the tag was pushed, leave that tag in place. Resume
+through the main workflow rather than rerunning a normal push job or uploading a dev build:
+
+```bash
+gh workflow run release.yml --ref main -f resume_tag=v1.0.4
+```
+
+Recovery is bound to a trusted main dispatch. It checks tag/version and main ancestry, verifies
+successful full dev CI for the exact tagged tree, then freshly builds that original main
+commit with release settings. It does not rerun the full regression suite. Publication uses
+an unpublished draft and bounded upload retries, and verifies the uploaded archive before
+making it public. A published release is not a recovery target, and the tag is never changed.
+The normal post-publication dev merge/version bump still runs.
+
 
 ### 2.4 After a game update
 
