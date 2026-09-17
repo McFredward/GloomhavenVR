@@ -7,8 +7,11 @@ records below are historical: build 529 moves all three `BURN PRESENTATION` reco
 Debug and skips their material/progress observer entirely unless `VRLog.WantsDebug`.
 Re-enabling diagnostics starts a fresh observation. The four-anomaly-per-episode bound
 remains. Table and pool self-reports already use Debug-gated `VRLog.Info`/`Warn`.
-For the next targeted continuity capture, explicitly select `[General] LogLevel = Debug`;
-normal logs no longer claim to provide that detailed evidence. Gameplay/effects are unchanged.
+The maintainer confirms that every development hardware test already uses Debug, so no
+additional logging-mode setup is needed for those captures. Normal player logs must still
+support bug reports with build/flow context, failures and bounded significant anomalies;
+this requirement does not turn the detailed per-burn measurements into default output.
+Gameplay/effects are unchanged.
 
 ## Evidence and limits
 
