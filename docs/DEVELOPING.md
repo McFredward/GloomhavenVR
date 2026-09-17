@@ -227,9 +227,12 @@ duplicated work, not extra coverage. The strict build and bilingual-docs checks 
 explicitly. The guard needs a local baseline (`scripts/refactor-guard.sh baseline`, taken before
 editing); exit 1 means compiled output differs, so inspect its verdict and explain the changes.
 
-Both hosted workflows run the same source checks and standalone native presentation harnesses.
-The full wire executable is compile-only on hosted runners because it needs the game's real Unity
-assembly; the surface comparison runs only on PRs there. The local guard covers both.
+Full hosted CI runs the source checks and standalone native presentation harnesses on every
+dev push and manual run. Internal PRs may reuse successful full-dev evidence for an identical
+merged Git tree; fork PRs always run full checks. Release requires exact-tree evidence and then
+builds and packages fresh from main, without repeating the test suite. The full wire executable
+is compile-only on hosted runners because it needs the game's real Unity assembly; the surface
+comparison runs on every PR, including reuse. The local guard covers both.
 See [CI-CD.md](CI-CD.md#3-verification-coverage) for the coverage and limits.
 
 `bash scripts/tutorial-scope-tests.sh` exercises first-tutorial admission and native message-hold

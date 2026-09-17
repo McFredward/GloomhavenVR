@@ -38,6 +38,7 @@ on:
 
 permissions:
   contents: read
+  actions: read  # inspect trusted run/job metadata; no artifact proof storage
 
 # Normal pushes supersede older checks. Manual artifact requests share a serialized
 # group so pruning to two before one upload cannot leave more than three dev builds.
@@ -46,6 +47,47 @@ concurrency:
   cancel-in-progress: ${{ github.event_name != 'workflow_dispatch' || !inputs.upload_dev_build }}
 
 jobs:
+  plan:
+    name: Select exact-tree CI evidence
+    runs-on: ubuntu-24.04
+    outputs:
+      reuse: ${{ steps.proof.outcome == 'success' && steps.proof.outputs.reuse || 'false' }}
+      tree: ${{ steps.source.outputs.tree }}
+      proof_url: ${{ steps.proof.outputs.proof_url }}
+    steps:
+      - name: Checkout the event source
+        uses: actions/checkout@v6.1.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Identify the checked-out tree
+        id: source
+        run: echo "tree=$(git rev-parse HEAD^{tree})" >> "$GITHUB_OUTPUT"
+      - name: Reuse trusted full dev CI only for an identical internal PR merge
+        id: proof
+        continue-on-error: true  # API/tooling uncertainty falls back to full PR validation
+        if: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/ci-proof-reuse.py --mode pr
+      - name: Explain full validation
+        if: ${{ steps.proof.outputs.reuse != 'true' }}
+        run: echo 'This event runs full checks. Fork PRs never reuse evidence; dev pushes and manual runs always validate.' >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Config keys, patch registrations and log markers vs the PR base
+        if: github.event_name == 'pull_request'
+        run: |
+          set -euo pipefail
+          BASE_SHA="${{ github.event.pull_request.base.sha }}"
+          git cat-file -e "$BASE_SHA^{commit}"
+          rm -rf /tmp/surface-base && mkdir -p /tmp/surface-base/scripts
+          git archive "$BASE_SHA" src | tar -x -C /tmp/surface-base
+          cp scripts/check-surface.py scripts/check-options-coverage.py /tmp/surface-base/scripts/
+          python3 /tmp/surface-base/scripts/check-surface.py snapshot /tmp/surface-base.json
+          python3 scripts/check-surface.py snapshot /tmp/surface-head.json
+          python3 scripts/check-surface.py diff /tmp/surface-base.json /tmp/surface-head.json
+
+
   prune_dev_artifacts:
     name: Maintain optional dev artifact storage
     if: ${{ github.ref == 'refs/heads/dev' && (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.upload_dev_build)) }}
@@ -75,17 +117,17 @@ jobs:
           echo '::warning::Optional dev artifact cleanup failed. Checks will still run; a requested dev upload is skipped until cleanup succeeds.'
           echo 'Dev artifact maintenance failed. Review the cleanup step; build/test results remain authoritative.' >> "$GITHUB_STEP_SUMMARY"
 
-  build:
-    name: Build and gates
-    needs: prune_dev_artifacts
+  full_checks:
+    name: Full checks [${{ needs.plan.outputs.tree }}]
+    needs: [plan, prune_dev_artifacts]
     # Storage maintenance is optional; a skipped or failed cleanup must not skip checks.
-    if: ${{ !cancelled() }}
+    if: ${{ !cancelled() && needs.plan.result == 'success' && needs.plan.outputs.reuse != 'true' }}
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout
         uses: actions/checkout@v6.1.0
-        # Shallow is fine: the build stamps `git rev-parse --short HEAD`, which a
-        # depth-1 checkout answers correctly. Only the release workflow needs history.
+        with:
+          persist-credentials: false
 
       - name: Validate manual artifact request
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.upload_dev_build && github.ref != 'refs/heads/dev' }}
@@ -101,6 +143,9 @@ jobs:
 
       - name: Release topology regression tests
         run: bash scripts/release-sim.sh
+
+      - name: CI proof reuse regression tests
+        run: python3 -m unittest discover -s tests -p 'test_ci_proof_reuse.py'
 
       - name: Artifact cleanup regression tests
         run: python3 -m unittest discover -s tests -p 'test_prune_dev_artifacts.py'
@@ -253,18 +298,6 @@ jobs:
       # so both sides are counted by the same rules. Push events have no base to name
       # and skip this; the desk guard covers them.
       # ---------------------------------------------------------------------------
-      - name: Config keys, patch registrations and log markers vs the PR base
-        if: github.event_name == 'pull_request'
-        run: |
-          set -euo pipefail
-          BASE_SHA="${{ github.event.pull_request.base.sha }}"
-          git fetch --no-tags --depth=1 origin "$BASE_SHA"
-          rm -rf /tmp/surface-base && mkdir -p /tmp/surface-base/scripts
-          git archive "$BASE_SHA" src | tar -x -C /tmp/surface-base
-          cp scripts/check-surface.py scripts/check-options-coverage.py /tmp/surface-base/scripts/
-          python3 /tmp/surface-base/scripts/check-surface.py snapshot /tmp/surface-base.json
-          python3 scripts/check-surface.py snapshot /tmp/surface-head.json
-          python3 scripts/check-surface.py diff /tmp/surface-base.json /tmp/surface-head.json
 
       # ---------------------------------------------------------------------------
       # This gate compares the shipped defaults against a TESTER'S cfg drop, and that
@@ -358,6 +391,15 @@ jobs:
       # and PRs keep their checks/logs but consume no Actions artifact storage.
       # Full release ZIPs remain mandatory uploads through release.yml on main.
       # ---------------------------------------------------------------------------
+      - name: Record full-check completion
+        # GitHub's successful step/job metadata is the proof. Reuse-only jobs cannot
+        # create it, and no artifact upload or storage allowance is involved.
+        env:
+          EXPECTED_TREE: ${{ needs.plan.outputs.tree }}
+        run: |
+          [[ "$(git rev-parse HEAD^{tree})" == "$EXPECTED_TREE" ]] || exit 1
+          echo 'Full checks completed for the checked-out source tree.' >> "$GITHUB_STEP_SUMMARY"
+
       - name: Upload requested dev build (plugin + preloader only)
         id: dev_upload
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.upload_dev_build && github.ref == 'refs/heads/dev' && needs.prune_dev_artifacts.outputs.can_upload == 'true' }}
@@ -387,3 +429,31 @@ jobs:
             echo 'No dev download: optional upload failed. Review its error above; this does not suppress build/test failures.' >> "$GITHUB_STEP_SUMMARY"
           else
             echo 'No dev download: build or validation did not reach upload. Review the failed checks.' >> "$GITHUB_STEP_SUMMARY"
+
+  build:
+    # Keep branch rulesets stable while the expensive job can be omitted safely.
+    name: Build and gates
+    needs: [plan, full_checks]
+    if: ${{ always() }}
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Require full checks or verified existing evidence
+        env:
+          PLAN_RESULT: ${{ needs.plan.result }}
+          REUSED: ${{ needs.plan.outputs.reuse }}
+          FULL_RESULT: ${{ needs.full_checks.result }}
+          PROOF_URL: ${{ needs.plan.outputs.proof_url }}
+          FORK_PR: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
+        run: |
+          if [[ "$PLAN_RESULT" != success ]]; then
+            echo '::error::CI source/evidence planning failed.'
+            exit 1
+          fi
+          if [[ "$FULL_RESULT" == success ]]; then
+            echo 'Full build and gates passed.' >> "$GITHUB_STEP_SUMMARY"
+          elif [[ "$FORK_PR" != true && "$REUSED" == true && "$FULL_RESULT" == skipped && -n "$PROOF_URL" ]]; then
+            echo "Full checks reused from $PROOF_URL for the identical source tree." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo '::error::Neither full checks nor verified exact-tree evidence succeeded.'
+            exit 1
+          fi

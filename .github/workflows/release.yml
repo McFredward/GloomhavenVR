@@ -12,6 +12,7 @@ on:
     branches: [main]
 
 permissions:
+  actions: read         # exact-tree full CI proof from run/job metadata
   contents: write        # push the tag, create the release, push the bookkeeping bump
                          # to `dev`. GITHUB_TOKEN with this scope is sufficient — no PAT
                          # is needed. A branch ruleset on `main` does NOT affect this
@@ -50,8 +51,10 @@ jobs:
           sudo apt-get install --no-install-recommends --yes ripgrep
           rg --version
 
-      - name: Release topology regression tests
-        run: bash scripts/release-sim.sh
+      - name: Require successful full dev CI for this exact source tree
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/ci-proof-reuse.py --mode release
 
       - name: Determine the version and check it can be released
         id: version
@@ -154,122 +157,11 @@ jobs:
       - name: Build (0 errors, 0 warnings — TreatWarningsAsErrors)
         run: bash scripts/ci-build.sh Release
 
-      - name: Mirrored-constant lint
-        run: bash scripts/check-mirrors.sh
-
-      - name: Per-frame order lock
-        run: bash scripts/check-frame-order.sh
-
-      - name: Patch inventory drift
-        run: bash scripts/patch-inventory.sh check
-
-      - name: Wire coverage
-        run: python3 scripts/check-wire-coverage.py
-
-      # The four rules that keep a peer from being TOLD which card the game singled out
-      # inside its own secret window. The C# original is compile-only in the wire-test
-      # step below, so this standalone port is the only executed form. See ci.yml.
-      - name: Card identity mask (ModBuild 477 item 7)
-        run: python3 scripts/check-card-identity-mask.py
-
-      # Every live config dial a mirror reads carries a recorded verdict saying whose
-      # copy it is. The 1:1 question the other three gates cannot express. See ci.yml.
-      - name: Mirror dials (whose copy does the mirror read)
-        run: python3 scripts/check-mirror-dials.py
-
-      # A latch array sized by a literal against an enum that grew. See ci.yml.
-      - name: Enum-keyed array sizes
-        run: python3 scripts/check-enum-arrays.py
-
-      # THE EIGHT THE RELEASE PATH WAS MISSING. Found by the 2026-09 documentation audit,
-      # which was checking whether docs/CI-CD.md's "the same gates as CI" was true. It was not:
-      # the 2026-09 tooling round wired these into ci.yml and nobody carried them across, so the
-      # RELEASE path — one push, no undo, straight to players — was the WEAKER of the two. What
-      # covered the gap in practice is that a released commit has already been through ci.yml on
-      # dev, which is a property of how the maintainer works and not of this pipeline.
-      # All eight read only src/, docs/ and tracked files under .planning/refactor/: if they can
-      # run on a runner for ci.yml they can run here, which is the argument ci.yml's own comment
-      # block makes for them.
-      - name: Static initialiser order across partial types
-        run: python3 scripts/check-partial-order.py
-
-      - name: Load-bearing writes inside diagnostics
-        run: python3 scripts/check-instrument-writes.py
-
-      - name: Remote constants resolve to the local defaults
-        run: python3 scripts/check-remote-defaults.py
-
-      - name: Board-tuning field ids in range and in order
-        run: python3 scripts/check-tune-fields.py
-
-      - name: Patches on network-action receivers are classified
-        run: python3 scripts/check-desync-surface.py
-
-      - name: HW-VERIFY lines print at the default log level
-        run: python3 scripts/check-hw-verify.py
-
-      - name: Every option is reachable in the menu
-        run: python3 scripts/check-options-coverage.py
-
-      - name: User-facing docs ship in English and German
-        run: python3 scripts/check-docs-i18n.py
-
-      # Skipped with a notice on a runner: the tester's cfg drop it compares against
-      # lives in gitignored .planning/debug/. See the same step in ci.yml.
-      - name: Config defaults rebase
-        run: |
-          if [ -d .planning/debug/default ]; then
-            python3 scripts/rebase-defaults.py check
-          else
-            echo "::notice title=Config defaults not checked::The tester cfg drop is gitignored and absent on a runner. Run scripts/rebase-defaults.py check locally before a release."
-          fi
-
+      # Source gates and production harnesses were verified above against the exact
+      # dev-tested tree. Release still builds fresh with GhvrReleaseBuild=true and
+      # checks the actual shipped bundle, archive and version below.
       - name: Asset bundle format
         run: bash scripts/check-bundle-format.sh
-
-      # These production-source harnesses provide their own Unity API substitutes and
-      # can execute on a hosted runner; byte-level wire vectors still require the real game.
-      - name: Native presentation regression harnesses
-        run: |
-          bash scripts/card-bindings-tests.sh
-          bash scripts/native-playback-tests.sh
-          bash scripts/board-refresh-tests.sh
-          bash scripts/card-loss-modal-tests.sh
-          bash scripts/map-flow-tests.sh
-          bash scripts/map-button-tests.sh
-          bash scripts/burn-layout-tests.sh
-          bash scripts/burn-replay-tests.sh
-          bash scripts/pick-tray-tests.sh
-          bash scripts/mr-backing-tests.sh
-          bash scripts/card-scene-lifetime-tests.sh
-          bash scripts/remote-burn-sequencing-tests.sh
-          bash scripts/burn-completion-tests.sh
-          bash scripts/item-burn-tests.sh
-          bash scripts/item-appearance-tests.sh
-          bash scripts/flight-timing-tests.sh
-          bash scripts/figure-hold-tests.sh
-          bash scripts/self-update-dialog-tests.sh
-          bash scripts/native-video-tests.sh
-          bash scripts/reward-showcase-tests.sh
-          bash scripts/modal-close-tests.sh
-          bash scripts/reward-pose-tests.sh
-          bash scripts/conversion-rollback-tests.sh
-          bash scripts/panel-material-tests.sh
-          bash scripts/panel-ink-tests.sh
-          bash scripts/video-playback-tests.sh
-          bash scripts/hint-tests.sh
-          bash scripts/quest-hint-tests.sh
-          bash scripts/tutorial-scope-tests.sh
-          bash scripts/tutorial-controller-tests.sh
-          bash scripts/retry-start-tests.sh
-          bash scripts/window-reflow-tests.sh
-          bash scripts/shared-window-reflow-tests.sh
-
-      - name: Wire tests (compile only — vectors need the real game DLL)
-        run: |
-          dotnet build tests/GloomhavenVR.WireTests/GloomhavenVR.WireTests.csproj \
-                       -c Release --nologo -v minimal
-          echo "::warning title=Wire vectors not executed for this release::The golden-vector assertions cannot run on a hosted runner (they load the game's real UnityEngine.CoreModule.dll). Run scripts/wire-tests.sh locally before pushing to main."
 
       - name: Package
         run: bash scripts/package-release.sh
