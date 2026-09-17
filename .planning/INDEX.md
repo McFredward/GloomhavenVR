@@ -18,6 +18,8 @@ engineering evidence, historical decisions and current status; it is not the pla
 
 ## Latest measured work
 
+- [RELEASE-104.md](RELEASE-104.md): build-527 hardware review and authorized 1.0.4 publication.
+
 - [WINDOW-ANCHOR-527.md](WINDOW-ANCHOR-527.md): incoming window anchor, visible overlap and centre-first quest placement.
 
 - [MR-VISIBLE-526.md](MR-VISIBLE-526.md): temple coordinate-frame regression and general transparent/cropped MR contributors.

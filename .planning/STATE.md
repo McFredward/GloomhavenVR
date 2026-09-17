@@ -13,6 +13,12 @@ change per build) → this file (where things stand and what is owed) → the bu
 
 ## 1. Position
 
+- **1.0.4 release authorized after the build-527 hardware report.** The maintainer reports
+  no visible issues. Current local logs show completed encounter room making with the new
+  window fixed and no mod Error/Fatal entries. Old remote logs are not current evidence.
+  Release preparation and audit: [RELEASE-104.md](RELEASE-104.md). Publication still pending
+  final local/CI gates and the reviewed main merge.
+
 - **dev / 1.0.4 / ModBuild 527 preserves the newly opened map window's spawn pose.**
   Build-526 logs show three quest-popup animations moving only the newcomer. The solver now
   anchors incoming windows and admits only older movable overlaps. Visual occupancy uses
@@ -24,7 +30,7 @@ change per build) → this file (where things stand and what is owed) → the bu
   negatives; painted occupancy 453 / 29 negatives; shared reflow 74 / six bindings / four
   negatives. Strict Release zero warnings/errors. Frame-order, partial-order, bilingual docs,
   Actionlint, shell syntax and whitespace pass. Config/patch/log census unchanged:
-  625 / 172 / 4,733. Corrected headset placement and matching-peer behavior await hardware.
+  625 / 172 / 4,733. The user confirms the hardware behavior; a current matching-peer log was not supplied.
 
 - **dev / 1.0.4 / ModBuild 526 addresses temple-first/repeated temple header drift and
   general invisible MR contributors.** The build-525 report confirms merchant improvement,
