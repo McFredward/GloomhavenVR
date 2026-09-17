@@ -17,13 +17,13 @@ change per build) → this file (where things stand and what is owed) → the bu
   no visible issues. Current local logs show completed encounter room making with the new
   window fixed and no mod Error/Fatal entries. Old remote logs are not current evidence.
   Release preparation and audit: [RELEASE-104.md](RELEASE-104.md).
-  PR #7 is merged; full dev CI, reused PR CI and local release gates passed. Tag v1.0.4
-  targets main a6d044c4. Publication is blocked by repeated GitHub upload HTTP 500 responses;
-  prepared draft 391041682 remains unpublished with no assets, and latest stays v1.0.3.
-  The verified main-built ZIP is saved in dist/recovery-1.0.4/. Dev remains 1.0.4 until upload
-  and publication succeed; resume instructions are in the release record. At the maintainer's
-  request, recovery runs through the main Release workflow: rebuild the immutable tagged
-  main source using its successful dev CI evidence, without repeating full checks on main.
+  **Published successfully:** main Release run 35276519563 rebuilt immutable tag v1.0.4
+  from main a6d044c4, verified its existing full dev CI evidence, packaged and uploaded the
+  archive, checked its SHA256 and published it as Latest. No full suite was repeated on main.
+  Recovery fixes landed through PRs #8/#9 after full dev CI; their PR checks reused proof.
+  Dev bookkeeping completed at 24c8fce9 and now names **1.0.5**, still ModBuild 527.
+  The earlier upload failures and draft-discovery defect are resolved; the release record
+  preserves their evidence and the final archive digest.
 
 - **dev / 1.0.4 / ModBuild 527 preserves the newly opened map window's spawn pose.**
   Build-526 logs show three quest-popup animations moving only the newcomer. The solver now

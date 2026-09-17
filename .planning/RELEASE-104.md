@@ -1,4 +1,22 @@
-# Release 1.0.4 candidate
+# Release 1.0.4
+
+**Published 2026-09-17.** Main Release run
+[35276519563](https://github.com/McFredward/GloomhavenVR/actions/runs/35276519563)
+completed successfully, including upload and post-publication dev bookkeeping. Latest is
+[v1.0.4](https://github.com/McFredward/GloomhavenVR/releases/tag/v1.0.4).
+
+The immutable annotated tag remains fe80b45f, pointing to main commit a6d044c4. The main
+runner rebuilt that exact source with release settings and reused successful full dev CI
+35269595138; no full test suite ran again on main. Build and packaging reported zero
+warnings/errors. Uploaded archive: `GloomhavenVR-1.0.4.zip`, 85,152,284 bytes,
+SHA256 `b7f45b5b8822d0633dfc3c5043825685cc270549d9efc21e78b9a019a2fffb3d`.
+Release ID 391041682 is public, contains the verified archive, and is Latest. The local
+recovery ZIP was not used for publication. Dev is now 1.0.5 at 24c8fce9, ModBuild 527.
+
+Pipeline recovery landed through PRs #8 and #9. Full dev runs 35272595156 and 35274984310
+passed; PR runs 35273927614 and 35276234468 reused evidence and skipped full checks.
+The final uploader passed 21 focused tests, including seven HTTP-adapter cases and a real
+read-only draft-discovery/provenance check. The earlier failures below are historical.
 
 Candidate: version 1.0.4, ModBuild 527, based on the hardware-tested dev source at
 13d6f69b. The maintainer reports the latest hardware round looked correct and authorizes
