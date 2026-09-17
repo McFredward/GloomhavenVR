@@ -1,5 +1,15 @@
 # Short-rest burn continuity review — build 528
 
+## Build-529 logging correction
+
+The maintainer requires sparse ordinary player logs. The build-528 Info-tier continuity
+records below are historical: build 529 moves all three `BURN PRESENTATION` records to
+Debug and skips their material/progress observer entirely unless `VRLog.WantsDebug`.
+Re-enabling diagnostics starts a fresh observation. The four-anomaly-per-episode bound
+remains. Table and pool self-reports already use Debug-gated `VRLog.Info`/`Warn`.
+For the next targeted continuity capture, explicitly select `[General] LogLevel = Debug`;
+normal logs no longer claim to provide that detailed evidence. Gameplay/effects are unchanged.
+
 ## Evidence and limits
 
 The current local hardware log identifies release 1.0.4 / ModBuild 527 and an offline

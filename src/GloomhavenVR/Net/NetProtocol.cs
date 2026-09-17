@@ -514,8 +514,15 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 528;
+    public const ushort ModBuild = 529;
 
+    // ModBuild 529 — keep burn continuity diagnostics out of ordinary player logs.
+    // Per-burn start/end and bounded discontinuity records now require Debug. At the default
+    // level, skip the observer's material/progress inspection and string formatting entirely.
+    // Switching diagnostics back on starts a fresh observation instead of comparing stale state.
+    // Existing build-528 table/pool self-reports already require Debug through VRLog.Info/Warn.
+    // User ruling: normal player logs must stay sparse; detailed hardware tracing is opt-in.
+    //
     // ModBuild 528 — local burn continuity, Guildmaster map presentation and native card lifetime.
     // Native dialog-owned faces no longer qualify for clone material normalization; preserve
     // the running burn materials independently of temporary hierarchy/adoption changes. Ignore

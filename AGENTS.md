@@ -25,6 +25,10 @@ to Codex and record the user's instructions of 2026-09-08.
 - Keep player documentation and release highlights focused on installation from release archives,
   controls and visible changes. Installer scripts, CI/build details and pending hardware tests
   belong in developer documentation or `.planning/`, not in player instructions.
+- Keep normal player logs sparse. Per-action traces and detailed hardware diagnostics belong
+  at Debug, with bounded repetition and guards before expensive sampling or string formatting.
+  Do not promote diagnostic streams to the default level just to simplify a hardware test
+  (user clarification, 2026-09-18).
 - Commit useful checkpoints. Attribute commits truthfully: the Claude-specific
   coauthor and session-link template in `CLAUDE.md` does not apply to Codex.
 - Distinguish source-proven fixes, log evidence, and unverified hardware outcomes.

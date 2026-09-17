@@ -1,6 +1,6 @@
 # State — where the project stands
 
-**Updated 2026-09-18 for local burn continuity and Guildmaster fixes, ModBuild 528 on dev.** The file this replaces had gone 168 builds
+**Updated 2026-09-18 for sparse player logging, ModBuild 529 on dev.** The file this replaces had gone 168 builds
 stale while still saying "read this first"; it is kept as `STATE-ARCHIVE-through-2026-08.md` for
 its round-by-round narrative and for nothing else.
 
@@ -12,6 +12,17 @@ change per build) → this file (where things stand and what is owed) → the bu
 ---
 
 ## 1. Position
+
+- **dev / 1.0.5 / ModBuild 529** moves the per-burn continuity records to opt-in Debug,
+  including an early observer guard to avoid material/progress reads and formatting at
+  ordinary verbosity. Re-enabling Debug starts fresh; anomaly output remains bounded.
+  Build-528 table/pool diagnostics already require Debug. This corrects the earlier promise
+  that normal logs would contain detailed continuity evidence. See [BURN-528.md](BURN-528.md).
+  The user's sparse-normal-log requirement is also recorded in `AGENTS.md`.
+  Validation: complete source/presentation guard and 254,565 real-runtime wire assertions
+  pass; strict Release zero warnings/errors; bilingual docs and whitespace checks pass.
+  The expected compiled diff from historical baseline 080c505e9 is the only guard exit-1
+  verdict. Config/patch/log surfaces remain 625 / 174 / 4,738, with no removals.
 
 - **dev / 1.0.5 / ModBuild 528** addresses the owner's local short-rest flash, Guildmaster
   table/standing quest list, and a native Swift Bow UI initialization error in the latest

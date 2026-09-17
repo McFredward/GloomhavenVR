@@ -1,6 +1,6 @@
 # Planning index
 
-Updated 2026-09-18 for local burns, native card lifetime and Guildmaster, build 528 on dev. This directory holds internal
+Updated 2026-09-18 for sparse default logs, build 529 on dev; runtime fixes from 528 remain current. This directory holds internal
 engineering evidence, historical decisions and current status; it is not the player manual.
 
 ## Current entry points

@@ -161,15 +161,23 @@ internal sealed class BurnCardFx
     private float _observedProgress = -1f, _observedSince;
     private int _continuityChanges;
 
-    // Info-tier evidence for the repeated short-rest flash: a two-second final hold cannot
+    // Opt-in debug evidence for the repeated short-rest flash: a two-second final hold cannot
     // distinguish an intact iterator from a material being replaced under that iterator.
     // Read the native raw progress, not the deliberately retained spent display floor.
     private void ObserveBurnContinuity(CardEffects? effects)
     {
+        // Ordinary player logs must not grow with every burn. Also skip per-frame material
+        // inspection and formatting while diagnostics are off; a later opt-in starts fresh.
+        if (!VRLog.WantsDebug)
+        {
+            _observedBurn = null;
+            _observedPlate = null;
+            return;
+        }
         bool playing = BurnArtwork.Playing(effects);
         if (_observedBurn != null && (!playing || effects != _observedBurn))
         {
-            VRLog.Note("Cards", $"BURN PRESENTATION END: fx={_observedBurn.GetInstanceID()}, " +
+            VRLog.Info("Cards", $"BURN PRESENTATION END: fx={_observedBurn.GetInstanceID()}, " +
                 $"observed={Time.unscaledTime - _observedSince:F3}s, raw={_observedProgress:F3}, " +
                 $"continuityChanges={_continuityChanges}. Native completion and rendered pixels are distinct evidence.");
             _observedBurn = null;
@@ -181,14 +189,14 @@ internal sealed class BurnCardFx
         {
             _observedBurn = effects; _observedPlate = plate;
             _observedProgress = progress; _observedSince = Time.unscaledTime; _continuityChanges = 0;
-            VRLog.Note("Cards", $"BURN PRESENTATION START: fx={effects.GetInstanceID()}, " +
+            VRLog.Info("Cards", $"BURN PRESENTATION START: fx={effects.GetInstanceID()}, " +
                 $"plate={(plate != null ? plate.GetInstanceID() : 0)}, raw={progress:F3}. Tracking the adopted original.");
             return;
         }
         bool replaced = plate != _observedPlate;
         bool rewound = progress >= 0f && _observedProgress >= 0f && progress + .01f < _observedProgress;
         if ((replaced || rewound) && ++_continuityChanges <= 4)
-            VRLog.Note("Cards", $"BURN PRESENTATION DISCONTINUITY: fx={effects.GetInstanceID()}, " +
+            VRLog.Info("Cards", $"BURN PRESENTATION DISCONTINUITY: fx={effects.GetInstanceID()}, " +
                 $"elapsed={Time.unscaledTime - _observedSince:F3}s, plateChanged={replaced}, " +
                 $"raw={_observedProgress:F3}->{progress:F3}. A material swap and a timeline rewind are separate causes.");
         _observedPlate = plate; _observedProgress = progress;
