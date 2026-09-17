@@ -108,6 +108,7 @@ internal static class MapRoomDriver
     private static readonly MapButtonRail Buttons = new();
     private static readonly MapRoomHand Hand = new();
     private static readonly MapTableLegs TableLegs = new();
+    private static readonly GuildmasterMapTable GuildmasterTable = new();
 
     // Facts the rig hands over at build time so the ONE map-room line can state them all together
     // (a diagnostic split across two lines is a diagnostic a log reader has to correlate by hand).
@@ -722,6 +723,7 @@ internal static class MapRoomDriver
         // Its BUILD path needs the parchment and guards on it itself. Once standing it is two field
         // reads and a reference compare — it is world-fixed furniture with nothing to keep up to
         // date.
+        GuildmasterTable.Tick();
         TableLegs.Tick();
         if (have)
         {
@@ -760,6 +762,7 @@ internal static class MapRoomDriver
         // The table legs go with the room they furnish — the prop is world-fixed, so nothing else
         // would ever destroy it.
         TableLegs.Release(reason);
+        GuildmasterTable.Release();
         Icons.Release(reason);
         // Hand the game's travel options back before the room disappears under them — a container
         // left parented into a host we are about to destroy would take the Reisen button with it.
