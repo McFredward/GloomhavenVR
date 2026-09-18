@@ -13,3 +13,10 @@ out = root / 'tests/GloomhavenVR.MrScenarioTests/obj/Retirement.g.cs'
 out.parent.mkdir(parents=True, exist_ok=True)
 out.write_text('namespace GloomhavenVR.Core;\ninternal static partial class MixedReality\n{\n'
                + s[start:end] + '\n}\n')
+start = s.index('    private static bool IsSkyRenderer(')
+end = s.index('    private static bool IsHiddenSky(', start)
+names_start = s.index('    private static readonly string[] SkyNameHints =')
+names_end = s.index('    };', names_start) + len('    };')
+(out.parent / 'Sky.g.cs').write_text('#nullable enable\nusing System;\nusing UnityEngine;\nnamespace GloomhavenVR.Core;\n'
+    + 'internal static partial class MixedReality\n{\n' + s[names_start:names_end]
+    + '\n' + s[start:end] + '\n}\n')

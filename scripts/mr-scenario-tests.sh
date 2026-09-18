@@ -46,14 +46,18 @@ print('MR scenario ownership: 26 source bindings passed.')
 PY
 mutation_dir="$(mktemp -d)"
 trap 'rm -rf "$mutation_dir"' EXIT
-for mutation in prefix overlap cutout inactive retirement; do
+for mutation in prefix overlap cutout inactive retirement sky-furniture; do
     python3 - "$repo_root" "$mutation_dir/Mutated.cs" "$mutation" <<'PY'
 from pathlib import Path
 import sys
 r=Path(sys.argv[1]); mutation=sys.argv[3]
 path='Core/ModVisualOwnership.cs' if mutation=='prefix' else 'Core/MixedReality/MrUnseenRegionEligibility.cs'
 s=(r/'tests/GloomhavenVR.MrScenarioTests/obj/Retirement.g.cs').read_text() if mutation=='retirement' else (r/'src/GloomhavenVR'/path).read_text()
-if mutation=='retirement':
+if mutation=='sky-furniture':
+    s=(r/'tests/GloomhavenVR.MrScenarioTests/obj/Sky.g.cs').read_text()
+    old='MrSkyEligibility.IsMapFurniture(r.gameObject.name)'
+    new='bool.Parse("false")'
+elif mutation=='retirement':
     old='RestoreUnseenUnderlays();'
     new='return;'
 elif mutation=='prefix':
@@ -77,6 +81,7 @@ PY
     if [[ "$mutation" == cutout ]]; then expected='cutout silhouettes never filled'; fi
     if [[ "$mutation" == retirement ]]; then property=RetirementSource; expected="every tracked scenery resource is retired"; fi
     if [[ "$mutation" == inactive ]]; then expected='only active source with a live host'; fi
+    if [[ "$mutation" == sky-furniture ]]; then property=SkySource; expected='cold map furniture must never be sky'; fi
     if dotnet run --project "$project" --configuration Release --property:"$property=$mutation_dir/Mutated.cs" > "$mutation_dir/output" 2>&1; then
         echo "FAIL: MR scenario mutation survived: $mutation" >&2; exit 1
     fi

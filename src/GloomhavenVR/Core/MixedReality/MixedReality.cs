@@ -754,11 +754,19 @@ internal static partial class MixedReality
 
     private static bool IsSkyRenderer(Renderer r, Vector3 headPos, float sizeFloor)
     {
+        // Build-533 cold Guildmaster MR capture: GH_Map_Table is a complete table
+        // (including legs), scaled to 367 x 187 x 445 world units. Before the map
+        // seat settles its bounds contain the head, so the dome heuristic hid real
+        // furniture until MR was toggled. Native map furniture is never sky, even
+        // during initial placement. Keep this asset-family exemption independent
+        // of MapRoomDriver readiness and camera/rig scale; named clouds still hide.
+        if (MrSkyEligibility.IsMapFurniture(r.gameObject.name))
+            return false;
         if (NameLooksLikeSky(r))
             return true;
         // Enclosing-dome signal: the world bounds SURROUND the head with a large extent on ALL
-        // THREE axes. A flat floor/tile has one thin axis; a table prop does not contain the
-        // head — only a skydome/sphere/backdrop box passes.
+        // THREE axes. Flat floors have a thin axis. Known map furniture is excluded
+        // above because its cold-start world bounds can surround the head as well.
         Bounds b = r.bounds;
         if (!b.Contains(headPos))
             return false;

@@ -12,6 +12,7 @@ internal static class Program
 
     public static void Main()
     {
+        SkyCases.Run(Check);
         foreach (string name in new[] { "GloomhavenVR.MrBacking", "GloomhavenVR.MrUnseenRim",
                      "GloomhavenVR.MrUnseenFill", "GloomhavenVR.MrUnseenUnderlay", "VRFigureGhost", "VROverlay" })
             Check(ModVisualOwnership.IsName(name), "mod visual excluded from native scenery: " + name);
