@@ -514,8 +514,22 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 531;
+    public const ushort ModBuild = 532;
 
+    // ModBuild 532 — UI-only MR backings and continuous burn/flight presentation.
+    // The build-531 hardware ruling forbids backing geometry anywhere inside the play area.
+    // Retire scenery underlay/fill/rim creation, retain native water/terrain and independent UI
+    // backings; preserve legacy config keys as explicitly inert in both languages.
+    // Keep the original spent-card shader floor through the native burn iterator's terminal
+    // step, which clears its handle without repainting the endpoint. Recovery still clears it.
+    // Pile flights take exclusive ownership of mod fade visibility and discard stale vanish
+    // callbacks without changing native burn materials. Retain per-card artwork observations
+    // while the global layout barrier waits, so completed burns are not reported as unseen.
+    // Logs prove Reviving Ether flights were launched, not their final pixels; the reachable
+    // fade handover defect is repaired, but exact hardware attribution needs another test.
+    // Local evidence is 531; peer logs remain historical 500. No wire grammar change.
+    // Details: .planning/{MR,BURN,FLIGHT}-532.md.
+    //
     // ModBuild 531 — recovered cards and usable Guildmaster controls.
     // Reconcile native burn presentation after a proven return to Hand/Round, independently
     // of cached widget SetPile edges. Retire the old episode/floor before native RestoreCard;

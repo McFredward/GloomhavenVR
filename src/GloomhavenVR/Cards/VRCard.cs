@@ -2020,8 +2020,9 @@ internal sealed class VRCard : GrabbableBehaviour, IGrabHighlight, IPokeable, IG
     /// that takes the transform away from the appear tick — a grab, a fly — must call this, or the
     /// card is stranded half-faded AND bodiless (its opaque slab is suppressed for the animation's
     /// duration, see <see cref="SetBodyVisible"/>). No-op when no appear is running. Deliberately
-    /// does NOT touch a running <see cref="Vanish"/>: a vanishing card is un-grabbable and never also
-    /// flies (the driver picks exactly one), and silently dropping it would strand the park callback.
+    /// does NOT touch a running <see cref="Vanish"/>: a vanishing card is un-grabbable, so a grab
+    /// must not discard its park callback. Pile flights use <see cref="PrepareFlightVisual"/>
+    /// instead because they explicitly replace the old fade and own arrival parking.
     /// </summary>
     private void CancelAppear()
     {

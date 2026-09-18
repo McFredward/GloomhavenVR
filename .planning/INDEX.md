@@ -1,6 +1,6 @@
 # Planning index
 
-Updated 2026-09-18 for recovered card effects and Guildmaster controls, build 531 on dev. This directory holds internal
+Updated 2026-09-18 for UI-only MR backings and burn/flight continuity, build 532 on dev. This directory holds internal
 engineering evidence, historical decisions and current status; it is not the player manual.
 
 ## Current entry points
@@ -17,6 +17,10 @@ engineering evidence, historical decisions and current status; it is not the pla
 | [PROJECT.md](PROJECT.md), [ARCHITECTURE.md](ARCHITECTURE.md) | Product scope and architectural reasoning |
 
 ## Latest measured work
+
+- [MR-532.md](MR-532.md): restrict MR backing geometry to UI under the latest hardware ruling.
+- [BURN-532.md](BURN-532.md): retain spent appearance through the original burn's terminal step.
+- [FLIGHT-532.md](FLIGHT-532.md): visible flight handover and accurate per-card completion evidence.
 
 - [CARD-RECOVERY-531.md](CARD-RECOVERY-531.md): clear retained native burn effects on legitimate recovery, before local and remote presentation.
 - [GUILD-RAIL-531.md](GUILD-RAIL-531.md): retain required Guildmaster controls when optional table-fit measurement fails.

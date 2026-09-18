@@ -1,6 +1,6 @@
 # State — where the project stands
 
-**Updated 2026-09-18 for recovered card effects and Guildmaster controls, ModBuild 531 on dev.** The file this replaces had gone 168 builds
+**Updated 2026-09-18 for UI-only MR backings and burn/flight continuity, ModBuild 532 on dev.** The file this replaces had gone 168 builds
 stale while still saying "read this first"; it is kept as `STATE-ARCHIVE-through-2026-08.md` for
 its round-by-round narrative and for nothing else.
 
@@ -12,6 +12,20 @@ change per build) → this file (where things stand and what is owed) → the bu
 ---
 
 ## 1. Position
+
+- **dev / 1.0.5 / ModBuild 532** addresses the build-531 hardware report. MR backings
+  now belong exclusively to UI: scenery underlays, fills and rims are retired, including
+  the former unseen/preview routes. Native terrain/water and UI readability remain intact.
+  Short-rest spent shader floors survive the native iterator's terminal step, which otherwise
+  restores raw paint without writing a final frame. Pile flights take exclusive ownership of
+  mod fade visibility and retire an obsolete vanish callback; native burn materials are preserved.
+  The layout barrier now retains actual per-card artwork observations for release diagnostics.
+  Local logs are 531; remote logs remain historical 500. Reviving Ether flights were launched
+  (LogOutput 1278 and 2037); the logs do not establish whether the fade-handover defect caused
+  those particular invisible flights. MR screenshot inspected; exact water renderer unknown.
+  Source-proven fixes need headset confirmation, especially the reported missing flight.
+  Records: [MR-532.md](MR-532.md), [BURN-532.md](BURN-532.md), [FLIGHT-532.md](FLIGHT-532.md).
+  Integrated validation is pending.
 
 - **dev / 1.0.5 / ModBuild 531** Build-530 hardware confirms
   native Spellweaver recovery returns FireOrbs, ManaBolt, RidetheWind and FlameStrike from

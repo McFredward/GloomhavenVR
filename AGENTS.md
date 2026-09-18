@@ -86,3 +86,8 @@ The user's build-529 Guildmaster clarification (2026-09-18) keeps the original q
 visible during map browsing, including the mode's persistent ordinary dialog. Only actual
 quest commitment and its subsequent story/loadout may hide it. A dialog asking to hide
 other native UI is not, by itself, proof of Guildmaster quest acceptance.
+
+The user's build-531 hardware clarification (2026-09-18, `wasser_hintergrund.jpg`)
+restricts mixed-reality backings to UI elements. Never add MR background geometry inside
+the play area, including water, fog/unseen terrain and preview meshes. Earlier scenery
+backing implementations and comments do not authorize exceptions to this rule.

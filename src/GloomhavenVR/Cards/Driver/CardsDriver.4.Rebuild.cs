@@ -3833,28 +3833,15 @@ internal sealed partial class CardsDriver
         if (held > 0.01f)
         {
             string arm = hold.ArtworkSeen
-                    // ─── THIS ARM SAID "ARTWORK END" AND COULD NOT KNOW THAT (2026-09-07, item 8) ─
-                    // CardEffects.coroutine is nulled by THREE different histories: the timeline's
-                    // own last statement (CardEffects.cs:618), RestoreCard() (:469-472) and every
-                    // ToggleAdditiveEffect (:404-407) — the last two being CANCELS. The short-rest
-                    // flow runs both several times on the same card
-                    // (CardsHandUI.AnimateCardsLost:1029/:1066 → AbilityCardUI.UpdateCard →
-                    // FullAbilityCard.SetPile), so "the handle went null" is the commonest reading
-                    // for a CANCEL, not for an end. ModBuild 476's peer log 60504 reports this arm
-                    // for 'ABILITY_CARD_ProvokingRoar' after 0,69s against a hard-coded
-                    // burnTime = 2f (:511): a finished ramp cannot be 0.69 s long, and the user's
-                    // report of that same burn is "kein verbrennen effekt darauf festellen können".
-                    //
-                    // SO THE ARM REPORTS THE PAINT, which IS the ramp's progress variable
-                    // (_GreyOut = Clamp01(dTime), :571) and therefore the one field that separates
-                    // the two histories. Under 1.00 = cancelled.
+                    // Native completion and cancellation both clear the handle. Raw shader
+                    // progress excludes our spent floor, and the native elapsed-clock exit
+                    // need not coincide with accumulated delta-time paint reaching one.
+                    // Report the reading without claiming that it proves a visible restart.
                     ? "ARTWORK HANDLE CLEARED at paint _GreyOut "
                       + BurnArtwork.PaintProgress(BurnArtwork.EffectsOf(card != null ? card.FullCard : null))
                             .ToString("F2")
-                      + " of 1.00 — under 1.00 means the game CANCELLED its own 2 s ramp rather "
-                      + "than finishing it (RestoreCard and ToggleAdditiveEffect null the same "
-                      + "handle); BurnLookPolicy settles the card to the full burnt end state in "
-                      + "that case, so every board still agrees on the picture"
+                      + " of 1.00; this raw value excludes the spent display floor. A low "
+                      + "value alone cannot distinguish cancellation from clock/delta completion"
                     : $"START GRACE — full-card artwork was not observed; the owning hand's native " +
                       $"loss sequence is also finished, and the {BurnEffectStartGraceSeconds:F2}s startup grace elapsed";
             // HW-VERIFY (2026-09-05 item 11c "auch fuer mich blieb die Karte laenger liegen", and
@@ -3869,18 +3856,10 @@ internal sealed partial class CardsDriver
             // grace. The short-rest sacrifice never waited for an artwork at all and the instrument
             // asserted the opposite. BurnHold.ArtworkSeen is what separates them.
             //
-            // PROOF the wait is doing its job: "ARTWORK HANDLE CLEARED" with held under
-            // BurnEffectMaxHoldSeconds AND a paint reading at or near 1.00. The PAINT is the term
-            // that grades it, not the elapsed time: a 0.69 s hold that reports _GreyOut 0.35 is a
-            // cancelled ramp wearing a plausible-looking duration, which is exactly what the
-            // pre-correction "ARTWORK END" wording hid.
-            // FALSIFIER — INERT: "DEADLINE" at 3.00-3.02 s again (the pre-2026-09-05 reading, 9 of
-            // 9 burns on ModBuild 447), meaning the running-coroutine term never went false.
-            // THE THIRD READING IS NOT A DEFECT BUT IS THE ANSWER TO THE SHORT-REST REPORT:
-            // "START GRACE" says the game never played an artwork on this card, so there was
-            // nothing to wait for and the 0.50 s is the whole wait by design. If he still reports
-            // "nicht ausreichend gewartet" on a line reading START GRACE, the lead is the GAME's
-            // burn timeline not starting, not this gate.
+            // ARTWORK HANDLE CLEARED means playback was observed before release. START GRACE
+            // means it was not observed, not proof that no native step ever ran. The global
+            // layout barrier retains each card's observation even while individual gates wait.
+            // Neither duration nor raw paint alone establishes the headset's final pixels.
             VRLog.Note("Cards", $"BURN HOLD: '{CardsGameApi.CardName(widget)}' waited {held:F2}s on the board " +
                                 $"(released by: {arm}) — flying to the Burnt pile now. The release term is " +
                                 "the native card artwork plus the owning hand's loss-sequence completion, " +
