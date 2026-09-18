@@ -514,7 +514,22 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 533;
+    public const ushort ModBuild = 534;
+
+    // ModBuild 534 — first short-rest burn, cold MR table and grouped Guildmaster controls.
+    // Build-533 Debug proves the original short-rest iterator bailed synchronously while its
+    // adopted face was inactive; a no-ramp settle preceded a second LostMode ramp/reset.
+    // Permit the existing native playOnDisabled path only for a verified original animated
+    // full card. Keep one native timeline, spent paint, recovery and owner progress publication.
+    // The cold Guildmaster table was already present: MR's enclosing-sky bounds heuristic hid
+    // GH_Map_Table before initial seating. Exempt the native map-furniture asset families from
+    // sky classification, independently of map-driver readiness. Respect the complete native
+    // table before requesting an unnecessary campaign slab; do not add overlapping geometry.
+    // Group Guildmaster action caps vertically with WorldMap/City centred in a separate column
+    // to their right, fitted to the same native table/knife geometry. Campaign layout unchanged.
+    // Local evidence is 533; remote logs remain historical 500. No wire or logging-level change.
+    // Details: .planning/BURN-534.md, .planning/GUILD-534.md and .planning/MR-534.md.
+    //
 
     // ModBuild 533 — recovered action-card membership and short-rest diagnostics.
     // Native action-controller references survive a card's Lost -> Hand recovery. Refuse

@@ -1,6 +1,6 @@
 # Planning index
 
-Updated 2026-09-18 for recovered action-card membership and short-rest diagnostics, build 533 on dev. This directory holds internal
+Updated 2026-09-18 for short-rest playback, cold MR furniture and Guildmaster controls, build 534 on dev. This directory holds internal
 engineering evidence, historical decisions and current status; it is not the player manual.
 
 ## Current entry points
@@ -17,6 +17,10 @@ engineering evidence, historical decisions and current status; it is not the pla
 | [PROJECT.md](PROJECT.md), [ARCHITECTURE.md](ARCHITECTURE.md) | Product scope and architectural reasoning |
 
 ## Latest measured work
+
+- [BURN-534.md](BURN-534.md): preserve the first original burn through temporary full-card inactivity.
+- [GUILD-534.md](GUILD-534.md): native full-table recognition and separate Guildmaster map-surface caps.
+- [MR-534.md](MR-534.md): prevent cold-start map furniture from being classified as enclosing sky.
 
 - [ROUND-533.md](ROUND-533.md): exclude recovered hand cards from stale action-controller slots.
 - [BURN-533.md](BURN-533.md): unresolved short-rest flash and bounded Debug evidence for the next test.

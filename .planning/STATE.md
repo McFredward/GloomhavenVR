@@ -1,6 +1,6 @@
 # State — where the project stands
 
-**Updated 2026-09-18 for recovered action-card membership and short-rest diagnostics, ModBuild 533 on dev.** The file this replaces had gone 168 builds
+**Updated 2026-09-18 for short-rest playback, cold MR furniture and Guildmaster controls, ModBuild 534 on dev.** The file this replaces had gone 168 builds
 stale while still saying "read this first"; it is kept as `STATE-ARCHIVE-through-2026-08.md` for
 its round-by-round narrative and for nothing else.
 
@@ -12,6 +12,23 @@ change per build) → this file (where things stand and what is owed) → the bu
 ---
 
 ## 1. Position
+
+- **dev / 1.0.5 / ModBuild 534** addresses all three build-533 hardware findings.
+  Debug shows the first short-rest burn exits synchronously on an inactive original, followed
+  by a no-ramp settle and a later animated LostMode reset. Verified original full cards now use
+  native disabled playback, retaining the first complete animation across that hierarchy edge.
+  Cold Guildmaster MR hid the existing GH_Map_Table as enclosing sky; native map furniture is
+  excluded before that heuristic, independently of camera seating/map-driver readiness. The
+  whole native table is recognized before optional campaign-slab loading. No duplicate is built.
+  Guildmaster action caps remain vertical; WorldMap/City form a separate centred pair to their
+  right, fitted to native support and knife clearance. Campaign controls remain unchanged.
+  Local logs are 533; peer logs remain historical 500. No fresh screenshots were supplied.
+  Source/log causes are established; current headset/peer results are not yet verified.
+  Records: [BURN-534.md](BURN-534.md), [GUILD-534.md](GUILD-534.md), [MR-534.md](MR-534.md).
+  Focused checks: burn replay 672 assertions / seven bindings / 32 negative controls;
+  Guildmaster room 10,338 assertions / 25 bindings / nine negative controls;
+  MR scenery/sky 79 assertions / 26 bindings / six negative controls.
+  Complete integration validation pending.
 
 - **dev / 1.0.5 / ModBuild 533** fixes the clarified Spellweaver action-slot regression:
   the native action controller retains the first played card; recovering it from Lost to Hand
