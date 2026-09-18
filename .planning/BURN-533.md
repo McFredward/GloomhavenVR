@@ -42,3 +42,7 @@ methods. Assertions cover normal-level silence, renderer/base separation, flame-
 rewinds, duplicate suppression, reserved completion capacity, per-episode/session bounds,
 and read-only material observation. Six planted trace regressions must fail these assertions.
 Existing playback/recovery regression checks remain unchanged in behavior.
+
+Focused result: 644 runtime assertions, six source bindings and 30 negative controls
+(24 existing, six diagnostic controls). Worker Release build: zero warnings/errors.
+The integration result is recorded in STATE.md. Hardware reproduction is still required.

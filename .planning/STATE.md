@@ -21,11 +21,18 @@ change per build) → this file (where things stand and what is owed) → the bu
   Local logs are 532; remote logs remain historical 500. No independent remote static-pair
   reconstruction was found; owner-published slots inherit the corrected collection.
   The short-rest flash **remains unresolved**. The maintainer confirmed Debug was forgotten
-  for this capture and enabled for the next test. Bounded opt-in diagnostics will distinguish
+  for this capture and enabled for the next test. Bounded opt-in diagnostics record
   native playback, reset and renderer/material transitions without adding normal-log streams.
   Records: [ROUND-533.md](ROUND-533.md), [BURN-533.md](BURN-533.md).
   Focused collector coverage: 50 runtime assertions across three production methods and six
-  negative controls. Integration validation pending; headset results are not yet verified.
+  negative controls. Burn replay/diagnostics: 644 assertions, six bindings and 30 negative
+  controls. Complete source/runtime guard and 254,565 real-runtime wire assertions pass;
+  local flight timing 818, remote burn sequencing 108 and burn layout 228 assertions pass.
+  The only guard exit-1 result is the expected compiled difference from baseline 080c505e9:
+  99 changed, 77 added/removed types, one order-only project move. Config/patch/log surfaces
+  are 625 / 174 / 4,742 with no removals; the additional marker is Debug-only BURN NATIVE TRACE.
+  Patch inventory remains 132 classes / 199 methods. Strict Release zero warnings/errors;
+  bilingual docs, Actionlint and whitespace pass. Headset results remain unverified.
 
 - **dev / 1.0.5 / ModBuild 532** addresses the build-531 hardware report. MR backings
   now belong exclusively to UI: scenery underlays, fills and rims are retired, including

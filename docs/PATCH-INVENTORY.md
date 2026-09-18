@@ -76,10 +76,10 @@ runtime, which is why a runtime audit could never do this job (see
 | Patch class | Target | Kind | Registered by |
 |---|---|---|---|
 | `BurnArtwork.AbilityCardUI_Init_HistoricalBurn_Patch` *(degrades by design)*<br/><sub>src/GloomhavenVR/Cards/BurnArtwork.cs:119</sub> | *(resolved at runtime by `TargetMethod`)* | prefix | `CardsModule`:87 |
-| `BurnArtwork.ToggleEffect_PreserveSpentStart_Patch`<br/><sub>src/GloomhavenVR/Cards/BurnArtwork.cs:308</sub> | `CardEffects.ToggleEffect()` | prefix | `CardsModule`:84 |
-| `BurnArtwork.ToggleAdditiveEffect_PreservePlayback_Patch`<br/><sub>src/GloomhavenVR/Cards/BurnArtwork.cs:330</sub> | `CardEffects.ToggleAdditiveEffect()` | prefix | `CardsModule`:85 |
-| `BurnArtwork.RestoreCard_PreservePlayback_Patch`<br/><sub>src/GloomhavenVR/Cards/BurnArtwork.cs:340</sub> | `CardEffects.RestoreCard()` | prefix | `CardsModule`:86 |
-| `BurnArtwork.BurnCardTimeline_PreserveSpentStart_Patch`<br/><sub>src/GloomhavenVR/Cards/BurnArtwork.cs:377</sub> | `CardEffects.BurnCardTimeline()` | postfix | `CardsModule`:89 |
+| `BurnArtwork.ToggleEffect_PreserveSpentStart_Patch`<br/><sub>src/GloomhavenVR/Cards/BurnArtwork.cs:309</sub> | `CardEffects.ToggleEffect()` | prefix | `CardsModule`:84 |
+| `BurnArtwork.ToggleAdditiveEffect_PreservePlayback_Patch`<br/><sub>src/GloomhavenVR/Cards/BurnArtwork.cs:333</sub> | `CardEffects.ToggleAdditiveEffect()` | prefix | `CardsModule`:85 |
+| `BurnArtwork.RestoreCard_PreservePlayback_Patch`<br/><sub>src/GloomhavenVR/Cards/BurnArtwork.cs:348</sub> | `CardEffects.RestoreCard()` | prefix | `CardsModule`:86 |
+| `BurnArtwork.BurnCardTimeline_PreserveSpentStart_Patch`<br/><sub>src/GloomhavenVR/Cards/BurnArtwork.cs:387</sub> | `CardEffects.BurnCardTimeline()` | postfix | `CardsModule`:89 |
 | `ItemBurnPlayback.ToggleEffect_Once`<br/><sub>src/GloomhavenVR/Cards/ItemBurnPlayback.cs:107</sub> | `ItemCardEffects.ToggleEffect()` | prefix | `CardsModule`:91 |
 | `ItemBurnPlayback.ToggleAdditiveEffect_Once`<br/><sub>src/GloomhavenVR/Cards/ItemBurnPlayback.cs:114</sub> | `ItemCardEffects.ToggleAdditiveEffect()` | prefix | `CardsModule`:92 |
 | `ItemBurnPlayback.RestoreCard_Once`<br/><sub>src/GloomhavenVR/Cards/ItemBurnPlayback.cs:121</sub> | `ItemCardEffects.RestoreCard()` | prefix | `CardsModule`:93 |
