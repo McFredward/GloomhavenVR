@@ -681,8 +681,8 @@ internal static partial class Loc
             "Choose the target: laser + trigger on the marked enemy hex — or hold GRIP and touch it with a fingertip.",
             "Wähle das Ziel: Laser + Trigger auf das markierte Gegnerfeld — oder GRIP-Taste halten und antippen."),
         ["tut_vr_execute"] = Pair(
-            "Execute: pick the chosen hex again (laser + trigger, or GRIP + fingertip) — or press CONFIRM on the board.",
-            "Ausführen: Feld erneut wählen (Laser + Trigger oder GRIP-Taste + Fingerspitze) — oder BESTÄTIGEN am Brett."),
+            "Execute the selected action with the board's CONFIRM keycap.",
+            "Führe die gewählte Aktion mit der BESTÄTIGEN-Taste am Brett aus."),
         ["tut_vr_confirm"] = Pair(
             "Continue with the board's CONFIRM keycap.",
             "Weiter mit der BESTÄTIGEN-Taste am Brett."),

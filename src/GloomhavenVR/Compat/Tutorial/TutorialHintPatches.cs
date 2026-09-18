@@ -41,7 +41,7 @@ namespace GloomhavenVR.Compat;
 ///    the mod's input code — WorldGrab (stick-click drag/rotate/zoom), SnapTurn
 ///    (stick-axis flick), ProximityGrabber (cards and figures grab on the TRIGGER; the
 ///    [Cards] GrabButton dial is retired),
-///    BoardClickDriver (laser trigger / fingertip poke, second-click-to-confirm),
+///    BoardClickDriver (laser trigger / fingertip target selection),
 ///    HalfSelection (docked round cards, top/bottom poke, on-face default-action
 ///    buttons), PlayTray/ButtonCluster (CONFIRM/UNDO/SKIP keycaps, round rest
 ///    keycaps left of the board), UseBarsSurface (bars docked below the board).
@@ -164,7 +164,7 @@ internal static class TutorialHints
             ["TUTORIAL_2_HELP_006"] = "tut_vr_confirm_cards",  // dismiss: ConfirmButtonPressed
             ["TUTORIAL_2_HELP_007"] = "tut_vr_half_bottom",    // dismiss: CardBottomHalfSelected
             ["TUTORIAL_2_HELP_008"] = "tut_vr_hex",            // dismiss: TileSelectedForAbility
-            ["TUTORIAL_2_HELP_009"] = "tut_vr_execute",        // dismiss: SEvent Ability step (2nd tap / confirm)
+            ["TUTORIAL_2_HELP_009"] = "tut_vr_execute",        // dismiss: SEvent Ability step (board confirm)
             ["TUTORIAL_2_HELP_010"] = "tut_vr_initiative",     // dismiss: InitiativeAvatarHovered
             ["TUTORIAL_2_HELP_011_1"] = "tut_vr_hex",          // dismiss: TileSelectedForAbility
             ["TUTORIAL_2_HELP_011_2"] = "tut_vr_execute",      // dismiss: SEvent Ability step
