@@ -2192,9 +2192,11 @@ internal sealed partial class CardsDriver
     /// lists? The gate the static <c>CardsActionControlller.topCard/bottomCard</c> supplement in
     /// <see cref="CollectRoundCards"/> is asked before it may dock a card.
     ///
-    /// <para>ONE EXPRESSION, AND THE SAME ORDER <see cref="RoundCardExitOf"/> USES: the "is it still
+    /// <para>THE SAME AUTHORITATIVE PILES <see cref="RoundCardExitOf"/> USES: the "is it still
     /// a round card" question first, so <c>ExtraTurnCards</c> — the entire reason the supplement
-    /// exists — can never be read as "left". Only then the four lists that mean it is gone. It is a
+    /// exists — can never be read as "left". Only then the five lists that mean it is gone.
+    /// Hand includes native recovery and selection undo; neither can revive the phase machine's
+    /// already-played pair. It is a
     /// separate predicate rather than a call into <see cref="RoundCardExitOf"/> because that method
     /// takes a <c>VRCard</c>, which this loop does not have yet: reaching one would mean calling
     /// <c>AdoptedCard</c>, i.e. ADOPTING the very card we are about to refuse.</para>
@@ -2220,7 +2222,13 @@ internal sealed partial class CardsDriver
             return false;
         if (klass.RoundAbilityCards.Contains(ac) || klass.ExtraTurnCards.Contains(ac))
             return false;
-        return klass.DiscardedAbilityCards.Contains(ac)
+        // MB533 hardware: burn the healing card, then recover it with the second card.
+        // The native action controller retains both FullAbilityCards until its next Init.
+        // Lost -> Hand removed every old rejection term and resurrected the spent first
+        // card in the dock. Recovery authorizes hand presentation, never another action
+        // slot. Round/ExtraTurn above remain authoritative for a real subsequent selection.
+        return klass.HandAbilityCards.Contains(ac)
+               || klass.DiscardedAbilityCards.Contains(ac)
                || klass.LostAbilityCards.Contains(ac)
                || klass.PermanentlyLostAbilityCards.Contains(ac)
                || klass.ActivatedCards.Contains(ac);
@@ -2236,6 +2244,12 @@ internal sealed partial class CardsDriver
     {
         if (!_loggedStaleStaticPair.Add(widget))
             return;
+        if (widget.PlayerActor?.CharacterClass.HandAbilityCards.Contains(widget.AbilityCard) == true)
+        {
+            VRLog.Note("Cards", "STALE ROUND PAIR REFUSED: the action controller still references a "
+                + "card returned to its owner's hand; recovery does not authorize another round slot.");
+            return;
+        }
         // HW-VERIFY: 2026-09-07, the user's SECOND item 5 — "Ich habe beim Schaden erhalten des
         // Mitspielers auf seinem remote-board eine Flug animation einer verdeckten Karte sehen
         // können! Wenn man den Schaden nimmt passiert gar nichts mit den Karten". Grep token:
