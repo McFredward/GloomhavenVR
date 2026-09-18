@@ -717,6 +717,18 @@ internal sealed class MapButtonRail
         var origin = new Vector3(b.center.x, seat.TopY + RailLiftMeters * _scale, b.center.z)
                      + side * (halfAlongSide + RailInsetMeters * _scale);
 
+        // Guildmaster's native knife/bench layout leaves no supported near-edge rail. Keep
+        // campaign placement unchanged and fit this mode's caps to the right-hand tabletop.
+        bool guildmaster = GuildmasterRoomGeometry.Active;
+        GuildmasterRoomLayout.Rail sideRail = default;
+        if (guildmaster)
+        {
+            if (!GuildmasterRoomGeometry.TryRail(parchment, seat, _scratch.Count,
+                CapSizeMeters * _scale, CapGapMeters / CapSizeMeters, GlowFraction, out sideRail))
+                return; // The slab may still be loading. Rescan retries without moving native UI.
+            origin = new Vector3(0f, seat.TopY + RailLiftMeters * _scale, 0f);
+        }
+
         _root = new GameObject("GloomhavenVR.MapButtonRail");
         _root.transform.SetPositionAndRotation(origin, seat.Rotation);
 
@@ -745,7 +757,7 @@ internal sealed class MapButtonRail
         var capUpHint = new Vector3(0f, Mathf.Sin(tilt), Mathf.Cos(tilt));
         Quaternion capLocalRot = Quaternion.LookRotation(capForward, capUpHint);
 
-        float cap = CapSizeMeters * _scale;
+        float cap = guildmaster ? sideRail.Cap : CapSizeMeters * _scale;
         float gap = CapGapMeters * _scale;
         float depth = CapDepthMeters * _scale;
         float pitch = cap + gap;
@@ -798,6 +810,11 @@ internal sealed class MapButtonRail
                 row = 0;
             var localPos = new Vector3(rowX[row] + pitch * rowPlaced[row], 0f, -rowStep * row);
             rowPlaced[row]++;
+            if (guildmaster)
+            {
+                sideRail.Position(built, out float x, out float z);
+                localPos = new Vector3(x, 0f, z);
+            }
             Cap c = BuildCap(button, localPos, capLocalRot, cap, depth);
             _caps.Add(c);
             built++;
@@ -805,11 +822,19 @@ internal sealed class MapButtonRail
             if (c.Glow != null) withGlow++;
         }
         VRLayers.Apply(_root);
-        LogResolvedOrder();
+        LogResolvedOrder(guildmaster, sideRail.Columns);
 
         if (!_reported)
         {
             _reported = true;
+            if (guildmaster)
+            {
+                if (VRLog.WantsDebug)
+                    VRLog.Info(Scope, $"MAP TABLE BUTTONS: {built} Guildmaster caps fitted to the right tabletop, "
+                        + $"{sideRail.Columns} columns, {cap / _scale * 1000f:F1} mm faces, "
+                        + $"first seat-frame centre ({sideRail.X:F2}, {sideRail.Z:F2}). Native HUD callbacks unchanged.");
+                return;
+            }
             VRLog.Info(Scope, $"MAP TABLE BUTTONS: {built} cap(s) standing on the table rim at {origin}, "
                               + $"{RailInsetMeters:F3} m (real) outside the map's near edge on the seat's "
                               + $"own view side {side}, {CapSizeMeters * 1000f:F0} mm faces tilted "
@@ -852,11 +877,22 @@ internal sealed class MapButtonRail
     /// <para>It also names the SCAN that produced the set, and flags any mode the declared table
     /// does not rank and any two caps that tied — the three ways this can still go wrong.</para>
     /// </summary>
-    private void LogResolvedOrder()
+    private void LogResolvedOrder(bool guildmaster, int columns)
     {
         System.Text.StringBuilder sb = OrderSb;
         sb.Length = 0;
         sb.Append("MAP TABLE BUTTON ORDER: ");
+        if (guildmaster)
+        {
+            sb.Append($"Guildmaster right tabletop, {columns} column(s), far to near: ");
+            for (int i = 0; i < _caps.Count; i++)
+            {
+                if (i > 0) sb.Append(i % columns == 0 ? " | " : ", ");
+                sb.Append(_caps[i].Button.GuildmasterMode);
+            }
+            VRLog.Note(Scope, sb.ToString());
+            return;
+        }
         int unranked = 0;
         int ties = 0;
         int lastRank = int.MinValue;
