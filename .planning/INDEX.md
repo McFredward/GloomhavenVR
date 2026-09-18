@@ -1,6 +1,6 @@
 # Planning index
 
-Updated 2026-09-18 for sparse default logs, build 529 on dev; runtime fixes from 528 remain current. This directory holds internal
+Updated 2026-09-18 for MR scenery and Guildmaster interaction, build 530 on dev. This directory holds internal
 engineering evidence, historical decisions and current status; it is not the player manual.
 
 ## Current entry points
@@ -17,6 +17,11 @@ engineering evidence, historical decisions and current status; it is not the pla
 | [PROJECT.md](PROJECT.md), [ARCHITECTURE.md](ARCHITECTURE.md) | Product scope and architectural reasoning |
 
 ## Latest measured work
+
+- [MR-SCENARIO-530.md](MR-SCENARIO-530.md): MR terrain eligibility, wall ownership and backing lifetime.
+- [GUILD-ROOM-530.md](GUILD-ROOM-530.md): Guildmaster right-side controls and native furniture floor contact.
+- [MAP-PICKING-530.md](MAP-PICKING-530.md): centre-based overlapping map icon selection for laser and finger.
+- [GUILD-QUESTS-530.md](GUILD-QUESTS-530.md): persistent browsing list versus actual accepted quest story.
 
 - [BURN-528.md](BURN-528.md): local native burn-material ownership and bounded continuity evidence.
 - [CARD-POOL-528.md](CARD-POOL-528.md): native card initialization failure, original hierarchy and recycled-copy repair.

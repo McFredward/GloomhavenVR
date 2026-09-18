@@ -20,7 +20,17 @@ namespace UnityEngine.UI
 
 namespace GloomhavenVR.WorldUI.MapRoom
 {
-    internal static class MapRoomDriver { internal static bool Active = true; }
+    internal static class MapRoomDriver
+    {
+        internal static bool Active = true;
+        internal static MapRenderer? ParchmentRenderer;
+    }
+    internal sealed class MapRenderer
+    {
+        internal bool enabled = true;
+        internal MapObject gameObject = new();
+    }
+    internal sealed class MapObject { internal bool activeInHierarchy = true; }
 }
 namespace GloomhavenVR.WorldUI
 {
@@ -35,7 +45,7 @@ namespace GloomhavenVR.WorldUI
     {
         private static readonly List<UIWindow> OpenWindows = new();
         private static int _checks;
-        private static bool IsQuestLogWindow(UIWindow window) => window.QuestLog;
+        private static bool IsQuestLogWindow(UIWindow? window) => window != null && window.QuestLog;
         private static void AddPollWindow(UIWindow window)
         {
             if (!FloatRefusalTable.Refuses(window) && !OpenWindows.Contains(window))
@@ -103,7 +113,75 @@ namespace GloomhavenVR.WorldUI
                 Tick();
                 Check(OpenWindows.Count == 0, "explicit room shutdown clears pending return");
             }
+            // New Guildmaster case: native-hidden before the first Show event, then an
+            // ordinary dialog, actual confirmation/story, and return to browsing.
+            MapRuleLibrary.Adventure.AdventureState.MapState.IsCampaign = false;
+            MapRoom.MapRoomDriver.ParchmentRenderer = new MapRoom.MapRenderer();
+            var original = new UIWindow { QuestLog = true, IsOpen = false };
+            QuestManager.Instance = new QuestManager { questLog = new NativeQuestLog { Window = original } };
+            Tick();
+            Check(OpenWindows.Count == 1 && ReferenceEquals(OpenWindows[0], original),
+                "Guildmaster must discover the original before any native Show event");
+            CompletePermanentQuestLogReturn(original);
+            Tick();
+            Check(OpenWindows.Count == 1, "Guildmaster must retain its original after conversion");
+            // The source policy classifies an ordinary Guildmaster HideOtherGUI dialog as
+            // browsing; actual native confirmation and loadout still raise the curtain.
+            foreach (bool campaign in new[] { false, true })
+            foreach (bool hides in new[] { false, true })
+            foreach (bool committed in new[] { false, true })
+            foreach (bool loadout in new[] { false, true })
+            foreach (bool journey in new[] { false, true })
+            {
+                bool expected = hides && (campaign || committed || loadout || journey);
+                Check(MapStoryCurtainPolicy.HidesForMessage(campaign, hides, committed, loadout, journey) == expected,
+                    "Story curtain must distinguish browsing from actual quest commitment");
+            }
+            StoryComposite.PointOfNoReturn = MapStoryCurtainPolicy.HidesForMessage(false, true, false, false, false);
+            Tick();
+            Check(OpenWindows.Count == 1, "Ordinary Guildmaster dialog keeps quest list visible");
+            StoryComposite.PointOfNoReturn = MapStoryCurtainPolicy.HidesForMessage(false, true, true, false, false);
+            FloatRefusalTable.Refused = true;
+            Tick();
+            Check(OpenWindows.Count == 0, "Accepted Guildmaster quest must retain the real story curtain");
+            StoryComposite.PointOfNoReturn = false;
+            FloatRefusalTable.Refused = false;
+            Tick();
+            Check(OpenWindows.Count == 1 && !original.IsOpen, "Guildmaster return must preserve native hidden state");
+            MapRoom.MapRoomDriver.ParchmentRenderer.enabled = false;
+            Check(!IsStandingGuildmasterQuestLog(original), "Invisible parchment must not gain permanent enrollment");
+            Tick();
+            Check(OpenWindows.Count == 0, "Hidden Guildmaster parchment must stop enrollment");
+            MapRoom.MapRoomDriver.ParchmentRenderer.enabled = true;
+            MapRoom.MapRoomDriver.ParchmentRenderer.gameObject.activeInHierarchy = false;
+            Check(!IsStandingGuildmasterQuestLog(original), "Inactive map must not gain permanent enrollment");
+            Tick();
+            Check(OpenWindows.Count == 0, "Inactive Guildmaster parchment must stop enrollment");
+            MapRoom.MapRoomDriver.ParchmentRenderer.gameObject.activeInHierarchy = true;
+            MapRoom.MapRoomDriver.Active = false;
+            Tick();
+            Check(OpenWindows.Count == 0, "Guildmaster map exit must clear pending return");
+            MapRoom.MapRoomDriver.Active = true;
+            QuestManager.Instance = null;
+            Tick();
+            Check(OpenWindows.Count == 0, "Destroyed native manager cannot restore a stale quest list");
             Console.WriteLine($"Permanent quest log: {_checks} production-linked assertions passed.");
         }
     }
+}
+
+namespace MapRuleLibrary.Adventure
+{
+    internal sealed class MapState { internal bool IsCampaign = true; }
+    internal static class AdventureState { internal static MapState MapState = new(); }
+}
+internal sealed class QuestManager
+{
+    internal static QuestManager? Instance;
+    internal NativeQuestLog? questLog;
+}
+internal sealed class NativeQuestLog
+{
+    internal UIWindow? Window;
+    internal T? GetComponent<T>() where T : class => Window as T;
 }

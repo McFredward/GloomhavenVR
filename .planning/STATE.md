@@ -1,6 +1,6 @@
 # State — where the project stands
 
-**Updated 2026-09-18 for sparse player logging, ModBuild 529 on dev.** The file this replaces had gone 168 builds
+**Updated 2026-09-18 for MR scenery and Guildmaster interaction, ModBuild 530 on dev.** The file this replaces had gone 168 builds
 stale while still saying "read this first"; it is kept as `STATE-ARCHIVE-through-2026-08.md` for
 its round-by-round narrative and for nothing else.
 
@@ -12,6 +12,20 @@ change per build) → this file (where things stand and what is owed) → the bu
 ---
 
 ## 1. Position
+
+- **dev / 1.0.5 / ModBuild 530** addresses the five build-529 hardware findings. MR
+  backings are excluded from native wall ownership, supplemental unseen-region backings
+  are restricted to the intended geometry, and stale/inactive sources are retired.
+  Guildmaster controls fit the right tabletop behind the knife; its environment floor
+  follows native furniture bases. Overlapping map icons use nearest visible centres for
+  laser and fingertip selection. The original Guildmaster quest list stays during browsing
+  dialogs, but actual accepted quest story/loadout still hides it, including native peer
+  travel without a previously observed local selection. Campaign placement is unchanged.
+  Records: [MR-SCENARIO-530.md](MR-SCENARIO-530.md), [GUILD-ROOM-530.md](GUILD-ROOM-530.md),
+  [MAP-PICKING-530.md](MAP-PICKING-530.md), [GUILD-QUESTS-530.md](GUILD-QUESTS-530.md).
+  Hardware confirms the build-528/529 table is visible. Exact MR pixel attribution,
+  final floor contact/knife clearance and the new interactions still need headset checks.
+  Remote logs remain historical build 500. Full integration validation is in progress.
 
 - **dev / 1.0.5 / ModBuild 529** moves the per-burn continuity records to opt-in Debug,
   including an early observer guard to avoid material/progress reads and formatting at

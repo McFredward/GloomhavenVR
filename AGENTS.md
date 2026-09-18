@@ -81,3 +81,8 @@ choice and animated transitions. Card handling and physical fingertip tasks show
 lessons show controllers. Both tracked sides must remain represented by either a hand or a
 controller. Build 518's interpretation that controller models must stay visible for the whole
 lesson was incorrect and is superseded.
+
+The user's build-529 Guildmaster clarification (2026-09-18) keeps the original quest list
+visible during map browsing, including the mode's persistent ordinary dialog. Only actual
+quest commitment and its subsequent story/loadout may hide it. A dialog asking to hide
+other native UI is not, by itself, proof of Guildmaster quest acceptance.

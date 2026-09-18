@@ -17,7 +17,13 @@ assert 'TickCatchAll(inScenario);\n        TickPermanentQuestLog();' in tick
 assert 'Converted.Add(wp);\n            CompletePermanentQuestLogReturn(window);' in convert
 assert 'ReleaseAllWindows("module shutdown");\n        ResetPermanentQuestLog();' in tick
 assert 'ReleaseMapRoomFloats(string reason)\n    {\n        ResetPermanentQuestLog();' in spawn
-print('Permanent quest log: 5 production binding checks passed.')
+story=(root.parent/'Composites/StoryComposite.cs').read_text()
+assert 'MapStoryCurtainPolicy.HidesForMessage(' in story
+assert 'state == null || state.IsCampaign, !mc.isVisibleOtherUI,' in story
+assert 'QuestJourneyCurtain.PartyCommitted, LoadoutScreenOpen,' in story
+for phase in ['Moving', 'RoadEvent', 'AtScenario']:
+    assert 'state.CurrentMapPhaseType == MapRuleLibrary.PhaseManager.EMapPhaseType.' + phase in story
+print('Permanent quest log: 11 production binding checks passed.')
 PY
 mutation_dir="$(mktemp -d)"
 trap 'rm -rf "$mutation_dir"' EXIT
@@ -29,7 +35,7 @@ s=Path(sys.argv[1]).read_text()
 changes={
  'native-closed': ('if (WorldUIConfig.ConversionActive)', 'if (window.IsOpen && WorldUIConfig.ConversionActive)'),
  'story-return': ('StoryComposite.PointOfNoReturn || FloatRefusalTable.Refuses(window)', 'FloatRefusalTable.Refuses(window)'),
- 'consume-return': ('if (ReferenceEquals(window, _permanentQuestLog))', 'if (!ReferenceEquals(window, _permanentQuestLog))'),
+ 'consume-return': ('if (ReferenceEquals(window, _permanentQuestLog) && !IsStandingGuildmasterQuestLog(window))', 'if (!ReferenceEquals(window, _permanentQuestLog) && !IsStandingGuildmasterQuestLog(window))'),
  'room-exit': ('if (!MapRoom.MapRoomDriver.Active || window == null)', 'if (window == null)'),
 }
 old,new=changes[sys.argv[3]]
@@ -49,3 +55,19 @@ PY
     fi
     echo "Permanent quest log negative rejected: $mutation"
 done
+
+python3 - "$repo_root" "$mutation_dir/Curtain.cs" <<'PY_MUTATION'
+from pathlib import Path
+import sys
+s=(Path(sys.argv[1])/'src/GloomhavenVR/WorldUI/Composites/MapStoryCurtainPolicy.cs').read_text()
+old='hidesOtherUi && (campaign || partyCommitted || loadoutOpen || nativeJourney)'
+assert s.count(old)==1
+Path(sys.argv[2]).write_text(s.replace(old, 'hidesOtherUi'))
+PY_MUTATION
+if dotnet run --project "$project" --configuration Release --property:CurtainSource="$mutation_dir/Curtain.cs" > "$mutation_dir/curtain-output" 2>&1; then
+    echo 'FAIL: Guildmaster dialog mistaken for quest commitment survived' >&2; exit 1
+fi
+if ! rg -qF 'Story curtain must distinguish browsing from actual quest commitment' "$mutation_dir/curtain-output"; then
+    cat "$mutation_dir/curtain-output"; exit 1
+fi
+echo 'Permanent quest log negative rejected: ordinary-dialog-curtain'

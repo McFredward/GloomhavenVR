@@ -6,6 +6,23 @@ internal static partial class ModalFallback
 {
     private static UIWindow? _permanentQuestLog;
 
+    // Build 530: keep the original Guildmaster list enrolled during map browsing, even
+    // when native UI hides it before its first Show. Genuine quest commitment still hides it.
+    private static bool GuildmasterMapVisible
+    {
+        get
+        {
+            if (!MapRoom.MapRoomDriver.Active) return false;
+            var state = MapRuleLibrary.Adventure.AdventureState.MapState;
+            var parchment = MapRoom.MapRoomDriver.ParchmentRenderer;
+            return state != null && !state.IsCampaign && parchment != null
+                && parchment.enabled && parchment.gameObject.activeInHierarchy;
+        }
+    }
+
+    private static bool IsStandingGuildmasterQuestLog(UIWindow? window) =>
+        GuildmasterMapVisible && !StoryComposite.PointOfNoReturn && IsQuestLogWindow(window);
+
     /// <summary>
     /// Remember the original quest list when a temporary refusal releases its successful float.
     /// Native flat UI hides it on quest selection, story, rewards and city events. VR's existing
@@ -33,12 +50,21 @@ internal static partial class ModalFallback
 
     private static void CompletePermanentQuestLogReturn(UIWindow window)
     {
-        if (ReferenceEquals(window, _permanentQuestLog))
+        if (ReferenceEquals(window, _permanentQuestLog) && !IsStandingGuildmasterQuestLog(window))
             ResetPermanentQuestLog();
     }
 
     private static void TickPermanentQuestLog()
     {
+        bool guildmaster = GuildmasterMapVisible;
+        if (guildmaster && _permanentQuestLog == null)
+        {
+            // Discover the original even if it was native-hidden before its first Show event.
+            // No native Show/Hide callbacks or hide-request collections are changed.
+            var manager = QuestManager.Instance;
+            if (manager != null && manager.questLog != null)
+                _permanentQuestLog = manager.questLog.GetComponent<UIWindow>();
+        }
         UIWindow? window = _permanentQuestLog;
         if (!MapRoom.MapRoomDriver.Active || window == null)
         {
@@ -46,12 +72,17 @@ internal static partial class ModalFallback
             return;
         }
 
-        // Keep the approved story/loadout/travel exclusion until normal browsing resumes.
+        var state = MapRuleLibrary.Adventure.AdventureState.MapState;
+        if (state != null && !state.IsCampaign && !guildmaster)
+            return;
+
+        // Both modes retain the real quest/story/loadout curtain. StoryComposite now distinguishes
+        // an ordinary Guildmaster dialog from the story after actual quest confirmation.
         if (StoryComposite.PointOfNoReturn || FloatRefusalTable.Refuses(window))
             return;
 
-        // A successful re-conversion consumes this one return. Empty-content/liveness releases
-        // outside a curtain must not become an unconditional per-frame resurrection loop.
+        // Campaign consumes one deferred return; Guildmaster retains the same original while
+        // the map stands. Existing conversion enrollment deduplicates already-floated windows.
         if (WorldUIConfig.ConversionActive)
             AddPollWindow(window);
     }

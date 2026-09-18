@@ -514,8 +514,23 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 529;
+    public const ushort ModBuild = 530;
 
+    // ModBuild 530 — MR scenery ownership and Guildmaster map interaction/layout.
+    // Recognize both mod name prefixes in wall ownership: native-layer MR backings were being
+    // adopted as architecture. Restrict supplemental unseen-region geometry to the documented
+    // native cliff kit, preserve cutout silhouettes, and retire orphaned supplemental backings.
+    // Guildmaster caps fit the right tabletop behind the measured knife; room floor placement
+    // follows native furniture bases. Campaign cap/floor placement retains its existing path.
+    // Resolve overlapping map icons by nearest visible centre on the painted plane for both
+    // laser and fingertip, retaining foreground bar/panel/carry exclusions and native actions.
+    // Ordinary Guildmaster dialogs no longer count as quest-start story curtains. The original
+    // quest log stays enrolled during browsing; actual native confirmation/loadout still hides
+    // it, per the user's clarified point-of-no-return rule. Campaign curtains are unchanged.
+    // Local evidence is build 529; remote logs remain historical 500. Runtime fixes and tests
+    // are source-backed; final MR pixels, floor contact, knife spacing and targeting need HMD
+    // confirmation. Details: .planning/{MR-SCENARIO,GUILD-ROOM,MAP-PICKING,GUILD-QUESTS}-530.md.
+    //
     // ModBuild 529 — keep burn continuity diagnostics out of ordinary player logs.
     // Per-burn start/end and bounded discontinuity records now require Debug. At the default
     // level, skip the observer's material/progress inspection and string formatting entirely.
