@@ -466,26 +466,93 @@ internal static partial class MixedReality
             "(default pure green RGBA 0,1,0,1). The in-VR settings panel cycles the presets " +
             "green / magenta / blue; any RGBA is accepted here.");
         OpaquePreviewTiles = _file.Bind("MixedReality", "OpaquePreviewTiles", Defaults.OpaquePreviewTiles,
-            "INERT since build 532. MR backing geometry is restricted to UI; scenery, water and " +
-            "unseen tiles keep their native rendering. Retained for configuration compatibility.");
+            "INERT since build 532. MR backings are UI-only. Retained for configuration compatibility. " +
+            "Historical description only: " +
+            "PART OF MIXED REALITY, not a choice beside it (like HideSkyMeshes; not offered in the " +
+            "VR menu). ALL of the game's translucent 'unseen' fog-of-war geometry — the face-down " +
+            "tile STACKS of not-yet-discovered rooms AND the unseen-area hexes that mark the " +
+            "undiscovered area behind doors — blends with whatever is behind it; over the game's " +
+            "dark void that reads fine, but in MR the chroma key / passthrough room shows through " +
+            "and it all looks like green glass. While MR is on, the sweep finds those renderers " +
+            "(the 'Unseen' shader family, plus anything translucent under a tile's active " +
+            "'Preview' subtree) and slips an OPAQUE dark backing mesh UNDER each one — the " +
+            "authored translucent material keeps rendering exactly as designed, look and " +
+            "animation untouched, it just blends against dark instead of against your room. The " +
+            "backings are destroyed when MR turns off — normal mode is never touched. Turn OFF " +
+            "only if a run shows it darkening wanted geometry — the log names what it backed.");
         UnseenSkirtScale = _file.Bind("MixedReality", "UnseenSkirtScale", Defaults.UnseenSkirtScale,
-            "INERT since build 532. MR backing geometry is restricted to UI; scenery, water and " +
-            "unseen tiles keep their native rendering. Retained for configuration compatibility.");
+            "INERT since build 532. MR backings are UI-only. Retained for configuration compatibility. " +
+            "Historical description only: " +
+            "Widening of each unseen piece's GROOVE-FILL copy relative to its geometry (1 = " +
+            "exact silhouette). Every fog-of-war piece gets TWO dark backings in MR: an exact " +
+            "copy directly behind its surfaces, and a lowered fill copy that plugs the beveled " +
+            "channels BETWEEN neighboring hexes — this factor widens only that fill so " +
+            "neighboring fills overlap under the groove line. Applies while MR is on, live " +
+            "(backings rebuild on change). Raise if grooves between hexes still glow; lower if " +
+            "dark peeks out past the outermost hex edges. Clamped to 1..2.");
         UnseenWaferDrop = _file.Bind("MixedReality", "UnseenWaferDrop", Defaults.UnseenWaferDrop,
-            "INERT since build 532. MR backing geometry is restricted to UI; scenery, water and " +
-            "unseen tiles keep their native rendering. Retained for configuration compatibility.");
+            "INERT since build 532. MR backings are UI-only. Retained for configuration compatibility. " +
+            "Historical description only: " +
+            "How far (world units) each unseen piece's flat gap-backing WAFER sits below the " +
+            "piece's TOP plane in MR. The wafer is a squashed, slightly widened dark copy of " +
+            "the piece that floors the gaps BETWEEN neighboring hexes just under their tops, so " +
+            "looking into a seam lands on dark instead of the passthrough room while the " +
+            "animated rim above it keeps playing. (Successor of the retired UnseenFillDrop key, " +
+            "whose persisted deep-fill value no longer matched these semantics.) Applies while " +
+            "MR is on, live (backings rebuild on change). Raise if the wafer z-fights the hex " +
+            "tops; lower toward 0.01 if green seams still show at shallow angles. Clamped to 0..2.");
         UnseenRimInset = _file.Bind("MixedReality", "UnseenRimInset", Defaults.UnseenRimInset,
-            "INERT since build 532. MR backing geometry is restricted to UI; scenery, water and " +
-            "unseen tiles keep their native rendering. Retained for configuration compatibility.");
+            "INERT since build 532. MR backings are UI-only. Retained for configuration compatibility. " +
+            "Historical description only: " +
+            "How far (world units) the dark RIM CURTAIN sits INSIDE each unseen piece's vertical " +
+            "side faces in MR. The curtain is a mod-BUILT dark prism that follows the piece's hex " +
+            "outline and stands just behind its side faces (its HEIGHT — the outer 'cliff' of the " +
+            "fog-of-war region), so looking at the region edge lands on dark instead of on the " +
+            "passthrough room. It is built rather than copied because the game's tile meshes are " +
+            "not CPU-readable, so a copy would inherit whatever vertex alpha the artist put on " +
+            "those side vertices — the reason twelve rounds of same-mesh backings never covered " +
+            "them. Applies while MR is on, live (backings rebuild on change). Raise if any dark " +
+            "pokes out through a damaged/notched piece edge; lower toward 0.01 if the outer edges " +
+            "still glow. Clamped to 0.005..0.2.");
         UnseenRimTopClearance = _file.Bind("MixedReality", "UnseenRimTopClearance", Defaults.UnseenRimTopClearance,
-            "INERT since build 532. MR backing geometry is restricted to UI; scenery, water and " +
-            "unseen tiles keep their native rendering. Retained for configuration compatibility.");
-        UnseenBackingDebugColors = _file.Bind("MixedReality", "UnseenBackingDebugColors", Defaults.UnseenBackingDebugColors,
-            "INERT since build 532. MR backing geometry is restricted to UI; scenery, water and " +
-            "unseen tiles keep their native rendering. Retained for configuration compatibility.");
-        UnseenRegionMembership = _file.Bind("MixedReality", "UnseenRegionMembership", Defaults.UnseenRegionMembership,
-            "INERT since build 532. MR backing geometry is restricted to UI; scenery, water and " +
-            "unseen tiles keep their native rendering. Retained for configuration compatibility.");
+            "INERT since build 532. MR backings are UI-only. Retained for configuration compatibility. " +
+            "Historical description only: " +
+            "How far (world units) the RIM CURTAIN's top stays BELOW each unseen piece's top " +
+            "plane in MR. This is the guarantee that the curtain can never paint over an authored " +
+            "hex top or its animation: it is always kept below the (wider) gap-backing wafer, so " +
+            "from above it is completely hidden behind a surface that is already dark. Raise if " +
+            "any dark ever shows on a hex top; lower toward the wafer drop if the very top of the " +
+            "outer edge still glows. Forced to at least UnseenWaferDrop + 0.005. Applies while MR " +
+            "is on, live (backings rebuild on change). Clamped to 0.005..0.5.");
+        UnseenBackingDebugColors = _file.Bind("MixedReality", "UnseenBackingDebugColors",
+            Defaults.UnseenBackingDebugColors,
+            "INERT since build 532. MR backings are UI-only. Retained for configuration compatibility. " +
+            "Historical description only: " +
+            "DIAGNOSTIC, default off — turn this on only when asked for a screenshot. In MR every " +
+            "fog-of-war piece gets three mod-built dark backings (a copy right behind its surfaces, " +
+            "a flat wafer just under its top plane, and a prism behind its outer side faces). With " +
+            "this ON they are painted in flat signal colours instead of dark — copy BLUE, wafer " +
+            "MAGENTA, side prism RED — with everything else about them unchanged (same shape, same " +
+            "position, same draw order). One photo then shows which of the mod's surfaces actually " +
+            "reach your eyes and exactly where they sit, which is the one thing a dark backing can " +
+            "never show. Use the GREEN key colour while it is on, so no signal colour can be keyed " +
+            "away. Applies while MR is on, live (backings rebuild on change); turning it off " +
+            "restores the normal dark look immediately.");
+        UnseenRegionMembership = _file.Bind("MixedReality", "UnseenRegionMembership",
+            Defaults.UnseenRegionMembership,
+            "INERT since build 532. MR backings are UI-only. Retained for configuration compatibility. " +
+            "Historical description only: " +
+            "PART OF MIXED REALITY, not a choice beside it (like HideSkyMeshes; not offered in the " +
+            "VR menu). Also give a dark backing to every piece that merely STANDS INSIDE the " +
+            "fog-of-war region — below the unseen tiles' own top plane — even when its material " +
+            "does not look see-through to the mod. The undiscovered-area tiles are built from " +
+            "several meshes per hex, and the tallest one (the block that forms the region's outer " +
+            "CLIFF) advertises nothing the mod could recognise: no 'Unseen' in its name, no " +
+            "transparent blend it exposes, no transparent render queue. It is the piece whose " +
+            "vertical faces kept showing the room through them. Instead of guessing from materials, " +
+            "this asks where the piece stands. Figures are never touched, nothing standing ON the " +
+            "tiles is touched, and anything much larger than a single hex is refused. Turn OFF only " +
+            "if a run shows it darkening wanted geometry — the log names everything it backed.");
         HideSkyMeshes = _file.Bind("MixedReality", "HideSkyMeshes", Defaults.HideSkyMeshes,
             "PART OF MIXED REALITY, not a choice beside it — turning MR on does this, and the key "
             + "is kept only as an escape hatch for a run where it hides wanted geometry. It is not "

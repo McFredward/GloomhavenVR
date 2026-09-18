@@ -36,7 +36,7 @@ assert 'ForceUnseenOpaque();' not in tick
 assert mr.count('ForceUnseenOpaque(') == 1 # declaration, no creation caller
 assert 'HideSkyGeometry();' in tick and 'ForceSolid(head, key);' in tick
 assert '_file != null && Enabled.Value && VRSession.IsRunning;' in mr
-assert mr.count('"INERT since build 532. MR backing geometry is restricted to UI; scenery, water and "') == 7
+assert mr.count('"INERT since build 532. MR backings are UI-only. Retained for configuration compatibility. "') == 7
 restore=mr[mr.index('private static void RestoreUnseenUnderlays('):mr.index('private static void RestoreSky(')]
 for name in ('plate', 'fill', 'rim'):
     assert restore.index(name+'.enabled = false;') < restore.index('Destroy('+name+'.gameObject)')
