@@ -1,5 +1,9 @@
 # Full-loop hardware session — M4 / v0.1 validation script
 
+> **Current action confirmation (build 530):** select the destination or target, then use
+> the board's CONFIRM keycap. Historical second-click action-confirmation steps below
+> are superseded; they are not supported VR behavior.
+
 > **Historical hardware checklist.** Retained for source and diagnostic links; this is not
 > the current release acceptance list. Use [STATE.md](../.planning/STATE.md) and the latest
 > build notes for current behavior and outstanding headset checks.

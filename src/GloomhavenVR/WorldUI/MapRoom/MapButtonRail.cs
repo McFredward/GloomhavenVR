@@ -483,6 +483,7 @@ internal sealed class MapButtonRail
     private float _scale = 1f;
     private bool _reported;
     private bool _emptyReported;
+    private bool _fitWarned; // One significant missing-support warning per rail instance/session.
     private Cap? _laserHover;
 
     /// <summary>Which of <see cref="Rescan"/>'s two scans produced the current set — log material
@@ -504,8 +505,10 @@ internal sealed class MapButtonRail
         // 178's whole map-location feature — see MapLocationInteractor.Tick.
         if (_scanFrame == int.MinValue || Time.frameCount - _scanFrame >= RescanIntervalFrames)
         {
-            _scanFrame = Time.frameCount;
             Rescan();
+            // Rescan may Release an old set before geometry is ready. Record the attempt after
+            // that reset so a missing parchment/support never turns scene discovery into 90 Hz.
+            _scanFrame = Time.frameCount;
         }
         if (_caps.Count == 0)
             return;
@@ -602,17 +605,11 @@ internal sealed class MapButtonRail
         // changed under a later rescan would never have rebuilt the rail anyway.
         _scratch.Sort(CompareByDeclaredRank);
 
-        if (SameSet())
-        {
-            RefreshDestinationWindows();
-            return;
-        }
-
-        // The set changed (a mode switch rebuilds the bar) — rebuild from scratch rather than
-        // reconciling: eight caps are cheap, and a partial reconcile is where stale references live.
-        Release("the guildmaster bar changed");
+        // Two empty sets are not proof that the native HUD was acquired. Build 530's early
+        // SameSet return hid that case from the existing one-shot discovery diagnostic.
         if (_scratch.Count == 0)
         {
+            if (_caps.Count != 0) Release("the guildmaster bar changed");
             if (!_emptyReported)
             {
                 _emptyReported = true;
@@ -623,6 +620,15 @@ internal sealed class MapButtonRail
             return;
         }
         _emptyReported = false;
+        if (SameSet())
+        {
+            RefreshDestinationWindows();
+            return;
+        }
+
+        // The set changed (a mode switch rebuilds the bar) — rebuild from scratch rather than
+        // reconciling: eight caps are cheap, and a partial reconcile is where stale references live.
+        Release("the guildmaster bar changed");
         Build();
         RefreshDestinationWindows();
     }
@@ -717,6 +723,34 @@ internal sealed class MapButtonRail
         var origin = new Vector3(b.center.x, seat.TopY + RailLiftMeters * _scale, b.center.z)
                      + side * (halfAlongSide + RailInsetMeters * _scale);
 
+        // Guildmaster's native knife/bench layout leaves no supported near-edge rail. Keep
+        // campaign placement unchanged and fit this mode's caps to the right-hand tabletop.
+        int[] rowCount = new int[GuildmasterDestinations.RailRowCount];
+        for (int i = 0; i < _scratch.Count; i++)
+        {
+            if (_scratch[i] == null)
+                continue;
+            int r = GuildmasterDestinations.RailRow(_scratch[i].GuildmasterMode);
+            if (r >= 0 && r < rowCount.Length)
+                rowCount[r]++;
+        }
+
+        bool guildmaster = GuildmasterRoomGeometry.Active;
+        GuildmasterRoomLayout.Rail sideRail = default;
+        bool supportedRail = true;
+        if (guildmaster)
+        {
+            supportedRail = GuildmasterRoomGeometry.TryRail(parchment, seat, rowCount[0], rowCount[1],
+                CapSizeMeters * _scale, CapGapMeters / CapSizeMeters, RowGapMeters / CapSizeMeters, GlowFraction, out sideRail);
+            if (!supportedRail && !_fitWarned)
+            {
+                _fitWarned = true;
+                VRLog.Warn(Scope, "MAP TABLE BUTTONS: Guildmaster tabletop fit is unavailable; "
+                    + "keeping the native actions on the right-side fallback rail. Furniture is unchanged.");
+            }
+            origin = new Vector3(0f, seat.TopY + RailLiftMeters * _scale, 0f);
+        }
+
         _root = new GameObject("GloomhavenVR.MapButtonRail");
         _root.transform.SetPositionAndRotation(origin, seat.Rotation);
 
@@ -745,7 +779,7 @@ internal sealed class MapButtonRail
         var capUpHint = new Vector3(0f, Mathf.Sin(tilt), Mathf.Cos(tilt));
         Quaternion capLocalRot = Quaternion.LookRotation(capForward, capUpHint);
 
-        float cap = CapSizeMeters * _scale;
+        float cap = guildmaster ? sideRail.Cap : CapSizeMeters * _scale;
         float gap = CapGapMeters * _scale;
         float depth = CapDepthMeters * _scale;
         float pitch = cap + gap;
@@ -767,15 +801,6 @@ internal sealed class MapButtonRail
         // WHICH cap goes in which row is GuildmasterDestinations.RailRow — declared beside the order
         // table, never scanned — and within a row the caps keep their declared rank order, because
         // _scratch is already sorted and this loop preserves it.
-        int[] rowCount = new int[GuildmasterDestinations.RailRowCount];
-        for (int i = 0; i < _scratch.Count; i++)
-        {
-            if (_scratch[i] == null)
-                continue;
-            int r = GuildmasterDestinations.RailRow(_scratch[i].GuildmasterMode);
-            if (r >= 0 && r < rowCount.Length)
-                rowCount[r]++;
-        }
         float[] rowX = new float[rowCount.Length];
         for (int r = 0; r < rowCount.Length; r++)
         {
@@ -797,6 +822,12 @@ internal sealed class MapButtonRail
             if (row < 0 || row >= rowCount.Length)
                 row = 0;
             var localPos = new Vector3(rowX[row] + pitch * rowPlaced[row], 0f, -rowStep * row);
+            if (guildmaster)
+            {
+                GuildmasterRoomLayout.GroupPosition(sideRail, row, rowPlaced[row], rowCount[0], rowCount[1],
+                    out float x, out float z);
+                localPos = new Vector3(x, 0f, z);
+            }
             rowPlaced[row]++;
             Cap c = BuildCap(button, localPos, capLocalRot, cap, depth);
             _caps.Add(c);
@@ -805,11 +836,20 @@ internal sealed class MapButtonRail
             if (c.Glow != null) withGlow++;
         }
         VRLayers.Apply(_root);
-        LogResolvedOrder();
+        LogResolvedOrder(guildmaster, sideRail.Columns);
 
         if (!_reported)
         {
             _reported = true;
+            if (guildmaster)
+            {
+                if (VRLog.WantsDebug)
+                    VRLog.Info(Scope, $"MAP TABLE BUTTONS: {built} Guildmaster caps on the right "
+                        + $"{(supportedRail ? "tabletop" : "fallback rail")}, "
+                        + $"{sideRail.Columns} columns, {cap / _scale * 1000f:F1} mm faces, "
+                        + $"first seat-frame centre ({sideRail.X:F2}, {sideRail.Z:F2}). Native HUD callbacks unchanged.");
+                return;
+            }
             VRLog.Info(Scope, $"MAP TABLE BUTTONS: {built} cap(s) standing on the table rim at {origin}, "
                               + $"{RailInsetMeters:F3} m (real) outside the map's near edge on the seat's "
                               + $"own view side {side}, {CapSizeMeters * 1000f:F0} mm faces tilted "
@@ -852,11 +892,29 @@ internal sealed class MapButtonRail
     /// <para>It also names the SCAN that produced the set, and flags any mode the declared table
     /// does not rank and any two caps that tied — the three ways this can still go wrong.</para>
     /// </summary>
-    private void LogResolvedOrder()
+    private void LogResolvedOrder(bool guildmaster, int columns)
     {
         System.Text.StringBuilder sb = OrderSb;
         sb.Length = 0;
         sb.Append("MAP TABLE BUTTON ORDER: ");
+        if (guildmaster)
+        {
+            sb.Append($"Guildmaster right tabletop, {columns} column(s), actions then centred map surfaces: ");
+            for (int group = 0; group < GuildmasterDestinations.RailRowCount; group++)
+            {
+                if (group > 0) sb.Append(" | ");
+                bool first = true;
+                for (int i = 0; i < _caps.Count; i++)
+                {
+                    if (GuildmasterDestinations.RailRow(_caps[i].Button.GuildmasterMode) != group) continue;
+                    if (!first) sb.Append(", ");
+                    sb.Append(_caps[i].Button.GuildmasterMode);
+                    first = false;
+                }
+            }
+            VRLog.Note(Scope, sb.ToString());
+            return;
+        }
         int unranked = 0;
         int ties = 0;
         int lastRank = int.MinValue;
@@ -1248,7 +1306,7 @@ internal sealed class MapButtonRail
                     float ratio = c.HighlightBaseScale.x > 1e-4f
                         ? c.HighlightImage.transform.localScale.x / c.HighlightBaseScale.x
                         : 1f;
-                    float size = CapSizeMeters * _scale * GlowFraction * ratio;
+                    float size = c.IconWorldSize / IconFraction * GlowFraction * ratio;
                     var want = new Vector2(size, size);
                     if (c.Glow.size != want)
                         c.Glow.size = want;

@@ -494,17 +494,20 @@ internal static class CardHalfTone
     // ---------------------------------------------------------------- ownership --
 
     /// <summary>
-    /// True only for a face the mod built for itself and nobody else can be holding: NOT a
-    /// registered adopted live widget, and with no <c>AbilityCardUI</c> anywhere above it. The
-    /// second half of the test is the game's own invariant, not a guess — <c>ObjectPool.RecycleCard</c>
-    /// re-parents every game-owned <c>fullAbilityCard</c> back under its row
-    /// (<c>fullAbilityCard.transform.SetParent(component.transform)</c>, ObjectPool.cs:545-547), and
-    /// the only faces that escape that parent are the ones <see cref="CardFace.Adopt"/> re-hosted,
-    /// which the first half already excludes.
+    /// True only for an inert copy: no live native effects, original-owner record, adoption
+    /// record or native widget ancestor. Native dialogs can borrow original faces outside their
+    /// widget hierarchy, so missing ancestry alone never establishes clone ownership.
     /// </summary>
     private static bool IsModOwnedCopy(FullAbilityCard face)
     {
-        if (CardArtGuard.IsAdopted(face))
+        // A native dialog can temporarily own the original outside AbilityCardUI and
+        // outside the adoption registry. Hierarchy absence is not clone ownership. The
+        // original's live CardEffects must retain its private, animated materials; replacing
+        // them with RestCopyOf in mid-burn clears the burn constants and flashes blue even
+        // though the native iterator continues. Remote clones strip this component before
+        // their first rescan, so their initial normalization and owner playback still run.
+        if (face.cardEffects != null || face.GetComponent<CardEffects>() != null
+            || CardArtGuard.IsAdopted(face) || CardFace.OwnerOf(face) != null)
             return false;
         // includeInactive: a clone is configured under an INACTIVE host, which is the one moment a
         // correction lands before a first drawn frame.

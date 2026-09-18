@@ -9,6 +9,7 @@ internal sealed class NativeBurnEpisode<T> where T : class
     internal void Clear() { _card = null; _running = _completed = _leftRecoveryPile = _restoreAfter = false; }
     internal void CancelIfRunning() { if (_running) Clear(); }
     internal void RequestRestore() { _restoreAfter |= _running; }
+    internal bool IsRecovered(T card, bool recovered) => recovered && ReferenceEquals(_card, card) && _leftRecoveryPile;
     internal bool TakeDeferredRestore(bool durable)
     {
         if (_running || !_completed || !_restoreAfter || durable) return false;

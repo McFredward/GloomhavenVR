@@ -75,71 +75,15 @@ internal static partial class MixedReality
     /// <summary>Sweep + disable the sky/background GEOMETRY (item 2). Safety valve — default on.</summary>
     internal static ConfigEntry<bool> HideSkyMeshes = null!;
 
-    /// <summary>Give ALL "unseen" fog-of-war geometry (the face-down preview tile stacks AND the
-    /// unseen-area hexes inside revealed tiles) an opaque dark UNDERLAY while MR is on, so the
-    /// passthrough/key can no longer show through it (user rulings 2026-08-04 + 2026-08-05).
-    /// Safety valve like <see cref="HideSkyMeshes"/> — default on. The key keeps its original
-    /// name from the preview-stack-only round; its scope has grown, its cfg identity has not.</summary>
+    // INERT since build 532: persisted scenery-backing keys remain bound for compatibility.
+    // The current user ruling permits MR backing geometry only for UI, never inside the play area.
     internal static ConfigEntry<bool> OpaquePreviewTiles = null!;
-
-    /// <summary>XZ widening of each piece's GROOVE FILL copy (round 7 semantics — the round-4
-    /// "skirt on the underlay itself" is gone: round 5 proved the animation is UV-scroll, which
-    /// cannot leave the mesh silhouette, and a DISPLACED primary copy stops sitting coplanar
-    /// behind the beveled groove faces, which round 7's screenshot exposed as green channels.
-    /// The primary underlay is exact 1:1 again; this factor widens only the lowered fill copy so
-    /// neighboring fills overlap under the groove line). Tunable live (a change rebuilds).</summary>
     internal static ConfigEntry<float> UnseenSkirtScale = null!;
-
-    /// <summary>World-units the gap-backing WAFER sits below each piece's mesh-top plane.
-    /// FRESH KEY (round 12): this was '[MixedReality] UnseenFillDrop' until ModBuild 69 — that
-    /// key's persisted value (0.35, from the round-7 "deep groove fill" semantics) survived the
-    /// round-11 default change and re-opened the canyon the wafer exists to close (log:
-    /// "wafer = mesh-top − 0.35 wu"; MAPTILE dumps: fills at y−0.3 under tops at −0.1).
-    /// Renaming is the established clean path when a key's SEMANTICS change: the new key binds
-    /// fresh at 0.02, the orphaned old entry is harmless and never read. Tunable live. Too
-    /// small = z-fighting with the hex tops; too large = seams reopen at shallow angles.</summary>
     internal static ConfigEntry<float> UnseenWaferDrop = null!;
-
-    /// <summary>World-units the RIM CURTAIN (round 15) sits INSIDE each unseen piece's authored
-    /// vertical side faces. The curtain is a mod-BUILT opaque dark prism — see
-    /// <see cref="MrRimCurtain"/> for why it cannot be another same-mesh copy. Too small = the
-    /// curtain can protrude through a concave/damaged authored side (a dark spike past the
-    /// silhouette); too large = the leak band at the very outer silhouette edge widens. It cannot
-    /// z-fight in either direction: the curtain writes no depth and draws at queue 2500, before
-    /// the family's own depth-writing pass at 3000. Tunable live (a change rebuilds every
-    /// backing).</summary>
     internal static ConfigEntry<float> UnseenRimInset = null!;
-
-    /// <summary>World-units the RIM CURTAIN's top cap sits BELOW each piece's mesh-top plane.
-    /// INVARIANT (enforced in <see cref="BuildUnseenUnderlay"/>): strictly greater than
-    /// <see cref="UnseenWaferDrop"/>, so the curtain always hides behind the user-approved wafer
-    /// and can never paint over an authored top face. Tunable live.</summary>
     internal static ConfigEntry<float> UnseenRimTopClearance = null!;
-
-    /// <summary>DIAGNOSTIC (round 16, default OFF): render each class of mod-built backing in a
-    /// distinct flat colour instead of the dark neutral — coplanar underlay BLUE, top wafer
-    /// MAGENTA, rim curtain RED. Same geometry, same render queue, same blend/depth state, same
-    /// layer: ONLY the colour changes, so the screenshot observes the real pipeline rather than a
-    /// special case. It exists because fifteen rounds of dark backings produced no change at the
-    /// rim while every instrument reported the geometry present — if none of the three colours
-    /// appears anywhere in MR, the backings provably do not reach the screen and the whole
-    /// strategy is dead; if they appear but not on the glowing cliff, the cliff is geometry the
-    /// sweep never matched. Live (a change rebuilds every backing).</summary>
     internal static ConfigEntry<bool> UnseenBackingDebugColors = null!;
-
-    /// <summary>ROUND 16 — the REGION-MEMBERSHIP route (default on, safety valve in the shape of
-    /// <see cref="HideSkyMeshes"/> / <see cref="OpaquePreviewTiles"/>). After the family/tag sweep
-    /// has produced its matched set, every OTHER mesh renderer standing inside one of those pieces'
-    /// AABBs — below the piece's own top plane, not a figure, not mod-owned, not oversized — is
-    /// backed too, regardless of shader, name, queue, RenderType tag or Preview depth. It exists
-    /// because sixteen rounds of widening MATERIAL predicates never caught 'Simple Tile', the one
-    /// authored piece per hex that spans the block's full height (the cliff the user photographs);
-    /// asking "does this renderer stand inside the fog-of-war region" is a question the geometry can
-    /// answer, where "does this material look see-through" is one a hardcoded-blend pass answers
-    /// wrongly. Turn OFF if a run shows it darkening wanted geometry — the log names everything it
-    /// adopted.</summary>
     internal static ConfigEntry<bool> UnseenRegionMembership = null!;
-
 
     /// <summary>
     /// Key-colour presets offered by the settings UI.
@@ -522,6 +466,8 @@ internal static partial class MixedReality
             "(default pure green RGBA 0,1,0,1). The in-VR settings panel cycles the presets " +
             "green / magenta / blue; any RGBA is accepted here.");
         OpaquePreviewTiles = _file.Bind("MixedReality", "OpaquePreviewTiles", Defaults.OpaquePreviewTiles,
+            "INERT since build 532. MR backings are UI-only. Retained for configuration compatibility. " +
+            "Historical description only: " +
             "PART OF MIXED REALITY, not a choice beside it (like HideSkyMeshes; not offered in the " +
             "VR menu). ALL of the game's translucent 'unseen' fog-of-war geometry — the face-down " +
             "tile STACKS of not-yet-discovered rooms AND the unseen-area hexes that mark the " +
@@ -535,6 +481,8 @@ internal static partial class MixedReality
             "backings are destroyed when MR turns off — normal mode is never touched. Turn OFF " +
             "only if a run shows it darkening wanted geometry — the log names what it backed.");
         UnseenSkirtScale = _file.Bind("MixedReality", "UnseenSkirtScale", Defaults.UnseenSkirtScale,
+            "INERT since build 532. MR backings are UI-only. Retained for configuration compatibility. " +
+            "Historical description only: " +
             "Widening of each unseen piece's GROOVE-FILL copy relative to its geometry (1 = " +
             "exact silhouette). Every fog-of-war piece gets TWO dark backings in MR: an exact " +
             "copy directly behind its surfaces, and a lowered fill copy that plugs the beveled " +
@@ -543,6 +491,8 @@ internal static partial class MixedReality
             "(backings rebuild on change). Raise if grooves between hexes still glow; lower if " +
             "dark peeks out past the outermost hex edges. Clamped to 1..2.");
         UnseenWaferDrop = _file.Bind("MixedReality", "UnseenWaferDrop", Defaults.UnseenWaferDrop,
+            "INERT since build 532. MR backings are UI-only. Retained for configuration compatibility. " +
+            "Historical description only: " +
             "How far (world units) each unseen piece's flat gap-backing WAFER sits below the " +
             "piece's TOP plane in MR. The wafer is a squashed, slightly widened dark copy of " +
             "the piece that floors the gaps BETWEEN neighboring hexes just under their tops, so " +
@@ -552,6 +502,8 @@ internal static partial class MixedReality
             "MR is on, live (backings rebuild on change). Raise if the wafer z-fights the hex " +
             "tops; lower toward 0.01 if green seams still show at shallow angles. Clamped to 0..2.");
         UnseenRimInset = _file.Bind("MixedReality", "UnseenRimInset", Defaults.UnseenRimInset,
+            "INERT since build 532. MR backings are UI-only. Retained for configuration compatibility. " +
+            "Historical description only: " +
             "How far (world units) the dark RIM CURTAIN sits INSIDE each unseen piece's vertical " +
             "side faces in MR. The curtain is a mod-BUILT dark prism that follows the piece's hex " +
             "outline and stands just behind its side faces (its HEIGHT — the outer 'cliff' of the " +
@@ -563,6 +515,8 @@ internal static partial class MixedReality
             "pokes out through a damaged/notched piece edge; lower toward 0.01 if the outer edges " +
             "still glow. Clamped to 0.005..0.2.");
         UnseenRimTopClearance = _file.Bind("MixedReality", "UnseenRimTopClearance", Defaults.UnseenRimTopClearance,
+            "INERT since build 532. MR backings are UI-only. Retained for configuration compatibility. " +
+            "Historical description only: " +
             "How far (world units) the RIM CURTAIN's top stays BELOW each unseen piece's top " +
             "plane in MR. This is the guarantee that the curtain can never paint over an authored " +
             "hex top or its animation: it is always kept below the (wider) gap-backing wafer, so " +
@@ -570,8 +524,24 @@ internal static partial class MixedReality
             "any dark ever shows on a hex top; lower toward the wafer drop if the very top of the " +
             "outer edge still glows. Forced to at least UnseenWaferDrop + 0.005. Applies while MR " +
             "is on, live (backings rebuild on change). Clamped to 0.005..0.5.");
+        UnseenBackingDebugColors = _file.Bind("MixedReality", "UnseenBackingDebugColors",
+            Defaults.UnseenBackingDebugColors,
+            "INERT since build 532. MR backings are UI-only. Retained for configuration compatibility. " +
+            "Historical description only: " +
+            "DIAGNOSTIC, default off — turn this on only when asked for a screenshot. In MR every " +
+            "fog-of-war piece gets three mod-built dark backings (a copy right behind its surfaces, " +
+            "a flat wafer just under its top plane, and a prism behind its outer side faces). With " +
+            "this ON they are painted in flat signal colours instead of dark — copy BLUE, wafer " +
+            "MAGENTA, side prism RED — with everything else about them unchanged (same shape, same " +
+            "position, same draw order). One photo then shows which of the mod's surfaces actually " +
+            "reach your eyes and exactly where they sit, which is the one thing a dark backing can " +
+            "never show. Use the GREEN key colour while it is on, so no signal colour can be keyed " +
+            "away. Applies while MR is on, live (backings rebuild on change); turning it off " +
+            "restores the normal dark look immediately.");
         UnseenRegionMembership = _file.Bind("MixedReality", "UnseenRegionMembership",
             Defaults.UnseenRegionMembership,
+            "INERT since build 532. MR backings are UI-only. Retained for configuration compatibility. " +
+            "Historical description only: " +
             "PART OF MIXED REALITY, not a choice beside it (like HideSkyMeshes; not offered in the " +
             "VR menu). Also give a dark backing to every piece that merely STANDS INSIDE the " +
             "fog-of-war region — below the unseen tiles' own top plane — even when its material " +
@@ -583,18 +553,6 @@ internal static partial class MixedReality
             "this asks where the piece stands. Figures are never touched, nothing standing ON the " +
             "tiles is touched, and anything much larger than a single hex is refused. Turn OFF only " +
             "if a run shows it darkening wanted geometry — the log names everything it backed.");
-        UnseenBackingDebugColors = _file.Bind("MixedReality", "UnseenBackingDebugColors",
-            Defaults.UnseenBackingDebugColors,
-            "DIAGNOSTIC, default off — turn this on only when asked for a screenshot. In MR every " +
-            "fog-of-war piece gets three mod-built dark backings (a copy right behind its surfaces, " +
-            "a flat wafer just under its top plane, and a prism behind its outer side faces). With " +
-            "this ON they are painted in flat signal colours instead of dark — copy BLUE, wafer " +
-            "MAGENTA, side prism RED — with everything else about them unchanged (same shape, same " +
-            "position, same draw order). One photo then shows which of the mod's surfaces actually " +
-            "reach your eyes and exactly where they sit, which is the one thing a dark backing can " +
-            "never show. Use the GREEN key colour while it is on, so no signal colour can be keyed " +
-            "away. Applies while MR is on, live (backings rebuild on change); turning it off " +
-            "restores the normal dark look immediately.");
         HideSkyMeshes = _file.Bind("MixedReality", "HideSkyMeshes", Defaults.HideSkyMeshes,
             "PART OF MIXED REALITY, not a choice beside it — turning MR on does this, and the key "
             + "is kept only as an escape hatch for a run where it hides wanted geometry. It is not "
@@ -714,14 +672,12 @@ internal static partial class MixedReality
         //    the key color never shows until the mesh itself is disabled.
         HideSkyGeometry();
 
-        // 5) Back ALL translucent "unseen" fog-of-war geometry — the preview tile stacks AND the
-        //    unseen-area hexes inside revealed tiles — with opaque dark underlays (user rulings
-        //    2026-08-04 + 2026-08-05). Their translucent materials blend with whatever is behind
-        //    them — over the key colour that mix lands inside the compositor's similarity window,
-        //    so the real room shows through. Mod-owned child meshes only, the authored materials
-        //    are never touched, everything destroyed on MR off; normal mode is bit-identical
-        //    because none of this runs while MR is off.
-        ForceUnseenOpaque();
+        // 5) Build-531 hardware still showed an opaque patch inside scenario water. The
+        // user's current ruling is general: backings belong only to UI, never to play-area
+        // geometry. Retire all legacy scenery copies, regardless of material/fog family or
+        // an old persisted option. Native water, unseen tiles and their animation stay owned
+        // by the game; WorldUI.MrBacking retains its independent readability treatment.
+        RetireSceneryBackings();
 
         _active = true;
         if (!_loggedActive || _loggedColor != key)
@@ -798,11 +754,19 @@ internal static partial class MixedReality
 
     private static bool IsSkyRenderer(Renderer r, Vector3 headPos, float sizeFloor)
     {
+        // Build-533 cold Guildmaster MR capture: GH_Map_Table is a complete table
+        // (including legs), scaled to 367 x 187 x 445 world units. Before the map
+        // seat settles its bounds contain the head, so the dome heuristic hid real
+        // furniture until MR was toggled. Native map furniture is never sky, even
+        // during initial placement. Keep this asset-family exemption independent
+        // of MapRoomDriver readiness and camera/rig scale; named clouds still hide.
+        if (MrSkyEligibility.IsMapFurniture(r.gameObject.name))
+            return false;
         if (NameLooksLikeSky(r))
             return true;
         // Enclosing-dome signal: the world bounds SURROUND the head with a large extent on ALL
-        // THREE axes. A flat floor/tile has one thin axis; a table prop does not contain the
-        // head — only a skydome/sphere/backdrop box passes.
+        // THREE axes. Flat floors have a thin axis. Known map furniture is excluded
+        // above because its cold-start world bounds can surround the head as well.
         Bounds b = r.bounds;
         if (!b.Contains(headPos))
             return false;
@@ -891,9 +855,23 @@ internal static partial class MixedReality
         return m != null && m.shader != null ? m.shader.name : "<none>";
     }
 
+    // Historical implementation below is deliberately dormant. Preserve its established
+    // diagnostic tokens and configuration history without exposing another creation route.
+    // Tick calls only RetireSceneryBackings; no lifecycle path calls ForceUnseenOpaque.
+    private static void RetireSceneryBackings()
+    {
+        // Usually a zero-allocation no-op. Also retire assets from a partially built entry,
+        // not only registered geometry. RestoreAll owns the same cleanup on MR/session exit.
+        if (UnseenUnderlays.Count != 0 || UnseenSources.Count != 0
+            || _unseenDarkMat != null || _unseenSkipMat != null
+            || _dbgUnderlayMat != null || _dbgWaferMat != null || _dbgRimMat != null)
+            RestoreUnseenUnderlays();
+    }
+
     // ---- "unseen" fog-of-war geometry (MR opaque underlays) -------------------------------------
 
     /// <summary>
+    /// HISTORICAL, INERT since build 532: current MR backings are UI-only.
     /// Throttled sweep: find ALL translucent "unseen" fog-of-war renderers — the face-down TILE
     /// STACKS of not-yet-revealed rooms and the unseen-AREA hexes inside revealed tiles — and slip
     /// an OPAQUE DARK UNDERLAY under each while MR is on.
@@ -958,8 +936,9 @@ internal static partial class MixedReality
     ///   'EN_CR_FloorTiles_Damaged_03' "is not CPU-readable — its vertex-color channel cannot be
     ///   stripped". A mesh the mod builds has no colour channel at all, the attribute defaults to
     ///   white, and the dark material renders unconditionally.</item>
-    /// <item>THE CLIFF PIECE ITSELF is reached by <see cref="RegionMembershipPass"/>, the route that
-    ///   asks the material nothing: it backs every mesh renderer that merely STANDS INSIDE a family
+    /// <item>THE CLIFF PIECE ITSELF is reached by <see cref="RegionMembershipPass"/>. Since build 530
+    ///   only the documented "Simple Tile" cliff block qualifies, and cutout materials are refused.
+    ///   Historically this route backed every mesh renderer that merely STANDS INSIDE a family
     ///   piece's AABB and either stays under that piece's top plane OR SPANS the host (bottom at the
     ///   tile's underside, top level with the tile's top) — see <see cref="ClassifyRegion"/>. A prop
     ///   standing ON a tile has its bottom at the tile's TOP and satisfies neither clause; the block
@@ -1459,8 +1438,9 @@ internal static partial class MixedReality
     }
 
     /// <summary>
-    /// ROUND 16 — THE REGION-MEMBERSHIP ROUTE: back every mesh renderer that merely STANDS INSIDE
-    /// the fog-of-war region, whatever its material says.
+    /// Supplemental region membership for the documented native Simple Tile fog cliff.
+    /// Build 530 narrows the historical round-16 "every overlapping mesh" rule: proximity alone
+    /// admitted revealed cliff dressing and filled the transparent rectangles of forest foliage.
     ///
     /// <para>WHY. Sixteen rounds widened MATERIAL predicates — shader name, material name, GO name,
     /// blend probe, render queue, RenderType tag — and none of them ever caught the piece the user
@@ -1493,7 +1473,31 @@ internal static partial class MixedReality
     /// </summary>
     private static void RegionMembershipPass(Renderer[] all)
     {
-        if (!UnseenRegionMembership.Value || UnseenUnderlays.Count == 0)
+        if (UnseenUnderlays.Count == 0)
+            return;
+
+        // A revealed or disabled family source no longer authorizes supplemental backing.
+        // Revalidate against this sweep's live family set, not its historical adoption pose.
+        bool hasRegion = SeedRegionBounds();
+        for (int i = UnseenUnderlays.Count - 1; i >= 0; i--)
+        {
+            UnseenUnderlay entry = UnseenUnderlays[i];
+            if (!entry.ViaRegion) continue;
+            if (UnseenRegionMembership.Value && hasRegion && entry.Source != null
+                && MrUnseenRegionEligibility.Retain(entry.Source.enabled,
+                    entry.Source.gameObject.activeInHierarchy,
+                    ClassifyRegion(entry.Source.bounds, out _, out _, out _) == RegionVerdict.Inside))
+                continue;
+            // Plate/Fill borrow the native mesh. Rim borrows a shape-keyed shared mesh from
+            // MrRimCurtain; rebuilding reuses it, and MR teardown releases the shared cache.
+            // Destroying those mesh assets here would invalidate other live native/rim owners.
+            if (entry.Plate != null) UnityEngine.Object.Destroy(entry.Plate.gameObject);
+            if (entry.Fill != null) UnityEngine.Object.Destroy(entry.Fill.gameObject);
+            if (entry.Rim != null) UnityEngine.Object.Destroy(entry.Rim.gameObject);
+            UnseenSources.Remove(entry.SourceId);
+            UnseenUnderlays.RemoveAt(i);
+        }
+        if (!UnseenRegionMembership.Value || !hasRegion)
             return;
 
         // The REFUSAL counters are per-sweep: the same particle system or prop is re-examined every
@@ -1505,9 +1509,6 @@ internal static partial class MixedReality
         _regionRejectOversize = 0;
         _regionRejectNonMesh = 0;
         _regionRejectNoBacking = 0;
-
-        if (!SeedRegionBounds())
-            return;
 
         for (int i = 0; i < all.Length; i++)
         {
@@ -1561,6 +1562,12 @@ internal static partial class MixedReality
             Material[] mats = r.sharedMaterials;
             if (mats == null)
                 mats = System.Array.Empty<Material>();
+            // Build 530: AABB overlap is a proximity test, not evidence that an authored
+            // renderer belongs to fog. In particular hanging forest foliage sits below the
+            // neighboring hex top too. Its opaque backing erased the alpha-cutout silhouette.
+            // Only the documented shader-agnostic cliff block may take this fallback route.
+            if (!CanBackRegion(r, mats))
+                continue;
             // FORCE DARK: the whole point is that this piece's slots do NOT read see-through to the
             // probe — the per-slot rule would find nothing to back and skip it, which is exactly
             // how it stayed green for sixteen rounds. Inside the region, below the top plane, past
@@ -1589,6 +1596,15 @@ internal static partial class MixedReality
                 _regionRejectNoBacking++;
             }
         }
+    }
+
+    private static bool CanBackRegion(Renderer source, Material[] materials)
+    {
+        bool cutout = false;
+        for (int i = 0; i < materials.Length; i++)
+            if (materials[i] != null && (materials[i].GetTag("RenderType", false, string.Empty) == "TransparentCutout"
+                || materials[i].IsKeywordEnabled("_ALPHATEST_ON"))) cutout = true;
+        return MrUnseenRegionEligibility.Allows(source.gameObject.name, cutout);
     }
 
     /// <summary>Verdict of <see cref="ClassifyRegion"/> — shared by the region route and the
@@ -1621,7 +1637,8 @@ internal static partial class MixedReality
         for (int i = 0; i < UnseenUnderlays.Count; i++)
         {
             UnseenUnderlay e = UnseenUnderlays[i];
-            if (e.ViaRegion || e.Source == null)
+            if (e.ViaRegion || e.Source == null || !e.Source.enabled
+                || !e.Source.gameObject.activeInHierarchy)
                 continue;
             Bounds b = e.Source.bounds;
             RegionTopScratch.Add(b.max.y);
@@ -2324,13 +2341,22 @@ internal static partial class MixedReality
         {
             Renderer plate = UnseenUnderlays[i].Plate;
             if (plate != null)
+            {
+                plate.enabled = false; // Destroy is deferred; stop drawing this frame.
                 UnityEngine.Object.Destroy(plate.gameObject);
+            }
             Renderer? fill = UnseenUnderlays[i].Fill;
             if (fill != null)
+            {
+                fill.enabled = false; // Destroy is deferred; stop drawing this frame.
                 UnityEngine.Object.Destroy(fill.gameObject);
+            }
             Renderer? rim = UnseenUnderlays[i].Rim;
             if (rim != null)
+            {
+                rim.enabled = false; // Destroy is deferred; stop drawing this frame.
                 UnityEngine.Object.Destroy(rim.gameObject);
+            }
         }
         // The rim curtains' MESHES are mod-owned assets — a Mesh is not collected with the
         // GameObject that referenced it, so the shared cache is released explicitly (round 15).

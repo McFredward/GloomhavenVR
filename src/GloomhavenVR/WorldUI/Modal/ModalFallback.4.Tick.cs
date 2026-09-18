@@ -252,6 +252,7 @@ internal static partial class ModalFallback
         Core.MixedReality.KeepMenusUnclipped(false); // item 5a: release the backdrop depth override
         CancelWindowRoomMaking();
         ReleaseAllWindows("module shutdown");
+        ResetPermanentQuestLog();
         Open.Clear();
         OpenWindows.Clear();
         Failed.Clear();
@@ -2335,6 +2336,7 @@ internal static partial class ModalFallback
         // un-enrolled window can never again wait invisibly on the hidden 2D stack. Runs
         // AFTER the explicit polls so their dedupe/claim handling always wins.
         TickCatchAll(inScenario);
+        TickPermanentQuestLog();
 
         EnterPhase(PhaseErrorBox);
         // Part 10: GlobalErrorMessage (enrollment #1) — NOT a UIWindow (SetActive-shown), so
@@ -2661,6 +2663,8 @@ internal static partial class ModalFallback
                 : answeredMandatory ? "MANDATORY DECISION ANSWERED (closed by the game)"
                 : selectionGone ? "QUEST SELECTION CLEARED (a view whose subject is gone)"
                 : "the game closed it (left OpenWindows, not sticky, no scripted message)");
+            if (refused && alive && !wp.UserClosing && !wp.EmptyReleasePending)
+                RememberWithdrawnQuestLog(wp.Window!);
             Converted.RemoveAt(i);
             string name = wp.Window != null ? wp.Window.name : "<destroyed>";
             // ModBuild 230: read the chrome BEFORE it is torn down, so the release line can state

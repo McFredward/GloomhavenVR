@@ -118,3 +118,17 @@ var oldActiveDeparture=new Flight { SourceActor=a, FaceCard=first,Generation=21,
 activeFx.Apply(oldActiveDeparture);
 Check(!oldActiveDeparture.Active,"Older delayed active departure must not fly after a newer arrival owns that card");
 Console.WriteLine($"Flight timing production policies: {assertions} assertions.");
+
+foreach (bool appearing in new[]{false,true})
+foreach (bool vanishing in new[]{false,true})
+foreach (float alpha in new[]{0f,.3f,1f}) {
+    bool oldPark=false;
+    var localFlight=new LocalFlightFixture { _appearing=appearing,_vanishing=vanishing,
+        Alpha=alpha,BodyVisible=false,_vanishDone=()=>oldPark=true };
+    localFlight.Prepare();
+    Check(!localFlight._appearing&&!localFlight._vanishing,"Flight must retire both competing presentation timelines");
+    localFlight._vanishDone?.Invoke();
+    Check(localFlight._vanishDone==null&&!oldPark,"Flight must discard obsolete vanish parking without invoking it");
+    Check(localFlight.Alpha==1f&&localFlight.BodyVisible,"Flight must expose its native face and body even after a completed fade");
+}
+Console.WriteLine($"Flight timing including local visibility: {assertions} assertions.");

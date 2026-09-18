@@ -1617,6 +1617,13 @@ internal static class SkyAlternative
         // gap below it, so the board hovers over the ground like a tabletop diorama at EVERY zoom.
         float floatGap = FloatGapToBoardRatio * extent;
         float floorY = undersideY - floatGap;
+        // Guildmaster has native floor-standing furniture. The generic diorama float gap
+        // leaves all its feet suspended; anchor only this room to their measured base instead.
+        if (WorldUI.MapRoom.GuildmasterRoomGeometry.TryFloor(out float furnitureFloor))
+        {
+            floorY = furnitureFloor;
+            floatGap = undersideY - floorY;
+        }
 
         // The player's own real floor, for the log only: tracking space is floor-origin, so the
         // floor point under the head is where he physically stands. No head yet -> the rig origin.

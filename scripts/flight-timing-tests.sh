@@ -12,13 +12,19 @@ cp "$repo_root/tests/GloomhavenVR.FlightTimingTests/"*.csproj "$work_dir/"
 python3 "$repo_root/tests/GloomhavenVR.FlightTimingTests/extract.py" "$repo_root" "$work_dir/Production.cs"
 dotnet run --project "$work_dir/GloomhavenVR.FlightTimingTests.csproj" --configuration Release
 if [[ "${FLIGHT_NEGATIVE_CONTROLS:-1}" != 1 ]]; then exit 0; fi
-for mutation in missing-transfer stale-repaint missing-arrival-gate old-generation-reclaim missing-retirement drawn-home active-grace active-generation; do
-    mkdir -p "$work_dir/source/src/GloomhavenVR/Net/Remote"
+for mutation in missing-transfer stale-repaint missing-arrival-gate old-generation-reclaim missing-retirement drawn-home active-grace active-generation local-handover local-vanish local-callback local-alpha local-body; do
+    mkdir -p "$work_dir/source/src/GloomhavenVR/Net/Remote" "$work_dir/source/src/GloomhavenVR/Cards"
+    cp "$repo_root/src/GloomhavenVR/Cards/VRCard.cs" "$work_dir/source/src/GloomhavenVR/Cards/"
     cp "$repo_root/src/GloomhavenVR/Net/Remote/RemoteBoardCard.cs" "$repo_root/src/GloomhavenVR/Net/Remote/RemoteCardFx.cs" "$repo_root/src/GloomhavenVR/Net/Remote/RemoteControlBoard.cs" "$repo_root/src/GloomhavenVR/Net/Remote/RemoteHandFan.cs" "$repo_root/src/GloomhavenVR/Net/Remote/RemoteActiveCards.cs" "$work_dir/source/src/GloomhavenVR/Net/Remote/"
     python3 - "$work_dir/source/src/GloomhavenVR/Net/Remote" "$mutation" <<'PY'
 import pathlib,sys
 root=pathlib.Path(sys.argv[1]); mutation=sys.argv[2]
 file,old,new={
+'local-handover': ('../../Cards/VRCard.cs','        PrepareFlightVisual();','        // PrepareFlightVisual();'),
+'local-vanish': ('../../Cards/VRCard.cs','        _vanishing = false;','        // _vanishing = false;'),
+'local-callback': ('../../Cards/VRCard.cs','        _vanishDone = null;','        // _vanishDone = null;'),
+'local-alpha': ('../../Cards/VRCard.cs','        SetVisualAlpha(1f);','        // SetVisualAlpha(1f);'),
+'local-body': ('../../Cards/VRCard.cs','        SetBodyVisible(true);','        // SetBodyVisible(true);'),
 'missing-transfer': ('RemoteCardFx.cs','        TransferVisibleFlight(f);','        // TransferVisibleFlight(f);'),
 'stale-repaint': ('RemoteBoardCard.cs','if (!empty && id == _flightDepartedId && ownerId == _flightDepartedOwner)','if (!empty && bool.Parse("false") && id == _flightDepartedId && ownerId == _flightDepartedOwner)'),
 'missing-arrival-gate': ('RemoteControlBoard.cs',' || _owner.FlightOwnsRecess(i)',''),
@@ -38,6 +44,10 @@ PY
         fi
     fi
     case "$mutation" in
+        local-handover) expected='Local flight must restore its visible surface before taking ownership';;
+        local-vanish) expected='Flight must retire both competing presentation timelines';;
+        local-callback) expected='Flight must discard obsolete vanish parking without invoking it';;
+        local-alpha|local-body) expected='Flight must expose its native face and body even after a completed fade';;
         missing-transfer) expected='Flight draw precedes source transfer';;
         stale-repaint) expected='Stale seating must not repaint a departed source';;
         missing-arrival-gate) expected='Arrival seat lacks flight ownership';;

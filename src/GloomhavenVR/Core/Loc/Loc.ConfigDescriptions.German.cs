@@ -302,7 +302,9 @@ internal static partial class Loc
                 + "stellt sie beim Ausschalten von MR wieder her. Nur AUS, wenn ein Durchlauf zeigt, dass "
                 + "gewollte Geometrie versteckt wird — das Log nennt jeden abgeschalteten Renderer.",
             ["MixedReality/OpaquePreviewTiles"] =
-                "TEIL VON MIXED REALITY, keine Wahl daneben (wie HideSkyMeshes; nicht im VR-Menü). SÄMTLICHE "
+                "INAKTIV seit Build 532. MR-Hintergründe gelten nur für UI-Elemente. Für bestehende Konfigurationen erhalten. "
+                + "Nur historische Beschreibung: "
+                + "TEIL VON MIXED REALITY, keine Wahl daneben (wie HideSkyMeshes; nicht im VR-Menü). SÄMTLICHE "
                 + "durchscheinende 'Unseen'-Geometrie des Spiels — die verdeckten Kachel-STAPEL noch nicht "
                 + "entdeckter Räume UND die Hexfelder, die das unentdeckte Gebiet hinter Türen markieren — "
                 + "mischt sich mit dem, was hinter ihr liegt; über der dunklen Leere des Spiels fällt das "
@@ -316,7 +318,9 @@ internal static partial class Loc
                 + "wenn ein Durchlauf zeigt, dass gewollte Geometrie verdunkelt wird — das Log nennt, was "
                 + "hinterlegt wurde.",
             ["MixedReality/UnseenSkirtScale"] =
-                "Verbreiterung der RILLEN-FÜLLUNG jedes 'Unseen'-Stücks relativ zu seiner Geometrie (1 = "
+                "INAKTIV seit Build 532. MR-Hintergründe gelten nur für UI-Elemente. Für bestehende Konfigurationen erhalten. "
+                + "Nur historische Beschreibung: "
+                + "Verbreiterung der RILLEN-FÜLLUNG jedes 'Unseen'-Stücks relativ zu seiner Geometrie (1 = "
                 + "exakte Silhouette). Jedes Fog-of-War-Stück bekommt in MR ZWEI dunkle Rückplatten: eine "
                 + "exakte Kopie direkt hinter seinen Flächen und eine abgesenkte Füll-Kopie, die die "
                 + "abgeschrägten Rillen ZWISCHEN benachbarten Hexfeldern verschließt — dieser Faktor "
@@ -325,7 +329,9 @@ internal static partial class Loc
                 + "neu gebaut). Erhöhen, wenn Rillen zwischen den Hexfeldern weiter leuchten; "
                 + "verringern, wenn Dunkel über die äußersten Hexkanten hinausragt. Begrenzt auf 1..2.",
             ["MixedReality/UnseenWaferDrop"] =
-                "Wie weit (Welteinheiten) die flache Fugen-RÜCKPLATTE jedes 'Unseen'-Stücks in MR "
+                "INAKTIV seit Build 532. MR-Hintergründe gelten nur für UI-Elemente. Für bestehende Konfigurationen erhalten. "
+                + "Nur historische Beschreibung: "
+                + "Wie weit (Welteinheiten) die flache Fugen-RÜCKPLATTE jedes 'Unseen'-Stücks in MR "
                 + "unter dessen OBERKANTE sitzt. Die Rückplatte ist eine plattgedrückte, leicht "
                 + "verbreiterte dunkle Kopie des Stücks, die die Fugen ZWISCHEN benachbarten "
                 + "Hexfeldern direkt unter deren Oberkante ausfüllt — der Blick in eine Fuge trifft "
@@ -336,7 +342,9 @@ internal static partial class Loc
                 + "wenn die Rückplatte mit den Hex-Oberseiten flimmert; Richtung 0.01 senken, wenn "
                 + "bei flachen Winkeln weiter grüne Fugen zu sehen sind. Begrenzt auf 0..2.",
             ["MixedReality/UnseenRimInset"] =
-                "Wie weit (Welteinheiten) der dunkle RAND-VORHANG in MR INNERHALB der senkrechten "
+                "INAKTIV seit Build 532. MR-Hintergründe gelten nur für UI-Elemente. Für bestehende Konfigurationen erhalten. "
+                + "Nur historische Beschreibung: "
+                + "Wie weit (Welteinheiten) der dunkle RAND-VORHANG in MR INNERHALB der senkrechten "
                 + "Seitenflächen jedes 'Unseen'-Stücks sitzt. Der Vorhang ist ein vom Mod GEBAUTES "
                 + "dunkles Prisma, das der Hex-Kontur des Stücks folgt und direkt hinter dessen "
                 + "Seitenflächen steht (seiner HÖHE — der äußeren 'Kante' des Fog-of-War-Gebiets), "
@@ -348,7 +356,9 @@ internal static partial class Loc
                 + "wenn an einer beschädigten/eingekerbten Kante Dunkel hervorsteht; Richtung 0.01 "
                 + "senken, wenn die Außenränder weiter leuchten. Begrenzt auf 0.005..0.2.",
             ["MixedReality/UnseenRimTopClearance"] =
-                "Wie weit (Welteinheiten) die Oberkante des RAND-VORHANGS in MR UNTER der Oberkante "
+                "INAKTIV seit Build 532. MR-Hintergründe gelten nur für UI-Elemente. Für bestehende Konfigurationen erhalten. "
+                + "Nur historische Beschreibung: "
+                + "Wie weit (Welteinheiten) die Oberkante des RAND-VORHANGS in MR UNTER der Oberkante "
                 + "jedes 'Unseen'-Stücks bleibt. Das ist die Garantie, dass der Vorhang niemals eine "
                 + "gestaltete Hex-Oberseite oder deren Animation übermalt: er wird immer unter der "
                 + "(breiteren) Fugen-Rückplatte gehalten und ist von oben vollständig hinter einer "
@@ -358,7 +368,9 @@ internal static partial class Loc
                 + "erzwungen. Wirkt bei aktivem MR, live (Rückplatten werden bei Änderung neu "
                 + "gebaut). Begrenzt auf 0.005..0.5.",
             ["MixedReality/UnseenRegionMembership"] =
-                "TEIL VON MIXED REALITY, keine Wahl daneben (wie HideSkyMeshes; nicht im VR-Menü). "
+                "INAKTIV seit Build 532. MR-Hintergründe gelten nur für UI-Elemente. Für bestehende Konfigurationen erhalten. "
+                + "Nur historische Beschreibung: "
+                + "TEIL VON MIXED REALITY, keine Wahl daneben (wie HideSkyMeshes; nicht im VR-Menü). "
                 + "Gibt auch jedem Teil eine dunkle Rückplatte, das einfach IM Fog-of-War-Gebiet "
                 + "STEHT — unterhalb der Oberkante der unentdeckten Kacheln — selbst wenn sein "
                 + "Material für den Mod nicht durchscheinend aussieht. Die Kacheln des unentdeckten "
@@ -372,7 +384,9 @@ internal static partial class Loc
                 + "ist, wird abgelehnt. Nur AUS, wenn ein Durchlauf zeigt, dass gewollte Geometrie "
                 + "verdunkelt wird — das Log nennt alles, was hinterlegt wurde.",
             ["MixedReality/UnseenBackingDebugColors"] =
-                "DIAGNOSE, standardmäßig aus — nur einschalten, wenn nach einem Screenshot gefragt "
+                "INAKTIV seit Build 532. MR-Hintergründe gelten nur für UI-Elemente. Für bestehende Konfigurationen erhalten. "
+                + "Nur historische Beschreibung: "
+                + "DIAGNOSE, standardmäßig aus — nur einschalten, wenn nach einem Screenshot gefragt "
                 + "wird. In MR bekommt jedes Fog-of-War-Stück drei vom Mod gebaute dunkle "
                 + "Rückplatten (eine Kopie direkt hinter seinen Flächen, eine flache Scheibe knapp "
                 + "unter seiner Oberkante und ein Prisma hinter seinen äußeren Seitenflächen). Mit "

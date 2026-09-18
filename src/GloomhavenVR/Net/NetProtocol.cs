@@ -514,8 +514,99 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 527;
+    public const ushort ModBuild = 534;
 
+    // ModBuild 534 — first short-rest burn, cold MR table and grouped Guildmaster controls.
+    // Build-533 Debug proves the original short-rest iterator bailed synchronously while its
+    // adopted face was inactive; a no-ramp settle preceded a second LostMode ramp/reset.
+    // Permit the existing native playOnDisabled path only for a verified original animated
+    // full card. Keep one native timeline, spent paint, recovery and owner progress publication.
+    // The cold Guildmaster table was already present: MR's enclosing-sky bounds heuristic hid
+    // GH_Map_Table before initial seating. Exempt the native map-furniture asset families from
+    // sky classification, independently of map-driver readiness. Respect the complete native
+    // table before requesting an unnecessary campaign slab; do not add overlapping geometry.
+    // Group Guildmaster action caps vertically with WorldMap/City centred in a separate column
+    // to their right, fitted to the same native table/knife geometry. Campaign layout unchanged.
+    // Local evidence is 533; remote logs remain historical 500. No wire or logging-level change.
+    // Details: .planning/BURN-534.md, .planning/GUILD-534.md and .planning/MR-534.md.
+    //
+
+    // ModBuild 533 — recovered action-card membership and short-rest diagnostics.
+    // Native action-controller references survive a card's Lost -> Hand recovery. Refuse
+    // those stale references when collecting round slots; actual Round/ExtraTurn membership
+    // still permits a later legitimate play. This prevents the first Spellweaver card from
+    // reappearing after Reviving Ether resolves, locally and in owner-published board slots.
+    // The build-532 report confirms both flights worked; the subsequent stale seat was the
+    // reported missing-flight symptom. Short-rest flashing persists and remains unresolved.
+    // The maintainer confirmed Debug was disabled in this capture and enabled for the next.
+    // Add bounded opt-in native burn/material diagnostics; do not claim a speculative fix.
+    // Local evidence is 532, remote logs remain historical 500. No wire grammar change.
+    // Details: .planning/ROUND-533.md and .planning/BURN-533.md.
+    //
+
+    // ModBuild 532 — UI-only MR backings and continuous burn/flight presentation.
+    // The build-531 hardware ruling forbids backing geometry anywhere inside the play area.
+    // Retire scenery underlay/fill/rim creation, retain native water/terrain and independent UI
+    // backings; preserve legacy config keys as explicitly inert in both languages.
+    // Keep the original spent-card shader floor through the native burn iterator's terminal
+    // step, which clears its handle without repainting the endpoint. Recovery still clears it.
+    // Pile flights take exclusive ownership of mod fade visibility and discard stale vanish
+    // callbacks without changing native burn materials. Retain per-card artwork observations
+    // while the global layout barrier waits, so completed burns are not reported as unseen.
+    // Logs prove Reviving Ether flights were launched, not their final pixels; the reachable
+    // fade handover defect is repaired, but exact hardware attribution needs another test.
+    // Local evidence is 531; peer logs remain historical 500. No wire grammar change.
+    // Details: .planning/{MR,BURN,FLIGHT}-532.md.
+    //
+    // ModBuild 531 — recovered cards and usable Guildmaster controls.
+    // Reconcile native burn presentation after a proven return to Hand/Round, independently
+    // of cached widget SetPile edges. Retire the old episode/floor before native RestoreCard;
+    // reconcile before local display, appearance capture and smoke publication. Retry failed
+    // resets without crossing pooled identities or interrupting a new legitimate burn.
+    // Guildmaster actions remain required and retain native unlock/click rules. Fit controls
+    // using native mesh geometry; optional table detection cannot remove the whole rail.
+    // A visible right-side fallback preserves access when support cannot be measured.
+    // Local hardware evidence is build 530; peer logs remain historical 500. Model recovery
+    // is log-proven; final restored artwork and revised cap placement need headset verification.
+    // Details: .planning/CARD-RECOVERY-531.md and .planning/GUILD-RAIL-531.md.
+    //
+    // ModBuild 530 — MR scenery ownership and Guildmaster map interaction/layout.
+    // Recognize both mod name prefixes in wall ownership: native-layer MR backings were being
+    // adopted as architecture. Restrict supplemental unseen-region geometry to the documented
+    // native cliff kit, preserve cutout silhouettes, and retire orphaned supplemental backings.
+    // Guildmaster caps fit the right tabletop behind the measured knife; room floor placement
+    // follows native furniture bases. Campaign cap/floor placement retains its existing path.
+    // Resolve overlapping map icons by nearest visible centre on the painted plane for both
+    // laser and fingertip, retaining foreground bar/panel/carry exclusions and native actions.
+    // Ordinary Guildmaster dialogs no longer count as quest-start story curtains. The original
+    // quest log stays enrolled during browsing; actual native confirmation/loadout still hides
+    // it, per the user's clarified point-of-no-return rule. Campaign curtains are unchanged.
+    // EN/DE tutorial execution hints now require board CONFIRM; remove the unsupported second-pick advice.
+    // Local evidence is build 529; remote logs remain historical 500. Runtime fixes and tests
+    // are source-backed; final MR pixels, floor contact, knife spacing and targeting need HMD
+    // confirmation. Details: .planning/{MR-SCENARIO,GUILD-ROOM,MAP-PICKING,GUILD-QUESTS}-530.md.
+    //
+    // ModBuild 529 — keep burn continuity diagnostics out of ordinary player logs.
+    // Per-burn start/end and bounded discontinuity records now require Debug. At the default
+    // level, skip the observer's material/progress inspection and string formatting entirely.
+    // Switching diagnostics back on starts a fresh observation instead of comparing stale state.
+    // Existing build-528 table/pool self-reports already require Debug through VRLog.Info/Warn.
+    // User ruling: normal player logs must stay sparse; detailed hardware tracing is opt-in.
+    //
+    // ModBuild 528 — local burn continuity, Guildmaster map presentation and native card lifetime.
+    // Native dialog-owned faces no longer qualify for clone material normalization; preserve
+    // the running burn materials independently of temporary hierarchy/adoption changes. Ignore
+    // unconfirmed short-rest burn previews and record bounded raw-progress/material continuity.
+    // Return all native hand faces to their owning widgets before scene teardown and recycling;
+    // discard damaged recycled copies only when the native pool retains an intact template.
+    // This addresses the build-527 SwiftBow initialization error; the exact destruction writer
+    // and the reported local flash still need the next hardware log/picture to confirm.
+    // Restore the original standing quest log after temporary story/journey withdrawal without
+    // changing native hide requests. Guildmaster reuses the original campaign tabletop assets,
+    // asynchronously discovered and fitted around bench/barrel bounds. Cold-start native asset
+    // availability and the final furniture fit remain hardware-unverified.
+    // No wire layout or visibility-rule changes. Evidence: .planning/*528.md.
+    //
     // ModBuild 527 — keep newly opened map windows at their chosen spawn pose.
     //   Build-526 logs show UI Quest Popup reflow three times, moving only the new window.
     //   Opening room making now anchors that window and moves only older overlapping members;

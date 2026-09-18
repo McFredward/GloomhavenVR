@@ -1,6 +1,6 @@
 # State — where the project stands
 
-**Updated 2026-09-17 for anchored window openings, ModBuild 527 on dev.** The file this replaces had gone 168 builds
+**Updated 2026-09-18 for short-rest playback, cold MR furniture and Guildmaster controls, ModBuild 534 on dev.** The file this replaces had gone 168 builds
 stale while still saying "read this first"; it is kept as `STATE-ARCHIVE-through-2026-08.md` for
 its round-by-round narrative and for nothing else.
 
@@ -13,17 +13,163 @@ change per build) → this file (where things stand and what is owed) → the bu
 
 ## 1. Position
 
+- **dev / 1.0.5 / ModBuild 534** addresses all three build-533 hardware findings.
+  Debug shows the first short-rest burn exits synchronously on an inactive original, followed
+  by a no-ramp settle and a later animated LostMode reset. Verified original full cards now use
+  native disabled playback, retaining the first complete animation across that hierarchy edge.
+  Cold Guildmaster MR hid the existing GH_Map_Table as enclosing sky; native map furniture is
+  excluded before that heuristic, independently of camera seating/map-driver readiness. The
+  whole native table is recognized before optional campaign-slab loading. No duplicate is built.
+  Guildmaster action caps remain vertical; WorldMap/City form a separate centred pair to their
+  right, fitted to native support and knife clearance. Campaign controls remain unchanged.
+  Local logs are 533; peer logs remain historical 500. No fresh screenshots were supplied.
+  Source/log causes are established; current headset/peer results are not yet verified.
+  Records: [BURN-534.md](BURN-534.md), [GUILD-534.md](GUILD-534.md), [MR-534.md](MR-534.md).
+  Focused checks: burn replay 672 assertions / seven bindings / 32 negative controls;
+  Guildmaster room 10,338 assertions / 25 bindings / nine negative controls;
+  MR scenery/sky 79 assertions / 26 bindings / six negative controls.
+  Complete source/runtime guard and 254,565 real-runtime wire assertions pass. Existing
+  flight timing 818, remote burn sequencing 108 and burn layout 228 assertions also pass.
+  The guard exit 1 is solely the expected compiled difference from baseline 080c505e9:
+  99 changed, 78 added/removed types and one order-only project move. Config/patch/log
+  surfaces stay 625 / 174 / 4,742 without removals. Patch inventory is 132 classes / 200
+  methods: the existing BurnCardTimeline patch gains the tested original-only prefix.
+  Bilingual docs, Actionlint and whitespace pass; strict Release zero warnings/errors.
+
+- **dev / 1.0.5 / ModBuild 533** fixes the clarified Spellweaver action-slot regression:
+  the native action controller retains the first played card; recovering it from Lost to Hand
+  previously made it eligible for the round slot again. Actual Hand membership now rejects
+  that stale supplement, while Round/ExtraTurn cards and later legitimate selection still work.
+  Both reported card flights worked; the later disappearance was the resurrected stale slot.
+  Local logs are 532; remote logs remain historical 500. No independent remote static-pair
+  reconstruction was found; owner-published slots inherit the corrected collection.
+  The short-rest flash **remains unresolved**. The maintainer confirmed Debug was forgotten
+  for this capture and enabled for the next test. Bounded opt-in diagnostics record
+  native playback, reset and renderer/material transitions without adding normal-log streams.
+  Records: [ROUND-533.md](ROUND-533.md), [BURN-533.md](BURN-533.md).
+  Focused collector coverage: 50 runtime assertions across three production methods and six
+  negative controls. Burn replay/diagnostics: 644 assertions, six bindings and 30 negative
+  controls. Complete source/runtime guard and 254,565 real-runtime wire assertions pass;
+  local flight timing 818, remote burn sequencing 108 and burn layout 228 assertions pass.
+  The only guard exit-1 result is the expected compiled difference from baseline 080c505e9:
+  99 changed, 77 added/removed types, one order-only project move. Config/patch/log surfaces
+  are 625 / 174 / 4,742 with no removals; the additional marker is Debug-only BURN NATIVE TRACE.
+  Patch inventory remains 132 classes / 199 methods. Strict Release zero warnings/errors;
+  bilingual docs, Actionlint and whitespace pass. Headset results remain unverified.
+
+- **dev / 1.0.5 / ModBuild 532** addresses the build-531 hardware report. MR backings
+  now belong exclusively to UI: scenery underlays, fills and rims are retired, including
+  the former unseen/preview routes. Native terrain/water and UI readability remain intact.
+  Short-rest spent shader floors survive the native iterator's terminal step, which otherwise
+  restores raw paint without writing a final frame. Pile flights take exclusive ownership of
+  mod fade visibility and retire an obsolete vanish callback; native burn materials are preserved.
+  The layout barrier now retains actual per-card artwork observations for release diagnostics.
+  Local logs are 531; remote logs remain historical 500. Reviving Ether flights were launched
+  (LogOutput 1278 and 2037); the logs do not establish whether the fade-handover defect caused
+  those particular invisible flights. MR screenshot inspected; exact water renderer unknown.
+  Source-proven fixes need headset confirmation, especially the reported missing flight.
+  Records: [MR-532.md](MR-532.md), [BURN-532.md](BURN-532.md), [FLIGHT-532.md](FLIGHT-532.md).
+  Integrated validation: all source/runtime stages and 254,565 real-runtime wire assertions
+  pass; burn replay 633 / six bindings / 24 negative controls, flight timing 818 / 13 negative
+  controls, burn layout 228 / 16 negative controls, MR scenery 54 / 26 bindings / five negative
+  controls. Initial guard stopped at eight historical config-description strings classified as
+  protected tokens. Restored those descriptions behind explicit inactive prefixes, then reran
+  the affected MR checks, docs, surface census, strict Release and the unchanged remaining guard
+  stages; unaffected runtime suites were not repeated. All checks pass. Compiled comparison
+  retains the expected exit-1 difference from baseline 080c505e9: 99 changed, 76 added/removed,
+  one order-only project move. Strict Release zero warnings/errors; bilingual docs, Actionlint,
+  patch inventory and whitespace pass. Config/patch/log surfaces are 625 / 174 / 4,741 with no
+  removals; patch inventory remains 132 classes / 199 methods. Independent source review found
+  no additional actionable defect; headset/peer pixels remain unverified.
+
+- **dev / 1.0.5 / ModBuild 531** Build-530 hardware confirms
+  native Spellweaver recovery returns FireOrbs, ManaBolt, RidetheWind and FlameStrike from
+  Lost to Hand (Player.log 9950–10001), but their burnt presentation remains. Native widget
+  pile caching and retained burn presentation now receive explicit recovery reconciliation
+  before local draw and remote publication. Old smoke cannot acquire a new Hand address;
+  reset retries are isolated and cannot cancel a new burn or affect a pooled replacement. Guildmaster table controls are not globally redundant:
+  native merchant/trainer/enhancement entry points exist. Build 530 introduced a silent
+  whole-rail omission when optional support geometry could not be fitted. Refined mesh
+  measurement and a readable right-side fallback retain access without changing campaign
+  placement, native action availability or gameplay callbacks. Failed scans keep their
+  ordinary cadence; missing-HUD and failed-support diagnostics are bounded.
+  The maintainer reports the other build-530 hardware issues appear resolved. Current local
+  logs are 530; remote logs remain historical 500. The new fixes still need headset checks.
+  Records: [CARD-RECOVERY-531.md](CARD-RECOVERY-531.md), [GUILD-RAIL-531.md](GUILD-RAIL-531.md).
+  Focused recovery: 552 runtime assertions / six bindings / 22 negative controls; room
+  geometry: 7,014 assertions / 21 bindings / seven negative controls. Complete integration
+  guard and 254,565 real-runtime wire assertions pass. Strict Release zero warnings/errors;
+  bilingual docs, Actionlint, patch inventory and whitespace pass. The only guard exit-1
+  verdict is the expected compiled difference from historical baseline 080c505e9:
+  99 changed, 76 added/removed types, one order-only project move. Config/patch/log surfaces
+  are 625 / 174 / 4,740 with no removals; patch inventory remains 132 classes / 199 methods.
+
+- **dev / 1.0.5 / ModBuild 530** addresses the five build-529 hardware findings. MR
+  backings are excluded from native wall ownership, supplemental unseen-region backings
+  are restricted to the intended geometry, and stale/inactive sources are retired.
+  Guildmaster controls fit the right tabletop behind the knife; its environment floor
+  follows native furniture bases. Overlapping map icons use nearest visible centres for
+  laser and fingertip selection. The original Guildmaster quest list stays during browsing
+  dialogs, but actual accepted quest story/loadout still hides it, including native peer
+  travel without a previously observed local selection. Campaign placement is unchanged.
+  Records: [MR-SCENARIO-530.md](MR-SCENARIO-530.md), [GUILD-ROOM-530.md](GUILD-ROOM-530.md),
+  [MAP-PICKING-530.md](MAP-PICKING-530.md), [GUILD-QUESTS-530.md](GUILD-QUESTS-530.md).
+  Hardware confirms the build-528/529 table is visible. Exact MR pixel attribution,
+  final floor contact/knife clearance and the new interactions still need headset checks.
+  Remote logs remain historical build 500. EN/DE tutorial execution hints now explicitly
+  require board CONFIRM; the unsupported second-pick advice is removed from all five uses.
+  Validation: complete guard/source/presentation suite and 254,565 real-runtime wire
+  assertions pass; strict Release zero warnings/errors, bilingual docs, Actionlint and
+  whitespace checks pass. New focused totals: MR ownership 39, room geometry 6,273,
+  map picking 333 and standing quest list 69, with bindings and negative controls.
+  Tutorial scope rechecked after the wording change (42 runtime / 17 binding assertions).
+  Guard exit 1 is solely the expected compiled difference from baseline 080c505e9:
+  97 changed, 76 added/removed types, one order-only project move. Config/patch/log
+  surfaces are 625 / 174 / 4,739, with no removals; patch inventory remains 132 classes /
+  199 registered methods. One additional Debug floor-placement token versus build 529.
+
+- **dev / 1.0.5 / ModBuild 529** moves the per-burn continuity records to opt-in Debug,
+  including an early observer guard to avoid material/progress reads and formatting at
+  ordinary verbosity. Re-enabling Debug starts fresh; anomaly output remains bounded.
+  Build-528 table/pool diagnostics already require Debug. This corrects the earlier promise
+  that normal logs would contain detailed continuity evidence. See [BURN-528.md](BURN-528.md).
+  The user's sparse-normal-log requirement is also recorded in `AGENTS.md`.
+  Validation: complete source/presentation guard and 254,565 real-runtime wire assertions
+  pass; strict Release zero warnings/errors; bilingual docs and whitespace checks pass.
+  The expected compiled diff from historical baseline 080c505e9 is the only guard exit-1
+  verdict. Config/patch/log surfaces remain 625 / 174 / 4,738, with no removals.
+
+- **dev / 1.0.5 / ModBuild 528** addresses the owner's local short-rest flash, Guildmaster
+  table/standing quest list, and a native Swift Bow UI initialization error in the latest
+  build-527 logs. Original faces retain animated materials through temporary ownership;
+  raw progress/material diagnostics separate a restart from a material swap. Native card
+  hierarchy returns before teardown/recycling, with damaged-copy rejection before reuse.
+  The original quest widget returns after temporary story/journey withdrawal. Guildmaster
+  discovers and fits the campaign table's original assets without moving native furniture.
+  Records: [BURN-528.md](BURN-528.md), [CARD-POOL-528.md](CARD-POOL-528.md),
+  [GUILD-QUESTS-528.md](GUILD-QUESTS-528.md), [GUILD-TABLE-528.md](GUILD-TABLE-528.md).
+  **Hardware remains unverified:** exact flash writer, cold Guildmaster asset availability,
+  final furniture fit, repeated scene transitions and current multiplayer observers.
+  Remote logs remain build 500, not current evidence. No release was requested this round.
+  Integrated validation: full guard source/presentation checks and real-runtime wire vectors
+  pass (254,565 wire assertions). Focused totals: burn 534, material ownership 543, native
+  pool lifetime 169, standing quest log 26, table fit/material lifecycle 1,530, plus bindings
+  and rejected mutations. Strict Release zero warnings/errors; bilingual docs and Actionlint
+  pass. Guard exit 1 is the expected compiled difference from baseline 080c505e9.
+  Surfaces: 625 config keys / 174 patch attributes / 4,738 log tokens; two new registered
+  pool hooks and five new diagnostic tokens versus 527. No existing surface was removed.
+
 - **1.0.4 release authorized after the build-527 hardware report.** The maintainer reports
   no visible issues. Current local logs show completed encounter room making with the new
   window fixed and no mod Error/Fatal entries. Old remote logs are not current evidence.
   Release preparation and audit: [RELEASE-104.md](RELEASE-104.md).
-  PR #7 is merged; full dev CI, reused PR CI and local release gates passed. Tag v1.0.4
-  targets main a6d044c4. Publication is blocked by repeated GitHub upload HTTP 500 responses;
-  prepared draft 391041682 remains unpublished with no assets, and latest stays v1.0.3.
-  The verified main-built ZIP is saved in dist/recovery-1.0.4/. Dev remains 1.0.4 until upload
-  and publication succeed; resume instructions are in the release record. At the maintainer's
-  request, recovery runs through the main Release workflow: rebuild the immutable tagged
-  main source using its successful dev CI evidence, without repeating full checks on main.
+  **Published successfully:** main Release run 35276519563 rebuilt immutable tag v1.0.4
+  from main a6d044c4, verified its existing full dev CI evidence, packaged and uploaded the
+  archive, checked its SHA256 and published it as Latest. No full suite was repeated on main.
+  Recovery fixes landed through PRs #8/#9 after full dev CI; their PR checks reused proof.
+  Dev bookkeeping completed at 24c8fce9 and now names **1.0.5**, still ModBuild 527.
+  The earlier upload failures and draft-discovery defect are resolved; the release record
+  preserves their evidence and the final archive digest.
 
 - **dev / 1.0.4 / ModBuild 527 preserves the newly opened map window's spawn pose.**
   Build-526 logs show three quest-popup animations moving only the newcomer. The solver now

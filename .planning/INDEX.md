@@ -1,6 +1,6 @@
 # Planning index
 
-Updated 2026-09-17 for anchored window openings, build 527 on dev. This directory holds internal
+Updated 2026-09-18 for short-rest playback, cold MR furniture and Guildmaster controls, build 534 on dev. This directory holds internal
 engineering evidence, historical decisions and current status; it is not the player manual.
 
 ## Current entry points
@@ -17,6 +17,30 @@ engineering evidence, historical decisions and current status; it is not the pla
 | [PROJECT.md](PROJECT.md), [ARCHITECTURE.md](ARCHITECTURE.md) | Product scope and architectural reasoning |
 
 ## Latest measured work
+
+- [BURN-534.md](BURN-534.md): preserve the first original burn through temporary full-card inactivity.
+- [GUILD-534.md](GUILD-534.md): native full-table recognition and separate Guildmaster map-surface caps.
+- [MR-534.md](MR-534.md): prevent cold-start map furniture from being classified as enclosing sky.
+
+- [ROUND-533.md](ROUND-533.md): exclude recovered hand cards from stale action-controller slots.
+- [BURN-533.md](BURN-533.md): unresolved short-rest flash and bounded Debug evidence for the next test.
+
+- [MR-532.md](MR-532.md): restrict MR backing geometry to UI under the latest hardware ruling.
+- [BURN-532.md](BURN-532.md): retain spent appearance through the original burn's terminal step.
+- [FLIGHT-532.md](FLIGHT-532.md): visible flight handover and accurate per-card completion evidence.
+
+- [CARD-RECOVERY-531.md](CARD-RECOVERY-531.md): clear retained native burn effects on legitimate recovery, before local and remote presentation.
+- [GUILD-RAIL-531.md](GUILD-RAIL-531.md): retain required Guildmaster controls when optional table-fit measurement fails.
+
+- [MR-SCENARIO-530.md](MR-SCENARIO-530.md): MR terrain eligibility, wall ownership and backing lifetime.
+- [GUILD-ROOM-530.md](GUILD-ROOM-530.md): Guildmaster right-side controls and native furniture floor contact.
+- [MAP-PICKING-530.md](MAP-PICKING-530.md): centre-based overlapping map icon selection for laser and finger.
+- [GUILD-QUESTS-530.md](GUILD-QUESTS-530.md): persistent browsing list versus actual accepted quest story.
+
+- [BURN-528.md](BURN-528.md): local native burn-material ownership and bounded continuity evidence.
+- [CARD-POOL-528.md](CARD-POOL-528.md): native card initialization failure, original hierarchy and recycled-copy repair.
+- [GUILD-QUESTS-528.md](GUILD-QUESTS-528.md): return of the original standing quest list after story curtains.
+- [GUILD-TABLE-528.md](GUILD-TABLE-528.md): original campaign tabletop reuse, furniture fit and cold-start asset limits.
 
 - [RELEASE-104.md](RELEASE-104.md): build-527 hardware review and authorized 1.0.4 publication.
 

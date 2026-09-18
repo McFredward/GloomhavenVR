@@ -2192,9 +2192,11 @@ internal sealed partial class CardsDriver
     /// lists? The gate the static <c>CardsActionControlller.topCard/bottomCard</c> supplement in
     /// <see cref="CollectRoundCards"/> is asked before it may dock a card.
     ///
-    /// <para>ONE EXPRESSION, AND THE SAME ORDER <see cref="RoundCardExitOf"/> USES: the "is it still
+    /// <para>THE SAME AUTHORITATIVE PILES <see cref="RoundCardExitOf"/> USES: the "is it still
     /// a round card" question first, so <c>ExtraTurnCards</c> — the entire reason the supplement
-    /// exists — can never be read as "left". Only then the four lists that mean it is gone. It is a
+    /// exists — can never be read as "left". Only then the five lists that mean it is gone.
+    /// Hand includes native recovery and selection undo; neither can revive the phase machine's
+    /// already-played pair. It is a
     /// separate predicate rather than a call into <see cref="RoundCardExitOf"/> because that method
     /// takes a <c>VRCard</c>, which this loop does not have yet: reaching one would mean calling
     /// <c>AdoptedCard</c>, i.e. ADOPTING the very card we are about to refuse.</para>
@@ -2220,7 +2222,13 @@ internal sealed partial class CardsDriver
             return false;
         if (klass.RoundAbilityCards.Contains(ac) || klass.ExtraTurnCards.Contains(ac))
             return false;
-        return klass.DiscardedAbilityCards.Contains(ac)
+        // MB533 hardware: burn the healing card, then recover it with the second card.
+        // The native action controller retains both FullAbilityCards until its next Init.
+        // Lost -> Hand removed every old rejection term and resurrected the spent first
+        // card in the dock. Recovery authorizes hand presentation, never another action
+        // slot. Round/ExtraTurn above remain authoritative for a real subsequent selection.
+        return klass.HandAbilityCards.Contains(ac)
+               || klass.DiscardedAbilityCards.Contains(ac)
                || klass.LostAbilityCards.Contains(ac)
                || klass.PermanentlyLostAbilityCards.Contains(ac)
                || klass.ActivatedCards.Contains(ac);
@@ -2236,6 +2244,12 @@ internal sealed partial class CardsDriver
     {
         if (!_loggedStaleStaticPair.Add(widget))
             return;
+        if (widget.PlayerActor?.CharacterClass.HandAbilityCards.Contains(widget.AbilityCard) == true)
+        {
+            VRLog.Note("Cards", "STALE ROUND PAIR REFUSED: the action controller still references a "
+                + "card returned to its owner's hand; recovery does not authorize another round slot.");
+            return;
+        }
         // HW-VERIFY: 2026-09-07, the user's SECOND item 5 — "Ich habe beim Schaden erhalten des
         // Mitspielers auf seinem remote-board eine Flug animation einer verdeckten Karte sehen
         // können! Wenn man den Schaden nimmt passiert gar nichts mit den Karten". Grep token:
@@ -3833,28 +3847,15 @@ internal sealed partial class CardsDriver
         if (held > 0.01f)
         {
             string arm = hold.ArtworkSeen
-                    // ─── THIS ARM SAID "ARTWORK END" AND COULD NOT KNOW THAT (2026-09-07, item 8) ─
-                    // CardEffects.coroutine is nulled by THREE different histories: the timeline's
-                    // own last statement (CardEffects.cs:618), RestoreCard() (:469-472) and every
-                    // ToggleAdditiveEffect (:404-407) — the last two being CANCELS. The short-rest
-                    // flow runs both several times on the same card
-                    // (CardsHandUI.AnimateCardsLost:1029/:1066 → AbilityCardUI.UpdateCard →
-                    // FullAbilityCard.SetPile), so "the handle went null" is the commonest reading
-                    // for a CANCEL, not for an end. ModBuild 476's peer log 60504 reports this arm
-                    // for 'ABILITY_CARD_ProvokingRoar' after 0,69s against a hard-coded
-                    // burnTime = 2f (:511): a finished ramp cannot be 0.69 s long, and the user's
-                    // report of that same burn is "kein verbrennen effekt darauf festellen können".
-                    //
-                    // SO THE ARM REPORTS THE PAINT, which IS the ramp's progress variable
-                    // (_GreyOut = Clamp01(dTime), :571) and therefore the one field that separates
-                    // the two histories. Under 1.00 = cancelled.
+                    // Native completion and cancellation both clear the handle. Raw shader
+                    // progress excludes our spent floor, and the native elapsed-clock exit
+                    // need not coincide with accumulated delta-time paint reaching one.
+                    // Report the reading without claiming that it proves a visible restart.
                     ? "ARTWORK HANDLE CLEARED at paint _GreyOut "
                       + BurnArtwork.PaintProgress(BurnArtwork.EffectsOf(card != null ? card.FullCard : null))
                             .ToString("F2")
-                      + " of 1.00 — under 1.00 means the game CANCELLED its own 2 s ramp rather "
-                      + "than finishing it (RestoreCard and ToggleAdditiveEffect null the same "
-                      + "handle); BurnLookPolicy settles the card to the full burnt end state in "
-                      + "that case, so every board still agrees on the picture"
+                      + " of 1.00; this raw value excludes the spent display floor. A low "
+                      + "value alone cannot distinguish cancellation from clock/delta completion"
                     : $"START GRACE — full-card artwork was not observed; the owning hand's native " +
                       $"loss sequence is also finished, and the {BurnEffectStartGraceSeconds:F2}s startup grace elapsed";
             // HW-VERIFY (2026-09-05 item 11c "auch fuer mich blieb die Karte laenger liegen", and
@@ -3869,18 +3870,10 @@ internal sealed partial class CardsDriver
             // grace. The short-rest sacrifice never waited for an artwork at all and the instrument
             // asserted the opposite. BurnHold.ArtworkSeen is what separates them.
             //
-            // PROOF the wait is doing its job: "ARTWORK HANDLE CLEARED" with held under
-            // BurnEffectMaxHoldSeconds AND a paint reading at or near 1.00. The PAINT is the term
-            // that grades it, not the elapsed time: a 0.69 s hold that reports _GreyOut 0.35 is a
-            // cancelled ramp wearing a plausible-looking duration, which is exactly what the
-            // pre-correction "ARTWORK END" wording hid.
-            // FALSIFIER — INERT: "DEADLINE" at 3.00-3.02 s again (the pre-2026-09-05 reading, 9 of
-            // 9 burns on ModBuild 447), meaning the running-coroutine term never went false.
-            // THE THIRD READING IS NOT A DEFECT BUT IS THE ANSWER TO THE SHORT-REST REPORT:
-            // "START GRACE" says the game never played an artwork on this card, so there was
-            // nothing to wait for and the 0.50 s is the whole wait by design. If he still reports
-            // "nicht ausreichend gewartet" on a line reading START GRACE, the lead is the GAME's
-            // burn timeline not starting, not this gate.
+            // ARTWORK HANDLE CLEARED means playback was observed before release. START GRACE
+            // means it was not observed, not proof that no native step ever ran. The global
+            // layout barrier retains each card's observation even while individual gates wait.
+            // Neither duration nor raw paint alone establishes the headset's final pixels.
             VRLog.Note("Cards", $"BURN HOLD: '{CardsGameApi.CardName(widget)}' waited {held:F2}s on the board " +
                                 $"(released by: {arm}) — flying to the Burnt pile now. The release term is " +
                                 "the native card artwork plus the owning hand's loss-sequence completion, " +

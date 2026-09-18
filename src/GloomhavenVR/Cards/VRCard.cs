@@ -1619,7 +1619,8 @@ internal sealed class VRCard : GrabbableBehaviour, IGrabHighlight, IPokeable, IG
     internal void FlyToPile(Vector3 targetWorldPos, float targetWorldWidth, float duration, Vector3 arcUp,
         Action onComplete, float minArcHeight = 0f)
     {
-        CancelAppear(); // a fly wins over a running materialize — never leave it half-faded/bodiless
+        if (IsHeld) return;
+        PrepareFlightVisual(); // flight takes exclusive ownership of the existing card surface
         _flying = true;
         _flyIntro = false; // fly-OUT: run the park/hide completion on arrival
         _flyElapsed = 0f;
@@ -1660,6 +1661,33 @@ internal sealed class VRCard : GrabbableBehaviour, IGrabHighlight, IPokeable, IG
     }
 
     /// <summary>
+    /// A pile flight can take over an already fading card when native pile membership catches up
+    /// after its dock departure. Cancel the obsolete presentation callback and restore only our
+    /// canvas/body fade; native burn materials remain at their completed burnt state. Otherwise
+    /// the transform flies with a transparent face/hidden body, then resumes the old vanish.
+    /// </summary>
+    private void PrepareFlightVisual()
+    {
+        NoteFlightFadeHandover();
+        _appearing = false;
+        _vanishing = false;
+        _vanishDone = null;
+        SetVisualAlpha(1f);
+        SetBodyVisible(true);
+    }
+
+    private static int s_flightFadeHandoverReports;
+
+    private void NoteFlightFadeHandover()
+    {
+        if (!_vanishing || !Core.VRLog.WantsDebug || s_flightFadeHandoverReports >= 12) return;
+        s_flightFadeHandoverReports++;
+        Core.VRLog.Info("Cards", $"FLIGHT FADE HANDOVER: '{name}' took over a pending vanish " +
+            $"at alpha {_faceGroup?.alpha ?? 1f:F2}, bodyHidden={_bodyHidden}; " +
+            $"retired the old park callback. Report {s_flightFadeHandoverReports}/12 this session.");
+    }
+
+    /// <summary>
     /// Issue 2 (short-rest choreography): fly this card IN from a pile — the reverse of
     /// <see cref="FlyToPile"/>. The burn-offered short-rest card ORIGINATES in the discard pile, so
     /// it flies OUT of <paramref name="fromWorldPos"/> (growing from the pile-slab size) and ARCHES
@@ -1679,7 +1707,7 @@ internal sealed class VRCard : GrabbableBehaviour, IGrabHighlight, IPokeable, IG
         Vector3 toWorld = parent != null ? parent.TransformPoint(_homePos) : _homePos;
         _flyRot = parent != null ? parent.rotation * _homeRot : _homeRot; // LOCKED upright/home orientation
 
-        CancelAppear(); // a fly wins over a running materialize — never leave it half-faded/bodiless
+        PrepareFlightVisual(); // flight takes exclusive ownership of the existing card surface
         _flying = true;
         _flyIntro = true; // fly-IN: settle at home on arrival, do NOT park
         _flyElapsed = 0f;
@@ -1992,8 +2020,9 @@ internal sealed class VRCard : GrabbableBehaviour, IGrabHighlight, IPokeable, IG
     /// that takes the transform away from the appear tick — a grab, a fly — must call this, or the
     /// card is stranded half-faded AND bodiless (its opaque slab is suppressed for the animation's
     /// duration, see <see cref="SetBodyVisible"/>). No-op when no appear is running. Deliberately
-    /// does NOT touch a running <see cref="Vanish"/>: a vanishing card is un-grabbable and never also
-    /// flies (the driver picks exactly one), and silently dropping it would strand the park callback.
+    /// does NOT touch a running <see cref="Vanish"/>: a vanishing card is un-grabbable, so a grab
+    /// must not discard its park callback. Pile flights use <see cref="PrepareFlightVisual"/>
+    /// instead because they explicitly replace the old fade and own arrival parking.
     /// </summary>
     private void CancelAppear()
     {

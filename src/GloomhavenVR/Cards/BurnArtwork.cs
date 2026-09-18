@@ -85,9 +85,10 @@ internal static class BurnArtwork
     /// <c>BurnCardTimeline</c>'s animated arm drives <c>_GreyOut</c> to <c>Mathf.Clamp01(dTime)</c>
     /// and runs until <c>burnTime = 2f</c> seconds of global-clock time have passed
     /// (CardEffects.cs:511/571), and its no-ramp arm writes a literal 1 (:600). So a LATCHED burn
-    /// whose handle is gone and whose paint sits below this did not finish — it was CANCELLED, and
-    /// <see cref="PaintProgress"/> reads the fraction it got to. That number, not the handle, is
-    /// what says whether the player saw a burn.
+    /// whose handle is gone and whose paint sits below this needs settled native output.
+    /// Cancellation is one possible cause; elapsed-clock termination can also precede the
+    /// accumulated delta-time paint. <see cref="PaintProgress"/> excludes the retained spent
+    /// display floor and cannot, by itself, prove what the player saw.
     /// </summary>
     internal const float FinishedGreyOut = 0.98f;
 
@@ -199,10 +200,61 @@ internal static class BurnArtwork
         return episode.Preserve(card, Recovered(card, owner), Durable(card, owner), resetting);
     }
 
+    /// <summary>Restore a genuinely recovered original even if native SetPile already cached Hand.
+    /// Build 530: Spellweaver returned four Lost cards, but their original burn paint remained.
+    /// SetPile only calls RestoreCard on a widget pile edge; an earlier protected reset can consume
+    /// that edge before model recovery. Observe original membership before drawing or publishing,
+    /// not just native reset requests. Initial Hand/Round action burns have no completed departure
+    /// and keep their timeline. No card-specific ability names or game-state writes are involved.</summary>
+    private sealed class RecoveryReset
+    {
+        internal ScenarioRuleLibrary.CAbilityCard? Card;
+        internal bool FailureLogged;
+    }
+    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<CardEffects, RecoveryReset> RecoveryResets = new();
+
+    internal static void ReconcileRecoveredAppearance(CardEffects? fx)
+    {
+        if (fx == null) return;
+        try
+        {
+            FullAbilityCard? full = ResolveOwner(fx, out var widget);
+            var card = widget != null ? widget.AbilityCard : full?.AbilityCard;
+            var owner = widget != null ? widget.PlayerActor : full?.playerActor;
+            // A stale Hand stamp also exists on real lost cards. Missing owner metadata is
+            // a temporary binding gap, never sufficient evidence to erase their presentation.
+            if (owner?.CharacterClass == null) return;
+            RecoveryResets.TryGetValue(fx, out var pending);
+            if (pending != null && pending.Card != null && !ReferenceEquals(pending.Card, card))
+            { RecoveryResets.Remove(fx); pending = null; }
+            if (card == null || !Recovered(card, owner) || Durable(card, owner)) return;
+            bool departed = BurnEpisodes.TryGetValue(fx, out var episode) && episode.IsRecovered(card, recovered: true);
+            departed |= ModelBurns.TryGetValue(card, out var history) && history.LeftRecoveryPile;
+            departed |= pending != null && ReferenceEquals(pending.Card, card);
+            if (!departed) return;
+            pending ??= RecoveryResets.GetValue(fx, _ => new());
+            pending.Card = card;
+            // Retire before native RestoreCard: old callbacks cannot resurrect an episode or its
+            // spent floor. Retain separate retry evidence until the entire native reset succeeds.
+            RetireBurnPlayback(fx);
+            ModelBurns.Remove(card);
+            fx.RestoreCard();
+            RecoveryResets.Remove(fx);
+        }
+        catch (System.Exception ex)
+        {
+            var pending = RecoveryResets.GetValue(fx, _ => new());
+            if (!pending.FailureLogged)
+                Core.VRLog.Warn("Cards", $"Recovered card artwork reset deferred: {ex.Message}; original presentation will retry.");
+            pending.FailureLogged = true;
+        }
+    }
+
     /// <summary>Actual pool recycle and scene teardown retire ownership before native reset.</summary>
     internal static void RetireBurnPlayback(CardEffects? fx)
     {
         if (fx == null) return;
+        BurnPlaybackTrace.Event(fx, "retire-original");
         if (BurnTimelines.TryGetValue(fx, out var playback))
         {
             FullAbilityCard? full = ResolveOwner(fx, out var widget);
@@ -224,11 +276,32 @@ internal static class BurnArtwork
     private static bool AllowEffect(CardEffects fx, bool active, CardEffects.FXTask effect)
     {
         bool burn = effect == CardEffects.FXTask.BurnCard || effect == CardEffects.FXTask.LostMode;
-        if (!PreservePlayback(fx, resetting: !burn)) return true;
+        if (!PreservePlayback(fx, resetting: !burn))
+        {
+            // Native short-rest hover asks for BurnCard(false): this is the fully burnt
+            // no-ramp preview, not cancellation. Clicking then restores that fiery preview
+            // to zero and starts the real two-second burn, which looks like a restart.
+            // Keep the uncommitted discarded offer in its existing spent appearance. Only
+            // the confirmation callback starts burn playback; redraw and gameplay stay native.
+            if (!active && effect == CardEffects.FXTask.BurnCard && IsShortRestPreview(fx)) return false;
+            return true;
+        }
         if (burn && active) fx.toggledEffects.Add(effect);
         // Keep the original burn latch through RefreshPile(false) while it is playing.
         // The first real recovery/reset clears the complete native set normally.
         return false;
+    }
+
+    private static bool IsShortRestPreview(CardEffects fx)
+    {
+        FullAbilityCard? full = ResolveOwner(fx, out var widget);
+        var card = widget != null ? widget.AbilityCard : full?.AbilityCard;
+        var owner = widget != null ? widget.PlayerActor : full?.playerActor;
+        var manager = CardsHandManager.Instance;
+        if (card == null || owner?.CharacterClass == null || manager == null
+            || !owner.CharacterClass.DiscardedAbilityCards.Contains(card)) return false;
+        var hand = manager.GetHand(owner);
+        return hand != null && ReferenceEquals(hand.ShortRestedCard, card);
     }
 
     [HarmonyPatch(typeof(CardEffects), nameof(CardEffects.ToggleEffect))]
@@ -238,7 +311,9 @@ internal static class BurnArtwork
         {
             try
             {
-                if (!AllowEffect(__instance, active, effect)) return false;
+                if (!AllowEffect(__instance, active, effect))
+                { BurnPlaybackTrace.Event(__instance, "effect-held", effect, active); return false; }
+                BurnPlaybackTrace.Event(__instance, "effect-allowed", effect, active);
                 FullAbilityCard? full = ResolveOwner(__instance, out var widget);
                 ClearRecoveredSpentBurnStart(__instance, full);
                 if (!active || effect != CardEffects.FXTask.BurnCard && effect != CardEffects.FXTask.LostMode) return true;
@@ -258,7 +333,12 @@ internal static class BurnArtwork
     {
         private static bool Prefix(CardEffects __instance, bool active, CardEffects.FXTask effect)
         {
-            try { return AllowEffect(__instance, active, effect); }
+            try
+            {
+                bool allowed = AllowEffect(__instance, active, effect);
+                BurnPlaybackTrace.Event(__instance, allowed ? "additive-effect-allowed" : "additive-effect-held", effect, active);
+                return allowed;
+            }
             catch { return true; }
         }
     }
@@ -270,7 +350,9 @@ internal static class BurnArtwork
         {
             try
             {
-                if (!PreservePlayback(__instance, resetting: true)) return true;
+                if (!PreservePlayback(__instance, resetting: true))
+                { BurnPlaybackTrace.Event(__instance, "restore-allowed"); return true; }
+                BurnPlaybackTrace.Event(__instance, "restore-held");
                 if (BurnEpisodes.TryGetValue(__instance, out var episode)) episode.RequestRestore();
                 return false;
             }
@@ -337,6 +419,26 @@ internal static class BurnArtwork
             return ReferenceEquals(currentCard, card) && ReferenceEquals(ReadHistory(card, owner, resetting: false), history);
         }
 
+        private static void Prefix(CardEffects __instance, bool burnAnim, ref bool playOnDisabled)
+        {
+            if (!burnAnim || playOnDisabled) return;
+            try
+            {
+                // Build 533 Debug capture: FinalizeShortRest starts the ORIGINAL burn while
+                // its full face is temporarily inactive (frame 2841). Native playback bails
+                // synchronously, so neither an episode nor completion is recorded. The VR
+                // face returns next frame; a no-ramp settle then precedes SetPile(Lost)'s
+                // second animated burn, visibly resetting the already burning card.
+                // Choreographer owns this coroutine, not the disabled face. Let the game's
+                // original iterator paint through that hierarchy transition, using its own
+                // existing playOnDisabled path. Do not activate hidden UI or run clone FX.
+                FullAbilityCard? full = ResolveOwner(__instance, out var widget);
+                if (full != null && widget != null && ReferenceEquals(widget.fullAbilityCard, full)
+                    && widget.AbilityCard != null) playOnDisabled = true;
+            }
+            catch { /* An unresolved original keeps the game's normal playback behavior. */ }
+        }
+
         private static void Postfix(CardEffects __instance, bool burnAnim, ref System.Collections.IEnumerator __result)
         {
             try { __result = Wrap(__instance, burnAnim, __result); }
@@ -371,6 +473,10 @@ internal static class BurnArtwork
                 {
                     if (firstStep)
                     {
+                        // A new genuine action supersedes an earlier failed recovery reset. Its
+                        // early Hand/Round phase must not be erased by that obsolete retry latch.
+                        if (burnAnim) BurnPlaybackTrace.Begin(__instance, followsOriginal);
+                        if (burnAnim && !followsOriginal) RecoveryResets.Remove(__instance);
                         BurnTimelines.Remove(__instance);
                         BurnTimelines.Add(__instance, playback!);
                     }
@@ -387,7 +493,9 @@ internal static class BurnArtwork
                     {
                         firstStep = false;
                         if (burnAnim && running && !followsOriginal) Net.CardAppearanceSampler.ObserveNativeBurnStart(__instance);
+                        BurnPlaybackTrace.Event(__instance, burnAnim ? "first-native-step" : "native-settle");
                     }
+                    if (burnAnim && !running) BurnPlaybackTrace.Event(__instance, "native-terminal-step");
                     // A native no-ramp settle is already authoritative completion. It must not
                     // inherit an earlier cosmetic floor's raw in-progress reading.
                     if (!burnAnim)
@@ -419,8 +527,14 @@ internal static class BurnArtwork
                         // Honor that native reset after the final step, never halfway through.
                         if (!running && episode.TakeDeferredRestore(Durable(card, owner))) __instance.RestoreCard();
                     }
+                    // The native iterator's terminal step only clears its handle; it does not
+                    // write final shader values. RestoreNativeBurnChannels removed our spent
+                    // floor before this step, so treating MoveNext(false) as idle exposes the
+                    // raw (possibly still near-zero after a clock jump) card for a frame. Keep
+                    // the same spent floor through completion without restarting the artwork.
+                    // A legitimate deferred activation reset clears the latch and stays clean.
                     PreserveSpentBurnStart(__instance, card, widget != null ? widget.PlayerActor : full?.playerActor,
-                        beforeReset: false, nativeStep: running);
+                        beforeReset: false, nativeStep: running || Latched(__instance));
                 },
                 ex => Core.VRLog.Warn("Cards", $"Could not preserve native burn step: {ex.Message}"));
             return playback;
