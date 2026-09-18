@@ -302,88 +302,26 @@ internal static partial class Loc
                 + "stellt sie beim Ausschalten von MR wieder her. Nur AUS, wenn ein Durchlauf zeigt, dass "
                 + "gewollte Geometrie versteckt wird — das Log nennt jeden abgeschalteten Renderer.",
             ["MixedReality/OpaquePreviewTiles"] =
-                "TEIL VON MIXED REALITY, keine Wahl daneben (wie HideSkyMeshes; nicht im VR-Menü). SÄMTLICHE "
-                + "durchscheinende 'Unseen'-Geometrie des Spiels — die verdeckten Kachel-STAPEL noch nicht "
-                + "entdeckter Räume UND die Hexfelder, die das unentdeckte Gebiet hinter Türen markieren — "
-                + "mischt sich mit dem, was hinter ihr liegt; über der dunklen Leere des Spiels fällt das "
-                + "nicht auf, aber in MR scheint die Key-Farbe / das echte Zimmer hindurch und alles wirkt "
-                + "wie grünes Glas. Solange MR an ist, findet der Durchlauf diese Renderer (die "
-                + "'Unseen'-Shader-Familie plus alles Durchscheinende unter dem aktiven 'Preview'-Teilbaum "
-                + "einer Map-Kachel) und schiebt UNTER jeden eine OPAKE dunkle Rückplatte — das gestaltete "
-                + "durchscheinende Material rendert exakt weiter wie entworfen, Look und Animation bleiben "
-                + "unangetastet, es mischt sich nur gegen Dunkel statt gegen dein Zimmer. Die Rückplatten "
-                + "werden beim Ausschalten von MR zerstört — der normale Modus bleibt unberührt. Nur AUS, "
-                + "wenn ein Durchlauf zeigt, dass gewollte Geometrie verdunkelt wird — das Log nennt, was "
-                + "hinterlegt wurde.",
+                "INAKTIV seit Build 532. MR-Hintergründe gelten nur für UI-Elemente; Gelände, Wasser und "
+                + "unentdeckte Kacheln behalten ihre ursprüngliche Darstellung. Für bestehende Konfigurationen erhalten.",
             ["MixedReality/UnseenSkirtScale"] =
-                "Verbreiterung der RILLEN-FÜLLUNG jedes 'Unseen'-Stücks relativ zu seiner Geometrie (1 = "
-                + "exakte Silhouette). Jedes Fog-of-War-Stück bekommt in MR ZWEI dunkle Rückplatten: eine "
-                + "exakte Kopie direkt hinter seinen Flächen und eine abgesenkte Füll-Kopie, die die "
-                + "abgeschrägten Rillen ZWISCHEN benachbarten Hexfeldern verschließt — dieser Faktor "
-                + "verbreitert nur diese Füllung, damit sich die Füllungen der Nachbarn unter der "
-                + "Rillenlinie überlappen. Wirkt bei aktivem MR, live (Rückplatten werden bei Änderung "
-                + "neu gebaut). Erhöhen, wenn Rillen zwischen den Hexfeldern weiter leuchten; "
-                + "verringern, wenn Dunkel über die äußersten Hexkanten hinausragt. Begrenzt auf 1..2.",
+                "INAKTIV seit Build 532. MR-Hintergründe gelten nur für UI-Elemente; Gelände, Wasser und "
+                + "unentdeckte Kacheln behalten ihre ursprüngliche Darstellung. Für bestehende Konfigurationen erhalten.",
             ["MixedReality/UnseenWaferDrop"] =
-                "Wie weit (Welteinheiten) die flache Fugen-RÜCKPLATTE jedes 'Unseen'-Stücks in MR "
-                + "unter dessen OBERKANTE sitzt. Die Rückplatte ist eine plattgedrückte, leicht "
-                + "verbreiterte dunkle Kopie des Stücks, die die Fugen ZWISCHEN benachbarten "
-                + "Hexfeldern direkt unter deren Oberkante ausfüllt — der Blick in eine Fuge trifft "
-                + "auf Dunkel statt auf das durchscheinende Zimmer, während die animierte Kante "
-                + "darüber weiterspielt. (Nachfolger des ausgemusterten Schlüssels UnseenFillDrop, "
-                + "dessen gespeicherter Tiefen-Füllwert nicht mehr zu dieser Bedeutung passte.) "
-                + "Wirkt bei aktivem MR, live (Rückplatten werden bei Änderung neu gebaut). Erhöhen, "
-                + "wenn die Rückplatte mit den Hex-Oberseiten flimmert; Richtung 0.01 senken, wenn "
-                + "bei flachen Winkeln weiter grüne Fugen zu sehen sind. Begrenzt auf 0..2.",
+                "INAKTIV seit Build 532. MR-Hintergründe gelten nur für UI-Elemente; Gelände, Wasser und "
+                + "unentdeckte Kacheln behalten ihre ursprüngliche Darstellung. Für bestehende Konfigurationen erhalten.",
             ["MixedReality/UnseenRimInset"] =
-                "Wie weit (Welteinheiten) der dunkle RAND-VORHANG in MR INNERHALB der senkrechten "
-                + "Seitenflächen jedes 'Unseen'-Stücks sitzt. Der Vorhang ist ein vom Mod GEBAUTES "
-                + "dunkles Prisma, das der Hex-Kontur des Stücks folgt und direkt hinter dessen "
-                + "Seitenflächen steht (seiner HÖHE — der äußeren 'Kante' des Fog-of-War-Gebiets), "
-                + "damit der Blick auf den Gebietsrand auf Dunkel trifft statt auf das durchscheinende "
-                + "Zimmer. Gebaut statt kopiert, weil die Kachel-Meshes des Spiels nicht CPU-lesbar "
-                + "sind: eine Kopie würde das gestaltete Vertex-Alpha dieser Seitenflächen erben — "
-                + "genau der Grund, warum zwölf Runden gleich-Mesh-Rückplatten sie nie abgedeckt haben. "
-                + "Wirkt bei aktivem MR, live (Rückplatten werden bei Änderung neu gebaut). Erhöhen, "
-                + "wenn an einer beschädigten/eingekerbten Kante Dunkel hervorsteht; Richtung 0.01 "
-                + "senken, wenn die Außenränder weiter leuchten. Begrenzt auf 0.005..0.2.",
+                "INAKTIV seit Build 532. MR-Hintergründe gelten nur für UI-Elemente; Gelände, Wasser und "
+                + "unentdeckte Kacheln behalten ihre ursprüngliche Darstellung. Für bestehende Konfigurationen erhalten.",
             ["MixedReality/UnseenRimTopClearance"] =
-                "Wie weit (Welteinheiten) die Oberkante des RAND-VORHANGS in MR UNTER der Oberkante "
-                + "jedes 'Unseen'-Stücks bleibt. Das ist die Garantie, dass der Vorhang niemals eine "
-                + "gestaltete Hex-Oberseite oder deren Animation übermalt: er wird immer unter der "
-                + "(breiteren) Fugen-Rückplatte gehalten und ist von oben vollständig hinter einer "
-                + "bereits dunklen Fläche verborgen. Erhöhen, falls jemals Dunkel auf einer "
-                + "Hex-Oberseite erscheint; Richtung Rückplatten-Abstand senken, wenn der oberste "
-                + "Saum des Außenrands noch leuchtet. Wird auf mindestens UnseenWaferDrop + 0.005 "
-                + "erzwungen. Wirkt bei aktivem MR, live (Rückplatten werden bei Änderung neu "
-                + "gebaut). Begrenzt auf 0.005..0.5.",
+                "INAKTIV seit Build 532. MR-Hintergründe gelten nur für UI-Elemente; Gelände, Wasser und "
+                + "unentdeckte Kacheln behalten ihre ursprüngliche Darstellung. Für bestehende Konfigurationen erhalten.",
             ["MixedReality/UnseenRegionMembership"] =
-                "TEIL VON MIXED REALITY, keine Wahl daneben (wie HideSkyMeshes; nicht im VR-Menü). "
-                + "Gibt auch jedem Teil eine dunkle Rückplatte, das einfach IM Fog-of-War-Gebiet "
-                + "STEHT — unterhalb der Oberkante der unentdeckten Kacheln — selbst wenn sein "
-                + "Material für den Mod nicht durchscheinend aussieht. Die Kacheln des unentdeckten "
-                + "Gebiets bestehen aus mehreren Meshes pro Hexfeld, und das höchste davon (der "
-                + "Block, der die äußere KANTE des Gebiets bildet) verrät nichts, was der Mod "
-                + "erkennen könnte: kein 'Unseen' im Namen, keine sichtbare Transparenz-Mischung, "
-                + "keine Transparenz-Renderreihenfolge. Genau dessen senkrechte Flächen ließen "
-                + "weiterhin das Zimmer durchscheinen. Statt aus Materialien zu raten, fragt diese "
-                + "Option, WO ein Teil steht. Figuren werden nie angefasst, nichts was AUF den "
-                + "Kacheln steht wird angefasst, und alles, was deutlich größer als ein Hexfeld "
-                + "ist, wird abgelehnt. Nur AUS, wenn ein Durchlauf zeigt, dass gewollte Geometrie "
-                + "verdunkelt wird — das Log nennt alles, was hinterlegt wurde.",
+                "INAKTIV seit Build 532. MR-Hintergründe gelten nur für UI-Elemente; Gelände, Wasser und "
+                + "unentdeckte Kacheln behalten ihre ursprüngliche Darstellung. Für bestehende Konfigurationen erhalten.",
             ["MixedReality/UnseenBackingDebugColors"] =
-                "DIAGNOSE, standardmäßig aus — nur einschalten, wenn nach einem Screenshot gefragt "
-                + "wird. In MR bekommt jedes Fog-of-War-Stück drei vom Mod gebaute dunkle "
-                + "Rückplatten (eine Kopie direkt hinter seinen Flächen, eine flache Scheibe knapp "
-                + "unter seiner Oberkante und ein Prisma hinter seinen äußeren Seitenflächen). Mit "
-                + "dieser Option AN werden sie statt dunkel in flachen Signalfarben gezeichnet — "
-                + "Kopie BLAU, Scheibe MAGENTA, Seitenprisma ROT — bei sonst völlig unveränderter "
-                + "Form, Position und Zeichenreihenfolge. Ein Foto zeigt dann, welche der "
-                + "Mod-Flächen tatsächlich bei dir ankommen und wo genau sie sitzen — das Einzige, "
-                + "was eine dunkle Rückplatte niemals zeigen kann. Währenddessen die GRÜNE "
-                + "Key-Farbe benutzen, damit keine Signalfarbe weggekeyt wird. Wirkt bei aktivem "
-                + "MR, live (Rückplatten werden bei Änderung neu gebaut); beim Ausschalten kehrt "
-                + "sofort der normale dunkle Look zurück.",
+                "INAKTIV seit Build 532. MR-Hintergründe gelten nur für UI-Elemente; Gelände, Wasser und "
+                + "unentdeckte Kacheln behalten ihre ursprüngliche Darstellung. Für bestehende Konfigurationen erhalten.",
             // ---- [Sky] ----
             ["Sky/Style"] =
                 "In welcher Umgebung du spielst (Nutzer-Entscheide 2026-08-12/13: die "

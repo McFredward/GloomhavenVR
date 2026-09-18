@@ -4,9 +4,11 @@
     <Nullable>enable</Nullable><TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <OwnershipSource Condition="'$(OwnershipSource)' == ''">../../src/GloomhavenVR/Core/ModVisualOwnership.cs</OwnershipSource>
     <EligibilitySource Condition="'$(EligibilitySource)' == ''">../../src/GloomhavenVR/Core/MixedReality/MrUnseenRegionEligibility.cs</EligibilitySource>
+    <RetirementSource Condition="'$(RetirementSource)' == ''">obj/Retirement.g.cs</RetirementSource>
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="$(OwnershipSource)" Link="Production/ModVisualOwnership.cs" />
     <Compile Include="$(EligibilitySource)" Link="Production/MrUnseenRegionEligibility.cs" />
+    <Compile Include="$(RetirementSource)" Link="Production/Retirement.g.cs" />
   </ItemGroup>
 </Project>

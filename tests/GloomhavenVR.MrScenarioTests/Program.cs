@@ -31,6 +31,18 @@ internal static class Program
         for (int flags = 0; flags < 8; flags++)
             Check(MrUnseenRegionEligibility.Retain((flags & 1) != 0, (flags & 2) != 0, (flags & 4) != 0)
                 == (flags == 7), "only active source with a live host retains region backing");
+        MixedReality.TickRetirement();
+        Check(MixedReality.RetireCalls == 0, "empty scenery retirement does not repeat cleanup");
+        for (int resource = 0; resource < 7; resource++)
+        {
+            MixedReality.Seed(resource);
+            MixedReality.TickRetirement();
+            Check(MixedReality.RetireCalls == resource + 1,
+                "every tracked scenery resource is retired, including partial builds");
+            MixedReality.TickRetirement();
+            Check(MixedReality.RetireCalls == resource + 1,
+                "retired scenery remains absent without recurring cleanup");
+        }
         Console.WriteLine($"MR scenario ownership: {_assertions} production assertions passed.");
     }
 }
