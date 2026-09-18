@@ -179,7 +179,8 @@ internal static partial class MixedReality
     /// bottom sits relative to the host's bottom).</para>
     ///
     /// <para>It classifies through <see cref="ClassifyRegion"/>, the same method the live route
-    /// uses, so the census cannot drift from the rule it audits. Bounded output: the busiest
+    /// uses, plus its shared native-kit eligibility guard, so the census reports deliberately
+    /// authored neighbors separately from eligible but unbacked fog geometry. Bounded output: the busiest
     /// <see cref="NameCensusMaxListed"/> in-region names, one line each.</para>
     /// </summary>
     private static void LogRegionNameCensus(Renderer[] all)
@@ -249,6 +250,8 @@ internal static partial class MixedReality
                     // refused it or BuildUnseenUnderlay found nothing to build on.
                     if (IsFigureOrActorRenderer(r))
                         s.Figure++;
+                    else if (!CanBackRegion(r, r.sharedMaterials))
+                        s.Authored++;
                     else
                         s.InsideUnbacked++;
                     break;
@@ -289,7 +292,7 @@ internal static partial class MixedReality
                                $"(family/tag {s.Family}, region {s.Region}); refused: aboveTop " +
                                $"{s.AboveTop}, oversize {s.Oversize}, nonMesh {s.NonMesh}, figure " +
                                $"{s.Figure}, disabled {s.Disabled}, uiLayer {s.UiLayer}, outside " +
-                               $"{s.Outside}, insideButUnbacked {s.InsideUnbacked}" +
+                               $"{s.Outside}, insideButUnbacked {s.InsideUnbacked}, authored {s.Authored}" +
                                (s.RailSeen
                                    ? $"; rail numbers: top overshoot {s.MinOvershoot:0.###}…" +
                                      $"{s.MaxOvershoot:0.###} wu over the host's top, bottom " +
@@ -333,7 +336,7 @@ internal static partial class MixedReality
     private sealed class NameStat
     {
         public int Count, Family, Region, AboveTop, Oversize, NonMesh, Figure, Disabled, UiLayer,
-                   Outside, InsideUnbacked;
+                   Outside, InsideUnbacked, Authored;
         public Renderer? Sample;
         public bool RailSeen;
         public float MinOvershoot, MaxOvershoot, MinBottomDelta, MaxBottomDelta;

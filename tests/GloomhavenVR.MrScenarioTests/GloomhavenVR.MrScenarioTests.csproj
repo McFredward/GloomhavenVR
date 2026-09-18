@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType><TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable><TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <OwnershipSource Condition="'$(OwnershipSource)' == ''">../../src/GloomhavenVR/Core/ModVisualOwnership.cs</OwnershipSource>
+    <EligibilitySource Condition="'$(EligibilitySource)' == ''">../../src/GloomhavenVR/Core/MixedReality/MrUnseenRegionEligibility.cs</EligibilitySource>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="$(OwnershipSource)" Link="Production/ModVisualOwnership.cs" />
+    <Compile Include="$(EligibilitySource)" Link="Production/MrUnseenRegionEligibility.cs" />
+  </ItemGroup>
+</Project>

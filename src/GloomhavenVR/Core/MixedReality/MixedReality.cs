@@ -958,8 +958,9 @@ internal static partial class MixedReality
     ///   'EN_CR_FloorTiles_Damaged_03' "is not CPU-readable — its vertex-color channel cannot be
     ///   stripped". A mesh the mod builds has no colour channel at all, the attribute defaults to
     ///   white, and the dark material renders unconditionally.</item>
-    /// <item>THE CLIFF PIECE ITSELF is reached by <see cref="RegionMembershipPass"/>, the route that
-    ///   asks the material nothing: it backs every mesh renderer that merely STANDS INSIDE a family
+    /// <item>THE CLIFF PIECE ITSELF is reached by <see cref="RegionMembershipPass"/>. Since build 530
+    ///   only the documented "Simple Tile" cliff block qualifies, and cutout materials are refused.
+    ///   Historically this route backed every mesh renderer that merely STANDS INSIDE a family
     ///   piece's AABB and either stays under that piece's top plane OR SPANS the host (bottom at the
     ///   tile's underside, top level with the tile's top) — see <see cref="ClassifyRegion"/>. A prop
     ///   standing ON a tile has its bottom at the tile's TOP and satisfies neither clause; the block
@@ -1459,8 +1460,9 @@ internal static partial class MixedReality
     }
 
     /// <summary>
-    /// ROUND 16 — THE REGION-MEMBERSHIP ROUTE: back every mesh renderer that merely STANDS INSIDE
-    /// the fog-of-war region, whatever its material says.
+    /// Supplemental region membership for the documented native Simple Tile fog cliff.
+    /// Build 530 narrows the historical round-16 "every overlapping mesh" rule: proximity alone
+    /// admitted revealed cliff dressing and filled the transparent rectangles of forest foliage.
     ///
     /// <para>WHY. Sixteen rounds widened MATERIAL predicates — shader name, material name, GO name,
     /// blend probe, render queue, RenderType tag — and none of them ever caught the piece the user
@@ -1493,7 +1495,26 @@ internal static partial class MixedReality
     /// </summary>
     private static void RegionMembershipPass(Renderer[] all)
     {
-        if (!UnseenRegionMembership.Value || UnseenUnderlays.Count == 0)
+        if (UnseenUnderlays.Count == 0)
+            return;
+
+        // A revealed or disabled family source no longer authorizes supplemental backing.
+        // Revalidate against this sweep's live family set, not its historical adoption pose.
+        bool hasRegion = SeedRegionBounds();
+        for (int i = UnseenUnderlays.Count - 1; i >= 0; i--)
+        {
+            UnseenUnderlay entry = UnseenUnderlays[i];
+            if (!entry.ViaRegion) continue;
+            if (UnseenRegionMembership.Value && hasRegion && entry.Source != null
+                && ClassifyRegion(entry.Source.bounds, out _, out _, out _) == RegionVerdict.Inside)
+                continue;
+            if (entry.Plate != null) UnityEngine.Object.Destroy(entry.Plate.gameObject);
+            if (entry.Fill != null) UnityEngine.Object.Destroy(entry.Fill.gameObject);
+            if (entry.Rim != null) UnityEngine.Object.Destroy(entry.Rim.gameObject);
+            UnseenSources.Remove(entry.SourceId);
+            UnseenUnderlays.RemoveAt(i);
+        }
+        if (!UnseenRegionMembership.Value || !hasRegion)
             return;
 
         // The REFUSAL counters are per-sweep: the same particle system or prop is re-examined every
@@ -1505,9 +1526,6 @@ internal static partial class MixedReality
         _regionRejectOversize = 0;
         _regionRejectNonMesh = 0;
         _regionRejectNoBacking = 0;
-
-        if (!SeedRegionBounds())
-            return;
 
         for (int i = 0; i < all.Length; i++)
         {
@@ -1561,6 +1579,12 @@ internal static partial class MixedReality
             Material[] mats = r.sharedMaterials;
             if (mats == null)
                 mats = System.Array.Empty<Material>();
+            // Build 530: AABB overlap is a proximity test, not evidence that an authored
+            // renderer belongs to fog. In particular hanging forest foliage sits below the
+            // neighboring hex top too. Its opaque backing erased the alpha-cutout silhouette.
+            // Only the documented shader-agnostic cliff block may take this fallback route.
+            if (!CanBackRegion(r, mats))
+                continue;
             // FORCE DARK: the whole point is that this piece's slots do NOT read see-through to the
             // probe — the per-slot rule would find nothing to back and skip it, which is exactly
             // how it stayed green for sixteen rounds. Inside the region, below the top plane, past
@@ -1589,6 +1613,15 @@ internal static partial class MixedReality
                 _regionRejectNoBacking++;
             }
         }
+    }
+
+    private static bool CanBackRegion(Renderer source, Material[] materials)
+    {
+        bool cutout = false;
+        for (int i = 0; i < materials.Length; i++)
+            if (materials[i] != null && (materials[i].GetTag("RenderType", false, string.Empty) == "TransparentCutout"
+                || materials[i].IsKeywordEnabled("_ALPHATEST_ON"))) cutout = true;
+        return MrUnseenRegionEligibility.Allows(source.gameObject.name, cutout);
     }
 
     /// <summary>Verdict of <see cref="ClassifyRegion"/> — shared by the region route and the
@@ -1621,7 +1654,8 @@ internal static partial class MixedReality
         for (int i = 0; i < UnseenUnderlays.Count; i++)
         {
             UnseenUnderlay e = UnseenUnderlays[i];
-            if (e.ViaRegion || e.Source == null)
+            if (e.ViaRegion || e.Source == null || !e.Source.enabled
+                || !e.Source.gameObject.activeInHierarchy)
                 continue;
             Bounds b = e.Source.bounds;
             RegionTopScratch.Add(b.max.y);

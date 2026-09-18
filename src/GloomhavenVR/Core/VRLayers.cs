@@ -103,8 +103,8 @@ internal static class VRLayers
 
     /// <summary>The prefix <c>CanvasConversion</c> and every mod-created scene object outside
     /// FigureGrab use. Kept beside <see cref="ModOwnedNamePrefix"/> so the two conventions are
-    /// visible in one place; it is a strict special case of it, which is why the shorter test
-    /// subsumes both.</summary>
+    /// visible in one place. Neither prefix subsumes the other; classification must use
+    /// <see cref="ModVisualOwnership.IsName"/> to recognize both.</summary>
     internal const string ModOwnedQualifiedPrefix = "GloomhavenVR.";
 
     private const int FallbackLayer = GameUiLayer; // built-in "UI"

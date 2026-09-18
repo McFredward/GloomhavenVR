@@ -5616,7 +5616,7 @@ internal static partial class WallSegmentFade
             // which this test had never known about and which the mod's figure-glow clones are
             // the only users of in a scene — see VRLayers.ModOwnedNamePrefix and IsModObject.
             f.Mod = r.gameObject.layer == VRLayers.ModLayer
-                || n.StartsWith(VRLayers.ModOwnedNamePrefix, StringComparison.Ordinal);
+                || ModVisualOwnership.IsName(n);
             // The authored water name family, consulted — as before — only when the shader
             // family already said no. See WallSegmentFade.Water.cs.
             f.WaterSurface = water || IsWaterNameFamily(n);
@@ -7586,9 +7586,10 @@ internal static partial class WallSegmentFade
             // this test knew nothing about it, so the mod's own figure-glow clones read as
             // SCENERY. See VRLayers.ModOwnedNamePrefix for the ModBuild 442 rows that measured
             // it, for the zero false positives across that session's ~9,000 renderers, and for
-            // the failure direction. The qualified prefix is a strict special case of the short
-            // one, so one test covers both.
-            || r.name.StartsWith(VRLayers.ModOwnedNamePrefix, StringComparison.Ordinal);
+            // the failure direction. Build 530 corrects the old claim that GloomhavenVR.
+            // starts with VR: both independent prefixes must be tested. The build-529 log
+            // actually adopted MR plates as orphaned architecture without this union.
+            || ModVisualOwnership.IsName(r.name);
 
         /// <summary>
         /// FIGURES ARE NEVER TOUCHED — round-7 ruling, same severity as the Lights rule
