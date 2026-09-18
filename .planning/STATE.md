@@ -28,7 +28,13 @@ change per build) → this file (where things stand and what is owed) → the bu
   Focused checks: burn replay 672 assertions / seven bindings / 32 negative controls;
   Guildmaster room 10,338 assertions / 25 bindings / nine negative controls;
   MR scenery/sky 79 assertions / 26 bindings / six negative controls.
-  Complete integration validation pending.
+  Complete source/runtime guard and 254,565 real-runtime wire assertions pass. Existing
+  flight timing 818, remote burn sequencing 108 and burn layout 228 assertions also pass.
+  The guard exit 1 is solely the expected compiled difference from baseline 080c505e9:
+  99 changed, 78 added/removed types and one order-only project move. Config/patch/log
+  surfaces stay 625 / 174 / 4,742 without removals. Patch inventory is 132 classes / 200
+  methods: the existing BurnCardTimeline patch gains the tested original-only prefix.
+  Bilingual docs, Actionlint and whitespace pass; strict Release zero warnings/errors.
 
 - **dev / 1.0.5 / ModBuild 533** fixes the clarified Spellweaver action-slot regression:
   the native action controller retains the first played card; recovering it from Lost to Hand
