@@ -33,8 +33,15 @@ internal sealed partial class CardsDriver
                 if (widget == null) continue;
                 ObserveForeignBurnProgress(widget);
 
-                _burnLayoutNativeActive |= BurnArtwork.Playing(BurnArtwork.EffectsOf(card.FullCard))
+                bool artworkPlaying = BurnArtwork.Playing(BurnArtwork.EffectsOf(card.FullCard))
                     || BurnArtwork.Playing(BurnArtwork.EffectsOf(widget));
+                _burnLayoutNativeActive |= artworkPlaying;
+                // This barrier prevents FlushBurnHolds from polling individual holds until
+                // every visible timeline has ended. Retain the observation here, otherwise a
+                // fully observed two-second burn is misreported as "artwork never started".
+                if (artworkPlaying && _burnHoldSince.TryGetValue(widget, out BurnHold held)
+                    && !held.ArtworkSeen)
+                    _burnHoldSince[widget] = new BurnHold(held.Since, artworkSeen: true);
 
                 // Model loss precedes the native timeline by several frames. Capture the hold
                 // during that gap, while the outgoing slot/grid address is still authoritative.
@@ -43,7 +50,7 @@ internal sealed partial class CardsDriver
                     || HasBurnHold(widget)) continue;
                 if (_active.Contains(card))
                     _activeExitOrigins[widget] = CapturedActiveSource(widget, widget.PlayerActor);
-                _burnHoldSince[widget] = new BurnHold(Time.unscaledTime, artworkSeen: false);
+                _burnHoldSince[widget] = new BurnHold(Time.unscaledTime, artworkSeen: artworkPlaying);
             }
         }
 

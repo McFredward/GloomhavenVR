@@ -22,7 +22,7 @@ old,new={
 'no-native-baseline':('foreach (CAbilityCard card in character.LostAbilityCards) _knownBurntCards.Add(card);', '// omitted baseline'),
 'early-layout':('if (DeferLayoutForBurn()) return;','if (false) return;'),
 'missed-model':('if (card.IsHeld || !IsFreshBurn(_boundHand, card)','if (true || card.IsHeld || !IsFreshBurn(_boundHand, card)'),
-'missed-native':('_burnLayoutNativeActive |= BurnArtwork.Playing(BurnArtwork.EffectsOf(card.FullCard))','_burnLayoutNativeActive |= false && BurnArtwork.Playing(BurnArtwork.EffectsOf(card.FullCard))'),
+'missed-native':('_burnLayoutNativeActive |= artworkPlaying;', '_burnLayoutNativeActive |= false;'),
 'no-retry':('_dirty = true;', '_dirty = false;'),
 'missed-incoming':('bool incomingActive = IncomingHandBurnActive();', 'bool incomingActive = false;'),
 'missed-progress':('Net.CardAppearanceSampler.ObserveBurnProgress(widget);', ''),

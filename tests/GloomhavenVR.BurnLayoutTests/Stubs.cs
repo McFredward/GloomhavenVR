@@ -34,7 +34,7 @@ namespace GloomhavenVR.Cards {
         private readonly HashSet<CAbilityCard> _knownBurntCards = new();
         private readonly Dictionary<AbilityCardUI, BurnHold> _burnHoldSince = new();
         private readonly Dictionary<AbilityCardUI, int> _activeExitOrigins = new();
-        private readonly struct BurnHold { internal BurnHold(float since, bool artworkSeen) { Since=since; } internal readonly float Since; }
+        private readonly struct BurnHold { internal BurnHold(float since, bool artworkSeen) { Since=since; ArtworkSeen=artworkSeen; } internal readonly float Since; internal readonly bool ArtworkSeen; }
         private bool IsParked(VRCard card) => card.Parked;
         private int CapturedActiveSource(AbilityCardUI widget, CPlayerActor? owner) => 17;
         internal bool NativeLossActive;
@@ -54,6 +54,7 @@ namespace GloomhavenVR.Cards {
         internal bool KnownModel(AbilityCardUI widget) => IsKnownBurn(widget);
         internal void SeedClaims() => SeedKnownBurns(_boundHand!);
         internal void ObserveRecovery() => PruneRecoveredBurns(_boundHand!);
+        internal bool ArtworkObserved(AbilityCardUI card) => _burnHoldSince.TryGetValue(card,out var hold) && hold.ArtworkSeen;
         internal int Holds => _burnHoldSince.Count;
         internal bool Pending => _burnLayoutPending;
         internal CPlayerActor? LayoutActor => PresentedHandForCardLayout(CurrentHand())?.PlayerActor;

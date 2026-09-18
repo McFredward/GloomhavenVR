@@ -168,3 +168,23 @@ fixture=fixture.replace('using System;','using System;\nusing Vector3=System.Num
 fixture=fixture.replace('internal sealed class DummyRoot { public bool activeSelf=true; }','internal sealed class DummyRoot { public bool activeSelf=true; public Transform transform=new(); }')
 out.write_text(fixture)
 print('Flight timing production integration: all checks passed.')
+
+# Run the original local transition with presentation writes represented by spies. The
+# binding checks keep both entry paths on that transition before they claim the tween.
+local = re.sub(r'//[^\n]*|/\*.*?\*/', '', (root / 'src/GloomhavenVR/Cards/VRCard.cs').read_text(), flags=re.S)
+for signature in ['internal void FlyToPile(', 'internal void FlyFromPile(']:
+    entry = method(local, signature)
+    assert 'PrepareFlightVisual();' in entry and entry.index('PrepareFlightVisual();') < entry.index('_flying = true;'), 'Local flight must restore its visible surface before taking ownership'
+    assert 'if (IsHeld)' in entry and entry.index('if (IsHeld)') < entry.index('PrepareFlightVisual();'), 'Held cards must retain their visual ownership'
+fixture += """
+internal sealed class LocalFlightFixture {
+public bool _appearing, _vanishing;
+public Action? _vanishDone;
+public float Alpha;
+public bool BodyVisible;
+private void SetVisualAlpha(float alpha) => Alpha=alpha;
+private void SetBodyVisible(bool visible) => BodyVisible=visible;
+private void NoteFlightFadeHandover() {}
+public void Prepare() => PrepareFlightVisual();
+""" + method(local, 'private void PrepareFlightVisual()') + "\n}\n"
+out.write_text(fixture)

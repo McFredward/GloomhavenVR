@@ -16,10 +16,19 @@ static class Program {
             if(flow=="active expiry") Check(d.HasSource(burn.GameCard),"Active source must be captured before layout changes");
             Time.unscaledTime=.2f;burn.FullCard.Playing=true;
             for(int i=0;i<20;i++){Time.unscaledTime+=1;d.Tick();Check(d.Pending&&d.Renders==0&&d.Flights==0&&sibling.Seat==1,"Live burn must never admit sibling movement or replacement");}
+            Check(d.ArtworkObserved(burn.GameCard!),"The layout barrier must retain actual artwork observations before releasing its hold");
             Check(d.ForeignProgressObservations >= 40,"Foreign progress must be observed during the native barrier before Flush can run");
             burn.FullCard.Playing=false;d.NativeLossActive=true;d.Tick();Check(d.Pending&&d.Renders==0,"Owning-hand loss must finish before layout replacement");
             d.NativeLossActive=false;d.Tick();Check(!d.Pending&&d.Flights==1&&d.Renders==1&&sibling.Seat==0,"Native completion must resume pending layout without a new event");
             d.Tick();Check(d.Flights==1,"Completed loss must not replay");
+        }
+        {
+            Time.unscaledTime=0;var actor=new CPlayerActor();var d=new CardsDriver();d.Bind(actor);var c=Card(actor);d.Add(c);
+            actor.CharacterClass.PermanentlyLostAbilityCards.Add(c.GameCard!.AbilityCard!);c.FullCard.Playing=true;d.Tick();
+            Check(d.Holds==1&&d.ArtworkObserved(c.GameCard),"A permanent loss already animating at discovery must be recorded as observed");
+            c.FullCard.Playing=false;Time.unscaledTime=.4f;d.Tick();
+            Check(d.Holds==1&&d.ArtworkObserved(c.GameCard)&&d.Flights==0,"A quiet frame must retain the observation and original startup grace");
+            Time.unscaledTime=.51f;d.Tick();Check(d.Flights==1,"Observed completion must release exactly one permanent-loss flight");
         }
         {var actor=new CPlayerActor();var d=new CardsDriver();d.Bind(actor);var c=Card(actor);d.Add(c);d.Requested.Add(Card(new CPlayerActor()));c.GameCard!.Playing=true;d.Tick();Check(d.Pending&&d.Renders==0,"Native burn before model commit must retain the previous character");c.GameCard.Playing=false;d.Tick();Check(!d.Pending&&d.Renders==1,"No model loss must not invent a flight or strand the layout");}
         {var actor=new CPlayerActor();var d=new CardsDriver();d.Bind(actor);var c=Card(actor);d.Add(c);actor.CharacterClass.LostAbilityCards.Add(c.GameCard!.AbilityCard!);d.Known(c.GameCard);d.Requested.Add(c);d.Tick();Check(!d.Pending&&d.Flights==0,"Already-burnt browse cards must not restart a hold");}
