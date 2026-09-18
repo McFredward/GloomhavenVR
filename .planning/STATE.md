@@ -23,7 +23,13 @@ change per build) → this file (where things stand and what is owed) → the bu
   Local draw and owner publication use the same corrected sampler. Peer logs remain build 500;
   the precise hardware deactivation writer and headset outcome remain unverified.
   Record: [BURN-535.md](BURN-535.md). Focused replay: 683 runtime assertions / seven source
-  bindings / 36 negative controls. Full integration validation is pending.
+  bindings / 36 negative controls. Complete source/runtime guard and 254,565 real-runtime
+  wire assertions pass; flight timing 818, remote burn sequencing 108 and burn layout 228
+  assertions pass. Guard exit 1 is solely the expected compiled difference from baseline
+  080c505e9: 99 changed, 78 added/removed types and one order-only project move. Config,
+  patch and log surfaces remain 625 / 174 / 4,742, with no removals. Patch inventory remains
+  132 classes / 200 methods. Strict Release passes with zero warnings/errors; bilingual
+  docs, Actionlint and whitespace pass.
 
 - **Released 1.0.5 / ModBuild 534**, main 377d26ec, tag v1.0.5, GitHub Latest.
   Full development CI, reused PR validation and main release workflow succeeded. Downloaded

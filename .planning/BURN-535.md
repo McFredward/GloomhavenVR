@@ -26,8 +26,8 @@ the floor.
 
 ## Source findings
 
-`BurnArtwork.PreserveSpentBurnStart` still requires `activeInHierarchy` when
-ordinary presentation sampling classifies a burn as running. Build 534 explicitly
+Build 534's `BurnArtwork.PreserveSpentBurnStart` required `activeInHierarchy` when
+ordinary presentation sampling classified a burn as running. Build 534 explicitly
 permits the Choreographer-owned original iterator to run while its face is
 inactive. For an already Lost card, an inactive sample consequently invokes
 `SpentBurnContinuity.Apply` with both `spent` and `burning` false, clearing the
@@ -37,8 +37,8 @@ mid-ramp paint. This is a source-proven contradictory lifetime condition.
 A second audit concern is missing presentation binding metadata: the same method
 removes the record when the caller's widget/card/owner is missing, even though the
 original FullAbilityCard and tracked iterator can remain valid. Production
-`ClearRecoveredSpentBurnStart` and `ReleaseSpentBurnStart` also need real runtime
-coverage; the existing replay harness omits these methods and substitutes a
+`ClearRecoveredSpentBurnStart` and `ReleaseSpentBurnStart` also lacked real runtime
+coverage: the previous replay harness omitted these methods and substituted a
 no-op cleanup stub.
 
 The exact native hierarchy writer at the observed 0.697-second boundary remains
@@ -69,4 +69,13 @@ and resulting headset appearance still require verification.
 
 Focused validation: `bash scripts/burn-replay-tests.sh` passes with 683 runtime
 assertions, seven source bindings, and 36 rejected negative controls (four new).
-`git diff --check` passes. Full integration gates remain the integrator’s work.
+Integrated validation also passes: the complete source/runtime guard, 254,565
+real-runtime wire assertions, flight timing 818, remote burn sequencing 108 and
+burn layout 228. Strict Release has zero warnings/errors. Bilingual documentation,
+Actionlint, patch inventory and whitespace checks pass. Guard exit 1 only denotes
+the expected compiled difference from baseline 080c505e9: 99 changed, 78 added or
+removed types and one order-only move. Config/patch/log surfaces remain
+625 / 174 / 4,742; inventory remains 132 patch classes / 200 methods.
+
+The correction is on dev 1.0.6 / ModBuild 535. The published 1.0.5 remains unchanged.
+A new headset test must still establish whether this eliminates the reported flash.
