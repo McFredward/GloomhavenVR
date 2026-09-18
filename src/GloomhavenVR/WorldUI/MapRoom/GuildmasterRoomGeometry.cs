@@ -43,8 +43,8 @@ internal static class GuildmasterRoomGeometry
         return true;
     }
 
-    internal static bool TryRail(MeshRenderer parchment, MapRoomSeat.Seat seat, int count,
-        float capSize, float gapRatio, float outerRatio, out GuildmasterRoomLayout.Rail layout)
+    internal static bool TryRail(MeshRenderer parchment, MapRoomSeat.Seat seat, int actions, int maps,
+        float capSize, float gapRatio, float groupGapRatio, float outerRatio, out GuildmasterRoomLayout.Rail layout)
     {
         Vector3 right = seat.Rotation * Vector3.right, forward = seat.Rotation * Vector3.forward;
         Bounds map = Project(parchment, right, forward);
@@ -74,14 +74,14 @@ internal static class GuildmasterRoomGeometry
             knifeFar = Mathf.Max(knifeFar, prop.max.z + .02f * seat.Scale);
         }
         near = Mathf.Max(near, knifeFar);
-        if (table != null && GuildmasterRoomLayout.TryRail(left, edge, near, far, count, capSize,
-            gapRatio, outerRatio, out layout) && GuildmasterRoomLayout.HasUsableCap(layout, capSize)) return true;
+        if (table != null && GuildmasterRoomLayout.TryGroupedRail(left, edge, near, far, actions, maps, capSize,
+            gapRatio, groupGapRatio, outerRatio, out layout) && GuildmasterRoomLayout.HasUsableCap(layout, capSize)) return true;
 
         // Build 530 returned without any caps whenever the optional support measurement failed.
         // These are necessary native actions, not decoration. Keep a deterministic, reachable
         // right-side rail, above the measured knife, while reporting the unsupported furniture fit.
-        layout = GuildmasterRoomLayout.FallbackRail(left, map.max.z, knifeFar, count,
-            capSize, gapRatio, outerRatio);
+        layout = GuildmasterRoomLayout.FallbackGroupedRail(left, map.max.z, knifeFar, actions, maps,
+            capSize, gapRatio, groupGapRatio, outerRatio);
         if (VRLog.WantsDebug)
             VRLog.Info("MapRoom", $"GUILDMASTER RAIL FIT: support='{(table != null ? table.name : "<none>")}', "
                 + $"side=({left:F2}..{edge:F2}), depth=({near:F2}..{far:F2}), "
@@ -89,14 +89,14 @@ internal static class GuildmasterRoomGeometry
         return false;
     }
 
-    private static MeshRenderer? FindTableSupport(MeshRenderer parchment, float scale)
+    internal static MeshRenderer? FindTableSupport(MeshRenderer parchment, float scale)
     {
         Bounds map = parchment.bounds;
         MeshRenderer? best = null;
         float bestArea = float.PositiveInfinity;
         foreach (MeshRenderer renderer in UnityEngine.Object.FindObjectsOfType<MeshRenderer>())
         {
-            if (!renderer.enabled || renderer == parchment || !NativeProp(renderer, parchment)
+            if (renderer == parchment || !NativeProp(renderer, parchment)
                 || !Named(renderer.transform, "table", "tabletop", "slab")) continue;
             Bounds b = renderer.bounds;
             if (b.min.x > map.min.x + .02f * scale || b.max.x < map.max.x - .02f * scale

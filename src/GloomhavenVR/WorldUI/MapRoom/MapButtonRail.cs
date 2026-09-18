@@ -725,13 +725,23 @@ internal sealed class MapButtonRail
 
         // Guildmaster's native knife/bench layout leaves no supported near-edge rail. Keep
         // campaign placement unchanged and fit this mode's caps to the right-hand tabletop.
+        int[] rowCount = new int[GuildmasterDestinations.RailRowCount];
+        for (int i = 0; i < _scratch.Count; i++)
+        {
+            if (_scratch[i] == null)
+                continue;
+            int r = GuildmasterDestinations.RailRow(_scratch[i].GuildmasterMode);
+            if (r >= 0 && r < rowCount.Length)
+                rowCount[r]++;
+        }
+
         bool guildmaster = GuildmasterRoomGeometry.Active;
         GuildmasterRoomLayout.Rail sideRail = default;
         bool supportedRail = true;
         if (guildmaster)
         {
-            supportedRail = GuildmasterRoomGeometry.TryRail(parchment, seat, _scratch.Count,
-                CapSizeMeters * _scale, CapGapMeters / CapSizeMeters, GlowFraction, out sideRail);
+            supportedRail = GuildmasterRoomGeometry.TryRail(parchment, seat, rowCount[0], rowCount[1],
+                CapSizeMeters * _scale, CapGapMeters / CapSizeMeters, RowGapMeters / CapSizeMeters, GlowFraction, out sideRail);
             if (!supportedRail && !_fitWarned)
             {
                 _fitWarned = true;
@@ -791,15 +801,6 @@ internal sealed class MapButtonRail
         // WHICH cap goes in which row is GuildmasterDestinations.RailRow — declared beside the order
         // table, never scanned — and within a row the caps keep their declared rank order, because
         // _scratch is already sorted and this loop preserves it.
-        int[] rowCount = new int[GuildmasterDestinations.RailRowCount];
-        for (int i = 0; i < _scratch.Count; i++)
-        {
-            if (_scratch[i] == null)
-                continue;
-            int r = GuildmasterDestinations.RailRow(_scratch[i].GuildmasterMode);
-            if (r >= 0 && r < rowCount.Length)
-                rowCount[r]++;
-        }
         float[] rowX = new float[rowCount.Length];
         for (int r = 0; r < rowCount.Length; r++)
         {
@@ -821,12 +822,13 @@ internal sealed class MapButtonRail
             if (row < 0 || row >= rowCount.Length)
                 row = 0;
             var localPos = new Vector3(rowX[row] + pitch * rowPlaced[row], 0f, -rowStep * row);
-            rowPlaced[row]++;
             if (guildmaster)
             {
-                sideRail.Position(built, out float x, out float z);
+                GuildmasterRoomLayout.GroupPosition(sideRail, row, rowPlaced[row], rowCount[0], rowCount[1],
+                    out float x, out float z);
                 localPos = new Vector3(x, 0f, z);
             }
+            rowPlaced[row]++;
             Cap c = BuildCap(button, localPos, capLocalRot, cap, depth);
             _caps.Add(c);
             built++;
@@ -897,11 +899,18 @@ internal sealed class MapButtonRail
         sb.Append("MAP TABLE BUTTON ORDER: ");
         if (guildmaster)
         {
-            sb.Append($"Guildmaster right tabletop, {columns} column(s), far to near: ");
-            for (int i = 0; i < _caps.Count; i++)
+            sb.Append($"Guildmaster right tabletop, {columns} column(s), actions then centred map surfaces: ");
+            for (int group = 0; group < GuildmasterDestinations.RailRowCount; group++)
             {
-                if (i > 0) sb.Append(i % columns == 0 ? " | " : ", ");
-                sb.Append(_caps[i].Button.GuildmasterMode);
+                if (group > 0) sb.Append(" | ");
+                bool first = true;
+                for (int i = 0; i < _caps.Count; i++)
+                {
+                    if (GuildmasterDestinations.RailRow(_caps[i].Button.GuildmasterMode) != group) continue;
+                    if (!first) sb.Append(", ");
+                    sb.Append(_caps[i].Button.GuildmasterMode);
+                    first = false;
+                }
             }
             VRLog.Note(Scope, sb.ToString());
             return;

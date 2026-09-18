@@ -7,12 +7,52 @@ internal static class GuildmasterRoomLayout
 {
     internal readonly struct Rail
     {
-        internal readonly float X, Z, Cap, Pitch;
+        internal readonly float X, Z, Cap, Pitch, GroupPitch;
         internal readonly int Columns;
-        internal Rail(float x, float z, float cap, float pitch, int columns)
-        { X = x; Z = z; Cap = cap; Pitch = pitch; Columns = columns; }
+        internal Rail(float x, float z, float cap, float pitch, int columns, float groupPitch = 0f)
+        { X = x; Z = z; Cap = cap; Pitch = pitch; Columns = columns; GroupPitch = groupPitch; }
         internal void Position(int index, out float x, out float z)
         { x = X + index % Columns * Pitch; z = Z - index / Columns * Pitch; }
+    }
+
+    // Keep the map surfaces in their own right-hand vertical pair, centred alongside actions.
+    // Group counts come from the native HUD's declared row classification, never scan order.
+    internal static void GroupPosition(Rail rail, int group, int index, int actions, int maps,
+        out float x, out float z)
+    {
+        int rows = Math.Max(actions, maps);
+        int count = group == 0 ? actions : maps;
+        x = rail.X + (group == 1 && actions > 0 ? rail.GroupPitch : 0f);
+        z = rail.Z - ((rows - count) * .5f + index) * rail.Pitch;
+    }
+
+    internal static bool TryGroupedRail(float left, float right, float near, float far,
+        int actions, int maps, float desiredCap, float gapRatio, float groupGapRatio,
+        float outerRatio, out Rail rail)
+    {
+        rail = default;
+        int rows = Math.Max(actions, maps);
+        bool pair = actions > 0 && maps > 0;
+        if (rows <= 0 || right <= left || far <= near || desiredCap <= 0f) return false;
+        float cap = Math.Min(desiredCap, Math.Min(
+            (right - left) / (outerRatio + (pair ? 1f + groupGapRatio : 0f)),
+            (far - near) / (outerRatio + (rows - 1) * (1f + gapRatio))));
+        float groupPitch = cap * (1f + groupGapRatio);
+        float width = outerRatio * cap + (pair ? groupPitch : 0f);
+        rail = new Rail((left + right - width + outerRatio * cap) * .5f,
+            far - outerRatio * cap * .5f, cap, cap * (1f + gapRatio), pair ? 2 : 1, groupPitch);
+        return cap > 0f;
+    }
+
+    internal static Rail FallbackGroupedRail(float mapRight, float mapFar, float knifeFar,
+        int actions, int maps, float cap, float gapRatio, float groupGapRatio, float outerRatio)
+    {
+        int rows = Math.Max(1, Math.Max(actions, maps));
+        float radius = outerRatio * cap * .5f;
+        float pitch = cap * (1f + gapRatio);
+        float farCentre = Math.Max(mapFar - radius, knifeFar + radius + (rows - 1) * pitch);
+        return new Rail(mapRight + radius, farCentre, cap, pitch,
+            actions > 0 && maps > 0 ? 2 : 1, cap * (1f + groupGapRatio));
     }
 
     // The outer glow/socket matters too: a centre on the tabletop is not a supported button.

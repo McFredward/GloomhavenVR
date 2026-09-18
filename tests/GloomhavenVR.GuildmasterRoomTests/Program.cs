@@ -64,6 +64,53 @@ internal static class Program
                 }
             }
         }
+        for (int actions = 0; actions <= 8; actions++)
+        for (int maps = 0; maps <= 3; maps++)
+        {
+            if (actions + maps == 0) continue;
+            foreach (float scale in new[] { .5f, 1f, 219.7f })
+            {
+                float cap = .055f * scale, left = .6f * scale, near = -.4f * scale, far = .5f * scale;
+                Check(GuildmasterRoomLayout.TryGroupedRail(left, left + .2f * scale, near, far,
+                    actions, maps, cap, .018f / .055f, .030f / .055f, 1.35f, out var rail),
+                    "grouped rail fits native tabletop");
+                Check(rail.Cap <= cap, "grouped caps never grow");
+                for (int group = 0; group < 2; group++)
+                {
+                    int count = group == 0 ? actions : maps;
+                    float average = 0f;
+                    for (int index = 0; index < count; index++)
+                    {
+                        GuildmasterRoomLayout.GroupPosition(rail, group, index, actions, maps, out float x, out float z);
+                        float radius = rail.Cap * 1.35f * .5f, epsilon = .00001f * scale;
+                        Check(x - radius >= left - epsilon && x + radius <= left + .2f * scale + epsilon,
+                            "grouped whole cap stays on tabletop");
+                        Check(z - radius >= near - epsilon && z + radius <= far + epsilon,
+                            "grouped whole cap clears knife");
+                        if (group == 1 && actions > 0)
+                            Check(x - rail.X > rail.Cap * 1.35f, "map pair is visibly separated to right");
+                        if (index > 0)
+                        {
+                            GuildmasterRoomLayout.GroupPosition(rail, group, index - 1, actions, maps, out float previousX, out float previousZ);
+                            Check(x == previousX && z < previousZ, "each group is vertical far to near");
+                        }
+                        average += z;
+                    }
+                    if (count > 0)
+                        Check(Math.Abs(average / count - (rail.Z - (Math.Max(actions, maps) - 1) * rail.Pitch * .5f)) < .0001f * scale,
+                            "map pair and action column share vertical centre");
+                }
+                var fallback = GuildmasterRoomLayout.FallbackGroupedRail(left, far, .45f * scale,
+                    actions, maps, cap, .018f / .055f, .030f / .055f, 1.35f);
+                for (int group = 0; group < 2; group++)
+                for (int index = 0; index < (group == 0 ? actions : maps); index++)
+                {
+                    GuildmasterRoomLayout.GroupPosition(fallback, group, index, actions, maps, out float x, out float z);
+                    Check(x - cap * 1.35f * .5f >= left - .00001f * scale, "grouped fallback stays right");
+                    Check(z - cap * 1.35f * .5f >= .45f * scale - .00001f * scale, "grouped fallback clears knife");
+                }
+            }
+        }
         Console.WriteLine($"Guildmaster room production layout: {_checks} assertions passed.");
     }
 }

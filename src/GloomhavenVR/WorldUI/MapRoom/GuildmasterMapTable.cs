@@ -41,6 +41,12 @@ internal sealed class GuildmasterMapTable
         {
             if (!MapRoomDriver.TrySolveSeat(out MapRoomSeat.Seat seat, out _)) return;
             float scale = Mathf.Max(seat.Scale, 0.0001f);
+            // Guildmaster already supplies GH_Map_Table as one mesh including its legs. The
+            // optional slab finder deliberately rejects that shape; this does not mean the map
+            // has no table. Respect its native geometry even while MR/material loading briefly
+            // disables the renderer, and never load or overlay a second campaign slab.
+            if (GuildmasterRoomGeometry.FindTableSupport(parchment, scale) != null)
+            { _finished = true; return; }
             if (!_assets.Poll())
             {
                 if (_assets.Pending) return;
