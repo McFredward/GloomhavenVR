@@ -36,6 +36,11 @@ internal static class CardPlumeSampler
                     ? card.GameCard.PlayerActor : null;
                 if (smoke == null || card == null || actor == null
                     || !card.gameObject.activeInHierarchy) continue;
+                // Native recovery retires its smoke before the per-card binding's next tick.
+                // Do not address that old binding as a plume on the newly recovered hand card.
+                CardEffects? effects = BurnArtwork.EffectsOf(card.FullCard);
+                BurnArtwork.ReconcileRecoveredAppearance(effects);
+                if (effects == null || !ReferenceEquals(smoke, effects._smokeEffect)) continue;
                 LocalRigSampler.NameCard(actor, card, out byte code, out byte count);
                 if (code == 0 && card.GameCard?.AbilityCard != null)
                 {

@@ -35,7 +35,7 @@ PY
 done
 cp "$work_dir/original.txt" "$work_dir/NativeBurnEpisode.cs"
 cp "$work_dir/Production.cs" "$work_dir/production.txt"
-for mutation in short-rest-preview historical-init historical-rebuild settled-history deferred-reset follower retire-primary retired-follower retargeted-follower recovered-follower; do
+for mutation in short-rest-preview historical-init historical-rebuild settled-history deferred-reset follower retire-primary retired-follower retargeted-follower recovered-follower implicit-recovery retry-recovery new-episode missing-owner retry-identity; do
  python3 - "$work_dir" "$mutation" <<'PY'
 from pathlib import Path
 import sys
@@ -51,6 +51,11 @@ a,b={
 'retired-follower':('if (!stillOwned()) return false;', ''),
 'retargeted-follower':('ReferenceEquals(currentCard, card) &&', ''),
 'recovered-follower':('ReferenceEquals(ReadHistory(card, owner, resetting: false), history)', 'true'),
+'implicit-recovery':('if (!departed) return;', 'if (bool.Parse("true")) return;'),
+'retry-recovery':('departed |= pending != null && ReferenceEquals(pending.Card, card);', ''),
+'new-episode':('if (burnAnim && !followsOriginal) RecoveryResets.Remove(__instance);', ''),
+'missing-owner':('if (owner?.CharacterClass == null) return;', ''),
+'retry-identity':('RecoveryResets.TryGetValue(fx, out var pending);', 'RecoveryResets.TryGetValue(fx, out var pending); if (pending != null) pending.Card = card;'),
 }[sys.argv[2]]
 assert s.count(a)==1;(p/'Production.cs').write_text(s.replace(a,b))
 PY
@@ -65,7 +70,38 @@ PY
  retired-follower) expected='Retired follower iterators must stop without painting recycled artwork';;
  retargeted-follower) expected='Retargeted follower iterators must stop without altering the new card';;
  recovered-follower) expected='Original recovery must release waiters without painting a new lost state';;
+ implicit-recovery) expected='Recovery without a native SetPile edge must restore the original before local draw and remote capture';;
+ retry-recovery) expected='A later intact original must retry recovery after an earlier native reset failure';;
+ new-episode) expected='A failed recovery retry must never cancel a new genuine burn of the same card';;
+ missing-owner) expected='Unresolved owner metadata must not clear a real lost card from a stale Hand stamp';;
+ retry-identity) expected="A pooled rebind must never apply another card's failed recovery to its new presentation";;
  esac
  if ! grep -Fq "$expected" "$work_dir/negative.log"; then cat "$work_dir/negative.log"; exit 1; fi
  echo "Burn history negative control: $mutation failed as expected."
+done
+
+for binding in local capture plume; do
+ mkdir -p "$work_dir/source/src/GloomhavenVR/Cards/Art" "$work_dir/source/src/GloomhavenVR/Net"
+ cp "$repo_root/src/GloomhavenVR/Cards/BurnArtwork.cs" "$work_dir/source/src/GloomhavenVR/Cards/"
+ cp "$repo_root/src/GloomhavenVR/Cards/Art/BurnLookPolicy.cs" "$work_dir/source/src/GloomhavenVR/Cards/Art/"
+ cp "$repo_root/src/GloomhavenVR/Net/CardAppearanceSampler.cs" "$repo_root/src/GloomhavenVR/Net/CardPlumeSampler.cs" "$work_dir/source/src/GloomhavenVR/Net/"
+ python3 - "$work_dir/source/src/GloomhavenVR" "$binding" <<'PYB'
+from pathlib import Path
+import sys
+root=Path(sys.argv[1])
+file,old={
+'local':('Cards/Art/BurnLookPolicy.cs','BurnArtwork.ReconcileRecoveredAppearance(fx);'),
+'capture':('Net/CardAppearanceSampler.cs','BurnArtwork.ReconcileRecoveredAppearance(full.cardEffects);'),
+'plume':('Net/CardPlumeSampler.cs','!ReferenceEquals(smoke, effects._smokeEffect)'),
+}[sys.argv[2]]
+p=root/file;s=p.read_text();assert s.count(old)==1;p.write_text(s.replace(old,'false' if sys.argv[2]=='plume' else ''))
+PYB
+ if python3 "$repo_root/tests/GloomhavenVR.BurnReplayTests/extract.py" "$work_dir/source" "$work_dir/Disconnected.cs" > "$work_dir/binding.log" 2>&1; then cat "$work_dir/binding.log";exit 1;fi
+ case "$binding" in
+ local) expected='Local recovery binding missing';;
+ capture) expected='Owner capture recovery binding missing';;
+ plume) expected='Recovered plume ownership binding missing';;
+ esac
+ if ! grep -Fq "$expected" "$work_dir/binding.log"; then cat "$work_dir/binding.log";exit 1;fi
+ echo "Burn recovery disconnected binding: $binding failed as expected."
 done

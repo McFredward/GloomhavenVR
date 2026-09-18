@@ -21,7 +21,7 @@ class CardEffects {
  internal FullAbilityCard Full=new();
  internal float Paint;
  internal int Starts,Resets,Discards;
- internal bool Disabled,ThrowOwner;
+ internal bool Disabled,ThrowOwner,ThrowReset;
  internal NativeBurnEnumerator? Live;
  internal T? GetComponent<T>() where T:class => ThrowOwner?throw new InvalidOperationException():Full as T;
  internal T? GetComponentInParent<T>() where T:class => Full as T;
@@ -36,7 +36,7 @@ class CardEffects {
   if(effect==FXTask.DiscardMode){Discards++;return;}
   var iterator=BurnCardTimeline(active); iterator.MoveNext(); Live=(NativeBurnEnumerator)iterator;
  }
- internal void RestoreCard(){if(!BurnArtwork.RestoreCard_PreservePlayback_Patch.Prefix(this))return; Resets++;Live=null;Paint=0;toggledEffects.Clear();}
+ internal void RestoreCard(){if(!BurnArtwork.RestoreCard_PreservePlayback_Patch.Prefix(this))return; if(ThrowReset)throw new InvalidOperationException("reset unavailable"); Resets++;Live=null;Paint=0;toggledEffects.Clear();}
  internal IEnumerator BurnCardTimeline(bool burnAnim,bool playOnDisabled=false){IEnumerator result=Native(burnAnim);BurnArtwork.BurnCardTimeline_PreserveSpentStart_Patch.Postfix(this,burnAnim,ref result);return result;}
  IEnumerator Native(bool animate){if(Disabled)yield break;if(!animate){Paint=1;yield break;}Starts++;while(Paint<1){Paint+=.1f;yield return this;}}
 }

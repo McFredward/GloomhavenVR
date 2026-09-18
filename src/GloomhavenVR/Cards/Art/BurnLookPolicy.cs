@@ -59,7 +59,7 @@ namespace GloomhavenVR.Cards;
 ///   be mid-ramp only while <c>CardEffects.coroutine</c> is genuinely running a timeline. Any other
 ///   partial paint is a leftover.</description></item>
 ///   <item><description><b>RULE 4 — cards in HAND, ROUND and DISCARDED are not this policy's
-///   business.</b> The game's own play flourish (<c>FullAbilityCard.TryPlayBurnAnimation</c>) and
+///   business except for clearing a proven recovered burn.</b> The game's own play flourish (<c>FullAbilityCard.TryPlayBurnAnimation</c>) and
 ///   its discard ghost run there on the OWNER's adopted widget, and the user has never complained
 ///   about either. <para>THE EXCLUSION IS ABOUT THIS BOARD AND NOTHING ELSE. On a MIRROR the face is
 ///   a clone with <c>CardEffects</c> stripped, so "the game paints it" is false for every one of
@@ -220,6 +220,7 @@ internal static class BurnLookPolicy
         CardEffects? fx = BurnArtwork.EffectsOf(full);
         if (fx == null)
             return;
+        BurnArtwork.ReconcileRecoveredAppearance(fx);
 
         CAbilityCard? card;
         CBaseCard.ECardPile pile;

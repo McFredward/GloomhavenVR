@@ -27,6 +27,9 @@ internal static partial class CardAppearanceSampler
             FullAbilityCard? full = card.FullCard;
             CPlayerActor? actor = card.GameCard?.PlayerActor;
             if (full == null || full.cardEffects == null || actor == null) continue;
+            // Sampling can precede the adopted card's local tick. Never publish stale lost
+            // materials under a newly recovered Hand address: every mirror would faithfully burn it.
+            BurnArtwork.ReconcileRecoveredAppearance(full.cardEffects);
             if (card.GameCard != null) ObserveBurnProgress(card.GameCard, full);
             // CopyVisibleCards enumerates this board's real adopted VRCard widgets, never
             // received RemoteCardArt clones. A foreign character's visible card is still part

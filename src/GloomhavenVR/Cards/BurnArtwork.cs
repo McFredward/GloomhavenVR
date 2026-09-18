@@ -199,6 +199,56 @@ internal static class BurnArtwork
         return episode.Preserve(card, Recovered(card, owner), Durable(card, owner), resetting);
     }
 
+    /// <summary>Restore a genuinely recovered original even if native SetPile already cached Hand.
+    /// Build 530: Spellweaver returned four Lost cards, but their original burn paint remained.
+    /// SetPile only calls RestoreCard on a widget pile edge; an earlier protected reset can consume
+    /// that edge before model recovery. Observe original membership before drawing or publishing,
+    /// not just native reset requests. Initial Hand/Round action burns have no completed departure
+    /// and keep their timeline. No card-specific ability names or game-state writes are involved.</summary>
+    private sealed class RecoveryReset
+    {
+        internal ScenarioRuleLibrary.CAbilityCard? Card;
+        internal bool FailureLogged;
+    }
+    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<CardEffects, RecoveryReset> RecoveryResets = new();
+
+    internal static void ReconcileRecoveredAppearance(CardEffects? fx)
+    {
+        if (fx == null) return;
+        try
+        {
+            FullAbilityCard? full = ResolveOwner(fx, out var widget);
+            var card = widget != null ? widget.AbilityCard : full?.AbilityCard;
+            var owner = widget != null ? widget.PlayerActor : full?.playerActor;
+            // A stale Hand stamp also exists on real lost cards. Missing owner metadata is
+            // a temporary binding gap, never sufficient evidence to erase their presentation.
+            if (owner?.CharacterClass == null) return;
+            RecoveryResets.TryGetValue(fx, out var pending);
+            if (pending != null && pending.Card != null && !ReferenceEquals(pending.Card, card))
+            { RecoveryResets.Remove(fx); pending = null; }
+            if (card == null || !Recovered(card, owner) || Durable(card, owner)) return;
+            bool departed = BurnEpisodes.TryGetValue(fx, out var episode) && episode.IsRecovered(card, recovered: true);
+            departed |= ModelBurns.TryGetValue(card, out var history) && history.LeftRecoveryPile;
+            departed |= pending != null && ReferenceEquals(pending.Card, card);
+            if (!departed) return;
+            pending ??= RecoveryResets.GetValue(fx, _ => new());
+            pending.Card = card;
+            // Retire before native RestoreCard: old callbacks cannot resurrect an episode or its
+            // spent floor. Retain separate retry evidence until the entire native reset succeeds.
+            RetireBurnPlayback(fx);
+            ModelBurns.Remove(card);
+            fx.RestoreCard();
+            RecoveryResets.Remove(fx);
+        }
+        catch (System.Exception ex)
+        {
+            var pending = RecoveryResets.GetValue(fx, _ => new());
+            if (!pending.FailureLogged)
+                Core.VRLog.Warn("Cards", $"Recovered card artwork reset deferred: {ex.Message}; original presentation will retry.");
+            pending.FailureLogged = true;
+        }
+    }
+
     /// <summary>Actual pool recycle and scene teardown retire ownership before native reset.</summary>
     internal static void RetireBurnPlayback(CardEffects? fx)
     {
@@ -392,6 +442,9 @@ internal static class BurnArtwork
                 {
                     if (firstStep)
                     {
+                        // A new genuine action supersedes an earlier failed recovery reset. Its
+                        // early Hand/Round phase must not be erased by that obsolete retry latch.
+                        if (burnAnim && !followsOriginal) RecoveryResets.Remove(__instance);
                         BurnTimelines.Remove(__instance);
                         BurnTimelines.Add(__instance, playback!);
                     }
