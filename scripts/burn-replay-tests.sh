@@ -35,12 +35,16 @@ PY
 done
 cp "$work_dir/original.txt" "$work_dir/NativeBurnEpisode.cs"
 cp "$work_dir/Production.cs" "$work_dir/production.txt"
-for mutation in inactive-original inactive-unbound short-rest-preview historical-init historical-rebuild settled-history deferred-reset follower retire-primary retired-follower retargeted-follower recovered-follower implicit-recovery retry-recovery new-episode missing-owner retry-identity terminal-floor activation-floor; do
+for mutation in inactive-original inactive-unbound inactive-spent-floor live-detach-floor idle-detach-floor cleanup-identity short-rest-preview historical-init historical-rebuild settled-history deferred-reset follower retire-primary retired-follower retargeted-follower recovered-follower implicit-recovery retry-recovery new-episode missing-owner retry-identity terminal-floor activation-floor; do
  python3 - "$work_dir" "$mutation" <<'PY'
 from pathlib import Path
 import sys
 p=Path(sys.argv[1]);s=(p/'production.txt').read_text()
 a,b={
+'inactive-spent-floor':('&& Playing(fx));', '&& fx.gameObject.activeInHierarchy && Playing(fx));'),
+'live-detach-floor':('if (!Playing(fx)) BurnStarts.Remove(fx);', 'BurnStarts.Remove(fx);'),
+'idle-detach-floor':('if (!Playing(fx)) BurnStarts.Remove(fx);', ''),
+'cleanup-identity':('|| BurnStarts.TryGetValue(fx, out var record) && !ReferenceEquals(record.Card, card)', ''),
 'inactive-original':('&& widget.AbilityCard != null) playOnDisabled = true;', '&& widget.AbilityCard != null) playOnDisabled = false;'),
 'inactive-unbound':('if (full != null && widget != null && ReferenceEquals(widget.fullAbilityCard, full)\n                    && widget.AbilityCard != null)', 'if (true)'),
 'activation-floor':('beforeReset: false, nativeStep: running || Latched(__instance));','beforeReset: false, nativeStep: true);'),
@@ -65,6 +69,9 @@ assert s.count(a)==1;(p/'Production.cs').write_text(s.replace(a,b))
 PY
  if dotnet run --project "$work_dir/GloomhavenVR.BurnReplayTests.csproj" -c Release > "$work_dir/negative.log" 2>&1; then cat "$work_dir/negative.log"; exit 1; fi
  case "$mutation" in
+ inactive-spent-floor|live-detach-floor) expected='Inactive Lost sampling must retain every spent channel of the live original';;
+ idle-detach-floor) expected='Idle detach must release unused spent history';;
+ cleanup-identity) expected="A recycled original must not inherit another model's spent history";;
  inactive-original) expected='An inactive original must execute the first native burn instead of bailing and replaying later';;
  inactive-unbound) expected='Unbound clones must retain the native inactive playback gate';;
  activation-floor) expected='A legitimate deferred activation reset must not regain its old spent floor';;

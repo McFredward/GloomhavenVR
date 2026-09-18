@@ -57,7 +57,7 @@ namespace GloomhavenVR.Cards {
  internal static float PaintProgress(CardEffects fx)=>fx.Paint;
  internal static bool SettledBurnPainted(CardEffects fx,out float grey){grey=fx.Paint;return grey>=.5f;}
  internal static void Forget(CardEffects fx){}
- internal static void ClearRecoveredSpentBurnStart(CardEffects fx,FullAbilityCard? full){}
+ internal static bool HandleIsABailedTimeline(CardEffects fx)=>false;
  internal static bool Latched(CardEffects fx)=>fx.toggledEffects.Contains(CardEffects.FXTask.BurnCard)||fx.toggledEffects.Contains(CardEffects.FXTask.LostMode);
  }
 }

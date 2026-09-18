@@ -42,6 +42,18 @@ static class Program {
    rest.gameObject.activeInHierarchy=true;
    restOwner.CharacterClass.DiscardedAbilityCards.Clear();restOwner.CharacterClass.LostAbilityCards.Add(restCard);
    restCard.CurrentCardPile=ECardPile.Lost;
+   // Native hierarchy changes may disable the original between its Choreographer steps.
+   // Both local LateUpdate and owner sampling still visit that face. Its model is Lost,
+   // so confusing inactivity with completion used to erase the pre-burn spent floor.
+   rest.gameObject.activeInHierarchy=false;
+   BurnArtwork.PreserveSpentBurnStart(rest,restWidget);
+   BurnArtwork.ReleaseSpentBurnStart(rest);
+   rest.gameObject.activeInHierarchy=true;
+   Check(first.MoveNext(),"An inactive original must keep advancing its existing burn");
+   foreach(var channel in new[]{("_GreyOut",1f),("_Flow",1f),("_Dissolve",.646f)})
+    Check(rest.imgComp[0].material.GetFloat(UnityEngine.Shader.PropertyToID(channel.Item1))==channel.Item2,
+     "Inactive Lost sampling must retain every spent channel of the live original");
+   Check(rest.Paint==.2f,"Spent appearance must not replace the native raw progress");
    while(first.MoveNext()) {
     rest.ToggleEffect(true,CardEffects.FXTask.LostMode);rest.ToggleEffect(false,CardEffects.FXTask.LostMode);rest.RestoreCard();
     BurnArtwork.PreserveSpentBurnStart(rest,restWidget);
@@ -56,8 +68,22 @@ static class Program {
    restOwner.CharacterClass.LostAbilityCards.Clear();restOwner.CharacterClass.HandAbilityCards.Add(restCard);
    BurnArtwork.ReconcileRecoveredAppearance(rest);
    Check(rest.Paint==0&&rest.Resets==2,"Recovery without a native SetPile edge must restore the original before local draw and remote capture");
+   Check(!BurnArtwork.BurnStarts.TryGetValue(rest,out _),"Actual recovery must retire retained spent history");
    CardFace.Owner=null;
   }
+  // Exercise the production detach cleanup, including identity changes and genuine idle
+  // retirement. The old harness replaced this method with a no-op and missed both paths.
+  var(cleanup,cleanupCard)=Make(ECardPile.Discarded);cleanup.Full.playerActor=new();
+  cleanup.Full.playerActor.CharacterClass.DiscardedAbilityCards.Add(cleanupCard);
+  cleanup.imgComp=new[]{new UnityEngine.UI.Image()};cleanup.WriteRaw(1);
+  BurnArtwork.PreserveSpentBurnStart(cleanup,cleanupCard,cleanup.Full.playerActor,beforeReset:true);
+  Check(BurnArtwork.BurnStarts.TryGetValue(cleanup,out _),"A spent original must have retained presentation history");
+  BurnArtwork.ReleaseSpentBurnStart(cleanup);
+  Check(!BurnArtwork.BurnStarts.TryGetValue(cleanup,out _),"Idle detach must release unused spent history");
+  BurnArtwork.PreserveSpentBurnStart(cleanup,cleanupCard,cleanup.Full.playerActor,beforeReset:true);
+  cleanup.Full.AbilityCard=new(){CurrentCardPile=ECardPile.Discarded};
+  BurnArtwork.ClearRecoveredSpentBurnStart(cleanup,cleanup.Full);
+  Check(!BurnArtwork.BurnStarts.TryGetValue(cleanup,out _),"A recycled original must not inherit another model's spent history");
   var(unbound,unboundCard)=Make(ECardPile.Discarded);unbound.gameObject.activeInHierarchy=false;
   unbound.ToggleEffect(true,CardEffects.FXTask.BurnCard);
   Check(unbound.Starts==0&&unbound.Live!.Finished,"Unbound clones must retain the native inactive playback gate");

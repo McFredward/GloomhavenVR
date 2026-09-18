@@ -581,8 +581,11 @@ internal static class BurnArtwork
         // Activated cards may legitimately return to blue. Only their actual immediate
         // pre-burn output is retained; historical max-wash belongs exclusively to discard.
         if (beforeReset && active && !spent) record.Continuity.Clear();
-        bool burning = !beforeReset && (nativeStep || (spent || lost || activeBurn) && fx.gameObject.activeInHierarchy
-            && fx.coroutine != null && Latched(fx));
+        // The native iterator is owned by Choreographer and can outlive a temporarily
+        // inactive original (build 534). Hierarchy visibility is not playback lifetime:
+        // an inactive Lost sample used to clear the spent floor, exposing the raw ramp
+        // when the same face returned. Follow the observed iterator through that gap.
+        bool burning = !beforeReset && (nativeStep || (spent || lost || activeBurn) && Playing(fx));
         Image[] images = fx.imgComp;
         if (record.Channels.Length != images.Length * BurnStartChannels.Length)
         {
