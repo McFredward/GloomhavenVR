@@ -418,6 +418,8 @@ internal sealed class MapLocationInteractor
         // must rebuild rather than point at destroyed objects.
         unchecked { _scanGeneration++; }
         _pads.Release(reason);
+        _pokePickFrame = -1;
+        _pokePickOwner = null;
         MapHoverVerdict.Reset();
         // The room is gone: the next one is entitled to say again which half of the mouseover ran
         // and to re-measure the hover highlight, so the verdict edges and the per-outcome gate go
@@ -505,6 +507,8 @@ internal sealed class MapLocationInteractor
         _pokes.Clear();
         _locations.Clear();
         _pads.Begin(parchment);
+        _pokePickFrame = -1;
+        _pokePickOwner = null;
 
         int mask = 0;
         _withQuest = _withPad = _withGameBox = 0;
@@ -714,7 +718,7 @@ internal sealed class MapLocationInteractor
     /// <summary>
     /// Which location this hand is pointing at, and HOW it was reached.
     ///
-    /// <para>THE ARBITRATION IS THE POINT: <b>the nearest DRAWN ICON wins, and an authored hit box
+    /// <para>THE ARBITRATION IS THE POINT: <b>the DRAWN ICON nearest the aim point wins, and an authored hit box
     /// only decides when no icon is on the ray at all.</b> The two are different rectangles — see
     /// <see cref="MapIconHoverPads"/> — and the union of them is what gives every icon a hover
     /// (which the game's authored boxes alone did not), while the ordering is what stops one
@@ -802,10 +806,18 @@ internal sealed class MapLocationInteractor
             how = "the window grab owns this hand through its release frame";
             return null;
         }
-        int n = Physics.RaycastNonAlloc(pick.Origin, pick.Direction, _hits, limit, hand.Ray.Mask);
+        // All icons are painted on one plane. The first surface of overlapping thick boxes is
+        // not an ownership rule: a big neighbour can intercept every ray to the smaller icon.
+        // Retain the existing foreground limit before resolving this plane's nearest centre.
+        MapLocation? padHit = null;
+        float padDist = 0f;
+        if (_pads.HavePlane && MapIconPickGeometry.PlaneDistance(pick.Origin.y, pick.Direction.y,
+                _pads.PlaneY, out padDist) && LaserPointerPolicy.TargetBeforeBlocker(padDist, limit))
+            padHit = _pads.PickAt(pick.Origin + pick.Direction * padDist);
 
-        MapLocation? padHit = null, boxHit = null;
-        float padDist = float.PositiveInfinity, boxDist = float.PositiveInfinity;
+        int n = Physics.RaycastNonAlloc(pick.Origin, pick.Direction, _hits, limit, hand.Ray.Mask);
+        MapLocation? boxHit = null;
+        float boxDist = float.PositiveInfinity;
         Collider? boxCollider = null;
         for (int i = 0; i < n; i++)
         {
@@ -814,15 +826,7 @@ internal sealed class MapLocationInteractor
                 continue;
             float d = _hits[i].distance;
             if (!LaserPointerPolicy.TargetBeforeBlocker(d, limit)) continue;
-            if (_pads.TryLocation(c, out MapLocation padLoc))
-            {
-                if (d < padDist)
-                {
-                    padDist = d;
-                    padHit = padLoc;
-                }
-                continue;
-            }
+            if (_pads.TryLocation(c, out _)) continue;
             // Anything else on this mask that BELONGS to a location — its authored hit box. This is
             // a containment question on purpose (the box may hang under the location), and it is
             // only ever consulted after every pad has lost.
@@ -854,6 +858,23 @@ internal sealed class MapLocationInteractor
             ? $"{n} collider(s) on the ray, none of them a location ({hand.Side} {route})"
             : viaBeam ? "nothing on the ray" : "nothing on the aim pose (beam policy-off)";
         return null;
+    }
+
+    private int _pokePickFrame = -1;
+    private Vector3 _pokePickPoint;
+    private MapLocation? _pokePickOwner;
+
+    internal bool OwnsPokePoint(MapLocation location, Vector3 point)
+    {
+        // Every candidate for one finger shares the same point. Resolve once per point/frame,
+        // not once per map icon; the two hands can still query independent coordinates.
+        if (_pokePickFrame != Time.frameCount || _pokePickPoint != point)
+        {
+            _pokePickFrame = Time.frameCount;
+            _pokePickPoint = point;
+            _pokePickOwner = _pads.PickAt(point);
+        }
+        return _pokePickOwner == null || ReferenceEquals(_pokePickOwner, location);
     }
 
     /// <summary>Does this hand have a beam the map can pick through RIGHT NOW? The question the
@@ -2501,7 +2522,7 @@ internal sealed class MapLocationInteractor
 /// click both route back through the interactor so the laser and the finger can never disagree
 /// about which icon is hovered.
 /// </summary>
-internal sealed class MapLocationPoke : MonoBehaviour, IPokeable
+internal sealed class MapLocationPoke : MonoBehaviour, IPokeable, IPokeCandidateFilter
 {
     private MapLocationInteractor? _owner;
     private MapLocation? _location;
@@ -2511,6 +2532,9 @@ internal sealed class MapLocationPoke : MonoBehaviour, IPokeable
         _owner = owner;
         _location = location;
     }
+
+    public bool AcceptsPokePoint(Vector3 point) =>
+        _owner != null && _location != null && _owner.OwnsPokePoint(_location, point);
 
     public void OnPokeEnter(VRHand hand)
     {

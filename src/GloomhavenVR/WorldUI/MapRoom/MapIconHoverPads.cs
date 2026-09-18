@@ -42,7 +42,7 @@ namespace GloomhavenVR.WorldUI.MapRoom;
 /// <para>THE GAME'S OWN COLLIDER IS NOT REMOVED FROM THE PICTURE — the union is deliberate. A pad
 /// can only ADD reach (an icon that could not be hovered becomes hoverable); dropping the authored
 /// box would REMOVE reach from icons whose box is the generous one, which nobody asked for. The
-/// arbitration is stated once, in <c>MapLocationInteractor.PickFrom</c>: the nearest PAD wins, and
+/// arbitration is stated once, in <c>MapLocationInteractor.PickFrom</c>: the PAD nearest the aim point on the icon plane wins, and
 /// an authored hit box only decides when no pad is on the ray at all. That ordering is what stops
 /// one location's oversized box from stealing the hover of the neighbour whose icon the player is
 /// pointing at.</para>
@@ -277,6 +277,38 @@ internal sealed class MapIconHoverPads
         float sz = Mathf.Abs(ds.z) * dial / inflate;
         float thickness = Mathf.Max(Mathf.Min(sx, sz) * PadThicknessFraction, MinPadEdgeWorld);
         return new Vector3(sx, thickness, sz);
+    }
+
+    /// <summary>
+    /// Resolve overlapping footprints on their common painted plane, not at the front of their
+    /// thick physics boxes. A larger/nearer box used to swallow a smaller neighbour even when the
+    /// player aimed at that neighbour's centre. Each distinct centre now owns its neighbourhood;
+    /// hover inflation is already removed by FootprintOf, so acquiring hover cannot move the seam.
+    /// Iterating the registered pads also avoids RaycastNonAlloc truncating a dense cluster.
+    /// </summary>
+    internal MapLocation? PickAt(Vector3 world)
+    {
+        MapLocation? best = null;
+        float bestScore = float.PositiveInfinity;
+        int bestKey = int.MaxValue;
+        for (int i = 0; i < _padColliders.Count; i++)
+        {
+            BoxCollider pad = _padColliders[i];
+            MapLocation loc = _padLocations[i];
+            if (pad == null || !pad.enabled || !pad.gameObject.activeInHierarchy || loc == null)
+                continue;
+            Vector3 local = pad.transform.InverseTransformPoint(world) - pad.center;
+            Vector3 size = pad.size;
+            if (!MapIconPickGeometry.Contains(local.x, local.z, size.x, size.z)) continue;
+            Vector3 centre = pad.transform.TransformPoint(pad.center);
+            float score = MapIconPickGeometry.Score(world.x - centre.x, world.z - centre.z);
+            int key = loc.GetInstanceID();
+            if (!MapIconPickGeometry.Prefer(score, key, bestScore, bestKey)) continue;
+            best = loc;
+            bestScore = score;
+            bestKey = key;
+        }
+        return best;
     }
 
     /// <summary>The location whose DRAWN ICON this collider is, or false for anything else.</summary>

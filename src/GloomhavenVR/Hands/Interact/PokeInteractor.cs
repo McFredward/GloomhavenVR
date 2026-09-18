@@ -309,6 +309,8 @@ internal sealed class PokeInteractor
             }
             if (!collider.enabled || !collider.gameObject.activeInHierarchy)
                 continue;
+            if (entries[i].Target is IPokeCandidateFilter filter && !filter.AcceptsPokePoint(tip))
+                continue;
 
             float dist = Vector3.Distance(tip, collider.ClosestPoint(tip));
             if (dist < nearestDist)
