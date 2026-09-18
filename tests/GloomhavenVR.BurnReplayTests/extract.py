@@ -13,7 +13,7 @@ end=s.index('    /// <summary>\n    /// The <see cref="CardEffects"/>',start)
 a+=s[start:end]
 output.write_text('using HarmonyLib; using UnityEngine; using UnityEngine.UI; namespace GloomhavenVR.Cards; internal static partial class BurnArtwork {\n'+a.replace('private static','internal static').replace('private sealed','internal sealed')+'\n}')
 assert 'CardFace.OwnerOf(full)' in a
-assert a.index('if (!AllowEffect(__instance, active, effect)) return false;') < a.index('ClearRecoveredSpentBurnStart(__instance, full);')
+assert a.index('if (!AllowEffect(__instance, active, effect))') < a.index('ClearRecoveredSpentBurnStart(__instance, full);')
 assert 'BurnTimelines.Add(__instance, playback!);' in a
 policy=(root/'src/GloomhavenVR/Cards/Art/BurnLookPolicy.cs').read_text()
 assert 'BurnArtwork.ReconcileRecoveredAppearance(fx);' in policy, 'Local recovery binding missing'

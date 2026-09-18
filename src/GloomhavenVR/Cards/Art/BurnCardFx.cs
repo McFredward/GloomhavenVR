@@ -107,6 +107,7 @@ internal sealed class BurnCardFx
         PreserveSpentBurnAppearance(full);
         _policyFace = full;
         ObserveBurnContinuity(effects);
+        BurnPlaybackTrace.Sample(effects);
 
         // Symptom 4c-ii evidence: the burn/ghost timeline runs on the card's OWN uGUI
         // (face-image dissolve + _uiFxOverlay flame) plus the bounded CardSmoke below —

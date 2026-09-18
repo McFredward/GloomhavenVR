@@ -254,6 +254,7 @@ internal static class BurnArtwork
     internal static void RetireBurnPlayback(CardEffects? fx)
     {
         if (fx == null) return;
+        BurnPlaybackTrace.Event(fx, "retire-original");
         if (BurnTimelines.TryGetValue(fx, out var playback))
         {
             FullAbilityCard? full = ResolveOwner(fx, out var widget);
@@ -310,7 +311,9 @@ internal static class BurnArtwork
         {
             try
             {
-                if (!AllowEffect(__instance, active, effect)) return false;
+                if (!AllowEffect(__instance, active, effect))
+                { BurnPlaybackTrace.Event(__instance, "effect-held", effect, active); return false; }
+                BurnPlaybackTrace.Event(__instance, "effect-allowed", effect, active);
                 FullAbilityCard? full = ResolveOwner(__instance, out var widget);
                 ClearRecoveredSpentBurnStart(__instance, full);
                 if (!active || effect != CardEffects.FXTask.BurnCard && effect != CardEffects.FXTask.LostMode) return true;
@@ -330,7 +333,12 @@ internal static class BurnArtwork
     {
         private static bool Prefix(CardEffects __instance, bool active, CardEffects.FXTask effect)
         {
-            try { return AllowEffect(__instance, active, effect); }
+            try
+            {
+                bool allowed = AllowEffect(__instance, active, effect);
+                BurnPlaybackTrace.Event(__instance, allowed ? "additive-effect-allowed" : "additive-effect-held", effect, active);
+                return allowed;
+            }
             catch { return true; }
         }
     }
@@ -342,7 +350,9 @@ internal static class BurnArtwork
         {
             try
             {
-                if (!PreservePlayback(__instance, resetting: true)) return true;
+                if (!PreservePlayback(__instance, resetting: true))
+                { BurnPlaybackTrace.Event(__instance, "restore-allowed"); return true; }
+                BurnPlaybackTrace.Event(__instance, "restore-held");
                 if (BurnEpisodes.TryGetValue(__instance, out var episode)) episode.RequestRestore();
                 return false;
             }
@@ -445,6 +455,7 @@ internal static class BurnArtwork
                     {
                         // A new genuine action supersedes an earlier failed recovery reset. Its
                         // early Hand/Round phase must not be erased by that obsolete retry latch.
+                        if (burnAnim) BurnPlaybackTrace.Begin(__instance, followsOriginal);
                         if (burnAnim && !followsOriginal) RecoveryResets.Remove(__instance);
                         BurnTimelines.Remove(__instance);
                         BurnTimelines.Add(__instance, playback!);
@@ -462,7 +473,9 @@ internal static class BurnArtwork
                     {
                         firstStep = false;
                         if (burnAnim && running && !followsOriginal) Net.CardAppearanceSampler.ObserveNativeBurnStart(__instance);
+                        BurnPlaybackTrace.Event(__instance, burnAnim ? "first-native-step" : "native-settle");
                     }
+                    if (burnAnim && !running) BurnPlaybackTrace.Event(__instance, "native-terminal-step");
                     // A native no-ramp settle is already authoritative completion. It must not
                     // inherit an earlier cosmetic floor's raw in-progress reading.
                     if (!burnAnim)

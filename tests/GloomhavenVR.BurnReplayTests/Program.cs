@@ -134,6 +134,40 @@ static class Program {
   while(activeFloorIterator.MoveNext()){}
   Check(activeFloor.imgComp[0].material.GetFloat(UnityEngine.Shader.PropertyToID("_GreyOut"))==0,
    "A legitimate deferred activation reset must not regain its old spent floor");
+  var(traceFx,traceCard)=Make(ECardPile.Discarded);
+  var source=new UnityEngine.Material();var drawn=new UnityEngine.Material();
+  traceFx._headerImage=new(){material=source};traceFx._headerImage.canvasRenderer.Bound=drawn;
+  traceFx._uiFxOverlay=new();
+  BurnPlaybackTrace.Begin(traceFx,false);BurnPlaybackTrace.Event(traceFx,"disabled");BurnPlaybackTrace.Sample(traceFx);
+  Check(GloomhavenVR.Core.VRLog.Lines.Count==0,"Normal logging must never record native burn tracing");
+  GloomhavenVR.Core.VRLog.WantsDebug=true;
+  BurnPlaybackTrace.Begin(traceFx,false);BurnPlaybackTrace.Sample(traceFx);
+  drawn.SetFloat(UnityEngine.Shader.PropertyToID("_GreyOut"),1);BurnPlaybackTrace.Sample(traceFx);
+  drawn.SetFloat(UnityEngine.Shader.PropertyToID("_GreyOut"),0);BurnPlaybackTrace.Sample(traceFx);
+  Check(GloomhavenVR.Core.VRLog.Lines.Any(l=>l.Contains("renderer-paint-rewind")),"Debug tracing must observe the renderer's own rewind independently of the source material");
+  traceFx._headerImage.canvasRenderer.Bound=new();BurnPlaybackTrace.Sample(traceFx);
+  Check(GloomhavenVR.Core.VRLog.Lines.Any(l=>l.Contains("renderer-binding-change")),"Debug tracing must distinguish binding replacement from native paint");
+  traceFx._uiFxOverlay!.material.SetFloat(UnityEngine.Shader.PropertyToID("_FXAnim"),.5f);BurnPlaybackTrace.Sample(traceFx);
+  int beforePause=GloomhavenVR.Core.VRLog.Lines.Count;
+  UnityEngine.Time.unscaledTime=5;traceFx.coroutine=new();BurnPlaybackTrace.Event(traceFx,"paused-live-timeline");
+  Check(GloomhavenVR.Core.VRLog.Lines.Count==beforePause+1,"A paused live timeline must keep Debug observation beyond the completed-tail deadline");
+  UnityEngine.Time.unscaledTime=10;traceFx.coroutine=null;BurnPlaybackTrace.Event(traceFx,"native-terminal-step");
+  Check(GloomhavenVR.Core.VRLog.Lines.Count==beforePause+2,"A late native completion must remain observable after a pause");
+  int beforeFlame=GloomhavenVR.Core.VRLog.Lines.Count;
+  traceFx._uiFxOverlay.material.SetFloat(UnityEngine.Shader.PropertyToID("_FXAnim"),0);BurnPlaybackTrace.Sample(traceFx);
+  Check(GloomhavenVR.Core.VRLog.Lines.Count==beforeFlame+1,"Debug tracing must detect a flame-only rewind");
+  for(int i=0;i<1000;i++)BurnPlaybackTrace.Event(traceFx,"bounded");
+  Check(GloomhavenVR.Core.VRLog.Lines.Count==beforeFlame+2,"Repeated native reset requests must be deduplicated");
+  for(int i=0;i<1000;i++)BurnPlaybackTrace.Event(traceFx,"ordinary-"+i);
+  int beforeTerminal=GloomhavenVR.Core.VRLog.Lines.Count;
+  BurnPlaybackTrace.Event(traceFx,"native-terminal-step");
+  Check(GloomhavenVR.Core.VRLog.Lines.Count==beforeTerminal+1,"Ordinary events must reserve budget for native completion");
+  for(int i=0;i<1000;i++)BurnPlaybackTrace.Event(traceFx,"renderer-paint-rewind");
+  Check(GloomhavenVR.Core.VRLog.Lines.Count==18,"A burn diagnostic episode must stay bounded");
+  for(int i=0;i<1000;i++){BurnPlaybackTrace.Begin(traceFx,false);BurnPlaybackTrace.Event(traceFx,"bounded-session");}
+  Check(GloomhavenVR.Core.VRLog.Lines.Count==128,"A long Debug session must cap native burn trace output");
+  Check(source.GetFloat(UnityEngine.Shader.PropertyToID("_GreyOut"))==0&&drawn.GetFloat(UnityEngine.Shader.PropertyToID("_GreyOut"))==0,"Tracing must not write the original or renderer material");
+  GloomhavenVR.Core.VRLog.WantsDebug=false;
   Console.WriteLine($"Burn replay: {count} runtime assertions passed.");
  }
 }
