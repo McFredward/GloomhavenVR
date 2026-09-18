@@ -1,6 +1,6 @@
 # Planning index
 
-Updated 2026-09-18 for short-rest playback, cold MR furniture and Guildmaster controls, build 534 on dev. This directory holds internal
+Updated 2026-09-18 after successful 1.0.5 publication and the dev version advance to 1.0.6. This directory holds internal
 engineering evidence, historical decisions and current status; it is not the player manual.
 
 ## Current entry points
@@ -17,6 +17,8 @@ engineering evidence, historical decisions and current status; it is not the pla
 | [PROJECT.md](PROJECT.md), [ARCHITECTURE.md](ARCHITECTURE.md) | Product scope and architectural reasoning |
 
 ## Latest measured work
+
+- [RELEASE-105.md](RELEASE-105.md): successful main-branch 1.0.5 publication, verified asset and postrelease dev bookkeeping.
 
 - [BURN-534.md](BURN-534.md): preserve the first original burn through temporary full-card inactivity.
 - [GUILD-534.md](GUILD-534.md): native full-table recognition and separate Guildmaster map-surface caps.

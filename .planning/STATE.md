@@ -1,6 +1,6 @@
 # State — where the project stands
 
-**Updated 2026-09-18 for short-rest playback, cold MR furniture and Guildmaster controls, ModBuild 534 on dev.** The file this replaces had gone 168 builds
+**Updated 2026-09-18 after successful 1.0.5 publication; dev advances to 1.0.6.** The file this replaces had gone 168 builds
 stale while still saying "read this first"; it is kept as `STATE-ARCHIVE-through-2026-08.md` for
 its round-by-round narrative and for nothing else.
 
@@ -12,6 +12,16 @@ change per build) → this file (where things stand and what is owed) → the bu
 ---
 
 ## 1. Position
+
+- **Released 1.0.5 / ModBuild 534**, main 377d26ec, tag v1.0.5, GitHub Latest.
+  Full development CI, reused PR validation and main release workflow succeeded. Downloaded
+  ZIP CRC, contents and SHA256 match the published asset. Dev was automatically advanced to
+  1.0.6 at 9081a992 and includes the release ancestry. Record: [RELEASE-105.md](RELEASE-105.md).
+  The maintainer confirms the Guildmaster fixes; short-rest flashing remains and was explicitly
+  deferred for release. New local Debug logs are build 534; peer logs remain historical 500.
+  No gameplay exception/deadlock was found. Bounded decorative coin-material load failures,
+  native backend DNS errors and shutdown-only exceptions remain documented in the release audit.
+  Postrelease burn investigation resumes on dev without changing the published release.
 
 - **dev / 1.0.5 / ModBuild 534** addresses all three build-533 hardware findings.
   Debug shows the first short-rest burn exits synchronously on an inactive original, followed
