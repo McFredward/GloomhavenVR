@@ -38,5 +38,16 @@ internal static class GuildmasterRoomLayout
         return best > 0f;
     }
 
+    internal static Rail FallbackRail(float mapRight, float mapFar, float knifeFar, int count,
+        float cap, float gapRatio, float outerRatio)
+    {
+        int columns = Math.Min(2, Math.Max(1, count));
+        int rows = (Math.Max(1, count) + columns - 1) / columns;
+        float radius = outerRatio * cap * .5f;
+        float pitch = cap * (1f + gapRatio);
+        float farCentre = Math.Max(mapFar - radius, knifeFar + radius + (rows - 1) * pitch);
+        return new Rail(mapRight + radius, farCentre, cap, pitch, columns);
+    }
+
     internal static float GroundFloor(float furnitureBottom, float scale) => furnitureBottom + .025f * scale;
 }

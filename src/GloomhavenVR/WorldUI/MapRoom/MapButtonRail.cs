@@ -483,6 +483,7 @@ internal sealed class MapButtonRail
     private float _scale = 1f;
     private bool _reported;
     private bool _emptyReported;
+    private bool _fitWarned; // One significant missing-support warning per rail instance/session.
     private Cap? _laserHover;
 
     /// <summary>Which of <see cref="Rescan"/>'s two scans produced the current set — log material
@@ -602,17 +603,11 @@ internal sealed class MapButtonRail
         // changed under a later rescan would never have rebuilt the rail anyway.
         _scratch.Sort(CompareByDeclaredRank);
 
-        if (SameSet())
-        {
-            RefreshDestinationWindows();
-            return;
-        }
-
-        // The set changed (a mode switch rebuilds the bar) — rebuild from scratch rather than
-        // reconciling: eight caps are cheap, and a partial reconcile is where stale references live.
-        Release("the guildmaster bar changed");
+        // Two empty sets are not proof that the native HUD was acquired. Build 530's early
+        // SameSet return hid that case from the existing one-shot discovery diagnostic.
         if (_scratch.Count == 0)
         {
+            if (_caps.Count != 0) Release("the guildmaster bar changed");
             if (!_emptyReported)
             {
                 _emptyReported = true;
@@ -623,6 +618,15 @@ internal sealed class MapButtonRail
             return;
         }
         _emptyReported = false;
+        if (SameSet())
+        {
+            RefreshDestinationWindows();
+            return;
+        }
+
+        // The set changed (a mode switch rebuilds the bar) — rebuild from scratch rather than
+        // reconciling: eight caps are cheap, and a partial reconcile is where stale references live.
+        Release("the guildmaster bar changed");
         Build();
         RefreshDestinationWindows();
     }
@@ -721,11 +725,17 @@ internal sealed class MapButtonRail
         // campaign placement unchanged and fit this mode's caps to the right-hand tabletop.
         bool guildmaster = GuildmasterRoomGeometry.Active;
         GuildmasterRoomLayout.Rail sideRail = default;
+        bool supportedRail = true;
         if (guildmaster)
         {
-            if (!GuildmasterRoomGeometry.TryRail(parchment, seat, _scratch.Count,
-                CapSizeMeters * _scale, CapGapMeters / CapSizeMeters, GlowFraction, out sideRail))
-                return; // The slab may still be loading. Rescan retries without moving native UI.
+            supportedRail = GuildmasterRoomGeometry.TryRail(parchment, seat, _scratch.Count,
+                CapSizeMeters * _scale, CapGapMeters / CapSizeMeters, GlowFraction, out sideRail);
+            if (!supportedRail && !_fitWarned)
+            {
+                _fitWarned = true;
+                VRLog.Warn(Scope, "MAP TABLE BUTTONS: Guildmaster tabletop fit is unavailable; "
+                    + "keeping the native actions on the right-side fallback rail. Furniture is unchanged.");
+            }
             origin = new Vector3(0f, seat.TopY + RailLiftMeters * _scale, 0f);
         }
 
@@ -830,7 +840,8 @@ internal sealed class MapButtonRail
             if (guildmaster)
             {
                 if (VRLog.WantsDebug)
-                    VRLog.Info(Scope, $"MAP TABLE BUTTONS: {built} Guildmaster caps fitted to the right tabletop, "
+                    VRLog.Info(Scope, $"MAP TABLE BUTTONS: {built} Guildmaster caps on the right "
+                        + $"{(supportedRail ? "tabletop" : "fallback rail")}, "
                         + $"{sideRail.Columns} columns, {cap / _scale * 1000f:F1} mm faces, "
                         + $"first seat-frame centre ({sideRail.X:F2}, {sideRail.Z:F2}). Native HUD callbacks unchanged.");
                 return;
@@ -1284,7 +1295,7 @@ internal sealed class MapButtonRail
                     float ratio = c.HighlightBaseScale.x > 1e-4f
                         ? c.HighlightImage.transform.localScale.x / c.HighlightBaseScale.x
                         : 1f;
-                    float size = CapSizeMeters * _scale * GlowFraction * ratio;
+                    float size = c.IconWorldSize / IconFraction * GlowFraction * ratio;
                     var want = new Vector2(size, size);
                     if (c.Glow.size != want)
                         c.Glow.size = want;

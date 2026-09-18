@@ -42,6 +42,23 @@ internal static class Program
         }
         Check(!GuildmasterRoomLayout.TryRail(0f, 0f, 0f, 1f, 8, .055f, .3f, 1.35f, out _), "missing slab has no false fit");
         Check(!GuildmasterRoomLayout.TryRail(0f, 1f, 1f, 0f, 8, .055f, .3f, 1.35f, out _), "knife blocking all space retries");
+        for (int count = 1; count <= 12; count++)
+        {
+            foreach (float knife in new[] { float.NegativeInfinity, .25f, 1.15f })
+            {
+                var rail = GuildmasterRoomLayout.FallbackRail(.6f, .5f, knife, count,
+                    .055f, .018f / .055f, 1.35f);
+                float radius = rail.Cap * 1.35f * .5f;
+                Check(rail.Cap == .055f, "fallback keeps usable native cap size");
+                for (int i = 0; i < count; i++)
+                {
+                    rail.Position(i, out float x, out float z);
+                    Check(x - radius >= .6f - 1e-6f, "fallback stays right of parchment");
+                    Check(z - radius >= knife - 1e-6f, "fallback clears measured knife");
+                    Check(!float.IsInfinity(x) && !float.IsInfinity(z), "missing knife keeps finite layout");
+                }
+            }
+        }
         Console.WriteLine($"Guildmaster room production layout: {_checks} assertions passed.");
     }
 }
