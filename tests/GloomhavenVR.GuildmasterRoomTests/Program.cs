@@ -42,6 +42,11 @@ internal static class Program
         }
         Check(!GuildmasterRoomLayout.TryRail(0f, 0f, 0f, 1f, 8, .055f, .3f, 1.35f, out _), "missing slab has no false fit");
         Check(!GuildmasterRoomLayout.TryRail(0f, 1f, 1f, 0f, 8, .055f, .3f, 1.35f, out _), "knife blocking all space retries");
+        Check(GuildmasterRoomLayout.TryRail(0f, .001f, 0f, 1f, 8, .055f, .3f, 1.35f,
+            out var sliver), "positive sliver has a mathematical fit");
+        Check(!GuildmasterRoomLayout.HasUsableCap(sliver, .055f), "invisible positive sliver is not usable");
+        Check(GuildmasterRoomLayout.HasUsableCap(new GuildmasterRoomLayout.Rail(0, 0, .0275f, .04f, 1), .055f),
+            "half-size lower boundary remains usable");
         for (int count = 1; count <= 12; count++)
         {
             foreach (float knife in new[] { float.NegativeInfinity, .25f, 1.15f })

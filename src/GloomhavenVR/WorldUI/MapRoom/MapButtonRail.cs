@@ -505,8 +505,10 @@ internal sealed class MapButtonRail
         // 178's whole map-location feature — see MapLocationInteractor.Tick.
         if (_scanFrame == int.MinValue || Time.frameCount - _scanFrame >= RescanIntervalFrames)
         {
-            _scanFrame = Time.frameCount;
             Rescan();
+            // Rescan may Release an old set before geometry is ready. Record the attempt after
+            // that reset so a missing parchment/support never turns scene discovery into 90 Hz.
+            _scanFrame = Time.frameCount;
         }
         if (_caps.Count == 0)
             return;

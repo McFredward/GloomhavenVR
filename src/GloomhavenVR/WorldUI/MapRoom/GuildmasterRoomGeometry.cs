@@ -75,7 +75,7 @@ internal static class GuildmasterRoomGeometry
         }
         near = Mathf.Max(near, knifeFar);
         if (table != null && GuildmasterRoomLayout.TryRail(left, edge, near, far, count, capSize,
-            gapRatio, outerRatio, out layout)) return true;
+            gapRatio, outerRatio, out layout) && GuildmasterRoomLayout.HasUsableCap(layout, capSize)) return true;
 
         // Build 530 returned without any caps whenever the optional support measurement failed.
         // These are necessary native actions, not decoration. Keep a deterministic, reachable

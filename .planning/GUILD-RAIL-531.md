@@ -33,7 +33,10 @@ the necessary actions on a deterministic right-side fallback and emits one warni
 instance/session. The fallback clears any measured tabletop knife; it is explicitly not a claim
 that a support slab was measured, and does not move native furniture. Normal campaign placement
 is unchanged. Missing native HUD discovery now reaches its existing once-only report instead of
-being mistaken for an unchanged empty rail. Empty scans retain their ordinary cadence.
+being mistaken for an unchanged empty rail. Empty scans retain their ordinary cadence. Scan timestamps are recorded after any old-set
+release, so temporary missing geometry cannot reset the retry gate and cause scene surveys on
+every rendered frame. Mathematically positive fits below half the normal 55 mm cap width are
+unusable and also select the full-size fallback, rather than producing effectively invisible caps.
 
 The preferred supported fit projects each non-static-batched mesh's authored bounds directly
 into the seat frame, rather than projecting an already expanded world AABB a second time.
@@ -48,8 +51,8 @@ Debug-only. No new polling stream or per-frame scene survey is introduced.
 
 ## Validation and headset limits
 
-`scripts/guildmaster-room-tests.sh`: 7,011 production layout assertions, 19 integration bindings,
-and five rejected runtime mutations. Covers support extents, button order, floor arithmetic,
+`scripts/guildmaster-room-tests.sh`: 7,014 production layout assertions, 21 integration bindings,
+six rejected runtime mutations and one rejected cadence binding mutation. Covers support extents, button order, floor arithmetic,
 missing support, finite fallback placement and knife clearance for one through twelve buttons.
 Strict Release build: zero warnings and errors. Whitespace check passes.
 

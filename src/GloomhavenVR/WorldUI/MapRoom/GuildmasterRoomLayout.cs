@@ -38,6 +38,10 @@ internal static class GuildmasterRoomLayout
         return best > 0f;
     }
 
+    // A mathematically positive sliver is not an accessible physical button. Half the normal
+    // 55 mm face is the smallest supported layout; narrower fits use full-size fallback caps.
+    internal static bool HasUsableCap(Rail rail, float desiredCap) => rail.Cap >= desiredCap * .5f;
+
     internal static Rail FallbackRail(float mapRight, float mapFar, float knifeFar, int count,
         float cap, float gapRatio, float outerRatio)
     {

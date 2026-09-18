@@ -21,6 +21,7 @@ checks=[
  'renderer.transform.TransformPoint(new Vector3(' in g,
  'table = measured ? table : FindTableSupport(parchment, seat.Scale)' in g,
  'layout = GuildmasterRoomLayout.FallbackRail' in g,
+ '&& GuildmasterRoomLayout.HasUsableCap(layout, capSize)' in g,
  'renderer.isPartOfStaticBatch || filter == null' in g,
  'if (!supportedRail && !_fitWarned)' in b,
  b.index('if (_scratch.Count == 0)', b.index('_scratch.Sort(CompareByDeclaredRank)')) < b.index('if (SameSet())'),
@@ -34,11 +35,16 @@ checks=[
  s.index('GuildmasterRoomGeometry.TryFloor') < s.index('room.transform.SetPositionAndRotation(new Vector3(center.x, floorY, center.z)')
 ]
 assert all(checks),checks
-print(f'Guildmaster room bindings: {len(checks)} passed.')
+def keeps_cadence(source):
+ tick=source[source.index('internal void Tick()'):source.index('internal void Release(')]
+ return tick.index('Rescan();') < tick.index('_scanFrame = Time.frameCount;')
+assert keeps_cadence(b)
+assert not keeps_cadence(b.replace('            Rescan();', '            _scanFrame = Time.frameCount;\n            Rescan();',1))
+print(f'Guildmaster room bindings: {len(checks)+1} passed; failed-build cadence negative rejected.')
 PY
 mutation_dir="$(mktemp -d)"
 trap 'rm -rf "$mutation_dir"' EXIT
-for mutation in footprint order floor fallback-side fallback-knife; do
+for mutation in footprint order floor fallback-side fallback-knife sliver; do
     python3 - "$source_file" "$mutation_dir/Mutated.cs" "$mutation" <<'PY'
 from pathlib import Path
 import sys
@@ -48,7 +54,8 @@ old,new={
  'order':('Z - index / Columns * Pitch','Z + index / Columns * Pitch'),
  'floor':('furnitureBottom + .025f * scale','furnitureBottom - .025f * scale'),
  'fallback-side':('mapRight + radius','mapRight - radius'),
- 'fallback-knife':('Math.Max(mapFar - radius, knifeFar + radius + (rows - 1) * pitch)','mapFar - radius')
+ 'fallback-knife':('Math.Max(mapFar - radius, knifeFar + radius + (rows - 1) * pitch)','mapFar - radius'),
+ 'sliver':('rail.Cap >= desiredCap * .5f','rail.Cap > 0f')
 }[sys.argv[3]]
 assert old in s
 Path(sys.argv[2]).write_text(s.replace(old,new))
@@ -60,6 +67,7 @@ PY
     if [[ "$mutation" == floor ]]; then expected='furniture floor contact allowance'; fi
     if [[ "$mutation" == fallback-side ]]; then expected='fallback stays right of parchment'; fi
     if [[ "$mutation" == fallback-knife ]]; then expected='fallback clears measured knife'; fi
+    if [[ "$mutation" == sliver ]]; then expected='invisible positive sliver is not usable'; fi
     if ! rg -qF "Unhandled exception. System.Exception: $expected" "$mutation_dir/output"; then
         cat "$mutation_dir/output"; exit 1
     fi
