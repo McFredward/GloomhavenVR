@@ -28,8 +28,12 @@ change per build) → this file (where things stand and what is owed) → the bu
   logs are 530; remote logs remain historical 500. The new fixes still need headset checks.
   Records: [CARD-RECOVERY-531.md](CARD-RECOVERY-531.md), [GUILD-RAIL-531.md](GUILD-RAIL-531.md).
   Focused recovery: 552 runtime assertions / six bindings / 22 negative controls; room
-  geometry: 7,014 assertions / 21 bindings / seven negative controls. Strict Release zero
-  warnings/errors; complete integration guard still running.
+  geometry: 7,014 assertions / 21 bindings / seven negative controls. Complete integration
+  guard and 254,565 real-runtime wire assertions pass. Strict Release zero warnings/errors;
+  bilingual docs, Actionlint, patch inventory and whitespace pass. The only guard exit-1
+  verdict is the expected compiled difference from historical baseline 080c505e9:
+  99 changed, 76 added/removed types, one order-only project move. Config/patch/log surfaces
+  are 625 / 174 / 4,740 with no removals; patch inventory remains 132 classes / 199 methods.
 
 - **dev / 1.0.5 / ModBuild 530** addresses the five build-529 hardware findings. MR
   backings are excluded from native wall ownership, supplemental unseen-region backings
