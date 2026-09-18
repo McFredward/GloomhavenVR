@@ -25,7 +25,18 @@ change per build) → this file (where things stand and what is owed) → the bu
   those particular invisible flights. MR screenshot inspected; exact water renderer unknown.
   Source-proven fixes need headset confirmation, especially the reported missing flight.
   Records: [MR-532.md](MR-532.md), [BURN-532.md](BURN-532.md), [FLIGHT-532.md](FLIGHT-532.md).
-  Integrated validation is pending.
+  Integrated validation: all source/runtime stages and 254,565 real-runtime wire assertions
+  pass; burn replay 633 / six bindings / 24 negative controls, flight timing 818 / 13 negative
+  controls, burn layout 228 / 16 negative controls, MR scenery 54 / 26 bindings / five negative
+  controls. Initial guard stopped at eight historical config-description strings classified as
+  protected tokens. Restored those descriptions behind explicit inactive prefixes, then reran
+  the affected MR checks, docs, surface census, strict Release and the unchanged remaining guard
+  stages; unaffected runtime suites were not repeated. All checks pass. Compiled comparison
+  retains the expected exit-1 difference from baseline 080c505e9: 99 changed, 76 added/removed,
+  one order-only project move. Strict Release zero warnings/errors; bilingual docs, Actionlint,
+  patch inventory and whitespace pass. Config/patch/log surfaces are 625 / 174 / 4,741 with no
+  removals; patch inventory remains 132 classes / 199 methods. Independent source review found
+  no additional actionable defect; headset/peer pixels remain unverified.
 
 - **dev / 1.0.5 / ModBuild 531** Build-530 hardware confirms
   native Spellweaver recovery returns FireOrbs, ManaBolt, RidetheWind and FlameStrike from
