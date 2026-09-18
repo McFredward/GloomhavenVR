@@ -28,6 +28,9 @@ internal static class Program
             Check(!MrUnseenRegionEligibility.Allows(name, false), "overlap does not imply fog ownership: " + name);
             Check(!MrUnseenRegionEligibility.Allows(name, true), "cutout neighboring foliage stays authored: " + name);
         }
+        for (int flags = 0; flags < 8; flags++)
+            Check(MrUnseenRegionEligibility.Retain((flags & 1) != 0, (flags & 2) != 0, (flags & 4) != 0)
+                == (flags == 7), "only active source with a live host retains region backing");
         Console.WriteLine($"MR scenario ownership: {_assertions} production assertions passed.");
     }
 }

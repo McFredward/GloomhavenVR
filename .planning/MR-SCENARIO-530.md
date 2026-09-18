@@ -41,11 +41,23 @@ Two source defects exist in the affected rendering paths:
 ## Validation
 
 `scripts/mr-scenario-tests.sh` links the actual ownership and eligibility helpers:
-31 production assertions, 10 source bindings, three negative controls. Negative controls
-restore the missing qualified prefix, broad overlap adoption, and cutout acceptance;
+39 production assertions, 15 source bindings, four negative controls. Negative controls
+restore the missing qualified prefix, broad overlap adoption, cutout acceptance, and
+inactive-source retention;
 each fails for the intended runtime assertion. Strict Release: zero warnings/errors.
 
 Hardware still needs to confirm the photographed patches disappear and that legitimate
 unseen hex tops/rims remain filled without a passthrough tint. Toggle MR repeatedly,
 reveal a neighboring room, and inspect normal floating window backings as well. No claim
 of a headset-verified result follows from the automated checks.
+
+## Retirement ownership review
+
+Retired supplemental entries remove all three GameObjects and both tracking entries.
+The plate and fill reference the game's original mesh; neither allocates or owns a copy.
+Rim meshes are shared by a quantized geometry key in `MrRimCurtain.MeshCache`: rebuilding
+the same geometry reuses its cached mesh. Individual retirement must not destroy that
+asset because other live rims can still reference it. MR off/retune centrally releases
+all cached rim meshes. This round introduces no per-retirement mesh asset allocation.
+Retained supplemental entries additionally require their own source renderer enabled and
+active; an inactive source overlapping some other live host cannot stay registered.

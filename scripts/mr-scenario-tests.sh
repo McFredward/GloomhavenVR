@@ -21,11 +21,17 @@ assert 'IsKeywordEnabled("_ALPHATEST_ON")' in mr
 assert 'bool hasRegion = SeedRegionBounds();' in region
 assert 'UnseenSources.Remove(entry.SourceId);' in region
 assert '|| !e.Source.gameObject.activeInHierarchy)' in mr
-print('MR scenario ownership: 10 source bindings passed.')
+assert 'MrUnseenRegionEligibility.Retain(entry.Source.enabled,' in region
+assert 'entry.Source.gameObject.activeInHierarchy,' in region
+assert 'MrRimCurtain.ReleaseMeshes();' in mr
+rim=(r/'src/GloomhavenVR/Core/MixedReality/MrRimCurtain.cs').read_text()
+assert 'MeshCache.TryGetValue(key, out Mesh mesh)' in rim
+assert mr.count('sharedMesh = filter.sharedMesh;') == 2
+print('MR scenario ownership: 15 source bindings passed.')
 PY
 mutation_dir="$(mktemp -d)"
 trap 'rm -rf "$mutation_dir"' EXIT
-for mutation in prefix overlap cutout; do
+for mutation in prefix overlap cutout inactive; do
     python3 - "$repo_root" "$mutation_dir/Mutated.cs" "$mutation" <<'PY'
 from pathlib import Path
 import sys
@@ -38,6 +44,9 @@ if mutation=='prefix':
 elif mutation=='overlap':
     old='string.Equals(objectName, "Simple Tile", StringComparison.Ordinal)'
     new='objectName.Length > 0'
+elif mutation=='inactive':
+    old='sourceEnabled && sourceActive && overlapsLiveHost'
+    new='overlapsLiveHost'
 else:
     old='!hasCutoutMaterial &&'
     new=''
@@ -48,6 +57,7 @@ PY
     expected='overlap does not imply fog ownership'
     if [[ "$mutation" == prefix ]]; then property=OwnershipSource; expected='mod visual excluded'; fi
     if [[ "$mutation" == cutout ]]; then expected='cutout silhouettes never filled'; fi
+    if [[ "$mutation" == inactive ]]; then expected='only active source with a live host'; fi
     if dotnet run --project "$project" --configuration Release --property:"$property=$mutation_dir/Mutated.cs" > "$mutation_dir/output" 2>&1; then
         echo "FAIL: MR scenario mutation survived: $mutation" >&2; exit 1
     fi

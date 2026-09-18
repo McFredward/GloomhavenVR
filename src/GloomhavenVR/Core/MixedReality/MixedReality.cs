@@ -1506,8 +1506,13 @@ internal static partial class MixedReality
             UnseenUnderlay entry = UnseenUnderlays[i];
             if (!entry.ViaRegion) continue;
             if (UnseenRegionMembership.Value && hasRegion && entry.Source != null
-                && ClassifyRegion(entry.Source.bounds, out _, out _, out _) == RegionVerdict.Inside)
+                && MrUnseenRegionEligibility.Retain(entry.Source.enabled,
+                    entry.Source.gameObject.activeInHierarchy,
+                    ClassifyRegion(entry.Source.bounds, out _, out _, out _) == RegionVerdict.Inside))
                 continue;
+            // Plate/Fill borrow the native mesh. Rim borrows a shape-keyed shared mesh from
+            // MrRimCurtain; rebuilding reuses it, and MR teardown releases the shared cache.
+            // Destroying those mesh assets here would invalidate other live native/rim owners.
             if (entry.Plate != null) UnityEngine.Object.Destroy(entry.Plate.gameObject);
             if (entry.Fill != null) UnityEngine.Object.Destroy(entry.Fill.gameObject);
             if (entry.Rim != null) UnityEngine.Object.Destroy(entry.Rim.gameObject);

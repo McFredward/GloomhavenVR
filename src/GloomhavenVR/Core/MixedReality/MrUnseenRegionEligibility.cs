@@ -9,6 +9,9 @@ namespace GloomhavenVR.Core;
 /// Keep the documented cliff kit, and leave every other native renderer authored.</summary>
 internal static class MrUnseenRegionEligibility
 {
+    internal static bool Retain(bool sourceEnabled, bool sourceActive, bool overlapsLiveHost) =>
+        sourceEnabled && sourceActive && overlapsLiveHost;
+
     internal static bool Allows(string objectName, bool hasCutoutMaterial) =>
         !hasCutoutMaterial && (string.Equals(objectName, "Simple Tile", StringComparison.Ordinal)
             || string.Equals(objectName, "Simple Tile(Clone)", StringComparison.Ordinal));
