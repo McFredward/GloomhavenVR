@@ -514,7 +514,21 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 534;
+    public const ushort ModBuild = 535;
+
+    // ModBuild 535 — retain spent appearance while an original burn runs on an inactive face.
+    // Postrelease build-534 Debug has one complete native ramp, no restart: raw .004 -> 1
+    // over 2.006 s. Its spent floor disappears around .697 s on the same plate material.
+    // Ordinary presentation sampling still treated inactive hierarchy as stopped playback,
+    // contradicting build 534's native disabled-playback permission. A Lost card then cleared
+    // its captured spent channels and resumed drawing raw burn paint. Use actual Playing(fx)
+    // instead; preserve raw progress, genuine recovery/identity retirement and terminal paint.
+    // This serves local draws and owner appearance capture before remote publication alike.
+    // Real-method tests reproduce the inactive Lost transition and exercise cleanup instead
+    // of stubbing it out. The exact hardware deactivation writer remains unverified.
+    // Released 1.0.5 stays unchanged; this is dev 1.0.6. Peer logs remain historical build 500.
+    // No native timing, gameplay, wire format or logging-level change. See .planning/BURN-535.md.
+    //
 
     // ModBuild 534 — first short-rest burn, cold MR table and grouped Guildmaster controls.
     // Build-533 Debug proves the original short-rest iterator bailed synchronously while its

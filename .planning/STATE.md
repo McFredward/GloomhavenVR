@@ -1,6 +1,6 @@
 # State — where the project stands
 
-**Updated 2026-09-18 after successful 1.0.5 publication; dev advances to 1.0.6.** The file this replaces had gone 168 builds
+**Updated 2026-09-18 after successful 1.0.5 publication; dev 1.0.6 / ModBuild 535.** The file this replaces had gone 168 builds
 stale while still saying "read this first"; it is kept as `STATE-ARCHIVE-through-2026-08.md` for
 its round-by-round narrative and for nothing else.
 
@@ -12,6 +12,18 @@ change per build) → this file (where things stand and what is owed) → the bu
 ---
 
 ## 1. Position
+
+- **dev / 1.0.6 / ModBuild 535** retains the spent appearance of a Lost card while its
+  original native burn continues across temporary face inactivity. Build-534 Debug shows one
+  complete ramp, not a replay, but its spent shader floor disappears around 0.697 seconds.
+  The ordinary sampler still equated inactive hierarchy with stopped playback, contradicting
+  build 534. It now follows the actual tracked iterator. A production-method regression
+  reproduces the previous floor loss; real detach/recovery cleanup is no longer stubbed out.
+  Native timing, recovery, flights, remote concealment and normal logging are unchanged.
+  Local draw and owner publication use the same corrected sampler. Peer logs remain build 500;
+  the precise hardware deactivation writer and headset outcome remain unverified.
+  Record: [BURN-535.md](BURN-535.md). Focused replay: 683 runtime assertions / seven source
+  bindings / 36 negative controls. Full integration validation is pending.
 
 - **Released 1.0.5 / ModBuild 534**, main 377d26ec, tag v1.0.5, GitHub Latest.
   Full development CI, reused PR validation and main release workflow succeeded. Downloaded
