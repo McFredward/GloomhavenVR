@@ -805,35 +805,17 @@ internal static class BurnLookPolicy
         if (s_settleLogged)
             return;
         s_settleLogged = true;
-        // HW-VERIFY (2026-09-07 item 8, "erst wieder blau dann wieder braun/ausgegraut aber kein
-        // verbrennen effekt darauf festellen können"): the fraction of the burn ramp the game
-        // actually painted before it abandoned the timeline. Grep token: "BURN RAMP ABANDONED".
-        //
-        // THIS IS THE FIELD THE ROUND WAS MISSING. BurnCardTimeline's animated arm runs a hard-coded
-        // burnTime = 2 s (CardEffects.cs:511) and drives _GreyOut = Clamp01(dTime) (:571), so the
-        // paint IS the ramp's progress. ModBuild 476's peer log 60504 reports the same burn as
-        // "released by: ARTWORK END — the game's own BurnCardTimeline handle went null" after
-        // 0,69s. A finished 2 s ramp cannot be 0.69 s long, so that arm names an END it cannot
-        // observe: CardEffects.coroutine is ALSO nulled by RestoreCard() and by every
-        // ToggleAdditiveEffect (:404-407, :469-472), and the short-rest flow calls both several
-        // times on the same card (CardsHandUI.AnimateCardsLost:1029/:1066 → AbilityCardUI.UpdateCard
-        // → FullAbilityCard.SetPile).
-        //
-        // PROOF: this line with a value well under 1.00 — that number IS "kein verbrennen effekt",
-        // stated as a fraction. FALSIFIER: it never appears, which would mean every burn ramp on
-        // this client finished on its own and the missing effect has some other cause (the card not
-        // being DRAWN during the ramp is the next suspect, and it is a different lane's surface).
-        // NOTE what this does NOT do: it does not give the ramp back. It guarantees the END STATE,
-        // so the card is never handed to the flight half-painted or un-burnt.
-        VRLog.Note(Scope, $"BURN RAMP ABANDONED: '{Name(card)}' is LOST and latched burnt, its " +
-                          $"BurnCardTimeline handle is gone, and the paint stopped at _GreyOut " +
-                          $"{painted:F2} of 1.00 — i.e. the game cancelled its own 2 s ramp at " +
-                          $"{painted * 100f:F0}% and nothing was ever going to finish it. Settled to " +
-                          "the full burnt end state with the game's OWN no-ramp arm " +
-                          "(BurnCardTimeline(burnAnim: false)), front visible, so the card looks the " +
-                          "same on every board and in every round. A handle going null is NOT an " +
-                          "artwork ending — RestoreCard() and ToggleAdditiveEffect null it too — and " +
-                          "this reading is what separates the two.");
+        // Keep the historical grep token, but do not infer cancellation from paint alone.
+        // Native playback terminates on elapsed clock time while dTime accumulates sampled
+        // deltas; its terminal step writes no endpoint. Low raw output can therefore also
+        // follow completion after a coarse clock/frame interval. The retained spent floor
+        // may have kept the visible card grey throughout. This report proves only that the
+        // native terminal output needed settling, not that the user saw a reset or replay.
+        VRLog.Note(Scope, $"BURN RAMP ABANDONED: '{Name(card)}' is LOST and latched burnt, " +
+                          $"with no live handle and raw _GreyOut {painted:F2} of 1.00. " +
+                          "Settled through the native no-ramp arm. Low raw paint alone does not " +
+                          "distinguish cancellation from clock/delta completion; the retained " +
+                          "spent display floor is separate from this reading.");
     }
 
     // ----------------------------------------------------------------------- the instrument --

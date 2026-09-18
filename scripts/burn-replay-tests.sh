@@ -5,7 +5,7 @@ export PATH="${DOTNET_ROOT:-$HOME/.dotnet}:$PATH"
 work_dir=$(mktemp -d)
 trap 'rm -rf "$work_dir"' EXIT
 cp "$repo_root/tests/GloomhavenVR.BurnReplayTests/"*.cs "$repo_root/tests/GloomhavenVR.BurnReplayTests/"*.csproj "$work_dir/"
-cp "$repo_root/src/GloomhavenVR/Cards/Art/NativeBurnEpisode.cs" "$repo_root/src/GloomhavenVR/Cards/Art/NativeBurnEnumerator.cs" "$work_dir/"
+cp "$repo_root/src/GloomhavenVR/Cards/Art/NativeBurnEpisode.cs" "$repo_root/src/GloomhavenVR/Cards/Art/NativeBurnEnumerator.cs" "$repo_root/src/GloomhavenVR/Cards/Art/SpentBurnContinuity.cs" "$work_dir/"
 python3 "$repo_root/tests/GloomhavenVR.BurnReplayTests/extract.py" "$repo_root" "$work_dir/Production.cs"
 dotnet run --project "$work_dir/GloomhavenVR.BurnReplayTests.csproj" -c Release
 cp "$work_dir/NativeBurnEpisode.cs" "$work_dir/original.txt"
@@ -35,12 +35,14 @@ PY
 done
 cp "$work_dir/original.txt" "$work_dir/NativeBurnEpisode.cs"
 cp "$work_dir/Production.cs" "$work_dir/production.txt"
-for mutation in short-rest-preview historical-init historical-rebuild settled-history deferred-reset follower retire-primary retired-follower retargeted-follower recovered-follower implicit-recovery retry-recovery new-episode missing-owner retry-identity; do
+for mutation in short-rest-preview historical-init historical-rebuild settled-history deferred-reset follower retire-primary retired-follower retargeted-follower recovered-follower implicit-recovery retry-recovery new-episode missing-owner retry-identity terminal-floor activation-floor; do
  python3 - "$work_dir" "$mutation" <<'PY'
 from pathlib import Path
 import sys
 p=Path(sys.argv[1]);s=(p/'production.txt').read_text()
 a,b={
+'activation-floor':('beforeReset: false, nativeStep: running || Latched(__instance));','beforeReset: false, nativeStep: true);'),
+ 'terminal-floor':('beforeReset: false, nativeStep: running || Latched(__instance));','beforeReset: false, nativeStep: running);'),
 'short-rest-preview':('if (!active && effect == CardEffects.FXTask.BurnCard && IsShortRestPreview(fx)) return false;', ''),
 'historical-init':('history.Completed = history.LeftRecoveryPile = true;', 'history.LeftRecoveryPile = true;'),
 'historical-rebuild':('if (burnAnim && initialCard != null && Durable(initialCard, initialOwner)', 'if (bool.Parse("false") && burnAnim && initialCard != null && Durable(initialCard, initialOwner)'),
@@ -61,6 +63,8 @@ assert s.count(a)==1;(p/'Production.cs').write_text(s.replace(a,b))
 PY
  if dotnet run --project "$work_dir/GloomhavenVR.BurnReplayTests.csproj" -c Release > "$work_dir/negative.log" 2>&1; then cat "$work_dir/negative.log"; exit 1; fi
  case "$mutation" in
+ activation-floor) expected='A legitimate deferred activation reset must not regain its old spent floor';;
+ terminal-floor) expected='The terminal native step must not expose raw unspent artwork';;
  short-rest-preview) expected='Uncommitted short-rest hover must retain spent artwork without a premature flame preview';;
  historical-init|historical-rebuild) expected='First-seen already-lost widgets must settle native artwork without a historical replay';;
  settled-history) expected='Historical native settle must survive a standalone reset without blue flash';;

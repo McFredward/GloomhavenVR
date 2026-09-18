@@ -85,9 +85,10 @@ internal static class BurnArtwork
     /// <c>BurnCardTimeline</c>'s animated arm drives <c>_GreyOut</c> to <c>Mathf.Clamp01(dTime)</c>
     /// and runs until <c>burnTime = 2f</c> seconds of global-clock time have passed
     /// (CardEffects.cs:511/571), and its no-ramp arm writes a literal 1 (:600). So a LATCHED burn
-    /// whose handle is gone and whose paint sits below this did not finish — it was CANCELLED, and
-    /// <see cref="PaintProgress"/> reads the fraction it got to. That number, not the handle, is
-    /// what says whether the player saw a burn.
+    /// whose handle is gone and whose paint sits below this needs settled native output.
+    /// Cancellation is one possible cause; elapsed-clock termination can also precede the
+    /// accumulated delta-time paint. <see cref="PaintProgress"/> excludes the retained spent
+    /// display floor and cannot, by itself, prove what the player saw.
     /// </summary>
     internal const float FinishedGreyOut = 0.98f;
 
@@ -493,8 +494,14 @@ internal static class BurnArtwork
                         // Honor that native reset after the final step, never halfway through.
                         if (!running && episode.TakeDeferredRestore(Durable(card, owner))) __instance.RestoreCard();
                     }
+                    // The native iterator's terminal step only clears its handle; it does not
+                    // write final shader values. RestoreNativeBurnChannels removed our spent
+                    // floor before this step, so treating MoveNext(false) as idle exposes the
+                    // raw (possibly still near-zero after a clock jump) card for a frame. Keep
+                    // the same spent floor through completion without restarting the artwork.
+                    // A legitimate deferred activation reset clears the latch and stays clean.
                     PreserveSpentBurnStart(__instance, card, widget != null ? widget.PlayerActor : full?.playerActor,
-                        beforeReset: false, nativeStep: running);
+                        beforeReset: false, nativeStep: running || Latched(__instance));
                 },
                 ex => Core.VRLog.Warn("Cards", $"Could not preserve native burn step: {ex.Message}"));
             return playback;

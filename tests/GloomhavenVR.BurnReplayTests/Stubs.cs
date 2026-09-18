@@ -20,6 +20,11 @@ class CardEffects {
  internal readonly HashSet<FXTask> toggledEffects=new();
  internal FullAbilityCard Full=new();
  internal float Paint;
+ internal UnityEngine.UI.Image[]? imgComp;
+ internal readonly UnityEngine.GameObject gameObject=new();
+ internal object? coroutine;
+ internal float[]? RawSteps;
+ internal void WriteRaw(float value){Paint=value;if(imgComp!=null)foreach(var image in imgComp){image.material.SetFloat(UnityEngine.Shader.PropertyToID("_GreyOut"),value);image.material.SetFloat(UnityEngine.Shader.PropertyToID("_Flow"),value);image.material.SetFloat(UnityEngine.Shader.PropertyToID("_Dissolve"),value*.646f);}}
  internal int Starts,Resets,Discards;
  internal bool Disabled,ThrowOwner,ThrowReset;
  internal NativeBurnEnumerator? Live;
@@ -36,28 +41,30 @@ class CardEffects {
   if(effect==FXTask.DiscardMode){Discards++;return;}
   var iterator=BurnCardTimeline(active); iterator.MoveNext(); Live=(NativeBurnEnumerator)iterator;
  }
- internal void RestoreCard(){if(!BurnArtwork.RestoreCard_PreservePlayback_Patch.Prefix(this))return; if(ThrowReset)throw new InvalidOperationException("reset unavailable"); Resets++;Live=null;Paint=0;toggledEffects.Clear();}
+ internal void RestoreCard(){if(!BurnArtwork.RestoreCard_PreservePlayback_Patch.Prefix(this))return; if(ThrowReset)throw new InvalidOperationException("reset unavailable"); Resets++;Live=null;coroutine=null;WriteRaw(0);toggledEffects.Clear();}
  internal IEnumerator BurnCardTimeline(bool burnAnim,bool playOnDisabled=false){IEnumerator result=Native(burnAnim);BurnArtwork.BurnCardTimeline_PreserveSpentStart_Patch.Postfix(this,burnAnim,ref result);return result;}
- IEnumerator Native(bool animate){if(Disabled)yield break;if(!animate){Paint=1;yield break;}Starts++;while(Paint<1){Paint+=.1f;yield return this;}}
+ IEnumerator Native(bool animate){if(Disabled)yield break;if(!animate){WriteRaw(1);coroutine=null;yield break;}Starts++;coroutine=new();if(RawSteps!=null){foreach(float raw in RawSteps){WriteRaw(raw);yield return this;}}else{while(Paint<1){WriteRaw(Paint+.1f);yield return this;}}coroutine=null;}
 }
 namespace GloomhavenVR.Core { static class VRLog { internal static void Warn(string scope,string text){} } }
 namespace GloomhavenVR.Net { static class CardAppearanceSampler { internal static int Starts; internal static void ObserveNativeBurnStart(CardEffects fx)=>Starts++; } }
 namespace GloomhavenVR.Cards {
  static class CardFace {internal static AbilityCardUI? Owner;internal static AbilityCardUI? OwnerOf(FullAbilityCard? full)=>Owner!=null&&ReferenceEquals(Owner.fullAbilityCard,full)?Owner:null;}
  partial class BurnArtwork {
- internal sealed class Start {internal bool HasFloor=true;}
- internal static readonly ConditionalWeakTable<CardEffects,Start> BurnStarts=new();
- internal static readonly ConditionalWeakTable<CardEffects,NativeBurnEnumerator> BurnTimelines=new();
  internal const float FinishedGreyOut=.98f;
  internal static bool SettledBurnPainted(CardEffects fx,out float grey){grey=fx.Paint;return grey>=.5f;}
  internal static void Forget(CardEffects fx){}
- internal static void RestoreNativeBurnChannels(CardEffects fx){}
  internal static void ClearRecoveredSpentBurnStart(CardEffects fx,FullAbilityCard? full){}
- internal static void PreserveSpentBurnStart(CardEffects fx,ScenarioRuleLibrary.CAbilityCard? card,object? owner,bool beforeReset,bool nativeStep=false){}
+ internal static bool Latched(CardEffects fx)=>fx.toggledEffects.Contains(CardEffects.FXTask.BurnCard)||fx.toggledEffects.Contains(CardEffects.FXTask.LostMode);
  }
 }
 
-namespace UnityEngine { class WaitForEndOfFrame {} }
+namespace UnityEngine {
+ class WaitForEndOfFrame {}
+ class GameObject { internal bool activeInHierarchy=true; }
+ static class Shader { static readonly Dictionary<string,int> ids=new();internal static int PropertyToID(string name){if(!ids.TryGetValue(name,out int id))ids[name]=id=ids.Count;return id;} }
+ class Material { readonly Dictionary<int,float> values=new();internal bool HasProperty(int id)=>true;internal float GetFloat(int id)=>values.TryGetValue(id,out var value)?value:0;internal void SetFloat(int id,float value)=>values[id]=value; }
+}
+namespace UnityEngine.UI {class Image {internal UnityEngine.Material material=new();}}
 
 class CardsHandUI { internal ScenarioRuleLibrary.CAbilityCard? ShortRestedCard; }
 class CardsHandManager { internal static CardsHandManager? Instance; internal CardsHandUI Hand=new(); internal CardsHandUI GetHand(ScenarioRuleLibrary.CPlayerActor owner)=>Hand; }

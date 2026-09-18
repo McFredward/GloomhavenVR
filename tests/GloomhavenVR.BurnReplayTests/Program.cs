@@ -105,6 +105,35 @@ static class Program {
   var(unresolved,unknown)=Make(ECardPile.Lost);unresolved.ToggleEffect(true,CardEffects.FXTask.BurnCard);while(unresolved.Live!.MoveNext()){}
   unknown.CurrentCardPile=ECardPile.Hand;BurnArtwork.ReconcileRecoveredAppearance(unresolved);
   Check(unresolved.Paint>=1,"Unresolved owner metadata must not clear a real lost card from a stale Hand stamp");
+  // Execute the production spent-channel implementation, not a boolean-only timeline stub.
+  // Native BurnCardTimeline terminates from elapsed clock time without writing its endpoint;
+  // its accumulated delta-time paint may therefore lag that clock (including a coarse frame).
+  foreach(float lastNative in new[]{0f,.1f,.5f,.97f,.999f}){
+   var(floor,floorCard)=Make(ECardPile.Discarded);floor.Full.playerActor=new();
+   floor.Full.playerActor.CharacterClass.DiscardedAbilityCards.Add(floorCard);
+   floor.imgComp=new[]{new UnityEngine.UI.Image(),new UnityEngine.UI.Image()};floor.RawSteps=new[]{0f,lastNative};
+   floor.WriteRaw(1);floor.ToggleEffect(true,CardEffects.FXTask.BurnCard);var floorIterator=floor.Live!;
+   floor.Full.playerActor.CharacterClass.DiscardedAbilityCards.Clear();floor.Full.playerActor.CharacterClass.LostAbilityCards.Add(floorCard);
+   foreach(var image in floor.imgComp)Check(image.material.GetFloat(UnityEngine.Shader.PropertyToID("_GreyOut"))==1,"Spent artwork must stay spent from the first native burn step");
+   Check(floorIterator.MoveNext(),"The running original must advance without a replacement iterator");
+   Check(!floorIterator.MoveNext()&&floor.coroutine==null,"The terminal native step must still complete normally");
+   foreach(var image in floor.imgComp)foreach(var channel in new[]{("_GreyOut",1f),("_Flow",1f),("_Dissolve",.646f)})
+    Check(image.material.GetFloat(UnityEngine.Shader.PropertyToID(channel.Item1))==channel.Item2,"The terminal native step must not expose raw unspent artwork");
+   Check(floor.Starts==1&&floor.Resets==1,"Retaining terminal paint must not restart native burn or reset its card");
+   Check(BurnArtwork.BurnStarts.TryGetValue(floor,out var floorRecord)&&floorRecord.RawGrey==lastNative,"Spent display floors must not manufacture native completion progress");
+   BurnArtwork.PreserveSpentBurnStart(floor,floorCard,floor.Full.playerActor,beforeReset:false);
+   foreach(var image in floor.imgComp)Check(image.material.GetFloat(UnityEngine.Shader.PropertyToID("_GreyOut"))==1,"A later local or remote presentation sample must retain the finished spent picture");
+   floor.Full.playerActor.CharacterClass.LostAbilityCards.Clear();floor.Full.playerActor.CharacterClass.HandAbilityCards.Add(floorCard);
+   BurnArtwork.ReconcileRecoveredAppearance(floor);
+   foreach(var image in floor.imgComp)Check(image.material.GetFloat(UnityEngine.Shader.PropertyToID("_GreyOut"))==0,"A terminal spent floor must not survive genuine card recovery");
+  }
+  var(activeFloor,activeFloorCard)=Make(ECardPile.Activated);activeFloor.Full.playerActor=new();
+  activeFloor.Full.playerActor.CharacterClass.ActivatedCards.Add(activeFloorCard);
+  activeFloor.imgComp=new[]{new UnityEngine.UI.Image()};activeFloor.RawSteps=new[]{.1f,.8f};activeFloor.WriteRaw(.6f);
+  activeFloor.ToggleEffect(true,CardEffects.FXTask.BurnCard);var activeFloorIterator=activeFloor.Live!;activeFloor.RestoreCard();
+  while(activeFloorIterator.MoveNext()){}
+  Check(activeFloor.imgComp[0].material.GetFloat(UnityEngine.Shader.PropertyToID("_GreyOut"))==0,
+   "A legitimate deferred activation reset must not regain its old spent floor");
   Console.WriteLine($"Burn replay: {count} runtime assertions passed.");
  }
 }
