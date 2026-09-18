@@ -514,8 +514,20 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 530;
+    public const ushort ModBuild = 531;
 
+    // ModBuild 531 — recovered cards and usable Guildmaster controls.
+    // Reconcile native burn presentation after a proven return to Hand/Round, independently
+    // of cached widget SetPile edges. Retire the old episode/floor before native RestoreCard;
+    // reconcile before local display, appearance capture and smoke publication. Retry failed
+    // resets without crossing pooled identities or interrupting a new legitimate burn.
+    // Guildmaster actions remain required and retain native unlock/click rules. Fit controls
+    // using native mesh geometry; optional table detection cannot remove the whole rail.
+    // A visible right-side fallback preserves access when support cannot be measured.
+    // Local hardware evidence is build 530; peer logs remain historical 500. Model recovery
+    // is log-proven; final restored artwork and revised cap placement need headset verification.
+    // Details: .planning/CARD-RECOVERY-531.md and .planning/GUILD-RAIL-531.md.
+    //
     // ModBuild 530 — MR scenery ownership and Guildmaster map interaction/layout.
     // Recognize both mod name prefixes in wall ownership: native-layer MR backings were being
     // adopted as architecture. Restrict supplemental unseen-region geometry to the documented

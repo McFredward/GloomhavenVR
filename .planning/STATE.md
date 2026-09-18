@@ -1,6 +1,6 @@
 # State — where the project stands
 
-**Updated 2026-09-18 for MR scenery and Guildmaster interaction, ModBuild 530 on dev.** The file this replaces had gone 168 builds
+**Updated 2026-09-18 for recovered card effects and Guildmaster controls, ModBuild 531 on dev.** The file this replaces had gone 168 builds
 stale while still saying "read this first"; it is kept as `STATE-ARCHIVE-through-2026-08.md` for
 its round-by-round narrative and for nothing else.
 
@@ -12,6 +12,24 @@ change per build) → this file (where things stand and what is owed) → the bu
 ---
 
 ## 1. Position
+
+- **dev / 1.0.5 / ModBuild 531** Build-530 hardware confirms
+  native Spellweaver recovery returns FireOrbs, ManaBolt, RidetheWind and FlameStrike from
+  Lost to Hand (Player.log 9950–10001), but their burnt presentation remains. Native widget
+  pile caching and retained burn presentation now receive explicit recovery reconciliation
+  before local draw and remote publication. Old smoke cannot acquire a new Hand address;
+  reset retries are isolated and cannot cancel a new burn or affect a pooled replacement. Guildmaster table controls are not globally redundant:
+  native merchant/trainer/enhancement entry points exist. Build 530 introduced a silent
+  whole-rail omission when optional support geometry could not be fitted. Refined mesh
+  measurement and a readable right-side fallback retain access without changing campaign
+  placement, native action availability or gameplay callbacks. Failed scans keep their
+  ordinary cadence; missing-HUD and failed-support diagnostics are bounded.
+  The maintainer reports the other build-530 hardware issues appear resolved. Current local
+  logs are 530; remote logs remain historical 500. The new fixes still need headset checks.
+  Records: [CARD-RECOVERY-531.md](CARD-RECOVERY-531.md), [GUILD-RAIL-531.md](GUILD-RAIL-531.md).
+  Focused recovery: 552 runtime assertions / six bindings / 22 negative controls; room
+  geometry: 7,014 assertions / 21 bindings / seven negative controls. Strict Release zero
+  warnings/errors; complete integration guard still running.
 
 - **dev / 1.0.5 / ModBuild 530** addresses the five build-529 hardware findings. MR
   backings are excluded from native wall ownership, supplemental unseen-region backings

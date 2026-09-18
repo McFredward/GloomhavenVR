@@ -1,6 +1,6 @@
 # Planning index
 
-Updated 2026-09-18 for MR scenery and Guildmaster interaction, build 530 on dev. This directory holds internal
+Updated 2026-09-18 for recovered card effects and Guildmaster controls, build 531 on dev. This directory holds internal
 engineering evidence, historical decisions and current status; it is not the player manual.
 
 ## Current entry points
@@ -17,6 +17,9 @@ engineering evidence, historical decisions and current status; it is not the pla
 | [PROJECT.md](PROJECT.md), [ARCHITECTURE.md](ARCHITECTURE.md) | Product scope and architectural reasoning |
 
 ## Latest measured work
+
+- [CARD-RECOVERY-531.md](CARD-RECOVERY-531.md): clear retained native burn effects on legitimate recovery, before local and remote presentation.
+- [GUILD-RAIL-531.md](GUILD-RAIL-531.md): retain required Guildmaster controls when optional table-fit measurement fails.
 
 - [MR-SCENARIO-530.md](MR-SCENARIO-530.md): MR terrain eligibility, wall ownership and backing lifetime.
 - [GUILD-ROOM-530.md](GUILD-ROOM-530.md): Guildmaster right-side controls and native furniture floor contact.
