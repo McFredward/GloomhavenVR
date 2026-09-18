@@ -1,6 +1,6 @@
 # State — where the project stands
 
-**Updated 2026-09-18 for UI-only MR backings and burn/flight continuity, ModBuild 532 on dev.** The file this replaces had gone 168 builds
+**Updated 2026-09-18 for recovered action-card membership and short-rest diagnostics, ModBuild 533 on dev.** The file this replaces had gone 168 builds
 stale while still saying "read this first"; it is kept as `STATE-ARCHIVE-through-2026-08.md` for
 its round-by-round narrative and for nothing else.
 
@@ -12,6 +12,20 @@ change per build) → this file (where things stand and what is owed) → the bu
 ---
 
 ## 1. Position
+
+- **dev / 1.0.5 / ModBuild 533** fixes the clarified Spellweaver action-slot regression:
+  the native action controller retains the first played card; recovering it from Lost to Hand
+  previously made it eligible for the round slot again. Actual Hand membership now rejects
+  that stale supplement, while Round/ExtraTurn cards and later legitimate selection still work.
+  Both reported card flights worked; the later disappearance was the resurrected stale slot.
+  Local logs are 532; remote logs remain historical 500. No independent remote static-pair
+  reconstruction was found; owner-published slots inherit the corrected collection.
+  The short-rest flash **remains unresolved**. The maintainer confirmed Debug was forgotten
+  for this capture and enabled for the next test. Bounded opt-in diagnostics will distinguish
+  native playback, reset and renderer/material transitions without adding normal-log streams.
+  Records: [ROUND-533.md](ROUND-533.md), [BURN-533.md](BURN-533.md).
+  Focused collector coverage: 50 runtime assertions across three production methods and six
+  negative controls. Integration validation pending; headset results are not yet verified.
 
 - **dev / 1.0.5 / ModBuild 532** addresses the build-531 hardware report. MR backings
   now belong exclusively to UI: scenery underlays, fills and rims are retired, including

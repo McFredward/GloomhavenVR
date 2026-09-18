@@ -1,6 +1,6 @@
 # Planning index
 
-Updated 2026-09-18 for UI-only MR backings and burn/flight continuity, build 532 on dev. This directory holds internal
+Updated 2026-09-18 for recovered action-card membership and short-rest diagnostics, build 533 on dev. This directory holds internal
 engineering evidence, historical decisions and current status; it is not the player manual.
 
 ## Current entry points
@@ -17,6 +17,9 @@ engineering evidence, historical decisions and current status; it is not the pla
 | [PROJECT.md](PROJECT.md), [ARCHITECTURE.md](ARCHITECTURE.md) | Product scope and architectural reasoning |
 
 ## Latest measured work
+
+- [ROUND-533.md](ROUND-533.md): exclude recovered hand cards from stale action-controller slots.
+- [BURN-533.md](BURN-533.md): unresolved short-rest flash and bounded Debug evidence for the next test.
 
 - [MR-532.md](MR-532.md): restrict MR backing geometry to UI under the latest hardware ruling.
 - [BURN-532.md](BURN-532.md): retain spent appearance through the original burn's terminal step.

@@ -356,6 +356,7 @@ jobs:
           bash scripts/card-loss-modal-tests.sh
           bash scripts/map-flow-tests.sh
           bash scripts/map-button-tests.sh
+          bash scripts/round-card-tests.sh
           bash scripts/burn-layout-tests.sh
           bash scripts/burn-replay-tests.sh
           bash scripts/pick-tray-tests.sh

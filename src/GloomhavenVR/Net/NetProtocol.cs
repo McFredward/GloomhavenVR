@@ -514,7 +514,20 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 532;
+    public const ushort ModBuild = 533;
+
+    // ModBuild 533 — recovered action-card membership and short-rest diagnostics.
+    // Native action-controller references survive a card's Lost -> Hand recovery. Refuse
+    // those stale references when collecting round slots; actual Round/ExtraTurn membership
+    // still permits a later legitimate play. This prevents the first Spellweaver card from
+    // reappearing after Reviving Ether resolves, locally and in owner-published board slots.
+    // The build-532 report confirms both flights worked; the subsequent stale seat was the
+    // reported missing-flight symptom. Short-rest flashing persists and remains unresolved.
+    // The maintainer confirmed Debug was disabled in this capture and enabled for the next.
+    // Add bounded opt-in native burn/material diagnostics; do not claim a speculative fix.
+    // Local evidence is 532, remote logs remain historical 500. No wire grammar change.
+    // Details: .planning/ROUND-533.md and .planning/BURN-533.md.
+    //
 
     // ModBuild 532 — UI-only MR backings and continuous burn/flight presentation.
     // The build-531 hardware ruling forbids backing geometry anywhere inside the play area.
