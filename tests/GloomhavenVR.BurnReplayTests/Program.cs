@@ -24,6 +24,47 @@ static class Program {
    BurnArtwork.RetireBurnPlayback(fx);fx.RestoreCard();Check(fx.Paint==0,"Explicit pool retirement must allow reset even for old lost widgets");
   }
   var(bail,bc)=Make(ECardPile.Lost);bail.Disabled=true;bail.ToggleEffect(true,CardEffects.FXTask.BurnCard);bail.Disabled=false;bail.ToggleEffect(true,CardEffects.FXTask.BurnCard);Check(bail.Starts==1,"Synchronous native bail must allow a real first playback later");
+  // Reproduce native FinalizeShortRest -> inactive full face -> reactivation -> SetPile(Lost).
+  // The actual native entry gate runs inside the stub iterator, after Harmony argument binding.
+  foreach(bool adoptedRest in new[]{false,true}) {
+   var(rest,restCard)=Make(ECardPile.Discarded);rest.Full.playerActor=new();
+   var restOwner=rest.Full.playerActor;restOwner.CharacterClass.DiscardedAbilityCards.Add(restCard);
+   var restWidget=new AbilityCardUI{fullAbilityCard=rest.Full,AbilityCard=restCard,PlayerActor=restOwner};
+   if(adoptedRest)CardFace.Owner=restWidget;else rest.Full.Parent=restWidget;
+   rest.imgComp=new[]{new UnityEngine.UI.Image()};rest.RawSteps=new[]{.01f,.2f,.5f,.8f,1f};
+   rest.WriteRaw(1);rest.gameObject.activeInHierarchy=false;
+   rest.ToggleEffect(true,CardEffects.FXTask.BurnCard);var first=rest.Live!;
+   Check(first.Started&&!first.Finished&&rest.Starts==1&&rest.Paint==.01f,
+    "An inactive original must execute the first native burn instead of bailing and replaying later");
+   Check(!rest.gameObject.activeInHierarchy,"Burn permission must never activate hidden native UI");
+   Check(rest.imgComp[0].material.GetFloat(UnityEngine.Shader.PropertyToID("_GreyOut"))==1,
+    "An inactive short-rest original must retain its spent wash on the first native step");
+   rest.gameObject.activeInHierarchy=true;
+   restOwner.CharacterClass.DiscardedAbilityCards.Clear();restOwner.CharacterClass.LostAbilityCards.Add(restCard);
+   restCard.CurrentCardPile=ECardPile.Lost;
+   while(first.MoveNext()) {
+    rest.ToggleEffect(true,CardEffects.FXTask.LostMode);rest.ToggleEffect(false,CardEffects.FXTask.LostMode);rest.RestoreCard();
+    BurnArtwork.PreserveSpentBurnStart(rest,restWidget);
+    Check(ReferenceEquals(first,rest.Live)&&rest.Starts==1&&rest.Resets==1,
+     "Reactivation and LostMode refresh must retain the one original short-rest burn");
+    Check(rest.imgComp[0].material.GetFloat(UnityEngine.Shader.PropertyToID("_GreyOut"))==1,
+     "Local drawing and remote sampling must not expose a clean short-rest card");
+   }
+   rest.ToggleEffect(true,CardEffects.FXTask.LostMode);rest.RestoreCard();
+   Check(rest.Starts==1&&rest.Resets==1&&rest.Paint==1,
+    "The completed inactive-origin burn must remain authoritative after loss refresh");
+   restOwner.CharacterClass.LostAbilityCards.Clear();restOwner.CharacterClass.HandAbilityCards.Add(restCard);
+   BurnArtwork.ReconcileRecoveredAppearance(rest);
+   Check(rest.Paint==0&&rest.Resets==2,"Recovery without a native SetPile edge must restore the original before local draw and remote capture");
+   CardFace.Owner=null;
+  }
+  var(unbound,unboundCard)=Make(ECardPile.Discarded);unbound.gameObject.activeInHierarchy=false;
+  unbound.ToggleEffect(true,CardEffects.FXTask.BurnCard);
+  Check(unbound.Starts==0&&unbound.Live!.Finished,"Unbound clones must retain the native inactive playback gate");
+  var(mismatch,mismatchCard)=Make(ECardPile.Discarded);mismatch.gameObject.activeInHierarchy=false;
+  mismatch.Full.Parent=new AbilityCardUI{fullAbilityCard=new FullAbilityCard(),AbilityCard=mismatchCard};
+  mismatch.ToggleEffect(true,CardEffects.FXTask.BurnCard);
+  Check(mismatch.Starts==0&&mismatch.Live!.Finished,"A mismatched native parent must not authorize inactive clone playback");
   var(changed,cc)=Make(ECardPile.Lost);changed.ToggleEffect(true,CardEffects.FXTask.BurnCard);changed.Full.AbilityCard=new(){CurrentCardPile=ECardPile.Lost};changed.ToggleEffect(true,CardEffects.FXTask.LostMode);Check(changed.Starts==2,"Recycled widget identity must not inherit another card's burn");
   var(adopted,ac)=Make(ECardPile.Discarded);CardFace.Owner=new(){fullAbilityCard=adopted.Full,AbilityCard=ac};adopted.Full.AbilityCard=null;adopted.ToggleEffect(true,CardEffects.FXTask.BurnCard);ac.CurrentCardPile=ECardPile.Lost;adopted.ToggleEffect(true,CardEffects.FXTask.LostMode);Check(adopted.Starts==1,"Adopted widget identity must win over missing or stale full-card metadata");CardFace.Owner=null;
   var(authoritative,stale)=Make(ECardPile.Hand);authoritative.Full.playerActor=new();authoritative.Full.playerActor.CharacterClass.LostAbilityCards.Add(stale);authoritative.ToggleEffect(true,CardEffects.FXTask.BurnCard);while(authoritative.Live!.MoveNext()){}authoritative.RestoreCard();Check(authoritative.Paint>=1,"Authoritative lost membership must override a stale hand pile stamp");

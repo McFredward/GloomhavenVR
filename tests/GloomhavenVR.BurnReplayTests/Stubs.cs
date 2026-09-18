@@ -45,8 +45,8 @@ class CardEffects {
   var iterator=BurnCardTimeline(active); iterator.MoveNext(); Live=(NativeBurnEnumerator)iterator;
  }
  internal void RestoreCard(){if(!BurnArtwork.RestoreCard_PreservePlayback_Patch.Prefix(this))return; if(ThrowReset)throw new InvalidOperationException("reset unavailable"); Resets++;Live=null;coroutine=null;WriteRaw(0);toggledEffects.Clear();}
- internal IEnumerator BurnCardTimeline(bool burnAnim,bool playOnDisabled=false){IEnumerator result=Native(burnAnim);BurnArtwork.BurnCardTimeline_PreserveSpentStart_Patch.Postfix(this,burnAnim,ref result);return result;}
- IEnumerator Native(bool animate){if(Disabled)yield break;if(!animate){WriteRaw(1);coroutine=null;yield break;}Starts++;coroutine=new();if(RawSteps!=null){foreach(float raw in RawSteps){WriteRaw(raw);yield return this;}}else{while(Paint<1){WriteRaw(Paint+.1f);yield return this;}}coroutine=null;}
+ internal IEnumerator BurnCardTimeline(bool burnAnim,bool playOnDisabled=false){BurnArtwork.BurnCardTimeline_PreserveSpentStart_Patch.Prefix(this,burnAnim,ref playOnDisabled);IEnumerator result=Native(burnAnim,playOnDisabled);BurnArtwork.BurnCardTimeline_PreserveSpentStart_Patch.Postfix(this,burnAnim,ref result);return result;}
+ IEnumerator Native(bool animate,bool playOnDisabled){if((Disabled||!gameObject.activeInHierarchy)&&!playOnDisabled){coroutine=null;yield break;}if(!animate){WriteRaw(1);coroutine=null;yield break;}Starts++;coroutine=new();if(RawSteps!=null){foreach(float raw in RawSteps){WriteRaw(raw);yield return this;}}else{while(Paint<1){WriteRaw(Paint+.1f);yield return this;}}coroutine=null;}
 }
 namespace GloomhavenVR.Core { static class VRLog { internal static bool WantsDebug; internal static readonly List<string> Lines=new(); internal static void Info(string scope,string text)=>Lines.Add(text); internal static void Warn(string scope,string text){} } }
 namespace GloomhavenVR.Net { static class CardAppearanceSampler { internal static int Starts; internal static void ObserveNativeBurnStart(CardEffects fx)=>Starts++; } }

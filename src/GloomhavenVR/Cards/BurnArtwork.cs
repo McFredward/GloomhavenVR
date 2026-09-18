@@ -419,6 +419,26 @@ internal static class BurnArtwork
             return ReferenceEquals(currentCard, card) && ReferenceEquals(ReadHistory(card, owner, resetting: false), history);
         }
 
+        private static void Prefix(CardEffects __instance, bool burnAnim, ref bool playOnDisabled)
+        {
+            if (!burnAnim || playOnDisabled) return;
+            try
+            {
+                // Build 533 Debug capture: FinalizeShortRest starts the ORIGINAL burn while
+                // its full face is temporarily inactive (frame 2841). Native playback bails
+                // synchronously, so neither an episode nor completion is recorded. The VR
+                // face returns next frame; a no-ramp settle then precedes SetPile(Lost)'s
+                // second animated burn, visibly resetting the already burning card.
+                // Choreographer owns this coroutine, not the disabled face. Let the game's
+                // original iterator paint through that hierarchy transition, using its own
+                // existing playOnDisabled path. Do not activate hidden UI or run clone FX.
+                FullAbilityCard? full = ResolveOwner(__instance, out var widget);
+                if (full != null && widget != null && ReferenceEquals(widget.fullAbilityCard, full)
+                    && widget.AbilityCard != null) playOnDisabled = true;
+            }
+            catch { /* An unresolved original keeps the game's normal playback behavior. */ }
+        }
+
         private static void Postfix(CardEffects __instance, bool burnAnim, ref System.Collections.IEnumerator __result)
         {
             try { __result = Wrap(__instance, burnAnim, __result); }
