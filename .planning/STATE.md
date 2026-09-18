@@ -25,7 +25,17 @@ change per build) → this file (where things stand and what is owed) → the bu
   [MAP-PICKING-530.md](MAP-PICKING-530.md), [GUILD-QUESTS-530.md](GUILD-QUESTS-530.md).
   Hardware confirms the build-528/529 table is visible. Exact MR pixel attribution,
   final floor contact/knife clearance and the new interactions still need headset checks.
-  Remote logs remain historical build 500. Full integration validation is in progress.
+  Remote logs remain historical build 500. EN/DE tutorial execution hints now explicitly
+  require board CONFIRM; the unsupported second-pick advice is removed from all five uses.
+  Validation: complete guard/source/presentation suite and 254,565 real-runtime wire
+  assertions pass; strict Release zero warnings/errors, bilingual docs, Actionlint and
+  whitespace checks pass. New focused totals: MR ownership 39, room geometry 6,273,
+  map picking 333 and standing quest list 69, with bindings and negative controls.
+  Tutorial scope rechecked after the wording change (42 runtime / 17 binding assertions).
+  Guard exit 1 is solely the expected compiled difference from baseline 080c505e9:
+  97 changed, 76 added/removed types, one order-only project move. Config/patch/log
+  surfaces are 625 / 174 / 4,739, with no removals; patch inventory remains 132 classes /
+  199 registered methods. One additional Debug floor-placement token versus build 529.
 
 - **dev / 1.0.5 / ModBuild 529** moves the per-burn continuity records to opt-in Debug,
   including an early observer guard to avoid material/progress reads and formatting at

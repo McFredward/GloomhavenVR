@@ -10,6 +10,11 @@ browsing and clarifies that it must not hide the quest list. After actual quest 
 (point of no return), the quest story must hide it normally. This is not an unconditional
 always-visible exception to accepted-journey presentation.
 
+The current mod log contains no Error/Fatal record. Player.log has one native
+`VoiceChat.BoltVoiceChatService.OnDestroy` NullReferenceException after OpenXR enters
+EXITING (lines 24003–24012), during teardown. It does not establish an in-session quest
+failure and is not changed by this presentation fix.
+
 ## Source repair
 
 `MapStoryController.isVisibleOtherUI` alone was treated as proof of quest commitment.
@@ -37,8 +42,8 @@ new gameplay controllers, native Show calls, or native IsOpen writes.
 The production-linked permanent-quest-log harness passes 69 assertions, 11 source bindings
 and five rejected negative controls. It covers native-closed discovery, persistent reuse,
 ordinary dialog versus committed journey/loadout, hidden/inactive parchment, campaign
-return, conversion disabled, destruction and room exit. Integration checks are recorded in
-STATE.md after the complete guard finishes.
+return, conversion disabled, destruction and room exit. The complete guard and 254,565 runtime wire assertions pass; strict Release has no
+warnings/errors. The expected historical compiled diff is documented in STATE.md.
 
 Headset checks: browse/select/cancel quests while the persistent dialog is present; accept
 a quest and confirm the list disappears for the actual story/loadout; return to the map;

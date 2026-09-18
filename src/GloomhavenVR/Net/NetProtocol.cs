@@ -527,6 +527,7 @@ internal static class NetProtocol
     // Ordinary Guildmaster dialogs no longer count as quest-start story curtains. The original
     // quest log stays enrolled during browsing; actual native confirmation/loadout still hides
     // it, per the user's clarified point-of-no-return rule. Campaign curtains are unchanged.
+    // EN/DE tutorial execution hints now require board CONFIRM; remove the unsupported second-pick advice.
     // Local evidence is build 529; remote logs remain historical 500. Runtime fixes and tests
     // are source-backed; final MR pixels, floor contact, knife spacing and targeting need HMD
     // confirmation. Details: .planning/{MR-SCENARIO,GUILD-ROOM,MAP-PICKING,GUILD-QUESTS}-530.md.

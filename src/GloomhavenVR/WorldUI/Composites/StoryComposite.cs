@@ -1043,7 +1043,11 @@ internal static class StoryComposite
     /// <summary>
     /// HAS THE GAME HIDDEN THE REST OF ITS OWN UI FOR THE STORY MESSAGE ON SCREEN RIGHT NOW?
     ///
-    /// <para>One field, read from the game: <c>MapStoryController.isVisibleOtherUI</c>.
+    /// <para>Build 530: Guildmaster also uses this flag for ordinary browsing dialogs. In that
+    /// mode it must be accompanied by native quest commitment, journey phase or loadout;
+    /// the campaign rule described below remains unchanged.</para>
+    ///
+    /// <para>Native message flag: <c>MapStoryController.isVisibleOtherUI</c>.
     /// <c>ShowImmediately</c> calls <c>ShowOtherGUI(!message.HideOtherGUI)</c> and
     /// <c>ShowOtherGUI</c> hides every serialized <c>elementToHide</c> when that is false
     /// (MapStoryController.cs:144-165). So <c>isVisibleOtherUI == false</c> is not an inference
