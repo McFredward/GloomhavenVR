@@ -75,7 +75,8 @@ internal static class TownServicePopulation
             resident.Visibility = Mathf.MoveTowards(resident.Visibility, used ? 1f : 0f,
                 Time.unscaledDeltaTime / (used ? .22f : .18f));
             resident.Station.SetVisibility(resident.Visibility);
-            if (used) resident.Station.Sample(age < 1.2f ? "Greeting" : "Idle", age < 1.2f ? age : age - 1.2f);
+            float greeting = resident.Station.GreetingDuration;
+            if (used) resident.Station.Sample(age < greeting ? "Greeting" : "Idle", age < greeting ? age : age - greeting);
             if (!used && resident.Visibility <= 0f)
             { resident.Station.Dispose(); Residents.Remove(service); }
         }

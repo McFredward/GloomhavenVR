@@ -16,6 +16,8 @@ internal sealed class TownServiceStation : IDisposable
     private float _visibility = -1f;
     internal Transform Root => _root.transform;
     internal Transform InteractionAnchor { get; }
+    internal float GreetingDuration => _animation != null && _animation["Greeting"] != null
+        ? _animation["Greeting"].length : 0f;
 
     private TownServiceStation(GameObject root)
     {

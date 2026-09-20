@@ -238,9 +238,14 @@ namespace GloomhavenVR.WorldUI
     }
     internal static class TownServicePopulation
     {
+        internal static Transform? Frame => null;
         internal static TownServiceStation? Acquire(byte service) => TownServiceStation.Create(service, Vector3.zero, 1f);
     }
-    internal static class TownServiceSync { internal static void Reset() { } }
+    internal static class TownServiceSync
+    {
+        internal static void Reset() { }
+        internal static void Tick(Transform frame, Transform? station) { }
+    }
     internal sealed class TownServiceTray : IDisposable
     {
         internal Transform Root = Probe.Go("tray").transform;
