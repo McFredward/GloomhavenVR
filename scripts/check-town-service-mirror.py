@@ -1,0 +1,114 @@
+#!/usr/bin/env python3
+"""Run production town-service capture/codec/playback and render comparisons in Unity 2021.3.5."""
+import argparse
+import hashlib
+import json
+import os
+from pathlib import Path
+import shutil
+import subprocess
+import tempfile
+
+
+def method(text, signature):
+    start = text.index("    " + signature)
+    end = text.index("\n    }", start) + 6
+    return text[start:end]
+
+
+def expression(text, signature):
+    start = text.index("    " + signature)
+    return text[start:text.index(";", start) + 1]
+
+
+def sources(root):
+    base = root / "src/GloomhavenVR"
+    names = ["TownServiceAssets", "TownServiceBinding", "TownServiceCodec", "TownServiceDelta",
+             "TownServiceFrame", "TownServiceMaterial", "TownServiceMirror"]
+    bound = {name + ".cs": (base / "Net/TownServices" / (name + ".cs")).read_text() for name in names}
+    town_neutralizer = base / "Net/TownServices/TownServiceNeutralize.cs"
+    if town_neutralizer.exists():
+        bound[town_neutralizer.name] = town_neutralizer.read_text()
+        return bound, {name: hashlib.sha256(text.encode()).hexdigest() for name, text in bound.items()}
+    neutral = (base / "Net/Remote/RemoteWidgetMirror.cs").read_text()
+    scaffold = "using System;\nusing System.Collections.Generic;\nusing UnityEngine;\nusing UnityEngine.UI;\nusing Object = UnityEngine.Object;\nnamespace GloomhavenVR.Net;\ninternal static class RemoteWidgetMirror {\ninternal enum LayoutOwner { Source, CloneAtBoardOwnersWidth }\n"
+    scaffold += method(neutral, "internal static void Neutralize(") + "\n"
+    scaffold += expression(neutral, "private static bool IsPresentation(") + "\n"
+    scaffold += expression(neutral, "private static bool IsStockLayout(") + "\n"
+    scaffold += method(neutral, "private static bool InsideAny(") + "\n"
+    scaffold += method(neutral, "private static bool IsSelfOrDescendant(") + "\n}\n"
+    bound["Neutralize.cs"] = scaffold
+    hashes = {name: hashlib.sha256(text.encode()).hexdigest() for name, text in bound.items()}
+    hashes["RemoteWidgetMirror.cs (full source)"] = hashlib.sha256(neutral.encode()).hexdigest()
+    return bound, hashes
+
+
+def main():
+    repo = Path(__file__).resolve().parent.parent
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--source-root", type=Path, default=repo)
+    parser.add_argument("--output-dir", type=Path, default=repo / ".planning/debug/town-service-mirror")
+    parser.add_argument("--unity", type=Path, default=Path(os.environ.get("UNITY_PATH", "/home/claw/unity-2021.3.5/Editor/Unity")))
+    parser.add_argument("--suite", choices=("basic", "full"), default="full")
+    parser.add_argument("--no-negative-controls", action="store_true")
+    args = parser.parse_args()
+    args.source_root = args.source_root.resolve()
+    args.output_dir.mkdir(parents=True, exist_ok=True)
+    run = Path(tempfile.mkdtemp(prefix="run-", dir=args.output_dir.resolve()))
+    fixture = Path(__file__).resolve().parent / "town-service-mirror-runtime"
+    dotnet = shutil.which("dotnet") or str(Path.home() / ".dotnet/dotnet")
+    managed = args.source_root / "ressources/GH_Data/Managed"
+    bound, hashes = sources(args.source_root)
+    (run / "source-hashes.json").write_text(json.dumps({"root": str(args.source_root.resolve()), "sha256": hashes}, indent=2) + "\n")
+    manifest = {"result": str(run / "results.txt"), "evidence": str(run), "suite": args.suite, "cases": []}
+    variants = [("production", None, None, None, "")]
+    if not args.no_negative_controls:
+        variants += [
+            ("text", "TownServiceBinding.cs", "tmp.text = text[0];", 'tmp.text = "CORRUPTED";', "owner TMP text survives codec and playback"),
+            ("group", "TownServiceBinding.cs", "cg.alpha = n[1];", "cg.alpha = .1f;", "root CanvasGroup alpha matches owner"),
+            ("raycast", "TownServiceBinding.cs", "g.raycastTarget = false;", "g.raycastTarget = true;", "clone graphic raycasts are disabled"),
+            ("color", "TownServiceBinding.cs", "g.color = ColorAt(n, 1);", "g.color = Color.red;", "owner and observer rendered UI match: baseline"),
+            ("rect-mask", "TownServiceBinding.cs", "clip.padding = new Vector4(n[1], n[2], n[3], n[4]);", "clip.padding = Vector4.zero;", "owner RectMask padding survives playback"),
+            ("early-awake", "TownServiceMirror.cs", "Object.Instantiate(original.gameObject, _templateHost.transform, false)", "Object.Instantiate(original.gameObject)", "inactive template never executes gameplay callbacks"),
+        ]
+        if args.suite == "full":
+            variants += [
+                ("canvas", "TownServiceBinding.cs", "canvas.enabled = n[0] != 0;", "canvas.enabled = true;", "false Canvas remains disabled"),
+                ("sibling", "TownServiceBinding.cs", "if (i != 0) node.SetSiblingIndex((int)n[0]);", "if (i < 0) node.SetSiblingIndex((int)n[0]);", "sibling reorder survives sampling"),
+                ("mask", "TownServiceBinding.cs", "mask.showMaskGraphic = n[1] != 0;", "mask.showMaskGraphic = false;", "owner and observer rendered UI match: dynamic-order-component-mask"),
+            ]
+    print(f"Production binding: {args.source_root.resolve()}; evidence: {run}", flush=True)
+    for name, filename, before, after, expected in variants:
+        build = run / name; production = build / "production"; production.mkdir(parents=True)
+        for path, text in bound.items():
+            if path == filename:
+                if text.count(before) != 1: raise RuntimeError("Production mutation binding drift: " + name)
+                text = text.replace(before, after, 1)
+            (production / path).write_text(text)
+        project = build / "Mirror.csproj"; shutil.copyfile(fixture / "Mirror.csproj", project)
+        assembly = "TownMirror_" + name.replace("-", "_")
+        command = [dotnet, "build", str(project), "-c", "Release", "--nologo", "--verbosity", "quiet",
+                   f"-p:CaseName={assembly}", f"-p:FixtureDir={fixture}", f"-p:ProductionDir={production}",
+                   f"-p:UnityManaged={args.unity.parent / 'Data/Managed'}",
+                   f"-p:UnityUi={managed / 'UnityEngine.UI.dll'}", f"-p:UnityTmp={managed / 'Unity.TextMeshPro.dll'}"]
+        result = subprocess.run(command, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        (build / "build.log").write_text(result.stdout)
+        if result.returncode: print(result.stdout); raise SystemExit("FAIL compilation: " + name)
+        manifest["cases"].append({"name": name, "dll": str(build / "bin/Release/netstandard2.1" / (assembly + ".dll")), "expected": expected})
+        print("Compiled " + name, flush=True)
+    project = run / "unity"; (project / "Assets/Editor").mkdir(parents=True)
+    (project / "Packages").mkdir(); (project / "ProjectSettings").mkdir()
+    shutil.copyfile(fixture / "Editor/MirrorRunner.cs", project / "Assets/Editor/MirrorRunner.cs")
+    (project / "Packages/manifest.json").write_text('{"dependencies":{"com.unity.ugui":"1.0.0","com.unity.textmeshpro":"3.0.6"}}\n')
+    (project / "ProjectSettings/ProjectVersion.txt").write_text("m_EditorVersion: 2021.3.5f1\n")
+    manifest_path = run / "manifest.json"; manifest_path.write_text(json.dumps(manifest, indent=2) + "\n")
+    command = ["xvfb-run", "-a", str(args.unity), "-batchmode", "-force-glcore", "-projectPath", str(project),
+               "-executeMethod", "MirrorRunner.Start", "-mirrorManifest", str(manifest_path), "-logFile", str(run / "unity.log")]
+    result = subprocess.run(command, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT, timeout=300)
+    evidence = Path(manifest["result"])
+    if evidence.exists(): print(evidence.read_text(), end="")
+    if result.returncode or not evidence.exists(): raise SystemExit(f"FAIL Unity exit {result.returncode}; see {run / 'unity.log'}")
+    print(f"PASS mirror {args.suite} suite; evidence: {run}")
+
+
+if __name__ == "__main__": main()
