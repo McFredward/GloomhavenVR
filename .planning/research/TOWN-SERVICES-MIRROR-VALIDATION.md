@@ -128,3 +128,22 @@ game prefab, VR stereo rendering, multiplayer transport, asynchronous art readin
 or hardware tracking. Current production rejects custom Graphic subclasses before
 activation; that protects callback inertness but does not demonstrate visual support
 for those native subclasses. Hardware and native prefab parity remain separate checks.
+
+## Focused interrupted-motion lifecycle
+
+`python3 scripts/check-town-service-mirror.py --source-root /path/to/checkout --suite lifecycle`
+runs the focused lifecycle check without rebuilding the broad mutation matrix.
+`run-ss40thon` passed production plus its independently compiled negative control.
+After starting a 100ms root/child/alpha interpolation, actual Unity frames advance
+past the quarter phase. A hidden frame closes the host and a fresh visible frame
+reopens it before 100ms has elapsed. The new root pose and alpha must apply
+immediately. The child's owner target deliberately remains unchanged, so the
+binding legitimately skips that property: cancellation must first restore its
+previous complete target before clearing interpolation state. Further actual
+TickRemote calls over 150ms must not overwrite root, child or alpha. The final
+owner/observer rendered image must match.
+
+The negative control disables target restoration in production Motion.Reset while
+retaining its cancellation flags. It fails specifically because the unchanged
+child remains at an old intermediate pose. This checks the visible lifecycle
+contract rather than merely asserting that a reset method was called.

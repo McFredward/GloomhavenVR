@@ -51,7 +51,7 @@ def main():
     parser.add_argument("--source-root", type=Path, default=repo)
     parser.add_argument("--output-dir", type=Path, default=repo / ".planning/debug/town-service-mirror")
     parser.add_argument("--unity", type=Path, default=Path(os.environ.get("UNITY_PATH", "/home/claw/unity-2021.3.5/Editor/Unity")))
-    parser.add_argument("--suite", choices=("basic", "full"), default="full")
+    parser.add_argument("--suite", choices=("basic", "full", "lifecycle"), default="full")
     parser.add_argument("--no-negative-controls", action="store_true")
     args = parser.parse_args()
     args.source_root = args.source_root.resolve()
@@ -80,6 +80,12 @@ def main():
                 ("sibling", "TownServiceMirror.cs", "if (reorder) OrderOriginalSiblings(standing);", "if (reorder && standing.Count == 1) OrderOriginalSiblings(standing);", "owner and observer rendered UI match: nested-row-module"),
                 ("mask", "TownServiceBinding.cs", "mask.showMaskGraphic = n[1] != 0;", "mask.showMaskGraphic = false;", "owner and observer rendered UI match: dynamic-order-component-mask"),
             ]
+    if args.suite == "lifecycle":
+        variants = [("production", None, None, None, "")]
+        if not args.no_negative_controls:
+            variants.append(("cancel-target-restore", "TownServiceMotion.cs",
+                "if (_hasTarget)\n            for", "if (_hasTarget && _nodes.Length == 0)\n            for",
+                "reopen restores unchanged child target after interrupted tween"))
     print(f"Production binding: {args.source_root.resolve()}; evidence: {run}", flush=True)
     for name, filename, before, after, expected in variants:
         build = run / name; production = build / "production"; production.mkdir(parents=True)

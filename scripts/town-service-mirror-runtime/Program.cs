@@ -245,6 +245,49 @@ public static class MirrorProgram
         }
     }
 
+    private static IEnumerator Lifecycle(Transform source, Transform shared, Transform observer, TownServiceBinding copy)
+    {
+        for (float wait = Time.unscaledTime + .11f; Time.unscaledTime < wait;) yield return null;
+        Vector3 origin = source.localPosition;
+        RectTransform child = (RectTransform)source.Find("Name");
+        source.localPosition = origin + new Vector3(.7f, .2f, 0); _group.alpha = .24f;
+        child.anchoredPosition += new Vector2(35, -12);
+        Receive(1, Capture()); TownServiceMirror.TickRemote(_ => observer);
+        var owners = (IDictionary)typeof(TownServiceMirror).GetField("Remote", PrivateStatic)!.GetValue(null)!;
+        object module = ((IDictionary)owners[1]!)[(ushort)10]!;
+        object motion = module.GetType().GetField("Motion", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(module)!;
+        Type type = motion.GetType();
+        float began = (float)type.GetField("_started", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(motion)!;
+        float duration = (float)type.GetField("_duration", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(motion)!;
+        Check(Mathf.Abs(duration - .1f) < .00001f, "lifecycle probe starts a real 100ms interpolation");
+        for (float quarter = began + duration * .25f; Time.unscaledTime < quarter;)
+        { TownServiceMirror.TickRemote(_ => observer); yield return null; }
+        TownServiceMirror.TickRemote(_ => observer);
+        var copyChild = (RectTransform)copy.Root.Find("Name");
+        Check(Vector2.Distance(copyChild.anchoredPosition, child.anchoredPosition) > 10, "child is still between old and target positions before close");
+        source.gameObject.SetActive(false); Receive(1, Capture()); TownServiceMirror.TickRemote(_ => observer);
+        Check(!copy.Root.gameObject.activeInHierarchy, "hidden frame immediately hides the tweening module");
+        source.localPosition = origin + new Vector3(-.35f, .08f, 0); _group.alpha = .91f;
+        // Keep the child's owner-authored target unchanged: the binding legitimately skips it.
+        // Cancel must restore the previous complete target before dropping interpolation state.
+        source.gameObject.SetActive(true); Receive(1, Capture()); TownServiceMirror.TickRemote(_ => observer);
+        Check(Time.unscaledTime - began < .1f, "reopen occurs before the previous tween duration expires");
+        Check(copy.Root.gameObject.activeInHierarchy, "fresh visible frame immediately reopens module");
+        Action verify = () =>
+        {
+            Check(Vector2.Distance(copyChild.anchoredPosition, child.anchoredPosition) < .0001f,
+                "reopen restores unchanged child target after interrupted tween");
+            Check(Vector3.Distance(copy.Root.position, observer.TransformPoint(shared.InverseTransformPoint(source.position))) < .00002f,
+                "old tween cannot overwrite reopened root pose");
+            Check(Mathf.Abs(copy.Root.GetComponent<CanvasGroup>().alpha - _group.alpha) < .00001f,
+                "old tween cannot overwrite reopened alpha");
+        };
+        verify();
+        for (float until = Time.unscaledTime + .15f; Time.unscaledTime < until;)
+        { TownServiceMirror.TickRemote(_ => observer); verify(); yield return null; }
+        ComparePixels(source, copy.Root, "interrupted-tween-reopen");
+    }
+
     private static void Measure(string name, int iterations, Action action)
     {
         action();
@@ -490,6 +533,13 @@ public static class MirrorProgram
             yield return null;
             ComparePixels(source, copy.Root, "baseline");
 
+            if (suite == "lifecycle")
+            {
+                IEnumerator lifecycle = Lifecycle(source, shared, observer, copy);
+                while (lifecycle.MoveNext()) yield return lifecycle.Current;
+                File.WriteAllText(Path.Combine(_output, "assertions.txt"), _assertions + " assertions\n");
+                yield break;
+            }
             _text.text = "Owner A <i>changed</i>"; _text.color = new Color(.45f, .95f, .65f, .7f);
             _fill.fillAmount = .31f; _group.alpha = .55f; _clip.padding = new Vector4(18, 8, 11, 3);
             source.Find("HandleMesh").GetComponent<MeshRenderer>().enabled = false;
