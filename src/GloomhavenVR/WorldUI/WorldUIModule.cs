@@ -207,7 +207,7 @@ internal sealed class WorldUIModule : IVRModule
         VREvents.SessionResumed -= OnSessionResumed;
         TownServicePresentation.Reset();
         TownServicePopulation.Reset();
-        Net.TownServices.TownServiceMirror.Shutdown();
+        TownServiceSync.Shutdown();
         TownServiceAssets.Reset();
         ModalFallback.Detach();
         NonDominantHold.Reset();
@@ -352,6 +352,7 @@ internal sealed class WorldUIModule : IVRModule
                 // peek, before ModalFallback so its show/dismiss is reflected by the level-message
                 // poll in the same tick, exactly like a scripted message would be.
                 ("Compat.TutorialGrabStep", Compat.TutorialGrabStep.Tick),
+                ("TownServiceSync.Prepare", TownServiceSync.Prepare), // preserve original template roots before handoff
                 ("ModalFallback", ModalFallback.Tick),      // before the flat screen reads ScreenWanted
                 ("TownServicePresentation", TownServicePresentation.Tick),
                 ("TownServicePopulation", TownServicePopulation.Tick),

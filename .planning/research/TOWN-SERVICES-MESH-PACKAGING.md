@@ -26,7 +26,10 @@ triangle LOD candidates in both formats. Each LOD is derived directly from the f
 not from another LOD. Actual triangle counts, bounds, scale/translation, original material
 records, file sizes and SHA-256 hashes are recorded in `manifest.json`. UVs, material slots
 and imported surface normals are retained; decimation may alter local shading/UV interpolation
-and needs visual review. No welding, smoothing, anatomy repair, remeshing or texture baking
+and needs visual review. The later runtime integration adds a UV-safe coincident-vertex weld
+before LOD decimation: disconnected UV islands otherwise decimate apart and open visible cracks.
+Raw/source archives stay byte-identical; per-corner UV and normal values are verified before
+and after the derived weld. No smoothing, anatomy repair, remeshing or texture baking
 is performed. Rigged or animated GLBs are rejected explicitly rather than silently losing data.
 
 Base colour PNGs use sRGB. Normal and metallic/roughness PNGs are non-colour data. The

@@ -41,6 +41,7 @@ internal sealed class TownServiceToken : IGrabbable, ITriggerOnlyGrabbable, IGra
     internal Transform Source => _source;
     internal Transform? HeldRoot => _held != null ? _held.transform : null;
     internal Transform? HeldContent => _mirror?.CloneOf(_source);
+    internal Transform? HeldCloneOf(Transform original) => _mirror?.CloneOf(original);
     public bool GrabWithGrip => false;
     public bool AllowsHand(VRHand hand) => !_disposed && _sessionAlive()
         && (!ReferenceEquals(hand.Grabber.Held, this) || _hand == hand);

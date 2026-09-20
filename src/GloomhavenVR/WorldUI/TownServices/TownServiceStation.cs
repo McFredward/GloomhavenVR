@@ -37,15 +37,21 @@ internal sealed class TownServiceStation : IDisposable
             root = UnityEngine.Object.Instantiate(prefab);
             root.name = "GloomhavenVR.TownService." + service;
             // A parchment frame is common to visitors, unlike each client's camera focus/yaw.
-            Vector3 offset = service == 1 ? new Vector3(-1.65f, -.78f, .1f)
-                : service == 2 ? new Vector3(1.65f, -.78f, .1f) : new Vector3(0f, -.78f, 1.65f);
-            root.transform.position = center + offset * scale;
+            Vector3 offset = service == 1 ? new Vector3(-1.65f, -.78f, .9f)
+                : service == 2 ? new Vector3(1.65f, -.78f, .9f) : new Vector3(0f, -.78f, 1.95f);
+            Quaternion readingFrame = Quaternion.identity;
+            float floor = center.y - MapRoomSeat.TableTopHeightMeters * scale;
             if (MapRoomDriver.TrySolveSeat(out MapRoomSeat.Seat seat, out _))
             {
-                Vector3 position = root.transform.position;
-                position.y = seat.FloorPosition.y;
-                root.transform.position = position;
+                // Services occupy the far half of the authored map reading frame, outside its
+                // table and spawn ring. A hardcoded world -X merchant would stand behind the
+                // usual Campaign player, whose initial view reads the parchment from -X.
+                readingFrame = Quaternion.Euler(0f, seat.YawDegrees, 0f);
+                floor = seat.FloorPosition.y;
             }
+            Vector3 position = center + readingFrame * offset * scale;
+            position.y = floor;
+            root.transform.position = position;
             Vector3 inward = center - root.transform.position;
             inward.y = 0f;
             root.transform.rotation = Quaternion.LookRotation(-inward.normalized, Vector3.up);

@@ -239,11 +239,14 @@ internal static class TownServicePresentation
     {
         foreach (TownServiceSurface surface in Surfaces) surface.LateTick();
         _tray?.LateTick();
+        Transform? frame = TownServicePopulation.Frame;
+        if (frame != null) TownServiceSync.Tick(frame, StationRoot);
     }
 
     internal static void Reset()
     {
         if (_window == null && Surfaces.Count == 0 && Tokens.Count == 0 && _mat == null) return;
+        TownServiceSync.Reset();
         if (_window != null) _window.onHidden.RemoveListener(OnNativeHidden);
         foreach (TownServiceToken token in Tokens.Values) token.Dispose();
         Tokens.Clear();

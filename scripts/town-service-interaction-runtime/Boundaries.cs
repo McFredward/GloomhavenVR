@@ -240,4 +240,14 @@ namespace GloomhavenVR.WorldUI
     {
         internal static TownServiceStation? Acquire(byte service) => TownServiceStation.Create(service, Vector3.zero, 1f);
     }
+    internal static class TownServiceSync { internal static void Reset() { } }
+    internal sealed class TownServiceTray : IDisposable
+    {
+        internal Transform Root = Probe.Go("tray").transform;
+        internal TownServiceTray(TMPro.TMP_Text? text, Vector3 position, Quaternion rotation, float scale) { }
+        internal void SetVisibility(float value) { }
+        internal void Tick() { }
+        internal void LateTick() { }
+        public void Dispose() { UnityEngine.Object.Destroy(Root.gameObject); }
+    }
 }

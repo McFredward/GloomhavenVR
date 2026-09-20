@@ -83,6 +83,8 @@ internal static class TownServicePopulation
 
     internal static void Reset()
     {
+        if (_frame == null && Residents.Count == 0) return;
+        TownServiceSync.Shutdown();
         foreach (Resident resident in Residents.Values) resident.Station.Dispose();
         Residents.Clear();
         if (_frame != null) Object.Destroy(_frame);

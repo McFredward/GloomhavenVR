@@ -2,7 +2,9 @@
 
 Design proposal, 2026-09-20. Based on dev `ff59a14e`, version 1.0.7 / ModBuild 537.
 The user requested original NPC image extraction and a complete VR interaction concept;
-runtime implementation and new NPC asset production have not started.
+The subsequent implementation is tracked in
+[first hardware variant](TOWN-SERVICES-FIRST-VARIANT.md); this document retains the broader
+interaction and art target, including polish beyond the first variant.
 
 ## Scope and evidence
 
@@ -264,4 +266,5 @@ measurement targets to determine with real assets, not a promise of unmeasured f
    reconnect, exhausted stock, changed gold, native rejection and mixed VR/flat multiplayer.
 
 Design completion and original image extraction are not implementation or headset validation.
-No new runtime service presentation or NPC mesh has been shipped by this research.
+Research alone did not ship runtime service presentation or NPC meshes. The linked
+implementation record distinguishes the first variant's actual coverage from later polish.
