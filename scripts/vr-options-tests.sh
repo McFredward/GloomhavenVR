@@ -67,7 +67,7 @@ mutations = {
     'known-host': ('if (_mainHost != null)', 'if (_mainHost != null && _mainScansLeft < 0)'),
     'native-focus': ('        row.Init(', '        _host?.SetFocused(false);\n        row.Init('),
     'recursive-close': ('            row.SetSelected(false);', '            row.Deselect();'),
-    'latch-immediate': ('        if (open)\n            return;\n        UIMainMenuOption? stale', '        if (!open) return;\n        UIMainMenuOption? stale'),
+    'latch-immediate': ('        if (open)\n            return;\n        UIMainMenuOption? stale', '        if (open || Time.unscaledTime >= 0f)\n            return;\n        UIMainMenuOption? stale'),
     'rival-close': ('                row.Deselect();', '                row.SetSelected(false);'),
     'pause-retry': ('ReferenceEquals(host, _pauseInjectFailed) && Time.unscaledTime < _pauseRetryAfter', 'ReferenceEquals(host, _pauseInjectFailed)'),
 }

@@ -45,6 +45,10 @@ restore native focus shading, recursive close, delayed reconciliation and silent
 unselected rivals. The independent close harness models native event ordering and
 same-frame pending modal release.
 
+Targeted row suite: 7,076 runtime assertions, seven source bindings and 19 rejected
+negative controls. Independent close suite: 1,796 runtime assertions and six rejected
+negative controls. A separate worker review found no additional source blocker.
+
 Full integration validation is recorded below once complete. Hardware verification
 of build 537 remains pending. Test main menu and map/scenario pause menu: toggle
 open/closed repeatedly; close via X then immediately press VR Options once; verify
