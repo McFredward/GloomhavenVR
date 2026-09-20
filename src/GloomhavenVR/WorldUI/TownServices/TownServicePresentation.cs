@@ -43,8 +43,11 @@ internal static class TownServicePresentation
         try { TickCore(); }
         catch (Exception e)
         {
+            UIWindow? restore = _window;
             if (_failedWindow == null) _failedWindow = _window;
             Reset();
+            if (restore != null && restore.IsOpen)
+                ModalFallback.RestoreTownServiceContext(restore, _origin, _yaw);
             VRLog.Note("WorldUI", "TOWN SERVICE FALLBACK: original window restored after " + e);
         }
     }
@@ -64,7 +67,7 @@ internal static class TownServicePresentation
             ConvertedPanel? context = FindContext(window);
             if (context == null || !context.IsAlive || !MapRoomDriver.TryGetParchmentFrame(out Vector3 center, out float scale)) return;
             _window = window;
-            _station = TownServiceStation.Create(service, center, scale);
+            _station = TownServicePopulation.Acquire(service);
             if (_station == null)
             {
                 _failedWindow = window; _window = null;
@@ -102,8 +105,6 @@ internal static class TownServicePresentation
             RefreshTokens();
         }
         foreach (TownServiceToken token in Tokens.Values) token.Tick(_scale);
-        float elapsed = Time.unscaledTime - _opened;
-        _station?.Sample(elapsed < 1.2f ? "Greeting" : "Idle", elapsed < 1.2f ? elapsed : elapsed - 1.2f);
     }
 
     private static ConvertedPanel? FindContext(UIWindow window)
@@ -275,7 +276,7 @@ internal static class TownServicePresentation
         if (_mat != null) UnityEngine.Object.Destroy(_mat);
         _mat = null;
         Loc.OnChanged -= RefreshCaption; _caption = null;
-        _station?.Dispose(); _station = null;
+        _station = null; // Population retains a station while another visitor still uses it.
         _window = null; _context = null; Service = 0;
         _selectionOwner = null; _selectionCard = null; _selectionKey = null;
     }

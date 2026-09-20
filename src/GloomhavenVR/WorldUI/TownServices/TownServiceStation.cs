@@ -1,5 +1,6 @@
 using System;
 using GloomhavenVR.Core;
+using GloomhavenVR.WorldUI.MapRoom;
 using UnityEngine;
 
 namespace GloomhavenVR.WorldUI;
@@ -9,6 +10,9 @@ internal sealed class TownServiceStation : IDisposable
 {
     private readonly GameObject _root;
     private readonly Animation? _animation;
+    private readonly Renderer[] _renderers;
+    private readonly MaterialPropertyBlock _properties = new();
+    private static readonly int VisibilityId = Shader.PropertyToID("_TownVisibility");
     internal Transform Root => _root.transform;
     internal Transform InteractionAnchor { get; }
 
@@ -18,6 +22,7 @@ internal sealed class TownServiceStation : IDisposable
         InteractionAnchor = root.transform.Find("InteractionAnchor")
             ?? throw new InvalidOperationException("Town station has no InteractionAnchor");
         _animation = root.GetComponentInChildren<Animation>(true);
+        _renderers = root.GetComponentsInChildren<Renderer>(true);
     }
 
     internal static TownServiceStation? Create(byte service, Vector3 center, float scale)
@@ -34,18 +39,36 @@ internal sealed class TownServiceStation : IDisposable
             Vector3 offset = service == 1 ? new Vector3(-1.65f, -.78f, .1f)
                 : service == 2 ? new Vector3(1.65f, -.78f, .1f) : new Vector3(0f, -.78f, 1.65f);
             root.transform.position = center + offset * scale;
+            if (MapRoomDriver.TrySolveSeat(out MapRoomSeat.Seat seat, out _))
+            {
+                Vector3 position = root.transform.position;
+                position.y = seat.FloorPosition.y;
+                root.transform.position = position;
+            }
             Vector3 inward = center - root.transform.position;
             inward.y = 0f;
             root.transform.rotation = Quaternion.LookRotation(-inward.normalized, Vector3.up);
             root.transform.localScale = Vector3.one * scale;
             // Decorative bodies and furniture must not intercept the laser or hand election.
             foreach (Collider collider in root.GetComponentsInChildren<Collider>(true)) collider.enabled = false;
+            foreach (Transform child in root.GetComponentsInChildren<Transform>(true)) child.gameObject.layer = VRLayers.ModLayer;
             return new TownServiceStation(root);
         }
         catch
         {
             if (root != null) UnityEngine.Object.Destroy(root);
             throw;
+        }
+    }
+
+    internal void SetVisibility(float value)
+    {
+        foreach (Renderer renderer in _renderers)
+        {
+            if (renderer == null) continue;
+            renderer.GetPropertyBlock(_properties);
+            _properties.SetFloat(VisibilityId, value);
+            renderer.SetPropertyBlock(_properties);
         }
     }
 

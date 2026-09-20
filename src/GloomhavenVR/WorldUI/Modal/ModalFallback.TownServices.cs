@@ -32,6 +32,7 @@ internal static partial class ModalFallback
             wp.SpawnAnchor = default;
             wp.PoseRePlaceDone = true;
             wp.PoseRePlacedAtFit = wp.Panel.FitAppliedGeneration;
+            wp.ReflowCancelled = true;
             return wp.Panel;
         }
         return null;
