@@ -28,12 +28,17 @@ def arguments():
     parser.add_argument("--resolution", type=int, default=960)
     parser.add_argument("--samples", type=int, default=32)
     parser.add_argument("--threads", type=int, default=8)
+    parser.add_argument("--views", nargs="+", choices=("front", "side", "back", "three_quarter",
+                        "face", "face_three_quarter", "hand_screen_left", "hand_screen_right"),
+                        help="Render only these views; default renders all eight.")
     parser.add_argument("--face-height", type=float, default=0.87,
                         help="Face crop centre as a fraction of normalized height.")
     parser.add_argument("--hands-height", type=float, default=0.54,
                         help="Hands crop centre as a fraction of normalized height.")
     parser.add_argument("--hands-offset", type=float, default=0.43,
                         help="Each hand crop horizontal offset as a fraction of projected figure width.")
+    parser.add_argument("--hand-yaw-deg", type=float, default=0,
+                        help="Turn the two hand cameras outward by opposite yaw angles to inspect fingers.")
     args = parser.parse_args(sys.argv[sys.argv.index("--") + 1:] if "--" in sys.argv else [])
     if not args.input.is_file() or args.input.suffix.lower() != ".glb":
         parser.error("--input must name an existing .glb file")
@@ -225,13 +230,15 @@ def render_views(args, scene, meshes):
         ("04_three_quarter", "Three-quarter", 35, 0.875, span, 0.25, 0),
         ("05_face", "Face (height heuristic)", 0, 1.75 * args.face_height, 0.55, 0, 0),
         ("06_face_three_quarter", "Face three-quarter", 35, 1.75 * args.face_height, 0.55, 0, 0),
-        ("07_hand_screen_left", "Hand screen-left (position heuristic)", 0,
+        ("07_hand_screen_left", "Hand screen-left (position heuristic)", -args.hand_yaw_deg,
          1.75 * args.hands_height, 0.44, 0, -projected_width * args.hands_offset),
-        ("08_hand_screen_right", "Hand screen-right (position heuristic)", 0,
+        ("08_hand_screen_right", "Hand screen-right (position heuristic)", args.hand_yaw_deg,
          1.75 * args.hands_height, 0.44, 0, projected_width * args.hands_offset),
     ]
     result = []
     for stem, label, yaw, height, ortho_scale, elevation, horizontal in specs:
+        if args.views and stem[3:] not in args.views:
+            continue
         data = bpy.data.cameras.new("REVIEW_" + stem)
         data.type, data.ortho_scale, data.clip_end = "ORTHO", ortho_scale, 100
         camera = bpy.data.objects.new(data.name, data)
@@ -247,7 +254,7 @@ def render_views(args, scene, meshes):
         result.append({"file": stem + ".png", "label": label,
                        "yaw_degrees": yaw + args.front_yaw_deg,
                        "target": list(target), "target_height": height, "ortho_scale": ortho_scale})
-    scene.camera = bpy.data.objects["REVIEW_04_three_quarter"]
+    scene.camera = bpy.data.objects.get("REVIEW_04_three_quarter", scene.camera)
     return result
 
 
@@ -255,16 +262,17 @@ def contact_sheet(args, views):
     # Image datablocks supply decoded scene-linear pixels. save_render applies the
     # ordinary display transform exactly once; use Standard, not AgX a second time.
     tile = min(args.resolution, 480)
-    canvas = np.ones((tile * 2, tile * 4, 4), dtype=np.float32)
+    rows, columns = math.ceil(len(views) / 4), min(len(views), 4)
+    canvas = np.ones((tile * rows, tile * columns, 4), dtype=np.float32)
     for index, view in enumerate(views):
         image = bpy.data.images.load(str(args.output_dir / view["file"]), check_existing=False)
         image.scale(tile, tile)
         pixels = np.empty(tile * tile * 4, dtype=np.float32)
         image.pixels.foreach_get(pixels)
-        row, col = 1 - index // 4, index % 4
+        row, col = rows - 1 - index // columns, index % columns
         canvas[row * tile:(row + 1) * tile, col * tile:(col + 1) * tile] = pixels.reshape(tile, tile, 4)
         bpy.data.images.remove(image)
-    sheet = bpy.data.images.new("REVIEW_Contact_Sheet", width=tile * 4, height=tile * 2)
+    sheet = bpy.data.images.new("REVIEW_Contact_Sheet", width=tile * columns, height=tile * rows)
     sheet.pixels.foreach_set(canvas.reshape(-1))
     scene = bpy.context.scene
     old_transform, old_look = scene.view_settings.view_transform, scene.view_settings.look

@@ -21,6 +21,10 @@ sequentially when memory is limited; the imported meshes and topology analysis c
 Use `--python-exit-code 1` so a script exception also fails the Blender process.
 Generated models, reports, PNGs and packed Blender files belong under gitignored
 `.planning/debug/`; do not commit assets to the research documentation directory.
+For an additional hands-only pass, use `--views hand_screen_left hand_screen_right` and
+a separate output directory. `--views` also accepts `front`, `side`, `back`, `three_quarter`,
+`face` and `face_three_quarter`; selected views keep their standard ordering and produce
+a correspondingly smaller contact sheet. A partial review blend contains only those cameras.
 
 After checking the first contact sheet, correct orientation or framing if necessary:
 
@@ -36,6 +40,8 @@ After checking the first contact sheet, correct orientation or framing if necess
   `--hands-offset 0.43` places each hand crop 43% of the projected width away from centre.
   These defaults target an A-pose; folded arms, T-poses and asymmetric gestures need
   adjusted values or manual camera adjustment. Full front/back views retain pose context.
+  `--hand-yaw-deg 65` turns the hand cameras outward in opposite directions, useful when
+  fingers overlap from the straight front view. Store this additional pass separately.
 
 ## Outputs and measurement scope
 
@@ -93,3 +99,37 @@ packed scene reopened with eight cameras and the intended active camera. Syntax 
 and Git whitespace checks passed. The first merchant/Trellis candidate also rendered at
 768 pixels / 12 samples and retained its two packed 4096-square textures; visual findings
 belong to the candidate evaluation, not the instrument's smoke result.
+
+## Material and geometry controls
+
+To distinguish texture/PBR defects from mesh defects, the companion diagnostic tool opens
+an existing review blend and produces face/full views with opaque neutral clay, unlit base
+color, experimental basecolor-alpha connection, and clay after clearing custom normals and
+recalculating face winding. It writes only PNGs and `diagnosis.json`; it does not save its
+experimental material or mesh changes into the review blend or source GLB.
+
+```bash
+/home/claw/blender-4.2/blender -b \
+  .planning/debug/npc-meshes/merchant/trellis/review/review.blend \
+  --python-exit-code 1 --python scripts/diagnose-npc-materials.py -- \
+  --output-dir .planning/debug/npc-meshes/merchant/trellis/material-diagnosis \
+  --resolution 768 --samples 12
+```
+
+The report records texture alpha quantiles, low-alpha/dark pixel counts and original
+material links. Alpha inside a texture does not establish that the material should use
+transparency. Treat the alpha-connected render as an experiment, not an approved fix.
+Likewise, recalculating normals on disconnected shells is a diagnostic comparison and
+cannot repair missing faces or guarantee outward orientation of every fragment.
+Use `--modes clay_recalculated_normals` to run only that control, or select any combination
+of `clay`, `unlit_basecolor`, `experimental_alpha` and `clay_recalculated_normals`.
+
+The first merchant/Trellis control set completed on 2026-09-20. The source contains
+493,781 triangles and 419,078 imported vertices, two packed 4096-square textures and no
+armature. Its basecolor image has 760,818 pixels below alpha 0.99, while imported material
+alpha is constant one. Nevertheless, disconnected eyebrow/beard regions and broken
+collar/clasp surfaces remain in opaque clay and after recalculating normals; unlit color
+also preserves the breakup. Connecting texture alpha does not restore these surfaces and
+makes the beard more streaked. This evidence supports actual mesh defects, not a repair
+through a simple alpha or PBR setting. The images and machine-readable alpha statistics
+remain under `.planning/debug/npc-meshes/merchant/trellis/material-diagnosis/`.
