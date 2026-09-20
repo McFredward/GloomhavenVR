@@ -382,6 +382,7 @@ jobs:
           bash scripts/reward-showcase-tests.sh
           bash scripts/modal-close-tests.sh
           bash scripts/vr-options-tests.sh
+          bash scripts/vr-options-close-tests.sh
           bash scripts/reward-pose-tests.sh
           bash scripts/conversion-rollback-tests.sh
           bash scripts/panel-material-tests.sh

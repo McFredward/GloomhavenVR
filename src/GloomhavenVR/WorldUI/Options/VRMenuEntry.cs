@@ -150,20 +150,6 @@ internal static class VRMenuEntry
     private static bool _loggedDetach;
     private static bool _loggedLatch;
 
-    /// <summary>
-    /// LATCH RECONCILE (see <see cref="TickRowLatch"/>). The unscaled time at which a row was first
-    /// seen lit over a CLOSED settings window, or 0 when the two agree. A mismatch has to hold for
-    /// <see cref="LatchGraceSeconds"/> before it is acted on, because there is a legitimate one —
-    /// the settings window reports <c>IsOpen == false</c> the instant <c>Hide()</c> is called, while
-    /// the row's own deselect only arrives at the END of the hide fade
-    /// (<c>UISubmenuGOWindow.OnCompleteHidden</c>).
-    /// </summary>
-    private static float _latchSince;
-
-    /// <summary>How long a lit-row-over-closed-window mismatch must hold before it is corrected.
-    /// Comfortably longer than the pane's 0.1 s hide fade and shorter than any human retry.</summary>
-    private const float LatchGraceSeconds = 1f;
-
     // Failed pause-row construction retries on the same host after a bounded delay.
     // Remember the host separately to report missing native donor data only once per host.
     private static ESCMenu? _pauseInjectFailed;
@@ -335,30 +321,7 @@ internal static class VRMenuEntry
             return;
         }
 
-        // The two halves mirror ESCMenu's own wiring for the options button (ESCMenu.cs:134-146):
-        // selecting unfocuses the menu and opens the settings; deselecting closes them and gives
-        // focus back. What it opens is the difference — the mod's OWN window, not the game's.
-        clone.Init(
-            delegate
-            {
-                SetFocused(host, false);
-                // OUT OF THE GROUP, THE ROW'S STATE IS OURS: the close callback must survive the row
-                // outliving the window (a scene change destroys the menu, and a UnityEvent has no
-                // per-listener catch — a MissingReferenceException here would amputate the rest of
-                // the chain the game put on the same event).
-                if (!VROptionsTab.Open(() => ClearRow(clone), clone.transform as RectTransform))
-                {
-                    // Nothing to show: hand the menu straight back rather than leaving a lit row
-                    // over an empty screen.
-                    SetFocused(host, true);
-                    ClearRow(clone);
-                }
-            },
-            delegate
-            {
-                VROptionsTab.Close();
-                SetFocused(host, true);
-            });
+        BindRow(clone, mainMenu: false);
 
         _entry = clone;
         _donor = donor;
@@ -462,26 +425,7 @@ internal static class VRMenuEntry
         foreach (MainOption stowaway in clone.GetComponents<MainOption>())
             UnityEngine.Object.Destroy(stowaway);
 
-        clone.Init(
-            delegate
-            {
-                // THE MAIN MENU IS ONE-AT-A-TIME (MenuExclusivity), and this is the half of it the
-                // player performs himself: he picked US, so whatever the previous entry had opened
-                // goes. Running it BEFORE SetMainFocused mirrors the game's own order — a
-                // ToggleGroup turns the old member off, and only then does the new one select.
-                ClearRivals();
-                SetMainFocused(menu, false);
-                if (!VROptionsTab.Open(() => ClearRow(clone), clone.transform as RectTransform))
-                {
-                    SetMainFocused(menu, true);
-                    ClearRow(clone);
-                }
-            },
-            delegate
-            {
-                VROptionsTab.Close();
-                SetMainFocused(menu, true);
-            });
+        BindRow(clone, mainMenu: true);
 
         _mainHost = menu;
         _mainEntry = clone;
@@ -502,22 +446,19 @@ internal static class VRMenuEntry
         }
     }
 
-    /// <summary>
-    /// <c>UIMainOptionsMenu.SetFocused</c> is the main menu's own focus handoff, reached through a
-    /// publicised member. Guarded for the same reason the ESC-menu one is: losing the handoff is
-    /// cosmetic, losing the row is not.
-    /// </summary>
-    private static void SetMainFocused(UIMainOptionsMenu menu, bool focused)
+    // These independent window toggles never hand focus away from the native menu. Its focus
+    // mask dims otherwise usable rows; only native gameplay gating may disable native entries.
+    private static void BindRow(UIMainMenuOption row, bool mainMenu)
     {
-        try
-        {
-            menu.SetFocused(focused);
-        }
-        catch (Exception ex)
-        {
-            VRLog.Warn("WorldUI", $"Main-menu focus handoff failed ({ex.GetType().Name}); the VR "
-                + "entry still opens and closes the settings.");
-        }
+        row.Init(
+            delegate
+            {
+                if (mainMenu)
+                    ClearRivals();
+                if (!VROptionsTab.Open(() => ClearRow(row), row.transform as RectTransform))
+                    ClearRow(row);
+            },
+            delegate { VROptionsTab.Close(); });
     }
 
     // ==========================================================================================
@@ -588,8 +529,7 @@ internal static class VRMenuEntry
         _yieldArmed = false;
 
         // SetSelected(false) rather than Deselect(): it clears the option's flag and the toggle's
-        // value WITHOUT running our deselect delegate, which would hand the main menu's focus back
-        // to the row list a frame after the rival took it. The pane is then closed explicitly. Our
+        // value WITHOUT running our deselect delegate. The pane is then closed explicitly. Our
         // toggle carries no group (Detach), so there is no member to bounce back on.
         UIMainMenuOption ours = _mainEntry;
         Canvas? paneCanvas = VROptionsTab.PaneCanvas;
@@ -731,15 +671,9 @@ internal static class VRMenuEntry
     }
 
     /// <summary>
-    /// Turn a row's light off, safely, from the "the settings window closed" callback.
-    ///
-    /// <para>Guarded on THREE counts. The row may be Unity-null (its menu died with a scene while
-    /// the window was still up). <c>Deselect()</c> runs the row's own deselect delegate, which calls
-    /// <see cref="VROptionsTab.Close"/> — harmless when the window is already closed, and it is what
-    /// keeps the ESC-menu focus handoff running, so it is the right call rather than a bare state
-    /// write. And it is wrapped, because this is invoked from a <c>UnityEvent</c> chain that has no
-    /// per-listener catch: a throw here would amputate every listener the game put on the same
-    /// event.</para>
+    /// Synchronize the native toggle without invoking its close callback again. Native Hide
+    /// dispatches OnHidden before changing IsOpen, so a recursive Close would re-enter Hide.
+    /// Unity-null and callback exceptions remain guarded across scene replacement.
     /// </summary>
     private static void ClearRow(UIMainMenuOption? row)
     {
@@ -747,7 +681,7 @@ internal static class VRMenuEntry
             return;
         try
         {
-            row.Deselect();
+            row.SetSelected(false);
         }
         catch (Exception ex)
         {
@@ -842,41 +776,26 @@ internal static class VRMenuEntry
     /// </summary>
     private static void TickRowLatch(bool open)
     {
+        if (open)
+            return;
         UIMainMenuOption? stale = null;
-
-        if (!open)
+        if (_entry != null && _entry.IsSelected)
         {
-            if (_entry != null && _entry.IsSelected)
-                stale = _entry;
-            else if (_mainEntry != null && _mainEntry.IsSelected)
-                stale = _mainEntry;
+            stale = _entry;
+            ClearRow(_entry);
         }
-
-        if (stale == null)
+        if (_mainEntry != null && _mainEntry.IsSelected)
         {
-            _latchSince = 0f;
-            return;
+            stale = _mainEntry;
+            ClearRow(_mainEntry);
         }
-
-        if (_latchSince <= 0f)
-        {
-            _latchSince = Time.unscaledTime;
-            return;
-        }
-        if (Time.unscaledTime - _latchSince < LatchGraceSeconds)
-            return;
-
-        float held = Time.unscaledTime - _latchSince;
-        _latchSince = 0f;
-        stale.SetSelected(false);
-
-        if (_loggedLatch)
+        if (stale == null || _loggedLatch)
             return;
         _loggedLatch = true;
-        // HW-VERIFY: if this line ever appears it names a real defect that would otherwise present
-        // as "the VR options row stopped working", so it has to survive the default log level.
+        // Normal closure clears the row synchronously. This bounded fallback reports a missed
+        // close notification and repairs both entries before the player has to click again.
         VRLog.Note("WorldUI",
-            $"VR menu row: '{stale.name}' was lit for {held:F1}s over a CLOSED VR settings window and "
+            $"VR menu row: '{stale.name}' was lit over a CLOSED VR settings window and "
             + "has been forced back off. A lit row is a door that has stopped answering — "
             + "UIMenuOption.Select() returns early when the option already believes itself selected — "
             + "so this is the guard behind the standing rule that the options menu must ALWAYS be "
@@ -946,22 +865,6 @@ internal static class VRMenuEntry
         }
     }
 
-    /// <summary>ESCMenu.SetFocused is the game's own focus handoff. Guarded because it is reached
-    /// through a publicised member and a game update could change or drop it — losing the focus
-    /// handoff is a cosmetic regression, losing the entry is not.</summary>
-    private static void SetFocused(ESCMenu host, bool focused)
-    {
-        try
-        {
-            host.SetFocused(focused);
-        }
-        catch (Exception ex)
-        {
-            VRLog.Warn("WorldUI", $"Pause-menu focus handoff failed ({ex.GetType().Name}); the VR "
-                + "entry still opens and closes the window.");
-        }
-    }
-
     /// <summary>Module teardown: drop both clones, leaving the menus exactly as they shipped.</summary>
     internal static void Shutdown()
     {
@@ -998,6 +901,5 @@ internal static class VRMenuEntry
         _loggedSeatFailure = false;
         _loggedDetach = false;
         _loggedLatch = false;
-        _latchSince = 0f;
     }
 }

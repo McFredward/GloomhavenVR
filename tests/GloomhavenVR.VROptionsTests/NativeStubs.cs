@@ -9,6 +9,8 @@ namespace UnityEngine
         internal static int Finds;
         internal static T? FindObjectOfType<T>() where T : class { Finds++; return Found as T; }
     }
+    internal class Transform { }
+    internal sealed class RectTransform : Transform { }
     internal static class Time { internal static float unscaledTime; }
     internal sealed class GameObject
     {
@@ -45,12 +47,22 @@ namespace GloomhavenVR.WorldUI
         internal bool IsInteractable = true;
         internal bool Focused;
         internal bool Selected;
+        internal bool IsSelected => Selected;
+        internal string name = "VR Options";
+        internal UnityEngine.Transform transform = new UnityEngine.RectTransform();
+        private Action? _select, _deselect;
+        internal void Init(Action select, Action deselect) { _select = select; _deselect = deselect; }
+        internal void SetSelected(bool value) => Selected = value; // native SetValue suppresses callbacks
+        internal void Deselect() { if (!Selected) return; SetSelected(false); _deselect?.Invoke(); }
+        internal void Press() { if (Selected) Deselect(); else { SetSelected(true); _select?.Invoke(); } }
         internal void SetFocused(bool value) => Focused = value;
     }
     internal class MenuHost
     {
         internal UnityEngine.GameObject gameObject = new();
         internal bool IsOpen;
+        internal UIMainMenuOption[] rows = Array.Empty<UIMainMenuOption>();
+        internal void SetFocused(bool focused) { foreach (var row in rows) row.SetFocused(focused); }
     }
     internal sealed class ESCMenu : MenuHost { }
     internal sealed class UIMainOptionsMenu : MenuHost { }
@@ -60,13 +72,31 @@ namespace GloomhavenVR.WorldUI
         internal static bool IsInitialized => Instance != null;
     }
     internal sealed class UIOptionsWindow { }
-    internal sealed class UISubmenuGOWindow { }
+    internal sealed class UISubmenuGOWindow { internal UnityEngine.GameObject gameObject = new(); }
     internal static partial class VROptionsTab
     {
         internal static bool IsOpen;
         internal static bool CanOpen = true;
         private static UISubmenuGOWindow? _window;
         private static Action? _onHidden;
+        internal static int Opens, Closes;
+        internal static bool Open(Action closed, UnityEngine.RectTransform? anchor)
+        {
+            if (!CanOpen) return false;
+            Opens++;
+            _window ??= new();
+            _window.gameObject.SetActive(true);
+            IsOpen = true; _onHidden = closed;
+            return true;
+        }
+        internal static void Close() { Closes++; CloseFromX(); }
+        internal static void CloseFromX()
+        {
+            if (_window == null) return;
+            _window.gameObject.SetActive(false);
+            NotifyHidden(_window); // native callback precedes IsOpen transition
+            IsOpen = false;
+        }
         internal static void Bind(UISubmenuGOWindow pane, Action closed) { _window = pane; _onHidden = closed; }
         internal static void Hidden(UISubmenuGOWindow pane) => NotifyHidden(pane);
         private static bool _degraded;
@@ -144,7 +174,9 @@ namespace GloomhavenVR.WorldUI
             TickCalls++;
             if (Throw) throw new InvalidOperationException("transient entry failure");
         }
-        private static void TickRowLatch(bool open) { }
+        private static bool _loggedLatch;
+        private static UIMainMenuOption[]? ResolveRivals() => _mainRivals;
+        internal static void BindForTest(UIMainMenuOption row, bool main) => BindRow(row, main);
         internal static void Discover() { TickPauseMenu(); TickMainMenu(); }
         internal static void DropRows() { _entry = null; _mainEntry = null; }
         internal static bool HasRows => _entry != null && _mainEntry != null;

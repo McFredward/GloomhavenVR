@@ -1,6 +1,6 @@
 # State — where the project stands
 
-**Updated 2026-09-20 for repeated VR options access and confirmed short-rest recovery; dev 1.0.6 / ModBuild 536.** The file this replaces had gone 168 builds
+**Updated 2026-09-20 for independent VR options toggling and native close ordering; dev 1.0.6 / ModBuild 537.** The file this replaces had gone 168 builds
 stale while still saying "read this first"; it is kept as `STATE-ARCHIVE-through-2026-08.md` for
 its round-by-round narrative and for nothing else.
 
@@ -12,6 +12,17 @@ change per build) → this file (where things stand and what is owed) → the bu
 ---
 
 ## 1. Position
+
+- **dev / 1.0.6 / ModBuild 537** removes VR-triggered native focus handoffs:
+  opening settings must not shade otherwise usable menu entries. Native hidden callbacks
+  are accepted in their actual order, and the row is silently cleared at closure rather
+  than waiting one second. X -> immediate reopen and ordinary toggle closure share the
+  same state; explicit reopen clears only the mod pane's pending same-frame close.
+  Main-menu arbitration and independent scenario/map windows remain unchanged.
+  The maintainer confirms build 536 fixed repeated opening; its new logs reproduce the
+  stale selected row after X. Short-rest playback is unchanged and remains locally
+  hardware-confirmed. Records: [OPTIONS-537.md](OPTIONS-537.md), [CLOSE-537.md](CLOSE-537.md).
+  Integration verification in progress; build-537 headset confirmation pending.
 
 - **dev / 1.0.6 / ModBuild 536** addresses repeated VR-options access. The initial
   Sep-20 logs are released build 534: its fourth opening within 60 seconds triggers
@@ -34,7 +45,8 @@ change per build) → this file (where things stand and what is owed) → the bu
   the expected compiled difference from baseline 080c505e9: 101 changed, 78 added/removed
   types and one order-only move. A separate comparison with the prior build-535 compiled
   output finds only the three intended menu types and build-number substitutions.
-  Options hardware verification remains pending; short-rest confirmation is recorded above.
+  Subsequent build-536 hardware confirms repeated opening works but exposes focus shading
+  and delayed row clearing after X; build 537 addresses those. Short-rest confirmation stands.
 
 - **dev / 1.0.6 / ModBuild 535** retains the spent appearance of a Lost card while its
   original native burn continues across temporary face inactivity. Build-534 Debug shows one

@@ -36,7 +36,7 @@ internal static class Program
                 Time.unscaledTime = cycle * .1f;
                 Check(ModalFallback.Admit(named), "settings survive preexisting suppression and repeated opens");
                 Check(ModalFallback.Admit(registered), "registered identity survives repeated opens");
-                VROptionsTab.IsOpen = false;
+                VROptionsTab.IsOpen = true;
                 row.Selected = cycle % 2 == 0;
                 row.IsInteractable = mainRow.IsInteractable = false;
                 row.enabled = mainRow.enabled = false;
@@ -175,6 +175,55 @@ internal static class Program
         Time.unscaledTime += 2.1f;
         VRMenuEntry.Discover();
         Check(VRMenuEntry.HasRows, "failed row construction retries same native hosts");
+        // Execute the real injected row callbacks, rather than only its availability helper.
+        // Closing follows the native inactive -> callback -> IsOpen=false ordering.
+        foreach (bool mainMenu in new[] { false, true })
+        {
+            var usable = new UIMainMenuOption { Focused = true };
+            var disabled = new UIMainMenuOption { Focused = false, IsInteractable = false };
+            var pause = new ESCMenu { IsOpen = true, rows = new[] { usable, disabled } };
+            var main = new UIMainOptionsMenu { rows = pause.rows };
+            var row = new UIMainMenuOption();
+            var otherRow = new UIMainMenuOption();
+            VRMenuEntry.Setup(pause, main, mainMenu ? otherRow : row,
+                mainMenu ? row : otherRow, usable);
+            int rivalClosed = 0;
+            usable.Init(() => { }, () => rivalClosed++);
+            VRMenuEntry._mainRivals = new[] { usable };
+            VRMenuEntry.BindForTest(row, mainMenu);
+            for (int cycle = 0; cycle < 128; cycle++)
+            {
+                usable.SetSelected(true);
+                int rivalsBefore = rivalClosed;
+                int opens = VROptionsTab.Opens;
+                row.Press();
+                Check(VROptionsTab.IsOpen && row.IsSelected && VROptionsTab.Opens == opens + 1,
+                    "one press opens settings");
+                Check(usable.Focused && !disabled.Focused && usable.IsInteractable && !disabled.IsInteractable,
+                    "VR toggle preserves native focus and disabled state");
+                Check(rivalClosed == rivalsBefore + (mainMenu ? 1 : 0),
+                    "main toggle closes previous native window; pause keeps independent windows");
+                int closes = VROptionsTab.Closes;
+                VROptionsTab.CloseFromX();
+                Check(!row.IsSelected && VROptionsTab.Closes == closes,
+                    "X resets toggle without recursive close");
+                row.Press();
+                Check(VROptionsTab.IsOpen && row.IsSelected && VROptionsTab.Opens == opens + 2,
+                    "first press after X reopens immediately without a Tick or grace period");
+                row.Press();
+                Check(!VROptionsTab.IsOpen && !row.IsSelected && VROptionsTab.Closes == closes + 1,
+                    "second press closes exactly once");
+            }
+            VROptionsTab.CanOpen = false;
+            row.Press();
+            Check(!row.IsSelected && !VROptionsTab.IsOpen, "failed open leaves toggle off");
+            VROptionsTab.CanOpen = true;
+            row.SetSelected(true);
+            otherRow.SetSelected(true);
+            Time.unscaledTime += 100f;
+            VRMenuEntry.Tick();
+            Check(!row.IsSelected && !otherRow.IsSelected, "closed window clears both rows immediately");
+        }
         Console.WriteLine($"VR options: {_assertions} runtime assertions passed.");
     }
 }

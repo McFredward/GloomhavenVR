@@ -514,7 +514,18 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 536;
+    public const ushort ModBuild = 537;
+
+    // ModBuild 537 — independent VR options toggle and native close ordering.
+    // Build-536 hardware confirms repeated opening, but host SetFocused(false) dims usable
+    // native menu entries and X leaves the row selected. Remove both VR focus handoffs;
+    // main-menu rival-window arbitration remains intact. Closed-row synchronization is silent
+    // and immediate, including the callback native Hide emits before updating IsOpen.
+    // Explicit reopen cancels only a registered mod pane's pending user-close request; an
+    // already-running vanish retains the existing reopen/release lifecycle.
+    // Source-bound regressions cover X, toggle and native close, immediate reopen, stale
+    // notifications and preservation of native focus/interactability. No card/burn changes.
+    // Details: .planning/OPTIONS-537.md and .planning/CLOSE-537.md. Hardware check pending.
 
     // ModBuild 536 — repeated VR options access and short-rest report provenance.
     // The Sep-20 capture identifies released 1.0.5 / build 534. Its fourth VR-options float

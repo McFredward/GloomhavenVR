@@ -1,6 +1,6 @@
 # Planning index
 
-Updated 2026-09-20 for dev 1.0.6 / build-536 menu recovery and confirmed short-rest hardware results. This directory holds internal
+Updated 2026-09-20 for dev 1.0.6 / build-537 independent menu toggling and native close ordering. This directory holds internal
 engineering evidence, historical decisions and current status; it is not the player manual.
 
 ## Current entry points
@@ -17,6 +17,9 @@ engineering evidence, historical decisions and current status; it is not the pla
 | [PROJECT.md](PROJECT.md), [ARCHITECTURE.md](ARCHITECTURE.md) | Product scope and architectural reasoning |
 
 ## Latest measured work
+
+- [OPTIONS-537.md](OPTIONS-537.md): preserve native menu focus and synchronize the VR toggle immediately.
+- [CLOSE-537.md](CLOSE-537.md): native close-event ordering and explicit reopen during pending modal release.
 
 - [OPTIONS-536.md](OPTIONS-536.md): repeated VR-options presentation, visible menu rows and bounded recovery.
 - [BURN-536.md](BURN-536.md): distinguish the release capture from the new build-535 test; local short-rest fix confirmed.
