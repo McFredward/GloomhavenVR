@@ -22,7 +22,14 @@ change per build) → this file (where things stand and what is owed) → the bu
   The maintainer confirms build 536 fixed repeated opening; its new logs reproduce the
   stale selected row after X. Short-rest playback is unchanged and remains locally
   hardware-confirmed. Records: [OPTIONS-537.md](OPTIONS-537.md), [CLOSE-537.md](CLOSE-537.md).
-  Integration verification in progress; build-537 headset confirmation pending.
+  Options tests: 7,076 assertions / seven bindings / 19 negative controls; close lifecycle:
+  1,796 assertions / six bindings / six negative controls. Full source/runtime guard and
+  254,565 real-runtime wire assertions pass. Strict Release zero warnings/errors;
+  bilingual docs, Actionlint, patch inventory and whitespace pass. Surfaces remain
+  625 / 174 / 4,742; inventory 132 classes / 200 methods. Guard exit 1 is solely the
+  expected old-baseline difference (101 changed, 78 added/removed, one order-only move).
+  Direct compiled comparison with build 536 isolates the three intended menu types
+  plus embedded build-number changes. Build-537 headset confirmation remains pending.
 
 - **dev / 1.0.6 / ModBuild 536** addresses repeated VR-options access. The initial
   Sep-20 logs are released build 534: its fourth opening within 60 seconds triggers

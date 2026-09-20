@@ -49,7 +49,16 @@ Targeted row suite: 7,076 runtime assertions, seven source bindings and 19 rejec
 negative controls. Independent close suite: 1,796 runtime assertions and six rejected
 negative controls. A separate worker review found no additional source blocker.
 
-Full integration validation is recorded below once complete. Hardware verification
+Full integration validation: complete source/runtime guard and 254,565 real-runtime
+wire assertions pass. Strict Release has zero warnings/errors. Bilingual documentation,
+Actionlint, patch inventory and whitespace checks pass. Config/patch/log surfaces remain
+625 / 174 / 4,742; inventory remains 132 classes / 200 methods. Guard exit 1 is solely
+the expected compiled difference from baseline 080c505e9: 101 changed, 78 added/removed
+types and one order-only move. Direct compiled comparison against build 536 finds only
+ModalFallback, VRMenuEntry and VROptionsTab behavior changes; seven other types differ
+only in the embedded build number.
+
+Hardware verification
 of build 537 remains pending. Test main menu and map/scenario pause menu: toggle
 open/closed repeatedly; close via X then immediately press VR Options once; verify
 other usable entries retain their normal appearance and can be selected. The
