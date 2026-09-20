@@ -177,8 +177,9 @@ Required clips: restrained idle/breathing, brief greeting, head/eye attention,
 point to an offered object, accept/return an object, success acknowledgement and
 return to idle. Merchant adds handover; temple attendant adds blessing; enchantress
 adds inspect/engrave. Hand contact uses explicit prop sockets and a limited IK pass
-so props meet the hands. Feet stay grounded; animated root motion must not move
-the station unpredictably. No new dialogue or lip sync is necessary for the first
+so props meet the hands. Merchant/priestess feet stay grounded; the original enchantress
+art suggests controlled hovering. Animated root motion must not move the station
+unpredictably. See [original exports](TOWN-SERVICES-ART.md). No new dialogue or lip sync is necessary for the first
 iteration; keep native voice/subtitles where present.
 
 Start with a modest close-range production mesh, one shared body material plus

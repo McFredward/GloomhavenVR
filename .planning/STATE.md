@@ -1,6 +1,6 @@
 # State — where the project stands
 
-**Updated 2026-09-20 for independent VR options toggling and native close ordering; dev 1.0.6 / ModBuild 537.** The file this replaces had gone 168 builds
+**Updated 2026-09-20 after release 1.0.6 and town-service research; dev 1.0.7 / ModBuild 537.** The file this replaces had gone 168 builds
 stale while still saying "read this first"; it is kept as `STATE-ARCHIVE-through-2026-08.md` for
 its round-by-round narrative and for nothing else.
 
@@ -12,6 +12,19 @@ change per build) → this file (where things stand and what is owed) → the bu
 ---
 
 ## 1. Position
+
+- **Town-service research:** original merchant, priestess and enchantress illustrations
+  exported from the supplied full `ressources/GH_Data` at 1920 x 1080, plus their 94 x 118
+  portraits. Images and provenance stay in `.planning/debug/npc-references/` with a ZIP
+  beside the folder. Concept, complete native source coverage and integration proposals:
+  [research/TOWN-SERVICES-CONCEPT.md](research/TOWN-SERVICES-CONCEPT.md). No NPC meshes or
+  immersive runtime interactions are implemented yet. Developer tools now also accept
+  `ressources/GH_Data/Managed`, retaining the previous managed-only layout.
+
+- **Released 1.0.6 / ModBuild 537:** the maintainer confirmed the menu fix; the final
+  hardware log audit found no release blocker. Main commit `59a5d884`, tag `v1.0.6`,
+  release workflow `35525779327` succeeded. Published ZIP downloaded and verified.
+  Automatic bookkeeping advanced dev to 1.0.7 at `ff59a14e`; no runtime build increment.
 
 - **dev / 1.0.6 / ModBuild 537** removes VR-triggered native focus handoffs:
   opening settings must not shade otherwise usable menu entries. Native hidden callbacks
@@ -29,7 +42,8 @@ change per build) → this file (where things stand and what is owed) → the bu
   625 / 174 / 4,742; inventory 132 classes / 200 methods. Guard exit 1 is solely the
   expected old-baseline difference (101 changed, 78 added/removed, one order-only move).
   Direct compiled comparison with build 536 isolates the three intended menu types
-  plus embedded build-number changes. Build-537 headset confirmation remains pending.
+  plus embedded build-number changes. Subsequently confirmed on the maintainer's headset
+  and included in release 1.0.6, as recorded above.
 
 - **dev / 1.0.6 / ModBuild 536** addresses repeated VR-options access. The initial
   Sep-20 logs are released build 534: its fourth opening within 60 seconds triggers

@@ -1,6 +1,6 @@
 # Planning index
 
-Updated 2026-09-20 for dev 1.0.6 / build-537 independent menu toggling and native close ordering. This directory holds internal
+Updated 2026-09-20 after release 1.0.6; dev 1.0.7 / build 537, immersive town-service research. This directory holds internal
 engineering evidence, historical decisions and current status; it is not the player manual.
 
 ## Current entry points
@@ -17,6 +17,11 @@ engineering evidence, historical decisions and current status; it is not the pla
 | [PROJECT.md](PROJECT.md), [ARCHITECTURE.md](ARCHITECTURE.md) | Product scope and architectural reasoning |
 
 ## Latest measured work
+
+- [research/TOWN-SERVICES-CONCEPT.md](research/TOWN-SERVICES-CONCEPT.md): proposed physical merchant, temple and enchantress interactions; no runtime implementation yet.
+- [research/TOWN-SERVICES-ART.md](research/TOWN-SERVICES-ART.md): six verified original PNG exports from the supplied full GH_Data, with reproducible provenance.
+- [research/TOWN-SERVICES-FUNCTIONS.md](research/TOWN-SERVICES-FUNCTIONS.md): source-grounded native feature coverage.
+- [research/TOWN-SERVICES-INTEGRATION.md](research/TOWN-SERVICES-INTEGRATION.md): environment placement, NPC assets, multiplayer and lifecycle design.
 
 - [OPTIONS-537.md](OPTIONS-537.md): preserve native menu focus and synchronize the VR toggle immediately.
 - [CLOSE-537.md](CLOSE-537.md): native close-event ordering and explicit reopen during pending modal release.

@@ -14,8 +14,9 @@ inventory, not evidence of implemented or headset-tested interactions.
   Use those verified names when addressing the user. Do not identify the Magierin as
   a named story character without further evidence.
 - Portrait sprites are serialized prefab references. The reviewed C# contains no
-  reliable portrait texture name or exportable image. This report does not claim to
-  have extracted images or verified English displayed titles from localization data.
+  reliable portrait texture name or exportable image. The later supplied full game data
+  enabled the primary agent's six original exports; see [art provenance](TOWN-SERVICES-ART.md).
+  English displayed titles have not been verified against the localization data.
 - The temple uses data-driven blessing definitions. Actual available types, prices,
   quantities, durations and donation rewards must be read from the running game or
   original data, never reconstructed from tabletop assumptions.
