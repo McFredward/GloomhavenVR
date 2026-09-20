@@ -46,7 +46,15 @@ Four simulated scene contexts each run 128 opening/closing cycles, including sta
 row availability, untouched native gates, transient exceptions, retry cadence, bounded logs,
 partial-clone cleanup, stale-close callbacks, delayed pane availability and repeated row recreation. These fixtures are not headset evidence.
 
-Strict Release build: zero errors/warnings. Config/patch/log-token surface unchanged.
-Integration owns the umbrella/CI registration and complete required gates. Hardware verification
-remains: repeatedly open/close VR Options in scenario, Guildmaster, tutorial and main menu; also
+The new harness is registered in the local wire-test umbrella and full dev/PR CI.
+Integrated validation passes: the complete source/runtime guard, 254,565 real-runtime
+wire assertions, strict Release with zero errors/warnings, bilingual documentation,
+Actionlint and whitespace. Config/patch/log-token surfaces remain 625 / 174 / 4,742;
+patch inventory remains 132 classes / 200 methods. Guard exit 1 only reflects the
+expected compiled difference from baseline 080c505e9: 101 changed, 78 added/removed
+and one order-only move. A separate comparison against the saved build-535 compiled
+output finds only ModalFallback, VRMenuEntry and VROptionsTab behavior changes;
+all other differing types contain only 535 -> 536 build-number substitutions.
+
+Hardware verification remains: repeatedly open/close VR Options in scenario, Guildmaster, tutorial and main menu; also
 switch between pause and VR Options quickly and confirm the entry remains visible and clickable.

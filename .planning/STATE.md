@@ -26,7 +26,15 @@ change per build) → this file (where things stand and what is owed) → the bu
   progress continues. One burn completes at 2.010 seconds before its pile flight.
   The maintainer reports no visible flash. No further burn change is made. Peer logs
   remain historical 500; new remote hardware confirmation is not available.
-  Options implementation and complete integration validation are in progress.
+  Options implementation is integrated. Focused tests: 5,536 runtime assertions / four
+  production bindings / 15 negative controls. Complete source/runtime guard and 254,565
+  real-runtime wire assertions pass. Strict Release: zero warnings/errors. Bilingual docs,
+  Actionlint, patch inventory and whitespace pass. Config/patch/log surfaces remain
+  625 / 174 / 4,742; inventory remains 132 classes / 200 methods. Guard exit 1 is solely
+  the expected compiled difference from baseline 080c505e9: 101 changed, 78 added/removed
+  types and one order-only move. A separate comparison with the prior build-535 compiled
+  output finds only the three intended menu types and build-number substitutions.
+  Options hardware verification remains pending; short-rest confirmation is recorded above.
 
 - **dev / 1.0.6 / ModBuild 535** retains the spent appearance of a Lost card while its
   original native burn continues across temporary face inactivity. Build-534 Debug shows one
