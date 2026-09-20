@@ -32,6 +32,7 @@ internal static class TownServiceNativeAssets
     private static readonly Dictionary<Type, FieldInfo[]> ReferenceFields = new();
     private static readonly FieldInfo[] SkinSprites = Array.FindAll(typeof(AbilityCardUISkin).GetFields(), f => f.FieldType == typeof(Sprite));
     private static readonly HashSet<string> Reported = new(StringComparer.Ordinal);
+    private static readonly HashSet<string> ReportedUnavailable = new(StringComparer.Ordinal);
     private static float _nextTick;
     private const int MaxAttempts = 3;
 
@@ -213,12 +214,24 @@ internal static class TownServiceNativeAssets
         Release(load);
         load.RetryAt = Time.unscaledTime + (load.Attempts == 1 ? 1 : 4);
         Report("addressable " + load.Key, new InvalidOperationException(reason + "; attempt " + load.Attempts + "/" + MaxAttempts));
+        if (load.Attempts >= MaxAttempts) ReportUnavailable(load.Key);
     }
 
     private static void Report(string context, Exception error)
     {
         if (Reported.Count >= 8 || !Reported.Add(context)) return;
         VRLog.Warn("WorldUI", "TOWN NATIVE ART: " + context + " — " + error.GetType().Name + ": " + error.Message);
+    }
+
+    private static void ReportUnavailable(string key)
+    {
+        if (ReportedUnavailable.Count >= 8 || !ReportedUnavailable.Add(key)) return;
+        VRLog.Note("TownServices", "Original town artwork could not be preloaded after three attempts (" + key + ").");
+    }
+
+    private static void ReportReset()
+    {
+        Reported.Clear(); ReportedUnavailable.Clear();
     }
 
     private static void Release(Load load)
@@ -232,6 +245,6 @@ internal static class TownServiceNativeAssets
     internal static void Shutdown()
     {
         foreach (Load load in Loads.Values) Release(load);
-        Loads.Clear(); Reported.Clear(); _nextTick = 0;
+        Loads.Clear(); ReportReset(); _nextTick = 0;
     }
 }
