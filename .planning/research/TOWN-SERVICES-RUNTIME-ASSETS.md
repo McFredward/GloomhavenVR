@@ -142,3 +142,22 @@ A successful compile and mono editor render do not establish headset stereo corr
   in the isolated tray control. All furniture and actor materials use the shared shader.
 - These checks establish asset import, bounded deformation and mono rendering evidence,
   not headset comfort, stereoscopic correctness, or complete finger articulation quality.
+
+The final `prebuilt/ghvr-town.bundle` is 95,895,013 bytes (91.45 MiB), SHA-256
+`b2a923b1ad496116587bbecc1efda379b808c64649a917341387d060b21efc29`.
+Only the four service/tray prefabs are exposed as bundle entry points; their dependencies
+contain nine meshes, nine skinned renderers, twelve clips, thirteen textures, twelve materials
+and one shader. No FBX import root, Default-Material, or Standard shader is included.
+Serialization reports Unity 2021.3.5f1, StandaloneWindows64 and enabled TypeTrees.
+
+A second, otherwise empty Unity 2021.3.5 project loaded the actual bundle with
+`AssetBundle.LoadFromFile`, enumerated exactly four names, instantiated every prefab and
+checked all renderer materials against the bundled shader and visibility property. It also
+checked the nine skins' bone/texture references and baked every clip from the loaded bundle.
+This bundle-load smoke uses `-nographics`; it does not replace the separate mono render
+evidence or establish Windows/headset shader execution. Evidence is retained under
+`.planning/debug/town-bundle-load-smoke.log` and `town-final-bundle-report.json` in the
+authoring worktree.
+
+The original production bank remains unchanged at SHA-256
+`fe1a659c17b4151e929691aa070d402b8cd299a462315b1d6691d2622d491693`.

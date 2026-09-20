@@ -324,8 +324,9 @@ namespace GloomhavenVR
         {
             try
             {
-                var assets = Directory.GetFiles(Root, "*", SearchOption.AllDirectories)
-                    .Where(p => !new[] { ".meta", ".md", ".txt" }.Contains(Path.GetExtension(p).ToLowerInvariant()))
+                // Prefab dependencies include the referenced meshes, clips, materials and textures.
+                // Do not expose the FBX import roots (duplicate actors with default materials).
+                var assets = Directory.GetFiles(Root + "/Prefabs", "*.prefab", SearchOption.AllDirectories)
                     .Select(p => p.Replace('\\', '/')).OrderBy(p => p).ToArray();
                 if (assets.Length == 0) throw new InvalidOperationException("No town assets to bundle");
                 Directory.CreateDirectory("Build/TownServices");
