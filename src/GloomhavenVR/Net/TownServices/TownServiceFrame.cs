@@ -13,6 +13,7 @@ internal sealed class TownServiceFrame
     internal ulong Sequence;
     internal ulong BaseSequence;
     internal ushort Module, Template;
+    internal string TemplateAddress = string.Empty;
     internal ushort ParentModule = ManifestModule;
     internal uint ParentBinding;
     internal uint Structure;

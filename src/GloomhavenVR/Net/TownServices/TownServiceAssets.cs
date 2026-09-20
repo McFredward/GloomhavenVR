@@ -47,7 +47,7 @@ internal sealed class TownServiceAssets
                 break;
             case TMP_FontAsset font:
                 key = "tmpfont|" + font.name + "|" + font.faceInfo.familyName + "|" + font.faceInfo.styleName
-                    + "|" + font.glyphTable.Count + "|" + font.atlasWidth + "|" + font.atlasHeight;
+                    + "|" + font.atlasWidth + "|" + font.atlasHeight;
                 // The font's original atlas is a serialized dependency with a deterministic index.
                 // TMP may wrap it in a texture without a Unity import hash.
                 if (font.atlasTextures != null)

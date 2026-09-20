@@ -56,7 +56,7 @@ internal static class TownServiceDelta
         return true;
     }
     private static bool HeaderMatches(TownServiceFrame a, TownServiceFrame b) => a.Service == b.Service
-        && a.Session == b.Session && a.Module == b.Module && a.Template == b.Template && a.Structure == b.Structure;
+        && a.Session == b.Session && a.Module == b.Module && a.Template == b.Template && a.TemplateAddress == b.TemplateAddress && a.Structure == b.Structure;
     internal static TownServiceFrame Copy(TownServiceFrame source)
     {
         var result = Header(source); result.Nodes = new TownServiceNode[source.Nodes.Length];
@@ -75,7 +75,7 @@ internal static class TownServiceDelta
     private static TownServiceFrame Header(TownServiceFrame f) => new()
     {
         Service = f.Service, Session = f.Session, Sequence = f.Sequence, BaseSequence = f.BaseSequence,
-        Module = f.Module, Template = f.Template, Structure = f.Structure, Visible = f.Visible,
+        Module = f.Module, Template = f.Template, TemplateAddress = f.TemplateAddress, Structure = f.Structure, Visible = f.Visible,
         SampleTime = f.SampleTime, SessionAge = f.SessionAge, ParentModule = f.ParentModule, ParentBinding = f.ParentBinding,
         ParentAlpha = f.ParentAlpha, Pose = (float[])f.Pose.Clone(), Modules = (ushort[])f.Modules.Clone()
     };

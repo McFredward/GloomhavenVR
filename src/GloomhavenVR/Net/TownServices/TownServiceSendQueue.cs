@@ -54,6 +54,6 @@ internal sealed class TownServiceSendQueue
     { foreach (var pair in _queues) { _sequences[pair.Key] = pair.Value.Sequence; pair.Value.Clear(); }
         _queues.Clear(); _order.Clear(); _cursor = 0; }
     internal static bool SameIdentity(TownServiceFrame a, TownServiceFrame b) => a.Session == b.Session
-        && a.Service == b.Service && a.Module == b.Module && a.Template == b.Template && a.Structure == b.Structure
+        && a.Service == b.Service && a.Module == b.Module && a.Template == b.Template && a.TemplateAddress == b.TemplateAddress && a.Structure == b.Structure
         && a.Visible == b.Visible && (a.BaseSequence == 0 ? a.Sequence : a.BaseSequence) == (b.BaseSequence == 0 ? b.Sequence : b.BaseSequence);
 }

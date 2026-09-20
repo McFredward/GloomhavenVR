@@ -32,7 +32,8 @@ internal static class TownServiceMirror
     internal static IReadOnlyDictionary<int, TownServiceSessionInfo> RemoteSessions => Sessions;
     internal static event Action<string>? PresentationUnavailable;
     internal static Func<int, Transform?>? SharedFrameForRemote { get; set; }
-    private static readonly Dictionary<int, GameObject> Templates = new();
+    private static readonly Dictionary<string, GameObject> Templates = new(StringComparer.Ordinal);
+    internal static Func<byte, ushort, string, bool>? ResolveTemplate { get; set; }
     private static readonly Dictionary<ushort, LocalModule> Local = new();
     private static readonly Dictionary<int, Dictionary<ushort, RemoteModule>> Remote = new();
     private static readonly Dictionary<int, Dictionary<ushort, TownServiceFrame>> Pending = new();
@@ -55,6 +56,7 @@ internal static class TownServiceMirror
     private sealed class LocalModule
     {
         internal ushort Id, Template;
+        internal string Address = string.Empty;
         internal TownServiceBinding Binding = null!;
         internal TownServiceFrame? Last;
         internal TownServiceFrame? Baseline;
@@ -69,15 +71,16 @@ internal static class TownServiceMirror
         internal TownServiceBinding Binding = null!;
         internal uint Session;
         internal ushort Template;
+        internal string Address = string.Empty;
         internal ulong Sequence;
         public void Dispose()
         { Binding.Dispose(); if (Host != null) { Host.SetActive(false); Object.Destroy(Host); } }
     }
 
     internal static void RegisterTemplate(byte service, ushort template, Transform original,
-        Func<Transform, bool>? exclude = null)
+        Func<Transform, bool>? exclude = null, string address = "")
     {
-        int key = TemplateKey(service, template);
+        string key = TemplateKey(service, template, address);
         if (Templates.TryGetValue(key, out GameObject? existing) && existing != null) return;
         if (original == null) throw new ArgumentException("Native town-service template is absent.");
         if (_templateHost == null)
@@ -115,19 +118,19 @@ internal static class TownServiceMirror
     }
 
     internal static void RegisterModule(ushort module, ushort template, Transform liveRoot,
-        Func<Transform, bool>? exclude = null)
+        Func<Transform, bool>? exclude = null, string address = "")
     {
         if (!_active || module == TownServiceFrame.ManifestModule || liveRoot == null
             || Local.Count >= TownServiceFrame.MaxModules && !Local.ContainsKey(module))
             throw new ArgumentException("Invalid live town-service module.");
-        if (!Templates.ContainsKey(TemplateKey(_service, template)))
+        if (!Templates.ContainsKey(TemplateKey(_service, template, address)))
             throw new InvalidOperationException("Register the original template before its town-service module.");
         if (Local.TryGetValue(module, out LocalModule? current))
         {
-            if (current.Template == template && ReferenceEquals(current.Binding.Root, liveRoot)) return;
+            if (current.Template == template && current.Address == address && ReferenceEquals(current.Binding.Root, liveRoot)) return;
             current.Binding.Dispose();
         }
-        Local[module] = new LocalModule { Id = module, Template = template, Binding = new TownServiceBinding(liveRoot, exclude), Exclude = exclude };
+        Local[module] = new LocalModule { Id = module, Template = template, Address = address, Binding = new TownServiceBinding(liveRoot, exclude), Exclude = exclude };
         _nextManifest = 0;
     }
 
@@ -167,7 +170,7 @@ internal static class TownServiceMirror
                         nodes = module.Binding.Read(Assets);
                     }
                     var frame = new TownServiceFrame { Service = _service, Session = _session, Module = module.Id,
-                        Template = module.Template, Structure = module.Binding.Structure, Visible = source.gameObject.activeInHierarchy,
+                        Template = module.Template, TemplateAddress = module.Address, Structure = module.Binding.Structure, Visible = source.gameObject.activeInHierarchy,
                         SampleTime = now, Pose = ReadPose(source, _sharedFrame), Nodes = nodes };
                     ReadParent(module, frame);
                     if (SamePresentation(module.Last, frame) && now < module.NextRefresh) continue;
@@ -289,7 +292,7 @@ internal static class TownServiceMirror
                         if (module != null && mount.IsChildOf(module.Host.transform))
                             throw new InvalidDataException("Cyclic town-service module parent.");
                     }
-                    if (module == null || module.Template != frame.Template || module.Session != frame.Session)
+                    if (module == null || module.Template != frame.Template || module.Address != frame.TemplateAddress || module.Session != frame.Session)
                     {
                         RemoteModule candidate = BuildRemote(frame, mount);
                         try { candidate.Binding.Validate(frame, Assets); candidate.Binding.Apply(frame, Assets); }
@@ -316,7 +319,9 @@ internal static class TownServiceMirror
 
     private static RemoteModule BuildRemote(TownServiceFrame frame, Transform sharedFrame)
     {
-        if (!Templates.TryGetValue(TemplateKey(frame.Service, frame.Template), out GameObject? template) || template == null)
+        string key = TemplateKey(frame.Service, frame.Template, frame.TemplateAddress);
+        if (!Templates.ContainsKey(key)) ResolveTemplate?.Invoke(frame.Service, frame.Template, frame.TemplateAddress);
+        if (!Templates.TryGetValue(key, out GameObject? template) || template == null)
             throw new InvalidDataException("Original town-service template is not registered on this client.");
         var host = new GameObject("GVR town-service observer module", typeof(RectTransform));
         host.SetActive(false); host.transform.SetParent(sharedFrame, false);
@@ -326,7 +331,7 @@ internal static class TownServiceMirror
         GameObject clone = Object.Instantiate(template, host.transform, false);
         // Templates are already inert; repeat the invariant before the clone can become active.
         RemoteWidgetMirror.Neutralize(clone, RemoteWidgetMirror.LayoutOwner.Source, null);
-        return new RemoteModule { Host = host, Binding = new TownServiceBinding(clone.transform), Session = frame.Session, Template = frame.Template };
+        return new RemoteModule { Host = host, Binding = new TownServiceBinding(clone.transform), Session = frame.Session, Template = frame.Template, Address = frame.TemplateAddress };
     }
 
     internal static void RemovePeer(int peer)
@@ -351,8 +356,9 @@ internal static class TownServiceMirror
     private static void ClearRemoteModules(int peer)
     { if (!Remote.TryGetValue(peer, out Dictionary<ushort, RemoteModule>? modules)) return;
         foreach (RemoteModule module in modules.Values) module.Dispose(); Remote.Remove(peer); }
-    private static int TemplateKey(byte service, ushort template)
-    { if (service < 1 || service > 3 || template == 0) throw new ArgumentException("Invalid town-service template identity."); return service << 16 | template; }
+    private static string TemplateKey(byte service, ushort template, string address = "")
+    { if (service < 1 || service > 3 || template == 0) throw new ArgumentException("Invalid town-service template identity.");
+        return service + ":" + (address.Length == 0 ? template.ToString() : address); }
     private static ulong NextSequence() { if (++_sequence == 0) ++_sequence; return _sequence; }
     private static float[] ReadPose(Transform source, Transform frame)
     {

@@ -19,7 +19,7 @@ internal static class TownServiceCodec
         using (var w = new BinaryWriter(body, Utf8, true))
         {
             w.Write((byte)1); w.Write(frame.Service); w.Write(frame.Session); w.Write(frame.Sequence); w.Write(frame.BaseSequence);
-            w.Write(frame.Module); w.Write(frame.Template); w.Write(frame.Structure); w.Write(frame.Visible);
+            w.Write(frame.Module); w.Write(frame.Template); WriteText(w, frame.TemplateAddress); w.Write(frame.Structure); w.Write(frame.Visible);
             w.Write(frame.ParentModule); w.Write(frame.ParentBinding); w.Write(frame.ParentAlpha);
             w.Write(frame.SampleTime); w.Write(frame.SessionAge); w.Write((byte)frame.Modules.Length);
             foreach (ushort module in frame.Modules) w.Write(module);
@@ -87,7 +87,7 @@ internal static class TownServiceCodec
             using var r = new BinaryReader(body, Utf8, false);
             if (r.ReadByte() != 1) return false;
             var result = new TownServiceFrame { Service = r.ReadByte(), Session = r.ReadUInt32(),
-                Sequence = r.ReadUInt64(), BaseSequence = r.ReadUInt64(), Module = r.ReadUInt16(), Template = r.ReadUInt16(),
+                Sequence = r.ReadUInt64(), BaseSequence = r.ReadUInt64(), Module = r.ReadUInt16(), Template = r.ReadUInt16(), TemplateAddress = ReadText(r),
                 Structure = r.ReadUInt32() };
             byte shown = r.ReadByte(); if (shown > 1) return false;
             result.Visible = shown != 0; result.ParentModule = r.ReadUInt16(); result.ParentBinding = r.ReadUInt32();
@@ -156,6 +156,7 @@ internal static class TownServiceCodec
         if (frame.Service < 1 || frame.Service > 3 || frame.Session == 0 || frame.Sequence == 0
             || frame.BaseSequence >= frame.Sequence && frame.BaseSequence != 0
             || (frame.Template == 0 && frame.Module != TownServiceFrame.ManifestModule)
+            || frame.TemplateAddress == null || frame.TemplateAddress.Length > 1024
             || frame.Pose == null || frame.Pose.Length != 10 || frame.Nodes == null
             || frame.Nodes.Length > TownServiceFrame.MaxNodes
             || (frame.Visible && frame.Nodes.Length == 0 && frame.Module != TownServiceFrame.ManifestModule && frame.BaseSequence == 0)

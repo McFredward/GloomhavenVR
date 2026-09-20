@@ -77,3 +77,20 @@ Follow-up transport and sampling review:
 
 The full wire harness passed 254,595 assertions and the focused codec harness passed 50,235.
 Payload measurements above remain synthetic. This is not evidence of runtime visual parity.
+
+Publisher integration checkpoint (not a headset-ready claim):
+
+`TownServiceSync.Prepare()` captures canonical native templates before local conversion.
+`Tick(sharedFrame, stationRoot)` registers final native sections, pool rows, banner, native
+confirmations and service tooltips. Original ability/item card templates are borrowed inactive
+from the game's existing pool by public map card model, copied and neutralized, then recycled
+in `finally`. The new packet carries an explicit canonical template address, so different
+visitor pool orders cannot alias a ushort template ID. Oversized static trees partition into
+original subtrees of at most 128 nodes, retaining original module-parent links and clipping.
+`Reset` closes local publication; `ResetNetwork` drops room presentation; `Shutdown` also frees
+HUD-bound canonical sources. Dynamic font identity no longer includes the owner's mutable
+runtime glyph count.
+
+Remaining integration work: held submodule provenance, tray/handle MeshRenderer and Canvas
+output, generic text-tooltip ownership, exact callback-free presentation whitelist, and actual
+Unity mirror tests. These are required before complete multiplayer parity can be claimed.
