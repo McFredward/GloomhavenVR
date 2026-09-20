@@ -23,6 +23,13 @@ change per build) → this file (where things stand and what is owed) → the bu
   At the maintainer's explicit request, gpt-image-2 subsequently generated three 3840 x 2160
   sheets with six poses/views each. Derived images, prompts and manifest remain separate
   in `.planning/debug/npc-modeling/`; [generation record](research/TOWN-SERVICES-GENERATED-REFERENCES.md).
+  Validation: six original PNGs match source decodes pixel-for-pixel; source/output hashes
+  and both ZIP CRCs pass. Three generated 4K sheets visually reviewed. All source/runtime
+  guards and 254,565 real-runtime wire assertions pass with the new reference layout;
+  strict Release zero warnings/errors; docs/links/whitespace and 12 path-selection checks
+  pass. The guard's exit 1 is the historical compiled difference from `080c505e9`
+  (102 changed, 78 added/removed); no runtime source, bundle or reference assembly differs
+  from this task's `ff59a14e` base. No new hardware claim or ModBuild increment.
 
 - **Released 1.0.6 / ModBuild 537:** the maintainer confirmed the menu fix; the final
   hardware log audit found no release blocker. Main commit `59a5d884`, tag `v1.0.6`,
