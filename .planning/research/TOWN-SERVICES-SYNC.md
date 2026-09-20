@@ -60,3 +60,20 @@ non-uGUI renderers, independently simulated particles, unsupported shader proper
 original templates are not silently reconstructed. These must be resolved before claiming
 complete visual parity for a populated service. Local native operation never waits on remote
 template/asset readiness or NPC animation.
+
+Follow-up transport and sampling review:
+
+- Corrected the new codec's header to the existing little-endian `NetProtocol.Magic` bytes.
+  An independent six-byte golden now tests the actual `NetPacket` router, both compressed
+  and uncompressed fragment assemblers, reordered delivery, duplicate rejection, three
+  interleaved module streams and queue reopen sequence continuity.
+- Cache original widget references and reuse immutable node samples when exact transform,
+  graphic, masking and material probes remain unchanged. Share equivalent observer materials
+  instead of splitting native UI batches with one material instance per graphic.
+- Resolve module parents through a single source-node index, stagger complete baselines, and
+  skip already-applied remote snapshots before delta expansion. Clear retained asset references
+  on teardown and prune obsolete pending module state on manifests.
+- Significant unavailable-presentation reports use rate-limited normal-level logging.
+
+The full wire harness passed 254,595 assertions and the focused codec harness passed 50,235.
+Payload measurements above remain synthetic. This is not evidence of runtime visual parity.

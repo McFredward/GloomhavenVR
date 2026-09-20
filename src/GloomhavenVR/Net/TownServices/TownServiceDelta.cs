@@ -48,7 +48,11 @@ internal static class TownServiceDelta
     internal static bool Compatible(TownServiceFrame a, TownServiceFrame b)
     {
         if (!HeaderMatches(a, b) || a.Nodes.Length != b.Nodes.Length) return false;
-        for (int i = 0; i < a.Nodes.Length; i++) if (a.Nodes[i].Binding != b.Nodes[i].Binding) return false;
+        for (int i = 0; i < a.Nodes.Length; i++)
+        {
+            if (a.Nodes[i].Binding != b.Nodes[i].Binding || a.Nodes[i].Values.Count != b.Nodes[i].Values.Count) return false;
+            foreach (ushort key in a.Nodes[i].Values.Keys) if (!b.Nodes[i].Values.ContainsKey(key)) return false;
+        }
         return true;
     }
     private static bool HeaderMatches(TownServiceFrame a, TownServiceFrame b) => a.Service == b.Service
@@ -65,6 +69,9 @@ internal static class TownServiceDelta
         }
         return result;
     }
+    /// <summary>Sampler nodes are immutable after publication; retain their array without copying unchanged native properties.</summary>
+    internal static TownServiceFrame Retain(TownServiceFrame source)
+    { TownServiceFrame result = Header(source); result.Nodes = (TownServiceNode[])source.Nodes.Clone(); return result; }
     private static TownServiceFrame Header(TownServiceFrame f) => new()
     {
         Service = f.Service, Session = f.Session, Sequence = f.Sequence, BaseSequence = f.BaseSequence,

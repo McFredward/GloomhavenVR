@@ -54,7 +54,8 @@ internal static class TownServiceCodec
         int size = 6 + raw.Length + 2 * ((raw.Length + 254) / 255);
         if (size > TownServiceFrame.MaxBytes) throw new InvalidDataException("Town-service module exceeds the bounded snapshot size.");
         var packet = new byte[size];
-        packet[0] = (byte)'G'; packet[1] = (byte)'V'; packet[2] = (byte)'R'; packet[3] = (byte)'1';
+        // NetProtocol.Magic (0x47565231) is written little endian by every existing lane.
+        packet[0] = 0x31; packet[1] = 0x52; packet[2] = 0x56; packet[3] = 0x47;
         packet[4] = 3; packet[5] = MessageType;
         for (int at = 6, offset = 0; offset < raw.Length;)
         {
@@ -69,7 +70,7 @@ internal static class TownServiceCodec
     {
         frame = null;
         if (packet == null || length < 8 || length > packet.Length || length > TownServiceFrame.MaxBytes
-            || packet[0] != 'G' || packet[1] != 'V' || packet[2] != 'R' || packet[3] != '1'
+            || packet[0] != 0x31 || packet[1] != 0x52 || packet[2] != 0x56 || packet[3] != 0x47
             || packet[4] != 3 || packet[5] != MessageType) return false;
         try
         {

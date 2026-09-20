@@ -12,6 +12,7 @@ internal static class Program
     {
         TownServiceFrame original = Make(256);
         byte[] bytes = TownServiceCodec.Write(original);
+        Check(Convert.ToHexString(bytes, 0, 6) == "315256470313", "independent canonical GVR1 little-endian header");
         Check(TownServiceCodec.TryRead(bytes, bytes.Length, out TownServiceFrame? read), "complete256-node module decodes");
         Check(read!.Nodes.Length == 256 && read.Nodes[255].Values[TownServiceProperty.TmpText].Text[0] == "Original item255: Äöü ß — shield", "Unicode original text survives");
         Check(read.Module == 62000, "stable ushort pool IDs are independent of simultaneous-module budget");

@@ -37,6 +37,11 @@ internal static class TownServiceMirror
     private static readonly Dictionary<int, Dictionary<ushort, RemoteModule>> Remote = new();
     private static readonly Dictionary<int, Dictionary<ushort, TownServiceFrame>> Pending = new();
     private static readonly Dictionary<int, Dictionary<ushort, TownServiceFrame>> ReceivedBaselines = new();
+    private readonly struct ParentLink
+    { internal readonly ushort Module; internal readonly uint Binding;
+        internal ParentLink(ushort module, uint binding) { Module = module; Binding = binding; } }
+    private static readonly Dictionary<Transform, ParentLink> SourceParents = new();
+    private static readonly List<CanvasGroup> ParentGroups = new(2);
     private static GameObject? _templateHost;
     private static Transform? _sharedFrame, _station;
     private static byte _service;
@@ -55,6 +60,7 @@ internal static class TownServiceMirror
         internal TownServiceFrame? Baseline;
         internal float NextBaseline;
         internal float NextRefresh;
+        internal float RetryAfter;
         internal Func<Transform, bool>? Exclude;
     }
     private sealed class RemoteModule : IDisposable
@@ -142,8 +148,13 @@ internal static class TownServiceMirror
         if (_session == 0 || _sharedFrame == null || (!_active && now > _closedUntil)) return;
         if (_active)
         {
+            SourceParents.Clear();
+            foreach (LocalModule source in Local.Values)
+                for (int i = 0; i < source.Binding.Nodes.Length; i++)
+                    if (source.Binding.Nodes[i] != null) SourceParents[source.Binding.Nodes[i]] = new ParentLink(source.Id, source.Binding.Bindings[i]);
             foreach (LocalModule module in Local.Values)
             {
+                if (now < module.RetryAfter) continue;
                 try
                 {
                     Transform source = module.Binding.Root;
@@ -163,12 +174,12 @@ internal static class TownServiceMirror
                     frame.Sequence = NextSequence();
                     TownServiceFrame emitted;
                     if (module.Baseline == null || now >= module.NextBaseline || !TownServiceDelta.Compatible(module.Baseline, frame))
-                    { emitted = frame; module.Baseline = TownServiceDelta.Copy(frame); module.NextBaseline = now + 2f + module.Id % 13 * .03f; }
+                    { emitted = frame; module.Baseline = TownServiceDelta.Retain(frame); module.NextBaseline = now + 5f + module.Id % 13 * .07f; }
                     else emitted = TownServiceDelta.Create(module.Baseline, frame);
                     byte[] packet = TownServiceCodec.Write(emitted);
-                    send(packet, packet.Length, emitted); module.Last = TownServiceDelta.Copy(frame); module.NextRefresh = now + .75f + module.Id % 7 * .03f;
+                    send(packet, packet.Length, emitted); module.Last = TownServiceDelta.Retain(frame); module.NextRefresh = now + .75f + module.Id % 7 * .03f;
                 }
-                catch (Exception e) { Report("capture module " + module.Id, e); }
+                catch (Exception e) { module.RetryAfter = now + 1; Report("capture module " + module.Id, e); }
             }
         }
         if (now >= _nextManifest)
@@ -206,6 +217,8 @@ internal static class TownServiceMirror
                 foreach (var pair in standing) if (Array.BinarySearch(frame.Modules, pair.Key) < 0) removed.Add(pair.Key);
                 foreach (ushort id in removed) { standing[id].Dispose(); standing.Remove(id); }
             }
+            PrunePending(Pending, peer, frame);
+            PrunePending(ReceivedBaselines, peer, frame);
             return true;
         }
         if (!Pending.TryGetValue(peer, out Dictionary<ushort, TownServiceFrame>? pending))
@@ -228,6 +241,16 @@ internal static class TownServiceMirror
         return true;
     }
 
+    private static void PrunePending(Dictionary<int, Dictionary<ushort, TownServiceFrame>> store, int peer, TownServiceFrame manifest)
+    {
+        if (!store.TryGetValue(peer, out Dictionary<ushort, TownServiceFrame>? modules)) return;
+        var removed = new List<ushort>();
+        foreach (var pair in modules)
+            if (!manifest.Visible || pair.Value.Service != manifest.Service || pair.Value.Session != manifest.Session
+                || Array.BinarySearch(manifest.Modules, pair.Key) < 0) removed.Add(pair.Key);
+        foreach (ushort module in removed) modules.Remove(module);
+    }
+
     /// <summary>Shared frame is supplied by the room owner. No observer-local fit or gaze pose is consulted.</summary>
     internal static void TickRemote(Func<int, Transform?> sharedFrame)
     {
@@ -244,14 +267,14 @@ internal static class TownServiceMirror
             foreach (var packet in pending)
             {
                 TownServiceFrame received = packet.Value;
+                standing.TryGetValue(received.Module, out RemoteModule? module);
+                if (module != null && received.Sequence <= module.Sequence) continue;
                 TownServiceFrame? baseline = null;
                 if (ReceivedBaselines.TryGetValue(entry.Key, out Dictionary<ushort, TownServiceFrame>? baselines)) baselines.TryGetValue(received.Module, out baseline);
                 TownServiceFrame? expanded = TownServiceDelta.Expand(baseline, received);
                 if (expanded == null) continue;
                 TownServiceFrame frame = expanded;
                 if (frame.Session != session.Session || frame.Service != session.Service || Array.BinarySearch(session.Modules, frame.Module) < 0) continue;
-                standing.TryGetValue(frame.Module, out RemoteModule? module);
-                if (module != null && frame.Sequence <= module.Sequence) continue;
                 try
                 {
                     if (!frame.Visible)
@@ -320,6 +343,7 @@ internal static class TownServiceMirror
         ResetNetwork(); ClearLocalModules(); Templates.Clear();
         if (_templateHost != null) Object.Destroy(_templateHost);
         _templateHost = null; _session = 0; _service = 0; _active = false; _station = _sharedFrame = null;
+        SourceParents.Clear(); ParentGroups.Clear(); TownServiceMaterial.Reset(); Assets.Clear();
         Failures.Clear();
     }
     private static void ClearLocalModules()
@@ -347,6 +371,7 @@ internal static class TownServiceMirror
         for (int i = 0; i < 10; i++) if (a.Pose[i] != b.Pose[i]) return false;
         for (int i = 0; i < a.Nodes.Length; i++)
         {
+            if (ReferenceEquals(a.Nodes[i], b.Nodes[i])) continue;
             if (a.Nodes[i].Binding != b.Nodes[i].Binding || a.Nodes[i].Values.Count != b.Nodes[i].Values.Count) return false;
             foreach (var pair in a.Nodes[i].Values)
                 if (!b.Nodes[i].Values.TryGetValue(pair.Key, out TownServiceValue? value) || !pair.Value.Same(value)) return false;
@@ -358,16 +383,14 @@ internal static class TownServiceMirror
         float alpha = 1;
         for (Transform? parent = module.Binding.Root.parent; parent != null; parent = parent.parent)
         {
-            foreach (LocalModule candidate in Local.Values)
+            if (SourceParents.TryGetValue(parent, out ParentLink link) && link.Module != module.Id)
             {
-                if (ReferenceEquals(candidate, module)) continue;
-                int index = Array.IndexOf(candidate.Binding.Nodes, parent);
-                if (index < 0) continue;
-                frame.ParentModule = candidate.Id; frame.ParentBinding = candidate.Binding.Bindings[index];
+                frame.ParentModule = link.Module; frame.ParentBinding = link.Binding;
                 frame.ParentAlpha = alpha; return;
             }
             bool stop = false;
-            foreach (CanvasGroup group in parent.GetComponents<CanvasGroup>())
+            parent.GetComponents(ParentGroups);
+            foreach (CanvasGroup group in ParentGroups)
                 if (group.enabled) { alpha *= group.alpha; if (group.ignoreParentGroups) stop = true; }
             if (stop) break;
         }
@@ -379,7 +402,7 @@ internal static class TownServiceMirror
         if (Failures.TryGetValue(key, out float last) && now - last < 30) return;
         if (Failures.Count > 32) Failures.Clear();
         Failures[key] = now;
-        VRLog.Warn("TownServices", "Original service presentation unavailable (" + key + ").");
+        VRLog.Note("TownServices", "Original service presentation unavailable (" + key + ").");
         PresentationUnavailable?.Invoke(key);
     }
 }

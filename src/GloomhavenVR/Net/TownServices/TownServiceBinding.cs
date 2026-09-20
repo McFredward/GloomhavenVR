@@ -17,6 +17,39 @@ internal sealed class TownServiceBinding : IDisposable
     private readonly Material?[] _graphicMaterials, _textMaterials;
     private TownServiceNode[]? _lastApplied;
     private readonly Func<Transform, bool>? _exclude;
+    private readonly NodeCache[] _cache;
+    private readonly TownServiceNode[] _sampled;
+    private sealed class NodeCache
+    {
+        internal Transform Transform = null!;
+        internal Transform? Parent;
+        internal RectTransform? Rect;
+        internal Graphic? Graphic;
+        internal CanvasGroup? Group;
+        internal Mask? Mask;
+        internal RectMask2D? RectMask;
+        internal bool Dirty = true;
+        internal NodeProbe Probe;
+        internal int Children;
+        internal TownServiceValue? Material;
+        internal UnityEngine.Events.UnityAction Callback = null!;
+        internal void MarkDirty() => Dirty = true;
+    }
+    private struct NodeProbe
+    {
+        internal Vector3 Position, Scale, Anchored;
+        internal Quaternion Rotation;
+        internal Vector2 AnchorMin, AnchorMax, Pivot, Size;
+        internal Color Color, Rendered;
+        internal Vector4 Padding;
+        internal Vector2Int Softness;
+        internal int Flags;
+        internal float Alpha;
+        internal bool Same(NodeProbe p) => Position.Equals(p.Position) && Scale.Equals(p.Scale) && Anchored.Equals(p.Anchored)
+            && Rotation.Equals(p.Rotation) && AnchorMin.Equals(p.AnchorMin) && AnchorMax.Equals(p.AnchorMax)
+            && Pivot.Equals(p.Pivot) && Size.Equals(p.Size) && Color.Equals(p.Color) && Rendered.Equals(p.Rendered)
+            && Padding.Equals(p.Padding) && Softness.Equals(p.Softness) && Flags == p.Flags && Alpha == p.Alpha;
+    }
 
     internal TownServiceBinding(Transform root, Func<Transform, bool>? exclude = null)
     {
@@ -28,6 +61,22 @@ internal sealed class TownServiceBinding : IDisposable
         foreach (uint key in Bindings) signature = unchecked((signature ^ key) * 16777619);
         Structure = signature == 0 ? 1 : signature;
         _graphicMaterials = new Material?[Nodes.Length]; _textMaterials = new Material?[Nodes.Length];
+        _cache = new NodeCache[Nodes.Length]; _sampled = new TownServiceNode[Nodes.Length];
+        for (int i = 0; i < Nodes.Length; i++)
+        {
+            Transform node = Nodes[i];
+            var cache = new NodeCache { Transform = node, Parent = node.parent, Children = node.childCount,
+                Rect = node as RectTransform, Graphic = node.GetComponent<Graphic>(), Group = node.GetComponent<CanvasGroup>(),
+                Mask = node.GetComponent<Mask>(), RectMask = node.GetComponent<RectMask2D>() };
+            cache.Callback = cache.MarkDirty;
+            if (cache.Graphic != null)
+            {
+                cache.Graphic.RegisterDirtyVerticesCallback(cache.Callback);
+                cache.Graphic.RegisterDirtyMaterialCallback(cache.Callback);
+                cache.Graphic.RegisterDirtyLayoutCallback(cache.Callback);
+            }
+            _cache[i] = cache;
+        }
     }
 
     private static void Walk(Transform node, uint parent, List<Transform> nodes, List<uint> keys, bool root,
@@ -55,14 +104,21 @@ internal sealed class TownServiceBinding : IDisposable
 
     internal TownServiceNode[] Read(TownServiceAssets assets)
     {
-        var result = new TownServiceNode[Nodes.Length];
+        TownServiceNode[] result = _sampled;
+        bool checkStructure = false;
         for (int i = 0; i < Nodes.Length; i++)
         {
             Transform node = Nodes[i];
             if (node == null) throw new InvalidDataException("Native town-service module was destroyed.");
+            NodeCache cache = _cache[i];
+            if (node.childCount != cache.Children || i != 0 && node.parent != cache.Parent) checkStructure = true;
+            TownServiceValue? material = cache.Graphic != null
+                ? TownServiceMaterial.Read(cache.Graphic is TMP_Text tm ? tm.fontSharedMaterial : cache.Graphic.material, assets) : null;
+            NodeProbe probe = Probe(cache, i == 0);
+            if (!cache.Dirty && probe.Same(cache.Probe) && ReferenceEquals(material, cache.Material)) continue;
             var value = new TownServiceNode { Binding = Bindings[i] };
             var v = value.Values;
-            RectTransform? rect = node as RectTransform;
+            RectTransform? rect = cache.Rect;
             Vector3 p = rect != null ? rect.anchoredPosition3D : node.localPosition;
             Vector3 s = node.localScale; Quaternion q = node.localRotation;
             Put(v, TownServiceProperty.Transform, rect == null
@@ -71,16 +127,16 @@ internal sealed class TownServiceBinding : IDisposable
                     rect.anchorMin.x, rect.anchorMin.y, rect.anchorMax.x, rect.anchorMax.y,
                     rect.pivot.x, rect.pivot.y, i == 0 ? rect.rect.width : rect.sizeDelta.x, i == 0 ? rect.rect.height : rect.sizeDelta.y });
             Put(v, TownServiceProperty.Active, new[] { node.gameObject.activeSelf ? 1f : 0f });
-            Graphic? graphic = node.GetComponent<Graphic>();
+            Graphic? graphic = cache.Graphic;
             if (graphic != null)
             {
                 Color c = graphic.color;
                 Put(v, TownServiceProperty.Graphic, new[] { graphic.enabled ? 1f : 0f, c.r, c.g, c.b, c.a });
                 Color rendered = graphic.canvasRenderer.GetColor();
                 Put(v, TownServiceProperty.Renderer, new[] { rendered.r, rendered.g, rendered.b, rendered.a });
-                if (graphic is not TMP_Text) v.Add(TownServiceProperty.Material, TownServiceMaterial.Read(graphic.material, assets));
+                if (graphic is not TMP_Text) v.Add(TownServiceProperty.Material, material!);
             }
-            CanvasGroup? group = node.GetComponent<CanvasGroup>();
+            CanvasGroup? group = cache.Group;
             if (group != null) Put(v, TownServiceProperty.Group, new[] { group.enabled ? 1f : 0f, group.alpha, group.ignoreParentGroups ? 1f : 0f });
             if (graphic is Image image)
                 Put(v, TownServiceProperty.Image, new[] { (float)image.type, image.fillAmount, (float)image.fillMethod,
@@ -100,7 +156,7 @@ internal sealed class TownServiceBinding : IDisposable
                 Color[] colors = { gradient.topLeft, gradient.topRight, gradient.bottomLeft, gradient.bottomRight };
                 foreach (Color c in colors) { n.Add(c.r); n.Add(c.g); n.Add(c.b); n.Add(c.a); }
                 Put(v, TownServiceProperty.TmpText, n.ToArray(), text.text ?? string.Empty, assets.Key(text.font));
-                v.Add(TownServiceProperty.TextMaterial, TownServiceMaterial.Read(text.fontSharedMaterial, assets));
+                v.Add(TownServiceProperty.TextMaterial, material!);
             }
             else if (graphic is Text legacy)
                 Put(v, TownServiceProperty.LegacyText, new[] { (float)legacy.fontSize, (float)legacy.fontStyle,
@@ -120,13 +176,40 @@ internal sealed class TownServiceBinding : IDisposable
                 Put(v, key, new[] { shadow.enabled ? 1f : 0f, c.r, c.g, c.b, c.a, distance.x, distance.y, shadow.useGraphicAlpha ? 1f : 0f });
             }
             result[i] = value;
+            cache.Dirty = false; cache.Probe = probe; cache.Material = material;
         }
         // A regenerated row must be rebound as a complete new module, not partially sampled.
-        var verify = new List<Transform>(); var keys = new List<uint>(); Walk(Root, 2166136261, verify, keys, true, 0, _exclude);
-        if (verify.Count != Nodes.Length) throw new InvalidDataException("Native town-service topology changed.");
-        for (int i = 0; i < verify.Count; i++)
-            if (!ReferenceEquals(verify[i], Nodes[i]) || keys[i] != Bindings[i]) throw new InvalidDataException("Native town-service topology changed.");
+        if (checkStructure)
+        {
+            var verify = new List<Transform>(); var keys = new List<uint>(); Walk(Root, 2166136261, verify, keys, true, 0, _exclude);
+            if (verify.Count != Nodes.Length) throw new InvalidDataException("Native town-service topology changed.");
+            for (int i = 0; i < verify.Count; i++)
+            {
+                if (!ReferenceEquals(verify[i], Nodes[i]) || keys[i] != Bindings[i]) throw new InvalidDataException("Native town-service topology changed.");
+                _cache[i].Children = Nodes[i].childCount; _cache[i].Parent = Nodes[i].parent;
+            }
+        }
         return result;
+    }
+
+    private static NodeProbe Probe(NodeCache c, bool root)
+    {
+        Transform t = c.Transform;
+        var p = new NodeProbe { Position = t.localPosition, Rotation = t.localRotation, Scale = t.localScale,
+            Flags = t.gameObject.activeSelf ? 1 : 0 };
+        RectTransform? r = c.Rect;
+        if (r != null)
+        {
+            p.Anchored = r.anchoredPosition3D; p.AnchorMin = r.anchorMin; p.AnchorMax = r.anchorMax;
+            p.Pivot = r.pivot; p.Size = root ? r.rect.size : r.sizeDelta;
+        }
+        Graphic? g = c.Graphic;
+        if (g != null) { if (g.enabled) p.Flags |= 2; p.Color = g.color; p.Rendered = g.canvasRenderer.GetColor(); }
+        CanvasGroup? group = c.Group;
+        if (group != null) { if (group.enabled) p.Flags |= 4; p.Alpha = group.alpha; if (group.ignoreParentGroups) p.Flags |= 8; }
+        if (c.Mask != null) { if (c.Mask.enabled) p.Flags |= 16; if (c.Mask.showMaskGraphic) p.Flags |= 32; }
+        if (c.RectMask != null) { if (c.RectMask.enabled) p.Flags |= 64; p.Padding = c.RectMask.padding; p.Softness = c.RectMask.softness; }
+        return p;
     }
 
     private static void Put(Dictionary<ushort, TownServiceValue> values, ushort key, float[] numbers, params string[] text)
@@ -245,8 +328,16 @@ internal sealed class TownServiceBinding : IDisposable
     private static Color ColorAt(float[] n, int i) => new(n[i], n[i + 1], n[i + 2], n[i + 3]);
     public void Dispose()
     {
-        foreach (Material? material in _graphicMaterials) if (material != null) UnityEngine.Object.Destroy(material);
-        foreach (Material? material in _textMaterials) if (material != null) UnityEngine.Object.Destroy(material);
+        foreach (NodeCache node in _cache)
+            if (node.Graphic != null)
+            {
+                node.Graphic.UnregisterDirtyVerticesCallback(node.Callback);
+                node.Graphic.UnregisterDirtyMaterialCallback(node.Callback);
+                node.Graphic.UnregisterDirtyLayoutCallback(node.Callback);
+            }
+        foreach (Material? material in _graphicMaterials) TownServiceMaterial.Release(material);
+        foreach (Material? material in _textMaterials) TownServiceMaterial.Release(material);
+        Array.Clear(_graphicMaterials, 0, _graphicMaterials.Length); Array.Clear(_textMaterials, 0, _textMaterials.Length);
         _lastApplied = null;
     }
 }

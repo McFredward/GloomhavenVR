@@ -17,6 +17,8 @@ internal sealed class TownServiceAssets
     private readonly Dictionary<int, string> _keys = new();
     private float _nextScan;
 
+    internal void Clear() { _assets.Clear(); _keys.Clear(); _ambiguous.Clear(); _nextScan = 0; }
+
     internal void Register(string key, Object asset)
     {
         if (asset == null || string.IsNullOrEmpty(key)) throw new ArgumentException("Missing town-service asset.");

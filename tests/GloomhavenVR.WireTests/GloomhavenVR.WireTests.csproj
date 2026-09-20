@@ -266,6 +266,7 @@
     <Compile Include="ShortRestStateVectors.cs" />
     <Compile Include="ExtrasFragmentVectors.cs" />
     <Compile Include="$(RepoRoot)src\GloomhavenVR\Net\ExtrasSendQueue.cs" Link="wire\ExtrasSendQueue.cs" />
+    <Compile Include="TownServiceTransportVectors.cs" />
     <Compile Include="$(RepoRoot)src/GloomhavenVR/Net/TownServices/TownServiceFrame.cs" />
     <Compile Include="$(RepoRoot)src/GloomhavenVR/Net/TownServices/TownServiceCodec.cs" />
     <Compile Include="$(RepoRoot)src/GloomhavenVR/Net/TownServices/TownServiceDelta.cs" />
