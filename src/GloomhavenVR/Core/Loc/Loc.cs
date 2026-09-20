@@ -196,6 +196,8 @@ internal static partial class Loc
 
     private static Dictionary<string, Dictionary<string, string>> Build() => new(64)
     {
+        ["town_sample_hint"] = Pair("Place a sample here to select it.\nConfirm in the prompt.",
+            "Lege eine Vorschau hier ab, um sie auszuwählen.\nBestätige anschließend im Dialog."),
         // ---- the controls lesson (Compat/Tutorial/Controls) ----
         // Each taught control is a {id}_t title and a {id}_b body. The wording names the KEY
         // in words as well as lighting it, because two of the shipped controller models cannot

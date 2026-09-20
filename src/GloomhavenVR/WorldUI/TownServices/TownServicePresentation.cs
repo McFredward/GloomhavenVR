@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using GloomhavenVR.Core;
 using GloomhavenVR.WorldUI.MapRoom;
+using TMPro;
 using UnityEngine;
 using UnityEngine.UI;
 
@@ -19,7 +20,7 @@ internal static class TownServicePresentation
     private static UIWindow? _window, _failedWindow;
     private static ConvertedPanel? _context;
     private static GameObject? _mat;
-    private static Material? _matMaterial;
+    private static TMP_Text? _caption;
     private static Vector3 _origin;
     private static Quaternion _yaw;
     private static float _scale, _opened, _nextCensus;
@@ -28,6 +29,10 @@ internal static class TownServicePresentation
     private static int _selectionMode;
     internal static byte Service { get; private set; }
     internal static uint Session => _session;
+    internal static UIWindow? Window => _window;
+    internal static Transform? WorkMat => _mat != null ? _mat.transform : null;
+    internal static IReadOnlyCollection<TownServiceToken> Samples => Tokens.Values;
+    internal static float SessionAge => Mathf.Max(0f, Time.unscaledTime - _opened);
     internal static IReadOnlyList<TownServiceSurface> LocalSurfaces => Surfaces;
     internal static Transform? ContextRoot => _context?.Target;
     internal static Transform? StationRoot => _station?.Root;
@@ -139,23 +144,35 @@ internal static class TownServicePresentation
 
     private static void BuildMat()
     {
-        _mat = GameObject.CreatePrimitive(PrimitiveType.Cube);
+        GameObject? prefab = TownServiceAssets.Prefab("townworktray");
+        if (prefab == null) throw new InvalidOperationException("Town work tray is missing from the asset bundle");
+        _mat = UnityEngine.Object.Instantiate(prefab);
         _mat.name = "GloomhavenVR.TownService.WorkMat";
-        UnityEngine.Object.Destroy(_mat.GetComponent<Collider>());
         _mat.transform.position = _origin + _yaw * new Vector3(.12f, -.40f, -.20f) * _scale;
         _mat.transform.rotation = _yaw;
         _mat.transform.localScale = Vector3.one * _scale;
-        // The visual is a child so the mat's coordinate frame remains in metres for drop tests.
-        var visual = GameObject.CreatePrimitive(PrimitiveType.Cube);
-        visual.name = "OfferingMat";
-        visual.transform.SetParent(_mat.transform, false);
-        visual.transform.localScale = new Vector3(.44f, .016f, .32f);
-        UnityEngine.Object.Destroy(visual.GetComponent<Collider>());
-        UnityEngine.Object.Destroy(_mat.GetComponent<MeshRenderer>());
-        UnityEngine.Object.Destroy(_mat.GetComponent<MeshFilter>());
-        _matMaterial = WorldUIAssets.CreateFlatMaterial(new Color(.16f, .11f, .07f));
-        visual.GetComponent<MeshRenderer>().sharedMaterial = _matMaterial;
+        TMP_Text? nativeText = _window != null ? _window.GetComponentInChildren<TMP_Text>(true) : null;
+        if (nativeText != null && nativeText.font != null)
+        {
+            var label = new GameObject("Instructions", typeof(RectTransform));
+            label.transform.SetParent(_mat.transform, false);
+            label.transform.localPosition = new Vector3(0f, .025f, -.085f);
+            label.transform.localRotation = Quaternion.Euler(90f, 0f, 0f);
+            label.transform.localScale = Vector3.one * .01f;
+            _caption = label.AddComponent<TextMeshPro>();
+            _caption.font = nativeText.font;
+            _caption.fontSharedMaterial = nativeText.font.material;
+            _caption.rectTransform.sizeDelta = new Vector2(40f, 9f);
+            _caption.alignment = TextAlignmentOptions.Center;
+            _caption.fontSize = 24f; _caption.enableAutoSizing = true;
+            _caption.fontSizeMin = 16f; _caption.fontSizeMax = 24f;
+            _caption.color = new Color(.95f, .86f, .68f);
+            RefreshCaption();
+            Loc.OnChanged += RefreshCaption;
+        }
     }
+
+    private static void RefreshCaption() { if (_caption != null) _caption.text = Loc.Mod("town_sample_hint"); }
 
     private static void HidePortrait(UIWindow window)
     {
@@ -256,8 +273,8 @@ internal static class TownServicePresentation
         foreach (Graphic portrait in Portraits) if (portrait != null) portrait.enabled = true;
         Portraits.Clear();
         if (_mat != null) UnityEngine.Object.Destroy(_mat);
-        if (_matMaterial != null) UnityEngine.Object.Destroy(_matMaterial);
-        _mat = null; _matMaterial = null;
+        _mat = null;
+        Loc.OnChanged -= RefreshCaption; _caption = null;
         _station?.Dispose(); _station = null;
         _window = null; _context = null; Service = 0;
         _selectionOwner = null; _selectionCard = null; _selectionKey = null;

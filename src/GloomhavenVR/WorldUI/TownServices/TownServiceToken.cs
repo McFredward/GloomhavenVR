@@ -12,7 +12,8 @@ namespace GloomhavenVR.WorldUI;
 
 /// <summary>A non-authoritative sample of an original catalog entry. Only releasing over the
 /// work mat dispatches the original selection button; its native confirmation still owns payment.</summary>
-internal sealed class TownServiceToken : IGrabbable, ITriggerOnlyGrabbable, IGrabbableHandFilter, IGrabHighlight, IDisposable
+internal sealed class TownServiceToken : IGrabbable, ITriggerOnlyGrabbable, IGrabbableHandFilter,
+    IGrabCancellation, IGrabHighlight, IDisposable
 {
     private readonly RectTransform _source;
     private readonly Selectable _button;
@@ -35,9 +36,11 @@ internal sealed class TownServiceToken : IGrabbable, ITriggerOnlyGrabbable, IGra
     private Quaternion _heldRotation;
     private bool _disposed;
     private bool _hover;
+    private float _nextRefresh;
 
     internal Transform Source => _source;
     internal Transform? HeldRoot => _held != null ? _held.transform : null;
+    internal Transform? HeldContent => _mirror?.CloneOf(_source);
     public bool GrabWithGrip => false;
     public bool AllowsHand(VRHand hand) => !_disposed && _sessionAlive()
         && (!ReferenceEquals(hand.Grabber.Held, this) || _hand == hand);
@@ -71,6 +74,11 @@ internal sealed class TownServiceToken : IGrabbable, ITriggerOnlyGrabbable, IGra
                 _held.transform.SetPositionAndRotation(_hand.Rig.GrabAnchor.TransformPoint(_heldPosition),
                     _hand.Rig.GrabAnchor.rotation * _heldRotation);
                 _held.transform.localScale = Vector3.one * scale;
+            }
+            if (Time.unscaledTime >= _nextRefresh)
+            {
+                _nextRefresh = Time.unscaledTime + .25f;
+                if (_mirror != null && !_mirror.Refresh(_source)) { CancelHold(); return; }
             }
             _mirror?.TickLive();
             return;
@@ -155,6 +163,11 @@ internal sealed class TownServiceToken : IGrabbable, ITriggerOnlyGrabbable, IGra
     }
 
     public void OnGrabHighlight(VRHand hand, bool highlighted) => Hover(highlighted);
+
+    public void OnGrabCancelled(VRHand hand)
+    {
+        if (_hand == hand) CancelHold();
+    }
 
     private void Hover(bool value)
     {

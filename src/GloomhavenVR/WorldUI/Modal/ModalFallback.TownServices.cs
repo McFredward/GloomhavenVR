@@ -12,7 +12,7 @@ internal static partial class ModalFallback
         if (!ReleaseForComposite(window)) return false;
         if (previous.Target == null) return false;
         if (previous.HostGo != null && previous.Target.IsChildOf(previous.HostGo.transform)) return false;
-        if (previous.OriginalParent != null && previous.Target.parent != previous.OriginalParent) return false;
+        if (previous.Target.parent != previous.OriginalParent) return false;
         foreach (ConvertedPanel panel in CanvasConversion.ActivePanels)
             if (panel.Target == previous.Target) return false;
         return true;

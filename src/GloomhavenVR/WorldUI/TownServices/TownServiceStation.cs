@@ -23,7 +23,7 @@ internal sealed class TownServiceStation : IDisposable
     internal static TownServiceStation? Create(byte service, Vector3 center, float scale)
     {
         string name = service == 1 ? "townmerchant" : service == 2 ? "townpriestess" : "townenchantress";
-        GameObject? prefab = WorldUIAssets.TryLoadPrefab("assets/bundle/townservices/prefabs/" + name + ".prefab");
+        GameObject? prefab = TownServiceAssets.Prefab(name);
         if (prefab == null) return null;
         GameObject? root = null;
         try
