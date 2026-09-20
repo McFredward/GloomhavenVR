@@ -7,8 +7,8 @@ LogOutput.log has 3,604 lines; Player.log has 8,743. Both startup banners identi
 ModBuild 534 / assembly 1.0.5.0, the released 1.0.5. The current dev starting point
 is 8510c9d2, ModBuild 535 / version 1.0.6. The supplied capture therefore does not
 contain the last short-rest correction. Peer logs remain historical build 500;
-no new screenshot accompanies this report. The maintainer was asked whether a
-separate build-535 test exists; that cannot be inferred from these files.
+no new screenshot accompanies this report. The maintainer subsequently supplied a separate build-535 test in second_logs;
+its evidence is recorded below.
 
 ## Burn evidence
 
@@ -30,11 +30,35 @@ sampling follow actual native playback while the original face is inactive;
 its regression reproduces the previous defect and preserves raw progress,
 completion and legitimate card recovery.
 
+## Follow-up hardware confirmation
+
+The maintainer then tested the current development build and reported that the
+short-rest problem appears resolved. second_logs/LogOutput.log (3,113 lines) and
+second_logs/Player.log (8,077 lines), captured 2026-09-20 17:36:40, both identify
+ModBuild 535 / assembly 1.0.6.0. This is the first supplied capture of the correction.
+
+For ShieldBash, fx -59630 / plate -61088:
+
+- 2031–2032: one inactive original starts and advances to raw 0.006.
+- 2050: the original and drawn material preserve grey/flow 1 and dissolve 0.646.
+- 2060: at 0.676 seconds, the duplicate LostMode request is held.
+- 2066–2068: the same renderer unbind/rebind edge recurs at 0.707–0.714 seconds,
+  but grey/flow remain 1 and dissolve remains 0.646 throughout, including the
+  rebound material. Raw native progress independently advances 0.350 -> 0.365.
+- 2071–2072: the sole native iterator completes at 2.010 seconds, raw 1; only
+  then does the card leave its artwork hold and fly to the Burnt pile.
+- 2085: presentation ends at 2.021 seconds with continuityChanges=0.
+
+The formerly failing edge is present and the spent appearance now survives it.
+The new log supports the maintainer's observed resolution in this local test.
+A renderer binding trace alone does not prove every headset pixel, but here it
+agrees with the direct hardware observation. Peer logs remain historical; there
+is no new independent remote hardware confirmation.
+
 ## Decision
 
-Keep the tested build-535 correction in the new development build and do not add
-another speculative burn change based on an older binary. Hardware validation
-must use the forthcoming build-536 banner. The exact native deactivation writer
-and whether the fix removes all visible flashing remain hardware questions.
-The simultaneously reported options-menu failure is independently reproduced
-in the logs and is addressed in OPTIONS-536.md.
+Retain the build-535 correction without further burn changes. The reported local
+short-rest regression is hardware-confirmed resolved in this test. The exact
+native hierarchy writer need not be changed: its transition now preserves the
+running presentation correctly. The simultaneously reported options-menu failure
+is independently reproduced in the first capture and addressed in OPTIONS-536.md.
