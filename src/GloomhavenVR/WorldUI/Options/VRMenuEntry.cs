@@ -114,6 +114,7 @@ internal static class VRMenuEntry
 
     /// <summary>The main menu we are injected into, and our row in it.</summary>
     private static UIMainOptionsMenu? _mainHost;
+    private static UIMainOptionsMenu? _mainInjectFailed;
     private static UIMainMenuOption? _mainEntry;
 
     /// <summary>
@@ -139,24 +140,12 @@ internal static class VRMenuEntry
     private static bool _loggedIcon;
     private static bool _loggedMain;
 
-    /// <summary>
-    /// The menu entries are off for this session: something in <see cref="Tick"/> or
-    /// <see cref="LateTick"/> threw, and a settings row must never be able to take a menu down with
-    /// it. Both tick methods return on it immediately, and <see cref="Shutdown"/> clears it with the
-    /// rest of the latches — this class has never held it past its own teardown.
-    ///
-    /// <para>THE SAME SHAPE AS <see cref="VROptionsTab"/>'s LATCH, DELIBERATELY (his ruling,
-    /// 2026-09-08, refactor finding F-76). Until that ruling the two classes held one concept at
-    /// opposite lifetimes and neither said why: this one cleared its latch in its teardown, and
-    /// <c>VROptionsTab._degraded</c> was cleared by nothing at all, so a single failed injection
-    /// disabled the VR settings menu for the process. That one is now scoped to the options window
-    /// instance and backstopped by a counter of consecutive failed windows. THIS one needs no such
-    /// counter, and that asymmetry is the design rather than an oversight: the failure recorded
-    /// here is a THROW out of a per-frame tick, so clearing it inside a session would re-enter the
-    /// same throwing path every frame; the failure recorded there is one reading of one window,
-    /// which the next window can perfectly well contradict.</para>
-    /// </summary>
-    private static bool _degraded;
+    // A transient native hierarchy/layout error must not permanently remove the only doors
+    // to settings. Retry after a short cooldown, with one report per pass per module lifetime.
+    // The user explicitly requires repeated opening to remain available (2026-09-20).
+    private static float _retryAfter;
+    private static bool _loggedTickFailure;
+    private static bool _loggedSeatFailure;
 
     private static bool _loggedDetach;
     private static bool _loggedLatch;
@@ -175,14 +164,10 @@ internal static class VRMenuEntry
     /// Comfortably longer than the pane's 0.1 s hide fade and shorter than any human retry.</summary>
     private const float LatchGraceSeconds = 1f;
 
-    /// <summary>
-    /// The pause menu whose injection already FAILED, so it is not retried every frame.
-    ///
-    /// <para>Without this the retry ran once per frame for the rest of the scene and wrote its
-    /// explanatory warning each time — a log flood that buries the very line it exists to show.
-    /// Keyed on the menu instance, so the next scene's menu still gets its one attempt.</para>
-    /// </summary>
+    // Failed pause-row construction retries on the same host after a bounded delay.
+    // Remember the host separately to report missing native donor data only once per host.
     private static ESCMenu? _pauseInjectFailed;
+    private static float _pauseRetryAfter;
 
     /// <summary>The mod's own VR emblem: a gold woodcut headset, generated for this menu and
     /// trimmed to what it DRAWS rather than to its frame (a mostly-transparent logo aligned to its
@@ -216,7 +201,7 @@ internal static class VRMenuEntry
     /// injected, plus a bounded main-menu sweep that stops on its own.</summary>
     internal static void Tick()
     {
-        if (_degraded)
+        if (Time.unscaledTime < _retryAfter)
             return;
         try
         {
@@ -231,13 +216,14 @@ internal static class VRMenuEntry
         }
         catch (Exception ex)
         {
-            // A settings entry must never be able to take a menu down with it. Disarm for the
-            // session and say so once, with the stack.
-            _degraded = true;
-            VRLog.Error("WorldUI", "The VR menu entries threw and are disabled for this session; "
-                + "the game's own menus are unaffected and every VR setting remains editable in "
-                + $"BepInEx/config/dev.gloomhavenvr*.cfg. {ex.GetType().Name}: {ex.Message}\n"
-                + ex.StackTrace);
+            _retryAfter = Time.unscaledTime + 2f;
+            if (!_loggedTickFailure)
+            {
+                _loggedTickFailure = true;
+                VRLog.Error("WorldUI", "The VR menu entries threw; recovery will retry after two seconds. "
+                    + "The game's own menus are unaffected. "
+                    + $"{ex.GetType().Name}: {ex.Message}\n" + ex.StackTrace);
+            }
         }
     }
 
@@ -245,26 +231,49 @@ internal static class VRMenuEntry
     /// Per-frame LateUpdate step: own each clone's SEAT in its menu (<see cref="MenuRowSeat"/>).
     /// After every Update writer the game has, so the rendered frame is the seated one. The
     /// pause menu is "shown" by its own window state; the main menu has no window of its own,
-    /// so its row's activeInHierarchy stands in.
+    /// so its host's activeInHierarchy stands in (a hidden row must still be repairable).
     /// </summary>
     internal static void LateTick()
     {
-        if (_degraded)
+        if (Time.unscaledTime < _retryAfter)
             return;
         try
         {
-            MenuRowSeat.Tick(true, _entry, _donor, _host != null && _host.IsOpen);
-            MenuRowSeat.Tick(false, _mainEntry, _mainDonor,
-                             _mainEntry != null && _mainEntry.gameObject.activeInHierarchy);
+            bool pauseVisible = _host != null && _host.IsOpen;
+            bool mainVisible = _mainHost != null && _mainHost.gameObject.activeInHierarchy;
+            if (pauseVisible)
+                MaintainRowAvailability(_entry);
+            if (mainVisible)
+                MaintainRowAvailability(_mainEntry);
+            MenuRowSeat.Tick(true, _entry, _donor, pauseVisible);
+            MenuRowSeat.Tick(false, _mainEntry, _mainDonor, mainVisible);
         }
         catch (Exception ex)
         {
-            _degraded = true;
-            VRLog.Error("WorldUI", "The VR menu row seat pass threw and the VR menu entries are disabled "
-                + "for this session; the game's own menus are unaffected and every VR setting remains "
-                + $"editable in BepInEx/config/dev.gloomhavenvr*.cfg. {ex.GetType().Name}: {ex.Message}\n"
-                + ex.StackTrace);
+            _retryAfter = Time.unscaledTime + 2f;
+            if (!_loggedSeatFailure)
+            {
+                _loggedSeatFailure = true;
+                VRLog.Error("WorldUI", "The VR menu row seat pass threw; recovery will retry after two seconds. "
+                    + "The game's own menus are unaffected. "
+                    + $"{ex.GetType().Name}: {ex.Message}\n" + ex.StackTrace);
+            }
         }
+    }
+
+    /// <summary>Keep only our cloned door visible and visibly usable while its host is shown.
+    /// Never enable a host window or change the game's other rows or their gating.</summary>
+    private static void MaintainRowAvailability(UIMainMenuOption? row)
+    {
+        if (row == null)
+            return;
+        if (!row.gameObject.activeSelf)
+            row.gameObject.SetActive(true);
+        if (!row.enabled)
+            row.enabled = true;
+        if (!row.IsInteractable)
+            row.IsInteractable = true;
+        row.SetFocused(true);
     }
 
     // ==========================================================================================
@@ -284,7 +293,7 @@ internal static class VRMenuEntry
         }
         if (ReferenceEquals(host, _host) && _entry != null)
             return;
-        if (ReferenceEquals(host, _pauseInjectFailed))
+        if (ReferenceEquals(host, _pauseInjectFailed) && Time.unscaledTime < _pauseRetryAfter)
             return;
 
         // NEVER A DOOR ONTO NOTHING. VROptionsTab.Tick runs BEFORE this one (WorldUIModule's
@@ -297,7 +306,12 @@ internal static class VRMenuEntry
         _donor = null;
         Inject(host);
         if (_entry == null)
+        {
             _pauseInjectFailed = host;
+            _pauseRetryAfter = Time.unscaledTime + 2f;
+        }
+        else
+            _pauseInjectFailed = null;
     }
 
     private static void Inject(ESCMenu host)
@@ -305,17 +319,19 @@ internal static class VRMenuEntry
         UIMainMenuOption? donor = host.optionsButton;
         if (donor == null)
         {
-            VRLog.Warn("WorldUI", "Pause menu has no options button to clone from — the VR entry "
-                + "is not added. The main-menu row is unaffected, and every VR setting remains "
-                + "editable in BepInEx/config/dev.gloomhavenvr*.cfg.");
+            if (!ReferenceEquals(host, _pauseInjectFailed))
+                VRLog.Warn("WorldUI", "Pause menu has no options button to clone from — the VR entry "
+                    + "is not added. The main-menu row is unaffected, and every VR setting remains "
+                    + "editable in BepInEx/config/dev.gloomhavenvr*.cfg.");
             return;
         }
 
         UIMainMenuOption? clone = CloneRow(donor, CloneName);
         if (clone == null)
         {
-            VRLog.Warn("WorldUI", "The pause-menu options button cloned without its "
-                + "UIMainMenuOption — the VR entry is not added.");
+            if (!ReferenceEquals(host, _pauseInjectFailed))
+                VRLog.Warn("WorldUI", "The pause-menu options button cloned without its "
+                    + "UIMainMenuOption — the VR entry is not added.");
             return;
         }
 
@@ -391,22 +407,26 @@ internal static class VRMenuEntry
             _yieldArmed = false;
         }
 
+        // Waiting for pane recovery is not a failed scene scan. Otherwise a thirty-second
+        // injection backoff would exhaust all twelve scans before the pane becomes usable.
+        if (!VROptionsTab.CanOpen || Time.unscaledTime < _nextMainScan)
+            return;
+        _nextMainScan = Time.unscaledTime + MainScanInterval;
+
+        // A known native menu can replace a lost row without another scene search, even after
+        // discovery's budget is spent. Construction failures retain this host for a later retry.
+        if (_mainHost != null)
+        {
+            InjectMain(_mainHost);
+            return;
+        }
         if (_mainScansLeft <= 0)
             return;
-        if (Time.unscaledTime < _nextMainScan)
-            return;
-
-        _nextMainScan = Time.unscaledTime + MainScanInterval;
         _mainScansLeft--;
-
-        if (!VROptionsTab.CanOpen)
-            return;
-
         UIMainOptionsMenu? menu = UnityEngine.Object.FindObjectOfType<UIMainOptionsMenu>();
         if (menu == null)
             return;
-
-        _mainScansLeft = 0;
+        _mainHost = menu;
         InjectMain(menu);
     }
 
@@ -417,20 +437,25 @@ internal static class VRMenuEntry
             donor = menu.exitButton;
         if (donor == null)
         {
-            VRLog.Warn("WorldUI", "The main menu exposes neither an Optionen nor an Exit row to "
-                + "clone from — no VR row there. The pause menu still carries one, and every VR "
-                + "setting remains editable in BepInEx/config/dev.gloomhavenvr*.cfg.");
+            if (!ReferenceEquals(menu, _mainInjectFailed))
+                VRLog.Warn("WorldUI", "The main menu exposes neither an Optionen nor an Exit row to "
+                    + "clone from — no VR row there. The pause menu still carries one, and every VR "
+                    + "setting remains editable in BepInEx/config/dev.gloomhavenvr*.cfg.");
+            _mainInjectFailed = menu;
             return;
         }
 
         UIMainMenuOption? clone = CloneRow(donor, MainCloneName);
         if (clone == null)
         {
-            VRLog.Warn("WorldUI", "The main-menu row cloned without its UIMainMenuOption — no VR "
-                + "row there.");
+            if (!ReferenceEquals(menu, _mainInjectFailed))
+                VRLog.Warn("WorldUI", "The main-menu row cloned without its UIMainMenuOption — no VR "
+                    + "row there.");
+            _mainInjectFailed = menu;
             return;
         }
 
+        _mainInjectFailed = null;
         // A MainOption (or a subclass of it) came along with the clone and would answer for a
         // menu entry that is not ours to answer for — the donor's Select() would run beside our
         // own. Ours drives the row directly through Init, so the component has no work left.
@@ -955,6 +980,7 @@ internal static class VRMenuEntry
         _donor = null;
         _mainEntry = null;
         _mainHost = null;
+        _mainInjectFailed = null;
         _mainDonor = null;
         _mainRivals = null;
         _yieldArmed = false;
@@ -963,10 +989,13 @@ internal static class VRMenuEntry
         _mainScansLeft = 0;
         _nextMainScan = 0f;
         _pauseInjectFailed = null;
+        _pauseRetryAfter = 0f;
         _loggedInject = false;
         _loggedIcon = false;
         _loggedMain = false;
-        _degraded = false;
+        _retryAfter = 0f;
+        _loggedTickFailure = false;
+        _loggedSeatFailure = false;
         _loggedDetach = false;
         _loggedLatch = false;
         _latchSince = 0f;
