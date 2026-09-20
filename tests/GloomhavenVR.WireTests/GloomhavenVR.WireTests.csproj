@@ -266,6 +266,11 @@
     <Compile Include="ShortRestStateVectors.cs" />
     <Compile Include="ExtrasFragmentVectors.cs" />
     <Compile Include="$(RepoRoot)src\GloomhavenVR\Net\ExtrasSendQueue.cs" Link="wire\ExtrasSendQueue.cs" />
+    <Compile Include="$(RepoRoot)src/GloomhavenVR/Net/TownServices/TownServiceFrame.cs" />
+    <Compile Include="$(RepoRoot)src/GloomhavenVR/Net/TownServices/TownServiceCodec.cs" />
+    <Compile Include="$(RepoRoot)src/GloomhavenVR/Net/TownServices/TownServiceDelta.cs" />
+    <Compile Include="$(RepoRoot)src/GloomhavenVR/Net/TownServices/TownServiceSendQueue.cs" />
+    <Compile Include="$(RepoRoot)src/GloomhavenVR/Net/TownServices/TownServiceFragments.cs" />
     <Compile Include="$(RepoRoot)src\GloomhavenVR\Net\ExtrasVersionAnnouncement.cs" Link="wire\ExtrasVersionAnnouncement.cs" />
     <Compile Include="UseBarWidgetVectors.cs" />
     <Compile Include="UseBarAnimationVectors.cs" />

@@ -29,6 +29,8 @@ internal sealed partial class NetAvatarDriver
             || _transport.LocalPlayerId <= 0) return;
         using var timing = PerfMonitor.Scope("Net.Presentation.NativeSend");
         float now = Time.unscaledTime;
+        try { SendTownServices(); }
+        catch (Exception e) { LogPhaseError("Sample native town services", e); }
         // Capture the final owner pixels in the same LateUpdate pass as native board animation.
         // Presence consumes this immutable snapshot on its next tick, never an unfinished layout.
         try { _decisionHighlightSnapshot = NativeDecisionHighlightSampler.Sample(); }
@@ -161,6 +163,7 @@ internal sealed partial class NetAvatarDriver
 
     private void ApplyNativePresentation()
     {
+        ApplyTownServices();
         ApplyItemAppearance();
         ApplyCardAppearance();
         ApplyNativePrompt();
@@ -203,10 +206,11 @@ internal sealed partial class NetAvatarDriver
     }
 
     private void ForgetNativePresentation(int sender)
-    { _pendingPlumes.Remove(sender); _pendingNative.Remove(sender); _pendingBoards.Remove(sender); ForgetItemAppearance(sender); ForgetCardAppearance(sender); ForgetNativePrompt(sender); }
+    { ForgetTownServices(sender); _pendingPlumes.Remove(sender); _pendingNative.Remove(sender); _pendingBoards.Remove(sender); ForgetItemAppearance(sender); ForgetCardAppearance(sender); ForgetNativePrompt(sender); }
 
     private void ResetNativePresentation()
     {
+        ResetTownServices();
         _pendingPlumes.Clear(); _pendingNative.Clear(); _pendingBoards.Clear();
         ResetItemAppearance();
         ResetCardAppearance();

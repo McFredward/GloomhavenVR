@@ -9,7 +9,7 @@ internal static class PresentationBatch
 {
     internal const int MaxSize = ExtrasFragments.MaxDatagramBytes;
     internal static bool ChildType(int type) => type == NetProtocol.MsgExtras
-        || type == NetProtocol.MsgExtrasFragments || type == NetProtocol.MsgUseBarAnimationFragments
+        || type == TownServices.TownServiceCodec.FragmentType || type == NetProtocol.MsgExtrasFragments || type == NetProtocol.MsgUseBarAnimationFragments
         || type == NetProtocol.MsgCardPlumeFragments || type == NetProtocol.MsgNativeUseBarFragments
         || type == NetProtocol.MsgNativeBoardFragments || type == NetProtocol.MsgCardAppearanceFragments || type == NetProtocol.MsgNativeDecisionPromptFragments || type == NetProtocol.MsgItemAppearance || type == NetProtocol.MsgItemAppearanceFragments || type == NetProtocol.MsgPresentationCompression;
 
