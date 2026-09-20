@@ -21,7 +21,7 @@ ROOT_FOR_HINT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # A FRESH WORKTREE IS NOT A FAILING CHANGE, and until this guard existed it looked exactly
 # like one. Both of the per-machine, gitignored inputs below are linked in by
 # scripts/worktree-setup.sh, and neither absence announces itself usefully on its own:
-# a missing ressources/Managed surfaces as a bare "The directory ... does not exist", and a
+# a missing game Managed folder surfaces as a bare "The directory ... does not exist", and a
 # missing Directory.Build.props.user surfaces as a BadImageFormatException reading
 # "Reference assemblies cannot be loaded for execution" — which names neither the file nor
 # the remedy. Two parallel workers read those as real gate failures and went looking for a
@@ -34,8 +34,8 @@ _worktree_hint() {
     echo "        Directory.Build.props.user in from the main checkout)" >&2
     exit 1
 }
-[[ -d "$ROOT_FOR_HINT/ressources/Managed" ]] \
-    || _worktree_hint "ressources/Managed is missing (the game's reference assemblies)"
+[[ -d "$ROOT_FOR_HINT/ressources/GH_Data/Managed" || -d "$ROOT_FOR_HINT/ressources/Managed" ]] \
+    || _worktree_hint "game references are missing (expected ressources/GH_Data/Managed or ressources/Managed)"
 [[ -e "$ROOT_FOR_HINT/Directory.Build.props.user" ]] \
     || _worktree_hint "Directory.Build.props.user is missing (the per-machine GameManaged path)"
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
