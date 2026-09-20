@@ -1,6 +1,6 @@
 # State — where the project stands
 
-**Updated 2026-09-18 after successful 1.0.5 publication; dev 1.0.6 / ModBuild 535.** The file this replaces had gone 168 builds
+**Updated 2026-09-20 for repeated VR options access and confirmed short-rest recovery; dev 1.0.6 / ModBuild 536.** The file this replaces had gone 168 builds
 stale while still saying "read this first"; it is kept as `STATE-ARCHIVE-through-2026-08.md` for
 its round-by-round narrative and for nothing else.
 
@@ -12,6 +12,21 @@ change per build) → this file (where things stand and what is owed) → the bu
 ---
 
 ## 1. Position
+
+- **dev / 1.0.6 / ModBuild 536** addresses repeated VR-options access. The initial
+  Sep-20 logs are released build 534: its fourth opening within 60 seconds triggers
+  CATCH-ALL FUSE, treating the registered mod menu as a cycling HUD banner. Registered
+  mod menus are exempted from churn suppression; unknown HUD windows retain that guard.
+  The mod-owned menu rows must stay visible, focused and pressable while their host is
+  shown, and transient entry/injection failures must recover with bounded retry.
+  Source/log records: [OPTIONS-536.md](OPTIONS-536.md), [BURN-536.md](BURN-536.md).
+  **Short rest is hardware-confirmed resolved locally in the follow-up test.** The
+  second_logs capture identifies build 535. At the previously failing 0.707-second
+  renderer transition, grey/flow 1 and dissolve 0.646 survive unchanged while raw
+  progress continues. One burn completes at 2.010 seconds before its pile flight.
+  The maintainer reports no visible flash. No further burn change is made. Peer logs
+  remain historical 500; new remote hardware confirmation is not available.
+  Options implementation and complete integration validation are in progress.
 
 - **dev / 1.0.6 / ModBuild 535** retains the spent appearance of a Lost card while its
   original native burn continues across temporary face inactivity. Build-534 Debug shows one

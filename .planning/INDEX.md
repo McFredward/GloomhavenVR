@@ -1,6 +1,6 @@
 # Planning index
 
-Updated 2026-09-18 after successful 1.0.5 publication and the dev 1.0.6 / build-535 short-rest follow-up. This directory holds internal
+Updated 2026-09-20 for dev 1.0.6 / build-536 menu recovery and confirmed short-rest hardware results. This directory holds internal
 engineering evidence, historical decisions and current status; it is not the player manual.
 
 ## Current entry points
@@ -17,6 +17,9 @@ engineering evidence, historical decisions and current status; it is not the pla
 | [PROJECT.md](PROJECT.md), [ARCHITECTURE.md](ARCHITECTURE.md) | Product scope and architectural reasoning |
 
 ## Latest measured work
+
+- [OPTIONS-536.md](OPTIONS-536.md): repeated VR-options presentation, visible menu rows and bounded recovery.
+- [BURN-536.md](BURN-536.md): distinguish the release capture from the new build-535 test; local short-rest fix confirmed.
 
 - [BURN-535.md](BURN-535.md): preserve spent appearance across inactive original playback; production cleanup regression coverage.
 

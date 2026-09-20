@@ -514,7 +514,22 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 535;
+    public const ushort ModBuild = 536;
+
+    // ModBuild 536 — repeated VR options access and short-rest report provenance.
+    // The Sep-20 capture identifies released 1.0.5 / build 534. Its fourth VR-options float
+    // within 60 seconds triggers CATCH-ALL FUSE, misclassifying our registered menu as a
+    // cycling HUD banner and suppressing its presentation for the session. Registered mod
+    // menus must stay eligible across arbitrary deliberate opening/closing cycles.
+    // Keep the mod-owned menu rows visible and pressable while their host menu is visible;
+    // recover from transient menu failures with bounded retry instead of permanent lockout.
+    // The same capture repeats build 534's spent-burn floor loss around .68 seconds, with
+    // one complete native ramp. The subsequent second_logs capture IS build 535: the
+    // formerly failing .707 s transition retains spent paint and completes one native burn.
+    // The maintainer confirms the local flash appears resolved. Retain that correction.
+    // No burn timing, gameplay, wire format or release/tag changes. Peer logs remain build 500.
+    // Details: .planning/OPTIONS-536.md and .planning/BURN-536.md. Options hardware check pending.
+    //
 
     // ModBuild 535 — retain spent appearance while an original burn runs on an inactive face.
     // Postrelease build-534 Debug has one complete native ramp, no restart: raw .004 -> 1
