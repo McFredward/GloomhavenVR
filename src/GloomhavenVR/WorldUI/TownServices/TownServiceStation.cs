@@ -13,6 +13,7 @@ internal sealed class TownServiceStation : IDisposable
     private readonly Renderer[] _renderers;
     private readonly MaterialPropertyBlock _properties = new();
     private static readonly int VisibilityId = Shader.PropertyToID("_TownVisibility");
+    private float _visibility = -1f;
     internal Transform Root => _root.transform;
     internal Transform InteractionAnchor { get; }
 
@@ -63,6 +64,8 @@ internal sealed class TownServiceStation : IDisposable
 
     internal void SetVisibility(float value)
     {
+        if (_visibility == value) return;
+        _visibility = value;
         foreach (Renderer renderer in _renderers)
         {
             if (renderer == null) continue;

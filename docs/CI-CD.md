@@ -13,7 +13,7 @@ A hosted Ubuntu runner produces the complete release archive using these inputs:
 | Plugin and preloader | Source in `src/`; the plugin compiles against committed metadata-only `libs/RefAsm` when no game install is available |
 | Unity XR managed dependencies | `scripts/build-runtimedeps.sh`, from pinned package-source tags |
 | OpenXR native libraries | `scripts/fetch-natives.sh`, with pinned SHA256 hashes |
-| Asset bundle | Committed `prebuilt/gloomhavenvr.bundle` by default; local Unity output requires explicit opt-in |
+| Asset bundles | Committed `prebuilt/gloomhavenvr.bundle` and `prebuilt/ghvr-town.bundle`; local Unity output requires explicit opt-in |
 | Installation instructions | `packaging/INSTALL.txt.in` and `packaging/INSTALL.de.txt.in` |
 | License texts and notices | Root GPL `LICENSE`, `packaging/THIRD-PARTY.txt` and pinned XR dependency notices under `Licenses/` in the archive |
 

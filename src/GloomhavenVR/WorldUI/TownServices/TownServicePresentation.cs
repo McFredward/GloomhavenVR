@@ -20,7 +20,7 @@ internal static class TownServicePresentation
     private static UIWindow? _window, _failedWindow;
     private static ConvertedPanel? _context;
     private static GameObject? _mat;
-    private static TMP_Text? _caption;
+    private static TownServiceTray? _tray;
     private static Vector3 _origin;
     private static Quaternion _yaw;
     private static float _scale, _opened, _nextCensus;
@@ -31,6 +31,7 @@ internal static class TownServicePresentation
     internal static uint Session => _session;
     internal static UIWindow? Window => _window;
     internal static Transform? WorkMat => _mat != null ? _mat.transform : null;
+    internal static TownServiceTray? Tray => _tray;
     internal static IReadOnlyCollection<TownServiceToken> Samples => Tokens.Values;
     internal static float SessionAge => Mathf.Max(0f, Time.unscaledTime - _opened);
     internal static IReadOnlyList<TownServiceSurface> LocalSurfaces => Surfaces;
@@ -104,6 +105,8 @@ internal static class TownServicePresentation
             _nextCensus = Time.unscaledTime + .25f;
             RefreshTokens();
         }
+        _tray?.Tick();
+        _tray?.SetVisibility(Mathf.Clamp01(SessionAge / .22f));
         foreach (TownServiceToken token in Tokens.Values) token.Tick(_scale);
     }
 
@@ -145,35 +148,12 @@ internal static class TownServicePresentation
 
     private static void BuildMat()
     {
-        GameObject? prefab = TownServiceAssets.Prefab("townworktray");
-        if (prefab == null) throw new InvalidOperationException("Town work tray is missing from the asset bundle");
-        _mat = UnityEngine.Object.Instantiate(prefab);
-        _mat.name = "GloomhavenVR.TownService.WorkMat";
-        _mat.transform.position = _origin + _yaw * new Vector3(.12f, -.40f, -.20f) * _scale;
-        _mat.transform.rotation = _yaw;
-        _mat.transform.localScale = Vector3.one * _scale;
         TMP_Text? nativeText = _window != null ? _window.GetComponentInChildren<TMP_Text>(true) : null;
-        if (nativeText != null && nativeText.font != null)
-        {
-            var label = new GameObject("Instructions", typeof(RectTransform));
-            label.transform.SetParent(_mat.transform, false);
-            label.transform.localPosition = new Vector3(0f, .025f, -.085f);
-            label.transform.localRotation = Quaternion.Euler(90f, 0f, 0f);
-            label.transform.localScale = Vector3.one * .01f;
-            _caption = label.AddComponent<TextMeshPro>();
-            _caption.font = nativeText.font;
-            _caption.fontSharedMaterial = nativeText.font.material;
-            _caption.rectTransform.sizeDelta = new Vector2(40f, 9f);
-            _caption.alignment = TextAlignmentOptions.Center;
-            _caption.fontSize = 24f; _caption.enableAutoSizing = true;
-            _caption.fontSizeMin = 16f; _caption.fontSizeMax = 24f;
-            _caption.color = new Color(.95f, .86f, .68f);
-            RefreshCaption();
-            Loc.OnChanged += RefreshCaption;
-        }
+        _tray = new TownServiceTray(nativeText, _origin + _yaw * new Vector3(.12f, -.40f, -.20f) * _scale,
+            _yaw, _scale);
+        _mat = _tray.Root.gameObject;
+        _tray.SetVisibility(0f);
     }
-
-    private static void RefreshCaption() { if (_caption != null) _caption.text = Loc.Mod("town_sample_hint"); }
 
     private static void HidePortrait(UIWindow window)
     {
@@ -258,10 +238,12 @@ internal static class TownServicePresentation
     internal static void LateTick()
     {
         foreach (TownServiceSurface surface in Surfaces) surface.LateTick();
+        _tray?.LateTick();
     }
 
     internal static void Reset()
     {
+        if (_window == null && Surfaces.Count == 0 && Tokens.Count == 0 && _mat == null) return;
         if (_window != null) _window.onHidden.RemoveListener(OnNativeHidden);
         foreach (TownServiceToken token in Tokens.Values) token.Dispose();
         Tokens.Clear();
@@ -273,9 +255,7 @@ internal static class TownServicePresentation
         Surfaces.Clear();
         foreach (Graphic portrait in Portraits) if (portrait != null) portrait.enabled = true;
         Portraits.Clear();
-        if (_mat != null) UnityEngine.Object.Destroy(_mat);
-        _mat = null;
-        Loc.OnChanged -= RefreshCaption; _caption = null;
+        _tray?.Dispose(); _tray = null; _mat = null;
         _station = null; // Population retains a station while another visitor still uses it.
         _window = null; _context = null; Service = 0;
         _selectionOwner = null; _selectionCard = null; _selectionKey = null;

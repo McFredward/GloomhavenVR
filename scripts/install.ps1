@@ -81,7 +81,7 @@ $bundle = Join-Path $root "prebuilt\gloomhavenvr.bundle"
 $townBundle = Join-Path $root "prebuilt\ghvr-town.bundle"
 if ($UseLocalBundle) {
     $bundle = Join-Path $root "unity\GloomhavenVR.Assets\Build\Bundles\gloomhavenvr.bundle"
-    $townBundle = Join-Path $root "unity\GloomhavenVR.Assets\Build\Bundles\ghvr-town.bundle"
+    $townBundle = Join-Path $root "unity\GloomhavenVR.Assets\Build\TownServices\ghvr-town.bundle"
     if (-not (Test-Path -LiteralPath $bundle -PathType Leaf)) {
         Write-Error "-UseLocalBundle requested a missing local bundle: $bundle"
     }

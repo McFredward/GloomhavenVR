@@ -2,10 +2,11 @@
 # GloomhavenVR — Unity batch-mode driver for the companion asset project.
 #
 # Usage:
-#   UNITY_PATH=/path/to/2021.3.5f1/Editor/Unity(.exe) ./scripts/build-bundles.sh [bundles|harvest]
+#   UNITY_PATH=/path/to/2021.3.5f1/Editor/Unity(.exe) ./scripts/build-bundles.sh [bundles|town|harvest]
 #
 #   bundles  (default) build Assets/Bundle/** -> unity/GloomhavenVR.Assets/Build/Bundles/gloomhavenvr.bundle
 #   harvest  dummy Windows Mono player build + collect XR RuntimeDeps/natives -> libs/
+#   town     pack authored town assets -> Build/TownServices/ghvr-town.bundle
 #
 # Typical UNITY_PATH values:
 #   Windows (Git Bash): "/c/Program Files/Unity/Hub/Editor/2021.3.5f1/Editor/Unity.exe"
@@ -35,14 +36,17 @@ fi
 case "$CMD" in
     bundles) METHOD="GloomhavenVR.AssetsBuilder.BuildAll"           LOG="$REPO_ROOT/build-bundles.log" ;;
     harvest) METHOD="GloomhavenVR.RuntimeDepsHarvester.BuildAndHarvest" LOG="$REPO_ROOT/harvest.log" ;;
-    *) echo "ERROR: unknown command '$CMD' (use: bundles | harvest)" >&2; exit 2 ;;
+    town) METHOD="GloomhavenVR.TownServicesBuilder.BuildBundle" LOG="$REPO_ROOT/build-town-bundle.log" ;;
+    *) echo "ERROR: unknown command '$CMD' (use: bundles | town | harvest)" >&2; exit 2 ;;
 esac
 
 echo "[build-bundles] project: $PROJECT_PATH"
 echo "[build-bundles] method:  $METHOD"
 echo "[build-bundles] log:     $LOG"
 
-"$UNITY_PATH" \
+EXIT_ARGS=()
+if [[ "$CMD" == "town" ]]; then EXIT_ARGS=(-quit); fi
+"$UNITY_PATH" "${EXIT_ARGS[@]}" \
     -batchmode \
     -nographics \
     -projectPath "$PROJECT_PATH" \
@@ -54,6 +58,8 @@ STATUS=$?
 echo "[build-bundles] Unity exited with $STATUS"
 if [[ "$CMD" == "bundles" ]]; then
     echo "[build-bundles] output: $PROJECT_PATH/Build/Bundles/gloomhavenvr.bundle"
+elif [[ "$CMD" == "town" ]]; then
+    echo "[build-bundles] output: $PROJECT_PATH/Build/TownServices/ghvr-town.bundle"
 else
     echo "[build-bundles] output: $REPO_ROOT/libs/RuntimeDeps + $REPO_ROOT/libs/Natives"
 fi

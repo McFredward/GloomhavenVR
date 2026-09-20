@@ -124,6 +124,7 @@ BepInEx/plugins/GloomhavenVR/GloomhavenVR.dll
 BepInEx/plugins/GloomhavenVR/RuntimeDeps/*.dll
 BepInEx/plugins/GloomhavenVR/RuntimeDeps/versions.json
 BepInEx/plugins/GloomhavenVR/gloomhavenvr.bundle
+BepInEx/plugins/GloomhavenVR/ghvr-town.bundle
 BepInEx/plugins/GloomhavenVR/THIRD-PARTY.txt
 BepInEx/plugins/GloomhavenVR/LICENSE.txt
 BepInEx/plugins/GloomhavenVR/Licenses/*.txt
@@ -135,10 +136,13 @@ BepInEx/patchers/GloomhavenVR/Natives/*.dll
 requires, and it has to travel with the copies. `LICENSE.txt` carries the mod's GPL text;
 `Licenses/` carries the pinned XR dependency notices and their source/provenance list.
 
-**The bundle is REQUIRED.** Every 3D asset (hands, control board, card backing, map table, head
-avatars, environments, controller models) and every shader the mod ships lives in it; without the
+**The asset bundles are required for a full installation.** The original bank contains hands,
+control boards, card backing, map tables, head avatars, environments and controller models; without the
 file the mod starts, logs an Alert per subsystem and degrades to procedural placeholders everywhere.
 Both installation and packaging use the committed `prebuilt/gloomhavenvr.bundle` by default.
+The separate `prebuilt/ghvr-town.bundle` contains town NPCs, their rigs, stations and work trays.
+It is required by the installer and packager. An incomplete runtime installation retains the
+original service windows and reports the missing town assets once per attempted opening.
 An old ignored Unity output must not silently override the reviewed assets. To test a newly
 built local bundle, use `GHVR_USE_LOCAL_BUNDLE=1 bash scripts/package-release.sh` or
 `.\scripts\install.ps1 -UseLocalBundle`; explicit local selection fails if that file is missing.
@@ -173,6 +177,7 @@ language fell behind.
 
 ```sh
 scripts/build-bundles.sh      # needs Unity 2021.3.5f1
+scripts/build-bundles.sh town # independently packs authored town assets, same editor
 ```
 
 The Unity project lives in `unity/GloomhavenVR.Assets/`. See

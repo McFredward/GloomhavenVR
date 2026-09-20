@@ -1,8 +1,14 @@
-# Prebuilt asset bundle
+# Prebuilt asset bundles
 
 `gloomhavenvr.bundle` — the mod's AssetBundle, committed so a clone can ship the
 real 3D visuals without a Unity install. Built for **StandaloneWindows64**,
 Unity **2021.3.5f1**, TypeTrees ON.
+
+`ghvr-town.bundle` separately contains the three town NPCs, authored rigs and animation,
+station furniture, work tray and their shader. Both archives ship beside the plugin DLL.
+Keeping town art separate avoids the GitHub file-size ceiling and leaves the reviewed
+existing board/hand/environment bank unchanged. Its name deliberately does not contain
+`gloomhavenvr`: historical main-bank discovery uses that substring.
 
 > **Build it with `/home/claw/unity-2021.3.5`, NOT `/home/claw/unity-2021.3`.**
 > The second one is 2021.3.45f1 and its bundles do not load in the game at all.
@@ -50,3 +56,9 @@ it regenerates the hand prefabs (whose baked `m_AABB` is otherwise stale) and th
 the bundle itself.
 The board prefab/material are assembled from the FBX by
 `Assets/Editor/BuildBoard.cs` (`-executeMethod GloomhavenVR.BoardBuilder.Build`).
+
+Pack the already-authored town sources with `scripts/build-bundles.sh town`, then promote
+`Build/TownServices/ghvr-town.bundle` here. This does not regenerate meshes or alter the main
+bank. Use the same exact Unity editor; on a headless Linux host wrap the command with
+`xvfb-run -a` so shader/import workers have a display. Full art reproduction and validation:
+[town runtime assets](../.planning/research/TOWN-SERVICES-RUNTIME-ASSETS.md).

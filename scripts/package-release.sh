@@ -44,7 +44,7 @@ BUNDLE="$ROOT/prebuilt/gloomhavenvr.bundle"
 TOWN_BUNDLE="$ROOT/prebuilt/ghvr-town.bundle"
 if [[ "${GHVR_USE_LOCAL_BUNDLE:-0}" == "1" ]]; then
     BUNDLE="$ROOT/unity/GloomhavenVR.Assets/Build/Bundles/gloomhavenvr.bundle"
-    TOWN_BUNDLE="$ROOT/unity/GloomhavenVR.Assets/Build/Bundles/ghvr-town.bundle"
+    TOWN_BUNDLE="$ROOT/unity/GloomhavenVR.Assets/Build/TownServices/ghvr-town.bundle"
     if [[ ! -f "$BUNDLE" ]]; then
         echo "error: GHVR_USE_LOCAL_BUNDLE=1 requested a missing local bundle: $BUNDLE" >&2
         exit 1
@@ -203,6 +203,7 @@ unzip -l "$ZIP"
 LISTING="$(unzip -l "$ZIP")"
 for path in \
     "BepInEx/plugins/GloomhavenVR/GloomhavenVR.dll" \
+    "BepInEx/plugins/GloomhavenVR/ghvr-town.bundle" \
     "BepInEx/plugins/GloomhavenVR/LICENSE.txt" \
     "BepInEx/plugins/GloomhavenVR/Licenses/SOURCES.txt" \
     "BepInEx/plugins/GloomhavenVR/RuntimeDeps/Unity.XR.OpenXR.dll" \

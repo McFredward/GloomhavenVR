@@ -178,7 +178,7 @@ namespace GloomhavenVR.WorldUI
     internal sealed class WindowPanel
     {
         internal UIWindow Window = null!; internal ConvertedPanel Panel = null!;
-        internal GrabFixture? Grab = new(); internal bool UserClosing, PoseRePlaceDone;
+        internal GrabFixture? Grab = new(); internal bool UserClosing, PoseRePlaceDone, ReflowCancelled;
         internal Vector3 SpawnAnchor; internal int PoseRePlacedAtFit;
     }
     internal static class CanvasConversion
@@ -235,5 +235,9 @@ namespace GloomhavenVR.WorldUI
         internal static TownServiceStation? Create(byte service, Vector3 center, float scale) => new();
         internal void Sample(string state, float time) { Probe.Events.Add("sample:" + state); }
         public void Dispose() { Probe.Events.Add("station-dispose"); }
+    }
+    internal static class TownServicePopulation
+    {
+        internal static TownServiceStation? Acquire(byte service) => TownServiceStation.Create(service, Vector3.zero, 1f);
     }
 }
