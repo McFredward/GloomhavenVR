@@ -1,6 +1,6 @@
 # Planning index
 
-Updated 2026-09-20 after release 1.0.6; dev 1.0.7 / build 537, immersive town-service research. This directory holds internal
+Updated 2026-09-21; dev 1.0.7 / build 538, first immersive town-service hardware variant. This directory holds internal
 engineering evidence, historical decisions and current status; it is not the player manual.
 
 ## Current entry points
@@ -18,7 +18,14 @@ engineering evidence, historical decisions and current status; it is not the pla
 
 ## Latest measured work
 
-- [research/TOWN-SERVICES-CONCEPT.md](research/TOWN-SERVICES-CONCEPT.md): proposed physical merchant, temple and enchantress interactions; no runtime implementation yet.
+- [research/TOWN-SERVICES-FIRST-VARIANT.md](research/TOWN-SERVICES-FIRST-VARIANT.md): integrated scope, evidence and first hardware checklist.
+- [research/TOWN-SERVICES-RUNTIME-ASSETS.md](research/TOWN-SERVICES-RUNTIME-ASSETS.md): rig, LOD, animation, materials and separate bundle contract.
+- [research/TOWN-SERVICES-SYNC.md](research/TOWN-SERVICES-SYNC.md): original-widget publication, inert observers, delta transport and lifecycle.
+- [research/TOWN-NATIVE-ART.md](research/TOWN-NATIVE-ART.md): independently owned original sprite loads for inactive remote templates.
+- [research/TOWN-SERVICES-INTERACTION-VALIDATION.md](research/TOWN-SERVICES-INTERACTION-VALIDATION.md): real Unity interaction assertions and compiled negative controls.
+- [research/TOWN-SERVICES-MESH-GENERATION.md](research/TOWN-SERVICES-MESH-GENERATION.md): paid model comparison, settings, costs and chosen originals.
+- [research/TOWN-SERVICES-MESH-REPAIR.md](research/TOWN-SERVICES-MESH-REPAIR.md): source-preserving material and UV seam repairs.
+- [research/TOWN-SERVICES-CONCEPT.md](research/TOWN-SERVICES-CONCEPT.md): full concept and distinction from the first runtime variant.
 - [research/TOWN-SERVICES-ART.md](research/TOWN-SERVICES-ART.md): six verified original PNG exports from the supplied full GH_Data, with reproducible provenance.
 - [research/TOWN-SERVICES-GENERATED-REFERENCES.md](research/TOWN-SERVICES-GENERATED-REFERENCES.md): explicitly requested gpt-image-2 modelling sheets and exact per-NPC prompts, separate from original assets.
 - [research/TOWN-SERVICES-FUNCTIONS.md](research/TOWN-SERVICES-FUNCTIONS.md): source-grounded native feature coverage.

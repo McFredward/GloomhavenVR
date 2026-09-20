@@ -48,7 +48,8 @@ native confirm, cancel, reward or exit callback.
 - [x] Real Unity interaction harness: 77 assertions, 19 compiled negative controls.
 - [x] Codec/delta tests and actual existing router/fragment golden vectors.
 - [ ] Original-widget multiplayer publisher and real Unity playback/render verification.
-- [ ] Final NPC bundle, import/pose/visibility evidence and archive verification.
+- [x] Final NPC bundle: real Unity import/pose/visibility and clean-project bundle-load checks.
+- [ ] Complete install archive verification.
 - [ ] Full repository guards, version stamp, packaged install and origin/dev push.
 
 ## Hardware pass
@@ -77,3 +78,19 @@ native confirm, cancel, reward or exit callback.
 
 The normal log retains bounded lifecycle/failure context. Use the maintainer's usual Debug
 setting for the first hardware pass; automated checks cannot establish headset appearance.
+
+## Asset evidence
+
+`ghvr-town.bundle` is 95,895,013 bytes (SHA256
+`b2a923b1ad496116587bbecc1efda379b808c64649a917341387d060b21efc29`).
+The original `gloomhavenvr.bundle` remains byte-identical at 74,942,975 bytes (SHA256
+`fe1a659c17b4151e929691aa070d402b8cd299a462315b1d6691d2622d491693`).
+Both use UnityFS 7 / Unity 2021.3.5f1. The new bank exposes exactly four service prefabs.
+Clean-project loading, all three LODs, twelve animation clips and the visibility shader were
+checked in real Unity. Evidence is retained in `.planning/debug/town-assets-review/`.
+See [TOWN-SERVICES-RUNTIME-ASSETS.md](TOWN-SERVICES-RUNTIME-ASSETS.md) for reproducible
+authoring and the explicit limits of the first face/finger rigs.
+
+The final local interaction run `.planning/debug/town-service-interaction/run-emey_qgy`
+passes 77 runtime assertions and rejects all 19 compiled negative controls. Strict Release
+also compiles against the committed CI reference assemblies with zero warnings/errors.

@@ -1,6 +1,6 @@
 # State — where the project stands
 
-**Updated 2026-09-20 after release 1.0.6 and town-service research; dev 1.0.7 / ModBuild 537.** The file this replaces had gone 168 builds
+**Updated 2026-09-21 for the first immersive town-service variant; dev 1.0.7 / ModBuild 538.** The file this replaces had gone 168 builds
 stale while still saying "read this first"; it is kept as `STATE-ARCHIVE-through-2026-08.md` for
 its round-by-round narrative and for nothing else.
 
@@ -13,23 +13,23 @@ change per build) → this file (where things stand and what is owed) → the bu
 
 ## 1. Position
 
-- **Town-service research:** original merchant, priestess and enchantress illustrations
-  exported from the supplied full `ressources/GH_Data` at 1920 x 1080, plus their 94 x 118
-  portraits. Images and provenance stay in `.planning/debug/npc-references/` with a ZIP
-  beside the folder. Concept, complete native source coverage and integration proposals:
-  [research/TOWN-SERVICES-CONCEPT.md](research/TOWN-SERVICES-CONCEPT.md). No NPC meshes or
-  immersive runtime interactions are implemented yet. Developer tools now also accept
-  `ressources/GH_Data/Managed`, retaining the previous managed-only layout.
-  At the maintainer's explicit request, gpt-image-2 subsequently generated three 3840 x 2160
-  sheets with six poses/views each. Derived images, prompts and manifest remain separate
-  in `.planning/debug/npc-modeling/`; [generation record](research/TOWN-SERVICES-GENERATED-REFERENCES.md).
-  Validation: six original PNGs match source decodes pixel-for-pixel; source/output hashes
-  and both ZIP CRCs pass. Three generated 4K sheets visually reviewed. All source/runtime
-  guards and 254,565 real-runtime wire assertions pass with the new reference layout;
-  strict Release zero warnings/errors; docs/links/whitespace and 12 path-selection checks
-  pass. The guard's exit 1 is the historical compiled difference from `080c505e9`
-  (102 changed, 78 added/removed); no runtime source, bundle or reference assembly differs
-  from this task's `ff59a14e` base. No new hardware claim or ModBuild increment.
+- **Town services / build 538:** first immersive merchant, temple and enchantress variant.
+  Three generated NPCs have body/finger rigs, authored greeting/idle animations, three mesh
+  LODs and 4K textures. A separate `prebuilt/ghvr-town.bundle` keeps the existing asset bank
+  unchanged. Native service sections become movable reading surfaces; gripping an original
+  entry and placing its sample on the work tray selects through the original button.
+  Native ownership, prices, restrictions, confirmations and continuations remain authoritative.
+  Concurrent visitors share one NPC per service. Original visible widget output is transported
+  to inert observer copies, including nested masks, card art and dynamic tooltip contents.
+  The complete package requires **both** asset bundles; installing only the DLL is insufficient.
+  Record and hardware checklist: [research/TOWN-SERVICES-FIRST-VARIANT.md](research/TOWN-SERVICES-FIRST-VARIANT.md).
+  Source, Unity render and archive validation are recorded there; headset presentation remains
+  unverified. This is a development handoff, not a release. Detailed facial animation and
+  transaction-specific NPC hand choreography remain later polish.
+  Original exports, generated sheets and paid mesh provenance remain separate in
+  `.planning/debug/npc-references/`, `npc-modeling/` and `npc-meshes/` respectively.
+  Seven FAL generation jobs were used, estimated USD 4.275; no additional paid generation
+  was needed for runtime integration. Actual account billing was not independently audited.
 
 - **Released 1.0.6 / ModBuild 537:** the maintainer confirmed the menu fix; the final
   hardware log audit found no release blocker. Main commit `59a5d884`, tag `v1.0.6`,
