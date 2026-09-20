@@ -34,6 +34,8 @@ internal static class NativeTemplates
     private static GameObject? _bank;
     private static UIGuildmasterHUD? _hud;
     private static bool _ready;
+    private static TownServiceTray? _tray;
+    internal static UITooltip? Tooltip { get; private set; }
     internal static bool Ready => _ready && _hud != null && _bank != null;
 
     internal static bool Initialize()
@@ -67,6 +69,10 @@ internal static class NativeTemplates
         Add("banner", hud.banner);
         Add("item.confirm", Singleton<UIItemConfirmationBox>.Instance);
         Add("enhance.confirm", Singleton<UIEnhancementConfirmationBox>.Instance);
+        CanvasManager? canvases = Object.FindObjectOfType<CanvasManager>();
+        if (canvases != null && canvases.tooltipCanvas != null) Tooltip = canvases.tooltipCanvas.GetComponentInChildren<UITooltip>(true);
+        _tray = TownServiceTray.CreateTemplate(hud.shopWindow.GetComponentInChildren<TMP_Text>(true));
+        Add("tray", _tray.Root);
         // Discover the complete immutable canonical hierarchy only after all logical roots are
         // known, so sections and pooled rows cannot accidentally be duplicated in their parent.
         foreach (var entry in Entries) Freeze(entry.Key, entry.Value);
@@ -143,7 +149,7 @@ internal static class NativeTemplates
     }
     internal static IReadOnlyList<Part> Parts(string key)
     {
-        EnsureCard(key);
+        EnsureCard(key); EnsureTooltip(key);
         if (!Entries.TryGetValue(key, out Entry? entry)) throw new InvalidDataException("Missing original town widget: " + key);
         return entry.Parts;
     }
@@ -182,10 +188,55 @@ internal static class NativeTemplates
             Object.Destroy(holder);
         }
     }
+    internal static string TooltipKey(UITooltip tooltip)
+    {
+        var shape = new System.Text.StringBuilder("tooltip.");
+        if (tooltip.m_LinesTemplate == null) return shape.ToString();
+        foreach (UITooltipLines.Line line in tooltip.m_LinesTemplate.lineList)
+        {
+            if (shape.Length > 512) throw new InvalidDataException("Native tooltip exceeds the shape budget.");
+            shape.Append((int)line.style).Append(',').Append(string.IsNullOrEmpty(line.left) ? 0 : 1)
+                .Append(',').Append(string.IsNullOrEmpty(line.right) ? 0 : 1).Append(',')
+                .Append(line is UITooltipLines.ImageLine images ? images.attributes.Length : -1).Append(';');
+        }
+        return shape.ToString();
+    }
+    private static void EnsureTooltip(string key)
+    {
+        if (Entries.ContainsKey(key) || !key.StartsWith("tooltip.", StringComparison.Ordinal)) return;
+        if (Tooltip == null || _bank == null || key.Length > 520) throw new InvalidDataException("Original tooltip source is unavailable.");
+        GameObject construction = Object.Instantiate(Tooltip.gameObject, _bank.transform, false);
+        try
+        {
+            UITooltip native = construction.GetComponent<UITooltip>();
+            for (int i = construction.transform.childCount - 1; i >= 0; i--)
+            {
+                Transform child = construction.transform.GetChild(i); LayoutElement? layout = child.GetComponent<LayoutElement>();
+                if (layout == null || !layout.ignoreLayout) Object.DestroyImmediate(child.gameObject);
+            }
+            native.m_LinesTemplate = new UITooltipLines();
+            foreach (string line in key.Substring(8).Split(';'))
+            {
+                if (line.Length == 0) continue;
+                string[] values = line.Split(','); if (values.Length != 4) throw new InvalidDataException("Invalid native tooltip shape.");
+                int style = int.Parse(values[0], CultureInfo.InvariantCulture), images = int.Parse(values[3], CultureInfo.InvariantCulture);
+                if (style < 0 || style > 3 || images < -1 || images > 64) throw new InvalidDataException("Unsupported native tooltip shape.");
+                string left = values[1] == "1" ? "_" : string.Empty, right = values[2] == "1" ? "_" : string.Empty;
+                UITooltipLines.Line descriptor = images >= 0
+                    ? new UITooltipLines.ImageLine(left, new int[images], new Sprite[images], true, new RectOffset(), (UITooltipLines.LineStyle)style)
+                    : new UITooltipLines.Line(left, right, true, new RectOffset(), (UITooltipLines.LineStyle)style, null!);
+                native.m_LinesTemplate.lineList.Add(descriptor);
+            }
+            native.EvaluateAndCreateTooltipLines();
+            var entry = new Entry { Original = construction.transform }; Freeze(key, entry); Entries.Add(key, entry);
+        }
+        finally { Object.Destroy(construction); }
+    }
     internal static void Shutdown()
     {
         TownServiceMirror.ResolveTemplate = null;
         Entries.Clear(); Roots.Clear(); _hud = null; _ready = false;
+        _tray?.Dispose(); _tray = null; Tooltip = null;
         if (_bank != null) Object.Destroy(_bank); _bank = null;
     }
 }

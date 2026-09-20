@@ -94,3 +94,24 @@ runtime glyph count.
 Remaining integration work: held submodule provenance, tray/handle MeshRenderer and Canvas
 output, generic text-tooltip ownership, exact callback-free presentation whitelist, and actual
 Unity mirror tests. These are required before complete multiplayer parity can be claimed.
+
+Runtime integration follow-up:
+
+- Publish partially visible rows using rectangle intersection with all native ancestor masks;
+  do not allocate lanes to entirely clipped pooled rows. Cache source parts and enumerate native
+  pool references instead of repeatedly decoding every original hierarchy path.
+- Held samples use the actual original-to-held mapping for their embedded cards and points.
+  The original tray hierarchy and its existing mesh/material handle are published as well.
+- Global text tooltips are attributed through their native anchor. An inactive copy invokes
+  the game's own line builder with a bounded shape descriptor; actual text, inline sprites,
+  material and geometry are still sampled from the owner. No observer tooltip controller runs.
+- Native canvas/mesh outputs and original TMP sprite assets are captured. Disabled graphics
+  do not serialize unused hidden portrait textures. Unknown mesh property blocks are rejected.
+- Initial real-Unity rendering exposed a RectMask2D coordinate failure caused by an extra host
+  canvas with a different pixel scale. Nested/original canvases now retain their native canvas
+  ancestry; an added standalone canvas adopts the original root's pose, scale and rectangle.
+  The independent worker reproduced both the failure and its disappearance in rendered PNGs.
+- Nested modules use their original parent's coordinate frame. Moving or scrolling a section
+  moves its children through one authored parent update rather than sending redundant world
+  movement for every row. New peers request complete baselines, and obsolete fragment streams
+  are pruned on manifests so repeated catalog/session use cannot exhaust the stream budget.

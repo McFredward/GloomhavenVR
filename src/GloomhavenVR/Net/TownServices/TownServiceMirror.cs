@@ -68,6 +68,7 @@ internal static class TownServiceMirror
     private sealed class RemoteModule : IDisposable
     {
         internal GameObject Host = null!;
+        internal Canvas? AddedCanvas;
         internal TownServiceBinding Binding = null!;
         internal uint Session;
         internal ushort Template;
@@ -108,12 +109,12 @@ internal static class TownServiceMirror
         }
     }
 
-    internal static void BeginSession(byte service, uint session, Transform sharedFrame, Transform stationAnchor)
+    internal static void BeginSession(byte service, uint session, Transform sharedFrame, Transform stationAnchor, float ownerAge = 0f)
     {
         TemplateKey(service, 1);
         if (session == 0 || sharedFrame == null || stationAnchor == null) throw new ArgumentException("Missing town-service session frame.");
         if (_session != session || _service != service)
-        { ClearLocalModules(); _nextManifest = 0; _sessionStarted = Time.unscaledTime; }
+        { ClearLocalModules(); _nextManifest = 0; _sessionStarted = Time.unscaledTime - Mathf.Max(0f, ownerAge); }
         _service = service; _session = session; _sharedFrame = sharedFrame; _station = stationAnchor; _active = true;
     }
 
@@ -310,9 +311,16 @@ internal static class TownServiceMirror
                         && frame.Nodes[0].Values.TryGetValue(TownServiceProperty.Sibling, out TownServiceValue? sibling))
                         module.Host.transform.SetSiblingIndex((int)sibling.Numbers[0]);
                     module.Host.GetComponent<CanvasGroup>().alpha = frame.ParentAlpha;
-                    root.position = parent.TransformPoint(Position(frame.Pose)); root.rotation = parent.rotation * Rotation(frame.Pose);
-                    Vector3 worldScale = Vector3.Scale(parent.lossyScale, Scale(frame.Pose)), parentScale = root.parent.lossyScale;
-                    root.localScale = new Vector3(worldScale.x / parentScale.x, worldScale.y / parentScale.y, worldScale.z / parentScale.z);
+                    Transform poseRoot = module.AddedCanvas != null ? module.Host.transform : root;
+                    poseRoot.position = mount.TransformPoint(Position(frame.Pose)); poseRoot.rotation = mount.rotation * Rotation(frame.Pose);
+                    Vector3 worldScale = Vector3.Scale(mount.lossyScale, Scale(frame.Pose)), parentScale = poseRoot.parent.lossyScale;
+                    poseRoot.localScale = new Vector3(worldScale.x / parentScale.x, worldScale.y / parentScale.y, worldScale.z / parentScale.z);
+                    if (module.AddedCanvas != null)
+                    {
+                        if (root is RectTransform rr && module.Host.transform is RectTransform hostRect)
+                        { hostRect.pivot = rr.pivot; hostRect.sizeDelta = rr.rect.size; }
+                        root.localPosition = Vector3.zero; root.localRotation = Quaternion.identity; root.localScale = Vector3.one;
+                    }
                     module.Sequence = frame.Sequence; module.Host.SetActive(true); root.gameObject.SetActive(true);
                 }
                 catch (Exception e) { if (module != null) module.Host.SetActive(false); Report("remote module " + entry.Key + "/" + frame.Module, e); }
@@ -328,17 +336,27 @@ internal static class TownServiceMirror
             throw new InvalidDataException("Original town-service template is not registered on this client.");
         var host = new GameObject("GVR town-service observer module", typeof(RectTransform));
         host.SetActive(false); host.transform.SetParent(sharedFrame, false);
-        Canvas canvas = host.AddComponent<Canvas>(); canvas.renderMode = RenderMode.WorldSpace;
+        Canvas? canvas = null;
+        if (frame.ParentModule == TownServiceFrame.ManifestModule && template.GetComponent<Canvas>() == null)
+        {
+            canvas = host.AddComponent<Canvas>(); canvas.renderMode = RenderMode.WorldSpace;
+            canvas.worldCamera = Rig.VRRigDriver.HeadCamera != null ? Rig.VRRigDriver.HeadCamera : Camera.main;
+        }
         CanvasGroup group = host.AddComponent<CanvasGroup>(); group.interactable = false; group.blocksRaycasts = false;
-        canvas.worldCamera = Rig.VRRigDriver.HeadCamera != null ? Rig.VRRigDriver.HeadCamera : Camera.main;
         GameObject clone = Object.Instantiate(template, host.transform, false);
         // Templates are already inert; repeat the invariant before the clone can become active.
         TownServiceNeutralize.Apply(clone);
-        return new RemoteModule { Host = host, Binding = new TownServiceBinding(clone.transform), Session = frame.Session, Template = frame.Template, Address = frame.TemplateAddress };
+        return new RemoteModule { Host = host, AddedCanvas = canvas, Binding = new TownServiceBinding(clone.transform), Session = frame.Session, Template = frame.Template, Address = frame.TemplateAddress };
     }
 
     internal static void RemovePeer(int peer)
     { ClearRemoteModules(peer); Pending.Remove(peer); ReceivedBaselines.Remove(peer); Sessions.Remove(peer); }
+    internal static void RequestFullRefresh()
+    {
+        foreach (LocalModule module in Local.Values)
+        { module.Last = null; module.Baseline = null; module.NextRefresh = module.NextBaseline = 0; }
+        _nextManifest = 0;
+    }
     internal static void ResetNetwork()
     {
         foreach (int peer in new List<int>(Remote.Keys)) ClearRemoteModules(peer);
@@ -352,7 +370,7 @@ internal static class TownServiceMirror
         if (_templateHost != null) Object.Destroy(_templateHost);
         _templateHost = null; _session = 0; _service = 0; _active = false; _station = _sharedFrame = null;
         SourceParents.Clear(); ParentGroups.Clear(); TownServiceMaterial.Reset(); Assets.Clear();
-        Failures.Clear();
+        ReportReset();
     }
     private static void ClearLocalModules()
     { foreach (LocalModule module in Local.Values) module.Binding.Dispose(); Local.Clear(); }
@@ -395,7 +413,7 @@ internal static class TownServiceMirror
             if (SourceParents.TryGetValue(parent, out ParentLink link) && link.Module != module.Id)
             {
                 frame.ParentModule = link.Module; frame.ParentBinding = link.Binding;
-                frame.ParentAlpha = alpha; return;
+                frame.ParentAlpha = alpha; frame.Pose = ReadPose(module.Binding.Root, parent); return;
             }
             bool stop = false;
             parent.GetComponents(ParentGroups);
@@ -405,6 +423,7 @@ internal static class TownServiceMirror
         }
         frame.ParentAlpha = alpha;
     }
+    private static void ReportReset() => Failures.Clear();
     private static void Report(string phase, Exception error)
     {
         string key = phase + ": " + error.Message; float now = Time.unscaledTime;

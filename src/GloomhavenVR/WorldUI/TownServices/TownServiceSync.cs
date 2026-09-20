@@ -5,6 +5,7 @@ using GloomhavenVR.Core;
 using GloomhavenVR.Net.TownServices;
 using GloomhavenVR.WorldUI.MapRoom;
 using UnityEngine;
+using UnityEngine.UI;
 
 namespace GloomhavenVR.WorldUI;
 
@@ -16,10 +17,25 @@ internal static class TownServiceSync
     {
         internal ushort Id;
         internal string Address = string.Empty;
+        internal string Identity = string.Empty;
         internal Transform Source = null!;
         internal Func<Transform, bool> Exclude = null!;
         internal bool Seen;
     }
+    private sealed class SourceEntry
+    {
+        internal string Key = string.Empty;
+        internal Transform Root = null!;
+        internal Transform? Parent;
+        internal readonly List<Published> Parts = new();
+        internal readonly List<RectMask2D> Masks = new();
+        internal readonly List<CanvasGroup> Groups = new();
+        internal bool Seen;
+    }
+    private static readonly Dictionary<Transform, SourceEntry> Sources = new();
+    private static readonly List<Transform> RemovedSources = new();
+    private static readonly Vector3[] Corners = new Vector3[4];
+    private static float _prepareAfter;
     private static readonly Dictionary<string, Published> Modules = new(StringComparer.Ordinal);
     private static readonly List<string> Removed = new();
     private static readonly HashSet<Transform> Visited = new();
@@ -31,9 +47,9 @@ internal static class TownServiceSync
     private static Transform? _sharedFrame;
     internal static void Prepare()
     {
-        if (!MapRoomDriver.Active) return;
+        if (!MapRoomDriver.Active || Time.unscaledTime < _prepareAfter) return;
         try { NativeTemplates.Initialize(); }
-        catch (Exception e) { Report("prepare", e); }
+        catch (Exception e) { _prepareAfter = Time.unscaledTime + 2f; Report("prepare", e); }
     }
     internal static void Tick(Transform sharedFrame, Transform? stationRoot)
     {
@@ -48,9 +64,11 @@ internal static class TownServiceSync
         if (_session != session || _service != service)
         {
             Reset(); _session = session; _service = service; _nextId = 0;
-            TownServiceMirror.BeginSession(service, session, sharedFrame, stationRoot);
+            TownServiceMirror.BeginSession(service, session, sharedFrame, stationRoot, TownServicePresentation.SessionAge);
         }
+        TownServiceMirror.BeginSession(service, session, sharedFrame, stationRoot, TownServicePresentation.SessionAge);
         foreach (Published module in Modules.Values) module.Seen = false;
+        foreach (SourceEntry source in Sources.Values) source.Seen = false;
         Visited.Clear(); Dynamic.Clear();
         string prefix = service == 1 ? "merchant" : service == 2 ? "temple" : "enchant";
         Publish(prefix, TownServicePresentation.Window != null ? TownServicePresentation.Window.transform : null);
@@ -61,6 +79,10 @@ internal static class TownServiceSync
         Publish(prefix + ".tooltip", NativeTemplates.Original(prefix + ".tooltip"));
         Publish("item.confirm", NativeTemplates.Original("item.confirm"));
         Publish("enhance.confirm", NativeTemplates.Original("enhance.confirm"));
+        if (TownServicePresentation.Tray != null) Publish("tray", TownServicePresentation.Tray.Root);
+        UITooltip? tooltip = NativeTemplates.Tooltip;
+        if (tooltip != null && tooltip.gameObject.activeInHierarchy && OwnsAnchor(tooltip.m_AnchorToTarget))
+            Publish(NativeTemplates.TooltipKey(tooltip), tooltip.transform);
         // Original pooled branches are separate modules: adding/removing a row must never change
         // the native static template or replace the inventory container behind another visitor.
         for (int i = 0; i < Dynamic.Count; i++)
@@ -73,12 +95,24 @@ internal static class TownServiceSync
         {
             Transform? held = sample.HeldContent;
             if (held == null) continue;
-            string? key = DynamicKey(sample.Source);
-            if (key != null) Publish(key, held);
+            PublishHeld(sample, sample.Source);
         }
         Removed.Clear();
         foreach (var pair in Modules) if (!pair.Value.Seen) Removed.Add(pair.Key);
         foreach (string key in Removed) { TownServiceMirror.UnregisterModule(Modules[key].Id); Modules.Remove(key); }
+        RemovedSources.Clear();
+        foreach (var pair in Sources) if (!pair.Value.Seen || pair.Key == null) RemovedSources.Add(pair.Key!);
+        foreach (Transform source in RemovedSources) Sources.Remove(source);
+    }
+    private static bool OwnsAnchor(Transform? target)
+    {
+        if (target == null) return false;
+        if (TownServicePresentation.Window != null && target.IsChildOf(TownServicePresentation.Window.transform)) return true;
+        foreach (TownServiceSurface surface in TownServicePresentation.LocalSurfaces)
+            if (surface.Panel.Target != null && target.IsChildOf(surface.Panel.Target)) return true;
+        foreach (SourceEntry source in Sources.Values)
+            if (source.Seen && source.Root != null && target.IsChildOf(source.Root)) return true;
+        return false;
     }
     private static Transform? ResolveFrame(int _) => _sharedFrame;
     private static string? DynamicKey(Transform source)
@@ -93,15 +127,38 @@ internal static class TownServiceSync
         ItemCardUI? item = source.GetComponent<ItemCardUI>(); if (item != null) return "item." + item.CardID;
         return null;
     }
-    private static void Publish(string key, Transform? source)
+    private static void PublishHeld(TownServiceToken sample, Transform original)
+    {
+        Transform? clone = sample.HeldCloneOf(original);
+        string? key = DynamicKey(original);
+        if (clone != null && key != null) Publish(key, clone, original, sample.HeldCloneOf);
+        // The original-to-held map survives gameplay-component neutralization on the held sample.
+        for (int i = 0; i < original.childCount; i++) PublishHeld(sample, original.GetChild(i));
+    }
+    private static void Publish(string key, Transform? source, Transform? provenance = null, Func<Transform, Transform?>? cloneOf = null)
     {
         if (source == null || !Visited.Add(source)) return;
         try
         {
-            // Include inactive static widgets, since their hierarchy/parent clipping is needed by
-            // active children during native transitions. A whole inactive pooled row needs no lane.
-            if (NativeTemplates.IsDynamic(source) && !source.gameObject.activeInHierarchy) return;
-            CollectDynamic(source);
+            if (!Sources.TryGetValue(source, out SourceEntry? sourceEntry) || sourceEntry.Key != key)
+            {
+                sourceEntry = new SourceEntry { Key = key, Root = source }; Sources[source] = sourceEntry;
+            }
+            sourceEntry.Seen = true;
+            if (cloneOf == null && NativeTemplates.IsDynamic(source) && !Visible(sourceEntry)) return;
+            if (cloneOf == null) CollectDynamic(source);
+            if (sourceEntry.Parts.Count != 0)
+            {
+                foreach (Published existing in sourceEntry.Parts)
+                {
+                    existing.Seen = true;
+                    if (!Modules.ContainsKey(existing.Identity) && Modules.Count >= TownServiceFrame.MaxModules)
+                        throw new InvalidDataException("Town service exceeds the simultaneous module budget.");
+                    Modules[existing.Identity] = existing;
+                    TownServiceMirror.RegisterModule(existing.Id, 1, existing.Source, existing.Exclude, existing.Address);
+                }
+                return;
+            }
             IReadOnlyList<NativeTemplates.Part> parts = NativeTemplates.Parts(key);
             foreach (NativeTemplates.Part part in parts)
             {
@@ -119,20 +176,42 @@ internal static class TownServiceSync
                         Transform? child = NativeTemplates.At(source, other.Path);
                         if (child != null && child.IsChildOf(root)) excluded.Add(child);
                     }
-                    module = new Published { Id = ++_nextId, Address = address, Source = root,
+                    if (provenance != null && cloneOf != null)
+                        CollectHeldBoundaries(provenance, cloneOf, excluded);
+                    module = new Published { Id = ++_nextId, Address = address, Identity = identity, Source = root,
                         Exclude = child => excluded.Contains(child) || NativeTemplates.IsBoundary(child) };
                     // The template address is independent of a peer's pool order and module IDs.
                     NativeTemplates.Resolve(_service, 1, address);
                     TownServiceMirror.RegisterModule(module.Id, 1, root, module.Exclude, address);
                     Modules.Add(identity, module);
                 }
-                module.Seen = true;
+                module.Seen = true; sourceEntry.Parts.Add(module);
             }
         }
         catch (Exception e) { Report(key, e); }
     }
     private static void CollectDynamic(Transform root)
     {
+        // Native pool lists are the authoritative topology. Enumerating their references avoids
+        // walking thousands of stable row descendants on every VR frame.
+        UIShopItemInventory? merchant = root.GetComponent<UIShopItemInventory>();
+        if (merchant != null) { foreach (UIShopItemSlot row in merchant.slotPool) if (row != null) Dynamic.Add(row.transform); return; }
+        UITempleShopInventory? temple = root.GetComponent<UITempleShopInventory>();
+        if (temple != null) { foreach (UITempleShopSlot row in temple.slots) if (row != null) Dynamic.Add(row.transform); return; }
+        UINewEnhancementShopInventory? enchant = root.GetComponent<UINewEnhancementShopInventory>();
+        if (enchant != null) { foreach (UINewEnhancementShopSlot row in enchant.slotsPool) if (row != null) Dynamic.Add(row.transform); return; }
+        UIPartyCharacterEnhancementAbilityCardsDisplay? cards = root.GetComponent<UIPartyCharacterEnhancementAbilityCardsDisplay>();
+        if (cards != null) { foreach (UIEnhanceCardSlot row in cards.slotsPool) if (row != null) Dynamic.Add(row.transform); return; }
+        UIEnhanceCardSlot? cardRow = root.GetComponent<UIEnhanceCardSlot>();
+        if (cardRow != null)
+        {
+            if (cardRow.AbilityCard != null) Dynamic.Add(cardRow.AbilityCard.transform);
+            foreach (UIEnhanceCardPoint point in cardRow.enhancementPoints) if (point != null) Dynamic.Add(point.transform);
+            return;
+        }
+        if (root.GetComponent<UIShopItemSlot>() != null || root.GetComponent<UITempleShopSlot>() != null
+            || root.GetComponent<UINewEnhancementShopSlot>() != null || root.GetComponent<UIEnhanceCardPoint>() != null
+            || root.GetComponent<UIEnhancementButtonHighlight>() != null || root.GetComponent<ItemCardUI>() != null) return;
         for (int i = 0; i < root.childCount; i++)
         {
             Transform child = root.GetChild(i);
@@ -141,14 +220,58 @@ internal static class TownServiceSync
             CollectDynamic(child);
         }
     }
+    private static void CollectHeldBoundaries(Transform original, Func<Transform, Transform?> cloneOf, HashSet<Transform> excluded)
+    {
+        for (int i = 0; i < original.childCount; i++)
+        {
+            Transform child = original.GetChild(i);
+            if (NativeTemplates.IsBoundary(child))
+            { Transform? clone = cloneOf(child); if (clone != null) excluded.Add(clone); }
+            else CollectHeldBoundaries(child, cloneOf, excluded);
+        }
+    }
+    private static bool Visible(SourceEntry entry)
+    {
+        Transform source = entry.Root;
+        if (!source.gameObject.activeInHierarchy) return false;
+        if (entry.Parent != source.parent)
+        {
+            entry.Parent = source.parent; entry.Groups.Clear(); entry.Masks.Clear();
+            for (Transform? ancestor = source; ancestor != null; ancestor = ancestor.parent)
+            {
+                CanvasGroup? group = ancestor.GetComponent<CanvasGroup>(); if (group != null) entry.Groups.Add(group);
+                RectMask2D? mask = ancestor.GetComponent<RectMask2D>(); if (mask != null) entry.Masks.Add(mask);
+            }
+        }
+        foreach (CanvasGroup group in entry.Groups)
+        {
+            if (group == null || !group.enabled) continue;
+            if (group.alpha <= 0f) return false;
+            if (group.ignoreParentGroups) break;
+        }
+        if (source is not RectTransform rect) return true;
+        rect.GetWorldCorners(Corners);
+        foreach (RectMask2D mask in entry.Masks)
+        {
+            if (mask == null || !mask.isActiveAndEnabled) continue;
+            Vector2 min = new(float.PositiveInfinity, float.PositiveInfinity), max = new(float.NegativeInfinity, float.NegativeInfinity);
+            for (int i = 0; i < 4; i++)
+            { Vector3 point = mask.rectTransform.InverseTransformPoint(Corners[i]); min = Vector2.Min(min, point); max = Vector2.Max(max, point); }
+            Rect area = mask.rectTransform.rect; Vector4 padding = mask.padding;
+            if (max.x <= area.xMin + padding.x || min.x >= area.xMax - padding.z
+                || max.y <= area.yMin + padding.y || min.y >= area.yMax - padding.w) return false;
+        }
+        return true;
+    }
     internal static void Reset()
     {
         if (_session != 0) TownServiceMirror.EndSession();
-        Modules.Clear(); Visited.Clear(); Dynamic.Clear(); Removed.Clear(); _session = 0; _service = 0;
+        Modules.Clear(); Sources.Clear(); RemovedSources.Clear(); Visited.Clear(); Dynamic.Clear(); Removed.Clear(); _session = 0; _service = 0;
     }
     internal static void ResetNetwork() { Reset(); TownServiceMirror.ResetNetwork(); }
     internal static void Shutdown()
-    { Reset(); TownServiceMirror.Shutdown(); NativeTemplates.Shutdown(); _sharedFrame = null; Failures.Clear(); }
+    { Reset(); TownServiceMirror.Shutdown(); NativeTemplates.Shutdown(); _sharedFrame = null; ReportReset(); }
+    private static void ReportReset() => Failures.Clear();
     private static void Report(string scope, Exception e)
     {
         float now = Time.unscaledTime;

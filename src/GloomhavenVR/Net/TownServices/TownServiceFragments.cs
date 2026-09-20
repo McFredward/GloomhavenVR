@@ -21,8 +21,16 @@ internal sealed class TownServiceFragments
         }
         byte[]? result = assembler.Accept(sender, packet, length, now);
         if (result == null) return null;
-        return TownServiceCodec.TryRead(result, result.Length, out TownServiceFrame? frame)
-            && frame!.Module == stream ? result : null;
+        if (!TownServiceCodec.TryRead(result, result.Length, out TownServiceFrame? frame) || frame!.Module != stream) return null;
+        if (frame.Module == TownServiceFrame.ManifestModule)
+        {
+            var removed = new List<long>();
+            foreach (long candidate in _streams.Keys)
+                if (candidate >> 16 == sender && (ushort)candidate != TownServiceFrame.ManifestModule
+                    && Array.BinarySearch(frame.Modules, (ushort)candidate) < 0) removed.Add(candidate);
+            foreach (long candidate in removed) { _streams[candidate].Clear(); _streams.Remove(candidate); }
+        }
+        return result;
     }
     internal void Forget(int sender)
     {

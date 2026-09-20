@@ -142,8 +142,9 @@ internal sealed class TownServiceBinding : IDisposable
             for (int c = 0; c < cache.Components.Length; c++)
                 if (!ReferenceEquals(cache.Components[c], cache.ComponentProbe[c])) throw new InvalidDataException("Native town-service topology changed.");
             bool meshChanged = ReadMesh(cache, assets);
-            TownServiceValue? material = cache.Graphic != null
-                ? TownServiceMaterial.Read(cache.Graphic is TMP_Text tm ? tm.fontSharedMaterial : cache.Graphic.material, assets) : null;
+            bool draw = cache.Graphic != null && cache.Graphic.enabled && node.gameObject.activeInHierarchy;
+            TownServiceValue? material = draw
+                ? TownServiceMaterial.Read(cache.Graphic is TMP_Text tm ? tm.fontSharedMaterial : cache.Graphic!.material, assets) : null;
             NodeProbe probe = Probe(cache, i == 0);
             if (!cache.Dirty && probe.Same(cache.Probe) && ReferenceEquals(material, cache.Material) && !meshChanged) continue;
             var value = new TownServiceNode { Binding = Bindings[i] };
@@ -176,17 +177,17 @@ internal sealed class TownServiceBinding : IDisposable
                 Put(v, TownServiceProperty.Graphic, new[] { graphic.enabled ? 1f : 0f, c.r, c.g, c.b, c.a });
                 Color rendered = graphic.canvasRenderer.GetColor();
                 Put(v, TownServiceProperty.Renderer, new[] { rendered.r, rendered.g, rendered.b, rendered.a });
-                if (graphic is not TMP_Text) v.Add(TownServiceProperty.Material, material!);
+                if (draw && graphic is not TMP_Text) v.Add(TownServiceProperty.Material, material!);
             }
             CanvasGroup? group = cache.Group;
             if (group != null) Put(v, TownServiceProperty.Group, new[] { group.enabled ? 1f : 0f, group.alpha, group.ignoreParentGroups ? 1f : 0f });
-            if (graphic is Image image)
+            if (draw && graphic is Image image)
                 Put(v, TownServiceProperty.Image, new[] { (float)image.type, image.fillAmount, (float)image.fillMethod,
                     (float)image.fillOrigin, image.fillClockwise ? 1f : 0f, image.preserveAspect ? 1f : 0f,
                     image.fillCenter ? 1f : 0f, image.pixelsPerUnitMultiplier }, assets.Key(image.sprite), assets.Key(image.overrideSprite));
-            else if (graphic is RawImage raw)
+            else if (draw && graphic is RawImage raw)
             { Rect uv = raw.uvRect; Put(v, TownServiceProperty.RawImage, new[] { uv.x, uv.y, uv.width, uv.height }, assets.Key(raw.texture)); }
-            else if (graphic is TMP_Text text)
+            else if (draw && graphic is TMP_Text text)
             {
                 Vector4 margin = text.margin; VertexGradient gradient = text.colorGradient;
                 var n = new List<float> { text.fontSize, (float)text.fontStyle, (float)text.alignment,
@@ -200,7 +201,7 @@ internal sealed class TownServiceBinding : IDisposable
                 Put(v, TownServiceProperty.TmpText, n.ToArray(), text.text ?? string.Empty, assets.Key(text.font), assets.Key(text.spriteAsset));
                 v.Add(TownServiceProperty.TextMaterial, material!);
             }
-            else if (graphic is Text legacy)
+            else if (draw && graphic is Text legacy)
                 Put(v, TownServiceProperty.LegacyText, new[] { (float)legacy.fontSize, (float)legacy.fontStyle,
                     (float)legacy.alignment, legacy.supportRichText ? 1f : 0f, (float)legacy.horizontalOverflow,
                     (float)legacy.verticalOverflow, legacy.lineSpacing, legacy.resizeTextForBestFit ? 1f : 0f,
@@ -256,7 +257,7 @@ internal sealed class TownServiceBinding : IDisposable
     {
         Transform t = c.Transform;
         var p = new NodeProbe { Position = t.localPosition, Rotation = t.localRotation, Scale = t.localScale,
-            Flags = t.gameObject.activeSelf ? 1 : 0, Sibling = t.GetSiblingIndex() };
+            Flags = (t.gameObject.activeSelf ? 1 : 0) | (t.gameObject.activeInHierarchy ? 512 : 0), Sibling = t.GetSiblingIndex() };
         if (c.Canvas != null)
         { Canvas canvas = c.Canvas; p.CanvasEnabled = canvas.enabled; p.OverrideSorting = canvas.overrideSorting;
             p.SortingOrder = canvas.sortingOrder; p.SortingLayer = canvas.sortingLayerID; p.PixelPerfect = canvas.pixelPerfect;
@@ -297,22 +298,22 @@ internal sealed class TownServiceBinding : IDisposable
                     case TownServiceProperty.Transform: Shape(value, node is RectTransform ? 18 : 10, 0); break;
                     case TownServiceProperty.Active: Shape(value, 1, 0); break;
                     case TownServiceProperty.Sibling: Shape(value, 1, 0); break;
-                    case TownServiceProperty.Canvas: Require<Canvas>(node); Shape(value, 8, 1); int.Parse(value.Text[0], System.Globalization.CultureInfo.InvariantCulture); break;
+                    case TownServiceProperty.Canvas: Shape(value, 8, 1); int.Parse(value.Text[0], System.Globalization.CultureInfo.InvariantCulture); break;
                     case TownServiceProperty.Mesh: Require<MeshRenderer>(node); Shape(value, 6, 1); int.Parse(value.Text[0], System.Globalization.CultureInfo.InvariantCulture); break;
                     case TownServiceProperty.Graphic: Require<Graphic>(node); Shape(value, 5, 0); break;
                     case TownServiceProperty.Renderer: Require<CanvasRenderer>(node); Shape(value, 4, 0); break;
-                    case TownServiceProperty.Group: Require<CanvasGroup>(node); Shape(value, 3, 0); break;
+                    case TownServiceProperty.Group: Shape(value, 3, 0); break;
                     case TownServiceProperty.Image:
                         Require<Image>(node); Shape(value, 8, 2); assets.Resolve<Sprite>(value.Text[0]); assets.Resolve<Sprite>(value.Text[1]); break;
                     case TownServiceProperty.RawImage: Require<RawImage>(node); Shape(value, 4, 1); assets.Resolve<Texture>(value.Text[0]); break;
                     case TownServiceProperty.TmpText: Require<TMP_Text>(node); Shape(value, 40, 3); assets.Resolve<TMP_FontAsset>(value.Text[1]); assets.Resolve<TMP_SpriteAsset>(value.Text[2]); break;
                     case TownServiceProperty.LegacyText: Require<Text>(node); Shape(value, 11, 2); assets.Resolve<Font>(value.Text[1]); break;
-                    case TownServiceProperty.Mask: Require<Mask>(node); Shape(value, 2, 0); break;
-                    case TownServiceProperty.RectMask: Require<RectMask2D>(node); Shape(value, 7, 0); break;
+                    case TownServiceProperty.Mask: Shape(value, 2, 0); break;
+                    case TownServiceProperty.RectMask: Shape(value, 7, 0); break;
                     case TownServiceProperty.Material: Require<Graphic>(node); TownServiceMaterial.Validate(value, assets); break;
                     case TownServiceProperty.TextMaterial: Require<TMP_Text>(node); TownServiceMaterial.Validate(value, assets); break;
-                    case TownServiceProperty.Shadow: Require<Shadow>(node); Shape(value, 8, 0); break;
-                    case TownServiceProperty.Outline: Require<Outline>(node); Shape(value, 8, 0); break;
+                    case TownServiceProperty.Shadow: Shape(value, 8, 0); break;
+                    case TownServiceProperty.Outline: Shape(value, 8, 0); break;
                     default:
                         if (pair.Key >= TownServiceProperty.MeshMaterial0 && pair.Key <= TownServiceProperty.MeshMaterial7)
                         { Require<MeshRenderer>(node); TownServiceMaterial.Validate(value, assets); break; }
@@ -323,8 +324,14 @@ internal sealed class TownServiceBinding : IDisposable
                 throw new InvalidDataException("Incomplete town-service node.");
         }
     }
-    private static T Require<T>(Transform node) where T : Component => node.GetComponent<T>()
-        ?? throw new InvalidDataException("Original town-service component is absent: " + typeof(T).Name);
+    private static T Require<T>(Transform node) where T : Component
+    {
+        T? component = node.GetComponent<T>(); if (component != null) return component;
+        Type type = typeof(T);
+        if (type == typeof(CanvasGroup) || type == typeof(Canvas) || type == typeof(Mask) || type == typeof(RectMask2D)
+            || type == typeof(Shadow) || type == typeof(Outline)) return node.gameObject.AddComponent<T>();
+        throw new InvalidDataException("Original town-service component is absent: " + type.Name);
+    }
     private static void Shape(TownServiceValue value, int numbers, int text)
     { if (value.Numbers.Length != numbers || value.Text.Length != text) throw new InvalidDataException("Malformed town-service property."); }
 
@@ -333,6 +340,13 @@ internal sealed class TownServiceBinding : IDisposable
         for (int i = 0; i < Nodes.Length; i++)
         {
             Transform node = Nodes[i]; TownServiceNode state = frame.Nodes[i];
+            DisableAbsent<CanvasGroup>(node, state, TownServiceProperty.Group);
+            DisableAbsent<Mask>(node, state, TownServiceProperty.Mask);
+            DisableAbsent<RectMask2D>(node, state, TownServiceProperty.RectMask);
+            DisableAbsent<Shadow>(node, state, TownServiceProperty.Shadow);
+            DisableAbsent<Outline>(node, state, TownServiceProperty.Outline);
+            if (!state.Values.ContainsKey(TownServiceProperty.Canvas))
+            { Canvas? oldCanvas = node.GetComponent<Canvas>(); if (oldCanvas != null) UnityEngine.Object.DestroyImmediate(oldCanvas); }
             foreach (var pair in state.Values)
             {
                 if (_lastApplied != null && _lastApplied[i].Values.TryGetValue(pair.Key, out TownServiceValue? old) && pair.Value.Same(old)) continue;
@@ -420,6 +434,12 @@ internal sealed class TownServiceBinding : IDisposable
         if (Root is RectTransform rr && root.Length == 18)
         { rr.anchorMin = rr.anchorMax = new Vector2(.5f, .5f); rr.pivot = new Vector2(root[14], root[15]); rr.sizeDelta = new Vector2(root[16], root[17]); }
         _lastApplied = frame.Nodes;
+    }
+    private static void DisableAbsent<T>(Transform node, TownServiceNode state, ushort key) where T : Behaviour
+    {
+        if (state.Values.ContainsKey(key)) return;
+        T? component = node.GetComponent<T>();
+        if (component != null && component.GetType() == typeof(T)) component.enabled = false;
     }
     private static int SafeInt(float value) => value >= int.MaxValue ? int.MaxValue : (int)value;
     private static Color ColorAt(float[] n, int i) => new(n[i], n[i + 1], n[i + 2], n[i + 3]);

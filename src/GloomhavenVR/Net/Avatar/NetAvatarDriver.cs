@@ -4399,6 +4399,7 @@ internal sealed partial class NetAvatarDriver : MonoBehaviour
         {
             var avatar = new RemoteAvatar(playerId);
             _avatars[playerId] = avatar;
+            TownServices.TownServiceMirror.RequestFullRefresh();
             _createRetryAt.Remove(playerId);
             return avatar;
         }
