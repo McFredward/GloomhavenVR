@@ -19,6 +19,7 @@ ROOT = Path(__file__).resolve().parents[1]
 OUT = ROOT / ".planning/debug/npc-meshes"
 NPCS = ("merchant", "priestess", "enchantress")
 ENDPOINTS = {"trellis": "fal-ai/trellis-2", "hunyuan": "fal-ai/hunyuan3d-v3/image-to-3d"}
+CANDIDATES = (*ENDPOINTS, "rodin")
 
 
 def save(path, value):
@@ -41,9 +42,13 @@ def prepare():
                 crop = sheet.crop(box).convert("RGB")
                 path = OUT / npc / "inputs" / f"{view}.png"
                 path.parent.mkdir(parents=True, exist_ok=True)
-                crop.save(path)
+                # Never replace an input already used by a paid request.
+                if not path.exists():
+                    crop.save(path)
                 records.append({"view": view, "crop": box, "sha256": hashlib.sha256(path.read_bytes()).hexdigest()})
-            save(OUT / npc / "inputs/manifest.json", {"source": str(source.relative_to(ROOT)), "source_sha256": hashlib.sha256(source.read_bytes()).hexdigest(), "views": records})
+            manifest = OUT / npc / "inputs/manifest.json"
+            if not manifest.exists():
+                save(manifest, {"source": str(source.relative_to(ROOT)), "source_sha256": hashlib.sha256(source.read_bytes()).hexdigest(), "views": records})
         for candidate in ENDPOINTS:
             params = ({"resolution": "1536", "texture_size": "4096", "seed": 20260920,
                        "decimation_target": 500000, "remesh": True,
@@ -87,11 +92,16 @@ def submit(npc, candidate):
     if intent.exists():
         raise RuntimeError("Submission intent exists without receipt. Reconcile provider history before another paid call.")
     args = dict(plan["parameters"])
-    for field, filename in plan["inputs"].items():
+    def image_data(filename):
         data = (OUT / npc / "inputs" / filename).read_bytes()
-        args[field] = "data:image/png;base64," + base64.b64encode(data).decode()
+        return "data:image/png;base64," + base64.b64encode(data).decode()
+    for field, filename in plan["inputs"].items():
+        args[field] = [image_data(name) for name in filename] if isinstance(filename, list) else image_data(filename)
     if not os.environ.get("FAL_AI_API_KEY"):
         raise RuntimeError("FAL_AI_API_KEY missing from process environment")
+    reserved = sum(json.loads(p.read_text())["estimated_usd"] for p in OUT.glob("*/*/submission-intent.json"))
+    if reserved + plan["estimated_usd"] > 8:
+        raise RuntimeError("This comparison's USD 8 estimated-cost ceiling would be exceeded")
     save(intent, {"endpoint": plan["endpoint"], "estimated_usd": plan["estimated_usd"], "plan_sha256": hashlib.sha256((folder / "plan.json").read_bytes()).hexdigest()})
     result = request("https://queue.fal.run/" + plan["endpoint"], args)
     save(receipt, result)
@@ -111,7 +121,7 @@ def collect(npc, candidate):
         return
     result = request(receipt["response_url"])
     save(folder / "result.json", result)
-    url = result["model_glb"]["url"]
+    url = (result.get("model_glb") or result["model_mesh"])["url"]
     if not url.startswith("https://"):
         raise ValueError("Non-HTTPS asset URL")
     target = folder / "model.glb"
@@ -131,7 +141,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("action", choices=("prepare", "submit", "collect"))
     parser.add_argument("--npc", choices=NPCS)
-    parser.add_argument("--candidate", choices=tuple(ENDPOINTS))
+    parser.add_argument("--candidate", choices=CANDIDATES)
     options = parser.parse_args()
     if options.action == "prepare":
         prepare()
