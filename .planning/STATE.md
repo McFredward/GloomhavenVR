@@ -20,6 +20,9 @@ change per build) → this file (where things stand and what is owed) → the bu
   [research/TOWN-SERVICES-CONCEPT.md](research/TOWN-SERVICES-CONCEPT.md). No NPC meshes or
   immersive runtime interactions are implemented yet. Developer tools now also accept
   `ressources/GH_Data/Managed`, retaining the previous managed-only layout.
+  At the maintainer's explicit request, gpt-image-2 subsequently generated three 3840 x 2160
+  sheets with six poses/views each. Derived images, prompts and manifest remain separate
+  in `.planning/debug/npc-modeling/`; [generation record](research/TOWN-SERVICES-GENERATED-REFERENCES.md).
 
 - **Released 1.0.6 / ModBuild 537:** the maintainer confirmed the menu fix; the final
   hardware log audit found no release blocker. Main commit `59a5d884`, tag `v1.0.6`,

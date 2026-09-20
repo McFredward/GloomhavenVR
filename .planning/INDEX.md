@@ -20,6 +20,7 @@ engineering evidence, historical decisions and current status; it is not the pla
 
 - [research/TOWN-SERVICES-CONCEPT.md](research/TOWN-SERVICES-CONCEPT.md): proposed physical merchant, temple and enchantress interactions; no runtime implementation yet.
 - [research/TOWN-SERVICES-ART.md](research/TOWN-SERVICES-ART.md): six verified original PNG exports from the supplied full GH_Data, with reproducible provenance.
+- [research/TOWN-SERVICES-GENERATED-REFERENCES.md](research/TOWN-SERVICES-GENERATED-REFERENCES.md): explicitly requested gpt-image-2 modelling sheets and exact per-NPC prompts, separate from original assets.
 - [research/TOWN-SERVICES-FUNCTIONS.md](research/TOWN-SERVICES-FUNCTIONS.md): source-grounded native feature coverage.
 - [research/TOWN-SERVICES-INTEGRATION.md](research/TOWN-SERVICES-INTEGRATION.md): environment placement, NPC assets, multiplayer and lifecycle design.
 

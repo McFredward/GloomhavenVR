@@ -20,6 +20,7 @@ Sources and detailed coverage:
 - [Native function inventory](TOWN-SERVICES-FUNCTIONS.md).
 - [Environment and multiplayer integration](TOWN-SERVICES-INTEGRATION.md).
 - [Original image exports and reproduction](TOWN-SERVICES-ART.md).
+- [Derived gpt-image-2 modelling reference sheets](TOWN-SERVICES-GENERATED-REFERENCES.md).
 - Existing screenshots: `../debug/händler_mixed_reality.jpg`,
   `../debug/kirche_hintergrund.jpg`, `../debug/magierin.jpg`.
 
