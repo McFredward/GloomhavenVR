@@ -2,7 +2,7 @@
 """Offline GLB -> normalized artist source and static Unity LOD candidates.
 
 Run with Python (launches Blender) or blender --background --python this.py -- ...
-No credentials, network, topology repair, rigging or animation generation.
+No credentials, network, source anatomy edits, rigging or animation generation.
 """
 import argparse
 import hashlib
@@ -54,6 +54,49 @@ def glb_contents(path):
     if any('uri' in b for b in document.get('buffers', [])):
         raise ValueError('External buffers are unsupported; use a self-contained GLB')
     return document, binary
+
+
+def weld_lod_source(obj):
+    """Connect coincident UV seam vertices only on a derivative before decimation.
+
+    UVs and imported normals belong to face corners and remain distinct across seams.
+    Decimating disconnected UV islands independently creates real silhouette cracks.
+    """
+    import bmesh
+    import numpy as np
+    mesh = obj.data
+    uv_before = []
+    for layer in mesh.uv_layers:
+        values = np.empty(len(layer.data) * 2, dtype=np.float32)
+        layer.data.foreach_get('uv', values)
+        uv_before.append(values)
+    normals = [tuple(n.vector) for n in mesh.corner_normals]
+    materials = np.empty(len(mesh.polygons), dtype=np.int32)
+    mesh.polygons.foreach_get('material_index', materials)
+    vertex_count, face_count, loop_count = len(mesh.vertices), len(mesh.polygons), len(mesh.loops)
+    bm = bmesh.new()
+    bm.from_mesh(mesh)
+    bmesh.ops.remove_doubles(bm, verts=list(bm.verts), dist=1e-6)
+    bm.to_mesh(mesh)
+    bm.free()
+    mesh.update()
+    if len(mesh.polygons) != face_count or len(mesh.loops) != loop_count or len(mesh.uv_layers) != len(uv_before):
+        raise RuntimeError('Derivative weld changed face/loop/UV-layer count; individual topology review required')
+    after_materials = np.empty(len(mesh.polygons), dtype=np.int32)
+    mesh.polygons.foreach_get('material_index', after_materials)
+    if not np.array_equal(materials, after_materials):
+        raise RuntimeError('Derivative weld changed material ordering')
+    for before, layer in zip(uv_before, mesh.uv_layers):
+        after = np.empty(len(layer.data) * 2, dtype=np.float32)
+        layer.data.foreach_get('uv', after)
+        if not np.array_equal(before, after):
+            raise RuntimeError('Derivative weld changed UV corner ordering or values')
+    mesh.normals_split_custom_set(normals)
+    return {'sourceObject': obj.name, 'toleranceMetres': 1e-6,
+            'verticesBefore': vertex_count, 'verticesAfter': len(mesh.vertices),
+            'facesUnchanged': face_count, 'uvCornersUnchanged': loop_count,
+            'materialAssignmentsUnchanged': True, 'importedCornerNormalsRestored': True,
+            'uvHashes': [hashlib.sha256(v.tobytes()).hexdigest() for v in uv_before]}
 
 
 def prepare(args):
@@ -133,7 +176,7 @@ def prepare(args):
               'sourceTriangles': triangles(objects), 'materials': [], 'textures': [], 'derivatives': [],
               'limitations': ['Static generated mesh: no rigging or animation readiness claim.',
                              'LOD candidates require close-range visual review; no anatomy repair.',
-                             'No welding, generic smoothing, UV unwrap or texture baking performed.']}
+                             'LOD copies weld coincident vertices within 1e-6 m before reduction; source is untouched. No generic smoothing, UV unwrap or texture baking.']}
     warnings = report['warnings'] = []
 
     def texture(info, label, noncolor=False):
@@ -218,7 +261,7 @@ def prepare(args):
             obj.select_set(True)
         bpy.context.view_layer.objects.active = items[0]
 
-    def export(items, label, target):
+    def export(items, label, target, welding=None):
         select(items)
         glb, fbx = 'meshes/' + label + '.glb', 'meshes/' + label + '.fbx'
         bpy.ops.export_scene.gltf(filepath=str(output / glb), export_format='GLB',
@@ -228,11 +271,12 @@ def prepare(args):
                                  axis_forward='-Z', axis_up='Y', path_mode='STRIP', use_mesh_modifiers=True)
         report['derivatives'].append({'name': label, 'targetTriangles': target,
                                       'actualTriangles': triangles(items), 'glb': glb, 'fbx': fbx,
-                                      'boundsBlender': bounds(items)})
+                                      'boundsBlender': bounds(items), 'derivedSourceWelding': welding or []})
 
     export(objects, args.name + '_source', report['sourceTriangles'])
     for level, budget in enumerate((80000, 30000, 10000)):
         lod = []
+        welding = []
         ratio = min(1.0, budget / report['sourceTriangles'])
         for obj in objects:
             clone = obj.copy()
@@ -240,13 +284,14 @@ def prepare(args):
             clone.name = obj.name + '_LOD%d' % level
             bpy.context.collection.objects.link(clone)
             lod.append(clone)
+            welding.append(weld_lod_source(clone))
             if ratio < 1:
                 select([clone])
                 modifier = clone.modifiers.new('Candidate triangle reduction', 'DECIMATE')
                 modifier.ratio = ratio
                 modifier.use_collapse_triangulate = True
                 bpy.ops.object.modifier_apply(modifier=modifier.name)
-        export(lod, args.name + '_lod%d' % level, budget)
+        export(lod, args.name + '_lod%d' % level, budget, welding)
         for obj in lod:
             bpy.data.objects.remove(obj, do_unlink=True)
     report['files'] = [{'path': str(p.relative_to(output)), 'sha256': sha256(p), 'bytes': p.stat().st_size}

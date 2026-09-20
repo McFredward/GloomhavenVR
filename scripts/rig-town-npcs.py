@@ -10,6 +10,7 @@ import json
 import math
 from pathlib import Path
 import sys
+import runpy
 
 import bpy
 import numpy as np
@@ -268,21 +269,37 @@ def main():
     manifest = json.loads((source / 'manifest.json').read_text())
     bpy.ops.wm.read_factory_settings(use_empty=True)
     bpy.context.scene.render.fps = 30
+    source_item = next(d for d in manifest['derivatives'] if d['name'].endswith('_source'))
+    bpy.ops.import_scene.gltf(filepath=str(source / source_item['glb']))
+    originals = [o for o in bpy.context.scene.objects if o.type == 'MESH']
+    for obj in originals:
+        obj.data.transform(obj.matrix_world)
+        obj.parent = None
+        obj.matrix_world.identity()
+    for obj in list(bpy.context.scene.objects):
+        if obj.type != 'MESH':
+            bpy.data.objects.remove(obj, do_unlink=True)
+    weld_lod_source = runpy.run_path(str(Path(__file__).with_name('prepare-npc-assets.py')))['weld_lod_source']
+    welding = [weld_lod_source(obj) for obj in originals]
+    source_triangles = sum(len(o.data.polygons) for o in originals)
     meshes = []
-    for level in range(3):
-        item = next(d for d in manifest['derivatives'] if d['name'].endswith('_lod%d' % level))
-        before = set(bpy.context.scene.objects)
-        bpy.ops.import_scene.gltf(filepath=str(source / item['glb']))
-        imported = set(bpy.context.scene.objects) - before
-        for i, obj in enumerate(o for o in imported if o.type == 'MESH'):
-            obj.data.transform(obj.matrix_world)
-            obj.parent = None
-            obj.matrix_world.identity()
+    for level, target in enumerate((80000, 30000, 10000)):
+        for i, original in enumerate(originals):
+            obj = original.copy()
+            obj.data = original.data.copy()
             obj.name = 'LOD%d_%d' % (level, i)
+            bpy.context.collection.objects.link(obj)
+            bpy.ops.object.select_all(action='DESELECT')
+            obj.select_set(True)
+            bpy.context.view_layer.objects.active = obj
+            if source_triangles > target:
+                modifier = obj.modifiers.new('Welded-source LOD candidate', 'DECIMATE')
+                modifier.ratio = target / source_triangles
+                modifier.use_collapse_triangulate = True
+                bpy.ops.object.modifier_apply(modifier=modifier.name)
             meshes.append(obj)
-        for obj in imported:
-            if obj.type != 'MESH':
-                bpy.data.objects.remove(obj, do_unlink=True)
+    for obj in originals:
+        bpy.data.objects.remove(obj, do_unlink=True)
     bpy.ops.object.select_all(action='DESELECT')
     profile = dict(PROFILES[options.name])
     reference = np.array([v.co[:] for v in meshes[0].data.vertices])
@@ -306,8 +323,11 @@ def main():
         object_types={'MESH', 'ARMATURE'}, add_leaf_bones=False, bake_anim=True,
         bake_anim_use_nla_strips=False, bake_anim_use_all_actions=True, bake_anim_force_startend_keying=True,
         bake_anim_simplify_factor=0, axis_forward='-Z', axis_up='Y', path_mode='STRIP')
-    report = {'name': options.name, 'preparedInput': str(source), 'preparedManifestSha256': hashlib.sha256((source / 'manifest.json').read_bytes()).hexdigest(),
-              'heightMetres': 1.75, 'bones': definitions, 'meshWeights': records, 'animations': durations,
+    report = {'name': options.name, 'blender': bpy.app.version_string,
+              'authoringScriptSha256': hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
+              'lodHelperSha256': hashlib.sha256(Path(__file__).with_name('prepare-npc-assets.py').read_bytes()).hexdigest(),
+              'preparedInput': str(source), 'preparedManifestSha256': hashlib.sha256((source / 'manifest.json').read_bytes()).hexdigest(),
+              'heightMetres': 1.75, 'derivedSourceWelding': welding, 'bones': definitions, 'meshWeights': records, 'animations': durations,
               'limitations': ['Authored bounded station animation; no general locomotion or grasping claim.',
                               'Finger landmarks are proportional estimates; large finger curls are not authored.',
                               'No facial blend shapes, mouth animation or eye tracking.'],

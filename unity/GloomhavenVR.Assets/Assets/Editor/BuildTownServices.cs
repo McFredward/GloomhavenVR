@@ -35,16 +35,25 @@ namespace GloomhavenVR
             importer.textureType = normal ? TextureImporterType.NormalMap : TextureImporterType.Default;
             importer.sRGBTexture = !linear;
             importer.alphaIsTransparency = false;
-            importer.maxTextureSize = 4096;
+            // NPC source details stay at 4K; repeated furniture tiles need only 1K.
+            var maxSize = path.StartsWith(Root + "/Textures/", StringComparison.Ordinal) ? 1024 : 4096;
+            importer.maxTextureSize = maxSize;
             importer.mipmapEnabled = true;
             importer.textureCompression = TextureImporterCompression.CompressedHQ;
+            var platform = importer.GetPlatformTextureSettings("Standalone");
+            platform.overridden = true;
+            platform.maxTextureSize = maxSize;
+            platform.format = normal ? TextureImporterFormat.BC5 : linear ? TextureImporterFormat.DXT5 : TextureImporterFormat.BC7;
+            platform.compressionQuality = normal || linear ? 100 : 50;
+            importer.SetPlatformTextureSettings(platform);
             importer.SaveAndReimport();
             return AssetDatabase.LoadAssetAtPath<Texture2D>(path);
         }
         static Material Material(string name, Color color, float metallic, float smoothness)
         {
-            var material = new Material(Shader.Find("Standard"));
+            var material = new Material(AssetDatabase.LoadAssetAtPath<Shader>(Root + "/Shaders/TownNpc.shader"));
             material.name = name;
+            material.enableInstancing = true;
             material.color = color;
             material.SetFloat("_Metallic", metallic);
             material.SetFloat("_Glossiness", smoothness);
@@ -73,13 +82,17 @@ namespace GloomhavenVR
             importer.skinWeights = ModelImporterSkinWeights.Custom;
             importer.maxBonesPerVertex = 4;
             importer.minBoneWeight = 0.0001f;
-            importer.animationCompression = ModelImporterAnimationCompression.Off;
+            // Remove redundant baked keys with a conservative bound, verified against posed vertices.
+            importer.animationCompression = ModelImporterAnimationCompression.KeyframeReduction;
+            importer.animationRotationError = 0.01f;
+            importer.animationPositionError = 0.01f;
+            importer.animationScaleError = 0.01f;
             importer.SaveAndReimport();
             var settings = importer.defaultClipAnimations;
             foreach (var clip in settings)
             {
                 foreach (var expected in new[] { "Idle", "Greeting", "Gesture", "ReturnToIdle" })
-                    if (clip.name.EndsWith(expected, StringComparison.Ordinal)) clip.name = expected;
+                    if (clip.name.Split('|').Last() == expected) clip.name = expected;
                 clip.loopTime = clip.name == "Idle";
                 clip.wrapMode = clip.loopTime ? WrapMode.Loop : WrapMode.ClampForever;
             }
@@ -121,7 +134,9 @@ namespace GloomhavenVR
                 renderer.shadowCastingMode = ShadowCastingMode.On;
                 renderer.receiveShadows = true;
                 // Authored gestures fit this bound; no whole-body or locomotion animation.
-                renderer.localBounds = new Bounds(new Vector3(0, 0.90f, 0), new Vector3(1.6f, 2.0f, 1.3f));
+                var skinBounds = renderer.localBounds;
+                skinBounds.Expand(0.40f);
+                renderer.localBounds = skinBounds;
                 lods[i] = new LOD(new[] { 0.50f, 0.20f, 0.04f }[i], new Renderer[] { renderer });
             }
             var group = actor.AddComponent<LODGroup>();
@@ -142,10 +157,12 @@ namespace GloomhavenVR
             var station = new GameObject(stationName);
             actor.transform.SetParent(station.transform, false);
             actor.transform.localPosition = new Vector3(0, 0, 0.65f);
+            actor.transform.localRotation = Quaternion.Euler(0, 180, 0); // FBX imports facing +Z; station contract faces -Z.
             Anchor(station, "InteractionAnchor", new Vector3(0, 0.95f, -0.42f));
             Anchor(station, "HeadAnchor", new Vector3(0, 1.56f, 0.65f));
             Anchor(station, "ServiceSurface", new Vector3(0, 0.94f, 0));
             BuildStation(station, name);
+            animation.GetClip("Idle").SampleAnimation(actor, 0); // Serialized opening pose already matches idle, before the first runtime tick.
             PrefabUtility.SaveAsPrefabAsset(station, Root + "/Prefabs/" + stationName + ".prefab");
             Debug.Log("TOWN_ASSET " + stationName + " skinnedLODs=" + allRenderers.Length + " bones=" + allRenderers[0].bones.Length +
                 " triangles=" + String.Join(",", lods.Select(l => ((SkinnedMeshRenderer)l.renderers[0]).sharedMesh.triangles.Length / 3)) +
@@ -177,14 +194,44 @@ namespace GloomhavenVR
             var furniture = new GameObject(npc == "priestess" ? "Shrine" : npc == "enchantress" ? "Workbench" : "Counter");
             furniture.transform.SetParent(root.transform, false);
             var wood = npc == "priestess" ? "PaleStone" : "DarkWood";
-            Box(furniture, "FootPlinth", new Vector3(0, 0.08f, 0), new Vector3(1.42f, 0.16f, 0.66f), wood);
-            for (var i = 0; i < 5; ++i)
-                Box(furniture, "FrontPanel" + i, new Vector3((i - 2) * 0.255f, 0.48f, -0.22f), new Vector3(0.25f, 0.72f, 0.09f), wood);
-            foreach (var side in new[] { -1, 1 })
+            if (npc == "priestess")
             {
-                Box(furniture, "SidePanel" + side, new Vector3(side * 0.635f, 0.48f, 0), new Vector3(0.09f, 0.72f, 0.49f), wood);
-                Box(furniture, "CornerPost" + side, new Vector3(side * 0.66f, 0.47f, -0.24f), new Vector3(0.11f, 0.80f, 0.11f), wood);
-                Box(furniture, "Inlay" + side, new Vector3(side * 0.66f, 0.50f, -0.300f), new Vector3(0.022f, 0.52f, 0.009f), "Brass");
+                Box(furniture, "AltarPlinth", new Vector3(0, 0.065f, 0), new Vector3(1.35f, 0.13f, 0.64f), wood);
+                foreach (var side in new[] { -1, 1 })
+                {
+                    var x = side * 0.43f;
+                    Box(furniture, "PillarFoot" + side, new Vector3(x, 0.17f, 0), new Vector3(0.31f, 0.09f, 0.43f), wood);
+                    Primitive(furniture, "StonePillar" + side, PrimitiveType.Cylinder, new Vector3(x, 0.50f, 0), new Vector3(0.24f, 0.29f, 0.32f), Mat(wood));
+                    Box(furniture, "PillarCapital" + side, new Vector3(x, 0.80f, 0), new Vector3(0.32f, 0.08f, 0.43f), wood);
+                }
+                Box(furniture, "HangingAltarCloth", new Vector3(0, 0.56f, -0.26f), new Vector3(0.38f, 0.60f, 0.012f), "AltarCloth");
+                Primitive(furniture, "AltarEmblem", PrimitiveType.Sphere, new Vector3(0, 0.59f, -0.272f), new Vector3(0.09f, 0.13f, 0.014f), Mat("Brass"));
+            }
+            else if (npc == "enchantress")
+            {
+                foreach (var x in new[] { -1, 1 }) foreach (var z in new[] { -1, 1 })
+                {
+                    Box(furniture, "WorkbenchLeg" + x + z, new Vector3(x * 0.63f, 0.45f, z * 0.24f), new Vector3(0.11f, 0.86f, 0.11f), wood);
+                    Box(furniture, "LegBand" + x + z, new Vector3(x * 0.63f, 0.18f, z * 0.24f), new Vector3(0.119f, 0.055f, 0.119f), "Brass");
+                }
+                Box(furniture, "LowerShelf", new Vector3(0, 0.29f, 0), new Vector3(1.20f, 0.055f, 0.50f), wood);
+                Box(furniture, "FrontApron", new Vector3(0, 0.75f, -0.25f), new Vector3(1.24f, 0.20f, 0.075f), wood);
+                foreach (var side in new[] { -1, 1 })
+                    Box(furniture, "SideApron" + side, new Vector3(side * 0.63f, 0.75f, 0), new Vector3(0.075f, 0.20f, 0.50f), wood);
+                Box(furniture, "StoredBook", new Vector3(0.35f, 0.35f, -0.04f), new Vector3(0.26f, 0.055f, 0.25f), "Leather");
+                Box(furniture, "StoredBookPages", new Vector3(0.35f, 0.386f, -0.04f), new Vector3(0.24f, 0.014f, 0.23f), "Parchment");
+            }
+            else
+            {
+                Box(furniture, "FootPlinth", new Vector3(0, 0.08f, 0), new Vector3(1.42f, 0.16f, 0.66f), wood);
+                for (var i = 0; i < 5; ++i)
+                    Box(furniture, "FrontPanel" + i, new Vector3((i - 2) * 0.255f, 0.48f, -0.22f), new Vector3(0.25f, 0.72f, 0.09f), wood);
+                foreach (var side in new[] { -1, 1 })
+                {
+                    Box(furniture, "SidePanel" + side, new Vector3(side * 0.635f, 0.48f, 0), new Vector3(0.09f, 0.72f, 0.49f), wood);
+                    Box(furniture, "CornerPost" + side, new Vector3(side * 0.66f, 0.47f, -0.24f), new Vector3(0.11f, 0.80f, 0.11f), wood);
+                    Box(furniture, "Inlay" + side, new Vector3(side * 0.66f, 0.50f, -0.300f), new Vector3(0.022f, 0.52f, 0.009f), "Brass");
+                }
             }
             Box(furniture, "TopUnderLip", new Vector3(0, 0.86f, 0), new Vector3(1.46f, 0.07f, 0.69f), wood);
             for (var i = 0; i < 4; ++i)
@@ -272,11 +319,37 @@ namespace GloomhavenVR
                 material.EnableKeyword("_NORMALMAP");
             }
         }
+        // Explicit standalone bundle build: keep the existing production bundle byte-identical.
+        public static void BuildBundle()
+        {
+            try
+            {
+                var assets = Directory.GetFiles(Root, "*", SearchOption.AllDirectories)
+                    .Where(p => !new[] { ".meta", ".md", ".txt" }.Contains(Path.GetExtension(p).ToLowerInvariant()))
+                    .Select(p => p.Replace('\\', '/')).OrderBy(p => p).ToArray();
+                if (assets.Length == 0) throw new InvalidOperationException("No town assets to bundle");
+                Directory.CreateDirectory("Build/TownServices");
+                var result = BuildPipeline.BuildAssetBundles("Build/TownServices", new[] {
+                    new AssetBundleBuild { assetBundleName = "ghvr-town.bundle", assetNames = assets }
+                }, BuildAssetBundleOptions.None, BuildTarget.StandaloneWindows64);
+                if (result == null) throw new InvalidOperationException("Town bundle build failed");
+                var size = new FileInfo("Build/TownServices/ghvr-town.bundle").Length;
+                if (size >= 100L * 1024 * 1024) throw new InvalidOperationException("Town bundle exceeds 100 MiB: " + size);
+                Debug.Log("TOWN_BUNDLE_OK bytes=" + size + " assets=" + assets.Length + " TypeTrees=enabled target=StandaloneWindows64");
+            }
+            catch (Exception exception)
+            {
+                Debug.LogException(exception);
+                if (Application.isBatchMode) EditorApplication.Exit(1);
+                throw;
+            }
+        }
         public static void Build()
         {
             try
             {
-                if (Directory.Exists(Root)) throw new IOException("Use a fresh authoring output; " + Root + " already exists");
+                if (Directory.Exists(Root + "/Actors")) throw new IOException("Use a fresh authoring output; actors already exist");
+                if (!File.Exists(Root + "/Shaders/TownNpc.shader")) throw new IOException("Copy TownNpc.shader into " + Root + "/Shaders first");
                 foreach (var folder in new[] { "Actors", "Prefabs", "Materials", "Textures" }) Folder(Root + "/" + folder);
                 AssetDatabase.Refresh();
                 SharedMaterials(Arg("-townEnvironmentTextures"));
