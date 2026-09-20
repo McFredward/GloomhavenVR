@@ -514,7 +514,47 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 534;
+    public const ushort ModBuild = 537;
+
+    // ModBuild 537 — independent VR options toggle and native close ordering.
+    // Build-536 hardware confirms repeated opening, but host SetFocused(false) dims usable
+    // native menu entries and X leaves the row selected. Remove both VR focus handoffs;
+    // main-menu rival-window arbitration remains intact. Closed-row synchronization is silent
+    // and immediate, including the callback native Hide emits before updating IsOpen.
+    // Explicit reopen cancels only a registered mod pane's pending user-close request; an
+    // already-running vanish retains the existing reopen/release lifecycle.
+    // Source-bound regressions cover X, toggle and native close, immediate reopen, stale
+    // notifications and preservation of native focus/interactability. No card/burn changes.
+    // Details: .planning/OPTIONS-537.md and .planning/CLOSE-537.md. Hardware check pending.
+
+    // ModBuild 536 — repeated VR options access and short-rest report provenance.
+    // The Sep-20 capture identifies released 1.0.5 / build 534. Its fourth VR-options float
+    // within 60 seconds triggers CATCH-ALL FUSE, misclassifying our registered menu as a
+    // cycling HUD banner and suppressing its presentation for the session. Registered mod
+    // menus must stay eligible across arbitrary deliberate opening/closing cycles.
+    // Keep the mod-owned menu rows visible and pressable while their host menu is visible;
+    // recover from transient menu failures with bounded retry instead of permanent lockout.
+    // The same capture repeats build 534's spent-burn floor loss around .68 seconds, with
+    // one complete native ramp. The subsequent second_logs capture IS build 535: the
+    // formerly failing .707 s transition retains spent paint and completes one native burn.
+    // The maintainer confirms the local flash appears resolved. Retain that correction.
+    // No burn timing, gameplay, wire format or release/tag changes. Peer logs remain build 500.
+    // Details: .planning/OPTIONS-536.md and .planning/BURN-536.md. Options hardware check pending.
+    //
+
+    // ModBuild 535 — retain spent appearance while an original burn runs on an inactive face.
+    // Postrelease build-534 Debug has one complete native ramp, no restart: raw .004 -> 1
+    // over 2.006 s. Its spent floor disappears around .697 s on the same plate material.
+    // Ordinary presentation sampling still treated inactive hierarchy as stopped playback,
+    // contradicting build 534's native disabled-playback permission. A Lost card then cleared
+    // its captured spent channels and resumed drawing raw burn paint. Use actual Playing(fx)
+    // instead; preserve raw progress, genuine recovery/identity retirement and terminal paint.
+    // This serves local draws and owner appearance capture before remote publication alike.
+    // Real-method tests reproduce the inactive Lost transition and exercise cleanup instead
+    // of stubbing it out. The exact hardware deactivation writer remains unverified.
+    // Released 1.0.5 stays unchanged; this is dev 1.0.6. Peer logs remain historical build 500.
+    // No native timing, gameplay, wire format or logging-level change. See .planning/BURN-535.md.
+    //
 
     // ModBuild 534 — first short-rest burn, cold MR table and grouped Guildmaster controls.
     // Build-533 Debug proves the original short-rest iterator bailed synchronously while its

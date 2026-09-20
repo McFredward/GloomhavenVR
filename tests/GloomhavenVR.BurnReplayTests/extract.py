@@ -3,13 +3,16 @@ import sys
 root, output = map(Path, sys.argv[1:])
 s = (root/'src/GloomhavenVR/Cards/BurnArtwork.cs').read_text()
 start=s.index('    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<CardEffects, NativeBurnEpisode<')
-end=s.index('    private static void ClearRecoveredSpentBurnStart', start)
+end=s.index('    [HarmonyPatch(typeof(CardEffects), nameof(CardEffects.BurnCardTimeline))]', start)
 a=s[s.index('    private static readonly int GreyOutId'):start]+s[start:end]
 start=s.index('    [HarmonyPatch(typeof(CardEffects), nameof(CardEffects.BurnCardTimeline))]')
 end=s.index('    private static void RestoreNativeBurnChannels',start)
 a+=s[start:end]
 start=end
 end=s.index('    /// <summary>\n    /// The <see cref="CardEffects"/>',start)
+a+=s[start:end]
+start=s.index('    internal static bool Playing(CardEffects? fx)')
+end=s.index('    /// <summary>',start)
 a+=s[start:end]
 output.write_text('using HarmonyLib; using UnityEngine; using UnityEngine.UI; namespace GloomhavenVR.Cards; internal static partial class BurnArtwork {\n'+a.replace('private static','internal static').replace('private sealed','internal sealed')+'\n}')
 assert 'CardFace.OwnerOf(full)' in a

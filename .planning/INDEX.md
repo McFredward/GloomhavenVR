@@ -1,6 +1,6 @@
 # Planning index
 
-Updated 2026-09-18 for short-rest playback, cold MR furniture and Guildmaster controls, build 534 on dev. This directory holds internal
+Updated 2026-09-20 for dev 1.0.6 / build-537 independent menu toggling and native close ordering. This directory holds internal
 engineering evidence, historical decisions and current status; it is not the player manual.
 
 ## Current entry points
@@ -17,6 +17,16 @@ engineering evidence, historical decisions and current status; it is not the pla
 | [PROJECT.md](PROJECT.md), [ARCHITECTURE.md](ARCHITECTURE.md) | Product scope and architectural reasoning |
 
 ## Latest measured work
+
+- [OPTIONS-537.md](OPTIONS-537.md): preserve native menu focus and synchronize the VR toggle immediately.
+- [CLOSE-537.md](CLOSE-537.md): native close-event ordering and explicit reopen during pending modal release.
+
+- [OPTIONS-536.md](OPTIONS-536.md): repeated VR-options presentation, visible menu rows and bounded recovery.
+- [BURN-536.md](BURN-536.md): distinguish the release capture from the new build-535 test; local short-rest fix confirmed.
+
+- [BURN-535.md](BURN-535.md): preserve spent appearance across inactive original playback; production cleanup regression coverage.
+
+- [RELEASE-105.md](RELEASE-105.md): successful main-branch 1.0.5 publication, verified asset and postrelease dev bookkeeping.
 
 - [BURN-534.md](BURN-534.md): preserve the first original burn through temporary full-card inactivity.
 - [GUILD-534.md](GUILD-534.md): native full-table recognition and separate Guildmaster map-surface caps.

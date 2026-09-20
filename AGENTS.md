@@ -91,3 +91,9 @@ The user's build-531 hardware clarification (2026-09-18, `wasser_hintergrund.jpg
 restricts mixed-reality backings to UI elements. Never add MR background geometry inside
 the play area, including water, fog/unseen terrain and preview meshes. Earlier scenery
 backing implementations and comments do not authorize exceptions to this rule.
+
+The user's build-536 options-menu clarification (2026-09-20) requires VR Options to
+leave other menu entries' focus and availability untouched. A grey native button must
+represent genuine native disablement, never opening the independent VR window. The VR
+entry is a toggle synchronized with window closure, including X; the next press must
+immediately reopen it, without an extra deselect click or a grace period.

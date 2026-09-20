@@ -1,6 +1,6 @@
 # State — where the project stands
 
-**Updated 2026-09-18 for short-rest playback, cold MR furniture and Guildmaster controls, ModBuild 534 on dev.** The file this replaces had gone 168 builds
+**Updated 2026-09-20 for independent VR options toggling and native close ordering; dev 1.0.6 / ModBuild 537.** The file this replaces had gone 168 builds
 stale while still saying "read this first"; it is kept as `STATE-ARCHIVE-through-2026-08.md` for
 its round-by-round narrative and for nothing else.
 
@@ -12,6 +12,76 @@ change per build) → this file (where things stand and what is owed) → the bu
 ---
 
 ## 1. Position
+
+- **dev / 1.0.6 / ModBuild 537** removes VR-triggered native focus handoffs:
+  opening settings must not shade otherwise usable menu entries. Native hidden callbacks
+  are accepted in their actual order, and the row is silently cleared at closure rather
+  than waiting one second. X -> immediate reopen and ordinary toggle closure share the
+  same state; explicit reopen clears only the mod pane's pending same-frame close.
+  Main-menu arbitration and independent scenario/map windows remain unchanged.
+  The maintainer confirms build 536 fixed repeated opening; its new logs reproduce the
+  stale selected row after X. Short-rest playback is unchanged and remains locally
+  hardware-confirmed. Records: [OPTIONS-537.md](OPTIONS-537.md), [CLOSE-537.md](CLOSE-537.md).
+  Options tests: 7,076 assertions / seven bindings / 19 negative controls; close lifecycle:
+  1,796 assertions / six bindings / six negative controls. Full source/runtime guard and
+  254,565 real-runtime wire assertions pass. Strict Release zero warnings/errors;
+  bilingual docs, Actionlint, patch inventory and whitespace pass. Surfaces remain
+  625 / 174 / 4,742; inventory 132 classes / 200 methods. Guard exit 1 is solely the
+  expected old-baseline difference (101 changed, 78 added/removed, one order-only move).
+  Direct compiled comparison with build 536 isolates the three intended menu types
+  plus embedded build-number changes. Build-537 headset confirmation remains pending.
+
+- **dev / 1.0.6 / ModBuild 536** addresses repeated VR-options access. The initial
+  Sep-20 logs are released build 534: its fourth opening within 60 seconds triggers
+  CATCH-ALL FUSE, treating the registered mod menu as a cycling HUD banner. Registered
+  mod menus are exempted from churn suppression; unknown HUD windows retain that guard.
+  The mod-owned menu rows must stay visible, focused and pressable while their host is
+  shown, and transient entry/injection failures must recover with bounded retry.
+  Source/log records: [OPTIONS-536.md](OPTIONS-536.md), [BURN-536.md](BURN-536.md).
+  **Short rest is hardware-confirmed resolved locally in the follow-up test.** The
+  second_logs capture identifies build 535. At the previously failing 0.707-second
+  renderer transition, grey/flow 1 and dissolve 0.646 survive unchanged while raw
+  progress continues. One burn completes at 2.010 seconds before its pile flight.
+  The maintainer reports no visible flash. No further burn change is made. Peer logs
+  remain historical 500; new remote hardware confirmation is not available.
+  Options implementation is integrated. Focused tests: 5,536 runtime assertions / four
+  production bindings / 15 negative controls. Complete source/runtime guard and 254,565
+  real-runtime wire assertions pass. Strict Release: zero warnings/errors. Bilingual docs,
+  Actionlint, patch inventory and whitespace pass. Config/patch/log surfaces remain
+  625 / 174 / 4,742; inventory remains 132 classes / 200 methods. Guard exit 1 is solely
+  the expected compiled difference from baseline 080c505e9: 101 changed, 78 added/removed
+  types and one order-only move. A separate comparison with the prior build-535 compiled
+  output finds only the three intended menu types and build-number substitutions.
+  Subsequent build-536 hardware confirms repeated opening works but exposes focus shading
+  and delayed row clearing after X; build 537 addresses those. Short-rest confirmation stands.
+
+- **dev / 1.0.6 / ModBuild 535** retains the spent appearance of a Lost card while its
+  original native burn continues across temporary face inactivity. Build-534 Debug shows one
+  complete ramp, not a replay, but its spent shader floor disappears around 0.697 seconds.
+  The ordinary sampler still equated inactive hierarchy with stopped playback, contradicting
+  build 534. It now follows the actual tracked iterator. A production-method regression
+  reproduces the previous floor loss; real detach/recovery cleanup is no longer stubbed out.
+  Native timing, recovery, flights, remote concealment and normal logging are unchanged.
+  Local draw and owner publication use the same corrected sampler. Peer logs remain build 500;
+  the precise hardware deactivation writer and headset outcome remain unverified.
+  Record: [BURN-535.md](BURN-535.md). Focused replay: 683 runtime assertions / seven source
+  bindings / 36 negative controls. Complete source/runtime guard and 254,565 real-runtime
+  wire assertions pass; flight timing 818, remote burn sequencing 108 and burn layout 228
+  assertions pass. Guard exit 1 is solely the expected compiled difference from baseline
+  080c505e9: 99 changed, 78 added/removed types and one order-only project move. Config,
+  patch and log surfaces remain 625 / 174 / 4,742, with no removals. Patch inventory remains
+  132 classes / 200 methods. Strict Release passes with zero warnings/errors; bilingual
+  docs, Actionlint and whitespace pass.
+
+- **Released 1.0.5 / ModBuild 534**, main 377d26ec, tag v1.0.5, GitHub Latest.
+  Full development CI, reused PR validation and main release workflow succeeded. Downloaded
+  ZIP CRC, contents and SHA256 match the published asset. Dev was automatically advanced to
+  1.0.6 at 9081a992 and includes the release ancestry. Record: [RELEASE-105.md](RELEASE-105.md).
+  The maintainer confirms the Guildmaster fixes; short-rest flashing remains and was explicitly
+  deferred for release. New local Debug logs are build 534; peer logs remain historical 500.
+  No gameplay exception/deadlock was found. Bounded decorative coin-material load failures,
+  native backend DNS errors and shutdown-only exceptions remain documented in the release audit.
+  Postrelease burn investigation resumes on dev without changing the published release.
 
 - **dev / 1.0.5 / ModBuild 534** addresses all three build-533 hardware findings.
   Debug shows the first short-rest burn exits synchronously on an inactive original, followed

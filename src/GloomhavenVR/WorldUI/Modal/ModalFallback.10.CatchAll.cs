@@ -350,39 +350,21 @@ internal static partial class ModalFallback
                 continue;
             }
 
-            if (!hoverCard && ChurnSuppressed.Contains(window.name))
+            if (!hoverCard && !MenuWindowFamily.IsModOwned(window)
+                && ChurnSuppressed.Contains(window.name))
                 continue; // fuse blew for this window type — session-suppressed (see ChurnMaxFloats)
             if (!CatchAllEligible(window))
                 continue;
             if (ContainsWindow(OpenWindows, window))
                 continue; // already carried (e.g. its serialized ID IS a tracked one)
 
-            // CHURN FUSE (hotfix): every append below costs a full conversion when the part-4
-            // loop floats it. A window type re-floating in a tight loop (show→hide HUD banners)
-            // burned ~1000 ms/frame on hardware — cap it and move on.
-            if (!hoverCard)
-            {
-                float nowT = Time.unscaledTime;
-                if (!FloatChurn.TryGetValue(window.name, out (int Count, float WindowStart) churn)
-                    || nowT - churn.WindowStart > ChurnWindowSeconds)
-                    churn = (0, nowT);
-                churn.Count++;
-                FloatChurn[window.name] = churn;
-                if (churn.Count > ChurnMaxFloats)
-                {
-                    ChurnSuppressed.Add(window.name);
-                    VRLog.Warn("WorldUI", $"CATCH-ALL FUSE: window '{window.name}' re-floated " +
-                                          $"{churn.Count}× in {ChurnWindowSeconds:0}s — a cycling HUD " +
-                                          "banner, not a waiting decision; suppressed for this session " +
-                                          "(manual A/X screen chord still reaches it). Exclude it explicitly.");
-                    continue;
-                }
-            }
+            if (!AllowCatchAllRepeat(window, hoverCard))
+                continue;
 
             OpenWindows.Add(window);
             // ONE Warn per window type — the hardware log drives future EXPLICIT
             // enrollment (add the ID/poll, then this line disappears for that window).
-            if (CatchAllWarned.Add(window.name))
+            if (!MenuWindowFamily.IsModOwned(window) && CatchAllWarned.Add(window.name))
             {
                 VRLog.Warn("WorldUI", $"CATCH-ALL: unknown scenario window '{window.name}' " +
                                       $"(ID {window.ID}) floated — enroll it explicitly.");
@@ -395,6 +377,38 @@ internal static partial class ModalFallback
                 LogWindowIdentity(window);
             }
         }
+    }
+
+    /// <summary>
+    /// Bound unknown HUD churn without imposing a lifetime on a player's settings menu.
+    /// Build 534 Debug (2026-09-20, LogOutput:2954) suppressed the fourth VR Options opening
+    /// in a minute. Its intentionally ID-less original was registered as a mod menu, but this
+    /// counter ignored that ownership and mistook deliberate closes/reopens for a HUD loop.
+    /// The exemption is object ownership (with the existing exact-name fallback), never every
+    /// ID-less window. Eligibility, manual close and native continuation still run normally.
+    /// </summary>
+    private static bool AllowCatchAllRepeat(UIWindow window, bool hoverCard)
+    {
+        if (hoverCard || MenuWindowFamily.IsModOwned(window))
+            return true;
+        if (ChurnSuppressed.Contains(window.name))
+            return false;
+
+        float nowT = Time.unscaledTime;
+        if (!FloatChurn.TryGetValue(window.name, out (int Count, float WindowStart) churn)
+            || nowT - churn.WindowStart > ChurnWindowSeconds)
+            churn = (0, nowT);
+        churn.Count++;
+        FloatChurn[window.name] = churn;
+        if (churn.Count <= ChurnMaxFloats)
+            return true;
+
+        ChurnSuppressed.Add(window.name);
+        VRLog.Warn("WorldUI", $"CATCH-ALL FUSE: window '{window.name}' re-floated " +
+                              $"{churn.Count}× in {ChurnWindowSeconds:0}s — a cycling HUD " +
+                              "banner, not a waiting decision; suppressed for this session " +
+                              "(manual A/X screen chord still reaches it). Exclude it explicitly.");
+        return false;
     }
 
     /// <summary>
