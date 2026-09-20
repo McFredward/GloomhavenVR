@@ -19,10 +19,12 @@ engineering evidence, historical decisions and current status; it is not the pla
 ## Latest measured work
 
 - [research/TOWN-SERVICES-FIRST-VARIANT.md](research/TOWN-SERVICES-FIRST-VARIANT.md): integrated scope, evidence and first hardware checklist.
+- [research/TOWN-SERVICES-FINAL-AUDIT.md](research/TOWN-SERVICES-FINAL-AUDIT.md): compiled scope comparison with the pre-feature source and historical guard baseline.
 - [research/TOWN-SERVICES-RUNTIME-ASSETS.md](research/TOWN-SERVICES-RUNTIME-ASSETS.md): rig, LOD, animation, materials and separate bundle contract.
 - [research/TOWN-SERVICES-SYNC.md](research/TOWN-SERVICES-SYNC.md): original-widget publication, inert observers, delta transport and lifecycle.
 - [research/TOWN-NATIVE-ART.md](research/TOWN-NATIVE-ART.md): independently owned original sprite loads for inactive remote templates.
 - [research/TOWN-SERVICES-INTERACTION-VALIDATION.md](research/TOWN-SERVICES-INTERACTION-VALIDATION.md): real Unity interaction assertions and compiled negative controls.
+- [research/TOWN-SERVICES-MIRROR-VALIDATION.md](research/TOWN-SERVICES-MIRROR-VALIDATION.md): original/observer pixel comparisons, lifecycle tests and measured CPU workload.
 - [research/TOWN-SERVICES-MESH-GENERATION.md](research/TOWN-SERVICES-MESH-GENERATION.md): paid model comparison, settings, costs and chosen originals.
 - [research/TOWN-SERVICES-MESH-REPAIR.md](research/TOWN-SERVICES-MESH-REPAIR.md): source-preserving material and UV seam repairs.
 - [research/TOWN-SERVICES-CONCEPT.md](research/TOWN-SERVICES-CONCEPT.md): full concept and distinction from the first runtime variant.

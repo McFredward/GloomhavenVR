@@ -47,10 +47,11 @@ native confirm, cancel, reward or exit callback.
 - [x] Strict Release compilation of the integrated local interaction and transport.
 - [x] Real Unity interaction harness: 77 assertions, 19 compiled negative controls.
 - [x] Codec/delta tests and actual existing router/fragment golden vectors.
-- [ ] Original-widget multiplayer publisher and real Unity playback/render verification.
+- [x] Original-widget multiplayer publisher and real Unity playback/render verification.
 - [x] Final NPC bundle: real Unity import/pose/visibility and clean-project bundle-load checks.
-- [ ] Complete install archive verification.
-- [ ] Full repository guards, version stamp, packaged install and origin/dev push.
+- [x] Complete install archive verification.
+- [x] Repository source/runtime gates and build 538 version stamp.
+- [x] Installable development package; handoff is on `origin/dev` (not a release).
 
 ## Hardware pass
 
@@ -94,3 +95,43 @@ authoring and the explicit limits of the first face/finger rigs.
 The final local interaction run `.planning/debug/town-service-interaction/run-emey_qgy`
 passes 77 runtime assertions and rejects all 19 compiled negative controls. Strict Release
 also compiles against the committed CI reference assemblies with zero warnings/errors.
+
+## Integrated runtime evidence
+
+The integrated production mirror run `town-service-mirror/run-evlmt2yh` passes 285 real
+Unity assertions. The separately compiled ten negative controls pass in `run-lhg4is1r`;
+the additional rapid hide/reopen regression and its negative control pass in `run-ss40thon`.
+Original and observer pixel pairs include an animated outer Canvas, nested module order,
+masking and intermediate motion. Layer and camera assignment are checked before image
+isolation. These are real Unity engine tests with explicitly documented game-adapter fixtures,
+not an in-game native-prefab or headset recording.
+
+The final codec suite passes 50,240 assertions; the actual production wire/transport suite
+passes 255,887. Sixteen source/docs/bundle gates pass, as does the surface comparison
+(625 configuration keys, 174 patch registrations, 4,746 log markers; no removals).
+The existing broad runtime harnesses passed up to item presentation, where a source-binding
+check exposed the changed order of the transport's condition. Keeping its original prefix
+restored that integration contract without weakening the test. Item presentation, flight
+timing, figure release and send-path tests then completed separately, including their negative
+controls. Final source gates and wire vectors were repeated after integration; unaffected
+earlier runtime harnesses were not redundantly repeated. The compiled audit compares both the
+historical guard baseline and the immediate pre-feature source to distinguish old differences.
+[The final audit](TOWN-SERVICES-FINAL-AUDIT.md) finds 27 new and 16 changed type files against
+the pre-feature build, with four changes solely from build-number constants. No unexpected
+legacy runtime change was found. The historical guard difference remains expected
+(0 order-only / 105 changed / 90 new-or-gone entries); it is not a claim of a zero-difference
+refactor.
+
+The complete install archive is `dist/GloomhavenVR-1.0.7.zip`, containing both matching
+bundles, plugin, preloader and runtime dependencies. ZIP CRC, bundled-file hashes, plugin
+identity and Windows text encoding/layout were verified. This is an unreleased dev build;
+all VR participants in the hardware test need build 538 and the complete asset set.
+
+Cold observer construction is bandwidth-dependent. A synthetic context with eight visible
+rows takes about .94 seconds on an otherwise idle scheduler; 24 rows take 1.83 seconds.
+Under deliberately saturated competing presentation streams, the larger 64-row fixture takes
+22 seconds. The shared transport budget remains unchanged. This is a measured first-variant
+limit, not a measured native catalog size or an exception to visual parity. See
+[TOWN-SERVICES-SYNC.md](TOWN-SERVICES-SYNC.md) and
+[TOWN-SERVICES-MIRROR-VALIDATION.md](TOWN-SERVICES-MIRROR-VALIDATION.md) for workloads,
+CPU/GC observations and coverage boundaries.
