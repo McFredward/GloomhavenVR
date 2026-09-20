@@ -271,7 +271,10 @@ internal static class TownServiceSync
     internal static void ResetNetwork() { Reset(); TownServiceMirror.ResetNetwork(); }
     internal static void Shutdown()
     { Reset(); TownServiceMirror.Shutdown(); NativeTemplates.Shutdown(); _sharedFrame = null; ReportReset(); }
-    private static void ReportReset() => Failures.Clear();
+    private static void ReportReset()
+    {
+        Failures.Clear();
+    }
     private static void Report(string scope, Exception e)
     {
         float now = Time.unscaledTime;

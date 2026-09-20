@@ -423,7 +423,10 @@ internal static class TownServiceMirror
         }
         frame.ParentAlpha = alpha;
     }
-    private static void ReportReset() => Failures.Clear();
+    private static void ReportReset()
+    {
+        Failures.Clear();
+    }
     private static void Report(string phase, Exception error)
     {
         string key = phase + ": " + error.Message; float now = Time.unscaledTime;
