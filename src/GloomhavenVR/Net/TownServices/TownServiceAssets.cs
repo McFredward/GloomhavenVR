@@ -45,6 +45,9 @@ internal sealed class TownServiceAssets
                 // collisions are refused, and generated RenderTextures require an explicit binding.
                 key = "texture|" + texture.name + "|" + texture.width + "|" + texture.height + "|" + (int)texture.format + "|" + texture.mipmapCount;
                 break;
+            case TMP_SpriteAsset sprites:
+                key = "tmpsprite|" + sprites.name + "|" + Key(sprites.spriteSheet) + "|" + sprites.spriteCharacterTable.Count;
+                break;
             case TMP_FontAsset font:
                 key = "tmpfont|" + font.name + "|" + font.faceInfo.familyName + "|" + font.faceInfo.styleName
                     + "|" + font.atlasWidth + "|" + font.atlasHeight;
@@ -88,6 +91,7 @@ internal sealed class TownServiceAssets
         if (Time.unscaledTime < _nextScan) return;
         _nextScan = Time.unscaledTime + 2;
         foreach (TMP_FontAsset font in Resources.FindObjectsOfTypeAll<TMP_FontAsset>()) TryKey(font);
+        foreach (TMP_SpriteAsset sprites in Resources.FindObjectsOfTypeAll<TMP_SpriteAsset>()) TryKey(sprites);
         foreach (Font font in Resources.FindObjectsOfTypeAll<Font>()) TryKey(font);
         foreach (Texture2D texture in Resources.FindObjectsOfTypeAll<Texture2D>()) TryKey(texture);
         foreach (Sprite sprite in Resources.FindObjectsOfTypeAll<Sprite>()) TryKey(sprite);

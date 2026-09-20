@@ -24,6 +24,14 @@ internal sealed class TownServiceBinding : IDisposable
         internal Transform Transform = null!;
         internal Transform? Parent;
         internal RectTransform? Rect;
+        internal Canvas? Canvas;
+        internal MeshRenderer? Mesh;
+        internal readonly List<Material> MeshMaterials = new();
+        internal readonly List<TownServiceValue> MeshValues = new();
+        internal readonly Material?[] OwnedMesh = new Material?[8];
+        internal int Sibling;
+        internal Component[] Components = Array.Empty<Component>();
+        internal readonly List<Component> ComponentProbe = new();
         internal Graphic? Graphic;
         internal CanvasGroup? Group;
         internal Mask? Mask;
@@ -43,12 +51,17 @@ internal sealed class TownServiceBinding : IDisposable
         internal Color Color, Rendered;
         internal Vector4 Padding;
         internal Vector2Int Softness;
-        internal int Flags;
+        internal int Flags, Sibling, SortingOrder, SortingLayer, ShaderChannels;
+        internal bool CanvasEnabled, OverrideSorting, PixelPerfect, OverridePixelPerfect;
+        internal float ReferencePixels, PlaneDistance;
         internal float Alpha;
         internal bool Same(NodeProbe p) => Position.Equals(p.Position) && Scale.Equals(p.Scale) && Anchored.Equals(p.Anchored)
             && Rotation.Equals(p.Rotation) && AnchorMin.Equals(p.AnchorMin) && AnchorMax.Equals(p.AnchorMax)
             && Pivot.Equals(p.Pivot) && Size.Equals(p.Size) && Color.Equals(p.Color) && Rendered.Equals(p.Rendered)
-            && Padding.Equals(p.Padding) && Softness.Equals(p.Softness) && Flags == p.Flags && Alpha == p.Alpha;
+            && Padding.Equals(p.Padding) && Softness.Equals(p.Softness) && Flags == p.Flags && Alpha == p.Alpha && Sibling == p.Sibling
+            && SortingOrder == p.SortingOrder && SortingLayer == p.SortingLayer && ShaderChannels == p.ShaderChannels
+            && CanvasEnabled == p.CanvasEnabled && OverrideSorting == p.OverrideSorting && PixelPerfect == p.PixelPerfect
+            && OverridePixelPerfect == p.OverridePixelPerfect && ReferencePixels == p.ReferencePixels && PlaneDistance == p.PlaneDistance;
     }
 
     internal TownServiceBinding(Transform root, Func<Transform, bool>? exclude = null)
@@ -56,6 +69,7 @@ internal sealed class TownServiceBinding : IDisposable
         Root = root; _exclude = exclude;
         var nodes = new List<Transform>(); var keys = new List<uint>();
         Walk(root, 2166136261, nodes, keys, true, 0, exclude);
+        SortBindings(nodes, keys);
         Nodes = nodes.ToArray(); Bindings = keys.ToArray();
         uint signature = 2166136261;
         foreach (uint key in Bindings) signature = unchecked((signature ^ key) * 16777619);
@@ -66,8 +80,9 @@ internal sealed class TownServiceBinding : IDisposable
         {
             Transform node = Nodes[i];
             var cache = new NodeCache { Transform = node, Parent = node.parent, Children = node.childCount,
-                Rect = node as RectTransform, Graphic = node.GetComponent<Graphic>(), Group = node.GetComponent<CanvasGroup>(),
+                Rect = node as RectTransform, Canvas = node.GetComponent<Canvas>(), Mesh = node.GetComponent<MeshRenderer>(), Sibling = node.GetSiblingIndex(), Graphic = node.GetComponent<Graphic>(), Group = node.GetComponent<CanvasGroup>(),
                 Mask = node.GetComponent<Mask>(), RectMask = node.GetComponent<RectMask2D>() };
+            cache.Components = node.GetComponents<Component>();
             cache.Callback = cache.MarkDirty;
             if (cache.Graphic != null)
             {
@@ -100,6 +115,16 @@ internal sealed class TownServiceBinding : IDisposable
         }
     }
 
+    private static void SortBindings(List<Transform> nodes, List<uint> keys)
+    {
+        // Keep the module root first, then order by stable original path identity. Sibling
+        // order is an authored property, not topology: reordering peers must not replace art.
+        var order = new List<int>(); for (int i = 1; i < keys.Count; i++) order.Add(i);
+        order.Sort((a, b) => keys[a].CompareTo(keys[b]));
+        Transform[] originalNodes = nodes.ToArray(); uint[] originalKeys = keys.ToArray();
+        for (int i = 0; i < order.Count; i++) { nodes[i + 1] = originalNodes[order[i]]; keys[i + 1] = originalKeys[order[i]]; }
+    }
+
     internal static bool GeneratedTextMesh(Transform child) => child.GetComponent<TMP_SubMeshUI>() != null || child.GetComponent<TMP_SubMesh>() != null;
 
     internal TownServiceNode[] Read(TownServiceAssets assets)
@@ -111,11 +136,16 @@ internal sealed class TownServiceBinding : IDisposable
             Transform node = Nodes[i];
             if (node == null) throw new InvalidDataException("Native town-service module was destroyed.");
             NodeCache cache = _cache[i];
-            if (node.childCount != cache.Children || i != 0 && node.parent != cache.Parent) checkStructure = true;
+            if (node.childCount != cache.Children || i != 0 && node.parent != cache.Parent || node.GetSiblingIndex() != cache.Sibling) checkStructure = true;
+            node.GetComponents(cache.ComponentProbe);
+            if (cache.ComponentProbe.Count != cache.Components.Length) throw new InvalidDataException("Native town-service topology changed.");
+            for (int c = 0; c < cache.Components.Length; c++)
+                if (!ReferenceEquals(cache.Components[c], cache.ComponentProbe[c])) throw new InvalidDataException("Native town-service topology changed.");
+            bool meshChanged = ReadMesh(cache, assets);
             TownServiceValue? material = cache.Graphic != null
                 ? TownServiceMaterial.Read(cache.Graphic is TMP_Text tm ? tm.fontSharedMaterial : cache.Graphic.material, assets) : null;
             NodeProbe probe = Probe(cache, i == 0);
-            if (!cache.Dirty && probe.Same(cache.Probe) && ReferenceEquals(material, cache.Material)) continue;
+            if (!cache.Dirty && probe.Same(cache.Probe) && ReferenceEquals(material, cache.Material) && !meshChanged) continue;
             var value = new TownServiceNode { Binding = Bindings[i] };
             var v = value.Values;
             RectTransform? rect = cache.Rect;
@@ -127,6 +157,18 @@ internal sealed class TownServiceBinding : IDisposable
                     rect.anchorMin.x, rect.anchorMin.y, rect.anchorMax.x, rect.anchorMax.y,
                     rect.pivot.x, rect.pivot.y, i == 0 ? rect.rect.width : rect.sizeDelta.x, i == 0 ? rect.rect.height : rect.sizeDelta.y });
             Put(v, TownServiceProperty.Active, new[] { node.gameObject.activeSelf ? 1f : 0f });
+            Put(v, TownServiceProperty.Sibling, new[] { (float)node.GetSiblingIndex() });
+            if (cache.Canvas != null)
+                Put(v, TownServiceProperty.Canvas, new[] { probe.CanvasEnabled ? 1f : 0f, probe.OverrideSorting ? 1f : 0f,
+                    probe.SortingOrder, probe.PixelPerfect ? 1f : 0f, probe.OverridePixelPerfect ? 1f : 0f,
+                    probe.ReferencePixels, probe.PlaneDistance, probe.ShaderChannels }, probe.SortingLayer.ToString(System.Globalization.CultureInfo.InvariantCulture));
+            if (cache.Mesh != null)
+            {
+                Put(v, TownServiceProperty.Mesh, new[] { cache.Mesh.enabled ? 1f : 0f, cache.Mesh.forceRenderingOff ? 1f : 0f,
+                    (float)cache.MeshMaterials.Count, cache.Mesh.sortingOrder, (float)cache.Mesh.shadowCastingMode, cache.Mesh.receiveShadows ? 1f : 0f },
+                    cache.Mesh.sortingLayerID.ToString(System.Globalization.CultureInfo.InvariantCulture));
+                for (int m = 0; m < cache.MeshValues.Count; m++) v.Add((ushort)(TownServiceProperty.MeshMaterial0 + m), cache.MeshValues[m]);
+            }
             Graphic? graphic = cache.Graphic;
             if (graphic != null)
             {
@@ -155,7 +197,7 @@ internal sealed class TownServiceBinding : IDisposable
                     text.maxVisibleLines, text.firstVisibleCharacter, text.pageToDisplay, text.enableVertexGradient ? 1f : 0f };
                 Color[] colors = { gradient.topLeft, gradient.topRight, gradient.bottomLeft, gradient.bottomRight };
                 foreach (Color c in colors) { n.Add(c.r); n.Add(c.g); n.Add(c.b); n.Add(c.a); }
-                Put(v, TownServiceProperty.TmpText, n.ToArray(), text.text ?? string.Empty, assets.Key(text.font));
+                Put(v, TownServiceProperty.TmpText, n.ToArray(), text.text ?? string.Empty, assets.Key(text.font), assets.Key(text.spriteAsset));
                 v.Add(TownServiceProperty.TextMaterial, material!);
             }
             else if (graphic is Text legacy)
@@ -182,21 +224,45 @@ internal sealed class TownServiceBinding : IDisposable
         if (checkStructure)
         {
             var verify = new List<Transform>(); var keys = new List<uint>(); Walk(Root, 2166136261, verify, keys, true, 0, _exclude);
+            SortBindings(verify, keys);
             if (verify.Count != Nodes.Length) throw new InvalidDataException("Native town-service topology changed.");
             for (int i = 0; i < verify.Count; i++)
             {
                 if (!ReferenceEquals(verify[i], Nodes[i]) || keys[i] != Bindings[i]) throw new InvalidDataException("Native town-service topology changed.");
-                _cache[i].Children = Nodes[i].childCount; _cache[i].Parent = Nodes[i].parent;
+                _cache[i].Children = Nodes[i].childCount; _cache[i].Parent = Nodes[i].parent; _cache[i].Sibling = Nodes[i].GetSiblingIndex();
             }
         }
         return result;
+    }
+
+    private static bool ReadMesh(NodeCache cache, TownServiceAssets assets)
+    {
+        if (cache.Mesh == null) return false;
+        if (cache.Mesh.HasPropertyBlock()) throw new InvalidDataException("Town mesh property block requires declared shader output capture.");
+        cache.Mesh.GetSharedMaterials(cache.MeshMaterials);
+        if (cache.MeshMaterials.Count > 8) throw new InvalidDataException("Town mesh exceeds eight original material slots.");
+        bool changed = cache.MeshValues.Count != cache.MeshMaterials.Count;
+        while (cache.MeshValues.Count < cache.MeshMaterials.Count) cache.MeshValues.Add(new TownServiceValue());
+        if (cache.MeshValues.Count > cache.MeshMaterials.Count) cache.MeshValues.RemoveRange(cache.MeshMaterials.Count, cache.MeshValues.Count - cache.MeshMaterials.Count);
+        for (int i = 0; i < cache.MeshMaterials.Count; i++)
+        {
+            TownServiceValue value = TownServiceMaterial.Read(cache.MeshMaterials[i], assets);
+            if (!ReferenceEquals(value, cache.MeshValues[i])) { cache.MeshValues[i] = value; changed = true; }
+        }
+        return changed;
     }
 
     private static NodeProbe Probe(NodeCache c, bool root)
     {
         Transform t = c.Transform;
         var p = new NodeProbe { Position = t.localPosition, Rotation = t.localRotation, Scale = t.localScale,
-            Flags = t.gameObject.activeSelf ? 1 : 0 };
+            Flags = t.gameObject.activeSelf ? 1 : 0, Sibling = t.GetSiblingIndex() };
+        if (c.Canvas != null)
+        { Canvas canvas = c.Canvas; p.CanvasEnabled = canvas.enabled; p.OverrideSorting = canvas.overrideSorting;
+            p.SortingOrder = canvas.sortingOrder; p.SortingLayer = canvas.sortingLayerID; p.PixelPerfect = canvas.pixelPerfect;
+            p.OverridePixelPerfect = canvas.overridePixelPerfect; p.ReferencePixels = canvas.referencePixelsPerUnit;
+            p.PlaneDistance = canvas.planeDistance; p.ShaderChannels = (int)canvas.additionalShaderChannels; }
+        if (c.Mesh != null) { if (c.Mesh.enabled) p.Flags |= 128; if (c.Mesh.forceRenderingOff) p.Flags |= 256; }
         RectTransform? r = c.Rect;
         if (r != null)
         {
@@ -230,13 +296,16 @@ internal sealed class TownServiceBinding : IDisposable
                 {
                     case TownServiceProperty.Transform: Shape(value, node is RectTransform ? 18 : 10, 0); break;
                     case TownServiceProperty.Active: Shape(value, 1, 0); break;
+                    case TownServiceProperty.Sibling: Shape(value, 1, 0); break;
+                    case TownServiceProperty.Canvas: Require<Canvas>(node); Shape(value, 8, 1); int.Parse(value.Text[0], System.Globalization.CultureInfo.InvariantCulture); break;
+                    case TownServiceProperty.Mesh: Require<MeshRenderer>(node); Shape(value, 6, 1); int.Parse(value.Text[0], System.Globalization.CultureInfo.InvariantCulture); break;
                     case TownServiceProperty.Graphic: Require<Graphic>(node); Shape(value, 5, 0); break;
                     case TownServiceProperty.Renderer: Require<CanvasRenderer>(node); Shape(value, 4, 0); break;
                     case TownServiceProperty.Group: Require<CanvasGroup>(node); Shape(value, 3, 0); break;
                     case TownServiceProperty.Image:
                         Require<Image>(node); Shape(value, 8, 2); assets.Resolve<Sprite>(value.Text[0]); assets.Resolve<Sprite>(value.Text[1]); break;
                     case TownServiceProperty.RawImage: Require<RawImage>(node); Shape(value, 4, 1); assets.Resolve<Texture>(value.Text[0]); break;
-                    case TownServiceProperty.TmpText: Require<TMP_Text>(node); Shape(value, 40, 2); assets.Resolve<TMP_FontAsset>(value.Text[1]); break;
+                    case TownServiceProperty.TmpText: Require<TMP_Text>(node); Shape(value, 40, 3); assets.Resolve<TMP_FontAsset>(value.Text[1]); assets.Resolve<TMP_SpriteAsset>(value.Text[2]); break;
                     case TownServiceProperty.LegacyText: Require<Text>(node); Shape(value, 11, 2); assets.Resolve<Font>(value.Text[1]); break;
                     case TownServiceProperty.Mask: Require<Mask>(node); Shape(value, 2, 0); break;
                     case TownServiceProperty.RectMask: Require<RectMask2D>(node); Shape(value, 7, 0); break;
@@ -244,7 +313,10 @@ internal sealed class TownServiceBinding : IDisposable
                     case TownServiceProperty.TextMaterial: Require<TMP_Text>(node); TownServiceMaterial.Validate(value, assets); break;
                     case TownServiceProperty.Shadow: Require<Shadow>(node); Shape(value, 8, 0); break;
                     case TownServiceProperty.Outline: Require<Outline>(node); Shape(value, 8, 0); break;
-                    default: throw new InvalidDataException("Unsupported town-service property.");
+                    default:
+                        if (pair.Key >= TownServiceProperty.MeshMaterial0 && pair.Key <= TownServiceProperty.MeshMaterial7)
+                        { Require<MeshRenderer>(node); TownServiceMaterial.Validate(value, assets); break; }
+                        throw new InvalidDataException("Unsupported town-service property.");
                 }
             }
             if (!state.Values.ContainsKey(TownServiceProperty.Transform) || !state.Values.ContainsKey(TownServiceProperty.Active))
@@ -278,6 +350,16 @@ internal sealed class TownServiceBinding : IDisposable
                         else node.localPosition = new Vector3(n[0], n[1], n[2]);
                         node.localRotation = new Quaternion(n[3], n[4], n[5], n[6]); node.localScale = new Vector3(n[7], n[8], n[9]); break;
                     case TownServiceProperty.Active: if (i != 0) node.gameObject.SetActive(n[0] != 0); break;
+                    case TownServiceProperty.Sibling: if (i != 0) node.SetSiblingIndex((int)n[0]); break;
+                    case TownServiceProperty.Canvas:
+                        Canvas canvas = Require<Canvas>(node); canvas.enabled = n[0] != 0; canvas.overrideSorting = n[1] != 0;
+                        canvas.sortingOrder = (int)n[2]; canvas.sortingLayerID = int.Parse(text[0], System.Globalization.CultureInfo.InvariantCulture);
+                        canvas.pixelPerfect = n[3] != 0; canvas.overridePixelPerfect = n[4] != 0; canvas.referencePixelsPerUnit = n[5];
+                        canvas.planeDistance = n[6]; canvas.additionalShaderChannels = (AdditionalCanvasShaderChannels)(int)n[7]; break;
+                    case TownServiceProperty.Mesh:
+                        MeshRenderer mesh = Require<MeshRenderer>(node); mesh.enabled = n[0] != 0; mesh.forceRenderingOff = n[1] != 0;
+                        mesh.sortingOrder = (int)n[3]; mesh.sortingLayerID = int.Parse(text[0], System.Globalization.CultureInfo.InvariantCulture);
+                        mesh.shadowCastingMode = (UnityEngine.Rendering.ShadowCastingMode)(int)n[4]; mesh.receiveShadows = n[5] != 0; break;
                     case TownServiceProperty.Graphic:
                         Graphic g = Require<Graphic>(node); g.enabled = n[0] != 0; g.color = ColorAt(n, 1); g.raycastTarget = false; break;
                     case TownServiceProperty.Renderer: Require<CanvasRenderer>(node).SetColor(ColorAt(n, 0)); break;
@@ -291,7 +373,7 @@ internal sealed class TownServiceBinding : IDisposable
                     case TownServiceProperty.RawImage:
                         RawImage raw = Require<RawImage>(node); raw.texture = assets.Resolve<Texture>(text[0]); raw.uvRect = new Rect(n[0], n[1], n[2], n[3]); break;
                     case TownServiceProperty.TmpText:
-                        TMP_Text tmp = Require<TMP_Text>(node); tmp.font = assets.Resolve<TMP_FontAsset>(text[1]); tmp.text = text[0];
+                        TMP_Text tmp = Require<TMP_Text>(node); tmp.font = assets.Resolve<TMP_FontAsset>(text[1]); tmp.spriteAsset = assets.Resolve<TMP_SpriteAsset>(text[2]); tmp.text = text[0];
                         tmp.fontSize = n[0]; tmp.fontStyle = (FontStyles)n[1]; tmp.alignment = (TextAlignmentOptions)n[2];
                         tmp.enableWordWrapping = n[3] != 0; tmp.richText = n[4] != 0; tmp.isRightToLeftText = n[5] != 0;
                         tmp.overflowMode = (TextOverflowModes)n[6]; tmp.enableAutoSizing = n[7] != 0; tmp.fontSizeMin = n[8]; tmp.fontSizeMax = n[9];
@@ -311,6 +393,13 @@ internal sealed class TownServiceBinding : IDisposable
                         _graphicMaterials[i] = TownServiceMaterial.Apply(value, assets, _graphicMaterials[i]); Require<Graphic>(node).material = _graphicMaterials[i]; break;
                     case TownServiceProperty.TextMaterial:
                         _textMaterials[i] = TownServiceMaterial.Apply(value, assets, _textMaterials[i]); Require<TMP_Text>(node).fontSharedMaterial = _textMaterials[i]; break;
+                    default:
+                        if (pair.Key >= TownServiceProperty.MeshMaterial0 && pair.Key <= TownServiceProperty.MeshMaterial7)
+                        {
+                            int slot = pair.Key - TownServiceProperty.MeshMaterial0;
+                            _cache[i].OwnedMesh[slot] = TownServiceMaterial.Apply(value, assets, _cache[i].OwnedMesh[slot]);
+                        }
+                        break;
                     case TownServiceProperty.Shadow:
                     case TownServiceProperty.Outline:
                         Shadow effect = pair.Key == TownServiceProperty.Outline ? Require<Outline>(node) : Require<Shadow>(node);
@@ -318,6 +407,14 @@ internal sealed class TownServiceBinding : IDisposable
                 }
             }
         }
+        for (int i = 0; i < Nodes.Length; i++)
+            if (frame.Nodes[i].Values.TryGetValue(TownServiceProperty.Mesh, out TownServiceValue? meshState))
+            {
+                int count = (int)meshState.Numbers[2];
+                var materials = new Material[count];
+                for (int m = 0; m < count; m++) materials[m] = _cache[i].OwnedMesh[m]!;
+                Require<MeshRenderer>(Nodes[i]).sharedMaterials = materials;
+            }
         // Root rect dimensions still govern its original children's anchors and wrapping.
         float[] root = frame.Nodes[0].Values[TownServiceProperty.Transform].Numbers;
         if (Root is RectTransform rr && root.Length == 18)
@@ -335,6 +432,7 @@ internal sealed class TownServiceBinding : IDisposable
                 node.Graphic.UnregisterDirtyMaterialCallback(node.Callback);
                 node.Graphic.UnregisterDirtyLayoutCallback(node.Callback);
             }
+        foreach (NodeCache node in _cache) foreach (Material? material in node.OwnedMesh) TownServiceMaterial.Release(material);
         foreach (Material? material in _graphicMaterials) TownServiceMaterial.Release(material);
         foreach (Material? material in _textMaterials) TownServiceMaterial.Release(material);
         Array.Clear(_graphicMaterials, 0, _graphicMaterials.Length); Array.Clear(_textMaterials, 0, _textMaterials.Length);

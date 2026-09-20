@@ -64,6 +64,7 @@ internal static class TownServiceProperty
 {
     internal const ushort Transform = 1, Active = 2, Graphic = 3, Renderer = 4, Group = 5,
         Image = 6, RawImage = 7, TmpText = 8, LegacyText = 9, Mask = 10, RectMask = 11,
-        Material = 12, TextMaterial = 13, Shadow = 14, Outline = 15;
-    internal const ushort Last = Outline;
+        Material = 12, TextMaterial = 13, Shadow = 14, Outline = 15, Canvas = 16, Sibling = 17,
+        Mesh = 18, MeshMaterial0 = 19, MeshMaterial7 = 26;
+    internal const ushort Last = MeshMaterial7;
 }

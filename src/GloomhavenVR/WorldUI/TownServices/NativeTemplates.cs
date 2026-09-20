@@ -33,13 +33,14 @@ internal static class NativeTemplates
     private static readonly Dictionary<Transform, string> Roots = new();
     private static GameObject? _bank;
     private static UIGuildmasterHUD? _hud;
-    internal static bool Ready => _hud != null && _bank != null;
+    private static bool _ready;
+    internal static bool Ready => _ready && _hud != null && _bank != null;
 
     internal static bool Initialize()
     {
         UIGuildmasterHUD? hud = Singleton<UIGuildmasterHUD>.Instance;
         if (hud == null) return false;
-        if (_hud == hud && _bank != null) return true;
+        if (_ready && _hud == hud && _bank != null) return true;
         Shutdown(); _hud = hud;
         _bank = new GameObject("GVR original town widget provenance"); _bank.SetActive(false);
         Object.DontDestroyOnLoad(_bank);
@@ -69,7 +70,7 @@ internal static class NativeTemplates
         // Discover the complete immutable canonical hierarchy only after all logical roots are
         // known, so sections and pooled rows cannot accidentally be duplicated in their parent.
         foreach (var entry in Entries) Freeze(entry.Key, entry.Value);
-        TownServiceMirror.ResolveTemplate = Resolve;
+        TownServiceMirror.ResolveTemplate = Resolve; _ready = true;
         return true;
     }
 
@@ -91,7 +92,7 @@ internal static class NativeTemplates
         if (_bank == null || entry.Original == null) throw new InvalidOperationException("Original town template is unavailable: " + key);
         entry.Copy = Object.Instantiate(entry.Original.gameObject, _bank.transform, false);
         Prune(entry.Original, entry.Copy.transform);
-        RemoteWidgetMirror.Neutralize(entry.Copy, RemoteWidgetMirror.LayoutOwner.Source, null);
+        TownServiceNeutralize.Apply(entry.Copy);
         entry.Copy.SetActive(false);
         Partition(entry.Copy.transform, string.Empty, entry.Parts);
     }
@@ -176,14 +177,15 @@ internal static class NativeTemplates
         }
         finally
         {
-            if (borrowed != null) ObjectPool.RecycleCard(id, item ? ObjectPool.ECardType.Item : ObjectPool.ECardType.Ability, borrowed);
+            if (borrowed != null)
+            { if (item) RemoteItemCardSource.ReturnBorrowed(id, borrowed); else ObjectPool.RecycleCard(id, ObjectPool.ECardType.Ability, borrowed); }
             Object.Destroy(holder);
         }
     }
     internal static void Shutdown()
     {
         TownServiceMirror.ResolveTemplate = null;
-        Entries.Clear(); Roots.Clear(); _hud = null;
+        Entries.Clear(); Roots.Clear(); _hud = null; _ready = false;
         if (_bank != null) Object.Destroy(_bank); _bank = null;
     }
 }

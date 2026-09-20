@@ -91,7 +91,7 @@ internal static class TownServiceMirror
         // Instantiate below an inactive parent BEFORE stripping components; no Awake/OnEnable.
         GameObject clone = Object.Instantiate(original.gameObject, _templateHost.transform, false);
         Prune(original, clone.transform, exclude);
-        RemoteWidgetMirror.Neutralize(clone, RemoteWidgetMirror.LayoutOwner.Source, null);
+        TownServiceNeutralize.Apply(clone);
         foreach (UnityEngine.UI.Graphic graphic in clone.GetComponentsInChildren<UnityEngine.UI.Graphic>(true)) graphic.raycastTarget = false;
         clone.SetActive(false);
         using var check = new TownServiceBinding(clone.transform);
@@ -306,13 +306,16 @@ internal static class TownServiceMirror
                     }
                     Transform root = module.Binding.Root;
                     module.Host.transform.SetParent(mount, false);
+                    if (frame.ParentModule != TownServiceFrame.ManifestModule
+                        && frame.Nodes[0].Values.TryGetValue(TownServiceProperty.Sibling, out TownServiceValue? sibling))
+                        module.Host.transform.SetSiblingIndex((int)sibling.Numbers[0]);
                     module.Host.GetComponent<CanvasGroup>().alpha = frame.ParentAlpha;
                     root.position = parent.TransformPoint(Position(frame.Pose)); root.rotation = parent.rotation * Rotation(frame.Pose);
                     Vector3 worldScale = Vector3.Scale(parent.lossyScale, Scale(frame.Pose)), parentScale = root.parent.lossyScale;
                     root.localScale = new Vector3(worldScale.x / parentScale.x, worldScale.y / parentScale.y, worldScale.z / parentScale.z);
                     module.Sequence = frame.Sequence; module.Host.SetActive(true); root.gameObject.SetActive(true);
                 }
-                catch (Exception e) { Report("remote module " + entry.Key + "/" + frame.Module, e); }
+                catch (Exception e) { if (module != null) module.Host.SetActive(false); Report("remote module " + entry.Key + "/" + frame.Module, e); }
             }
         }
     }
@@ -330,7 +333,7 @@ internal static class TownServiceMirror
         canvas.worldCamera = Rig.VRRigDriver.HeadCamera != null ? Rig.VRRigDriver.HeadCamera : Camera.main;
         GameObject clone = Object.Instantiate(template, host.transform, false);
         // Templates are already inert; repeat the invariant before the clone can become active.
-        RemoteWidgetMirror.Neutralize(clone, RemoteWidgetMirror.LayoutOwner.Source, null);
+        TownServiceNeutralize.Apply(clone);
         return new RemoteModule { Host = host, Binding = new TownServiceBinding(clone.transform), Session = frame.Session, Template = frame.Template, Address = frame.TemplateAddress };
     }
 
