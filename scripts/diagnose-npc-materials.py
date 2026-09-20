@@ -20,8 +20,11 @@ def main():
     parser.add_argument("--output-dir", required=True, type=Path)
     parser.add_argument("--samples", type=int, default=16)
     parser.add_argument("--resolution", type=int, default=768)
-    modes = ("clay", "unlit_basecolor", "experimental_alpha", "clay_recalculated_normals")
+    modes = ("clay", "unlit_basecolor", "experimental_alpha", "clay_recalculated_normals",
+             "original", "no_normalmap", "normalmap_only")
     parser.add_argument("--modes", nargs="+", choices=modes, default=modes)
+    parser.add_argument("--cameras", nargs="+", default=["REVIEW_05_face", "REVIEW_04_three_quarter"],
+                        help="Camera object names from the supplied review blend.")
     args = parser.parse_args(sys.argv[sys.argv.index("--") + 1:])
     args.output_dir.mkdir(parents=True, exist_ok=True)
     scene = bpy.context.scene
@@ -76,8 +79,10 @@ def main():
             bsdf = next(node for node in nodes if node.type == "BSDF_PRINCIPLED")
             output = next(node for node in nodes if node.type == "OUTPUT_MATERIAL")
             color_links = list(bsdf.inputs["Base Color"].links)
-            if mode.startswith("clay"):
+            if mode.startswith("clay") or mode == "normalmap_only":
                 for socket in bsdf.inputs:
+                    if mode == "normalmap_only" and socket.name == "Normal":
+                        continue
                     for link in list(socket.links):
                         links.remove(link)
                 bsdf.inputs["Base Color"].default_value = (0.4, 0.4, 0.4, 1)
@@ -91,13 +96,18 @@ def main():
                 else:
                     emission.inputs["Color"].default_value = bsdf.inputs["Base Color"].default_value
                 links.new(emission.outputs[0], output.inputs["Surface"])
-            elif color_links and color_links[0].from_node.type == "TEX_IMAGE":
+            elif mode == "no_normalmap":
+                for link in list(bsdf.inputs["Normal"].links):
+                    links.remove(link)
+            elif mode == "experimental_alpha" and color_links and color_links[0].from_node.type == "TEX_IMAGE":
                 links.new(color_links[0].from_node.outputs["Alpha"], bsdf.inputs["Alpha"])
             replacements[original] = material
         for obj in imported:
             for index, material in enumerate(originals[obj.name]):
                 obj.data.materials[index] = replacements.get(material, material)
-        for camera_name, label in (("REVIEW_05_face", "face"), ("REVIEW_04_three_quarter", "full")):
+        for camera_name in args.cameras:
+            label = {"REVIEW_05_face": "face", "REVIEW_04_three_quarter": "full"}.get(
+                camera_name, camera_name.removeprefix("REVIEW_"))
             scene.camera = bpy.data.objects[camera_name]
             scene.render.filepath = str(args.output_dir / (mode + "_" + label + ".png"))
             print("NPC_MATERIAL_DIAG", mode, label, flush=True)

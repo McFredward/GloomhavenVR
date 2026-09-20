@@ -123,6 +123,11 @@ Likewise, recalculating normals on disconnected shells is a diagnostic compariso
 cannot repair missing faces or guarantee outward orientation of every fragment.
 Use `--modes clay_recalculated_normals` to run only that control, or select any combination
 of `clay`, `unlit_basecolor`, `experimental_alpha` and `clay_recalculated_normals`.
+Additional `original`, `no_normalmap` and `normalmap_only` controls isolate normal-map
+contribution. `--cameras REVIEW_07_hand_screen_left` targets a named camera in a partial
+hand review blend; default cameras remain face and three-quarter. The priestess seam
+investigation and bounded derivative correction are documented in
+[TOWN-SERVICES-MESH-REPAIR.md](TOWN-SERVICES-MESH-REPAIR.md).
 
 The first merchant/Trellis control set completed on 2026-09-20. The source contains
 493,781 triangles and 419,078 imported vertices, two packed 4096-square textures and no
