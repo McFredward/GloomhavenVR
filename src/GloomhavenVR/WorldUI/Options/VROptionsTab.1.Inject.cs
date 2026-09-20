@@ -750,10 +750,15 @@ internal static partial class VROptionsTab
         window.OnHidden.AddListener(() => NotifyHidden(window));
     }
 
-    /// <summary>A delayed close from an old clone/opening must not deselect a newer open menu.</summary>
+    /// <summary>
+    /// Accept the native close edge before UIWindow updates IsOpen. UISubmenuGOWindow first
+    /// deactivates its own GameObject, then invokes OnHidden; UIWindow only changes visual state
+    /// after that callback returns. Checking IsOpen alone discards every real close (build 536).
+    /// A replaced clone or an active, reopened pane cannot consume the current close callback.
+    /// </summary>
     private static void NotifyHidden(UISubmenuGOWindow source)
     {
-        if (!ReferenceEquals(source, _window) || IsOpen)
+        if (!ReferenceEquals(source, _window) || (IsOpen && source.gameObject.activeSelf))
             return;
         Action? pending = _onHidden;
         _onHidden = null;
@@ -894,6 +899,8 @@ internal static partial class VROptionsTab
             return false;
 
         UIWindow? win = _window.GetComponent<UIWindow>();
+        if (win != null)
+            ModalFallback.PrepareModMenuReopen(win);
 
         // READ BEFORE THE SHOW. The Show below re-activates the GameObject, and an activation is
         // exactly what makes Unity queue Start() — the method that sets this flag. Taking the

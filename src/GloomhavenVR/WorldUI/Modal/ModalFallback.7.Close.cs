@@ -97,6 +97,23 @@ internal static partial class ModalFallback
     }
 
     /// <summary>
+    /// An explicit mod-menu reopen supersedes its earlier X in the same frame. Otherwise the
+    /// release loop's gap-close would hide the newly opened pane because UserClosing still names
+    /// the old request. Retain this live float; if release already started, the existing
+    /// ResolveVanishForReopen path completes its release before converting the new opening.
+    /// </summary>
+    internal static void PrepareModMenuReopen(UIWindow window)
+    {
+        if (!MenuWindowFamily.IsModOwned(window))
+            return;
+        WindowPanel? wp = FindPanel(window);
+        if (wp == null || !wp.UserClosing || !wp.Panel.IsAlive)
+            return;
+        WindowMaterialise.DropPreRoll(wp.Panel, "the mod menu was explicitly reopened before release");
+        wp.UserClosing = false;
+    }
+
+    /// <summary>
     /// Item 3c: close ONE floated window through the game's own escape/hide path (the mod X
     /// button's action). Mirrors <see cref="CloseTopModal"/>: <c>UIWindow.Escape()</c> first
     /// (honors escapeKeyAction, exactly what the ESC key runs), falling back to the public
