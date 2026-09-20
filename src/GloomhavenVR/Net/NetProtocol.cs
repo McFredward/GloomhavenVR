@@ -92,7 +92,7 @@ internal static class NetProtocol
     public const byte ExtIdCardBurnCompletion = 75;
     /// <summary>Explicit shared map-window ownership: held mask, then automatic-motion mask.
     /// Each byte uses bits 0/1/2 for story/quest/encounter. Zero explicitly clears ownership;
-    /// absence means the peer supplied no ownership statement. Additive TLV; 78 is next free.</summary>
+    /// absence means the peer supplied no ownership statement. Additive TLV; 79 is next free.</summary>
     public const byte ExtIdSharedWindowMotion = 77;
     public const byte SharedWindowMotionRecordBytes = 2;
     public const byte SharedWindowMotionMapStoryBit = 1;
@@ -517,7 +517,21 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 537;
+    public const ushort ModBuild = 538;
+
+    // ModBuild 538 — first immersive town-service hardware variant (dev 1.0.7).
+    // Merchant, temple and enchantress retain native selection, prices, permissions and
+    // confirmations while original sections become movable reading surfaces. Original entries
+    // can be inspected in either hand and placed on a movable work tray to select; cancellation,
+    // pool reuse, character changes and native closure cannot dispatch a stale transaction.
+    // Three rigged NPCs/furniture use a separate ghvr-town.bundle with three mesh LODs and
+    // 4K actor textures. One NPC per service is shared by concurrent visitors. Original widget
+    // output is published through additive town-service messages 19/20 and extension 78;
+    // inert observer copies retain native graphics and receive no gameplay callbacks.
+    // Complete installation requires BOTH matching bundles. Original services remain usable
+    // if optional immersive presentation cannot initialize; animations never own continuation.
+    // Source, render and packaging evidence plus explicit first-headset checklist:
+    // .planning/research/TOWN-SERVICES-FIRST-VARIANT.md. No headset outcome claimed yet.
 
     // ModBuild 537 — independent VR options toggle and native close ordering.
     // Build-536 hardware confirms repeated opening, but host SetFocused(false) dims usable
