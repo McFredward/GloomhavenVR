@@ -17,11 +17,14 @@ internal static class TownServiceDelta
         var changed = new List<TownServiceNode>();
         for (int i = 0; i < current.Nodes.Length; i++)
         {
-            var node = new TownServiceNode { Binding = current.Nodes[i].Binding };
+            TownServiceNode? node = null;
             foreach (var property in current.Nodes[i].Values)
                 if (!baseline.Nodes[i].Values.TryGetValue(property.Key, out TownServiceValue? before) || !property.Value.Same(before))
+                {
+                    node ??= new TownServiceNode { Binding = current.Nodes[i].Binding };
                     node.Values.Add(property.Key, property.Value);
-            if (node.Values.Count != 0) changed.Add(node);
+                }
+            if (node != null) changed.Add(node);
         }
         delta.Nodes = changed.ToArray();
         return delta;
@@ -37,11 +40,13 @@ internal static class TownServiceDelta
         frame.Nodes = new TownServiceNode[baseline.Nodes.Length];
         for (int i = 0; i < frame.Nodes.Length; i++)
         {
-            var node = new TownServiceNode { Binding = baseline.Nodes[i].Binding };
-            foreach (var property in baseline.Nodes[i].Values) node.Values.Add(property.Key, property.Value);
-            if (changes.TryGetValue(node.Binding, out TownServiceNode? update))
-            { foreach (var property in update.Values) node.Values[property.Key] = property.Value; changes.Remove(node.Binding); }
-            frame.Nodes[i] = node;
+            TownServiceNode original = baseline.Nodes[i];
+            if (!changes.TryGetValue(original.Binding, out TownServiceNode? update))
+            { frame.Nodes[i] = original; continue; }
+            var node = new TownServiceNode { Binding = original.Binding };
+            foreach (var property in original.Values) node.Values.Add(property.Key, property.Value);
+            foreach (var property in update.Values) node.Values[property.Key] = property.Value;
+            changes.Remove(node.Binding); frame.Nodes[i] = node;
         }
         return changes.Count == 0 ? frame : null;
     }
@@ -77,6 +82,8 @@ internal static class TownServiceDelta
         Service = f.Service, Session = f.Session, Sequence = f.Sequence, BaseSequence = f.BaseSequence,
         Module = f.Module, Template = f.Template, TemplateAddress = f.TemplateAddress, Structure = f.Structure, Visible = f.Visible,
         SampleTime = f.SampleTime, SessionAge = f.SessionAge, ParentModule = f.ParentModule, ParentBinding = f.ParentBinding,
-        ParentAlpha = f.ParentAlpha, Pose = (float[])f.Pose.Clone(), Modules = (ushort[])f.Modules.Clone()
+        ParentAlpha = f.ParentAlpha, HasCanvasFrame = f.HasCanvasFrame, CanvasPose = (float[])f.CanvasPose.Clone(),
+        CanvasRect = (float[])f.CanvasRect.Clone(), CanvasSettings = (float[])f.CanvasSettings.Clone(),
+        CanvasSortingOrder = f.CanvasSortingOrder, CanvasSortingLayer = f.CanvasSortingLayer, Pose = (float[])f.Pose.Clone(), Modules = (ushort[])f.Modules.Clone()
     };
 }

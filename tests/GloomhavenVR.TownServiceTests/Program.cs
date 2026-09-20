@@ -32,6 +32,9 @@ internal static class Program
         TownServiceFrame expanded = TownServiceDelta.Expand(original, received!)!;
         Check(expanded.Nodes[14].Values[TownServiceProperty.Graphic].Numbers[1] == .25f, "changed appearance applied");
         Check(expanded.Nodes[15].Values[TownServiceProperty.Graphic].Numbers[1] == .8f, "unchanged original appearance retained");
+        Check(ReferenceEquals(expanded.Nodes[15], original.Nodes[15]), "unchanged immutable baseline node reused without dictionary allocation");
+        Check(!ReferenceEquals(expanded.Nodes[14], original.Nodes[14]) && original.Nodes[14].Values[TownServiceProperty.Graphic].Numbers[1] == .8f,
+            "changed node overlays a fresh dictionary without mutating original baseline");
         TownServiceFrame later = TownServiceDelta.Copy(animation); later.Sequence = 7;
         later.Nodes[15].Values[TownServiceProperty.Graphic].Numbers[1] = .6f;
         expanded = TownServiceDelta.Expand(original, TownServiceDelta.Create(original, later))!;

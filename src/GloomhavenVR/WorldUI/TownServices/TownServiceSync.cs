@@ -31,6 +31,7 @@ internal static class TownServiceSync
         internal readonly List<RectMask2D> Masks = new();
         internal readonly List<CanvasGroup> Groups = new();
         internal bool Seen;
+        internal bool Complete;
     }
     private static readonly Dictionary<Transform, SourceEntry> Sources = new();
     private static readonly List<Transform> RemovedSources = new();
@@ -41,6 +42,8 @@ internal static class TownServiceSync
     private static readonly HashSet<Transform> Visited = new();
     private static readonly List<Transform> Dynamic = new();
     private static readonly Dictionary<string, float> Failures = new(StringComparer.Ordinal);
+    private static float _reportWindow;
+    private static int _reportCount;
     private static uint _session;
     private static byte _service;
     private static ushort _nextId;
@@ -48,7 +51,7 @@ internal static class TownServiceSync
     internal static void Prepare()
     {
         if (!MapRoomDriver.Active || Time.unscaledTime < _prepareAfter) return;
-        try { NativeTemplates.Initialize(); }
+        try { NativeTemplates.Initialize(); TownServiceNativeAssets.Tick(); }
         catch (Exception e) { _prepareAfter = Time.unscaledTime + 2f; Report("prepare", e); }
     }
     internal static void Tick(Transform sharedFrame, Transform? stationRoot)
@@ -143,11 +146,12 @@ internal static class TownServiceSync
             if (!Sources.TryGetValue(source, out SourceEntry? sourceEntry) || sourceEntry.Key != key)
             {
                 sourceEntry = new SourceEntry { Key = key, Root = source }; Sources[source] = sourceEntry;
+                TownServiceNativeAssets.PrepareRoot(provenance != null ? provenance : source);
             }
             sourceEntry.Seen = true;
             if (cloneOf == null && NativeTemplates.IsDynamic(source) && !Visible(sourceEntry)) return;
             if (cloneOf == null) CollectDynamic(source);
-            if (sourceEntry.Parts.Count != 0)
+            if (sourceEntry.Complete)
             {
                 foreach (Published existing in sourceEntry.Parts)
                 {
@@ -159,6 +163,8 @@ internal static class TownServiceSync
                 }
                 return;
             }
+            // A transient template/asset failure must retry the entire partition census.
+            sourceEntry.Parts.Clear();
             IReadOnlyList<NativeTemplates.Part> parts = NativeTemplates.Parts(key);
             foreach (NativeTemplates.Part part in parts)
             {
@@ -187,6 +193,7 @@ internal static class TownServiceSync
                 }
                 module.Seen = true; sourceEntry.Parts.Add(module);
             }
+            sourceEntry.Complete = true;
         }
         catch (Exception e) { Report(key, e); }
     }
@@ -270,17 +277,23 @@ internal static class TownServiceSync
     }
     internal static void ResetNetwork() { Reset(); TownServiceMirror.ResetNetwork(); }
     internal static void Shutdown()
-    { Reset(); TownServiceMirror.Shutdown(); NativeTemplates.Shutdown(); _sharedFrame = null; ReportReset(); }
+    { Reset(); TownServiceMirror.Shutdown(); NativeTemplates.Shutdown(); TownServiceNativeAssets.Shutdown(); _sharedFrame = null; ReportReset(); }
     private static void ReportReset()
     {
-        Failures.Clear();
+        Failures.Clear(); _reportWindow = 0; _reportCount = 0;
     }
     private static void Report(string scope, Exception e)
     {
         float now = Time.unscaledTime;
         string key = scope + ": " + e.Message;
+        if (now - _reportWindow >= 30f) { _reportWindow = now; _reportCount = 0; }
+        if (_reportCount >= 8)
+        {
+            if (_reportCount == 8) { _reportCount++; VRLog.Note("TownServices", "Further presentation errors are suppressed for this 30-second interval."); }
+            return;
+        }
         if (Failures.TryGetValue(key, out float then) && now - then < 30) return;
-        if (Failures.Count > 32) Failures.Clear(); Failures[key] = now;
+        if (Failures.Count > 32) Failures.Clear(); Failures[key] = now; _reportCount++;
         VRLog.Note("TownServices", "Original widget publisher unavailable: " + key);
     }
 }

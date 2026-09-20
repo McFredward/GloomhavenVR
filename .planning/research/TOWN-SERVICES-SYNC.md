@@ -115,3 +115,30 @@ Runtime integration follow-up:
   moves its children through one authored parent update rather than sending redundant world
   movement for every row. New peers request complete baselines, and obsolete fragment streams
   are pruned on manifests so repeated catalog/session use cannot exhaust the stream budget.
+
+Final graphics and transport evidence:
+
+The source-linked Unity worker reproduced the additional outer-canvas animation-scale and
+nested-module sibling-order failures. Explicit original canvas frames and a complete authored
+sibling-rank pass correct both. Owner sample timestamps drive coherent interpolation of the
+canvas, root, descendant transforms, rectangles, alpha and graphic colors; unchanged descendants
+are not rewritten when only their parent moves. Hidden/error states cancel previous motion.
+
+Cold transfer measurement uses the actual codec, compression, fragmentation, batching and
+scheduler at 90 producer ticks/s with the existing 864-byte / 50-ms limit. It models three
+128-node original context modules plus 16-node rows, including text and shader property data.
+It does **not** measure an actual loaded merchant hierarchy or network latency.
+
+| Synthetic visible rows | Modules | Uncompressed | Compressed pages | Complete, other lanes empty | Complete, six constantly saturated 4-KiB lanes |
+| ---: | ---: | ---: | ---: | ---: | ---: |
+| 8 | 11 | 73,697 B | 12,943 B | 0.944 s | not measured |
+| 24 | 27 | 123,105 B | 22,984 B | 1.833 s | 10.000 s |
+| 64 | 67 | 246,625 B | 48,094 B | not measured | 22.000 s |
+
+Every module completed atomically within the assembly lifetime in these cases. The saturated
+case deliberately creates continuing pressure unlike an unchanged service. A cold observer can
+therefore take seconds to receive a large catalog under heavy contention; this is an explicit
+limit, not a claim of instant readiness. The implementation preserves the shared game transport
+budget, preloads original art independently, publishes only visible/partially clipped rows,
+shares nested movement through parents, and sends cumulative dirty-state deltas after initial
+baselines. Hardware logs must establish actual visible module counts and cold completion time.

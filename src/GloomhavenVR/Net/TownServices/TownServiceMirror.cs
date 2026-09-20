@@ -38,11 +38,13 @@ internal static class TownServiceMirror
     private static readonly Dictionary<int, Dictionary<ushort, RemoteModule>> Remote = new();
     private static readonly Dictionary<int, Dictionary<ushort, TownServiceFrame>> Pending = new();
     private static readonly Dictionary<int, Dictionary<ushort, TownServiceFrame>> ReceivedBaselines = new();
+    private static readonly Dictionary<long, float> RemoteRetry = new();
     private readonly struct ParentLink
     { internal readonly ushort Module; internal readonly uint Binding;
         internal ParentLink(ushort module, uint binding) { Module = module; Binding = binding; } }
     private static readonly Dictionary<Transform, ParentLink> SourceParents = new();
     private static readonly List<CanvasGroup> ParentGroups = new(2);
+    private static readonly List<Canvas> ParentCanvases = new(4);
     private static GameObject? _templateHost;
     private static Transform? _sharedFrame, _station;
     private static byte _service;
@@ -52,6 +54,8 @@ internal static class TownServiceMirror
     private static float _nextManifest, _closedUntil;
     private static float _sessionStarted;
     private static readonly Dictionary<string, float> Failures = new(StringComparer.Ordinal);
+    private static float _reportWindow;
+    private static int _reportCount;
 
     private sealed class LocalModule
     {
@@ -74,6 +78,8 @@ internal static class TownServiceMirror
         internal ushort Template;
         internal string Address = string.Empty;
         internal ulong Sequence;
+        internal TownServiceFrame? LastFrame;
+        internal TownServiceMotion Motion = null!;
         public void Dispose()
         { Binding.Dispose(); if (Host != null) { Host.SetActive(false); Object.Destroy(Host); } }
     }
@@ -173,7 +179,7 @@ internal static class TownServiceMirror
                     var frame = new TownServiceFrame { Service = _service, Session = _session, Module = module.Id,
                         Template = module.Template, TemplateAddress = module.Address, Structure = module.Binding.Structure, Visible = source.gameObject.activeInHierarchy,
                         SampleTime = now, Pose = ReadPose(source, _sharedFrame), Nodes = nodes };
-                    ReadParent(module, frame);
+                    ReadParent(module, frame); ReadCanvasFrame(source, frame);
                     if (SamePresentation(module.Last, frame) && now < module.NextRefresh) continue;
                     frame.Sequence = NextSequence();
                     TownServiceFrame emitted;
@@ -268,9 +274,13 @@ internal static class TownServiceMirror
             if (parent == null || !Pending.TryGetValue(entry.Key, out Dictionary<ushort, TownServiceFrame>? pending)) continue;
             if (!Remote.TryGetValue(entry.Key, out Dictionary<ushort, RemoteModule>? standing))
             { standing = new Dictionary<ushort, RemoteModule>(); Remote.Add(entry.Key, standing); }
+            foreach (RemoteModule visible in standing.Values) visible.Motion.Tick(now);
+            bool reorder = false;
             foreach (var packet in pending)
             {
                 TownServiceFrame received = packet.Value;
+                long retryKey = ((long)entry.Key << 16) | received.Module;
+                if (RemoteRetry.TryGetValue(retryKey, out float retryAt) && now < retryAt) continue;
                 standing.TryGetValue(received.Module, out RemoteModule? module);
                 if (module != null && received.Sequence <= module.Sequence) continue;
                 TownServiceFrame? baseline = null;
@@ -282,7 +292,7 @@ internal static class TownServiceMirror
                 try
                 {
                     if (!frame.Visible)
-                    { if (module != null) { module.Host.SetActive(false); module.Sequence = frame.Sequence; } continue; }
+                    { if (module != null) { module.Host.SetActive(false); module.Motion.Reset(); module.Sequence = frame.Sequence; } continue; }
                     Transform mount = parent;
                     if (frame.ParentModule != TownServiceFrame.ManifestModule)
                     {
@@ -293,7 +303,8 @@ internal static class TownServiceMirror
                         if (module != null && mount.IsChildOf(module.Host.transform))
                             throw new InvalidDataException("Cyclic town-service module parent.");
                     }
-                    if (module == null || module.Template != frame.Template || module.Address != frame.TemplateAddress || module.Session != frame.Session)
+                    if (module == null || module.Template != frame.Template || module.Address != frame.TemplateAddress || module.Session != frame.Session
+                        || (module.AddedCanvas != null) != NeedsCanvas(frame))
                     {
                         RemoteModule candidate = BuildRemote(frame, mount);
                         try { candidate.Binding.Validate(frame, Assets); candidate.Binding.Apply(frame, Assets); }
@@ -302,8 +313,11 @@ internal static class TownServiceMirror
                     }
                     else
                     {
-                        // Resolve and validate ALL properties/assets before changing visible content.
-                        module.Binding.Validate(frame, Assets); module.Binding.Apply(frame, Assets);
+                        // Resolve all assets before a tween or binding can change visible content.
+                        module.Binding.Validate(frame, Assets);
+                        if (!module.Host.activeSelf || module.LastFrame?.ParentModule != frame.ParentModule || module.LastFrame?.ParentBinding != frame.ParentBinding)
+                            module.Motion.Reset();
+                        module.Motion.BeforeApply(now); module.Binding.Apply(frame, Assets);
                     }
                     Transform root = module.Binding.Root;
                     module.Host.transform.SetParent(mount, false);
@@ -311,33 +325,83 @@ internal static class TownServiceMirror
                         && frame.Nodes[0].Values.TryGetValue(TownServiceProperty.Sibling, out TownServiceValue? sibling))
                         module.Host.transform.SetSiblingIndex((int)sibling.Numbers[0]);
                     module.Host.GetComponent<CanvasGroup>().alpha = frame.ParentAlpha;
-                    Transform poseRoot = module.AddedCanvas != null ? module.Host.transform : root;
+                    if (frame.HasCanvasFrame && module.AddedCanvas != null)
+                    {
+                        ApplyCanvasFrame(module, frame, parent);
+                    }
+                    Transform poseRoot = module.AddedCanvas != null && !frame.HasCanvasFrame ? module.Host.transform : root;
                     poseRoot.position = mount.TransformPoint(Position(frame.Pose)); poseRoot.rotation = mount.rotation * Rotation(frame.Pose);
                     Vector3 worldScale = Vector3.Scale(mount.lossyScale, Scale(frame.Pose)), parentScale = poseRoot.parent.lossyScale;
                     poseRoot.localScale = new Vector3(worldScale.x / parentScale.x, worldScale.y / parentScale.y, worldScale.z / parentScale.z);
-                    if (module.AddedCanvas != null)
+                    if (module.AddedCanvas != null && !frame.HasCanvasFrame)
                     {
                         if (root is RectTransform rr && module.Host.transform is RectTransform hostRect)
                         { hostRect.pivot = rr.pivot; hostRect.sizeDelta = rr.rect.size; }
                         root.localPosition = Vector3.zero; root.localRotation = Quaternion.identity; root.localScale = Vector3.one;
                     }
-                    module.Sequence = frame.Sequence; module.Host.SetActive(true); root.gameObject.SetActive(true);
+                    if (module.LastFrame != null && module.Host.activeSelf && module.LastFrame.ParentModule == frame.ParentModule
+                        && module.LastFrame.ParentBinding == frame.ParentBinding)
+                        module.Motion.AfterApply(now, frame.SampleTime - module.LastFrame.SampleTime);
+                    RemoteRetry.Remove(retryKey); module.Sequence = frame.Sequence; module.LastFrame = frame; reorder = true;
+                    module.Host.SetActive(true); root.gameObject.SetActive(true);
                 }
-                catch (Exception e) { if (module != null) module.Host.SetActive(false); Report("remote module " + entry.Key + "/" + frame.Module, e); }
+                catch (Exception e)
+                {
+                    if (module != null) { module.Host.SetActive(false); module.Motion.Reset(); }
+                    if (RemoteRetry.Count >= 8 * TownServiceFrame.MaxModules && !RemoteRetry.ContainsKey(retryKey)) RemoteRetry.Clear();
+                    RemoteRetry[retryKey] = now + .25f;
+                    Report("remote module " + entry.Key + "/" + frame.Module, e);
+                }
             }
+            if (reorder) OrderOriginalSiblings(standing);
         }
     }
 
+    private readonly struct SiblingRank
+    { internal readonly Transform Node; internal readonly int Index;
+        internal SiblingRank(Transform node, int index) { Node = node; Index = index; } }
+    private static readonly Dictionary<Transform, List<SiblingRank>> OrderGroups = new();
+    private static readonly List<List<SiblingRank>> OrderLists = new();
+    private static void OrderOriginalSiblings(Dictionary<ushort, RemoteModule> modules)
+    {
+        foreach (RemoteModule module in modules.Values)
+        {
+            TownServiceFrame? frame = module.LastFrame; if (frame == null) continue;
+            if (frame.ParentModule != TownServiceFrame.ManifestModule && frame.Nodes[0].Values.TryGetValue(TownServiceProperty.Sibling, out TownServiceValue? rootOrder))
+                AddOrder(module.Host.transform, (int)rootOrder.Numbers[0]);
+            for (int i = 1; i < frame.Nodes.Length; i++)
+                if (frame.Nodes[i].Values.TryGetValue(TownServiceProperty.Sibling, out TownServiceValue? order))
+                    AddOrder(module.Binding.Nodes[i], (int)order.Numbers[0]);
+        }
+        foreach (List<SiblingRank> group in OrderGroups.Values)
+        {
+            group.Sort((a, b) => a.Index.CompareTo(b.Index));
+            for (int i = 0; i < group.Count; i++) group[i].Node.SetSiblingIndex(i);
+            group.Clear();
+        }
+        OrderGroups.Clear();
+    }
+    private static void AddOrder(Transform node, int index)
+    {
+        if (node.parent == null) return;
+        if (!OrderGroups.TryGetValue(node.parent, out List<SiblingRank>? list))
+        {
+            int next = OrderGroups.Count;
+            if (next == OrderLists.Count) OrderLists.Add(new List<SiblingRank>());
+            list = OrderLists[next]; OrderGroups.Add(node.parent, list);
+        }
+        list.Add(new SiblingRank(node, index));
+    }
     private static RemoteModule BuildRemote(TownServiceFrame frame, Transform sharedFrame)
     {
         string key = TemplateKey(frame.Service, frame.Template, frame.TemplateAddress);
         if (!Templates.ContainsKey(key)) ResolveTemplate?.Invoke(frame.Service, frame.Template, frame.TemplateAddress);
         if (!Templates.TryGetValue(key, out GameObject? template) || template == null)
             throw new InvalidDataException("Original town-service template is not registered on this client.");
-        var host = new GameObject("GVR town-service observer module", typeof(RectTransform));
+        var host = new GameObject("GloomhavenVR.TownService.Observer", typeof(RectTransform));
         host.SetActive(false); host.transform.SetParent(sharedFrame, false);
         Canvas? canvas = null;
-        if (frame.ParentModule == TownServiceFrame.ManifestModule && template.GetComponent<Canvas>() == null)
+        if (NeedsCanvas(frame))
         {
             canvas = host.AddComponent<Canvas>(); canvas.renderMode = RenderMode.WorldSpace;
             canvas.worldCamera = Rig.VRRigDriver.HeadCamera != null ? Rig.VRRigDriver.HeadCamera : Camera.main;
@@ -346,9 +410,31 @@ internal static class TownServiceMirror
         GameObject clone = Object.Instantiate(template, host.transform, false);
         // Templates are already inert; repeat the invariant before the clone can become active.
         TownServiceNeutralize.Apply(clone);
-        return new RemoteModule { Host = host, AddedCanvas = canvas, Binding = new TownServiceBinding(clone.transform), Session = frame.Session, Template = frame.Template, Address = frame.TemplateAddress };
+        VRLayers.Apply(host);
+        foreach (Canvas originalCanvas in clone.GetComponentsInChildren<Canvas>(true))
+            originalCanvas.worldCamera = Rig.VRRigDriver.HeadCamera != null ? Rig.VRRigDriver.HeadCamera : Camera.main;
+        var binding = new TownServiceBinding(clone.transform);
+        return new RemoteModule { Host = host, AddedCanvas = canvas, Binding = binding,
+            Motion = new TownServiceMotion(host.transform, binding.Nodes), Session = frame.Session,
+            Template = frame.Template, Address = frame.TemplateAddress };
     }
 
+    private static bool NeedsCanvas(TownServiceFrame frame) => frame.HasCanvasFrame
+        || frame.ParentModule == TownServiceFrame.ManifestModule && !frame.Nodes[0].Values.ContainsKey(TownServiceProperty.Canvas);
+    private static void ApplyCanvasFrame(RemoteModule module, TownServiceFrame frame, Transform shared)
+    {
+        Transform host = module.Host.transform;
+        host.position = shared.TransformPoint(Position(frame.CanvasPose)); host.rotation = shared.rotation * Rotation(frame.CanvasPose);
+        Vector3 desired = Vector3.Scale(shared.lossyScale, Scale(frame.CanvasPose)), basis = host.parent.lossyScale;
+        host.localScale = new Vector3(desired.x / basis.x, desired.y / basis.y, desired.z / basis.z);
+        RectTransform rect = (RectTransform)host; rect.sizeDelta = new Vector2(frame.CanvasRect[0], frame.CanvasRect[1]);
+        rect.pivot = new Vector2(frame.CanvasRect[2], frame.CanvasRect[3]);
+        Canvas canvas = module.AddedCanvas!;
+        canvas.referencePixelsPerUnit = frame.CanvasSettings[0]; canvas.pixelPerfect = frame.CanvasSettings[1] != 0;
+        canvas.overridePixelPerfect = frame.CanvasSettings[2] != 0; canvas.scaleFactor = frame.CanvasSettings[3];
+        canvas.additionalShaderChannels = (AdditionalCanvasShaderChannels)(int)frame.CanvasSettings[4];
+        canvas.sortingOrder = frame.CanvasSortingOrder; canvas.sortingLayerID = frame.CanvasSortingLayer;
+    }
     internal static void RemovePeer(int peer)
     { ClearRemoteModules(peer); Pending.Remove(peer); ReceivedBaselines.Remove(peer); Sessions.Remove(peer); }
     internal static void RequestFullRefresh()
@@ -360,7 +446,7 @@ internal static class TownServiceMirror
     internal static void ResetNetwork()
     {
         foreach (int peer in new List<int>(Remote.Keys)) ClearRemoteModules(peer);
-        Pending.Clear(); ReceivedBaselines.Clear(); Sessions.Clear(); foreach (LocalModule module in Local.Values)
+        Pending.Clear(); ReceivedBaselines.Clear(); Sessions.Clear(); RemoteRetry.Clear(); foreach (LocalModule module in Local.Values)
         { module.Last = null; module.Baseline = null; module.NextRefresh = module.NextBaseline = 0; }
         _nextManifest = 0;
     }
@@ -394,8 +480,11 @@ internal static class TownServiceMirror
     private static bool SamePresentation(TownServiceFrame? a, TownServiceFrame b)
     {
         if (a == null || a.Visible != b.Visible || a.Structure != b.Structure || a.Nodes.Length != b.Nodes.Length
-            || a.ParentModule != b.ParentModule || a.ParentBinding != b.ParentBinding || a.ParentAlpha != b.ParentAlpha) return false;
-        for (int i = 0; i < 10; i++) if (a.Pose[i] != b.Pose[i]) return false;
+            || a.ParentModule != b.ParentModule || a.ParentBinding != b.ParentBinding || a.ParentAlpha != b.ParentAlpha
+            || a.HasCanvasFrame != b.HasCanvasFrame || a.CanvasSortingLayer != b.CanvasSortingLayer || a.CanvasSortingOrder != b.CanvasSortingOrder) return false;
+        for (int i = 0; i < 10; i++) if (a.Pose[i] != b.Pose[i] || a.CanvasPose[i] != b.CanvasPose[i]) return false;
+        for (int i = 0; i < 4; i++) if (a.CanvasRect[i] != b.CanvasRect[i]) return false;
+        for (int i = 0; i < 5; i++) if (a.CanvasSettings[i] != b.CanvasSettings[i]) return false;
         for (int i = 0; i < a.Nodes.Length; i++)
         {
             if (ReferenceEquals(a.Nodes[i], b.Nodes[i])) continue;
@@ -404,6 +493,19 @@ internal static class TownServiceMirror
                 if (!b.Nodes[i].Values.TryGetValue(pair.Key, out TownServiceValue? value) || !pair.Value.Same(value)) return false;
         }
         return true;
+    }
+    private static void ReadCanvasFrame(Transform source, TownServiceFrame frame)
+    {
+        if (frame.ParentModule != TownServiceFrame.ManifestModule || _sharedFrame == null) return;
+        source.GetComponentsInParent(true, ParentCanvases);
+        Canvas? canvas = null;
+        foreach (Canvas candidate in ParentCanvases) if (candidate.isActiveAndEnabled) { canvas = candidate.rootCanvas; break; }
+        if (canvas == null || canvas.transform == source || canvas.transform is not RectTransform rect) return;
+        frame.HasCanvasFrame = true; frame.CanvasPose = ReadPose(canvas.transform, _sharedFrame);
+        frame.CanvasRect = new[] { rect.rect.width, rect.rect.height, rect.pivot.x, rect.pivot.y };
+        frame.CanvasSettings = new[] { canvas.referencePixelsPerUnit, canvas.pixelPerfect ? 1f : 0f,
+            canvas.overridePixelPerfect ? 1f : 0f, canvas.scaleFactor, (float)canvas.additionalShaderChannels };
+        frame.CanvasSortingLayer = canvas.sortingLayerID; frame.CanvasSortingOrder = canvas.sortingOrder;
     }
     private static void ReadParent(LocalModule module, TownServiceFrame frame)
     {
@@ -425,14 +527,20 @@ internal static class TownServiceMirror
     }
     private static void ReportReset()
     {
-        Failures.Clear();
+        Failures.Clear(); _reportWindow = 0; _reportCount = 0;
     }
     private static void Report(string phase, Exception error)
     {
         string key = phase + ": " + error.Message; float now = Time.unscaledTime;
+        if (now - _reportWindow >= 30f) { _reportWindow = now; _reportCount = 0; }
+        if (_reportCount >= 8)
+        {
+            if (_reportCount == 8) { _reportCount++; VRLog.Note("TownServices", "Further presentation errors are suppressed for this 30-second interval."); }
+            return;
+        }
         if (Failures.TryGetValue(key, out float last) && now - last < 30) return;
         if (Failures.Count > 32) Failures.Clear();
-        Failures[key] = now;
+        Failures[key] = now; _reportCount++;
         VRLog.Note("TownServices", "Original service presentation unavailable (" + key + ").");
         PresentationUnavailable?.Invoke(key);
     }

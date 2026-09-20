@@ -96,6 +96,7 @@ internal static class NativeTemplates
     private static void Freeze(string key, Entry entry)
     {
         if (_bank == null || entry.Original == null) throw new InvalidOperationException("Original town template is unavailable: " + key);
+        TownServiceNativeAssets.PrepareRoot(entry.Original);
         entry.Copy = Object.Instantiate(entry.Original.gameObject, _bank.transform, false);
         Prune(entry.Original, entry.Copy.transform);
         TownServiceNeutralize.Apply(entry.Copy);
@@ -179,6 +180,7 @@ internal static class NativeTemplates
             borrowed = ObjectPool.SpawnCard(id, item ? ObjectPool.ECardType.Item : ObjectPool.ECardType.Ability, holder.transform,
                 resetLocalScale: true, resetToMiddle: true, resetLocalRotation: false, activate: false);
             if (!item) borrowed.GetComponent<AbilityCardUI>().Init(model!, disableEventDetection: true);
+            TownServiceNativeAssets.PrepareCard(item ? null : model, item ? borrowed.GetComponent<ItemCardUI>() : null);
             var entry = new Entry { Original = borrowed.transform }; Freeze(key, entry); Entries.Add(key, entry);
         }
         finally

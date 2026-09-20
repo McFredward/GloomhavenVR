@@ -24,6 +24,13 @@ internal sealed class TownServiceFrame
     internal ushort[] Modules = Array.Empty<ushort>();
     // Position, quaternion and scale in the shared map frame; never observer-local layout.
     internal float[] Pose = new float[10];
+    // A converted/held root can sit inside an original external canvas whose pixel frame
+    // differs from the root's own animation scale. Retain that frame for clipping and softness.
+    internal bool HasCanvasFrame;
+    internal float[] CanvasPose = new[] { 0f, 0f, 0f, 0f, 0f, 0f, 1f, 1f, 1f, 1f };
+    internal float[] CanvasRect = new[] { 100f, 100f, .5f, .5f };
+    internal float[] CanvasSettings = new[] { 100f, 0f, 0f, 1f, 0f };
+    internal int CanvasSortingOrder, CanvasSortingLayer;
     internal TownServiceNode[] Nodes = Array.Empty<TownServiceNode>();
 }
 

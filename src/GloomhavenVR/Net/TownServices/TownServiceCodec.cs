@@ -24,6 +24,14 @@ internal static class TownServiceCodec
             w.Write(frame.SampleTime); w.Write(frame.SessionAge); w.Write((byte)frame.Modules.Length);
             foreach (ushort module in frame.Modules) w.Write(module);
             foreach (float value in frame.Pose) w.Write(value);
+            w.Write(frame.HasCanvasFrame);
+            if (frame.HasCanvasFrame)
+            {
+                foreach (float value in frame.CanvasPose) w.Write(value);
+                foreach (float value in frame.CanvasRect) w.Write(value);
+                foreach (float value in frame.CanvasSettings) w.Write(value);
+                w.Write(frame.CanvasSortingOrder); w.Write(frame.CanvasSortingLayer);
+            }
             var pool = new List<TownServiceValue>();
             var indices = new Dictionary<TownServiceValue, ushort>(TownServiceValueComparer.Instance);
             foreach (TownServiceNode node in frame.Nodes)
@@ -97,6 +105,14 @@ internal static class TownServiceCodec
             result.Modules = new ushort[modules];
             for (int i = 0; i < modules; i++) result.Modules[i] = r.ReadUInt16();
             for (int i = 0; i < result.Pose.Length; i++) result.Pose[i] = r.ReadSingle();
+            byte canvas = r.ReadByte(); if (canvas > 1) return false; result.HasCanvasFrame = canvas != 0;
+            if (result.HasCanvasFrame)
+            {
+                for (int i = 0; i < result.CanvasPose.Length; i++) result.CanvasPose[i] = r.ReadSingle();
+                for (int i = 0; i < result.CanvasRect.Length; i++) result.CanvasRect[i] = r.ReadSingle();
+                for (int i = 0; i < result.CanvasSettings.Length; i++) result.CanvasSettings[i] = r.ReadSingle();
+                result.CanvasSortingOrder = r.ReadInt32(); result.CanvasSortingLayer = r.ReadInt32();
+            }
             int valueCount = r.ReadUInt16();
             if (valueCount > TownServiceFrame.MaxNodes * TownServiceProperty.Last) return false;
             var pool = new TownServiceValue[valueCount];
@@ -163,6 +179,17 @@ internal static class TownServiceCodec
             || frame.Modules == null || frame.Modules.Length > TownServiceFrame.MaxModules
             || (frame.Module != TownServiceFrame.ManifestModule && frame.Modules.Length != 0))
             throw new InvalidDataException("Invalid town-service module identity.");
+        if (frame.CanvasPose == null || frame.CanvasPose.Length != 10 || frame.CanvasRect == null || frame.CanvasRect.Length != 4
+            || frame.CanvasSettings == null || frame.CanvasSettings.Length != 5) throw new InvalidDataException("Invalid town canvas frame.");
+        foreach (float value in frame.CanvasPose) Finite(value);
+        foreach (float value in frame.CanvasRect) Finite(value);
+        foreach (float value in frame.CanvasSettings) Finite(value);
+        if (frame.HasCanvasFrame)
+        {
+            double canvasNorm = 0; for (int i = 3; i < 7; i++) canvasNorm += frame.CanvasPose[i] * (double)frame.CanvasPose[i];
+            if (Math.Abs(canvasNorm - 1) > .01 || frame.CanvasRect[0] < 0 || frame.CanvasRect[1] < 0)
+                throw new InvalidDataException("Invalid town canvas geometry.");
+        }
         Finite(frame.SampleTime);
         Finite(frame.SessionAge);
         if (frame.SessionAge < 0) throw new InvalidDataException("Invalid town-service session age.");
