@@ -18,3 +18,11 @@ namespace GloomhavenVR.Cards
 { internal static class CardFaceMipBake { internal static Sprite OriginalFor(Sprite sprite) => sprite; } }
 namespace GloomhavenVR.WorldUI
 { internal static class PanelMipBake { internal static Texture OriginalFor(Texture texture) => texture; } }
+namespace GloomhavenVR.Core
+{
+    internal static class VRLayers
+    {
+        internal static void Apply(GameObject root)
+        { foreach (Transform node in root.GetComponentsInChildren<Transform>(true)) node.gameObject.layer = 9; }
+    }
+}

@@ -26,6 +26,8 @@ def sources(root):
     names = ["TownServiceAssets", "TownServiceBinding", "TownServiceCodec", "TownServiceDelta",
              "TownServiceFrame", "TownServiceMaterial", "TownServiceMirror"]
     bound = {name + ".cs": (base / "Net/TownServices" / (name + ".cs")).read_text() for name in names}
+    motion = base / "Net/TownServices/TownServiceMotion.cs"
+    if motion.exists(): bound[motion.name] = motion.read_text()
     town_neutralizer = base / "Net/TownServices/TownServiceNeutralize.cs"
     if town_neutralizer.exists():
         bound[town_neutralizer.name] = town_neutralizer.read_text()
@@ -65,6 +67,7 @@ def main():
     if not args.no_negative_controls:
         variants += [
             ("text", "TownServiceBinding.cs", "tmp.text = text[0];", 'tmp.text = "CORRUPTED";', "owner TMP text survives codec and playback"),
+            ("mesh", "TownServiceBinding.cs", "mesh.enabled = n[0] != 0;", "mesh.enabled = true;", "handle mesh enabled state follows owner"),
             ("group", "TownServiceBinding.cs", "cg.alpha = n[1];", "cg.alpha = .1f;", "root CanvasGroup alpha matches owner"),
             ("raycast", "TownServiceBinding.cs", "g.raycastTarget = false;", "g.raycastTarget = true;", "clone graphic raycasts are disabled"),
             ("color", "TownServiceBinding.cs", "g.color = ColorAt(n, 1);", "g.color = Color.red;", "owner and observer rendered UI match: baseline"),
@@ -74,7 +77,7 @@ def main():
         if args.suite == "full":
             variants += [
                 ("canvas", "TownServiceBinding.cs", "canvas.enabled = n[0] != 0;", "canvas.enabled = true;", "false Canvas remains disabled"),
-                ("sibling", "TownServiceBinding.cs", "if (i != 0) node.SetSiblingIndex((int)n[0]);", "if (i < 0) node.SetSiblingIndex((int)n[0]);", "sibling reorder survives sampling"),
+                ("sibling", "TownServiceMirror.cs", "if (reorder) OrderOriginalSiblings(standing);", "if (reorder && standing.Count == 1) OrderOriginalSiblings(standing);", "owner and observer rendered UI match: nested-row-module"),
                 ("mask", "TownServiceBinding.cs", "mask.showMaskGraphic = n[1] != 0;", "mask.showMaskGraphic = false;", "owner and observer rendered UI match: dynamic-order-component-mask"),
             ]
     print(f"Production binding: {args.source_root.resolve()}; evidence: {run}", flush=True)

@@ -21,6 +21,7 @@ public static class MirrorProgram
 {
     private static readonly List<GameObject> Objects = new();
     private static readonly List<Object> Assets = new();
+    private static readonly Dictionary<ushort, byte[]> Baselines = new();
     private static readonly BindingFlags PrivateStatic = BindingFlags.Static | BindingFlags.NonPublic;
     private static int _assertions;
     private static string _output = "";
@@ -86,6 +87,13 @@ public static class MirrorProgram
         Image("StencilChild", stencil.transform, new Vector2(24, 0), new Vector2(70, 20), Color.magenta);
         Image("OrderBack", root, new Vector2(144, 90), new Vector2(32, 25), Color.red);
         Image("OrderFront", root, new Vector2(152, 91), new Vector2(32, 25), Color.blue);
+        var mesh = new Mesh { name = "fixture original handle mesh" };
+        mesh.vertices = new[] { new Vector3(-.5f, -.5f, 0), new Vector3(-.5f, .5f, 0), new Vector3(.5f, .5f, 0), new Vector3(.5f, -.5f, 0) };
+        mesh.triangles = new[] { 0, 1, 2, 0, 2, 3 }; mesh.RecalculateBounds(); Assets.Add(mesh);
+        var material = new Material(Shader.Find("Unlit/Color")) { name = "fixture handle material", color = new Color(.8f, .3f, .15f, 1) }; Assets.Add(material);
+        TownServiceMirror.Assets.Register("fixture/handle-material", material);
+        var handle = Go("HandleMesh", root); handle.transform.localPosition = new Vector3(-166, 91, -1); handle.transform.localScale = new Vector3(20, 15, 1);
+        handle.AddComponent<MeshFilter>().sharedMesh = mesh; handle.AddComponent<MeshRenderer>().sharedMaterial = material;
         return root;
     }
 
@@ -106,6 +114,7 @@ public static class MirrorProgram
             Check(length == packet.Length, "capture returns complete immutable packets");
             Check(TownServiceCodec.TryRead(packet, length, out TownServiceFrame? frame), "captured packet decodes");
             Check(frame != null, "decoded frame exists"); packets.Add(packet);
+            if (frame!.BaseSequence == 0 && frame.Module != TownServiceFrame.ManifestModule) Baselines[frame.Module] = packet;
         });
         return packets;
     }
@@ -115,6 +124,9 @@ public static class MirrorProgram
     { foreach (Transform node in root.GetComponentsInChildren<Transform>(true)) node.gameObject.layer = layer; }
     private static Color32[] Render(Transform root, int layer, string name)
     {
+        // Isolate this fixture surface, including cases where two owners share a frame.
+        // Pose/layer/camera contracts are asserted before this camera-only image isolation.
+        foreach (GameObject fixture in Objects) if (fixture != null) Layer(fixture.transform, 30);
         Layer(root, layer);
         foreach (Canvas ancestor in root.GetComponentsInParent<Canvas>(true)) ancestor.gameObject.layer = layer;
         foreach (Canvas canvas in root.GetComponentsInChildren<Canvas>(true)) canvas.worldCamera = _camera;
@@ -135,6 +147,17 @@ public static class MirrorProgram
     }
     private static void ComparePixels(Transform source, Transform target, string name)
     {
+        // Camera recentering below must never hide a wrong world pose.
+        Transform sourceFrame = source, targetFrame = target;
+        while (sourceFrame.parent != null) sourceFrame = sourceFrame.parent;
+        while (targetFrame.parent != null) targetFrame = targetFrame.parent;
+        Vector3 expectedPosition = targetFrame.TransformPoint(sourceFrame.InverseTransformPoint(source.position));
+        Quaternion expectedRotation = targetFrame.rotation * Quaternion.Inverse(sourceFrame.rotation) * source.rotation;
+        Vector3 s = source.lossyScale, aScale = sourceFrame.lossyScale, bScale = targetFrame.lossyScale;
+        Vector3 expectedScale = new Vector3(s.x / aScale.x * bScale.x, s.y / aScale.y * bScale.y, s.z / aScale.z * bScale.z);
+        Check(Vector3.Distance(target.position, expectedPosition) < .00002f, "world position before image recenter: " + name);
+        Check(Quaternion.Angle(target.rotation, expectedRotation) < .02f, "world rotation before image recenter: " + name);
+        Check(Vector3.Distance(target.lossyScale, expectedScale) < .00002f, "world scale before image recenter: " + name);
         Color32[] a = Render(source, 8, name + "-owner"), b = Render(target, 9, name + "-observer");
         foreach (Transform root in new[] { source, target })
             foreach (RectMask2D mask in root.GetComponentsInChildren<RectMask2D>(true))
@@ -144,6 +167,12 @@ public static class MirrorProgram
                     + " graphicCanvas=" + graphic.canvas.name + " rootCanvas=" + graphic.canvas.rootCanvas.name
                     + " rootScale=" + graphic.canvas.rootCanvas.transform.lossyScale + " cull=" + graphic.canvasRenderer.cull + "\n");
             }
+        foreach (Transform root in new[] { source, target })
+        {
+            File.AppendAllText(Path.Combine(_output, "siblings.txt"), name + " " + root.name + ": ");
+            for (int i = 0; i < root.childCount; i++) File.AppendAllText(Path.Combine(_output, "siblings.txt"), i + "=" + root.GetChild(i).name + "; ");
+            File.AppendAllText(Path.Combine(_output, "siblings.txt"), "\n");
+        }
         ComparePixels(a, b, name);
     }
     private static void ComparePixels(Color32[] a, Color32[] b, string name, bool blank = false)
@@ -172,14 +201,62 @@ public static class MirrorProgram
             Check(!group.interactable && !group.blocksRaycasts, "clone group input is disabled");
     }
 
+    private static IEnumerator Motion(Transform source, Transform shared, Transform observer, TownServiceBinding copy)
+    {
+        Vector3 start = source.localPosition, startScale = source.localScale;
+        Quaternion startRotation = source.localRotation;
+        float startAlpha = _group.alpha;
+        Color startColor = _text.color;
+        Vector2 startSize = _fill.rectTransform.sizeDelta;
+        Action<float> phase = t =>
+        {
+            source.localPosition = Vector3.Lerp(start, start + new Vector3(.4f, .12f, 0), t);
+            source.localScale = Vector3.Lerp(startScale, startScale * 1.2f, t);
+            source.localRotation = Quaternion.Slerp(startRotation, startRotation * Quaternion.Euler(0, 0, 12), t);
+            _group.alpha = Mathf.Lerp(startAlpha, .92f, t);
+            _text.color = Color.Lerp(startColor, new Color(.9f, .3f, .5f, .95f), t);
+            _fill.rectTransform.sizeDelta = Vector2.Lerp(startSize, startSize + new Vector2(12, 8), t);
+        };
+        phase(1); yield return null;
+        Receive(1, Capture()); TownServiceMirror.TickRemote(_ => observer);
+        var owners = (IDictionary)typeof(TownServiceMirror).GetField("Remote", PrivateStatic)!.GetValue(null)!;
+        object module = ((IDictionary)owners[1]!)[(ushort)10]!;
+        object motion = module.GetType().GetField("Motion", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(module)!;
+        Type type = motion.GetType();
+        float began = (float)type.GetField("_started", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(motion)!;
+        float duration = (float)type.GetField("_duration", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(motion)!;
+        Check(duration > 0 && duration <= .1f, "motion uses bounded native sample interval");
+        var tick = type.GetMethod("Tick", BindingFlags.Instance | BindingFlags.NonPublic)!;
+        foreach (float t in new[] { .5f, 1f })
+        {
+            // Production motion exposes its time argument; sample deterministic phases through
+            // that method while the source fixture writes the matching native animation phase.
+            float sampleTime = began + duration * t + (t == 1f ? .001f : 0f);
+            float sampledPhase = Mathf.Clamp01((sampleTime - began) / duration);
+            Check(Mathf.Abs(sampledPhase - t) < .0001f, "deterministic animation phase is representable by Unity float time");
+            tick.Invoke(motion, new object[] { sampleTime }); phase(sampledPhase);
+            Check(Vector3.Distance(copy.Root.position, observer.TransformPoint(shared.InverseTransformPoint(source.position))) < .00002f,
+                "motion phase preserves owner world position");
+            Check(Quaternion.Angle(copy.Root.rotation, observer.rotation * Quaternion.Inverse(shared.rotation) * source.rotation) < .02f,
+                "motion phase preserves owner world rotation");
+            Check(Vector3.Distance(copy.Root.lossyScale, source.lossyScale * 1.25f) < .00002f, "motion phase preserves owner scale");
+            Check(Mathf.Abs(copy.Root.GetComponent<CanvasGroup>().alpha - _group.alpha) < .00002f, "motion phase preserves owner alpha");
+            ComparePixels(source, copy.Root, t == .5f ? "animation-half" : "animation-end");
+        }
+    }
+
     private static void Measure(string name, int iterations, Action action)
     {
         action();
+        long calibration = GC.GetAllocatedBytesForCurrentThread(); var probe = new byte[8192]; GC.KeepAlive(probe);
+        bool counterSupported = GC.GetAllocatedBytesForCurrentThread() > calibration;
+        long heap = GC.GetTotalMemory(false); int collections = GC.CollectionCount(0);
         long bytes = GC.GetAllocatedBytesForCurrentThread(); var clock = Stopwatch.StartNew();
         for (int i = 0; i < iterations; i++) action();
         clock.Stop(); bytes = GC.GetAllocatedBytesForCurrentThread() - bytes;
         File.AppendAllText(Path.Combine(_output, "cost.txt"), name + ": iterations=" + iterations
-            + ", total-ms=" + clock.Elapsed.TotalMilliseconds + ", managed-bytes=" + bytes + "\n");
+            + ", total-ms=" + clock.Elapsed.TotalMilliseconds + ", thread-allocated-bytes=" + (counterSupported ? bytes.ToString() : "unavailable (zero calibration)")
+            + ", heap-delta-bytes=" + (GC.GetTotalMemory(false) - heap) + ", gen0-collections=" + (GC.CollectionCount(0) - collections) + "\n");
     }
     private static void Cost(Transform source, Transform shared, Transform observer)
     {
@@ -227,7 +304,9 @@ public static class MirrorProgram
         shadow.effectColor = Color.yellow; shadow.effectDistance = new Vector2(4, -3);
         source.Find("Stencil").GetComponent<Mask>().showMaskGraphic = true;
         yield return null;
-        Receive(1, Capture()); TownServiceMirror.TickRemote(_ => observer); yield return null;
+        Receive(1, Capture()); TownServiceMirror.TickRemote(_ => observer);
+        for (float settle = Time.unscaledTime + .13f; Time.unscaledTime < settle;)
+        { TownServiceMirror.TickRemote(_ => observer); yield return null; }
         Check(copy.Root.Find("OrderBack").GetSiblingIndex() == source.Find("OrderBack").GetSiblingIndex(), "sibling reorder survives sampling");
         Check(copy.Root.Find("OrderFront").GetComponent<Shadow>() != null, "component addition invalidates sample cache");
         ComparePixels(source, copy.Root, "dynamic-order-component-mask");
@@ -235,20 +314,48 @@ public static class MirrorProgram
         // Disabled root Canvas is presentation state, not permission to show a wrapper Canvas.
         source.GetComponent<Canvas>().enabled = false;
         yield return null;
-        Receive(1, Capture()); TownServiceMirror.TickRemote(_ => observer); yield return null;
+        Receive(1, Capture()); TownServiceMirror.TickRemote(_ => observer);
+        for (float settle = Time.unscaledTime + .13f; Time.unscaledTime < settle;)
+        { TownServiceMirror.TickRemote(_ => observer); yield return null; }
         Check(!copy.Root.GetComponent<Canvas>().enabled, "false Canvas remains disabled");
         ComparePixels(Render(source, 8, "disabled-owner"), Render(copy.Root, 9, "disabled-observer"), "disabled", true);
         source.GetComponent<Canvas>().enabled = true;
         yield return null;
-        Receive(1, Capture()); TownServiceMirror.TickRemote(_ => observer); yield return null;
+        Receive(1, Capture()); TownServiceMirror.TickRemote(_ => observer);
+        for (float settle = Time.unscaledTime + .13f; Time.unscaledTime < settle;)
+        { TownServiceMirror.TickRemote(_ => observer); yield return null; }
 
         // Cumulative deltas must survive losing an intermediate update.
         _text.text = "LOST intermediate"; yield return null;
         List<byte[]> lost = Capture(); Check(lost.Count > 0, "lost delta was actually produced");
         _text.text = "Survived packet loss"; _fill.fillAmount = .91f; yield return null;
-        List<byte[]> afterLoss = Capture(); Receive(1, afterLoss); TownServiceMirror.TickRemote(_ => observer); yield return null;
+        List<byte[]> afterLoss = Capture(); Receive(1, afterLoss); TownServiceMirror.TickRemote(_ => observer);
+        for (float settle = Time.unscaledTime + .13f; Time.unscaledTime < settle;)
+        { TownServiceMirror.TickRemote(_ => observer); yield return null; }
         Check(copy.Root.Find("Name").GetComponent<TMP_Text>().text == _text.text, "cumulative delta converges after packet loss");
         ComparePixels(source, copy.Root, "packet-loss");
+        foreach (byte[] packet in afterLoss)
+        {
+            TownServiceCodec.TryRead(packet, packet.Length, out TownServiceFrame? frame);
+            if (frame!.Module != TownServiceFrame.ManifestModule)
+            { Check(frame.BaseSequence != 0, "late baseline probe uses an actual delta"); Receive(2, new[] { packet }); }
+        }
+        foreach (byte[] packet in baseline)
+        {
+            TownServiceCodec.TryRead(packet, packet.Length, out TownServiceFrame? frame);
+            if (frame!.Module == TownServiceFrame.ManifestModule) Receive(2, new[] { packet });
+        }
+        TownServiceMirror.TickRemote(_ => observer);
+        Check(Remote(2) == null, "delta waits for its missing baseline");
+        Receive(2, new[] { Baselines[10] });
+        TownServiceMirror.TickRemote(_ => observer);
+        for (float settle = Time.unscaledTime + .13f; Time.unscaledTime < settle;)
+        { TownServiceMirror.TickRemote(_ => observer); yield return null; }
+        Check(Remote(2) != null, "late matching baseline creates pending owner module");
+        Check(Remote(2)!.Root.Find("Name").GetComponent<TMP_Text>().text == _text.text, "late baseline expands the newer pending delta");
+        ComparePixels(source, Remote(2)!.Root, "late-baseline");
+        TownServiceMirror.RemovePeer(2);
+
 
         // Four independently captured owners share templates/assets, never mutable widget state.
         var frames = new Dictionary<int, Transform> { [1] = observer };
@@ -266,7 +373,9 @@ public static class MirrorProgram
             yield return null;
             references[peer] = Render(source, 8, "owner-" + peer);
             List<byte[]> packets = Capture(); if (peer == 4) ownerFour = packets;
-            Receive(peer, packets); TownServiceMirror.TickRemote(id => frames[id]); yield return null;
+            Receive(peer, packets); TownServiceMirror.TickRemote(id => frames[id]);
+        for (float settle = Time.unscaledTime + .13f; Time.unscaledTime < settle;)
+        { TownServiceMirror.TickRemote(id => frames[id]); yield return null; }
         }
         for (int peer = 1; peer <= 4; peer++)
         {
@@ -280,13 +389,15 @@ public static class MirrorProgram
         for (int i = 0; i < 1000; i++) TownServiceMirror.TickRemote(id => frames[id]);
         timer.Stop(); allocation = GC.GetAllocatedBytesForCurrentThread() - allocation;
         Check(Object.FindObjectsOfType<Transform>(true).Length == transforms, "four-owner steady ticks create no hierarchy objects");
-        File.WriteAllText(Path.Combine(_output, "cost.txt"), "1000 ticks, 4 owners: " + timer.Elapsed.TotalMilliseconds + " ms; managed bytes=" + allocation + "\n");
+        File.WriteAllText(Path.Combine(_output, "cost.txt"), "1000 ticks, 4 owners: " + timer.Elapsed.TotalMilliseconds + " ms (allocation counter requires calibration; see measurements below)\n");
 
         TownServiceBinding oldFour = Remote(4)!;
         _text.text = "Reopened owner 4";
         TownServiceMirror.BeginSession(1, 304, shared, source); TownServiceMirror.RegisterModule(10, 1, source);
         yield return null;
-        Receive(4, Capture()); TownServiceMirror.TickRemote(id => frames[id]); yield return null;
+        Receive(4, Capture()); TownServiceMirror.TickRemote(id => frames[id]);
+        for (float settle = Time.unscaledTime + .13f; Time.unscaledTime < settle;)
+        { TownServiceMirror.TickRemote(id => frames[id]); yield return null; }
         Check(!ReferenceEquals(oldFour, Remote(4)), "reopen retires previous session binding");
         Receive(4, ownerFour); TownServiceMirror.TickRemote(id => frames[id]);
         Check(Remote(4)!.Root.Find("Name").GetComponent<TMP_Text>().text == _text.text, "late old session cannot overwrite reopened owner");
@@ -301,6 +412,8 @@ public static class MirrorProgram
 
         Cost(source, shared, observer);
 
+        // A newly registered UI-only template drops the separate furniture handle.
+        Object.DestroyImmediate(source.Find("HandleMesh").gameObject);
         // A child row is a separate network module, but must inherit its original parent
         // Canvas and group context rather than acquiring another clipping coordinate system.
         Transform row = source.Find("Viewport");
@@ -311,7 +424,9 @@ public static class MirrorProgram
         TownServiceMirror.RegisterModule(10, 3, source, excludeRow);
         TownServiceMirror.RegisterModule(11, 4, row);
         yield return null;
-        Receive(1, Capture()); TownServiceMirror.TickRemote(_ => observer); yield return null;
+        Receive(1, Capture()); TownServiceMirror.TickRemote(_ => observer);
+        for (float settle = Time.unscaledTime + .13f; Time.unscaledTime < settle;)
+        { TownServiceMirror.TickRemote(_ => observer); yield return null; }
         Check(Remote(1, 11) != null, "nested row module is instantiated");
         Check(Remote(1, 11)!.Root.IsChildOf(Remote(1)!.Root), "nested row retains native parent module");
         ComparePixels(source, Remote(1)!.Root, "nested-row-module");
@@ -329,7 +444,9 @@ public static class MirrorProgram
         TownServiceMirror.RegisterTemplate(1, 2, source);
         TownServiceMirror.BeginSession(1, 401, shared, source); TownServiceMirror.RegisterModule(10, 2, source);
         yield return null;
-        Receive(1, Capture()); TownServiceMirror.TickRemote(_ => observer); yield return null;
+        Receive(1, Capture()); TownServiceMirror.TickRemote(_ => observer);
+        for (float settle = Time.unscaledTime + .13f; Time.unscaledTime < settle;)
+        { TownServiceMirror.TickRemote(_ => observer); yield return null; }
         Check(Remote(1) != null, "standalone section without own Canvas mirrors");
         ComparePixels(source, Remote(1)!.Root, "outer-canvas-animated-scale");
 
@@ -359,8 +476,13 @@ public static class MirrorProgram
             Receive(1, baseline); TownServiceMirror.TickRemote(_ => observer);
             var copy = Remote(1); Check(copy != null, "owner packet creates inert observer module");
             Inert(copy!, awakes, enables);
+            Check(copy!.Root.gameObject.layer == 9, "observer uses configured presentation layer before rendering");
+            Check(copy.Root.GetComponent<Canvas>().worldCamera == _camera, "observer Canvas receives configured head camera before rendering");
+            Check(copy.Root.Find("HandleMesh").GetComponent<MeshFilter>().sharedMesh == source.Find("HandleMesh").GetComponent<MeshFilter>().sharedMesh,
+                "observer retains original handle mesh");
             Vector3 expected = observer.TransformPoint(shared.InverseTransformPoint(source.position));
             Check(Vector3.Distance(copy!.Root.position, expected) < .00001f, "observer uses owner pose in shared frame");
+            Check(Quaternion.Angle(copy.Root.rotation, observer.rotation * Quaternion.Inverse(shared.rotation) * source.rotation) < .001f, "observer uses owner world rotation");
             Check(Vector3.Distance(copy.Root.lossyScale, source.lossyScale * 1.25f) < .00001f, "observer uses owner root scale");
             Check(copy.Root.GetComponent<CanvasGroup>().alpha == _group.alpha, "root CanvasGroup alpha matches owner");
             Check(copy.Root.Find("Name").GetComponent<TMP_Text>().text == _text.text, "owner TMP text survives codec and playback");
@@ -370,11 +492,16 @@ public static class MirrorProgram
 
             _text.text = "Owner A <i>changed</i>"; _text.color = new Color(.45f, .95f, .65f, .7f);
             _fill.fillAmount = .31f; _group.alpha = .55f; _clip.padding = new Vector4(18, 8, 11, 3);
+            source.Find("HandleMesh").GetComponent<MeshRenderer>().enabled = false;
             yield return null;
             List<byte[]> change = Capture(); Check(change.Count > 0, "native UI changes emit another packet");
             Receive(1, change); TownServiceMirror.TickRemote(_ => observer);
-            yield return null;
+        for (float settle = Time.unscaledTime + .13f; Time.unscaledTime < settle;)
+        { TownServiceMirror.TickRemote(_ => observer); yield return null; }
+            Check(!copy.Root.Find("HandleMesh").GetComponent<MeshRenderer>().enabled, "handle mesh enabled state follows owner");
             ComparePixels(source, copy.Root, "changed");
+            IEnumerator motionCheck = Motion(source, shared, observer, copy);
+            while (motionCheck.MoveNext()) yield return motionCheck.Current;
             if (suite == "full")
             {
                 IEnumerator extended = Full(source, shared, observer, copy, baseline, awakes, enables);
@@ -388,7 +515,8 @@ public static class MirrorProgram
             foreach (var go in Objects) if (go != null) Object.DestroyImmediate(go);
             foreach (var asset in Assets) if (asset != null) Object.DestroyImmediate(asset);
             foreach (var orphan in Object.FindObjectsOfType<GameplayFixture>(true)) if (orphan != null) Object.DestroyImmediate(orphan.gameObject);
-            Objects.Clear(); Assets.Clear(); GloomhavenVR.Rig.VRRigDriver.HeadCamera = null;
+            File.WriteAllLines(Path.Combine(_output, "production-log.txt"), GloomhavenVR.Core.VRLog.Messages);
+            Objects.Clear(); Assets.Clear(); Baselines.Clear(); GloomhavenVR.Rig.VRRigDriver.HeadCamera = null;
         }
     }
 }
