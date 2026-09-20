@@ -1,0 +1,296 @@
+// Offline authored town-service asset builder. Use a dedicated temporary project for review.
+// Never invoke the production AssetBundle build as a side effect of this authoring step.
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using UnityEditor;
+using UnityEngine;
+using UnityEngine.Rendering;
+
+namespace GloomhavenVR
+{
+    public static class TownServicesBuilder
+    {
+        const string Root = "Assets/Bundle/TownServices";
+        static readonly string[] Npcs = { "merchant", "priestess", "enchantress" };
+        [Serializable] public class Manifest { public MaterialRecord[] materials; }
+        [Serializable] public class MaterialRecord
+        {
+            public string name, baseColor, normal, unityMetallicSmoothness;
+            public float[] baseColorFactor;
+            public float metallicFactor, roughnessFactor, normalScale;
+        }
+        static string Arg(string name)
+        {
+            var arguments = Environment.GetCommandLineArgs();
+            var index = Array.IndexOf(arguments, name);
+            if (index < 0 || index + 1 >= arguments.Length) throw new ArgumentException("Missing " + name);
+            return Path.GetFullPath(arguments[index + 1]);
+        }
+        static void Folder(string path) { Directory.CreateDirectory(path); }
+        static Texture2D Texture(string path, bool normal, bool linear)
+        {
+            var importer = (TextureImporter)AssetImporter.GetAtPath(path);
+            importer.textureType = normal ? TextureImporterType.NormalMap : TextureImporterType.Default;
+            importer.sRGBTexture = !linear;
+            importer.alphaIsTransparency = false;
+            importer.maxTextureSize = 4096;
+            importer.mipmapEnabled = true;
+            importer.textureCompression = TextureImporterCompression.CompressedHQ;
+            importer.SaveAndReimport();
+            return AssetDatabase.LoadAssetAtPath<Texture2D>(path);
+        }
+        static Material Material(string name, Color color, float metallic, float smoothness)
+        {
+            var material = new Material(Shader.Find("Standard"));
+            material.name = name;
+            material.color = color;
+            material.SetFloat("_Metallic", metallic);
+            material.SetFloat("_Glossiness", smoothness);
+            AssetDatabase.CreateAsset(material, Root + "/Materials/" + name + ".mat");
+            return material;
+        }
+        static void ImportActor(string name, string preparedRoot, string rigRoot)
+        {
+            var destination = Root + "/Actors/" + name;
+            Folder(destination);
+            Folder(destination + "/Textures");
+            var source = Path.Combine(preparedRoot, name);
+            var manifest = JsonUtility.FromJson<Manifest>(File.ReadAllText(Path.Combine(source, "manifest.json")));
+            var fbxPath = destination + "/" + name + "_rig.fbx";
+            File.Copy(Path.Combine(rigRoot, name, name + "_rig.fbx"), fbxPath, false);
+            foreach (var relative in manifest.materials.SelectMany(m => new[] { m.baseColor, m.normal, m.unityMetallicSmoothness }).Where(p => !String.IsNullOrEmpty(p)).Distinct())
+                File.Copy(Path.Combine(source, relative), destination + "/Textures/" + Path.GetFileName(relative), false);
+            AssetDatabase.Refresh(ImportAssetOptions.ForceSynchronousImport);
+            var importer = (ModelImporter)AssetImporter.GetAtPath(fbxPath);
+            importer.animationType = ModelImporterAnimationType.Legacy;
+            importer.importAnimation = true;
+            importer.importNormals = ModelImporterNormals.Import;
+            importer.importTangents = ModelImporterTangents.CalculateMikk;
+            importer.materialImportMode = ModelImporterMaterialImportMode.None;
+            importer.optimizeGameObjects = false;
+            importer.skinWeights = ModelImporterSkinWeights.Custom;
+            importer.maxBonesPerVertex = 4;
+            importer.minBoneWeight = 0.0001f;
+            importer.animationCompression = ModelImporterAnimationCompression.Off;
+            importer.SaveAndReimport();
+            var settings = importer.defaultClipAnimations;
+            foreach (var clip in settings)
+            {
+                foreach (var expected in new[] { "Idle", "Greeting", "Gesture", "ReturnToIdle" })
+                    if (clip.name.EndsWith(expected, StringComparison.Ordinal)) clip.name = expected;
+                clip.loopTime = clip.name == "Idle";
+                clip.wrapMode = clip.loopTime ? WrapMode.Loop : WrapMode.ClampForever;
+            }
+            importer.clipAnimations = settings;
+            importer.SaveAndReimport();
+            var materials = new List<Material>();
+            foreach (var record in manifest.materials)
+            {
+                var factor = record.baseColorFactor;
+                var material = Material(name + "_" + materials.Count, new Color(factor[0], factor[1], factor[2], factor[3]).gamma,
+                    record.metallicFactor, 1 - record.roughnessFactor);
+                Func<string, string> texPath = p => destination + "/Textures/" + Path.GetFileName(p);
+                if (!String.IsNullOrEmpty(record.baseColor)) material.mainTexture = Texture(texPath(record.baseColor), false, false);
+                if (!String.IsNullOrEmpty(record.normal))
+                {
+                    material.SetTexture("_BumpMap", Texture(texPath(record.normal), true, true));
+                    material.SetFloat("_BumpScale", record.normalScale);
+                    material.EnableKeyword("_NORMALMAP");
+                }
+                if (!String.IsNullOrEmpty(record.unityMetallicSmoothness))
+                {
+                    material.SetTexture("_MetallicGlossMap", Texture(texPath(record.unityMetallicSmoothness), false, true));
+                    material.SetFloat("_GlossMapScale", 1);
+                    material.EnableKeyword("_METALLICGLOSSMAP");
+                }
+                materials.Add(material);
+            }
+            var actor = (GameObject)PrefabUtility.InstantiatePrefab(AssetDatabase.LoadAssetAtPath<GameObject>(fbxPath));
+            actor.name = "Actor";
+            var allRenderers = actor.GetComponentsInChildren<SkinnedMeshRenderer>();
+            if (allRenderers.Length != 3) throw new InvalidDataException(name + ": expected one skinned renderer per LOD");
+            var lods = new LOD[3];
+            for (var i = 0; i < 3; ++i)
+            {
+                var renderer = allRenderers.Single(r => r.name.StartsWith("LOD" + i + "_", StringComparison.Ordinal));
+                renderer.sharedMaterials = materials.ToArray();
+                renderer.quality = SkinQuality.Bone4;
+                renderer.updateWhenOffscreen = true;
+                renderer.shadowCastingMode = ShadowCastingMode.On;
+                renderer.receiveShadows = true;
+                // Authored gestures fit this bound; no whole-body or locomotion animation.
+                renderer.localBounds = new Bounds(new Vector3(0, 0.90f, 0), new Vector3(1.6f, 2.0f, 1.3f));
+                lods[i] = new LOD(new[] { 0.50f, 0.20f, 0.04f }[i], new Renderer[] { renderer });
+            }
+            var group = actor.AddComponent<LODGroup>();
+            group.SetLODs(lods);
+            group.RecalculateBounds();
+            var animation = actor.GetComponent<Animation>() ?? actor.AddComponent<Animation>();
+            animation.playAutomatically = true;
+            animation.cullingType = AnimationCullingType.AlwaysAnimate;
+            var clips = AssetDatabase.LoadAllAssetsAtPath(fbxPath).OfType<AnimationClip>().Where(c => !c.name.StartsWith("__preview__")).ToArray();
+            foreach (var expected in new[] { "Idle", "Greeting", "Gesture", "ReturnToIdle" })
+            {
+                var clip = clips.Single(c => c.name == expected);
+                clip.wrapMode = expected == "Idle" ? WrapMode.Loop : WrapMode.ClampForever;
+                animation.AddClip(clip, expected);
+                if (expected == "Idle") animation.clip = clip;
+            }
+            var stationName = "Town" + Char.ToUpperInvariant(name[0]) + name.Substring(1);
+            var station = new GameObject(stationName);
+            actor.transform.SetParent(station.transform, false);
+            actor.transform.localPosition = new Vector3(0, 0, 0.65f);
+            Anchor(station, "InteractionAnchor", new Vector3(0, 0.95f, -0.42f));
+            Anchor(station, "HeadAnchor", new Vector3(0, 1.56f, 0.65f));
+            Anchor(station, "ServiceSurface", new Vector3(0, 0.94f, 0));
+            BuildStation(station, name);
+            PrefabUtility.SaveAsPrefabAsset(station, Root + "/Prefabs/" + stationName + ".prefab");
+            Debug.Log("TOWN_ASSET " + stationName + " skinnedLODs=" + allRenderers.Length + " bones=" + allRenderers[0].bones.Length +
+                " triangles=" + String.Join(",", lods.Select(l => ((SkinnedMeshRenderer)l.renderers[0]).sharedMesh.triangles.Length / 3)) +
+                " clips=" + String.Join(",", clips.Select(c => c.name)));
+            UnityEngine.Object.DestroyImmediate(station);
+        }
+        static void Anchor(GameObject parent, string name, Vector3 position)
+        {
+            var child = new GameObject(name);
+            child.transform.SetParent(parent.transform, false);
+            child.transform.localPosition = position;
+        }
+        static Material Mat(string name) { return AssetDatabase.LoadAssetAtPath<Material>(Root + "/Materials/" + name + ".mat"); }
+        static GameObject Primitive(GameObject parent, string name, PrimitiveType type, Vector3 position, Vector3 scale, Material material)
+        {
+            var obj = GameObject.CreatePrimitive(type);
+            obj.name = name;
+            obj.transform.SetParent(parent.transform, false);
+            obj.transform.localPosition = position;
+            obj.transform.localScale = scale;
+            obj.GetComponent<Renderer>().sharedMaterial = material;
+            UnityEngine.Object.DestroyImmediate(obj.GetComponent<Collider>());
+            return obj;
+        }
+        static void Box(GameObject parent, string name, Vector3 position, Vector3 scale, string material)
+        { Primitive(parent, name, PrimitiveType.Cube, position, scale, Mat(material)); }
+        static void BuildStation(GameObject root, string npc)
+        {
+            var furniture = new GameObject(npc == "priestess" ? "Shrine" : npc == "enchantress" ? "Workbench" : "Counter");
+            furniture.transform.SetParent(root.transform, false);
+            var wood = npc == "priestess" ? "PaleStone" : "DarkWood";
+            Box(furniture, "FootPlinth", new Vector3(0, 0.08f, 0), new Vector3(1.42f, 0.16f, 0.66f), wood);
+            for (var i = 0; i < 5; ++i)
+                Box(furniture, "FrontPanel" + i, new Vector3((i - 2) * 0.255f, 0.48f, -0.22f), new Vector3(0.25f, 0.72f, 0.09f), wood);
+            foreach (var side in new[] { -1, 1 })
+            {
+                Box(furniture, "SidePanel" + side, new Vector3(side * 0.635f, 0.48f, 0), new Vector3(0.09f, 0.72f, 0.49f), wood);
+                Box(furniture, "CornerPost" + side, new Vector3(side * 0.66f, 0.47f, -0.24f), new Vector3(0.11f, 0.80f, 0.11f), wood);
+                Box(furniture, "Inlay" + side, new Vector3(side * 0.66f, 0.50f, -0.300f), new Vector3(0.022f, 0.52f, 0.009f), "Brass");
+            }
+            Box(furniture, "TopUnderLip", new Vector3(0, 0.86f, 0), new Vector3(1.46f, 0.07f, 0.69f), wood);
+            for (var i = 0; i < 4; ++i)
+                Box(furniture, "SurfacePlank" + i, new Vector3(0, 0.925f, (i - 1.5f) * 0.17f), new Vector3(1.5f, 0.06f, 0.166f), wood);
+            Box(furniture, "FrontBrassEdge", new Vector3(0, 0.882f, -0.353f), new Vector3(1.42f, 0.018f, 0.018f), "Brass");
+            var blocker = furniture.AddComponent<BoxCollider>();
+            blocker.center = new Vector3(0, 0.48f, 0);
+            blocker.size = new Vector3(1.50f, 0.96f, 0.72f);
+            if (npc == "merchant")
+            {
+                Box(furniture, "LedgerCover", new Vector3(-0.47f, 0.975f, -0.03f), new Vector3(0.25f, 0.028f, 0.20f), "Leather");
+                Box(furniture, "LedgerPages", new Vector3(-0.47f, 0.993f, -0.03f), new Vector3(0.23f, 0.014f, 0.18f), "Parchment");
+                for (var i = 0; i < 7; ++i)
+                    Primitive(furniture, "Coin" + i, PrimitiveType.Cylinder, new Vector3(0.43f + (i % 3) * 0.04f, 0.964f + (i / 3) * 0.008f, -0.08f), new Vector3(0.040f, 0.0035f, 0.040f), Mat("Brass"));
+                Box(furniture, "LeatherMat", new Vector3(0, 0.961f, 0.06f), new Vector3(0.50f, 0.008f, 0.30f), "Leather");
+            }
+            else if (npc == "priestess")
+            {
+                Box(furniture, "AltarRunner", new Vector3(0, 0.963f, 0), new Vector3(0.38f, 0.009f, 0.66f), "AltarCloth");
+                foreach (var side in new[] { -1, 1 })
+                {
+                    Primitive(furniture, "CandleStand" + side, PrimitiveType.Cylinder, new Vector3(side * 0.55f, 0.99f, 0.10f), new Vector3(0.14f, 0.025f, 0.14f), Mat("Brass"));
+                    Primitive(furniture, "WaxCandle" + side, PrimitiveType.Cylinder, new Vector3(side * 0.55f, 1.08f, 0.10f), new Vector3(0.056f, 0.065f, 0.056f), Mat("Parchment"));
+                    Primitive(furniture, "CandleFlame" + side, PrimitiveType.Sphere, new Vector3(side * 0.55f, 1.163f, 0.10f), new Vector3(0.018f, 0.043f, 0.018f), Mat("CandleGlow"));
+                }
+                Primitive(furniture, "OfferingDish", PrimitiveType.Cylinder, new Vector3(0, 0.985f, -0.01f), new Vector3(0.23f, 0.018f, 0.23f), Mat("Brass"));
+            }
+            else
+            {
+                Box(furniture, "RuneMat", new Vector3(0, 0.965f, 0), new Vector3(0.55f, 0.01f, 0.40f), "AltarCloth");
+                for (var i = 0; i < 3; ++i)
+                {
+                    var center = new Vector3(-0.48f + i * 0.085f, 1.005f, 0.12f);
+                    Primitive(furniture, "ReagentBottle" + i, PrimitiveType.Sphere, center, new Vector3(0.067f, 0.090f, 0.067f), Mat("PotionGlass"));
+                    Primitive(furniture, "BottleNeck" + i, PrimitiveType.Cylinder, center + Vector3.up * 0.053f, new Vector3(0.027f, 0.021f, 0.027f), Mat("Brass"));
+                }
+                Primitive(furniture, "FocusCrystal", PrimitiveType.Sphere, new Vector3(0.48f, 1.06f, 0.08f), new Vector3(0.11f, 0.18f, 0.11f), Mat("ArcaneCrystal"));
+                Box(furniture, "FocusStand", new Vector3(0.48f, 0.984f, 0.08f), new Vector3(0.16f, 0.05f, 0.16f), "Brass");
+                Box(furniture, "ToolHandle", new Vector3(0.27f, 0.976f, -0.18f), new Vector3(0.25f, 0.027f, 0.027f), "Leather");
+                Box(furniture, "ToolHead", new Vector3(0.15f, 0.983f, -0.18f), new Vector3(0.055f, 0.045f, 0.11f), "Brass");
+            }
+        }
+        static void BuildWorkTray()
+        {
+            var tray = new GameObject("TownWorkTray");
+            Box(tray, "WoodBase", new Vector3(0, -0.020f, 0), new Vector3(0.44f, 0.035f, 0.32f), "DarkWood");
+            Box(tray, "LeatherContactMat", new Vector3(0, -0.0025f, 0), new Vector3(0.405f, 0.005f, 0.285f), "Leather");
+            foreach (var sign in new[] { -1, 1 })
+            {
+                Box(tray, "LongRim" + sign, new Vector3(0, -0.005f, sign * 0.151f), new Vector3(0.44f, 0.018f, 0.018f), "DarkWood");
+                Box(tray, "ShortRim" + sign, new Vector3(sign * 0.211f, -0.005f, 0), new Vector3(0.018f, 0.018f, 0.285f), "DarkWood");
+            }
+            foreach (var x in new[] { -1, 1 }) foreach (var z in new[] { -1, 1 })
+                Primitive(tray, "BrassCorner", PrimitiveType.Sphere, new Vector3(x * 0.211f, 0.002f, z * 0.151f), new Vector3(0.009f, 0.004f, 0.009f), Mat("Brass"));
+            Anchor(tray, "ContactAnchor", Vector3.zero);
+            // Runtime owns interaction and collision; the asset contains presentation only.
+            PrefabUtility.SaveAsPrefabAsset(tray, Root + "/Prefabs/TownWorkTray.prefab");
+            UnityEngine.Object.DestroyImmediate(tray);
+        }
+        static void SharedMaterials(string environmentTextures)
+        {
+            Material("DarkWood", new Color(0.48f, 0.31f, 0.20f), 0, 0.22f);
+            Material("PaleStone", new Color(0.56f, 0.52f, 0.46f), 0, 0.18f);
+            Material("Brass", new Color(0.54f, 0.36f, 0.15f), 0.82f, 0.45f);
+            Material("Leather", new Color(0.16f, 0.075f, 0.035f), 0, 0.22f);
+            Material("Parchment", new Color(0.75f, 0.67f, 0.49f), 0, 0.16f);
+            Material("AltarCloth", new Color(0.22f, 0.12f, 0.26f), 0, 0.20f);
+            Material("PotionGlass", new Color(0.08f, 0.24f, 0.18f), 0.15f, 0.65f);
+            Material("ArcaneCrystal", new Color(0.16f, 0.28f, 0.48f), 0.30f, 0.6f);
+            var flame = Material("CandleGlow", new Color(1, 0.5f, 0.12f), 0, 0);
+            flame.EnableKeyword("_EMISSION");
+            flame.SetColor("_EmissionColor", new Color(1.4f, 0.65f, 0.12f));
+            foreach (var pair in new[] { new[] { "DarkWood", "dark_wooden_planks" }, new[] { "PaleStone", "monastery_stone_floor" } })
+            {
+                foreach (var suffix in new[] { "_alb.jpg", "_nrm.jpg" })
+                {
+                    var file = pair[1] + suffix;
+                    File.Copy(Path.Combine(environmentTextures, file), Root + "/Textures/" + file, false);
+                }
+                AssetDatabase.Refresh(ImportAssetOptions.ForceSynchronousImport);
+                var material = Mat(pair[0]);
+                material.color = Color.white;
+                material.mainTexture = Texture(Root + "/Textures/" + pair[1] + "_alb.jpg", false, false);
+                material.SetTexture("_BumpMap", Texture(Root + "/Textures/" + pair[1] + "_nrm.jpg", true, true));
+                material.EnableKeyword("_NORMALMAP");
+            }
+        }
+        public static void Build()
+        {
+            try
+            {
+                if (Directory.Exists(Root)) throw new IOException("Use a fresh authoring output; " + Root + " already exists");
+                foreach (var folder in new[] { "Actors", "Prefabs", "Materials", "Textures" }) Folder(Root + "/" + folder);
+                AssetDatabase.Refresh();
+                SharedMaterials(Arg("-townEnvironmentTextures"));
+                BuildWorkTray();
+                foreach (var npc in Npcs) ImportActor(npc, Arg("-townPreparedRoot"), Arg("-townRigRoot"));
+                AssetDatabase.SaveAssets();
+                Debug.Log("TOWN_ASSETS_BUILD_OK: three authored stations; no production bundle rebuild performed.");
+            }
+            catch (Exception exception)
+            {
+                Debug.LogException(exception);
+                if (Application.isBatchMode) EditorApplication.Exit(1);
+                throw;
+            }
+        }
+    }
+}
