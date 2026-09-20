@@ -75,5 +75,47 @@ unwanted disconnected geometry. An attractive front render alone is insufficient
 Do not describe static generated triangles as an animation-ready character or
 claim headset quality from offline renders.
 
-Results and selected derivatives will be recorded after provider completion and
-Blender inspection. No release, runtime code or bundle change is part of this pass.
+## Completed comparison and bounded follow-up
+
+All six initial requests completed and their GLBs passed local header/hash checks.
+Blender 4.2.22 imported every model and rendered full front/side/back/three-quarter
+views plus face and hand evidence. These are real mesh renders, not provider
+thumbnails or generated pictures. Detailed review tooling and controls:
+[mesh review](TOWN-SERVICES-MESH-REVIEW.md).
+
+| NPC | TRELLIS.2 triangles | Hunyuan triangles | Initial finding |
+|---|---:|---:|---|
+| Merchant | 493,781 | 499,470 | Trellis face/beard/garment fragmentation; Hunyuan intact but glossy |
+| Priestess | 488,749 | 499,374 | Trellis face/neck/dress cracks; Hunyuan intact, visible hand texture seams |
+| Enchantress | 493,437 | 499,768 | Trellis rear hood/hair differs from reference; Hunyuan rear silhouette closer |
+
+All initial models contain 4096 x 4096 textures. The merchant Trellis defects
+remain with constant opaque clay material and recalculated normals: this is not
+fixed by simply wiring texture alpha or changing the studio lighting. Hunyuan
+oblique hand controls show four fingers plus a thumb on each hand for all three;
+frontal overlap alone would have incorrectly suggested merged fingers.
+
+One targeted additional comparison was justified by the merchant's smooth skin
+and beard: `fal-ai/hyper3d/rodin/v2.5`, `Gen-2.5-High`, 500K triangles, PBR,
+high texture mode, HD texture, delight, A/T-pose and HighPack 4K. Same three
+neutral references; seed 20920; an explicit prompt preserves identity/costume
+and asks for weathered skin, matte cloth and no scenery. The complete prompt and
+parameters are retained in `merchant/rodin/plan.json` before submission.
+
+[Rodin pricing](https://fal.ai/models/fal-ai/hyper3d/rodin/v2.5) is USD 0.40 plus
+USD 0.80 HighPack; its request completed, producing 500,000 triangles. The result
+has attractive cloth/beard detail and less glossy skin, but weaker facial likeness
+and nearly closed eyes. This did not justify repeating it for the other NPCs.
+
+**Seven submitted/completed generations; estimated total USD 4.275 before tax.**
+The tool enforces an internal USD 8 estimate ceiling for this comparison; this is
+a conservative agent spending bound, not a user-requested budget or authorization
+to exhaust it. No repeat generation is needed for offline material, seam or LOD work.
+
+Provisional selection is Hunyuan for all three, subject to material/seam inspection
+and derivative validation. The enchantress's small input-label fragment did not
+produce visible text or a pedestal in either inspected reconstruction. Preserve
+that actual input and its provenance; do not disguise the preparation defect.
+
+No release, runtime code or bundle change is part of this pass. Static source meshes
+are not yet retopologized for facial animation, skinned, rigged or headset-approved.

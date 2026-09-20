@@ -14,6 +14,7 @@ import os
 from pathlib import Path
 import urllib.error
 import urllib.request
+from datetime import datetime, timezone
 
 ROOT = Path(__file__).resolve().parents[1]
 OUT = ROOT / ".planning/debug/npc-meshes"
@@ -102,7 +103,16 @@ def submit(npc, candidate):
     reserved = sum(json.loads(p.read_text())["estimated_usd"] for p in OUT.glob("*/*/submission-intent.json"))
     if reserved + plan["estimated_usd"] > 8:
         raise RuntimeError("This comparison's USD 8 estimated-cost ceiling would be exceeded")
-    save(intent, {"endpoint": plan["endpoint"], "estimated_usd": plan["estimated_usd"], "plan_sha256": hashlib.sha256((folder / "plan.json").read_bytes()).hexdigest()})
+    input_names = [name for value in plan["inputs"].values() for name in (value if isinstance(value, list) else [value])]
+    reservation = {"endpoint": plan["endpoint"], "estimated_usd": plan["estimated_usd"],
+                   "started_utc": datetime.now(timezone.utc).isoformat(),
+                   "plan_sha256": hashlib.sha256((folder / "plan.json").read_bytes()).hexdigest(),
+                   "input_sha256": {name: hashlib.sha256((OUT / npc / "inputs" / name).read_bytes()).hexdigest() for name in input_names}}
+    # Exclusive creation prevents two invocations submitting this same plan.
+    with intent.open("x") as stream:
+        json.dump(reservation, stream, indent=2)
+        stream.flush()
+        os.fsync(stream.fileno())
     result = request("https://queue.fal.run/" + plan["endpoint"], args)
     save(receipt, result)
     print(npc, candidate, "submitted", result["request_id"], "estimated USD", plan["estimated_usd"])
