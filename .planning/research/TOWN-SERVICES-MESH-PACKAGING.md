@@ -85,8 +85,14 @@ flip is applied: these are imported glTF tangent-space normal maps.
 - Unity metallic R and smoothness alpha matched bytewise ORM B and `255 - G` respectively
   (maximum absolute channel error zero, default factors 1 and roughness floor zero).
 - Normalized source GLB material JSON retains the source specular extension and double-sided flag.
-- Blender outputs are reproducibly generated offline. Unity import/build evidence is recorded
-  separately after its smoke test; successful import alone is not a visual or VR acceptance.
+- All 17 output-file hashes verified against the preparation manifest; all four exported
+  texture images are 4096 x 4096.
+- Standalone Unity 2021.3.5 import and `.unitypackage` export completed with exit 0 under
+  `xvfb-run`; the merchant smoke package is approximately 69 MiB.
+- A separate Unity editor smoke verified source FBX height 1.75 metres and floor zero
+  (tolerance 1 mm), LOD counts 79,999 / 30,000 / 9,999, mask sRGB disabled and
+  alpha-as-transparency disabled. This proves import geometry/channel configuration,
+  not visual or VR acceptance.
 
 Generated meshes are static artist starting points. No rigging, skinning, animation, facial
 expression or headset quality claim is made. Finger silhouette, facial likeness, material
