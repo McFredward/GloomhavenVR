@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Generic;
+using GloomhavenVR.Cards;
 using GloomhavenVR.Hands;
 using GloomhavenVR.Hands.Interact;
 using GloomhavenVR.Net;
@@ -10,35 +12,44 @@ namespace GloomhavenVR.WorldUI;
 
 /// <summary>A non-authoritative sample of an original catalog entry. Only releasing over the
 /// work mat dispatches the original selection button; its native confirmation still owns payment.</summary>
-internal sealed class TownServiceToken : IGrabbable, ITriggerOnlyGrabbable, IGrabHighlight, IDisposable
+internal sealed class TownServiceToken : IGrabbable, ITriggerOnlyGrabbable, IGrabbableHandFilter, IGrabHighlight, IDisposable
 {
     private readonly RectTransform _source;
     private readonly Selectable _button;
     private readonly Func<object?> _identity;
     private readonly Func<bool> _sessionAlive;
+    private readonly Func<object?> _contextIdentity;
     private readonly Transform _mat;
     private readonly GameObject _pick;
     private readonly BoxCollider _shape;
     private readonly Vector3[] _corners = new Vector3[4];
-    private readonly Vector3[] _maskCorners = new Vector3[4];
+    private readonly List<CanvasGroup> _groups = new();
+    private readonly List<RectMask2D> _masks = new();
+    private Transform? _parent;
     private GameObject? _held;
     private RemoteWidgetMirror? _mirror;
     private VRHand? _hand;
     private object? _pickedIdentity;
+    private object? _pickedContext;
+    private Vector3 _heldPosition;
+    private Quaternion _heldRotation;
     private bool _disposed;
     private bool _hover;
 
     internal Transform Source => _source;
     internal Transform? HeldRoot => _held != null ? _held.transform : null;
     public bool GrabWithGrip => false;
+    public bool AllowsHand(VRHand hand) => !_disposed && _sessionAlive()
+        && (!ReferenceEquals(hand.Grabber.Held, this) || _hand == hand);
     public bool CanGrab => !_disposed && _hand == null && _sessionAlive()
         && _source != null && _source.gameObject.activeInHierarchy
         && _button != null && _button.IsActive() && _button.IsInteractable() && _shape.enabled;
 
     internal TownServiceToken(RectTransform source, Selectable button, Func<object?> identity,
-        Func<bool> sessionAlive, Transform mat)
+        Func<object?> contextIdentity, Func<bool> sessionAlive, Transform mat)
     {
-        _source = source; _button = button; _identity = identity; _sessionAlive = sessionAlive; _mat = mat;
+        _source = source; _button = button; _identity = identity; _contextIdentity = contextIdentity;
+        _sessionAlive = sessionAlive; _mat = mat;
         _pick = new GameObject("GloomhavenVR.TownService.SampleReach");
         _shape = _pick.AddComponent<BoxCollider>();
         _shape.isTrigger = true;
@@ -52,11 +63,13 @@ internal sealed class TownServiceToken : IGrabbable, ITriggerOnlyGrabbable, IGra
         if (_source == null || !_sessionAlive()) { Dispose(); return; }
         if (_hand != null)
         {
-            if (!ReferenceEquals(_pickedIdentity, _identity()) || !_source.gameObject.activeInHierarchy)
+            if (!ReferenceEquals(_pickedIdentity, _identity()) || !ReferenceEquals(_pickedContext, _contextIdentity())
+                || !_source.gameObject.activeInHierarchy || !_button.IsInteractable())
             { CancelHold(); return; }
             if (_held != null)
             {
-                _held.transform.SetPositionAndRotation(_hand.Rig.GrabAnchor.position, _hand.Rig.GrabAnchor.rotation);
+                _held.transform.SetPositionAndRotation(_hand.Rig.GrabAnchor.TransformPoint(_heldPosition),
+                    _hand.Rig.GrabAnchor.rotation * _heldRotation);
                 _held.transform.localScale = Vector3.one * scale;
             }
             _mirror?.TickLive();
@@ -76,13 +89,22 @@ internal sealed class TownServiceToken : IGrabbable, ITriggerOnlyGrabbable, IGra
         _source.GetWorldCorners(_corners);
         Vector3 center = (_corners[0] + _corners[2]) * .5f;
         // A pooled/scroll-clipped row cannot steal a grip through a book cover or viewport.
-        for (Transform? t = _source; t != null; t = t.parent)
+        if (_parent != _source.parent)
         {
-            CanvasGroup? group = t.GetComponent<CanvasGroup>();
+            _parent = _source.parent; _groups.Clear(); _masks.Clear();
+            for (Transform? t = _source; t != null; t = t.parent)
+            {
+                CanvasGroup? group = t.GetComponent<CanvasGroup>();
+                if (group != null) _groups.Add(group);
+                RectMask2D? mask = t.GetComponent<RectMask2D>();
+                if (mask != null) _masks.Add(mask);
+            }
+        }
+        foreach (CanvasGroup group in _groups)
             if (group != null && group.enabled && (group.alpha < .01f || !group.interactable)) return false;
-            RectMask2D? mask = t.GetComponent<RectMask2D>();
+        foreach (RectMask2D mask in _masks)
+        {
             if (mask == null || !mask.enabled) continue;
-            mask.rectTransform.GetWorldCorners(_maskCorners);
             Vector3 local = mask.rectTransform.InverseTransformPoint(center);
             if (!mask.rectTransform.rect.Contains(new Vector2(local.x, local.y))) return false;
         }
@@ -93,8 +115,16 @@ internal sealed class TownServiceToken : IGrabbable, ITriggerOnlyGrabbable, IGra
     {
         if (!CanGrab) return;
         _pickedIdentity = _identity();
+        _pickedContext = _contextIdentity();
         if (_pickedIdentity == null) return;
         _hand = hand;
+        float side = Board.FigureGrab.HeldPoseMirror.OffsetSign(hand.Side == HandSide.Left);
+        Vector3 pinch = new Vector3(0f, CardsConfig.HeldOffPalm.Value, CardsConfig.HeldForward.Value);
+        FingerJoints thumb = hand.Rig.GetFinger(Finger.Thumb), index = hand.Rig.GetFinger(Finger.Index);
+        if (thumb.IsValid && index.IsValid)
+            pinch = hand.Rig.GrabAnchor.InverseTransformPoint((thumb.Tip.position + index.Tip.position) * .5f);
+        CardGripPose.ReadingPose(CardsConfig.HeldFaceBias.Value, side, pinch, .24f, .15f,
+            out _heldPosition, out _heldRotation);
         _shape.enabled = false;
         _held = new GameObject("GloomhavenVR.TownService.HeldSample");
         _held.transform.SetPositionAndRotation(hand.Rig.GrabAnchor.position, hand.Rig.GrabAnchor.rotation);
@@ -107,8 +137,9 @@ internal sealed class TownServiceToken : IGrabbable, ITriggerOnlyGrabbable, IGra
     public void OnRelease(VRHand hand, Vector3 velocity)
     {
         if (_hand != hand) return;
-        bool select = !_disposed && _sessionAlive() && _button != null && _button.IsInteractable()
-            && ReferenceEquals(_pickedIdentity, _identity()) && _held != null && _mat != null;
+        bool select = hand.HasPose && hand.TriggerUp && !_disposed && _sessionAlive() && _button != null && _button.IsInteractable()
+            && ReferenceEquals(_pickedIdentity, _identity()) && ReferenceEquals(_pickedContext, _contextIdentity())
+            && _source != null && _source.gameObject.activeInHierarchy && _held != null && _mat != null;
         if (select)
         {
             Vector3 point = _mat!.InverseTransformPoint(_held!.transform.position);
@@ -139,7 +170,7 @@ internal sealed class TownServiceToken : IGrabbable, ITriggerOnlyGrabbable, IGra
         Hover(false);
         _mirror?.Destroy(); _mirror = null;
         if (_held != null) UnityEngine.Object.Destroy(_held);
-        _held = null; _hand = null; _pickedIdentity = null;
+        _held = null; _hand = null; _pickedIdentity = null; _pickedContext = null;
     }
 
     public void Dispose()

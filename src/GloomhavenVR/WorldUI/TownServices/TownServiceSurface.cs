@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using UnityEngine;
 
 namespace GloomhavenVR.WorldUI;
@@ -12,6 +13,9 @@ internal sealed class TownServiceSurface : IDisposable
     private readonly Vector3 _offset;
     private readonly float _width;
     private readonly GrabbableModal _grab = new();
+    private readonly List<CanvasGroup> _nativeGroups = new();
+    private readonly List<Transform> _nativeAncestors = new();
+    private readonly CanvasGroup _gate;
     private bool _placed;
 
     internal TownServiceSurface(ushort id, RectTransform source, Vector3 offset, float width)
@@ -19,9 +23,25 @@ internal sealed class TownServiceSurface : IDisposable
         Id = id;
         _offset = offset;
         _width = width;
+        CanvasGroup? ownGroup = source.GetComponent<CanvasGroup>();
+        bool inheritGroups = ownGroup == null || !ownGroup.ignoreParentGroups;
+        for (Transform? t = source.parent; t != null; t = t.parent)
+        {
+            _nativeAncestors.Add(t);
+            CanvasGroup? group = t.GetComponent<CanvasGroup>();
+            if (group != null && inheritGroups)
+            {
+                _nativeGroups.Add(group);
+                if (group.ignoreParentGroups) inheritGroups = false;
+            }
+            // Follow the logical native window, not its old HUD root. Its world conversion
+            // deliberately detaches it from that HUD and preserves its own visibility rules.
+            if (t.GetComponent<UnityEngine.UI.UIWindow>() != null) break;
+        }
         Panel = CanvasConversion.Convert(source, "TownService." + id, fitContent: false,
             useModLayer: true, transparentBackground: false)
             ?? throw new InvalidOperationException("Native town section could not be converted: " + id);
+        _gate = Panel.HostGo.AddComponent<CanvasGroup>();
         try { _grab.Build(Panel, 1f, "TownService." + id); }
         catch { CanvasConversion.Release(Panel); throw; }
     }
@@ -29,6 +49,16 @@ internal sealed class TownServiceSurface : IDisposable
     internal void Tick(Vector3 origin, Quaternion yaw, float scale)
     {
         if (!Panel.IsAlive) return;
+        float alpha = 1f;
+        bool interactable = true, raycasts = true;
+        foreach (Transform ancestor in _nativeAncestors)
+            if (ancestor == null || !ancestor.gameObject.activeSelf) { alpha = 0f; interactable = raycasts = false; }
+        foreach (CanvasGroup group in _nativeGroups)
+        {
+            if (group == null || !group.enabled) continue;
+            alpha *= group.alpha; interactable &= group.interactable; raycasts &= group.blocksRaycasts;
+        }
+        _gate.alpha = alpha; _gate.interactable = interactable; _gate.blocksRaycasts = raycasts;
         if (!_placed)
         {
             float pixels = Mathf.Max(1f, Panel.HostRect.rect.width);

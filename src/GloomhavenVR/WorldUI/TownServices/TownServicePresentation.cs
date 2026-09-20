@@ -24,6 +24,8 @@ internal static class TownServicePresentation
     private static Quaternion _yaw;
     private static float _scale, _opened, _nextCensus;
     private static uint _session;
+    private static object? _selectionOwner, _selectionCard, _selectionKey;
+    private static int _selectionMode;
     internal static byte Service { get; private set; }
     internal static uint Session => _session;
     internal static IReadOnlyList<TownServiceSurface> LocalSurfaces => Surfaces;
@@ -36,9 +38,9 @@ internal static class TownServicePresentation
         try { TickCore(); }
         catch (Exception e)
         {
-            _failedWindow = _window;
+            if (_failedWindow == null) _failedWindow = _window;
             Reset();
-            VRLog.Warn("WorldUI", "TOWN SERVICE FALLBACK: original window restored after " + e);
+            VRLog.Note("WorldUI", "TOWN SERVICE FALLBACK: original window restored after " + e);
         }
     }
 
@@ -61,16 +63,31 @@ internal static class TownServicePresentation
             if (_station == null)
             {
                 _failedWindow = window; _window = null;
-                VRLog.Warn("WorldUI", "TOWN SERVICE ASSET MISSING: original service window remains available; install the matching asset bundle.");
+                VRLog.Note("WorldUI", "TOWN SERVICE ASSET MISSING: original service window remains available; install the matching asset bundle.");
                 return;
             }
             Service = service; _session++; if (_session == 0) _session++;
             _context = context; _scale = scale; _origin = context.HostGo.transform.position;
             _yaw = Quaternion.Euler(0f, context.HostGo.transform.eulerAngles.y, 0f);
             _opened = Time.unscaledTime;
+            window.onHidden.AddListener(OnNativeHidden);
+            if (!ModalFallback.ReleaseForTownService(window, context))
+                throw new InvalidOperationException("Previous service conversion has not restored its native hierarchy");
             BuildMat();
-            BuildSections(window, service);
-            HidePortrait(window);
+            try
+            {
+                BuildSections(window, service);
+                HidePortrait(window);
+                _context = ModalFallback.RestoreTownServiceContext(window, _origin, _yaw)
+                    ?? throw new InvalidOperationException("Native context could not be restored after section handoff");
+            }
+            catch
+            {
+                Reset();
+                ModalFallback.RestoreTownServiceContext(window, _origin, _yaw);
+                _failedWindow = window;
+                throw;
+            }
             VRLog.Note("WorldUI", "TOWN SERVICE OPEN: service=" + service + " session=" + _session + " native sections=" + Surfaces.Count);
         }
         foreach (TownServiceSurface surface in Surfaces) surface.Tick(_origin, _yaw, _scale);
@@ -161,20 +178,21 @@ internal static class TownServicePresentation
         if (Service == 1)
         {
             foreach (UIShopItemSlot slot in _window.GetComponent<UIShopItemWindow>().ItemInventory.slotPool)
-                if (slot != null) Token(slot, slot.Selectable, () => slot.Item);
+                if (slot != null && !Tokens.ContainsKey(slot)) Token(slot, slot.Selectable, () => slot.Item);
         }
         else if (Service == 2)
         {
             foreach (UITempleShopSlot slot in _window.GetComponent<UITempleWindow>().Shop.slots)
-                if (slot != null) Token(slot, slot.button, () => slot.Blessing);
+                if (slot != null && !Tokens.ContainsKey(slot)) Token(slot, slot.button, () => slot.Blessing);
         }
         else
         {
             UINewEnhancementWindow shop = _window.GetComponent<UINewEnhancementWindow>();
             foreach (UINewEnhancementShopSlot slot in shop.enhancementShop.slotsPool)
-                if (slot != null) Token(slot, slot.button, () => slot.enhancement);
+                if (slot != null && !Tokens.ContainsKey(slot)) Token(slot, slot.button, () => slot.enhancement);
             foreach (UIEnhanceCardSlot slot in shop.CardsDisplay.slotsPool)
-                if (slot != null) Token(slot, slot.button, () => slot.abilityCard);
+                if (slot != null && !Tokens.ContainsKey(slot)) Token(slot, slot.Selectable,
+                    () => slot.AbilityCard != null ? slot.AbilityCard.AbilityCard : null);
         }
     }
 
@@ -182,7 +200,41 @@ internal static class TownServicePresentation
     {
         if (Tokens.ContainsKey(source) || button == null || source.transform is not RectTransform rect || _mat == null) return;
         uint session = _session;
-        Tokens.Add(source, new TownServiceToken(rect, button, identity, () => Active && _session == session, _mat.transform));
+        Tokens.Add(source, new TownServiceToken(rect, button, identity, SelectionContext,
+            () => Active && _session == session, _mat.transform));
+    }
+
+    private static object? SelectionContext()
+    {
+        if (_window == null) return null;
+        object? owner, card = null;
+        int mode = 0;
+        if (Service == 1)
+        {
+            UIShopItemInventory shop = _window.GetComponent<UIShopItemWindow>().ItemInventory;
+            owner = shop.character; mode = (int)shop.mode;
+        }
+        else if (Service == 2) owner = _window.GetComponent<UITempleWindow>().character;
+        else
+        {
+            UINewEnhancementWindow shop = _window.GetComponent<UINewEnhancementWindow>();
+            owner = shop.character; mode = (int)shop.mode;
+            card = shop.selectedCard != null ? shop.selectedCard.AbilityCard : null;
+        }
+        if (_selectionKey == null || !ReferenceEquals(owner, _selectionOwner)
+            || !ReferenceEquals(card, _selectionCard) || mode != _selectionMode)
+        {
+            _selectionOwner = owner; _selectionCard = card; _selectionMode = mode;
+            _selectionKey = new object();
+        }
+        return _selectionKey;
+    }
+
+    private static void OnNativeHidden()
+    {
+        // A close/reopen within one frame must still retire the old gesture/session.
+        Reset();
+        _failedWindow = null;
     }
 
     internal static void LateTick()
@@ -192,8 +244,13 @@ internal static class TownServicePresentation
 
     internal static void Reset()
     {
+        if (_window != null) _window.onHidden.RemoveListener(OnNativeHidden);
         foreach (TownServiceToken token in Tokens.Values) token.Dispose();
         Tokens.Clear();
+        // Reverse the ownership handoff too: the context must not re-adopt restored descendants
+        // halfway through their teardown or record another conversion's camera/layer as native.
+        if (_window != null && _context != null && _context.IsAlive)
+            ModalFallback.ReleaseForComposite(_window);
         for (int i = Surfaces.Count - 1; i >= 0; i--) Surfaces[i].Dispose();
         Surfaces.Clear();
         foreach (Graphic portrait in Portraits) if (portrait != null) portrait.enabled = true;
@@ -203,5 +260,6 @@ internal static class TownServicePresentation
         _mat = null; _matMaterial = null;
         _station?.Dispose(); _station = null;
         _window = null; _context = null; Service = 0;
+        _selectionOwner = null; _selectionCard = null; _selectionKey = null;
     }
 }
