@@ -10,9 +10,9 @@ using UnityEngine.UI;
 
 namespace GloomhavenVR.WorldUI;
 
-/// <summary>A non-authoritative sample of an original service entry. Merchant cards lift their
-/// actual rigid presentation and always return without selecting or buying. Legacy temple and
-/// enhancement samples select only when released over their tray; native confirmation owns payment.</summary>
+/// <summary>A non-authoritative physical sample of an original service entry. Picking up
+/// only inspects it; an eligible deliberate drop invokes its original transaction callback.
+/// Every other release returns the sample without changing native gameplay state.</summary>
 internal sealed class TownServiceToken : IGrabbable, ITriggerOnlyGrabbable, IGrabbableHandFilter,
     IGrabCancellation, IGrabHighlight, IDisposable
 {

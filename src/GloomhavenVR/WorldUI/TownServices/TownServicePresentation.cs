@@ -193,8 +193,7 @@ internal static class TownServicePresentation
         var anchor = new GameObject("GloomhavenVR.TownService.CounterCards");
         _counter = anchor.transform;
         _counter.SetParent(_workspace != null ? _workspace.Root : _station.Root, false);
-        // Authored planks end at 0.955 m. Original filters, page arrows and exit sit above
-        // that same worktop, around the bounded six-card rack.
+        // Physical filing drawers and the eligible drop zones share the authored worktop.
         _counter.localPosition = new Vector3(0f, .970f, 0f);
         uint session = _session;
         _catalog = new TownServiceCatalog(shop.ItemInventory, _counter, SelectionContext,

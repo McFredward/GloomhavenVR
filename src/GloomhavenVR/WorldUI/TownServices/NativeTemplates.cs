@@ -96,6 +96,8 @@ internal static class NativeTemplates
         Add("enchant.buy", hud.enhancementWindow.buyButton);
         Add("enchant.sell", hud.enhancementWindow.sellButton);
         Add("enchant.cards", hud.enhancementWindow.CardsDisplay);
+        Add("enchant.capacity", hud.enhancementWindow.CardsDisplay.enhancementPointsText.transform.parent);
+        Add("enchant.information", hud.enhancementWindow.cardInformationText);
         Add("enchant.scroll", hud.enhancementWindow.CardsDisplay.abilityCardsPanel);
         Add("enchant.cardrow", hud.enhancementWindow.CardsDisplay.slotPrefab);
         if (hud.enhancementWindow.CardsDisplay.slotPrefab.enhancementPoints.Count > 0)

@@ -21,7 +21,7 @@ internal sealed class TownServiceRitual : IDisposable
         internal readonly Transform Source;
         private readonly Transform _root;
         private readonly RemoteWidgetMirror _mirror = null!;
-        internal Transform? Content => _mirror.CloneOf(Source);
+        internal Transform? Content => Source != null && Source.gameObject.activeInHierarchy ? _mirror.CloneOf(Source) : null;
         internal Transform? CloneOf(Transform source) => _mirror.CloneOf(source);
         internal Inscription(string key, Component source, Transform parent, Vector3 position, float width, float height)
         {
@@ -33,10 +33,15 @@ internal sealed class TownServiceRitual : IDisposable
             {
                 _mirror = new RemoteWidgetMirror("TownLedger", _root, width, height, Vector2.zero, mrBacking: false);
                 if (!_mirror.Refresh(Source)) throw new InvalidOperationException("Original ledger inscription is unavailable");
+                Tick();
             }
             catch { _mirror?.Destroy(); UnityEngine.Object.Destroy(_root.gameObject); throw; }
         }
-        internal void Tick() => _mirror.TickLive();
+        internal void Tick()
+        {
+            _mirror.SetShown(Source != null && Source.gameObject.activeInHierarchy);
+            _mirror.TickLive();
+        }
         public void Dispose() { _mirror.Destroy(); UnityEngine.Object.Destroy(_root.gameObject); }
     }
 
@@ -273,6 +278,12 @@ internal sealed class TownServiceRitual : IDisposable
                 UINewEnhancementWindow shop = window.GetComponent<UINewEnhancementWindow>();
                 _surfaces.Add(new TownServiceSurface(11, (RectTransform)shop.cardHolder.transform,
                     new Vector3(0f, .008f, 0f), .25f, Root));
+                // The original capacity group includes its label, icon and mutually exclusive
+                // normal/warning count. Preserve it as print on the open native spellbook.
+                _inscriptions.Add(new Inscription("enchant.capacity", shop.CardsDisplay.enhancementPointsText.transform.parent,
+                    Root, new Vector3(0f, .022f, .35f), .28f, .065f));
+                _inscriptions.Add(new Inscription("enchant.information", shop.cardInformationText,
+                    Root, new Vector3(0f, .022f, .27f), .28f, .075f));
             }
             RefreshPieces();
         }
@@ -387,6 +398,10 @@ internal sealed class TownServiceRitual : IDisposable
 
     private static bool TempleEligible(UITempleWindow temple, UITempleShopSlot slot) => temple.character != null
         && temple.Shop.slotsCanvasGroup.interactable && slot.IsAvailable && slot.button.IsInteractable()
+        // CanBuy opens native warnings on failure. Quiet live reads must precede its
+        // multiplayer permission check so a held unaffordable offering cannot spam UI.
+        && temple.service.IsAvailable(temple.character.CharacterID, slot.Blessing)
+        && temple.service.CanAfford(temple.character.CharacterID, slot.Blessing)
         && temple.service.CanBuy(temple.character.CharacterID, slot.Blessing);
 
     private static bool RuneEligible(UINewEnhancementWindow shop, UINewEnhancementShopSlot slot)

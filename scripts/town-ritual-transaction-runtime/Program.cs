@@ -94,5 +94,3 @@ public static class InteractionProgram
         return count;
     }
 }
-
-internal static class TownServiceConfirmationMask { internal static void Begin(UIWindow window, Func<object?> identity) { } }
