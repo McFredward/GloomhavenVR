@@ -134,7 +134,13 @@ def fit(raw,name,orbital=True):
         inner=np.clip((raw[:,2]-1.12)/.10,0,1)
         locality=np.clip((.26-np.abs(raw[:,0]-side*.30775))/.08,0,1)*np.clip((.23-np.abs(raw[:,1]-7.28415))/.10,0,1)
         weight=inner*locality*np.clip((1.12-radial)/.12,0,1)
-        contact=cy-np.sqrt(np.maximum(.000002,radius*radius-dx*dx-dz*dz))-.00035
+        contact=cy-np.sqrt(np.maximum(.000002,radius*radius-dx*dx-dz*dz))
+        # The cornea has a steeper 7.8 mm curvature than the scleral globe.
+        # Fit the lid over that actual optical bulge, including a closed blink.
+        iris=radius*math.sin(.45);corneal_radius=.0078
+        limbus=cy-radius*math.cos(.45)
+        bulge=limbus-np.sqrt(np.maximum(0,corneal_radius**2-dx*dx-dz*dz))+math.sqrt(corneal_radius**2-iris**2)
+        contact=np.where(dx*dx+dz*dz<iris*iris,np.minimum(contact,bulge),contact)-.00035
         y=y*(1-weight)+np.minimum(y,contact)*weight
     # The lower template rings continue inside the existing shirt rather than
     # spreading over its shoulders. The exposed anatomical neck stays unchanged.
@@ -409,9 +415,13 @@ def eyes(raw,name,data):
         obj=bpy.data.objects.new(label+'Globe',mesh);bpy.context.collection.objects.link(obj);obj.parent=pivot;mesh.materials.append(eye_mat)
         for polygon in mesh.polygons:polygon.use_smooth=True
         verts=[];faces=[]
-        for i,t in enumerate(np.linspace(0,theta,9)):
+        corneal_radius=.0078;limbus_radius=iris_radius*scale[0]
+        edge_y=edge_depth*scale[1]-.000025
+        centre_y=edge_y+math.sqrt(corneal_radius**2-limbus_radius**2)
+        for i,t in enumerate(np.linspace(0,math.asin(limbus_radius/corneal_radius),9)):
             for j in range(segments):
-                angle=j*2*math.pi/segments;verts.append((math.sin(t)*math.cos(angle)*scale[0],(-math.cos(t)-.002)*scale[1],math.sin(t)*math.sin(angle)*scale[2]))
+                angle=j*2*math.pi/segments
+                verts.append((math.sin(t)*math.cos(angle)*corneal_radius,centre_y-math.cos(t)*corneal_radius,math.sin(t)*math.sin(angle)*corneal_radius))
         for i in range(8):
             for j in range(segments):faces.append((i*segments+j,(i+1)*segments+j,(i+1)*segments+(j+1)%segments,i*segments+(j+1)%segments))
         mesh=bpy.data.meshes.new(label+'Cornea');mesh.from_pydata(verts,[],faces);mesh.update();obj=bpy.data.objects.new(label+'Cornea',mesh);bpy.context.collection.objects.link(obj);obj.parent=pivot;mesh.materials.append(cornea_mat)

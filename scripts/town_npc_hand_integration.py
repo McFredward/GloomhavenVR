@@ -24,7 +24,7 @@ def load(rig, folder, npc):
         for name,point in points.items():
             marker=bpy.data.objects.new(name+'.'+side,None)
             bpy.context.collection.objects.link(marker);marker.location=point
-            bone_name=(name[:-3]+'3.'+side) if name.endswith('Tip') else 'Hand.'+side
+            bone_name=(name[:-3]+'3.'+side) if name.endswith(('Tip','Pad')) else 'Hand.'+side
             marker['TownHandBone']=bone_name
             definition=contract['joints'][bone_name]
             forward=(Vector(definition['tail'])-Vector(definition['head'])).normalized()

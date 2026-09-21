@@ -7,7 +7,7 @@ def repair_hood(bm, npc):
     if npc not in ('priestess','enchantress'):
         return 0
     uv=bm.loops.layers.uv.active;deform=bm.verts.layers.deform.active
-    rx,rz,cz=(.118,.185,1.605) if npc=='priestess' else (.124,.187,1.610)
+    rx,rz,cz=(.118,.160,1.555) if npc=='priestess' else (.124,.160,1.555)
     # The opening only reaches the front/side inner hood. Its intact rear fabric
     # stays in place, so this is not a hole through both layers of the costume.
     def signed(p):return max((p.x/rx)**2+((p.z-cz)/rz)**2-1,(p.y-.115)*25,(1.425-p.z)*25)
@@ -30,7 +30,7 @@ def repair_hood(bm, npc):
             t=(lo+hi)*.5;key=frozenset((a,b));v=shared.get(key)
             if v is None:
                 v=bm.verts.new(a.co.lerp(b.co,t));shared[key]=v;boundary.append(v)
-                for group in set(a[deform])|set(b[deform]):v[deform][group]=a[deform].get(group,0)*(1-t)+b[deform].get(group,0)*t
+                for group in set(a[deform].keys())|set(b[deform].keys()):v[deform][group]=a[deform].get(group,0)*(1-t)+b[deform].get(group,0)*t
             poly.append((v,loop[uv].uv.lerp(nxt[uv].uv,t)))
         if len(poly)>=3:
             new=bm.faces.new([v for v,_ in poly]);new.material_index=face.material_index;new.smooth=True

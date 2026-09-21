@@ -507,7 +507,7 @@ namespace GloomhavenVR
                         eyeMaterial = new Material(AssetDatabase.LoadAssetAtPath<Shader>(Root + "/Shaders/TownEye.shader"));
                         AssetDatabase.CreateAsset(eyeMaterial, Root + "/Materials/" + npc + "_eye.mat");
                     }
-                    eyeMaterial.SetColor("_Color", new Color(.65f, .65f, .65f, 1));
+                    eyeMaterial.SetColor("_Color", Color.white);
                     eyeMaterial.mainTexture = Texture(Root + "/Textures/" + (npc == "enchantress" ? "green_eye.png" : "brown_eye.png"), false, false);
                     var cornea = AssetDatabase.LoadAssetAtPath<Material>(Root + "/Materials/TownCornea.mat");
                     if (!cornea)
@@ -531,10 +531,10 @@ namespace GloomhavenVR
                     }
                     foreach (var marker in actor.GetComponentsInChildren<Transform>().Where(t =>
                         t.name.StartsWith("PalmContact.") || t.name.StartsWith("PalmCentre.") ||
-                        new[] { "ThumbTip.", "IndexTip.", "MiddleTip.", "RingTip.", "LittleTip." }.Any(prefix => t.name.StartsWith(prefix))).ToArray())
+                        new[] { "ThumbTip.", "IndexTip.", "MiddleTip.", "RingTip.", "LittleTip.", "ThumbPad.", "IndexPad.", "MiddlePad.", "RingPad.", "LittlePad." }.Any(prefix => t.name.StartsWith(prefix))).ToArray())
                     {
                         var side = marker.name.Substring(marker.name.Length - 1);
-                        var boneName = marker.name.Contains("Tip.") ? marker.name.Split('.')[0].Replace("Tip", "3") + "." + side : "Hand." + side;
+                        var boneName = (marker.name.Contains("Tip.") || marker.name.Contains("Pad.")) ? marker.name.Split('.')[0].Replace("Tip", "3").Replace("Pad", "3") + "." + side : "Hand." + side;
                         var bone = actor.GetComponentsInChildren<Transform>().Single(t => t.name == boneName);
                         marker.SetParent(bone, true);
                     }

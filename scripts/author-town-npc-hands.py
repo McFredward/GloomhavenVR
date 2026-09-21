@@ -98,7 +98,13 @@ def make_hand(npc, rig, data, vertices, faces, face_uv, metadata, weights):
 
         points={'PalmContact':underside,'PalmCentre':centre}
         for digit,d in zip(DIGITS,range(1,6)):
-            points[digit+'Tip']=fitted(landmark(f'joint-l-finger-{d}-4'),side)
+            tip=fitted(landmark(f'joint-l-finger-{d}-4'),side)
+            points[digit+'Tip']=tip
+            distal=fitted(landmark(f'joint-l-finger-{d}-3'),side)
+            pad_centre=distal.lerp(tip,.80)
+            pad,_,_,_=surface.ray_cast(pad_centre+palm*.045,-palm,.09)
+            assert pad is not None,('Anatomical fingertip pad ray missed skin',npc,side,digit)
+            points[digit+'Pad']=pad
         contract['contacts'][side]={name:list(p) for name,p in points.items()}
         parts.append(obj)
     bpy.ops.object.select_all(action='DESELECT')
