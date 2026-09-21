@@ -12,6 +12,7 @@ import numpy as np
 from mathutils import Matrix, Vector
 sys.path.insert(0,str(Path(__file__).resolve().parent))
 from town_npc_necklines import repair as repair_neckline
+import town_npc_hand_integration as hand_assets
 
 
 def subset(source, predicate, name):
@@ -107,7 +108,7 @@ def bake(head,output):
 
 
 def main():
-    p=argparse.ArgumentParser(description=__doc__);p.add_argument('--prototype',type=Path,required=True);p.add_argument('--rig',type=Path,required=True);p.add_argument('--output',type=Path,required=True);p.add_argument('--name',required=True);p.add_argument('--baked-head',type=Path);p.add_argument('--face-only',action='store_true');a=p.parse_args(sys.argv[sys.argv.index('--')+1:]);a.output.mkdir(parents=True,exist_ok=True)
+    p=argparse.ArgumentParser(description=__doc__);p.add_argument('--prototype',type=Path,required=True);p.add_argument('--rig',type=Path,required=True);p.add_argument('--output',type=Path,required=True);p.add_argument('--name',required=True);p.add_argument('--baked-head',type=Path);p.add_argument('--face-only',action='store_true');p.add_argument('--hands',type=Path);a=p.parse_args(sys.argv[sys.argv.index('--')+1:]);a.output.mkdir(parents=True,exist_ok=True)
     bpy.ops.wm.open_mainfile(filepath=str(a.baked_head or a.prototype/'face-prototype.blend'));head=bpy.data.objects['Face']
     for key in head.data.shape_keys.key_blocks:key.value=0
     # The template includes the actual lower neck/clavicle loops; no boundary
@@ -129,6 +130,15 @@ def main():
     for action in target.actions:action.use_fake_user=True
     for obj in target.objects:bpy.context.collection.objects.link(obj)
     rig=next(o for o in target.objects if o.type=='ARMATURE');rig.animation_data.action=None;rig.data.pose_position='REST'
+    hands=hand_contract=None
+    if a.hands:
+        hands,hand_contract=hand_assets.load(rig,a.hands,a.name)
+        bpy.context.view_layer.objects.active=rig;bpy.ops.object.mode_set(mode='EDIT')
+        # Head rotation belongs at the occipital joint, not below the mandible.
+        # The old 1.51 m pivot pulled the nape into a long column when bowing.
+        rig.data.edit_bones['Head'].head.z=1.565
+        rig.data.edit_bones['Neck'].tail.z=1.565
+        bpy.ops.object.mode_set(mode='OBJECT')
     # Geometry is in metres in Blender; retain authored weights and actions exactly.
     records=[]
     for level in range(3):
@@ -142,6 +152,7 @@ def main():
             bm.to_mesh(body.data);bm.free();body.data.update()
         # The old skin cut must precede garment boundary reconstruction/lining.
         neckline=repair_neckline(body,a.name);print('NECKLINE_REPAIR',a.name,level,neckline)
+        hand_repair=hand_assets.remove_generated_shell(body,rig,hand_contract) if hands else None
         part=evaluated_shapes(facial,1 if level==0 else 0,'FaceLOD'+str(level));teeth=evaluated_shapes(oral,0,'OralLOD'+str(level));join([part,teeth],part)
         body_matrix=body.matrix_world.copy();body.parent=None;body.matrix_world=body_matrix
         original_uv=body.data.uv_layers.active.name
@@ -150,9 +161,11 @@ def main():
         body.data.uv_layers[original_uv].name='FaceAtlas';body.data.uv_layers['FaceAtlas'].active_render=True
         body.modifiers.clear()
         for key in part.data.shape_keys.key_blocks:body.shape_key_add(name=key.name)
-        part=join([body,part],body);part.name='LOD'+str(level)+'_0'
+        hand_part=hand_assets.lod_copy(hands,level) if hands else None
+        part=join([body,part]+([hand_part] if hand_part else []),body);part.name='LOD'+str(level)+'_0'
         # Stable two-slot runtime contract: original costume, new baked face/oral atlas.
-        old_materials=list(part.data.materials);bodymat=next(m for m in old_materials if m.name.startswith('TownBody'));indices=[0 if old_materials[p.material_index].name.startswith('TownBody')else 1 for p in part.data.polygons];part.data.materials.clear();part.data.materials.append(bodymat);part.data.materials.append(face_material)
+        old_materials=list(part.data.materials);bodymat=next(m for m in old_materials if m.name.startswith('TownBody'));indices=[0 if old_materials[p.material_index].name.startswith('TownBody') else (2 if old_materials[p.material_index].name.startswith('TownHands') else 1) for p in part.data.polygons];part.data.materials.clear();part.data.materials.append(bodymat);part.data.materials.append(face_material)
+        if hands:part.data.materials.append(hands.data.materials[0])
         for poly,index in zip(part.data.polygons,indices):poly.material_index=index
         # A second UV channel carries independent template-region membership
         # through FBX UV splits. It is validation metadata, never a rendered UV.
@@ -163,8 +176,9 @@ def main():
             contract.data[loop.index].uv=(values.get('ContractSkull',0),values.get('ContractJaw',0))
         part.data.uv_layers['FaceAtlas'].active_render=True
         part.parent=rig;modifier=part.modifiers.new('Station skeleton','ARMATURE');modifier.object=rig;modifier.use_vertex_groups=True
-        records.append({'necklineRepair':neckline,'name':part.name,'vertices':len(part.data.vertices),'triangles':sum(len(p.vertices)-2 for p in part.data.polygons),'shapes':[k.name for k in part.data.shape_keys.key_blocks][1:]})
+        records.append({'handRepair':hand_repair,'necklineRepair':neckline,'name':part.name,'vertices':len(part.data.vertices),'triangles':sum(len(p.vertices)-2 for p in part.data.polygons),'shapes':[k.name for k in part.data.shape_keys.key_blocks][1:]})
     bpy.data.objects.remove(facial,do_unlink=True);bpy.data.objects.remove(oral,do_unlink=True)
+    if hands:bpy.data.objects.remove(hands,do_unlink=True)
     # Optical frames are authored explicitly; Unity attaches these existing pivots
     # to Head while still in bind pose, before sampling station animation.
     rotation=Matrix.Rotation(math.pi/2,4,'X')

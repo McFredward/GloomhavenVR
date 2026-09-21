@@ -442,6 +442,8 @@ namespace GloomhavenVR
                 File.Copy(Path.Combine(input, npc, npc + "_rig.fbx"), directory + "/" + npc + "_rig.fbx", true);
                 File.Copy(Path.Combine(input, npc, "face_albedo.png"), directory + "/Textures/face543_albedo.png", true);
             }
+            var handAtlas = Path.Combine(input, "hands_albedo.png");
+            if (File.Exists(handAtlas)) File.Copy(handAtlas, Root + "/Textures/hands545_albedo.png", true);
             AssetDatabase.Refresh(ImportAssetOptions.ForceSynchronousImport);
             foreach (var npc in Npcs)
             {
@@ -466,6 +468,18 @@ namespace GloomhavenVR
                     var position = previous.localPosition; var rotation = previous.localRotation; var scale = previous.localScale;
                     var materials = previous.GetComponentsInChildren<SkinnedMeshRenderer>()[0].sharedMaterials;
                     var face = materials[1];
+                    if (File.Exists(Root + "/Textures/hands545_albedo.png"))
+                    {
+                        var handMaterial = AssetDatabase.LoadAssetAtPath<Material>(Root + "/Materials/TownHands545.mat");
+                        if (!handMaterial)
+                        {
+                            handMaterial = new Material(AssetDatabase.LoadAssetAtPath<Shader>(Root + "/Shaders/TownNpc.shader"));
+                            AssetDatabase.CreateAsset(handMaterial, Root + "/Materials/TownHands545.mat");
+                        }
+                        handMaterial.mainTexture = Texture(Root + "/Textures/hands545_albedo.png", false, false);
+                        handMaterial.SetFloat("_Metallic", 0); handMaterial.SetFloat("_Glossiness", .2f);
+                        materials = new[] { materials[0], face, handMaterial };
+                    }
                     face.mainTexture = Texture(Root + "/Actors/" + npc + "/Textures/face543_albedo.png", false, false);
                     face.SetTexture("_BumpMap", null); face.DisableKeyword("_NORMALMAP");
                     face.SetTexture("_MetallicGlossMap", null); face.DisableKeyword("_METALLICGLOSSMAP");
@@ -503,6 +517,15 @@ namespace GloomhavenVR
                         if (Vector3.Dot(eye.forward, actor.transform.forward) < 0.999f)
                             throw new InvalidDataException(npc + ": eye optical frame is not neutral actor +Z: " + eye.forward);
                         eye.SetParent(head, true);
+                    }
+                    foreach (var marker in actor.GetComponentsInChildren<Transform>().Where(t =>
+                        t.name.StartsWith("PalmContact.") || t.name.StartsWith("PalmCentre.") ||
+                        new[] { "ThumbTip.", "IndexTip.", "MiddleTip.", "RingTip.", "LittleTip." }.Any(prefix => t.name.StartsWith(prefix))).ToArray())
+                    {
+                        var side = marker.name.Substring(marker.name.Length - 1);
+                        var boneName = marker.name.Contains("Tip.") ? marker.name.Split('.')[0].Replace("Tip", "3") + "." + side : "Hand." + side;
+                        var bone = actor.GetComponentsInChildren<Transform>().Single(t => t.name == boneName);
+                        marker.SetParent(bone, true);
                     }
                     var mouth = new GameObject("MouthAudioAnchor").transform;
                     mouth.position = actor.transform.TransformPoint(npc == "merchant" ? new Vector3(0, 1.557f, 0.096f) :
@@ -643,7 +666,7 @@ internal sealed class TownFacialClipPostprocessor : AssetPostprocessor
         {
             var mesh = renderer.sharedMesh;
             if (mesh.blendShapeCount == 0) continue;
-            var body = mesh.GetIndices(0).Distinct().ToArray(); var face = mesh.GetIndices(1);
+            var body = Enumerable.Range(0, mesh.subMeshCount).Where(i => i != 1).SelectMany(mesh.GetIndices).Distinct().ToArray(); var face = mesh.GetIndices(1);
             var vertices = mesh.vertices; var baseNormals = mesh.normals;
             var weld = new int[vertices.Length]; var groups = new Dictionary<Vector3, int>();
             for (int i = 0; i < vertices.Length; i++)
