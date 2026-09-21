@@ -540,7 +540,8 @@ internal static class NetProtocol
     // Inspection moves that same card, including remotely, and release returns it to the rack
     // without selecting or buying. Explicit native selection/purchase remains separate.
     // Additional full-sized merchant workspaces use the free southern clearing; roster changes
-    // wait for held/returning cards, then relocate only during a shared fully invisible frame.
+    // wait for held/returning cards, then relocate while invisible. A new presentation generation
+    // prevents remote interpolation across the clearing even if invisible packets are coalesced.
     // Head/stand asset changes require the matching ghvr-town.bundle, not a DLL-only install.
     // Source/runtime evidence and remaining headset checks: research/TOWN-SERVICES-542.md.
 

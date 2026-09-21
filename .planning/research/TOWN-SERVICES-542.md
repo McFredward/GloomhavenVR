@@ -74,10 +74,15 @@ opening alpha; every inert clone registers for late original silhouette updates.
   controls. Exact object ownership excludes only the new town lights from native
   flicker damping; native lights with the same names/layer retain existing behavior.
 - Catalog: 409 Unity assertions and 19 negative controls; interactions: 901 and 31.
-- Additional merchant workspaces: 1580 Unity assertions and eight negative controls.
+- Additional merchant workspaces: 1587 Unity assertions and nine negative controls.
   Full-sized counters remain in the clearing; held/returning cards defer relocation.
   [Workspace evidence](TOWN-542-WORKSPACES.md) records footprint bounds and synchronized
   opacity/input behavior.
+- Relocation publication: 61 production Sync/Capture/Codec/Mirror assertions and four
+  compiled negative controls drop every invisible relocation packet. A fresh presentation
+  generation builds remote modules at the new position without moving them through the
+  clearing. Native sessions and selection stay unchanged. Lost fade samples remain a
+  transport limitation; see `scripts/town-service-mirror-runtime/RELOCATION.md`.
 - Full mirror/render suite passes, including physical body and held-duplicate mutations.
 - Complete guard: 14 source checks and all 49 local suites pass (419.5 seconds),
   plus 257025 wire assertions. Exit 1 reports only the expected old-baseline compiled
