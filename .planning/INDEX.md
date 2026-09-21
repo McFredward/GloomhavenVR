@@ -9,6 +9,7 @@ engineering evidence, historical decisions and current status; it is not the pla
 |---|---|
 | [../AGENTS.md](../AGENTS.md) | Agent workflow, integration ownership and current user rulings |
 | [../CLAUDE.md](../CLAUDE.md) | Technical contracts retained across agent tools |
+| [TEST-PARALLELISM.md](TEST-PARALLELISM.md) | Parallel local/CI execution, coverage and measured timing |
 | [STATE.md](STATE.md) | Current build, validation and outstanding hardware checks |
 | [research/TOWN-SERVICES-541.md](research/TOWN-SERVICES-541.md) | Desktop merchant fallback and discoverable presentation mode |
 | [research/TOWN-SERVICES-540.md](research/TOWN-SERVICES-540.md) | NPC visibility, native error, physical merchant catalog and first-test corrections |

@@ -13,6 +13,12 @@ change per build) → this file (where things stand and what is owed) → the bu
 
 ## 1. Position
 
+- **Validation infrastructure (runtime remains build 541):** independent source/runtime
+  suites now use bounded parallel execution with isolated logs and temporary outputs.
+  CI distributes its runtime suites across four required shards while preserving exact-tree
+  proof, main-only release publication and optional artifact limits. Measurement and coverage:
+  [TEST-PARALLELISM.md](TEST-PARALLELISM.md).
+
 - **Town services / build 541:** build-540 hardware logs reproduce merchant setup failure
   immediately after the Buy/Sell/All control conversions. The catalog dereferenced the
   gamepad-only Owned filter, absent from desktop merchant UI. Its handoff now follows the

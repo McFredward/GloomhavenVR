@@ -272,6 +272,27 @@ Negative controls remove the callback, broaden producer matching and remove the 
 `scripts/video-playback-tests.sh` additionally exercises cosmetic decoder failures and native audio
 restoration; wire vectors cover the additive movie record and stale playback identities.
 
+### Parallel execution
+
+Full dev CI runs a source/build job alongside four runtime jobs. Each runtime job executes
+a disjoint shard of the 48 hosted suites, with two suites running concurrently. The 14 shared
+source gates also run concurrently. `scripts/test-suites.json` defines both inventories;
+`scripts/run-test-suites.py` retains per-suite output, verifies process exit status and prints
+complete logs and durations. The local guard uses the same scheduler for its 46 suites and
+still runs the golden wire executable against the real game runtime.
+
+A suite's negative controls remain sequential inside that suite. Build and temporary outputs
+are isolated; worker counts are bounded rather than spawning every compiler at once. Matrix
+`fail-fast` is disabled so a failed shard does not hide failures in the others. No routine
+report artifacts are uploaded: detailed output remains in Actions logs. Runtime jobs restore
+NuGet caches without competing to save the same cache; the build job remains the cache writer.
+
+`Full checks [TREE]` is a completion job requiring successful source/build validation and all
+four runtime shards. The final `Build and gates` check keeps its existing name. Optional manual
+DLL downloads originate from the build job and can appear while tests are still running;
+check the final gate before using one. Release publication remains on main and requires full
+exact-tree evidence; it does not repeat these tests.
+
 ### Exact-tree CI evidence
 
 `scripts/ci-proof-reuse.py` uses GitHub's [workflow-run metadata](https://docs.github.com/en/rest/actions/workflow-runs)
@@ -285,6 +306,11 @@ For PRs, the checked-out synthetic merge must have the event's exact base and he
 parents. The workflow-run `head_sha` alone never establishes which PR merge was tested.
 Only the dedicated `Full checks [TREE]` job and its successful final completion step establish
 proof; `Build and gates` remains the required branch-protection check but cannot mint proof.
+For parallel runs the verifier additionally requires the source/build job and every named
+runtime shard to have succeeded for the same run attempt and source commit. Missing,
+duplicate, skipped, failed or cancelled shards reject proof even if the completion job is green.
+Historical serial runs are judged by the workflow at their own tested commit, preserving
+recovery of old release uploads without treating an incomplete parallel run as serial proof.
 A reused PR success cannot be reused recursively as if it had executed tests.
 
 The newest matching dev run and its latest attempt must succeed. A later failed, cancelled,

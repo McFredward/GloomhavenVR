@@ -232,6 +232,25 @@ duplicated work, not extra coverage. The strict build and bilingual-docs checks 
 explicitly. The guard needs a local baseline (`scripts/refactor-guard.sh baseline`, taken before
 editing); exit 1 means compiled output differs, so inspect its verdict and explain the changes.
 
+Independent tests run concurrently by default. The source group contains 14 read-only gates;
+`wire-tests.sh` runs its 46 standalone suites through the same bounded scheduler, then executes
+the unchanged golden wire vectors. Every suite retains its own negative controls and build
+outputs. A failed or cancelled suite fails the whole invocation. No test is skipped for speed.
+
+The runner chooses concurrency from available CPU and memory, capped at eight suites, and
+limits nested managed build processes. Override it when sharing the machine:
+
+```sh
+GHVR_TEST_JOBS=4 bash scripts/refactor-guard.sh check --summary
+GHVR_TEST_JOBS=1 bash scripts/wire-tests.sh  # sequential diagnosis, unchanged coverage
+```
+
+`scripts/test-suites.json` is the shared inventory for local and hosted execution. Full logs,
+per-suite durations and `results.json` remain under `.planning/debug/test-runs/`; the runner
+prints the selected directory and replays complete logs without interleaving their text.
+Independent suites have separate temporary directories; overlapping runs lock each suite's
+checkout outputs. Complete wire invocations also serialize their shared build/executable.
+
 Full hosted CI runs the source checks and standalone native presentation harnesses on every
 dev push and manual run. Internal PRs may reuse successful full-dev evidence for an identical
 merged Git tree; fork PRs always run full checks. Release requires exact-tree evidence and then
