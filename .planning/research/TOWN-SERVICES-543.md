@@ -98,8 +98,13 @@ animated Head. These are authoring/import corrections, not changes to native UI.
 Close-up review additionally found dark eyelid/nostril/mouth artifacts. A constant
 clay material and explicit single-LOD render separated atlas-border sampling and
 inconsistent blendshape normals from actual holes or duplicate LOD rendering.
-The asset lane is correcting the atlas against the subdivided surface and deriving
-facial base/deformation normals consistently, with zero costume deltas.
+The atlas is now baked against the subdivided surface. Facial base/deformation
+normals use the same neutral weld map, with zero costume deltas. The remaining broad
+eyelid band was traced to another stale Blender RNA handle: adding a color attribute
+relocated the UV storage, so writes through the previous LidSkin handle did not reach
+the intended layer. Reacquiring the layer by name fixes the actual stored UVs. The
+authoring assertion checks those values, and the v8 closed-eye renders show skin
+across the lids instead of the original photographic eye stripe.
 
 An independent Unity 2021.3.5 shader probe rules out a suspected transparent-pass
 lighting limitation: with pixelLightCount zero and a ForceVertex point light, both
@@ -119,6 +124,21 @@ skin weights supplied with the same CC0 source topology. A trial collar cylinder
 produced visible texture bands through extrapolated UV coordinates and was rejected;
 existing costume geometry must not be redesigned to hide an incorrect face fit.
 Final pictures and an actual-prefab skull/jaw preservation check remain required.
+
+The v8 source review passes 468 asset assertions and six visual negative controls.
+Root inspected neutral, closed-blink, small oral deformation and extreme-gaze views;
+the previously stretched jaws and broad dark eyelid bands are corrected. Existing
+irregular costume cut edges are retained and are not claimed fixed by this facial work.
+Final bundled rendering and runtime binding remain separate gates.
+
+The unchanged environment was checked against the v8 imported triangle indices and
+CPU-skinned pose exports: 16 poses (11 unique) per resident at 360 bearings, with the
+actual forest foot height. Minimum distances to the original alpha-surviving canopy
+samples are 91.608 mm for merchant, 94.662 mm for priestess and 103.061 mm for enchantress.
+All exceed the unchanged 28.52 mm wind bound documented in
+[TOWN-542-SETTING.md](TOWN-542-SETTING.md). This is a sampled geometry check, not a
+headset visual guarantee. Input hashes, reproducible script and results are archived
+in `.planning/debug/town543-canopy-*`; no environment geometry was changed.
 
 ## Hardware acceptance after final asset validation
 
