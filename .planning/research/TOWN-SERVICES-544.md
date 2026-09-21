@@ -30,6 +30,13 @@ do not establish visual correctness.
   neutral image background instead of scalp. Costume cut surfaces were not sufficient
   for the newly introduced moving head. These are asset-authoring defects, not privacy
   or lighting policies.
+- Combining work poses with head motion exposed further costume deformation. Abrupt
+  per-vertex support changes stretched cape and sleeve triangles into ribbons; connected
+  garment weights now distribute support while preserving hands and digits. Original
+  cloth edges retain their own UVs, and lower neck rings continue underneath the blouse.
+  These changes preserve the original clasps, chains and costume instead of covering the
+  defects with an extra collar. Review captures bake the current skinned mesh per pose;
+  repeated editor camera renders alone had retained stale GPU skinning.
 - The native UI contains two different textures with identical name, dimensions,
   format and mip count (`Black_Backdrop`). Their decoded pixels differ. Descriptor-only
   lookup therefore rejects temple/confirmation art after merchant art is registered.
@@ -71,6 +78,12 @@ writing contact and incorrect palm orientation despite passing mathematical IK t
 The first head orbit caught stretched collar UVs and an incomplete lower neck. These
 findings are why actual renders and final packaged assets must be reviewed, not just
 source assertions.
+
+Subsequent thumb calibration and the source-only CI fixture were checked separately:
+the activity suite passes 92107 assertions and nine compiled negative controls against
+the prior real bundle, and the portable phase/network suite passes 24031 assertions
+and five negative controls without game assemblies. These establish runtime behaviour;
+they do not replace the pending validation against the final build-544 assets.
 
 A separate returning-author review found that a network partition could leave the
 old and temporary NPC authorities at different work phases. Recovery now blends
