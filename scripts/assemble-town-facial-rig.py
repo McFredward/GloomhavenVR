@@ -10,6 +10,8 @@ from pathlib import Path
 import bpy, bmesh
 import numpy as np
 from mathutils import Matrix, Vector
+sys.path.insert(0,str(Path(__file__).resolve().parent))
+from town_npc_necklines import repair as repair_neckline
 
 
 def subset(source, predicate, name):
@@ -87,12 +89,8 @@ def main():
     p=argparse.ArgumentParser(description=__doc__);p.add_argument('--prototype',type=Path,required=True);p.add_argument('--rig',type=Path,required=True);p.add_argument('--output',type=Path,required=True);p.add_argument('--name',required=True);a=p.parse_args(sys.argv[sys.argv.index('--')+1:]);a.output.mkdir(parents=True,exist_ok=True)
     bpy.ops.wm.open_mainfile(filepath=str(a.prototype/'face-prototype.blend'));head=bpy.data.objects['Face']
     for key in head.data.shape_keys.key_blocks:key.value=0
-    # Extend only the anatomical neck boundary into the existing clothing. Orbital
-    # and oral loops are closed/internal and excluded by height and material.
-    bm=bmesh.new();bm.from_mesh(head.data);bm.verts.ensure_lookup_table()
-    boundary={v.index for e in bm.edges if len(e.link_faces)==1 and e.link_faces[0].material_index==0 for v in e.verts if v.co.z<1.49};bm.free()
-    for key in head.data.shape_keys.key_blocks:
-        for index in boundary:key.data[index].co.z-=.035
+    # The template includes the actual lower neck/clavicle loops; no boundary
+    # extrusion or detached neck-cover geometry is needed.
     face_material=bake(head,a.output)
     facial=subset(head,lambda p:p.material_index<2,'AnatomicalFace');oral=subset(head,lambda p:p.material_index>=2,'OralAnatomy');bpy.data.objects.remove(head,do_unlink=True)
     eyes=[o for o in bpy.context.scene.objects if o.name.startswith('Eye')]
@@ -108,6 +106,7 @@ def main():
     for level in range(3):
         body=next(o for o in target.objects if o.name.startswith('LOD'+str(level)+'_'))
         bm=bmesh.new();bm.from_mesh(body.data);remove=[f for f in bm.faces if not body.data.materials[f.material_index].name.startswith('TownBody')];bmesh.ops.delete(bm,geom=remove,context='FACES');bm.to_mesh(body.data);bm.free()
+        print('NECKLINE_REPAIR',a.name,level,repair_neckline(body,a.name))
         part=evaluated_shapes(facial,1 if level==0 else 0,'FaceLOD'+str(level));teeth=evaluated_shapes(oral,0,'OralLOD'+str(level));join([part,teeth],part)
         body_matrix=body.matrix_world.copy();body.parent=None;body.matrix_world=body_matrix
         original_uv=body.data.uv_layers.active.name

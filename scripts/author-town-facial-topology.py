@@ -69,7 +69,16 @@ def fit(raw,name):
         scalp=np.clip((z-.19)/.065,0,1)
         x*=1-.14*scalp; y=p['depthOffset']+(y-p['depthOffset'])*(1-.15*scalp)
         z-=.012*scalp
-    return np.column_stack((x,y,z+p['base']))
+    world_z=z+p['base']
+    neck_top=p['base'] if name!='merchant' else p['base']+p['lo'][2]+(p['bounds'][3]-709)/(p['bounds'][3]-p['bounds'][1])*(p['hi'][2]-p['lo'][2])
+    world_z=np.where(raw[:,1]<5.8,neck_top+(raw[:,1]-5.8)*.14,world_z)
+    if name=='merchant':
+        # The portrait beard tip is not the anatomical chin. The 543 fit mapped
+        # them identically and elongated the whole mandible. Keep eye height but
+        # restore the original merchant's shorter, broader lower face and scalp.
+        world_z=np.interp(world_z,[1.30,1.42,1.475,1.565,1.636,1.750],[1.30,1.42,1.508,1.570,1.636,1.732])
+        broad=np.interp(raw[:,1],[5.8,6.16,6.7,7.284,8.49],[1,1.16,1.10,1.04,1.02]);x*=broad
+    return np.column_stack((x,y,world_z))
 
 
 def material(name,color,rough=.65):
@@ -80,7 +89,7 @@ def material(name,color,rough=.65):
 
 
 def head_mesh(raw,faces,groups,face_uv,name,refs,data):
-    chosen_indices=[i for i,(f,g) in enumerate(zip(faces,groups))if g=='body'and min(raw[f,1])>5.80]
+    chosen_indices=[i for i,(f,g) in enumerate(zip(faces,groups))if g=='body'and min(raw[f,1])>5.20]
     chosen=[faces[i]for i in chosen_indices]
     ids=sorted({i for f in chosen for i in f});remap={old:new for new,old in enumerate(ids)}
     mesh=bpy.data.meshes.new('FacialLoops');mesh.from_pydata(fit(raw[ids],name).tolist(),[],[[remap[i]for i in f]for f in chosen]);mesh.update()
@@ -93,6 +102,17 @@ def head_mesh(raw,faces,groups,face_uv,name,refs,data):
     eye_width={'merchant':43,'priestess':34,'enchantress':35}[name]
     closed=posed_source(posed_source(raw,'BlinkLeft',data),'BlinkRight',data)
     closed_pixels=portrait_coordinates(closed[ids],profile)
+    skin_rows={}
+    # Determine safe portrait sampling intervals from original skin/hair colour;
+    # the background is neutral grey. This changes UVs, never source pixels.
+    for label in ('front','left','back'):
+        image=bpy.data.images.load(str(refs/(label+'.png')))
+        rgba=np.asarray(image.pixels[:]).reshape(image.size[1],image.size[0],4)[::-1]
+        rows=[]
+        for row in rgba:
+            skin=np.where(((row[:,0]-row[:,2]>.06)&(row[:,0]>row[:,1]*1.035)) if name=='merchant' else (((row[:,:3].max(axis=1)-row[:,:3].min(axis=1))>.06)|(row[:,:3].max(axis=1)<.22)))[0]
+            rows.append((int(skin[0])+5,int(skin[-1])-5)if len(skin)>20 else(350,370))
+        skin_rows[label]=rows
     for label in ('front','left','back'):
         uv=mesh.uv_layers.new(name='Reference_'+label)
         for loop in mesh.loops:
@@ -104,6 +124,9 @@ def head_mesh(raw,faces,groups,face_uv,name,refs,data):
             else:
                 x0,y0,x1,y1=bounds_back;px=x0+(.95-x)/1.90*(x1-x0)
                 py=y0+(py-profile['bounds'][1])/(profile['bounds'][3]-profile['bounds'][1])*(y1-y0)
+            if label!='front' or (name=='merchant' and py<180):
+                py=float(np.clip(py,35,675));left,right=skin_rows[label][int(py)]
+                px=float(np.clip(px,left,right))
             uv.data[loop.index].uv=(px/718,1-py/718)
     lid_uv=mesh.uv_layers.new(name='LidSkin')
     lid_weight=mesh.color_attributes.new(name='LidWeight',type='FLOAT_COLOR',domain='CORNER')
@@ -120,6 +143,15 @@ def head_mesh(raw,faces,groups,face_uv,name,refs,data):
         sample_y=eye_y+42+(closed_pixels[index,1]-eye_y)*.7
         lid_uv.data[loop.index].uv=(px/718,1-sample_y/718)
         lid_weight.data[loop.index].color=(fade,fade,fade,1)
+    mesh.uv_layers.new(name='NeckSkin')
+    mesh.color_attributes.new(name='NeckWeight',type='FLOAT_COLOR',domain='CORNER')
+    for loop in mesh.loops:
+        x,y,z=raw[ids[loop.vertex_index]];plane=y+.65*z
+        weight=max(0,min(1,(6.72-plane)/.36));weight=weight*weight*(3-2*weight)
+        px=profile['center']+x*160;py={'merchant':650,'priestess':640,'enchantress':630}[name]+(6.15-y)*75
+        py=float(np.clip(py,590,675));left,right=skin_rows['front'][int(py)];px=float(np.clip(px,left+6,right-6))
+        mesh.uv_layers['NeckSkin'].data[loop.index].uv=(px/718,1-py/718)
+        mesh.color_attributes['NeckWeight'].data[loop.index].color=(weight,weight,weight,1)
     weights=mesh.color_attributes.new(name='ProjectionWeights',type='FLOAT_COLOR',domain='CORNER')
     for loop in mesh.loops:
         x,y,z=raw[ids[loop.vertex_index]];angle=abs(math.atan2(x,z-.65))
@@ -133,7 +165,10 @@ def head_mesh(raw,faces,groups,face_uv,name,refs,data):
     skin=nodes.new('ShaderNodeTexImage');skin.image=textures['front'].image;skin.extension='EXTEND';uv=nodes.new('ShaderNodeUVMap');uv.uv_map='LidSkin';links.new(uv.outputs[0],skin.inputs[0])
     eyelid=nodes.new('ShaderNodeVertexColor');eyelid.layer_name='LidWeight';patched=nodes.new('ShaderNodeMixRGB');links.new(eyelid.outputs[0],patched.inputs[0]);links.new(textures['front'].outputs[0],patched.inputs[1]);links.new(skin.outputs[0],patched.inputs[2])
     front=nodes.new('ShaderNodeMixRGB');links.new(split.outputs[0],front.inputs[0]);links.new(textures['left'].outputs[0],front.inputs[1]);links.new(patched.outputs[0],front.inputs[2])
-    back=nodes.new('ShaderNodeMixRGB');links.new(split.outputs[1],back.inputs[0]);links.new(front.outputs[0],back.inputs[1]);links.new(textures['back'].outputs[0],back.inputs[2]);links.new(back.outputs[0],nodes.get('Principled BSDF').inputs['Base Color']);mesh.materials.append(m)
+    back=nodes.new('ShaderNodeMixRGB');links.new(split.outputs[1],back.inputs[0]);links.new(front.outputs[0],back.inputs[1]);links.new(textures['back'].outputs[0],back.inputs[2]);neck=nodes.new('ShaderNodeTexImage');neck.image=textures['front'].image;neck.extension='EXTEND'
+    neckuv=nodes.new('ShaderNodeUVMap');neckuv.uv_map='NeckSkin';links.new(neckuv.outputs[0],neck.inputs[0])
+    neckweight=nodes.new('ShaderNodeVertexColor');neckweight.layer_name='NeckWeight'
+    blend=nodes.new('ShaderNodeMixRGB');links.new(neckweight.outputs[0],blend.inputs[0]);links.new(back.outputs[0],blend.inputs[1]);links.new(neck.outputs[0],blend.inputs[2]);links.new(blend.outputs[0],nodes.get('Principled BSDF').inputs['Base Color']);mesh.materials.append(m)
     mesh.materials.append(material('TownOralCavity',(.045,.008,.012),.50))
     for p,source in zip(mesh.polygons,chosen_indices):
         if max(t[1]for t in face_uv[source])<.137 and np.mean(raw[faces[source],1])<7.05:p.material_index=1
