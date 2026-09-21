@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Run actual production floor geometry, with mutations proving the tracking-floor regression."""
+"""Run production floor and station lifecycle methods, including author handover regressions."""
+import argparse
 import os
 from pathlib import Path
 import shutil
@@ -7,27 +8,46 @@ import subprocess
 import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
-SOURCE = ROOT / "src/GloomhavenVR/WorldUI/TownServices/TownServicePlacement.cs"
+FILES = {
+    "Placement.cs": "src/GloomhavenVR/WorldUI/TownServices/TownServicePlacement.cs",
+    "Station.cs": "src/GloomhavenVR/WorldUI/TownServices/TownServiceStation.cs",
+}
 
 def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--source-root", type=Path, default=ROOT)
+    args = parser.parse_args()
+    sources = {name: (args.source_root / source).read_text() for name, source in FILES.items()}
     dotnet = shutil.which("dotnet") or str(Path.home() / ".dotnet/dotnet")
     env = dict(os.environ, DOTNET_ROOT=str(Path(dotnet).resolve().parent))
-    source = SOURCE.read_text()
+    anchor = '        InteractionAnchor = root.transform.Find("InteractionAnchor")\n            ?? throw new InvalidOperationException("Town station has no InteractionAnchor");\n'
+    variants = [
+        ("baseline", {}),
+        ("tracking floor regression", {"Placement.cs": sources["Placement.cs"].replace(
+            'position.y = room != null ? room.position.y : seat.FloorPosition.y;', 'position.y = seat.FloorPosition.y;').replace(
+            'if (room != null) position.y = GroundHeight(room, position);', '')}),
+        ("ignored terrain relief", {"Placement.cs": sources["Placement.cs"].replace('if (room != null) position.y = GroundHeight(room, position);', '')}),
+        ("handover does not replace peer floor", {"Station.cs": sources["Station.cs"].replace('(authorPose && !_authorPose)', '(authorPose && !_authorPose && false)')}),
+        ("remote scale misses light update", {"Station.cs": sources["Station.cs"].replace('changed || lightScale != _lightScale', 'changed || false && lightScale != _lightScale')}),
+        ("late card property block corruption", {"Station.cs": sources["Station.cs"].replace('foreach (Renderer renderer in _renderers)', 'foreach (Renderer renderer in _root.GetComponentsInChildren<Renderer>(true))')}),
+        ("constructor resource acquisition before anchor validation", {"Station.cs": sources["Station.cs"].replace(anchor, '').replace(
+            '        catch { _lighting.Dispose(); throw; }', '        catch { _lighting.Dispose(); throw; }\n' + anchor)}),
+    ]
     with tempfile.TemporaryDirectory(prefix="ghvr-setting-") as scratch:
         folder = Path(scratch)
         (folder / "Test.csproj").write_text('<Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><OutputType>Exe</OutputType><TargetFramework>net8.0</TargetFramework><Nullable>enable</Nullable><TreatWarningsAsErrors>true</TreatWarningsAsErrors></PropertyGroup></Project>')
-        shutil.copyfile(ROOT / "scripts/town-service-setting-runtime/Program.cs", folder / "Program.cs")
-        variants = [source,
-            source.replace('position.y = room != null ? room.position.y : seat.FloorPosition.y;', 'position.y = seat.FloorPosition.y;').replace('if (room != null) position.y = GroundHeight(room, position);', ''),
-            source.replace('if (room != null) position.y = GroundHeight(room, position);', '')]
-        for index, variant in enumerate(variants):
-            (folder / "Placement.cs").write_text(variant)
+        for file in (ROOT / "scripts/town-service-setting-runtime").glob("*.cs"):
+            shutil.copyfile(file, folder / file.name)
+        for label, edits in variants:
+            if edits and all(sources[name] == source for name, source in edits.items()):
+                raise SystemExit("Production binding changed: " + label)
+            for name, source in (sources | edits).items(): (folder / name).write_text(source)
             run = subprocess.run([dotnet, "run", "--project", str(folder / "Test.csproj"), "-c", "Release"], env=env, capture_output=True, text=True)
-            if index == 0:
+            if not edits:
                 print(run.stdout, end="")
                 if run.returncode: raise SystemExit(run.stdout + run.stderr)
             elif run.returncode == 0 or "error CS" in run.stdout:
-                raise SystemExit("Negative control did not fail at runtime: " + str(index) + run.stdout + run.stderr)
-        print("Town setting: 2 compiled negative controls passed")
+                raise SystemExit("Negative control did not fail at runtime: " + label + "\n" + run.stdout + run.stderr)
+        print(f"Town setting: {len(variants)-1} compiled negative controls passed")
 
 if __name__ == "__main__": main()

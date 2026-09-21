@@ -46,12 +46,14 @@ static class Program
         MapRoomDriver.Active = false;
         Check(!TownServicePlacement.TryResolve(1, Vector3.zero, 1, out _, out _), "no off-map spawn");
         Console.WriteLine($"Town setting: {assertions} production geometry assertions passed");
+        StationLifecycle.Run();
     }
 }
 
 namespace GloomhavenVR.Core
 {
     internal static class SkyAlternative { internal static Transform? PlacedRoomRoot; }
+    internal static class VRLayers { internal const int ModLayer=27; }
 }
 namespace GloomhavenVR.WorldUI.MapRoom
 {
@@ -60,6 +62,10 @@ namespace GloomhavenVR.WorldUI.MapRoom
     {
         internal static bool Active;
         internal static float Floor, Yaw;
+        internal static Vector3 Center=Vector3.zero;
+        internal static float Scale=1;
+        internal static bool FrameReady=true;
+        internal static bool TryGetParchmentFrame(out Vector3 center,out float scale) { center=Center;scale=Scale;return FrameReady; }
         internal static bool TrySolveSeat(out MapRoomSeat.Seat seat, out string reason) { seat = new(Floor,Yaw); reason = ""; return Active; }
     }
 }
@@ -71,6 +77,11 @@ namespace UnityEngine
         public Vector3(float x,float y,float z) { this.x=x;this.y=y;this.z=z; }
         public static Vector3 zero => new(0,0,0);
         public static Vector3 up => new(0,1,0);
+        public static Vector3 one => new(1,1,1);
+        public static bool operator ==(Vector3 a,Vector3 b)=>a.x==b.x&&a.y==b.y&&a.z==b.z;
+        public static bool operator !=(Vector3 a,Vector3 b)=>!(a==b);
+        public override bool Equals(object? o)=>o is Vector3 v&&this==v;
+        public override int GetHashCode()=>HashCode.Combine(x,y,z);
         public Vector3 normalized { get { float len=MathF.Sqrt(x*x+y*y+z*z);return this*(1/len); } }
         public static Vector3 operator +(Vector3 a,Vector3 b)=>new(a.x+b.x,a.y+b.y,a.z+b.z);
         public static Vector3 operator -(Vector3 a,Vector3 b)=>new(a.x-b.x,a.y-b.y,a.z-b.z);
@@ -86,10 +97,17 @@ namespace UnityEngine
     }
     public class Transform
     {
-        public Vector3 position;
+        internal GameObject? Owner;
+        public GameObject gameObject=>Owner??=new GameObject(this);
+        public Vector3 position,localScale=Vector3.one;
+        public Vector3 lossyScale=>localScale;
+        public Quaternion rotation;
+        public int PoseWrites;
+        public bool HasAnchor=true;
+        public void SetPositionAndRotation(Vector3 p,Quaternion q) { position=p;rotation=q;PoseWrites++; }
         public Transform? floor;
         public Mesh? mesh;
-        public Transform? Find(string name)=>name=="RoomGeo/Ground"?floor:null;
+        public Transform? Find(string name)=>name=="RoomGeo/Ground"?floor:name=="InteractionAnchor"&&HasAnchor?new Transform():null;
         public T? GetComponent<T>() where T:class=>new MeshFilter {sharedMesh=mesh} as T;
         public Vector3 InverseTransformPoint(Vector3 v)=>v-position;
         public Vector3 TransformPoint(Vector3 v)=>v+position;
