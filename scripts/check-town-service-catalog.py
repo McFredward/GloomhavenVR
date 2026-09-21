@@ -50,7 +50,7 @@ def mutations():
         ("page", "TownServiceCatalog.cs", "SetPage(_page + direction, true)", "SetPage(_page, true)", "physical next page advances entries"),
         ("restore", "TownServiceCatalog.cs", "_scroll.viewport.SetParent(_listHome, false);", "// mutation leaves original viewport in hidden wrapper", "off removes viewport suppression immediately"),
         ("identity", "TownServiceCatalog.cs", "&& ReferenceEquals(Item, RowSource.Item)", "&& true", "rebound row immediately fences stale sample"),
-        ("rotation", "TownServiceCatalog.cs", "_root.transform.localRotation = Quaternion.Euler(90f, 0f, 0f)", "_root.transform.localRotation = Quaternion.identity", "original card face lies on counter"),
+        ("rotation", "TownServiceCatalog.cs", "_display.localRotation = Quaternion.Euler(65f, 0f, 0f)", "_display.localRotation = Quaternion.Euler(90f, 0f, 0f)", "physical card is raised toward the customer"),
     ]
 
 

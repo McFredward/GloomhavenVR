@@ -478,10 +478,61 @@ public static class InteractionProgram
         Clean();
     }
 
+    private static void PhysicalMerchantSamples()
+    {
+        foreach (bool left in new[] { false, true })
+        {
+            Probe.Go("PhysicalEvents").AddComponent<UnityEngine.EventSystems.EventSystem>();
+            var counter = Probe.Go("PhysicalCounter");
+            var physical = Probe.Go("PhysicalCard", counter.transform).transform;
+            physical.localPosition = new Vector3(.2f, .07f, .1f);
+            physical.localRotation = Quaternion.Euler(65f, 0f, 0f);
+            var original = (RectTransform)Probe.Go("OriginalItem", physical).transform;
+            original.sizeDelta = new Vector2(180f, 145f);
+            original.localScale = Vector3.one * .001f;
+            var native = Probe.Go("NativeRow").AddComponent<Button>();
+            int selections = 0; native.onClick.AddListener(() => selections++);
+            object item = new object(), context = new object(); bool alive = true;
+            var hand = new VRHand { Side = left ? HandSide.Left : HandSide.Right };
+            using var token = new TownServiceToken(original, native, () => item, () => context,
+                () => alive, counter.transform, physical);
+            Vector3 home = physical.localPosition; Quaternion rotation = physical.localRotation;
+            token.Tick(1f); native.interactable = false;
+            Check(token.CanGrab, "unaffordable physical items remain inspectable");
+            hand.Grabber.Grab(token);
+            Check(token.HeldRoot == physical && original.IsChildOf(physical), "inspection lifts the original physical card without a duplicate");
+            Check(token.HeldContent == null && selections == 0, "physical inspection has no duplicate mirror or selection");
+            hand.Rig.GrabAnchor.position = new Vector3(2f, 2f, 2f); token.Tick(1f);
+            Check(Vector3.Distance(physical.position, hand.Rig.GrabAnchor.position) < .001f,
+                "physical original follows either tracked hand");
+            // Deliberately release over the historic purchase tray, with a valid enabled row.
+            native.interactable = true; physical.position = counter.transform.TransformPoint(new Vector3(0f, .05f, 0f));
+            hand.TriggerUp = true; token.OnRelease(hand, Vector3.zero);
+            Check(selections == 0, "physical release over work tray never selects or purchases");
+            Check(token.HeldRoot == null && token.IsMoving && !token.CanGrab, "physical release starts a bounded return animation");
+            typeof(TownServiceToken).GetField("_returnStarted", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(token, Time.unscaledTime - .11f);
+            token.Tick(1f);
+            Check(token.IsMoving && Vector3.Distance(physical.localPosition, home) > .001f,
+                "physical card return has an observable intermediate pose");
+            typeof(TownServiceToken).GetField("_returnStarted", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(token, Time.unscaledTime - .3f);
+            token.Tick(1f);
+            Check(!token.IsMoving && token.CanGrab && Vector3.Distance(physical.localPosition, home) < .001f
+                && Quaternion.Angle(physical.localRotation, rotation) < .01f,
+                "physical return restores exact rack pose and immediate regrab");
+            token.OnGrab(hand); token.Tick(1f); context = new object(); token.Tick(1f);
+            Check(token.HeldRoot == null && !token.IsMoving && original != null && selections == 0,
+                "owner change cancels physical inspection without destroying native card");
+            token.OnGrab(hand); alive = false; token.Tick(1f);
+            Check(token.HeldRoot == null && !token.CanGrab && original != null && selections == 0,
+                "service closure cancels physical inspection without a transaction");
+            Clean();
+        }
+    }
+
     public static int Run()
     {
         _assertions = 0;
-        try { WindowMaskLifecycle(); IdentityChanges(); HoverAndRelease(); CancellationCompatibility(); Handoff(); RollbackAndContinuation(); OptionalPresentation(); ManualTrayPlacement(); return _assertions; }
+        try { PhysicalMerchantSamples(); WindowMaskLifecycle(); IdentityChanges(); HoverAndRelease(); CancellationCompatibility(); Handoff(); RollbackAndContinuation(); OptionalPresentation(); ManualTrayPlacement(); return _assertions; }
         finally { Clean(); }
     }
 }

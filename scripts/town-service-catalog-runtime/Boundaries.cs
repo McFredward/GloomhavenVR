@@ -116,12 +116,19 @@ namespace GloomhavenVR.Net
 }
 namespace GloomhavenVR.WorldUI
 {
+    // Rigid item body construction uses the existing CardMesh asset pipeline, covered by
+    // existing card mesh tests; this fixture checks body/face geometry and layout ownership.
+    internal static class TownServiceCardBody
+    {
+        internal static GameObject Create(Transform parent)
+        { var go = new GameObject("PhysicalCardBody"); go.transform.SetParent(parent, false); return go; }
+    }
     internal static class NativeTemplates { internal static UITooltip? Tooltip; }
     internal static class TownServiceNativeAssets { internal static void PrepareItem(ItemCardUI item) { } }
     internal sealed class TownServiceToken : IDisposable
     {
-        internal bool Disposed; private readonly Func<bool> _alive;
-        internal TownServiceToken(RectTransform source, Selectable button, Func<object?> identity, Func<object?> context, Func<bool> alive, Transform mat) { _alive = alive; }
+        internal bool Disposed; internal bool IsMoving; internal bool IsPhysical; private readonly Func<bool> _alive;
+        internal TownServiceToken(RectTransform source, Selectable button, Func<object?> identity, Func<object?> context, Func<bool> alive, Transform mat, Transform? physical = null) { _alive = alive; IsPhysical = physical != null; }
         internal bool CanGrab => !Disposed && _alive();
         internal void Tick(float scale) { }
         public void Dispose() { Disposed = true; }

@@ -86,7 +86,11 @@ public static class InteractionProgram
                 }
                 foreach (var entry in catalog.Entries)
                 {
-                    Check(Vector3.Dot(entry.CardRoot.forward, Vector3.down) > .99f, "original card face lies on counter");
+                    Check(Vector3.Dot(entry.CardRoot.forward, Vector3.down) > .89f
+                        && Vector3.Dot(entry.CardRoot.forward, Vector3.down) < .92f, "physical card is raised toward the customer");
+                    Check(entry.Sample.IsPhysical && entry.BodyRoot != null, "merchant presents a rigid inspect-only card");
+                    Check(entry.BodyRoot!.parent == entry.CardRoot.parent.parent, "body and original face share one physical card");
+                    Check(entry.BodyRoot.localScale.z == 1f, "physical card retains millimetre thickness");
                     var corners = new Vector3[4]; ((RectTransform)entry.CardRoot).GetWorldCorners(corners);
                     Check(Vector3.Distance(corners[0], corners[3]) <= .361f, "card width respects counter scale");
                     Check(entry.CardRoot.parent.GetComponent<GraphicRaycaster>() != null, "physical card has a raycaster");
