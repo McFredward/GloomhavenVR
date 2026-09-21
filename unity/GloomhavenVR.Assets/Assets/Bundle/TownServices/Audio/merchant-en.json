@@ -1,0 +1,94 @@
+{
+  "schema": 1,
+  "cue": 1,
+  "service": 1,
+  "language": "en",
+  "duration": 2.272666666666667,
+  "mouthCues": [
+    {
+      "start": 0.0,
+      "end": 0.03,
+      "value": "X"
+    },
+    {
+      "start": 0.03,
+      "end": 0.11,
+      "value": "B"
+    },
+    {
+      "start": 0.11,
+      "end": 0.18,
+      "value": "C"
+    },
+    {
+      "start": 0.18,
+      "end": 0.39,
+      "value": "B"
+    },
+    {
+      "start": 0.39,
+      "end": 0.57,
+      "value": "A"
+    },
+    {
+      "start": 0.57,
+      "end": 0.97,
+      "value": "X"
+    },
+    {
+      "start": 0.97,
+      "end": 1.02,
+      "value": "B"
+    },
+    {
+      "start": 1.02,
+      "end": 1.07,
+      "value": "C"
+    },
+    {
+      "start": 1.07,
+      "end": 1.28,
+      "value": "F"
+    },
+    {
+      "start": 1.28,
+      "end": 1.42,
+      "value": "B"
+    },
+    {
+      "start": 1.42,
+      "end": 1.55,
+      "value": "A"
+    },
+    {
+      "start": 1.55,
+      "end": 1.61,
+      "value": "C"
+    },
+    {
+      "start": 1.61,
+      "end": 1.79,
+      "value": "F"
+    },
+    {
+      "start": 1.79,
+      "end": 1.84,
+      "value": "E"
+    },
+    {
+      "start": 1.84,
+      "end": 2.02,
+      "value": "C"
+    },
+    {
+      "start": 2.02,
+      "end": 2.23,
+      "value": "B"
+    },
+    {
+      "start": 2.23,
+      "end": 2.27,
+      "value": "X"
+    }
+  ]
+}
