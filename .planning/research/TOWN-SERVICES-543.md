@@ -54,9 +54,12 @@ receipts remain private under `.planning/debug/town543-speech/`, outside the shi
 asset tree. No generated greeting, automatic synthetic playback or paid retry belongs
 in this build.
 
-The game contains narration, but no service greeting has yet been verified for these
-three NPCs. Further research must establish a genuine native speaker/clip association;
-playing unrelated narrator recordings from an NPC would not satisfy this preference.
+The game contains narration. The completed audit found 551 named dialogue nodes for
+these three NPCs in the five shipped ruleset archives, with no audio identifier and
+no matching clip name in the 3,157-clip inventory. Their service effects are not voices.
+See [TOWN-543-VOICE.md](TOWN-543-VOICE.md) for source hashes, native call paths and the
+audit's coverage boundary. Playing unrelated narrator recordings from an NPC would
+not satisfy this preference.
 Eye/head motion, expressions and a physically speakable mouth rig remain in scope.
 Without a verified applicable speech source, the resting mouth stays closed and the
 speech adapter remains inactive. Do not claim audible NPC speech is implemented merely
