@@ -62,7 +62,10 @@ public static class InteractionProgram
                 // Desktop merchant prefabs have no gamepad-only Owned filter. The previous
                 // fixture supplied every field and therefore could not reproduce build 540.
                 inventory._ownedFilter = repetition == 1 ? null! : original[3];
-                var catalog = new TownServiceCatalog(inventory, anchor.transform, () => context, () => alive, anchor.transform);
+                TownServiceCatalog catalog;
+                try { catalog = new TownServiceCatalog(inventory, anchor.transform, () => context, () => alive, anchor.transform); }
+                catch (NullReferenceException e) when (repetition == 1)
+                { throw new Exception("desktop merchant opens without a gamepad Owned filter", e); }
                 Check(catalog.Controls.Count == (repetition == 1 ? 8 : 9), "only existing native merchant controls are presented");
                 bool ownsFilter = false;
                 foreach (var control in catalog.Controls) ownsFilter |= control.Key == "merchant.filter.owned";

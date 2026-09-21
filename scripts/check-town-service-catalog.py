@@ -35,7 +35,7 @@ def sources(root):
 
 def mutations():
     return [
-        ("desktop-owned", "TownServiceCatalog.cs", "if (inventory._ownedFilter != null)", "if (true)", "Object reference not set"),
+        ("desktop-owned", "TownServiceCatalog.cs", "if (inventory._ownedFilter != null)", "if (true)", "desktop merchant opens without a gamepad Owned filter"),
         ("hover-rebind", "TownServiceCatalog.cs", " || (enter && !Current)", " || !Current", "row rebind retires previous native hover"),
         ("hint-duplicate", "TownServiceCatalogPreview.cs", "_hintMask = new TownServiceWindowMask(rect);", "// mutation leaves duplicate native tooltip visible", "native shared hint is masked while its copy is visible"),
         ("preview-mask", "TownServiceCatalogPreview.cs", "_mount.transform.SetParent(parent, false)", "_mount.transform.SetParent(source.transform.parent, false)", "detail clone escapes hidden native viewport"),

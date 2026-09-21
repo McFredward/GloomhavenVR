@@ -517,7 +517,18 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 540;
+    public const ushort ModBuild = 541;
+
+    // ModBuild 541 — desktop merchant initialization and discoverable town presentation choice.
+    // Build-540 hardware logs show Buy/Sell/All converted, then catalog construction throwing
+    // before the next control. The desktop inventory has no gamepad-only Owned filter; native
+    // mouse-input paths already omit it. Only move that filter when its original exists,
+    // preserving the native control set instead of rolling the whole merchant back to flat UI.
+    // Catalog tests now exercise absent and present Owned controls through repeated opening,
+    // paging, native selection and rollback; the old unconditional access fails the control.
+    // VR options give town services their own first section under Boards, with an explicit
+    // immersive-NPC/original-window choice backed by the unchanged default-true config key.
+    // No asset or wire changes; corrected headset presentation remains a hardware check.
 
     // ModBuild 540 — first town-service hardware corrections and physical merchant catalog.
     // Build-539 logs show native item-ID-zero lookup opening GlobalErrorMessage from an

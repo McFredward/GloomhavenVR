@@ -1,6 +1,6 @@
 # State — where the project stands
 
-**Updated 2026-09-21 for town-service hardware corrections; dev 1.0.7 / ModBuild 540.** The file this replaces had gone 168 builds
+**Updated 2026-09-21 for town-service hardware corrections; dev 1.0.7 / ModBuild 541.** The file this replaces had gone 168 builds
 stale while still saying "read this first"; it is kept as `STATE-ARCHIVE-through-2026-08.md` for
 its round-by-round narrative and for nothing else.
 
@@ -12,6 +12,15 @@ change per build) → this file (where things stand and what is owed) → the bu
 ---
 
 ## 1. Position
+
+- **Town services / build 541:** build-540 hardware logs reproduce merchant setup failure
+  immediately after the Buy/Sell/All control conversions. The catalog dereferenced the
+  gamepad-only Owned filter, absent from desktop merchant UI. Its handoff now follows the
+  actual native control set. Repeated catalog tests cover both prefab variants and rollback.
+  VR options expose an explicit immersive/original-window choice in a dedicated first town
+  services section under Boards, backed by the existing default-on setting. Both asset
+  bundles are unchanged from 540. This is a development correction, not a release; successful
+  headset opening remains unverified. Evidence: [research/TOWN-SERVICES-541.md](research/TOWN-SERVICES-541.md).
 
 - **Town services / build 540:** the first hardware test of 539 exposed invisible actors,
   black furniture, a native error dialog and the unsuitable floating merchant inventory.
