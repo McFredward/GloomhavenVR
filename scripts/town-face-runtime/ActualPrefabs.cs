@@ -14,12 +14,22 @@ internal static class ActualPrefabs
     [Serializable] private sealed class Record
     {
         public string npc = "", asset = "";
-        public int faceLods, shapeBindings, assertions;
+        public int faceLods, shapeBindings, assertions, skullProbes, jawProbes, rejectedJawWeightCorruptions;
+        public float maximumSkullRigidityErrorMetres;
         public float eyeSeparationMetres, opticalForwardDot, maximumEyeTargetErrorDegrees;
         public Vector3 actorBoundsMinimum, actorBoundsMaximum;
     }
     [Serializable] private sealed class Evidence
     { public string bundle = "", unity = ""; public Record[] residents = Array.Empty<Record>(); public int assertions; }
+    // Probe IDs originate in official template anatomy, independently of the final skin weights.
+    [Serializable] private sealed class AnatomyContract
+    { public int version = 0; public ResidentAnatomy[] residents = Array.Empty<ResidentAnatomy>(); }
+    [Serializable] private sealed class ResidentAnatomy
+    { public string npc = ""; public LodAnatomy[] lods = Array.Empty<LodAnatomy>(); }
+    [Serializable] private sealed class LodAnatomy
+    { public string renderer = ""; public int vertexCount = 0; public int[] skull = Array.Empty<int>(), jaw = Array.Empty<int>(); }
+    private struct AnatomyResult
+    { internal int Skull, Jaw, Rejected; internal float MaximumError; }
     private static int _count;
     private static void Check([DoesNotReturnIf(false)] bool value, string message)
     { _count++; if (!value) throw new Exception("Actual NPC prefab: " + message); }
@@ -39,7 +49,7 @@ internal static class ActualPrefabs
         Check(candidates.Length == 1, "exactly one " + name + " transform");
         return candidates[0];
     }
-    private static Bounds SkinBounds(SkinnedMeshRenderer renderer, Transform reference)
+    private static Vector3[] SkinVertices(SkinnedMeshRenderer renderer, Transform reference, BoneWeight[]? overrideWeights = null)
     {
         // Explicit CPU skinning avoids FBX renderer scale100 / BakeMesh useScale ambiguities.
         // Apply the actual blendshape frame deltas before bone matrices, as Unity does.
@@ -54,12 +64,10 @@ internal static class ActualPrefabs
             float amount = weight / mesh.GetBlendShapeFrameWeight(shape, last);
             for (int n = 0; n < vertices.Length; n++) vertices[n] += delta[n] * amount;
         }
-        BoneWeight[] weights = mesh.boneWeights;
+        BoneWeight[] weights = overrideWeights ?? mesh.boneWeights;
         Matrix4x4[] bind = mesh.bindposes;
         Transform[] bones = renderer.bones;
         Matrix4x4[] matrices = bones.Select((bone, n) => reference.worldToLocalMatrix * bone.localToWorldMatrix * bind[n]).ToArray();
-        var bounds = new Bounds();
-        bool first = true;
         for (int n = 0; n < vertices.Length; n++)
         {
             BoneWeight w = weights[n]; Vector3 v = vertices[n];
@@ -68,10 +76,83 @@ internal static class ActualPrefabs
                 + matrices[w.boneIndex2].MultiplyPoint3x4(v) * w.weight2
                 + matrices[w.boneIndex3].MultiplyPoint3x4(v) * w.weight3;
             if (!Finite(point)) throw new Exception("Actual NPC prefab: nonfinite skinned vertex");
-            if (first) { bounds = new Bounds(point, Vector3.zero); first = false; } else bounds.Encapsulate(point);
+            vertices[n] = point;
         }
-        Check(!first, "actual skinned mesh contains finite vertices");
+        return vertices;
+    }
+    private static Bounds SkinBounds(SkinnedMeshRenderer renderer, Transform reference)
+    {
+        Vector3[] vertices = SkinVertices(renderer, reference);
+        Check(vertices.Length > 0, "actual skinned mesh contains finite vertices");
+        var bounds = new Bounds(vertices[0], Vector3.zero);
+        foreach (Vector3 point in vertices) bounds.Encapsulate(point);
         return bounds;
+    }
+    private static float HeadWeight(BoneWeight w, int head) =>
+        (w.boneIndex0 == head ? w.weight0 : 0) + (w.boneIndex1 == head ? w.weight1 : 0)
+        + (w.boneIndex2 == head ? w.weight2 : 0) + (w.boneIndex3 == head ? w.weight3 : 0);
+    private static AnatomyResult CheckAnatomy(string npc, ResidentAnatomy contract, Transform root,
+        Animation animation, TownServiceFaceRig rig, SkinnedMeshRenderer[] faces)
+    {
+        Check(contract.lods.Length == faces.Length, npc + " independent anatomical probes cover every facial LOD");
+        var result = new AnatomyResult();
+        foreach (SkinnedMeshRenderer renderer in faces)
+        {
+            LodAnatomy[] matches = contract.lods.Where(l => l.renderer == renderer.name).ToArray();
+            Check(matches.Length == 1, npc + " unique anatomical probe renderer " + renderer.name);
+            LodAnatomy probes = matches[0]; Mesh mesh = renderer.sharedMesh;
+            Check(probes.vertexCount == mesh.vertexCount, npc + " anatomical probe indices match final imported mesh");
+            Check(probes.skull.Distinct().Count() >= 6 && probes.jaw.Distinct().Count() >= 6,
+                npc + " independent skull and lower-jaw probes are populated");
+            int[] indices = probes.skull.Concat(probes.jaw).Distinct().ToArray();
+            Check(indices.All(i => i >= 0 && i < mesh.vertexCount), npc + " anatomical probe indices are in range");
+            int head = Array.IndexOf(renderer.bones, rig.Head);
+            int neck = Array.FindIndex(renderer.bones, b => b.name == "Neck");
+            Check(head >= 0 && neck >= 0, npc + " anatomical head and neck bones exist in imported skin");
+            BoneWeight[] weights = mesh.boneWeights;
+            foreach (int index in indices)
+                Check(HeadWeight(weights[index], head) >= .999f,
+                    npc + " semantic skull/jaw vertex stays rigid with Head: " + renderer.name + "/" + index);
+            result.Skull += probes.skull.Distinct().Count(); result.Jaw += probes.jaw.Distinct().Count();
+            bool rejected = false;
+            // Keep expression fixed between baseline and rotated sample: legitimate jaw opening
+            // remains allowed, while body skinning must not drag the posed jaw toward the neck.
+            foreach (float jawOpen in new[] { 0f, .65f })
+            {
+                rig.BeforeBodySample(); SampleBody(animation, "Idle", 0);
+                var baselinePose = new TownServiceFacePose { JawOpen = jawOpen, Smile = jawOpen * .3f };
+                rig.Apply(in baselinePose);
+                Vector3[] neutral = SkinVertices(renderer, root);
+                Matrix4x4 neutralToHead = rig.Head.worldToLocalMatrix * root.localToWorldMatrix;
+                Vector3 pivot = root.InverseTransformPoint(rig.Head.position);
+                int jawProbe = probes.jaw.OrderByDescending(i => (neutral[i] - pivot).sqrMagnitude).First();
+                BoneWeight[] broken = (BoneWeight[])weights.Clone();
+                broken[jawProbe] = new BoneWeight { boneIndex0 = head, weight0 = .5f, boneIndex1 = neck, weight1 = .5f };
+                Vector3 brokenNeutral = SkinVertices(renderer, root, broken)[jawProbe];
+                foreach (float yaw in new[] { -50f, 50f })
+                    foreach (float pitch in new[] { -22f, 22f })
+                    {
+                        rig.BeforeBodySample(); SampleBody(animation, "Idle", 0);
+                        var pose = baselinePose; pose.HeadYaw = yaw; pose.HeadPitch = pitch;
+                        rig.Apply(in pose);
+                        Matrix4x4 expected = root.worldToLocalMatrix * rig.Head.localToWorldMatrix * neutralToHead;
+                        Vector3[] actual = SkinVertices(renderer, root);
+                        foreach (int index in indices)
+                        {
+                            float error = Vector3.Distance(actual[index], expected.MultiplyPoint3x4(neutral[index]));
+                            result.MaximumError = Mathf.Max(result.MaximumError, error);
+                            Check(error < .0005f, npc + " skull/jaw shape remains rigid within 0.5 mm at gaze limits: " + renderer.name + "/" + index);
+                        }
+                        float corruptedError = Vector3.Distance(SkinVertices(renderer, root, broken)[jawProbe], expected.MultiplyPoint3x4(brokenNeutral));
+                        rejected |= corruptedError >= .0005f;
+                    }
+            }
+            Check(rejected, npc + " anatomical gate detects deliberately mixed Head/Neck jaw skinning");
+            result.Rejected++;
+        }
+        rig.BeforeBodySample(); SampleBody(animation, "Idle", 0);
+        var clear = new TownServiceFacePose(); rig.Apply(in clear); rig.BeforeBodySample();
+        return result;
     }
     internal static int Run(string path, string evidencePath)
     {
@@ -81,6 +162,12 @@ internal static class ActualPrefabs
         var records = new List<Record>();
         try
         {
+            string[] contracts = bundle!.GetAllAssetNames().Where(a => a.EndsWith("/town-facial-rig-contract.json", StringComparison.OrdinalIgnoreCase)).ToArray();
+            Check(contracts.Length == 1, "bundle includes independent anatomical probe contract");
+            TextAsset contractAsset = bundle.LoadAsset<TextAsset>(contracts[0]);
+            Check(contractAsset != null, "anatomical probe contract loads");
+            AnatomyContract anatomy = JsonUtility.FromJson<AnatomyContract>(contractAsset!.text);
+            Check(anatomy != null && anatomy.version == 1, "supported anatomical probe contract version");
             foreach (string npc in new[] { "merchant", "priestess", "enchantress" })
             {
                 int begin = _count;
@@ -118,6 +205,9 @@ internal static class ActualPrefabs
                     Check(lod != null && lod.GetLODs().Length == 3, npc + " retains three body LOD levels");
                     foreach (LOD level in lod!.GetLODs())
                         Check(level.renderers.OfType<SkinnedMeshRenderer>().Any(r => faces.Contains(r)), npc + " each visible LOD includes its facial renderer");
+                    ResidentAnatomy[] residentContracts = anatomy!.residents.Where(r => r.npc == npc).ToArray();
+                    Check(residentContracts.Length == 1, npc + " independent anatomical contract is unambiguous");
+                    AnatomyResult anatomical = CheckAnatomy(npc, residentContracts[0], root, animation, rig, faces);
                     float maximumError = 0;
                     Bounds envelope = default; bool envelopeStarted = false;
                     foreach (string clip in new[] { "Idle", "Greeting", "Gesture", "ReturnToIdle" })
@@ -195,7 +285,9 @@ internal static class ActualPrefabs
                         npc + " animated neck/head bounds remain in actor envelope");
                     records.Add(new Record { npc = npc, asset = paths[0], faceLods = faces.Length, shapeBindings = bindings,
                         eyeSeparationMetres = separation, opticalForwardDot = opticalDot, maximumEyeTargetErrorDegrees = maximumError,
-                        actorBoundsMinimum = envelope.min, actorBoundsMaximum = envelope.max, assertions = _count - begin });
+                        actorBoundsMinimum = envelope.min, actorBoundsMaximum = envelope.max, assertions = _count - begin,
+                        skullProbes = anatomical.Skull, jawProbes = anatomical.Jaw, rejectedJawWeightCorruptions = anatomical.Rejected,
+                        maximumSkullRigidityErrorMetres = anatomical.MaximumError });
                 }
                 finally { UnityEngine.Object.DestroyImmediate(instance); }
             }

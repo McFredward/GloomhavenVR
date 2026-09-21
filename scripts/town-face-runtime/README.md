@@ -40,3 +40,31 @@ that its bytes did not change during execution, and writes per-resident measurem
 `actual-prefabs.json`. A rebuilt bundle requires another run. `--bundle` without `--bundle-only`
 adds the actual asset checks to the ordinary runtime suite; `--no-negative-controls` is only
 a quick positive check.
+
+The imported asset gate also requires `town-facial-rig-contract.json` inside the bundle:
+
+```json
+{"version":1,"residents":[{"npc":"merchant","lods":[{"renderer":"LOD0_0","vertexCount":123,"skull":[0,1,2,3,4,5],"jaw":[6,7,8,9,10,11]}]}]}
+```
+
+All three residents and all three facial LODs must be represented. The example indices are
+illustrative only. Actual probe indices must be mapped from the original anatomical template's
+skull/lower-jaw semantics through the final import, independently of the resulting skin weights.
+The authoring contract transports those original source masks through subdivision and FBX import
+in a second UV channel, then exports the resulting imported vertex IDs. This also preserves
+selection across UV-seam duplication; it does not infer anatomy from the generated rig weights.
+Selecting vertices because their *current* imported Head weight is already one is invalid.
+The declared vertex count guards against using indices from a different mesh revision.
+
+Each selected skull/jaw vertex must have at least 0.999 Head weight. At all four combinations
+of yaw ±50° and pitch ±22°, its CPU-skinned position must remain within 0.5 mm of its rigid
+Head transform. The comparison uses the same expression on both sides, once with a closed
+mouth and once with JawOpen 0.65 and Smile 0.195; legitimate lip/jaw expression motion is not
+mistaken for skinning damage. It runs on every facial LOD. A deliberately mixed 50/50 Head/Neck
+weight on a lower-jaw probe must break that same geometric limit in each LOD. This corruption
+exists only in an in-memory weight-array copy; neither the mesh asset nor loaded renderer changes.
+
+This catches a neck-weight transition accidentally extending into the chin or beard, even if
+whole-actor bounds stay reasonable. It does not certify the movable neck transition itself,
+texture alignment, seam appearance, or that the independent semantic probe set is complete;
+those still require inspection of the final rendered asset and its authoring provenance.
