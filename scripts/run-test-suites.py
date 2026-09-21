@@ -125,6 +125,9 @@ def execute(suites, jobs, output, root, manifest_hash, group, shard):
     output.mkdir(parents=True, exist_ok=True)
     if any(output.iterdir()):
         raise ValueError(f'Output directory must be empty: {output}')
+    # Even simultaneous callers choosing the same explicit directory cannot overwrite logs.
+    with (output / '.runner-owner').open('x') as marker:
+        marker.write(str(os.getpid()) + '\n')
     locks = root / '.planning/debug/test-locks'
     locks.mkdir(parents=True, exist_ok=True)
     # Script length estimates mutation work until measured timings justify new weights.

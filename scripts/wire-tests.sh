@@ -16,6 +16,27 @@
 # at tests/.
 set -euo pipefail
 
+# This entry point is the complete local gate. Partial discovery/shard runs belong to
+# run-test-suites.py directly and must never masquerade as a full golden-vector check.
+expect_value=false
+for argument in "$@"; do
+    if $expect_value; then
+        expect_value=false
+        continue
+    fi
+    case "$argument" in
+        --jobs|--output-dir) expect_value=true ;;
+        --jobs=*|--output-dir=*) ;;
+        *)
+            echo "wire tests: only --jobs and --output-dir are supported; partial/group/list options require scripts/run-test-suites.py directly" >&2
+            exit 2 ;;
+    esac
+done
+if $expect_value; then
+    echo "wire tests: missing option value" >&2
+    exit 2
+fi
+
 ROOT_FOR_HINT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 # A FRESH WORKTREE IS NOT A FAILING CHANGE, and until this guard existed it looked exactly
