@@ -191,12 +191,16 @@ internal sealed class TownServiceRitual : IDisposable
     private readonly List<Component> _retired = new();
     private readonly List<TownServiceSurface> _surfaces = new();
     private readonly List<Inscription> _inscriptions = new();
+    private readonly GameObject _zone;
+    private readonly CanvasGroup _zoneGate;
+    private readonly TMP_Text _zoneLabel;
     private float _censusAt;
     private readonly float _started = Time.unscaledTime;
     private bool _disposed;
     internal Transform Root { get; }
     internal IEnumerable<Piece> Pieces => _pieces.Values;
     internal IReadOnlyList<Inscription> Inscriptions => _inscriptions;
+    internal Transform Zone => _zone.transform;
     internal IReadOnlyList<TownServiceSurface> Surfaces => _surfaces;
     internal bool CanRelocate
     { get { foreach (Piece piece in _pieces.Values) if (piece.Token.IsMoving) return false; return true; } }
@@ -207,6 +211,17 @@ internal sealed class TownServiceRitual : IDisposable
         _window = window; _service = service; _alive = alive; _context = context;
         Root = new GameObject("GloomhavenVR.TownService.Ritual").transform;
         Root.SetParent(station, false); Root.localPosition = new Vector3(0f, .978f, -.08f);
+        _zone = TownServiceMerchantZone.CreateTemplate(window.GetComponentInChildren<TMP_Text>(true));
+        _zone.transform.SetParent(Root, false);
+        _zone.transform.localPosition = service == 2 ? new Vector3(0f, .16f, .26f) : new Vector3(0f, .014f, 0f);
+        _zoneGate = _zone.GetComponent<CanvasGroup>(); _zoneGate.alpha = 0f;
+        _zoneLabel = _zone.transform.Find("Caption").GetComponent<TMP_Text>();
+        if (service == 2)
+        {
+            ((RectTransform)_zone.transform).sizeDelta = new Vector2(190f, 190f);
+            ((RectTransform)_zone.transform.Find("Border")).sizeDelta = new Vector2(190f, 190f);
+            _zoneLabel.rectTransform.sizeDelta = new Vector2(175f, 90f); _zoneLabel.fontSize = 24f;
+        }
         if (service == 2)
         {
             UITempleWindow temple = window.GetComponent<UITempleWindow>();
@@ -238,6 +253,14 @@ internal sealed class TownServiceRitual : IDisposable
             throw new InvalidOperationException("Original offering geometry did not load; restoring the native temple window.");
         if (Time.unscaledTime >= _censusAt) { _censusAt = Time.unscaledTime + .2f; Census(); }
         foreach (Piece piece in _pieces.Values) piece.Tick(scale);
+        _zoneGate.alpha = 0f;
+        foreach (Piece piece in _pieces.Values)
+        {
+            if (!piece.Token.DropEligible) continue;
+            _zoneLabel.text = Loc.Mod(_service == 2 ? "town_offering"
+                : piece.Source is AbilityCardUI ? "town_enchant_card" : "town_inscribe");
+            _zoneGate.alpha = 1f; break;
+        }
         foreach (Inscription inscription in _inscriptions) inscription.Tick();
         foreach (TownServiceSurface surface in _surfaces) surface.Tick(Vector3.zero, Quaternion.identity, scale);
     }
@@ -340,13 +363,21 @@ internal sealed class TownServiceRitual : IDisposable
         // The native selection synchronously installs its callback. Refusal or an unrelated
         // pre-existing prompt cannot become an implicit purchase. The callback still owns
         // server validation, currency, devotion, enhancement limits and transition completion.
-        if (!_alive() || !eligible() || !button.IsActive() || !button.IsInteractable()
-            || !ReferenceEquals(context, _context()) || !ReferenceEquals(selected, identity())
-            || !box.GetComponent<UIWindow>().IsOpen || box._onConfirmCallback == null
-            || ReferenceEquals(previous, box._onConfirmCallback)) return false;
         bool owns = controller is UITempleWindow temple ? temple._isConfirmationBoxOpened
             : ((UINewEnhancementWindow)controller)._isConfirmationBoxOpened;
-        return owns && Click(box.confirmButton);
+        bool created = owns && box.GetComponent<UIWindow>().IsOpen && box._onConfirmCallback != null
+            && !ReferenceEquals(previous, box._onConfirmCallback);
+        if (!_alive() || !eligible() || !button.IsActive() || !button.IsInteractable()
+            || !ReferenceEquals(context, _context()) || !ReferenceEquals(selected, identity())
+            || !created)
+        {
+            // Cancel only the prompt installed by this selection. Its original transition
+            // clears the controller's pending flag; never leave a stale purchase clickable.
+            if (created) box.Hide();
+            return false;
+        }
+        if (Click(box.confirmButton)) return true;
+        box.Hide(); return false;
     }
 
     private static bool Click(Selectable button)

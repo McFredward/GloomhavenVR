@@ -105,6 +105,12 @@ internal static class TownServiceSync
         if (catalog != null)
         {
             Publish("merchant.counter", TownServicePresentation.CounterFurniture);
+            foreach (TownServiceMerchantDrawer drawer in catalog.Drawers)
+            {
+                Publish("merchant.drawer", drawer.Root);
+                Publish("merchant.drawerhousing", drawer.HousingRoot);
+            }
+            foreach (TownServiceMerchantZone zone in catalog.Zones) Publish("merchant.zone", zone.Root);
             // Mirror the actual counter, not the suppressed flat inventory. These widgets
             // retain native template provenance but have the owner's physical layout.
             foreach (TownServiceCatalog.Control control in catalog.Controls)
@@ -112,7 +118,7 @@ internal static class TownServiceSync
 
             foreach (TownServiceCatalog.Entry entry in catalog.Entries)
             {
-                if (!entry.Current) continue;
+                if (!entry.Current || !entry.Exposed) continue;
                 Publish("item." + entry.ItemId.ToString(System.Globalization.CultureInfo.InvariantCulture), entry.CardRoot);
                 Publish("merchant.cardbody", entry.BodyRoot);
                 if (entry.RowContent != null)
@@ -122,6 +128,7 @@ internal static class TownServiceSync
         TownServiceRitual? ritual = TownServicePresentation.Ritual;
         if (ritual != null)
         {
+            Publish("merchant.zone", ritual.Zone);
             Publish("merchant.counter", TownServicePresentation.CounterFurniture);
             foreach (TownServiceRitual.Piece piece in ritual.Pieces)
             {

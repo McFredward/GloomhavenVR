@@ -37,6 +37,7 @@ internal static class NativeTemplates
     private static uint _assetGeneration;
     private static TownServiceTray? _tray;
     private static GameObject? _catalogNavigation, _cardBody;
+    private static readonly List<GameObject> PhysicalTemplates = new();
     internal static UITooltip? Tooltip { get; private set; }
     internal static bool Ready => _ready && _hud != null && _bank != null;
 
@@ -69,9 +70,10 @@ internal static class NativeTemplates
         Add("merchant.filter.legs", merchant.legsFilter);
         Add("merchant.filter.small", merchant.smallItemsFilter);
         Add("merchant.exit", hud.shopWindow.exitShopButton);
-        _catalogNavigation = TownServiceCatalog.CreateNavigationTemplate(merchant.GetComponentInChildren<TMP_Text>(true));
-        _catalogNavigation.transform.SetParent(_bank.transform, false);
-        Add("merchant.catalognav", _catalogNavigation.transform);
+        TMP_Text? physicalFont = merchant.GetComponentInChildren<TMP_Text>(true);
+        AddPhysical("merchant.drawer", TownServiceMerchantDrawer.CreateTemplate(physicalFont));
+        AddPhysical("merchant.drawerhousing", TownServiceMerchantDrawer.CreateHousingTemplate());
+        AddPhysical("merchant.zone", TownServiceMerchantZone.CreateTemplate(physicalFont));
         Add("merchant.counter", TownServiceWorkspace.CounterTemplate);
         _cardBody = TownServiceCardBody.Create(_bank.transform);
         Add("merchant.cardbody", _cardBody.transform);
@@ -118,6 +120,11 @@ internal static class NativeTemplates
     {
         if (source == null) return;
         Entries.Add(key, new Entry { Original = source.transform }); Roots[source.transform] = key;
+    }
+    private static void AddPhysical(string key, GameObject source)
+    {
+        source.transform.SetParent(_bank!.transform, false);
+        PhysicalTemplates.Add(source); Add(key, source.transform);
     }
     internal static Transform? Original(string key) => Entries.TryGetValue(key, out Entry? entry) && entry.Original != null ? entry.Original : null;
     private static void BindOriginalBackdrops()
@@ -310,6 +317,7 @@ internal static class NativeTemplates
         _tray?.Dispose(); _tray = null; Tooltip = null;
         if (_catalogNavigation != null) Object.Destroy(_catalogNavigation);
         _catalogNavigation = null; _cardBody = null;
+        PhysicalTemplates.Clear(); // Their common inactive bank owns destruction.
         if (_bank != null) Object.Destroy(_bank); _bank = null;
     }
 }
