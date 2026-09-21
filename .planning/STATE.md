@@ -1,6 +1,6 @@
 # State — where the project stands
 
-**Updated 2026-09-21 for optional immersive town visits; dev 1.0.7 / ModBuild 539.** The file this replaces had gone 168 builds
+**Updated 2026-09-21 for town-service hardware corrections; dev 1.0.7 / ModBuild 540.** The file this replaces had gone 168 builds
 stale while still saying "read this first"; it is kept as `STATE-ARCHIVE-through-2026-08.md` for
 its round-by-round narrative and for nothing else.
 
@@ -12,6 +12,21 @@ change per build) → this file (where things stand and what is owed) → the bu
 ---
 
 ## 1. Position
+
+- **Town services / build 540:** the first hardware test of 539 exposed invisible actors,
+  black furniture, a native error dialog and the unsuitable floating merchant inventory.
+  Corrected NPC LOD bounds and self-contained textured lighting ship in a new town bundle.
+  Mirror-template preparation validates item provenance before touching a pooled card;
+  the native item-ID-zero error path is avoided. The merchant now has six original item
+  cards per page, original prices and buy/sell/filter/exit controls on its counter. Physical
+  samples still select through native rows; purchases retain native confirmation.
+  Reversible wrappers hide the obsolete list without disabling gameplay, and orphan-frame
+  collection respects live service/error owners. Temple/enchantress gain the asset and
+  lifecycle corrections; their existing reading-surface interaction is not replaced by
+  the merchant rack. Default-on settings and original-window rollback remain unchanged.
+  Evidence, validation and hardware checklist: [research/TOWN-SERVICES-540.md](research/TOWN-SERVICES-540.md).
+  Both bundles must be installed. This is an unreleased development build; corrected
+  headset output remains unverified.
 
 - **Town services / build 539:** VR options expose `WorldUI/ImmersiveTownServices`,
   enabled by default (maintainer clarification, 2026-09-21). Turning it off restores the three original service windows through

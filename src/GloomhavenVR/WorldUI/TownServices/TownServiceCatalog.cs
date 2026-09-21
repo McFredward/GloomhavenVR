@@ -15,7 +15,8 @@ namespace GloomhavenVR.WorldUI;
 
 /// <summary>A bounded rack of original item cards, backed by the native merchant's filtered
 /// rows. The original controller retains prices, permissions, selection and confirmation.
-/// Suppression affects only the old list's drawing; no game-owned transform is reparented.</summary>
+/// An owned wrapper suppresses the old list; original controls move to reversible counter
+/// surfaces. No native controller or payment state is replaced.</summary>
 internal sealed class TownServiceCatalog : IDisposable
 {
     internal const int PageSize = 6;
