@@ -293,6 +293,10 @@ internal sealed class TownServiceDecor : IDisposable
         _visibility = value;
         _work.SetVisibility(value);
         foreach (Material material in _materials) material.SetFloat(Visibility, value);
+        // Only a successfully sampled activity may expose this optional effect. An absent
+        // grip or a disabled cosmetic rig must not leave a bright orphan at station origin.
+        if (_arcane != null)
+            foreach (Material material in _arcane.EffectMaterials) material.SetFloat(Visibility, 0f);
     }
 
     public void Dispose()
