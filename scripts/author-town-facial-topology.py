@@ -78,6 +78,11 @@ def fit(raw,name):
         # restore the original merchant's shorter, broader lower face and scalp.
         world_z=np.interp(world_z,[1.30,1.42,1.475,1.565,1.636,1.750],[1.30,1.42,1.508,1.570,1.636,1.732])
         broad=np.interp(raw[:,1],[5.8,6.16,6.7,7.284,8.49],[1,1.16,1.10,1.04,1.02]);x*=broad
+    # The lower template rings continue inside the existing shirt rather than
+    # spreading over its shoulders. The exposed anatomical neck stays unchanged.
+    tuck=np.clip((1.445-world_z)/.065,0,1)
+    x=x*(1-tuck)+(.075*np.tanh(x/.075))*tuck
+    y=y*(1-tuck)+(.025+(y-.025)*.45)*tuck
     return np.column_stack((x,y,world_z))
 
 
@@ -148,8 +153,8 @@ def head_mesh(raw,faces,groups,face_uv,name,refs,data):
     for loop in mesh.loops:
         x,y,z=raw[ids[loop.vertex_index]];plane=y+.65*z
         weight=max(0,min(1,(6.72-plane)/.36));weight=weight*weight*(3-2*weight)
-        px=profile['center']+x*160;py={'merchant':650,'priestess':640,'enchantress':630}[name]+(6.15-y)*75
-        py=float(np.clip(py,590,675));left,right=skin_rows['front'][int(py)];px=float(np.clip(px,left+6,right-6))
+        px=profile['center']+x*230;py=(650+(6.15-y)*45) if name=='merchant' else (560+(6.16-y)*140)
+        py=float(np.clip(py,565,694));left,right=skin_rows['front'][int(py)];px=float(np.clip(px,left+6,right-6))
         mesh.uv_layers['NeckSkin'].data[loop.index].uv=(px/718,1-py/718)
         mesh.color_attributes['NeckWeight'].data[loop.index].color=(weight,weight,weight,1)
     weights=mesh.color_attributes.new(name='ProjectionWeights',type='FLOAT_COLOR',domain='CORNER')

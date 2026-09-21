@@ -106,7 +106,7 @@ def main():
     for level in range(3):
         body=next(o for o in target.objects if o.name.startswith('LOD'+str(level)+'_'))
         bm=bmesh.new();bm.from_mesh(body.data);remove=[f for f in bm.faces if not body.data.materials[f.material_index].name.startswith('TownBody')];bmesh.ops.delete(bm,geom=remove,context='FACES');bm.to_mesh(body.data);bm.free()
-        print('NECKLINE_REPAIR',a.name,level,repair_neckline(body,a.name))
+        neckline=repair_neckline(body,a.name);print('NECKLINE_REPAIR',a.name,level,neckline)
         part=evaluated_shapes(facial,1 if level==0 else 0,'FaceLOD'+str(level));teeth=evaluated_shapes(oral,0,'OralLOD'+str(level));join([part,teeth],part)
         body_matrix=body.matrix_world.copy();body.parent=None;body.matrix_world=body_matrix
         original_uv=body.data.uv_layers.active.name
@@ -128,7 +128,7 @@ def main():
             contract.data[loop.index].uv=(values.get('ContractSkull',0),values.get('ContractJaw',0))
         part.data.uv_layers['FaceAtlas'].active_render=True
         part.parent=rig;modifier=part.modifiers.new('Station skeleton','ARMATURE');modifier.object=rig;modifier.use_vertex_groups=True
-        records.append({'name':part.name,'vertices':len(part.data.vertices),'triangles':sum(len(p.vertices)-2 for p in part.data.polygons),'shapes':[k.name for k in part.data.shape_keys.key_blocks][1:]})
+        records.append({'necklineRepair':neckline,'name':part.name,'vertices':len(part.data.vertices),'triangles':sum(len(p.vertices)-2 for p in part.data.polygons),'shapes':[k.name for k in part.data.shape_keys.key_blocks][1:]})
     bpy.data.objects.remove(facial,do_unlink=True);bpy.data.objects.remove(oral,do_unlink=True)
     # Optical frames are authored explicitly; Unity attaches these existing pivots
     # to Head while still in bind pose, before sampling station animation.
