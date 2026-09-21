@@ -32,6 +32,14 @@ internal sealed class TownServiceCatalog : IDisposable
     private readonly GameObject _root;
     private readonly CanvasGroup _opening;
     private readonly Canvas _navigation = null!;
+    private TownServiceCatalogPreview? _preview;
+    internal Transform? PreviewSource => _preview?.Source;
+    internal Transform? PreviewContent => _preview?.Content;
+    internal Transform? PreviewCloneOf(Transform source) => _preview?.CloneOf(source);
+    internal bool OwnsHintSource => _preview?.OwnsHintSource == true;
+    internal Transform? HintSource => _preview?.HintSource;
+    internal Transform? HintContent => _preview?.HintContent;
+    internal Transform? HintCloneOf(Transform source) => _preview?.HintCloneOf(source);
     private readonly TMP_Text _pageLabel;
     private readonly Button _previous, _next;
     private readonly List<UIShopItemSlot> _rows = new();
@@ -102,6 +110,8 @@ internal sealed class TownServiceCatalog : IDisposable
             AddControl("merchant.filter.hands", inventory.handsFilter.transform, .08f, .265f, .055f);
             AddControl("merchant.filter.legs", inventory.legsFilter.transform, .16f, .265f, .055f);
             AddControl("merchant.filter.small", inventory.smallItemsFilter.transform, .24f, .265f, .055f);
+            if (inventory.itemTooltip != null)
+                _preview = new TownServiceCatalogPreview(inventory.itemTooltip, Root, PreviewIsCurrent);
         }
         catch { Dispose(); throw; }
     }
@@ -113,6 +123,18 @@ internal sealed class TownServiceCatalog : IDisposable
             new Vector3(x, .008f, z), width, _anchor)));
     }
 
+    private bool PreviewIsCurrent()
+    {
+        if (_disposed || !_alive() || _inventory.itemTooltip == null) return false;
+        Transform source = _inventory.itemTooltip.transform;
+        foreach (Entry entry in _entries)
+            if (entry.Current && source.IsChildOf(entry.RowSource.transform)
+                && _inventory.itemTooltip.m_ItemCardUI != null
+                && _inventory.itemTooltip.m_ItemCardUI.item != null
+                && _inventory.itemTooltip.m_ItemCardUI.item.ID == entry.Item.ID) return true;
+        return false;
+    }
+
     internal void SetVisibility(float value)
     {
         _opening.alpha = Mathf.Clamp01(value);
@@ -122,6 +144,7 @@ internal sealed class TownServiceCatalog : IDisposable
     internal void LateTick()
     {
         foreach (Control control in _controls) control.Surface.Tick(Vector3.zero, Quaternion.identity, 1f);
+        _preview?.Tick();
     }
 
     /// <summary>Identical original visual source for observers, without service controllers or
@@ -263,6 +286,7 @@ internal sealed class TownServiceCatalog : IDisposable
 
     private void ClearEntries()
     {
+        _preview?.Clear();
         foreach (Entry entry in _entries) entry.Dispose();
         _entries.Clear(); _samples.Clear();
     }
@@ -271,6 +295,7 @@ internal sealed class TownServiceCatalog : IDisposable
     {
         if (_disposed) return;
         _disposed = true;
+        _preview?.Dispose(); _preview = null;
         ClearEntries();
         for (int i = _controls.Count - 1; i >= 0; i--) _controls[i].Surface.Dispose();
         _controls.Clear();
@@ -296,7 +321,7 @@ internal sealed class TownServiceCatalog : IDisposable
         private readonly List<KeyValuePair<GraphicRaycaster, bool>> _raycasters = new();
         private GameObject? _card;
         private float _nextRefresh;
-        private bool _disposed;
+        private bool _disposed, _hovered;
         internal readonly UIShopItemSlot RowSource;
         internal readonly CItem Item;
         internal readonly TownServiceToken Sample;
@@ -321,7 +346,8 @@ internal sealed class TownServiceCatalog : IDisposable
             VRLayers.Apply(face);
             var rowMount = new GameObject("Price"); rowMount.transform.SetParent(_root.transform, false);
             rowMount.transform.localPosition = new Vector3(0f, -.081f, 0f);
-            _row = new RemoteWidgetMirror("CatalogPrice", rowMount.transform, .19f, .042f, Vector2.zero);
+            _row = new RemoteWidgetMirror("CatalogPrice", rowMount.transform, .19f, .042f, Vector2.zero,
+                externallyShownBranch: node => node.GetComponent<UIPartyItemInventoryTooltip>() != null);
             RectTransform rowRect = (RectTransform)source.transform;
             _row.SetOwnerFrame(rowRect.rect.size, rowRect.parent is RectTransform rowParent ? rowParent.rect.size : rowRect.rect.size);
             try
@@ -372,7 +398,11 @@ internal sealed class TownServiceCatalog : IDisposable
         }
         private void Hover(bool enter)
         {
-            if (!Current || EventSystem.current == null) return;
+            if (_hovered == enter || RowSource == null || EventSystem.current == null || (enter && !Current)) return;
+            // A pooled row/context change can invalidate Current before disposal. Retire the
+            // pointer enter we actually sent anyway; otherwise its native detail window remains
+            // highlighted/open for the old owner. This is only hover exit, never selection.
+            _hovered = enter;
             var pointer = new PointerEventData(EventSystem.current);
             if (enter) ExecuteEvents.Execute(RowSource.Selectable.gameObject, pointer, ExecuteEvents.pointerEnterHandler);
             else ExecuteEvents.Execute(RowSource.Selectable.gameObject, pointer, ExecuteEvents.pointerExitHandler);
@@ -388,7 +418,15 @@ internal sealed class TownServiceCatalog : IDisposable
                 _row.Refresh(RowSource.transform);
                 CardFaceMipBake.Rescan(CardUI);
             }
-            _row.TickLive(); Sample.Tick(scale);
+            _row.TickLive();
+            // The native detail widget follows the hovered row. It belongs to the full detail
+            // placard, never inside this narrow price strip or its measured bounds.
+            if (_owner._inventory.itemTooltip != null)
+            {
+                Transform? inline = _row.CloneOf(_owner._inventory.itemTooltip.transform);
+                if (inline != null) inline.gameObject.SetActive(false);
+            }
+            Sample.Tick(scale);
         }
         public void Dispose()
         {

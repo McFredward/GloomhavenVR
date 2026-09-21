@@ -28,13 +28,20 @@ def replace_once(source, before, after):
 
 def sources(root):
     base = root / "src/GloomhavenVR/WorldUI/TownServices"
-    names = ["TownServiceCatalog.cs", "TownServiceCatalogPointer.cs", "TownServiceSurface.cs"]
+    names = ["TownServiceCatalog.cs", "TownServiceCatalogPointer.cs", "TownServiceCatalogPreview.cs", "TownServiceWindowMask.cs", "TownServiceSurface.cs"]
     bound = {name: (base / name).read_text() for name in names}
     return bound, {name: hashlib.sha256(text.encode()).hexdigest() for name, text in bound.items()}
 
 
 def mutations():
     return [
+        ("hover-rebind", "TownServiceCatalog.cs", " || (enter && !Current)", " || !Current", "row rebind retires previous native hover"),
+        ("hint-duplicate", "TownServiceCatalogPreview.cs", "_hintMask = new TownServiceWindowMask(rect);", "// mutation leaves duplicate native tooltip visible", "native shared hint is masked while its copy is visible"),
+        ("preview-mask", "TownServiceCatalogPreview.cs", "_mount.transform.SetParent(parent, false)", "_mount.transform.SetParent(source.transform.parent, false)", "detail clone escapes hidden native viewport"),
+        ("preview-leave", "TownServiceCatalogPreview.cs", "_source.IsShown &&", "true &&", "native hover exit hides copied details"),
+        ("preview-context", "TownServiceCatalog.cs", "&& _inventory.itemTooltip.m_ItemCardUI.item.ID == entry.Item.ID", "&& true", "rebound tooltip item cannot appear under new row identity"),
+        ("hint-enter", "TownServiceCatalogPreview.cs", "target.OnPointerEnter(new PointerEventData(EventSystem.current));", "// mutant omits native inspect", "native rules target entered exactly once"),
+        ("hint-owner", "TownServiceCatalogPreview.cs", "tooltip.m_AnchorToTarget == _hintTarget.transform && EventSystem.current != null", "EventSystem.current != null", "ending inspect never hides another native tooltip"),
         ("pool-input", "TownServiceCatalog.cs", "target.Key.raycastTarget = target.Value", "target.Key.raycastTarget = false", "pooled native input flags restored before recycle"),
         ("surface-fade", "TownServiceSurface.cs", "_gate.alpha = alpha * _visibility", "_gate.alpha = alpha", "counter visibility multiplies original native fade"),
         ("scroll-repeat", "TownServiceCatalog.cs", "if (Time.unscaledTime < _nextScrollPage) return;", "if (Time.unscaledTime < -1f) return;", "page rebuild preserves scroll repeat throttle"),
