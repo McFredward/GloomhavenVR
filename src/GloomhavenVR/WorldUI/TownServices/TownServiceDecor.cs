@@ -272,6 +272,7 @@ internal sealed class TownServiceDecor : IDisposable
                 if (child.name == "ActivityGripRight") { _castGrip = child; break; }
         }
         if (_castGrip == null) return;
+        if (!_arcane.Holder.activeSelf) _arcane.Holder.SetActive(true);
         float strength = TownServiceActivityMotion.Pulse(pose.WorkClock % 14f, 7f, 12f)
             * (1f - TownServiceActivityMotion.Blend(in pose));
         Transform effect = _arcane.Holder.transform;
@@ -279,6 +280,12 @@ internal sealed class TownServiceDecor : IDisposable
             + new Vector3(.018f * Mathf.Sin(pose.WorkClock * 2f), .035f, -.02f);
         foreach (Material material in _arcane.EffectMaterials)
             material.SetFloat(Visibility, _visibility * strength);
+    }
+
+    internal void SuspendActivity()
+    {
+        _work.Suspend();
+        if (_arcane?.Holder != null) _arcane.Holder.SetActive(false);
     }
 
     internal void SetClock(float seconds)
