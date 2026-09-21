@@ -195,12 +195,12 @@ class ParallelSuitesTests(unittest.TestCase):
         suites, _ = runner.load_manifest(runner.MANIFEST)
         local = {s['id'] for s in runner.selected_suites(suites, 'local', (0, 1))}
         ci = {s['id'] for s in runner.selected_suites(suites, 'ci', (0, 1))}
-        self.assertEqual(local, LOCAL_INVENTORY | {"town-service-setting", "town-residents", "town-service-lighting"})
+        self.assertEqual(local, LOCAL_INVENTORY | {"town-service-setting", "town-residents", "town-service-lighting", "town-face"})
         self.assertEqual(ci, CI_INVENTORY | {"town-service-setting", "town-residents", "town-service-lighting"})
         self.assertEqual({s['id'] for s in runner.selected_suites(suites, 'source', (0, 1))}, SOURCE_INVENTORY)
-        self.assertEqual(len(local), 49)
+        self.assertEqual(len(local), 50)
         self.assertEqual(len(ci), 51)
-        self.assertEqual(local-ci, {'presentation-send'})
+        self.assertEqual(local-ci, {'presentation-send', 'town-face'})
         self.assertEqual(ci-local, {'self-update-dialog', 'banner-pose', 'quest-seat'})
         self.assertEqual(len(runner.selected_suites(suites, 'source', (0, 1))), 14)
         partition = [s['id'] for i in range(4) for s in runner.selected_suites(suites, 'ci', (i, 4))]
