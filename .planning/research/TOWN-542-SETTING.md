@@ -20,7 +20,8 @@ Peers retain the published author pose, even if their environment preference dif
 
 The source mesh under `RoomGeo/Ground` or `RoomGeo/Floor` supplies the actual
 height at the stand, using triangle interpolation rather than bounds or a ray that
-could hit scenery. The exact environment plane is the fallback for unreadable mesh
+could hit scenery. Both shipped `Env_S_Ground` and `Env_C_Floor` were inspected and have
+`m_IsReadable=true`. The exact environment plane is the fallback for unreadable mesh
 data. Default/MR without a custom room retains the canonical map floor.
 The actor and furniture are authored with their contact at station-local zero;
 animated hands and inflated skinned bounds never determine placement.
@@ -64,7 +65,8 @@ NPC clock. Its exact timing equivalence to the compiled native shader is not pro
 The bundled NPC shader receives actual scene ambient and lights. A single owned
 mod-layer directional light follows the custom room's measured moon direction and
 colour, not a fixed studio key. Default/MR adds no artificial directional fill.
-Each stand has a bounded warm point light at the original lantern/candle location,
+Each stand has a bounded warm point light at the original lantern/candle location
+(two for the temple's two candles, four in total),
 using `ForceVertex` for the existing zero-pixel-light performance setting. Lights
 start only once their visible source has loaded. Native lights and global ambient
 settings are untouched. All materials, Addressables handles and owned lights are
@@ -78,7 +80,7 @@ released with the station. Geometry does not intercept lasers or hand targeting.
 - Strict Release build: zero warnings and zero errors.
 - Root integration calls `Station.RefreshEnvironment(authorPose)` for all residents;
   observers need the call for asynchronous decoration and environment lighting too.
-- `TownServiceAssets` must load `townflame.shader` explicitly from the town bundle;
+- `TownServiceAssets.Shader` loads `townflame.shader` explicitly from the town bundle;
   an unreferenced shader asset is not guaranteed to be available through Shader.Find.
 - Prefab worker authors actual grounded soles, the functional merchant card rails,
   and the environment-lit / original-flame stereo shaders.
