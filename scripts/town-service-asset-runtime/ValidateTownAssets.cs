@@ -110,6 +110,28 @@ public static class ValidateTownAssets
     }
     static void ResetFace(GameObject root)
     { foreach (var name in FaceShapes) FaceWeight(root, name, 0); }
+    static void EyePixels(GameObject root, string npc, int level, Color32[] lit)
+    {
+        var renderers = root.GetComponentsInChildren<MeshRenderer>().Where(r => r.sharedMaterial.shader.name == "GloomhavenVR/TownEye" || r.sharedMaterial.shader.name == "GloomhavenVR/TownCornea").ToArray();
+        var original = renderers.Select(r => r.sharedMaterial).ToArray();
+        var maskMaterial = new Material(Shader.Find("Unlit/Color")); maskMaterial.color = Color.magenta;
+        foreach (var renderer in renderers) renderer.sharedMaterial = maskMaterial;
+        var mask = Picture(npc + "-face-lod" + level + "-eye-aperture-mask");
+        for (int i = 0; i < renderers.Length; i++) renderers[i].sharedMaterial = original[i];
+        UnityEngine.Object.DestroyImmediate(maskMaterial);
+        int visible = 0, illuminated = 0; double brightness = 0;
+        for (int i = 0; i < mask.Length; i++)
+            if (mask[i].r > 220 && mask[i].b > 220 && mask[i].g < 20)
+            {
+                visible++; int value = lit[i].r + lit[i].g + lit[i].b;
+                brightness += value / 3.0; if (value > 120) illuminated++;
+            }
+        Check(visible > 30, npc + " LOD" + level + " actual globe aperture is visible through fitted lids");
+        Check(illuminated > visible * .2 && brightness / visible > 18,
+            npc + " LOD" + level + " visible eyes receive actual stand/environment light");
+        File.AppendAllText(Path.Combine(output, npc + "-eye-pixels.txt"), "LOD" + level + " aperturePixels=" + visible + " litPixels=" + illuminated + " mean=" + (brightness / visible).ToString("F3", System.Globalization.CultureInfo.InvariantCulture) + "\n");
+    }
+
     static IEnumerator FacialEvidence(GameObject root, string npc, LODGroup lod)
     {
         var actor = root.transform.Find("Actor");
@@ -152,6 +174,7 @@ public static class ValidateTownAssets
             lod.ForceLOD(level); ResetFace(root);
             camera.transform.position = new Vector3(0, 1.60f, .03f); camera.transform.LookAt(new Vector3(0, 1.60f, .65f));
             yield return null; var neutral = Picture(npc + "-face-lod" + level + "-neutral");
+            EyePixels(root, npc, level, neutral);
             FaceWeight(root, "BlinkLeft", 100); FaceWeight(root, "BlinkRight", 100);
             yield return null; var blink = Picture(npc + "-face-lod" + level + "-blink");
             Check(Different(neutral, blink) > 100, npc + " LOD" + level + " actual eyelid deformation renders");
