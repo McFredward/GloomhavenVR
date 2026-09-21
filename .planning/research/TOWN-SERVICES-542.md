@@ -65,6 +65,11 @@ opening alpha; every inert clone registers for late original silhouette updates.
 - Resident lifecycle/authority: 123 production assertions and four compiled negative
   controls, including missing assets, opt-out, expiry and viewer environment changes.
 - Card body: 15 real-Unity assertions and four compiled negative controls.
+- NPC input: 89 real-Unity assertions and four compiled negative controls, including
+  actual Collider rays and the production early RayInteractor/RayUgui election.
+- Stand light ownership: 624 production assertions and five compiled negative
+  controls. Exact object ownership excludes only the new town lights from native
+  flicker damping; native lights with the same names/layer retain existing behavior.
 - Catalog: 339 Unity assertions and 16 negative controls; interactions: 896 and 30.
 - Full mirror/render suite passes, including physical body and held-duplicate mutations.
 - Complete guard: 14 source checks and all48 local suites pass, 256845 wire assertions.

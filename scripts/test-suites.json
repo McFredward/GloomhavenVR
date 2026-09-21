@@ -110,6 +110,18 @@
       "weight": 12
     },
     {
+      "id": "town-service-lighting",
+      "command": [
+        "python3",
+        "scripts/check-town-service-lighting.py"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 15
+    },
+    {
       "id": "town-residents",
       "command": [
         "python3",
