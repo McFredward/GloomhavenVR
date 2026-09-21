@@ -16,7 +16,8 @@
     "targets/expression/units/caucasian/eyebrows-left-up.target.gz": "e0be77b6846c62ecc54d589ad1430a2b1a145e8ec067507fae181bd7e6a4eb54",
     "targets/expression/units/caucasian/eyebrows-right-up.target.gz": "66060c97949f4fb414fb1b731379f9ca5bcc000e4184ee1f7d527d94b70b14e8",
     "targets/expression/units/caucasian/eye-left-opened-up.target.gz": "842d95f9f0af1807ecf45c79a1def61152a253f0696afce41aa76156be697117",
-    "targets/expression/units/caucasian/eye-right-opened-up.target.gz": "56f07d192a9321437cf6bdadc7800331316e3430ae29e9ce24f957639ccc0224"
+    "targets/expression/units/caucasian/eye-right-opened-up.target.gz": "56f07d192a9321437cf6bdadc7800331316e3430ae29e9ce24f957639ccc0224",
+    "rigs/weights.game_engine.json": "9f4a773e74ce5ba08415b4f30070338e9f75bae5971b5075b10cd6b9caa58473"
   },
   "systemAssetPack": {
     "url": "https://files2.makehumancommunity.org/asset_packs/makehuman_system_assets/makehuman_system_assets_cc0.zip",

@@ -23,6 +23,11 @@ def subset(source, predicate, name):
         for p,orig in zip(mesh.polygons,polygons):
             for new_loop,old_loop in zip(p.loop_indices,orig.loop_indices):uv.data[new_loop].uv=old.data[old_loop].uv
     obj=bpy.data.objects.new(name,mesh);bpy.context.collection.objects.link(obj)
+    for group in source.vertex_groups:
+        new=obj.vertex_groups.new(name=group.name)
+        for index,old in enumerate(ids):
+            for weight in source.data.vertices[old].groups:
+                if weight.group==group.index:new.add([index],weight.weight,'REPLACE')
     if source.data.shape_keys:
         for old in source.data.shape_keys.key_blocks:
             key=obj.shape_key_add(name=old.name)
@@ -45,6 +50,9 @@ def evaluated_shapes(source,level,name):
     for key in source.data.shape_keys.key_blocks:key.value=0
     source.modifiers.remove(modifier)
     obj=bpy.data.objects.new(name,mesh);bpy.context.collection.objects.link(obj);obj.shape_key_add(name='Basis')
+    # Evaluated meshes retain deform indices, but their object group definitions
+    # must be restored in the same order for subdivision-interpolated weights.
+    for group in source.vertex_groups:obj.vertex_groups.new(name=group.name)
     for name,coords in shapes.items():
         key=obj.shape_key_add(name=name)
         for v,co in zip(key.data,coords):v.co=co
@@ -101,10 +109,6 @@ def main():
         body=next(o for o in target.objects if o.name.startswith('LOD'+str(level)+'_'))
         bm=bmesh.new();bm.from_mesh(body.data);remove=[f for f in bm.faces if not body.data.materials[f.material_index].name.startswith('TownBody')];bmesh.ops.delete(bm,geom=remove,context='FACES');bm.to_mesh(body.data);bm.free()
         part=evaluated_shapes(facial,1 if level==0 else 0,'FaceLOD'+str(level));teeth=evaluated_shapes(oral,0,'OralLOD'+str(level));join([part,teeth],part)
-        for group_name in ('Head','Neck'):part.vertex_groups.new(name=group_name)
-        for v in part.data.vertices:
-            weight=max(0,min(1,(v.co.z-1.48)/.07));weight=weight*weight*(3-2*weight)
-            part.vertex_groups['Head'].add([v.index],weight,'REPLACE');part.vertex_groups['Neck'].add([v.index],1-weight,'REPLACE')
         body_matrix=body.matrix_world.copy();body.parent=None;body.matrix_world=body_matrix
         original_uv=body.data.uv_layers.active.name
         for uv_name in [uv.name for uv in body.data.uv_layers]:
@@ -116,6 +120,14 @@ def main():
         # Stable two-slot runtime contract: original costume, new baked face/oral atlas.
         old_materials=list(part.data.materials);bodymat=next(m for m in old_materials if m.name.startswith('TownBody'));indices=[0 if old_materials[p.material_index].name.startswith('TownBody')else 1 for p in part.data.polygons];part.data.materials.clear();part.data.materials.append(bodymat);part.data.materials.append(face_material)
         for poly,index in zip(part.data.polygons,indices):poly.material_index=index
+        # A second UV channel carries independent template-region membership
+        # through FBX UV splits. It is validation metadata, never a rendered UV.
+        contract=part.data.uv_layers.new(name='RigContract')
+        marker={g.index:g.name for g in part.vertex_groups if g.name in ('ContractSkull','ContractJaw')}
+        for loop in part.data.loops:
+            values={marker[w.group]:w.weight for w in part.data.vertices[loop.vertex_index].groups if w.group in marker}
+            contract.data[loop.index].uv=(values.get('ContractSkull',0),values.get('ContractJaw',0))
+        part.data.uv_layers['FaceAtlas'].active_render=True
         part.parent=rig;modifier=part.modifiers.new('Station skeleton','ARMATURE');modifier.object=rig;modifier.use_vertex_groups=True
         records.append({'name':part.name,'vertices':len(part.data.vertices),'triangles':sum(len(p.vertices)-2 for p in part.data.polygons),'shapes':[k.name for k in part.data.shape_keys.key_blocks][1:]})
     bpy.data.objects.remove(facial,do_unlink=True);bpy.data.objects.remove(oral,do_unlink=True)

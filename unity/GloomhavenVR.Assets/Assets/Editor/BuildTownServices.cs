@@ -413,9 +413,32 @@ namespace GloomhavenVR
         }
 
         // Replace the facial shell and its rig without rebuilding furniture or changing grounding.
+        [Serializable] public class FacialContract { public int version = 1; public FacialResident[] residents; }
+        [Serializable] public class FacialResident { public string npc; public FacialLod[] lods; }
+        [Serializable] public class FacialLod { public string renderer; public int vertexCount; public int[] skull, jaw; }
+
+        static int[] RegionProbes(Mesh mesh, bool jaw)
+        {
+            var mask = mesh.uv2;
+            if (mask.Length != mesh.vertexCount) throw new InvalidDataException("Missing independent anatomical region metadata");
+            var candidates = Enumerable.Range(0, mask.Length).Where(i => (jaw ? mask[i].y : mask[i].x) > .999f).ToList();
+            if (candidates.Count < 6) throw new InvalidDataException("Anatomical region has too few vertices");
+            var vertices = mesh.vertices; var selected = new List<int>();
+            selected.Add(candidates.OrderBy(i => vertices[i].y).First());
+            // Spatially spread probes include the inferior chin/beard and do not
+            // derive membership from output bone weights under test.
+            while (selected.Count < Math.Min(48, candidates.Count))
+            {
+                var next = candidates.Where(i => !selected.Contains(i)).OrderByDescending(i => selected.Min(j => (vertices[i] - vertices[j]).sqrMagnitude)).First();
+                selected.Add(next);
+            }
+            return selected.ToArray();
+        }
+
         public static void RefreshFacialRig()
         {
             var input = Arg("-townFaceRoot");
+            var contract = new FacialContract { residents = new FacialResident[Npcs.Length] };
             Folder(Root + "/Textures");
             foreach (var npc in Npcs)
             {
@@ -490,9 +513,13 @@ namespace GloomhavenVR
                         npc == "priestess" ? new Vector3(0, 1.535f, 0.117f) : new Vector3(0, 1.5371f, 0.1313f));
                     mouth.rotation = actor.transform.rotation; mouth.SetParent(head, true);
                     var lods = new LOD[3];
+                    var resident = new FacialResident { npc = npc, lods = new FacialLod[3] };
+                    contract.residents[Array.IndexOf(Npcs, npc)] = resident;
                     for (var i = 0; i < 3; ++i)
                     {
                         var renderer = actor.GetComponentsInChildren<SkinnedMeshRenderer>().Single(r => r.name.StartsWith("LOD" + i + "_"));
+                        resident.lods[i] = new FacialLod { renderer = renderer.name, vertexCount = renderer.sharedMesh.vertexCount,
+                            skull = RegionProbes(renderer.sharedMesh, false), jaw = RegionProbes(renderer.sharedMesh, true) };
                         renderer.sharedMaterials = materials; renderer.quality = SkinQuality.Bone4; renderer.updateWhenOffscreen = true;
                         var bounds = renderer.localBounds; bounds.Expand(.4f); renderer.localBounds = bounds;
                         lods[i] = new LOD(new[] { .5f, .2f, .04f }[i], new Renderer[] { renderer }.Concat(eyeRenderers).ToArray());
@@ -513,6 +540,8 @@ namespace GloomhavenVR
                 }
                 finally { PrefabUtility.UnloadPrefabContents(root); }
             }
+            File.WriteAllText(Root + "/town-facial-rig-contract.json", JsonUtility.ToJson(contract, true));
+            AssetDatabase.Refresh(ImportAssetOptions.ForceSynchronousImport);
             AssetDatabase.SaveAssets();
         }
 
@@ -546,6 +575,7 @@ namespace GloomhavenVR
                 // Do not expose the FBX import roots (duplicate actors with default materials).
                 var assets = Directory.GetFiles(Root + "/Prefabs", "*.prefab", SearchOption.AllDirectories)
                     .Concat(Directory.GetFiles(Root + "/Shaders", "*.shader"))
+                    .Concat(new[] { Root + "/town-facial-rig-contract.json" })
                     .Select(p => p.Replace('\\', '/')).OrderBy(p => p).ToArray();
                 if (assets.Length == 0) throw new InvalidOperationException("No town assets to bundle");
                 Directory.CreateDirectory("Build/TownServices");

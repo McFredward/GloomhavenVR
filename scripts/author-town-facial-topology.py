@@ -162,6 +162,20 @@ def add_shapes(obj,ids,raw,name,data):
         for v,co in zip(key.data,fit(posed[ids],name)):v.co=co
 
 
+def anatomical_weights(obj,ids,raw,data):
+    # Anatomical membership is defined on the original CC0 template before fitting
+    # and independently of final skin weights. The oblique submandibular plane
+    # includes the chin while excluding the nape and soft anterior neck.
+    original=dict(json.loads((data/'rigs/weights.game_engine.json').read_text())['weights']['head'])
+    groups={name:obj.vertex_groups.new(name=name) for name in ('Head','Neck','ContractSkull','ContractJaw')}
+    for index,source in enumerate(ids):
+        x,y,z=raw[source];plane=y+.65*z
+        blend=max(0,min(1,(plane-6.30)/.42));blend=blend*blend*(3-2*blend)
+        weight=max(original.get(source,0),blend)
+        groups['Head'].add([index],weight,'REPLACE');groups['Neck'].add([index],1-weight,'REPLACE')
+        if plane>=6.72:groups['ContractSkull' if y>6.7 else 'ContractJaw'].add([index],1,'REPLACE')
+
+
 def oral_accessories(raw,name,data,head):
     parts=[head]
     for kind,stem,texture in [('teeth','teeth_base','teeth.png'),('tongue','tongue01','tongue01_diffuse.png')]:
@@ -176,6 +190,7 @@ def oral_accessories(raw,name,data,head):
             return fit(np.asarray(result),name)
         mesh=bpy.data.meshes.new(kind);mesh.from_pydata(mapped(raw).tolist(),[],faces);mesh.update()
         obj=bpy.data.objects.new(kind,mesh);bpy.context.collection.objects.link(obj)
+        obj.vertex_groups.new(name='Head').add(list(range(len(mesh.vertices))),1,'REPLACE')
         uv=mesh.uv_layers.new(name='OralTexture')
         for p,coords in zip(mesh.polygons,face_uv):
             p.use_smooth=True
@@ -257,7 +272,7 @@ def main():
     for line in gzip.open(a.data/'targets/expression/units/caucasian/mouth-compression.target.gz','rt'):
         f=line.split()
         if f and not f[0].startswith('#'):raw[int(f[0])]+=np.array(list(map(float,f[1:4])))*.85
-    obj,ids=head_mesh(raw,faces,groups,face_uv,a.name,a.references,a.data);add_shapes(obj,ids,raw,a.name,a.data);oral_accessories(raw,a.name,a.data,obj);eye=eyes(raw,a.name,a.data)
+    obj,ids=head_mesh(raw,faces,groups,face_uv,a.name,a.references,a.data);add_shapes(obj,ids,raw,a.name,a.data);anatomical_weights(obj,ids,raw,a.data);oral_accessories(raw,a.name,a.data,obj);eye=eyes(raw,a.name,a.data)
     bpy.context.view_layer.objects.active=obj;obj.select_set(True);mod=obj.modifiers.new('Anatomical loop subdivision','SUBSURF');mod.levels=2;mod.render_levels=2
     bpy.ops.file.pack_all();bpy.ops.wm.save_as_mainfile(filepath=str(a.output/'face-prototype.blend'))
     (a.output/'landmarks.json').write_text(json.dumps({'name':a.name,'eyes':eye,'headVertices':len(ids),'headQuads':len(obj.data.polygons),'shapes':list(SHAPES)},indent=2)+'\n')

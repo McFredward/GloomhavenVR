@@ -28,7 +28,7 @@ public static class ValidateTownAssets
         try
         {
             output = Arg("-townEvidence"); Directory.CreateDirectory(output);
-            var assets = Directory.GetFiles("Assets/Bundle/TownServices/Prefabs", "*.prefab").OrderBy(x => x).ToArray();
+            var assets = Directory.GetFiles("Assets/Bundle/TownServices/Prefabs", "*.prefab").Concat(new[] { "Assets/Bundle/TownServices/town-facial-rig-contract.json" }).OrderBy(x => x).ToArray();
             // Linux pixel evidence needs Linux shader bytecode; the shipping Windows bundle
             // is built separately from these identical prefabs, materials and shader sources.
             var manifest = BuildPipeline.BuildAssetBundles(output, new[] { new AssetBundleBuild {
@@ -140,7 +140,7 @@ public static class ValidateTownAssets
                 mesh.GetBlendShapeFrameVertices(shapeIndex, 0, vertexDelta, normalDelta, tangentDelta);
                 Check(bodyVertices.All(index => vertexDelta[index].sqrMagnitude < 1e-14f), npc + " facial shapes never move costume vertices");
                 int changedNormals = bodyVertices.Count(index => normalDelta[index].sqrMagnitude > 1e-8f);
-                if (changedNormals > 0) Debug.Log("TOWN_BODY_SHAPE_NORMALS " + npc + " LOD" + level + " " + mesh.GetBlendShapeName(shapeIndex) + " count=" + changedNormals);
+                Check(changedNormals == 0, npc + " unchanged costume has no facial normal deltas");
             }
 
             foreach (var shape in FaceShapes) Check(mesh.GetBlendShapeIndex(shape) >= 0, npc + " LOD" + level + " " + shape);
