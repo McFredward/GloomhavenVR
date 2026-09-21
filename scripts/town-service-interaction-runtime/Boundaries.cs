@@ -150,6 +150,9 @@ namespace GloomhavenVR.WorldUI.MapRoom
 }
 namespace GloomhavenVR.WorldUI
 {
+    internal sealed class ConfigBool { internal bool Value = true; }
+    internal static class WorldUIConfig
+    { internal static ConfigBool ImmersiveTownServices = new(); }
     internal static class GuildmasterDestinations
     {
         internal static UIWindow? Window;

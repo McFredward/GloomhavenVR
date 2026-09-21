@@ -61,6 +61,9 @@ def mutations():
     # Every mutant compiles and must reach the specified runtime assertion. A compile error,
     # unrelated exception or changed source binding cannot count as a rejected negative control.
     return [
+        ("option-open", "Presentation.cs", "        if (!WorldUIConfig.ImmersiveTownServices.Value)", "        if (_session == uint.MaxValue)", "disabled opening never takes ownership of original window"),
+        ("option-release", "Presentation.cs", "internal static bool Active => WorldUIConfig.ImmersiveTownServices.Value\n        &&", "internal static bool Active =>", "disabled option immediately fences a held release before next tick"),
+        ("option-classic-lifecycle", "Handoff.cs", "        if (window != null && window.IsOpen) TryConvertWindow(window);", "        if (window != null && window.IsOpen) RestoreTownServiceContext(window, Vector3.zero, Quaternion.identity);", "disabled window retains ordinary placement and fitting lifecycle"),
         ("owner", "Presentation.cs", "!ReferenceEquals(owner, _selectionOwner)", "false", "owner switch cancels held selection"),
         ("mode", "Presentation.cs", "mode != _selectionMode", "false", "mode switch cancels held selection"),
         ("committed-card", "Presentation.cs", "!ReferenceEquals(card, _selectionCard)", "false", "committed card switch cancels held selection"),
