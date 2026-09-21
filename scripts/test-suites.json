@@ -122,6 +122,17 @@
       "weight": 15
     },
     {
+      "id": "town-face",
+      "command": [
+        "python3",
+        "scripts/check-town-face.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 80
+    },
+    {
       "id": "town-residents",
       "command": [
         "python3",

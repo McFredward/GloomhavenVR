@@ -275,10 +275,10 @@ restoration; wire vectors cover the additive movie record and stale playback ide
 ### Parallel execution
 
 Full dev CI runs a source/build job alongside four runtime jobs. Each runtime job executes
-a disjoint shard of the 48 hosted suites, with two suites running concurrently. The 14 shared
+a disjoint shard of the hosted suites, with two suites running concurrently. The shared
 source gates also run concurrently. `scripts/test-suites.json` defines both inventories;
 `scripts/run-test-suites.py` retains per-suite output, verifies process exit status and prints
-complete logs and durations. The local guard uses the same scheduler for its 46 suites and
+complete logs and durations. The local guard uses the same scheduler for its local suites and
 still runs the golden wire executable against the real game runtime.
 
 A suite's negative controls remain sequential inside that suite. Build and temporary outputs
@@ -445,6 +445,15 @@ already calls it.
 Pure source checks should live in `scripts/`, or have a standalone twin there, so CI
 can execute them. `check-card-identity-mask.py` and `CardIdentityMaskVectors.cs` are such
 a pair; keep their rules aligned.
+
+### Facial rig tests require the real Unity editor
+
+The local `town-face` suite runs `scripts/check-town-face.py` in Unity 2021.3.5f1.
+It exercises production bone transforms, skinned blend shapes, gaze occlusion and
+observer playback, including deliberately broken variants. Hosted runners do not
+have that editor, so the suite belongs to the local group only. Hosted CI compiles
+the production implementation and its facial wire vectors; that is not a substitute
+for the local runtime assertions or inspection of the actual bundled faces.
 
 ### Other limits
 
