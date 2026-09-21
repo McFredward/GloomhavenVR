@@ -190,9 +190,18 @@ internal static class NativeTemplates
     }
     internal static IReadOnlyList<Part> Parts(string key)
     {
+        EnsureNativeProp(key);
         EnsureCard(key); EnsureTooltip(key);
         if (!Entries.TryGetValue(key, out Entry? entry)) throw new InvalidDataException("Missing original town widget: " + key);
         return entry.Parts;
+    }
+    private static void EnsureNativeProp(string key)
+    {
+        if (key != "ritual.coin" || Entries.ContainsKey(key)) return;
+        Transform? source = TownServiceDecor.CoinTemplate;
+        if (source == null) throw new InvalidDataException("Original offering coin is still loading.");
+        var entry = new Entry { Original = source };
+        Freeze(key, entry); Entries.Add(key, entry); Roots[source] = key;
     }
     internal static bool Resolve(byte service, ushort template, string address)
     {

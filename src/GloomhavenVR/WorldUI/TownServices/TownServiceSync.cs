@@ -126,7 +126,7 @@ internal static class TownServiceSync
             foreach (TownServiceRitual.Piece piece in ritual.Pieces)
             {
                 Publish(piece.Key, piece.Content, piece.Source.transform, piece.CloneOf);
-                Publish("merchant.cardbody", piece.Body);
+                Publish(piece.BodyKey, piece.Body);
                 if (piece.DetailContent != null && piece.DetailSource != null)
                     Publish(piece.DetailKey, piece.DetailContent, piece.DetailSource, piece.DetailCloneOf);
             }

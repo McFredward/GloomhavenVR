@@ -44,6 +44,7 @@ internal sealed class TownServiceRitual : IDisposable
         internal readonly Transform Root;
         internal readonly TownServiceToken Token;
         internal readonly Transform Body;
+        internal readonly string BodyKey;
         private readonly RemoteWidgetMirror _mirror;
         private RemoteWidgetMirror? _details;
         private Transform? _detailMount;
@@ -79,9 +80,23 @@ internal sealed class TownServiceRitual : IDisposable
             Root = root.transform; Root.SetParent(owner.Root, false);
             Root.localPosition = position; Root.localRotation = Quaternion.Euler(65f, 0f, 0f);
             _reach = (RectTransform)Root;
-            _reach.sizeDelta = card ? new Vector2(.145f, .22f) : new Vector2(.17f, .17f);
-            Body = TownServiceCardBody.Create(Root).transform;
-            Body.localScale = new Vector3(_reach.sizeDelta.x, _reach.sizeDelta.y, 1f);
+            bool offering = source is UITempleShopSlot;
+            _reach.sizeDelta = card ? new Vector2(.145f, .22f) : offering ? new Vector2(.075f, .075f) : new Vector2(.17f, .17f);
+            if (offering)
+            {
+                Transform template = TownServiceDecor.CoinTemplate
+                    ?? throw new InvalidOperationException("Original offering coin is still loading");
+                Body = UnityEngine.Object.Instantiate(template.gameObject, Root, false).transform;
+                Body.localPosition = Vector3.zero; Body.localRotation = Quaternion.Euler(-90f, 0f, 0f);
+                Body.localScale = template.localScale * 1.4f; Body.gameObject.SetActive(true);
+                BodyKey = "ritual.coin";
+            }
+            else
+            {
+                Body = TownServiceCardBody.Create(Root).transform;
+                Body.localScale = new Vector3(_reach.sizeDelta.x, _reach.sizeDelta.y, 1f);
+                BodyKey = "merchant.cardbody";
+            }
             var mount = new GameObject("Original inscriptions").transform;
             mount.SetParent(Root, false); mount.localPosition = new Vector3(0f, 0f, -.002f);
             _mirror = new RemoteWidgetMirror("TownRitual", mount, _reach.sizeDelta.x,
@@ -91,7 +106,8 @@ internal sealed class TownServiceRitual : IDisposable
             _mirror.SetOwnerFrame(frame, rect.parent is RectTransform parent ? parent.rect.size : rect.rect.size);
             if (!_mirror.Refresh(source.transform)) throw new InvalidOperationException("Original ritual artwork is unavailable");
             Token = new TownServiceToken(_reach, button, identity, owner._context,
-                () => owner._alive() && Current, owner.Root, Root, drop, eligible);
+                () => owner._alive() && Current, owner.Root, Root, drop, eligible,
+                owner._service == 2 ? new Vector3(0f, .08f, .26f) : Vector3.zero);
             VRLayers.Apply(root);
             ApplyInscriptions();
         }
@@ -150,9 +166,9 @@ internal sealed class TownServiceRitual : IDisposable
                 rect.anchorMin = rect.anchorMax = rect.pivot = new Vector2(.5f, .5f);
                 rect.localRotation = Quaternion.identity; rect.localScale = Vector3.one;
                 rect.position = content.TransformPoint(new Vector3(0f, height * (.30f - i * .23f), -.1f));
-                rect.sizeDelta = new Vector2(i == 0 ? height * .35f : width * .9f, height * .23f);
+                rect.sizeDelta = new Vector2(i == 0 && copy is not TMP_Text ? height * .35f : width * .9f, height * .23f);
                 if (copy is TMP_Text text)
-                { text.enableAutoSizing = true; text.fontSizeMin = 8f; text.fontSizeMax = height * .18f; text.alignment = TextAlignmentOptions.Center; }
+                { text.enableAutoSizing = true; text.fontSizeMin = height * .045f; text.fontSizeMax = height * .14f; text.alignment = TextAlignmentOptions.Center; }
             }
         }
 
@@ -161,7 +177,8 @@ internal sealed class TownServiceRitual : IDisposable
             Token.Dispose();
             if (_hovering && Current && EventSystem.current != null)
                 ExecuteEvents.Execute(_button.gameObject, new PointerEventData(EventSystem.current), ExecuteEvents.pointerExitHandler);
-            _details?.Destroy(); _mirror.Destroy(); TownServiceCardBody.Dispose(Body.gameObject);
+            _details?.Destroy(); _mirror.Destroy();
+            if (BodyKey == "merchant.cardbody") TownServiceCardBody.Dispose(Body.gameObject);
             UnityEngine.Object.Destroy(Root.gameObject);
         }
     }
@@ -175,6 +192,7 @@ internal sealed class TownServiceRitual : IDisposable
     private readonly List<TownServiceSurface> _surfaces = new();
     private readonly List<Inscription> _inscriptions = new();
     private float _censusAt;
+    private readonly float _started = Time.unscaledTime;
     private bool _disposed;
     internal Transform Root { get; }
     internal IEnumerable<Piece> Pieces => _pieces.Values;
@@ -216,6 +234,8 @@ internal sealed class TownServiceRitual : IDisposable
     internal void Tick(float scale)
     {
         if (_disposed || !_alive()) return;
+        if (_service == 2 && TownServiceDecor.CoinTemplate == null && Time.unscaledTime - _started > 15f)
+            throw new InvalidOperationException("Original offering geometry did not load; restoring the native temple window.");
         if (Time.unscaledTime >= _censusAt) { _censusAt = Time.unscaledTime + .2f; Census(); }
         foreach (Piece piece in _pieces.Values) piece.Tick(scale);
         foreach (Inscription inscription in _inscriptions) inscription.Tick();
@@ -229,6 +249,9 @@ internal sealed class TownServiceRitual : IDisposable
         foreach (Component source in _retired) { _pieces[source].Dispose(); _pieces.Remove(source); }
         if (_service == 2)
         {
+            // Keep the interaction pending during the original asynchronous prop load.
+            // A featureless primitive or a card-shaped replacement is not a coin offering.
+            if (TownServiceDecor.CoinTemplate == null) return;
             UITempleWindow temple = _window.GetComponent<UITempleWindow>();
             int index = 0;
             foreach (UITempleShopSlot slot in temple.Shop.slots)
@@ -257,7 +280,8 @@ internal sealed class TownServiceRitual : IDisposable
                 if (slot == null || !slot.gameObject.activeInHierarchy || slot.AbilityCard == null) continue;
                 AbilityCardUI card = slot.AbilityCard;
                 if (!_pieces.ContainsKey(card))
-                    Add(card, NativeTemplates.CardKey(card), slot.Selectable, () => slot.AbilityCard,
+                    Add(card, NativeTemplates.CardKey(card), slot.Selectable,
+                        () => slot.AbilityCard != null ? slot.AbilityCard.AbilityCard : null,
                         () => slot.Selectable.IsInteractable(),
                         () => Click(slot.Selectable),
                         new Vector3(-.58f - (index / 10) * .16f, .025f + (index % 10) * .010f,
