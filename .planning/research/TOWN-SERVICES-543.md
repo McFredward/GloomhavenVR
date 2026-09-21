@@ -85,3 +85,27 @@ no order-only moves. Evidence is in `.planning/debug/town543-final-guard.log` an
 These results validate the integrated runtime source. Final model import, bundled
 asset rendering and actual-prefab binding checks are tracked separately; successful
 runtime fixtures do not approve the exported meshes or the headset picture.
+
+## Import and visual review
+
+The first Unity import exposed incorrect UV-channel removal and material-submesh
+ordering. Blender RNA layer references became stale while deleting UV layers;
+immutable names fix that operation. Unity's first-used material order also differs
+from merely assigning Blender material slots, so the export keeps body polygons
+first. A nested FBX instance must be unpacked before parenting the eye pivots to the
+animated Head. These are authoring/import corrections, not changes to native UI.
+
+Close-up review additionally found dark eyelid/nostril/mouth artifacts. A constant
+clay material and explicit single-LOD render separated atlas-border sampling and
+inconsistent blendshape normals from actual holes or duplicate LOD rendering.
+The asset lane is correcting the atlas against the subdivided surface and deriving
+facial base/deformation normals consistently, with zero costume deltas.
+
+An independent Unity 2021.3.5 shader probe rules out a suspected transparent-pass
+lighting limitation: with pixelLightCount zero and a ForceVertex point light, both
+the transparent and opaque diagnostic receive vertex-light data and produce the
+same real highlight. The original diagnostic bundle's cornea also produces a
+highlight over its globe, with a peak of 243/255. Private reproducible probe sources
+and pictures are under `/tmp/town543-cornea-review/`. That bundle was deliberately
+an older intermediate asset; this is a shader-path diagnosis, not final asset
+acceptance. No painted catchlight or artificial emission is introduced.
