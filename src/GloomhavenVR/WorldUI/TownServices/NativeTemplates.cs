@@ -34,6 +34,7 @@ internal static class NativeTemplates
     private static GameObject? _bank;
     private static UIGuildmasterHUD? _hud;
     private static bool _ready;
+    private static uint _assetGeneration;
     private static TownServiceTray? _tray;
     private static GameObject? _catalogNavigation, _cardBody;
     internal static UITooltip? Tooltip { get; private set; }
@@ -43,7 +44,13 @@ internal static class NativeTemplates
     {
         UIGuildmasterHUD? hud = Singleton<UIGuildmasterHUD>.Instance;
         if (hud == null) return false;
-        if (_ready && _hud == hud && _bank != null) return true;
+        if (_ready && _hud == hud && _bank != null)
+        {
+            // Network teardown may clear descriptors while the original native template bank
+            // survives. Restore immutable identities before another capture/preload can run.
+            if (_assetGeneration != TownServiceMirror.Assets.Generation) BindOriginalBackdrops();
+            return true;
+        }
         Shutdown(); _hud = hud;
         _bank = new GameObject("GVR original town widget provenance"); _bank.SetActive(false);
         Object.DontDestroyOnLoad(_bank);
@@ -93,6 +100,7 @@ internal static class NativeTemplates
         Add("tray", _tray.Root);
         // Discover the complete immutable canonical hierarchy only after all logical roots are
         // known, so sections and pooled rows cannot accidentally be duplicated in their parent.
+        BindOriginalBackdrops();
         foreach (var entry in Entries) Freeze(entry.Key, entry.Value);
         TownServiceMirror.ResolveTemplate = Resolve;
         TownServiceMirror.PrepareInertGeometry = TownServiceCardBody.RebindClone; _ready = true;
@@ -105,6 +113,11 @@ internal static class NativeTemplates
         Entries.Add(key, new Entry { Original = source.transform }); Roots[source.transform] = key;
     }
     internal static Transform? Original(string key) => Entries.TryGetValue(key, out Entry? entry) && entry.Original != null ? entry.Original : null;
+    private static void BindOriginalBackdrops()
+    {
+        TownServiceBackdropAssets.Register(TownServiceMirror.Assets, Original);
+        _assetGeneration = TownServiceMirror.Assets.Generation;
+    }
     internal static bool IsBoundary(Transform node) => Roots.ContainsKey(node) || IsDynamic(node);
     internal static bool IsDynamic(Transform node) => node.GetComponent<UIShopItemSlot>() != null
         || node.GetComponent<UITempleShopSlot>() != null || node.GetComponent<UINewEnhancementShopSlot>() != null

@@ -17,7 +17,7 @@ public sealed class GameplayFixture : MonoBehaviour
     private void OnEnable() { Enables++; }
 }
 
-public static class MirrorProgram
+public static partial class MirrorProgram
 {
     private static readonly List<GameObject> Objects = new();
     private static readonly List<Object> Assets = new();
@@ -819,6 +819,15 @@ public static class MirrorProgram
             _camera.orthographic = true; _camera.nearClipPlane = .01f; _camera.farClipPlane = 100;
             _camera.clearFlags = CameraClearFlags.SolidColor; _camera.backgroundColor = new Color(.025f, .03f, .04f, 1);
             GloomhavenVR.Rig.VRRigDriver.HeadCamera = _camera;
+            if (suite == "asset-identity" || suite == "full")
+            {
+                BackdropIdentity();
+                if (suite == "asset-identity")
+                {
+                    File.WriteAllText(Path.Combine(_output, "assertions.txt"), _assertions + " assertions\n");
+                    yield break;
+                }
+            }
             if (suite == "relocation")
             {
                 IEnumerator relocation = RelocationGeneration();

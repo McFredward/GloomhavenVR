@@ -15,9 +15,25 @@ internal sealed class TownServiceAssets
     private readonly Dictionary<string, Object> _assets = new(StringComparer.Ordinal);
     private readonly HashSet<string> _ambiguous = new(StringComparer.Ordinal);
     private readonly Dictionary<int, string> _keys = new();
+    private readonly Dictionary<int, string> _originalKeys = new();
     private float _nextScan;
+    internal uint Generation { get; private set; }
 
-    internal void Clear() { _assets.Clear(); _keys.Clear(); _ambiguous.Clear(); _nextScan = 0; }
+    internal void Clear()
+    { _assets.Clear(); _keys.Clear(); _originalKeys.Clear(); _ambiguous.Clear(); _nextScan = 0; Generation++; }
+
+    /// <summary>Immutable native-template provenance, installed in deterministic order before
+    /// descriptor discovery. Reusing one original in another window retains its first identity;
+    /// different originals must never alias just because their native names and sizes match.</summary>
+    internal void RegisterOriginal(string key, Object asset)
+    {
+        if (asset == null || string.IsNullOrEmpty(key)) throw new ArgumentException("Missing original town-service asset.");
+        int id = asset.GetInstanceID();
+        if (_originalKeys.ContainsKey(id)) return;
+        if (_assets.TryGetValue(key, out Object? other) && other != null && !ReferenceEquals(other, asset))
+            throw new InvalidDataException("Conflicting original town-service provenance: " + key);
+        _originalKeys.Add(id, key); _keys[id] = key; _assets[key] = asset;
+    }
 
     internal void Register(string key, Object asset)
     {

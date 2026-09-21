@@ -26,6 +26,8 @@ def sources(root):
     names = ["TownServiceAssets", "TownServiceBinding", "TownServiceCodec", "TownServiceDelta",
              "TownServiceFrame", "TownServiceMaterial", "TownServiceMirror"]
     bound = {name + ".cs": (base / "Net/TownServices" / (name + ".cs")).read_text() for name in names}
+    backdrop = base / "WorldUI/TownServices/TownServiceBackdropAssets.cs"
+    if backdrop.exists(): bound[backdrop.name] = backdrop.read_text()
     motion = base / "Net/TownServices/TownServiceMotion.cs"
     if motion.exists(): bound[motion.name] = motion.read_text()
     publisher = (base / "WorldUI/TownServices/TownServiceSync.cs").read_text()
@@ -58,7 +60,7 @@ def main():
     parser.add_argument("--source-root", type=Path, default=repo)
     parser.add_argument("--output-dir", type=Path, default=repo / ".planning/debug/town-service-mirror")
     parser.add_argument("--unity", type=Path, default=Path(os.environ.get("UNITY_PATH", "/home/claw/unity-2021.3.5/Editor/Unity")))
-    parser.add_argument("--suite", choices=("basic", "full", "lifecycle", "counter-final", "relocation"), default="full")
+    parser.add_argument("--suite", choices=("basic", "full", "lifecycle", "counter-final", "relocation", "asset-identity"), default="full")
     parser.add_argument("--no-negative-controls", action="store_true")
     args = parser.parse_args()
     args.source_root = args.source_root.resolve()
@@ -115,6 +117,15 @@ def main():
                 ("invisible-baseline", "PublisherTick.cs", "if (TownServicePresentation.RelocationVisibility <= 0f) return;", "", "first visible relocation state is independently decodable"),
                 ("reused-generation", "PublisherTick.cs", "_generation++;", "_generation = session;", "dropped invisible frames cannot interpolate across relocation"),
                 ("generation-wrap", "PublisherTick.cs", "if (_generation == uint.MaxValue)", "if (false)", "Missing town-service session frame"),
+            ]
+    if args.suite == "asset-identity":
+        variants = [("production", None, None, None, "")]
+        if not args.no_negative_controls:
+            variants += [
+                ("no-original-identity", "TownServiceAssets.cs", "_originalKeys.Add(id, key); _keys[id] = key; _assets[key] = asset;", "return;", "explicit original sprite replaces its previously cached descriptor key"),
+                ("last-window-wins", "TownServiceAssets.cs", "if (_originalKeys.ContainsKey(id)) return;", "if (_originalKeys.ContainsKey(id)) { _keys[id] = key; return; }", "shared original keeps merchant provenance"),
+                ("same-backdrop-key", "TownServiceBackdropAssets.cs", '"native-town|backdrop|" + template + "|texture"', '"native-town|backdrop|same|texture"', "Conflicting original town-service provenance"),
+                ("retain-cleared-provenance", "TownServiceAssets.cs", "_originalKeys.Clear();", "", "Ambiguous native town-service texture"),
             ]
     print(f"Production binding: {args.source_root.resolve()}; evidence: {run}", flush=True)
     for name, filename, before, after, expected in variants:
