@@ -79,6 +79,11 @@ internal static class NativeTemplates
         Add("temple.inventory", hud.templeWindow.Shop);
         Add("temple.row", hud.templeWindow.Shop.slotPrefab);
         Add("temple.tooltip", hud.templeWindow.Shop.tooltip);
+        Add("temple.level", hud.templeWindow.devotionLevel);
+        Add("temple.gold", hud.templeWindow.totalDonatedGold.text);
+        if (hud.templeWindow.devotionProgress.AmountTexts.Count > 0)
+            Add("temple.progress", hud.templeWindow.devotionProgress.AmountTexts[0]);
+        Add("temple.description", hud.templeWindow.helpBox.tipText);
         Add("enchant", hud.enhancementWindow);
         Add("enchant.inventory", hud.enhancementWindow.enhancementShop);
         Add("enchant.row", hud.enhancementWindow.enhancementShop.slotPrefab);

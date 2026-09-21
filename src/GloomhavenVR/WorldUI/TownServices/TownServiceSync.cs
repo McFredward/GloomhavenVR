@@ -130,6 +130,8 @@ internal static class TownServiceSync
             }
             foreach (TownServiceSurface surface in ritual.Surfaces)
                 Publish("enchant.holder", surface.Panel.Target);
+            foreach (TownServiceRitual.Inscription inscription in ritual.Inscriptions)
+                Publish(inscription.Key, inscription.Content, inscription.Source, inscription.CloneOf);
         }
 
         if (catalog == null && ritual == null)

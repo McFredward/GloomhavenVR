@@ -15,6 +15,27 @@ namespace GloomhavenVR.WorldUI;
 /// and its own confirmation; neither a clone nor an observer runs a gameplay callback.</summary>
 internal sealed class TownServiceRitual : IDisposable
 {
+    internal sealed class Inscription : IDisposable
+    {
+        internal readonly string Key;
+        internal readonly Transform Source;
+        private readonly Transform _root;
+        private readonly RemoteWidgetMirror _mirror;
+        internal Transform? Content => _mirror.CloneOf(Source);
+        internal Transform? CloneOf(Transform source) => _mirror.CloneOf(source);
+        internal Inscription(string key, Component source, Transform parent, Vector3 position, float width, float height)
+        {
+            Key = key; Source = source.transform;
+            _root = new GameObject("Town ledger inscription").transform;
+            _root.SetParent(parent, false); _root.localPosition = position;
+            _root.localRotation = Quaternion.Euler(90f, 0f, 0f);
+            _mirror = new RemoteWidgetMirror("TownLedger", _root, width, height, Vector2.zero, mrBacking: false);
+            _mirror.Refresh(Source);
+        }
+        internal void Tick() => _mirror.TickLive();
+        public void Dispose() { _mirror.Destroy(); UnityEngine.Object.Destroy(_root.gameObject); }
+    }
+
     internal sealed class Piece : IDisposable
     {
         private readonly TownServiceRitual _owner;
@@ -29,6 +50,8 @@ internal sealed class TownServiceRitual : IDisposable
         private readonly List<Graphic> _inscriptions;
         private readonly RectTransform _reach;
         private readonly bool _card;
+        private Transform? _graphicRoot;
+        private readonly List<Graphic> _graphics = new();
         private float _refreshAt;
         internal Transform? Content => _mirror.CloneOf(Source.transform);
         internal Transform? CloneOf(Transform original) => _mirror.CloneOf(original);
@@ -53,7 +76,8 @@ internal sealed class TownServiceRitual : IDisposable
             _mirror = new RemoteWidgetMirror("TownRitual", mount, _reach.sizeDelta.x,
                 _reach.sizeDelta.y, Vector2.zero, mrBacking: false);
             var rect = (RectTransform)source.transform;
-            _mirror.SetOwnerFrame(rect.rect.size, rect.parent is RectTransform parent ? parent.rect.size : rect.rect.size);
+            Vector2 frame = card ? rect.rect.size : Vector2.one * Mathf.Max(1f, rect.rect.width);
+            _mirror.SetOwnerFrame(frame, rect.parent is RectTransform parent ? parent.rect.size : rect.rect.size);
             if (!_mirror.Refresh(source.transform)) throw new InvalidOperationException("Original ritual artwork is unavailable");
             Token = new TownServiceToken(_reach, button, identity, owner._context,
                 () => owner._alive() && Current, owner.Root, Root, drop, eligible);
@@ -75,9 +99,11 @@ internal sealed class TownServiceRitual : IDisposable
             if (content == null || _card) return;
             // Preserve native text, icons, price and warning state. Only replace the flat row's
             // geometry with inscriptions on the physical sample; no new gameplay explanation.
-            foreach (Graphic graphic in content.GetComponentsInChildren<Graphic>(true)) graphic.enabled = false;
+            if (_graphicRoot != content)
+            { _graphicRoot = content; _graphics.Clear(); content.GetComponentsInChildren(true, _graphics); }
+            foreach (Graphic graphic in _graphics) if (graphic != null) graphic.enabled = false;
             var original = (RectTransform)Source.transform;
-            float width = Mathf.Max(original.rect.width, 1f), height = Mathf.Max(original.rect.height, 1f);
+            float width = Mathf.Max(original.rect.width, 1f), height = width;
             for (int i = 0; i < _inscriptions.Count; i++)
             {
                 Graphic source = _inscriptions[i];
@@ -107,10 +133,12 @@ internal sealed class TownServiceRitual : IDisposable
     private readonly Dictionary<Component, Piece> _pieces = new();
     private readonly List<Component> _retired = new();
     private readonly List<TownServiceSurface> _surfaces = new();
+    private readonly List<Inscription> _inscriptions = new();
     private float _censusAt;
     private bool _disposed;
     internal Transform Root { get; }
     internal IEnumerable<Piece> Pieces => _pieces.Values;
+    internal IReadOnlyList<Inscription> Inscriptions => _inscriptions;
     internal IReadOnlyList<TownServiceSurface> Surfaces => _surfaces;
     internal bool CanRelocate
     { get { foreach (Piece piece in _pieces.Values) if (piece.Token.IsMoving) return false; return true; } }
@@ -121,6 +149,19 @@ internal sealed class TownServiceRitual : IDisposable
         _window = window; _service = service; _alive = alive; _context = context;
         Root = new GameObject("GloomhavenVR.TownService.Ritual").transform;
         Root.SetParent(station, false); Root.localPosition = new Vector3(0f, .978f, -.08f);
+        if (service == 2)
+        {
+            UITempleWindow temple = window.GetComponent<UITempleWindow>();
+            _inscriptions.Add(new Inscription("temple.level", temple.devotionLevel, Root,
+                new Vector3(-.33f, .022f, .025f), .26f, .025f));
+            _inscriptions.Add(new Inscription("temple.gold", temple.totalDonatedGold.text, Root,
+                new Vector3(-.40f, .022f, -.015f), .10f, .025f));
+            if (temple.devotionProgress.AmountTexts.Count > 0)
+                _inscriptions.Add(new Inscription("temple.progress", temple.devotionProgress.AmountTexts[0], Root,
+                    new Vector3(-.26f, .022f, -.015f), .12f, .025f));
+            _inscriptions.Add(new Inscription("temple.description", temple.helpBox.tipText, Root,
+                new Vector3(-.33f, .022f, -.09f), .26f, .12f));
+        }
         if (service == 3)
         {
             // The selected original card retains its actual ability/enhancement hotspots.
@@ -137,6 +178,7 @@ internal sealed class TownServiceRitual : IDisposable
         if (_disposed || !_alive()) return;
         if (Time.unscaledTime >= _censusAt) { _censusAt = Time.unscaledTime + .2f; Census(); }
         foreach (Piece piece in _pieces.Values) piece.Tick(scale);
+        foreach (Inscription inscription in _inscriptions) inscription.Tick();
         foreach (TownServiceSurface surface in _surfaces) surface.Tick(Vector3.zero, Quaternion.identity, scale);
     }
 
@@ -239,6 +281,7 @@ internal sealed class TownServiceRitual : IDisposable
     {
         if (_disposed) return; _disposed = true;
         foreach (Piece piece in _pieces.Values) piece.Dispose(); _pieces.Clear();
+        foreach (Inscription inscription in _inscriptions) inscription.Dispose(); _inscriptions.Clear();
         for (int i = _surfaces.Count - 1; i >= 0; i--) _surfaces[i].Dispose(); _surfaces.Clear();
         UnityEngine.Object.Destroy(Root.gameObject);
     }
