@@ -33,7 +33,10 @@
       "eyes/materials/green_eye.png": "b9864ac4f4fa484b24e18f6aba030d70dbc8820cbbacfbe63a974c76772c2009",
       "eyes/materials/brown_eye.png": "4659691c7295ad6206c78b003e5fd0e5f91dcd53032fa914a229bb48cabe424b",
       "eyes/low-poly/low-poly.obj": "783fe1e6331162c876520b4c2bed7a8ca06354ca15497e8ebd68bb1b59f4d3de",
-      "eyes/low-poly/low-poly.mhclo": "68582e28e9176cba7cfcf35208f671b6201b8d1bc95c32decff61a3160ec34d8"
+      "eyes/low-poly/low-poly.mhclo": "68582e28e9176cba7cfcf35208f671b6201b8d1bc95c32decff61a3160ec34d8",
+      "skins/middleage_caucasian_male/middleage_lightskinned_male_diffuse.png": "3f94f3f6a5cab92dedf5cce392a87332312fc435f1cb44c6e7b897daef9a5fbb",
+      "skins/old_caucasian_female/old_lightskinned_female_diffuse.png": "00c45246c145562b917371e92de44a1fe394bc5f4bd91418addf24b6adff5e9d",
+      "skins/young_caucasian_female/young_lightskinned_female_diffuse.png": "b2a6ac8cd4f9febdb447368e29c76cd68410bb66e46d9dcfa2d5f75126eea8fc"
     }
   }
 }
