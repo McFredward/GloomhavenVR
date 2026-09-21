@@ -44,6 +44,8 @@ internal sealed class TownServiceSurface : IDisposable
         Panel = CanvasConversion.Convert(source, "TownService." + id, fitContent: false,
             useModLayer: true, transparentBackground: false)
             ?? throw new InvalidOperationException("Native town section could not be converted: " + id);
+        // A printed physical card already has its own backing; never add a window plate.
+        Panel.MrBackingSuppressed = counterAnchor != null;
         _gate = Panel.HostGo.AddComponent<CanvasGroup>();
         try { if (_counterAnchor == null) _grab.Build(Panel, 1f, "TownService." + id); }
         catch { CanvasConversion.Release(Panel); throw; }

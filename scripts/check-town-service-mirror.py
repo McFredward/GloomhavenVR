@@ -85,8 +85,8 @@ def main():
         ]
         if args.suite == "full":
             variants += [
-                ("publisher-old-window", "PublisherTick.cs", 'if (catalog == null)\n            Publish(prefix,', 'if (true)\n            Publish(prefix,', "physical counter does not publish suppressed flat merchant window"),
-                ("publisher-stale-entry", "PublisherTick.cs", "if (!entry.Current) continue;", "// publish stale entry", "physical counter publishes only six current item cards"),
+                ("publisher-old-window", "PublisherTick.cs", 'if (catalog == null && TownServicePresentation.Ritual == null)\n            Publish(prefix,', 'if (true)\n            Publish(prefix,', "physical counter does not publish suppressed flat merchant window"),
+                ("publisher-stale-entry", "PublisherTick.cs", "if (!entry.Current || !entry.Exposed) continue;", "// publish stale entry", "physical counter publishes only six current item cards"),
                 ("publisher-cardbody", "PublisherTick.cs", 'Publish("merchant.cardbody", entry.BodyRoot);', '// body omitted', "every original face retains its physical body remotely"),
                 ("publisher-held-duplicate", "PublisherTick.cs", 'if (sample.IsPhysical) continue;', '// physical guard omitted', "physical original is not duplicated by generic held publication"),
                 ("publisher-price-provenance", "PublisherTick.cs", "entry.RowSource.transform, entry.RowCloneOf", "null, null", "counter price clone retains original row provenance map"),

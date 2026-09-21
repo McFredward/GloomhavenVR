@@ -40,7 +40,8 @@ internal static class TownServicePresentation
     internal static Transform? WorkMat => _mat != null ? _mat.transform : null;
     internal static TownServiceTray? Tray => _tray;
     internal static Transform? CounterFurniture => _workspace?.FurnitureRoot;
-    internal static IReadOnlyCollection<TownServiceToken> Samples => _catalog != null ? _catalog.Samples : Tokens.Values;
+    internal static IReadOnlyCollection<TownServiceToken> Samples => _catalog != null ? _catalog.Samples
+        : _ritual != null ? _ritual.Samples : Tokens.Values;
     internal static TownServiceCatalog? Catalog => _catalog;
     internal static TownServiceRitual? Ritual => _ritual;
     internal static float SessionAge => Mathf.Max(0f, Time.unscaledTime - _opened);

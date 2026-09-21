@@ -28,7 +28,7 @@ namespace GloomhavenVR.WorldUI
         internal sealed class Control { internal string Key = ""; internal TownServiceSurface Surface = new(); }
         internal sealed class Entry
         {
-            internal bool Current = true;
+            internal bool Current = true, Exposed = true;
             internal int ItemId;
             internal Transform CardRoot = null!;
             internal Transform? BodyRoot;
@@ -44,6 +44,31 @@ namespace GloomhavenVR.WorldUI
         internal List<Control> Controls = new();
         internal Transform NavigationRoot = null!;
         internal List<Entry> Entries = new();
+        internal List<TownServiceMerchantDrawer> Drawers = new();
+        internal List<TownServiceMerchantZone> Zones = new();
+    }
+    internal sealed class TownServiceMerchantDrawer { internal Transform Root = null!, HousingRoot = null!; }
+    internal sealed class TownServiceMerchantZone { internal Transform Root = null!; }
+    internal sealed class TownServiceRitual
+    {
+        internal sealed class Piece
+        {
+            internal string Key = "", BodyKey = "merchant.cardbody", DetailKey = "";
+            internal Transform Source = null!, Content = null!, Body = null!;
+            internal Transform? DetailSource, DetailContent;
+            internal Transform? CloneOf(Transform source) => source == Source ? Content : null;
+            internal Transform? DetailCloneOf(Transform source) => source == DetailSource ? DetailContent : null;
+        }
+        internal sealed class Inscription
+        {
+            internal string Key = "";
+            internal Transform Source = null!, Content = null!;
+            internal Transform? CloneOf(Transform source) => source == Source ? Content : null;
+        }
+        internal Transform? Zone;
+        internal List<Piece> Pieces = new();
+        internal List<Inscription> Inscriptions = new();
+        internal List<TownServiceSurface> Surfaces = new();
     }
     internal sealed class TownServiceToken
     {
@@ -74,6 +99,7 @@ namespace GloomhavenVR.WorldUI
         internal static float RelocationVisibility = 1f;
         internal static PublisherWindow? Window;
         internal static TownServiceCatalog? Catalog;
+        internal static TownServiceRitual? Ritual;
         internal static List<TownServiceSurface> LocalSurfaces = new();
         internal static List<TownServiceToken> Samples = new();
         internal static TownServiceTray? Tray;

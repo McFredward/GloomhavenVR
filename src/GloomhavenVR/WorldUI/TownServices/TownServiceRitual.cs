@@ -188,6 +188,7 @@ internal sealed class TownServiceRitual : IDisposable
     private readonly Func<bool> _alive;
     private readonly Func<object?> _context;
     private readonly Dictionary<Component, Piece> _pieces = new();
+    private readonly List<TownServiceToken> _samples = new();
     private readonly List<Component> _retired = new();
     private readonly List<TownServiceSurface> _surfaces = new();
     private readonly List<Inscription> _inscriptions = new();
@@ -199,6 +200,7 @@ internal sealed class TownServiceRitual : IDisposable
     private bool _disposed;
     internal Transform Root { get; }
     internal IEnumerable<Piece> Pieces => _pieces.Values;
+    internal IReadOnlyCollection<TownServiceToken> Samples => _samples;
     internal IReadOnlyList<Inscription> Inscriptions => _inscriptions;
     internal Transform Zone => _zone.transform;
     internal IReadOnlyList<TownServiceSurface> Surfaces => _surfaces;
@@ -243,7 +245,7 @@ internal sealed class TownServiceRitual : IDisposable
             _surfaces.Add(new TownServiceSurface(11, (RectTransform)shop.cardHolder.transform,
                 new Vector3(0f, .008f, 0f), .25f, Root));
         }
-        Census();
+        RefreshPieces();
     }
 
     internal void Tick(float scale)
@@ -251,7 +253,7 @@ internal sealed class TownServiceRitual : IDisposable
         if (_disposed || !_alive()) return;
         if (_service == 2 && TownServiceDecor.CoinTemplate == null && Time.unscaledTime - _started > 15f)
             throw new InvalidOperationException("Original offering geometry did not load; restoring the native temple window.");
-        if (Time.unscaledTime >= _censusAt) { _censusAt = Time.unscaledTime + .2f; Census(); }
+        if (Time.unscaledTime >= _censusAt) { _censusAt = Time.unscaledTime + .2f; RefreshPieces(); }
         foreach (Piece piece in _pieces.Values) piece.Tick(scale);
         _zoneGate.alpha = 0f;
         foreach (Piece piece in _pieces.Values)
@@ -265,11 +267,12 @@ internal sealed class TownServiceRitual : IDisposable
         foreach (TownServiceSurface surface in _surfaces) surface.Tick(Vector3.zero, Quaternion.identity, scale);
     }
 
-    private void Census()
+    private void RefreshPieces()
     {
         _retired.Clear();
         foreach (var pair in _pieces) if (!pair.Value.Current) _retired.Add(pair.Key);
-        foreach (Component source in _retired) { _pieces[source].Dispose(); _pieces.Remove(source); }
+        foreach (Component source in _retired)
+        { _samples.Remove(_pieces[source].Token); _pieces[source].Dispose(); _pieces.Remove(source); }
         if (_service == 2)
         {
             // Keep the interaction pending during the original asynchronous prop load.
@@ -336,7 +339,10 @@ internal sealed class TownServiceRitual : IDisposable
 
     private void Add(Component source, string key, Selectable button, Func<object?> identity,
         Func<bool> eligible, Func<bool> drop, Vector3 position, bool card, params Graphic[] inscriptions)
-    { _pieces.Add(source, new Piece(this, source, key, button, identity, eligible, drop, position, card, inscriptions)); }
+    {
+        var piece = new Piece(this, source, key, button, identity, eligible, drop, position, card, inscriptions);
+        _pieces.Add(source, piece); _samples.Add(piece.Token);
+    }
 
     private static bool TempleEligible(UITempleWindow temple, UITempleShopSlot slot) => temple.character != null
         && temple.Shop.slotsCanvasGroup.interactable && slot.IsAvailable && slot.button.IsInteractable()
@@ -391,7 +397,7 @@ internal sealed class TownServiceRitual : IDisposable
     public void Dispose()
     {
         if (_disposed) return; _disposed = true;
-        foreach (Piece piece in _pieces.Values) piece.Dispose(); _pieces.Clear();
+        foreach (Piece piece in _pieces.Values) piece.Dispose(); _pieces.Clear(); _samples.Clear();
         foreach (Inscription inscription in _inscriptions) inscription.Dispose(); _inscriptions.Clear();
         for (int i = _surfaces.Count - 1; i >= 0; i--) _surfaces[i].Dispose(); _surfaces.Clear();
         UnityEngine.Object.Destroy(Root.gameObject);

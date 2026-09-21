@@ -500,19 +500,15 @@ public static partial class MirrorProgram
         // Sink/provenance mapping are fixtures; production Tick chooses every published input.
         var shared = Go("publisher-frame").transform;
         var window = Go("suppressed-native-merchant").AddComponent<GloomhavenVR.WorldUI.PublisherWindow>();
-        var catalog = new GloomhavenVR.WorldUI.TownServiceCatalog { NavigationRoot = Go("page-navigation").transform };
+        var catalog = new GloomhavenVR.WorldUI.TownServiceCatalog();
         GloomhavenVR.WorldUI.TownServicePresentation.Window = window;
         GloomhavenVR.WorldUI.TownServicePresentation.Catalog = catalog;
         GloomhavenVR.WorldUI.TownServicePresentation.LocalSurfaces.Clear();
-        var exit = new GloomhavenVR.WorldUI.TownServiceSurface { Id = 40 };
-        exit.Panel.Target = Go("original-exit").transform;
-        GloomhavenVR.WorldUI.TownServicePresentation.LocalSurfaces.Add(exit);
-        foreach (string key in new[] { "merchant.buy", "merchant.sell", "merchant.filter.all", "merchant.filter.owned",
-            "merchant.filter.head", "merchant.filter.body", "merchant.filter.hands", "merchant.filter.legs", "merchant.filter.small" })
-        {
-            var control = new GloomhavenVR.WorldUI.TownServiceCatalog.Control { Key = key };
-            control.Surface.Panel.Target = Go(key).transform; catalog.Controls.Add(control);
-        }
+        var drawer = new GloomhavenVR.WorldUI.TownServiceMerchantDrawer
+        { Root = Go("physical-drawer").transform, HousingRoot = Go("drawer-housing").transform };
+        catalog.Drawers.Add(drawer);
+        var zone = new GloomhavenVR.WorldUI.TownServiceMerchantZone { Root = Go("deliberate-buy-zone").transform };
+        catalog.Zones.Add(zone);
         for (int i = 0; i < 7; i++) catalog.Entries.Add(new GloomhavenVR.WorldUI.TownServiceCatalog.Entry
         {
             ItemId = 101 + i, Current = i < 6, CardRoot = Go("original-card-" + i).transform,
@@ -536,16 +532,22 @@ public static partial class MirrorProgram
                 && row.CloneOf(entry.RowSource) == entry.RowContent,
                 "counter price clone retains original row provenance map");
         }
-        foreach (var control in catalog.Controls)
-            Check(calls.Exists(c => c.Key == control.Key && c.Source == control.Surface.Panel.Target),
-                "counter publishes original filter and mode control: " + control.Key);
-        Check(calls.Exists(c => c.Key == "merchant.exit" && c.Source == exit.Panel.Target), "counter exit keeps distinct original provenance");
-        Check(calls.Exists(c => c.Key == "merchant.catalognav" && c.Source == catalog.NavigationRoot), "counter page navigation is published");
+        Check(!calls.Exists(c => c.Key == "merchant.exit" || c.Key == "merchant.catalognav"),
+            "physical counter has no exit or pagination controls");
+        Check(calls.Exists(c => c.Key == "merchant.drawer" && c.Source == drawer.Root)
+            && calls.Exists(c => c.Key == "merchant.drawerhousing" && c.Source == drawer.HousingRoot),
+            "physical drawer and housing retain their actual poses");
+        Check(calls.Exists(c => c.Key == "merchant.zone" && c.Source == zone.Root),
+            "deliberate purchase zone is published");
+        catalog.Entries[5].Exposed = false;
+        calls.Clear(); GloomhavenVR.WorldUI.TownServiceSync.Tick(shared, shared);
+        Check(!calls.Exists(c => c.Key == "item.106"), "closed opaque drawer omits hidden card modules");
+        catalog.Entries[5].Exposed = true;
         catalog.Entries.RemoveRange(2, 5);
         GloomhavenVR.WorldUI.TownServiceSync.Calls.Clear();
         GloomhavenVR.WorldUI.TownServiceSync.Tick(shared, shared);
-        Check(GloomhavenVR.WorldUI.TownServiceSync.ModuleCount == 17 && GloomhavenVR.WorldUI.TownServiceSync.SourceCount == 17,
-            "publisher page shrink retires old cards and price modules");
+        Check(GloomhavenVR.WorldUI.TownServiceSync.ModuleCount == 9 && GloomhavenVR.WorldUI.TownServiceSync.SourceCount == 9,
+            "publisher stock shrink retires old cards and price modules");
         var physical = new GloomhavenVR.WorldUI.TownServiceToken { IsPhysical = true,
             Source = Go("duplicate-physical-source").AddComponent<GloomhavenVR.WorldUI.ItemCardUI>().transform,
             HeldContent = Go("unwanted-duplicate").transform };
@@ -612,6 +614,37 @@ public static partial class MirrorProgram
         GloomhavenVR.WorldUI.TownServiceSync.Tick(shared, shared);
         Check(calls.Exists(c => c.Key == "merchant" && c.Source == window.transform), "ordinary merchant route still publishes native window");
         GloomhavenVR.WorldUI.TownServicePresentation.LocalSurfaces.Clear();
+        foreach (byte service in new byte[] { 2, 3 })
+        {
+            GloomhavenVR.WorldUI.TownServicePresentation.Service = service;
+            var ritual = new GloomhavenVR.WorldUI.TownServiceRitual { Zone = Go("offering-zone").transform };
+            var piece = new GloomhavenVR.WorldUI.TownServiceRitual.Piece {
+                Key = service == 2 ? "temple.row" : "enchant.row", BodyKey = service == 2 ? "ritual.coin" : "merchant.cardbody",
+                Source = Go("original-ritual-row").transform, Content = Go("physical-inscriptions").transform,
+                Body = Go("original-physical-body").transform, DetailKey = service == 2 ? "temple.tooltip" : "enchant.tooltip",
+                DetailSource = Go("original-ritual-description").transform, DetailContent = Go("held-description").transform };
+            ritual.Pieces.Add(piece);
+            var inscription = new GloomhavenVR.WorldUI.TownServiceRitual.Inscription {
+                Key = "temple.level", Source = Go("original-devotion").transform, Content = Go("ledger-inscription").transform };
+            if (service == 2) ritual.Inscriptions.Add(inscription);
+            var holder = new GloomhavenVR.WorldUI.TownServiceSurface();
+            holder.Panel.Target = Go("original-enchantment-card").transform;
+            if (service == 3) ritual.Surfaces.Add(holder);
+            GloomhavenVR.WorldUI.TownServicePresentation.Ritual = ritual;
+            calls.Clear(); GloomhavenVR.WorldUI.TownServiceSync.Tick(shared, shared);
+            Check(!calls.Exists(c => c.Source == window.transform), "ritual never republishes suppressed service window");
+            Check(calls.Exists(c => c.Key == piece.Key && c.Source == piece.Content && c.Provenance == piece.Source
+                && c.CloneOf!(piece.Source) == piece.Content), "physical ritual keeps original native inscription provenance");
+            Check(calls.Exists(c => c.Key == piece.BodyKey && c.Source == piece.Body), "ritual mirrors exact physical coin or rune body");
+            Check(calls.Exists(c => c.Key == piece.DetailKey && c.Source == piece.DetailContent && c.Provenance == piece.DetailSource),
+                "held ritual description mirrors actual owner presentation");
+            Check(calls.Exists(c => c.Key == "merchant.zone" && c.Source == ritual.Zone), "physical ritual drop indicator is shared");
+            Check(service == 2 ? calls.Exists(c => c.Key == "temple.level" && c.Source == inscription.Content)
+                : calls.Exists(c => c.Key == "enchant.holder" && c.Source == holder.Panel.Target),
+                "ritual preserves devotion ledger or original ability hotspots");
+        }
+        GloomhavenVR.WorldUI.TownServicePresentation.Ritual = null;
+        GloomhavenVR.WorldUI.TownServicePresentation.Service = 1;
     }
 
     private static IEnumerator CounterPlayback()
