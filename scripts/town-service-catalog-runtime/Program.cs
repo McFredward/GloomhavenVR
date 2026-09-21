@@ -18,6 +18,7 @@ public static class InteractionProgram
         var root = new GameObject("CatalogFixture");
         var events = new GameObject("Events", typeof(EventSystem));
         var inventory = Rect("Inventory", root.transform).gameObject.AddComponent<UIShopItemInventory>();
+        inventory.gameObject.AddComponent<CanvasGroup>().alpha = .6f;
         var scroll = Rect("Scroll", inventory.transform).gameObject.AddComponent<ScrollRect>();
         inventory.scroll = scroll; scroll.viewport = Rect("Viewport", scroll.transform, 500, 500);
         scroll.content = Rect("Content", scroll.viewport, 500, 1800); scroll.content.pivot = new Vector2(.5f, 1f);
@@ -46,7 +47,12 @@ public static class InteractionProgram
             for (int repetition = 0; repetition < 3; repetition++)
             {
                 var catalog = new TownServiceCatalog(inventory, anchor.transform, () => context, () => alive, anchor.transform);
-                Census(catalog); catalog.Tick(2f); catalog.LateTick();
+                Census(catalog); catalog.Tick(2f); catalog.SetVisibility(.35f); catalog.LateTick();
+                Check(Mathf.Abs(catalog.Root.GetComponent<CanvasGroup>().alpha - .35f) < .001f, "owner visibility applies to cards and navigation");
+                foreach (var control in catalog.Controls)
+                    Check(Mathf.Abs(control.Surface.Panel.HostGo.GetComponent<CanvasGroup>().alpha - .21f) < .001f,
+                        "counter visibility multiplies original native fade");
+                catalog.SetVisibility(1f);
                 Check(catalog.PageCount == 3 && catalog.Entries.Count == 6, "bounded six-card native catalog");
                 Check(catalog.Entries[0].ItemId == 1, "native hierarchy order wins over pool order");
                 Check(scroll.viewport.parent.GetComponent<CanvasGroup>().alpha == 0, "old viewport is hidden");
@@ -67,6 +73,13 @@ public static class InteractionProgram
                 catalog.TurnPage(1); Check(catalog.Page == 2 && catalog.Entries.Count == 5 && catalog.Entries[4].ItemId == 17, "last page retains remainder");
                 catalog.TurnPage(1); Check(catalog.Page == 2, "last page cannot overflow");
                 catalog.TurnPage(-1); catalog.TurnPage(-1);
+                var scrollPointer = catalog.Entries[0].CardRoot.parent.GetComponent<TownServiceCatalogPointer>();
+                scrollPointer.OnScroll(new PointerEventData(EventSystem.current) { scrollDelta = Vector2.down });
+                Check(catalog.Page == 1, "physical card scroll advances page");
+                var nextPointer = catalog.Entries[0].CardRoot.parent.GetComponent<TownServiceCatalogPointer>();
+                nextPointer.OnScroll(new PointerEventData(EventSystem.current) { scrollDelta = Vector2.down });
+                Check(catalog.Page == 1, "page rebuild preserves scroll repeat throttle");
+                catalog.TurnPage(-1);
                 var entry0 = catalog.Entries[0];
                 var pointer = entry0.CardRoot.parent.GetComponent<TownServiceCatalogPointer>();
                 pointer.OnPointerClick(new PointerEventData(EventSystem.current));

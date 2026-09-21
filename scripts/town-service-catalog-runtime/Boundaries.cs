@@ -30,7 +30,7 @@ public static class ObjectPool
         var go = new GameObject("OriginalItem", typeof(RectTransform), typeof(Image));
         go.SetActive(false); go.transform.SetParent(parent, false);
         ((RectTransform)go.transform).sizeDelta = new Vector2(180f, 145f);
-        go.AddComponent<ItemCardUI>(); Alive++; return go;
+        go.AddComponent<ItemCardUI>(); go.AddComponent<GraphicRaycaster>(); Alive++; return go;
     }
 }
 namespace TMPro
@@ -77,7 +77,7 @@ namespace GloomhavenVR.Net
         internal void Destroy() { foreach (Transform clone in _clones.Values) UnityEngine.Object.DestroyImmediate(clone.gameObject); _clones.Clear(); }
     }
     internal static class RemoteItemCardSource
-    { internal static void ReturnBorrowed(int id, GameObject go) { ObjectPool.Alive--; UnityEngine.Object.DestroyImmediate(go); } }
+    { internal static void ReturnBorrowed(int id, GameObject go) { if (!go.GetComponent<Image>().raycastTarget || !go.GetComponent<GraphicRaycaster>().enabled) throw new Exception("pooled native input flags restored before recycle"); ObjectPool.Alive--; UnityEngine.Object.DestroyImmediate(go); } }
 }
 namespace GloomhavenVR.WorldUI
 {

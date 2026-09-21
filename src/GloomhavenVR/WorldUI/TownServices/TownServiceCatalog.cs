@@ -30,7 +30,6 @@ internal sealed class TownServiceCatalog : IDisposable
     private readonly GameObject _listWrapper;
     private readonly GameObject _root;
     private readonly CanvasGroup _opening;
-    private readonly float _opened;
     private readonly Canvas _navigation = null!;
     private readonly TMP_Text _pageLabel;
     private readonly Button _previous, _next;
@@ -47,7 +46,7 @@ internal sealed class TownServiceCatalog : IDisposable
     }
     private int _page;
     private object? _context;
-    private float _nextCensus, _lastScroll = 1f;
+    private float _nextCensus, _nextScrollPage, _lastScroll = 1f;
     private bool _disposed;
     internal IReadOnlyList<Entry> Entries => _entries;
     internal IReadOnlyList<TownServiceToken> Samples => _samples;
@@ -80,7 +79,6 @@ internal sealed class TownServiceCatalog : IDisposable
         _root = new GameObject("GloomhavenVR.TownService.Catalog");
         Root.SetParent(anchor, false);
         _opening = _root.AddComponent<CanvasGroup>(); _opening.alpha = 0f;
-        _opened = Time.unscaledTime;
         try
         {
             TMP_Text? font = inventory.GetComponentInChildren<TMP_Text>(true);
@@ -112,6 +110,12 @@ internal sealed class TownServiceCatalog : IDisposable
         if (source is not RectTransform rect) throw new InvalidOperationException("Native merchant control is not a RectTransform: " + key);
         _controls.Add(new Control(key, new TownServiceSurface((ushort)(20 + _controls.Count), rect,
             new Vector3(x, .008f, z), width, _anchor)));
+    }
+
+    internal void SetVisibility(float value)
+    {
+        _opening.alpha = Mathf.Clamp01(value);
+        foreach (Control control in _controls) control.Surface.SetVisibility(value);
     }
 
     internal void LateTick()
@@ -166,7 +170,6 @@ internal sealed class TownServiceCatalog : IDisposable
     {
         if (_disposed) return;
         if (!_alive() || _inventory == null || _anchor == null) { Dispose(); return; }
-        _opening.alpha = Mathf.Clamp01((Time.unscaledTime - _opened) / .18f);
         _navigation.worldCamera = VRRigDriver.HeadCamera != null ? VRRigDriver.HeadCamera : Camera.main;
         if (Time.unscaledTime >= _nextCensus)
         {
@@ -212,6 +215,15 @@ internal sealed class TownServiceCatalog : IDisposable
         while (bd > ad && b.parent != null) { b = b.parent; bd--; }
         while (a.parent != b.parent && a.parent != null && b.parent != null) { a = a.parent; b = b.parent; }
         return a.GetSiblingIndex().CompareTo(b.GetSiblingIndex());
+    }
+
+    private void ScrollPage(int direction)
+    {
+        // Thumbstick scroll is emitted each frame. Keep a single owner-level repeat timer;
+        // rebuilding a page must not reset it and race through every card borrow in one gesture.
+        if (Time.unscaledTime < _nextScrollPage) return;
+        _nextScrollPage = Time.unscaledTime + .20f;
+        TurnPage(direction);
     }
 
     internal void TurnPage(int direction)
@@ -279,6 +291,8 @@ internal sealed class TownServiceCatalog : IDisposable
         private readonly GameObject _root;
         private readonly Canvas _canvas;
         private readonly RemoteWidgetMirror _row;
+        private readonly List<KeyValuePair<Graphic, bool>> _raycastTargets = new();
+        private readonly List<KeyValuePair<GraphicRaycaster, bool>> _raycasters = new();
         private GameObject? _card;
         private float _nextRefresh;
         private bool _disposed;
@@ -328,12 +342,14 @@ internal sealed class TownServiceCatalog : IDisposable
                 host.localPosition = new Vector3(0f, .025f, -.001f);
                 rect.anchorMin = rect.anchorMax = rect.pivot = new Vector2(.5f, .5f);
                 rect.anchoredPosition3D = Vector3.zero; rect.localRotation = Quaternion.identity; rect.localScale = Vector3.one;
-                foreach (GraphicRaycaster raycaster in _card.GetComponentsInChildren<GraphicRaycaster>(true)) raycaster.enabled = false;
+                foreach (GraphicRaycaster raycaster in _card.GetComponentsInChildren<GraphicRaycaster>(true))
+                { _raycasters.Add(new KeyValuePair<GraphicRaycaster, bool>(raycaster, raycaster.enabled)); raycaster.enabled = false; }
                 // A separate original-card face forwards input to the native row. Its own
                 // presentation controller never gains service selection/payment callbacks.
                 var pointer = face.AddComponent<TownServiceCatalogPointer>();
-                pointer.Click = Click; pointer.Hover = Hover; pointer.Scroll = owner.TurnPage;
-                foreach (Graphic graphic in _card.GetComponentsInChildren<Graphic>(true)) graphic.raycastTarget = false;
+                pointer.Click = Click; pointer.Hover = Hover; pointer.Scroll = owner.ScrollPage;
+                foreach (Graphic graphic in _card.GetComponentsInChildren<Graphic>(true))
+                { _raycastTargets.Add(new KeyValuePair<Graphic, bool>(graphic, graphic.raycastTarget)); graphic.raycastTarget = false; }
                 var hit = new GameObject("Input", typeof(RectTransform), typeof(Image));
                 var hitRect = (RectTransform)hit.transform; hitRect.SetParent(face.transform, false);
                 hitRect.sizeDelta = size; hitRect.localPosition = new Vector3(0f, 0f, -.001f);
@@ -379,6 +395,10 @@ internal sealed class TownServiceCatalog : IDisposable
             // Cancel a gesture before recycling its source; no release callback is dispatched.
             Sample?.Dispose(); Hover(false); _disposed = true;
             _row.Destroy(); UguiPokeSurfaces.Unregister(_canvas);
+            // Pool borrowers after us must receive the same input flags we received. The
+            // catalog's separate pointer surface is not a permanent edit to native card input.
+            foreach (var target in _raycastTargets) if (target.Key != null) target.Key.raycastTarget = target.Value;
+            foreach (var raycaster in _raycasters) if (raycaster.Key != null) raycaster.Key.enabled = raycaster.Value;
             if (_card != null) { RemoteItemCardSource.ReturnBorrowed(Item.ID, _card); _card = null; }
             UnityEngine.Object.Destroy(_root);
         }

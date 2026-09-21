@@ -35,6 +35,9 @@ def sources(root):
 
 def mutations():
     return [
+        ("pool-input", "TownServiceCatalog.cs", "target.Key.raycastTarget = target.Value", "target.Key.raycastTarget = false", "pooled native input flags restored before recycle"),
+        ("surface-fade", "TownServiceSurface.cs", "_gate.alpha = alpha * _visibility", "_gate.alpha = alpha", "counter visibility multiplies original native fade"),
+        ("scroll-repeat", "TownServiceCatalog.cs", "if (Time.unscaledTime < _nextScrollPage) return;", "if (Time.unscaledTime < -1f) return;", "page rebuild preserves scroll repeat throttle"),
         ("page", "TownServiceCatalog.cs", "SetPage(_page + direction, true)", "SetPage(_page, true)", "physical next page advances entries"),
         ("restore", "TownServiceCatalog.cs", "_scroll.viewport.SetParent(_listHome, false);", "// mutation leaves original viewport in hidden wrapper", "off removes viewport suppression immediately"),
         ("identity", "TownServiceCatalog.cs", "&& ReferenceEquals(Item, RowSource.Item)", "&& true", "rebound row immediately fences stale sample"),
