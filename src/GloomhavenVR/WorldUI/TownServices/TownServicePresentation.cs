@@ -40,6 +40,13 @@ internal static class TownServicePresentation
     internal static bool Active => WorldUIConfig.ImmersiveTownServices.Value
         && _window != null && _window.IsOpen && _station != null;
 
+    internal static bool OwnsGrab(GrabbableModal holder)
+    {
+        foreach (TownServiceSurface surface in Surfaces)
+            if (surface.OwnsGrab(holder)) return true;
+        return false;
+    }
+
     internal static void Tick()
     {
         try { TickCore(); }
