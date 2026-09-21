@@ -5,28 +5,76 @@ round the actual cut boundary and turn its edge inward as a sewn lining. The
 lining occupies the inside of the existing garment, not a visible neck cylinder.
 """
 import bmesh
+import math
 import numpy as np
 from mathutils import Vector
 
 
+def shirt_band(bm, body, npc):
+    """A sewn shirt opening below the jaw; it never follows the skull."""
+    if npc not in ('merchant','priestess'):return 0
+    uv=bm.loops.layers.uv.active;deform=bm.verts.layers.deform.active
+    chest=body.vertex_groups['Chest'].index
+    # Reuse a clean patch from this exact costume's original linen atlas.
+    sample=(.5670,.6467) if npc=='merchant' else (.9710,.4420)
+    top,drop,rx,ry,cy=(1.507,.035,.086,.091,.024) if npc=='merchant' else (1.445,.029,.083,.074,.016)
+    rings=[];n=64
+    for row in range(7):
+        t=row/6;ring=[]
+        for i in range(n):
+            angle=2*math.pi*i/n
+            fold=math.sin(angle*7+.4)*(.0015 if npc=='merchant' else .0035)*math.sin(t*math.pi)
+            x=(rx+t*.023+fold)*math.sin(angle)
+            y=cy-(ry+t*(.022 if npc=='merchant' else .075)+fold)*math.cos(angle)
+            z=top-drop*math.cos(angle)-t*(.047 if npc=='merchant' else .073)
+            vertex=bm.verts.new((x,y,z));vertex[deform][chest]=1;ring.append(vertex)
+        rings.append(ring)
+    for row in range(6):
+        for i in range(n):
+            face=bm.faces.new((rings[row][i],rings[row+1][i],rings[row+1][(i+1)%n],rings[row][(i+1)%n]));face.material_index=0;face.smooth=True
+            for loop in face.loops:
+                loop[uv].uv=(sample[0]+loop.vert.co.x*.025,sample[1]+(loop.vert.co.z-top)*.025)
+    return n*7
+
+
+def garment_support(bm, body, npc, rgba, uv):
+    """Keep the original cape/vest on the torso when nearby sleeves move."""
+    deform=bm.verts.layers.deform.active
+    groups={g.index:g.name for g in body.vertex_groups}
+    axial={body.vertex_groups[n].index:n for n in ('Hips','Spine','Chest')}
+    chest=body.vertex_groups['Chest'].index
+    samples={}
+    for vertex in bm.verts:
+        x,y,z=vertex.co
+        if not(.78<z<1.47 and abs(x)<.45):continue
+        arm=sum(value for index,value in vertex[deform].items()
+                if groups[index].startswith(('UpperArm.','Forearm.','Hand.','Clavicle.')))
+        if arm<.0001:continue
+        colors=[]
+        for loop in vertex.link_loops:
+            co=loop[uv].uv
+            colors.append(rgba[max(0,min(rgba.shape[0]-1,int(co.y*rgba.shape[0]))),max(0,min(rgba.shape[1]-1,int(co.x*rgba.shape[1]))),:3])
+        if not colors:continue
+        r,g,b=np.median(colors,axis=0)
+        garment=((r>g*1.6 and b>g*1.12) or (g>r*.93 and g>b*1.3)) if npc=='merchant' else ((r>g*1.15 and g>b*1.2) if npc=='priestess' else (g>r*1.10 and b>r*1.05))
+        key=tuple(round(float(v),5)for v in vertex.co)
+        samples.setdefault(key,[]).append((vertex,garment))
+    changed=0
+    for coincident in samples.values():
+        if not any(garment for _,garment in coincident):continue
+        for vertex,_ in coincident:
+            retained={index:value for index,value in vertex[deform].items() if index in axial}
+            total=sum(retained.values())
+            vertex[deform].clear()
+            if total>.0001:
+                for index,value in retained.items():vertex[deform][index]=value/total
+            else:vertex[deform][chest]=1
+            changed+=1
+    return changed
+
+
 def repair(body, npc):
     bm=bmesh.new();bm.from_mesh(body.data)
-    if npc!='merchant':
-        # Skin fragments retained in the former colour-based head cut do not
-        # belong to the hood/hair. Remove only the pale skin inside the new neck
-        # footprint; preserve dark/purple hair and the actual cloth rim.
-        mat=body.data.materials[0]
-        images=[n.image for n in mat.node_tree.nodes if n.type=='TEX_IMAGE' and n.image]
-        image=next((image for image in images if 'basecolor' in image.name.lower()),images[0])
-        rgba=np.asarray(image.pixels[:]).reshape(image.size[1],image.size[0],4)
-        uv_layer=bm.loops.layers.uv.active;discard=[]
-        for face in bm.faces:
-            x,y,z=face.calc_center_median()
-            if not(1.40<z<1.62 and abs(x)<.085 and y<.015):continue
-            co=sum((loop[uv_layer].uv for loop in face.loops),Vector((0,0)))/len(face.loops)
-            r,g,b=rgba[max(0,min(image.size[1]-1,int(co.y*image.size[1]))),max(0,min(image.size[0]-1,int(co.x*image.size[0]))),:3]
-            if r>.32 and g>.25 and b>.20 and r>g*1.02 and r<b*1.9:discard.append(face)
-        bmesh.ops.delete(bm,geom=discard,context='FACES')
     seen=set();remove=[];removed_components=[]
     for vertex in bm.verts:
         if vertex in seen:continue
@@ -52,6 +100,25 @@ def repair(body, npc):
             remove.extend(component)
             if faces:removed_components.append({'reason':reason,'vertices':len(component),'faces':len(faces),'minimum':low,'maximum':high,'materials':sorted({body.data.materials[f.material_index].name for f in faces})})
     bmesh.ops.delete(bm,geom=remove,context='VERTS')
+    # Skin fragments retained in the former colour-based head cut do not
+    # belong to the hood/hair. Remove only the pale skin inside the new neck
+    # footprint; preserve dark/purple hair and the actual cloth rim.
+    mat=body.data.materials[0]
+    images=[n.image for n in mat.node_tree.nodes if n.type=='TEX_IMAGE' and n.image]
+    image=next((image for image in images if 'basecolor' in image.name.lower()),images[0])
+    rgba=np.asarray(image.pixels[:]).reshape(image.size[1],image.size[0],4)
+    uv_layer=bm.loops.layers.uv.active;discard=[]
+    for face in bm.faces:
+        x,y,z=face.calc_center_median()
+        eligible=((1.44 if npc=='enchantress' else 1.49)<z<1.62 and abs(x)<.075 and y<.015) if npc!='merchant' else (z>1.477 and abs(x)<.135 and -.105<y<.14)
+        if not eligible:continue
+        co=sum((loop[uv_layer].uv for loop in face.loops),Vector((0,0)))/len(face.loops)
+        r,g,b=rgba[max(0,min(image.size[1]-1,int(co.y*image.size[1]))),max(0,min(image.size[0]-1,int(co.x*image.size[0]))),:3]
+        skin=r>.32 and g>.25 and b>.20 and r>g*1.02 and r<b*1.9
+        linen=min(r,g,b)>.20 and max(r,g,b)-min(r,g,b)<.20
+        if (npc!='merchant' and skin) or (npc=='merchant' and linen):discard.append(face)
+    bmesh.ops.delete(bm,geom=discard,context='FACES')
+    garment_vertices=garment_support(bm,body,npc,rgba,uv_layer)
     cut={v for e in bm.edges if e.is_boundary for v in e.verts
          if v.co.z>1.35 and abs(v.co.x)<.19}
     # Merge sub-millimetre source cuts before making a real, thin cloth hem.
@@ -64,6 +131,14 @@ def repair(body, npc):
                     sum(1 for e in v.link_edges if e.is_boundary),.45)
                    for v in cut if sum(1 for e in v.link_edges if e.is_boundary)==2}
         for v,co in positions.items():v.co=co
+    # The shirt/cape neckline is supported by the torso, not by the skull.
+    deform=bm.verts.layers.deform.active
+    chest=body.vertex_groups['Chest'].index
+    if npc=='merchant':
+        for vertex in bm.verts:
+            if vertex.co.z>1.4 and abs(vertex.co.x)<.17:
+                vertex[deform].clear();vertex[deform][chest]=1
+    added_band=shirt_band(bm,body,npc)
     faces=[face for face in bm.faces if face.calc_center_median().z>1.35]
     edge_count=sum(1 for e in bm.edges if e.is_boundary and all(v in cut for v in e.verts))
     # BMesh solidify uses an unbounded miter at almost coplanar reversed source
@@ -92,6 +167,9 @@ def repair(body, npc):
     for vertex in bm.verts:
         total=sum(vertex[deform].values())
         assert .999<total<1.001, ('Invalid garment skin weights',total,tuple(vertex.co))
-    bmesh.ops.recalc_face_normals(bm,faces=list(bm.faces))
+    # Preserve the original garment winding; generated inner faces already have
+    # the opposite winding from solidify. Global recalculation on overlapping
+    # original costume shells can invert otherwise valid outer cloth.
+    bm.normal_update()
     bm.to_mesh(body.data);bm.free();body.data.update()
-    return {'removedDetachedVertices':len(remove),'removedComponents':removed_components,'linedEdges':edge_count,'innerVertices':added,'maximumThicknessMeters':.003}
+    return {'removedDetachedVertices':len(remove),'removedComponents':removed_components,'linedEdges':edge_count,'torsoGarmentVertices':garment_vertices,'shirtVertices':added_band,'innerVertices':added,'maximumThicknessMeters':.003}

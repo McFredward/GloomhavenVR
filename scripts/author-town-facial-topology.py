@@ -222,12 +222,15 @@ def anatomical_weights(obj,ids,raw,data):
     # and independently of final skin weights. The oblique submandibular plane
     # includes the chin while excluding the nape and soft anterior neck.
     original=dict(json.loads((data/'rigs/weights.game_engine.json').read_text())['weights']['head'])
-    groups={name:obj.vertex_groups.new(name=name) for name in ('Head','Neck','ContractSkull','ContractJaw')}
+    groups={name:obj.vertex_groups.new(name=name) for name in ('Head','Neck','Chest','ContractSkull','ContractJaw')}
     for index,source in enumerate(ids):
         x,y,z=raw[source];plane=y+.65*z
         blend=max(0,min(1,(plane-6.30)/.42));blend=blend*blend*(3-2*blend)
         weight=max(original.get(source,0),blend)
-        groups['Head'].add([index],weight,'REPLACE');groups['Neck'].add([index],1-weight,'REPLACE')
+        neck=max(0,min(1,(y-5.35)/.70));neck=neck*neck*(3-2*neck)
+        groups['Head'].add([index],weight,'REPLACE')
+        groups['Neck'].add([index],(1-weight)*neck,'REPLACE')
+        groups['Chest'].add([index],(1-weight)*(1-neck),'REPLACE')
         if plane>=6.72:groups['ContractSkull' if y>6.7 else 'ContractJaw'].add([index],1,'REPLACE')
 
 

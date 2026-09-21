@@ -261,12 +261,15 @@ public static class ValidateTownAssets
             var cameraRotation = camera.transform.rotation;
             float cameraFov = camera.fieldOfView;
             camera.nearClipPlane = .01f; camera.fieldOfView = 38;
-            foreach (var view in new[] { "front", "three-quarter", "profile", "back" })
+            foreach (var view in new[] { "front", "three-quarter", "profile", "back", "above", "below", "back-three-quarter" })
             {
                 var centre = new Vector3(0, 1.59f, .65f);
                 var offset = view == "front" ? new Vector3(0, 0, -.61f) :
                     view == "three-quarter" ? new Vector3(.36f, 0, -.49f) :
-                    view == "profile" ? new Vector3(.61f, 0, 0) : new Vector3(0, 0, .61f);
+                    view == "profile" ? new Vector3(.61f, 0, 0) :
+                    view == "above" ? new Vector3(.12f, .55f, -.35f) :
+                    view == "below" ? new Vector3(0, -.4f, -.6f) :
+                    view == "back-three-quarter" ? new Vector3(.43f, .05f, .43f) : new Vector3(0, 0, .61f);
                 camera.transform.position = centre + offset; camera.transform.LookAt(centre);
                 yield return null; Picture(npc + "-head-" + view);
             }
