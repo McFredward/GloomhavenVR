@@ -12,7 +12,7 @@ internal static class RemoteTownFaces
     {
         internal TownFaceState Previous, Latest;
         internal float Received, Span;
-        internal bool HasSample;
+        internal bool HasSample, HasHistory, Suspended;
         private readonly uint[] _retired = new uint[4];
         private int _retireAt;
         internal bool Retired(uint epoch)
@@ -46,18 +46,20 @@ internal static class RemoteTownFaces
         {
             if (peer.Retired(state.Epoch)) return;
             peer.Retire(peer.Latest.Epoch);
-            peer.Previous = default; peer.Latest = state; peer.HasSample = false; peer.Span = 0f;
+            peer.Previous = default; peer.Latest = state; peer.HasSample = false; peer.HasHistory = false; peer.Span = 0f;
         }
+        if (peer.HasHistory && (!Newer(state.Sequence, peer.Latest.Sequence) || state.Clock < peer.Latest.Clock)) return;
+        peer.Suspended = false;
         Observe(player, in state);
     }
     internal static void Observe(int player, in TownFaceState state)
     {
         if (!state.Active || !TownFaceCodec.Valid(in state)
-            || !Peers.TryGetValue(player, out Peer? peer) || peer.Latest.Epoch != state.Epoch) return;
-        if (peer.HasSample && (!Newer(state.Sequence, peer.Latest.Sequence) || state.Clock < peer.Latest.Clock)) return;
+            || !Peers.TryGetValue(player, out Peer? peer) || peer.Suspended || peer.Latest.Epoch != state.Epoch) return;
+        if (peer.HasHistory && (!Newer(state.Sequence, peer.Latest.Sequence) || state.Clock < peer.Latest.Clock)) return;
         peer.Span = peer.HasSample ? Mathf.Clamp(state.Clock - peer.Latest.Clock, 1f / 90f, .15f) : 0f;
         peer.Previous = peer.HasSample ? peer.Latest : state;
-        peer.Latest = state; peer.Received = Time.unscaledTime; peer.HasSample = true;
+        peer.Latest = state; peer.Received = Time.unscaledTime; peer.HasSample = true; peer.HasHistory = true;
     }
     internal static bool Sample(int author, out TownFaceState state, out float elapsed)
     {
@@ -85,10 +87,11 @@ internal static class RemoteTownFaces
     }
     internal static void Forget(int player)
     {
-        // Keep only a bounded tombstone across a same-ID reconnect; pending packets from its
-        // retired process/ownership epochs must not resurrect a previous voice generation.
+        // A >3s network stall also invokes Forget. Suspend without retiring a still-running
+        // authority's epoch; only a newer presence may resume it. Fast packets alone cannot
+        // revive it, and acceptance of a genuinely different epoch retires the old one.
         if (!Peers.TryGetValue(player, out Peer? peer)) return;
-        peer.Retire(peer.Latest.Epoch); peer.HasSample = false; peer.Latest = default; peer.Previous = default;
+        peer.HasSample = false; peer.Suspended = true; peer.Previous = default;
     }
     internal static void Reset() => Peers.Clear();
 }

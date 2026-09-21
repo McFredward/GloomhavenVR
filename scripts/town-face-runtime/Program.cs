@@ -80,6 +80,14 @@ public static class InteractionProgram
         Check(RemoteTownFaces.TrySeed(out var seeded,out int seedAuthor,out _)&&seedAuthor==2&&seeded.Merchant.Generation==1,"new author can adopt current expression and utterance");
         RemoteTownFaces.Forget(2);Check(!RemoteTownFaces.Sample(2,out _,out _),"departed author cannot retain face");
         RemoteTownFaces.ObservePresence(2,in old);Check(!RemoteTownFaces.Sample(2,out _,out _),"retired process cannot resurrect after disconnect");
+        packet.Sequence=2;packet.Clock=1.1f;RemoteTownFaces.Observe(2,in packet);
+        Check(!RemoteTownFaces.Sample(2,out _,out _),"fast packet cannot revive suspended peer");
+        RemoteTownFaces.ObservePresence(2,in packet);
+        Check(RemoteTownFaces.Sample(2,out shown,out _)&&shown.Epoch==43,"same live epoch resumes after temporary network stall");
+        packet.Sequence=3;packet.Clock=1.2f;RemoteTownFaces.Observe(2,in packet);
+        Check(RemoteTownFaces.Sample(2,out shown,out _)&&shown.Sequence==3,"resumed authority fast stream advances");
+        RemoteTownFaces.Forget(2);packet.Sequence=2;packet.Clock=1.1f;RemoteTownFaces.ObservePresence(2,in packet);
+        Check(!RemoteTownFaces.Sample(2,out _,out _),"old recovery presence cannot resume suspended peer");
         for(int player=3;player<25;player++)
         {
             packet.Epoch=(uint)(100+player);packet.Sequence=1;packet.Clock=1;

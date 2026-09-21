@@ -42,7 +42,10 @@ cue, uint utterance generation, voice age and three normalized mouth-weight byte
 - Presence establishes an epoch. Fast packets with a different epoch cannot replace a newly
   connected actor's face or speech. Serial-number arithmetic handles uint wrap; old sequence
   or regressing source clocks are rejected. There are at most eight peer entries, each with four retired-epoch tombstones. Inactive/stale
-  entries are evicted before they can block a newly joined participant.
+  entries are evicted before they can block a newly joined participant. A temporary stale-peer
+  withdrawal suspends its current epoch without retiring it: newer same-epoch presence can
+  recover, fast packets cannot revive it alone, and only acceptance of another epoch retires
+  the former ownership. This distinguishes packet loss from a proven process/authority change.
 - Intermediate gaze poses interpolate at render rate. Blinks and subtle idle expressions are
   evaluated from the current author's shared clock (never a viewer-local ahead clock), so an entire blink cannot vanish between
   presence samples. This follows existing avatar-style network interpolation, with ordinary
@@ -60,8 +63,8 @@ voice adapter's responsibility.
 
 ## Evidence
 
-Final source-bound real Unity run: **2072 assertions and fourteen compiled negative controls**,
-`/tmp/town543-face-runtime/run-aj1xk4m0`. Literal face golden vectors and all previous wire tests
+Final source-bound real Unity run: **2076 assertions and sixteen compiled negative controls**,
+`/tmp/town543-face-runtime/run-_4_h1sw7`. Literal face golden vectors and all previous wire tests
 passed **258091 assertions** (257025 at the base, +1066). Resident lifecycle passes **143
 assertions and eight negative controls**, including a deliberately ahead viewer clock (500)
 following an author at 20. Existing station geometry/lifecycle/grounding passes **1581/59/243
