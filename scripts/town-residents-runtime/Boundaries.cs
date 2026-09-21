@@ -88,9 +88,10 @@ namespace GloomhavenVR.WorldUI
     {
         internal static readonly Dictionary<byte,TownServiceVisitTarget> Live=new();
         internal readonly byte Service;
-        internal bool Enabled;
+        internal bool Visible;
+        internal bool Enabled=>Visible&&WorldUIConfig.ImmersiveTownServices.Value;
         internal TownServiceVisitTarget(byte service,Transform root) { Service=service;Live[service]=this; }
-        internal void Tick(bool enabled)=>Enabled=enabled;
+        internal void Tick(bool visible)=>Visible=visible;
         internal static void TickLaser() { }
         internal void Dispose()=>Live.Remove(Service);
     }
