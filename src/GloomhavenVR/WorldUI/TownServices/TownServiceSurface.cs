@@ -17,12 +17,14 @@ internal sealed class TownServiceSurface : IDisposable
     private readonly List<Transform> _nativeAncestors = new();
     private readonly CanvasGroup _gate;
     private bool _placed;
+    private readonly Transform? _counterAnchor;
 
-    internal TownServiceSurface(ushort id, RectTransform source, Vector3 offset, float width)
+    internal TownServiceSurface(ushort id, RectTransform source, Vector3 offset, float width, Transform? counterAnchor = null)
     {
         Id = id;
         _offset = offset;
         _width = width;
+        _counterAnchor = counterAnchor;
         CanvasGroup? ownGroup = source.GetComponent<CanvasGroup>();
         bool inheritGroups = ownGroup == null || !ownGroup.ignoreParentGroups;
         for (Transform? t = source.parent; t != null; t = t.parent)
@@ -42,7 +44,7 @@ internal sealed class TownServiceSurface : IDisposable
             useModLayer: true, transparentBackground: false)
             ?? throw new InvalidOperationException("Native town section could not be converted: " + id);
         _gate = Panel.HostGo.AddComponent<CanvasGroup>();
-        try { _grab.Build(Panel, 1f, "TownService." + id); }
+        try { if (_counterAnchor == null) _grab.Build(Panel, 1f, "TownService." + id); }
         catch { CanvasConversion.Release(Panel); throw; }
     }
 
@@ -59,6 +61,15 @@ internal sealed class TownServiceSurface : IDisposable
             alpha *= group.alpha; interactable &= group.interactable; raycasts &= group.blocksRaycasts;
         }
         _gate.alpha = alpha; _gate.interactable = interactable; _gate.blocksRaycasts = raycasts;
+        if (_counterAnchor != null)
+        {
+            // Physical countertop controls are horizontal objects, not pitched floating windows.
+            float pixels = Mathf.Max(1f, Panel.HostRect.rect.width);
+            float factor = _width * _counterAnchor.lossyScale.x / pixels / (WorldUIConfig.CanvasScaleMm.Value * .001f);
+            CanvasConversion.PlaceHost(Panel, _counterAnchor.TransformPoint(_offset),
+                _counterAnchor.rotation * Quaternion.Euler(90f, 0f, 0f), factor);
+            return;
+        }
         if (!_placed)
         {
             float pixels = Mathf.Max(1f, Panel.HostRect.rect.width);
@@ -70,7 +81,9 @@ internal sealed class TownServiceSurface : IDisposable
         _grab.Tick();
     }
 
-    internal void LateTick() => _grab.LateSyncHost();
+    internal bool OwnsGrab(GrabbableModal holder) => Panel.IsAlive && ReferenceEquals(_grab, holder);
+
+    internal void LateTick() { if (_counterAnchor == null) _grab.LateSyncHost(); }
 
     public void Dispose()
     {

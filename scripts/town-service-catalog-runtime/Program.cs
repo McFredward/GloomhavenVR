@@ -1,0 +1,102 @@
+using System;
+using System.Reflection;
+using UnityEngine;
+using UnityEngine.UI;
+using UnityEngine.EventSystems;
+using GloomhavenVR.WorldUI;
+using GloomhavenVR.Hands.Interact;
+public static class InteractionProgram
+{
+    private static int assertions;
+    private static void Check(bool condition, string name) { assertions++; if (!condition) throw new Exception(name); }
+    private static RectTransform Rect(string name, Transform parent, float width = 100f, float height = 50f)
+    { var go = new GameObject(name, typeof(RectTransform)); go.transform.SetParent(parent, false); var rect = (RectTransform)go.transform; rect.sizeDelta = new Vector2(width, height); return rect; }
+    private static void Census(TownServiceCatalog catalog) => typeof(TownServiceCatalog).GetMethod("RefreshRows", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(catalog, null);
+    public static int Run()
+    {
+        assertions = 0;
+        var root = new GameObject("CatalogFixture");
+        var events = new GameObject("Events", typeof(EventSystem));
+        var inventory = Rect("Inventory", root.transform).gameObject.AddComponent<UIShopItemInventory>();
+        var scroll = Rect("Scroll", inventory.transform).gameObject.AddComponent<ScrollRect>();
+        inventory.scroll = scroll; scroll.viewport = Rect("Viewport", scroll.transform, 500, 500);
+        scroll.content = Rect("Content", scroll.viewport, 500, 1800); scroll.content.pivot = new Vector2(.5f, 1f);
+        inventory.buyTab = Rect("Buy", inventory.transform); inventory.sellTab = Rect("Sell", inventory.transform);
+        inventory.allFilter = Rect("All", inventory.transform); inventory._ownedFilter = Rect("Owned", inventory.transform);
+        inventory.headFilter = Rect("Head", inventory.transform); inventory.bodyFilter = Rect("Body", inventory.transform);
+        inventory.handsFilter = Rect("Hands", inventory.transform); inventory.legsFilter = Rect("Legs", inventory.transform);
+        inventory.smallItemsFilter = Rect("Small", inventory.transform);
+        var original = new[] { inventory.buyTab, inventory.sellTab, inventory.allFilter, inventory._ownedFilter,
+            inventory.headFilter, inventory.bodyFilter, inventory.handsFilter, inventory.legsFilter, inventory.smallItemsFilter };
+        int clicks = 0;
+        for (int i = 0; i < 17; i++)
+        {
+            var slot = Rect("Row" + i, scroll.content, 500, 50).gameObject.AddComponent<UIShopItemSlot>();
+            slot.Item = new ScenarioRuleLibrary.CItem(i + 1); var button = slot.gameObject.AddComponent<Button>();
+            button.onClick.AddListener(() => clicks++); slot.Selectable = button; inventory.slotPool.Add(slot);
+        }
+        // Pool enumeration deliberately disagrees with hierarchy order.
+        inventory.slotPool.Reverse();
+        var anchor = new GameObject("Counter"); anchor.transform.SetParent(root.transform, false);
+        anchor.transform.SetPositionAndRotation(new Vector3(3, 1, -2), Quaternion.Euler(0, 37, 0));
+        anchor.transform.localScale = Vector3.one * 2f;
+        object context = new object(); bool alive = true;
+        try
+        {
+            for (int repetition = 0; repetition < 3; repetition++)
+            {
+                var catalog = new TownServiceCatalog(inventory, anchor.transform, () => context, () => alive, anchor.transform);
+                Census(catalog); catalog.Tick(2f); catalog.LateTick();
+                Check(catalog.PageCount == 3 && catalog.Entries.Count == 6, "bounded six-card native catalog");
+                Check(catalog.Entries[0].ItemId == 1, "native hierarchy order wins over pool order");
+                Check(scroll.viewport.parent.GetComponent<CanvasGroup>().alpha == 0, "old viewport is hidden");
+                foreach (var control in catalog.Controls)
+                {
+                    Check(Vector3.Dot(control.Surface.Panel.HostGo.transform.forward, Vector3.down) > .99f, "controls lie on counter");
+                    Check(control.Surface.Panel.Target.parent != inventory.transform, "original control handed to counter");
+                }
+                foreach (var entry in catalog.Entries)
+                {
+                    Check(Vector3.Dot(entry.CardRoot.forward, Vector3.down) > .99f, "original card face lies on counter");
+                    var corners = new Vector3[4]; ((RectTransform)entry.CardRoot).GetWorldCorners(corners);
+                    Check(Vector3.Distance(corners[0], corners[3]) <= .361f, "card width respects counter scale");
+                    Check(entry.CardRoot.parent.GetComponent<GraphicRaycaster>() != null, "physical card has a raycaster");
+                    Check(entry.CardUI.item == entry.Item && entry.Sample.CanGrab, "valid original card identity before Show");
+                }
+                catalog.TurnPage(1); Check(catalog.Page == 1 && catalog.Entries[0].ItemId == 7, "physical next page advances entries");
+                catalog.TurnPage(1); Check(catalog.Page == 2 && catalog.Entries.Count == 5 && catalog.Entries[4].ItemId == 17, "last page retains remainder");
+                catalog.TurnPage(1); Check(catalog.Page == 2, "last page cannot overflow");
+                catalog.TurnPage(-1); catalog.TurnPage(-1);
+                var entry0 = catalog.Entries[0];
+                var pointer = entry0.CardRoot.parent.GetComponent<TownServiceCatalogPointer>();
+                pointer.OnPointerClick(new PointerEventData(EventSystem.current));
+                Check(clicks == repetition + 1, "physical card dispatches native select once");
+                entry0.RowSource.Selectable.interactable = false;
+                pointer.OnPointerClick(new PointerEventData(EventSystem.current));
+                Check(clicks == repetition + 1, "native disabled selection remains disabled");
+                entry0.RowSource.Selectable.interactable = true;
+                var sample = entry0.Sample;
+                entry0.RowSource.Item = new ScenarioRuleLibrary.CItem(99);
+                Check(!sample.CanGrab, "rebound row immediately fences stale sample");
+                Census(catalog); Check(sample.Disposed && catalog.Entries[0].ItemId == 99, "row reuse retires old sample before rebuild");
+                catalog.Entries[0].RowSource.Item = new ScenarioRuleLibrary.CItem(1);
+                catalog.Entries[0].RowSource.gameObject.SetActive(false);
+                Census(catalog); Check(catalog.Entries[0].ItemId == 2 && catalog.Page == 0, "filter hides row and resets page");
+                foreach (var row in inventory.slotPool) row.gameObject.SetActive(true);
+                Census(catalog);
+                catalog.TurnPage(1); context = new object(); Census(catalog);
+                Check(catalog.Page == 0, "character or mode change resets page");
+                alive = false; catalog.Tick(2f);
+                Check(catalog.Entries.Count == 0 && ObjectPool.Alive == 0, "closing returns every pooled card");
+                Check(UguiPokeSurfaces.Registered.Count == 0, "closing unregisters every physical input surface");
+                Check(CanvasConversion.Active.Count == 0, "closing retires every control conversion");
+                foreach (Transform control in original) Check(control.parent == inventory.transform, "off restores original native control parent");
+                Check(scroll.viewport.parent == scroll.transform, "off removes viewport suppression immediately");
+                Check(clicks == repetition + 1, "toggle or cancel never confirms transaction");
+                alive = true;
+            }
+            return assertions;
+        }
+        finally { UnityEngine.Object.DestroyImmediate(root); UnityEngine.Object.DestroyImmediate(events); }
+    }
+}
