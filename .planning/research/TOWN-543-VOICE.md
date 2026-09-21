@@ -180,3 +180,29 @@ Use that instance's audio time and stop state; never start a second copy, advanc
 story, or gate continuation. This hook is not implemented now because there is no
 verified matching recording. The generic facial speech adapter remains unbound,
 allowing real jaw/lip animation later without claiming voices currently exist.
+
+
+### Original-data provenance
+
+Read-only SHA256 values for the audited installation:
+
+| File under GH_Data | Bytes | SHA256 |
+| --- | ---: | --- |
+| `resources.assets` | 42169296 | `bdbb12b62374aee0a00a07f07e162c7a558c052996ea7be360a2d59bd0c8c34a` |
+| `StreamingAssets/Rulebase/Campaign.ruleset` | 2802882 | `95cf4a88ead02fffecde3b7482f5774605bece0f679ae18d2a10dcb31cce717c` |
+| `StreamingAssets/Rulebase/CustomScenarios.ruleset` | 48602 | `992cdf3de42a85fb54427ce7824fc87b7eb0f2767709cacc3a892d584b509b8e` |
+| `StreamingAssets/Rulebase/Global.ruleset` | 541151 | `ba7266f2dbc18ccbe983c08b2b03f588e93a09426763cc1c32d2038b7732d133` |
+| `StreamingAssets/Rulebase/Guildmaster.ruleset` | 884905 | `be2709b1fbd21818f8211a6c1f097d2188e4f56aa610b54e56f3d17cd8898fb6` |
+| `StreamingAssets/Rulebase/Shared.ruleset` | 178507 | `73045b75b64e2123e721c777a684275a20871d9da3d40b3f29140bb944d01672` |
+
+The exact 31 parser-rejected archive members are recorded in the private
+`town543-speech/native-audit-evidence.json` alongside these hashes. The separate
+character-marker scan finds zero matching NPC actors in every rejected member;
+no rejected member contributes to the 551-node result. This is why the parser
+failures do not weaken the named-actor coverage claim.
+
+The unfinished synthetic runtime is archived privately as
+`town543-speech/abandoned-synthetic-runtime/`. It compiled, but its unfinished
+Unity fixture did not pass curve validation; it is not a validated future
+implementation and must not be cherry-picked into production. All local ASR
+processes completed; no model server or background transcription remains.
