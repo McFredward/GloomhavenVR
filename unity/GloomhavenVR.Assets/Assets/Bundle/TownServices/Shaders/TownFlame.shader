@@ -17,7 +17,10 @@ Shader "GloomhavenVR/TownFlame"
     }
     SubShader
     {
-        Tags { "Queue"="Transparent" "RenderType"="Transparent" }
+        // Billboards reconstruct their own world-space centre. CPU dynamic batching
+        // pretransforms vertices and removes that per-quad origin, collapsing native
+        // candle/glow groups at world zero instead of their physical flame/hand pose.
+        Tags { "Queue"="Transparent" "RenderType"="Transparent" "DisableBatching"="True" }
         Blend SrcAlpha One
         ZWrite Off
         Cull Off
