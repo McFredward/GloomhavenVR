@@ -5,7 +5,7 @@ Blender 4.2 authoring. Body actions and proportions remain unchanged; explicit
 neckline/garment support repairs are recorded per LOD. Facial loops are subdivided coherently across every expression; teeth
 and tongue keep their authored topology rather than quadrupling invisible molars.
 """
-import argparse, hashlib, json, math, sys
+import argparse, hashlib, json, math, shutil, sys
 from pathlib import Path
 import bpy, bmesh
 import numpy as np
@@ -49,38 +49,13 @@ def native_neck_faces(body):
     rgba=np.asarray(image.pixels[:]).reshape(image.size[1],image.size[0],4)
     uv=body.data.uv_layers.active;result=set()
     for polygon in body.data.polygons:
+        if polygon.material_index!=0:continue
         x,y,z=polygon.center
         if not(1.375<z<1.445 and abs(x)<.074 and -.105<y<.025):continue
         co=sum((uv.data[i].uv for i in polygon.loop_indices),Vector((0,0)))/len(polygon.loop_indices)
         r,g,b=rgba[max(0,min(image.size[1]-1,int(co.y*image.size[1]))),max(0,min(image.size[0]-1,int(co.x*image.size[0]))),:3]
         if r>.25 and r>g*1.12 and b>g*.67:result.add(polygon.index)
     return result
-
-
-def portrait_neck_patch(reference,head):
-    selected=native_neck_faces(reference)
-    patch=subset(reference,lambda p:p.index in selected,'OriginalNeckSkin')
-    assert 10<len(patch.data.polygons)<1500, 'Native neck skin selection escaped its bounded patch'
-    mat=bpy.data.materials.new('OriginalNeckPortrait');mat.use_nodes=True
-    image=next(n.image for m in head.data.materials for n in m.node_tree.nodes
-               if n.type=='TEX_IMAGE' and n.image and Path(n.image.filepath).name=='front.png')
-    nodes=mat.node_tree.nodes;tex=nodes.new('ShaderNodeTexImage');tex.image=image
-    uvnode=nodes.new('ShaderNodeUVMap');uvnode.uv_map='Reference_front'
-    mat.node_tree.links.new(uvnode.outputs[0],tex.inputs[0]);mat.node_tree.links.new(tex.outputs[0],nodes.get('Principled BSDF').inputs['Base Color'])
-    patch.data.materials.clear();patch.data.materials.append(mat)
-    for layer in list(patch.data.uv_layers):patch.data.uv_layers.remove(layer)
-    uv=patch.data.uv_layers.new(name='Reference_front')
-    for loop in patch.data.loops:
-        x,y,z=patch.data.vertices[loop.vertex_index].co
-        # Same low-neck portrait region as the adjacent fitted anatomical neck.
-        px=357.5+x*2000;raw_height=5.8+(z-1.445)/.14
-        py=min(694,max(565,560+(6.16-raw_height)*140))
-        uv.data[loop.index].uv=(min(540,max(180,px))/718,1-py/718)
-    for polygon in patch.data.polygons:polygon.material_index=0
-    for key in head.data.shape_keys.key_blocks:patch.shape_key_add(name=key.name)
-    patch.vertex_groups.clear();patch.vertex_groups.new(name='Chest').add(list(range(len(patch.data.vertices))),1,'REPLACE')
-    print('NATIVE_NECK_SKIN_PATCH',len(patch.data.vertices),len(patch.data.polygons))
-    return join([head,patch],head)
 
 
 def evaluated_shapes(source,level,name):
@@ -132,36 +107,18 @@ def bake(head,output):
 
 
 def main():
-    p=argparse.ArgumentParser(description=__doc__);p.add_argument('--prototype',type=Path,required=True);p.add_argument('--rig',type=Path,required=True);p.add_argument('--output',type=Path,required=True);p.add_argument('--name',required=True);a=p.parse_args(sys.argv[sys.argv.index('--')+1:]);a.output.mkdir(parents=True,exist_ok=True)
-    bpy.ops.wm.open_mainfile(filepath=str(a.prototype/'face-prototype.blend'));head=bpy.data.objects['Face']
+    p=argparse.ArgumentParser(description=__doc__);p.add_argument('--prototype',type=Path,required=True);p.add_argument('--rig',type=Path,required=True);p.add_argument('--output',type=Path,required=True);p.add_argument('--name',required=True);p.add_argument('--baked-head',type=Path);p.add_argument('--face-only',action='store_true');a=p.parse_args(sys.argv[sys.argv.index('--')+1:]);a.output.mkdir(parents=True,exist_ok=True)
+    bpy.ops.wm.open_mainfile(filepath=str(a.baked_head or a.prototype/'face-prototype.blend'));head=bpy.data.objects['Face']
     for key in head.data.shape_keys.key_blocks:key.value=0
     # The template includes the actual lower neck/clavicle loops; no boundary
     # extrusion or detached neck-cover geometry is needed.
-    if a.name=='priestess':
-        # Fit the anatomical lower neck behind the actual retained blouse/cape.
-        # A guessed torso radius can poke through cloth around the shoulder clasps.
-        from mathutils.bvhtree import BVHTree
-        with bpy.data.libraries.load(str(a.rig),link=False)as(source,target):
-            target.objects=[n for n in source.objects if n.startswith('LOD0_')]
-        reference=target.objects[0]
-        bm=bmesh.new();bm.from_mesh(reference.data)
-        remove=[f for f in bm.faces if not reference.data.materials[f.material_index].name.startswith('TownBody')]
-        bmesh.ops.delete(bm,geom=remove,context='FACES');bm.to_mesh(reference.data);bm.free()
-        repair_neckline(reference,a.name)
-        tree=BVHTree.FromPolygons([v.co for v in reference.data.vertices],[list(p.vertices)for p in reference.data.polygons])
-        moved=0
-        for index,vertex in enumerate(head.data.vertices):
-            x,y,z=vertex.co
-            if z>=1.445:continue
-            hit,normal,face,distance=tree.ray_cast(Vector((x,-1,z)),Vector((0,1,0)),1.2)
-            if hit is not None and hit.y<.035 and y<hit.y+.002:
-                delta=hit.y+.002-y
-                for key in head.data.shape_keys.key_blocks:key.data[index].co.y+=delta
-                moved+=1
-        head=portrait_neck_patch(reference,head)
-        bpy.data.objects.remove(reference,do_unlink=True)
-        print('LOWER_NECK_COSTUME_PROJECTION',a.name,moved)
-    face_material=bake(head,a.output)
+    if a.baked_head:
+        shutil.copyfile(a.baked_head.parent/'face_albedo.png',a.output/'face_albedo.png')
+        face_material=head.data.materials[0]
+    else:
+        face_material=bake(head,a.output)
+        bpy.ops.file.pack_all();bpy.ops.wm.save_as_mainfile(filepath=str(a.output/'face-baked.blend'))
+    if a.face_only:return
     facial=subset(head,lambda p:p.material_index<2,'AnatomicalFace');oral=subset(head,lambda p:p.material_index>=2,'OralAnatomy');bpy.data.objects.remove(head,do_unlink=True)
     eyes=[o for o in bpy.context.scene.objects if o.name.startswith('Eye')]
     for obj in list(bpy.context.scene.objects):
@@ -169,6 +126,7 @@ def main():
     with bpy.data.libraries.load(str(a.rig),link=False)as(source,target):
         target.objects=[n for n in source.objects if n=='Skeleton'or n.startswith('LOD')]
         target.actions=[n for n in source.actions if n in ('Idle','Greeting','Gesture','ReturnToIdle')]
+    for action in target.actions:action.use_fake_user=True
     for obj in target.objects:bpy.context.collection.objects.link(obj)
     rig=next(o for o in target.objects if o.type=='ARMATURE');rig.animation_data.action=None;rig.data.pose_position='REST'
     # Geometry is in metres in Blender; retain authored weights and actions exactly.

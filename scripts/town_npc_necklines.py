@@ -11,8 +11,27 @@ from mathutils import Vector
 from town_npc_garment_weights import garment_support
 
 
+def blouse_hem(bm, body):
+    """A narrow sewn edge following the retained priestess blouse opening."""
+    uv=bm.loops.layers.uv.active;deform=bm.verts.layers.deform.active
+    chest=body.vertex_groups['Chest'].index;rings=[];samples=65
+    for row in range(5):
+        u=row/4;ring=[]
+        for i in range(samples):
+            t=i/(samples-1)*2-1;offset=.003-.006*u
+            vertex=bm.verts.new((.068*t,-.099+.033*t*t+offset*.4-.0007*math.sin(math.pi*u),1.376+.023*t*t+offset))
+            vertex[deform][chest]=1;ring.append(vertex)
+        rings.append(ring)
+    for row in range(4):
+        for i in range(samples-1):
+            face=bm.faces.new((rings[row][i],rings[row+1][i],rings[row+1][i+1],rings[row][i+1]));face.material_index=0;face.smooth=True
+            for loop in face.loops:loop[uv].uv=(.07115+loop.vert.co.x*.04,.10280+(loop.vert.co.z-1.38)*.04)
+    return samples*5
+
+
 def shirt_band(bm, body, npc):
     """A sewn shirt opening below the jaw; it never follows the skull."""
+    # Priestess retains her original blouse opening; no overlay strip is added.
     if npc!='merchant':return 0
     uv=bm.loops.layers.uv.active;deform=bm.verts.layers.deform.active
     chest=body.vertex_groups['Chest'].index
@@ -78,7 +97,12 @@ def repair(body, npc):
     uv_layer=bm.loops.layers.uv.active;discard=[]
     for face in bm.faces:
         x,y,z=face.calc_center_median()
-        eligible=((1.44 if npc=='enchantress' else 1.49)<z<1.62 and abs(x)<(.075 if npc=='enchantress' else .095) and y<.035) if npc!='merchant' else ((z>1.473 and abs(x)<.135 and -.105<y<.14) or (z>1.435 and abs(x)<.055 and -.115<y<.035))
+        eligible=((1.44 if npc=='enchantress' else 1.49)<z<1.62 and abs(x)<(.075 if npc=='enchantress' else .095) and y<.035) if npc!='merchant' else ((z>1.473 and abs(x)<.135 and -.105<y<.14) or (z>1.428 and abs(x)<.055 and -.115<y<.035))
+        if npc=='merchant' and 1.40<z<1.44 and abs(x)<.026 and y<.035:
+            co=sum((loop[uv_layer].uv for loop in face.loops),Vector((0,0)))/len(face.loops)
+            r,g,b=rgba[max(0,min(image.size[1]-1,int(co.y*image.size[1]))),max(0,min(image.size[0]-1,int(co.x*image.size[0]))),:3]
+            if r<g*1.15 and b>g*.80:
+                discard.append(face);continue
         if not eligible:continue
         co=sum((loop[uv_layer].uv for loop in face.loops),Vector((0,0)))/len(face.loops)
         r,g,b=rgba[max(0,min(image.size[1]-1,int(co.y*image.size[1]))),max(0,min(image.size[0]-1,int(co.x*image.size[0]))),:3]

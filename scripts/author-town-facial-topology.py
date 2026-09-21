@@ -83,6 +83,13 @@ def fit(raw,name):
     tuck=np.clip((1.445-world_z)/.065,0,1)
     x=x*(1-tuck)+(.075*np.tanh(x/.075))*tuck
     y=y*(1-tuck)+(.025+(y-.025)*.45)*tuck
+    if name=='priestess':
+        low=world_z<1.445
+        capped=np.sign(x)*(.075+.012*np.tanh(np.maximum(0,np.abs(x)-.075)/.012))
+        x=np.where(low & (np.abs(x)>.075),capped,x)
+        depth=np.clip((1.445-world_z)/.07,0,1)
+        front=np.clip((.025-y)/.04,0,1)
+        y-=.07*depth*front
     return np.column_stack((x,y,world_z))
 
 
@@ -94,10 +101,9 @@ def material(name,color,rough=.65):
 
 
 def head_mesh(raw,faces,groups,face_uv,name,refs,data):
-    # Below the original neck ring, include the neck only, not template shoulders.
-    chosen_indices=[i for i,(f,g) in enumerate(zip(faces,groups))
-                    if g=='body' and min(raw[f,1])>5.20
-                    and (min(raw[f,1])>=5.80 or max(abs(raw[f,0]))<.90)]
+    # Keep complete anatomical neck rings; tapering is geometric, never a
+    # per-polygon shoulder cut that would leave scalloped open side boundaries.
+    chosen_indices=[i for i,(f,g) in enumerate(zip(faces,groups))if g=='body'and min(raw[f,1])>5.20]
     chosen=[faces[i]for i in chosen_indices]
     ids=sorted({i for f in chosen for i in f});remap={old:new for new,old in enumerate(ids)}
     mesh=bpy.data.meshes.new('FacialLoops');mesh.from_pydata(fit(raw[ids],name).tolist(),[],[[remap[i]for i in f]for f in chosen]);mesh.update()
