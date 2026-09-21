@@ -196,6 +196,15 @@ internal static partial class Loc
 
     private static Dictionary<string, Dictionary<string, string>> Build() => new(64)
     {
+        ["town_merchant_buy"] = Pair("Buy", "Kaufen"),
+        ["town_merchant_sell"] = Pair("Sell", "Verkaufen"),
+        ["town_merchant_stock"] = Pair("Shop stock", "Warenbestand"),
+        ["town_merchant_inventory"] = Pair("Owned items", "Eigene Gegenstände"),
+        ["town_offering"] = Pair("Offer the coins here", "Münzen hier opfern"),
+        ["town_inscribe"] = Pair("Place a rune here", "Rune hier ablegen"),
+        ["town_enchant_card"] = Pair("Place a card here", "Karte hier ablegen"),
+        ["town_enchant_seal"] = Pair("Seal the purchase", "Kauf besiegeln"),
+        ["town_enchant_remove"] = Pair("Remove an enhancement", "Verbesserung entfernen"),
         ["town_sample_hint"] = Pair("Place a sample here to select it.\nConfirm in the prompt.",
             "Lege eine Vorschau hier ab, um sie auszuwählen.\nBestätige anschließend im Dialog."),
         // ---- the controls lesson (Compat/Tutorial/Controls) ----

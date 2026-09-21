@@ -6,7 +6,9 @@ namespace GloomhavenVR.Net.TownServices;
 /// <summary>Owner-authored presentation only. No field identifies a gameplay command.</summary>
 internal sealed class TownServiceFrame
 {
-    internal const int MaxBytes = 60000, MaxNodes = 256, MaxProperties = 128, MaxModules = 192;
+    // A complete late-game stock uses independent native card, price and physical-body
+    // modules. Keep payloads bounded; only the manifest's ushort ID census grows (4 KiB).
+    internal const int MaxBytes = 60000, MaxNodes = 256, MaxProperties = 128, MaxModules = 2048;
     internal byte Service;
     internal const ushort ManifestModule = ushort.MaxValue;
     internal uint Session;

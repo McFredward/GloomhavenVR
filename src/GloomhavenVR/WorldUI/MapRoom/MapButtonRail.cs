@@ -473,6 +473,16 @@ internal sealed class MapButtonRail
 
     private readonly List<Cap> _caps = new(8);
     private readonly List<UIGuildmasterButton> _scratch = new(8);
+    private int _residentLayoutMask;
+
+    private int ResidentLayoutMask()
+    {
+        int mask = 0;
+        foreach (UIGuildmasterButton button in _scratch)
+            if (button != null && TownServiceVisitTarget.Replaces(button.GuildmasterMode))
+                mask |= 1 << TownServiceVisitTarget.ServiceOf(button.GuildmasterMode);
+        return mask;
+    }
 
     /// <summary>Caps whose fingertip reached the fire depth this frame, held between the two phases
     /// of <see cref="TickPokeDepths"/> so the commit happens outside the loop over
@@ -692,6 +702,7 @@ internal sealed class MapButtonRail
 
     private bool SameSet()
     {
+        if (_residentLayoutMask != ResidentLayoutMask()) return false;
         if (_scratch.Count != _caps.Count)
             return false;
         for (int i = 0; i < _caps.Count; i++)
@@ -704,6 +715,7 @@ internal sealed class MapButtonRail
 
     private void Build()
     {
+        _residentLayoutMask = ResidentLayoutMask();
         if (!MapRoomDriver.TrySolveSeat(out MapRoomSeat.Seat seat, out _))
             return;
         MeshRenderer? parchment = MapRoomDriver.ParchmentRenderer;
@@ -728,7 +740,7 @@ internal sealed class MapButtonRail
         int[] rowCount = new int[GuildmasterDestinations.RailRowCount];
         for (int i = 0; i < _scratch.Count; i++)
         {
-            if (_scratch[i] == null)
+            if (_scratch[i] == null || TownServiceVisitTarget.Replaces(_scratch[i].GuildmasterMode))
                 continue;
             int r = GuildmasterDestinations.RailRow(_scratch[i].GuildmasterMode);
             if (r >= 0 && r < rowCount.Length)
@@ -828,7 +840,7 @@ internal sealed class MapButtonRail
                     out float x, out float z);
                 localPos = new Vector3(x, 0f, z);
             }
-            rowPlaced[row]++;
+            if (!TownServiceVisitTarget.Replaces(button.GuildmasterMode)) rowPlaced[row]++;
             Cap c = BuildCap(button, localPos, capLocalRot, cap, depth);
             _caps.Add(c);
             built++;
