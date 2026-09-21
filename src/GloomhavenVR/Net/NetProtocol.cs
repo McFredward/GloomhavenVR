@@ -524,12 +524,15 @@ internal static class NetProtocol
 
     // ModBuild 543 — anatomically fitted town faces with real eyes and shared facial motion.
     // Head and binocular eye gaze follow one resident authority, preferring active visitors.
-    // Actual bounded angles use a 102-byte map-only packet at15Hz (all three residents together);
-    // deterministic blink/expression clocks render every intermediate frame, not just presence5Hz.
+    // Actual bounded angles use a 102-byte map-only packet at 15 Hz (all three residents together);
+    // deterministic blink/expression clocks render every intermediate frame, not just presence at 5 Hz.
     // Speech is a presentation adapter keyed by exact voice/language cue and utterance generation;
     // no adapter/cue means a closed silent mouth. Apply after the original body sample.
-    // Additive80 and message21 retain Version3; resident79 is unchanged. Presence recovery adds
-    //96bytes: worst7082<7168assembly, allocation7339 retains257byte largest-record margin.
+    // Original game narration exists, but the audited 551 dialogue nodes for these three
+    // residents have no associated recordings. No generated voice ships; the adapter is unbound.
+    // Additive record 80 and message 21 retain Version 3; resident record 79 is unchanged.
+    // Presence recovery adds 96 bytes: worst 7082 < 7168 assembly capacity; allocation 7339
+    // retains the 257-byte largest-record margin.
     // Requires the matching facial-rig town bundle. Hardware anatomy/animation remains unverified.
 
 
