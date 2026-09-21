@@ -106,6 +106,16 @@ lighting limitation: with pixelLightCount zero and a ForceVertex point light, bo
 the transparent and opaque diagnostic receive vertex-light data and produce the
 same real highlight. The original diagnostic bundle's cornea also produces a
 highlight over its globe, with a peak of 243/255. Private reproducible probe sources
-and pictures are under `/tmp/town543-cornea-review/`. That bundle was deliberately
+and pictures are archived under `.planning/debug/town543-cornea-probe/` (the original
+temporary project is `/tmp/town543-cornea-review/`). That bundle was deliberately
 an older intermediate asset; this is a shader-path diagnosis, not final asset
 acceptance. No painted catchlight or artificial emission is introduced.
+
+Review of the fourth source render caught an additional deformation defect despite
+passing bounds checks: a generic height-only Head/Neck weight transition crossed the
+merchant's beard and the enchantress's lower jaw. Large gaze angles stretched these
+features instead of preserving the mandible. The asset correction uses the anatomical
+skin weights supplied with the same CC0 source topology. A trial collar cylinder also
+produced visible texture bands through extrapolated UV coordinates and was rejected;
+existing costume geometry must not be redesigned to hide an incorrect face fit.
+Final pictures and an actual-prefab skull/jaw preservation check remain required.
