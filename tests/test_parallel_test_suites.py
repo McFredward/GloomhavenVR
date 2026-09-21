@@ -288,6 +288,13 @@ raise SystemExit(r.execute({suites!r}, 1, pathlib.Path({str(output)!r}), pathlib
             _, error = process.communicate(timeout=8)
             self.assertEqual(process.returncode, 0, error.decode())
 
+    def test_full_wire_gate_rejects_partial_inventory_options(self):
+        for option in ['--group=ci', '--shard=0/4', '--list', '--verify-results=x']:
+            result = subprocess.run(['bash', str(ROOT / 'scripts/wire-tests.sh'), option],
+                                    capture_output=True, text=True)
+            self.assertEqual(result.returncode, 2)
+            self.assertIn('partial/group/list options', result.stderr)
+
     def test_existing_output_is_rejected(self):
         output = self.root / 'output'
         output.mkdir()

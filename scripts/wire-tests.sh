@@ -16,6 +16,16 @@
 # at tests/.
 set -euo pipefail
 
+# This entry point is the complete local gate. Partial discovery/shard runs belong to
+# run-test-suites.py directly and must never masquerade as a full golden-vector check.
+for argument in "$@"; do
+    case "$argument" in
+        --group|--group=*|--shard|--shard=*|--list|--verify-results|--verify-results=*|--shard-count|--shard-count=*)
+            echo "wire tests: partial/group/list options require scripts/run-test-suites.py directly" >&2
+            exit 2 ;;
+    esac
+done
+
 ROOT_FOR_HINT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 # A FRESH WORKTREE IS NOT A FAILING CHANGE, and until this guard existed it looked exactly
