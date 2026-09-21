@@ -2,8 +2,8 @@
 
 This replaces the build544 six-card counter and page/filter buttons. The complete native
 buy catalogue and the selected owner's sell inventory coexist as physical item cards.
-Native categories fill real pull-out filing drawers:48 persistent cards per drawer,
-six columns and eight separately exposed strips. Overflow creates another drawer; it
+Native categories fill real pull-out filing drawers:64 persistent cards per drawer,
+eight columns and eight separately exposed strips. Overflow creates another drawer; it
 never discards stock or replaces a page. A native stock refresh retains unchanged row,
 card and drawer identities. Changing the selected owner invalidates the old gesture.
 
@@ -39,16 +39,26 @@ that native tooltip; release restores inspection of another held card if present
 
 ## Geometry and multiplayer integration
 
-Two banks have centres x±.68m and1.04m drawers. Fixed opaque housing encloses closed cards.
-Drawer levels start .15m below the counter, separated by .13m. Six drawers fit each bank
-above the floor. The supplied base+DLC catalogue has164 unique definitions; native grouping
-puts Hands54 into two drawers and the other categories into one each. Tests include all
-164buy and164owned entries. More rows are never capped, but a larger custom catalogue's
-additional vertical bank envelope needs placement validation before claiming compatibility.
+Two lower banks have centres x±.68 m and 1.04 m drawers. Fixed opaque housing encloses
+closed cards. Seven levels fit below the countertop, separated by .13 m. Additional drawers
+continue above the countertop rather than through the floor. Upper banks move out to x±.70 m
+and forward to z0 so their closed backs remain ahead of the NPC and their inside walls clear
+the original .32 m ledger. The first upper housing extends down to the countertop as support.
 
-Travel is .78m: a .48m pull left back cards under the widened counter. The resulting front
-edge is about z−.815m, bank housing |x|≤1.213m. New counter top half-width1.27m and extra-user
-workspace placement need a geometry review against the environment and neighbouring stands.
+Every drawer holds eight columns of eight exposed card strips. Card faces are at most
+.12×.096 m, with .126 m column pitch; outside columns clear the actual inner walls by 5 mm.
+Lower drawer travel is .78 m and upper travel .59 m, preserving the same fully open front
+extent around z−.82 m. Upper housing expands the overall bank width to |x|≤1.238 m, inside
+the 1.27 m countertop. Narrow BUY/SELL marks stay in the clear centre gap at x±.078 m.
+Their canonical mirror templates use the same .14×.26 m dimensions as the live marks;
+merchant release acceptance uses .07 m half-width, while other services retain their defaults.
+
+The complete supplied native 21-character roster can hold 512 non-quest item copies,
+requiring ten owned drawers; the three upper levels remain below 1.551 m. No catalogue rows
+are capped or paged. Custom rulesets or a roster beyond the supplied native classes may
+increase upper height and require a new room-clearance audit; that is not covered by the
+512-copy native geometry proof below.
+
 Cards in hand or returning prevent their drawer closing and defer workspace relocation.
 
 Integration exposes catalog.Drawers (Root and fixed HousingRoot), Zones (Root), and
@@ -233,6 +243,50 @@ Focused evidence:
 
 The geometry gate uses original mesh triangles for opaque custom-room scenery and conservative
 native mesh AABBs, reserving 5 cm around station parts. It is deliberately independent of
-reading direction. It still requires the final build545 asset-envelope rerun and hardware
-inspection; authored-inactive native objects unexpectedly enabled by a different game flow
+reading direction. The final build545 asset-envelope rerun is recorded below; hardware inspection remains
+necessary; authored-inactive native objects unexpectedly enabled by a different game flow
 would require an additional runtime scene sample.
+
+
+## Final native capacity and asset-envelope gate
+
+The capacity proof uses the game's actual reward-stock rules, not only ItemCard.TotalInGame.
+`GetItemsToSell` returns every bound/equipped item for an owner (or all party inventories),
+excluding QuestItem. Binding has no smaller inventory limit. Native campaign/Guildmaster
+headquarters cap Rare at 2 and Relic at 1; Common uses `max(6, CheckCharacters.Count)`.
+All eleven supplied Common definitions are SmallItem. At the supplied 21-character roster,
+non-quest copies therefore total Head40, Body44, Hands102, Legs37 and Small289: 512 distinct
+physical item identities. A six-character-or-smaller roster instead yields 347; the 285 sum
+of authored TotalInGame values is not the reward-driven inventory bound.
+
+Focused final checks:
+
+- Catalogue: **7,459 real Unity assertions and 16 compiled negative controls**;
+  `.planning/debug/town-service-catalog/run-6g7seiw3`. Includes all 512 distinct owned
+  identities, all ten owned drawers above floor and within the upper envelope, all 64
+  exposed card strips reachable by actual fitted colliders, inner-wall clearance, native
+  refusal/rollback and initial visible stock. Mutants restoring below-floor overflow or
+  widening columns into cabinet walls both fail the corresponding geometry assertions.
+- Actual production Token: **18 assertions and two compiled negatives**, binding the
+  latest parent integration boundaries with the changed Token;
+  `.planning/debug/town545-drop-focused/output/run-ujy34lym`. Narrow-zone rejection and
+  ordinary outside-zone rejection are independently falsified. This private focused run
+  does not replace the integrator's full interaction suite.
+- Strict Release build: **zero warnings/errors** after the final API/mark changes.
+- Actual final545 Linux prefab envelope: **1,775 real Unity assertions**;
+  `.planning/debug/town-service-workspace/run-8ixk1xrj`. All original four body clips,
+  four samples per clip and all three body LODs are included. The measured actor envelopes
+  remain inside reserved anatomy bounds; no old-bundle substitution was accepted.
+  Bundle SHA256 before/after:
+  `c35244d2df2ab86f33abbe0d5ba726ea33bacbdb6d83ad82a47c4de71f96a422`.
+  Bundle source:
+  `/home/claw/gvr-town545-faces/.planning/debug/town545-final-evidence-v2/town-review.bundle`.
+- Repeated original room/native scene audit with the widened upper-bank reservation:
+  `.planning/debug/town545-capacity-layout-final.json`. Both custom rooms and all four
+  original map scenes have **zero contacts**, including all simultaneously opened banks
+  and the unchanged 5 cm reservation padding. Input hashes match the preceding common
+  layout audit. Upper closed backs stop at z+.226, ahead of the anatomy reservation z+.30;
+  opening moves them further away from the NPC.
+
+These gates establish source/geometry and native-callback boundaries, not headset comfort,
+readability or the appearance of a live multiplayer hardware session.
