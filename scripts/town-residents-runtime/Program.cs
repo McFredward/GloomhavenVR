@@ -42,7 +42,7 @@ internal static class Program
         TownServicePresentation.Active=true;TownServicePresentation.Service=2;TownServicePresentation.SessionAge=.4f;Tick(.1f);
         Check(TownServiceStation.Live[2].Clip=="Idle","native visit preserves continuous occupation body clock");Check(TownServiceStation.Live[1].Clip=="Idle","unvisited resident remains idle");
         TownServicePresentation.Active=false;Tick();AllVisible();
-        WorldUIConfig.ImmersiveTownServices.Value=false;Tick();Check(TownServiceStation.Live.Count==0,"opt out removes unvisited residents");Check(!TownServicePopulation.Published.Active,"opt out withdraws authority");
+        NativeTemplates.Invalidated.Clear();WorldUIConfig.ImmersiveTownServices.Value=false;Tick();Check(TownServiceStation.Live.Count==0,"opt out removes unvisited residents");Check(NativeTemplates.Invalidated.Count==3,"retired residents invalidate all native decoration templates");Check(!TownServicePopulation.Published.Active,"opt out withdraws authority");
         WorldUIConfig.ImmersiveTownServices.Value=true;Tick();AllVisible();Check(TownServiceStation.Creates==6,"re-enable re-creates all residents");
         MapRoomDriver.Active=false;Tick();Check(TownServiceStation.Live.Count==0&&TownServiceVisitTarget.Live.Count==0,"leaving map destroys residents and input");Check(TownServicePopulation.Frame==null,"leaving map clears common frame");
 
@@ -75,7 +75,7 @@ internal static class Program
         Check(TownServiceStation.Live.Count==1&&TownServiceStation.Live.ContainsKey(1),"actual remote visitor only opens its station for opted-out viewer");Check(!TownServiceVisitTarget.Live[1].Enabled,"opted-out viewer has no immersive visit input");Check(TownServiceVisitTarget.Live[1].Visible,"visible remote resident still occludes behind UI for opted-out viewer");Check(!TownServicePopulation.Published.Active,"observer of remote visit never advertises enabled population");
         Time.unscaledTime+=NetProtocol.StaleTimeoutSeconds+.1f;Tick();Check(TownServiceStation.Live.Count==0,"stale visitor station retires");Check(!TownServicePopulation.HasRemoteVisitors,"stale visitor does not keep remote presence alive");
         Reset();var presence=default(PresenceState);presence.TownActivityRecordSeen=false;MapRoomDriver.Active=false;RemoteTownResidents.Sample(ref presence);Check(!presence.HasTownResidents,"no resident presence outside map");MapRoomDriver.Active=true;Tick();RemoteTownResidents.Sample(ref presence);Check(presence.HasTownResidents&&presence.TownResidents.Active,"map presence publishes all prepared residents");
-        TownServicePopulation.Reset();Check(!TownServicePopulation.Published.Active,"reset withdraws published population");
+        int oldClears=TownServiceConfirmationMask.Clears;TownServicePopulation.Reset();Check(!TownServicePopulation.Published.Active,"reset withdraws published population");Check(TownServiceConfirmationMask.Clears==oldClears+1,"reset releases confirmation presentation ownership");
         Reset();NetPlayerActors.Local=10;
         Tick(500f);
         var face=new TownFaceState{Active=true,Epoch=42,Sequence=1,Clock=20};face.Set(0,new TownFacePose{HeadYaw=22});

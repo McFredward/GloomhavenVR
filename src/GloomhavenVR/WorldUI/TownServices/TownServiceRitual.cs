@@ -262,6 +262,11 @@ internal sealed class TownServiceRitual : IDisposable
             _zone.transform.localPosition = service == 2 ? new Vector3(0f, .16f, .26f) : new Vector3(0f, .014f, 0f);
             _zoneGate = _zone.GetComponent<CanvasGroup>(); _zoneGate.alpha = 0f;
             _zoneLabel = _zone.transform.Find("Caption").GetComponent<TMP_Text>();
+            // Ritual placement uses the full central mat. Merchant marks are narrower
+            // to clear its upper stock cabinets; do not inherit that distinct geometry.
+            ((RectTransform)_zone.transform).sizeDelta = new Vector2(380f, 260f);
+            ((RectTransform)_zone.transform.Find("Border")).sizeDelta = new Vector2(380f, 260f);
+            _zoneLabel.rectTransform.sizeDelta = new Vector2(360f, 70f); _zoneLabel.fontSize = 36f;
             if (service == 2)
             {
                 ((RectTransform)_zone.transform).sizeDelta = new Vector2(190f, 190f);

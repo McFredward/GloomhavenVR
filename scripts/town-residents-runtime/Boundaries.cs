@@ -175,3 +175,22 @@ namespace GloomhavenVR.Net
 }
 
 namespace GloomhavenVR.Net { internal static class RemoteTownPerformance { internal static bool Observe(int peer,in TownActivityState a,in TownFaceState f,bool presence){RemoteTownFaces.ObservePresence(peer,in f);return true;} } }
+
+// Rendering/template lifetime is covered by the real Unity mirror suite. Population
+// owns only these lifecycle calls; record them here without emulating render state.
+namespace GloomhavenVR.Net.TownServices
+{
+    internal static class NativeTemplates
+    {
+        internal static readonly System.Collections.Generic.HashSet<byte> Invalidated = new();
+        internal static void InvalidateResident(byte service) => Invalidated.Add(service);
+    }
+}
+namespace GloomhavenVR.WorldUI
+{
+    internal static class TownServiceConfirmationMask
+    {
+        internal static int Clears;
+        internal static void Clear() => Clears++;
+    }
+}
