@@ -10,6 +10,13 @@ internal sealed class TownServiceStation : IDisposable
 {
     private readonly GameObject _root;
     private readonly Animation? _animation;
+    private readonly byte _service;
+    private readonly TownServiceLighting _lighting;
+    private readonly TownServiceDecor _decor;
+    private Transform? _room;
+    private Vector3 _center;
+    private float _scale;
+    private bool _placed;
     private readonly Renderer[] _renderers;
     private readonly MaterialPropertyBlock _properties = new();
     private static readonly int VisibilityId = Shader.PropertyToID("_TownVisibility");
@@ -19,9 +26,15 @@ internal sealed class TownServiceStation : IDisposable
     internal float GreetingDuration => _animation != null && _animation["Greeting"] != null
         ? _animation["Greeting"].length : 0f;
 
-    private TownServiceStation(GameObject root)
+    private TownServiceStation(GameObject root, byte service, Vector3 center, float scale)
     {
         _root = root;
+        _service = service;
+        _center = center;
+        _scale = scale;
+        _lighting = new TownServiceLighting(root.transform, service);
+        try { _decor = new TownServiceDecor(root.transform, service, _lighting); }
+        catch { _lighting.Dispose(); throw; }
         InteractionAnchor = root.transform.Find("InteractionAnchor")
             ?? throw new InvalidOperationException("Town station has no InteractionAnchor");
         _animation = root.GetComponentInChildren<Animation>(true);
@@ -38,30 +51,14 @@ internal sealed class TownServiceStation : IDisposable
         {
             root = UnityEngine.Object.Instantiate(prefab);
             root.name = "GloomhavenVR.TownService." + service;
-            // A parchment frame is common to visitors, unlike each client's camera focus/yaw.
-            Vector3 offset = service == 1 ? new Vector3(-1.65f, -.78f, .9f)
-                : service == 2 ? new Vector3(1.65f, -.78f, .9f) : new Vector3(0f, -.78f, 1.95f);
-            Quaternion readingFrame = Quaternion.identity;
-            float floor = center.y - MapRoomSeat.TableTopHeightMeters * scale;
-            if (MapRoomDriver.TrySolveSeat(out MapRoomSeat.Seat seat, out _))
-            {
-                // Services occupy the far half of the authored map reading frame, outside its
-                // table and spawn ring. A hardcoded world -X merchant would stand behind the
-                // usual Campaign player, whose initial view reads the parchment from -X.
-                readingFrame = Quaternion.Euler(0f, seat.YawDegrees, 0f);
-                floor = seat.FloorPosition.y;
-            }
-            Vector3 position = center + readingFrame * offset * scale;
-            position.y = floor;
-            root.transform.position = position;
-            Vector3 inward = center - root.transform.position;
-            inward.y = 0f;
-            root.transform.rotation = Quaternion.LookRotation(-inward.normalized, Vector3.up);
+            if (!TownServicePlacement.TryResolve(service, center, scale, out Vector3 position, out Quaternion rotation))
+            { UnityEngine.Object.Destroy(root); return null; }
+            root.transform.SetPositionAndRotation(position, rotation);
             root.transform.localScale = Vector3.one * scale;
             // Decorative bodies and furniture must not intercept the laser or hand election.
             foreach (Collider collider in root.GetComponentsInChildren<Collider>(true)) collider.enabled = false;
             foreach (Transform child in root.GetComponentsInChildren<Transform>(true)) child.gameObject.layer = VRLayers.ModLayer;
-            return new TownServiceStation(root);
+            return new TownServiceStation(root, service, center, scale);
         }
         catch
         {
@@ -74,6 +71,8 @@ internal sealed class TownServiceStation : IDisposable
     {
         if (_visibility == value) return;
         _visibility = value;
+        _lighting.SetVisibility(value);
+        _decor.SetVisibility(value);
         foreach (Renderer renderer in _renderers)
         {
             if (renderer == null) continue;
@@ -83,8 +82,28 @@ internal sealed class TownServiceStation : IDisposable
         }
     }
 
+    /// <summary>Only the elected author may update pose; observers retain the published pose.</summary>
+    internal void RefreshEnvironment(bool authorPose)
+    {
+        Transform? room = SkyAlternative.PlacedRoomRoot;
+        bool changed = !_placed || room != _room;
+        if (authorPose && MapRoomDriver.TryGetParchmentFrame(out Vector3 center, out float scale))
+        {
+            changed |= center != _center || scale != _scale;
+            if (changed && TownServicePlacement.TryResolve(_service, center, scale, out Vector3 position, out Quaternion rotation))
+            {
+                Root.SetPositionAndRotation(position, rotation);
+                Root.localScale = Vector3.one * scale;
+                _center = center; _scale = scale;
+            }
+        }
+        if (changed) { _lighting.Refresh(Root); _room = room; _placed = true; }
+        _decor.Tick();
+    }
+
     internal void Sample(string clip, float seconds)
     {
+        _decor.SetClock(seconds);
         if (_animation == null) return;
         AnimationState? state = _animation[clip];
         if (state == null) return;
@@ -99,6 +118,8 @@ internal sealed class TownServiceStation : IDisposable
 
     public void Dispose()
     {
+        _decor.Dispose();
+        _lighting.Dispose();
         if (_root != null) UnityEngine.Object.Destroy(_root);
     }
 }
