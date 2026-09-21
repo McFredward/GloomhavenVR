@@ -90,6 +90,9 @@ def fit(raw,name):
         depth=np.clip((1.445-world_z)/.07,0,1)
         front=np.clip((.025-y)/.04,0,1)
         y-=.07*depth*front
+        # Concealed overlap beneath the original blouse: the visible neck and
+        # chest silhouette stay fixed while oblique views cannot see inside it.
+        world_z-=.020*np.clip((1.400-world_z)/.030,0,1)
     return np.column_stack((x,y,world_z))
 
 

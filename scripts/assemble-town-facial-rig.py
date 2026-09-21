@@ -184,6 +184,6 @@ def main():
         if obj.type in ('MESH','ARMATURE','EMPTY'):obj.select_set(True)
     bpy.context.view_layer.objects.active=rig
     bpy.ops.export_scene.fbx(filepath=str(a.output/(a.name+'_rig.fbx')),use_selection=True,object_types={'MESH','ARMATURE','EMPTY'},add_leaf_bones=False,bake_anim=True,bake_anim_use_nla_strips=False,bake_anim_use_all_actions=True,bake_anim_force_startend_keying=True,bake_anim_simplify_factor=0,axis_forward='-Z',axis_up='Y',path_mode='STRIP')
-    (a.output/'facial-rig.json').write_text(json.dumps({'name':a.name,'lods':records,'prototypeSha256':hashlib.sha256((a.prototype/'face-prototype.blend').read_bytes()).hexdigest(),'rigSha256':hashlib.sha256(a.rig.read_bytes()).hexdigest(),'sourceScriptSha256':hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),'eyes':json.loads((a.prototype/'landmarks.json').read_text())['eyes']},indent=2)+'\n')
+    (a.output/'facial-rig.json').write_text(json.dumps({'name':a.name,'lods':records,'prototypeSha256':hashlib.sha256((a.prototype/'face-prototype.blend').read_bytes()).hexdigest(),'bakedHeadSha256':hashlib.sha256(a.baked_head.read_bytes()).hexdigest() if a.baked_head else None,'rigSha256':hashlib.sha256(a.rig.read_bytes()).hexdigest(),'sourceScriptSha256':hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),'eyes':json.loads((a.prototype/'landmarks.json').read_text())['eyes']},indent=2)+'\n')
 
 if __name__=='__main__':main()
