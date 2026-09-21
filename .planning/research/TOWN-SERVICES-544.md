@@ -59,14 +59,26 @@ only 32 bytes remain, so future additions require another explicit budget review
 
 ## Validation status
 
-Integration and final asset review are in progress. Do not interpret this working
-record as hardware acceptance or a completed shipping validation.
+Runtime integration passes all 14 source suites, all 51 local runtime suites and
+260310 wire assertions. Strict Release has zero warnings/errors; bilingual player
+documentation checks pass. The compiled guard reports the expected old-baseline
+differences (106 changed and 126 added/removed types, no order-only moves), with no
+removed public config/log/patch surfaces. Final asset review and packaging remain in
+progress; this is not hardware acceptance or completed shipping validation.
 
 The first contact render caught reversed anatomical left/right targets, unreachable
 writing contact and incorrect palm orientation despite passing mathematical IK tests.
 The first head orbit caught stretched collar UVs and an incomplete lower neck. These
 findings are why actual renders and final packaged assets must be reviewed, not just
 source assertions.
+
+A separate returning-author review found that a network partition could leave the
+old and temporary NPC authorities at different work phases. Recovery now blends
+the displayed contact positions, chest/wrist pose, casting intensity and face angles
+over 0.35 seconds. It never interpolates distant clocks through whole work loops.
+An interrupted recovery starts from its current intermediate pose. Focused tests
+include an immediate-author-snap negative control; no wire bytes or gameplay gates
+were added for this presentation reconciliation.
 
 ## Animation services
 
