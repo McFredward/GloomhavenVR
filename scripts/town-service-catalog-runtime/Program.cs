@@ -51,7 +51,14 @@ public static class InteractionProgram
             Check(e.CardUI.GetComponent<Image>().raycastTarget==false,"own card GUI cannot veto direct pickup");
             Check(e.BodyRoot!=null,"each item has physical body");
         }
-        var drawer=catalog.Drawers[0];Advance(drawer,1f);
+        var drawer=catalog.Drawers[0];
+        Transform label=drawer.Root.Find("Label");
+        Check(label.GetComponent<TMPro.TextMeshProUGUI>()!=null && label.GetComponent<TMPro.TextMeshPro>()==null
+            && label.GetComponent<Canvas>().renderMode==RenderMode.WorldSpace,
+            "drawer label uses supported mirrored world canvas text");
+        Check(Mathf.Abs(((RectTransform)label).rect.width*label.localScale.x-.95f)<.0001f,
+            "drawer canvas text retains physical label width");
+        Advance(drawer,1f);
         Check(drawer.Root.localPosition.z<-.58f,"full pull clears native countertop back rows");
         foreach(var e in catalog.Entries)if(e.Drawer==drawer)
         {

@@ -82,12 +82,14 @@ internal sealed class TownServiceMerchantDrawer : IGrabbable, IGrabbableHandFilt
         Part(root.transform,"Right",new Vector3(.515f,.035f,0f),new Vector3(.018f,.09f,.42f));
         Part(root.transform,"Back",new Vector3(0f,.035f,.205f),new Vector3(1.04f,.09f,.018f));
         Part(root.transform,"Handle",new Vector3(0f,.026f,-.245f),new Vector3(.20f,.025f,.035f));
-        var label = new GameObject("Label",typeof(TextMeshPro));label.transform.SetParent(root.transform,false);
+        var label = new GameObject("Label",typeof(RectTransform),typeof(Canvas),typeof(TextMeshProUGUI));label.transform.SetParent(root.transform,false);
         label.transform.localPosition=new Vector3(0f,.062f,-.228f);
         label.transform.localRotation=Quaternion.Euler(0f,180f,0f);
-        var text=label.GetComponent<TextMeshPro>();if(font!=null){text.font=font.font;text.fontSharedMaterial=font.fontSharedMaterial;}
-        text.fontSize=1.7f;text.alignment=TextAlignmentOptions.Center;text.color=new Color(.95f,.89f,.72f);
-        text.rectTransform.sizeDelta=new Vector2(.95f,.06f);text.enableWordWrapping=false;
+        label.transform.localScale=Vector3.one*.001f;
+        label.GetComponent<Canvas>().renderMode=RenderMode.WorldSpace;
+        var text=label.GetComponent<TextMeshProUGUI>();if(font!=null){text.font=font.font;text.fontSharedMaterial=font.fontSharedMaterial;}
+        text.fontSize=28f;text.raycastTarget=false;text.alignment=TextAlignmentOptions.Center;text.color=new Color(.95f,.89f,.72f);
+        text.rectTransform.sizeDelta=new Vector2(950f,60f);text.enableWordWrapping=false;
         Material wood=OriginalWood();
         foreach(MeshRenderer renderer in root.GetComponentsInChildren<MeshRenderer>(true))
             if(renderer.GetComponent<TMP_Text>()==null)renderer.sharedMaterial=wood;
