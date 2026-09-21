@@ -22,8 +22,9 @@ and bounded runtime work. It does not establish headset appearance or auditory q
    every render frame rescanned peers and could raycast for all candidates. The
    four-player, three-NPC upper bound is 1,080 casts/second at 90 Hz. This is a
    worst-case code-path bound, not a measured workload. A bounded short retry for
-   unsuccessful searches was requested, preserving cheap per-frame tracking of an
-   existing target and prompt invalidation of departed players.
+   unsuccessful searches is now present (200 ms), preserving cheap per-frame tracking
+   of an existing target and prompt invalidation of departed players. Inspected the
+   actual deadline paths and the source-bound peer-scan/native-wall regression.
 
 3. **A retired epoch could replace a new epoch through recovery presence.** The fast
    stream rejects mismatched epochs, but the original `ObservePresence` accepted
@@ -32,7 +33,22 @@ and bounded runtime work. It does not establish headset appearance or auditory q
    already sequenced by `ExtrasFragments`, which rejects older completed snapshots;
    ordinary in-connection reordering is protected. The requested retired-epoch guard
    is additional lifecycle/reconnect hardening, not evidence of a recorded transport
-   failure. Regression requested: A/99→B/1→A/100→B-fast/2.
+   failure. The source now keeps four retired epochs per bounded peer and rejects
+   a retired recovery presence. Inactive/stale entries are evictable when all eight
+   slots are occupied. The A→B→retired-A case has a production-bound regression.
+
+4. **Retiring an epoch on temporary peer loss prevents legitimate recovery.** The
+   first hardening patch retired the latest epoch in `RemoteTownFaces.Forget`.
+   `NetAvatarDriver` also calls that path when an avatar is stale for three seconds,
+   including temporary network stalls. The original lowest-ID authority can remain
+   locally active throughout that stall, then resume with its unchanged epoch. Its
+   legitimate recovery presence would now be rejected indefinitely. Reported the
+   concrete stale-sweep → `ForgetPeer` → `ForgetNativePresentation` →
+   `ForgetTownServices` path and requested suspension without retirement until a
+   genuinely different epoch is accepted. The follow-up now retains history while
+   suspended, requires newer presence to resume, and rejects fast-only resurrection.
+   Inspected the production implementation and regressions for same-epoch recovery,
+   resumed fast progress, old recovery rejection and retained A→B→A rejection.
 
 ## Boundaries checked
 
@@ -45,7 +61,8 @@ and bounded runtime work. It does not establish headset appearance or auditory q
   high-rate samples cannot independently elect another author.
 - Angle, clock, speech-age and flag validation is bounded and rejects non-finite
   input. Sequence comparison uses wrap-aware serial arithmetic. Peer storage is
-  capped at eight entries, and departure/reset paths clear facial state.
+  capped at eight entries. Departure suspends rendering while retaining bounded
+  sequence/epoch history; full reset clears it.
 - Before each body sample, the previous facial head delta is removed and eye rest
   rotations are restored. Gaze then applies after the body clip using the authored
   optical frame, including inward-facing stations. This avoids accumulating the
@@ -62,6 +79,24 @@ and bounded runtime work. It does not establish headset appearance or auditory q
   separate native-voice audit found the named NPC dialogue unvoiced. No generated
   greeting or unsolicited narrator playback belongs in this candidate.
 
-The review did not rerun the implementation worker's concurrently running suites.
-Final test evidence and exact integrated commits must be recorded by the integrator;
-source inspection alone does not establish networking behavior on actual hardware.
+## Final disposition
+
+All four source findings are addressed in the reviewed implementation. Runtime commits:
+`e9d890c7` (optional speech contract), `61998fd3` (facial runtime/stream and first
+review fixes), `10607208` (temporary-loss recovery). The speech contract remains
+unbound; these commits do not introduce synthetic playback.
+
+The implementation worker reported the following completed focused checks:
+
+- Genuine Unity facial runtime: 2,076 assertions and 16 compiled negative controls
+  (`/tmp/town543-face-runtime/run-_4_h1sw7`).
+- Golden protocol: 258,091 assertions.
+- Resident population: 143 assertions and eight negative controls.
+- Setting/lifecycle groups: 1,581 / 59 / 243 assertions and 14 negative controls.
+- Release build: zero warnings and zero errors.
+
+This independent lane inspected the final source and regression changes and checked
+the final facial-run log; it did not duplicate the worker's suites. The integrator
+must record final merged check results. Network stalls, actual observer appearance,
+eyelid contact, skin/eye lighting and attention comfort still need headset validation;
+a green fixture does not establish those visual outcomes.
