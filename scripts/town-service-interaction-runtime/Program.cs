@@ -34,6 +34,7 @@ public static class InteractionProgram
         public void OnGrabCancelled(VRHand hand) { Cancels++; }
     }
     private static int _assertions;
+    private static readonly List<Texture2D> Textures = new();
     private static readonly BindingFlags Static = BindingFlags.Static | BindingFlags.NonPublic;
     private static void Check(bool value, string message)
     { _assertions++; if (!value) throw new InvalidOperationException(message); }
@@ -53,6 +54,13 @@ public static class InteractionProgram
         internal TownServiceToken Token => Tokens[Slot];
         internal VRHand Hand = new();
         internal Transform OriginalParent = null!;
+        internal WindowPanel OriginalPanel = null!;
+        internal RawImage Portrait = null!, HiddenPortrait = null!;
+        internal Texture2D PortraitTexture = null!;
+        internal readonly Dictionary<Transform, Transform> NativeParents = new();
+        internal object Owner = null!;
+        internal object? SelectedCard;
+        internal int HiddenCallbacks;
         internal void Grab()
         {
             Token.Tick(1);
@@ -69,8 +77,9 @@ public static class InteractionProgram
         }
     }
 
-    private static Session Open(byte service)
+    private static Session Open(byte service, bool enabled = true)
     {
+        WorldUIConfig.ImmersiveTownServices.Value = enabled;
         new GameObject("events", typeof(EventSystem));
         Probe.Roots.Add(EventSystem.current.gameObject);
         var s = new Session { OriginalParent = Probe.Go("native-parent").transform };
@@ -106,10 +115,23 @@ public static class InteractionProgram
             var hover = slot.gameObject.AddComponent<HoverFixture>(); hover.Window = win; hover.Preview = slot.AbilityCard;
             s.Slot = slot; s.Window = win;
         }
+        s.PortraitTexture = new Texture2D(2, 2) { name = service == 1 ? "GuildBackground_Merchant"
+            : service == 2 ? "Guild_Background_Temple" : "Guild_Background_Enchantress" };
+        Textures.Add(s.PortraitTexture);
+        s.Portrait = Child<RawImage>("portrait", root.transform); s.Portrait.texture = s.PortraitTexture;
+        s.HiddenPortrait = Child<RawImage>("already-hidden-portrait", root.transform);
+        s.HiddenPortrait.texture = s.PortraitTexture; s.HiddenPortrait.enabled = false;
+        foreach (Transform descendant in root.GetComponentsInChildren<Transform>(true))
+            if (descendant != root.transform) s.NativeParents.Add(descendant, descendant.parent);
+        s.Owner = service == 1 ? ((UIShopItemWindow)s.Window).ItemInventory.character
+            : service == 2 ? ((UITempleWindow)s.Window).character : ((UINewEnhancementWindow)s.Window).character;
+        s.SelectedCard = service == 3 ? ((UINewEnhancementWindow)s.Window).selectedCard : null;
+        s.Window.onHidden.AddListener(() => s.HiddenCallbacks++);
         s.Button.onClick.AddListener(() => s.Clicks++);
         GuildmasterDestinations.Window = s.Window;
         GuildmasterDestinations.Mode = service == 1 ? EGuildmasterMode.Merchant : service == 2 ? EGuildmasterMode.Temple : EGuildmasterMode.Enchantress;
         ModalFallback.TryConvertWindow(s.Window);
+        s.OriginalPanel = ModalFallback.Converted[0];
         TownServicePresentation.Tick();
         Refresh(); // The production census is intentionally rate limited across openings.
         return s;
@@ -124,6 +146,9 @@ public static class InteractionProgram
         Tokens.Clear(); ModalFallback.Converted.Clear(); CanvasConversion.ActivePanels.Clear();
         foreach (var root in Probe.Roots) if (root != null) UnityEngine.Object.DestroyImmediate(root);
         Probe.Roots.Clear(); Probe.Events.Clear(); GuildmasterDestinations.Window = null;
+        foreach (var texture in Textures) if (texture != null) UnityEngine.Object.DestroyImmediate(texture);
+        Textures.Clear();
+        WorldUIConfig.ImmersiveTownServices.Value = true;
     }
 
     private static void IdentityChanges()
@@ -276,10 +301,98 @@ public static class InteractionProgram
             "fallback context remembers original native parent"); Clean();
     }
 
+    private static void CheckClassic(Session s)
+    {
+        Check(s.Window.IsOpen && s.HiddenCallbacks == 0 && s.Clicks == 0,
+            "toggle preserves native open controller without continuation callbacks");
+        Check(!TownServicePresentation.Active && TownServicePresentation.Tray == null
+            && TownServicePresentation.WorkMat == null && TownServicePresentation.Samples.Count == 0
+            && TownServicePresentation.LocalSurfaces.Count == 0 && TownServicePresentation.StationRoot == null,
+            "disabled presentation releases all local immersive ownership");
+        Check(ModalFallback.Converted.Count == 1 && CanvasConversion.ActivePanels.Count == 1
+            && ModalFallback.Converted[0].Panel.Target == s.Window.transform
+            && ModalFallback.Converted[0].Panel.OriginalParent == s.OriginalParent,
+            "disabled presentation has exactly one ordinary native conversion owner");
+        var wp = ModalFallback.Converted[0];
+        Check(!wp.ReflowCancelled && !wp.PoseRePlaceDone,
+            "disabled window retains ordinary placement and fitting lifecycle");
+        foreach (var pair in s.NativeParents)
+            Check(pair.Key.parent == pair.Value, "toggle restores every original descendant parent");
+        Check(s.Portrait.enabled && !s.HiddenPortrait.enabled,
+            "toggle restores original portrait visibility without enabling hidden artwork");
+        object owner = s.Window is UIShopItemWindow merchant ? merchant.ItemInventory.character
+            : s.Window is UITempleWindow temple ? temple.character : ((UINewEnhancementWindow)s.Window).character;
+        Check(ReferenceEquals(owner, s.Owner), "toggle retains native selected character");
+        if (s.Window is UINewEnhancementWindow enhancement)
+            Check(ReferenceEquals(s.SelectedCard, enhancement.selectedCard), "toggle retains native committed enhancement card");
+    }
+
+    private static void OptionalPresentation()
+    {
+        for (byte service = 1; service <= 3; service++)
+        {
+            var s = Open(service, false);
+            Check(ReferenceEquals(s.OriginalPanel, ModalFallback.Converted[0])
+                && !Probe.Events.Exists(x => x.StartsWith("section:") || x.StartsWith("release:")),
+                "disabled opening never takes ownership of original window");
+            CheckClassic(s);
+            // Exercising many off ticks catches a path that silently reconverts the same window.
+            for (int tick = 0; tick < 8; tick++) TownServicePresentation.Tick();
+            Check(ReferenceEquals(s.OriginalPanel, ModalFallback.Converted[0]) && ModalFallback.Converted.Count == 1,
+                "disabled idle ticks preserve the existing native conversion");
+            uint previousSession = TownServicePresentation.Session;
+            for (int cycle = 0; cycle < 5; cycle++)
+            {
+                WorldUIConfig.ImmersiveTownServices.Value = true;
+                TownServicePresentation.Tick(); Refresh();
+                Check(TownServicePresentation.Active && TownServicePresentation.Session != previousSession
+                    && !s.Portrait.enabled && TownServicePresentation.Samples.Count == 1,
+                    "reenabling creates a fresh usable immersive session");
+                previousSession = TownServicePresentation.Session;
+                int expectedSurfaces = service == 3 ? 3 : 1;
+                Check(CanvasConversion.ActivePanels.Count == expectedSurfaces + 1
+                    && TownServicePresentation.LocalSurfaces.Count == expectedSurfaces,
+                    "reenabling does not duplicate section or context owners");
+                s.Grab(); TownServiceToken stale = s.Token;
+                WorldUIConfig.ImmersiveTownServices.Value = false;
+                // This release runs before the normal presentation update can tear down its
+                // objects: the live config fence itself must revoke selection immediately.
+                s.Release();
+                Check(s.Clicks == 0, "disabled option immediately fences a held release before next tick");
+                TownServicePresentation.Tick();
+                Check(stale.HeldRoot == null, "disabling cancels and removes the held sample");
+                CheckClassic(s);
+                WorldUIConfig.ImmersiveTownServices.Value = true;
+                TownServicePresentation.Tick(); Refresh();
+                s.Hand.TriggerUp = true; stale.OnRelease(s.Hand, Vector3.zero);
+                Check(s.Clicks == 0, "retired sample cannot select after reenable");
+                WorldUIConfig.ImmersiveTownServices.Value = false;
+                TownServicePresentation.Tick(); CheckClassic(s);
+            }
+            // Disabling while still physically held must cancel ownership even without any
+            // release input; an old reference cannot dispatch after another live enable.
+            WorldUIConfig.ImmersiveTownServices.Value = true;
+            TownServicePresentation.Tick(); Refresh(); s.Grab();
+            TownServiceToken cancelled = s.Token;
+            WorldUIConfig.ImmersiveTownServices.Value = false; TownServicePresentation.Tick();
+            Check(cancelled.HeldRoot == null && s.Hand.Grabber.Heal() && s.Hand.Grabber.Held == null,
+                "live disable cancels a still-held sample without release input");
+            CheckClassic(s);
+            WorldUIConfig.ImmersiveTownServices.Value = true; TownServicePresentation.Tick(); Refresh();
+            s.Hand.TriggerUp = true; cancelled.OnRelease(s.Hand, Vector3.zero);
+            Check(s.Clicks == 0, "cancelled toggle gesture cannot dispatch after another enable");
+            // A new genuine gesture still performs the original selection after repeated toggles.
+            WorldUIConfig.ImmersiveTownServices.Value = true;
+            TownServicePresentation.Tick(); Refresh(); s.Grab(); s.Release();
+            Check(s.Clicks == 1, "native selection remains usable after repeated presentation toggles");
+            Clean();
+        }
+    }
+
     public static int Run()
     {
         _assertions = 0;
-        try { IdentityChanges(); HoverAndRelease(); CancellationCompatibility(); Handoff(); RollbackAndContinuation(); return _assertions; }
+        try { IdentityChanges(); HoverAndRelease(); CancellationCompatibility(); Handoff(); RollbackAndContinuation(); OptionalPresentation(); return _assertions; }
         finally { Clean(); }
     }
 }
