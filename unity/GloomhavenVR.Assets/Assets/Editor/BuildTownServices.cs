@@ -37,7 +37,8 @@ namespace GloomhavenVR
             importer.alphaIsTransparency = false;
             // Face and costume albedo retain 4K texel density. Costume micro-normal and
             // metallic masks use smaller mip ceilings to keep the self-contained bundle bounded.
-            var maxSize = path.StartsWith(Root + "/Textures/", StringComparison.Ordinal) ? 1024 :
+            var maxSize = Path.GetFileName(path) == "hands545_albedo.png" ? 2048 :
+                path.StartsWith(Root + "/Textures/", StringComparison.Ordinal) ? 1024 :
                 Path.GetFileName(path).StartsWith("body_", StringComparison.Ordinal) && linear ? (normal ? 2048 : 1024) : 4096;
             importer.maxTextureSize = maxSize;
             importer.mipmapEnabled = true;
