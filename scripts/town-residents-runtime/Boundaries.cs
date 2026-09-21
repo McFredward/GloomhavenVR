@@ -83,6 +83,9 @@ namespace GloomhavenVR.WorldUI
         }
         internal void RefreshEnvironment(bool author) { LastAuthor=author; if(author)Root.position=new Vector3(Root.position.x,Floor,Root.position.z); }
         internal void SetVisibility(float value)=>Visibility=value;
+        internal int FaceSeeds;internal bool FaceAuthor,FaceReceived;internal GloomhavenVR.Net.TownFacePose FacePose;
+        internal void SeedFace(GloomhavenVR.Net.TownFacePose pose,int author,float elapsed){FaceSeeds++;FacePose=pose;}
+        internal GloomhavenVR.Net.TownFacePose SampleFace(bool author,bool received,int authorId,in GloomhavenVR.Net.TownFacePose remote,float elapsed,float clock){FaceAuthor=author;FaceReceived=received;if(received)FacePose=remote;return FacePose;}
         internal void Sample(string clip,float age) { Clip=clip;Age=age; }
         internal void Dispose() { Live.Remove(Service);Disposals++; }
     }
@@ -112,7 +115,7 @@ namespace GloomhavenVR.Net
     internal static class NetPlayerActors { internal static int Local=10; internal static int LocalPlayerId()=>Local; }
     internal static class NetProtocol { internal const float StaleTimeoutSeconds=3; internal const byte ExtIdTownResidents=79; }
     internal struct RigPose { internal Vector3 Position; internal Quaternion Rotation; }
-    internal struct PresenceState { internal bool HasTownResidents; internal TownResidentsState TownResidents; }
+    internal struct PresenceState { internal bool HasTownFace;internal TownFaceState TownFace; internal bool HasTownResidents; internal TownResidentsState TownResidents; }
     // Serialization is independently covered by golden wire tests. Any accidental use here fails.
     internal static class AvatarSerializer
     {
@@ -121,5 +124,21 @@ namespace GloomhavenVR.Net
         internal static short ReadI16(byte[] b,ref int o)=>throw new Exception("Unexpected codec boundary");
         internal static float ReadF32(byte[] b,ref int o)=>throw new Exception("Unexpected codec boundary");
         internal static void ReadPoseShared(byte[] b,ref int o,out RigPose p)=>throw new Exception("Unexpected codec boundary");
+    }
+}
+
+namespace GloomhavenVR.WorldUI { internal static class TownServiceFaceSpeech { internal static System.Action? ResetObserver {get;set;} } }
+namespace GloomhavenVR.Net
+{
+    internal struct TownFacePose { internal float HeadYaw; }
+    internal struct TownFaceState { internal bool Active;internal uint Epoch,Sequence;internal float Clock;private TownFacePose _m,_t,_e;internal TownFacePose At(int index)=>index==0?_m:index==1?_t:_e;internal void Set(int index,TownFacePose pose){if(index==0)_m=pose;else if(index==1)_t=pose;else _e=pose;} }
+    internal static class RemoteTownFaces
+    {
+        private static readonly Dictionary<int,TownFaceState> States=new();
+        internal static bool Sample(int player,out TownFaceState state,out float elapsed){elapsed=0;return States.TryGetValue(player,out state);}
+        internal static void ObservePresence(int player,in TownFaceState state){States[player]=state;}
+        internal static bool TrySeed(out TownFaceState state,out int author,out float elapsed){foreach(var pair in States){author=pair.Key;elapsed=0;state=pair.Value;return true;}state=default;author=0;elapsed=0;return false;}
+        internal static void Forget(int player)=>States.Remove(player);
+        internal static void Reset()=>States.Clear();
     }
 }

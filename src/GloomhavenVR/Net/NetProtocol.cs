@@ -72,6 +72,8 @@ internal static class NetProtocol
     public const byte MsgTownServiceFragments = 20;
     public const byte ExtIdTownService = 78;
     public const byte ExtIdTownResidents = 79;
+    public const byte ExtIdTownFace = 80;
+    public const byte MsgTownFace = 21;
     public const byte ExtIdItemAppearance = 76;
     public const byte ExtIdPresentationCompression = 64;
     public const byte ExtIdDamageAvoidance = 65;
@@ -518,7 +520,18 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 542;
+    public const ushort ModBuild = 543;
+
+    // ModBuild 543 — anatomically fitted town faces with real eyes and shared facial motion.
+    // Head and binocular eye gaze follow one resident authority, preferring active visitors.
+    // Actual bounded angles use a 102-byte map-only packet at15Hz (all three residents together);
+    // deterministic blink/expression clocks render every intermediate frame, not just presence5Hz.
+    // Speech is a presentation adapter keyed by exact voice/language cue and utterance generation;
+    // no adapter/cue means a closed silent mouth. Apply after the original body sample.
+    // Additive80 and message21 retain Version3; resident79 is unchanged. Presence recovery adds
+    //96bytes: worst7082<7168assembly, allocation7339 retains257byte largest-record margin.
+    // Requires the matching facial-rig town bundle. Hardware anatomy/animation remains unverified.
+
 
     // ModBuild 542 — persistent immersive town residents and physical merchant inspection.
     // The supplied build-541 run opens merchant/temple/merchant without fallback. Screenshots

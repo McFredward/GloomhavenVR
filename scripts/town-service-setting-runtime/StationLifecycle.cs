@@ -48,6 +48,11 @@ internal static class StationLifecycle
             station.SetVisibility(.5f);
             Check(originalRenderer.PropertyWrites==1,"station-owned renderer fades");
             Check(laterCard.PropertyWrites==0,"late workspace card receives no station property block");
+            TownServiceFace.Throw=true;var face=default(GloomhavenVR.Net.TownFacePose);
+            station.SampleFace(true,false,1,in face,0,0);int faceTicks=TownServiceFace.Ticks;
+            station.SampleFace(true,false,1,in face,0,0);
+            Check(TownServiceFace.Ticks==faceTicks,"failed facial presentation stops retrying without blocking native station");
+            TownServiceFace.Throw=false;
             station.Dispose();Check(TownServiceLighting.Last.Disposed&&TownServiceDecor.Last.Disposed,"owned decoration and lighting released");
         }
         int created=TownServiceLighting.Creates;
@@ -128,3 +133,18 @@ namespace UnityEngine
     }
     public class Shader {public static int PropertyToID(string name)=>name.GetHashCode();}
 }
+
+namespace GloomhavenVR.Net { internal struct TownFacePose { } }
+namespace GloomhavenVR.WorldUI
+{
+    internal sealed class TownServiceFace
+    {
+        internal static bool Throw;internal static int Ticks;
+        internal TownServiceFace(UnityEngine.Transform root,byte service) { }
+        internal void BeforeBodySample() { }
+        internal void Seed(in GloomhavenVR.Net.TownFacePose pose,int author,float elapsed){}
+        internal GloomhavenVR.Net.TownFacePose Tick(bool author,bool received,int authorId,in GloomhavenVR.Net.TownFacePose remote,float elapsed,float clock){Ticks++;if(Throw)throw new InvalidOperationException("fixture facial failure");return remote;}
+    }
+}
+
+namespace GloomhavenVR.Core {internal static class VRLog {internal static void Warn(string scope,string message){} }}

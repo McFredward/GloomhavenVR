@@ -797,6 +797,24 @@ internal sealed partial class NetAvatarDriver : MonoBehaviour
         return mm > 0f;
     }
 
+    internal static bool TryGetTownFaceHead(int player, out Vector3 head)
+    {
+        head = Vector3.zero;
+        NetAvatarDriver? driver = _instance;
+        return driver != null && driver._avatars.TryGetValue(player, out RemoteAvatar avatar)
+            && avatar != null && avatar.TimeSinceUpdate <= NetProtocol.StaleTimeoutSeconds
+            && avatar.TryGetHeadWorld(out head);
+    }
+
+    internal static void CollectTownFacePeers(List<int> into)
+    {
+        NetAvatarDriver? driver = _instance;
+        if (driver == null) return;
+        foreach (var pair in driver._avatars)
+            if (pair.Value != null && pair.Value.TimeSinceUpdate <= NetProtocol.StaleTimeoutSeconds
+                && pair.Value.TryGetHeadWorld(out _)) into.Add(pair.Key);
+    }
+
     /// <summary>
     /// Append every peer's last RECEIVED head world position to <paramref name="into"/> and return
     /// how many were added.
@@ -3973,6 +3991,11 @@ internal sealed partial class NetAvatarDriver : MonoBehaviour
             case NetProtocol.MsgNativeDecisionPrompt:
                 parsed = QueueNativePresentation(senderId, buffer, length);
                 if (parsed) VersionGuard.NotePacket(senderId);
+                break;
+
+            case NetProtocol.MsgTownFace:
+                parsed = TownFaceCodec.ReadPacket(buffer, length, out TownFaceState face);
+                if (parsed) { VersionGuard.NotePacket(senderId); RemoteTownFaces.Observe(senderId, in face); }
                 break;
 
             case TownServices.TownServiceCodec.MessageType:

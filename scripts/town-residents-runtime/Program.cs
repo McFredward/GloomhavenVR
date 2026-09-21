@@ -76,6 +76,23 @@ internal static class Program
         Time.unscaledTime+=NetProtocol.StaleTimeoutSeconds+.1f;Tick();Check(TownServiceStation.Live.Count==0,"stale visitor station retires");Check(!TownServicePopulation.HasRemoteVisitors,"stale visitor does not keep remote presence alive");
         Reset();var presence=default(PresenceState);MapRoomDriver.Active=false;RemoteTownResidents.Sample(ref presence);Check(!presence.HasTownResidents,"no resident presence outside map");MapRoomDriver.Active=true;Tick();RemoteTownResidents.Sample(ref presence);Check(presence.HasTownResidents&&presence.TownResidents.Active,"map presence publishes all prepared residents");
         TownServicePopulation.Reset();Check(!TownServicePopulation.Published.Active,"reset withdraws published population");
+        Reset();NetPlayerActors.Local=10;
+        Tick(500f);
+        var face=new TownFaceState{Active=true,Epoch=42,Sequence=1,Clock=20};face.Set(0,new TownFacePose{HeadYaw=22});
+        var authority=new PresenceState{HasTownResidents=true,TownResidents=State(),HasTownFace=true,TownFace=face};
+        RemoteTownResidents.Observe(2,in authority);Tick();
+        Check(!TownServiceStation.Live[1].FaceAuthor&&TownServiceStation.Live[1].FaceReceived,"follower applies received face without local attention election");
+        Near(TownServiceStation.Live[1].FacePose.HeadYaw,22,"follower face retains authority angles");
+        Near(TownServicePopulation.PublishedFaces.Clock,20,"follower clock uses author even when local history is far ahead");
+        NetPlayerActors.Local=1;Tick();
+        Check(TownServiceStation.Live[1].FaceAuthor&&TownServiceStation.Live[1].FaceSeeds==1,"new lower ID seeds existing authority before authoring");
+        Near(TownServiceStation.Live[1].FacePose.HeadYaw,22,"handover retains existing head angle");
+        Check(TownServicePopulation.PublishedFaces.Clock>=20 && TownServicePopulation.PublishedFaces.Clock<21,"handover face clock never regresses");
+        WorldUIConfig.ImmersiveTownServices.Value=false;
+        TownServiceMirror.RemoteSessions[3]=new TownServiceSessionInfo{Peer=3,Active=true,Service=1,ReceivedTime=Time.unscaledTime};
+        RemoteTownResidents.Forget(2);RemoteTownFaces.Forget(2);Tick();
+        Check(!TownServiceStation.Live[1].FaceAuthor&&!TownServicePopulation.IsFaceAuthor,"opted out observer never authors even without eligible peer");
+        Check(!TownServicePopulation.PublishedFaces.Active,"opted out observer never publishes face ownership");
         Console.WriteLine($"Town residents: {_assertions} production lifecycle/authority assertions passed");
     }
 }

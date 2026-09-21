@@ -24,6 +24,7 @@ def main():
     anchor = '        InteractionAnchor = root.transform.Find("InteractionAnchor")\n            ?? throw new InvalidOperationException("Town station has no InteractionAnchor");\n'
     variants = [
         ("baseline", {}),
+        ("facial failure blocks native station", {"Station.cs": sources["Station.cs"].replace('catch (Exception error) { FaceFailure(error); return remote; }', 'catch (Exception error) { throw new InvalidOperationException("facial failure escaped", error); }')}),
         ("unchanged followers dirty geometry every frame", {"Grounding.cs": sources["Grounding.cs"].replace('if (_applied && actorOffset == _actorOffset && furnitureBottom == _furnitureBottom) return;', 'if (_applied && actorOffset == _actorOffset && furnitureBottom == _furnitureBottom && false) return;')}),
         ("handover leaves old ground geometry", {"Station.cs": sources["Station.cs"].replace('SetGrounding(actorFloor, furnitureBottom);', '// SetGrounding intentionally omitted by negative control')}),
         ("actor correction overwrites authored soles", {"Grounding.cs": sources["Grounding.cs"].replace('_actorRest + Vector3.up * actorOffset', 'Vector3.up * actorOffset')}),

@@ -1,5 +1,6 @@
 using System;
 using GloomhavenVR.Core;
+using GloomhavenVR.Net;
 using GloomhavenVR.WorldUI.MapRoom;
 using UnityEngine;
 
@@ -14,6 +15,9 @@ internal sealed class TownServiceStation : IDisposable
     private readonly TownServiceLighting _lighting;
     private readonly TownServiceDecor _decor;
     private readonly TownServiceGrounding _grounding;
+    private readonly TownServiceFace _face;
+    private bool _faceFailed;
+    private static readonly bool[] FaceFailureReported = new bool[4];
     internal float ActorFloorOffset { get; private set; }
     internal float FurnitureBottom { get; private set; }
     private Transform? _room;
@@ -42,6 +46,7 @@ internal sealed class TownServiceStation : IDisposable
         _animation = root.GetComponentInChildren<Animation>(true);
         _renderers = root.GetComponentsInChildren<Renderer>(true);
         _grounding = new TownServiceGrounding(root.transform);
+        _face = new TownServiceFace(root.transform, service);
         _lighting = new TownServiceLighting(root.transform, service);
         try { _decor = new TownServiceDecor(root.transform, service, _lighting); }
         catch { _lighting.Dispose(); throw; }
@@ -122,6 +127,7 @@ internal sealed class TownServiceStation : IDisposable
 
     internal void Sample(string clip, float seconds)
     {
+        _face.BeforeBodySample();
         _decor.SetClock(seconds);
         if (_animation == null) return;
         AnimationState? state = _animation[clip];
@@ -133,6 +139,26 @@ internal sealed class TownServiceStation : IDisposable
         state.time = seconds;
         _animation.Sample();
         state.enabled = false;
+    }
+
+    internal void SeedFace(TownFacePose pose, int author, float elapsed)
+    {
+        if (_faceFailed) return;
+        try { _face.Seed(in pose, author, elapsed); }
+        catch (Exception error) { FaceFailure(error); }
+    }
+    internal TownFacePose SampleFace(bool author, bool received, int authorId, in TownFacePose remote, float elapsed, float clock)
+    {
+        if (_faceFailed) return remote;
+        try { return _face.Tick(author, received, authorId, in remote, elapsed, clock); }
+        catch (Exception error) { FaceFailure(error); return remote; }
+    }
+    private void FaceFailure(Exception error)
+    {
+        _faceFailed = true; // A cosmetic failure must never gate the independent NPC visit target.
+        if (_service < 1 || _service > 3 || FaceFailureReported[_service]) return;
+        FaceFailureReported[_service] = true;
+        VRLog.Warn("TownServices", "NPC facial animation disabled for service " + _service + ": " + error);
     }
 
     public void Dispose()

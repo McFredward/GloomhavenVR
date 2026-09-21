@@ -35,6 +35,9 @@ def main():
             ("viewer floor overrides author", "Population.cs", "RefreshEnvironment(!follows)", "RefreshEnvironment(true)"),
             ("premature input and visibility", "Population.cs", "resident.Station.IsReady", "true"),
             ("viewer misses author grounding", "Population.cs", "resident.Station.SetGrounding(pose.ActorFloorOffset, pose.FurnitureBottom);", ""),
+            ("viewer retains ahead facial clock", "Population.cs", "_faceClock = remoteFace.Clock;", "_faceClock = Mathf.Max(_faceClock, remoteFace.Clock);"),
+            ("follower elects local facial target", "Population.cs", "IsFaceAuthor = !follows && enabled;", "IsFaceAuthor = enabled;"),
+            ("opted out observer authors faces", "Population.cs", "SampleFace(IsFaceAuthor, hasFace", "SampleFace(!follows, hasFace"),
             ("stale author never expires", "Remote.cs", "now - pair.Value.Received <= NetProtocol.StaleTimeoutSeconds", "true"),
         ]
         for label, file, before, after in variants:

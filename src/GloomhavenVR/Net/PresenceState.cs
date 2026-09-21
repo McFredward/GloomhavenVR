@@ -11,10 +11,13 @@ namespace GloomhavenVR.Net;
 /// </summary>
 internal struct PresenceState
 {
-    /// <summary>Explicit ownership statement for shared map windows, including an all-zero release.
-    /// A missing statement cannot establish that a remote player's stationary grip ended.</summary>
+    /// <summary>Facial stream recovery from the elected resident author; never viewer-authored.</summary>
+    public bool HasTownFace;
+    public TownFaceState TownFace;
     public bool HasTownResidents;
     public TownResidentsState TownResidents;
+    /// <summary>Explicit ownership statement for shared map windows, including an all-zero release.
+    /// A missing statement cannot establish that a remote player's stationary grip ended.</summary>
     public bool HasSharedWindowMotion;
     public byte SharedWindowHeldMask;
     public byte SharedWindowReflowMask;
@@ -1622,6 +1625,8 @@ internal static class PresenceSerializer
     /// + 56 (HELD PROPS: 2 + its two-slot form, 2 x <c>NetProtocol.HeldPropSlotBytes</c>)
     /// = 1726.
     ///
+    /// <para>Town faces80 adds96 bytes: 6986 ->7082 worst case, buffer7339 preserves257 spare
+    /// bytes and the actual snapshot still fits unchanged7168-byte reassembly.</para>
     /// <para>Permanent residents79 adds at most117 bytes: 6869 -> 6986 worst case; buffer7243
     /// retains257 spare bytes. The7168-byte reassembly bound remains sufficient.</para>
     ///
@@ -1876,7 +1881,7 @@ internal static class PresenceSerializer
     /// ITS OWN COMMIT, and keeps a margin of at least one record's worth. Record 27 (track order)
     /// took the worst case 859 → 887 on 2026-08-08; the margin is 393 bytes, i.e. still more than
     /// every optional record on the tail put together.</para></summary>
-    public const int MaxSize = 7243;
+    public const int MaxSize = 7339; // TownFace80 adds96; worst7082 +257 spare.
 
     // ---- write --------------------------------------------------------------------------
 
@@ -1951,6 +1956,7 @@ internal static class PresenceSerializer
                           // The sampler already returns 0 outside the online card-selection phase,
                           // which is what keeps every packet of every other phase byte-identical
                           // to a pre-record-27 sender's.
+                          || state.HasTownFace
                           || state.HasTownResidents
                           || state.HasSharedWindowMotion
                           || state.HasVideoWindow
@@ -2717,6 +2723,9 @@ internal static class PresenceSerializer
                 records++;
             }
         }
+        if (state.HasTownFace && TownFaceCodec.Write(buffer, ref i, in state.TownFace))
+            records++;
+
         if (state.HasTownResidents && TownResidentsCodec.Write(buffer, ref i, in state.TownResidents))
             records++;
         // A zero mask is a positive release statement, not an omitted default. Stationary
@@ -4053,6 +4062,11 @@ internal static class PresenceSerializer
     private static void ReadExtensionRecord(byte[] buffer, int i, byte id, int len,
                                             ref PresenceState state)
     {
+        if (id == NetProtocol.ExtIdTownFace)
+        {
+            state.HasTownFace = TownFaceCodec.TryRead(buffer, i, len, out state.TownFace);
+            return;
+        }
         if (id == NetProtocol.ExtIdTownResidents)
         {
             state.HasTownResidents = TownResidentsCodec.TryRead(buffer, i, len, out state.TownResidents);
