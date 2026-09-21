@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using GloomhavenVR.Core;
 using GloomhavenVR.Hands;
 using GloomhavenVR.Hands.Interact;
@@ -11,6 +12,8 @@ namespace GloomhavenVR.WorldUI;
 /// swaps or filtered card population. Both physical and laser pulls move the same track.</summary>
 internal sealed class TownServiceMerchantDrawer : IGrabbable, IGrabbableHandFilter, IGrabCancellation, IDisposable
 {
+    private static readonly HashSet<Transform> ContentRoots=new();
+    internal static bool IsContentRoot(Transform node)=>ContentRoots.Contains(node);
     internal const int Capacity = 48;
     internal const float Travel = .78f;
     private readonly GameObject _root, _housing;
@@ -48,7 +51,7 @@ internal sealed class TownServiceMerchantDrawer : IGrabbable, IGrabbableHandFilt
             if(renderer.GetComponent<TMP_Text>()==null)renderer.sharedMaterial = _material;
         _caption=Root.Find("Label").GetComponent<TMP_Text>();_caption.text=label;
         foreach(MeshRenderer renderer in _housing.GetComponentsInChildren<MeshRenderer>(true))renderer.sharedMaterial=_material;
-        Content = new GameObject("PersistentCards").transform; Content.SetParent(Root,false);
+        Content = new GameObject("PersistentCards").transform; Content.SetParent(Root,false);ContentRoots.Add(Content);
         _pick = Root.Find("Handle").gameObject.AddComponent<BoxCollider>(); _pick.isTrigger = true;
         VRInteractables.RegisterGrabbable(this,_pick); VRLayers.Apply(_root);
     }
@@ -139,5 +142,5 @@ internal sealed class TownServiceMerchantDrawer : IGrabbable, IGrabbableHandFilt
         _hand=null;_laser=false;
     }
     public void OnGrabCancelled(VRHand hand){if(_hand==hand){_hand=null;_laser=false;_target=_amount;}}
-    public void Dispose(){if(_disposed)return;_disposed=true;VRInteractables.UnregisterGrabbable(this);UnityEngine.Object.Destroy(_material);UnityEngine.Object.Destroy(_root);UnityEngine.Object.Destroy(_housing);}
+    public void Dispose(){if(_disposed)return;_disposed=true;ContentRoots.Remove(Content);VRInteractables.UnregisterGrabbable(this);UnityEngine.Object.Destroy(_material);UnityEngine.Object.Destroy(_root);UnityEngine.Object.Destroy(_housing);}
 }
