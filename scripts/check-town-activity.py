@@ -22,14 +22,13 @@ def replace_once(source, before, after):
 
 def sources(root):
     base = root / "src/GloomhavenVR/WorldUI/TownServices"
-    names = ["TownServiceActivityHandover.cs", "TownServiceActivityMotion.cs", "TownServiceActivityRig.cs", "TownServiceActivityProps.cs", "TownServiceGrounding.cs", "TownServiceFaceAttention.cs", "TownServiceFaceMotion.cs"]
+    names = ["TownServiceActivityHandover.cs", "TownServiceActivityMotion.cs", "TownServiceActivityRig.cs", "TownServiceActivityProps.cs", "TownServiceGrounding.cs", "TownServiceFaceAttention.cs", "TownServiceFaceMotion.cs", "TownServiceFaceRig.cs"]
     bound = {name: (base / name).read_text() for name in names}
     bound["RemoteTownActivities.cs"] = (root / "src/GloomhavenVR/Net/Remote/RemoteTownActivities.cs").read_text()
     bound["TownActivityTypes.cs"] = (root / "src/GloomhavenVR/Net/TownActivityState.cs").read_text().split("/// <summary>Additive81:")[0]
     bound["RemoteTownFaces.cs"] = (root / "src/GloomhavenVR/Net/Remote/RemoteTownFaces.cs").read_text()
     bound["RemoteTownPerformance.cs"] = (root / "src/GloomhavenVR/Net/Remote/RemoteTownPerformance.cs").read_text()
     bound["FaceTypes.cs"] = (root / "src/GloomhavenVR/Net/TownFaceState.cs").read_text().split("/// <summary>Additive80:")[0]
-    bound["FaceWeights.cs"] = "using UnityEngine; namespace GloomhavenVR.WorldUI;\n" + "internal struct TownServiceFacePose" + (base / "TownServiceFaceRig.cs").read_text().split("internal struct TownServiceFacePose")[1]
     return bound, {name: hashlib.sha256(text.encode()).hexdigest() for name, text in bound.items()}
 
 

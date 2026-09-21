@@ -23,11 +23,22 @@ internal static class ActivityRender
         RenderSettings.ambientLight=new Color(.25f,.28f,.32f);RenderSettings.ambientIntensity=1;
         var block=new MaterialPropertyBlock();block.SetFloat("_TownVisibility",1);foreach(Renderer r in obj.GetComponentsInChildren<Renderer>(true))r.SetPropertyBlock(block);
         Animation animation=root.GetComponentInChildren<Animation>();
+        var faceRig=new TownServiceFaceRig(root);
         using var metrics=new StreamWriter(Path.Combine(folder,"service"+service+"-contacts.csv"));metrics.WriteLine("phase,handX,handY,handZ,gripX,gripY,gripZ,tipX,tipY,tipZ");
-        foreach(int phase in new[]{0,1,2})
+        foreach(int phase in new[]{0,1,2,3})
         {
-            rig.BeforeBodySample();animation.Stop();var body=animation["Idle"];body.enabled=true;body.weight=1;body.time=0;animation.Sample();body.enabled=false;
+            faceRig.BeforeBodySample();rig.BeforeBodySample();animation.Stop();var body=animation["Idle"];body.enabled=true;body.weight=1;body.time=0;animation.Sample();body.enabled=false;
             var state=new TownActivityPose{WorkClock=phase==0?2:8,TransitionAge=.65f,FromBlend=phase==2?1:0,Engaged=phase==2};rig.Apply(in state);props.Sample(in state);
+            if(phase==3)
+            {
+                // Normal settled work focus, using the exact production residual-angle solver
+                // after the real body/activity pose. This is not an extra synthetic22° bend.
+                var gaze=default(TownFacePose);Vector3 focus=root.TransformPoint(TownServiceActivityMotion.RestFocus(service));
+                for(int frame=0;frame<90;frame++)gaze=TownServiceFaceMotion.Aim(faceRig.OpticalRotation,root.lossyScale.x,
+                    faceRig.HeadPosition,faceRig.LeftPosition,faceRig.RightPosition,focus,in gaze,1f/90f);
+                TownServiceFacePose face=TownServiceFaceMotion.Evaluate(in gaze,8f,service,Vector3.zero);faceRig.Apply(in face);
+                metrics.WriteLine("# normal-work-gaze pitch="+gaze.HeadPitch.ToString("R",CultureInfo.InvariantCulture)+" yaw="+gaze.HeadYaw.ToString("R",CultureInfo.InvariantCulture));
+            }
             Transform hand=root.GetComponentsInChildren<Transform>(true).Single(t=>t.name=="Hand.R");Transform grip=root.Find("ActivityGripRight"),pen=root.Find("Town.ReedPen");Vector3 tip=pen!=null?pen.TransformPoint(new Vector3(0,-TownServiceActivityProps.PenTipDistance,0)):Vector3.zero;
             Transform shoulder=root.GetComponentsInChildren<Transform>(true).Single(t=>t.name=="UpperArm.R");Transform elbow=root.GetComponentsInChildren<Transform>(true).Single(t=>t.name=="Forearm.R");
             metrics.WriteLine("# shoulder="+shoulder.position.ToString("F5")+" upper="+Vector3.Distance(shoulder.position,elbow.position)+" fore="+Vector3.Distance(elbow.position,hand.position));
