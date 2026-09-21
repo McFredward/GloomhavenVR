@@ -8,6 +8,14 @@ using UnityEngine;
 // arguments and removal, while Program.cs validates actual capture/render playback.
 namespace GloomhavenVR.WorldUI
 {
+    internal sealed class UIShopItemSlot : MonoBehaviour { }
+    internal sealed class UITempleShopSlot : MonoBehaviour { }
+    internal sealed class UINewEnhancementShopSlot : MonoBehaviour { }
+    internal sealed class UIEnhanceCardSlot : MonoBehaviour { }
+    internal sealed class UIEnhanceCardPoint : MonoBehaviour { }
+    internal sealed class UIEnhancementButtonHighlight : MonoBehaviour { }
+    internal sealed class ItemCardUI : MonoBehaviour { internal int CardID; }
+    internal sealed class AbilityCardUI : MonoBehaviour { internal int CardID; }
     internal sealed class PublisherWindow : MonoBehaviour { }
     internal sealed class TownServiceSurface
     {
@@ -27,6 +35,11 @@ namespace GloomhavenVR.WorldUI
             internal Transform RowSource = null!;
             internal Transform? RowCloneOf(Transform source) => source == RowSource ? RowContent : null;
         }
+        internal Transform? PreviewContent, PreviewSource, HintContent;
+        internal Transform? HintSource;
+        internal readonly Dictionary<Transform, Transform> PreviewMap = new(), HintMap = new();
+        internal Transform? PreviewCloneOf(Transform source) => PreviewMap.TryGetValue(source, out var copy) ? copy : null;
+        internal Transform? HintCloneOf(Transform source) => HintMap.TryGetValue(source, out var copy) ? copy : null;
         internal List<Control> Controls = new();
         internal Transform NavigationRoot = null!;
         internal List<Entry> Entries = new();
@@ -35,6 +48,8 @@ namespace GloomhavenVR.WorldUI
     {
         internal Transform? HeldContent;
         internal Transform Source = null!;
+        internal readonly Dictionary<Transform, Transform> HeldMap = new();
+        internal Transform? HeldCloneOf(Transform source) => HeldMap.TryGetValue(source, out var copy) ? copy : null;
     }
     internal sealed class TownServiceTray { internal Transform Root = null!; }
     internal sealed class UITooltip : MonoBehaviour { internal Transform? m_AnchorToTarget; }
@@ -42,7 +57,9 @@ namespace GloomhavenVR.WorldUI
     {
         internal static bool Ready = true;
         internal static UITooltip? Tooltip;
-        internal static Transform? Original(string key) => null;
+        internal static readonly Dictionary<string, Transform> Originals = new();
+        internal static Transform? Original(string key) => Originals.TryGetValue(key, out var value) ? value : null;
+        internal static string CardKey(AbilityCardUI card) => "card." + card.CardID;
         internal static string TooltipKey(UITooltip tooltip) => "tooltip.fixture";
     }
     internal static class TownServicePresentation
@@ -56,6 +73,7 @@ namespace GloomhavenVR.WorldUI
         internal static List<TownServiceSurface> LocalSurfaces = new();
         internal static List<TownServiceToken> Samples = new();
         internal static TownServiceTray? Tray;
+        internal static Transform? CounterFurniture;
     }
     internal static partial class TownServiceSync
     {
@@ -78,9 +96,7 @@ namespace GloomhavenVR.WorldUI
         private static void Prepare() { }
         private static Transform? ResolveFrame(int peer) => _sharedFrame;
         private static void Reset() { Modules.Clear(); Sources.Clear(); _session = 0; _service = 0; }
-        private static string? DynamicKey(Transform source) => null;
-        private static void PublishHeld(TownServiceToken sample, Transform original) { }
-        private static bool OwnsAnchor(Transform? anchor) => false;
+        private static bool OwnsAnchor(Transform? anchor) => anchor != null;
         private static void Publish(string key, Transform? source, Transform? provenance = null, Func<Transform, Transform?>? cloneOf = null)
         {
             if (source == null) return;
