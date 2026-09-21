@@ -254,6 +254,7 @@ public static class InteractionProgram
             Roster(); NetPlayerActors.Local = 0;
             using (var solo = new TownServiceWorkspace(station.transform)) { solo.SetVisibility(1); Check(Close(solo.Root.position, station.transform.position), "offline keeps original front counter"); }
             System.IO.File.WriteAllLines(System.IO.Path.ChangeExtension(typeof(InteractionProgram).Assembly.Location,"poses.csv"),PoseEvidence);
+            count += WorkspacePropsProgram.Run();
             return count;
         }
         finally { foreach (var workspace in workspaces) workspace.Dispose(); UnityEngine.Object.DestroyImmediate(station); }

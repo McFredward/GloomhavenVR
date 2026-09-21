@@ -861,6 +861,17 @@
         "local"
       ],
       "weight": 35
+    },
+    {
+      "id": "town-flame",
+      "command": [
+        "python3",
+        "scripts/check-town-flame.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 35
     }
   ]
 }

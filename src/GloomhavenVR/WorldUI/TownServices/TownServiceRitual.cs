@@ -406,6 +406,9 @@ internal sealed class TownServiceRitual : IDisposable
         if (!_alive() || box == null || box.GetComponent<UIWindow>().IsOpen || !button.IsInteractable() || !eligible()) return false;
         object? context = _context(), selected = identity();
         Action? previous = box._onConfirmCallback;
+        using var confirmation = TownServiceRitualConfirmationGuard.Begin(box,
+            () => _alive() && eligible() && button != null && button.IsActive() && button.IsInteractable()
+                && ReferenceEquals(context, _context()) && ReferenceEquals(selected, identity()));
         if (!Click(button)) return false;
         // The native selection synchronously installs its callback. Refusal or an unrelated
         // pre-existing prompt cannot become an implicit purchase. The callback still owns
