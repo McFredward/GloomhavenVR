@@ -51,6 +51,16 @@ native confirm, cancel, reward or exit callback.
 
 ## Validation and handoff checklist
 
+Build 539: live-switching validation passes **617 Unity assertions and 22 compiled negative
+controls**. Strict Release compilation has zero warnings/errors. All repository source gates,
+the complete production regression harness chain and **255,887 wire assertions** pass.
+`refactor-guard.sh check --summary` exits 1 for intentional compiled differences against its
+historical `080c505e9` baseline (0 moved, 104 changed, 90 added/removed), not a failed functional
+gate; no configuration/patch/log surface was removed. The 538-to-539 source review is confined
+to the option, reversible town lifecycle, localization, tests and handoff records. The ordinary
+1.0.6 conversion/release and enchantress composite implementations remain unchanged.
+Evidence is retained in `.planning/debug/town-build-539/`. Hardware appearance is unverified.
+
 - [x] Strict Release compilation of the integrated local interaction and transport.
 - [x] Real Unity interaction harness: 77 assertions, 19 compiled negative controls.
 - [x] Codec/delta tests and actual existing router/fragment golden vectors.
@@ -62,8 +72,8 @@ native confirm, cancel, reward or exit callback.
 
 ## Hardware pass
 
-1. Install the complete development package, including both asset bundles. Enable immersive
-   town visits in VR options. Open each service
+1. Install the complete development package, including both asset bundles. Confirm immersive
+   town visits is enabled in VR options (the default). Open each service
    in Campaign and Guildmaster; repeat open, X/exit, reopen and service switches. Native
    first-visit introductions, confirmations and any threshold rewards must remain actionable.
    For each service, toggle off while open and while holding a sample: expect the original
