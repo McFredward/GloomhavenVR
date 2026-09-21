@@ -40,11 +40,13 @@ The additional hand material adds one draw per visible resident; one shared 2K a
 
 ## Final artifact evidence
 
-- Windows bundle: 100,502,898 bytes, SHA256 `150fee4dcb663f05c3bb586c8c45a79a0c54bbd5f3706429cc96cbb72b84c61e`; below the 100 MiB GitHub object limit.
-- Matching Linux review bundle: SHA256 `c35244d2df2ab86f33abbe0d5ba726ea33bacbdb6d83ad82a47c4de71f96a422`.
-- Actual asset gate: 598 assertions and six deliberate visual negative controls. This includes true 2K standalone hand imports, three materials per LOD, hand-marker parenting, no animation tracks that overwrite reparented contact frames, facial channels, opaque/dissolved rendering, pose scale and native capped map clip planes.
+- Windows bundle: 100,501,555 bytes, SHA256 `08ff85016de6350533a1540b64591ed1ff4c3555ac6d7986ba79486df0fe597e`; below the 100 MiB GitHub object limit.
+- Matching Linux review bundle: SHA256 `add071e017817d75e51eb08851d70c045ea6b57e715dca8c874efe14b2a1fa51`.
+- Actual asset gate: 599 render assertions (plus a separately successful bundle build) and six deliberate visual negative controls. This includes true 2K standalone hand imports, three materials per LOD, hand-marker parenting, no animation tracks that overwrite reparented contact frames, facial channels, opaque/dissolved rendering, pose scale and native capped map clip planes.
 - Actual Windows shader programs: all four D3D fragment variants of each eye shader bind the real four-light inputs. The final cornea on/off probe under the actual 2.6-power lamps changes 3,088–5,458 pixels across three views, with peak differences of 50–56/255; the glints are produced by the actual lamps.
-- Evidence: `.planning/debug/town545-final-evidence-v2`, with a 128-input SHA256 manifest verified against the promoted source tree. `portrait-review` contains the approved geometry/material review; `practical-cornea` contains the isolated optical probe. Static station views intentionally omit runtime native decoration, which has separate integration evidence.
+- Evidence: `.planning/debug/town545-final-evidence-v4`, with a 128-input SHA256 manifest verified against the promoted source tree. `portrait-review` contains the approved geometry/material review; `practical-cornea` contains the isolated optical probe. Static station views intentionally omit runtime native decoration, which has separate integration evidence.
 - Canonical packed authoring inputs: `.planning/debug/town545-prototype-final`, `town545-rig-final`, and `town545-hands-v3`; the integrator archives these as `npc-authoring545` in the main checkout.
 
 The final shared hand atlas contributes one additional draw per NPC. Final imported mesh memory and triangle/vertex counts are recorded per NPC and LOD in the `*-facial-metrics.txt` evidence. Close stereo appearance, runtime timing and the lower-detail portrait-style collar/cloth surfaces remain hardware assessment items; no claim of photorealism is made.
+
+The final shader-only correction sets `TownFlame` `DisableBatching=True`, preserving each native flame/glow billboard origin. Both final bundles contain all four shipping shaders; the Linux fixture now loads TownFlame from its actual bundle rather than the editor AssetDatabase. Its compiled tag, flipbook, billboard and dissolve behavior pass. The Windows binary also contains the normalized tag. The manifest differs from the previously approved art inputs only in TownFlame, its validator and Sources.md; no actor mesh, texture, material or pose was regenerated.
