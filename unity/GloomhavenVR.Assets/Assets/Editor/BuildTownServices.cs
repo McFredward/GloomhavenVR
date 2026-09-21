@@ -141,7 +141,6 @@ namespace GloomhavenVR
             }
             var group = actor.AddComponent<LODGroup>();
             group.SetLODs(lods);
-            group.RecalculateBounds();
             var animation = actor.GetComponent<Animation>() ?? actor.AddComponent<Animation>();
             animation.playAutomatically = true;
             animation.cullingType = AnimationCullingType.AlwaysAnimate;
@@ -163,6 +162,12 @@ namespace GloomhavenVR
             Anchor(station, "ServiceSurface", new Vector3(0, 0.94f, 0));
             BuildStation(station, name);
             animation.GetClip("Idle").SampleAnimation(actor, 0); // Serialized opening pose already matches idle, before the first runtime tick.
+            // The FBX idle pose applies its centimetre-to-metre armature scale. Calculating
+            // before sampling and using Unity's skin bounds serializes a 1.75 cm LOD
+            // volume around a 1.75 m actor, culling all LODs at normal distance (539).
+            SetPosedLodBounds(group);
+            if (group.size < 1f || group.size > 3f)
+                throw new InvalidDataException(name + ": unexpected posed LOD size " + group.size);
             PrefabUtility.SaveAsPrefabAsset(station, Root + "/Prefabs/" + stationName + ".prefab");
             Debug.Log("TOWN_ASSET " + stationName + " skinnedLODs=" + allRenderers.Length + " bones=" + allRenderers[0].bones.Length +
                 " triangles=" + String.Join(",", lods.Select(l => ((SkinnedMeshRenderer)l.renderers[0]).sharedMesh.triangles.Length / 3)) +
@@ -319,6 +324,51 @@ namespace GloomhavenVR
                 material.EnableKeyword("_NORMALMAP");
             }
         }
+        static void SetPosedLodBounds(LODGroup group)
+        {
+            // Unity 2021 RecalculateBounds uses the skinned local extent without the FBX
+            // child renderer's 100x scale. Convert renderer world bounds explicitly into group
+            // space; neither a forced LOD nor a guessed scalar is correct for other rigs.
+            var bound = new Bounds();
+            bool first = true;
+            foreach (var renderer in group.GetLODs().SelectMany(l => l.renderers))
+            {
+                var world = renderer.bounds;
+                for (var corner = 0; corner < 8; corner++)
+                {
+                    var point = group.transform.InverseTransformPoint(world.center + Vector3.Scale(world.extents,
+                        new Vector3((corner & 1) == 0 ? -1 : 1, (corner & 2) == 0 ? -1 : 1, (corner & 4) == 0 ? -1 : 1)));
+                    if (first) { bound = new Bounds(point, Vector3.zero); first = false; }
+                    else bound.Encapsulate(point);
+                }
+            }
+            if (first) throw new InvalidDataException("Town actor has no LOD renderers");
+            bound.Expand(0.12f); // Conservative margin for the bounded greeting/idle gesture.
+            group.localReferencePoint = bound.center;
+            group.size = Mathf.Max(bound.size.x, bound.size.y, bound.size.z);
+        }
+
+        public static void RefreshLodBounds()
+        {
+            foreach (var npc in Npcs)
+            {
+                var name = "Town" + Char.ToUpperInvariant(npc[0]) + npc.Substring(1);
+                var path = Root + "/Prefabs/" + name + ".prefab";
+                var root = PrefabUtility.LoadPrefabContents(path);
+                try
+                {
+                    var group = root.GetComponentInChildren<LODGroup>();
+                    SetPosedLodBounds(group);
+                    if (group.size < 1f || group.size > 3f)
+                        throw new InvalidDataException(name + ": unexpected posed LOD size " + group.size);
+                    PrefabUtility.SaveAsPrefabAsset(root, path);
+                    Debug.Log("TOWN_LOD_BOUNDS_OK " + name + " size=" + group.size);
+                }
+                finally { PrefabUtility.UnloadPrefabContents(root); }
+            }
+            AssetDatabase.SaveAssets();
+        }
+
         // Explicit standalone bundle build: keep the existing production bundle byte-identical.
         public static void BuildBundle()
         {
