@@ -51,8 +51,12 @@ now runs in the local full gate and hosted dev CI.
 The exact German menu path is **VR-Optionen → Tafeln → Händler, Tempel & Verzauberin →
 Stadtbesuch-Modus**, with **Immersive NPCs** and **Originale Fenster** as the two values.
 
-Final integrated validation is recorded below after completion. Both bundles are unchanged
-from build 540. This is an unreleased development correction.
+Final strict Release: zero errors and zero warnings. The complete local guard passes all
+functional/source checks and 255,887 wire assertions. Its exit 1 is the expected historical
+compiled difference against `080c505e9`: 0 moved, 104 changed, 95 added/removed. Surfaces
+remain 626 config keys, 174 Harmony patches and 4,746 log tokens, with none removed.
+Documentation parity (four language pairs), shell syntax and whitespace checks pass.
+Both bundles are unchanged from build 540. This is an unreleased development correction.
 
 - Open VR options and locate the dedicated town-service presentation choice under Boards.
 - Open the merchant with immersive mode enabled: NPC, counter and original item cards
@@ -62,3 +66,13 @@ from build 540. This is an unreleased development correction.
 - Check buying/selling, category changes, page navigation and remote observer presentation.
 
 Successful headset output is not established by automated checks.
+
+## Development package
+
+`dist/GloomhavenVR-1.0.7.zip` contains ModBuild 541 from production source commit
+`cd74a5ecb7232395e9ae353d387f0de5f4913804`. BuildInfo marks it as a dev build.
+Archive CRC, required layout and Windows text-encoding checks pass. Both bundled asset
+files are byte-identical to the committed build-540 bundles. Archive size: 181,133,886 bytes;
+SHA256: `95afc91b49442c391320e3e6f46a8438e1cd47836583e27758414de5a74c05f6`.
+The complete manifest and validation logs are retained in `.planning/debug/town-build-541/`.
+Later documentation-only commits do not change the packaged production source.
