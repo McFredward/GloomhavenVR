@@ -13,24 +13,16 @@ internal static class TownServicePlacement
         position = center;
         rotation = Quaternion.identity;
         if (!MapRoomDriver.Active || !MapRoomDriver.TrySolveSeat(out MapRoomSeat.Seat seat, out _)) return false;
-        // The original outer ring put the enchantress's envelope into forest rocks and the
-        // cellar's north wall at different reading yaws. All roots now stay within 1.70 m.
-        // With the reserved station envelope |x| <= .90, -.50 <= z <= 1.15 (actor anchor
-        // remains +.65), the complete radial envelope is <= 2.989 m at EVERY reading yaw.
-        // Solid standing props start at 3.033 m (cellar stool) / 3.076 m (forest fern).
-        // Hanging leaves and dynamic element growth are separate visual-clearance checks.
-        // The counter's near edge stays about 1.332 m or farther from the map centre, clear of its seat ring.
-        Vector3 offset = service == 1 ? new Vector3(-1.6f, 0f, .55f)
-            : service == 2 ? new Vector3(1.6f, 0f, .55f) : new Vector3(0f, 0f, 1.7f);
-        position = center + Quaternion.Euler(0f, seat.YawDegrees, 0f) * offset * scale;
         Transform? room = SkyAlternative.PlacedRoomRoot;
+        TownServiceLayout.Resolve(TownServiceLayout.ForRoom(room), service, 0,
+            out Vector3 offset, out float heading);
+        Quaternion frame = TownServiceLayout.Frame(room, seat.YawDegrees);
+        position = center + frame * offset * scale;
+        rotation = frame * Quaternion.Euler(0f, heading, 0f);
         // Build 541 used tracking floor, which is not the floor mesh beneath the floating map.
         // In MR/default there is no custom floor; the canonical map seat remains the reference.
         position.y = room != null ? room.position.y : seat.FloorPosition.y;
         if (room != null) position.y = GroundHeight(room, position);
-        Vector3 outward = position - center;
-        outward.y = 0f;
-        rotation = Quaternion.LookRotation(outward.normalized, Vector3.up);
         return true;
     }
 

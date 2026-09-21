@@ -22,7 +22,7 @@ def replace_once(source, before, after):
 
 def sources(root):
     base = root / "src/GloomhavenVR/WorldUI/TownServices"
-    names = ["TownServiceWorkspace.cs", "TownServicePlacement.cs", "TownServiceGrounding.cs"]
+    names = ["TownServiceWorkspace.cs", "TownServicePlacement.cs", "TownServiceGrounding.cs", "TownServiceLayout.cs"]
     bound = {name: (base / name).read_text() for name in names}
     return bound, {name: hashlib.sha256(text.encode()).hexdigest() for name, text in bound.items()}
 
@@ -30,7 +30,8 @@ def sources(root):
 def mutations():
     return [
         ("no-relocation-revision", "TownServiceWorkspace.cs", "checked { RelocationRevision++; }", "", "only invisible pose change advances relocation revision"),
-        ("outer-ring", "TownServiceWorkspace.cs", "new Vector3(0f, 0f, 2.35f)", "new Vector3(0f, 0f, 4f)", "full-size counter stays inside solid scenery clearance"),
+        ("drawer-ring", "TownServiceLayout.cs", "radius = visitor == 3 ? 2.7f : 2.5f;", "radius = 1.5f;", "opened drawer stays outside complete native map table diagonal"),
+        ("room-frame", "TownServiceLayout.cs", "room != null ? room.eulerAngles.y : readingYaw", "readingYaw", "reading-side change cannot rotate stations into room scenery"),
         ("roster", "TownServiceWorkspace.cs", "player.Id > 0", "player.Id == local", "extra counter clears all three actual resident envelopes"),
         ("visible-teleport", "TownServiceWorkspace.cs", "RelocationVisibility = 0f; ApplyTarget();", "RelocationVisibility = 1f; ApplyTarget();", "pose change has a fully invisible published frame"),
         ("primary", "TownServiceWorkspace.cs", "_shownPrimary ? 0f : _visibility * RelocationVisibility", "_visibility * RelocationVisibility", "primary duplicate is hidden while extensions are visible"),

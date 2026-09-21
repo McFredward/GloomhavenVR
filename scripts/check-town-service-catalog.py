@@ -30,11 +30,19 @@ def sources(root):
     base = root / "src/GloomhavenVR/WorldUI/TownServices"
     names = ["TownServiceCatalog.cs", "TownServiceMerchantRows.cs", "TownServiceMerchantTransaction.cs", "TownServiceMerchantDrawer.cs", "TownServiceMerchantZone.cs", "TownServiceCatalogPreview.cs", "TownServiceWindowMask.cs"]
     bound = {name: (base / name).read_text() for name in names}
-    return bound, {name: hashlib.sha256(text.encode()).hexdigest() for name, text in bound.items()}
+    hashes = {name: hashlib.sha256(text.encode()).hexdigest() for name, text in bound.items()}
+    token = (base / "TownServiceToken.cs").read_text()
+    start = token.index("        _source.GetWorldCorners(_corners);", token.index("_shape.enabled = !_returning"))
+    end = token.index("\n    }", start)
+    bound["CardColliderFit.cs"] = "using UnityEngine;internal static class CardColliderFit { internal static void Apply(RectTransform _source, Vector3[] _corners, GameObject _pick, BoxCollider _shape, float scale) {\n" + token[start:end] + "\n}}"
+    hashes["TownServiceToken.cs"] = hashlib.sha256(token.encode()).hexdigest()
+    return bound, hashes
 
 
 def mutations():
     return [
+        ("closed-render", "TownServiceCatalog.cs", "canvas.Key.enabled = exposed && canvas.Value;", "canvas.Key.enabled = canvas.Value;", "closed drawer skips canvas rendering without native artwork lifecycle reset"),
+        ("initial-closed", "TownServiceMerchantDrawer.cs", "_amount = _target = level == 0 ? 1f : 0f;", "_amount = _target = 0f;", "first stock and owned drawers show immediately reachable cards"),
         ("stale-prompt", "TownServiceMerchantTransaction.cs", "if (created) confirmation.OnCancel();", "if (created) { }", "own stale item prompt cancelled through native lifecycle"),
         ("cap", "TownServiceCatalog.cs", "foreach(var row in _backend.Rows)", "foreach(var row in _backend.Rows.GetRange(0, Math.Min(6,_backend.Rows.Count)))", "all 164 stock and 164 owned entries persist without pagination"),
         ("held-relocation", "TownServiceCatalog.cs", "if (sample.IsMoving) return false", "if (sample.IsMoving && _disposed) return false", "held or returning sample prevents station relocation"),

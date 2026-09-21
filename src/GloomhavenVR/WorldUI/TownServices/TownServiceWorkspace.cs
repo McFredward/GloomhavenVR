@@ -76,11 +76,18 @@ internal sealed class TownServiceWorkspace : IDisposable
         catch { Dispose(); throw; }
     }
 
-    // Shared map-frame coordinates, not station-local offsets. These preserve full-size
-    // furniture while staying inside the scenery's 3.033 m solid envelope and outside the map.
-    internal static float RingYaw(int slot) => slot == 1 ? -124f : slot == 2 ? 180f : slot == 3 ? 124f
-        : throw new ArgumentOutOfRangeException(nameof(slot));
-    internal static Vector3 RingPosition(int slot) => Quaternion.Euler(0f, RingYaw(slot), 0f) * new Vector3(0f, 0f, 2.35f);
+    // The open/default environment retains a common reading frame. Custom rooms instead
+    // use their own measured scenery frame and service-specific clearings.
+    internal static float RingYaw(int slot)
+    {
+        TownServiceLayout.Resolve(TownServiceLayout.Environment.Open, 0, slot, out _, out float yaw);
+        return yaw;
+    }
+    internal static Vector3 RingPosition(int slot)
+    {
+        TownServiceLayout.Resolve(TownServiceLayout.Environment.Open, 0, slot, out Vector3 position, out _);
+        return position;
+    }
 
     private bool RefreshTarget(int slot, bool force = false)
     {
@@ -94,9 +101,12 @@ internal sealed class TownServiceWorkspace : IDisposable
         if (slot == 0) { _target = _station.position; _targetRotation = _station.rotation; }
         else
         {
-            _target = center + Quaternion.Euler(0f, _yaw, 0f) * RingPosition(slot) * scale;
+            TownServiceLayout.Resolve(TownServiceLayout.ForRoom(room), 0, slot,
+                out Vector3 offset, out float heading);
+            Quaternion frame = TownServiceLayout.Frame(room, _yaw);
+            _target = center + frame * offset * scale;
             _target.y = room != null ? TownServicePlacement.GroundHeight(room, _target) : seat.FloorPosition.y;
-            _targetRotation = Quaternion.Euler(0f, _yaw + RingYaw(slot), 0f);
+            _targetRotation = frame * Quaternion.Euler(0f, heading, 0f);
         }
         _pending = true;
         return true;

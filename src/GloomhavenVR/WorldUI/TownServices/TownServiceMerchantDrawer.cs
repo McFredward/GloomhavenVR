@@ -44,8 +44,9 @@ internal sealed class TownServiceMerchantDrawer : IGrabbable, IGrabbableHandFilt
     {
         Selling = selling; Category = category; _frame = parent; _alive = alive; _mayClose = mayClose; _opening = opening;
         _home = new Vector3(selling ? .68f : -.68f, -.15f - level * .13f, .19f);
+        _amount = _target = level == 0 ? 1f : 0f;
         _housing=CreateHousingTemplate();_housing.transform.SetParent(parent,false);_housing.transform.localPosition=_home;
-        _root = CreateTemplate(font); Root.SetParent(parent, false); Root.localPosition = _home;
+        _root = CreateTemplate(font); Root.SetParent(parent, false); Root.localPosition = _home + new Vector3(0f, 0f, -Travel * _amount);
         _material = new Material(OriginalWood());
         foreach (MeshRenderer renderer in Root.GetComponentsInChildren<MeshRenderer>(true))
             if(renderer.GetComponent<TMP_Text>()==null)renderer.sharedMaterial = _material;

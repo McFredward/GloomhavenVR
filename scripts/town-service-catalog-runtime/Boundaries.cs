@@ -149,7 +149,7 @@ namespace GloomhavenVR.Net
         internal void TickLive(){}internal void Destroy(){foreach(var clone in _clones.Values)if(clone!=null)UnityEngine.Object.DestroyImmediate(clone.gameObject);}
     }
     internal static class RemoteItemCardSource
-    {internal static void ReturnBorrowed(int id,GameObject go){if(!go.GetComponent<Image>().raycastTarget||!go.GetComponent<GraphicRaycaster>().enabled)throw new Exception("pool input restore");ObjectPool.Alive--;UnityEngine.Object.DestroyImmediate(go);}}
+    {internal static void ReturnBorrowed(int id,GameObject go){if(!go.GetComponent<Image>().raycastTarget||!go.GetComponent<GraphicRaycaster>().enabled||!go.GetComponent<Canvas>().enabled)throw new Exception("pool input restore");ObjectPool.Alive--;UnityEngine.Object.DestroyImmediate(go);}}
 }
 namespace GloomhavenVR.WorldUI
 {

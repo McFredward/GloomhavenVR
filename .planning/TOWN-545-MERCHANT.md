@@ -103,3 +103,48 @@ not build544's three floating sections. The retained legacy section/tray rollbac
 are explicitly injected fixture scenarios. Ritual artwork/geometry are boundary components;
 actual production Token/session/context guards remain bound. Merchant backend tab changes
 correctly preserve the held physical item; enhancement mode changes still cancel it.
+
+## Measured expanded layout and exposed-card rendering
+
+The first stock drawer and first owned-inventory drawer start open. Closing a drawer
+suppresses every cached face Canvas (including nested native canvases), the row inscription
+and the card body. The original ItemCardUI GameObject stays active, avoiding an artwork
+OnEnable/reset cycle. Opening restores the cached flags before the first exposed frame;
+returning a native row to its pool also restores its original flags.
+
+Room-relative placement replaces the former common radial layout, which overlapped the
+larger merchant and additional visitor drawers. The complete opened travel is reserved:
+merchant/visitor top width 2.54 m, drawer front -0.82 m, housing outer edge +/-1.218 m.
+Cellar and forest use separately measured six-station arrangements. Custom-room rotation,
+not the current reading-side yaw, defines their frame. Default/MR uses the cellar arrangement
+in the common reading frame. Ground support registration includes the new centre/outer posts.
+
+Focused evidence (original build544 shipping assets, not the pending build545 bundle):
+
+- Catalogue: 1,835 real Unity assertions and 13 compiled negative controls, including
+  164 stock + 164 owned entries, initial access, closed rendering without native lifecycle
+  resets, and the actual source-fitted collider nearest-hit test for all 48 strips of a drawer.
+  Evidence: `.planning/debug/town-service-catalog/run-wwps6_w4`.
+- Workspace: 3,003 assertions and 10 compiled negative controls; each original body clip,
+  four phases and all three LODs were CPU-skinned to bound the actual residents. Source
+  poses stay fixed in the room under changes of reading-side yaw. Evidence:
+  `.planning/debug/town-service-workspace/run-p7c163z2`; the export-only repeat
+  `run-7oin_jwn` supplies the actual production `.poses.csv`.
+- Portable setting/grounding: 1,569 geometry, 71 lifecycle and 243 grounding assertions,
+  with 14 compiled negative controls. Strict Release build: zero warnings/errors.
+- `check-town-scene-layout.py` intersects padded station envelopes against original
+  opaque room mesh triangles, with all three visitor counters and both drawer banks open.
+  Both rooms have six poses, 18 reserved parts and zero contacts. A mutated cellar pose
+  placed against the north wall produces ten contacts and fails, without changing assets.
+  Evidence: `.planning/debug/town545-scene-layout-final.json` and
+  `town545-scene-negative.json`. Environment bundle SHA256:
+  `fe1a659c17b4151e929691aa070d402b8cd299a462315b1d6691d2622d491693`;
+  production pose CSV SHA256:
+  `272e8d4f10faef3cb1b6eef51baf6f5df8f31d21e9ce624dc821dc5f7b1867f3`.
+
+The scene audit reserves 5 cm around each part, includes all simultaneously occupied
+stations and preserves the complete native table diagonal. It explicitly excludes
+non-solid effects/alpha foliage; it is not a visual foliage intersection oracle.
+Native Guildmaster bench/barrel geometry is outside that custom-environment bundle and
+still requires its separate scene check. The final build545 furniture/character bundle
+must repeat the focused geometry checks. None of these checks establishes headset quality.

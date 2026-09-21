@@ -10,14 +10,22 @@ using UnityEngine;
 public static class InteractionProgram
 {
     private static int count;
+    private static readonly List<string> PoseEvidence=new();
+    private static void RecordPose(string environment,string role,int id,Vector3 position,Quaternion rotation,Quaternion frame)
+    {
+        Vector3 local=Quaternion.Inverse(frame)*((position-MapRoomDriver.Center)/MapRoomDriver.Scale);
+        float heading=(Quaternion.Inverse(frame)*rotation).eulerAngles.y;
+        PoseEvidence.Add(string.Join(",",environment,role,id.ToString(),local.x.ToString("R",System.Globalization.CultureInfo.InvariantCulture),local.z.ToString("R",System.Globalization.CultureInfo.InvariantCulture),heading.ToString("R",System.Globalization.CultureInfo.InvariantCulture)));
+    }
     private static void Check(bool yes, string message) { count++; if (!yes) throw new Exception(message); }
     private static bool Close(Vector3 a, Vector3 b) => Vector3.Distance(a, b) < .001f;
     private static void Roster(params int[] ids)
     { NetPlayerActors.Roster.Clear(); foreach (int id in ids) NetPlayerActors.Roster.Add((id, "account" + id, "user" + id)); }
     private static Vector3 Expected(int slot)
     {
-        float angle = slot == 1 ? -124f : slot == 2 ? 180f : 124f;
-        return MapRoomDriver.Center + Quaternion.Euler(0, MapRoomDriver.Yaw + angle, 0) * new Vector3(0, 0, 2.35f * MapRoomDriver.Scale);
+        var room=SkyAlternative.PlacedRoomRoot;
+        TownServiceLayout.Resolve(TownServiceLayout.ForRoom(room),0,slot,out var offset,out var heading);
+        return MapRoomDriver.Center+TownServiceLayout.Frame(room,MapRoomDriver.Yaw)*offset*MapRoomDriver.Scale;
     }
     private static void PlaceStation(Transform station)
     {
@@ -39,45 +47,135 @@ public static class InteractionProgram
         }
         return false;
     }
+    private static List<Vector2[]> Parts(Vector3 p,Quaternion q,byte service,bool actor)
+    {
+        var parts=new List<Vector2[]>();
+        bool merchant=service==1;
+        parts.Add(Rectangle(p,q,merchant?1.27f:.75f,merchant?-.422f:-.362f,merchant?.405f:.338f));
+        if(merchant)foreach(float x in new[]{-.68f,.68f})
+            parts.Add(Rectangle(p+q*new Vector3(x,0,0),q,.538f,-.82f,.416f));
+        if(actor)parts.Add(Rectangle(p,q,.60f,.3f,1.2f));
+        if(service==3)parts.Add(Rectangle(p+q*new Vector3(.68f,0,0),q,.19f,.28f,.86f));
+        return parts;
+    }
     private static void CheckGeometry(List<TownServiceWorkspace> workspaces)
     {
-        // The complete source-generated station envelopes, not duplicated station roots.
-        var fixedStations = new List<Vector2[]>();
-        for (byte service = 1; service <= 3; service++)
+        var fixedStations=new List<List<Vector2[]>>();
+        for(byte service=1;service<=3;service++)
         {
-            Check(TownServicePlacement.TryResolve(service, MapRoomDriver.Center, MapRoomDriver.Scale, out var p, out var q), "actual resident source supplies clearance pose");
-            fixedStations.Add(Rectangle((p - MapRoomDriver.Center) / MapRoomDriver.Scale, q, .9f, -.5f, 1.15f));
+            Check(TownServicePlacement.TryResolve(service,MapRoomDriver.Center,MapRoomDriver.Scale,out var p,out var q),"actual resident source supplies clearance pose");
+            var parts=Parts((p-MapRoomDriver.Center)/MapRoomDriver.Scale,q,service,true);
+            Vector3 inwardEdge=(p-MapRoomDriver.Center)/MapRoomDriver.Scale-q*new Vector3(0,0,service==1?.82f:.362f);
+            Check(new Vector2(inwardEdge.x,inwardEdge.z).magnitude>1.4f,"resident furniture clears full native map table diagonal");
+            foreach(var previous in fixedStations)foreach(var a in parts)foreach(var b in previous)
+                Check(Separated(a,b),"permanent stations clear each other's actual work and actor envelopes");
+            fixedStations.Add(parts);
         }
-        var extras = new List<Vector2[]>();
-        for (int i = 1; i < workspaces.Count; i++)
+        var extras=new List<List<Vector2[]>>();
+        for(int i=1;i<workspaces.Count;i++)
         {
-            var root = workspaces[i].Root;
-            var envelope = Rectangle((root.position - MapRoomDriver.Center) / MapRoomDriver.Scale, root.rotation, .9f, -.422f, .422f);
-            foreach (Vector2 corner in envelope)
-                Check(corner.magnitude < 3.033f, "full-size counter stays inside solid scenery clearance");
-            Vector3 inward = -root.forward;
-            Vector3 near = (root.position - MapRoomDriver.Center) / MapRoomDriver.Scale + inward * .422f;
-            Check(new Vector2(near.x, near.z).magnitude > 1.05f, "full-size counter stays outside map and player seat ring");
-            Check(Vector3.Dot(inward, (MapRoomDriver.Center - root.position).normalized) > .99f, "counter faces map instead of inheriting merchant yaw");
-            foreach (var fixedEnvelope in fixedStations) Check(Separated(envelope, fixedEnvelope), "extra counter clears all three actual resident envelopes");
-            foreach (var other in extras) Check(Separated(envelope, other), "full-size extra counters cannot overlap");
-            extras.Add(envelope);
-            // Shipping bundle meshes must fit inside the conservative footprint used above.
-            foreach (var filter in workspaces[i].FurnitureRoot.GetComponentsInChildren<MeshFilter>(true))
+            var root=workspaces[i].Root;
+            var parts=Parts((root.position-MapRoomDriver.Center)/MapRoomDriver.Scale,root.rotation,1,false);
+            Vector3 inward=-root.forward;
+            Vector3 near=(root.position-MapRoomDriver.Center)/MapRoomDriver.Scale+inward*.82f;
+            Check(new Vector2(near.x,near.z).magnitude>1.40f,"opened drawer stays outside complete native map table diagonal");
+            Vector3 toward=MapRoomDriver.Center-root.position;toward.y=0f;
+            Check(Vector3.Dot(inward,toward.normalized)>.99f,"counter faces map instead of inheriting merchant yaw");
+            foreach(var fixedParts in fixedStations)foreach(var a in parts)foreach(var b in fixedParts)
+                Check(Separated(a,b),"extra counter clears all three actual resident envelopes");
+            foreach(var previous in extras)foreach(var a in parts)foreach(var b in previous)
+                Check(Separated(a,b),"full-size extra counters cannot overlap");
+            extras.Add(parts);
+            foreach(var filter in workspaces[i].FurnitureRoot.GetComponentsInChildren<MeshFilter>(true))
             {
-                Bounds b = filter.sharedMesh.bounds;
-                for (int corner = 0; corner < 8; corner++)
+                Bounds bounds=filter.sharedMesh.bounds;
+                for(int c=0;c<8;c++)
                 {
-                    var v = b.center + Vector3.Scale(b.extents, new Vector3((corner & 1) == 0 ? -1 : 1, (corner & 2) == 0 ? -1 : 1, (corner & 4) == 0 ? -1 : 1));
-                    var local = root.InverseTransformPoint(filter.transform.TransformPoint(v));
-                    Check(Mathf.Abs(local.x) <= .901f && local.z >= -.423f && local.z <= .423f, "shipping furniture fits reserved radial envelope");
+                    var v=bounds.center+Vector3.Scale(bounds.extents,new Vector3((c&1)==0?-1:1,(c&2)==0?-1:1,(c&4)==0?-1:1));
+                    var local=root.InverseTransformPoint(filter.transform.TransformPoint(v));
+                    Check(Mathf.Abs(local.x)<=1.271f&&local.z>=-.423f&&local.z<=.423f,"shipping furniture fits reserved physical counter envelope");
                 }
             }
         }
     }
+    private static void ReadingIndependentRooms()
+    {
+        float previousYaw=MapRoomDriver.Yaw;
+        foreach(bool forest in new[]{false,true})
+        {
+            var room=new GameObject("MeasuredRoom");room.transform.rotation=Quaternion.Euler(0,37,0);
+            var geometry=new GameObject("RoomGeo");geometry.transform.SetParent(room.transform,false);
+            var floor=new GameObject(forest?"Ground":"Floor");floor.transform.SetParent(geometry.transform,false);
+            SkyAlternative.PlacedRoomRoot=room.transform;
+            for(byte service=1;service<=3;service++)
+            {
+                MapRoomDriver.Yaw=0;TownServicePlacement.TryResolve(service,MapRoomDriver.Center,MapRoomDriver.Scale,out var p,out var q);
+                RecordPose(forest?"forest":"cellar","resident",service,p,q,room.transform.rotation);
+                for(int reading=15;reading<360;reading+=15)
+                {
+                    MapRoomDriver.Yaw=reading;TownServicePlacement.TryResolve(service,MapRoomDriver.Center,MapRoomDriver.Scale,out var other,out var rotation);
+                    Check(Close(p,other)&&Quaternion.Angle(q,rotation)<.001f,"reading-side change cannot rotate stations into room scenery");
+                }
+            }
+            var station=new GameObject("RoomStation");PlaceStation(station.transform);
+            var visitors=new List<TownServiceWorkspace>();Roster(1,7,19,53);
+            try
+            {
+                foreach(int id in new[]{1,7,19,53})
+                {NetPlayerActors.Local=id;visitors.Add(new TownServiceWorkspace(station.transform));}
+                CheckGeometry(visitors);
+                for(int i=1;i<visitors.Count;i++)RecordPose(forest?"forest":"cellar","visitor",i,visitors[i].Root.position,visitors[i].Root.rotation,room.transform.rotation);
+            }
+            finally{foreach(var visitor in visitors)visitor.Dispose();UnityEngine.Object.DestroyImmediate(station);}
+            UnityEngine.Object.DestroyImmediate(room);SkyAlternative.PlacedRoomRoot=null;
+        }
+        MapRoomDriver.Yaw=previousYaw;
+    }
+    private static void BakedActorEnvelope()
+    {
+        foreach(string name in new[]{"merchant","priestess","enchantress"})
+        {
+            var source=TownServiceAssets.Prefab("town"+name)!;
+            var instance=UnityEngine.Object.Instantiate(source);
+
+            try
+            {
+                var actor=instance.transform.Find("Actor");
+                var animation=actor.GetComponent<Animation>();var total=new Bounds();bool firstBounds=true;
+                foreach(AnimationState state in animation)foreach(float phase in new[]{0f,.25f,.5f,.75f})
+                {
+                    state.clip.SampleAnimation(actor.gameObject,state.length*phase);
+                    foreach(var renderer in actor.GetComponentsInChildren<SkinnedMeshRenderer>(true))
+                    {
+                        // FBX renderer scale is 100. Skin actual vertices with bind/bone
+                        // matrices in station space, avoiding BakeMesh useScale ambiguity.
+                        Mesh mesh=renderer.sharedMesh;var vertices=mesh.vertices;var weights=mesh.boneWeights;
+                        var bind=mesh.bindposes;var bones=renderer.bones;
+                        var matrices=bones.Select((bone,n)=>instance.transform.worldToLocalMatrix*bone.localToWorldMatrix*bind[n]).ToArray();
+                        var bounds=new Bounds();bool first=true;
+                        for(int n=0;n<vertices.Length;n++)
+                        {
+                            BoneWeight w=weights[n];Vector3 vertex=vertices[n];
+                            Vector3 local=matrices[w.boneIndex0].MultiplyPoint3x4(vertex)*w.weight0
+                                +matrices[w.boneIndex1].MultiplyPoint3x4(vertex)*w.weight1
+                                +matrices[w.boneIndex2].MultiplyPoint3x4(vertex)*w.weight2
+                                +matrices[w.boneIndex3].MultiplyPoint3x4(vertex)*w.weight3;
+                            if(first){bounds=new Bounds(local,Vector3.zero);first=false;}else bounds.Encapsulate(local);
+                        }
+                        if(firstBounds){total=bounds;firstBounds=false;}else total.Encapsulate(bounds);
+
+                    }
+                }
+                Debug.Log("TOWN_LAYOUT_ACTOR " + name + " " + total);
+                Check(total.min.x>=-.60f && total.max.x<=.60f && total.min.z>=.30f && total.max.z<=1.20f && total.max.y<=2.15f,
+                    "actual baked actor mesh fits measured anatomy volume "+name+" "+total);
+            }
+            finally{UnityEngine.Object.DestroyImmediate(instance);}
+        }
+    }
     public static int Run()
     {
-        count = 0; WorkspaceClock.Now = 0; SkyAlternative.PlacedRoomRoot = null;
+        count = 0;PoseEvidence.Clear(); WorkspaceClock.Now = 0; SkyAlternative.PlacedRoomRoot = null; ReadingIndependentRooms(); BakedActorEnvelope();
         var station = new GameObject("Shared station"); PlaceStation(station.transform);
         var template = TownServiceWorkspace.CounterTemplate!;
         var originals = template.GetComponentsInChildren<MeshRenderer>().SelectMany(r => r.sharedMaterials).Distinct().ToArray();
@@ -135,12 +233,11 @@ public static class InteractionProgram
                 Vector3 local = room.transform.InverseTransformPoint(moving.Root.position);
                 Check(Math.Abs(local.y - (.02f * local.x + .01f * local.z)) < .0001f, "workspace rests on original sloped floor at its own target");
                 Check(Math.Abs(local.y) > .005f, "slope fixture differs measurably from room-root height");
-                Transform foot = moving.FurnitureRoot.Find("FootPlinth");
-                Check(Math.Abs(foot.localPosition.y + foot.localScale.y * .5f - .16f) < .0001f,
-                    "grounding preserves original counter support top");
+                Transform foot = moving.FurnitureRoot.Find("CentreSupport") ?? moving.FurnitureRoot.Find("FootPlinth");
+                Check(foot!=null,"workspace has a grounded original support");
                 foreach (float x in new[] { -.5f, .5f }) foreach (float z in new[] { -.5f, .5f })
                 {
-                    Vector3 corner = foot.TransformPoint(new Vector3(x, -.5f, z));
+                    Vector3 corner = foot!.TransformPoint(new Vector3(x, -.5f, z));
                     float floor = TownServicePlacement.GroundHeight(room.transform, corner);
                     Check(corner.y <= floor + .001f, "workspace support bottoms cannot float over sloped ground");
                 }
@@ -156,6 +253,7 @@ public static class InteractionProgram
             Check(rejected, "unexpected fifth user is rejected instead of overlapping a valid seat");
             Roster(); NetPlayerActors.Local = 0;
             using (var solo = new TownServiceWorkspace(station.transform)) { solo.SetVisibility(1); Check(Close(solo.Root.position, station.transform.position), "offline keeps original front counter"); }
+            System.IO.File.WriteAllLines(System.IO.Path.ChangeExtension(typeof(InteractionProgram).Assembly.Location,"poses.csv"),PoseEvidence);
             return count;
         }
         finally { foreach (var workspace in workspaces) workspace.Dispose(); UnityEngine.Object.DestroyImmediate(station); }

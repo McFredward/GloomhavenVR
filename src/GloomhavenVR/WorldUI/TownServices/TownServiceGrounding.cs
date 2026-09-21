@@ -33,6 +33,8 @@ internal sealed class TownServiceGrounding
         if (furniture == null) return;
         Add(furniture.Find("FootPlinth"));
         Add(furniture.Find("AltarPlinth"));
+        Add(furniture.Find("CentreSupport"));
+        foreach (int side in new[] { -1, 1 }) Add(furniture.Find("OuterPost" + side));
         foreach (int x in new[] { -1, 1 })
             foreach (int z in new[] { -1, 1 }) Add(furniture.Find("WorkbenchLeg" + x + z));
     }

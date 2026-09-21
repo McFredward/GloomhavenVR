@@ -17,6 +17,45 @@ public static class InteractionProgram
     {var go=new GameObject(name,typeof(RectTransform));go.transform.SetParent(parent,false);var r=(RectTransform)go.transform;r.sizeDelta=new Vector2(500,50);return r;}
     private static void Census(TownServiceCatalog c)=>typeof(TownServiceCatalog).GetMethod("RefreshRows",BindingFlags.Instance|BindingFlags.NonPublic)!.Invoke(c,null);
     private static void Advance(TownServiceMerchantDrawer drawer,float amount){Set(drawer,"_amount",amount);Set(drawer,"_target",amount);drawer.Tick(1f);}
+    private static void CardStripReach(TownServiceCatalog catalog)
+    {
+        TownServiceMerchantDrawer? full=null;
+        foreach(var drawer in catalog.Drawers)
+        {
+            int count=0;foreach(var entry in catalog.Entries)if(entry.Drawer==drawer)count++;
+            if(count==48){full=drawer;break;}
+        }
+        Check(full!=null,"native Hands category supplies a completely full filing drawer");
+        Advance(full!,1f);
+        var entries=new List<TownServiceCatalog.Entry>();
+        var colliders=new List<BoxCollider>();var corners=new Vector3[4];
+        foreach(var entry in catalog.Entries)if(entry.Drawer==full)
+        {
+            Set(entry,"_presentedAt",-1000f);entry.Tick(1f);entries.Add(entry);
+            var shape=new GameObject("ActualTokenBounds").AddComponent<BoxCollider>();
+            CardColliderFit.Apply((RectTransform)entry.CardRoot,corners,shape.gameObject,shape,1f);
+            colliders.Add(shape);
+        }
+        Physics.SyncTransforms();
+        for(int n=0;n<entries.Count;n++)
+        {
+            var card=(RectTransform)entries[n].CardRoot;
+            Vector3 target=card.TransformPoint(new Vector3(0f,card.rect.height*.40f,0f));
+            // Approach the independently exposed upper strip along the actual face normal.
+            // Uses the production Token collider fitting block, real Unity Collider.Raycast,
+            // and all 48 overlapping neighbours, not a nearest-centre approximation.
+            var ray=new Ray(target-card.forward*.4f,card.forward);
+            float closest=float.PositiveInfinity;int picked=-1;
+            for(int candidate=0;candidate<colliders.Count;candidate++)
+                if(colliders[candidate].Raycast(ray,out RaycastHit hit,.8f)&&hit.distance<closest)
+                {closest=hit.distance;picked=candidate;}
+            Check(picked==n,"every filing strip is the nearest actual collider along its face approach");
+            Check(Vector3.Distance(colliders[n].ClosestPoint(target-card.forward*.01f),target)<.006f,
+                "physical fingertip can reach each exposed filing strip");
+        }
+        foreach(var collider in colliders)UnityEngine.Object.DestroyImmediate(collider.gameObject);
+        Advance(full!,0f);
+    }
     public static int Run()
     {
         assertions=0;var root=new GameObject("MerchantFixture");var events=new GameObject("Events",typeof(EventSystem));
@@ -44,8 +83,16 @@ public static class InteractionProgram
         Check(catalog.Controls.Count==0,"no flat filter or page buttons");
         Check(catalog.Drawers.Count==12,"native five slot categories use six drawers per bank");
         Check(ObjectPool.Alive==328,"one physical original card per persistent entry");
+        int openStock=0,openOwned=0;
+        foreach(var initial in catalog.Drawers)
+            if(initial.Accessible){if(initial.Selling)openOwned++;else openStock++;}
+        Check(openStock==1&&openOwned==1,"first stock and owned drawers show immediately reachable cards");
+        foreach(var initial in catalog.Drawers)Advance(initial,0f);
+        CardStripReach(catalog);catalog.Tick(1f);
         foreach(var e in catalog.Entries)
         {
+            Check(!e.CardUI.GetComponentInParent<Canvas>().enabled && e.CardUI.gameObject.activeInHierarchy,
+                "closed drawer skips canvas rendering without native artwork lifecycle reset" + " id="+e.ItemId+" canvas="+e.CardUI.GetComponentInParent<Canvas>().enabled+" active="+e.CardUI.gameObject.activeInHierarchy+" exposed="+e.Exposed+" current="+e.Current);
             Check(!e.Sample.CanGrab,"closed opaque drawers prevent picking through cabinet");
             Check(!e.Exposed,"closed drawer contents excluded only when physically hidden");
             Check(e.CardUI.GetComponent<Image>().raycastTarget==false,"own card GUI cannot veto direct pickup");

@@ -217,6 +217,8 @@ internal sealed class TownServiceCatalog : IDisposable
         internal readonly TownServiceToken Sample;
         internal ItemCardUI CardUI { get; private set; } = null!;
         internal Transform CardRoot => CardUI.transform;
+        private readonly List<KeyValuePair<Canvas, bool>> _canvases = new();
+        private bool _shown = true;
         internal Transform? RowContent => _row.CloneOf(RowSource.transform);
         internal Transform? RowCloneOf(Transform original) => _row.CloneOf(original);
         internal int ItemId => Item.ID;
@@ -276,6 +278,8 @@ internal sealed class TownServiceCatalog : IDisposable
                 foreach (Graphic graphic in _card.GetComponentsInChildren<Graphic>(true))
                 { _raycastTargets.Add(new KeyValuePair<Graphic, bool>(graphic, graphic.raycastTarget)); graphic.raycastTarget = false; }
                 face.GetComponent<GraphicRaycaster>().enabled=false;
+                foreach (Canvas canvas in face.GetComponentsInChildren<Canvas>(true))
+                    _canvases.Add(new KeyValuePair<Canvas, bool>(canvas, canvas.enabled));
                 Sample = new TownServiceToken(rect, source.Selectable, () => source.Item,
                     owner._contextIdentity, () => Current, owner._mat, _display,
                     drop: () => owner.Drop(this), eligible: () => owner.Eligible(this),
@@ -292,10 +296,18 @@ internal sealed class TownServiceCatalog : IDisposable
         {
             if (_disposed) return;
             if (!Current) { Sample.Dispose(); _root.SetActive(false); return; }
-            if (_body != null) TownServiceCardBody.SetVisibility(_body.gameObject, _owner._opening.alpha);
-            // Opaque closed drawers preserve their complete native content but need no
-            // per-frame widget traversal, card mip rescan or hidden collider refitting.
-            if(!Exposed)return;
+            bool exposed = Exposed;
+            if (_shown != exposed)
+            {
+                _shown = exposed;
+                foreach (var canvas in _canvases)
+                    if (canvas.Key != null) canvas.Key.enabled = exposed && canvas.Value;
+                _row.SetShown(exposed);
+            }
+            if (_body != null) TownServiceCardBody.SetVisibility(_body.gameObject, exposed ? _owner._opening.alpha : 0f);
+            // Disable only presentation rendering while enclosed. Native ItemCardUI remains
+            // active and borrowed, so reopening never resets its art or native lifecycle.
+            if (!exposed) return;
             if (!Sample.IsMoving)
             {
                 float t = Mathf.Clamp01((Time.unscaledTime - _presentedAt) / .24f);
@@ -331,6 +343,7 @@ internal sealed class TownServiceCatalog : IDisposable
             if (_body != null) TownServiceCardBody.Dispose(_body.gameObject);
             // Pool borrowers after us must receive the same input flags we received. The
             // catalog's separate pointer surface is not a permanent edit to native card input.
+            foreach (var canvas in _canvases) if (canvas.Key != null) canvas.Key.enabled = canvas.Value;
             foreach (var target in _raycastTargets) if (target.Key != null) target.Key.raycastTarget = target.Value;
             foreach (var raycaster in _raycasters) if (raycaster.Key != null) raycaster.Key.enabled = raycaster.Value;
             if (_card != null) { RemoteItemCardSource.ReturnBorrowed(Item.ID, _card); _card = null; }

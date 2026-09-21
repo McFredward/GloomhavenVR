@@ -43,30 +43,36 @@ static class Program
             Check(TownServicePlacement.TryResolve(1, Vector3.zero, scale, out Vector3 mr, out _), "MR/default floor");
             Near(mr.y, 20, "MR canonical seat");
         }
-        // The analytic all-yaw bound is sqrt(.90^2 + (1.70 + 1.15)^2) = 2.988729 m.
-        // Exercise the actual offsets over the full circle as an additional binding check.
-        // This reserves the actor envelope; final animated asset validation must fit inside it.
+        // Actual scene collision validation is in the real-mesh workspace audit. This
+        // portable boundary checks unchanged pose semantics across reading-side changes.
         SkyAlternative.PlacedRoomRoot = null;
         for (int yaw = 0; yaw < 360; yaw += 5)
         {
             MapRoomDriver.Yaw = yaw;
-            for (byte service = 1; service <= 3; service++)
+            for(byte service=1;service<=3;service++)
             {
-                Check(TownServicePlacement.TryResolve(service, Vector3.zero, 1, out Vector3 p, out _), "all-yaw placement");
-                float radius = MathF.Sqrt(p.x * p.x + p.z * p.z);
-                Check(radius <= 1.70001f, "roots remain within reserved clearing ring");
-                Check(radius - .36f >= 1.3318f, "counter leaves map and seat ring clear");
-                Vector3 outward = new Vector3(p.x, 0, p.z).normalized;
-                Vector3 right = new Vector3(outward.z, 0, -outward.x);
-                foreach (float x in new[] { -.90f, .90f })
-                    foreach (float z in new[] { -.50f, 1.15f })
-                    {
-                        Vector3 corner = p + right * x + outward * z;
-                        Check(MathF.Sqrt(corner.x * corner.x + corner.z * corner.z) < 3.00f,
-                            "reserved envelope clears nearest bundled solid standing prop at every tested yaw");
-                    }
+                Check(TownServicePlacement.TryResolve(service,Vector3.zero,1,out var p,out _),"all-yaw open placement");
+                float radius=MathF.Sqrt(p.x*p.x+p.z*p.z);
+                Near(radius,service==1?2.7f:2.9f,"default station uses validated layout radius");
+                Check(radius-(service==1?.82f:.362f)>1.4f,"all opened resident furniture clears native map diagonal");
             }
         }
+        foreach(bool forest in new[]{false,true})
+        {
+            var room=new Transform{rotation=Quaternion.Euler(0,37,0)};
+            if(forest)room.floor=new Transform();SkyAlternative.PlacedRoomRoot=room;
+            for(byte service=1;service<=3;service++)
+            {
+                MapRoomDriver.Yaw=0;TownServicePlacement.TryResolve(service,Vector3.zero,1,out var original,out _);
+                for(int yaw=5;yaw<360;yaw+=5)
+                {
+                    MapRoomDriver.Yaw=yaw;TownServicePlacement.TryResolve(service,Vector3.zero,1,out var current,out _);
+                    Near(current.x,original.x,"room frame independent of reading x");
+                    Near(current.z,original.z,"room frame independent of reading z");
+                }
+            }
+        }
+        SkyAlternative.PlacedRoomRoot=null;
         MapRoomDriver.Yaw = 0;
         MapRoomDriver.Active = false;
         Check(!TownServicePlacement.TryResolve(1, Vector3.zero, 1, out _, out _), "no off-map spawn");
@@ -117,6 +123,7 @@ namespace UnityEngine
     {
         internal float yaw;
         public static Quaternion identity=>new();
+        public static Quaternion operator *(Quaternion a,Quaternion b)=>new(){yaw=a.yaw+b.yaw};
         public static Quaternion Inverse(Quaternion q)=>new(){yaw=-q.yaw};
         public static Quaternion Euler(float x,float y,float z)=>new(){yaw=y*MathF.PI/180};
         public static Quaternion LookRotation(Vector3 forward,Vector3 up)=>new();
@@ -136,6 +143,7 @@ namespace UnityEngine
         public Vector3 position {get=>parent!=null?parent.TransformPoint(localPosition):localPosition;set=>localPosition=parent!=null?parent.InverseTransformPoint(value):value;}
         public Vector3 lossyScale=>parent!=null?new Vector3(parent.lossyScale.x*localScale.x,parent.lossyScale.y*localScale.y,parent.lossyScale.z*localScale.z):localScale;
         public Quaternion rotation;
+        public Vector3 eulerAngles=>new(0,rotation.yaw*180/MathF.PI,0);
         public int PoseWrites;
         public bool HasAnchor=true;
         public void SetPositionAndRotation(Vector3 p,Quaternion q) { position=p;rotation=q;PoseWrites++; }
