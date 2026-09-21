@@ -81,9 +81,9 @@ public static class InteractionProgram
         var surface=lamp.GetComponentInChildren<MeshRenderer>();var replacement=new Material(surface.sharedMaterial);replacement.SetFloat("_TownVisibility",.4f);surface.sharedMaterial=replacement;
         var helper=lamp.GetComponent<TownServiceWorkspacePractical>();
         void UpdateLamp()=>typeof(TownServiceWorkspacePractical).GetMethod("LateUpdate",BindingFlags.Instance|BindingFlags.NonPublic)!.Invoke(helper,null);
-        UpdateLamp();Check(Math.Abs(owned.intensity-.5f)<.0001f,"remote replacement material opacity reaches practical");
+        UpdateLamp();Check(Math.Abs(owned.intensity-1.04f)<.0001f,"remote replacement material opacity reaches practical");
         var block=new MaterialPropertyBlock();block.SetFloat("_TownVisibility",.2f);surface.SetPropertyBlock(block);UpdateLamp();
-        Check(Math.Abs(owned.intensity-.25f)<.0001f,"property-block dissolve reaches practical");
+        Check(Math.Abs(owned.intensity-.52f)<.0001f,"property-block dissolve reaches practical");
         lamp.transform.position+=Vector3.right;lamp.transform.localScale*=2;UpdateLamp();
         Check(Math.Abs(owned.range-2.65f*rangeScale*Math.Abs(lamp.transform.lossyScale.x))<.0001f,"practical range follows mirrored world scale");
         Check(Vector3.Distance(owned.transform.position,lamp.transform.TransformPoint(lampPoint))<.0001f,"moved workspace carries practical in same frame");

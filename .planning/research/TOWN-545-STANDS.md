@@ -76,3 +76,13 @@ change native-template topology. It follows the exact local flame point, world
 scale, current replaced material and property-block dissolve. Disable/destroy
 immediately darkens and deactivates the light before releasing ownership; native
 lights and source materials remain untouched. Repeated binds are idempotent.
+
+## Practical calibration
+
+The actual actor review with the original1.05 practical power remained too dark
+at the face's approximately0.9 m lamp distance. A controlled2.6-power render at
+the same real lantern positions retained facial shading and made the face/beard
+legible; the integrator reviewed and accepted that comparison. Permanent and
+workspace lanterns now share2.6 through `PracticalPower`. No scene ambient,
+self-emission, painted catchlight or native lighting policy was introduced.
+Private comparison: the face worker's `town545-review1` and `town545-review2`.

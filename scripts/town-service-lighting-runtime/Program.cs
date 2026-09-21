@@ -38,10 +38,10 @@ internal static class Program
             {Near(lamp.intensity,0,"practical dark before asset source");Near(lamp.range,5.3f,"scaled practical range");Check(lamp.renderMode==LightRenderMode.ForceVertex,"zero-pixel-cap compatibility");}
             merchant.SetVisibility(.5f);merchant.SetFlame(new Vector3(2,3,4),0);
             var merchantLamp=owned.First(l=>l.type==LightType.Point);
-            Near(merchantLamp.intensity,.525f,"late source uses current fade without damping");Near(merchantLamp.transform.position.y,3,"late source keeps original flame position");
+            Near(merchantLamp.intensity,1.3f,"late source uses current fade without damping");Near(merchantLamp.transform.position.y,3,"late source keeps original flame position");
             merchant.SetFlame(new Vector3(-2,3,4),1);
-            Near(owned.Where(l=>l.type==LightType.Point).Skip(1).First().intensity,.525f,"second visible practical illuminates other side of face");
-            merchant.SetVisibility(1);Near(merchantLamp.intensity,1.05f,"owner reaches full light immediately");
+            Near(owned.Where(l=>l.type==LightType.Point).Skip(1).First().intensity,1.3f,"second visible practical illuminates other side of face");
+            merchant.SetVisibility(1);Near(merchantLamp.intensity,2.6f,"owner reaches full light immediately");
             SkyAlternative.HasMoon=false;enchantress.Refresh(root);Near(owned.Single(l=>l.type==LightType.Directional).intensity,0,"MR/default has no invented studio key");SkyAlternative.HasMoon=true;
             merchant.Dispose();Check(OwnedCount==5,"single station leaves shared moon and other stations");
             int destroys=UnityEngine.Object.DestroyRequests;merchant.Dispose();Check(UnityEngine.Object.DestroyRequests==destroys&&OwnedCount==5,"double dispose is inert");

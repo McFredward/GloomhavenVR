@@ -13,7 +13,9 @@ internal sealed class TownServiceLighting : IDisposable
     private static readonly HashSet<Light> Owned = new();
     internal static void ClaimPractical(Light light) => Owned.Add(light);
     internal static void ForgetPractical(Light light) => Owned.Remove(light);
-    internal static float PracticalPower(byte service) => service == 2 ? 1.25f : 1.05f;
+    // Calibrated against the real face at its ~0.9m lamp distance. The former1.05
+    // disappeared under point falloff in default/MR; no ambient or emission floor is used.
+    internal static float PracticalPower(byte service) => 2.6f;
     internal static Color PracticalColour(byte service) => service == 1 ? new Color(1f, .71f, .40f)
         : service == 2 ? new Color(1f, .82f, .60f) : new Color(1f, .74f, .48f);
     internal static bool Owns(Light light) => light != null && Owned.Contains(light);
