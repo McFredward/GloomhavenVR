@@ -29,9 +29,12 @@ def sources(root):
 
 def mutations():
     return [
+        ("reading-fade", "TownServiceWorkspace.cs", "float layoutYaw = frame.eulerAngles.y;", "float layoutYaw = seat.YawDegrees;", "reading-side changes cannot restart unchanged workspace fade"),
+        ("environment-divergence", "TownServiceLayout.cs", "radius = service == 3 ? 2.4f : 2.3f;", "radius = (service == 3 ? 2.4f : 2.3f) + (environment == Environment.Forest ? .15f : 0f);", "mixed environment peers resolve identical station poses"),
+        ("parchment-frame", "TownServiceLayout.cs", "GloomhavenVR.Rig.VRRigDriver.YawOnly(parchment.rotation)", "Quaternion.identity", "default MR shares original parchment frame with custom rooms"),
         ("no-relocation-revision", "TownServiceWorkspace.cs", "checked { RelocationRevision++; }", "", "only invisible pose change advances relocation revision"),
-        ("drawer-ring", "TownServiceLayout.cs", "radius = visitor == 3 ? 2.7f : 2.5f;", "radius = 1.5f;", "opened drawer stays outside complete native map table diagonal"),
-        ("room-frame", "TownServiceLayout.cs", "room != null ? room.eulerAngles.y : readingYaw", "readingYaw", "reading-side change cannot rotate stations into room scenery"),
+        ("drawer-ring", "TownServiceLayout.cs", "radius = visitor == 1 ? 2.3f : visitor == 2 ? 2.4f : 3.1f;", "radius = 1.5f;", "opened drawer stays outside complete native map table diagonal"),
+        ("room-frame", "TownServiceLayout.cs", "Quaternion.Euler(0f, room.eulerAngles.y, 0f)", "Quaternion.identity", "room frame matches canonical parchment yaw"),
         ("roster", "TownServiceWorkspace.cs", "player.Id > 0", "player.Id == local", "extra counter clears all three actual resident envelopes"),
         ("visible-teleport", "TownServiceWorkspace.cs", "RelocationVisibility = 0f; ApplyTarget();", "RelocationVisibility = 1f; ApplyTarget();", "pose change has a fully invisible published frame"),
         ("primary", "TownServiceWorkspace.cs", "_shownPrimary ? 0f : _visibility * RelocationVisibility", "_visibility * RelocationVisibility", "primary duplicate is hidden while extensions are visible"),

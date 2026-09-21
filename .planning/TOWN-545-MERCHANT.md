@@ -115,9 +115,9 @@ returning a native row to its pool also restores its original flags.
 Room-relative placement replaces the former common radial layout, which overlapped the
 larger merchant and additional visitor drawers. The complete opened travel is reserved:
 merchant/visitor top width 2.54 m, drawer front -0.82 m, housing outer edge +/-1.218 m.
-Cellar and forest use separately measured six-station arrangements. Custom-room rotation,
-not the current reading-side yaw, defines their frame. Default/MR uses the cellar arrangement
-in the common reading frame. Ground support registration includes the new centre/outer posts.
+The initial separately measured room arrangements are superseded by the common-layout
+validation below, because peers may choose different environments. Ground support registration
+includes the new centre/outer posts.
 
 Focused evidence (original build544 shipping assets, not the pending build545 bundle):
 
@@ -145,8 +145,8 @@ Focused evidence (original build544 shipping assets, not the pending build545 bu
 The scene audit reserves 5 cm around each part, includes all simultaneously occupied
 stations and preserves the complete native table diagonal. It explicitly excludes
 non-solid effects/alpha foliage; it is not a visual foliage intersection oracle.
-Native Guildmaster bench/barrel geometry is outside that custom-environment bundle and
-still requires its separate scene check. The final build545 furniture/character bundle
+Native Guildmaster bench/barrel geometry is outside that custom-environment bundle;
+the separate source-hashed native audit below closes that initial coverage gap. The final build545 furniture/character bundle
 must repeat the focused geometry checks. None of these checks establishes headset quality.
 
 ## Deferred temple/enchantment completion safety
@@ -181,3 +181,58 @@ roots are immediately hidden, and already-acquired zone subscriptions are dispos
 failures at both detail-mirror construction boundaries are exercised before a successful reopen.
 Updated catalogue evidence: 1,847 real Unity assertions plus 14 compiled negative controls,
 `.planning/debug/town-service-catalog/run-f608an6y`; strict Release build remains zero warnings/errors.
+
+## Final common layout: mixed environments and original native furniture
+
+All environments now resolve the same six XZ/heading poses. A room-specific arrangement
+would disagree when one participant selected forest and another cellar. The shared frame is
+the original parchment quaternion's Y twist, matching SkyAlternative's room placement; default
+and MR also use that frame, never the player's reading-side yaw. Local floor solving remains
+unchanged and the elected resident author publishes its actual grounded pose.
+
+| Station | Radius | Position bearing | Facing yaw |
+| --- | ---: | ---: | ---: |
+| Merchant | 2.30 m | 15° | 15° |
+| Priestess | 2.30 m | 320° | 290° |
+| Enchantress | 2.40 m | 160° | 160° |
+| Extra visitor 1 | 2.30 m | 100° | 100° |
+| Extra visitor 2 | 2.40 m | 220° | 220° |
+| Extra visitor 3 | 3.10 m | 270° | 300° |
+
+The angled stands fit actual gaps while keeping their interactive side generally towards
+the map. Three residents and three simultaneous extra visitors, including every fully open
+merchant bank, have zero padded-envelope contacts in either original custom room. Source
+production poses are exported by the real Unity fixture and fed directly to the geometry
+audit rather than restated as independent test constants.
+
+The native audit verifies original level4/5/9/10 file hashes before accepting renderer bounds
+and ancestor transforms. It applies the same parchment AABB-derived scale and yaw, then tests
+all shared poses against active native furniture: Guildmaster table, bench and barrel in both
+Guildmaster scenes; campaign tabletop in both campaign scenes. Authored-inactive Guildmaster
+furniture present in the campaign files is explicitly recorded as excluded, not treated as
+visible. All four scenes report zero contacts with the complete opened drawer envelopes.
+The earlier custom-room-safe candidate intentionally fails the new native audit due to its
+barrel/bench collisions, providing a geometry negative control independent of parser failures.
+
+Focused evidence:
+
+- Workspace: 3,075 real Unity assertions and 13 compiled negatives, including divergent
+  environment layouts, default/MR parchment-frame regressions and unchanged-pose
+  fades on reading-side changes;
+  `.planning/debug/town-service-workspace/run-5nqlmdt7`.
+- Portable geometry/lifecycle/grounding: 1,569 + 71 + 243 assertions, 14 negatives.
+- Strict Release build: zero warnings/errors.
+- Full measured audit: `.planning/debug/town545-common-native-final.json`; negative:
+  `town545-common-native-negative.json`. Environment bundle remains
+  `fe1a659c17b4151e929691aa070d402b8cd299a462315b1d6691d2622d491693`.
+  Production pose CSV SHA256:
+  `dec99bd1b34e13056424785d557c6ca8ca0a516288628706b11c83fc5e4b0512`.
+  Native export SHA256:
+  `ddc2397891ce309b475972fe9cdf7bd101168a2239093825fbeb0ae62f6ec598`.
+  Each verified native scene hash and each active/excluded mesh is retained in the report.
+
+The geometry gate uses original mesh triangles for opaque custom-room scenery and conservative
+native mesh AABBs, reserving 5 cm around station parts. It is deliberately independent of
+reading direction. It still requires the final build545 asset-envelope rerun and hardware
+inspection; authored-inactive native objects unexpectedly enabled by a different game flow
+would require an additional runtime scene sample.

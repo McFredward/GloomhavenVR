@@ -22,6 +22,7 @@ static class Program
             }
         Check(!TownServicePlacement.TryHeight(new Vector3(100, 0, 0), a, b, c, out _), "outside triangle rejected");
         Check(!TownServicePlacement.TryHeight(Vector3.zero, a, a, a, out _), "degenerate rejected");
+        MapRoomDriver.ParchmentRenderer = new MeshRenderer();
         MapRoomDriver.Floor = 20f;
         MapRoomDriver.Yaw = 0f;
         MapRoomDriver.Active = true;
@@ -53,7 +54,7 @@ static class Program
             {
                 Check(TownServicePlacement.TryResolve(service,Vector3.zero,1,out var p,out _),"all-yaw open placement");
                 float radius=MathF.Sqrt(p.x*p.x+p.z*p.z);
-                Near(radius,service==1?2.7f:2.9f,"default station uses validated layout radius");
+                Near(radius,service==3?2.4f:2.3f,"default station uses validated layout radius");
                 Check(radius-(service==1?.82f:.362f)>1.4f,"all opened resident furniture clears native map diagonal");
             }
         }
@@ -92,6 +93,7 @@ namespace GloomhavenVR.WorldUI.MapRoom
     internal static class MapRoomSeat { internal readonly struct Seat { internal readonly Vector3 FloorPosition; internal readonly float YawDegrees; internal Seat(float floor, float yaw) { FloorPosition = new Vector3(0, floor, 0); YawDegrees = yaw; } } }
     internal static class MapRoomDriver
     {
+        internal static MeshRenderer? ParchmentRenderer;
         internal static bool Active;
         internal static float Floor, Yaw;
         internal static Vector3 Center=Vector3.zero;
@@ -158,3 +160,6 @@ namespace UnityEngine
     public class Mesh { public bool isReadable=true; public Vector3[] vertices=Array.Empty<Vector3>(); public int[] triangles=Array.Empty<int>(); }
     public static class Mathf { public static float Abs(float v)=>Math.Abs(v); public static float Max(float a,float b)=>Math.Max(a,b); public static float Min(float a,float b)=>Math.Min(a,b); }
 }
+
+namespace UnityEngine { public class MeshRenderer { public Transform transform=new(); } }
+namespace GloomhavenVR.Rig { internal static class VRRigDriver { internal static Quaternion YawOnly(Quaternion q)=>q; } }

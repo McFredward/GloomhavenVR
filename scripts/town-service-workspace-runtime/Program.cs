@@ -25,7 +25,7 @@ public static class InteractionProgram
     {
         var room=SkyAlternative.PlacedRoomRoot;
         TownServiceLayout.Resolve(TownServiceLayout.ForRoom(room),0,slot,out var offset,out var heading);
-        return MapRoomDriver.Center+TownServiceLayout.Frame(room,MapRoomDriver.Yaw)*offset*MapRoomDriver.Scale;
+        return MapRoomDriver.Center+TownServiceLayout.Frame(room,MapRoomDriver.ParchmentRenderer?.transform)*offset*MapRoomDriver.Scale;
     }
     private static void PlaceStation(Transform station)
     {
@@ -80,7 +80,7 @@ public static class InteractionProgram
             Vector3 near=(root.position-MapRoomDriver.Center)/MapRoomDriver.Scale+inward*.82f;
             Check(new Vector2(near.x,near.z).magnitude>1.40f,"opened drawer stays outside complete native map table diagonal");
             Vector3 toward=MapRoomDriver.Center-root.position;toward.y=0f;
-            Check(Vector3.Dot(inward,toward.normalized)>.99f,"counter faces map instead of inheriting merchant yaw");
+            Check(Vector3.Dot(inward,toward.normalized)>.85f,"angled counter still faces toward map");
             foreach(var fixedParts in fixedStations)foreach(var a in parts)foreach(var b in fixedParts)
                 Check(Separated(a,b),"extra counter clears all three actual resident envelopes");
             foreach(var previous in extras)foreach(var a in parts)foreach(var b in previous)
@@ -101,15 +101,21 @@ public static class InteractionProgram
     private static void ReadingIndependentRooms()
     {
         float previousYaw=MapRoomDriver.Yaw;
+        var parchment=new GameObject("SharedParchment",typeof(MeshRenderer));
+        parchment.transform.rotation=Quaternion.Euler(0,37,0);MapRoomDriver.ParchmentRenderer=parchment.GetComponent<MeshRenderer>();
+        var sharedPosition=new Vector3[3];var sharedRotation=new Quaternion[3];bool firstRoom=true;
         foreach(bool forest in new[]{false,true})
         {
             var room=new GameObject("MeasuredRoom");room.transform.rotation=Quaternion.Euler(0,37,0);
             var geometry=new GameObject("RoomGeo");geometry.transform.SetParent(room.transform,false);
             var floor=new GameObject(forest?"Ground":"Floor");floor.transform.SetParent(geometry.transform,false);
             SkyAlternative.PlacedRoomRoot=room.transform;
+            Check(Quaternion.Angle(TownServiceLayout.Frame(room.transform,parchment.transform),room.transform.rotation)<.001f,"room frame matches canonical parchment yaw");
             for(byte service=1;service<=3;service++)
             {
                 MapRoomDriver.Yaw=0;TownServicePlacement.TryResolve(service,MapRoomDriver.Center,MapRoomDriver.Scale,out var p,out var q);
+                if(firstRoom){sharedPosition[service-1]=p;sharedRotation[service-1]=q;}
+                else Check(Close(p,sharedPosition[service-1])&&Quaternion.Angle(q,sharedRotation[service-1])<.001f,"mixed environment peers resolve identical station poses");
                 RecordPose(forest?"forest":"cellar","resident",service,p,q,room.transform.rotation);
                 for(int reading=15;reading<360;reading+=15)
                 {
@@ -124,11 +130,27 @@ public static class InteractionProgram
                 foreach(int id in new[]{1,7,19,53})
                 {NetPlayerActors.Local=id;visitors.Add(new TownServiceWorkspace(station.transform));}
                 CheckGeometry(visitors);
+                for(int reading=0;reading<360;reading+=45)
+                {
+                    MapRoomDriver.Yaw=reading;WorkspaceClock.Now+=.3f;
+                    for(int i=0;i<visitors.Count;i++)
+                    {
+                        NetPlayerActors.Local=new[]{1,7,19,53}[i];visitors[i].Tick();
+                        Check(visitors[i].RelocationRevision==0&&visitors[i].RelocationVisibility==1f,"reading-side changes cannot restart unchanged workspace fade");
+                    }
+                }
                 for(int i=1;i<visitors.Count;i++)RecordPose(forest?"forest":"cellar","visitor",i,visitors[i].Root.position,visitors[i].Root.rotation,room.transform.rotation);
             }
             finally{foreach(var visitor in visitors)visitor.Dispose();UnityEngine.Object.DestroyImmediate(station);}
-            UnityEngine.Object.DestroyImmediate(room);SkyAlternative.PlacedRoomRoot=null;
+            UnityEngine.Object.DestroyImmediate(room);SkyAlternative.PlacedRoomRoot=null;firstRoom=false;
         }
+        for(byte service=1;service<=3;service++)
+        {
+            TownServicePlacement.TryResolve(service,MapRoomDriver.Center,MapRoomDriver.Scale,out var p,out var q);
+            p.y=sharedPosition[service-1].y;
+            Check(Close(p,sharedPosition[service-1])&&Quaternion.Angle(q,sharedRotation[service-1])<.001f,"default MR shares original parchment frame with custom rooms");
+        }
+        UnityEngine.Object.DestroyImmediate(parchment);MapRoomDriver.ParchmentRenderer=null;
         MapRoomDriver.Yaw=previousYaw;
     }
     private static void BakedActorEnvelope()
@@ -175,7 +197,7 @@ public static class InteractionProgram
     }
     public static int Run()
     {
-        count = 0;PoseEvidence.Clear(); WorkspaceClock.Now = 0; SkyAlternative.PlacedRoomRoot = null; ReadingIndependentRooms(); BakedActorEnvelope();
+        count = 0;PoseEvidence.Clear(); WorkspaceClock.Now = 0; SkyAlternative.PlacedRoomRoot = null; ReadingIndependentRooms(); WorkspaceClock.Now = 0; BakedActorEnvelope();
         var station = new GameObject("Shared station"); PlaceStation(station.transform);
         var template = TownServiceWorkspace.CounterTemplate!;
         var originals = template.GetComponentsInChildren<MeshRenderer>().SelectMany(r => r.sharedMaterials).Distinct().ToArray();
@@ -225,13 +247,13 @@ public static class InteractionProgram
             var room = new GameObject("sloped room"); room.transform.position = MapRoomDriver.Center; room.transform.localScale = Vector3.one * MapRoomDriver.Scale;
             var geometry = new GameObject("RoomGeo"); geometry.transform.SetParent(room.transform, false);
             var ground = new GameObject("Ground"); ground.transform.SetParent(geometry.transform, false);
-            var mesh = new Mesh { vertices = new[] { new Vector3(-5, -.15f, -5), new Vector3(5, .05f, -5), new Vector3(5, .15f, 5), new Vector3(-5, -.05f, 5) }, triangles = new[] { 0, 2, 1, 0, 3, 2 } };
+            var mesh = new Mesh { vertices = new[] { new Vector3(-5, -.05f, -5), new Vector3(5, .15f, -5), new Vector3(5, .25f, 5), new Vector3(-5, .05f, 5) }, triangles = new[] { 0, 2, 1, 0, 3, 2 } };
             ground.AddComponent<MeshFilter>().sharedMesh = mesh;
             try
             {
                 SkyAlternative.PlacedRoomRoot = room.transform; WorkspaceClock.Now = 5; moving.Tick(); WorkspaceClock.Now = 5.12f; moving.Tick(); WorkspaceClock.Now = 5.23f; moving.Tick();
                 Vector3 local = room.transform.InverseTransformPoint(moving.Root.position);
-                Check(Math.Abs(local.y - (.02f * local.x + .01f * local.z)) < .0001f, "workspace rests on original sloped floor at its own target");
+                Check(Math.Abs(local.y - (.1f + .02f * local.x + .01f * local.z)) < .0001f, "workspace rests on original sloped floor at its own target");
                 Check(Math.Abs(local.y) > .005f, "slope fixture differs measurably from room-root height");
                 Transform foot = moving.FurnitureRoot.Find("CentreSupport") ?? moving.FurnitureRoot.Find("FootPlinth");
                 Check(foot!=null,"workspace has a grounded original support");

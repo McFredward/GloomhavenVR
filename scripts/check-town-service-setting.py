@@ -35,7 +35,7 @@ def main():
         ("tracking floor regression", {"Placement.cs": sources["Placement.cs"].replace(
             'position.y = room != null ? room.position.y : seat.FloorPosition.y;', 'position.y = seat.FloorPosition.y;').replace(
             'if (room != null) position.y = GroundHeight(room, position);', '')}),
-        ("unsafe outer station ring", {"Layout.cs": sources["Layout.cs"].replace("radius = service == 1 ? 2.7f : 2.9f;", "radius = 9f;")}),
+        ("unsafe outer station ring", {"Layout.cs": sources["Layout.cs"].replace("radius = service == 3 ? 2.4f : 2.3f;", "radius = 9f;")}),
         ("ignored terrain relief", {"Placement.cs": sources["Placement.cs"].replace('if (room != null) position.y = GroundHeight(room, position);', '')}),
         ("handover does not replace peer floor", {"Station.cs": sources["Station.cs"].replace('(authorPose && !_authorPose)', '(authorPose && !_authorPose && false)')}),
         ("remote scale misses light update", {"Station.cs": sources["Station.cs"].replace('changed || lightScale != _lightScale', 'changed || false && lightScale != _lightScale')}),

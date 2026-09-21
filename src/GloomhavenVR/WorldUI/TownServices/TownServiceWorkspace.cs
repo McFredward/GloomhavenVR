@@ -94,16 +94,17 @@ internal sealed class TownServiceWorkspace : IDisposable
         if (!MapRoomDriver.TryGetParchmentFrame(out Vector3 center, out float scale)
             || !MapRoomDriver.TrySolveSeat(out MapRoomSeat.Seat seat, out _)) return false;
         Transform? room = SkyAlternative.PlacedRoomRoot;
+        Quaternion frame = TownServiceLayout.Frame(room, MapRoomDriver.ParchmentRenderer?.transform);
+        float layoutYaw = frame.eulerAngles.y;
         if (!force && slot == _slot && room == _room && center == _center && scale == _scale
-            && seat.YawDegrees == _yaw && _station.position == _stationPosition && _station.rotation == _stationRotation) return true;
-        _slot = slot; _room = room; _center = center; _scale = scale; _yaw = seat.YawDegrees;
+            && layoutYaw == _yaw && _station.position == _stationPosition && _station.rotation == _stationRotation) return true;
+        _slot = slot; _room = room; _center = center; _scale = scale; _yaw = layoutYaw;
         _stationPosition = _station.position; _stationRotation = _station.rotation;
         if (slot == 0) { _target = _station.position; _targetRotation = _station.rotation; }
         else
         {
             TownServiceLayout.Resolve(TownServiceLayout.ForRoom(room), 0, slot,
                 out Vector3 offset, out float heading);
-            Quaternion frame = TownServiceLayout.Frame(room, _yaw);
             _target = center + frame * offset * scale;
             _target.y = room != null ? TownServicePlacement.GroundHeight(room, _target) : seat.FloorPosition.y;
             _targetRotation = frame * Quaternion.Euler(0f, heading, 0f);

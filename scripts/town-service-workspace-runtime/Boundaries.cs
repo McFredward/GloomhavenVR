@@ -48,6 +48,7 @@ namespace GloomhavenVR.WorldUI.MapRoom
     }
     internal static class MapRoomDriver
     {
+        internal static MeshRenderer? ParchmentRenderer;
         internal static bool Active = true, Available = true;
         internal static Vector3 Center = new(70, 90, -140);
         internal static float Scale = 198f, Yaw = 58f;
@@ -77,3 +78,4 @@ namespace GloomhavenVR.WorldUI
     internal static class TownServiceWorkspacePractical
     { internal static void RebindClone(string key, GameObject clone) { } }
 }
+namespace GloomhavenVR.Rig { internal static class VRRigDriver { internal static Quaternion YawOnly(Quaternion q){float m=Mathf.Sqrt(q.y*q.y+q.w*q.w);return m<1e-6f?Quaternion.identity:new Quaternion(0,q.y/m,0,q.w/m);} } }

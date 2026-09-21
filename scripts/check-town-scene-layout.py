@@ -110,11 +110,88 @@ def separated(a, b):
     return False
 
 
+def native_furniture(path, data_root, measurements):
+    rows = json.loads(path.read_text())
+    if {row['level'] for row in rows} != {4, 5, 9, 10}:
+        raise SystemExit('Native audit requires both Guildmaster and both campaign scene exports')
+    verified = {}
+    result = {'exportSha256': hashlib.sha256(path.read_bytes()).hexdigest(), 'levels': {}}
+
+    def transform(row):
+        frame = np.eye(4)
+        rotation = np.array([0., 0., 0., 1.])
+        for node in reversed(row['chain']):
+            x, y, z, w = node['rotation']
+            q = np.array([x, y, z, w])
+            a, b = rotation[:3], q[:3]
+            rotation = np.append(rotation[3]*b + q[3]*a + np.cross(a, b), rotation[3]*q[3] - a@b)
+            r = np.array([[1-2*y*y-2*z*z, 2*x*y-2*z*w, 2*x*z+2*y*w, 0],
+                          [2*x*y+2*z*w, 1-2*x*x-2*z*z, 2*y*z-2*x*w, 0],
+                          [2*x*z-2*y*w, 2*y*z+2*x*w, 1-2*x*x-2*y*y, 0], [0, 0, 0, 1.]])
+            r[:3, :3] *= np.array(node['scale'])[None, :]
+            r[:3, 3] = node['position']
+            frame = frame @ r
+        vertices = []
+        for mesh in row['meshes']:
+            c, e = np.array(mesh['center']), np.array(mesh['extent'])
+            v = np.array([c+e*np.array([x, y, z]) for x in (-1, 1) for y in (-1, 1) for z in (-1, 1)])
+            vertices.extend((np.column_stack((v, np.ones(8))) @ frame.T)[:, :3])
+        return np.array(vertices), rotation
+
+    # Both custom environments use identical production poses, so native furniture is
+    # evaluated once per original scene, independent of the local reading-side angle.
+    poses = [row for row in measurements if row[0] == 'cellar']
+    forest = [row for row in measurements if row[0] == 'forest']
+    for a, b in zip(poses, forest):
+        if a[1:3] != b[1:3] or not np.allclose(np.array(a[3:], float), np.array(b[3:], float), atol=.0001):
+            raise SystemExit('Native audit requires the same shared town layout in both rooms')
+    for level in sorted(set(row['level'] for row in rows)):
+        scene = [row for row in rows if row['level'] == level]
+        hashes = set(row['levelSha256'] for row in scene)
+        if len(hashes) != 1:
+            raise SystemExit('Inconsistent native source hashes')
+        expected = next(iter(hashes))
+        source = data_root / ('level' + str(level))
+        if hashlib.sha256(source.read_bytes()).hexdigest() != expected:
+            raise SystemExit(f'Native scene {level} does not match measured source')
+        verified[str(level)] = expected
+        parchment = next(row for row in scene if row['name'] in ('GH_Map_Scene_WORLDMAP', 'GH_Campaign_Map'))
+        v, rotation = transform(parchment)
+        center = (v.min(0) + v.max(0)) * .5
+        # Same widest-AABB/1.20 and quaternion Y-twist as MapRoomDriver/SkyAlternative.
+        scale = np.clip(max((v.max(0)-v.min(0))[[0, 2]]) / 1.20, 1., 2000.)
+        yaw = 2 * math.atan2(rotation[1], rotation[3]) if math.hypot(rotation[1], rotation[3]) > 1e-6 else 0.
+        projection = np.array([[math.cos(yaw), math.sin(yaw)], [-math.sin(yaw), math.cos(yaw)]])
+        measured, skipped, hits = [], [], []
+        for row in scene:
+            if row is parchment:
+                continue
+            if not row['authoredActiveHierarchy']:
+                skipped.append(row['name'])
+                continue
+            v, _ = transform(row)
+            xz = ((v-center)/scale)[:, [0, 2]] @ projection
+            low, high = xz.min(0), xz.max(0)
+            rectangle = np.array([[low[0], low[1]], [high[0], low[1]], [high[0], high[1]], [low[0], high[1]]])
+            measured.append({'name': row['name'], 'minimum': low.tolist(), 'maximum': high.tolist()})
+            for _, role, identifier, x, z, heading in poses:
+                for part_name, poly in parts(np.array([float(x), float(z)]), float(heading), role, int(identifier), .05):
+                    if not separated(poly, rectangle):
+                        hits.append([role, identifier, part_name, row['name']])
+        result['levels'][str(level)] = {'scale': float(scale), 'parchmentCenter': center.tolist(),
+                                      'furniture': measured, 'authoredInactive': skipped, 'contacts': hits}
+        print('native', level, 'active furniture', len(measured), 'contacts', len(hits))
+    result['sourceHashes'] = verified
+    return result
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--environment-bundle', type=Path, required=True)
     parser.add_argument('--poses', type=Path, required=True)
     parser.add_argument('--output', type=Path, required=True)
+    parser.add_argument('--native-geometry', type=Path, help='Original native renderer bounds/ancestor export')
+    parser.add_argument('--native-data-root', type=Path, help='Read-only original GH_Data to verify native scene hashes')
     args = parser.parse_args()
     payload = args.environment_bundle.read_bytes()
     bundle_hash = hashlib.sha256(payload).hexdigest()
@@ -152,10 +229,16 @@ def main():
         print(label, 'poses', len(rows), 'parts', len(placed), 'contacts', len(hits))
     if hashlib.sha256(args.environment_bundle.read_bytes()).hexdigest() != bundle_hash:
         raise SystemExit('Environment bundle changed during collision audit')
+    if args.native_geometry:
+        if not args.native_data_root:
+            parser.error('--native-geometry requires --native-data-root')
+        report['nativeFurniture'] = native_furniture(args.native_geometry, args.native_data_root, measurements)
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(report, indent=2)+'\n')
     if len(report['rooms']) != 2 or any(value['contacts'] for value in report['rooms'].values()):
         raise SystemExit('FAIL: room geometry contacts or missing room assets')
+    if any(level['contacts'] for level in report.get('nativeFurniture', {}).get('levels', {}).values()):
+        raise SystemExit('FAIL: native furniture contacts')
     print('PASS: actual scene triangles and simultaneously opened station envelopes')
 
 

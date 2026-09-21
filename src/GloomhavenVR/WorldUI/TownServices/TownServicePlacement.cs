@@ -16,7 +16,7 @@ internal static class TownServicePlacement
         Transform? room = SkyAlternative.PlacedRoomRoot;
         TownServiceLayout.Resolve(TownServiceLayout.ForRoom(room), service, 0,
             out Vector3 offset, out float heading);
-        Quaternion frame = TownServiceLayout.Frame(room, seat.YawDegrees);
+        Quaternion frame = TownServiceLayout.Frame(room, MapRoomDriver.ParchmentRenderer?.transform);
         position = center + frame * offset * scale;
         rotation = frame * Quaternion.Euler(0f, heading, 0f);
         // Build 541 used tracking floor, which is not the floor mesh beneath the floating map.
