@@ -28,7 +28,7 @@ Shader "GloomhavenVR/TownEye"
                 UNITY_SETUP_STEREO_EYE_INDEX_POST_VERTEX(input);
                 EyeDissolve(input.objectPosition);
                 half3 diffuse, specular;
-                EyeLighting(input.worldPosition, normalize(input.normal), normalize(UnityWorldSpaceViewDir(input.worldPosition)), 64, diffuse, specular);
+                EyeLighting(input.worldPosition, normalize(input.normal), normalize(UnityWorldSpaceViewDir(input.worldPosition)), 64, input.vertexLights, diffuse, specular);
                 fixed4 color = fixed4(tex2D(_MainTex, input.uv).rgb * _Color.rgb * diffuse + specular * 0.025h, 1);
                 UNITY_APPLY_FOG(input.fogCoord, color);
                 return color;

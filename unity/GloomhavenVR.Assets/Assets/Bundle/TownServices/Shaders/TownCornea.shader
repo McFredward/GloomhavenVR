@@ -26,7 +26,7 @@ Shader "GloomhavenVR/TownCornea"
                 half3 normal = normalize(input.normal);
                 half3 view = normalize(UnityWorldSpaceViewDir(input.worldPosition));
                 half3 diffuse, specular;
-                EyeLighting(input.worldPosition, normal, view, 144, diffuse, specular);
+                EyeLighting(input.worldPosition, normal, view, 144, input.vertexLights, diffuse, specular);
                 half fresnel = 0.025h + 0.975h * pow(1.0h - saturate(dot(normal, view)), 5);
                 fixed4 color = fixed4(specular * (0.32h + fresnel), 0);
                 UNITY_APPLY_FOG_COLOR(input.fogCoord, color, fixed4(0,0,0,0));

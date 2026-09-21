@@ -1,5 +1,9 @@
 // Shared bounded eye lighting: the game's pixel-light cap is zero, therefore
 // the same four ForceVertex practicals also supply fragment corneal highlights.
+// fwdbase declares VERTEXLIGHT_ON only for vertices on D3D, whereas GL applies
+// it to both stages. Pass its enabled state to the fragment explicitly; a fragment
+// #ifdef silently removed every practical from the build-543 Windows eye shaders.
+// Do not read the four-light arrays when that draw has no vertex lights.
 #include "UnityCG.cginc"
 #include "Lighting.cginc"
 struct EyeInput
@@ -16,6 +20,7 @@ struct EyeVarying
     half3 normal : TEXCOORD1;
     float2 uv : TEXCOORD2;
     float3 objectPosition : TEXCOORD3;
+    half vertexLights : TEXCOORD5;
     UNITY_FOG_COORDS(4)
     UNITY_VERTEX_OUTPUT_STEREO
 };
@@ -32,6 +37,9 @@ EyeVarying EyeVertex(EyeInput input)
     output.objectPosition = input.vertex.xyz;
     output.normal = UnityObjectToWorldNormal(input.normal);
     output.uv = TRANSFORM_TEX(input.uv, _MainTex);
+    #ifdef VERTEXLIGHT_ON
+        output.vertexLights = 1;
+    #endif
     UNITY_TRANSFER_FOG(output, output.position);
     return output;
 }
@@ -44,7 +52,7 @@ void EyeDissolve(float3 position)
         clip(_TownVisibility - max(noise, 0.0001));
     }
 }
-void EyeLighting(float3 position, half3 normal, half3 view, half exponent,
+void EyeLighting(float3 position, half3 normal, half3 view, half exponent, half vertexLights,
                  out half3 diffuse, out half3 specular)
 {
     diffuse = max(0, ShadeSH9(half4(normal, 1)));
@@ -53,7 +61,8 @@ void EyeLighting(float3 position, half3 normal, half3 view, half exponent,
     half ndl = saturate(dot(normal, light));
     diffuse += _LightColor0.rgb * ndl;
     specular += _LightColor0.rgb * ndl * pow(saturate(dot(normal, normalize(light + view))), exponent);
-    #ifdef VERTEXLIGHT_ON
+    UNITY_BRANCH if (vertexLights > 0.5h)
+    {
         [unroll] for (int i = 0; i < 4; ++i)
         {
             float3 offset = float3(unity_4LightPosX0[i], unity_4LightPosY0[i], unity_4LightPosZ0[i]) - position;
@@ -65,5 +74,5 @@ void EyeLighting(float3 position, half3 normal, half3 view, half exponent,
             diffuse += color;
             specular += color * pow(saturate(dot(normal, normalize(direction + view))), exponent);
         }
-    #endif
+    }
 }
