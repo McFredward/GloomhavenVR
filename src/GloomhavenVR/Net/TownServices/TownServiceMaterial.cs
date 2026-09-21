@@ -98,6 +98,38 @@ internal static class TownServiceMaterial
         }
         shared.References++; return shared.Material;
     }
+    // Only this owned shader has a verified unscaled, rate-one station clock. All other
+    // material properties and shaders retain their existing exact immutable pool identity.
+    internal static Material? ApplyMesh(TownServiceValue value, TownServiceAssets assets,
+        Material? owned, out bool animated, out float clock)
+    {
+        animated = false; clock = 0f;
+        if (value.Text.Length >= 2 && assets.Resolve<Shader>(value.Text[0])?.name == "GloomhavenVR/TownFlame")
+        {
+            for (int i = 0; i < (value.Text.Length - 2) / 2; i++)
+            {
+                int n = 4 + i * 5;
+                if (value.Text[2 + i * 2] != "_TownAnimationTime"
+                    || value.Numbers[n] != (float)ShaderPropertyType.Float) continue;
+                animated = true; clock = value.Numbers[n + 1];
+                // The common clock-only update does not allocate a new canonical value or
+                // Unity material. Never modify the received frame or a pooled material.
+                if (owned != null && SharedMaterials.TryGetValue(owned, out Shared? current)
+                    && SameExcept(value, current.Value, n + 1)) return owned;
+                var canonical = new TownServiceValue { Numbers = (float[])value.Numbers.Clone(), Text = value.Text };
+                canonical.Numbers[n + 1] = 0f;
+                return Apply(canonical, assets, owned);
+            }
+        }
+        return Apply(value, assets, owned);
+    }
+    private static bool SameExcept(TownServiceValue a, TownServiceValue b, int ignored)
+    {
+        if (a.Numbers.Length != b.Numbers.Length || a.Text.Length != b.Text.Length) return false;
+        for (int i = 0; i < a.Numbers.Length; i++) if (i != ignored && a.Numbers[i] != b.Numbers[i]) return false;
+        for (int i = 0; i < a.Text.Length; i++) if (a.Text[i] != b.Text[i]) return false;
+        return true;
+    }
     internal static void Release(Material? material)
     {
         if (material == null) return;

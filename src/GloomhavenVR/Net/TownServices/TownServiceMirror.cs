@@ -290,7 +290,7 @@ internal static class TownServiceMirror
             if (parent == null || !Pending.TryGetValue(entry.Key, out Dictionary<ushort, TownServiceFrame>? pending)) continue;
             if (!Remote.TryGetValue(entry.Key, out Dictionary<ushort, RemoteModule>? standing))
             { standing = new Dictionary<ushort, RemoteModule>(); Remote.Add(entry.Key, standing); }
-            foreach (RemoteModule visible in standing.Values) visible.Motion.Tick(now);
+            foreach (RemoteModule visible in standing.Values) { visible.Motion.Tick(now); visible.Binding.TickAnimation(now); }
             bool reorder = false;
             foreach (var packet in pending)
             {

@@ -16,6 +16,7 @@ internal sealed class TownServiceBinding : IDisposable
     internal readonly uint Structure;
     private readonly Material?[] _graphicMaterials, _textMaterials;
     private TownServiceNode[]? _lastApplied;
+    private readonly List<TownServiceFlameClock> _flameClocks = new();
     private readonly Func<Transform, bool>? _exclude;
     private readonly NodeCache[] _cache;
     private readonly TownServiceNode[] _sampled;
@@ -29,6 +30,8 @@ internal sealed class TownServiceBinding : IDisposable
         internal readonly List<Material> MeshMaterials = new();
         internal readonly List<TownServiceValue> MeshValues = new();
         internal readonly Material?[] OwnedMesh = new Material?[8];
+        internal Material[]? AppliedMesh;
+        internal readonly TownServiceFlameClock?[] FlameClocks = new TownServiceFlameClock?[8];
         internal int Sibling;
         internal Component[] Components = Array.Empty<Component>();
         internal readonly List<Component> ComponentProbe = new();
@@ -411,7 +414,18 @@ internal sealed class TownServiceBinding : IDisposable
                         if (pair.Key >= TownServiceProperty.MeshMaterial0 && pair.Key <= TownServiceProperty.MeshMaterial7)
                         {
                             int slot = pair.Key - TownServiceProperty.MeshMaterial0;
-                            _cache[i].OwnedMesh[slot] = TownServiceMaterial.Apply(value, assets, _cache[i].OwnedMesh[slot]);
+                            NodeCache cache = _cache[i];
+                            cache.OwnedMesh[slot] = TownServiceMaterial.ApplyMesh(value, assets, cache.OwnedMesh[slot], out bool animated, out float clock);
+                            if (animated)
+                            {
+                                if (cache.FlameClocks[slot] == null)
+                                {
+                                    cache.FlameClocks[slot] = new TownServiceFlameClock(Require<MeshRenderer>(node), slot);
+                                    _flameClocks.Add(cache.FlameClocks[slot]!);
+                                }
+                                cache.FlameClocks[slot]!.Sample(frame.Session, frame.SampleTime, clock, Time.unscaledTime);
+                            }
+                            else ClearClock(cache, slot);
                         }
                         break;
                     case TownServiceProperty.Shadow:
@@ -425,9 +439,20 @@ internal sealed class TownServiceBinding : IDisposable
             if (frame.Nodes[i].Values.TryGetValue(TownServiceProperty.Mesh, out TownServiceValue? meshState))
             {
                 int count = (int)meshState.Numbers[2];
-                var materials = new Material[count];
-                for (int m = 0; m < count; m++) materials[m] = _cache[i].OwnedMesh[m]!;
-                Require<MeshRenderer>(Nodes[i]).sharedMaterials = materials;
+                for (int m = count; m < _cache[i].OwnedMesh.Length; m++)
+                {
+                    ClearClock(_cache[i], m);
+                    TownServiceMaterial.Release(_cache[i].OwnedMesh[m]); _cache[i].OwnedMesh[m] = null;
+                }
+                NodeCache cache = _cache[i];
+                bool changed = cache.AppliedMesh == null || cache.AppliedMesh.Length != count;
+                if (changed) cache.AppliedMesh = new Material[count];
+                for (int m = 0; m < count; m++)
+                {
+                    changed |= cache.AppliedMesh![m] != cache.OwnedMesh[m];
+                    cache.AppliedMesh![m] = cache.OwnedMesh[m]!;
+                }
+                if (changed) Require<MeshRenderer>(Nodes[i]).sharedMaterials = cache.AppliedMesh;
             }
         // Root rect dimensions still govern its original children's anchors and wrapping.
         float[] root = frame.Nodes[0].Values[TownServiceProperty.Transform].Numbers;
@@ -443,8 +468,21 @@ internal sealed class TownServiceBinding : IDisposable
     }
     private static int SafeInt(float value) => value >= int.MaxValue ? int.MaxValue : (int)value;
     private static Color ColorAt(float[] n, int i) => new(n[i], n[i + 1], n[i + 2], n[i + 3]);
+    private void ClearClock(NodeCache cache, int slot)
+    {
+        TownServiceFlameClock? clock = cache.FlameClocks[slot];
+        if (clock == null) return;
+        clock.Dispose(); _flameClocks.Remove(clock); cache.FlameClocks[slot] = null;
+    }
+    internal void TickAnimation(float now)
+    {
+        if (Root == null || !Root.gameObject.activeInHierarchy) return;
+        foreach (TownServiceFlameClock clock in _flameClocks) clock.Tick(now);
+    }
     public void Dispose()
     {
+        foreach (TownServiceFlameClock clock in _flameClocks) clock.Dispose();
+        _flameClocks.Clear();
         foreach (NodeCache node in _cache)
             if (node.Graphic != null)
             {

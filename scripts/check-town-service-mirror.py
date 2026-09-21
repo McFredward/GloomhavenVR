@@ -24,7 +24,7 @@ def expression(text, signature):
 def sources(root):
     base = root / "src/GloomhavenVR"
     names = ["TownServiceAssets", "TownServiceBinding", "TownServiceCodec", "TownServiceDelta",
-             "TownServiceFrame", "TownServiceMaterial", "TownServiceMirror"]
+             "TownServiceFrame", "TownServiceMaterial", "TownServiceFlameClock", "TownServiceMirror"]
     bound = {name + ".cs": (base / "Net/TownServices" / (name + ".cs")).read_text() for name in names}
     backdrop = base / "WorldUI/TownServices/TownServiceBackdropAssets.cs"
     if backdrop.exists(): bound[backdrop.name] = backdrop.read_text()
