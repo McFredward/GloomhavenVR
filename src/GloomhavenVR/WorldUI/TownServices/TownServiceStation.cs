@@ -13,6 +13,9 @@ internal sealed class TownServiceStation : IDisposable
     private readonly byte _service;
     private readonly TownServiceLighting _lighting;
     private readonly TownServiceDecor _decor;
+    private readonly TownServiceGrounding _grounding;
+    internal float ActorFloorOffset { get; private set; }
+    internal float FurnitureBottom { get; private set; }
     private Transform? _room;
     private Vector3 _center;
     private float _scale;
@@ -38,6 +41,7 @@ internal sealed class TownServiceStation : IDisposable
             ?? throw new InvalidOperationException("Town station has no InteractionAnchor");
         _animation = root.GetComponentInChildren<Animation>(true);
         _renderers = root.GetComponentsInChildren<Renderer>(true);
+        _grounding = new TownServiceGrounding(root.transform);
         _lighting = new TownServiceLighting(root.transform, service);
         try { _decor = new TownServiceDecor(root.transform, service, _lighting); }
         catch { _lighting.Dispose(); throw; }
@@ -97,6 +101,8 @@ internal sealed class TownServiceStation : IDisposable
                 Root.SetPositionAndRotation(position, rotation);
                 Root.localScale = Vector3.one * scale;
                 _center = center; _scale = scale;
+                _grounding.Resolve(out float actorFloor, out float furnitureBottom);
+                SetGrounding(actorFloor, furnitureBottom);
             }
         }
         float lightScale = Root.lossyScale.x;
@@ -104,6 +110,14 @@ internal sealed class TownServiceStation : IDisposable
         { _lighting.Refresh(Root); _lightScale = lightScale; _room = room; _placed = true; }
         _authorPose = authorPose;
         _decor.Tick();
+    }
+
+    /// <summary>Ground geometry is part of the author's presentation, not a viewer preference.</summary>
+    internal void SetGrounding(float actorFloor, float furnitureBottom)
+    {
+        ActorFloorOffset = actorFloor;
+        FurnitureBottom = furnitureBottom;
+        _grounding.Apply(actorFloor, furnitureBottom);
     }
 
     internal void Sample(string clip, float seconds)

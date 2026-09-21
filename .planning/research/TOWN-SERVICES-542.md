@@ -26,9 +26,11 @@ record 79. The lowest fresh enabled peer authors the shared positions and clocks
 leave, timeout and opt-out elect a replacement without opening native controllers.
 Observers never replace the author's placement with their own environment preference.
 
-The record is 1 byte while inactive or 91 bytes while active, excluding its 2-byte
-TLV header. The unchanged v3 snapshot maximum grows from 6869 to 6962 actual bytes;
-allocation7219 preserves257 spare bytes and the existing7168 reassembly ceiling.
+The record is 1 byte while inactive or 115 bytes while active, excluding its 2-byte
+TLV header. The unchanged v3 snapshot maximum grows from 6869 to 6986 actual bytes;
+The 7243-byte allocation preserves 257 spare bytes; actual snapshots remain below the
+existing 7168-byte reassembly ceiling. The record includes the author's separate
+actor and furniture floor adjustments; observers never resample their own terrain.
 No card identity, purchase, donation or enhancement authority moves to this channel.
 
 ## Floor, lighting and original decoration

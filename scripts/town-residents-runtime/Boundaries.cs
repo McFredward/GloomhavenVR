@@ -34,6 +34,7 @@ namespace UnityEngine
     public static class Time { public static float unscaledTime, unscaledDeltaTime; }
     public static class Mathf
     {
+        public static float Abs(float v)=>Math.Abs(v);
         public static float Min(float a,float b)=>Math.Min(a,b);
         public static float Max(float a,float b)=>Math.Max(a,b);
         public static int RoundToInt(float v)=>(int)Math.Round(v);
@@ -69,7 +70,8 @@ namespace GloomhavenVR.WorldUI
         internal readonly Transform Root=new();
         internal bool IsReady=>Ready;
         internal float GreetingDuration=>2f;
-        internal float Visibility, Age;
+        internal float Visibility, Age, ActorFloorOffset, FurnitureBottom;
+        internal void SetGrounding(float actor,float furniture) { ActorFloorOffset=actor;FurnitureBottom=furniture; }
         internal bool? LastAuthor;
         internal string Clip="";
         private TownServiceStation(byte service) { Service=service; }

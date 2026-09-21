@@ -24,7 +24,7 @@ internal static class Program
     private static TownResidentsState State(float tag=7)
     {
         var state=new TownResidentsState{Active=true};
-        for(int n=0;n<3;n++)state.Set(n,new TownResidentPose{Pose=new RigPose{Position=new Vector3(n+1,tag,n+2),Rotation=Quaternion.identity},Scale=1,Age=tag,Visibility=255});
+        for(int n=0;n<3;n++)state.Set(n,new TownResidentPose{Pose=new RigPose{Position=new Vector3(n+1,tag,n+2),Rotation=Quaternion.identity},Scale=1,Age=tag,Visibility=255,ActorFloorOffset=-.03f*(n+1),FurnitureBottom=-.06f*(n+1)});
         return state;
     }
     private static void Observe(int peer,TownResidentsState state)=>RemoteTownResidents.Observe(peer,new PresenceState{HasTownResidents=true,TownResidents=state});
@@ -56,6 +56,13 @@ internal static class Program
 
         Reset();Observe(5,State(5));Observe(2,State(2));Check(RemoteTownResidents.TryAuthor(out var chosen,out var elapsed),"remote author elected");Near(chosen.Merchant.Age,2,"lowest fresh player wins");Near(elapsed,0,"new packet elapsed zero");
         Tick(.5f);Near(TownServiceStation.Live[1].Root.position.y,24,"author pose mapped through shared frame");Near(TownServiceStation.Live[1].Age,2.5f,"author animation extrapolated");
+        for(byte s=1;s<=3;s++)
+        {
+            Near(TownServiceStation.Live[s].ActorFloorOffset,-.03f*s,"observer applies author's sole height");
+            Near(TownServiceStation.Live[s].FurnitureBottom,-.06f*s,"observer applies author's furniture contact");
+            Near(TownServicePopulation.Published.At(s-1).ActorFloorOffset,-.03f*s,"republished sole height stays authored");
+            Near(TownServicePopulation.Published.At(s-1).FurnitureBottom,-.06f*s,"republished support height stays authored");
+        }
         Check(TownServiceStation.Live.Values.All(s=>s.LastAuthor==false),"followers never choose their local floor");TownServiceStation.Floor=-100;Tick(.2f);Near(TownServiceStation.Live[1].Root.position.y,24,"viewer environment floor cannot overwrite author");
         RemoteTownResidents.Forget(2);Check(RemoteTownResidents.TryAuthor(out chosen,out _),"next peer after departure");Near(chosen.Merchant.Age,5,"next lowest wins");
         Observe(5,new TownResidentsState{Active=false});Check(!RemoteTownResidents.TryAuthor(out _,out _),"opt-out withdraws immediately");Tick();Check(TownServiceStation.Live.Values.All(s=>s.LastAuthor==true),"authority handover restores local placement");Near(TownServiceStation.Live[1].Root.position.y,-100,"new author applies current environment floor");

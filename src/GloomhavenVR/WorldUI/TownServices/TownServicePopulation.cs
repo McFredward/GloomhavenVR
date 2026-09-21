@@ -96,6 +96,7 @@ internal static class TownServicePopulation
                 root.SetPositionAndRotation(_frame!.transform.TransformPoint(pose.Pose.Position),
                     _frame.transform.rotation * pose.Pose.Rotation);
                 root.localScale = Vector3.one * (_frame.transform.lossyScale.x * pose.Scale);
+                resident.Station.SetGrounding(pose.ActorFloorOffset, pose.FurnitureBottom);
                 resident.Visibility = pose.Visibility / 255f;
                 resident.Age = pose.Age + elapsed;
                 resident.Clip = pose.Clip;
@@ -119,6 +120,7 @@ internal static class TownServicePopulation
                     Rotation = Quaternion.Inverse(_frame.transform.rotation) * station.rotation },
                 Scale = station.lossyScale.x / _frame.transform.lossyScale.x,
                 Age = resident.Age, Clip = resident.Clip,
+                ActorFloorOffset = resident.Station.ActorFloorOffset, FurnitureBottom = resident.Station.FurnitureBottom,
                 Visibility = (byte)Mathf.RoundToInt(resident.Visibility * 255f) });
             if (!used && resident.Visibility <= 0f)
             { resident.Visit.Dispose(); resident.Station.Dispose(); Residents.Remove(service); }

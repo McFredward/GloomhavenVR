@@ -34,6 +34,7 @@ def main():
             ("visitor-only regression", "Population.cs", "bool used = enabled || visiting;", "bool used = visiting;"),
             ("viewer floor overrides author", "Population.cs", "RefreshEnvironment(!follows)", "RefreshEnvironment(true)"),
             ("premature input and visibility", "Population.cs", "resident.Station.IsReady", "true"),
+            ("viewer misses author grounding", "Population.cs", "resident.Station.SetGrounding(pose.ActorFloorOffset, pose.FurnitureBottom);", ""),
             ("stale author never expires", "Remote.cs", "now - pair.Value.Received <= NetProtocol.StaleTimeoutSeconds", "true"),
         ]
         for label, file, before, after in variants:
