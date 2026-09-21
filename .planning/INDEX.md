@@ -1,6 +1,6 @@
 # Planning index
 
-Updated 2026-09-21; dev 1.0.7 / build 542 integration, persistent residents and physical merchant inspection. This directory holds internal
+Updated 2026-09-21; dev 1.0.7 / build 543 integration, shared facial motion and anatomical asset review. This directory holds internal
 engineering evidence, historical decisions and current status; it is not the player manual.
 
 ## Current entry points
@@ -11,6 +11,10 @@ engineering evidence, historical decisions and current status; it is not the pla
 | [../CLAUDE.md](../CLAUDE.md) | Technical contracts retained across agent tools |
 | [TEST-PARALLELISM.md](TEST-PARALLELISM.md) | Parallel local/CI execution, coverage and measured timing |
 | [STATE.md](STATE.md) | Current build, validation and outstanding hardware checks |
+| [research/TOWN-SERVICES-543.md](research/TOWN-SERVICES-543.md) | Anatomical face fitting, shared gaze and final asset-review status |
+| [research/TOWN-543-VOICE.md](research/TOWN-543-VOICE.md) | Original game voice inventory and unvoiced resident-dialogue evidence |
+| [research/TOWN-543-GAZE.md](research/TOWN-543-GAZE.md) | Facial runtime, additive transport and source-bound validation |
+| [research/TOWN-543-REVIEW.md](research/TOWN-543-REVIEW.md) | Independent multiplayer/lifecycle review and resolved defects |
 | [research/TOWN-SERVICES-541.md](research/TOWN-SERVICES-541.md) | Desktop merchant fallback and discoverable presentation mode |
 | [research/TOWN-SERVICES-542.md](research/TOWN-SERVICES-542.md) | Persistent residents, physical merchant inspection, native decoration and facial asset revision |
 | [research/TOWN-SERVICES-540.md](research/TOWN-SERVICES-540.md) | NPC visibility, native error, physical merchant catalog and first-test corrections |

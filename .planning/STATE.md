@@ -1,6 +1,6 @@
 # State — where the project stands
 
-**Updated 2026-09-21 for persistent town residents; dev 1.0.7 / ModBuild 542 (hardware candidate).** The file this replaces had gone 168 builds
+**Updated 2026-09-21 for town facial motion; dev 1.0.7 / ModBuild 543 (integration in progress).** The file this replaces had gone 168 builds
 stale while still saying "read this first"; it is kept as `STATE-ARCHIVE-through-2026-08.md` for
 its round-by-round narrative and for nothing else.
 
@@ -12,6 +12,15 @@ change per build) → this file (where things stand and what is owed) → the bu
 ---
 
 ## 1. Position
+
+- **Town faces / build 543 integration:** shared head/eye tracking, frame-by-frame blink and
+  subtle expression playback are integrated. Full local guard passes 50 runtime suites,
+  258091 wire assertions and the real Unity face suite (2076 assertions / 16 negative
+  controls); strict Release has zero warnings/errors. The voice audit finds original
+  narration but no matching recordings for the three residents; no generated voices ship.
+  Actual facial asset review is still correcting anatomy/skin-weight/import defects.
+  **Not yet a hardware handoff: the matching final town bundle and actual-prefab gate are
+  pending.** See [research/TOWN-SERVICES-543.md](research/TOWN-SERVICES-543.md).
 
 - **Town residents / build 542 hardware candidate:** all three NPCs remain on the map in immersive
   mode; direct NPC visits replace service map caps. Actual-floor placement, native decoration,
