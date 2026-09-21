@@ -40,7 +40,7 @@ def remove_generated_shell(body, rig, contract):
         bone=rig.data.bones['Hand.'+side]
         wrist=Vector(contract['joints']['Hand.'+side]['head'])
         forward=(bone.tail_local-bone.head_local).normalized()
-        plane=wrist+forward*.006
+        plane=wrist-forward*.020
         deform=bm.verts.layers.deform.active
         hand_groups={group.index for group in body.vertex_groups if group.name.endswith('.'+side) and
                      (group.name.startswith('Hand.') or any(group.name.startswith(digit) for digit in ('Thumb','Index','Middle','Ring','Little')))}
@@ -50,14 +50,14 @@ def remove_generated_shell(body, rig, contract):
             for vertex in face.verts:
                 offset=vertex.co-wrist;along=offset.dot(forward)
                 radial=(offset-forward*along).length
-                if (along>-.025 and radial<.090) or sum(vertex[deform].get(group,0) for group in hand_groups)>.025:
+                if (along>-.055 and radial<.090) or sum(vertex[deform].get(group,0) for group in hand_groups)>.025:
                     inside=True;break
             if inside:region.append(face)
         edges={e for f in region for e in f.edges};vertices={v for f in region for v in f.verts}
         bmesh.ops.bisect_plane(bm,geom=region+list(edges)+list(vertices),dist=.000001,
                               plane_co=plane,plane_no=forward,clear_outer=True,clear_inner=False)
     bm.to_mesh(body.data);after=len(bm.faces);bm.free();body.data.update()
-    return {'removedSourceFaces':before-after,'cuffCutMeters':.006}
+    return {'removedSourceFaces':before-after,'cuffCutMeters':-.020}
 
 
 def lod_copy(source, level):

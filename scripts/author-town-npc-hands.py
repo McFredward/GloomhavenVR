@@ -10,6 +10,7 @@ from pathlib import Path
 import bpy
 import numpy as np
 from mathutils import Matrix, Vector
+from mathutils.bvhtree import BVHTree
 
 SKINS = {
     'merchant': 'skins/middleage_caucasian_male/middleage_lightskinned_male_diffuse.png',
@@ -86,11 +87,15 @@ def make_hand(npc, rig, data, vertices, faces, face_uv, metadata, weights):
                 head=fitted(landmark(f'joint-l-finger-{d}-{j}'),side)
                 tail=fitted(landmark(f'joint-l-finger-{d}-{j+1}'),side)
                 contract['joints'][f'{digit}{j}.{side}']={'head':list(head),'tail':list(tail),'palmNormal':list(palm)}
-        contract['joints']['Hand.'+side]={'head':list(fitted(source_wrist,side)),'tail':list(fitted(landmark('joint-l-hand-2'),side)),'palmNormal':list(palm)}
+        contract['joints']['Hand.'+side]={'head':list(fitted(source_wrist,side)),'tail':list(fitted(landmark('joint-l-finger-3-1'),side)),'palmNormal':list(palm)}
         # Contact points are authored in actor metres, with a shared palm-facing
         # normal. The activity solver can convert them into each bone's frame.
         centre=fitted((source_wrist+landmark('joint-l-finger-3-1'))*.5,side)
-        underside=centre+palm*.009
+        surface=BVHTree.FromPolygons(coords,polys,all_triangles=False)
+        underside,_,_,_=surface.ray_cast(centre+palm*.06,-palm,.12)
+        assert underside is not None,'Anatomical palm contact ray missed skin'
+        assert (underside-centre).dot(palm)>0,'Palm contact must lie on palmar skin'
+
         points={'PalmContact':underside,'PalmCentre':centre}
         for digit,d in zip(DIGITS,range(1,6)):
             points[digit+'Tip']=fitted(landmark(f'joint-l-finger-{d}-4'),side)

@@ -11,6 +11,7 @@ from mathutils import Vector
 from town_npc_garment_weights import garment_support
 from town_npc_cloth_edges import repair_cloth_edges
 from town_npc_neck_inset import sew_inner_shirt
+from town_npc_hood_opening import repair_hood
 
 
 def shirt_band(bm, body, npc):
@@ -89,6 +90,18 @@ def repair(body, npc, neck=None):
         linen=not(r>g*1.6 and b>g*1.12)
         if (npc!='merchant' and skin) or (npc=='merchant' and linen):discard.append(face)
     bmesh.ops.delete(bm,geom=discard,context='FACES')
+    if npc=='merchant':
+        # Replace the whole old inner linen opening, not individual dangling
+        # fragments. The original bronze clasp projects in front of this cut.
+        linen_faces=[]
+        for face in bm.faces:
+            x,y,z=face.calc_center_median()
+            if not(abs(x)<.14 and -.080<y<.145 and z>1.410):continue
+            co=sum((loop[uv_layer].uv for loop in face.loops),Vector((0,0)))/len(face.loops)
+            r,g,b=rgba[max(0,min(image.size[1]-1,int(co.y*image.size[1]))),max(0,min(image.size[0]-1,int(co.x*image.size[0]))),:3]
+            if .70*g<r<1.35*g and b>.68*g:linen_faces.append(face)
+        region=linen_faces+list({e for f in linen_faces for e in f.edges})+list({v for f in linen_faces for v in f.verts})
+        bmesh.ops.bisect_plane(bm,geom=region,dist=.000001,plane_co=(0,0,1.429),plane_no=(0,0,1),clear_outer=True,clear_inner=False)
     garment_vertices=garment_support(bm,body,npc,rgba,uv_layer)
     cut={v for e in bm.edges if e.is_boundary for v in e.verts
          if v.co.z>1.35 and abs(v.co.x)<.19}
@@ -110,6 +123,7 @@ def repair(body, npc, neck=None):
             if vertex.co.z>1.4 and abs(vertex.co.x)<.17:
                 vertex[deform].clear();vertex[deform][chest]=1
     cloth_edges=repair_cloth_edges(bm,body,npc,rgba,uv_layer)
+    hood=repair_hood(bm,npc)
     added_band=shirt_band(bm,body,npc)
     inner_shirt=sew_inner_shirt(bm,body,neck,npc) if neck else 0
     faces=[face for face in bm.faces if face.calc_center_median().z>1.35]
@@ -145,4 +159,4 @@ def repair(body, npc, neck=None):
     # original costume shells can invert otherwise valid outer cloth.
     bm.normal_update()
     bm.to_mesh(body.data);bm.free();body.data.update()
-    return {'innerShirtVertices':inner_shirt,'clothEdges':cloth_edges,'removedDetachedVertices':len(remove),'removedComponents':removed_components,'linedEdges':edge_count,'torsoGarmentVertices':garment_vertices,'shirtVertices':added_band,'innerVertices':added,'maximumThicknessMeters':.003}
+    return {'hoodOpening':hood,'innerShirtVertices':inner_shirt,'clothEdges':cloth_edges,'removedDetachedVertices':len(remove),'removedComponents':removed_components,'linedEdges':edge_count,'torsoGarmentVertices':garment_vertices,'shirtVertices':added_band,'innerVertices':added,'maximumThicknessMeters':.003}
