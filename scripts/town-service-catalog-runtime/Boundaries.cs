@@ -163,7 +163,7 @@ namespace GloomhavenVR.WorldUI
     internal sealed class TownServiceToken:IDisposable
     {
         internal bool IsMoving,DropEligible,IsHeld;internal ulong PickupSequence;private readonly Func<bool> _alive;private readonly Func<bool>? _inspect;
-        internal TownServiceToken(RectTransform s,Selectable b,Func<object?> i,Func<object?> c,Func<bool> alive,Transform mat,Transform? physical=null,Func<bool>? drop=null,Func<bool>? eligible=null,Vector3 zoneCenter=default,Func<bool>? inspect=null){_alive=alive;_inspect=inspect;}
+        internal TownServiceToken(RectTransform s,Selectable b,Func<object?> i,Func<object?> c,Func<bool> alive,Transform mat,Transform? physical=null,Func<bool>? drop=null,Func<bool>? eligible=null,Vector3 zoneCenter=default,Func<bool>? inspect=null,float zoneHalfWidth=.20f){_alive=alive;_inspect=inspect;}
         internal bool CanGrab=>_alive()&&(_inspect?.Invoke()??true);
         internal void Tick(float s){}public void Dispose(){}
     }

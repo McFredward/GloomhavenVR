@@ -33,7 +33,7 @@ namespace GloomhavenVR.WorldUI
         {
             var args = Environment.GetCommandLineArgs();
             var path = args[Array.IndexOf(args, "-workspaceBundle") + 1];
-            var bundle = AssetBundle.GetAllLoadedAssetBundles().FirstOrDefault(b => b.name == "ghvr-town.bundle")
+            var bundle = AssetBundle.GetAllLoadedAssetBundles().FirstOrDefault(b => b.name == System.IO.Path.GetFileName(path))
                 ?? AssetBundle.LoadFromFile(path);
             return bundle.LoadAsset<GameObject>("assets/bundle/townservices/prefabs/" + name + ".prefab");
         }

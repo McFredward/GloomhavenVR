@@ -14,7 +14,7 @@ internal sealed class TownServiceMerchantDrawer : IGrabbable, IGrabbableHandFilt
 {
     private static readonly HashSet<Transform> ContentRoots=new();
     internal static bool IsContentRoot(Transform node)=>ContentRoots.Contains(node);
-    internal const int Capacity = 48;
+    internal const int Capacity = 64;
     internal const float Travel = .78f;
     private readonly GameObject _root, _housing;
     private readonly Transform _frame;
@@ -22,6 +22,7 @@ internal sealed class TownServiceMerchantDrawer : IGrabbable, IGrabbableHandFilt
     private readonly Action<TownServiceMerchantDrawer> _opening;
     private readonly BoxCollider _pick;
     private readonly Vector3 _home;
+    private readonly float _travel;
     private readonly Material _material;
     private readonly TMP_Text _caption;
     private VRHand? _hand;
@@ -43,10 +44,23 @@ internal sealed class TownServiceMerchantDrawer : IGrabbable, IGrabbableHandFilt
         Func<bool> alive, Func<bool> mayClose, Action<TownServiceMerchantDrawer> opening)
     {
         Selling = selling; Category = category; _frame = parent; _alive = alive; _mayClose = mayClose; _opening = opening;
-        _home = new Vector3(selling ? .68f : -.68f, -.15f - level * .13f, .19f);
+        bool upper = level >= 7;
+        float bank = upper ? .70f : .68f;
+        _home = new Vector3(selling ? bank : -bank,
+            upper ? .18f + (level - 7) * .13f : -.15f - level * .13f, upper ? 0f : .19f);
+        _travel = upper ? Travel - .19f : Travel;
         _amount = _target = level == 0 ? 1f : 0f;
         _housing=CreateHousingTemplate();_housing.transform.SetParent(parent,false);_housing.transform.localPosition=_home;
-        _root = CreateTemplate(font); Root.SetParent(parent, false); Root.localPosition = _home + new Vector3(0f, 0f, -Travel * _amount);
+        if (level == 7)
+        {
+            // The first upper cabinet reaches the original countertop instead of floating.
+            // Its rear stays ahead of the resident's hands and its inner wall clears the ledger.
+            const float bottom = -.013f, top = .32f;
+            float stretch = (top - bottom) / .1575f;
+            _housing.transform.localScale = new Vector3(1f, stretch, 1f);
+            _housing.transform.localPosition = new Vector3(_home.x, top - .14f * stretch, _home.z);
+        }
+        _root = CreateTemplate(font); Root.SetParent(parent, false); Root.localPosition = _home + new Vector3(0f, 0f, -_travel * _amount);
         _material = new Material(OriginalWood());
         foreach (MeshRenderer renderer in Root.GetComponentsInChildren<MeshRenderer>(true))
             if(renderer.GetComponent<TMP_Text>()==null)renderer.sharedMaterial = _material;
@@ -102,8 +116,8 @@ internal sealed class TownServiceMerchantDrawer : IGrabbable, IGrabbableHandFilt
         part.transform.localPosition=position;part.transform.localScale=scale;
         Collider shape=part.GetComponent<Collider>();shape.enabled=false;UnityEngine.Object.Destroy(shape);
     }
-    internal static Vector3 CardPosition(int index) => new Vector3((index%6-2.5f)*.168f,
-        .006f+(index/6)*.008f,-.145f+(index/6)*.038f);
+    internal static Vector3 CardPosition(int index) => new Vector3((index%8-3.5f)*.126f,
+        .006f+(index/8)*.008f,-.145f+(index/8)*.038f);
     internal void BeginLaser() => _laser=true;
     public void OnGrab(VRHand hand)
     {
@@ -125,11 +139,11 @@ internal sealed class TownServiceMerchantDrawer : IGrabbable, IGrabbableHandFilt
         if(_disposed)return;
         if(_hand!=null)
         {
-            float wanted=Mathf.Clamp01(_start- (Cursor(_hand).z-_cursorStart.z)/Travel);
+            float wanted=Mathf.Clamp01(_start- (Cursor(_hand).z-_cursorStart.z)/_travel);
             _target=(!_mayClose()&&wanted<_amount)?_amount:wanted;
         }
         _amount=Mathf.MoveTowards(_amount,_target,Time.unscaledDeltaTime*6f);
-        Root.localPosition=_home+new Vector3(0f,0f,-Travel*_amount);
+        Root.localPosition=_home+new Vector3(0f,0f,-_travel*_amount);
         _pick.enabled=opacity>.99f&&_alive();
         Color color=_caption.color;color.a=opacity;_caption.color=color;
         // Same material visibility channel as the station; captured for observer playback.

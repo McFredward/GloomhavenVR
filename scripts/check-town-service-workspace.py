@@ -52,7 +52,10 @@ def main():
     parser.add_argument("--output-dir", type=Path, default=repo / ".planning/debug/town-service-workspace")
     parser.add_argument("--unity", type=Path, default=Path(os.environ.get("UNITY_PATH", "/home/claw/unity-2021.3.5/Editor/Unity")))
     parser.add_argument("--no-negative-controls", action="store_true", help="Quick positive run; not complete validation")
+    parser.add_argument("--bundle", type=Path, help="Immutable final town bundle for actual mesh envelope validation")
     args = parser.parse_args()
+    bundle = (args.bundle or args.source_root / "prebuilt/ghvr-town.bundle").resolve()
+    bundle_hash = hashlib.sha256(bundle.read_bytes()).hexdigest()
     args.output_dir.mkdir(parents=True, exist_ok=True)
     run = Path(tempfile.mkdtemp(prefix="run-", dir=args.output_dir.resolve()))
     fixture = Path(__file__).resolve().parent / "town-service-workspace-runtime"
@@ -60,7 +63,7 @@ def main():
         parser.error("Unity 2021.3.5 is required; pass --unity")
     dotnet = shutil.which("dotnet") or str(Path.home() / ".dotnet/dotnet")
     bound, hashes = sources(args.source_root)
-    (run / "source-hashes.json").write_text(json.dumps({"root": str(args.source_root.resolve()), "sha256": hashes}, indent=2) + "\n")
+    (run / "source-hashes.json").write_text(json.dumps({"root": str(args.source_root.resolve()), "sha256": hashes, "bundle": str(bundle), "bundleSha256": bundle_hash}, indent=2) + "\n")
     manifest = {"result": str(run / "results.txt"), "cases": []}
     variants = [("production", None, None, None, "")]
     if not args.no_negative_controls:
@@ -98,8 +101,10 @@ def main():
     (project / "ProjectSettings/ProjectVersion.txt").write_text("m_EditorVersion: 2021.3.5f1\n")
     log = run / "unity.log"
     command = ["xvfb-run", "-a", str(args.unity), "-batchmode", "-nographics", "-projectPath", str(project),
-               "-executeMethod", "InteractionRunner.Start", "-interactionManifest", str(manifest_path), "-workspaceBundle", str(args.source_root / "prebuilt/ghvr-town.bundle"), "-logFile", str(log)]
+               "-executeMethod", "InteractionRunner.Start", "-interactionManifest", str(manifest_path), "-workspaceBundle", str(bundle), "-logFile", str(log)]
     completed = subprocess.run(command, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT, timeout=240)
+    if hashlib.sha256(bundle.read_bytes()).hexdigest() != bundle_hash:
+        raise SystemExit("FAIL: town bundle changed during envelope validation")
     result = Path(manifest["result"])
     if result.exists():
         print(result.read_text(), end="")

@@ -23,7 +23,7 @@ public static class InteractionProgram
         foreach(var drawer in catalog.Drawers)
         {
             int count=0;foreach(var entry in catalog.Entries)if(entry.Drawer==drawer)count++;
-            if(count==48){full=drawer;break;}
+            if(count==64){full=drawer;break;}
         }
         Check(full!=null,"native Hands category supplies a completely full filing drawer");
         Advance(full!,1f);
@@ -43,7 +43,7 @@ public static class InteractionProgram
             Vector3 target=card.TransformPoint(new Vector3(0f,card.rect.height*.40f,0f));
             // Approach the independently exposed upper strip along the actual face normal.
             // Uses the production Token collider fitting block, real Unity Collider.Raycast,
-            // and all 48 overlapping neighbours, not a nearest-centre approximation.
+            // and all 64 neighbouring cards, not a nearest-centre approximation.
             var ray=new Ray(target-card.forward*.4f,card.forward);
             float closest=float.PositiveInfinity;int picked=-1;
             for(int candidate=0;candidate<colliders.Count;candidate++)
@@ -94,14 +94,13 @@ public static class InteractionProgram
         catalog.SetVisibility(1f);Census(catalog);catalog.Tick(1f);
         Check(catalog.Entries.Count==328,"all 164 stock and 164 owned entries persist without pagination");
         Check(catalog.Controls.Count==0,"no flat filter or page buttons");
-        Check(catalog.Drawers.Count==12,"native five slot categories use six drawers per bank");
         Check(ObjectPool.Alive==328,"one physical original card per persistent entry");
         int openStock=0,openOwned=0;
         foreach(var initial in catalog.Drawers)
             if(initial.Accessible){if(initial.Selling)openOwned++;else openStock++;}
         Check(openStock==1&&openOwned==1,"first stock and owned drawers show immediately reachable cards");
         foreach(var initial in catalog.Drawers)Advance(initial,0f);
-        CardStripReach(catalog);catalog.Tick(1f);
+        catalog.Tick(1f);
         foreach(var e in catalog.Entries)
         {
             Check(!e.CardUI.GetComponentInParent<Canvas>().enabled && e.CardUI.gameObject.activeInHierarchy,
@@ -170,6 +169,64 @@ public static class InteractionProgram
         Check(ObjectPool.Alive==0,"all physical card loans returned on teardown");
         Check(VRInteractables.Registered.Count==0,"all drawer grips unregistered on teardown");
         Check(inventory.itemsCanvasGroup.interactable,"presentation never changes native permissions");
+        // Original HQ reward/stock caps are Common6/Rare2/Relic1. Across all supplied
+        // nonquest IDs that is512 sellable copies at21 roster characters, including multiple distinct CItems.
+        // The native GetItemsToSell excludes QuestItem in both character and party mode.
+        inventory.service.Sell.Clear();inventory.service.Buy.Clear();
+        int nextId=1;uint network=10000;
+        int[] originals={20,24,54,19,44},copies={40,44,102,37,289};
+        CItem.EItemSlot[] slots={CItem.EItemSlot.Head,CItem.EItemSlot.Body,CItem.EItemSlot.OneHand,CItem.EItemSlot.Legs,CItem.EItemSlot.SmallItem};
+        for(int category=0;category<slots.Length;category++)
+        {
+            int first=nextId;
+            for(int n=0;n<originals[category];n++)
+            {var item=new CItem(nextId++);item.YMLData.Slot=slots[category];inventory.service.Buy.Add(item);}
+            for(int n=0;n<copies[category];n++)
+            {var item=new CItem(first+n%originals[category]){NetworkID=network++};item.YMLData.Slot=slots[category];inventory.service.Sell.Add(item);}
+        }
+        using(var fullCatalog=new TownServiceCatalog(inventory,anchor.transform,()=>context,()=>true,anchor.transform))
+        {
+            fullCatalog.SetVisibility(1f);Census(fullCatalog);fullCatalog.Tick(1f);
+            int soldCopies=0,ownedDrawers=0;var identities=new HashSet<CItem>();
+            foreach(var entry in fullCatalog.Entries)if(entry.Selling){soldCopies++;identities.Add(entry.Item);}
+            Check(soldCopies==512&&identities.Count==512,"all native rarity-cap copies retain distinct owned identities");
+            foreach(var capacityDrawer in fullCatalog.Drawers)
+            {
+                if(capacityDrawer.Selling)ownedDrawers++;
+                bool upper=capacityDrawer.Root.localPosition.y>0f;
+                if(upper)
+                {
+                    Advance(capacityDrawer,0f);
+                    Check(capacityDrawer.Root.localPosition.z+.226f<.30f,"upper cabinet remains ahead of actual NPC anatomy envelope");
+                    Check(Mathf.Abs(capacityDrawer.Root.localPosition.x)-.538f>=.16f,"upper cabinet inner wall clears original ledger");
+                }
+                foreach(float amount in new[]{0f,1f})
+                {
+                    Advance(capacityDrawer,amount);
+                    foreach(var filter in capacityDrawer.Root.GetComponentsInChildren<MeshFilter>(true))
+                    {
+                        Bounds bounds=filter.sharedMesh.bounds;
+                        for(int corner=0;corner<8;corner++)
+                        {
+                            Vector3 point=bounds.center+Vector3.Scale(bounds.extents,new Vector3((corner&1)==0?-1:1,(corner&2)==0?-1:1,(corner&4)==0?-1:1));
+                            Vector3 p=anchor.transform.InverseTransformPoint(filter.transform.TransformPoint(point));
+                            Check(p.y+.970f>=0,"every native-capacity drawer remains above station floor");
+                            Check(p.y+.970f<=1.551f,"complete Guildmaster drawers stay inside measured furniture height");
+                        }
+                    }
+                }
+                Advance(capacityDrawer,0f);
+            }
+            Check(ownedDrawers==10,"complete Guildmaster roster inventory fits ten accessible drawers");
+            CardStripReach(fullCatalog);
+            foreach(var entry in fullCatalog.Entries)
+            {
+                var corners=new Vector3[4];((RectTransform)entry.CardRoot).GetWorldCorners(corners);
+                foreach(var point in corners)
+                    Check(Mathf.Abs(entry.Drawer.Root.InverseTransformPoint(point).x)<.506f,"all eight card columns clear actual drawer inner walls");
+            }
+        }
+        Check(ObjectPool.Alive==0&&VRInteractables.Registered.Count==0,"maximum native inventory releases every card and drawer");
         UnityEngine.Object.DestroyImmediate(root);UnityEngine.Object.DestroyImmediate(prefab);UnityEngine.Object.DestroyImmediate(events);
         return assertions;
     }

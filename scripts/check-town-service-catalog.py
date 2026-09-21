@@ -41,6 +41,8 @@ def sources(root):
 
 def mutations():
     return [
+        ("column-wall", "TownServiceMerchantDrawer.cs", "(index%8-3.5f)*.126f", "(index%8-3.5f)*.14f", "all eight card columns clear actual drawer inner walls"),
+        ("native-copy-capacity", "TownServiceMerchantDrawer.cs", "bool upper = level >= 7;", "bool upper = false;", "every native-capacity drawer remains above station floor"),
         ("constructor-rollback", "TownServiceCatalog.cs", "catch { Dispose(); throw; }\n    }\n    internal void SetVisibility", "catch { throw; }\n    }\n    internal void SetVisibility", "constructor failure restores native inventory ownership"),
         ("closed-render", "TownServiceCatalog.cs", "canvas.Key.enabled = exposed && canvas.Value;", "canvas.Key.enabled = canvas.Value;", "closed drawer skips canvas rendering without native artwork lifecycle reset"),
         ("initial-closed", "TownServiceMerchantDrawer.cs", "_amount = _target = level == 0 ? 1f : 0f;", "_amount = _target = 0f;", "first stock and owned drawers show immediately reachable cards"),

@@ -25,6 +25,7 @@ internal sealed class TownServiceToken : IGrabbable, ITriggerOnlyGrabbable, IGra
     private readonly Transform? _physical;
     private readonly Func<bool>? _drop, _eligible, _inspect;
     private readonly Vector3 _zoneCenter;
+    private readonly float _zoneHalfWidth;
     private static ulong _nextPickup;
     internal ulong PickupSequence { get; private set; }
     internal bool IsHeld => _hand != null;
@@ -68,11 +69,11 @@ internal sealed class TownServiceToken : IGrabbable, ITriggerOnlyGrabbable, IGra
 
     internal TownServiceToken(RectTransform source, Selectable button, Func<object?> identity,
         Func<object?> contextIdentity, Func<bool> sessionAlive, Transform mat, Transform? physical = null,
-        Func<bool>? drop = null, Func<bool>? eligible = null, Vector3 zoneCenter = default, Func<bool>? inspect = null)
+        Func<bool>? drop = null, Func<bool>? eligible = null, Vector3 zoneCenter = default, Func<bool>? inspect = null, float zoneHalfWidth = .20f)
     {
         _source = source; _button = button; _identity = identity; _contextIdentity = contextIdentity;
         _sessionAlive = sessionAlive; _mat = mat; _physical = physical;
-        _drop = drop; _eligible = eligible; _zoneCenter = zoneCenter; _inspect = inspect;
+        _drop = drop; _eligible = eligible; _zoneCenter = zoneCenter; _inspect = inspect; _zoneHalfWidth = zoneHalfWidth;
         _pick = new GameObject("GloomhavenVR.TownService.SampleReach");
         _shape = _pick.AddComponent<BoxCollider>();
         _shape.isTrigger = true;
@@ -193,7 +194,7 @@ internal sealed class TownServiceToken : IGrabbable, ITriggerOnlyGrabbable, IGra
             // gesture. Cancellation, stale context, pose loss and all other drops return.
             bool commit = _heldTracked && hand.HasPose && hand.TriggerUp && _drop != null && DropEligible
                 && ReferenceEquals(_pickedIdentity, _identity()) && ReferenceEquals(_pickedContext, _contextIdentity())
-                && _held != null && InDropZone(_mat.InverseTransformPoint(_held.transform.position) - _zoneCenter);
+                && _held != null && WithinDropZone(_mat.InverseTransformPoint(_held.transform.position) - _zoneCenter);
             Hover(false);
             _returnPosition = _physical.localPosition; _returnRotation = _physical.localRotation;
             _returnStarted = Time.unscaledTime; _returning = true;
@@ -217,6 +218,8 @@ internal sealed class TownServiceToken : IGrabbable, ITriggerOnlyGrabbable, IGra
         var pointer = new PointerEventData(EventSystem.current) { button = PointerEventData.InputButton.Left };
         ExecuteEvents.Execute(_button!.gameObject, pointer, ExecuteEvents.pointerClickHandler);
     }
+
+    private bool WithinDropZone(Vector3 point) => InDropZone(point) && Mathf.Abs(point.x) < _zoneHalfWidth;
 
     internal static bool InDropZone(Vector3 point) => Mathf.Abs(point.x) < .20f
         && Mathf.Abs(point.z) < .14f && point.y > -.045f && point.y < .15f;

@@ -247,7 +247,7 @@ internal sealed class TownServiceCatalog : IDisposable
             var rowMount = new GameObject("Price"); rowMount.transform.SetParent(_display, false);
             rowMount.transform.localPosition = new Vector3(0f, -.053f, -.002f);
             rowMount.transform.localRotation = Quaternion.identity;
-            _row = new RemoteWidgetMirror("CatalogPrice", rowMount.transform, .19f, .042f, Vector2.zero,
+            _row = new RemoteWidgetMirror("CatalogPrice", rowMount.transform, .118f, .030f, Vector2.zero,
                 externallyShownBranch: node => node.GetComponent<UIPartyItemInventoryTooltip>() != null, mrBacking: false);
             RectTransform rowRect = (RectTransform)source.transform;
             _row.SetOwnerFrame(rowRect.rect.size, rowRect.parent is RectTransform rowParent ? rowParent.rect.size : rowRect.rect.size);
@@ -266,7 +266,7 @@ internal sealed class TownServiceCatalog : IDisposable
                 if (size.x < 1f || size.y < 1f) throw new InvalidOperationException("Native merchant item card has invalid dimensions");
                 RectTransform host = (RectTransform)face.transform;
                 host.sizeDelta = size;
-                host.localScale = Vector3.one * Mathf.Min(.15f / size.x, .12f / size.y);
+                host.localScale = Vector3.one * Mathf.Min(.12f / size.x, .096f / size.y);
                 host.localPosition = new Vector3(0f, 0f, -.0012f);
                 Vector2 physicalSize = size * host.localScale.x;
                 _displayHome = new Vector3(0f, physicalSize.y * .5f * Mathf.Cos(65f * Mathf.Deg2Rad) + .006f, 0f);
@@ -288,8 +288,8 @@ internal sealed class TownServiceCatalog : IDisposable
                 Sample = new TownServiceToken(rect, source.Selectable, () => source.Item,
                     owner._contextIdentity, () => Current, owner._mat, _display,
                     drop: () => owner.Drop(this), eligible: () => owner.Eligible(this),
-                    zoneCenter: new Vector3(selling ? .22f : -.22f, .015f, -.20f),
-                    inspect: () => drawer.Accessible);
+                    zoneCenter: new Vector3(selling ? .078f : -.078f, .015f, -.20f),
+                    inspect: () => drawer.Accessible, zoneHalfWidth: .07f);
                 _row.Refresh(source.transform);
                 foreach(RawImage background in source.GetComponentsInChildren<RawImage>(true))_rowBackgrounds.Add(background.transform);
                 TownServiceNativeAssets.PrepareItem(CardUI);

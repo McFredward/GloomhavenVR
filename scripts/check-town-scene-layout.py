@@ -73,7 +73,7 @@ def parts(origin, yaw, role, service, padding):
     spans = [('top', (-1.27, 1.27, -.422, .405) if merchant else (-.75, .75, -.362, .338))]
     if merchant:
         for x in (-.68, .68):
-            spans.append(('drawer', (x-.538, x+.538, -.82, .416)))
+            spans.append(('drawer', (x-.558, x+.558, -.82, .416)))
     if role == 'resident':
         spans.append(('actor', (-.60, .60, .30, 1.20)))
     if role == 'resident' and service == 3:

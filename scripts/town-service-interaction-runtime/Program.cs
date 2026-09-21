@@ -582,7 +582,7 @@ public static class InteractionProgram
 
     private static void PhysicalCommitCases()
     {
-        for(int scenario=0;scenario<8;scenario++)
+        for(int scenario=0;scenario<9;scenario++)
         {
             var counter=Probe.Go("DropCounter");var physical=Probe.Go("DropCard",counter.transform).transform;
             var source=(RectTransform)Probe.Go("DisplayedRect",physical).transform;source.sizeDelta=new Vector2(.15f,.12f);
@@ -590,11 +590,12 @@ public static class InteractionProgram
             object item=new object(),context=new object();bool eligible=true;int commits=0;
             var hand=new VRHand{TriggerUp=true};
             using var token=new TownServiceToken(source,native,()=>item,()=>context,()=>true,counter.transform,physical,
-                drop:()=>{commits++;return true;},eligible:()=>eligible);
+                drop:()=>{commits++;return true;},eligible:()=>eligible,zoneHalfWidth:scenario==8?.07f:.20f);
             token.Tick(1f);Check(token.CanGrab,"displayed physical prop remains grabbable with hidden native button");
             token.OnGrab(hand);
             if(scenario!=7)token.Tick(1f);
             physical.localPosition=new Vector3(0f,.05f,0f);
+            if(scenario==8)physical.localPosition=new Vector3(.1f,.05f,0f);
             if(scenario==1)eligible=false;
             if(scenario==2)physical.localPosition=new Vector3(.5f,.05f,0f);
             if(scenario==3)item=new object();
