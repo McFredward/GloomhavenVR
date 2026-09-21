@@ -51,3 +51,7 @@ The original priestess has an aged bare neck and a scalp coif. Original hoods, h
 - Scene ambient/main/vertex lighting, original visibility dissolve and stereo support; no artificial studio-light floor.
 - Original flame atlases use the shared station clock and central-eye billboard.
 - Posed soles are measured with explicit CPU skinning, cross-checked against an explicitly scaled Unity bake. Runtime terrain offsets remain additive.
+
+## Billboard batching contract
+
+The original flame/glow quad geometry uses `TownFlame` to face the shared camera. Its vertex transform requires each object's own `unity_ObjectToWorld` matrix, so `DisableBatching=True` prevents Unity dynamic batching from replacing that origin with a pretransformed batch origin. This preserves the original native geometry, textures, tint and shared animation clock. The correction changes only shader batching behavior; all approved actor meshes and textures are unchanged.

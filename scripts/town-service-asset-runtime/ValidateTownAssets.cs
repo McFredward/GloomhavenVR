@@ -33,7 +33,7 @@ public static class ValidateTownAssets
         try
         {
             output = Arg("-townEvidence"); Directory.CreateDirectory(output);
-            var assets = Directory.GetFiles("Assets/Bundle/TownServices/Prefabs", "*.prefab").Concat(new[] { "Assets/Bundle/TownServices/town-facial-rig-contract.json" }).OrderBy(x => x).ToArray();
+            var assets = Directory.GetFiles("Assets/Bundle/TownServices/Prefabs", "*.prefab").Concat(Directory.GetFiles("Assets/Bundle/TownServices/Shaders", "*.shader")).Concat(new[] { "Assets/Bundle/TownServices/town-facial-rig-contract.json" }).OrderBy(x => x).ToArray();
             // Linux pixel evidence needs Linux shader bytecode; the shipping Windows bundle
             // is built separately from these identical prefabs, materials and shader sources.
             var manifest = BuildPipeline.BuildAssetBundles(output, new[] { new AssetBundleBuild {
@@ -257,6 +257,12 @@ public static class ValidateTownAssets
         camera.targetTexture = new RenderTexture(800, 800, 24);
         var bundle = sourceReview ? null : AssetBundle.LoadFromFile(Path.Combine(output, "town-review.bundle"));
         Check(sourceReview ? AssetDatabase.FindAssets("t:AudioClip", new[] { "Assets/Bundle/TownServices" }).Length == 0 : bundle.LoadAllAssets<AudioClip>().Length == 0 && !bundle.GetAllAssetNames().Any(n => n.Contains("/audio/")), "No generated voice assets ship in the town bundle");
+        var flameShader = sourceReview ? AssetDatabase.LoadAssetAtPath<Shader>("Assets/Bundle/TownServices/Shaders/TownFlame.shader")
+            : bundle.LoadAllAssets<Shader>().SingleOrDefault(shader => shader.name == "GloomhavenVR/TownFlame");
+        Check(flameShader != null, "Actual town bundle includes the native-prop billboard shader");
+        var flameContract = new Material(flameShader);
+        Check(String.Equals(flameContract.GetTag("DisableBatching", false, ""), "True", StringComparison.OrdinalIgnoreCase), "Bundled billboard preserves per-object transforms under dynamic batching");
+        UnityEngine.Object.DestroyImmediate(flameContract);
         var oldShader = AssetDatabase.LoadAssetAtPath<Shader>("Assets/OldTownShader.shader");
         Check(oldShader != null && oldShader.isSupported, "Historical self-lighting control compiles on GL");
         foreach (var npc in new[] { "merchant", "priestess", "enchantress" })
@@ -404,7 +410,6 @@ public static class ValidateTownAssets
             Debug.Log("TOWN_ASSET_PIXELS " + npc + " body=" + body + " furniture=" + furniture + " lod=" + size);
             UnityEngine.Object.DestroyImmediate(root);
         }
-        var flameShader = AssetDatabase.LoadAssetAtPath<Shader>("Assets/Bundle/TownServices/Shaders/TownFlame.shader");
         Check(flameShader != null && flameShader.isSupported, "Native flame presentation shader compiles");
         var flame = GameObject.CreatePrimitive(PrimitiveType.Quad); flame.layer = 31;
         flame.transform.position = new Vector3(0, 1, 0); flame.transform.localScale = new Vector3(.4f, .6f, 1);
