@@ -16,6 +16,7 @@ The Windows eye defect is independently established from compiled D3D shader pro
 - Preserve the priestess's original blouse and chain. The continuous fitted neck replaces only the bounded obsolete exposed skin patch beneath it, with its low vertices fitted behind the retained cloth. The rejected atlas-only patch left a visible seam.
 - Give the existing garment cuts a thin inner surface. Source-provenance checks bound every added inner vertex to 3 mm, avoiding BMesh's unbounded miters at nearly reversed original folds. Preserve original outer winding rather than globally recalculating overlapping garment shells.
 - Preserve a concealed 20 mm overlap beneath the priestess blouse; this prevents oblique combined head/body poses from exposing the hollow interior without enlarging the visible chest.
+- Close the merchant's bounded obsolete rear head-cut in the original cape and smooth its adjoining cut tips. Exact source UV probes identify the central shirt remnants removed above the preserved clasp; the actual collar points remain.
 - Use the separate connected-garment support helper for sleeve/cape transitions. It diffuses support over actual mesh connectivity with coincident-UV seam agreement and protects hands/digits; the rejected hard per-vertex colour reassignment is removed.
 
 ## Review method
