@@ -1,6 +1,6 @@
 # State — where the project stands
 
-**Updated 2026-09-21 for town-service hardware corrections; dev 1.0.7 / ModBuild 541.** The file this replaces had gone 168 builds
+**Updated 2026-09-21 for persistent town residents; dev 1.0.7 / ModBuild 542 (integration in progress).** The file this replaces had gone 168 builds
 stale while still saying "read this first"; it is kept as `STATE-ARCHIVE-through-2026-08.md` for
 its round-by-round narrative and for nothing else.
 
@@ -12,6 +12,14 @@ change per build) → this file (where things stand and what is owed) → the bu
 ---
 
 ## 1. Position
+
+- **Town residents / build 542 integration:** all three NPCs remain on the map in immersive
+  mode; direct NPC visits replace service map caps. Actual-floor placement, native decoration,
+  practical lighting, held merchant inspection and additive shared resident authority are
+  integrated. No purchase occurs on grip/release. Full source/runtime guard passes
+  48 suites and 256845 wire assertions; expected old-baseline compiled differences remain.
+  Facial asset repair and final matching town bundle are still in progress: this checkpoint
+  is not a hardware handoff. See [research/TOWN-SERVICES-542.md](research/TOWN-SERVICES-542.md).
 
 - **Validation infrastructure (runtime remains build 541):** independent source/runtime
   suites now use bounded parallel execution with isolated logs and temporary outputs.

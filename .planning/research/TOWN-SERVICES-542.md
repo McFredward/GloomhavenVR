@@ -60,11 +60,17 @@ opening alpha; every inert clone registers for late original silhouette updates.
 - Golden wire vectors: 256845 assertions (255887 previous +958 resident vectors).
   Golden bytes, absent records, truncation, numeric validity, malformed quaternion,
   atomic capacity failure and complete snapshot budget are covered.
-- Floor geometry: 69 production assertions and two compiled negative controls.
-- Resident lifecycle/authority: 122 production assertions and four compiled negative
+- Floor/station: 69 geometry and 44 lifecycle assertions, six compiled negative
+  controls, including author handover and owned-resource cleanup.
+- Resident lifecycle/authority: 123 production assertions and four compiled negative
   controls, including missing assets, opt-out, expiry and viewer environment changes.
 - Card body: 15 real-Unity assertions and four compiled negative controls.
-- Catalog/interaction/mirror and final complete gates are recorded at handoff.
+- Catalog: 339 Unity assertions and 16 negative controls; interactions: 896 and 30.
+- Full mirror/render suite passes, including physical body and held-duplicate mutations.
+- Complete guard: 14 source checks and all48 local suites pass, 256845 wire assertions.
+  Exit1 reports only the expected old-baseline compiled difference: 105changed,
+  104added/removed, zero order-only moves. Strict Release zero warnings/errors;
+  bilingual docs and whitespace checks pass. Asset-specific final checks follow.
 - Facial mesh assembly, visual review and matching town bundle are still in progress
   at this integration checkpoint. This checkpoint is not a hardware handoff.
 

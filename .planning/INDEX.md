@@ -1,6 +1,6 @@
 # Planning index
 
-Updated 2026-09-21; dev 1.0.7 / build 541, merchant initialization and town-service menu choice. This directory holds internal
+Updated 2026-09-21; dev 1.0.7 / build 542 integration, persistent residents and physical merchant inspection. This directory holds internal
 engineering evidence, historical decisions and current status; it is not the player manual.
 
 ## Current entry points
@@ -12,6 +12,7 @@ engineering evidence, historical decisions and current status; it is not the pla
 | [TEST-PARALLELISM.md](TEST-PARALLELISM.md) | Parallel local/CI execution, coverage and measured timing |
 | [STATE.md](STATE.md) | Current build, validation and outstanding hardware checks |
 | [research/TOWN-SERVICES-541.md](research/TOWN-SERVICES-541.md) | Desktop merchant fallback and discoverable presentation mode |
+| [research/TOWN-SERVICES-542.md](research/TOWN-SERVICES-542.md) | Persistent residents, physical merchant inspection, native decoration and facial asset revision |
 | [research/TOWN-SERVICES-540.md](research/TOWN-SERVICES-540.md) | NPC visibility, native error, physical merchant catalog and first-test corrections |
 | [RELEASE-READINESS.md](RELEASE-READINESS.md) | Historical 1.0.0 repository audit and publication prerequisites |
 | [../docs/DEVELOPING.md](../docs/DEVELOPING.md) | Developer setup and required gates |
