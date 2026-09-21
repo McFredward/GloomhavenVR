@@ -56,8 +56,11 @@ def main():
     parser.add_argument("--source-root", type=Path, default=repo, help="Production checkout to bind (read only)")
     parser.add_argument("--output-dir", type=Path, default=repo / ".planning/debug/town-face")
     parser.add_argument("--unity", type=Path, default=Path(os.environ.get("UNITY_PATH", "/home/claw/unity-2021.3.5/Editor/Unity")))
+    parser.add_argument("--bundle-only", action="store_true", help="Run only actual-prefab binding checks and their focused negatives")
+    parser.add_argument("--bundle", type=Path, help="Optional Linux final-asset bundle for actual prefab binding checks")
     parser.add_argument("--no-negative-controls", action="store_true", help="Quick positive run; not complete validation")
     args = parser.parse_args()
+    if args.bundle_only and not args.bundle: parser.error("--bundle-only requires --bundle")
     args.output_dir.mkdir(parents=True, exist_ok=True)
     run = Path(tempfile.mkdtemp(prefix="run-", dir=args.output_dir.resolve()))
     fixture = Path(__file__).resolve().parent / "town-face-runtime"
@@ -66,10 +69,22 @@ def main():
     dotnet = shutil.which("dotnet") or str(Path.home() / ".dotnet/dotnet")
     bound, hashes = sources(args.source_root)
     (run / "source-hashes.json").write_text(json.dumps({"root": str(args.source_root.resolve()), "sha256": hashes}, indent=2) + "\n")
+    bundle_hash = None
+    if args.bundle:
+        if not args.bundle.is_file(): parser.error("--bundle must name the completed Linux validation bundle")
+        bundle_hash = hashlib.sha256(args.bundle.read_bytes()).hexdigest()
+        (run / "bundle-evidence.json").write_text(json.dumps({"path": str(args.bundle.resolve()),
+            "bytes": args.bundle.stat().st_size, "sha256": bundle_hash}, indent=2) + "\n")
     manifest = {"result": str(run / "results.txt"), "cases": []}
     variants = [("production", None, None, None, "")]
     if not args.no_negative_controls:
-        variants += mutations()
+        if args.bundle_only:
+            variants += [
+                ("asset-optical-frame", "TownServiceFaceRig.cs", "Quaternion frame = OpticalRotation;", "Quaternion frame = _root.rotation;", "actual moving head and eyes converge on elevated side target"),
+                ("asset-head-reset", "TownServiceFaceRig.cs", "_head.localRotation = _sampledHead", "_head.localRotation = _head.localRotation", "reset restores sampled imported Head before body clip"),
+                ("asset-blink-binding", "TownServiceFaceRig.cs", "binding.Shape == shape && binding.Renderer != null", "binding.Shape == shape && shape != 0 && binding.Renderer != null", "runtime weight reaches"),
+            ]
+        else: variants += mutations()
     print(f"Binding production from {args.source_root.resolve()}; evidence: {run}", flush=True)
     for name, filename, before, after, expected in variants:
         build = run / name
@@ -104,7 +119,12 @@ def main():
     log = run / "unity.log"
     command = ["xvfb-run", "-a", str(args.unity), "-batchmode", "-nographics", "-projectPath", str(project),
                "-executeMethod", "InteractionRunner.Start", "-interactionManifest", str(manifest_path), "-logFile", str(log)]
+    if args.bundle:
+        command += ["-faceBundle", str(args.bundle.resolve()), "-faceEvidence", str(run / "actual-prefabs.json")]
+    if args.bundle_only: command += ["-faceBundleOnly"]
     completed = subprocess.run(command, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT, timeout=240)
+    if args.bundle and hashlib.sha256(args.bundle.read_bytes()).hexdigest() != bundle_hash:
+        raise SystemExit("FAIL: bundle changed during validation; rerun against the completed artifact")
     result = Path(manifest["result"])
     if result.exists():
         print(result.read_text(), end="")

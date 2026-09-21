@@ -28,6 +28,13 @@ public static class InteractionProgram
     }
     public static int Run()
     {
+        string[] arguments=Environment.GetCommandLineArgs();int bundleArgument=Array.IndexOf(arguments,"-faceBundle");
+        if(Array.IndexOf(arguments,"-faceBundleOnly")>=0)
+        {
+            int outputArgument=Array.IndexOf(arguments,"-faceEvidence");
+            Check(bundleArgument>=0&&bundleArgument+1<arguments.Length&&outputArgument>=0&&outputArgument+1<arguments.Length,"actual bundle evidence arguments are complete");
+            return ActualPrefabs.Run(arguments[bundleArgument+1],arguments[outputArgument+1]);
+        }
         FaceClock.Now=0;RemoteTownFaces.Reset();NetAvatarDriver.Heads.Clear();TownServiceMirror.RemoteSessions.Clear();
         var root=Rig(out var head,out var left,out var right,out var skins);
         var rig=new TownServiceFaceRig(root);Check(rig.Ready,"anatomical pivots discovered");
@@ -133,6 +140,12 @@ public static class InteractionProgram
         Check(Mathf.Abs(output.HeadYaw-beforeHandover)<1,"authority handover preserves pose before smooth attention change");
         TownServiceFaceSpeech.Curve=null;TownServiceFaceSpeech.Observer=null;TownServiceFaceSpeech.Sampler=null;
         UnityEngine.Object.DestroyImmediate(root.gameObject);UnityEngine.Object.DestroyImmediate(second.gameObject);UnityEngine.Object.DestroyImmediate(camera.gameObject);
+        if(bundleArgument>=0)
+        {
+            int outputArgument=Array.IndexOf(arguments,"-faceEvidence");
+            Check(bundleArgument+1<arguments.Length&&outputArgument>=0&&outputArgument+1<arguments.Length,"actual bundle evidence arguments are complete");
+            count+=ActualPrefabs.Run(arguments[bundleArgument+1],arguments[outputArgument+1]);
+        }
         return count;
     }
 }
