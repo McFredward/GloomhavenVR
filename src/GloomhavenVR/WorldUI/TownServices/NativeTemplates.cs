@@ -170,21 +170,39 @@ internal static class NativeTemplates
         if (Entries.ContainsKey(key) || !item && !key.StartsWith("card.", StringComparison.Ordinal)) return;
         if (!int.TryParse(key.Substring(5), NumberStyles.None, CultureInfo.InvariantCulture, out int id) || id <= 0 || ObjectPool.instance == null)
             throw new InvalidDataException("Invalid original ability-card template identity.");
-        CAbilityCard? model = CharacterClassManager.AllAbilityCards.Find(card => card.ID == id);
+        CAbilityCard? model = item ? null : CharacterClassManager.AllAbilityCards.Find(card => card.ID == id);
         if (!item && model == null) throw new InvalidDataException("Original ability-card model is unavailable: " + id);
+        // Validate before entering the native pool: its missing-item path itself raises an
+        // error modal. Presentation provenance must never invoke that game continuation.
+        if (item && TownServiceNativeAssets.FindItemData(id) == null)
+            throw new InvalidDataException("Original item-card model is unavailable: " + id);
         var holder = new GameObject("GVR inactive original service card borrow"); holder.SetActive(false);
         holder.transform.SetParent(ObjectPool.instance.transform, false);
         GameObject? borrowed = null;
+        ItemCardUI? borrowedItem = null;
+        CItem? previousItem = null;
         try
         {
             borrowed = ObjectPool.SpawnCard(id, item ? ObjectPool.ECardType.Item : ObjectPool.ECardType.Ability, holder.transform,
                 resetLocalScale: true, resetToMiddle: true, resetLocalRotation: false, activate: false);
+            if (borrowed == null) throw new InvalidDataException("Original card borrow is unavailable: " + key);
+            if (item)
+            {
+                borrowedItem = borrowed.GetComponent<ItemCardUI>();
+                if (borrowedItem == null) throw new InvalidDataException("Original item-card widget is unavailable: " + id);
+                previousItem = borrowedItem.item;
+                // Instantiate does not preserve the native model reference reliably. Replant
+                // the validated identity on this inactive borrow only; never Show/UpdateState,
+                // never activate a gameplay controller, and never retain a pooled actor model.
+                borrowedItem.item = new CItem(id);
+            }
             if (!item) borrowed.GetComponent<AbilityCardUI>().Init(model!, disableEventDetection: true);
             TownServiceNativeAssets.PrepareCard(item ? null : model, item ? borrowed.GetComponent<ItemCardUI>() : null);
             var entry = new Entry { Original = borrowed.transform }; Freeze(key, entry); Entries.Add(key, entry);
         }
         finally
         {
+            if (borrowedItem != null) borrowedItem.item = previousItem;
             if (borrowed != null)
             { if (item) RemoteItemCardSource.ReturnBorrowed(id, borrowed); else ObjectPool.RecycleCard(id, ObjectPool.ECardType.Ability, borrowed); }
             Object.Destroy(holder);
