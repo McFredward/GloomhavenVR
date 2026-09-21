@@ -25,6 +25,7 @@ def arguments():
     parser.add_argument('--yaw-degrees', type=float, default=0,
                         help='Rotation about Blender Z after glTF import; inspect facing visually.')
     parser.add_argument('--height', type=float, default=1.75)
+    parser.add_argument('--source-only', action='store_true', help='Normalize and preserve source only; skip LOD candidate authoring.')
     parser.add_argument('--roughness-floor', type=float, default=0.0,
                         help='Optional derived Unity material: max(roughness, floor * (1-metallic)). Source GLB stays unchanged.')
     parser.add_argument('--blender', default=os.environ.get('BLENDER', 'blender'))
@@ -185,12 +186,15 @@ def prepare(args):
         if info.get('texCoord', 0) != 0 or info.get('extensions'):
             warnings.append(label + ': nondefault UV/texture transform needs manual Unity review')
         tex = doc['textures'][info['index']]
-        img = doc['images'][tex['source']]
+        source_index = tex.get('source', tex.get('extensions', {}).get('EXT_texture_webp', {}).get('source'))
+        if source_index is None: raise ValueError('Unsupported GLB texture source')
+        img = doc['images'][source_index]
         if 'bufferView' not in img:
             raise ValueError('Only embedded GLB images are supported')
         view = doc['bufferViews'][img['bufferView']]
         start = view.get('byteOffset', 0)
-        extension = '.png' if img.get('mimeType') == 'image/png' else '.jpg'
+        extension = {'image/png': '.png', 'image/jpeg': '.jpg', 'image/webp': '.webp'}.get(img.get('mimeType'))
+        if extension is None: raise ValueError('Unsupported embedded texture MIME type')
         raw = output / 'raw' / (label + extension)
         raw.write_bytes(blob[start:start + view['byteLength']])
         image = bpy.data.images.load(str(raw), check_existing=False)
@@ -274,7 +278,7 @@ def prepare(args):
                                       'boundsBlender': bounds(items), 'derivedSourceWelding': welding or []})
 
     export(objects, args.name + '_source', report['sourceTriangles'])
-    for level, budget in enumerate((80000, 30000, 10000)):
+    for level, budget in enumerate(() if args.source_only else (80000, 30000, 10000)):
         lod = []
         welding = []
         ratio = min(1.0, budget / report['sourceTriangles'])

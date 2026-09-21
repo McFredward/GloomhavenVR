@@ -78,6 +78,23 @@ public static class ValidateTownAssets
         animation.Stop(); var state = animation[clip]; state.enabled = true;
         state.weight = 1; state.time = time; animation.Sample(); state.enabled = false;
     }
+        static Vector3[] PosedVertices(SkinnedMeshRenderer renderer, Transform reference)
+        {
+            var mesh = renderer.sharedMesh; var vertices = mesh.vertices; var weights = mesh.boneWeights;
+            var bind = mesh.bindposes; var bones = renderer.bones;
+            var matrices = bones.Select((bone, i) => reference.worldToLocalMatrix * bone.localToWorldMatrix * bind[i]).ToArray();
+            var result = new Vector3[vertices.Length];
+            for (var i = 0; i < vertices.Length; i++)
+            {
+                var w = weights[i]; var v = vertices[i];
+                result[i] = matrices[w.boneIndex0].MultiplyPoint3x4(v) * w.weight0 +
+                    matrices[w.boneIndex1].MultiplyPoint3x4(v) * w.weight1 +
+                    matrices[w.boneIndex2].MultiplyPoint3x4(v) * w.weight2 +
+                    matrices[w.boneIndex3].MultiplyPoint3x4(v) * w.weight3;
+            }
+            return result;
+        }
+
     static IEnumerator routine;
     static void Step()
     {
@@ -143,6 +160,60 @@ public static class ValidateTownAssets
             yield return null;
             var greeting = Picture(npc + "-greeting");
             Check(Different(full, greeting) > 500, npc + " greeting changes actual rendered pixels");
+            Sample(root, "Idle", 0);
+            var cameraPosition = camera.transform.position;
+            var cameraRotation = camera.transform.rotation;
+            float cameraFov = camera.fieldOfView;
+            camera.nearClipPlane = .01f; camera.fieldOfView = 38;
+            foreach (var view in new[] { "front", "three-quarter", "profile", "back" })
+            {
+                var centre = new Vector3(0, 1.59f, .65f);
+                var offset = view == "front" ? new Vector3(0, 0, -.61f) :
+                    view == "three-quarter" ? new Vector3(.36f, 0, -.49f) :
+                    view == "profile" ? new Vector3(.61f, 0, 0) : new Vector3(0, 0, .61f);
+                camera.transform.position = centre + offset; camera.transform.LookAt(centre);
+                yield return null; Picture(npc + "-head-" + view);
+            }
+            camera.transform.position = cameraPosition; camera.transform.rotation = cameraRotation;
+            camera.fieldOfView = cameraFov;
+            var actorRoot = root.transform.Find("Actor");
+            var actorBase = actorRoot.localPosition;
+            actorRoot.localPosition += Vector3.up * .05f;
+            foreach (AnimationState state in root.GetComponentInChildren<Animation>())
+            {
+                Sample(root, state.name, state.length * .5f);
+                Check((actorRoot.localPosition - actorBase - Vector3.up * .05f).sqrMagnitude < 1e-10f,
+                    npc + " " + state.name + " preserves runtime terrain correction");
+            }
+            actorRoot.localPosition = actorBase;
+            var envelope = new Bounds(); bool hasEnvelope = false;
+            var skin = lod.GetLODs()[0].renderers.OfType<SkinnedMeshRenderer>().Single();
+            Sample(root, "Idle", 0);
+            var bakedControl = new Mesh(); skin.BakeMesh(bakedControl, true);
+            var cpuControl = PosedVertices(skin, root.transform);
+            var bakedControlVertices = bakedControl.vertices;
+            float poseError = 0;
+            for (int i = 0; i < cpuControl.Length; i += 97)
+                poseError = Mathf.Max(poseError, (cpuControl[i] - root.transform.InverseTransformPoint(skin.transform.TransformPoint(bakedControlVertices[i]))).magnitude);
+            Check(poseError < .0001f, npc + " CPU skinning agrees with explicitly scaled Unity bake");
+            UnityEngine.Object.DestroyImmediate(bakedControl);
+            foreach (AnimationState state in root.GetComponentInChildren<Animation>())
+                for (float t = 0; t <= state.length + .05f; t += .1f)
+                {
+                    Sample(root, state.name, Mathf.Min(t, state.length));
+                    var posed = PosedVertices(skin, root.transform);
+                    if (t < .05f || Mathf.Abs(t-state.length*.5f) < .051f || t >= state.length-.05f)
+                        using (var points = new BinaryWriter(File.Create(Path.Combine(output, npc + "-" + state.name + "-" + t.ToString("F1", System.Globalization.CultureInfo.InvariantCulture) + ".xyz32"))))
+                            foreach (var point in posed) { points.Write(point.x); points.Write(point.y); points.Write(point.z); }
+                    foreach (var local in posed)
+                    {
+                        if (!hasEnvelope) { envelope = new Bounds(local, Vector3.zero); hasEnvelope = true; }
+                        else envelope.Encapsulate(local);
+                    }
+                }
+            Check(envelope.size.y > 1.6f && envelope.size.y < 2.1f, npc + " CPU skinning uses real metre units");
+            Check(envelope.min.x >= -.9f && envelope.max.x <= .9f && envelope.min.z >= -.5f && envelope.max.z <= 1.15f, npc + " all animation phases remain in placement envelope");
+            Debug.Log("TOWN_ACTOR_ENVELOPE " + npc + " min=" + envelope.min.ToString("F4") + " max=" + envelope.max.ToString("F4"));
             Sample(root, "Idle", 0);
             // Native handoff runs around 198 world units per metre in the supplied map log.
             root.transform.localScale = Vector3.one * 198;

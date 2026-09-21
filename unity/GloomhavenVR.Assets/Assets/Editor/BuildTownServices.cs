@@ -35,8 +35,10 @@ namespace GloomhavenVR
             importer.textureType = normal ? TextureImporterType.NormalMap : TextureImporterType.Default;
             importer.sRGBTexture = !linear;
             importer.alphaIsTransparency = false;
-            // NPC source details stay at 4K; repeated furniture tiles need only 1K.
-            var maxSize = path.StartsWith(Root + "/Textures/", StringComparison.Ordinal) ? 1024 : 4096;
+            // Face and costume albedo retain 4K texel density. Costume micro-normal and
+            // metallic masks use smaller mip ceilings to keep the self-contained bundle bounded.
+            var maxSize = path.StartsWith(Root + "/Textures/", StringComparison.Ordinal) ? 1024 :
+                Path.GetFileName(path).StartsWith("body_", StringComparison.Ordinal) && linear ? (normal ? 2048 : 1024) : 4096;
             importer.maxTextureSize = maxSize;
             importer.mipmapEnabled = true;
             importer.textureCompression = TextureImporterCompression.CompressedHQ;
@@ -220,7 +222,7 @@ namespace GloomhavenVR
             {
                 foreach (var x in new[] { -1, 1 }) foreach (var z in new[] { -1, 1 })
                 {
-                    Box(furniture, "WorkbenchLeg" + x + z, new Vector3(x * 0.63f, 0.45f, z * 0.24f), new Vector3(0.11f, 0.86f, 0.11f), wood);
+                    Box(furniture, "WorkbenchLeg" + x + z, new Vector3(x * 0.63f, 0.44f, z * 0.24f), new Vector3(0.11f, 0.88f, 0.11f), wood);
                     Box(furniture, "LegBand" + x + z, new Vector3(x * 0.63f, 0.18f, z * 0.24f), new Vector3(0.119f, 0.055f, 0.119f), "Brass");
                 }
                 Box(furniture, "LowerShelf", new Vector3(0, 0.29f, 0), new Vector3(1.20f, 0.055f, 0.50f), wood);
@@ -358,6 +360,23 @@ namespace GloomhavenVR
             group.size = Mathf.Max(bound.size.x, bound.size.y, bound.size.z);
         }
 
+        static Vector3[] PosedVertices(SkinnedMeshRenderer renderer, Transform reference)
+        {
+            var mesh = renderer.sharedMesh; var vertices = mesh.vertices; var weights = mesh.boneWeights;
+            var bind = mesh.bindposes; var bones = renderer.bones;
+            var matrices = bones.Select((bone, i) => reference.worldToLocalMatrix * bone.localToWorldMatrix * bind[i]).ToArray();
+            var result = new Vector3[vertices.Length];
+            for (var i = 0; i < vertices.Length; i++)
+            {
+                var w = weights[i]; var v = vertices[i];
+                result[i] = matrices[w.boneIndex0].MultiplyPoint3x4(v) * w.weight0 +
+                    matrices[w.boneIndex1].MultiplyPoint3x4(v) * w.weight1 +
+                    matrices[w.boneIndex2].MultiplyPoint3x4(v) * w.weight2 +
+                    matrices[w.boneIndex3].MultiplyPoint3x4(v) * w.weight3;
+            }
+            return result;
+        }
+
         public static void RefreshPresentation()
         {
             foreach (var npc in Npcs)
@@ -379,9 +398,10 @@ namespace GloomhavenVR
                     var actor = root.transform.Find("Actor");
                     actor.GetComponent<Animation>().GetClip("Idle").SampleAnimation(actor.gameObject, 0);
                     var renderer = actor.GetComponentsInChildren<SkinnedMeshRenderer>().First(r => r.name.StartsWith("LOD0_"));
-                    var mesh = new Mesh(); renderer.BakeMesh(mesh);
-                    var bottom = mesh.vertices.Min(v => root.transform.InverseTransformPoint(renderer.transform.TransformPoint(v)).y);
-                    UnityEngine.Object.DestroyImmediate(mesh);
+                    var posed = PosedVertices(renderer, root.transform);
+                    var bottom = posed.Min(v => v.y);
+                    var height = posed.Max(v => v.y) - bottom;
+                    if (height < 1.6f || height > 2.1f) throw new InvalidDataException("Unexpected authored actor height: " + height);
                     actor.localPosition -= new Vector3(0, bottom, 0);
                     SetPosedLodBounds(actor.GetComponent<LODGroup>());
                     PrefabUtility.SaveAsPrefabAsset(root, path);
