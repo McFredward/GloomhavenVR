@@ -1,7 +1,9 @@
 # Town resident speech research — build 543
 
 Research only, 2026-09-21; integration base `739b66e8` (build 542).
-No generation API was called, no voice was cloned and no game file was changed.
+Initial research made no generation calls. A later approved six-call experiment is
+recorded below; the user subsequently chose original game recordings, so generated
+speech and its unfinished runtime must not ship. No game file was changed.
 
 ## Native asset and interface evidence
 
@@ -128,3 +130,53 @@ clips under the standing multiplayer 1:1 rule. Encode the authority's speech lan
 and exact cue so every peer hears/animates that shared performance; localized
 subtitles may differ as product text. A viewer-local dub requires an explicit user
 exception or a carefully approved different presentation contract.
+
+
+## Final user decision and original-dialog audit
+
+The user explicitly prefers existing game recordings. Generated speech may be
+reconsidered later, but is not part of this implementation. The six previously
+approved experimental requests had already completed before this steering arrived:
+280 characters, displayed-rate estimate USD 0.028, no retries and no further calls.
+The generated asset commit is removed from the integration tree. Private receipts,
+clips and the unshipped development checkpoint remain in
+`.planning/debug/town543-speech/`. Audio input is unsupported by this coding model;
+no auditory quality approval is claimed. Offline ASR/content, waveform checks and
+phonetic analysis are experiments, not a shipping feature.
+
+A deeper read-only audit covered all five shipped `.ruleset` ZIP archives, including
+2,847 YAML members. Recursive parsing found **551 NPC dialogue nodes**:
+Merchant 412, Enchantress 99, Priestess 40. Every node has text and a character;
+53 also have camera placement. **None supplies an audio identifier**, and none of
+those text keys matches a case-insensitive AudioClip name in the 3,157-clip inventory.
+The 31 YAML members rejected by the general-purpose parser contain no matching named
+NPC dialogue; a separate text scan verified that coverage boundary. The raw
+Guildmaster directory independently yielded 202 nodes with the same absence.
+Temporary evidence: `/tmp/town543-audio/native-dialogs-packed.json` and
+`/tmp/town543-audio/native-dialogs.json`.
+
+Concrete examples:
+
+- Guildmaster `Scenario_Relic_DoomedCompass.yml` assigns its third introduction line
+  and second completion line to `Enchantress`, but supplies no audio field.
+- `ScenarioDialogueLine` defaults `narrativeAudioId` to null. Unlike custom-level
+  pages, `DialogLineDTO(ScenarioDialogueLine)` does not substitute the text key when
+  that field is empty. A portrait speaking in a text box does not imply a recording.
+- `CTempleState` creates the devotion-level message with
+  `GUI_TEMPLE_DEVOTION_LEVEL` but omits the optional `storyAudioId`. `MapChoreographer`
+  correctly labels its text-box speaker `Priestess`; the audio remains null.
+- `CampaignRewardsManager` creates merchant wealth/unlock text without an audio ID.
+
+No native spoken performance for these three residents is established by this audit.
+Do not synthesize a voice, speak narrator passages from their mouths, replay reward
+sounds as speech, or silently lip-sync a text-only line.
+
+A future *actual native speech* adapter could observe `UICharacterStoryBox.DecorateLine`
+and `StopCurrentAudio` without changing callbacks. It must require all three facts:
+(1) `DialogLineDTO.character` exactly identifies the relevant resident,
+(2) `narrativeAudioId` is nonempty and validated, and
+(3) `AudioController.GetPlayingAudioObjects(id)` returns the actual current instance.
+Use that instance's audio time and stop state; never start a second copy, advance the
+story, or gate continuation. This hook is not implemented now because there is no
+verified matching recording. The generic facial speech adapter remains unbound,
+allowing real jaw/lip animation later without claiming voices currently exist.
