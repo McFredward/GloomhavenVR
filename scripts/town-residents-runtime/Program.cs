@@ -40,7 +40,7 @@ internal static class Program
         for(int i=0;i<8;i++)Tick(1);AllVisible();Check(TownServiceStation.Creates==3,"no visitor-dependent respawn or repeated create");
         Check(TownServiceStation.Live.Values.All(s=>s.Clip=="Idle"),"no greeting without a visit");
         TownServicePresentation.Active=true;TownServicePresentation.Service=2;TownServicePresentation.SessionAge=.4f;Tick(.1f);
-        Check(TownServiceStation.Live[2].Clip=="Greeting","native visit greets");Check(TownServiceStation.Live[1].Clip=="Idle","unvisited resident remains idle");
+        Check(TownServiceStation.Live[2].Clip=="Idle","native visit preserves continuous occupation body clock");Check(TownServiceStation.Live[1].Clip=="Idle","unvisited resident remains idle");
         TownServicePresentation.Active=false;Tick();AllVisible();
         WorldUIConfig.ImmersiveTownServices.Value=false;Tick();Check(TownServiceStation.Live.Count==0,"opt out removes unvisited residents");Check(!TownServicePopulation.Published.Active,"opt out withdraws authority");
         WorldUIConfig.ImmersiveTownServices.Value=true;Tick();AllVisible();Check(TownServiceStation.Creates==6,"re-enable re-creates all residents");
@@ -74,12 +74,16 @@ internal static class Program
         TownServiceMirror.RemoteSessions[2]=new TownServiceSessionInfo{Peer=2,Active=true,Service=1,ReceivedTime=Time.unscaledTime,SessionAge=.3f};Tick(.1f);
         Check(TownServiceStation.Live.Count==1&&TownServiceStation.Live.ContainsKey(1),"actual remote visitor only opens its station for opted-out viewer");Check(!TownServiceVisitTarget.Live[1].Enabled,"opted-out viewer has no immersive visit input");Check(TownServiceVisitTarget.Live[1].Visible,"visible remote resident still occludes behind UI for opted-out viewer");Check(!TownServicePopulation.Published.Active,"observer of remote visit never advertises enabled population");
         Time.unscaledTime+=NetProtocol.StaleTimeoutSeconds+.1f;Tick();Check(TownServiceStation.Live.Count==0,"stale visitor station retires");Check(!TownServicePopulation.HasRemoteVisitors,"stale visitor does not keep remote presence alive");
-        Reset();var presence=default(PresenceState);MapRoomDriver.Active=false;RemoteTownResidents.Sample(ref presence);Check(!presence.HasTownResidents,"no resident presence outside map");MapRoomDriver.Active=true;Tick();RemoteTownResidents.Sample(ref presence);Check(presence.HasTownResidents&&presence.TownResidents.Active,"map presence publishes all prepared residents");
+        Reset();var presence=default(PresenceState);presence.TownActivityRecordSeen=false;MapRoomDriver.Active=false;RemoteTownResidents.Sample(ref presence);Check(!presence.HasTownResidents,"no resident presence outside map");MapRoomDriver.Active=true;Tick();RemoteTownResidents.Sample(ref presence);Check(presence.HasTownResidents&&presence.TownResidents.Active,"map presence publishes all prepared residents");
         TownServicePopulation.Reset();Check(!TownServicePopulation.Published.Active,"reset withdraws published population");
         Reset();NetPlayerActors.Local=10;
         Tick(500f);
         var face=new TownFaceState{Active=true,Epoch=42,Sequence=1,Clock=20};face.Set(0,new TownFacePose{HeadYaw=22});
         var authority=new PresenceState{HasTownResidents=true,TownResidents=State(),HasTownFace=true,TownFace=face};
+        authority.TownActivityRecordSeen=true;
+        RemoteTownResidents.Observe(2,in authority);
+        Check(!RemoteTownFaces.Sample(2,out _,out _),"malformed81 cannot accept otherwise valid face half through legacy fallback");
+        authority.TownActivityRecordSeen=false;
         RemoteTownResidents.Observe(2,in authority);Tick();
         Check(!TownServiceStation.Live[1].FaceAuthor&&TownServiceStation.Live[1].FaceReceived,"follower applies received face without local attention election");
         Near(TownServiceStation.Live[1].FacePose.HeadYaw,22,"follower face retains authority angles");

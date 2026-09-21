@@ -15,6 +15,8 @@ internal sealed class TownServiceFace
     private float _lastRemote;
     private int _shownAuthor;
     private bool _hasRemote;
+    private bool _prepared;
+    private Vector3? _preparedTarget;
     private static readonly bool[] ReportedMissing = new bool[4];
     internal TownServiceFace(Transform root, byte service)
     {
@@ -25,6 +27,14 @@ internal sealed class TownServiceFace
             GloomhavenVR.Core.VRLog.Warn("TownServices", "NPC facial rig incomplete for service " + service
                 + "; install the matching town bundle. Native service interaction remains available.");
         }
+    }
+    internal bool PrepareActivityAttention(bool wasEngaged)
+    {
+        Vector3? target = _attention.Select(_service, _root, _rig.OpticalRotation, _rig.EyePosition);
+        float reach = (wasEngaged ? 2.9f : 2.4f) * _root.lossyScale.x;
+        bool engaged = target.HasValue && (_attention.Visitor || (target.Value - _rig.EyePosition).sqrMagnitude <= reach * reach);
+        _preparedTarget = engaged ? target : _root.TransformPoint(TownServiceActivityMotion.RestFocus(_service));
+        _prepared = true; return engaged;
     }
     internal void BeforeBodySample() => _rig.BeforeBodySample();
     internal void Seed(in TownFacePose pose, int author, float elapsed)
@@ -40,7 +50,8 @@ internal sealed class TownServiceFace
         if (author)
         {
             _shownAuthor = authorId;
-            Vector3? target = _attention.Select(_service, _root, _rig.OpticalRotation, _rig.EyePosition);
+            Vector3? target = _prepared ? _preparedTarget : _attention.Select(_service, _root, _rig.OpticalRotation, _rig.EyePosition);
+            _prepared = false;
             _shown = TownServiceFaceMotion.Aim(_rig.OpticalRotation, _root.lossyScale.x, _rig.HeadPosition, _rig.LeftPosition, _rig.RightPosition, target, in _shown, Time.unscaledDeltaTime);
             _shown.Cue = 0; _shown.SpeechAge = 0f; _shown.Jaw = _shown.Wide = _shown.Round = 0;
             mouth = Vector3.zero;

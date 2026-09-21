@@ -3993,9 +3993,14 @@ internal sealed partial class NetAvatarDriver : MonoBehaviour
                 if (parsed) VersionGuard.NotePacket(senderId);
                 break;
 
+            case NetProtocol.MsgTownActivity:
+                parsed = TownActivityCodec.ReadPacket(buffer, length, out TownActivityState activity, out TownFaceState pairedFace);
+                if (parsed) { VersionGuard.NotePacket(senderId); RemoteTownPerformance.Observe(senderId, in activity, in pairedFace, false); }
+                break;
+
             case NetProtocol.MsgTownFace:
                 parsed = TownFaceCodec.ReadPacket(buffer, length, out TownFaceState face);
-                if (parsed) { VersionGuard.NotePacket(senderId); RemoteTownFaces.Observe(senderId, in face); }
+                if (parsed) { VersionGuard.NotePacket(senderId); RemoteTownPerformance.ObserveLegacyFace(senderId, in face); }
                 break;
 
             case TownServices.TownServiceCodec.MessageType:

@@ -16,7 +16,9 @@ internal sealed class TownServiceStation : IDisposable
     private readonly TownServiceDecor _decor;
     private readonly TownServiceGrounding _grounding;
     private readonly TownServiceFace _face;
-    private bool _faceFailed;
+    private readonly TownServiceActivityRig _activity;
+    private bool _faceFailed, _activityFailed;
+    private static readonly bool[] ActivityFailureReported = new bool[4];
     private static readonly bool[] FaceFailureReported = new bool[4];
     internal float ActorFloorOffset { get; private set; }
     internal float FurnitureBottom { get; private set; }
@@ -47,6 +49,7 @@ internal sealed class TownServiceStation : IDisposable
         _renderers = root.GetComponentsInChildren<Renderer>(true);
         _grounding = new TownServiceGrounding(root.transform);
         _face = new TownServiceFace(root.transform, service);
+        _activity = new TownServiceActivityRig(root.transform, service);
         _lighting = new TownServiceLighting(root.transform, service);
         try { _decor = new TownServiceDecor(root.transform, service, _lighting); }
         catch { _lighting.Dispose(); throw; }
@@ -128,6 +131,7 @@ internal sealed class TownServiceStation : IDisposable
     internal void Sample(string clip, float seconds)
     {
         _face.BeforeBodySample();
+        _activity.BeforeBodySample();
         _decor.SetClock(seconds);
         if (_animation == null) return;
         AnimationState? state = _animation[clip];
@@ -139,6 +143,27 @@ internal sealed class TownServiceStation : IDisposable
         state.time = seconds;
         _animation.Sample();
         state.enabled = false;
+    }
+
+    internal bool PrepareActivityAttention(bool wasEngaged)
+    {
+        if (_faceFailed) return false;
+        try { return _face.PrepareActivityAttention(wasEngaged); }
+        catch (Exception error) { FaceFailure(error); return false; }
+    }
+    internal void SampleActivity(in TownActivityPose pose)
+    {
+        if (_activityFailed) return;
+        try { _activity.Apply(in pose); _decor.SampleActivity(in pose); }
+        catch (Exception error)
+        {
+            _activityFailed = true;
+            if (_service >= 1 && _service <= 3 && !ActivityFailureReported[_service])
+            {
+                ActivityFailureReported[_service] = true;
+                VRLog.Warn("TownServices", "NPC occupation disabled for service " + _service + ": " + error);
+            }
+        }
     }
 
     internal void SeedFace(TownFacePose pose, int author, float elapsed)

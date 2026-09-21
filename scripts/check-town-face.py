@@ -22,10 +22,11 @@ def replace_once(source, before, after):
 
 def sources(root):
     base = root / "src/GloomhavenVR/WorldUI/TownServices"
-    names = ["TownServiceFace.cs", "TownServiceFaceMotion.cs", "TownServiceFaceRig.cs", "TownServiceFaceAttention.cs", "TownServiceFaceSpeech.cs"]
+    names = ["TownServiceFace.cs", "TownServiceFaceMotion.cs", "TownServiceFaceRig.cs", "TownServiceFaceAttention.cs", "TownServiceFaceSpeech.cs", "TownServiceActivityMotion.cs"]
     bound = {name: (base / name).read_text() for name in names}
     bound["RemoteTownFaces.cs"] = (root / "src/GloomhavenVR/Net/Remote/RemoteTownFaces.cs").read_text()
     bound["TownFaceTypes.cs"] = (root / "src/GloomhavenVR/Net/TownFaceState.cs").read_text().split("/// <summary>Additive80:")[0]
+    bound["TownActivityTypes.cs"] = (root / "src/GloomhavenVR/Net/TownActivityState.cs").read_text().split("/// <summary>Additive81:")[0]
     return bound, {name: hashlib.sha256(text.encode()).hexdigest() for name, text in bound.items()}
 
 
@@ -37,7 +38,7 @@ def mutations():
         ("no-blink", "TownServiceFaceMotion.cs", "return t < .075f ? Mathf.SmoothStep(0f, 1f, t / .075f) : 1f - Mathf.SmoothStep(0f, 1f, (t - .075f) / .145f);", "return 0f;", "complete blink reaches closed lids"),
         ("wrong-eye-convergence", "TownServiceFaceMotion.cs", "focus - right", "focus - left", "eyes converge on common nearby target"),
         ("silent-mouth", "TownServiceFaceMotion.cs", "state.Cue == 0 ? 0f : Weight(mouth.x)", "Weight(mouth.x)", "silent NPC cannot jaw flap"),
-        ("stale-reorder", "RemoteTownFaces.cs", "if (peer.HasHistory && (!Newer(state.Sequence, peer.Latest.Sequence) || state.Clock < peer.Latest.Clock)) return;\n        peer.Span", "if (peer.HasHistory && (false || state.Clock < peer.Latest.Clock)) return;\n        peer.Span", "older samples cannot replace new cue"),
+        ("stale-reorder", "RemoteTownFaces.cs", "if (peer.HasHistory && (!Newer(state.Sequence, peer.Latest.Sequence) || state.Clock < peer.Latest.Clock)) return;\n        TownFaceState visible", "if (peer.HasHistory && (false || state.Clock < peer.Latest.Clock)) return;\n        TownFaceState visible", "older samples cannot replace new cue"),
         ("retire-network-stall", "RemoteTownFaces.cs", "peer.HasSample = false; peer.Suspended = true;", "peer.Retire(peer.Latest.Epoch); peer.Latest = default; peer.HasHistory = false; peer.HasSample = false; peer.Suspended = true;", "same live epoch resumes after temporary network stall"),
         ("fast-resurrection", "RemoteTownFaces.cs", " || peer.Suspended ||", " ||", "fast packet cannot revive suspended peer"),
         ("tombstone-capacity", "RemoteTownFaces.cs", "if (oldest == 0) return;", "if (oldest >= 0) return;", "retired tombstone capacity permits new participant"),

@@ -12,6 +12,9 @@ namespace GloomhavenVR.Net;
 internal struct PresenceState
 {
     /// <summary>Facial stream recovery from the elected resident author; never viewer-authored.</summary>
+    public bool TownActivityRecordSeen; // Distinguish malformed81 from an absent legacy extension.
+    public bool HasTownActivity;
+    public TownActivityState TownActivity;
     public bool HasTownFace;
     public TownFaceState TownFace;
     public bool HasTownResidents;
@@ -1625,6 +1628,7 @@ internal static class PresenceSerializer
     /// + 56 (HELD PROPS: 2 + its two-slot form, 2 x <c>NetProtocol.HeldPropSlotBytes</c>)
     /// = 1726.
     ///
+    /// <para>Town activity81 adds54 bytes: worst7136, allocation7393 keeps257 spare; reassembly7168 has32 bytes remaining.</para>
     /// <para>Town faces80 adds96 bytes: 6986 ->7082 worst case, buffer7339 preserves257 spare
     /// bytes and the actual snapshot still fits unchanged7168-byte reassembly.</para>
     /// <para>Permanent residents79 adds at most117 bytes: 6869 -> 6986 worst case; buffer7243
@@ -1881,7 +1885,7 @@ internal static class PresenceSerializer
     /// ITS OWN COMMIT, and keeps a margin of at least one record's worth. Record 27 (track order)
     /// took the worst case 859 → 887 on 2026-08-08; the margin is 393 bytes, i.e. still more than
     /// every optional record on the tail put together.</para></summary>
-    public const int MaxSize = 7339; // TownFace80 adds96; worst7082 +257 spare.
+    public const int MaxSize = 7393; // TownActivity81 adds54; worst7136 +257 spare.
 
     // ---- write --------------------------------------------------------------------------
 
@@ -1956,6 +1960,7 @@ internal static class PresenceSerializer
                           // The sampler already returns 0 outside the online card-selection phase,
                           // which is what keeps every packet of every other phase byte-identical
                           // to a pre-record-27 sender's.
+                          || state.HasTownActivity
                           || state.HasTownFace
                           || state.HasTownResidents
                           || state.HasSharedWindowMotion
@@ -2723,6 +2728,9 @@ internal static class PresenceSerializer
                 records++;
             }
         }
+        if (state.HasTownActivity && TownActivityCodec.Write(buffer, ref i, in state.TownActivity))
+            records++;
+
         if (state.HasTownFace && TownFaceCodec.Write(buffer, ref i, in state.TownFace))
             records++;
 
@@ -4062,6 +4070,12 @@ internal static class PresenceSerializer
     private static void ReadExtensionRecord(byte[] buffer, int i, byte id, int len,
                                             ref PresenceState state)
     {
+        if (id == NetProtocol.ExtIdTownActivity)
+        {
+            state.TownActivityRecordSeen = true;
+            state.HasTownActivity = TownActivityCodec.TryRead(buffer, i, len, out state.TownActivity);
+            return;
+        }
         if (id == NetProtocol.ExtIdTownFace)
         {
             state.HasTownFace = TownFaceCodec.TryRead(buffer, i, len, out state.TownFace);

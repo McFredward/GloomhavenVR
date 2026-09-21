@@ -41,6 +41,7 @@ internal static class Program
             TownServiceTransportVectors.Run(t);
             TownResidentsVectors.Run(t);
             TownFaceVectors.Run(t);
+            TownActivityVectors.Run(t);
             DecisionAttributionVectors.Run(t);
             CardFlightHistoryVectors.Run(t);
         CardBurnCompletionVectors.Run(t);

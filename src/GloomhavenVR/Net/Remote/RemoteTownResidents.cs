@@ -17,14 +17,17 @@ internal static class RemoteTownResidents
     internal static void Observe(int player, in PresenceState presence)
     {
         if (!presence.HasTownResidents || !presence.TownResidents.Active)
-        { Peers.Remove(player); RemoteTownFaces.Forget(player); return; }
+        { Peers.Remove(player); RemoteTownFaces.Forget(player); RemoteTownActivities.Forget(player); return; }
         if (!Peers.TryGetValue(player, out Peer? peer))
         {
             if (Peers.Count >= 8) return;
-            RemoteTownFaces.Forget(player); // A new presence lifetime must not inherit pre-join fast packets.
+            RemoteTownFaces.Forget(player); RemoteTownActivities.Forget(player); // A new presence lifetime must not inherit pre-join fast packets.
             Peers[player] = peer = new Peer();
         }
-        if (presence.HasTownFace) RemoteTownFaces.ObservePresence(player, in presence.TownFace);
+        if (presence.HasTownActivity && presence.HasTownFace)
+            RemoteTownPerformance.Observe(player, in presence.TownActivity, in presence.TownFace, true);
+        else if (!presence.TownActivityRecordSeen && !RemoteTownActivities.KnownPair(player) && !presence.HasTownActivity && presence.HasTownFace)
+            RemoteTownFaces.ObservePresence(player, in presence.TownFace);
         peer.State = presence.TownResidents; peer.Received = Time.unscaledTime;
     }
 
@@ -48,6 +51,8 @@ internal static class RemoteTownResidents
         if (!MapRoomDriver.Active) return;
         presence.HasTownResidents = true;
         presence.TownResidents = TownServicePopulation.Published;
+        presence.HasTownActivity = TownServicePopulation.IsFaceAuthor;
+        presence.TownActivity = TownServicePopulation.PublishedActivities;
         presence.HasTownFace = TownServicePopulation.IsFaceAuthor;
         presence.TownFace = TownServicePopulation.PublishedFaces;
     }

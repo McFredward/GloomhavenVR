@@ -8,6 +8,7 @@ namespace GloomhavenVR.WorldUI;
 /// <summary>Presentation-only work tools stay in their real grips throughout interruptions.</summary>
 internal sealed class TownServiceActivityProps : IDisposable
 {
+    internal const float PenTipDistance = .05f;
     private readonly Transform _root;
     private readonly byte _service;
     private readonly Shader? _shader;
@@ -16,6 +17,7 @@ internal sealed class TownServiceActivityProps : IDisposable
     private Mesh? _penMesh;
     private Material? _penMaterial;
     private float _visibility;
+    private bool _gripsBound;
     private static readonly int Visibility = Shader.PropertyToID("_TownVisibility");
     internal TownServiceActivityProps(Transform root, byte service, Shader? shader)
     { _root = root; _service = service; _shader = shader; }
@@ -24,8 +26,9 @@ internal sealed class TownServiceActivityProps : IDisposable
     internal void Sample(in TownActivityPose pose)
     {
         if (_service != 1) return;
-        if (_leftGrip == null || _rightGrip == null)
+        if (!_gripsBound)
         {
+            _gripsBound = true; // Activity rig creates these synchronously; absent bones never trigger a per-frame hierarchy scan.
             foreach (Transform child in _root.GetComponentsInChildren<Transform>(true))
             {
                 if (child.name == "ActivityGripLeft") _leftGrip = child;
@@ -67,8 +70,10 @@ internal sealed class TownServiceActivityProps : IDisposable
             triangles[t + 6] = sides * 2; triangles[t + 7] = j; triangles[t + 8] = i;
             triangles[t + 9] = sides * 2 + 1; triangles[t + 10] = i + sides; triangles[t + 11] = j + sides;
         }
-        vertices[sides * 2] = new Vector3(0f, -.035f, 0f);
+        vertices[sides * 2] = new Vector3(0f, -PenTipDistance, 0f);
         vertices[sides * 2 + 1] = new Vector3(0f, .115f, 0f);
+        for (int i = 0; i < triangles.Length; i += 3)
+        { int swap = triangles[i + 1]; triangles[i + 1] = triangles[i + 2]; triangles[i + 2] = swap; }
         _penMesh = new Mesh { name = "Town.ReedPen", vertices = vertices, triangles = triangles };
         _penMesh.RecalculateNormals(); _penMesh.RecalculateBounds();
         var material = new Material(shader) { name = "Town.ReedPen", color = new Color(.24f, .14f, .055f) };

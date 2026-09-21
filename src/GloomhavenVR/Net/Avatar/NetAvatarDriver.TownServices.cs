@@ -12,7 +12,7 @@ internal sealed partial class NetAvatarDriver
     private sealed class TownPacket
     { internal ulong Sequence; internal byte[] Bytes = null!; }
     private readonly Dictionary<int, Dictionary<uint, TownPacket>> _pendingTown = new();
-    private readonly byte[] _faceBuffer = new byte[TownFaceCodec.PacketBytes];
+    private readonly byte[] _activityBuffer = new byte[TownActivityCodec.PacketBytes];
     private float _nextFaceSend;
     private void SendTownServices()
     {
@@ -25,8 +25,9 @@ internal sealed partial class NetAvatarDriver
         TownFaceState face = TownServicePopulation.PublishedFaces;
         if (!face.Active) return;
         _nextFaceSend = UnityEngine.Time.unscaledTime + 1f / 15f;
-        int count = TownFaceCodec.WritePacket(_faceBuffer, in face);
-        if (count > 0) _transport.Send(_faceBuffer, count);
+        TownActivityState activity = TownServicePopulation.PublishedActivities;
+        int count = TownActivityCodec.WritePacket(_activityBuffer, in activity, in face);
+        if (count > 0) _transport.Send(_activityBuffer, count);
     }
     private bool QueueTownService(int sender, byte[] bytes, int length)
     {
@@ -53,6 +54,6 @@ internal sealed partial class NetAvatarDriver
         }
         if (TownServiceMirror.SharedFrameForRemote != null) TownServiceMirror.TickRemote(TownServiceMirror.SharedFrameForRemote);
     }
-    private void ForgetTownServices(int peer) { _pendingTown.Remove(peer); TownServiceMirror.RemovePeer(peer); RemoteTownResidents.Forget(peer); RemoteTownFaces.Forget(peer); }
-    private void ResetTownServices() { _pendingTown.Clear(); TownServiceMirror.ResetNetwork(); RemoteTownResidents.Reset(); RemoteTownFaces.Reset(); _nextFaceSend = 0f; }
+    private void ForgetTownServices(int peer) { _pendingTown.Remove(peer); TownServiceMirror.RemovePeer(peer); RemoteTownResidents.Forget(peer); RemoteTownFaces.Forget(peer); RemoteTownActivities.Forget(peer); }
+    private void ResetTownServices() { _pendingTown.Clear(); TownServiceMirror.ResetNetwork(); RemoteTownResidents.Reset(); RemoteTownFaces.Reset(); RemoteTownActivities.Reset(); _nextFaceSend = 0f; }
 }

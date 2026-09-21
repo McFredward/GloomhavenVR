@@ -4,13 +4,13 @@ using UnityEngine;
 
 namespace GloomhavenVR.Net;
 
-/// <summary>Only the resident authority's samples can drive the shared faces. The high-rate
+/// <summary>Only the resident authority's samples can drive the shared occupations. The high-rate
 /// stream never elects a second author; presence79 owns readiness and withdrawal.</summary>
-internal static class RemoteTownFaces
+internal static class RemoteTownActivities
 {
     private sealed class Peer
     {
-        internal TownFaceState Previous, Latest;
+        internal TownActivityState Previous, Latest;
         internal float Received, Span;
         internal bool HasSample, HasHistory, Suspended;
         private readonly uint[] _retired = new uint[4];
@@ -24,10 +24,11 @@ internal static class RemoteTownFaces
         }
     }
     private static readonly Dictionary<int, Peer> Peers = new();
+    internal static bool KnownPair(int player) => Peers.TryGetValue(player, out Peer? peer) && peer.HasHistory;
     internal static bool Newer(uint next, uint previous) => unchecked((int)(next - previous)) > 0;
-    internal static bool CanObserve(int player, in TownFaceState state, bool presence)
+    internal static bool CanObserve(int player, in TownActivityState state, bool presence)
     {
-        if (player <= 0 || !TownFaceCodec.Valid(in state)) return false;
+        if (player <= 0 || !TownActivityCodec.Valid(in state)) return false;
         if (!state.Active) return presence;
         if (!Peers.TryGetValue(player, out Peer? peer))
         {
@@ -40,9 +41,9 @@ internal static class RemoteTownFaces
         if (peer.Latest.Epoch != state.Epoch) return presence && !peer.Retired(state.Epoch);
         return (presence || !peer.Suspended) && (!peer.HasHistory || (Newer(state.Sequence, peer.Latest.Sequence) && state.Clock >= peer.Latest.Clock));
     }
-    internal static void ObservePresence(int player, in TownFaceState state)
+    internal static void ObservePresence(int player, in TownActivityState state)
     {
-        if (player <= 0 || !TownFaceCodec.Valid(in state)) return;
+        if (player <= 0 || !TownActivityCodec.Valid(in state)) return;
         if (!state.Active) { Forget(player); return; }
         if (!Peers.TryGetValue(player, out Peer? peer))
         {
@@ -67,31 +68,47 @@ internal static class RemoteTownFaces
         peer.Suspended = false;
         Observe(player, in state);
     }
-    internal static void Observe(int player, in TownFaceState state)
+    internal static void Observe(int player, in TownActivityState state)
     {
-        if (!state.Active || !TownFaceCodec.Valid(in state)
+        if (!state.Active || !TownActivityCodec.Valid(in state)
             || !Peers.TryGetValue(player, out Peer? peer) || peer.Suspended || peer.Latest.Epoch != state.Epoch) return;
         if (peer.HasHistory && (!Newer(state.Sequence, peer.Latest.Sequence) || state.Clock < peer.Latest.Clock)) return;
-        TownFaceState visible = peer.HasSample && Sample(player, out TownFaceState shown, out _) ? shown : state;
+        // Reconcile from the actually visible phase at packet arrival, not from the old
+        // packet's original timestamp. Otherwise jitter rewinds hand motion at every receipt.
+        TownActivityState visible = peer.HasSample ? Display(peer, Mathf.Max(0f, Time.unscaledTime - peer.Received)) : state;
         peer.Span = peer.HasSample ? Mathf.Clamp(state.Clock - peer.Latest.Clock, 1f / 90f, .15f) : 0f;
         peer.Previous = visible;
         peer.Latest = state; peer.Received = Time.unscaledTime; peer.HasSample = true; peer.HasHistory = true;
     }
-    internal static bool Sample(int author, out TownFaceState state, out float elapsed)
+    internal static bool Sample(int author, out TownActivityState state, out float elapsed)
     {
         state = default; elapsed = 0f;
         if (!Peers.TryGetValue(author, out Peer? peer) || !peer.HasSample) return false;
         elapsed = Mathf.Max(0f, Time.unscaledTime - peer.Received);
         if (elapsed > NetProtocol.StaleTimeoutSeconds) return false;
-        state = peer.Latest;
-        float t = peer.Span <= 0f ? 1f : Mathf.Clamp01(elapsed / peer.Span);
-        for (int n = 0; n < 3; n++) state.Set(n, TownServiceFaceMotion.Interpolate(peer.Previous.At(n), state.At(n), t));
-        // Expressions have their own continuous clock. Interpolation must never freeze a blink
-        // or turn a short utterance into stale, indefinitely held mouth geometry after loss.
-        state.Clock += elapsed;
+        state = Display(peer, elapsed);
         return true;
     }
-    internal static bool TrySeed(out TownFaceState state, out int author, out float elapsed)
+    private static TownActivityState Display(Peer peer, float elapsed)
+    {
+        TownActivityState state = peer.Latest;
+        float t = peer.Span <= 0f ? 1f : Mathf.Clamp01(elapsed / peer.Span);
+        for (int n = 0; n < 3; n++)
+        {
+            TownActivityPose target = TownServiceActivityMotion.Advance(state.At(n), Mathf.Max(0f, elapsed - peer.Span));
+            if (t < 1f)
+            {
+                TownActivityPose previous = peer.Previous.At(n);
+                target.WorkClock = Mathf.Lerp(previous.WorkClock, target.WorkClock, t);
+                target.FromBlend = Mathf.Lerp(TownServiceActivityMotion.Blend(in previous), TownServiceActivityMotion.Blend(in target), t);
+                target.TransitionAge = 0f;
+            }
+            state.Set(n, target);
+        }
+        state.Clock += elapsed;
+        return state;
+    }
+    internal static bool TrySeed(out TownActivityState state, out int author, out float elapsed)
     {
         int selected = 0; float latest = float.NegativeInfinity;
         foreach (var pair in Peers)

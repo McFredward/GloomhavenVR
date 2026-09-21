@@ -15,6 +15,8 @@ internal static class TownServicePopulation
         internal TownServiceStation Station = null!;
         internal float Visibility, Age;
         internal byte Clip;
+        internal TownActivityPose Activity = new TownActivityPose { TransitionAge = TownServiceActivityMotion.TransitionSeconds };
+        internal bool ObservedActivity;
         internal TownServiceVisitTarget Visit = null!;
     }
     private static readonly Dictionary<byte, Resident> Residents = new();
@@ -22,6 +24,7 @@ internal static class TownServicePopulation
     internal static Transform? Frame => _frame != null ? _frame.transform : null;
     internal static TownResidentsState Published { get; private set; }
     internal static TownFaceState PublishedFaces { get; private set; }
+    internal static TownActivityState PublishedActivities { get; private set; }
     internal static bool IsFaceAuthor { get; private set; }
     private static uint _faceSequence, _faceEpoch;
     private static float _faceClock, _lastRemoteFaceTime = float.NegativeInfinity;
@@ -80,6 +83,8 @@ internal static class TownServicePopulation
         TownFaceState remoteFace = default;
         float faceElapsed = 0f;
         bool hasFace = follows && RemoteTownFaces.Sample(faceAuthor, out remoteFace, out faceElapsed);
+        TownActivityState remoteActivity = default;
+        bool hasActivity = follows && RemoteTownActivities.Sample(faceAuthor, out remoteActivity, out _);
         bool wasFaceAuthor = IsFaceAuthor;
         IsFaceAuthor = !follows && enabled;
         if (IsFaceAuthor && !wasFaceAuthor)
@@ -99,6 +104,9 @@ internal static class TownServicePopulation
             _faceClock = seed.Clock;
         var faces = new TownFaceState { Active = enabled, Epoch = _faceEpoch,
             Sequence = unchecked(++_faceSequence), Clock = _faceClock };
+        var activities = new TownActivityState { Active = enabled, Epoch = _faceEpoch, Sequence = _faceSequence, Clock = _faceClock };
+        TownActivityState activitySeed = default;
+        bool seedActivity = IsFaceAuthor && !wasFaceAuthor && RemoteTownActivities.TrySeed(out activitySeed, out _, out _);
         var published = new TownResidentsState { Active = enabled };
         bool retry = now >= _retryAt;
         bool missing = false;
@@ -138,12 +146,29 @@ internal static class TownServicePopulation
             {
                 resident.Visibility = Mathf.MoveTowards(resident.Visibility, used && ready ? 1f : 0f,
                     Time.unscaledDeltaTime / (used ? .22f : .18f));
-                resident.Clip = visiting && visitAge < greeting ? (byte)1 : (byte)0;
-                resident.Age = resident.Clip == 1 ? visitAge : visiting
-                    ? Mathf.Max(0f, visitAge - greeting) : Mathf.Max(0f, now - _started);
+                // Occupations replace the discrete greeting restart with a continuous body
+                // sample. Hand settling and attention transitions own the visible welcome.
+                resident.Clip = 0;
+                resident.Age += Mathf.Max(0f, Time.unscaledDeltaTime);
             }
             resident.Station.SetVisibility(resident.Visibility);
             resident.Station.Sample(resident.Clip == 1 ? "Greeting" : "Idle", resident.Age);
+            if (hasActivity)
+            { resident.Activity = remoteActivity.At(service - 1); resident.ObservedActivity = true; }
+            else
+            {
+                if (seedActivity && !resident.ObservedActivity) resident.Activity = activitySeed.At(service - 1);
+                if (IsFaceAuthor)
+                {
+                    bool engaged = resident.Station.PrepareActivityAttention(resident.Activity.Engaged);
+                    TownServiceActivityMotion.Engage(ref resident.Activity, engaged);
+                }
+                // A follower never decides which player deserves attention, including when
+                // packets temporarily stop. Its last analytic transition simply completes.
+                resident.Activity = TownServiceActivityMotion.Advance(resident.Activity, Time.unscaledDeltaTime);
+            }
+            resident.Station.SampleActivity(in resident.Activity);
+            activities.Set(service - 1, resident.Activity);
             TownFacePose remotePose = remoteFace.At(service - 1);
             if (seedAuthority) resident.Station.SeedFace(seed.At(service - 1), seedAuthor, seedElapsed);
             faces.Set(service - 1, resident.Station.SampleFace(IsFaceAuthor, hasFace, faceAuthor, in remotePose, faceElapsed, _faceClock));
@@ -162,17 +187,17 @@ internal static class TownServicePopulation
         if (missing && retry) _retryAt = now + 2f;
         Published = published;
         faces.Active = published.Active;
-        PublishedFaces = faces;
+        PublishedFaces = faces; activities.Active = published.Active; PublishedActivities = activities;
         TownServiceVisitTarget.TickLaser();
     }
 
     internal static void Reset()
     {
-        Published = default; PublishedFaces = default; IsFaceAuthor = false;
+        Published = default; PublishedFaces = default; PublishedActivities = default; IsFaceAuthor = false;
         _faceClock = 0f; _lastRemoteFaceTime = float.NegativeInfinity;
         if (_frame == null && Residents.Count == 0) return;
         TownServiceFaceSpeech.ResetObserver?.Invoke();
-        RemoteTownFaces.Reset();
+        RemoteTownFaces.Reset(); RemoteTownActivities.Reset();
         TownServiceSync.Shutdown();
         foreach (Resident resident in Residents.Values)
         { resident.Visit.Dispose(); resident.Station.Dispose(); }

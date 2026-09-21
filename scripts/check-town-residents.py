@@ -19,6 +19,7 @@ def main():
     parser.add_argument("--source-root", type=Path, default=ROOT)
     args = parser.parse_args()
     sources = {name: (args.source_root / source).read_text() for name, source in FILES.items()}
+    sources["ActivityTypes.cs"] = (args.source_root / "src/GloomhavenVR/Net/TownActivityState.cs").read_text().split("/// <summary>Additive81:")[0]
     protocol = (args.source_root / "src/GloomhavenVR/Net/NetProtocol.cs").read_text()
     if "public const float StaleTimeoutSeconds = 3f;" not in protocol:
         raise SystemExit("Production stale timeout changed; update the explicit fixture boundary")

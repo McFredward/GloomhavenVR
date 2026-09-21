@@ -122,6 +122,29 @@
       "weight": 15
     },
     {
+      "id": "town-activity",
+      "command": [
+        "python3",
+        "scripts/check-town-activity.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 80
+    },
+    {
+      "id": "town-activity-portable",
+      "command": [
+        "python3",
+        "scripts/check-town-activity.py",
+        "--portable"
+      ],
+      "groups": [
+        "ci"
+      ],
+      "weight": 15
+    },
+    {
       "id": "town-face",
       "command": [
         "python3",

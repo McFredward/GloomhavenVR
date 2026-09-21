@@ -13,10 +13,11 @@ internal sealed class TownServiceFaceAttention
     private readonly List<int> _peers = new(8);
     private int _target = int.MinValue;
     private float _nextChoice;
+    internal bool Visitor { get; private set; }
     private static bool Visiting(int player, byte service, int local)
     {
         if (player == local) return TownServicePresentation.Active && TownServicePresentation.Service == service;
-        return TownServiceMirror.RemoteSessions.TryGetValue(player, out TownServiceSessionInfo info)
+        return TownServiceMirror.RemoteSessions.TryGetValue(player, out TownServiceSessionInfo? info)
             && info.Active && info.Service == service && Time.unscaledTime - info.ReceivedTime <= NetProtocol.StaleTimeoutSeconds;
     }
     private static bool Head(int player, int local, out Vector3 point)
@@ -42,10 +43,12 @@ internal sealed class TownServiceFaceAttention
     {
         int local = NetPlayerActors.LocalPlayerId();
         bool valid = _target != int.MinValue && Head(_target, local, out Vector3 current) && Visible(root, optical, eye, current);
-        if (valid && Time.unscaledTime < _nextChoice && Head(_target, local, out current)) return current;
+        if (valid && Time.unscaledTime < _nextChoice && Head(_target, local, out current))
+        { Visitor = Visiting(_target, service, local); return current; }
         if (!valid)
         {
             if (_target != int.MinValue) { _target = int.MinValue; _nextChoice = Time.unscaledTime; }
+            Visitor = false;
             if (Time.unscaledTime < _nextChoice) return null;
         }
         _peers.Clear(); NetAvatarDriver.CollectTownFacePeers(_peers); _peers.Add(local);
@@ -62,6 +65,7 @@ internal sealed class TownServiceFaceAttention
             { best = candidate; score = next; chosen = point; }
         }
         _target = best;
+        Visitor = best != int.MinValue && Visiting(best, service, local);
         _nextChoice = Time.unscaledTime + (best == int.MinValue ? .2f : 1.2f);
         return best == int.MinValue ? null : chosen;
     }

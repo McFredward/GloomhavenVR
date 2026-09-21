@@ -83,6 +83,8 @@ namespace GloomhavenVR.WorldUI
         }
         internal void RefreshEnvironment(bool author) { LastAuthor=author; if(author)Root.position=new Vector3(Root.position.x,Floor,Root.position.z); }
         internal void SetVisibility(float value)=>Visibility=value;
+        internal bool PrepareActivityAttention(bool previous)=>false;
+        internal void SampleActivity(in GloomhavenVR.Net.TownActivityPose pose) { }
         internal int FaceSeeds;internal bool FaceAuthor,FaceReceived;internal GloomhavenVR.Net.TownFacePose FacePose;
         internal void SeedFace(GloomhavenVR.Net.TownFacePose pose,int author,float elapsed){FaceSeeds++;FacePose=pose;}
         internal GloomhavenVR.Net.TownFacePose SampleFace(bool author,bool received,int authorId,in GloomhavenVR.Net.TownFacePose remote,float elapsed,float clock){FaceAuthor=author;FaceReceived=received;if(received)FacePose=remote;return FacePose;}
@@ -115,7 +117,7 @@ namespace GloomhavenVR.Net
     internal static class NetPlayerActors { internal static int Local=10; internal static int LocalPlayerId()=>Local; }
     internal static class NetProtocol { internal const float StaleTimeoutSeconds=3; internal const byte ExtIdTownResidents=79; }
     internal struct RigPose { internal Vector3 Position; internal Quaternion Rotation; }
-    internal struct PresenceState { internal bool HasTownFace;internal TownFaceState TownFace; internal bool HasTownResidents; internal TownResidentsState TownResidents; }
+    internal struct PresenceState { internal bool TownActivityRecordSeen; internal bool HasTownActivity;internal TownActivityState TownActivity;internal bool HasTownFace;internal TownFaceState TownFace; internal bool HasTownResidents; internal TownResidentsState TownResidents; }
     // Serialization is independently covered by golden wire tests. Any accidental use here fails.
     internal static class AvatarSerializer
     {
@@ -142,3 +144,28 @@ namespace GloomhavenVR.Net
         internal static void Reset()=>States.Clear();
     }
 }
+
+// The analytic phase and real IK have their own Unity production fixture. This boundary
+// isolates resident lifetime/authority routing from cosmetic pose details.
+namespace GloomhavenVR.WorldUI
+{
+    internal static class TownServiceActivityMotion
+    {
+        internal const float TransitionSeconds=.65f;
+        internal static void Engage(ref GloomhavenVR.Net.TownActivityPose p,bool target){p.Engaged=target;p.FromBlend=0;}
+        internal static GloomhavenVR.Net.TownActivityPose Advance(GloomhavenVR.Net.TownActivityPose p,float dt){p.WorkClock+=dt;return p;}
+    }
+}
+namespace GloomhavenVR.Net
+{
+    internal static class RemoteTownActivities
+    {
+        internal static bool KnownPair(int peer)=>false;
+        internal static bool Sample(int peer,out TownActivityState state,out float elapsed){state=default;elapsed=0;return false;}
+        internal static bool TrySeed(out TownActivityState state,out int author,out float elapsed){state=default;author=0;elapsed=0;return false;}
+        internal static void ObservePresence(int peer,in TownActivityState state){}
+        internal static void Forget(int peer){} internal static void Reset(){}
+    }
+}
+
+namespace GloomhavenVR.Net { internal static class RemoteTownPerformance { internal static bool Observe(int peer,in TownActivityState a,in TownFaceState f,bool presence){RemoteTownFaces.ObservePresence(peer,in f);return true;} } }

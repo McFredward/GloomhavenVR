@@ -95,6 +95,7 @@ namespace GloomhavenVR.WorldUI
         internal void Tick()=>Ticks++;
         internal void SetVisibility(float value){}
         internal void SetClock(float seconds){}
+        internal void SampleActivity(in GloomhavenVR.Net.TownActivityPose pose){}
         public void Dispose()=>Disposed=true;
     }
 }
@@ -134,13 +135,14 @@ namespace UnityEngine
     public class Shader {public static int PropertyToID(string name)=>name.GetHashCode();}
 }
 
-namespace GloomhavenVR.Net { internal struct TownFacePose { } }
+namespace GloomhavenVR.Net { internal struct TownFacePose { } internal struct TownActivityPose { } }
 namespace GloomhavenVR.WorldUI
 {
     internal sealed class TownServiceFace
     {
         internal static bool Throw;internal static int Ticks;
         internal TownServiceFace(UnityEngine.Transform root,byte service) { }
+        internal bool PrepareActivityAttention(bool previous)=>false;
         internal void BeforeBodySample() { }
         internal void Seed(in GloomhavenVR.Net.TownFacePose pose,int author,float elapsed){}
         internal GloomhavenVR.Net.TownFacePose Tick(bool author,bool received,int authorId,in GloomhavenVR.Net.TownFacePose remote,float elapsed,float clock){Ticks++;if(Throw)throw new InvalidOperationException("fixture facial failure");return remote;}
@@ -148,3 +150,12 @@ namespace GloomhavenVR.WorldUI
 }
 
 namespace GloomhavenVR.Core {internal static class VRLog {internal static void Warn(string scope,string message){} }}
+
+namespace GloomhavenVR.WorldUI
+{
+    internal sealed class TownServiceActivityRig
+    {
+        internal TownServiceActivityRig(UnityEngine.Transform root,byte service){}
+        internal void BeforeBodySample(){} internal void Apply(in GloomhavenVR.Net.TownActivityPose pose){}
+    }
+}

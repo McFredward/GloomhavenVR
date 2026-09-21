@@ -67,6 +67,7 @@
     <Compile Include="$(RepoRoot)src\GloomhavenVR\Net\VideoWindowState.cs" Link="wire\VideoWindowState.cs" />
     <Compile Include="$(RepoRoot)src\GloomhavenVR\Net\RewardPoseHandshake.cs" Link="wire\RewardPoseHandshake.cs" />
     <Compile Include="$(RepoRoot)src\GloomhavenVR\Net\TownResidentsState.cs" Link="wire\TownResidentsState.cs" />
+    <Compile Include="$(RepoRoot)src\GloomhavenVR\Net\TownActivityState.cs" Link="wire\TownActivityState.cs" />
     <Compile Include="$(RepoRoot)src\GloomhavenVR\Net\TownFaceState.cs" Link="wire\TownFaceState.cs" />
     <Compile Include="$(RepoRoot)src\GloomhavenVR\Net\RewardWindowState.cs" Link="wire\RewardWindowState.cs" />
     <Compile Include="$(RepoRoot)src\GloomhavenVR\Net\RewardPoseHandoff.cs" Link="wire\RewardPoseHandoff.cs" />
@@ -271,6 +272,7 @@
     <Compile Include="TownServiceTransportVectors.cs" />
     <Compile Include="TownResidentsVectors.cs" />
     <Compile Include="TownFaceVectors.cs" />
+    <Compile Include="TownActivityVectors.cs" />
     <Compile Include="$(RepoRoot)src/GloomhavenVR/Net/TownServices/TownServiceFrame.cs" />
     <Compile Include="$(RepoRoot)src/GloomhavenVR/Net/TownServices/TownServiceCodec.cs" />
     <Compile Include="$(RepoRoot)src/GloomhavenVR/Net/TownServices/TownServiceDelta.cs" />
