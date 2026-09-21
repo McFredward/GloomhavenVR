@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Compile production catalog paging, physical layout and teardown cases and run them inside Unity 2021.3.5.
+"""Compile complete physical merchant catalog, drawer, native transaction and teardown cases and run them inside Unity 2021.3.5.
 
 No game launch, network service, source mutation or generated tracked files.
 Explicit fixture boundaries are documented in town-service-catalog-runtime/Boundaries.cs.
@@ -28,32 +28,23 @@ def replace_once(source, before, after):
 
 def sources(root):
     base = root / "src/GloomhavenVR/WorldUI/TownServices"
-    names = ["TownServiceCatalog.cs", "TownServiceCatalogPointer.cs", "TownServiceCatalogPreview.cs", "TownServiceWindowMask.cs", "TownServiceSurface.cs"]
+    names = ["TownServiceCatalog.cs", "TownServiceMerchantRows.cs", "TownServiceMerchantTransaction.cs", "TownServiceMerchantDrawer.cs", "TownServiceMerchantZone.cs", "TownServiceCatalogPreview.cs", "TownServiceWindowMask.cs"]
     bound = {name: (base / name).read_text() for name in names}
     return bound, {name: hashlib.sha256(text.encode()).hexdigest() for name, text in bound.items()}
 
 
 def mutations():
     return [
-        ("held-relocation", "TownServiceCatalog.cs", "if (sample.IsMoving) return false", "if (false) return false", "held or returning original defers rack relocation"),
-        ("relocation-card-input", "TownServiceCatalog.cs", "_opening.interactable = _opening.blocksRaycasts = _allowInput;", "_opening.interactable = _opening.blocksRaycasts = true;", "relocation immediately blocks grabs before alpha has changed"),
-        ("relocation-control-input", "TownServiceSurface.cs", "_gate.interactable = interactable && _allowInput; _gate.blocksRaycasts = raycasts && _allowInput;", "_gate.interactable = interactable; _gate.blocksRaycasts = raycasts;", "relocating native controls use presentation-only input gate"),
-        ("desktop-owned", "TownServiceCatalog.cs", "if (inventory._ownedFilter != null)", "if (true)", "desktop merchant opens without a gamepad Owned filter"),
-        ("hover-rebind", "TownServiceCatalog.cs", " || (enter && (!Current || !_owner._allowInput))", " || !Current", "row rebind retires previous native hover"),
-        ("hint-duplicate", "TownServiceCatalogPreview.cs", "_hintMask = new TownServiceWindowMask(rect);", "// mutation leaves duplicate native tooltip visible", "native shared hint is masked while its copy is visible"),
-        ("preview-mask", "TownServiceCatalogPreview.cs", "_mount.transform.SetParent(parent, false)", "_mount.transform.SetParent(source.transform.parent, false)", "detail clone escapes hidden native viewport"),
-        ("preview-leave", "TownServiceCatalogPreview.cs", "_source.IsShown &&", "true &&", "native hover exit hides copied details"),
-        ("preview-context", "TownServiceCatalog.cs", "&& _inventory.itemTooltip.m_ItemCardUI.item.ID == entry.Item.ID", "&& true", "rebound tooltip item cannot appear under new row identity"),
-        ("hint-pointer", "TownServiceCatalogPreview.cs", "{ pointerEnter = target.gameObject }", "", "native exact-target tooltip needs pointerEnter"),
-        ("hint-enter", "TownServiceCatalogPreview.cs", "target.OnPointerEnter(new PointerEventData(EventSystem.current) { pointerEnter = target.gameObject });", "// mutant omits native inspect", "native rules target entered exactly once"),
-        ("hint-owner", "TownServiceCatalogPreview.cs", "tooltip.m_AnchorToTarget == _hintTarget.transform && EventSystem.current != null", "EventSystem.current != null", "ending inspect never hides another native tooltip"),
-        ("pool-input", "TownServiceCatalog.cs", "target.Key.raycastTarget = target.Value", "target.Key.raycastTarget = false", "pooled native input flags restored before recycle"),
-        ("surface-fade", "TownServiceSurface.cs", "_gate.alpha = alpha * _visibility", "_gate.alpha = alpha", "counter visibility multiplies original native fade"),
-        ("scroll-repeat", "TownServiceCatalog.cs", "if (Time.unscaledTime < _nextScrollPage) return;", "if (Time.unscaledTime < -1f) return;", "page rebuild preserves scroll repeat throttle"),
-        ("page", "TownServiceCatalog.cs", "SetPage(_page + direction, true)", "SetPage(_page, true)", "physical next page advances entries"),
-        ("restore", "TownServiceCatalog.cs", "_scroll.viewport.SetParent(_listHome, false);", "// mutation leaves original viewport in hidden wrapper", "off removes viewport suppression immediately"),
-        ("identity", "TownServiceCatalog.cs", "&& ReferenceEquals(Item, RowSource.Item)", "&& true", "rebound row immediately fences stale sample"),
-        ("rotation", "TownServiceCatalog.cs", "_display.localRotation = Quaternion.Euler(65f, 0f, 0f)", "_display.localRotation = Quaternion.Euler(90f, 0f, 0f)", "physical card is raised toward the customer"),
+        ("cap", "TownServiceCatalog.cs", "foreach(var row in _backend.Rows)", "foreach(var row in _backend.Rows.GetRange(0, Math.Min(6,_backend.Rows.Count)))", "all 164 stock and 164 owned entries persist without pagination"),
+        ("held-relocation", "TownServiceCatalog.cs", "if (sample.IsMoving) return false", "if (sample.IsMoving && _disposed) return false", "held or returning sample prevents station relocation"),
+        ("drawer-relocation", "TownServiceCatalog.cs", "if(drawer.Moving)return false", "if(drawer.Moving && _disposed)return false", "moving drawer prevents workspace relocation"),
+        ("closed-pick", "TownServiceCatalog.cs", "inspect: () => drawer.Accessible", "inspect: () => true", "closed opaque drawers prevent picking through cabinet"),
+        ("partial-pull", "TownServiceMerchantDrawer.cs", "Travel = .78f", "Travel = .48f", "full pull clears native countertop back rows"),
+        ("close-held", "TownServiceMerchantDrawer.cs", "if(_hand==null&&_mayClose())_target=0f", "if(_hand==null)_target=0f", "drawer cannot close on held card"),
+        ("context-race", "TownServiceMerchantTransaction.cs", "if (!stillCurrent() || !Eligible(inventory, item, selling)\n            || !confirmation.IsActive", "if (!Eligible(inventory, item, selling)\n            || !confirmation.IsActive", "context race never confirms native callback"),
+        ("confirmation-owner", "TownServiceMerchantTransaction.cs", "if (confirmation == null || confirmation.IsActive) return false;", "if (confirmation == null) return false;", "unrelated pending confirmation retained"),
+        ("sell-identity", "TownServiceMerchantTransaction.cs", "return inventory.service.GetItemsToSell(inventory.character).Contains(item)", "return true", "stale owned item is ineligible"),
+        ("restore", "TownServiceCatalog.cs", "_inventory.transform.SetParent(_nativeHome,false);", "_inventory.transform.SetParent(_nativeWrapper.transform,false);", "opt out restores hidden native inventory hierarchy"),
     ]
 
 

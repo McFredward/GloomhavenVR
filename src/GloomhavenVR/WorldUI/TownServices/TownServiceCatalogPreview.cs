@@ -43,12 +43,18 @@ internal sealed class TownServiceCatalogPreview : IDisposable
         _mount.transform.SetParent(parent, false);
         _mount.transform.localPosition = new Vector3(-.59f, .009f, .05f);
         _mount.transform.localRotation = Quaternion.Euler(90f, 0f, 0f);
-        _mirror = new RemoteWidgetMirror("CatalogItemDetails", _mount.transform, .26f, .36f, Vector2.zero);
+        _mirror = new RemoteWidgetMirror("CatalogItemDetails", _mount.transform, .26f, .36f, Vector2.zero, mrBacking: false);
         _hintMount = new GameObject("GloomhavenVR.Catalog.ItemRules");
         _hintMount.transform.SetParent(parent, false);
         _hintMount.transform.localPosition = new Vector3(.60f, .009f, .28f);
         _hintMount.transform.localRotation = Quaternion.Euler(90f, 0f, 0f);
-        _hintMirror = new RemoteWidgetMirror("CatalogItemRules", _hintMount.transform, .26f, .22f, Vector2.zero);
+        _hintMirror = new RemoteWidgetMirror("CatalogItemRules", _hintMount.transform, .26f, .22f, Vector2.zero, mrBacking: false);
+    }
+
+    internal void AttachTo(Transform physical)
+    {
+        _mount.transform.SetParent(physical,false);_mount.transform.localPosition=new Vector3(.23f,0f,0f);_mount.transform.localRotation=Quaternion.identity;
+        _hintMount.transform.SetParent(physical,false);_hintMount.transform.localPosition=new Vector3(.23f,-.28f,0f);_hintMount.transform.localRotation=Quaternion.identity;
     }
 
     internal void Tick()

@@ -23,8 +23,10 @@ internal sealed class TownServiceToken : IGrabbable, ITriggerOnlyGrabbable, IGra
     private readonly Func<object?> _contextIdentity;
     private readonly Transform _mat;
     private readonly Transform? _physical;
-    private readonly Func<bool>? _drop, _eligible;
+    private readonly Func<bool>? _drop, _eligible, _inspect;
     private readonly Vector3 _zoneCenter;
+    private static ulong _nextPickup;
+    internal ulong PickupSequence { get; private set; }
     internal bool IsHeld => _hand != null;
     internal bool DropEligible => _hand != null && (_eligible?.Invoke() ?? false);
     internal Collider PickCollider => _shape;
@@ -61,16 +63,16 @@ internal sealed class TownServiceToken : IGrabbable, ITriggerOnlyGrabbable, IGra
     public bool AllowsHand(VRHand hand) => !_disposed && _sessionAlive()
         && (!ReferenceEquals(hand.Grabber.Held, this) || _hand == hand);
     public bool CanGrab => !_disposed && _hand == null && !_returning && _sessionAlive()
-        && _source != null && _source.gameObject.activeInHierarchy
+        && (_inspect?.Invoke() ?? true) && _source != null && _source.gameObject.activeInHierarchy
         && (IsPhysical || (_button != null && _button.IsActive() && _button.IsInteractable())) && _shape.enabled;
 
     internal TownServiceToken(RectTransform source, Selectable button, Func<object?> identity,
         Func<object?> contextIdentity, Func<bool> sessionAlive, Transform mat, Transform? physical = null,
-        Func<bool>? drop = null, Func<bool>? eligible = null, Vector3 zoneCenter = default)
+        Func<bool>? drop = null, Func<bool>? eligible = null, Vector3 zoneCenter = default, Func<bool>? inspect = null)
     {
         _source = source; _button = button; _identity = identity; _contextIdentity = contextIdentity;
         _sessionAlive = sessionAlive; _mat = mat; _physical = physical;
-        _drop = drop; _eligible = eligible; _zoneCenter = zoneCenter;
+        _drop = drop; _eligible = eligible; _zoneCenter = zoneCenter; _inspect = inspect;
         _pick = new GameObject("GloomhavenVR.TownService.SampleReach");
         _shape = _pick.AddComponent<BoxCollider>();
         _shape.isTrigger = true;
@@ -152,7 +154,7 @@ internal sealed class TownServiceToken : IGrabbable, ITriggerOnlyGrabbable, IGra
         _pickedIdentity = _identity();
         _pickedContext = _contextIdentity();
         if (_pickedIdentity == null) return;
-        _hand = hand; _heldTracked = false;
+        _hand = hand; PickupSequence=++_nextPickup; _heldTracked = false; TownServicePhysicalRay.Claim(hand);
         float side = Board.FigureGrab.HeldPoseMirror.OffsetSign(hand.Side == HandSide.Left);
         Vector3 pinch = new Vector3(0f, CardsConfig.HeldOffPalm.Value, CardsConfig.HeldForward.Value);
         FingerJoints thumb = hand.Rig.GetFinger(Finger.Thumb), index = hand.Rig.GetFinger(Finger.Index);
@@ -184,6 +186,7 @@ internal sealed class TownServiceToken : IGrabbable, ITriggerOnlyGrabbable, IGra
     public void OnRelease(VRHand hand, Vector3 velocity)
     {
         if (_hand != hand) return;
+        TownServicePhysicalRay.Claim(hand);
         if (_physical != null)
         {
             // A deliberate trigger release in the matching zone is the sole transaction

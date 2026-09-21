@@ -50,12 +50,22 @@ internal sealed class TownServiceMerchantRows : IDisposable
             changed = Rows[i].Selling || !ReferenceEquals(Rows[i].Item, groups[i].First());
         for (int i = 0; !changed && i < owned.Count; i++)
             changed = !Rows[groups.Count + i].Selling || !ReferenceEquals(Rows[groups.Count + i].Item, owned[i]);
-        if (changed)
+        var previous = new List<Row>(Rows);
+        var next = new List<Row>();
+        foreach(var group in groups)
         {
-            Clear();
-            foreach (var group in groups) Rows.Add(Create(false));
-            foreach (CItem item in owned) Rows.Add(Create(true));
+            Row? row=previous.Find(candidate=>!candidate.Selling&&candidate.Item.ID==group.Key);
+            if(row==null)row=Create(false);else previous.Remove(row);
+            next.Add(row);
         }
+        foreach(CItem item in owned)
+        {
+            Row? row=previous.Find(candidate=>candidate.Selling&&ReferenceEquals(candidate.Item,item));
+            if(row==null)row=Create(true);else previous.Remove(row);
+            next.Add(row);
+        }
+        Rows.Clear();Rows.AddRange(next);
+        foreach(Row retired in previous){retired.Source.gameObject.SetActive(false);UnityEngine.Object.Destroy(retired.Source.gameObject);}
         int index = 0;
         foreach (var group in groups)
         {

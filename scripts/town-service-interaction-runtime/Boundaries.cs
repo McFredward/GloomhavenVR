@@ -151,6 +151,7 @@ namespace GloomhavenVR.WorldUI.MapRoom
 }
 namespace GloomhavenVR.WorldUI
 {
+    internal static class TownServicePhysicalRay { internal static void Claim(GloomhavenVR.Hands.VRHand hand) { } }
     internal sealed class ConfigBool { internal bool Value = true; }
     internal static class WorldUIConfig
     { internal static ConfigBool ImmersiveTownServices = new(); }

@@ -8,7 +8,31 @@ namespace GloomhavenVR.WorldUI;
 /// this query before dispatch so a window behind a card cannot consume the same trigger.</summary>
 internal static class TownServicePhysicalRay
 {
-    internal static bool TryPick(VRHand hand, out TownServiceToken? target, out Vector3 point, out float distance)
+    private static VRHand? _leftStamp, _rightStamp;
+    private static int _leftFrame=-10, _rightFrame=-10;
+    internal static void Claim(VRHand hand)
+    {
+        hand.Ray.SuppressFarClick();
+        if(hand.Side==HandSide.Left){_leftStamp=hand;_leftFrame=Time.frameCount;}
+        else{_rightStamp=hand;_rightFrame=Time.frameCount;}
+    }
+    internal static bool OwnsPointerFrame(VRHand hand)=>
+        hand.Grabber.Held is TownServiceToken or TownServiceMerchantDrawer
+        ||(hand==_leftStamp&&_leftFrame==Time.frameCount)||(hand==_rightStamp&&_rightFrame==Time.frameCount);
+    internal static float OccludingDistance(Vector3 origin,Vector3 direction,float maxDistance)
+    {
+        float nearest=float.PositiveInfinity;var ray=new Ray(origin,direction);
+        var entries=VRInteractables.Grabbables;
+        for(int i=0;i<entries.Count;i++)
+        {
+            IGrabbable candidate=entries[i].Target;
+            if(!(candidate is TownServiceToken token&&token.IsPhysical)&&candidate is not TownServiceMerchantDrawer)continue;
+            if(!candidate.CanGrab||!VRInteractables.IsUsablePickShape(entries[i].Collider))continue;
+            if(entries[i].Collider.Raycast(ray,out RaycastHit hit,maxDistance)&&hit.distance<nearest)nearest=hit.distance;
+        }
+        return nearest;
+    }
+    internal static bool TryPick(VRHand hand, out IGrabbable? target, out Vector3 point, out float distance)
     {
         target = null; point = default; distance = float.PositiveInfinity;
         if (!hand.Ray.Active || VRHands.Primary != hand || !hand.Grabber.Enabled || hand.Grabber.Held != null) return false;
@@ -18,10 +42,12 @@ internal static class TownServicePhysicalRay
         var entries = VRInteractables.Grabbables;
         for (int i = 0; i < entries.Count; i++)
         {
-            if (entries[i].Target is not TownServiceToken token || !token.IsPhysical || !token.CanGrab
-                || !token.AllowsHand(hand) || !VRInteractables.IsUsablePickShape(entries[i].Collider)) continue;
+            IGrabbable candidate=entries[i].Target;
+            if (!(candidate is TownServiceToken token && token.IsPhysical) && candidate is not TownServiceMerchantDrawer) continue;
+            if (!candidate.CanGrab || (candidate is IGrabbableHandFilter filter && !filter.AllowsHand(hand))
+                || !VRInteractables.IsUsablePickShape(entries[i].Collider)) continue;
             if (entries[i].Collider.Raycast(ray, out RaycastHit hit, limit) && hit.distance < distance)
-            { target = token; point = hit.point; distance = hit.distance; }
+            { target = candidate; point = hit.point; distance = hit.distance; }
         }
         if (target == null) return false;
         float epsilon = .005f * hand.WorldScale;
@@ -33,10 +59,14 @@ internal static class TownServicePhysicalRay
     }
     internal static void Tick(VRHand hand)
     {
-        if (!TryPick(hand, out TownServiceToken? target, out Vector3 point, out float distance)
+        if(OwnsPointerFrame(hand)){Claim(hand);return;}
+        if (!TryPick(hand, out IGrabbable? target, out Vector3 point, out float distance)
             || hand.RayUgui.IsPressing || (hand.RayUgui.HasHit && hand.RayUgui.HitDistance < distance)) return;
         hand.Ray.SetPanelUiHit(point, "a physical town service sample");
         if (hand.TriggerDown && !hand.Grabber.TriggerGrabOffered)
-            hand.Grabber.ForceGrab(target!, releaseOnTriggerUp: true);
+        {
+            if(target is TownServiceMerchantDrawer drawer)drawer.BeginLaser();
+            if(hand.Grabber.ForceGrab(target!, releaseOnTriggerUp: true))Claim(hand);
+        }
     }
 }

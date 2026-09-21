@@ -27,6 +27,10 @@ internal sealed class TownServiceCatalog : IDisposable
     private readonly TownServiceMerchantRows _backend;
     private readonly List<Entry> _entries = new();
     private readonly List<TownServiceToken> _samples = new();
+    private readonly List<TownServiceMerchantDrawer> _drawers = new();
+    private readonly List<TownServiceMerchantZone> _zones = new();
+    internal IReadOnlyList<TownServiceMerchantDrawer> Drawers => _drawers;
+    internal IReadOnlyList<TownServiceMerchantZone> Zones => _zones;
     private readonly List<Control> _controls = new();
     private readonly CanvasGroup _nativeGate;
     private readonly GameObject _nativeWrapper;
@@ -35,20 +39,22 @@ internal sealed class TownServiceCatalog : IDisposable
     private float _nextCensus;
     private bool _disposed, _allowInput;
     private object? _context;
+    private TownServiceCatalogPreview? _preview;
+    private Entry? _inspected;
     internal IReadOnlyList<Entry> Entries => _entries;
     internal IReadOnlyList<TownServiceToken> Samples => _samples;
     internal IReadOnlyList<Control> Controls => _controls;
     internal Transform Root => _root.transform;
     // Legacy transport call sites are retained until the integration switches to zone roots.
     internal Transform NavigationRoot => Root;
-    internal Transform? PreviewSource => null;
-    internal Transform? PreviewContent => null;
-    internal Transform? PreviewCloneOf(Transform source) => null;
-    internal bool OwnsHintSource => false;
-    internal Transform? HintSource => null;
-    internal Transform? HintContent => null;
-    internal Transform? HintCloneOf(Transform source) => null;
-    internal bool CanRelocate { get { foreach (var sample in _samples) if (sample.IsMoving) return false; return true; } }
+    internal Transform? PreviewSource => _preview?.Source;
+    internal Transform? PreviewContent => _preview?.Content;
+    internal Transform? PreviewCloneOf(Transform source) => _preview?.CloneOf(source);
+    internal bool OwnsHintSource => _preview?.OwnsHintSource == true;
+    internal Transform? HintSource => _preview?.HintSource;
+    internal Transform? HintContent => _preview?.HintContent;
+    internal Transform? HintCloneOf(Transform source) => _preview?.HintCloneOf(source);
+    internal bool CanRelocate { get { foreach (var sample in _samples) if (sample.IsMoving) return false; foreach(var drawer in _drawers)if(drawer.Moving)return false; return true; } }
     internal readonly struct Control
     {
         internal readonly string Key;
@@ -68,6 +74,10 @@ internal sealed class TownServiceCatalog : IDisposable
         _root=new GameObject("GloomhavenVR.TownService.Catalog");Root.SetParent(anchor,false);
         _opening=_root.AddComponent<CanvasGroup>();_opening.alpha=0f;
         _backend=new TownServiceMerchantRows(inventory);
+        TMP_Text? font=inventory.GetComponentInChildren<TMP_Text>(true);
+        _zones.Add(new TownServiceMerchantZone(Root,false,font));
+        _zones.Add(new TownServiceMerchantZone(Root,true,font));
+        if(inventory.itemTooltip!=null)_preview=new TownServiceCatalogPreview(inventory.itemTooltip,Root,()=>_inspected!=null&&_inspected.Current&&_inspected.Sample.IsHeld);
     }
     internal void SetVisibility(float value,float relocation=1f,bool allowInput=true)
     {
@@ -75,36 +85,92 @@ internal sealed class TownServiceCatalog : IDisposable
         _opening.alpha=Mathf.Clamp01(value)*Mathf.Clamp01(relocation);
         _opening.interactable=_allowInput;_opening.blocksRaycasts=false;
     }
-    internal void LateTick() { }
+    internal void LateTick()
+    {
+        Entry? held=null;
+        foreach(var entry in _entries)if(entry.Current&&entry.Sample.IsHeld&&(held==null||entry.Sample.PickupSequence>held.Sample.PickupSequence))held=entry;
+        if(held!=_inspected)
+        {
+            ClearInspection();_inspected=held;
+            if(held!=null&&_preview!=null&&_inventory.itemTooltip!=null)
+            {
+                string? key=held.Selling?(!held.Item.Tradeable?"GUI_ITEM_CANNOT_BE_SOLD":null):(!held.RowSource.IsAvailable?"GUI_ITEM_SOLDOUT":null);
+                string? information=key!=null?GLOOM.LocalizationManager.GetTranslation(key):null;
+                _inventory.itemTooltip.Show(held.Item,(RectTransform)held.RowSource.transform,held.RowSource.Owner,
+                    information,key!=null?CItem.EItemSlotState.Spent:(CItem.EItemSlotState?)null,held.Selling?null:_inventory.service);
+                _preview.AttachTo(held.CardRoot.parent.parent);
+            }
+        }
+        _preview?.Tick();
+    }
+    private void ClearInspection()
+    {
+        _preview?.Clear();
+        if(_inspected!=null&&_inventory.itemTooltip!=null)_inventory.itemTooltip.Hide();
+        _inspected=null;
+    }
     internal void Tick(float scale)
     {
         if(_disposed)return;
         if(!_alive()||_inventory==null||_anchor==null){Dispose();return;}
         if(Time.unscaledTime>=_nextCensus){_nextCensus=Time.unscaledTime+.5f;RefreshRows();}
+        foreach(var drawer in _drawers)drawer.Tick(_opening.alpha);
         foreach(var entry in _entries)entry.Tick(scale);
+        foreach(var zone in _zones)
+        {
+            bool shown=false;
+            foreach(var entry in _entries)if(entry.Selling==zone.Selling&&entry.Sample.DropEligible){shown=true;break;}
+            zone.SetShown(shown,_opening.alpha);
+        }
     }
     private void RefreshRows()
     {
         object? context=_contextIdentity();
         bool changed=_backend.Refresh();
-        if(changed||!ReferenceEquals(context,_context))
+        if(!ReferenceEquals(context,_context)){ClearEntries();_context=context;changed=true;}
+        if(!changed)return;
+        for(int i=_entries.Count-1;i>=0;i--)
         {
-            ClearEntries();_context=context;
-            int buy=0,sell=0;
-            foreach(var row in _backend.Rows)
+            Entry entry=_entries[i];
+            if(!entry.Current||!_backend.Rows.Exists(row=>row.Source==entry.RowSource))
+            {if(_inspected==entry)ClearInspection();entry.Dispose();_samples.Remove(entry.Sample);_entries.RemoveAt(i);}
+        }
+        foreach(var row in _backend.Rows)
+        {
+            if(_entries.Exists(entry=>entry.RowSource==row.Source))continue;
+            CItem.EItemSlot slot=NativeSlot(row.Item.YMLData.Slot);
+            TownServiceMerchantDrawer? drawer=null;int position=-1,levels=0;
+            foreach(var candidate in _drawers)
             {
-                var entry=new Entry(this,row.Source,row.Selling?sell++:buy++,row.Selling);
-                _entries.Add(entry);_samples.Add(entry.Sample);
+                if(candidate.Selling!=row.Selling)continue;levels++;
+                if(candidate.Category!=(int)slot)continue;
+                for(int n=0;n<TownServiceMerchantDrawer.Capacity;n++)
+                    if(!_entries.Exists(entry=>entry.Drawer==candidate&&entry.Ordinal==n))
+                    {drawer=candidate;position=n;break;}
+                if(drawer!=null)break;
             }
+            if(drawer==null)
+            {
+                string label=Loc.Mod(row.Selling?"town_merchant_inventory":"town_merchant_stock")+" · "+GLOOM.LocalizationManager.GetTranslation(_inventory.GetLocalizationSlot(SlotListing(slot)));
+                TownServiceMerchantDrawer? captured=null;
+                drawer=new TownServiceMerchantDrawer(Root,levels,row.Selling,(int)slot,label,_inventory.GetComponentInChildren<TMP_Text>(true),
+                    ()=>!_disposed&&_alive()&&_allowInput,()=>DrawerCanClose(captured!),OpenDrawer);
+                captured=drawer;_drawers.Add(drawer);position=0;
+            }
+            var added=new Entry(this,row.Source,position,row.Selling,drawer);
+            _entries.Add(added);_samples.Add(added.Sample);
         }
     }
-    internal static Vector3 RackPosition(int ordinal,bool selling)
-    {
-        // Twelve exposed card edges per slanted lane. New lanes extend outwards rather
-        // than replacing existing entries or stranding stock behind a page control.
-        int lane=ordinal/12,depth=ordinal%12;
-        return new Vector3((selling?1f:-1f)*(.30f+lane*.205f),depth*.022f,.10f+depth*.045f);
-    }
+    private static CItem.EItemSlot NativeSlot(CItem.EItemSlot slot)=>slot switch
+    { CItem.EItemSlot.TwoHand=>CItem.EItemSlot.OneHand,CItem.EItemSlot.Head=>slot,CItem.EItemSlot.Body=>slot,
+      CItem.EItemSlot.Legs=>slot,CItem.EItemSlot.OneHand=>slot,_=>CItem.EItemSlot.SmallItem };
+    private static ItemListingType SlotListing(CItem.EItemSlot slot)=>slot switch
+    { CItem.EItemSlot.Head=>ItemListingType.Head,CItem.EItemSlot.Body=>ItemListingType.Body,
+      CItem.EItemSlot.OneHand=>ItemListingType.Hands,CItem.EItemSlot.Legs=>ItemListingType.Legs,_=>ItemListingType.SmallItems };
+    private bool DrawerCanClose(TownServiceMerchantDrawer drawer)
+    {foreach(var entry in _entries)if(entry.Drawer==drawer&&entry.Sample.IsMoving)return false;return true;}
+    private void OpenDrawer(TownServiceMerchantDrawer opening)
+    {foreach(var drawer in _drawers)if(drawer!=opening&&drawer.Selling==opening.Selling)drawer.Close();}
     internal bool Eligible(Entry entry)=>_allowInput&&entry.Current
         &&TownServiceMerchantTransaction.Eligible(_inventory,entry.Item,entry.Selling);
     internal bool Drop(Entry entry)
@@ -114,10 +180,10 @@ internal sealed class TownServiceCatalog : IDisposable
         return TownServiceMerchantTransaction.Commit(_inventory,entry.Item,entry.Selling,
             ()=>entry.Current&&_allowInput&&ReferenceEquals(context,_contextIdentity()));
     }
-    private void ClearEntries(){foreach(var entry in _entries)entry.Dispose();_entries.Clear();_samples.Clear();}
+    private void ClearEntries(){ClearInspection();foreach(var entry in _entries)entry.Dispose();_entries.Clear();_samples.Clear();foreach(var drawer in _drawers)drawer.Dispose();_drawers.Clear();}
     public void Dispose()
     {
-        if(_disposed)return;_disposed=true;ClearEntries();_backend.Dispose();
+        if(_disposed)return;_disposed=true;ClearEntries();_preview?.Dispose();_preview=null;_backend.Dispose();foreach(var zone in _zones)zone.Dispose();_zones.Clear();
         if(_inventory!=null&&_inventory.transform.parent==_nativeWrapper.transform)
         {_inventory.transform.SetParent(_nativeHome,false);_inventory.transform.SetSiblingIndex(_nativeSibling);}
         _nativeWrapper.SetActive(false);UnityEngine.Object.Destroy(_nativeWrapper);UnityEngine.Object.Destroy(_root);
@@ -138,6 +204,7 @@ internal sealed class TownServiceCatalog : IDisposable
         private readonly RemoteWidgetMirror _row;
         private readonly List<KeyValuePair<Graphic, bool>> _raycastTargets = new();
         private readonly List<KeyValuePair<GraphicRaycaster, bool>> _raycasters = new();
+        private readonly List<Transform> _rowBackgrounds = new();
         private GameObject? _card;
         private float _nextRefresh;
         private bool _disposed;
@@ -145,6 +212,8 @@ internal sealed class TownServiceCatalog : IDisposable
         internal readonly CItem Item;
         internal readonly bool Selling;
         internal readonly int Ordinal;
+        internal readonly TownServiceMerchantDrawer Drawer;
+        internal bool Exposed => Drawer.Exposed || Sample.IsMoving;
         internal readonly TownServiceToken Sample;
         internal ItemCardUI CardUI { get; private set; } = null!;
         internal Transform CardRoot => CardUI.transform;
@@ -154,12 +223,12 @@ internal sealed class TownServiceCatalog : IDisposable
         internal bool Current => !_disposed && _owner._alive() && RowSource != null
             && RowSource.gameObject.activeInHierarchy && ReferenceEquals(Item, RowSource.Item);
 
-        internal Entry(TownServiceCatalog owner, UIShopItemSlot source, int position, bool selling)
+        internal Entry(TownServiceCatalog owner, UIShopItemSlot source, int position, bool selling, TownServiceMerchantDrawer drawer)
         {
-            _owner = owner; RowSource = source; Item = source.Item; Selling = selling; Ordinal = position;
+            _owner = owner; RowSource = source; Item = source.Item; Selling = selling; Ordinal = position; Drawer = drawer;
             _root = new GameObject("CatalogItem");
-            _root.transform.SetParent(owner.Root, false);
-            _root.transform.localPosition = RackPosition(position, selling);
+            _root.transform.SetParent(drawer.Content, false);
+            _root.transform.localPosition = TownServiceMerchantDrawer.CardPosition(position);
             _display = new GameObject("PhysicalCard").transform;
             _display.SetParent(_root.transform, false);
             _display.localRotation = Quaternion.Euler(65f, 0f, 0f);
@@ -168,11 +237,11 @@ internal sealed class TownServiceCatalog : IDisposable
             face.transform.SetParent(_display, false);
             _canvas = face.GetComponent<Canvas>(); _canvas.renderMode = RenderMode.WorldSpace;
             VRLayers.Apply(face);
-            var rowMount = new GameObject("Price"); rowMount.transform.SetParent(_root.transform, false);
-            rowMount.transform.localPosition = new Vector3(0f, .005f, -.077f);
-            rowMount.transform.localRotation = Quaternion.Euler(90f, 0f, 0f);
+            var rowMount = new GameObject("Price"); rowMount.transform.SetParent(_display, false);
+            rowMount.transform.localPosition = new Vector3(0f, -.053f, -.002f);
+            rowMount.transform.localRotation = Quaternion.identity;
             _row = new RemoteWidgetMirror("CatalogPrice", rowMount.transform, .19f, .042f, Vector2.zero,
-                externallyShownBranch: node => node.GetComponent<UIPartyItemInventoryTooltip>() != null);
+                externallyShownBranch: node => node.GetComponent<UIPartyItemInventoryTooltip>() != null, mrBacking: false);
             RectTransform rowRect = (RectTransform)source.transform;
             _row.SetOwnerFrame(rowRect.rect.size, rowRect.parent is RectTransform rowParent ? rowParent.rect.size : rowRect.rect.size);
             try
@@ -190,7 +259,7 @@ internal sealed class TownServiceCatalog : IDisposable
                 if (size.x < 1f || size.y < 1f) throw new InvalidOperationException("Native merchant item card has invalid dimensions");
                 RectTransform host = (RectTransform)face.transform;
                 host.sizeDelta = size;
-                host.localScale = Vector3.one * Mathf.Min(.18f / size.x, .145f / size.y);
+                host.localScale = Vector3.one * Mathf.Min(.15f / size.x, .12f / size.y);
                 host.localPosition = new Vector3(0f, 0f, -.0012f);
                 Vector2 physicalSize = size * host.localScale.x;
                 _displayHome = new Vector3(0f, physicalSize.y * .5f * Mathf.Cos(65f * Mathf.Deg2Rad) + .006f, 0f);
@@ -210,8 +279,10 @@ internal sealed class TownServiceCatalog : IDisposable
                 Sample = new TownServiceToken(rect, source.Selectable, () => source.Item,
                     owner._contextIdentity, () => Current, owner._mat, _display,
                     drop: () => owner.Drop(this), eligible: () => owner.Eligible(this),
-                    zoneCenter: new Vector3(selling ? .27f : -.27f, .015f, -.20f));
+                    zoneCenter: new Vector3(selling ? .22f : -.22f, .015f, -.20f),
+                    inspect: () => drawer.Accessible);
                 _row.Refresh(source.transform);
+                foreach(RawImage background in source.GetComponentsInChildren<RawImage>(true))_rowBackgrounds.Add(background.transform);
                 TownServiceNativeAssets.PrepareItem(CardUI);
             }
             catch { Dispose(); throw; }
@@ -221,6 +292,10 @@ internal sealed class TownServiceCatalog : IDisposable
         {
             if (_disposed) return;
             if (!Current) { Sample.Dispose(); _root.SetActive(false); return; }
+            if (_body != null) TownServiceCardBody.SetVisibility(_body.gameObject, _owner._opening.alpha);
+            // Opaque closed drawers preserve their complete native content but need no
+            // per-frame widget traversal, card mip rescan or hidden collider refitting.
+            if(!Exposed)return;
             if (!Sample.IsMoving)
             {
                 float t = Mathf.Clamp01((Time.unscaledTime - _presentedAt) / .24f);
@@ -234,8 +309,10 @@ internal sealed class TownServiceCatalog : IDisposable
                 _row.Refresh(RowSource.transform);
                 CardFaceMipBake.Rescan(CardUI);
             }
-            if (_body != null) TownServiceCardBody.SetVisibility(_body.gameObject, _owner._opening.alpha);
             _row.TickLive();
+            // Preserve original stock/price/name glyphs but remove the flat list's backing.
+            foreach(Transform original in _rowBackgrounds)
+            {Transform? clone=_row.CloneOf(original);if(clone!=null)clone.gameObject.SetActive(false);}
             // The native detail widget follows the hovered row. It belongs to the full detail
             // placard, never inside this narrow price strip or its measured bounds.
             if (_owner._inventory.itemTooltip != null)

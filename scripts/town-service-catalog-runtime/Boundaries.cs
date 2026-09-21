@@ -1,174 +1,168 @@
-// Real Unity/uGUI transforms, canvases, buttons and pointer events; game stock, item renderer,
-// hand tracking, widget mirroring and conversion bookkeeping are explicit test boundaries.
+// Real Unity transforms, colliders, canvases and button dispatch. Native inventory/service
+// data and confirmation callbacks are explicit boundaries: tests verify routing, never
+// pretend to execute original gameplay transactions without a running game.
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using UnityEngine;
 using UnityEngine.UI;
-public class UIShopItemInventory : MonoBehaviour
+using ScenarioRuleLibrary;
+using MapRuleLibrary.Party;
+public enum ItemListingType { None,AllGear,Head,Body,Hands,Legs,SmallItems,Owned }
+namespace ScenarioRuleLibrary
 {
-    public ScrollRect scroll = null!;
-    public UIPartyItemInventoryTooltip itemTooltip = null!;
-    public readonly List<UIShopItemSlot> slotPool = new();
-    public Transform buyTab = null!, sellTab = null!, allFilter = null!, _ownedFilter = null!,
-        headFilter = null!, bodyFilter = null!, handsFilter = null!, legsFilter = null!, smallItemsFilter = null!;
-}
-public class CatalogHoverProbe : MonoBehaviour, UnityEngine.EventSystems.IPointerEnterHandler, UnityEngine.EventSystems.IPointerExitHandler
-{
-    public int Enters, Exits;
-    public void OnPointerEnter(UnityEngine.EventSystems.PointerEventData data) { Enters++; }
-    public void OnPointerExit(UnityEngine.EventSystems.PointerEventData data) { Exits++; }
-}
-public class UIShopItemSlot : MonoBehaviour
-{ public ScenarioRuleLibrary.CItem Item = null!; public Selectable Selectable = null!; }
-public class UIPartyItemInventoryTooltip : MonoBehaviour
-{ public bool IsShown; public ItemCardUI m_ItemCardUI = null!; }
-public class UITextTooltipTarget : MonoBehaviour
-{
-    public bool TooltipShown; public int Enters, Exits;
-    public void OnPointerEnter(UnityEngine.EventSystems.PointerEventData data)
+    public class CItem
     {
-        // Native targets configured with anchorToExactMouseTargetInstead dereference this.
-        if (data.pointerEnter != gameObject) throw new InvalidOperationException("native exact-target tooltip needs pointerEnter");
-        Enters++; TooltipShown = true;
-        GloomhavenVR.WorldUI.NativeTemplates.Tooltip!.m_AnchorToTarget = (RectTransform)transform;
-        GloomhavenVR.WorldUI.NativeTemplates.Tooltip.gameObject.SetActive(true);
+        public enum EItemSlotState { Spent }
+        public enum EItemSlot { Head,Body,OneHand,TwoHand,Legs,SmallItem,QuestItem }
+        public int ID;public uint NetworkID;public string Name="Item";public bool Tradeable=true;public int SellPrice=5;
+        public Data YMLData=new();public CItem(int id){ID=id;NetworkID=(uint)id;Name="Item"+id;}
+        public bool CanEquipItem(int id)=>true;
+        public class Data{public EItemSlot Slot;}
     }
-    public void OnPointerExit(UnityEngine.EventSystems.PointerEventData data)
-    { Exits++; TooltipShown = false; GloomhavenVR.WorldUI.NativeTemplates.Tooltip!.gameObject.SetActive(false); }
 }
-public class ItemCardUI : MonoBehaviour
+namespace MapRuleLibrary.Party { public class CMapCharacter{public int CharacterID;} }
+namespace MapRuleLibrary.State { public enum EGoldMode{PartyGold,CharacterGold} }
+namespace MapRuleLibrary.Adventure
+{ public static class AdventureState{public static State MapState=new();public class State{public MapRuleLibrary.State.EGoldMode GoldMode;}} }
+namespace GLOOM { public static class LocalizationManager{public static string GetTranslation(string key)=>key;} }
+namespace FFSNet
 {
-    public UITextTooltipTarget AllHintsCardTooltip = null!;
-    public ScenarioRuleLibrary.CItem item = null!;
-    public void Show(bool highlightElement) { if (item == null || item.ID == 0) throw new Exception("invalid pooled item"); gameObject.SetActive(true); }
+    public static class FFSNetwork { public static bool IsOnline; }
+    public static class PlayerRegistry{public static NetworkPlayer? MyPlayer;}
+    public class NetworkPlayer{public bool IsParticipant{get;set;}=true;}
 }
-namespace UnityEngine.UI { public class UIWindow : MonoBehaviour { } public class UITooltip : MonoBehaviour { public RectTransform m_AnchorToTarget = null!; } }
-namespace ScenarioRuleLibrary { public class CItem { public int ID; public CItem(int id) { ID = id; } } }
+namespace HarmonyLib { public static class AccessTools { public static System.Reflection.PropertyInfo? Property(Type? type,string name)=>type?.GetProperty(name); } }
+public class Singleton<T> where T:class { public static T Instance=null!; }
+public sealed class Service
+{
+    public readonly List<CItem> Buy=new(),Sell=new();public bool Affordable=true;public int Commits;
+    public List<CItem> GetItemsToBuy(CMapCharacter? c=null)=>new(Buy);
+    public List<CItem> GetItemsToSell(CMapCharacter? c=null)=>new(Sell);
+    public Dictionary<CItem,Tuple<CMapCharacter,bool>> GetBoundsItems(CMapCharacter? c)=>new();
+    public bool IsAffordable(CItem item,CMapCharacter? c)=>Affordable;
+    public int DiscountedCost(CItem item)=>10;
+    public int GetBuyDiscount()=>0;
+}
+public class Tab:MonoBehaviour{public Action? Changed;private bool _on;public bool isOn{get=>_on;set{_on=value;if(value)Changed?.Invoke();}}}
+public class UIShopItemInventory:MonoBehaviour
+{
+    public Service service=new();public CMapCharacter? character;public CanvasGroup itemsCanvasGroup=null!;
+    public UIShopItemSlot slotPrefab=null!;public List<UIShopItemSlot> slotPool=new();public Tab buyTab=null!,sellTab=null!;
+    public UIPartyItemInventoryTooltip? itemTooltip;public bool Selling;public int Refreshes;
+    public void RefreshView()
+    {
+        Refreshes++;foreach(var old in slotPool)UnityEngine.Object.DestroyImmediate(old.gameObject);slotPool.Clear();
+        var items=Selling?service.Sell:service.Buy.GroupBy(x=>x.ID).Select(x=>x.First()).ToList();
+        foreach(var item in items)
+        {
+            var row=UnityEngine.Object.Instantiate(slotPrefab,transform);row.gameObject.SetActive(true);row.Item=item;
+            row.Selectable.onClick.RemoveAllListeners();row.Selectable.onClick.AddListener(()=>
+            {if(!service.Affordable||!itemsCanvasGroup.interactable)return;Singleton<UIItemConfirmationBox>.Instance.Show(item,()=>service.Commits++);});
+            slotPool.Add(row);
+        }
+    }
+    public void FilterShownItems(ItemListingType type){}
+    public string GetLocalizationSlot(ItemListingType type)=>type.ToString();
+}
+public class UIShopItemSlot:MonoBehaviour
+{
+    public CItem Item=null!;public CMapCharacter? Owner;public Button Selectable=null!;public bool IsAvailable=true;
+    public void Initialize(CItem item,int price,Action<UIShopItemSlot> selected,Action<UIShopItemSlot,bool> hovered,object? moved,
+        int amount,int total,bool affordable,bool n=false,bool n2=false,int discount=0,CMapCharacter? c=null){Item=item;IsAvailable=amount>0;}
+    public void Initialize(CItem item,int price,Action<UIShopItemSlot> selected,Action<UIShopItemSlot,bool> hovered,object? moved,
+        CMapCharacter? owner,bool equipped=false,CMapCharacter? c=null){Item=item;IsAvailable=true;}
+}
+public class UIItemConfirmationBox:MonoBehaviour
+{
+    public bool IsActive;public Button confirmButton=null!;public CItem? Item;public Action? BeforeShow;
+    public void Show(CItem item,Action confirm){BeforeShow?.Invoke();IsActive=true;Item=item;confirmButton.onClick.RemoveAllListeners();confirmButton.onClick.AddListener(()=>{confirm();IsActive=false;});}
+    public bool IsConfirmingItem(CItem item)=>ReferenceEquals(Item,item);
+}
+public class UIPartyItemInventoryTooltip:MonoBehaviour
+{
+    public bool IsShown;public ItemCardUI m_ItemCardUI=null!;public int Shows;public CMapCharacter? BoundTo;public Service? Service;
+    public void Show(CItem item,RectTransform target,CMapCharacter? owner,string? info,CItem.EItemSlotState? state,Service? service)
+    {
+        Shows++;IsShown=true;BoundTo=owner;Service=service;transform.SetParent(target,false);
+        if(m_ItemCardUI==null){var card=new GameObject("DetailCard",typeof(RectTransform));card.transform.SetParent(transform,false);m_ItemCardUI=card.AddComponent<ItemCardUI>();}
+        m_ItemCardUI.item=item;gameObject.SetActive(true);
+    }
+    public void Hide(){IsShown=false;}
+}
+public class UITextTooltipTarget:MonoBehaviour
+{
+    public bool TooltipShown;
+    public void OnPointerEnter(UnityEngine.EventSystems.PointerEventData data){TooltipShown=true;}
+    public void OnPointerExit(UnityEngine.EventSystems.PointerEventData data){TooltipShown=false;}
+}
+namespace UnityEngine.UI{public class UITooltip:MonoBehaviour{public RectTransform? m_AnchorToTarget;}}
+public class ItemCardUI:MonoBehaviour{public UITextTooltipTarget? AllHintsCardTooltip;public CItem item=null!;public void Show(bool highlightElement){gameObject.SetActive(true);}}
 public static class ObjectPool
 {
-    public enum ECardType { Item }
-    public static int Alive;
-    public static GameObject SpawnCard(int id, ECardType type, Transform parent, bool resetLocalScale,
-        bool resetToMiddle, bool resetLocalRotation, bool activate)
+    public enum ECardType{Item}public static int Alive;
+    public static GameObject SpawnCard(int id,ECardType type,Transform parent,bool resetLocalScale,bool resetToMiddle,bool resetLocalRotation,bool activate)
     {
-        var go = new GameObject("OriginalItem", typeof(RectTransform), typeof(Image));
-        go.SetActive(false); go.transform.SetParent(parent, false);
-        ((RectTransform)go.transform).sizeDelta = new Vector2(180f, 145f);
-        go.AddComponent<ItemCardUI>(); go.AddComponent<GraphicRaycaster>(); Alive++; return go;
+        var go=new GameObject("OriginalItem",typeof(RectTransform),typeof(Image));go.SetActive(false);go.transform.SetParent(parent,false);
+        ((RectTransform)go.transform).sizeDelta=new Vector2(180,145);go.AddComponent<ItemCardUI>();go.AddComponent<GraphicRaycaster>();Alive++;return go;
     }
 }
 namespace TMPro
 {
-    public enum TextAlignmentOptions { Center }
-    public class TMP_FontAsset : ScriptableObject { }
-    public class TMP_Text : Graphic
-    {
-        public TMP_FontAsset? font; public Material? fontSharedMaterial;
-        public TextAlignmentOptions alignment; public float fontSize; public string text = "";
-    }
-    public class TextMeshProUGUI : TMP_Text { }
+    public enum TextAlignmentOptions{Center}public class TMP_FontAsset:ScriptableObject{}
+    public class TMP_Text:Graphic
+    {public TMP_FontAsset? font;public Material? fontSharedMaterial;public TextAlignmentOptions alignment;public float fontSize;public string text="";public bool enableWordWrapping;}
+    public class TextMeshProUGUI:TMP_Text{}public class TextMeshPro:TMP_Text{}
 }
-namespace GloomhavenVR.Rig { internal static class VRRigDriver { internal static Camera? HeadCamera; } }
-namespace GloomhavenVR.Core { internal static class VRLayers { internal static void Apply(GameObject go) { } } }
-namespace GloomhavenVR.Cards
+namespace GloomhavenVR.Core
 {
-    internal static class ItemBurnPlayback { internal static void ObserveInitialState(ItemCardUI item) { } }
-    internal static class CardFaceMipBake { internal static void Rescan(ItemCardUI item) { } }
+    internal static class VRLayers{internal static void Apply(GameObject go){}}
+    internal static class Loc{internal static event Action? OnChanged;internal static void Change()=>OnChanged?.Invoke();internal static string Mod(string key)=>key;}
+}
+namespace GloomhavenVR.Cards
+{internal static class ItemBurnPlayback{internal static void ObserveInitialState(ItemCardUI item){}}internal static class CardFaceMipBake{internal static void Rescan(ItemCardUI item){}}}
+namespace GloomhavenVR.Rig{internal static class VRRigDriver{internal static Camera? HeadCamera;}}
+namespace GloomhavenVR.Hands
+{
+    public class VRHand{public HandRig Rig=new();public float WorldScale=1;public void GetAimRay(out Vector3 o,out Vector3 d){o=Rig.GrabAnchor.position;d=Rig.GrabAnchor.forward;}}
+    public class HandRig{public Transform GrabAnchor=new GameObject("Hand").transform;}
 }
 namespace GloomhavenVR.Hands.Interact
 {
-    internal static class UguiPokeSurfaces
-    {
-        internal static HashSet<Canvas> Registered = new();
-        internal static void Register(Canvas canvas) => Registered.Add(canvas);
-        internal static void Unregister(Canvas canvas) => Registered.Remove(canvas);
-    }
+    internal interface IGrabbable{bool CanGrab{get;}bool GrabWithGrip{get;}void OnGrab(GloomhavenVR.Hands.VRHand h);void OnRelease(GloomhavenVR.Hands.VRHand h,Vector3 v);}
+    internal interface IGrabbableHandFilter{bool AllowsHand(GloomhavenVR.Hands.VRHand h);}
+    internal interface IGrabCancellation{void OnGrabCancelled(GloomhavenVR.Hands.VRHand h);}
+    internal static class VRInteractables{internal static readonly List<IGrabbable> Registered=new();internal static void RegisterGrabbable(IGrabbable g,Collider c)=>Registered.Add(g);internal static void UnregisterGrabbable(IGrabbable g)=>Registered.Remove(g);}
+    internal static class UguiPokeSurfaces{internal static void Unregister(Canvas c){}}
 }
 namespace GloomhavenVR.Net
 {
     internal sealed class RemoteWidgetMirror
     {
-        private readonly Dictionary<Transform, Transform> _clones = new(); private readonly Transform _mount;
-        internal RemoteWidgetMirror(string name, Transform mount, float width, float height, Vector2 offset, Func<Transform, bool>? externallyShownBranch = null) { _mount = mount; }
-        internal void SetOwnerFrame(Vector2 a, Vector2 b) { }
-        internal bool Refresh(Transform source)
-        {
-            Clone(source, _mount); return true;
-        }
-        private void Clone(Transform source, Transform parent)
-        {
-            if (!_clones.TryGetValue(source, out Transform target))
-            {
-                var go = new GameObject("Inert:" + source.name, typeof(RectTransform));
-                go.transform.SetParent(parent, false); _clones[source] = target = go.transform;
-                CanvasGroup group = source.GetComponent<CanvasGroup>();
-                if (group != null) go.AddComponent<CanvasGroup>().alpha = group.alpha;
-            }
-            foreach (Transform child in source) Clone(child, target);
-        }
-        internal Transform? CloneOf(Transform source) => _clones.TryGetValue(source, out var clone) ? clone : null;
-        internal void SetShown(bool shown) { foreach (Transform clone in _clones.Values) if (clone != null && clone.parent == _mount) clone.gameObject.SetActive(shown); }
-        internal void TickLive() { }
-        internal void Destroy() { foreach (Transform clone in _clones.Values) if (clone != null) UnityEngine.Object.DestroyImmediate(clone.gameObject); _clones.Clear(); }
+        private readonly Transform _mount;private readonly Dictionary<Transform,Transform> _clones=new();
+        internal RemoteWidgetMirror(string name,Transform mount,float width,float height,Vector2 offset,Func<Transform,bool>? externallyShownBranch=null,bool mrBacking=true){_mount=mount;}
+        internal void SetOwnerFrame(Vector2 a,Vector2 b){}
+        internal bool Refresh(Transform source){if(!_clones.ContainsKey(source)){var clone=new GameObject("Clone",typeof(RectTransform));clone.transform.SetParent(_mount,false);_clones.Add(source,clone.transform);}return true;}
+        internal Transform? CloneOf(Transform source)=>_clones.TryGetValue(source,out var clone)?clone:null;
+        internal void SetShown(bool shown){}
+        internal void TickLive(){}internal void Destroy(){foreach(var clone in _clones.Values)if(clone!=null)UnityEngine.Object.DestroyImmediate(clone.gameObject);}
     }
     internal static class RemoteItemCardSource
-    { internal static void ReturnBorrowed(int id, GameObject go) { if (!go.GetComponent<Image>().raycastTarget || !go.GetComponent<GraphicRaycaster>().enabled) throw new Exception("pooled native input flags restored before recycle"); ObjectPool.Alive--; UnityEngine.Object.DestroyImmediate(go); } }
+    {internal static void ReturnBorrowed(int id,GameObject go){if(!go.GetComponent<Image>().raycastTarget||!go.GetComponent<GraphicRaycaster>().enabled)throw new Exception("pool input restore");ObjectPool.Alive--;UnityEngine.Object.DestroyImmediate(go);}}
 }
 namespace GloomhavenVR.WorldUI
 {
-    // Rigid item body construction uses the existing CardMesh asset pipeline, covered by
-    // existing card mesh tests; this fixture checks body/face geometry and layout ownership.
-    internal static class TownServiceCardBody
+    internal static class TownServiceCardBody{internal static GameObject Create(Transform p){var g=new GameObject("Body");g.transform.SetParent(p,false);return g;}internal static void SetVisibility(GameObject g,float v){}internal static void Dispose(GameObject g){}}
+    internal static class NativeTemplates{internal static UnityEngine.UI.UITooltip? Tooltip;}
+    internal static class TownServiceNativeAssets{internal static void PrepareItem(ItemCardUI i){}}
+    internal class TownServiceSurface{}
+    internal static class TownServicePhysicalRay{internal static void Claim(GloomhavenVR.Hands.VRHand hand){}}
+    internal static class TownServiceAssets{internal static GameObject? Merchant;internal static GameObject? Prefab(string n)=>Merchant;}
+    internal sealed class TownServiceToken:IDisposable
     {
-        internal static GameObject Create(Transform parent)
-        { var go = new GameObject("PhysicalCardBody"); go.transform.SetParent(parent, false); return go; }
-        internal static void SetVisibility(GameObject body, float value) { }
-        internal static void Dispose(GameObject body) { }
-    }
-    internal static class NativeTemplates { internal static UITooltip? Tooltip; }
-    internal static class TownServiceNativeAssets { internal static void PrepareItem(ItemCardUI item) { } }
-    internal sealed class TownServiceToken : IDisposable
-    {
-        internal bool Disposed; internal bool IsMoving; internal bool IsPhysical; private readonly Func<bool> _alive;
-        internal TownServiceToken(RectTransform source, Selectable button, Func<object?> identity, Func<object?> context, Func<bool> alive, Transform mat, Transform? physical = null) { _alive = alive; IsPhysical = physical != null; }
-        internal bool CanGrab => !Disposed && _alive();
-        internal void Tick(float scale) { }
-        public void Dispose() { Disposed = true; }
-    }
-    internal sealed class ConfigFloat { internal float Value = 1f; }
-    internal static class WorldUIConfig { internal static ConfigFloat CanvasScaleMm = new(); }
-    internal sealed class ConvertedPanel
-    {
-        internal Transform Target = null!, OriginalParent = null!;
-        internal GameObject HostGo = null!; internal RectTransform HostRect => (RectTransform)HostGo.transform;
-        internal bool IsAlive = true; internal Vector3 Position, Scale; internal Quaternion Rotation;
-        internal int Sibling;
-    }
-    internal static class CanvasConversion
-    {
-        internal static readonly List<ConvertedPanel> Active = new();
-        internal static ConvertedPanel Convert(RectTransform source, string name, bool fitContent, bool useModLayer, bool transparentBackground)
-        {
-            var p = new ConvertedPanel { Target = source, OriginalParent = source.parent, Sibling = source.GetSiblingIndex(),
-                Position = source.localPosition, Rotation = source.localRotation, Scale = source.localScale, HostGo = new GameObject(name, typeof(RectTransform)) };
-            p.HostRect.sizeDelta = source.rect.size; source.SetParent(p.HostGo.transform, false); Active.Add(p); return p;
-        }
-        internal static void PlaceHost(ConvertedPanel p, Vector3 pos, Quaternion rotation, float worldScale)
-        { p.HostGo.transform.SetPositionAndRotation(pos, rotation); p.HostGo.transform.localScale = Vector3.one * (.001f * worldScale); }
-        internal static void Release(ConvertedPanel p)
-        {
-            p.Target.SetParent(p.OriginalParent, false); p.Target.SetSiblingIndex(p.Sibling);
-            p.Target.localPosition = p.Position; p.Target.localRotation = p.Rotation; p.Target.localScale = p.Scale;
-            p.IsAlive = false; Active.Remove(p); UnityEngine.Object.DestroyImmediate(p.HostGo);
-        }
-    }
-    internal sealed class GrabbableModal
-    {
-        internal void Build(ConvertedPanel p, float scale, string name) { }
-        internal void SetExtraScale(float scale) { }
-        internal void SnapFrameTo(Vector3 p, Quaternion q) { }
-        internal void Tick() { }
-        internal void LateSyncHost() { }
-        internal void Destroy() { }
+        internal bool IsMoving,DropEligible,IsHeld;internal ulong PickupSequence;private readonly Func<bool> _alive;private readonly Func<bool>? _inspect;
+        internal TownServiceToken(RectTransform s,Selectable b,Func<object?> i,Func<object?> c,Func<bool> alive,Transform mat,Transform? physical=null,Func<bool>? drop=null,Func<bool>? eligible=null,Vector3 zoneCenter=default,Func<bool>? inspect=null){_alive=alive;_inspect=inspect;}
+        internal bool CanGrab=>_alive()&&(_inspect?.Invoke()??true);
+        internal void Tick(float s){}public void Dispose(){}
     }
 }
