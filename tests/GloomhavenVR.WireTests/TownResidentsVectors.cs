@@ -9,13 +9,13 @@ namespace GloomhavenVR.WireTests;
 internal static class TownResidentsVectors
 {
     private static readonly byte[] Golden = Hex.Bytes(@"
-        4F 5B 01
+        4F 73 01
         00 00 80 3F 00 00 00 40 00 00 40 40 00 00 00 00 00 00 FF 7F
-        00 00 80 3F 00 00 20 40 FF 01
+        00 00 80 3F 00 00 20 40 FF 01 00 00 80 BD 00 00 00 BE
         00 00 80 BF 00 00 00 00 00 00 00 3F 00 00 FF 7F 00 00 00 00
-        00 00 00 3F 00 00 40 40 80 00
+        00 00 00 3F 00 00 40 40 80 00 00 00 80 BD 00 00 00 BE
         00 00 00 00 00 00 00 C0 00 00 80 40 00 40 00 40 00 40 00 40
-        00 00 00 40 00 00 00 00 00 01");
+        00 00 00 40 00 00 00 00 00 01 00 00 80 BD 00 00 00 BE");
 
     private static TownResidentsState Example() => new()
     {
@@ -25,7 +25,7 @@ internal static class TownResidentsVectors
         Enchantress = Pose(new Vector3(0f, -2f, 4f), new Quaternion(.5f, .5f, .5f, .5f), 2f, 0f, 0, 1)
     };
     private static TownResidentPose Pose(Vector3 position, Quaternion rotation, float scale, float age, byte visibility, byte clip) =>
-        new() { Pose = new RigPose { Position = position, Rotation = rotation }, Scale = scale, Age = age, Visibility = visibility, Clip = clip };
+        new() { Pose = new RigPose { Position = position, Rotation = rotation }, Scale = scale, Age = age, Visibility = visibility, Clip = clip, ActorFloorOffset = -.0625f, FurnitureBottom = -.125f };
     private static bool Same(byte[] a, byte[] b)
     {
         if (a.Length != b.Length) return false;
@@ -48,13 +48,14 @@ internal static class TownResidentsVectors
         var state = Example(); var bytes = new byte[PresenceSerializer.MaxSize]; int offset = 0;
         t.True(TownResidentsCodec.Write(bytes, ref offset, in state), "three residents serialize");
         t.Wire(Golden, bytes, offset, "golden79 freezes identity, lengths, order, signed poses, scales, clocks and clips");
-        t.True(TownResidentsCodec.TryRead(Golden, 2, 91, out var decoded) && decoded.Active,
+        t.True(TownResidentsCodec.TryRead(Golden, 2, 115, out var decoded) && decoded.Active,
             "reader independently consumes literal golden79");
         for (int n = 0; n < 3; n++)
         {
             var expected = state.At(n); var actual = decoded.At(n);
             t.True(expected.Pose.Position == actual.Pose.Position && Quaternion.Angle(expected.Pose.Rotation, actual.Pose.Rotation) < .01f
                 && expected.Scale == actual.Scale && expected.Age == actual.Age
+                && expected.ActorFloorOffset == actual.ActorFloorOffset && expected.FurnitureBottom == actual.FurnitureBottom
                 && expected.Visibility == actual.Visibility && expected.Clip == actual.Clip,
                 "resident " + n + " preserves its own pose and animation");
         }
@@ -81,14 +82,14 @@ internal static class TownResidentsVectors
         for (int cut = 0; cut < Golden.Length; cut++)
         {
             var shortBuffer = new byte[cut]; Array.Copy(Golden, shortBuffer, cut);
-            t.True(!TownResidentsCodec.TryRead(shortBuffer, 2, 91, out decoded) && !decoded.Active,
+            t.True(!TownResidentsCodec.TryRead(shortBuffer, 2, 115, out decoded) && !decoded.Active,
                 "physical buffer truncation " + cut + " rejects without partial output");
         }
-        for (int payload = 0; payload < 91; payload++)
+        for (int payload = 0; payload < 115; payload++)
             t.True(!TownResidentsCodec.TryRead(Golden, 2, payload, out decoded) && !decoded.Active,
                 "declared active payload truncation " + payload + " cannot create residents");
         foreach (int invalid in new[] { int.MinValue, -1, Golden.Length, int.MaxValue })
-            t.True(!TownResidentsCodec.TryRead(Golden, invalid, 91, out decoded), "invalid read offset " + invalid);
+            t.True(!TownResidentsCodec.TryRead(Golden, invalid, 115, out decoded), "invalid read offset " + invalid);
         for (int cut = 0; cut < complete.Length; cut++)
         {
             bool parsed = PresenceSerializer.TryRead(complete, cut, out full);
@@ -97,7 +98,7 @@ internal static class TownResidentsVectors
         for (int flag = 2; flag <= 255; flag++)
         {
             byte[] malformed = (byte[])Golden.Clone(); malformed[2] = (byte)flag;
-            t.True(!TownResidentsCodec.TryRead(malformed, 2, 91, out decoded), "reserved active flag " + flag);
+            t.True(!TownResidentsCodec.TryRead(malformed, 2, 115, out decoded), "reserved active flag " + flag);
         }
         foreach (byte[] malformed in new[] { Hex.Bytes("4F 01 01"), Hex.Bytes("4F 00"), Hex.Bytes("4F 02 00 00") })
         {
@@ -114,28 +115,34 @@ internal static class TownResidentsVectors
         t.Case("town residents79: independently reject invalid numeric wire values");
         for (int n = 0; n < 3; n++)
         {
-            int start = 3 + n * 30;
-            foreach (int field in new[] { 0, 4, 8, 20, 24 })
+            int start = 3 + n * 38;
+            foreach (int field in new[] { 0, 4, 8, 20, 24, 30, 34 })
                 foreach (float invalid in new[] { float.NaN, float.PositiveInfinity, float.NegativeInfinity })
                 {
                     byte[] bad = (byte[])Golden.Clone(); FloatAt(bad, start + field, invalid);
-                    t.True(!TownResidentsCodec.TryRead(bad, 2, 91, out decoded) && !decoded.Active,
+                    t.True(!TownResidentsCodec.TryRead(bad, 2, 115, out decoded) && !decoded.Active,
                         "nonfinite resident " + n + " field " + field + " rejects atomically");
                 }
             foreach (float invalid in new[] { -1f, 0f, .01f, 10.01f })
             {
                 byte[] bad = (byte[])Golden.Clone(); FloatAt(bad, start + 20, invalid);
-                t.True(!TownResidentsCodec.TryRead(bad, 2, 91, out decoded), "invalid resident scale " + n + "/" + invalid);
+                t.True(!TownResidentsCodec.TryRead(bad, 2, 115, out decoded), "invalid resident scale " + n + "/" + invalid);
             }
             foreach (float invalid in new[] { -1f, 10000001f })
             {
                 byte[] bad = (byte[])Golden.Clone(); FloatAt(bad, start + 24, invalid);
-                t.True(!TownResidentsCodec.TryRead(bad, 2, 91, out decoded), "invalid resident animation age " + n + "/" + invalid);
+                t.True(!TownResidentsCodec.TryRead(bad, 2, 115, out decoded), "invalid resident animation age " + n + "/" + invalid);
             }
+            foreach (int field in new[] { 30, 34 })
+                foreach (float invalid in new[] { -.501f, .501f })
+                {
+                    byte[] bad = (byte[])Golden.Clone(); FloatAt(bad, start + field, invalid);
+                    t.True(!TownResidentsCodec.TryRead(bad, 2, 115, out decoded), "invalid ground adjustment " + n + "/" + field);
+                }
             byte[] far = (byte[])Golden.Clone(); FloatAt(far, start, 101f);
-            t.True(!TownResidentsCodec.TryRead(far, 2, 91, out decoded), "implausible resident position " + n);
+            t.True(!TownResidentsCodec.TryRead(far, 2, 115, out decoded), "implausible resident position " + n);
             byte[] clip = (byte[])Golden.Clone(); clip[start + 29] = 2;
-            t.True(!TownResidentsCodec.TryRead(clip, 2, 91, out decoded), "unknown animation clip " + n);
+            t.True(!TownResidentsCodec.TryRead(clip, 2, 115, out decoded), "unknown animation clip " + n);
             foreach (byte[] rotation in new[]
             {
                 Hex.Bytes("00 00 00 00 00 00 00 00"), // zero
@@ -145,7 +152,7 @@ internal static class TownResidentsVectors
             })
             {
                 byte[] bad = (byte[])Golden.Clone(); rotation.CopyTo(bad, start + 12);
-                t.True(!TownResidentsCodec.TryRead(bad, 2, 91, out decoded) && !decoded.Active,
+                t.True(!TownResidentsCodec.TryRead(bad, 2, 115, out decoded) && !decoded.Active,
                     "malformed encoded resident quaternion " + n + "/" + Hex.Show(rotation, rotation.Length));
             }
         }
@@ -176,7 +183,7 @@ internal static class TownResidentsVectors
                 "invalid writer offset " + invalid + " has no side effects");
         }
         for (int n = 0; n < 3; n++)
-            foreach (int fault in new[] { 0, 1, 2, 3, 4, 5, 6 })
+            foreach (int fault in new[] { 0, 1, 2, 3, 4, 5, 6, 7, 8 })
             {
                 var bad = Example(); var entry = bad.At(n);
                 if (fault == 0) entry.Pose.Rotation = new Quaternion(0f, 0f, 0f, 2f);
@@ -186,6 +193,8 @@ internal static class TownResidentsVectors
                 if (fault == 4) entry.Age = -1f;
                 if (fault == 5) entry.Clip = 2;
                 if (fault == 6) entry.Pose.Position = new Vector3(101f, 0f, 0f);
+                if (fault == 7) entry.ActorFloorOffset = .51f;
+                if (fault == 8) entry.FurnitureBottom = float.NaN;
                 bad.Set(n, entry); Array.Fill(bytes, (byte)0xCD); byte[] before = (byte[])bytes.Clone(); offset = 4;
                 t.True(!TownResidentsCodec.Write(bytes, ref offset, in bad) && offset == 4 && Same(bytes, before),
                     "invalid source resident " + n + "/" + fault + " writes nothing");
@@ -201,12 +210,12 @@ internal static class TownResidentsVectors
 
         t.Case("town residents79: snapshot budget and protocol identity");
         offset = 6869;
-        t.True(TownResidentsCodec.Write(bytes, ref offset, in state) && offset == 6962,
-            "the complete maximum resident record adds93 to the established6869-byte worst case");
-        t.True(PresenceSerializer.MaxSize == 7219 && PresenceSerializer.MaxSize - offset == 257
+        t.True(TownResidentsCodec.Write(bytes, ref offset, in state) && offset == 6986,
+            "the complete maximum resident record adds117 to the established6869-byte worst case");
+        t.True(PresenceSerializer.MaxSize == 7243 && PresenceSerializer.MaxSize - offset == 257
             && offset <= ExtrasFragments.MaxSnapshotBytes && ExtrasFragments.MaxSnapshotBytes == 7168,
             "largest-record spare capacity and unchanged fragment reassembly ceiling both hold");
-        t.True(NetProtocol.Version == 3 && NetProtocol.ExtIdTownResidents == 79 && TownResidentsCodec.MaxPayload == 91,
+        t.True(NetProtocol.Version == 3 && NetProtocol.ExtIdTownResidents == 79 && TownResidentsCodec.MaxPayload == 115,
             "new residents retain wirev3 and never reuse a historical record identifier");
     }
 }

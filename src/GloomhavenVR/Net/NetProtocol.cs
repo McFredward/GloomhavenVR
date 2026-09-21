@@ -530,10 +530,10 @@ internal static class NetProtocol
     // paths remain authoritative. Decoration reconstructs original game meshes/material data
     // without native controllers. Original lantern/candle sources light each stand; entrance
     // waits for cosmetic loading, never for gameplay continuation.
-    // Additive presence79 publishes canonical poses, scales, visibility and animation clocks;
+    // Additive presence79 publishes canonical poses, scales, floor adjustments, visibility and animation clocks;
     // the lowest fresh enabled peer authors all residents, including between visits. Disabled
     // observers still retain actual remote visits. Wire v3 and all old records stay unchanged;
-    // worst presence6962 +257 margin=7219 allocation, within unchanged7168 assembly capacity.
+    // worst presence6986 +257 margin=7243 allocation, within unchanged7168 assembly capacity.
     // Merchant cards retain their original ItemCardUI face and physical item-card rim/reverse.
     // Inspection moves that same card, including remotely, and release returns it to the rack
     // without selecting or buying. Explicit native selection/purchase remains separate.

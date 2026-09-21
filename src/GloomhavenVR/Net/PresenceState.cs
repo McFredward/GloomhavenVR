@@ -1622,7 +1622,7 @@ internal static class PresenceSerializer
     /// + 56 (HELD PROPS: 2 + its two-slot form, 2 x <c>NetProtocol.HeldPropSlotBytes</c>)
     /// = 1726.
     ///
-    /// <para>Permanent residents79 adds at most93 bytes: 6869 -> 6962 worst case; buffer7219
+    /// <para>Permanent residents79 adds at most117 bytes: 6869 -> 6986 worst case; buffer7243
     /// retains257 spare bytes. The7168-byte reassembly bound remains sufficient.</para>
     ///
     /// <para>Shared window motion77 adds four bytes: 6865 -> 6869 worst case; buffer 7126
@@ -1876,7 +1876,7 @@ internal static class PresenceSerializer
     /// ITS OWN COMMIT, and keeps a margin of at least one record's worth. Record 27 (track order)
     /// took the worst case 859 → 887 on 2026-08-08; the margin is 393 bytes, i.e. still more than
     /// every optional record on the tail put together.</para></summary>
-    public const int MaxSize = 7219;
+    public const int MaxSize = 7243;
 
     // ---- write --------------------------------------------------------------------------
 

@@ -7,7 +7,7 @@ namespace GloomhavenVR.Net;
 internal struct TownResidentPose
 {
     internal RigPose Pose;
-    internal float Scale, Age;
+    internal float Scale, Age, ActorFloorOffset, FurnitureBottom;
     internal byte Visibility, Clip;
 }
 
@@ -20,11 +20,11 @@ internal struct TownResidentsState
     { if (index == 0) Merchant = pose; else if (index == 1) Temple = pose; else Enchantress = pose; }
 }
 
-/// <summary>Additive79: active1; when active, three pose20/scale4/age4/visibility1/clip1 entries.
+/// <summary>Additive79: active1; when active, three pose20/scale4/age4/visibility1/clip1/actorFloor4/furnitureBottom4 entries.
 /// Idle0 and greeting1 are sampled from the same authored clips on all clients.</summary>
 internal static class TownResidentsCodec
 {
-    internal const int MaxPayload = 91;
+    internal const int MaxPayload = 115;
     private static bool Finite(float x) => !float.IsNaN(x) && !float.IsInfinity(x);
     internal static bool Valid(in TownResidentsState state)
     {
@@ -37,6 +37,8 @@ internal static class TownResidentsCodec
             if (!Finite(p.x) || !Finite(p.y) || !Finite(p.z) || p.sqrMagnitude > 10000f
                 || !Finite(q.x) || !Finite(q.y) || !Finite(q.z) || !Finite(q.w)
                 || System.Math.Abs(norm - 1d) > .01d || !Finite(entry.Scale) || entry.Scale <= .01f || entry.Scale > 10f
+                || !Finite(entry.ActorFloorOffset) || Mathf.Abs(entry.ActorFloorOffset) > .5f
+                || !Finite(entry.FurnitureBottom) || Mathf.Abs(entry.FurnitureBottom) > .5f
                 || !Finite(entry.Age) || entry.Age < 0f || entry.Age > 10000000f || entry.Clip > 1) return false;
         }
         return true;
@@ -55,6 +57,8 @@ internal static class TownResidentsCodec
             AvatarSerializer.WriteF32(buffer, ref offset, entry.Scale);
             AvatarSerializer.WriteF32(buffer, ref offset, entry.Age);
             buffer[offset++] = entry.Visibility; buffer[offset++] = entry.Clip;
+            AvatarSerializer.WriteF32(buffer, ref offset, entry.ActorFloorOffset);
+            AvatarSerializer.WriteF32(buffer, ref offset, entry.FurnitureBottom);
         }
         return true;
     }
@@ -80,6 +84,8 @@ internal static class TownResidentsCodec
             entry.Scale = AvatarSerializer.ReadF32(buffer, ref offset);
             entry.Age = AvatarSerializer.ReadF32(buffer, ref offset);
             entry.Visibility = buffer[offset++]; entry.Clip = buffer[offset++];
+            entry.ActorFloorOffset = AvatarSerializer.ReadF32(buffer, ref offset);
+            entry.FurnitureBottom = AvatarSerializer.ReadF32(buffer, ref offset);
             read.Set(n, entry);
         }
         if (!Valid(in read)) return false;
