@@ -89,8 +89,25 @@ those two stations as merchant racks.
 These harnesses bind production code but use explicit adapters for game-controller state.
 Asset pixels use a same-source Linux review bundle; Windows stereo output remains a
 hardware check. See [art evidence](TOWN-SERVICES-540-ART.md) and
-[provenance evidence](TOWN-SERVICES-540-PROVENANCE.md). Additional integrated validation
-and final package identity are recorded below once complete.
+[provenance evidence](TOWN-SERVICES-540-PROVENANCE.md).
+
+### Final integrated gate and package
+
+Production source commit: `5aa5d9296aca9ccd18d069eb0bce1d722ead35d5`.
+The final strict Release build has zero errors and zero warnings. Documentation parity
+passes for all four language pairs; whitespace checks are clean. The complete refactor
+check runs all functional checks successfully, including 255,887 wire assertions. Its
+historical compiled comparison against baseline `080c505e9` reports 0 moved, 104 changed
+and 95 added/removed types/files; exit 1 is that expected comparison, not a failed harness.
+The surface comparison retains every existing key, patch and log token: 626 config keys,
+174 Harmony patches and 4,746 log tokens. Final gate logs and the archive manifest are
+retained in `.planning/debug/town-build-540/`.
+
+`dist/GloomhavenVR-1.0.7.zip` is a development package (ModBuild 540), not a release.
+Its CRC, archive layout and Windows text encoding checks pass. It contains both required
+bundles and the DLL built from the source commit above. Archive size: 181,133,808 bytes;
+SHA256: `1906893af39786fba948687fc883491da01704028697881662ae260d4b617978`.
+Subsequent validation-record commits do not change this package's production source.
 
 ## Required hardware pass
 
