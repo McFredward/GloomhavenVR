@@ -42,5 +42,22 @@ Evidence SHA-256:
   geometry/runtime test is not a claim of realistic headset facial animation.
 
 Independent workers use current-dev worktrees for facial assets, gaze/network runtime,
-and voice-source research. Root integrates and reviews; only root pushes dev. Voice
-source preference is pending while geometry and runtime work continue.
+and voice-source research. Root integrates and reviews; only root pushes dev.
+
+## Maintainer clarification: original speech only for this build
+
+The maintainer subsequently chose existing game recordings and deferred AI-generated
+voices to possible later work. Six test greetings had already been generated before
+that answer arrived (listed estimate USD 0.028); this was disclosed immediately.
+Their asset commit and bundle-loader addition were reverted. The test audio and
+receipts remain private under `.planning/debug/town543-speech/`, outside the shipping
+asset tree. No generated greeting, automatic synthetic playback or paid retry belongs
+in this build.
+
+The game contains narration, but no service greeting has yet been verified for these
+three NPCs. Further research must establish a genuine native speaker/clip association;
+playing unrelated narrator recordings from an NPC would not satisfy this preference.
+Eye/head motion, expressions and a physically speakable mouth rig remain in scope.
+Without a verified applicable speech source, the resting mouth stays closed and the
+speech adapter remains inactive. Do not claim audible NPC speech is implemented merely
+because the rig can articulate.
