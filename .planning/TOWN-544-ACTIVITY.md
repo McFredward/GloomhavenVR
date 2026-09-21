@@ -49,8 +49,8 @@ rules: fast packets cannot resurrect a suspended peer; a newer same-epoch presen
   and body reset/no accumulation. Production terrain grounding is applied at0/±3.5cm;
   writing wrist contact must remain within3mm, and prayer wrist rotations stay continuous
   during interruption. Latest run:92,107 assertions/nine compiled defects against the
-  immutable build543 Linux bundle SHA256
-  `be0f46bbe0241b3c2478b7872d5e2308cb701a0e57330eb34d6c08c3f1906b43`.
+  final build544 Linux bundle SHA256
+  `e0a1357db551bdbab3995f1ee37c3a728e03e164a284cc57096aa7ea55c0a0f3`.
 - Direct wire executable:260,310 assertions passed, including all partial81 tails after
   valid79/80 and invalid full81. Release compile:zero warnings/errors.
 - Resident lifecycle:145 assertions/eight negative controls; settings, station and
@@ -63,13 +63,13 @@ rules: fast packets cannot resurrect a suspended peer; a newer same-epoch presen
   geometry has a neutral diagnostic material; its diagnostic coin is labelled non-native.
   Runtime still uses the original game props/materials.
 
-Visual tool contact is still being calibrated. CPU contact-v8 has writing tip at
+Earlier CPU contact-v8 had writing tip at
 (-.0594,.9968,.1806) in station metres; the merchant leans24 degrees while writing
 with a smooth45-degree wrist roll, preserving page contact after grounding. The separate
 pen-off view2 proves the remaining thumb flap is skinned hand geometry, not tool geometry.
 Exact diagnostic local bone rotations are exported alongside each image for asset review.
-Final544 assets and headset motion are not yet verified. The checkpoint does not claim final
-pose quality, multiplayer hardware parity or measured headset performance.
+Final544 automated and diagnostic-image evidence is recorded below. Headset motion,
+multiplayer hardware parity and measured headset performance remain unverified.
 
 ## Returning-author recovery review
 
@@ -85,8 +85,8 @@ The returning-author regression passes through production math in the portable g
 a deliberately compiled immediate-snap variant fails the initial hand continuity check.
 The production population fixture now covers the delayed gaze convergence after a new
 author. No new bytes, gameplay gates or viewer-driven attention election were added.
-Final repaired544 bundle contact validation remains pending; the prior543 asset assertions
-are evidence for the previous geometry, not a claim about the unpublished replacement.
+The final repaired544 bundle was subsequently validated as recorded below; prior543
+asset assertions are retained only as historical evidence for the previous geometry.
 
 ## Thumb deformation and hosted-CI follow-up
 
@@ -106,3 +106,53 @@ compiled negative controls passed; the executable dependency manifest contains o
 itself and the .NET runtime, no Unity/game assemblies. This is separate from real Unity
 scene/rig evidence. The original metadata-only hosted environment cannot execute real
 Unity method bodies and is no longer asked to do so.
+
+
+## Final 544 actual-prefab validation
+
+Both focused gates ran against source commit
+`1b138e9d86b06b8a768ca46cb7453b55018d3ae9` and the same immutable Linux bundle:
+
+- Path: `/home/claw/gvr-town544-faces/.planning/debug/town544-final-assets/town-assets-mgsr1d_g/evidence/town-review.bundle`
+- Size: 98,331,564 bytes.
+- SHA256 before and after both gates:
+  `e0a1357db551bdbab3995f1ee37c3a728e03e164a284cc57096aa7ea55c0a0f3`.
+- Unity 2021.3.5f1; no runtime source change was needed after these runs.
+
+`check-town-face.py --bundle-only` passed 9,862 production assertions, three compiled
+negative controls and nine in-memory anatomical weight-corruption controls. All three
+imported prefabs have three facial LODs and all 11 required shapes per LOD, actual Head/Eye
+axes, body-reset/no-accumulation behavior and converging eye rotations. Independent
+anatomical metadata supplies 144 skull and 144 jaw probes per NPC. Maximum rigid skull/jaw
+residual is 1.864 micrometres; maximum eye target error is 0.02798 degrees. Eye separations
+are 78.994/64.880/52.286 mm for merchant/priestess/enchantress. Each has four eye renderers,
+2,566 vertices, 4,880 triangles and 144,536 bytes of Unity mesh memory. All four original
+body clips are exercised; the gate does not enumerate additional animation states.
+
+`check-town-activity.py --bundle --render` passed 92,107 production assertions and nine
+compiled negative controls. This includes each final NPC rig, 0/±3.5 cm production terrain
+grounding, writing wrist contact below 3 mm, bounded thumb curl, interruption wrist
+continuity, body reset and authority-recovery reconciliation. Final writing pen tip is
+(-.05944329,.996977746,.181964785) metres in station coordinates.
+
+The final render set includes work, writing/casting, fully attentive and phase 3 normal
+work-focus gaze. Phase 3 uses actual production FaceMotion.Aim and FaceRig.Apply after body
+posing, rather than an imposed head angle. Its settled work focus reaches the allowed
++22-degree head pitch for all three NPCs, with effectively zero head yaw. Thus the earlier
+expectation that ordinary ledger gaze would necessarily bend less than the extreme was
+incorrect for these final authored poses. Front views were inspected with that actual
+combined pose; no additional head/neck tear was identified. This is a still-image check,
+not a claim about headset comfort or motion quality.
+
+Evidence directories in the activity worktree:
+
+- `.planning/debug/town544-final-face/run-b4__jz6h` (JSON anatomy/rig metrics and controls).
+- `.planning/debug/town544-final-activity/run-7vtc78vk` (production activity and controls).
+- `.planning/debug/town544-final-activity/contact-final` (three NPCs × four phases × three
+  views, exact local bone JSON and CSV contact/gaze measurements). View 2 intentionally
+  hides the pen to distinguish tool geometry from hand skinning.
+
+The diagnostic book retains the original mesh with a neutral material, and the render
+fixture's coin is explicitly non-native. These images do not validate shipping native
+prop colors, synchronized multiplayer headset appearance or GPU performance. Those remain
+hardware-test checks; actual production rig/contact and protocol gates have passed.
