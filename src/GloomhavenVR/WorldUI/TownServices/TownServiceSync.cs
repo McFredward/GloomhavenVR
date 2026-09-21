@@ -51,6 +51,7 @@ internal static class TownServiceSync
     internal static void Prepare()
     {
         if (!MapRoomDriver.Active || Time.unscaledTime < _prepareAfter) return;
+        if (!WorldUIConfig.ImmersiveTownServices.Value && !TownServicePopulation.HasRemoteVisitors) return;
         try { NativeTemplates.Initialize(); TownServiceNativeAssets.Tick(); }
         catch (Exception e) { _prepareAfter = Time.unscaledTime + 2f; Report("prepare", e); }
     }

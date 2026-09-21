@@ -5,6 +5,12 @@ not a release announcement or a claim of headset validation.
 
 ## Interaction scope
 
+Build 539 adds **Immersive town visits** to VR options, disabled by default. The setting
+controls the local merchant, temple and enchantress presentation. With it off, their original
+1.0.6 window flow remains in charge. Switching off during a visit cancels cosmetic samples,
+restores native sections and portraits, and keeps the same native controller and selection.
+Another visitor's enabled station remains visible for multiplayer presentation parity.
+
 The merchant, temple and enchantress keep the game's service entry, selected character,
 permissions, stock, prices, confirmations and exit callbacks. Opening the existing destination
 introduces its animated NPC and furniture. Each visitor has a reachable, movable work tray;
@@ -55,9 +61,13 @@ native confirm, cancel, reward or exit callback.
 
 ## Hardware pass
 
-1. Install the complete development package, including both asset bundles. Open each service
+1. Install the complete development package, including both asset bundles. Enable immersive
+   town visits in VR options. Open each service
    in Campaign and Guildmaster; repeat open, X/exit, reopen and service switches. Native
    first-visit introductions, confirmations and any threshold rewards must remain actionable.
+   For each service, toggle off while open and while holding a sample: expect the original
+   complete window and portrait, unchanged selection and no accidental confirmation. Repeat
+   off/on, X/reopen and restart with the setting off. Check mixed enabled/disabled visitors.
 2. Inspect NPC scale, feet, face/hand detail and animation in the original room, cellar,
    night forest and mixed reality. Check furniture clearance and both-eye shader rendering.
 3. Merchant: change character, buy/sell, browse all categories, scroll, inspect a sample,

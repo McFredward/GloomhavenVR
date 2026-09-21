@@ -5,6 +5,13 @@ namespace GloomhavenVR.WorldUI;
 
 internal static partial class ModalFallback
 {
+    /// <summary>Return the intact native controller to the ordinary window path. Unlike a
+    /// section handoff, this retains the normal fitting, placement and opening lifecycle.</summary>
+    internal static void RestoreClassicTownService(UIWindow window)
+    {
+        if (window != null && window.IsOpen) TryConvertWindow(window);
+    }
+
     /// <summary>End the previous conversion before any descendant acquires a new owner.
     /// A deferred rollback must finish before a section can record its native home.</summary>
     internal static bool ReleaseForTownService(UIWindow window, ConvertedPanel previous)

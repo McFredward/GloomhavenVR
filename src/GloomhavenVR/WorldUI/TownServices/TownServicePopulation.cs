@@ -19,6 +19,17 @@ internal static class TownServicePopulation
     private static GameObject? _frame;
     internal static Transform? Frame => _frame != null ? _frame.transform : null;
 
+    internal static bool HasRemoteVisitors
+    {
+        get
+        {
+            float now = Time.unscaledTime;
+            foreach (TownServiceSessionInfo remote in TownServiceMirror.RemoteSessions.Values)
+                if (remote.Active && now - remote.ReceivedTime <= 10f) return true;
+            return false;
+        }
+    }
+
     internal static bool Prepare()
     {
         if (!MapRoomDriver.TryGetParchmentFrame(out Vector3 center, out float scale)) return false;
@@ -44,6 +55,9 @@ internal static class TownServicePopulation
 
     internal static void Tick()
     {
+        // A local preference never changes another visitor's original presentation. With no
+        // visitor, the classic path needs neither a shared frame nor resident assets.
+        if (_frame == null && !TownServicePresentation.Active && !HasRemoteVisitors) return;
         if (!Prepare()) { Reset(); return; }
         float now = Time.unscaledTime;
         int local = NetPlayerActors.LocalPlayerId();

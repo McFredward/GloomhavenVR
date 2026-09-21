@@ -37,7 +37,8 @@ internal static class TownServicePresentation
     internal static IReadOnlyList<TownServiceSurface> LocalSurfaces => Surfaces;
     internal static Transform? ContextRoot => _context?.Target;
     internal static Transform? StationRoot => _station?.Root;
-    internal static bool Active => _window != null && _window.IsOpen && _station != null;
+    internal static bool Active => WorldUIConfig.ImmersiveTownServices.Value
+        && _window != null && _window.IsOpen && _station != null;
 
     internal static void Tick()
     {
@@ -55,6 +56,17 @@ internal static class TownServicePresentation
 
     private static void TickCore()
     {
+        if (!WorldUIConfig.ImmersiveTownServices.Value)
+        {
+            // Cancel samples before restoring their source widgets. Never close/reopen the
+            // native controller: its character, selection and pending confirmation stay intact.
+            UIWindow? restore = _window;
+            Reset();
+            _failedWindow = null;
+            if (restore != null && restore.IsOpen)
+                ModalFallback.RestoreClassicTownService(restore);
+            return;
+        }
         EGuildmasterMode mode = GuildmasterDestinations.CurrentDestinationMode();
         byte service = mode == EGuildmasterMode.Merchant ? (byte)1 : mode == EGuildmasterMode.Temple ? (byte)2
             : mode == EGuildmasterMode.Enchantress ? (byte)3 : (byte)0;

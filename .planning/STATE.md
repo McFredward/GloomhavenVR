@@ -1,6 +1,6 @@
 # State — where the project stands
 
-**Updated 2026-09-21 for the first immersive town-service variant; dev 1.0.7 / ModBuild 538.** The file this replaces had gone 168 builds
+**Updated 2026-09-21 for optional immersive town visits; dev 1.0.7 / ModBuild 539.** The file this replaces had gone 168 builds
 stale while still saying "read this first"; it is kept as `STATE-ARCHIVE-through-2026-08.md` for
 its round-by-round narrative and for nothing else.
 
@@ -12,6 +12,13 @@ change per build) → this file (where things stand and what is owed) → the bu
 ---
 
 ## 1. Position
+
+- **Town services / build 539:** VR options expose `WorldUI/ImmersiveTownServices`,
+  disabled by default. Turning it off restores the three original service windows through
+  the ordinary conversion path, including an already-open service, without changing native
+  selection or invoking close/confirmation callbacks. Held samples are cancelled, original
+  section parents and portraits restored. Enabled remote visitors remain visible regardless
+  of the observer's local preference. Hardware verification of live switching is pending.
 
 - **Town services / build 538:** first immersive merchant, temple and enchantress variant.
   Three generated NPCs have body/finger rigs, authored greeting/idle animations, three mesh

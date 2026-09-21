@@ -517,7 +517,15 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 538;
+    public const ushort ModBuild = 539;
+
+    // ModBuild 539 — optional immersive town visits, disabled by default.
+    // VR options switch the local merchant, temple and enchantress between immersive
+    // presentation and the ordinary 1.0.6 window path. Live disable cancels held samples,
+    // restores original section parents and portraits, and preserves the native controller's
+    // selection and continuation. The release fence reads the setting before the next tick.
+    // An observer's local setting never changes an enabled visitor's shared presentation.
+    // No local immersive visitor and no remote session means no template preload or NPC.
 
     // ModBuild 538 — first immersive town-service hardware variant (dev 1.0.7).
     // Merchant, temple and enchantress retain native selection, prices, permissions and
