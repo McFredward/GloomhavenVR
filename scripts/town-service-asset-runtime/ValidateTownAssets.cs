@@ -6,7 +6,7 @@ using UnityEditor;
 using UnityEngine;
 using UnityEngine.Rendering;
 
-// Tests the bundled art in an unlit map camera, not a studio scene that supplies missing lights.
+// Actual scene lighting must drive NPCs, including a zero-pixel-light VR camera.
 public static class ValidateTownAssets
 {
     static int assertions;
@@ -49,6 +49,17 @@ public static class ValidateTownAssets
             { var p = pixels[y * 800 + x]; if (p.r + p.g + p.b > 120) count++; }
         return count;
     }
+    static int RetainedBright(Color32[] reference, Color32[] current, bool actor)
+    {
+        int count = 0;
+        for (int y = actor ? 440 : 110; y < (actor ? 660 : 370); y++)
+            for (int x = actor ? 270 : 150; x < (actor ? 530 : 650); x++)
+            {
+                var a = reference[y * 800 + x]; var b = current[y * 800 + x];
+                if (a.r + a.g + a.b > 120 && b.r + b.g + b.b > 120) count++;
+            }
+        return count;
+    }
     static int Different(Color32[] a, Color32[] b)
     {
         int count = 0;
@@ -85,7 +96,7 @@ public static class ValidateTownAssets
         camera.targetTexture = new RenderTexture(800, 800, 24);
         var bundle = AssetBundle.LoadFromFile(Path.Combine(output, "town-review.bundle"));
         var oldShader = AssetDatabase.LoadAssetAtPath<Shader>("Assets/OldTownShader.shader");
-        Check(oldShader != null && oldShader.isSupported, "Historical lighting control compiles on GL");
+        Check(oldShader != null && oldShader.isSupported, "Historical self-lighting control compiles on GL");
         foreach (var npc in new[] { "merchant", "priestess", "enchantress" })
         {
             var root = UnityEngine.Object.Instantiate(bundle.LoadAsset<GameObject>(
@@ -99,24 +110,35 @@ public static class ValidateTownAssets
                 var planks = Enumerable.Range(0, 4).Select(i => counter.Find("SurfacePlank" + i).GetComponent<Renderer>().bounds).ToArray();
                 var top = planks[0]; foreach (var plank in planks) top.Encapsulate(plank);
                 Check(top.size.x >= 1.64f && top.size.z >= .79f, "Merchant top contains catalogue and tray footprint");
-                Check(counter.Find("Coin0").localPosition.x < -.45f && counter.Find("Coin0").localPosition.z > .15f,
-                    "Decorative coins clear selectable cards and tray");
+                Check(counter.Find("Coin0") == null && counter.Find("LedgerCover") == null && counter.Find("LeatherMat") == null,
+                    "Native decoration and physical cards replace primitive tabletop props");
             }
             var lod = root.GetComponentInChildren<LODGroup>();
             Check(lod.size > 1.7f && lod.size < 2.2f, npc + " human-sized LOD envelope");
             Check(lod.GetLODs().Length == 3, npc + " retains automatic three-level LOD");
+            Check(root.transform.Find("GroundAnchor") != null && root.transform.Find("LightAnchor") != null,
+                npc + " explicit floor and physical light anchors");
             Sample(root, "Idle", 0);
+            yield return null;
+            var unlit = Picture(npc + "-unlit");
+            Check(Bright(unlit, true) < 100, npc + " no self-lit skin in a black environment");
+            var light = new GameObject("Physical stand light").AddComponent<Light>();
+            light.type = LightType.Point; light.renderMode = LightRenderMode.ForceVertex;
+            light.cullingMask = 1 << 31; light.range = 5; light.intensity = 3;
+            light.color = new Color(1, .85f, .65f); light.transform.position = new Vector3(-.6f, 1.65f, -.5f);
+            RenderSettings.ambientLight = new Color(.16f, .18f, .23f);
+            RenderSettings.ambientIntensity = 1;
             yield return null;
             var full = Picture(npc + "-full");
             int body = Bright(full, true), furniture = Bright(full, false);
-            Check(body > 10000, npc + " auto-LOD actor visible and textured without lights");
-            Check(furniture > 10000, npc + " furniture visible and textured without lights");
+            Check(body > 10000, npc + " auto-LOD actor visible and textured with stand lighting");
+            Check(furniture > 1000, npc + " furniture visible and textured with stand lighting");
             Check(!full.Any(p => p.r > 240 && p.b > 240 && p.g < 10), npc + " no unsupported shader magenta");
             Visibility(root, .5f); yield return null; var half = Picture(npc + "-half");
             Visibility(root, 0); yield return null; var hidden = Picture(npc + "-hidden");
             Check(Bright(hidden, true) == 0 && Bright(hidden, false) == 0, npc + " fully hidden at zero visibility");
-            Check(Bright(half, true) > 0 && Bright(half, true) < body, npc + " intermediate actor dissolve rendered");
-            Check(Bright(half, false) > 0 && Bright(half, false) < furniture, npc + " intermediate furniture dissolve rendered");
+            Check(RetainedBright(full, half, true) > 0 && RetainedBright(full, half, true) < body, npc + " intermediate actor dissolve rendered");
+            Check(RetainedBright(full, half, false) > 0 && RetainedBright(full, half, false) < furniture, npc + " intermediate furniture dissolve rendered");
             Visibility(root, 1); Sample(root, "Greeting", 1.2f);
             yield return null;
             var greeting = Picture(npc + "-greeting");
@@ -124,25 +146,52 @@ public static class ValidateTownAssets
             Sample(root, "Idle", 0);
             // Native handoff runs around 198 world units per metre in the supplied map log.
             root.transform.localScale = Vector3.one * 198;
+            light.transform.position *= 198; light.range *= 198;
             camera.transform.position *= 198; camera.farClipPlane = 2000;
             yield return null;
             var scaled = Picture(npc + "-scale198");
             Check(Bright(scaled, true) > body * .9f, npc + " actor remains visible at map scale");
             root.transform.localScale = Vector3.one; camera.transform.position /= 198;
+            light.transform.position /= 198; light.range /= 198;
             float size = lod.size; lod.size *= .01f;
             yield return null;
             var culled = Picture(npc + "-negative-lod");
             Check(Bright(culled, true) < body / 20, npc + " negative control: old tiny LOD removes actor");
             lod.size = size;
+            UnityEngine.Object.DestroyImmediate(light.gameObject);
+            RenderSettings.ambientLight = Color.black; RenderSettings.ambientIntensity = 0;
             foreach (var renderer in root.GetComponentsInChildren<Renderer>())
                 foreach (var material in renderer.materials) material.shader = oldShader;
             yield return null;
             var dark = Picture(npc + "-negative-lighting");
-            Check(Bright(dark, true) < body / 20, npc + " negative control: original lighting blacks out actor");
-            Check(Bright(dark, false) < furniture / 20, npc + " negative control: original lighting blacks out furniture");
+            Check(Bright(dark, true) > 10000, npc + " negative control: old studio light makes skin glow in darkness");
+            Check(Bright(dark, false) > 10000, npc + " negative control: old studio light makes furniture glow in darkness");
             Debug.Log("TOWN_ASSET_PIXELS " + npc + " body=" + body + " furniture=" + furniture + " lod=" + size);
             UnityEngine.Object.DestroyImmediate(root);
         }
+        var flameShader = AssetDatabase.LoadAssetAtPath<Shader>("Assets/Bundle/TownServices/Shaders/TownFlame.shader");
+        Check(flameShader != null && flameShader.isSupported, "Native flame presentation shader compiles");
+        var flame = GameObject.CreatePrimitive(PrimitiveType.Quad); flame.layer = 31;
+        flame.transform.position = new Vector3(0, 1, 0); flame.transform.localScale = new Vector3(.4f, .6f, 1);
+        var flameMaterial = new Material(flameShader); flame.GetComponent<Renderer>().sharedMaterial = flameMaterial;
+        flameMaterial.SetFloat("_Billboard", 1); flameMaterial.SetFloat("_Toggle_Flipbook", 1);
+        flameMaterial.SetFloat("_FlipbookTileX", 2); flameMaterial.SetFloat("_FlipbookTileY", 2);
+        var frames = new Texture2D(2, 2); frames.filterMode = FilterMode.Point;
+        frames.SetPixels(new[] { Color.red, Color.green, Color.blue, Color.yellow }); frames.Apply();
+        flameMaterial.mainTexture = frames;
+        camera.transform.position = new Vector3(0, 1, -2); camera.transform.LookAt(flame.transform);
+        yield return null; var frame0 = Picture("flame-front-frame0");
+        flameMaterial.SetFloat("_TownAnimationTime", .26f);
+        yield return null; var frame1 = Picture("flame-front-frame1");
+        Check(Different(frame0, frame1) > 1000, "Shared clock advances original flame atlas frames");
+        camera.transform.position = new Vector3(2, 1, 0); camera.transform.LookAt(flame.transform);
+        yield return null; var side = Picture("flame-side");
+        Check(Different(frame1, side) < 1000, "Verified XY flame quad remains visible edge-on with shared-eye billboard");
+        flameMaterial.SetFloat("_TownVisibility", 0);
+        yield return null; var absent = Picture("flame-hidden");
+        Check(Different(side, absent) > 1000, "Flame obeys station dissolve visibility");
+        UnityEngine.Object.DestroyImmediate(flame);
+        UnityEngine.Object.DestroyImmediate(frames); UnityEngine.Object.DestroyImmediate(flameMaterial);
         File.WriteAllText(Path.Combine(output, "result.txt"), "PASS " + assertions + " assertions; 6 visual negative controls\n");
         Debug.Log("TOWN_ASSET_VALIDATION_PASS assertions=" + assertions + " negativeControls=6");
     }

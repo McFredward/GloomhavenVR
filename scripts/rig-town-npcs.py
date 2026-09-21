@@ -283,21 +283,52 @@ def main():
     welding = [weld_lod_source(obj) for obj in originals]
     source_triangles = sum(len(o.data.polygons) for o in originals)
     meshes = []
-    for level, target in enumerate((80000, 30000, 10000)):
-        for i, original in enumerate(originals):
-            obj = original.copy()
-            obj.data = original.data.copy()
-            obj.name = 'LOD%d_%d' % (level, i)
-            bpy.context.collection.objects.link(obj)
+    if manifest.get('faceAuthoring'):
+        import bmesh
+        # Full-body uniform decimation spent only a tiny fraction of the old budget
+        # on a close-view face. Each new head now keeps a dedicated geometry budget.
+        for level, budgets in enumerate(((60000, 40000), (22000, 18000), (7000, 6000))):
+            parts = []
+            for material_kind, target in zip(('TownBody', 'TownFace'), budgets):
+                for original in originals:
+                    obj = original.copy(); obj.data = original.data.copy()
+                    bpy.context.collection.objects.link(obj)
+                    bm = bmesh.new(); bm.from_mesh(obj.data)
+                    remove = [face for face in bm.faces if not obj.data.materials[face.material_index].name.startswith(material_kind)]
+                    bmesh.ops.delete(bm, geom=remove, context='FACES'); bm.to_mesh(obj.data); bm.free()
+                    if not obj.data.polygons:
+                        bpy.data.objects.remove(obj, do_unlink=True); continue
+                    bpy.ops.object.select_all(action='DESELECT'); obj.select_set(True)
+                    bpy.context.view_layer.objects.active = obj
+                    if len(obj.data.polygons) > target:
+                        modifier = obj.modifiers.new('Dedicated face and costume budget', 'DECIMATE')
+                        modifier.ratio = target / len(obj.data.polygons)
+                        modifier.use_collapse_triangulate = True
+                        bpy.ops.object.modifier_apply(modifier=modifier.name)
+                    for polygon in obj.data.polygons: polygon.use_smooth = True
+                    parts.append(obj)
             bpy.ops.object.select_all(action='DESELECT')
-            obj.select_set(True)
-            bpy.context.view_layer.objects.active = obj
-            if source_triangles > target:
-                modifier = obj.modifiers.new('Welded-source LOD candidate', 'DECIMATE')
-                modifier.ratio = target / source_triangles
-                modifier.use_collapse_triangulate = True
-                bpy.ops.object.modifier_apply(modifier=modifier.name)
+            for obj in parts: obj.select_set(True)
+            bpy.context.view_layer.objects.active = parts[0]
+            bpy.ops.object.join()
+            obj = bpy.context.object; obj.name = 'LOD%d_0' % level
             meshes.append(obj)
+    else:
+        for level, target in enumerate((80000, 30000, 10000)):
+            for i, original in enumerate(originals):
+                obj = original.copy()
+                obj.data = original.data.copy()
+                obj.name = 'LOD%d_%d' % (level, i)
+                bpy.context.collection.objects.link(obj)
+                bpy.ops.object.select_all(action='DESELECT')
+                obj.select_set(True)
+                bpy.context.view_layer.objects.active = obj
+                if source_triangles > target:
+                    modifier = obj.modifiers.new('Welded-source LOD candidate', 'DECIMATE')
+                    modifier.ratio = target / source_triangles
+                    modifier.use_collapse_triangulate = True
+                    bpy.ops.object.modifier_apply(modifier=modifier.name)
+                meshes.append(obj)
     for obj in originals:
         bpy.data.objects.remove(obj, do_unlink=True)
     bpy.ops.object.select_all(action='DESELECT')

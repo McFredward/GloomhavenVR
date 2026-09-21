@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Render the actual town assets with the map's zero-light conditions in isolated Unity.
+"""Render the actual town assets with environment and physical stand lighting in isolated Unity.
 
 The shipping bundle targets Windows/D3D. This Linux check builds the same sources for
 Linux/GL; it does not claim to validate a headset's D3D/stereo output. The original
-build-539 shader is retained as a negative-control fixture.
+build-540 studio-light shader is retained as a negative-control fixture.
 """
 import argparse
 import hashlib

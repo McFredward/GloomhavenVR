@@ -247,6 +247,13 @@ namespace GloomhavenVR
             var blocker = furniture.AddComponent<BoxCollider>();
             blocker.center = new Vector3(0, 0.48f, 0);
             blocker.size = new Vector3(1.50f, 0.96f, 0.72f);
+            if (npc == "merchant")
+            {
+                foreach (var z in new[] { 0.0393f, -0.1707f })
+                    Box(furniture, "CardRackLip" + z, new Vector3(0, 0.965f, z), new Vector3(0.60f, 0.020f, 0.012f), wood);
+                foreach (var z in new[] { 0.145f, -0.065f })
+                    Box(furniture, "CardRackSupport" + z, new Vector3(0, 1.015f, z), new Vector3(0.60f, 0.012f, 0.012f), wood);
+            }
             // Native decoration is acquired from the game at runtime. Do not substitute
             // primitive candles, coins or books; physical merchandise needs the clear top.
             if (npc == "priestess")
@@ -349,6 +356,40 @@ namespace GloomhavenVR
             bound.Expand(0.12f); // Conservative margin for the bounded greeting/idle gesture.
             group.localReferencePoint = bound.center;
             group.size = Mathf.Max(bound.size.x, bound.size.y, bound.size.z);
+        }
+
+        public static void RefreshPresentation()
+        {
+            foreach (var npc in Npcs)
+            {
+                var path = Root + "/Prefabs/Town" + Char.ToUpperInvariant(npc[0]) + npc.Substring(1) + ".prefab";
+                var root = PrefabUtility.LoadPrefabContents(path);
+                try
+                {
+                    foreach (var name in new[] { "Counter", "Shrine", "Workbench", "GroundAnchor", "DecorAnchor", "LightAnchor" })
+                    {
+                        var old = root.transform.Find(name);
+                        if (old != null) UnityEngine.Object.DestroyImmediate(old.gameObject);
+                    }
+                    BuildStation(root, npc);
+                    if (npc == "merchant") ExpandMerchantCounter(root);
+                    Anchor(root, "GroundAnchor", Vector3.zero);
+                    Anchor(root, "DecorAnchor", new Vector3(-0.63f, 0.96f, 0.22f));
+                    Anchor(root, "LightAnchor", new Vector3(-0.58f, 1.48f, 0.12f));
+                    var actor = root.transform.Find("Actor");
+                    actor.GetComponent<Animation>().GetClip("Idle").SampleAnimation(actor.gameObject, 0);
+                    var renderer = actor.GetComponentsInChildren<SkinnedMeshRenderer>().First(r => r.name.StartsWith("LOD0_"));
+                    var mesh = new Mesh(); renderer.BakeMesh(mesh);
+                    var bottom = mesh.vertices.Min(v => root.transform.InverseTransformPoint(renderer.transform.TransformPoint(v)).y);
+                    UnityEngine.Object.DestroyImmediate(mesh);
+                    actor.localPosition -= new Vector3(0, bottom, 0);
+                    SetPosedLodBounds(actor.GetComponent<LODGroup>());
+                    PrefabUtility.SaveAsPrefabAsset(root, path);
+                    Debug.Log("TOWN_GROUND " + npc + " correction=" + bottom);
+                }
+                finally { PrefabUtility.UnloadPrefabContents(root); }
+            }
+            AssetDatabase.SaveAssets();
         }
 
         public static void RefreshLodBounds()
