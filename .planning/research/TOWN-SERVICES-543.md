@@ -64,3 +64,24 @@ Eye/head motion, expressions and a physically speakable mouth rig remain in scop
 Without a verified applicable speech source, the resting mouth stays closed and the
 speech adapter remains inactive. Do not claim audible NPC speech is implemented merely
 because the rig can articulate.
+
+## Integrated runtime checks
+
+Runtime integration: `ebcbfb3a` and `99cb863f`, with the optional adapter already in
+`2e6988dc`. The independent review in [TOWN-543-REVIEW.md](TOWN-543-REVIEW.md)
+closed authoritative-clock divergence, repeated unsuccessful attention searches,
+retired-epoch rollback and legitimate recovery after a temporary network stall.
+
+The complete local guard passes 14 source suites, 50 runtime suites and 258,091
+wire assertions. Runtime suites took 421.5 seconds with eight workers. The real
+Unity face suite passes 2,076 assertions and 16 compiled negative controls.
+Strict Release has zero warnings/errors; bilingual documentation and whitespace
+checks pass. Surface counts are 626 configuration keys, 174 tracked Harmony patch entries
+and 4,746 log tokens, with no removals. Guard exit 1 is solely the expected compiled
+difference from historical baseline `080c505e9`: 106 changed types, 115 added/removed,
+no order-only moves. Evidence is in `.planning/debug/town543-final-guard.log` and
+`town543-release-build.log`.
+
+These results validate the integrated runtime source. Final model import, bundled
+asset rendering and actual-prefab binding checks are tracked separately; successful
+runtime fixtures do not approve the exported meshes or the headset picture.
