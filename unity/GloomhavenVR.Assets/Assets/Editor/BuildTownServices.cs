@@ -489,6 +489,17 @@ namespace GloomhavenVR
                     PrefabUtility.UnpackPrefabInstance(actor, PrefabUnpackMode.Completely, InteractionMode.AutomatedAction);
                     actor.name = "Actor"; actor.transform.SetParent(root.transform, false);
                     actor.transform.localPosition = position; actor.transform.localRotation = rotation; actor.transform.localScale = scale;
+                    // FBX imports its first animated pose, while optical/contact markers
+                    // are authored in mesh bind space. Restore that space before attaching
+                    // markers; otherwise an idle arm offset becomes a false palm offset.
+                    var bindSkin = actor.GetComponentsInChildren<SkinnedMeshRenderer>().First();
+                    var bindMatrices = bindSkin.bones.Select((bone, i) => new { Bone = bone,
+                        Matrix = bindSkin.transform.localToWorldMatrix * bindSkin.sharedMesh.bindposes[i].inverse }).ToArray();
+                    foreach (var binding in bindMatrices.OrderBy(binding => AnimationUtility.CalculateTransformPath(binding.Bone, actor.transform).Count(c => c == '/')))
+                    {
+                        binding.Bone.position = binding.Matrix.MultiplyPoint3x4(Vector3.zero);
+                        binding.Bone.rotation = binding.Matrix.rotation;
+                    }
                     var head = actor.GetComponentsInChildren<Transform>().Single(t => t.name == "Head");
                     var eyeMaterial = AssetDatabase.LoadAssetAtPath<Material>(Root + "/Materials/" + npc + "_eye.mat");
                     if (!eyeMaterial)
@@ -539,7 +550,7 @@ namespace GloomhavenVR
                         var renderer = actor.GetComponentsInChildren<SkinnedMeshRenderer>().Single(r => r.name.StartsWith("LOD" + i + "_"));
                         resident.lods[i] = new FacialLod { renderer = renderer.name, vertexCount = renderer.sharedMesh.vertexCount,
                             skull = RegionProbes(renderer.sharedMesh, false), jaw = RegionProbes(renderer.sharedMesh, true) };
-                        renderer.sharedMaterials = materials; renderer.quality = SkinQuality.Bone4; renderer.updateWhenOffscreen = true;
+                        renderer.sharedMaterials = materials.Take(renderer.sharedMesh.subMeshCount).ToArray(); renderer.quality = SkinQuality.Bone4; renderer.updateWhenOffscreen = true;
                         var bounds = renderer.localBounds; bounds.Expand(.4f); renderer.localBounds = bounds;
                         lods[i] = new LOD(new[] { .5f, .2f, .04f }[i], new Renderer[] { renderer }.Concat(eyeRenderers).ToArray());
                     }

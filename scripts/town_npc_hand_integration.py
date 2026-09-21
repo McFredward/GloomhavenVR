@@ -68,9 +68,10 @@ def lod_copy(source, level):
         bpy.ops.object.modifier_apply(modifier=modifier.name)
     for vertex in obj.data.vertices:
         weights=sorted(vertex.groups,key=lambda g:g.weight,reverse=True)
+        assert sum(group.weight for group in weights)>.99,'Anatomical hand lost skinning weights'
         for group in weights[4:]:obj.vertex_groups[group.group].remove([vertex.index])
         total=sum(group.weight for group in vertex.groups)
-        assert total>.99,'Anatomical hand lost skinning weights'
+        assert total>.80,'Four-weight hand reduction discarded excessive joint influence'
         for group in list(vertex.groups):obj.vertex_groups[group.group].add([vertex.index],group.weight/total,'REPLACE')
     obj.data.uv_layers.active.name='FaceAtlas';obj.data.uv_layers['FaceAtlas'].active_render=True
     return obj

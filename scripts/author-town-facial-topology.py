@@ -56,7 +56,20 @@ def portrait_coordinates(raw,profile):
     return np.column_stack((px,py))
 
 
-def fit(raw,name):
+def profile_x_scale(name):
+    p=PROFILES[name]
+    return (p['hi'][0]-p['lo'][0])*p['pixelsPerX']/(p['bounds'][2]-p['bounds'][0])*{'merchant':.86*1.04,'priestess':1.0,'enchantress':1.22}[name]
+
+
+def eye_height(name):
+    p=PROFILES[name];py=p['pixelsY'][6]
+    z=p['lo'][2]+(p['bounds'][3]-py)/(p['bounds'][3]-p['bounds'][1])*(p['hi'][2]-p['lo'][2])
+    if name=='priestess':z=float(np.interp(z,[0,.055,.102,.141,.175,.200,.28],[0,.055,.094,.133,.164,.191,.28]))
+    if name=='enchantress':z=float(np.interp(z,[0,.065,.095,.130,.169,.205,.27],[0,.065,.092,.128,.165,.205,.27]))
+    return z+p['base']
+
+
+def fit(raw,name,orbital=True):
     p=PROFILES[name]; uv=portrait_coordinates(raw,p); x0,y0,x1,y1=p['bounds']
     width=p['hi'][0]-p['lo'][0]; height=p['hi'][2]-p['lo'][2]
     x=(uv[:,0]-p['center'])/(x1-x0)*width
@@ -76,8 +89,53 @@ def fit(raw,name):
         # The portrait beard tip is not the anatomical chin. The 543 fit mapped
         # them identically and elongated the whole mandible. Keep eye height but
         # restore the original merchant's shorter, broader lower face and scalp.
-        world_z=np.interp(world_z,[1.30,1.42,1.475,1.565,1.636,1.750],[1.30,1.42,1.508,1.570,1.636,1.732])
+        world_z=np.interp(world_z,[1.30,1.42,1.475,1.565,1.636,1.750],[1.30,1.42,1.475,1.565,1.636,1.732])
         broad=np.interp(raw[:,1],[5.8,6.16,6.7,7.284,8.49],[1,1.16,1.10,1.04,1.02]);x*=broad
+    if name=='merchant':
+        # The original trader has a broad, projecting nose rather than the
+        # template's narrow bridge. Fit its volume without moving lip landmarks.
+        nose=np.exp(-((raw[:,0]/.22)**2+((raw[:,1]-6.91)/.22)**2))*np.clip((raw[:,2]-1.35)/.15,0,1)
+        x*=1+.30*nose;y-=.005*nose
+        mouth=np.exp(-((raw[:,1]-6.66)/.22)**2)*np.clip((raw[:,2]-1.15)/.20,0,1)
+        x*=1+.15*mouth
+        corners=np.exp(-((np.abs(raw[:,0])-.34)/.14)**2)*mouth
+        world_z+=.004*corners
+    # Physical interocular distance comes from the source character, not the
+    # aspect ratio of a separately generated portrait crop. Keep projection UVs
+    # independent of this anatomical fitting transform.
+    x*= {'merchant':1.0,'priestess':1.0,'enchantress':1.22}[name]
+    if name=='merchant':
+        orbit=np.exp(-((np.abs(raw[:,0])-.30775)/.24)**2-((raw[:,1]-7.28415)/.36)**2)
+        x-=np.sign(x)*.0055*orbit
+        # A rounded crown is fitted by horizontal ellipsoid sections, avoiding
+        # the flat top and corner created by anisotropic template scaling.
+        dome=np.clip((world_z-1.655)/.045,0,1);dome=dome*dome*(3-2*dome)
+        angle=np.arctan2(x,y+.002)
+        section=np.sqrt(np.maximum(0,1-((world_z-1.625)/.10685)**2))
+        x=x*(1-dome)+.098*section*np.sin(angle)*dome
+        y=y*(1-dome)+(-.002+.112*section*np.cos(angle))*dome
+        beard=np.exp(-((raw[:,1]-6.22)/.36)**2)*np.clip((raw[:,2]-.50)/.30,0,1)
+        x*=1+.32*beard;y-=.007*beard
+        tip=np.exp(-((raw[:,1]-6.15)/.23)**2)*np.clip((raw[:,2]-.45)/.40,0,1)
+        world_z-=.012*tip
+        brow=np.exp(-((raw[:,1]-7.51)/.13)**2)*np.clip((raw[:,2]-1.03)/.20,0,1)
+        world_z+=.003*brow*np.clip((np.abs(raw[:,0])-.15)/.25,-1,1)
+    # A volumetric orbital surface follows the actual spherical eye. The previous
+    # nonuniform portrait-height mapping flattened the globe vertically and left
+    # a sharp elliptical cutout instead of an upper/lower lid against a sphere.
+    for side in ((-1,1) if orbital else ()):
+        cx=side*.30775*profile_x_scale(name)
+        cz=eye_height(name)
+        cy=p['depthOffset']-1.24535*p['depthScale']
+        aperture=np.clip((.34-np.abs(raw[:,1]-7.28415))/.20,0,1)*np.clip((.29-np.abs(raw[:,0]-side*.30775))/.08,0,1)*np.clip((raw[:,2]-1.12)/.10,0,1)
+        world_z+= (world_z-cz)*(.28 if name=='merchant' else .40)*aperture
+        dx=x-cx;dz=world_z-cz;radius=.014
+        radial=(dx*dx+dz*dz)/(radius*radius)
+        inner=np.clip((raw[:,2]-1.12)/.10,0,1)
+        locality=np.clip((.26-np.abs(raw[:,0]-side*.30775))/.08,0,1)*np.clip((.23-np.abs(raw[:,1]-7.28415))/.10,0,1)
+        weight=inner*locality*np.clip((1.12-radial)/.12,0,1)
+        contact=cy-np.sqrt(np.maximum(.000002,radius*radius-dx*dx-dz*dz))-.00035
+        y=y*(1-weight)+np.minimum(y,contact)*weight
     # The lower template rings continue inside the existing shirt rather than
     # spreading over its shoulders. The exposed anatomical neck stays unchanged.
     tuck=np.clip((1.445-world_z)/.065,0,1)
@@ -162,13 +220,22 @@ def head_mesh(raw,faces,groups,face_uv,name,refs,data):
         lid_weight.data[loop.index].color=(fade,fade,fade,1)
     mesh.uv_layers.new(name='NeckSkin')
     mesh.color_attributes.new(name='NeckWeight',type='FLOAT_COLOR',domain='CORNER')
+    # Anatomical lower-neck UVs use the original CC0 skin, not a clamped strip
+    # from a portrait. Repeated portrait rows created the hardware's long streaks.
+    for polygon,source_face in zip(mesh.polygons,chosen_indices):
+        for loop_index,original_uv in zip(polygon.loop_indices,face_uv[source_face]):
+            x,y,z=raw[ids[mesh.loops[loop_index].vertex_index]]
+            plane=y+.65*z
+            weight=max(0,min(1,(6.36-plane)/.30));weight=weight*weight*(3-2*weight)
+            mesh.uv_layers['NeckSkin'].data[loop_index].uv=original_uv
+            mesh.color_attributes['NeckWeight'].data[loop_index].color=(weight,weight,weight,1)
+    beard=mesh.color_attributes.new(name='BeardIdentity',type='FLOAT_COLOR',domain='CORNER')
     for loop in mesh.loops:
-        x,y,z=raw[ids[loop.vertex_index]];plane=y+.65*z
-        weight=max(0,min(1,(6.72-plane)/.36));weight=weight*weight*(3-2*weight)
-        px=profile['center']+x*230;py=(650+(6.15-y)*45) if name=='merchant' else (560+(6.16-y)*140)
-        py=float(np.clip(py,565,694));left,right=skin_rows['front'][int(py)];px=float(np.clip(px,left+6,right-6))
-        mesh.uv_layers['NeckSkin'].data[loop.index].uv=(px/718,1-py/718)
-        mesh.color_attributes['NeckWeight'].data[loop.index].color=(weight,weight,weight,1)
+        x,y,z=raw[ids[loop.vertex_index]]
+        weight=max(0,min(1,(6.61-y)/.13))
+        weight=max(weight,max(0,min(1,(abs(x)-.50)/.14))*max(0,min(1,(7.02-y)/.25)))
+        weight*=max(0,min(1,(z-.35)/.35)) if name=='merchant' else 0
+        beard.data[loop.index].color=(weight,weight,weight,1)
     weights=mesh.color_attributes.new(name='ProjectionWeights',type='FLOAT_COLOR',domain='CORNER')
     for loop in mesh.loops:
         x,y,z=raw[ids[loop.vertex_index]];angle=abs(math.atan2(x,z-.65))
@@ -182,10 +249,12 @@ def head_mesh(raw,faces,groups,face_uv,name,refs,data):
     skin=nodes.new('ShaderNodeTexImage');skin.image=textures['front'].image;skin.extension='EXTEND';uv=nodes.new('ShaderNodeUVMap');uv.uv_map='LidSkin';links.new(uv.outputs[0],skin.inputs[0])
     eyelid=nodes.new('ShaderNodeVertexColor');eyelid.layer_name='LidWeight';patched=nodes.new('ShaderNodeMixRGB');links.new(eyelid.outputs[0],patched.inputs[0]);links.new(textures['front'].outputs[0],patched.inputs[1]);links.new(skin.outputs[0],patched.inputs[2])
     front=nodes.new('ShaderNodeMixRGB');links.new(split.outputs[0],front.inputs[0]);links.new(textures['left'].outputs[0],front.inputs[1]);links.new(patched.outputs[0],front.inputs[2])
-    back=nodes.new('ShaderNodeMixRGB');links.new(split.outputs[1],back.inputs[0]);links.new(front.outputs[0],back.inputs[1]);links.new(textures['back'].outputs[0],back.inputs[2]);neck=nodes.new('ShaderNodeTexImage');neck.image=textures['front'].image;neck.extension='EXTEND'
+    back=nodes.new('ShaderNodeMixRGB');links.new(split.outputs[1],back.inputs[0]);links.new(front.outputs[0],back.inputs[1]);links.new(textures['back'].outputs[0],back.inputs[2]);neck=nodes.new('ShaderNodeTexImage');neck.image=bpy.data.images.load(str(data/{'merchant':'skins/middleage_caucasian_male/middleage_lightskinned_male_diffuse.png','priestess':'skins/old_caucasian_female/old_lightskinned_female_diffuse.png','enchantress':'skins/young_caucasian_female/young_lightskinned_female_diffuse.png'}[name]));neck.extension='EXTEND'
     neckuv=nodes.new('ShaderNodeUVMap');neckuv.uv_map='NeckSkin';links.new(neckuv.outputs[0],neck.inputs[0])
     neckweight=nodes.new('ShaderNodeVertexColor');neckweight.layer_name='NeckWeight'
-    blend=nodes.new('ShaderNodeMixRGB');links.new(neckweight.outputs[0],blend.inputs[0]);links.new(back.outputs[0],blend.inputs[1]);links.new(neck.outputs[0],blend.inputs[2]);links.new(blend.outputs[0],nodes.get('Principled BSDF').inputs['Base Color']);mesh.materials.append(m)
+    blend=nodes.new('ShaderNodeMixRGB');links.new(neckweight.outputs[0],blend.inputs[0]);identity=nodes.new('ShaderNodeVertexColor');identity.layer_name='BeardIdentity'
+    tint=nodes.new('ShaderNodeMixRGB');tint.blend_type='MULTIPLY';links.new(identity.outputs[0],tint.inputs[0]);links.new(back.outputs[0],tint.inputs[1]);tint.inputs[2].default_value=(.56,.50,.44,1)
+    links.new(tint.outputs[0],blend.inputs[1]);links.new(neck.outputs[0],blend.inputs[2]);links.new(blend.outputs[0],nodes.get('Principled BSDF').inputs['Base Color']);mesh.materials.append(m)
     mesh.materials.append(material('TownOralCavity',(.045,.008,.012),.50))
     for p,source in zip(mesh.polygons,chosen_indices):
         if max(t[1]for t in face_uv[source])<.137 and np.mean(raw[faces[source],1])<7.05:p.material_index=1
@@ -281,9 +350,9 @@ def eyes(raw,name,data):
     eye_mat=material('TownEye',(.72,.70,.64),.28);tex=eye_mat.node_tree.nodes.new('ShaderNodeTexImage');tex.image=bpy.data.images.load(str(data/'eyes/materials'/('green_eye.png'if name=='enchantress'else'brown_eye.png')));eye_mat.node_tree.links.new(tex.outputs[0],eye_mat.node_tree.nodes.get('Principled BSDF').inputs['Base Color'])
     cornea_mat=material('TownCornea',(.97,.99,1),.04);bsdf=cornea_mat.node_tree.nodes.get('Principled BSDF');bsdf.inputs['Transmission Weight'].default_value=1;bsdf.inputs['IOR'].default_value=1.376
     for side in ('l','r'):
-        indices=[i for a,b in groups['joint-'+side+'-eye']for i in range(a,b+1)];centre=raw[indices].mean(0);fitted=fit(np.array([centre]),name)[0]
-        corners=fit(np.array([centre+[.14,0,0],centre+[0,.14,0],centre+[0,0,.146]]),name)-fitted
-        scale=np.array([abs(corners[0,0]),abs(corners[2,1]),abs(corners[1,2])]);label='EyeLeft'if side=='l'else'EyeRight'
+        indices=[i for a,b in groups['joint-'+side+'-eye']for i in range(a,b+1)];centre=raw[indices].mean(0);fitted=fit(np.array([centre]),name,orbital=False)[0]
+        corners=fit(np.array([centre+[.14,0,0],centre+[0,.14,0],centre+[0,0,.146]]),name,orbital=False)-fitted
+        scale=np.array([.014,.014,.014]);label='EyeLeft'if side=='l'else'EyeRight'
         pivot=bpy.data.objects.new(label,None);bpy.context.collection.objects.link(pivot);pivot.location=fitted
         verts=[];uvs=[];faces=[];segments=40
         # Front optical surface is negative Blender Y. The sclera terminates at
