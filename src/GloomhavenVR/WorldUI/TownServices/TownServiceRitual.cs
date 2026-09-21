@@ -20,7 +20,7 @@ internal sealed class TownServiceRitual : IDisposable
         internal readonly string Key;
         internal readonly Transform Source;
         private readonly Transform _root;
-        private readonly RemoteWidgetMirror _mirror;
+        private readonly RemoteWidgetMirror _mirror = null!;
         internal Transform? Content => _mirror.CloneOf(Source);
         internal Transform? CloneOf(Transform source) => _mirror.CloneOf(source);
         internal Inscription(string key, Component source, Transform parent, Vector3 position, float width, float height)
@@ -29,8 +29,12 @@ internal sealed class TownServiceRitual : IDisposable
             _root = new GameObject("Town ledger inscription").transform;
             _root.SetParent(parent, false); _root.localPosition = position;
             _root.localRotation = Quaternion.Euler(90f, 0f, 0f);
-            _mirror = new RemoteWidgetMirror("TownLedger", _root, width, height, Vector2.zero, mrBacking: false);
-            _mirror.Refresh(Source);
+            try
+            {
+                _mirror = new RemoteWidgetMirror("TownLedger", _root, width, height, Vector2.zero, mrBacking: false);
+                if (!_mirror.Refresh(Source)) throw new InvalidOperationException("Original ledger inscription is unavailable");
+            }
+            catch { _mirror?.Destroy(); UnityEngine.Object.Destroy(_root.gameObject); throw; }
         }
         internal void Tick() => _mirror.TickLive();
         public void Dispose() { _mirror.Destroy(); UnityEngine.Object.Destroy(_root.gameObject); }
@@ -42,10 +46,10 @@ internal sealed class TownServiceRitual : IDisposable
         internal readonly Component Source;
         internal readonly string Key;
         internal readonly Transform Root;
-        internal readonly TownServiceToken Token;
-        internal readonly Transform Body;
+        internal readonly TownServiceToken Token = null!;
+        internal readonly Transform Body = null!;
         internal readonly string BodyKey;
-        private readonly RemoteWidgetMirror _mirror;
+        private readonly RemoteWidgetMirror _mirror = null!;
         private RemoteWidgetMirror? _details;
         private Transform? _detailMount;
         private bool _hovering;
@@ -78,46 +82,51 @@ internal sealed class TownServiceRitual : IDisposable
             _owner = owner; Source = source; Key = key; _identity = identity; _button = button;
             _createdIdentity = identity(); _inscriptions = new List<Graphic>(inscriptions); _card = card;
             var root = new GameObject("GloomhavenVR.TownService." + key, typeof(RectTransform));
-            Root = root.transform; Root.SetParent(owner.Root, false);
-            Root.localPosition = position; Root.localRotation = Quaternion.Euler(65f, 0f, 0f);
-            _reach = (RectTransform)Root;
-            bool offering = source is UITempleShopSlot;
-            _reach.sizeDelta = card ? new Vector2(.145f, .22f) : offering ? new Vector2(.075f, .075f) : new Vector2(.17f, .17f);
-            if (offering)
+            Root = root.transform;
+            try
             {
-                Transform template = TownServiceDecor.CoinTemplate
-                    ?? throw new InvalidOperationException("Original offering coin is still loading");
-                Body = UnityEngine.Object.Instantiate(template.gameObject, Root, false).transform;
-                Body.localPosition = Vector3.zero; Body.localRotation = Quaternion.Euler(-90f, 0f, 0f);
-                Body.localScale = template.localScale * 1.4f; Body.gameObject.SetActive(true);
-                BodyKey = "ritual.coin";
-                foreach (MeshRenderer renderer in Body.GetComponentsInChildren<MeshRenderer>(true))
+                Root.SetParent(owner.Root, false);
+                Root.localPosition = position; Root.localRotation = Quaternion.Euler(65f, 0f, 0f);
+                _reach = (RectTransform)Root;
+                bool offering = source is UITempleShopSlot;
+                _reach.sizeDelta = card ? new Vector2(.145f, .22f) : offering ? new Vector2(.075f, .075f) : new Vector2(.17f, .17f);
+                if (offering)
                 {
-                    Material[] materials = renderer.sharedMaterials;
-                    for (int i = 0; i < materials.Length; i++)
-                    { materials[i] = new Material(materials[i]); _coinMaterials.Add(materials[i]); }
-                    renderer.sharedMaterials = materials;
+                    Transform template = TownServiceDecor.CoinTemplate
+                        ?? throw new InvalidOperationException("Original offering coin is still loading");
+                    Body = UnityEngine.Object.Instantiate(template.gameObject, Root, false).transform;
+                    Body.localPosition = Vector3.zero; Body.localRotation = Quaternion.Euler(-90f, 0f, 0f);
+                    Body.localScale = template.localScale * 1.4f; Body.gameObject.SetActive(true);
+                    BodyKey = "ritual.coin";
+                    foreach (MeshRenderer renderer in Body.GetComponentsInChildren<MeshRenderer>(true))
+                    {
+                        Material[] materials = renderer.sharedMaterials;
+                        for (int i = 0; i < materials.Length; i++)
+                        { materials[i] = new Material(materials[i]); _coinMaterials.Add(materials[i]); }
+                        renderer.sharedMaterials = materials;
+                    }
                 }
+                else
+                {
+                    Body = TownServiceCardBody.Create(Root).transform;
+                    Body.localScale = new Vector3(_reach.sizeDelta.x, _reach.sizeDelta.y, 1f);
+                    BodyKey = "merchant.cardbody";
+                }
+                var mount = new GameObject("Original inscriptions").transform;
+                mount.SetParent(Root, false); mount.localPosition = new Vector3(0f, 0f, -.002f);
+                _mirror = new RemoteWidgetMirror("TownRitual", mount, _reach.sizeDelta.x,
+                    _reach.sizeDelta.y, Vector2.zero, mrBacking: false);
+                var rect = (RectTransform)source.transform;
+                Vector2 frame = card ? rect.rect.size : Vector2.one * Mathf.Max(1f, rect.rect.width);
+                _mirror.SetOwnerFrame(frame, rect.parent is RectTransform parent ? parent.rect.size : rect.rect.size);
+                if (!_mirror.Refresh(source.transform)) throw new InvalidOperationException("Original ritual artwork is unavailable");
+                Token = new TownServiceToken(_reach, button, identity, owner._context,
+                    () => owner._alive() && Current, owner.Root, Root, drop, eligible,
+                    owner._service == 2 ? new Vector3(0f, .08f, .26f) : Vector3.zero);
+                VRLayers.Apply(root);
+                ApplyInscriptions(); SetVisibility(owner._visibility);
             }
-            else
-            {
-                Body = TownServiceCardBody.Create(Root).transform;
-                Body.localScale = new Vector3(_reach.sizeDelta.x, _reach.sizeDelta.y, 1f);
-                BodyKey = "merchant.cardbody";
-            }
-            var mount = new GameObject("Original inscriptions").transform;
-            mount.SetParent(Root, false); mount.localPosition = new Vector3(0f, 0f, -.002f);
-            _mirror = new RemoteWidgetMirror("TownRitual", mount, _reach.sizeDelta.x,
-                _reach.sizeDelta.y, Vector2.zero, mrBacking: false);
-            var rect = (RectTransform)source.transform;
-            Vector2 frame = card ? rect.rect.size : Vector2.one * Mathf.Max(1f, rect.rect.width);
-            _mirror.SetOwnerFrame(frame, rect.parent is RectTransform parent ? parent.rect.size : rect.rect.size);
-            if (!_mirror.Refresh(source.transform)) throw new InvalidOperationException("Original ritual artwork is unavailable");
-            Token = new TownServiceToken(_reach, button, identity, owner._context,
-                () => owner._alive() && Current, owner.Root, Root, drop, eligible,
-                owner._service == 2 ? new Vector3(0f, .08f, .26f) : Vector3.zero);
-            VRLayers.Apply(root);
-            ApplyInscriptions(); SetVisibility(owner._visibility);
+            catch { Dispose(); throw; }
         }
 
         internal void SetVisibility(float visibility)
@@ -188,12 +197,12 @@ internal sealed class TownServiceRitual : IDisposable
 
         public void Dispose()
         {
-            Token.Dispose();
+            Token?.Dispose();
             if (_hovering && Current && EventSystem.current != null)
                 ExecuteEvents.Execute(_button.gameObject, new PointerEventData(EventSystem.current), ExecuteEvents.pointerExitHandler);
-            _details?.Destroy(); _mirror.Destroy();
+            _details?.Destroy(); _mirror?.Destroy();
             foreach (Material material in _coinMaterials) UnityEngine.Object.Destroy(material); _coinMaterials.Clear();
-            if (BodyKey == "merchant.cardbody") TownServiceCardBody.Dispose(Body.gameObject);
+            if (Body != null && BodyKey == "merchant.cardbody") TownServiceCardBody.Dispose(Body.gameObject);
             UnityEngine.Object.Destroy(Root.gameObject);
         }
     }
@@ -229,41 +238,45 @@ internal sealed class TownServiceRitual : IDisposable
     {
         _window = window; _service = service; _alive = () => alive() && _allowInput && _visibility >= .99f; _context = context;
         Root = new GameObject("GloomhavenVR.TownService.Ritual").transform;
-        _opening = Root.gameObject.AddComponent<CanvasGroup>(); _opening.alpha = 0f;
-        Root.SetParent(station, false); Root.localPosition = new Vector3(0f, .978f, -.08f);
-        _zone = TownServiceMerchantZone.CreateTemplate(window.GetComponentInChildren<TMP_Text>(true));
-        _zone.transform.SetParent(Root, false);
-        _zone.transform.localPosition = service == 2 ? new Vector3(0f, .16f, .26f) : new Vector3(0f, .014f, 0f);
-        _zoneGate = _zone.GetComponent<CanvasGroup>(); _zoneGate.alpha = 0f;
-        _zoneLabel = _zone.transform.Find("Caption").GetComponent<TMP_Text>();
-        if (service == 2)
+        try
         {
-            ((RectTransform)_zone.transform).sizeDelta = new Vector2(190f, 190f);
-            ((RectTransform)_zone.transform.Find("Border")).sizeDelta = new Vector2(190f, 190f);
-            _zoneLabel.rectTransform.sizeDelta = new Vector2(175f, 90f); _zoneLabel.fontSize = 24f;
+            _opening = Root.gameObject.AddComponent<CanvasGroup>(); _opening.alpha = 0f;
+            Root.SetParent(station, false); Root.localPosition = new Vector3(0f, .978f, -.08f);
+            _zone = TownServiceMerchantZone.CreateTemplate(window.GetComponentInChildren<TMP_Text>(true));
+            _zone.transform.SetParent(Root, false);
+            _zone.transform.localPosition = service == 2 ? new Vector3(0f, .16f, .26f) : new Vector3(0f, .014f, 0f);
+            _zoneGate = _zone.GetComponent<CanvasGroup>(); _zoneGate.alpha = 0f;
+            _zoneLabel = _zone.transform.Find("Caption").GetComponent<TMP_Text>();
+            if (service == 2)
+            {
+                ((RectTransform)_zone.transform).sizeDelta = new Vector2(190f, 190f);
+                ((RectTransform)_zone.transform.Find("Border")).sizeDelta = new Vector2(190f, 190f);
+                _zoneLabel.rectTransform.sizeDelta = new Vector2(175f, 90f); _zoneLabel.fontSize = 24f;
+            }
+            if (service == 2)
+            {
+                UITempleWindow temple = window.GetComponent<UITempleWindow>();
+                _inscriptions.Add(new Inscription("temple.level", temple.devotionLevel, Root,
+                    new Vector3(-.33f, .022f, .025f), .26f, .025f));
+                _inscriptions.Add(new Inscription("temple.gold", temple.totalDonatedGold.text, Root,
+                    new Vector3(-.40f, .022f, -.015f), .10f, .025f));
+                if (temple.devotionProgress.AmountTexts.Count > 0)
+                    _inscriptions.Add(new Inscription("temple.progress", temple.devotionProgress.AmountTexts[0], Root,
+                        new Vector3(-.26f, .022f, -.015f), .12f, .025f));
+                _inscriptions.Add(new Inscription("temple.description", temple.helpBox.tipText, Root,
+                    new Vector3(-.33f, .022f, -.09f), .26f, .12f));
+            }
+            if (service == 3)
+            {
+                // The selected original card retains its actual ability/enhancement hotspots.
+                // This is the narrow native UI required to choose which printed ability changes.
+                UINewEnhancementWindow shop = window.GetComponent<UINewEnhancementWindow>();
+                _surfaces.Add(new TownServiceSurface(11, (RectTransform)shop.cardHolder.transform,
+                    new Vector3(0f, .008f, 0f), .25f, Root));
+            }
+            RefreshPieces();
         }
-        if (service == 2)
-        {
-            UITempleWindow temple = window.GetComponent<UITempleWindow>();
-            _inscriptions.Add(new Inscription("temple.level", temple.devotionLevel, Root,
-                new Vector3(-.33f, .022f, .025f), .26f, .025f));
-            _inscriptions.Add(new Inscription("temple.gold", temple.totalDonatedGold.text, Root,
-                new Vector3(-.40f, .022f, -.015f), .10f, .025f));
-            if (temple.devotionProgress.AmountTexts.Count > 0)
-                _inscriptions.Add(new Inscription("temple.progress", temple.devotionProgress.AmountTexts[0], Root,
-                    new Vector3(-.26f, .022f, -.015f), .12f, .025f));
-            _inscriptions.Add(new Inscription("temple.description", temple.helpBox.tipText, Root,
-                new Vector3(-.33f, .022f, -.09f), .26f, .12f));
-        }
-        if (service == 3)
-        {
-            // The selected original card retains its actual ability/enhancement hotspots.
-            // This is the narrow native UI required to choose which printed ability changes.
-            UINewEnhancementWindow shop = window.GetComponent<UINewEnhancementWindow>();
-            _surfaces.Add(new TownServiceSurface(11, (RectTransform)shop.cardHolder.transform,
-                new Vector3(0f, .008f, 0f), .25f, Root));
-        }
-        RefreshPieces();
+        catch { Dispose(); throw; }
     }
 
     internal void SetVisibility(float visibility, bool allowInput)
