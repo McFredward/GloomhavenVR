@@ -43,6 +43,7 @@ internal static class TownServicePresentation
     internal static IReadOnlyCollection<TownServiceToken> Samples => _catalog != null ? _catalog.Samples
         : _ritual != null ? _ritual.Samples : Tokens.Values;
     internal static TownServiceCatalog? Catalog => _catalog;
+    internal static IReadOnlyList<TownServiceWorkspace.Prop>? WorkspaceProps => _workspace?.Props;
     internal static TownServiceRitual? Ritual => _ritual;
     internal static float SessionAge => Mathf.Max(0f, Time.unscaledTime - _opened);
     internal static IReadOnlyList<TownServiceSurface> LocalSurfaces => Surfaces;
@@ -60,12 +61,13 @@ internal static class TownServicePresentation
 
     // Ownership lasts until rollback, even if the option changed earlier in this frame.
     // ModalFallback runs before our Tick and must not adopt a half-restored controller.
-    internal static bool OwnsWindow(UIWindow window) => (_catalog != null || _ritual != null) && _window != null
+    internal static bool OwnsWindow(UIWindow window) => TownServiceConfirmationMask.Owns(window)
+        || (_catalog != null || _ritual != null) && _window != null
         && (window == _window || window.transform.IsChildOf(_window.transform));
 
     internal static void Tick()
     {
-        try { TickCore(); }
+        try { TownServiceConfirmationMask.Tick(); TickCore(); }
         catch (Exception e)
         {
             UIWindow? restore = _window;
@@ -117,7 +119,7 @@ internal static class TownServicePresentation
             window.onHidden.AddListener(OnNativeHidden);
             if (!ModalFallback.ReleaseForTownService(window, context))
                 throw new InvalidOperationException("Previous service conversion has not restored its native hierarchy");
-            _workspace = new TownServiceWorkspace(_station.Root);
+            _workspace = new TownServiceWorkspace(_station.Root, service);
             BuildMat();
             try
             {
@@ -160,6 +162,7 @@ internal static class TownServicePresentation
         float relocation = _workspace?.RelocationVisibility ?? 1f;
         bool allowInput = _workspace?.InputAvailable ?? true;
         _catalog?.SetVisibility(visibility, relocation, allowInput);
+        _ritual?.SetVisibility(visibility * relocation, allowInput);
         foreach (TownServiceSurface surface in Surfaces)
         {
             if (_catalog != null) surface.SetVisibility(visibility * relocation, allowInput);

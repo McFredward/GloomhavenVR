@@ -109,6 +109,18 @@ internal static class TownServiceMirror
         Templates[key] = clone;
     }
 
+    internal static void ForgetTemplates(byte service, string addressPrefix)
+    {
+        // Called only after the corresponding resident has no local or remote visitors.
+        // Its original Addressables/material owners may now be released; a later resident
+        // must freeze fresh rendering resources, not reuse a dead decoration template.
+        string prefix = service + ":" + addressPrefix;
+        var keys = new List<string>();
+        foreach (var pair in Templates) if (pair.Key.StartsWith(prefix, StringComparison.Ordinal)) keys.Add(pair.Key);
+        foreach (string key in keys)
+        { if (Templates[key] != null) Object.Destroy(Templates[key]); Templates.Remove(key); }
+    }
+
     private static void Prune(Transform source, Transform copy, Func<Transform, bool>? exclude)
     {
         for (int i = source.childCount - 1; i >= 0; i--)

@@ -495,6 +495,31 @@ public static partial class MirrorProgram
 
     }
 
+    private static void DrawerTemplates()
+    {
+        // Only bundle material lookup is a fixture; the physical factory, inert template
+        // stripping and binding execute production code, catching unsupported text types.
+        var furniture = Go("drawer-material-source");
+        var counter = Go("Counter", furniture.transform);
+        var plank = Go("SurfacePlank0", counter.transform).AddComponent<MeshRenderer>();
+        var material = new Material(Shader.Find("GloomhavenVR/TownNpc")); Assets.Add(material);
+        plank.sharedMaterial = material;
+        GloomhavenVR.WorldUI.TownServiceAssets.Furniture = furniture;
+        var drawer = GloomhavenVR.WorldUI.TownServiceMerchantDrawer.CreateTemplate(_text); Objects.Add(drawer);
+        var housing = GloomhavenVR.WorldUI.TownServiceMerchantDrawer.CreateHousingTemplate(); Objects.Add(housing);
+        var label = drawer.transform.Find("Label").GetComponent<TMP_Text>(); label.text = "Boots / Schuhe";
+        Check(label is TextMeshProUGUI, "drawer label uses supported original canvas text");
+        TownServiceMirror.RegisterTemplate(1, 610, drawer.transform, address: "merchant.drawer|");
+        TownServiceMirror.RegisterTemplate(1, 611, housing.transform, address: "merchant.drawerhousing|");
+        using var binding = new TownServiceBinding(drawer.transform);
+        var nodes = binding.Read(TownServiceMirror.Assets);
+        bool captured = false;
+        foreach (var node in nodes)
+            if (node.Values.TryGetValue(TownServiceProperty.TmpText, out var text) && text.Text[0] == "Boots / Schuhe") captured = true;
+        Check(captured, "physical drawer label survives native mirror binding");
+        GloomhavenVR.WorldUI.TownServiceAssets.Furniture = null;
+    }
+
     private static void PublisherRouting()
     {
         // Sink/provenance mapping are fixtures; production Tick chooses every published input.
@@ -872,6 +897,7 @@ public static partial class MirrorProgram
             {
                 IEnumerator furniture = FurniturePlayback();
                 while (furniture.MoveNext()) yield return furniture.Current;
+                DrawerTemplates();
                 PublisherRouting();
                 File.WriteAllText(Path.Combine(_output, "assertions.txt"), _assertions + " assertions\n");
                 yield break;
@@ -930,6 +956,7 @@ public static partial class MirrorProgram
                 while (extended.MoveNext()) yield return extended.Current;
                 IEnumerator counter = CounterPlayback();
                 while (counter.MoveNext()) yield return counter.Current;
+                DrawerTemplates();
                 PublisherRouting();
             }
             File.WriteAllText(Path.Combine(_output, "assertions.txt"), _assertions + " assertions\n");

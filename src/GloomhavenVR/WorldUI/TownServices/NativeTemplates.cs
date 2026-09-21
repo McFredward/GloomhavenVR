@@ -74,7 +74,9 @@ internal static class NativeTemplates
         AddPhysical("merchant.drawer", TownServiceMerchantDrawer.CreateTemplate(physicalFont));
         AddPhysical("merchant.drawerhousing", TownServiceMerchantDrawer.CreateHousingTemplate());
         AddPhysical("merchant.zone", TownServiceMerchantZone.CreateTemplate(physicalFont));
-        Add("merchant.counter", TownServiceWorkspace.CounterTemplate);
+        Add("merchant.counter", TownServiceWorkspace.FurnitureTemplate(1));
+        Add("temple.counter", TownServiceWorkspace.FurnitureTemplate(2));
+        Add("enchant.counter", TownServiceWorkspace.FurnitureTemplate(3));
         _cardBody = TownServiceCardBody.Create(_bank.transform);
         Add("merchant.cardbody", _cardBody.transform);
         Add("temple", hud.templeWindow);
@@ -112,7 +114,7 @@ internal static class NativeTemplates
         BindOriginalBackdrops();
         foreach (var entry in Entries) Freeze(entry.Key, entry.Value);
         TownServiceMirror.ResolveTemplate = Resolve;
-        TownServiceMirror.PrepareInertGeometry = TownServiceCardBody.RebindClone; _ready = true;
+        TownServiceMirror.PrepareInertGeometry = PrepareInertGeometry; _ready = true;
         return true;
     }
 
@@ -203,11 +205,28 @@ internal static class NativeTemplates
         if (!Entries.TryGetValue(key, out Entry? entry)) throw new InvalidDataException("Missing original town widget: " + key);
         return entry.Parts;
     }
+    private static void PrepareInertGeometry(string key, GameObject clone)
+    {
+        TownServiceCardBody.RebindClone(key, clone);
+        TownServiceWorkspacePractical.RebindClone(key, clone);
+    }
     private static void EnsureNativeProp(string key)
     {
-        if (key != "ritual.coin" || Entries.ContainsKey(key)) return;
-        Transform? source = TownServiceDecor.CoinTemplate;
-        if (source == null) throw new InvalidDataException("Original offering coin is still loading.");
+        Transform? source;
+        if (key == "ritual.coin") source = TownServiceDecor.CoinTemplate;
+        else if (key.StartsWith("decor.", StringComparison.Ordinal))
+        {
+            string[] parts = key.Split('.');
+            if (parts.Length != 3 || !byte.TryParse(parts[1], out byte service) || service < 1 || service > 3
+                || !int.TryParse(parts[2], out int index) || index < 0 || index >= TownServiceDecor.StaticPropCount(service)
+                || !TownServiceDecor.TryStaticProp(service, index, out source, out string actual) || actual != key)
+                throw new InvalidDataException("Original stand decoration is still loading.");
+        }
+        else return;
+        if (source == null) throw new InvalidDataException("Original physical prop is still loading.");
+        if (Entries.TryGetValue(key, out Entry? previous) && previous.Original == source) return;
+        if (previous != null)
+        { Roots.Remove(previous.Original); Object.Destroy(previous.Copy); Entries.Remove(key); }
         var entry = new Entry { Original = source };
         Freeze(key, entry); Entries.Add(key, entry); Roots[source] = key;
     }
@@ -309,6 +328,20 @@ internal static class NativeTemplates
         }
         finally { Object.Destroy(construction); }
     }
+    internal static void InvalidateResident(byte service)
+    {
+        string prefix = "decor." + service + ".";
+        var removed = new List<string>();
+        foreach (string key in Entries.Keys)
+            if (key.StartsWith(prefix, StringComparison.Ordinal) || service == 2 && key == "ritual.coin") removed.Add(key);
+        foreach (string key in removed)
+        {
+            Entry entry = Entries[key]; Roots.Remove(entry.Original);
+            if (entry.Copy != null) Object.Destroy(entry.Copy); Entries.Remove(key);
+            TownServiceMirror.ForgetTemplates(service, key + "|");
+        }
+    }
+
     internal static void Shutdown()
     {
         TownServiceMirror.ResolveTemplate = null;

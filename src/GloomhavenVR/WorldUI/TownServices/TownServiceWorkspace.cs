@@ -13,6 +13,17 @@ namespace GloomhavenVR.WorldUI;
 internal sealed class TownServiceWorkspace : IDisposable
 {
     internal const float MoveSeconds = .22f;
+    internal sealed class Prop
+    {
+        internal string Key = string.Empty;
+        internal Transform Root = null!;
+    }
+    private readonly byte _service;
+    private readonly List<Prop> _props = new();
+    private readonly Dictionary<Material, Material> _materialCopies = new();
+    private readonly List<(Material Source, Material Copy)> _animatedMaterials = new();
+    private float _nextProps;
+    private static readonly int AnimationTimeId = Shader.PropertyToID("_TownAnimationTime");
     private readonly GameObject _root;
     private readonly List<Material> _materials = new();
     private readonly List<(int Id, string? Account, string? Name)> _roster = new();
@@ -32,13 +43,18 @@ internal sealed class TownServiceWorkspace : IDisposable
     private bool _disposed;
     internal Transform Root => _root.transform;
     internal Transform FurnitureRoot { get; }
+    internal IReadOnlyList<Prop> Props => _props;
     internal IReadOnlyList<Material> Materials => _materials;
-    internal static Transform? CounterTemplate => TownServiceAssets.Prefab("townmerchant")?.transform.Find("Counter");
+    internal static Transform? CounterTemplate => FurnitureTemplate(1);
+    internal static Transform? FurnitureTemplate(byte service) => TownServiceAssets.Prefab(service == 1
+        ? "townmerchant" : service == 2 ? "townpriestess" : "townenchantress")?.transform.Find(service == 1
+            ? "Counter" : service == 2 ? "Shrine" : "Workbench");
     private static readonly int VisibilityId = Shader.PropertyToID("_TownVisibility");
 
-    internal TownServiceWorkspace(Transform station)
+    internal TownServiceWorkspace(Transform station, byte service = 1)
     {
-        Transform? template = CounterTemplate;
+        _service = service;
+        Transform? template = FurnitureTemplate(service);
         if (station == null || template == null) throw new InvalidOperationException("Merchant workspace furniture is unavailable");
         _station = station;
         _root = new GameObject("GloomhavenVR.TownService.Workspace");
@@ -49,26 +65,11 @@ internal sealed class TownServiceWorkspace : IDisposable
             FurnitureRoot.name = template.name;
             foreach (Collider collider in FurnitureRoot.GetComponentsInChildren<Collider>(true)) collider.enabled = false;
             VRLayers.Apply(_root);
-            var copies = new Dictionary<Material, Material>();
-            foreach (MeshRenderer renderer in FurnitureRoot.GetComponentsInChildren<MeshRenderer>(true))
-            {
-                Material[] materials = renderer.sharedMaterials;
-                for (int i = 0; i < materials.Length; i++)
-                {
-                    Material original = materials[i];
-                    if (original == null) continue;
-                    if (!copies.TryGetValue(original, out Material? copy))
-                    {
-                        copy = new Material(original); copies.Add(original, copy); _materials.Add(copy);
-                    }
-                    materials[i] = copy;
-                }
-                renderer.sharedMaterials = materials;
-            }
+            OwnMaterials(FurnitureRoot);
             _grounding = new TownServiceGrounding(Root);
             if (!RefreshTarget(ResolveSlot(), true))
                 throw new InvalidOperationException("Merchant workspace map frame is unavailable");
-            ApplyTarget(); _pending = false;
+            ApplyTarget(); _pending = false; RefreshProps();
             _nextRoster = Time.unscaledTime + .25f;
             ApplyVisibility();
         }
@@ -132,6 +133,9 @@ internal sealed class TownServiceWorkspace : IDisposable
     {
         if (_disposed) return;
         float now = Time.unscaledTime;
+        if (now >= _nextProps) { _nextProps = now + .25f; RefreshProps(); }
+        foreach (var material in _animatedMaterials)
+            if (material.Source != null) material.Copy.SetFloat(AnimationTimeId, material.Source.GetFloat(AnimationTimeId));
         if (now >= _nextRoster)
         {
             _nextRoster = now + .25f;
@@ -181,8 +185,49 @@ internal sealed class TownServiceWorkspace : IDisposable
         _appliedVisibility = value;
         foreach (Material material in _materials) material.SetFloat(VisibilityId, value);
         FurnitureRoot.gameObject.SetActive(value > 0f);
+        foreach (Prop prop in _props) prop.Root.gameObject.SetActive(value > 0f);
         // Mesh property blocks are deliberately absent: the native presentation stream captures
         // these owned material values, including every intermediate dissolve value.
+    }
+
+    private void OwnMaterials(Transform root)
+    {
+        foreach (MeshRenderer renderer in root.GetComponentsInChildren<MeshRenderer>(true))
+        {
+            Material[] materials = renderer.sharedMaterials;
+            for (int i = 0; i < materials.Length; i++)
+            {
+                Material original = materials[i];
+                if (original == null) continue;
+                if (!_materialCopies.TryGetValue(original, out Material? copy))
+                {
+                    copy = new Material(original); _materialCopies.Add(original, copy); _materials.Add(copy);
+                    if (original.HasProperty(AnimationTimeId)) _animatedMaterials.Add((original, copy));
+                }
+                materials[i] = copy;
+            }
+            renderer.sharedMaterials = materials;
+        }
+    }
+
+    private void RefreshProps()
+    {
+        if (_shownPrimary) return;
+        for (int i = 0; i < TownServiceDecor.StaticPropCount(_service); i++)
+        {
+            if (!TownServiceDecor.TryStaticProp(_service, i, out Transform? source, out string key) || source == null) continue;
+            bool exists = false;
+            foreach (Prop prop in _props) if (prop.Key == key) { exists = true; break; }
+            if (exists) continue;
+            // These sources contain original rendering data only. Work tools and the NPC's
+            // hand spell remain at the permanent resident; the visitor gets the static stand.
+            Transform copy = UnityEngine.Object.Instantiate(source.gameObject, Root, false).transform;
+            copy.localPosition = source.localPosition; copy.localRotation = source.localRotation; copy.localScale = source.localScale;
+            OwnMaterials(copy); VRLayers.Apply(copy.gameObject);
+            _props.Add(new Prop { Key = key, Root = copy });
+            TownServiceWorkspacePractical.RebindClone(key, copy.gameObject);
+            _appliedVisibility = -1f;
+        }
     }
 
     public void Dispose()
@@ -191,6 +236,6 @@ internal sealed class TownServiceWorkspace : IDisposable
         _disposed = true;
         if (_root != null) { _root.SetActive(false); UnityEngine.Object.Destroy(_root); }
         foreach (Material material in _materials) UnityEngine.Object.Destroy(material);
-        _materials.Clear();
+        _materials.Clear(); _materialCopies.Clear(); _animatedMaterials.Clear(); _props.Clear();
     }
 }

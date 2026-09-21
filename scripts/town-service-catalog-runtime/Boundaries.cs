@@ -167,3 +167,8 @@ namespace GloomhavenVR.WorldUI
         internal void Tick(float s){}public void Dispose(){}
     }
 }
+
+// Confirmation presentation is tested with the actual mask in the interaction suite.
+namespace UnityEngine.UI { public class UIWindow : MonoBehaviour { } }
+namespace GloomhavenVR.WorldUI { internal static class TownServiceConfirmationMask
+{ internal static void Begin(UnityEngine.UI.UIWindow? window, Func<object?> identity) { } } }

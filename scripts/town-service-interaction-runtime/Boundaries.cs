@@ -10,7 +10,7 @@ using GloomhavenVR.Hands.Interact;
 
 public class UIWindow : MonoBehaviour
 {
-    public bool IsOpen = true;
+    public bool IsOpen = true, IsVisible = true;
     public UnityEvent onHidden = new UnityEvent();
     // Native onHidden fires while IsOpen still reports true.
     public void Hide() { onHidden.Invoke(); IsOpen = false; Probe.Events.Add("native-continuation"); }
@@ -276,6 +276,7 @@ namespace GloomhavenVR.WorldUI
         internal IReadOnlyCollection<TownServiceToken> Samples => _tokens;
         internal Transform Root { get; }
         internal bool CanRelocate => !_tokens.Exists(t => t.IsMoving);
+        internal void SetVisibility(float value, bool input) { }
         internal TownServiceRitual(UIWindow window, byte service, Transform parent,
             Func<bool> session, Func<object?> context)
         {
@@ -327,7 +328,9 @@ namespace GloomhavenVR.WorldUI
     {
         internal Transform Root { get; }
         internal Transform? FurnitureRoot => Root;
-        internal TownServiceWorkspace(Transform station)
+        internal sealed class Prop { }
+        internal IReadOnlyList<Prop> Props => Array.Empty<Prop>();
+        internal TownServiceWorkspace(Transform station, byte service = 1)
         { Root = Probe.Go("workspace", station).transform; }
         internal void Tick(bool mayRelocate = true) { if (mayRelocate) Root.localPosition += new Vector3(.01f, 0f, 0f); }
         internal float RelocationVisibility => 1f;
@@ -347,3 +350,5 @@ namespace GloomhavenVR.WorldUI
         public void Dispose() { UnityEngine.Object.Destroy(Root.gameObject); }
     }
 }
+
+namespace GloomhavenVR.WorldUI { internal static class MaskClock { internal static float Now; } }

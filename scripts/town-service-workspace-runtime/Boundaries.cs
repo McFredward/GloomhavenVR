@@ -61,3 +61,19 @@ namespace GloomhavenVR.Core
 {
     internal static class SkyAlternative { internal static Transform? PlacedRoomRoot; }
 }
+
+namespace GloomhavenVR.WorldUI
+{
+    // Native asynchronous prop loading and its independent practical-light component are boundaries.
+    internal static class TownServiceDecor
+    {
+        internal static readonly Dictionary<byte, List<Transform>> Props = new();
+        internal static int StaticPropCount(byte service) => Props.TryGetValue(service, out var props) ? props.Count : 0;
+        internal static bool TryStaticProp(byte service, int index, out Transform? source, out string address)
+        {
+            source = Props[service][index]; address = "decor." + service + "." + index; return source != null;
+        }
+    }
+    internal static class TownServiceWorkspacePractical
+    { internal static void RebindClone(string key, GameObject clone) { } }
+}

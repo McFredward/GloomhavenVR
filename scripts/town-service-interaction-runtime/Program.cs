@@ -412,6 +412,32 @@ public static class InteractionProgram
         }
     }
 
+    private static void ConfirmationFadeLifecycle()
+    {
+        var root = new GameObject("NativeConfirmationOwner", typeof(RectTransform));
+        var prompt = new GameObject("NativeConfirmation", typeof(RectTransform), typeof(UIWindow));
+        prompt.transform.SetParent(root.transform, false);
+        var window = prompt.GetComponent<UIWindow>();
+        object callback = new object(); MaskClock.Now = 0f;
+        TownServiceConfirmationMask.Begin(window, () => callback);
+        Check(TownServiceConfirmationMask.Owns(window), "only owned auto-confirm prompt is suppressed");
+        window.Hide(); TownServiceConfirmationMask.Tick();
+        Check(prompt.transform.parent != root.transform && TownServiceConfirmationMask.Owns(window),
+            "native onHidden starts fade without exposing confirmation popup");
+        window.IsVisible = false; TownServiceConfirmationMask.Tick();
+        Check(prompt.transform.parent == root.transform && !TownServiceConfirmationMask.Owns(window),
+            "finished native confirmation restores exact original hierarchy");
+        window.IsOpen = window.IsVisible = true;
+        TownServiceConfirmationMask.Begin(window, () => callback); callback = new object();
+        TownServiceConfirmationMask.Tick();
+        Check(prompt.transform.parent == root.transform, "reused prompt with unrelated callback is restored");
+        TownServiceConfirmationMask.Begin(window, () => callback); MaskClock.Now = 6f;
+        TownServiceConfirmationMask.Tick();
+        Check(prompt.transform.parent == root.transform && !TownServiceConfirmationMask.Owns(window),
+            "stalled native transition recovers original usable confirmation");
+        TownServiceConfirmationMask.Clear(); UnityEngine.Object.DestroyImmediate(root);
+    }
+
     private static void WindowMaskLifecycle()
     {
         var parent = (RectTransform)Probe.Go("mask-native-parent").transform;
@@ -584,7 +610,7 @@ public static class InteractionProgram
     public static int Run()
     {
         _assertions = 0;
-        try { PhysicalCommitCases(); PhysicalMerchantSamples(); WindowMaskLifecycle(); IdentityChanges(); HoverAndRelease(); CancellationCompatibility(); Handoff(); RollbackAndContinuation(); OptionalPresentation(); ManualTrayPlacement(); return _assertions; }
+        try { PhysicalCommitCases(); PhysicalMerchantSamples(); WindowMaskLifecycle(); ConfirmationFadeLifecycle(); IdentityChanges(); HoverAndRelease(); CancellationCompatibility(); Handoff(); RollbackAndContinuation(); OptionalPresentation(); ManualTrayPlacement(); return _assertions; }
         finally { Clean(); }
     }
 }

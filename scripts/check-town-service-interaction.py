@@ -31,6 +31,7 @@ def sources(root):
     paths = {
         "Token.cs": "WorldUI/TownServices/TownServiceToken.cs",
         "WindowMask.cs": "WorldUI/TownServices/TownServiceWindowMask.cs",
+        "ConfirmationMask.cs": "WorldUI/TownServices/TownServiceConfirmationMask.cs",
         "Presentation.cs": "WorldUI/TownServices/TownServicePresentation.cs",
         "Handoff.cs": "WorldUI/Modal/ModalFallback.TownServices.cs",
         "Composite.cs": "WorldUI/Modal/ModalFallback.CompositeTransfer.cs",
@@ -39,7 +40,8 @@ def sources(root):
     }
     raw = {name: (base / path).read_text() for name, path in paths.items()}
     hashes = {paths[name]: hashlib.sha256(text.encode()).hexdigest() for name, text in raw.items()}
-    bound = {name: raw[name] for name in ("Token.cs", "Presentation.cs", "Handoff.cs", "WindowMask.cs")}
+    bound = {name: raw[name] for name in ("Token.cs", "Presentation.cs", "Handoff.cs", "WindowMask.cs", "ConfirmationMask.cs")}
+    bound["ConfirmationMask.cs"] = bound["ConfirmationMask.cs"].replace("Time.unscaledTime", "MaskClock.Now")
     bound["Composite.cs"] = "using System;\nnamespace GloomhavenVR.WorldUI;\ninternal static partial class ModalFallback {\n" + method(raw["Composite.cs"], "internal static bool ReleaseForComposite(UIWindow window)") + "\n}\n"
     bound["Grabber.cs"] = "using System;\nusing UnityEngine;\nnamespace GloomhavenVR.Hands.Interact;\ninternal partial class ProximityGrabber {\n" + "\n".join(method(raw["Grabber.cs"], sig) for sig in (
         "private void BeginGrab(", "private bool HealDeadHeld()", "internal void CancelAll()")) + "\n}\n"
@@ -62,6 +64,8 @@ def mutations():
     # Every mutant compiles and must reach the specified runtime assertion. A compile error,
     # unrelated exception or changed source binding cannot count as a rejected negative control.
     return [
+        ("confirm-early-unmask", "ConfirmationMask.cs", "!window.IsOpen && !window.IsVisible", "!window.IsOpen", "native onHidden starts fade without exposing confirmation popup"),
+        ("confirm-reuse", "ConfirmationMask.cs", "|| !ReferenceEquals(entry.Callback, entry.Identity())", "", "reused prompt with unrelated callback is restored"),
         ("physical-eligible-drop", "Token.cs", "&& _drop != null && DropEligible", "&& _drop != null", "physical drop eligibility identity pose zone and cancellation fence 1"),
         ("physical-zone-drop", "Token.cs", "InDropZone(_mat.InverseTransformPoint(_held.transform.position) - _zoneCenter)", "InDropZone(Vector3.zero)", "physical drop eligibility identity pose zone and cancellation fence 2"),
         ("physical-tracked-drop", "Token.cs", "bool commit = _heldTracked && hand.HasPose", "bool commit = hand.HasPose", "physical drop eligibility identity pose zone and cancellation fence 7"),
@@ -72,7 +76,7 @@ def mutations():
         ("mask-sibling", "WindowMask.cs", "            _source.SetSiblingIndex(_sibling);", "", "mask disposal restores original parent and sibling exactly"),
         ("mask-native-state", "WindowMask.cs", "            _source.SetSiblingIndex(_sibling);", "            _source.SetSiblingIndex(_sibling);\n            _source.GetComponent<CanvasGroup>().alpha = 1f;", "mask disposal preserves current native animation and permissions"),
         ("mask-reparent-owner", "WindowMask.cs", "_source != null && _source.parent == _wrapper", "_source != null", "native reparent is never overwritten during mask disposal"),
-        ("window-suppression-fence", "Presentation.cs", "internal static bool OwnsWindow(UIWindow window) => (_catalog != null || _ritual != null) && _window != null", "internal static bool OwnsWindow(UIWindow window) => Active && (_catalog != null || _ritual != null) && _window != null", "suppression ownership persists until rollback despite disabled option"),
+        ("window-suppression-fence", "Presentation.cs", "|| (_catalog != null || _ritual != null) && _window != null", "|| Active && (_catalog != null || _ritual != null) && _window != null", "suppression ownership persists until rollback despite disabled option"),
         ("manual-tray", "Presentation.cs", "_tray.Root.SetParent(null, true);", "{ }", "manual tray grab detaches before workspace movement"),
         ("option-open", "Presentation.cs", "        if (!WorldUIConfig.ImmersiveTownServices.Value)", "        if (_session == uint.MaxValue)", "disabled opening never takes ownership of original window"),
         ("option-release", "Presentation.cs", "internal static bool Active => WorldUIConfig.ImmersiveTownServices.Value\n        &&", "internal static bool Active =>", "disabled option immediately fences a held release before next tick"),

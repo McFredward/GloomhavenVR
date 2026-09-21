@@ -795,6 +795,72 @@
       "groups": [
         "source"
       ]
+    },
+    {
+      "id": "town-ritual-transactions",
+      "command": [
+        "python3",
+        "scripts/check-town-ritual-transactions.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 35
+    },
+    {
+      "id": "town-service-catalog",
+      "command": [
+        "python3",
+        "scripts/check-town-service-catalog.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 80
+    },
+    {
+      "id": "town-service-interaction",
+      "command": [
+        "python3",
+        "scripts/check-town-service-interaction.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 100
+    },
+    {
+      "id": "town-service-mirror",
+      "command": [
+        "python3",
+        "scripts/check-town-service-mirror.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 100
+    },
+    {
+      "id": "town-service-workspace",
+      "command": [
+        "python3",
+        "scripts/check-town-service-workspace.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 65
+    },
+    {
+      "id": "town-service-decor",
+      "command": [
+        "python3",
+        "scripts/check-town-decor.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 35
     }
   ]
 }

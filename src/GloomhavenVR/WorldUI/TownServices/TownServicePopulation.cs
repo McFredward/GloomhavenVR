@@ -190,7 +190,7 @@ internal static class TownServicePopulation
                 ActorFloorOffset = resident.Station.ActorFloorOffset, FurnitureBottom = resident.Station.FurnitureBottom,
                 Visibility = (byte)Mathf.RoundToInt(resident.Visibility * 255f) });
             if (!used && resident.Visibility <= 0f)
-            { resident.Visit.Dispose(); resident.Station.Dispose(); Residents.Remove(service); }
+            { NativeTemplates.InvalidateResident(service); resident.Visit.Dispose(); resident.Station.Dispose(); Residents.Remove(service); }
         }
         if (missing && retry) _retryAt = now + 2f;
         Published = published;
@@ -206,6 +206,7 @@ internal static class TownServicePopulation
         if (_frame == null && Residents.Count == 0) return;
         TownServiceFaceSpeech.ResetObserver?.Invoke();
         RemoteTownFaces.Reset(); RemoteTownActivities.Reset();
+        TownServiceConfirmationMask.Clear();
         TownServiceSync.Shutdown();
         foreach (Resident resident in Residents.Values)
         { resident.Visit.Dispose(); resident.Station.Dispose(); }

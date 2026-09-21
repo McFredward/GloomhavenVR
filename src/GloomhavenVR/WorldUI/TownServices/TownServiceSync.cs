@@ -104,7 +104,7 @@ internal static class TownServiceSync
                 : surface.Id == 11 ? "enchant.holder" : "enchant.scroll", surface.Panel.Target);
         if (catalog != null)
         {
-            Publish("merchant.counter", TownServicePresentation.CounterFurniture);
+            Publish(prefix + ".counter", TownServicePresentation.CounterFurniture);
             foreach (TownServiceMerchantDrawer drawer in catalog.Drawers)
             {
                 Publish("merchant.drawer", drawer.Root);
@@ -129,7 +129,7 @@ internal static class TownServiceSync
         if (ritual != null)
         {
             Publish("merchant.zone", ritual.Zone);
-            Publish("merchant.counter", TownServicePresentation.CounterFurniture);
+            Publish(prefix + ".counter", TownServicePresentation.CounterFurniture);
             foreach (TownServiceRitual.Piece piece in ritual.Pieces)
             {
                 Publish(piece.Key, piece.Content, piece.Source.transform, piece.CloneOf);
@@ -142,6 +142,9 @@ internal static class TownServiceSync
             foreach (TownServiceRitual.Inscription inscription in ritual.Inscriptions)
                 Publish(inscription.Key, inscription.Content, inscription.Source, inscription.CloneOf);
         }
+
+        if (TownServicePresentation.WorkspaceProps != null)
+            foreach (TownServiceWorkspace.Prop prop in TownServicePresentation.WorkspaceProps) Publish(prop.Key, prop.Root);
 
         if (catalog == null && ritual == null)
             Publish(prefix + ".tooltip", NativeTemplates.Original(prefix + ".tooltip"));

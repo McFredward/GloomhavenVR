@@ -16,6 +16,8 @@ namespace GloomhavenVR.WorldUI
     internal sealed class UIEnhancementButtonHighlight : MonoBehaviour { }
     internal sealed class ItemCardUI : MonoBehaviour { internal int CardID; }
     internal sealed class AbilityCardUI : MonoBehaviour { internal int CardID; }
+    internal static class TownServiceAssets { internal static GameObject? Furniture; internal static GameObject? Prefab(string name) => Furniture; }
+    internal sealed class TownServiceWorkspace { internal sealed class Prop { internal string Key = ""; internal Transform Root = null!; } }
     internal sealed class PublisherWindow : MonoBehaviour { }
     internal sealed class TownServiceSurface
     {
@@ -47,7 +49,7 @@ namespace GloomhavenVR.WorldUI
         internal List<TownServiceMerchantDrawer> Drawers = new();
         internal List<TownServiceMerchantZone> Zones = new();
     }
-    internal sealed class TownServiceMerchantDrawer { internal Transform Root = null!, HousingRoot = null!; }
+    internal sealed partial class TownServiceMerchantDrawer { internal Transform Root = null!, HousingRoot = null!; }
     internal sealed class TownServiceMerchantZone { internal Transform Root = null!; }
     internal sealed class TownServiceRitual
     {
@@ -100,6 +102,7 @@ namespace GloomhavenVR.WorldUI
         internal static PublisherWindow? Window;
         internal static TownServiceCatalog? Catalog;
         internal static TownServiceRitual? Ritual;
+        internal static List<TownServiceWorkspace.Prop>? WorkspaceProps;
         internal static List<TownServiceSurface> LocalSurfaces = new();
         internal static List<TownServiceToken> Samples = new();
         internal static TownServiceTray? Tray;

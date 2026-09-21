@@ -37,6 +37,8 @@ def sources(root):
         ("private static uint _generation", "private static ulong _relocationRevision", "private static bool _generationExhausted")) + "\n"
         + method(publisher, "internal static void Reset()") + "\n"
         + publisher[publisher.index("    internal static void ResetNetwork()"):publisher.index("\n", publisher.index("    internal static void ResetNetwork()"))] + "\n")
+    drawer = (base / "WorldUI/TownServices/TownServiceMerchantDrawer.cs").read_text()
+    bound["DrawerTemplates.cs"] = "using System;\nusing UnityEngine;\nusing TMPro;\nnamespace GloomhavenVR.WorldUI;\ninternal sealed partial class TownServiceMerchantDrawer {\n" + "\n".join(method(drawer, signature) for signature in ("internal static GameObject CreateTemplate(TMP_Text? font)", "internal static GameObject CreateHousingTemplate()", "private static Material OriginalWood()", "private static void Part(Transform parent,string name,Vector3 position,Vector3 scale)")) + "\n}\n"
     town_neutralizer = base / "Net/TownServices/TownServiceNeutralize.cs"
     if town_neutralizer.exists():
         bound[town_neutralizer.name] = town_neutralizer.read_text()

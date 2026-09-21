@@ -58,6 +58,7 @@ internal sealed class TownServiceRitual : IDisposable
         private readonly bool _card;
         private Transform? _graphicRoot;
         private readonly List<Graphic> _graphics = new();
+        private readonly List<Material> _coinMaterials = new();
         private float _refreshAt;
         internal Transform? Content => _mirror.CloneOf(Source.transform);
         internal Transform? CloneOf(Transform original) => _mirror.CloneOf(original);
@@ -90,6 +91,13 @@ internal sealed class TownServiceRitual : IDisposable
                 Body.localPosition = Vector3.zero; Body.localRotation = Quaternion.Euler(-90f, 0f, 0f);
                 Body.localScale = template.localScale * 1.4f; Body.gameObject.SetActive(true);
                 BodyKey = "ritual.coin";
+                foreach (MeshRenderer renderer in Body.GetComponentsInChildren<MeshRenderer>(true))
+                {
+                    Material[] materials = renderer.sharedMaterials;
+                    for (int i = 0; i < materials.Length; i++)
+                    { materials[i] = new Material(materials[i]); _coinMaterials.Add(materials[i]); }
+                    renderer.sharedMaterials = materials;
+                }
             }
             else
             {
@@ -109,7 +117,13 @@ internal sealed class TownServiceRitual : IDisposable
                 () => owner._alive() && Current, owner.Root, Root, drop, eligible,
                 owner._service == 2 ? new Vector3(0f, .08f, .26f) : Vector3.zero);
             VRLayers.Apply(root);
-            ApplyInscriptions();
+            ApplyInscriptions(); SetVisibility(owner._visibility);
+        }
+
+        internal void SetVisibility(float visibility)
+        {
+            if (BodyKey == "merchant.cardbody") TownServiceCardBody.SetVisibility(Body.gameObject, visibility);
+            foreach (Material material in _coinMaterials) material.SetFloat("_TownVisibility", visibility);
         }
 
         internal void Tick(float scale)
@@ -178,6 +192,7 @@ internal sealed class TownServiceRitual : IDisposable
             if (_hovering && Current && EventSystem.current != null)
                 ExecuteEvents.Execute(_button.gameObject, new PointerEventData(EventSystem.current), ExecuteEvents.pointerExitHandler);
             _details?.Destroy(); _mirror.Destroy();
+            foreach (Material material in _coinMaterials) UnityEngine.Object.Destroy(material); _coinMaterials.Clear();
             if (BodyKey == "merchant.cardbody") TownServiceCardBody.Dispose(Body.gameObject);
             UnityEngine.Object.Destroy(Root.gameObject);
         }
@@ -193,7 +208,9 @@ internal sealed class TownServiceRitual : IDisposable
     private readonly List<TownServiceSurface> _surfaces = new();
     private readonly List<Inscription> _inscriptions = new();
     private readonly GameObject _zone;
-    private readonly CanvasGroup _zoneGate;
+    private readonly CanvasGroup _zoneGate, _opening;
+    private bool _allowInput = true;
+    private float _visibility;
     private readonly TMP_Text _zoneLabel;
     private float _censusAt;
     private readonly float _started = Time.unscaledTime;
@@ -210,8 +227,9 @@ internal sealed class TownServiceRitual : IDisposable
     internal TownServiceRitual(UIWindow window, byte service, Transform station,
         Func<bool> alive, Func<object?> context)
     {
-        _window = window; _service = service; _alive = alive; _context = context;
+        _window = window; _service = service; _alive = () => alive() && _allowInput && _visibility >= .99f; _context = context;
         Root = new GameObject("GloomhavenVR.TownService.Ritual").transform;
+        _opening = Root.gameObject.AddComponent<CanvasGroup>(); _opening.alpha = 0f;
         Root.SetParent(station, false); Root.localPosition = new Vector3(0f, .978f, -.08f);
         _zone = TownServiceMerchantZone.CreateTemplate(window.GetComponentInChildren<TMP_Text>(true));
         _zone.transform.SetParent(Root, false);
@@ -246,6 +264,16 @@ internal sealed class TownServiceRitual : IDisposable
                 new Vector3(0f, .008f, 0f), .25f, Root));
         }
         RefreshPieces();
+    }
+
+    internal void SetVisibility(float visibility, bool allowInput)
+    {
+        _allowInput = allowInput;
+        _opening.interactable = allowInput; _opening.blocksRaycasts = allowInput;
+        foreach (TownServiceSurface surface in _surfaces) surface.SetVisibility(visibility, allowInput);
+        if (_visibility == visibility) return;
+        _visibility = _opening.alpha = Mathf.Clamp01(visibility);
+        foreach (Piece piece in _pieces.Values) piece.SetVisibility(_visibility);
     }
 
     internal void Tick(float scale)
@@ -373,6 +401,7 @@ internal sealed class TownServiceRitual : IDisposable
             : ((UINewEnhancementWindow)controller)._isConfirmationBoxOpened;
         bool created = owns && box.GetComponent<UIWindow>().IsOpen && box._onConfirmCallback != null
             && !ReferenceEquals(previous, box._onConfirmCallback);
+        if (created) TownServiceConfirmationMask.Begin(box.GetComponent<UIWindow>(), () => box._onConfirmCallback);
         if (!_alive() || !eligible() || !button.IsActive() || !button.IsInteractable()
             || !ReferenceEquals(context, _context()) || !ReferenceEquals(selected, identity())
             || !created)
