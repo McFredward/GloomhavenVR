@@ -133,6 +133,8 @@ public static class InteractionProgram
                     Transform hand=root.GetComponentsInChildren<Transform>(true).Single(t=>t.name=="Hand.R");
                     Transform upper=root.GetComponentsInChildren<Transform>(true).Single(t=>t.name=="UpperArm.R");
                     Transform fore=root.GetComponentsInChildren<Transform>(true).Single(t=>t.name=="Forearm.R");
+                    Transform[] thumbs=root.GetComponentsInChildren<Transform>(true).Where(t=>t.name.StartsWith("Thumb")).ToArray();
+                    Quaternion[] thumbNeutral=thumbs.Select(t=>t.localRotation).ToArray();
                     var phase=new TownActivityPose{TransitionAge=.65f};Quaternion previousHand=Quaternion.identity;
                     for(int n=0;n<2500;n++)
                     {
@@ -145,6 +147,8 @@ public static class InteractionProgram
                         float reach=Vector3.Distance(upper.position,fore.position)+Vector3.Distance(fore.position,hand.position);
                         Vector3 wanted=root.TransformPoint(target);float excess=Mathf.Max(0,Vector3.Distance(wanted,upper.position)-reach+.001f);
                         rig.Apply(in phase);
+                        for(int digit=0;digit<thumbs.Length;digit++)
+                            Check(Quaternion.Angle(thumbs[digit].localRotation,thumbNeutral[digit])<3.05f,"approximate thumb stays within supported deformation range");
                         if(service==1&&TownServiceActivityMotion.Writing(phase.WorkClock)>.99f&&TownServiceActivityMotion.Blend(in phase)<.01f)
                             Check(Vector3.Distance(hand.position,wanted)<.003f,"writing contact survives resolved terrain offsets at "+n+": "+Vector3.Distance(hand.position,wanted));
                         if(n>0)Check(Quaternion.Angle(previousHand,hand.rotation)<4f,"hand orientation remains smooth through prayer interruption");

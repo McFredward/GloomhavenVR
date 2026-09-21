@@ -1,0 +1,43 @@
+// Hosted-CI boundaries: elementary scalar/vector math and the codec-validation boundary.
+// The production phase, handover, packet ordering and interpolation methods are compiled
+// unchanged. No Unity scene/rig, native API or rendering claim is made in this executable.
+// Real codec validation and exact bytes are exercised independently by the wire executable.
+using System;
+internal static class FaceClock { internal static float Now; }
+namespace UnityEngine
+{
+    public struct Vector3
+    {
+        public float x,y,z;
+        public Vector3(float x,float y,float z){this.x=x;this.y=y;this.z=z;}
+        public static Vector3 zero=>new(0,0,0);
+        public static Vector3 operator +(Vector3 a,Vector3 b)=>new(a.x+b.x,a.y+b.y,a.z+b.z);
+        public static Vector3 operator -(Vector3 a,Vector3 b)=>new(a.x-b.x,a.y-b.y,a.z-b.z);
+        public static Vector3 operator *(Vector3 a,float b)=>new(a.x*b,a.y*b,a.z*b);
+        public static float Distance(Vector3 a,Vector3 b){var d=a-b;return MathF.Sqrt(d.x*d.x+d.y*d.y+d.z*d.z);}
+        public static Vector3 Lerp(Vector3 a,Vector3 b,float t)=>a+(b-a)*Mathf.Clamp01(t);
+    }
+    public static class Mathf
+    {
+        public const float PI=MathF.PI;
+        public static float Sin(float v)=>MathF.Sin(v);
+        public static float Cos(float v)=>MathF.Cos(v);
+        public static float Abs(float v)=>MathF.Abs(v);
+        public static float Min(float a,float b)=>MathF.Min(a,b);
+        public static float Max(float a,float b)=>MathF.Max(a,b);
+        public static float Clamp(float v,float min,float max)=>Math.Clamp(v,min,max);
+        public static float Clamp01(float v)=>Math.Clamp(v,0,1);
+        public static float Lerp(float a,float b,float t)=>a+(b-a)*Clamp01(t);
+        public static float SmoothStep(float a,float b,float t){t=Clamp01(t);return a+(b-a)*t*t*(3-2*t);}
+    }
+}
+namespace GloomhavenVR.Net
+{
+    internal static class NetProtocol {internal const float StaleTimeoutSeconds=3f;}
+    internal static class TownActivityCodec
+    {
+        internal static bool Valid(in TownActivityState value)=>true;
+        internal static bool Matches(in TownActivityState a,in TownFaceState b)=>a.Active==b.Active&&(!a.Active||(a.Epoch==b.Epoch&&a.Sequence==b.Sequence&&a.Clock==b.Clock));
+    }
+    internal static class TownFaceCodec {internal static bool Valid(in TownFaceState value)=>true;}
+}

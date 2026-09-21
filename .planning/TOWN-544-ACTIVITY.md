@@ -41,12 +41,14 @@ rules: fast packets cannot resurrect a suspended peer; a newer same-epoch presen
 ## Focused validation and remaining limits
 
 - `check-town-activity.py --portable`: real production analytic phase and remote playback
-  bound to managed Unity math, 24,031 assertions and five deliberately compiled defects.
+  with explicit scalar/vector math boundaries, 24,031 assertions and five deliberately
+  compiled defects. It compiles only phase/handover/network methods and needs no game
+  assemblies; scene and rig methods are excluded.
   Registered for hosted CI; this mode makes no Unity scene/rig claim.
 - Real Unity optional `--bundle`: imported three-NPC arm chains, continuous target contact
   and body reset/no accumulation. Production terrain grounding is applied at0/±3.5cm;
   writing wrist contact must remain within3mm, and prayer wrist rotations stay continuous
-  during interruption. Latest run:47,098 assertions/seven compiled defects against the
+  during interruption. Latest run:92,107 assertions/nine compiled defects against the
   immutable build543 Linux bundle SHA256
   `be0f46bbe0241b3c2478b7872d5e2308cb701a0e57330eb34d6c08c3f1906b43`.
 - Direct wire executable:260,310 assertions passed, including all partial81 tails after
@@ -85,3 +87,22 @@ The production population fixture now covers the delayed gaze convergence after 
 author. No new bytes, gameplay gates or viewer-driven attention election were added.
 Final repaired544 bundle contact validation remains pending; the prior543 asset assertions
 are evidence for the previous geometry, not a claim about the unpublished replacement.
+
+## Thumb deformation and hosted-CI follow-up
+
+Controlled same-wrist renders with the pen hidden distinguish the original healthy relaxed
+hand from new thumb deformation. Holding non-thumb curl unchanged and reducing only the
+thumb removes the broad flap. The final thumb factor is5 (maximum2.75 degrees per joint),
+and the writing wrist moves(+6,-6,+11)mm from contact-v8. Final contact-v9 pen tip is
+(-.059443,.996978,.181965) metres, retaining page contact. Full0/±3.5cm terrain-offset
+contact assertions remain strict; the new compiled thumb-overcurl defect is rejected.
+Exact final activity bone rotations accompany contact-v9 images and were sent to asset
+review. No hand topology or source game data was changed.
+
+The hosted portable gate was additionally run from a source-only checkout with no
+`ressources` directory and an explicitly nonexistent Unity path. Only the committed
+metadata reference directory was available (unused). All24,031 assertions and five
+compiled negative controls passed; the executable dependency manifest contains only
+itself and the .NET runtime, no Unity/game assemblies. This is separate from real Unity
+scene/rig evidence. The original metadata-only hosted environment cannot execute real
+Unity method bodies and is no longer asked to do so.

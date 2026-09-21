@@ -88,7 +88,10 @@ internal sealed class TownServiceActivityRig
         foreach (Transform finger in arm.Fingers)
         {
             arm.CurlAxes.Add(finger.InverseTransformDirection(arm.Hand.TransformDirection(Vector3.Cross(arm.PalmForward, arm.PalmNormal))));
-            arm.CurlFactors.Add(finger.name.StartsWith("Thumb") ? 30f : 65f);
+            // The approximate generated thumb weights fold into a flat flap at larger
+            // rotations. Keep the largest authored activity below three degrees per joint;
+            // index/middle curl and wrist orientation still establish the writing pinch.
+            arm.CurlFactors.Add(finger.name.StartsWith("Thumb") ? 5f : 65f);
         }
         return arm;
     }

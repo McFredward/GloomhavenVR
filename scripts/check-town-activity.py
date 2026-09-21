@@ -38,6 +38,7 @@ def mutations():
         ("phase-jump", "TownServiceActivityMotion.cs", "state.FromBlend = Blend(in state);", "state.FromBlend = state.Engaged ? 1f : 0f;", "interrupted transition keeps current pose"),
         ("work-runs-while-engaged", "TownServiceActivityMotion.cs", "dt - Integral(in state, state.TransitionAge + dt) + Integral(in state, state.TransitionAge)", "dt", "engaged occupation remains paused"),
         ("ignore-ik", "TownServiceActivityRig.cs", "if (!Ready) return;", "if (Ready) return;", "actual hand reaches occupation target"),
+        ("thumb-overcurl", "TownServiceActivityRig.cs", "? 5f : 65f", "? 30f : 65f", "approximate thumb stays within supported deformation range"),
         ("prayer-snap", "TownServiceActivityRig.cs", "Quaternion.Slerp(Quaternion.LookRotation(_root.up, -side * _root.right), table, attention)", "(attention < .5f ? Quaternion.LookRotation(_root.up, -side * _root.right) : table)", "hand orientation remains smooth through prayer interruption"),
         ("no-writing-reach", "TownServiceActivityRig.cs", "18f * visual.Writing", "0f * visual.Writing", "writing contact survives resolved terrain offsets"),
         ("returning-author-snap", "TownServiceActivityHandover.cs", "_age = 0f;", "_age = Duration;", "returning authority keeps displayed hands at first frame"),
@@ -66,6 +67,15 @@ def main():
         parser.error("Unity 2021.3.5 is required; pass --unity")
     dotnet = shutil.which("dotnet") or str(Path.home() / ".dotnet/dotnet")
     bound, hashes = sources(args.source_root)
+    if args.portable:
+        wanted = {"TownServiceActivityMotion.cs", "TownServiceActivityHandover.cs", "TownActivityTypes.cs",
+                  "RemoteTownActivities.cs", "RemoteTownFaces.cs", "RemoteTownPerformance.cs", "FaceTypes.cs", "TownServiceFaceMotion.cs"}
+        bound = {name: code for name, code in bound.items() if name in wanted}
+        face = bound["TownServiceFaceMotion.cs"]
+        marker = "    internal static TownFacePose Interpolate("
+        if face.count(marker) != 1: raise SystemExit("Production face interpolation binding drift")
+        bound["TownServiceFaceMotion.cs"] = "using GloomhavenVR.Net; using UnityEngine; namespace GloomhavenVR.WorldUI;\ninternal static class TownServiceFaceMotion {\n" + face[face.index(marker):]
+        hashes = {name: hashlib.sha256(code.encode()).hexdigest() for name, code in bound.items()}
     (run / "source-hashes.json").write_text(json.dumps({"root": str(args.source_root.resolve()), "sha256": hashes}, indent=2) + "\n")
     bundle_hash = None
     if args.bundle:
@@ -75,7 +85,7 @@ def main():
             "bytes": args.bundle.stat().st_size, "sha256": bundle_hash}, indent=2) + "\n")
     manifest = {"result": str(run / "results.txt"), "cases": []}
     variants = [("production", None, None, None, "")]
-    if not args.no_negative_controls: variants += [v for v in mutations() if args.bundle or v[0] not in ("ignore-ik", "prayer-snap", "no-writing-reach")]
+    if not args.no_negative_controls: variants += [v for v in mutations() if args.bundle or v[0] not in ("ignore-ik", "thumb-overcurl", "prayer-snap", "no-writing-reach")]
     print(f"Binding production from {args.source_root.resolve()}; evidence: {run}", flush=True)
     for name, filename, before, after, expected in variants:
         build = run / name
@@ -90,12 +100,17 @@ def main():
         managed = args.unity.parent / "Data/Managed"
         framework = "netstandard2.1"
         if args.portable:
-            managed = args.source_root / "ressources/GH_Data/Managed"
-            if not managed.exists(): managed = args.source_root / "ressources/Managed"
             framework = "net8.0"
+            portable = build / "portable"
+            portable.mkdir()
+            program = (fixture / "Program.cs").read_text().split("    private static void Actual(")[0] + "}\n"
+            program = program.replace('        string[] args=Environment.GetCommandLineArgs();int at=Array.IndexOf(args,"-faceBundle");\n        if(at>=0)Actual(args[at+1]);\n', '')
+            (portable / "Program.cs").write_text(program)
+            shutil.copyfile(fixture / "PortableBoundaries.cs.in", portable / "Boundaries.cs")
             project.write_text(project.read_text().replace("<TargetFramework>netstandard2.1</TargetFramework>",
                 "<TargetFramework>net8.0</TargetFramework><OutputType>Exe</OutputType>")
-                .replace("$(UnityManaged)/UnityEngine/*.dll", "$(UnityManaged)/UnityEngine*.dll"))
+                .replace('$(FixtureDir)/*.cs', str(portable / '*.cs'))
+                .replace('    <Reference Include="$(UnityManaged)/UnityEngine/*.dll" />\n', ''))
         assembly = "TownInteraction_" + name.replace("-", "_")
         command = [dotnet, "build", str(project), "--configuration", "Release", "--nologo", "--verbosity", "quiet",
                    f"-p:CaseName={assembly}", f"-p:FixtureDir={fixture}", f"-p:ProductionDir={production}",
@@ -121,7 +136,7 @@ def main():
                 raise SystemExit(results[-1])
         (run / "results.txt").write_text("\n".join(results) + "\n")
         print("\n".join(results))
-        print(f"PASS: portable phase/network variants; no Unity asset claim; evidence: {run}")
+        print(f"PASS: portable phase/network variants; no game assemblies or Unity scene/rig claim; evidence: {run}")
         return
     manifest_path = run / "manifest.json"
     manifest_path.write_text(json.dumps(manifest, indent=2) + "\n")
