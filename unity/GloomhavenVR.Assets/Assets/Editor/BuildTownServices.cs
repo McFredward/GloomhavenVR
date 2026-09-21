@@ -236,12 +236,12 @@ namespace GloomhavenVR
             }
             else
             {
-                Box(furniture, "FootPlinth", new Vector3(0, 0.08f, 0), new Vector3(1.42f, 0.16f, 0.66f), wood);
+                // Drawer tracks extend to the floor; support the cabinet behind their travel.
                 // Open cabinet bays receive real sliding card registers. Solid decorative
                 // fronts/posts in these volumes would occlude or intersect the moving cards.
                 foreach (var side in new[] { -1, 1 })
                 {
-                    Box(furniture, "OuterPost" + side, new Vector3(side * 1.245f, .47f, .35f), new Vector3(.075f, .94f, .075f), wood);
+                    Box(furniture, "OuterPost" + side, new Vector3(side * 1.28f, .47f, .35f), new Vector3(.075f, .94f, .075f), wood);
                 }
                 Box(furniture, "CentreSupport", new Vector3(0f, .47f, .31f), new Vector3(.18f, .94f, .12f), wood);
             }
