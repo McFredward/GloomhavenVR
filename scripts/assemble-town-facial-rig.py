@@ -32,7 +32,7 @@ def subset(source, predicate, name):
 
 def evaluated_shapes(source,level,name):
     source.hide_viewport=False
-    modifier=source.modifiers.new('Coherent facial loop subdivision','SUBSURF');modifier.levels=level;modifier.render_levels=level
+    modifier=source.modifiers.new('Coherent facial loop subdivision','SUBSURF');modifier.levels=level;modifier.render_levels=level;modifier.uv_smooth='NONE'
     deps=bpy.context.evaluated_depsgraph_get();shapes={};mesh=None
     for i,key in enumerate(source.data.shape_keys.key_blocks):
         for other in source.data.shape_keys.key_blocks:other.value=0
@@ -69,8 +69,9 @@ def bake(head,output):
     mat=bpy.data.materials.new('TownFace543');mat.use_nodes=True;node=mat.node_tree.nodes.new('ShaderNodeTexImage');node.image=image;mat.node_tree.links.new(node.outputs[0],mat.node_tree.nodes.get('Principled BSDF').inputs['Base Color']);mat.node_tree.nodes.get('Principled BSDF').inputs['Roughness'].default_value=.65
     # Preserve the facial/inner partition until separate subdivision is complete.
     for i in range(len(head.data.materials)):head.data.materials[i]=mat
-    for uv in list(head.data.uv_layers):
-        if uv.name!='FaceAtlas':head.data.uv_layers.remove(uv)
+    for uv_name in [uv.name for uv in head.data.uv_layers]:
+        if uv_name!='FaceAtlas':head.data.uv_layers.remove(head.data.uv_layers[uv_name])
+    head.data.uv_layers['FaceAtlas'].active_render=True
     return mat
 
 
@@ -78,6 +79,12 @@ def main():
     p=argparse.ArgumentParser(description=__doc__);p.add_argument('--prototype',type=Path,required=True);p.add_argument('--rig',type=Path,required=True);p.add_argument('--output',type=Path,required=True);p.add_argument('--name',required=True);a=p.parse_args(sys.argv[sys.argv.index('--')+1:]);a.output.mkdir(parents=True,exist_ok=True)
     bpy.ops.wm.open_mainfile(filepath=str(a.prototype/'face-prototype.blend'));head=bpy.data.objects['Face']
     for key in head.data.shape_keys.key_blocks:key.value=0
+    # Extend only the anatomical neck boundary into the existing clothing. Orbital
+    # and oral loops are closed/internal and excluded by height and material.
+    bm=bmesh.new();bm.from_mesh(head.data);bm.verts.ensure_lookup_table()
+    boundary={v.index for e in bm.edges if len(e.link_faces)==1 and e.link_faces[0].material_index==0 for v in e.verts if v.co.z<1.49};bm.free()
+    for key in head.data.shape_keys.key_blocks:
+        for index in boundary:key.data[index].co.z-=.035
     face_material=bake(head,a.output)
     facial=subset(head,lambda p:p.material_index<2,'AnatomicalFace');oral=subset(head,lambda p:p.material_index>=2,'OralAnatomy');bpy.data.objects.remove(head,do_unlink=True)
     eyes=[o for o in bpy.context.scene.objects if o.name.startswith('Eye')]
@@ -99,11 +106,13 @@ def main():
             weight=max(0,min(1,(v.co.z-1.48)/.07));weight=weight*weight*(3-2*weight)
             part.vertex_groups['Head'].add([v.index],weight,'REPLACE');part.vertex_groups['Neck'].add([v.index],1-weight,'REPLACE')
         body_matrix=body.matrix_world.copy();body.parent=None;body.matrix_world=body_matrix
-        original_uv=body.data.uv_layers.active
-        for uv in list(body.data.uv_layers):
-            if uv!=original_uv:body.data.uv_layers.remove(uv)
-        original_uv.name='FaceAtlas'
-        part=join([part,body],part);part.name='LOD'+str(level)+'_0'
+        original_uv=body.data.uv_layers.active.name
+        for uv_name in [uv.name for uv in body.data.uv_layers]:
+            if uv_name!=original_uv:body.data.uv_layers.remove(body.data.uv_layers[uv_name])
+        body.data.uv_layers[original_uv].name='FaceAtlas';body.data.uv_layers['FaceAtlas'].active_render=True
+        body.modifiers.clear()
+        for key in part.data.shape_keys.key_blocks:body.shape_key_add(name=key.name)
+        part=join([body,part],body);part.name='LOD'+str(level)+'_0'
         # Stable two-slot runtime contract: original costume, new baked face/oral atlas.
         old_materials=list(part.data.materials);bodymat=next(m for m in old_materials if m.name.startswith('TownBody'));indices=[0 if old_materials[p.material_index].name.startswith('TownBody')else 1 for p in part.data.polygons];part.data.materials.clear();part.data.materials.append(bodymat);part.data.materials.append(face_material)
         for poly,index in zip(part.data.polygons,indices):poly.material_index=index
@@ -118,6 +127,10 @@ def main():
         pivot.rotation_euler=(math.pi/2,0,0)
         for child in pivot.children:
             bm=bmesh.new();bm.from_mesh(child.data);bmesh.ops.remove_doubles(bm,verts=list(bm.verts),dist=1e-7);bmesh.ops.recalc_face_normals(bm,faces=list(bm.faces));bm.to_mesh(child.data);bm.free();child.data.update()
+            if child.name.endswith('Globe'):
+                limit=max(v.co.z for v in child.data.vertices)*.82
+                assert all(p.center.dot(p.normal)>0 for p in child.data.polygons if p.center.z<limit),'Sclera normals must face outwards'
+            else:assert sum(v.normal.z for v in child.data.vertices)>0,'Cornea must face optical +Z'
     rig.data.pose_position='POSE';rig.animation_data.action=next((x for x in bpy.data.actions if x.name=='Idle'),None)
     bpy.context.scene.frame_set(1);bpy.ops.file.pack_all();bpy.ops.wm.save_as_mainfile(filepath=str(a.output/'rig-source.blend'))
     bpy.ops.object.select_all(action='DESELECT')

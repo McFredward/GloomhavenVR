@@ -97,21 +97,7 @@ def head_mesh(raw,faces,groups,face_uv,name,refs,data):
         uv=mesh.uv_layers.new(name='Reference_'+label)
         for loop in mesh.loops:
             index=loop.vertex_index;x,y,z=raw[ids[index]];px,py=pixels[index]
-            if label=='front':
-                # Skin loops never sample the photographic pupil/sclera. UVs on
-                # the upper/lower orbital rim stay in the corresponding lid skin
-                # when the original closure target unfolds that skin over the globe.
-                eye_x=profile['center']+(.30775 if x>0 else -.30775)*profile['pixelsPerX']
-                dx=(px-eye_x)/eye_width
-                if abs(dx)<1 and abs(py-eye_y)<22:
-                    curve=math.sqrt(max(0,1-dx*dx));top=eye_y-16*curve;bottom=eye_y+13*curve
-                    if top-7<py<bottom+2:
-                        if y>=7.28415:
-                            # Map a real two-dimensional skin patch below the eye
-                            # through the closed-lid coordinates. Collapsing every
-                            # rim UV onto one scanline creates shutter-like bands.
-                            py=max(eye_y+16*curve,eye_y+29+(closed_pixels[index,1]-eye_y)*.8)
-                        else:py=max(bottom+3,py)
+            if label=='front':pass
             elif label=='left':
                 x0,y0,x1,y1=bounds_side;px=x0+(z+.391)/(1.6807+.391)*(x1-x0)
                 py=y0+(py-profile['bounds'][1])/(profile['bounds'][3]-profile['bounds'][1])*(y1-y0)
@@ -119,6 +105,18 @@ def head_mesh(raw,faces,groups,face_uv,name,refs,data):
                 x0,y0,x1,y1=bounds_back;px=x0+(.95-x)/1.90*(x1-x0)
                 py=y0+(py-profile['bounds'][1])/(profile['bounds'][3]-profile['bounds'][1])*(y1-y0)
             uv.data[loop.index].uv=(px/718,1-py/718)
+    lid_uv=mesh.uv_layers.new(name='LidSkin')
+    lid_weight=mesh.color_attributes.new(name='LidWeight',type='FLOAT_COLOR',domain='CORNER')
+    for loop in mesh.loops:
+        index=loop.vertex_index;x,y,z=raw[ids[index]];px,py=pixels[index]
+        eye_x=profile['center']+(.30775 if x>0 else -.30775)*profile['pixelsPerX']
+        radius=math.sqrt(((px-eye_x)/eye_width)**2+((py-eye_y)/25)**2)
+        fade=max(0,min(1,(1.55-radius)/.55));fade=fade*fade*(3-2*fade)
+        # A feathered real two-dimensional cheek-skin sample removes the original
+        # photographic eye from eyelid skin without a hard UV edge or scanline smear.
+        sample_y=eye_y+42+(closed_pixels[index,1]-eye_y)*.7
+        lid_uv.data[loop.index].uv=(px/718,1-sample_y/718)
+        lid_weight.data[loop.index].color=(fade,fade,fade,1)
     weights=mesh.color_attributes.new(name='ProjectionWeights',type='FLOAT_COLOR',domain='CORNER')
     for loop in mesh.loops:
         x,y,z=raw[ids[loop.vertex_index]];angle=abs(math.atan2(x,z-.65))
@@ -129,7 +127,9 @@ def head_mesh(raw,faces,groups,face_uv,name,refs,data):
     for label in ('front','left','back'):
         image=bpy.data.images.load(str(refs/(label+'.png')));tex=nodes.new('ShaderNodeTexImage');tex.image=image;tex.extension='EXTEND';uv=nodes.new('ShaderNodeUVMap');uv.uv_map='Reference_'+label;links.new(uv.outputs[0],tex.inputs[0]);textures[label]=tex
     colors=nodes.new('ShaderNodeVertexColor');colors.layer_name='ProjectionWeights';split=nodes.new('ShaderNodeSeparateColor');links.new(colors.outputs[0],split.inputs[0])
-    front=nodes.new('ShaderNodeMixRGB');links.new(split.outputs[0],front.inputs[0]);links.new(textures['left'].outputs[0],front.inputs[1]);links.new(textures['front'].outputs[0],front.inputs[2])
+    skin=nodes.new('ShaderNodeTexImage');skin.image=textures['front'].image;skin.extension='EXTEND';uv=nodes.new('ShaderNodeUVMap');uv.uv_map='LidSkin';links.new(uv.outputs[0],skin.inputs[0])
+    eyelid=nodes.new('ShaderNodeVertexColor');eyelid.layer_name='LidWeight';patched=nodes.new('ShaderNodeMixRGB');links.new(eyelid.outputs[0],patched.inputs[0]);links.new(textures['front'].outputs[0],patched.inputs[1]);links.new(skin.outputs[0],patched.inputs[2])
+    front=nodes.new('ShaderNodeMixRGB');links.new(split.outputs[0],front.inputs[0]);links.new(textures['left'].outputs[0],front.inputs[1]);links.new(patched.outputs[0],front.inputs[2])
     back=nodes.new('ShaderNodeMixRGB');links.new(split.outputs[1],back.inputs[0]);links.new(front.outputs[0],back.inputs[1]);links.new(textures['back'].outputs[0],back.inputs[2]);links.new(back.outputs[0],nodes.get('Principled BSDF').inputs['Base Color']);mesh.materials.append(m)
     mesh.materials.append(material('TownOralCavity',(.045,.008,.012),.50))
     for p,source in zip(mesh.polygons,chosen_indices):
@@ -215,7 +215,7 @@ def eyes(raw,name,data):
                 else:uvs.append((.704+x/iris_radius*.116,.703+z/iris_radius*.116))
         def connect(a,b):
             for j in range(segments):faces.append((a*segments+j,a*segments+(j+1)%segments,b*segments+(j+1)%segments,b*segments+j))
-        for i in range(18):connect(i,i+1)
+        for i in range(18):connect(i+1,i)
         for i in range(19,len(rings)-1):connect(i,i+1)
         # Separate coincident limbus ring joins both physical surfaces exactly.
         mesh=bpy.data.meshes.new(label+'Globe');mesh.from_pydata(verts,[],faces);mesh.update();uv=mesh.uv_layers.new(name='EyeAtlas')

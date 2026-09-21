@@ -12,6 +12,12 @@ public static class ValidateTownAssets
     static int assertions;
     static string output;
     static Camera camera;
+    static bool sourceReview;
+    public static void ReviewSources()
+    {
+        output = Arg("-townEvidence"); Directory.CreateDirectory(output);
+        sourceReview = true; routine = Run(); EditorApplication.update += Step;
+    }
     static readonly Color Background = new Color(.1f, .1f, .1f);
     static void Check(bool condition, string message)
     { assertions++; if (!condition) throw new InvalidDataException(message); }
@@ -95,6 +101,92 @@ public static class ValidateTownAssets
             return result;
         }
 
+    static readonly string[] FaceShapes = { "BlinkLeft", "BlinkRight", "JawOpen", "MouthWide", "MouthRound", "Smile", "BrowRaise",
+        "LidUpLeft", "LidDownLeft", "LidUpRight", "LidDownRight" };
+    static void FaceWeight(GameObject root, string name, float value)
+    {
+        foreach (var skin in root.GetComponentsInChildren<SkinnedMeshRenderer>())
+            skin.SetBlendShapeWeight(skin.sharedMesh.GetBlendShapeIndex(name), value);
+    }
+    static void ResetFace(GameObject root)
+    { foreach (var name in FaceShapes) FaceWeight(root, name, 0); }
+    static IEnumerator FacialEvidence(GameObject root, string npc, LODGroup lod)
+    {
+        var actor = root.transform.Find("Actor");
+        var head = root.GetComponentsInChildren<Transform>().Single(t => t.name == "Head");
+        var eyes = new[] { "EyeLeft", "EyeRight" }.Select(name => root.GetComponentsInChildren<Transform>().Single(t => t.name == name)).ToArray();
+        foreach (var eye in eyes)
+        {
+            Check(eye.parent == head, npc + " eye is attached to actual animated Head");
+            Check(Vector3.Dot(eye.forward, actor.forward) > .97f, npc + " neutral eye +Z optical frame follows face");
+            Check(eye.GetComponentsInChildren<MeshRenderer>().Length == 2, npc + " dimensional globe and independent corneal shell");
+            foreach (var renderer in eye.GetComponentsInChildren<MeshRenderer>())
+                Check(renderer.sharedMaterial.shader.isSupported && renderer.sharedMaterial.HasProperty("_TownVisibility"), npc + " eye lighting and dissolve shader compiled");
+        }
+        Check(head.Find("MouthAudioAnchor") != null, npc + " anatomical mouth anchor retained without generated voice assets");
+        foreach (AnimationState clip in root.GetComponentInChildren<Animation>())
+            Check(!AnimationUtility.GetCurveBindings(clip.clip).Any(binding => binding.propertyName.StartsWith("blendShape.")), npc + " body clips cannot overwrite facial state");
+        var metrics = new System.Collections.Generic.List<string>();
+        for (int level = 0; level < 3; level++)
+        {
+            var skin = lod.GetLODs()[level].renderers.OfType<SkinnedMeshRenderer>().Single();
+            var mesh = skin.sharedMesh;
+            Check(mesh.blendShapeCount == FaceShapes.Length, npc + " LOD" + level + " all facial channels present");
+            var bodyVertices = mesh.GetIndices(0).Distinct().ToArray();
+            var vertexDelta = new Vector3[mesh.vertexCount]; var normalDelta = new Vector3[mesh.vertexCount];
+            var tangentDelta = new Vector3[mesh.vertexCount];
+            for (int shapeIndex = 0; shapeIndex < mesh.blendShapeCount; shapeIndex++)
+            {
+                mesh.GetBlendShapeFrameVertices(shapeIndex, 0, vertexDelta, normalDelta, tangentDelta);
+                Check(bodyVertices.All(index => vertexDelta[index].sqrMagnitude < 1e-14f), npc + " facial shapes never move costume vertices");
+                int changedNormals = bodyVertices.Count(index => normalDelta[index].sqrMagnitude > 1e-8f);
+                if (changedNormals > 0) Debug.Log("TOWN_BODY_SHAPE_NORMALS " + npc + " LOD" + level + " " + mesh.GetBlendShapeName(shapeIndex) + " count=" + changedNormals);
+            }
+
+            foreach (var shape in FaceShapes) Check(mesh.GetBlendShapeIndex(shape) >= 0, npc + " LOD" + level + " " + shape);
+            Check(lod.GetLODs()[level].renderers.Length == 5, npc + " one skinned actor plus four bounded eye passes");
+            metrics.Add("LOD" + level + " vertices=" + mesh.vertexCount + " triangles=" + mesh.triangles.Length / 3 +
+                " meshMemoryBytes=" + UnityEngine.Profiling.Profiler.GetRuntimeMemorySizeLong(mesh));
+            lod.ForceLOD(level); ResetFace(root);
+            camera.transform.position = new Vector3(0, 1.60f, .03f); camera.transform.LookAt(new Vector3(0, 1.60f, .65f));
+            yield return null; var neutral = Picture(npc + "-face-lod" + level + "-neutral");
+            FaceWeight(root, "BlinkLeft", 100); FaceWeight(root, "BlinkRight", 100);
+            yield return null; var blink = Picture(npc + "-face-lod" + level + "-blink");
+            Check(Different(neutral, blink) > 100, npc + " LOD" + level + " actual eyelid deformation renders");
+            ResetFace(root); FaceWeight(root, "JawOpen", 25); FaceWeight(root, "MouthRound", 35);
+            yield return null; var speech = Picture(npc + "-face-lod" + level + "-speech");
+            Check(Different(neutral, speech) > 100, npc + " LOD" + level + " small oral deformation renders");
+        }
+        File.WriteAllLines(Path.Combine(output, npc + "-facial-metrics.txt"), metrics.ToArray());
+        ResetFace(root); lod.ForceLOD(0);
+        var headRotation = head.rotation; var eyeRotations = eyes.Select(e => e.localRotation).ToArray();
+        foreach (float yaw in new[] { -50f, 50f }) foreach (float pitch in new[] { -22f, 22f })
+        {
+            head.rotation = Quaternion.AngleAxis(yaw, actor.up) * Quaternion.AngleAxis(pitch, actor.right) * headRotation;
+            for (int i = 0; i < eyes.Length; i++) eyes[i].localRotation = eyeRotations[i] * Quaternion.Euler(Mathf.Sign(pitch) * 15, Mathf.Sign(yaw) * 25, 0);
+            FaceWeight(root, pitch > 0 ? "LidDownLeft" : "LidUpLeft", 100);
+            FaceWeight(root, pitch > 0 ? "LidDownRight" : "LidUpRight", 100);
+            camera.transform.position = new Vector3(.32f, 1.61f, .10f); camera.transform.LookAt(new Vector3(0, 1.59f, .65f));
+            yield return null; Picture(npc + "-gaze-" + yaw + "-" + pitch);
+            var skin = lod.GetLODs()[0].renderers.OfType<SkinnedMeshRenderer>().Single();
+            var points = PosedVertices(skin, root.transform);
+            using (var writer = new BinaryWriter(File.Create(Path.Combine(output, npc + "-gaze-" + yaw + "-" + pitch + ".xyz32"))))
+                foreach (var point in points) { writer.Write(point.x); writer.Write(point.y); writer.Write(point.z); }
+            Check(points.All(v => v.y <= 2.1f && v.x >= -.9f && v.x <= .9f && v.z >= -.5f && v.z <= 1.15f), npc + " gaze extremes remain inside reserved station bounds");
+            ResetFace(root); FaceWeight(root, "BlinkLeft", 100); FaceWeight(root, "BlinkRight", 100);
+            yield return null; Picture(npc + "-gaze-" + yaw + "-" + pitch + "-blink");
+            ResetFace(root);
+        }
+        head.rotation = headRotation;
+        for (int i = 0; i < eyes.Length; i++) eyes[i].localRotation = eyeRotations[i];
+        camera.transform.position = new Vector3(.32f, 1.61f, .10f); camera.transform.LookAt(new Vector3(0, 1.59f, .65f));
+        FaceWeight(root, "BlinkLeft", 100); FaceWeight(root, "BlinkRight", 100);
+        yield return null; Picture(npc + "-face-blink-oblique");
+        ResetFace(root); FaceWeight(root, "JawOpen", 35); FaceWeight(root, "MouthWide", 20);
+        yield return null; Picture(npc + "-face-speech-oblique");
+        ResetFace(root); lod.ForceLOD(-1);
+    }
+
     static IEnumerator routine;
     static void Step()
     {
@@ -111,12 +203,14 @@ public static class ValidateTownAssets
         camera.cullingMask = 1 << 31; camera.clearFlags = CameraClearFlags.SolidColor;
         camera.backgroundColor = Background; camera.fieldOfView = 60;
         camera.targetTexture = new RenderTexture(800, 800, 24);
-        var bundle = AssetBundle.LoadFromFile(Path.Combine(output, "town-review.bundle"));
+        var bundle = sourceReview ? null : AssetBundle.LoadFromFile(Path.Combine(output, "town-review.bundle"));
+        Check(sourceReview ? AssetDatabase.FindAssets("t:AudioClip", new[] { "Assets/Bundle/TownServices" }).Length == 0 : bundle.LoadAllAssets<AudioClip>().Length == 0 && !bundle.GetAllAssetNames().Any(n => n.Contains("/audio/")), "No generated voice assets ship in the town bundle");
         var oldShader = AssetDatabase.LoadAssetAtPath<Shader>("Assets/OldTownShader.shader");
         Check(oldShader != null && oldShader.isSupported, "Historical self-lighting control compiles on GL");
         foreach (var npc in new[] { "merchant", "priestess", "enchantress" })
         {
-            var root = UnityEngine.Object.Instantiate(bundle.LoadAsset<GameObject>(
+            var root = UnityEngine.Object.Instantiate(sourceReview ? AssetDatabase.LoadAssetAtPath<GameObject>(
+                "Assets/Bundle/TownServices/Prefabs/Town" + Char.ToUpperInvariant(npc[0]) + npc.Substring(1) + ".prefab") : bundle.LoadAsset<GameObject>(
                 "assets/bundle/townservices/prefabs/town" + npc + ".prefab"));
             foreach (var child in root.GetComponentsInChildren<Transform>(true)) child.gameObject.layer = 31;
             camera.transform.position = new Vector3(0, 1.6f, -2.3f);
@@ -174,6 +268,8 @@ public static class ValidateTownAssets
                 camera.transform.position = centre + offset; camera.transform.LookAt(centre);
                 yield return null; Picture(npc + "-head-" + view);
             }
+            var faceReview = FacialEvidence(root, npc, lod);
+            while (faceReview.MoveNext()) yield return faceReview.Current;
             camera.transform.position = cameraPosition; camera.transform.rotation = cameraRotation;
             camera.fieldOfView = cameraFov;
             var actorRoot = root.transform.Find("Actor");

@@ -26,9 +26,10 @@ source = root / 'unity/GloomhavenVR.Assets/Assets/Bundle/TownServices'
 shutil.copytree(source, assets / 'Bundle/TownServices')
 (assets / 'Editor').mkdir()
 shutil.copy(root / 'scripts/town-service-asset-runtime/ValidateTownAssets.cs', assets / 'Editor')
+shutil.copy(root / 'unity/GloomhavenVR.Assets/Assets/Editor/BuildTownServices.cs', assets / 'Editor')
 (project / 'Packages').mkdir()
 (project / 'Packages/manifest.json').write_text(json.dumps({'dependencies': {
-    'com.unity.modules.' + name: '1.0.0' for name in ['animation', 'assetbundle', 'imageconversion', 'physics']}}))
+    'com.unity.modules.' + name: '1.0.0' for name in ['animation', 'assetbundle', 'imageconversion', 'physics', 'audio']}}))
 (project / 'ProjectSettings').mkdir()
 (project / 'ProjectSettings/ProjectVersion.txt').write_text('m_EditorVersion: 2021.3.5f1\n')
 control = (root / 'scripts/town-service-asset-runtime/TownNpc539.shader').read_bytes()

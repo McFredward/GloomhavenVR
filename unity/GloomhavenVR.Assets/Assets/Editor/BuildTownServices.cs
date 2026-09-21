@@ -412,6 +412,110 @@ namespace GloomhavenVR
             AssetDatabase.SaveAssets();
         }
 
+        // Replace the facial shell and its rig without rebuilding furniture or changing grounding.
+        public static void RefreshFacialRig()
+        {
+            var input = Arg("-townFaceRoot");
+            Folder(Root + "/Textures");
+            foreach (var npc in Npcs)
+            {
+                var directory = Root + "/Actors/" + npc;
+                File.Copy(Path.Combine(input, npc, npc + "_rig.fbx"), directory + "/" + npc + "_rig.fbx", true);
+                File.Copy(Path.Combine(input, npc, "face_albedo.png"), directory + "/Textures/face543_albedo.png", true);
+            }
+            AssetDatabase.Refresh(ImportAssetOptions.ForceSynchronousImport);
+            foreach (var npc in Npcs)
+            {
+                var fbxPath = Root + "/Actors/" + npc + "/" + npc + "_rig.fbx";
+                var importer = (ModelImporter)AssetImporter.GetAtPath(fbxPath);
+                importer.importBlendShapes = true;
+                importer.importBlendShapeNormals = ModelImporterNormals.Calculate;
+                importer.SaveAndReimport();
+                var settings = importer.defaultClipAnimations;
+                foreach (var clip in settings)
+                {
+                    clip.name = clip.name.Split('|').Last();
+                    clip.loopTime = clip.name == "Idle";
+                    clip.wrapMode = clip.loopTime ? WrapMode.Loop : WrapMode.ClampForever;
+                }
+                importer.clipAnimations = settings; importer.SaveAndReimport();
+                var path = Root + "/Prefabs/Town" + Char.ToUpperInvariant(npc[0]) + npc.Substring(1) + ".prefab";
+                var root = PrefabUtility.LoadPrefabContents(path);
+                try
+                {
+                    var previous = root.transform.Find("Actor");
+                    var position = previous.localPosition; var rotation = previous.localRotation; var scale = previous.localScale;
+                    var materials = previous.GetComponentsInChildren<SkinnedMeshRenderer>()[0].sharedMaterials;
+                    var face = materials[1];
+                    face.mainTexture = Texture(Root + "/Actors/" + npc + "/Textures/face543_albedo.png", false, false);
+                    face.SetTexture("_BumpMap", null); face.DisableKeyword("_NORMALMAP");
+                    face.SetTexture("_MetallicGlossMap", null); face.DisableKeyword("_METALLICGLOSSMAP");
+                    face.SetFloat("_Metallic", 0); face.SetFloat("_Glossiness", 0.25f);
+                    UnityEngine.Object.DestroyImmediate(previous.gameObject);
+                    var actor = (GameObject)PrefabUtility.InstantiatePrefab(AssetDatabase.LoadAssetAtPath<GameObject>(fbxPath));
+                    PrefabUtility.UnpackPrefabInstance(actor, PrefabUnpackMode.Completely, InteractionMode.AutomatedAction);
+                    actor.name = "Actor"; actor.transform.SetParent(root.transform, false);
+                    actor.transform.localPosition = position; actor.transform.localRotation = rotation; actor.transform.localScale = scale;
+                    var head = actor.GetComponentsInChildren<Transform>().Single(t => t.name == "Head");
+                    var eyeMaterial = AssetDatabase.LoadAssetAtPath<Material>(Root + "/Materials/" + npc + "_eye.mat");
+                    if (!eyeMaterial)
+                    {
+                        eyeMaterial = new Material(AssetDatabase.LoadAssetAtPath<Shader>(Root + "/Shaders/TownEye.shader"));
+                        AssetDatabase.CreateAsset(eyeMaterial, Root + "/Materials/" + npc + "_eye.mat");
+                    }
+                    eyeMaterial.SetColor("_Color", new Color(.65f, .65f, .65f, 1));
+                    eyeMaterial.mainTexture = Texture(Root + "/Textures/" + (npc == "enchantress" ? "green_eye.png" : "brown_eye.png"), false, false);
+                    var cornea = AssetDatabase.LoadAssetAtPath<Material>(Root + "/Materials/TownCornea.mat");
+                    if (!cornea)
+                    {
+                        cornea = new Material(AssetDatabase.LoadAssetAtPath<Shader>(Root + "/Shaders/TownCornea.shader"));
+                        AssetDatabase.CreateAsset(cornea, Root + "/Materials/TownCornea.mat");
+                    }
+                    var eyeRenderers = actor.GetComponentsInChildren<MeshRenderer>();
+                    if (eyeRenderers.Length != 4) throw new InvalidDataException(npc + ": expected two globes and two corneas");
+                    foreach (var renderer in eyeRenderers)
+                    {
+                        renderer.sharedMaterial = renderer.name.EndsWith("Cornea") ? cornea : eyeMaterial;
+                        renderer.shadowCastingMode = ShadowCastingMode.Off;
+                    }
+                    foreach (var name in new[] { "EyeLeft", "EyeRight" })
+                    {
+                        var eye = actor.GetComponentsInChildren<Transform>().Single(t => t.name == name);
+                        if (Vector3.Dot(eye.forward, actor.transform.forward) < 0.999f)
+                            throw new InvalidDataException(npc + ": eye optical frame is not neutral actor +Z: " + eye.forward);
+                        eye.SetParent(head, true);
+                    }
+                    var mouth = new GameObject("MouthAudioAnchor").transform;
+                    mouth.position = actor.transform.TransformPoint(npc == "merchant" ? new Vector3(0, 1.557f, 0.096f) :
+                        npc == "priestess" ? new Vector3(0, 1.535f, 0.117f) : new Vector3(0, 1.5371f, 0.1313f));
+                    mouth.rotation = actor.transform.rotation; mouth.SetParent(head, true);
+                    var lods = new LOD[3];
+                    for (var i = 0; i < 3; ++i)
+                    {
+                        var renderer = actor.GetComponentsInChildren<SkinnedMeshRenderer>().Single(r => r.name.StartsWith("LOD" + i + "_"));
+                        renderer.sharedMaterials = materials; renderer.quality = SkinQuality.Bone4; renderer.updateWhenOffscreen = true;
+                        var bounds = renderer.localBounds; bounds.Expand(.4f); renderer.localBounds = bounds;
+                        lods[i] = new LOD(new[] { .5f, .2f, .04f }[i], new Renderer[] { renderer }.Concat(eyeRenderers).ToArray());
+                    }
+                    var group = actor.AddComponent<LODGroup>(); group.SetLODs(lods);
+                    var animation = actor.GetComponent<Animation>() ?? actor.AddComponent<Animation>();
+                    animation.playAutomatically = true; animation.cullingType = AnimationCullingType.AlwaysAnimate;
+                    var clips = AssetDatabase.LoadAllAssetsAtPath(fbxPath).OfType<AnimationClip>().Where(c => !c.name.StartsWith("__preview__")).ToArray();
+                    foreach (var name in new[] { "Idle", "Greeting", "Gesture", "ReturnToIdle" })
+                    {
+                        var clip = clips.Single(c => c.name == name);
+                        if (AnimationUtility.GetCurveBindings(clip).Any(b => b.propertyName.StartsWith("blendShape.")))
+                            throw new InvalidDataException(npc + ": body clip overrides facial weights");
+                        animation.AddClip(clip, name); if (name == "Idle") animation.clip = clip;
+                    }
+                    animation.GetClip("Idle").SampleAnimation(actor, 0); SetPosedLodBounds(group);
+                    PrefabUtility.SaveAsPrefabAsset(root, path);
+                }
+                finally { PrefabUtility.UnloadPrefabContents(root); }
+            }
+            AssetDatabase.SaveAssets();
+        }
+
         public static void RefreshLodBounds()
         {
             foreach (var npc in Npcs)
@@ -481,5 +585,84 @@ namespace GloomhavenVR
                 throw;
             }
         }
+    }
+}
+
+// FBX bakes constant facial channels even though body actions contain no facial
+// keys. Remove only those imported tracks; runtime owns eyes and facial weights.
+internal sealed class TownFacialClipPostprocessor : AssetPostprocessor
+{
+    static Vector3[] FacialNormals(Vector3[] positions, int[] triangles, int[] weld, int groupCount)
+    {
+        var sums = new Vector3[groupCount];
+        for (int i = 0; i < triangles.Length; i += 3)
+        {
+            int a = triangles[i], b = triangles[i + 1], c = triangles[i + 2];
+            var normal = Vector3.Cross(positions[b] - positions[a], positions[c] - positions[a]);
+            sums[weld[a]] += normal; sums[weld[b]] += normal; sums[weld[c]] += normal;
+        }
+        for (var i = 0; i < sums.Length; i++)
+        {
+            // FBX skin vertices may be in centimetre-compensated local units;
+            // Vector3.Normalize's epsilon would discard these valid tiny areas.
+            float square = sums[i].sqrMagnitude;
+            if (square > 1e-30f) sums[i] /= Mathf.Sqrt(square);
+        }
+        return weld.Select(index => sums[index]).ToArray();
+    }
+    void OnPostprocessModel(GameObject root)
+    {
+        if (!assetPath.StartsWith("Assets/Bundle/TownServices/Actors/", StringComparison.Ordinal)) return;
+        foreach (var renderer in root.GetComponentsInChildren<SkinnedMeshRenderer>())
+        {
+            var mesh = renderer.sharedMesh;
+            if (mesh.blendShapeCount == 0) continue;
+            var body = mesh.GetIndices(0).Distinct().ToArray(); var face = mesh.GetIndices(1);
+            var vertices = mesh.vertices; var baseNormals = mesh.normals;
+            var weld = new int[vertices.Length]; var groups = new Dictionary<Vector3, int>();
+            for (int i = 0; i < vertices.Length; i++)
+            {
+                int group;
+                if (!groups.TryGetValue(vertices[i], out group)) { group = groups.Count; groups.Add(vertices[i], group); }
+                weld[i] = group;
+            }
+            // Use one neutral-position weld map for every expression. Opposing
+            // lips/lids must not become connected when they touch during closure.
+            var neutral = FacialNormals(vertices, face, weld, groups.Count);
+            foreach (var index in face) baseNormals[index] = neutral[index];
+            mesh.normals = baseNormals;
+            var names = new List<string>(); var positions = new List<Vector3[]>(); var normals = new List<Vector3[]>();
+            for (var shape = 0; shape < mesh.blendShapeCount; shape++)
+            {
+                if (mesh.GetBlendShapeFrameCount(shape) != 1) throw new InvalidDataException("Expected one authored frame per facial channel");
+                var p = new Vector3[mesh.vertexCount]; var n = new Vector3[mesh.vertexCount]; var t = new Vector3[mesh.vertexCount];
+                mesh.GetBlendShapeFrameVertices(shape, 0, p, n, t);
+                var posed = new Vector3[vertices.Length];
+                for (int i = 0; i < posed.Length; i++) posed[i] = vertices[i] + p[i];
+                var posedNormals = FacialNormals(posed, face, weld, groups.Count);
+                for (int i = 0; i < n.Length; i++)
+                {
+                    n[i] = posedNormals[i] - neutral[i];
+                    if (n[i].sqrMagnitude < 1e-10f) n[i] = Vector3.zero;
+                }
+                foreach (var index in body)
+                {
+                    if (p[index].sqrMagnitude > 1e-14f) throw new InvalidDataException("Facial channel deforms costume; submesh order is wrong");
+                    n[index] = Vector3.zero;
+                }
+                names.Add(mesh.GetBlendShapeName(shape)); positions.Add(p); normals.Add(n);
+            }
+            mesh.ClearBlendShapes();
+            var zeroTangents = new Vector3[mesh.vertexCount];
+            for (var i = 0; i < names.Count; i++) mesh.AddBlendShapeFrame(names[i], 100, positions[i], normals[i], zeroTangents);
+        }
+    }
+    void OnPostprocessAnimation(GameObject root, AnimationClip clip)
+    {
+        if (!assetPath.StartsWith("Assets/Bundle/TownServices/Actors/", StringComparison.Ordinal)) return;
+        foreach (var binding in AnimationUtility.GetCurveBindings(clip))
+            if (binding.propertyName.StartsWith("blendShape.", StringComparison.Ordinal) ||
+                binding.path.Split('/').Any(segment => segment == "EyeLeft" || segment == "EyeRight"))
+                AnimationUtility.SetEditorCurve(clip, binding, null);
     }
 }
