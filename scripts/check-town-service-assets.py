@@ -34,8 +34,12 @@ shutil.copy(root / 'unity/GloomhavenVR.Assets/Assets/Editor/BuildTownServices.cs
 (project / 'ProjectSettings/ProjectVersion.txt').write_text('m_EditorVersion: 2021.3.5f1\n')
 control = (root / 'scripts/town-service-asset-runtime/TownNpc539.shader').read_bytes()
 (assets / 'OldTownShader.shader').write_bytes(control.replace(b'GloomhavenVR/TownNpc', b'GloomhavenVR/TownNpc539'))
+validation_sources = [root / path for path in (
+    'scripts/check-town-service-assets.py', 'scripts/town-service-asset-runtime/ValidateTownAssets.cs',
+    'scripts/author-town-facial-topology.py', 'scripts/assemble-town-facial-rig.py',
+    'unity/GloomhavenVR.Assets/Assets/Editor/BuildTownServices.cs')]
 inputs = {str(p.relative_to(root)): hashlib.sha256(p.read_bytes()).hexdigest()
-          for p in source.rglob('*') if p.is_file()}
+          for p in list(source.rglob('*')) + validation_sources if p.is_file()}
 (project / 'source-hashes.json').write_text(json.dumps(inputs, indent=2) + '\n')
 evidence = project / 'evidence'
 command = ['xvfb-run', '-a', str(args.unity), '-batchmode', '-projectPath', str(project),

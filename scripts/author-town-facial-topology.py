@@ -107,6 +107,9 @@ def head_mesh(raw,faces,groups,face_uv,name,refs,data):
             uv.data[loop.index].uv=(px/718,1-py/718)
     lid_uv=mesh.uv_layers.new(name='LidSkin')
     lid_weight=mesh.color_attributes.new(name='LidWeight',type='FLOAT_COLOR',domain='CORNER')
+    # Adding a color attribute can relocate Blender's custom-data storage.
+    # Reacquire the UV handle before writing; a stale RNA layer silently loses edits.
+    lid_uv=mesh.uv_layers['LidSkin']
     for loop in mesh.loops:
         index=loop.vertex_index;x,y,z=raw[ids[index]];px,py=pixels[index]
         eye_x=profile['center']+(.30775 if x>0 else -.30775)*profile['pixelsPerX']
@@ -134,6 +137,18 @@ def head_mesh(raw,faces,groups,face_uv,name,refs,data):
     mesh.materials.append(material('TownOralCavity',(.045,.008,.012),.50))
     for p,source in zip(mesh.polygons,chosen_indices):
         if max(t[1]for t in face_uv[source])<.137 and np.mean(raw[faces[source],1])<7.05:p.material_index=1
+    # Check stored mesh data after every custom-data allocation, not the stale
+    # Python layer handle. Both lids must sample real skin beyond the eye image.
+    for side in (-1,1):
+        verified=[]
+        for loop in mesh.loops:
+            x=raw[ids[loop.vertex_index],0];px,py=pixels[loop.vertex_index]
+            if x*side<=0 or abs(py-eye_y)>12:continue
+            if mesh.color_attributes['LidWeight'].data[loop.index].color[0]<.99:continue
+            original=mesh.uv_layers['Reference_front'].data[loop.index].uv
+            patched=mesh.uv_layers['LidSkin'].data[loop.index].uv
+            verified.append(original.y-patched.y>.02 and (1-patched.y)*718>eye_y+20)
+        assert len(verified)>10 and all(verified),'Eyelid skin UV allocation lost or still samples the photographed eye'
     obj.shape_key_add(name='Basis')
     return obj,ids
 

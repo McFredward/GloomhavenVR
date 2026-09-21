@@ -131,6 +131,8 @@ public static class ValidateTownAssets
         {
             var skin = lod.GetLODs()[level].renderers.OfType<SkinnedMeshRenderer>().Single();
             var mesh = skin.sharedMesh;
+            if (level == 0) using (var writer = new BinaryWriter(File.Create(Path.Combine(output, npc + "-triangles.i32"))))
+                foreach (var index in mesh.triangles) writer.Write(index);
             Check(mesh.blendShapeCount == FaceShapes.Length, npc + " LOD" + level + " all facial channels present");
             var bodyVertices = mesh.GetIndices(0).Distinct().ToArray();
             var vertexDelta = new Vector3[mesh.vertexCount]; var normalDelta = new Vector3[mesh.vertexCount];
