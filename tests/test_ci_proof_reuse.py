@@ -263,6 +263,59 @@ class ProofTests(unittest.TestCase):
         self.api.job_list = [self.job, self.job]
         self.reject()
 
+    def parallel_fixture(self):
+        self.write(M.WORKFLOW, f'trusted workflow\n      - name: {M.PARALLEL_GATE}\n')
+        self.head = self.save('parallel workflow')
+        self.g('update-ref', 'refs/remotes/origin/dev', self.head)
+        self.tree = M.tree(self.root, 'HEAD')
+        self.run['head_sha'] = self.head
+        self.job.update(head_sha=self.head, name=f'Full checks [{self.tree}]')
+        self.job['steps'].append({'name': M.PARALLEL_GATE, 'status': 'completed', 'conclusion': 'success'})
+        dependencies = [dict(self.job, name=name, steps=[]) for name in
+                        ['Source and build checks'] + [f'Runtime suites [{i}/4]' for i in range(4)]]
+        self.api = API([self.run], [self.job] + dependencies)
+        return dependencies
+
+    def test_parallel_proof_requires_all_successful_jobs_and_gate(self):
+        self.parallel_fixture()
+        self.assertTrue(self.proof())
+        self.job['steps'] = [self.job['steps'][0]]
+        self.reject()
+
+    def test_parallel_missing_or_duplicate_dependency_cannot_mint_proof(self):
+        self.parallel_fixture()
+        complete = self.api.job_list[:]
+        for index in range(1, len(complete)):
+            with self.subTest(missing=complete[index]['name']):
+                self.api.job_list = complete[:index] + complete[index + 1:]
+                self.reject()
+            with self.subTest(duplicate=complete[index]['name']):
+                self.api.job_list = complete + [complete[index]]
+                self.reject()
+        self.api.job_list = complete
+        self.assertTrue(self.proof())
+
+    def test_parallel_falsely_green_aggregator_cannot_hide_failed_or_stale_jobs(self):
+        dependencies = self.parallel_fixture()
+        for job in dependencies:
+            original = dict(job)
+            for field, value in [('conclusion', 'failure'), ('conclusion', 'skipped'),
+                                 ('conclusion', 'cancelled'), ('status', 'in_progress'),
+                                 ('run_attempt', 2), ('head_sha', 'a' * 40), ('run_id', 102)]:
+                with self.subTest(job=job['name'], field=field, value=value):
+                    job[field] = value
+                    self.reject()
+                    job.clear()
+                    job.update(original)
+        self.assertTrue(self.proof())
+
+    def test_historical_serial_proof_does_not_require_new_matrix(self):
+        wanted = self.tree
+        self.write(M.WORKFLOW, f'new workflow\n      - name: {M.PARALLEL_GATE}\n')
+        newer = self.save('adopt parallel execution after historical release')
+        self.g('update-ref', 'refs/remotes/origin/dev', newer)
+        self.assertTrue(M.find_proof(self.root, REPO, wanted, self.api, NOW))
+
     def test_stale_future_and_inactive_workflow_refuse(self):
         for date in (NOW - timedelta(days=31), NOW + timedelta(hours=1)):
             self.api.records[101]['updated_at'] = date.isoformat()
