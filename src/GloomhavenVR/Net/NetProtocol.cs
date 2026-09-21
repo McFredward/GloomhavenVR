@@ -525,6 +525,8 @@ internal static class NetProtocol
     // instead identify floating stands, damaged generated faces, fixed studio illumination
     // and a flat merchant presentation. Place all three residents on the actual room floor,
     // independently of an open service, while retaining original-window rollback when disabled.
+    // The uneven forest needs separate sole/support contact, published by the resident author;
+    // observers must not resample their own terrain. Existing support tops stay fixed.
     // The NPC is the guarded visit target; hide only its replaced map cap, and include its
     // collider in pointer arbitration before UI/map dispatch. Native locks and confirmation
     // paths remain authoritative. Decoration reconstructs original game meshes/material data
@@ -537,6 +539,8 @@ internal static class NetProtocol
     // Merchant cards retain their original ItemCardUI face and physical item-card rim/reverse.
     // Inspection moves that same card, including remotely, and release returns it to the rack
     // without selecting or buying. Explicit native selection/purchase remains separate.
+    // Additional full-sized merchant workspaces use the free southern clearing; roster changes
+    // wait for held/returning cards, then relocate only during a shared fully invisible frame.
     // Head/stand asset changes require the matching ghvr-town.bundle, not a DLL-only install.
     // Source/runtime evidence and remaining headset checks: research/TOWN-SERVICES-542.md.
 

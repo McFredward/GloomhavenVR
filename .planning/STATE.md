@@ -17,7 +17,7 @@ change per build) → this file (where things stand and what is owed) → the bu
   mode; direct NPC visits replace service map caps. Actual-floor placement, native decoration,
   practical lighting, held merchant inspection and additive shared resident authority are
   integrated. No purchase occurs on grip/release. Full source/runtime guard passes
-  48 suites and 256845 wire assertions; expected old-baseline compiled differences remain.
+  49 suites and 257025 wire assertions; expected old-baseline compiled differences remain.
   Facial asset repair and final matching town bundle are still in progress: this checkpoint
   is not a hardware handoff. See [research/TOWN-SERVICES-542.md](research/TOWN-SERVICES-542.md).
 

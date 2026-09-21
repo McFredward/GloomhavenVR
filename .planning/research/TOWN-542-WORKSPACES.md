@@ -29,10 +29,9 @@ Targeted evidence (Unity 2021.3.5f1):
   `/tmp/town542-compact-workspace/run-oeh8nhbv`.
 - Catalog and original controls: 409 assertions + 19 compiled negative controls,
   `/tmp/town542-compact-catalog/run-a5ihro_7`.
-- Presentation/interaction: 901 assertions,
-  `/tmp/town542-compact-interaction/run-9bgf69gl`; its full 31 negative controls
-  passed immediately before the final first-frame input-gate addition in
-  `/tmp/town542-compact-interaction/run-7fpu3gaj`.
+- Presentation/interaction: 901 assertions and all 31 negative controls against
+  integrated `bbfb53ff`, including the final first-frame input gate:
+  `/tmp/town542-final-interaction/run-81gzet7z`.
 
 `TownServiceGrounding` resolves each cloned counter's existing support bottom from
 its own footprint on sloped terrain. Support tops and worktop height remain fixed;

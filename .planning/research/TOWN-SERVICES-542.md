@@ -59,12 +59,13 @@ opening alpha; every inert clone registers for late original silhouette updates.
 ## Validation record
 
 - Strict integration Release: zero warnings/errors.
-- Golden wire vectors: 256845 assertions (255887 previous +958 resident vectors).
+- Golden wire vectors: 257025 assertions (255887 previous +1138 resident vectors).
   Golden bytes, absent records, truncation, numeric validity, malformed quaternion,
   atomic capacity failure and complete snapshot budget are covered.
-- Floor/station: 69 geometry and 44 lifecycle assertions, six compiled negative
-  controls, including author handover and owned-resource cleanup.
-- Resident lifecycle/authority: 123 production assertions and four compiled negative
+- Floor/station: 1581 geometry, 56 lifecycle and 243 ground-contact assertions,
+  13 compiled negative controls, including author handover, original upper-edge
+  preservation and owned-resource cleanup.
+- Resident lifecycle/authority: 135 production assertions and five compiled negative
   controls, including missing assets, opt-out, expiry and viewer environment changes.
 - Card body: 15 real-Unity assertions and four compiled negative controls.
 - NPC input: 89 real-Unity assertions and four compiled negative controls, including
@@ -72,12 +73,18 @@ opening alpha; every inert clone registers for late original silhouette updates.
 - Stand light ownership: 624 production assertions and five compiled negative
   controls. Exact object ownership excludes only the new town lights from native
   flicker damping; native lights with the same names/layer retain existing behavior.
-- Catalog: 339 Unity assertions and 16 negative controls; interactions: 896 and 30.
+- Catalog: 409 Unity assertions and 19 negative controls; interactions: 901 and 31.
+- Additional merchant workspaces: 1580 Unity assertions and eight negative controls.
+  Full-sized counters remain in the clearing; held/returning cards defer relocation.
+  [Workspace evidence](TOWN-542-WORKSPACES.md) records footprint bounds and synchronized
+  opacity/input behavior.
 - Full mirror/render suite passes, including physical body and held-duplicate mutations.
-- Complete guard: 14 source checks and all48 local suites pass, 256845 wire assertions.
-  Exit1 reports only the expected old-baseline compiled difference: 105changed,
-  104added/removed, zero order-only moves. Strict Release zero warnings/errors;
-  bilingual docs and whitespace checks pass. Asset-specific final checks follow.
+- Complete guard: 14 source checks and all 49 local suites pass (419.5 seconds),
+  plus 257025 wire assertions. Exit 1 reports only the expected old-baseline compiled
+  difference: 106 changed, 105 added/removed, zero order-only moves. Strict Release zero warnings/errors;
+  bilingual docs and whitespace checks pass. Evidence: `/tmp/town542-final-guard.log`
+  and `.planning/debug/test-runs/20260921-153333-2134e554/results.json`.
+  Asset-specific final checks follow.
 - Facial mesh assembly, visual review and matching town bundle are still in progress
   at this integration checkpoint. This checkpoint is not a hardware handoff.
 
