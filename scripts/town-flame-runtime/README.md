@@ -20,3 +20,11 @@ The clock adapter is restricted to the owned `GloomhavenVR/TownFlame` shader's v
 rate-one `_TownAnimationTime`; it does not predict arbitrary native shader properties.
 The existing multiplayer frame/session guards continue to reject stale sessions before
 binding. Indexed property blocks keep clock output out of pooled immutable materials.
+
+A translated thirteen-quad constellation also exercises the actual billboard branch
+with one shared material. The unbillboarded physical reference and production
+billboard must cover comparable visible area. A separately compiled source-negative
+shader removes only `DisableBatching`: Unity then pretransforms the shared vertices,
+loses their individual object origins and collapses them outside the translated view.
+The original failure must reproduce as zero visible pixels, not just a missing source
+string. This protects the same billboard path used by original candle/glow artwork.

@@ -61,12 +61,18 @@ def main():
     shutil.copyfile(ROOT / 'scripts/town-activity-runtime/Editor/InteractionRunner.cs', project / 'Assets/Editor/InteractionRunner.cs')
     for shader in ('TownFlame.shader',):
         shutil.copyfile(args.source_root / 'unity/GloomhavenVR.Assets/Assets/Bundle/TownServices/Shaders' / shader, project / 'Assets' / shader)
+    shader_text = (project / 'Assets/TownFlame.shader').read_text()
+    batching_tag = '"DisableBatching"="True"'
+    if shader_text.count(batching_tag) != 1: raise SystemExit('Native billboard batching guard drift')
+    (project / 'Assets/TownFlameBatchingNegative.shader').write_text(shader_text.replace(batching_tag, '')
+        .replace('Shader "GloomhavenVR/TownFlame"', 'Shader "GloomhavenVR/TownFlameBatchingNegative"'))
+    (run / 'shader-sha256.txt').write_text(hashlib.sha256(shader_text.encode()).hexdigest() + '\n')
     (project / 'Packages/manifest.json').write_text('{"dependencies":{"com.unity.modules.physics":"1.0.0","com.unity.ugui":"1.0.0","com.unity.textmeshpro":"3.0.6"}}')
     (project / 'ProjectSettings/ProjectVersion.txt').write_text('m_EditorVersion: 2021.3.5f1\n')
     result = subprocess.run(['xvfb-run', '-a', str(args.unity), '-batchmode', '-projectPath', str(project), '-executeMethod', 'InteractionRunner.Start', '-interactionManifest', str(path), '-flameEvidence', str(run), '-logFile', str(run / 'unity.log')], timeout=240, stdout=subprocess.DEVNULL)
     evidence = Path(manifest['result'])
     if evidence.exists(): print(evidence.read_text())
     if result.returncode or not evidence.exists(): raise SystemExit('FAIL: ' + str(run / 'unity.log'))
-    print('PASS: production flame clock/material/render tests and six compiled negative controls; evidence: ' + str(run))
+    print('PASS: production flame clock/material/render tests, six compiled clock negatives and original billboard batching negative; evidence: ' + str(run))
 
 if __name__ == '__main__': main()

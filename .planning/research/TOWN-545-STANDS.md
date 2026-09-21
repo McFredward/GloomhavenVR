@@ -115,3 +115,33 @@ only an upright skeleton. The diagnostic table/lighting are not the final combin
 station or proof of hardware appearance.
 
 The focused motion checkpoint builds in strict Release with zero warnings/errors.
+
+## Final actor and native-effect evidence
+
+The immutable final anatomical Linux bundle, SHA-256
+`c35244d2df2ab86f33abbe0d5ba726ea33bacbdb6d83ad82a47c4de71f96a422`,
+passed the current integration source's 125,088 contact/activity assertions and
+all eleven compiled negative controls. Evidence is in the decor worktree's
+`town545-final-activity/run-svybeklx`, including exact production source hashes.
+
+The independent CPU pose gallery uses the original open-book geometry/atlas,
+original coin, native lantern body/atlas and the actual 2.6-power practical locations
+and range. It covers work, attentive palm support and combined work gaze. It is
+bounded activity evidence: optional temple bowl/scroll decoration, flame atlas and
+interactive stock are not all included in this isolated scene.
+
+That final render exposed a real shared-glow defect: CPU dynamic batching
+pretransforms small quads and replaces their individual object origins, while
+`TownFlame` uses that origin to construct its billboard. Original materials and
+all thirteen meshes were present but invisible. Removing only the billboard branch
+made them visible; adding only `DisableBatching=True` restored the unchanged real
+native glow in the correct hand position. No emission/brightness/art workaround was
+introduced. The fixed gallery is `town545-final-actual-motion-fixed`; the source-negative
+comparison is `town545-final-actual-motion`.
+
+The dedicated production shader regression has 4,431 lit pixels for physical
+reference quads, 4,380 for correctly billboarding quads and zero for the separately
+compiled shader with the single batching guard removed. The whole flame fixture
+passes 1,022 assertions, six clock/material negative controls and this original
+shader negative (`town-flame/run-e2iup9yc`). The final Windows/Linux bundles must
+include the shader checkpoint; this does not change the validated anatomical meshes.
