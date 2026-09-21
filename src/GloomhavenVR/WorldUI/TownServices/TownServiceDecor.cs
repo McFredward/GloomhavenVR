@@ -428,7 +428,7 @@ internal sealed class TownServiceDecor : IDisposable
 
     internal void SampleActivity(in TownActivityVisual visual)
     {
-        _work.Sample();
+        _work.Sample(in visual);
         if (_arcane?.Holder == null) return;
         if (!_castGripBound)
         {

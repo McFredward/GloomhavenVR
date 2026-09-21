@@ -79,10 +79,39 @@ lights and source materials remain untouched. Repeated binds are idempotent.
 
 ## Practical calibration
 
-The actual actor review with the original1.05 practical power remained too dark
-at the face's approximately0.9 m lamp distance. A controlled2.6-power render at
+The actual actor review with the original 1.05 practical power remained too dark
+at the face's approximately 0.9 m lamp distance. A controlled 2.6-power render at
 the same real lantern positions retained facial shading and made the face/beard
 legible; the integrator reviewed and accepted that comparison. Permanent and
-workspace lanterns now share2.6 through `PracticalPower`. No scene ambient,
+workspace lanterns now share 2.6 through `PracticalPower`. No scene ambient,
 self-emission, painted catchlight or native lighting policy was introduced.
 Private comparison: the face worker's `town545-review1` and `town545-review2`.
+
+
+## Anatomical hand contact
+
+The new authored Hand frame uses wrist-to-middle-MCP local Y and palmar local Z.
+Runtime finger articulation uses each new joint's positive local-X hinge, with
+bounded local-Z thumb opposition for writing. Legacy marker-free rigs retain their
+old conservative fallback. Contact markers are excluded from articulated joints.
+
+An attentive resident smoothly sets tools down and rests relaxed hands on the
+counter. The support solve uses the actual palm marker and five distal skin-pad
+markers, preserving the palm arch while preventing fingers from entering the wood.
+Cached transforms supply all contact calculations; no mesh baking, hierarchy scans
+or per-frame collections are needed. Elbow poles remain near the body. Work adds
+only a small torso lean and four degrees of neck flexion; bounded additional torso
+lean compensates the existing replicated terrain grounding offset.
+
+The immutable Hands545v3 asset (SHA-256
+`9dc7c89e3ddfc4fe01157e882e7912c0c36c0d639b252868c44b797c33cac41e`)
+passed 125,088 actual-asset/runtime assertions and eleven compiled negative
+controls for all three residents, including
+terrain offsets, smooth prayer interruption, contact and restoration. Private CPU
+renders are `town545-motion-render-v3/service{1,2,3}-phase2-view0.png`; merchant
+writing uses the original native book atlas and its pen tip reaches y=.988965 m.
+The combined work-gaze render also samples the real head pose, rather than judging
+only an upright skeleton. The diagnostic table/lighting are not the final combined
+station or proof of hardware appearance.
+
+The focused motion checkpoint builds in strict Release with zero warnings/errors.

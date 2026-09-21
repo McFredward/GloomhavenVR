@@ -36,10 +36,12 @@ def mutations():
     return [
         ("phase-jump", "TownServiceActivityMotion.cs", "state.FromBlend = Blend(in state);", "state.FromBlend = state.Engaged ? 1f : 0f;", "interrupted transition keeps current pose"),
         ("work-runs-while-engaged", "TownServiceActivityMotion.cs", "dt - Integral(in state, state.TransitionAge + dt) + Integral(in state, state.TransitionAge)", "dt", "engaged occupation remains paused"),
-        ("ignore-ik", "TownServiceActivityRig.cs", "if (!Ready) return;", "if (Ready) return;", "actual hand reaches occupation target"),
-        ("thumb-overcurl", "TownServiceActivityRig.cs", "? 5f : 65f", "? 30f : 65f", "approximate thumb stays within supported deformation range"),
+        ("ignore-ik", "TownServiceActivityRig.cs", "if (!Ready) return;", "if (Ready) return;", "anatomical palm contacts transformed counter surface"),
+        ("thumb-overcurl", "TownServiceActivityRig.cs", "arm.Anatomical ? 38f : 5f", "arm.Anatomical ? 150f : 5f", "anatomical thumb stays inside natural grasp range"),
         ("prayer-snap", "TownServiceActivityRig.cs", "Quaternion.Slerp(Quaternion.LookRotation(_root.up, -side * _root.right), table, attention)", "(attention < .5f ? Quaternion.LookRotation(_root.up, -side * _root.right) : table)", "hand orientation remains smooth through prayer interruption"),
-        ("no-writing-reach", "TownServiceActivityRig.cs", "18f * visual.Writing", "0f * visual.Writing", "writing contact survives resolved terrain offsets"),
+        ("excessive-work-bow", "TownServiceActivityRig.cs", "2f * visual.Writing", "30f * visual.Writing", "work posture does not stack an extreme torso and neck bow"),
+        ("ignore-palm-offset", "TownServiceActivityRig.cs", "target -= palmOffset * attention;", "target -= palmOffset * 0f;", "anatomical palm contacts transformed counter surface"),
+        ("curl-contact-markers", "TownServiceActivityRig.cs", ' && !t.name.Contains("Tip")', "", "contact markers are not articulated finger joints"),
         ("returning-author-snap", "TownServiceActivityHandover.cs", "_age = 0f;", "_age = Duration;", "returning authority keeps displayed hands at first frame"),
         ("unpaired-sequences", "RemoteTownPerformance.cs", "if (!TownActivityCodec.Matches(in activity, in face)", "if (false", "mismatched sequence cannot partially advance pair"),
         ("stale-sequence", "RemoteTownActivities.cs", "!Newer(state.Sequence, peer.Latest.Sequence)", "false", "older occupation cannot replace current phase"),
@@ -55,6 +57,7 @@ def main():
     parser.add_argument("--unity", type=Path, default=Path(os.environ.get("UNITY_PATH", "/home/claw/unity-2021.3.5/Editor/Unity")))
     parser.add_argument("--render", type=Path, help="Optional output folder for actual rig/tool contact images")
     parser.add_argument("--book-obj", type=Path, help="Read-only original-game open book OBJ (Blender Z-up export)")
+    parser.add_argument("--book-texture", type=Path, help="Read-only original-game book atlas for the diagnostic render")
     parser.add_argument("--bundle", type=Path, help="Optional Linux final-asset bundle for actual prefab binding checks")
     parser.add_argument("--no-negative-controls", action="store_true", help="Quick positive run; not complete validation")
     args = parser.parse_args()
@@ -84,7 +87,9 @@ def main():
             "bytes": args.bundle.stat().st_size, "sha256": bundle_hash}, indent=2) + "\n")
     manifest = {"result": str(run / "results.txt"), "cases": []}
     variants = [("production", None, None, None, "")]
-    if not args.no_negative_controls: variants += [v for v in mutations() if args.bundle or v[0] not in ("ignore-ik", "thumb-overcurl", "prayer-snap", "no-writing-reach")]
+    if not args.no_negative_controls:
+        rig_only = ("ignore-ik", "thumb-overcurl", "prayer-snap", "excessive-work-bow", "ignore-palm-offset", "curl-contact-markers")
+        variants += [v for v in mutations() if (not args.portable or v[0] not in rig_only) and (args.bundle or v[0] != "prayer-snap")]
     print(f"Binding production from {args.source_root.resolve()}; evidence: {run}", flush=True)
     for name, filename, before, after, expected in variants:
         build = run / name
@@ -103,6 +108,7 @@ def main():
             portable = build / "portable"
             portable.mkdir()
             program = (fixture / "Program.cs").read_text().split("    private static void Actual(")[0] + "}\n"
+            program = program.replace('        count += HandContacts.Run();\n', '')
             program = program.replace('        string[] args=Environment.GetCommandLineArgs();int at=Array.IndexOf(args,"-faceBundle");\n        if(at>=0)Actual(args[at+1]);\n', '')
             (portable / "Program.cs").write_text(program)
             shutil.copyfile(fixture / "PortableBoundaries.cs.in", portable / "Boundaries.cs")
@@ -156,6 +162,7 @@ def main():
         command.remove("-nographics")
         command += ["-activityRender", str(args.render.resolve())]
         if args.book_obj: command += ["-activityBook", str(args.book_obj.resolve())]
+        if args.book_texture: command += ["-activityBookTexture", str(args.book_texture.resolve())]
     completed = subprocess.run(command, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT, timeout=240)
     if args.bundle and hashlib.sha256(args.bundle.read_bytes()).hexdigest() != bundle_hash:
         raise SystemExit("FAIL: bundle changed during validation; rerun against the completed artifact")

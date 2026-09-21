@@ -75,7 +75,7 @@ internal static class TownServiceActivityMotion
             float writing = Writing(clock);
             left = new Vector3(-.20f + .025f * Mathf.Sin(clock * 2.3f), 1.10f + .018f * Wave(clock, 1.4f), .36f);
             Vector3 restingPen = new Vector3(.22f, 1.10f, .36f);
-            Vector3 ledger = new Vector3(.134f + .010f * Mathf.Sin(clock * 10f), 1.039f, .301f + .012f * Mathf.Sin(clock * 4f));
+            Vector3 ledger = new Vector3(.134f + .010f * Mathf.Sin(clock * 10f), 1.060f, .36f + .012f * Mathf.Sin(clock * 4f));
             right = Vector3.Lerp(restingPen, ledger, writing); curl = .55f;
         }
         else if (service == 2)
@@ -93,11 +93,13 @@ internal static class TownServiceActivityMotion
             curl = .22f + .18f * cast;
         }
         float attentive = Blend(in state);
-        // Both hands settle visibly above the counter (or open from prayer); a partially
+        // Both palms settle onto the counter (or open from prayer); a partially
         // interrupted activity resumes from its stopped work clock rather than starting over.
-        left = Vector3.Lerp(left, new Vector3(-.22f, 1.095f, .43f), attentive);
-        right = Vector3.Lerp(right, new Vector3(.22f, 1.095f, .43f), attentive);
-        curl = Mathf.Lerp(curl, .15f, attentive);
+        float restWidth = service == 1 ? .23f : .21f;
+        float restDepth = service == 1 ? .33f : .337f;
+        left = Vector3.Lerp(left, new Vector3(-restWidth, .959f, restDepth), attentive);
+        right = Vector3.Lerp(right, new Vector3(restWidth, .959f, restDepth), attentive);
+        curl = Mathf.Lerp(curl, 0f, attentive);
         // Anatomical left is station +X: the imported actor faces inward along station -Z.
         left.x = -left.x; right.x = -right.x;
     }

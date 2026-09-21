@@ -23,8 +23,10 @@ internal sealed class TownServiceActivityProps : IDisposable
     { _root = root; _service = service; _shader = shader; }
     internal void BindCoin(Transform coin, Vector3 offset)
     { _coin = coin; _coinOffset = offset; _coinRest = coin.localPosition; }
-    internal void Sample(in TownActivityPose pose) => Sample();
-    internal void Sample()
+    internal void Sample(in TownActivityPose pose)
+    { var visual = TownServiceActivityMotion.Visual(_service, in pose); Sample(in visual); }
+    internal void Sample() { var visual = default(TownActivityVisual); Sample(in visual); }
+    internal void Sample(in TownActivityVisual visual)
     {
         if (_service != 1) return;
         _suspended = false;
@@ -42,14 +44,16 @@ internal sealed class TownServiceActivityProps : IDisposable
             Transform coin = _coin;
             // Keep the original coin mesh, materials and scale. Its grip remains visible
             // through attention transitions rather than hiding or respawning a prop.
-            coin.localPosition = _coinOffset + _root.InverseTransformPoint(_leftGrip.position);
+            coin.localPosition = Vector3.Lerp(_coinOffset + _root.InverseTransformPoint(_leftGrip.position), _coinRest, visual.Attention);
         }
         if (_rightGrip == null) return;
         if (_pen == null) CreatePen();
         if (_pen == null) return;
         if (!_pen.gameObject.activeSelf) _pen.gameObject.SetActive(true);
-        _pen.position = _rightGrip.position;
-        _pen.rotation = _rightGrip.rotation;
+        // Set the tools down as the palms settle on the counter, through the same
+        // shared interruption blend. A flat resting palm must not hold an upright pen.
+        _pen.position = Vector3.Lerp(_rightGrip.position, _root.TransformPoint(new Vector3(.22f, .966f, .20f)), visual.Attention);
+        _pen.rotation = Quaternion.Slerp(_rightGrip.rotation, _root.rotation * Quaternion.Euler(80f, 0f, -12f), visual.Attention);
     }
 
     private void CreatePen()

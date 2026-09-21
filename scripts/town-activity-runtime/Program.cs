@@ -12,6 +12,7 @@ public static class InteractionProgram
     {try{Console.WriteLine(Run()+" production assertions");return 0;}catch(Exception error){Console.WriteLine(error);return 1;}}
     public static int Run()
     {
+        count += HandContacts.Run();
         var original=new TownActivityPose{WorkClock=2,TransitionAge=.65f};
         TownServiceActivityMotion.Engage(ref original,true);
         var direct=TownServiceActivityMotion.Advance(original,.45f);
@@ -34,7 +35,7 @@ public static class InteractionProgram
                 phase=TownServiceActivityMotion.Advance(phase,1f/90f);
                 TownServiceActivityMotion.Hands(service,in phase,out var left,out var right,out var curl);
                 if(n>0)Check(Vector3.Distance(previous,right)<.018f,"no handtarget jump at loop or interruption");
-                Check(left.y>=1&&right.y>=1&&curl>=0&&curl<=1,"bounded occupation contacts");previous=right;
+                Check(left.y>=.957f&&right.y>=.957f&&curl>=0&&curl<=1,"bounded occupation contacts");previous=right;
             }
         }
         FaceClock.Now=0;RemoteTownActivities.Reset();
@@ -148,12 +149,23 @@ public static class InteractionProgram
                         Vector3 wanted=root.TransformPoint(target);float excess=Mathf.Max(0,Vector3.Distance(wanted,upper.position)-reach+.001f);
                         rig.Apply(in phase);
                         for(int digit=0;digit<thumbs.Length;digit++)
-                            Check(Quaternion.Angle(thumbs[digit].localRotation,thumbNeutral[digit])<3.05f,"approximate thumb stays within supported deformation range");
+                            Check(Quaternion.Angle(thumbs[digit].localRotation,thumbNeutral[digit])<55f,"anatomical thumb stays inside natural grasp range");
                         if(service==1&&TownServiceActivityMotion.Writing(phase.WorkClock)>.99f&&TownServiceActivityMotion.Blend(in phase)<.01f)
                             Check(Vector3.Distance(hand.position,wanted)<.003f,"writing contact survives resolved terrain offsets at "+n+": "+Vector3.Distance(hand.position,wanted));
                         if(n>0)Check(Quaternion.Angle(previousHand,hand.rotation)<4f,"hand orientation remains smooth through prayer interruption");
                         previousHand=hand.rotation;
-                        Check(Vector3.Distance(hand.position,wanted)<=excess+.0001f,"actual hand reaches occupation target");
+                        if(TownServiceActivityMotion.Blend(in phase)<.001f)
+                            Check(Vector3.Distance(hand.position,wanted)<=excess+.0001f,"actual hand reaches occupation target");
+                        else if(TownServiceActivityMotion.Blend(in phase)>.999f)
+                        {
+                            Transform[] markers=root.GetComponentsInChildren<Transform>(true);
+                            Transform palm=markers.Single(t=>t.name=="PalmContact.R");
+                            Transform[] supports=markers.Where(t=>t.name=="PalmContact.R"||t.name.EndsWith("Pad.R")).ToArray();
+                            Check(supports.Length==6,"actual hand has five anatomical finger pads and palm support");
+                            float lowest=supports.Min(t=>root.InverseTransformPoint(t.position).y);
+                            Check(Mathf.Abs(lowest-target.y)<.005f,"actual relaxed hand support rests on counter: "+npc+" n="+n+" lowest="+lowest+" target="+target.y);
+                            Check(supports.All(t=>root.InverseTransformPoint(t.position).y>=.954f),"actual palmar skin stays above wood");
+                        }
                         rig.BeforeBodySample();Check(Quaternion.Angle(upper.localRotation,before)<.05f,"original arm base restores without accumulation");
                     }
                     grounding.Apply(0f,0f);ActivityRender.Render(obj, service, rig);

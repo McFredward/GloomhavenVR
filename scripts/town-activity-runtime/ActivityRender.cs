@@ -101,15 +101,24 @@ internal static class ActivityRender
     }
     private static void Book(Transform root,string path)
     {
-        var vertices=new List<Vector3>();var triangles=new List<int>();
+        var vertices=new List<Vector3>();var triangles=new List<int>();var uv=new List<Vector2>();
         foreach(string line in File.ReadLines(path))
         {
             string[] f=line.Split(new[]{' '},StringSplitOptions.RemoveEmptyEntries);if(f.Length==0)continue;
             if(f[0]=="v")vertices.Add(new Vector3(float.Parse(f[1],CultureInfo.InvariantCulture),float.Parse(f[3],CultureInfo.InvariantCulture),-float.Parse(f[2],CultureInfo.InvariantCulture)));
+            else if(f[0]=="vt")uv.Add(new Vector2(float.Parse(f[1],CultureInfo.InvariantCulture),float.Parse(f[2],CultureInfo.InvariantCulture)));
             else if(f[0]=="f")for(int n=2;n<f.Length-1;n++){triangles.Add(int.Parse(f[1].Split('/')[0])-1);triangles.Add(int.Parse(f[n].Split('/')[0])-1);triangles.Add(int.Parse(f[n+1].Split('/')[0])-1);}
         }
-        var mesh=new Mesh{vertices=vertices.ToArray(),triangles=triangles.ToArray()};mesh.RecalculateNormals();mesh.RecalculateBounds();
+        var mesh=new Mesh{vertices=vertices.ToArray(),triangles=triangles.ToArray()};if(uv.Count==vertices.Count)mesh.uv=uv.ToArray();mesh.RecalculateNormals();mesh.RecalculateBounds();
         var obj=new GameObject("Original game open book geometry (neutral diagnostic material)");obj.transform.SetParent(root,false);float scale=.32f/mesh.bounds.size.x;obj.transform.localScale=Vector3.one*scale;obj.transform.localPosition=new Vector3(0,.957f,.22f)-new Vector3(mesh.bounds.center.x,mesh.bounds.min.y,mesh.bounds.center.z)*scale;
-        obj.AddComponent<MeshFilter>().sharedMesh=mesh;obj.AddComponent<MeshRenderer>().sharedMaterial=new Material(Shader.Find("Standard")){color=new Color(.72f,.66f,.5f)};
+        obj.AddComponent<MeshFilter>().sharedMesh=mesh;
+        var material=new Material(Shader.Find("Standard")){color=Color.white};
+        string[] args=Environment.GetCommandLineArgs();int textureAt=Array.IndexOf(args,"-activityBookTexture");
+        if(textureAt>=0)
+        {
+            var texture=new Texture2D(2,2,TextureFormat.RGBA32,true);texture.LoadImage(File.ReadAllBytes(args[textureAt+1]));
+            material.mainTexture=texture;material.mainTextureScale=Vector2.one;
+        }
+        obj.AddComponent<MeshRenderer>().sharedMaterial=material;
     }
 }
