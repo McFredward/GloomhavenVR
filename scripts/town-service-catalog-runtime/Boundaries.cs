@@ -27,6 +27,8 @@ public class UITextTooltipTarget : MonoBehaviour
     public bool TooltipShown; public int Enters, Exits;
     public void OnPointerEnter(UnityEngine.EventSystems.PointerEventData data)
     {
+        // Native targets configured with anchorToExactMouseTargetInstead dereference this.
+        if (data.pointerEnter != gameObject) throw new InvalidOperationException("native exact-target tooltip needs pointerEnter");
         Enters++; TooltipShown = true;
         GloomhavenVR.WorldUI.NativeTemplates.Tooltip!.m_AnchorToTarget = (RectTransform)transform;
         GloomhavenVR.WorldUI.NativeTemplates.Tooltip.gameObject.SetActive(true);

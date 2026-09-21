@@ -22,6 +22,7 @@ internal static class TownServicePresentation
     private static GameObject? _mat;
     private static TownServiceTray? _tray;
     private static TownServiceCatalog? _catalog;
+    private static TownServiceWorkspace? _workspace;
     private static Transform? _counter;
     private static TownServiceWindowMask? _contextMask;
     private static Vector3 _origin;
@@ -35,6 +36,7 @@ internal static class TownServicePresentation
     internal static UIWindow? Window => _window;
     internal static Transform? WorkMat => _mat != null ? _mat.transform : null;
     internal static TownServiceTray? Tray => _tray;
+    internal static Transform? CounterFurniture => _workspace?.FurnitureRoot;
     internal static IReadOnlyCollection<TownServiceToken> Samples => _catalog != null ? _catalog.Samples : Tokens.Values;
     internal static TownServiceCatalog? Catalog => _catalog;
     internal static float SessionAge => Mathf.Max(0f, Time.unscaledTime - _opened);
@@ -110,6 +112,7 @@ internal static class TownServicePresentation
             window.onHidden.AddListener(OnNativeHidden);
             if (!ModalFallback.ReleaseForTownService(window, context))
                 throw new InvalidOperationException("Previous service conversion has not restored its native hierarchy");
+            if (service == 1) _workspace = new TownServiceWorkspace(_station.Root);
             BuildMat();
             try
             {
@@ -139,6 +142,15 @@ internal static class TownServicePresentation
             VRLog.Note("WorldUI", "TOWN SERVICE OPEN: service=" + service + " session=" + _session + " native sections=" + Surfaces.Count);
         }
         float visibility = Mathf.Clamp01(SessionAge / .22f);
+        // Once carried, the tray keeps the player's chosen placement. A participant joining
+        // or leaving may rearrange counter workspaces, but must not pull a held tray away.
+        if (_workspace != null)
+        {
+            if (_tray != null && _tray.IsGrabbed && _tray.Root.parent == _workspace.Root)
+                _tray.Root.SetParent(null, true);
+            _workspace.Tick();
+            _workspace.SetVisibility(visibility);
+        }
         _catalog?.SetVisibility(visibility);
         foreach (TownServiceSurface surface in Surfaces)
         {
@@ -168,7 +180,7 @@ internal static class TownServicePresentation
         if (_station == null || _mat == null) throw new InvalidOperationException("Merchant counter is unavailable");
         var anchor = new GameObject("GloomhavenVR.TownService.CounterCards");
         _counter = anchor.transform;
-        _counter.SetParent(_station.Root, false);
+        _counter.SetParent(_workspace != null ? _workspace.Root : _station.Root, false);
         // Authored planks end at 0.955 m. Original filters, page arrows and exit sit above
         // that same worktop, around the bounded six-card rack.
         _counter.localPosition = new Vector3(0f, .970f, 0f);
@@ -216,11 +228,13 @@ internal static class TownServicePresentation
         Quaternion rotation = _yaw;
         if (Service == 1 && _station != null)
         {
-            position = _station.Root.TransformPoint(new Vector3(.56f, .995f, -.02f));
-            rotation = _station.Root.rotation;
+            Transform workspace = _workspace != null ? _workspace.Root : _station.Root;
+            position = workspace.TransformPoint(new Vector3(.56f, .995f, -.02f));
+            rotation = workspace.rotation;
         }
         _tray = new TownServiceTray(nativeText, position, rotation, _scale);
         _mat = _tray.Root.gameObject;
+        if (_workspace != null) _tray.Root.SetParent(_workspace.Root, true);
         _tray.SetVisibility(0f);
     }
 
@@ -333,6 +347,7 @@ internal static class TownServicePresentation
         foreach (Graphic portrait in Portraits) if (portrait != null) portrait.enabled = true;
         Portraits.Clear();
         _tray?.Dispose(); _tray = null; _mat = null;
+        _workspace?.Dispose(); _workspace = null;
         _station = null; // Population retains a station while another visitor still uses it.
         _window = null; _context = null; Service = 0;
         _selectionOwner = null; _selectionCard = null; _selectionKey = null;

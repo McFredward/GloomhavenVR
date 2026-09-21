@@ -83,6 +83,7 @@ internal static class TownServiceSync
                 : surface.Id == 11 ? "enchant.holder" : "enchant.scroll", surface.Panel.Target);
         if (catalog != null)
         {
+            Publish("merchant.counter", TownServicePresentation.CounterFurniture);
             // Mirror the actual counter, not the suppressed flat inventory. These widgets
             // retain native template provenance but have the owner's physical layout.
             foreach (TownServiceCatalog.Control control in catalog.Controls)
@@ -98,12 +99,23 @@ internal static class TownServiceSync
         }
         if (service == 3) Publish("enchant.cards", NativeTemplates.Original("enchant.cards"));
         Publish("banner", NativeTemplates.Original("banner"));
-        Publish(prefix + ".tooltip", NativeTemplates.Original(prefix + ".tooltip"));
+        if (catalog == null)
+            Publish(prefix + ".tooltip", NativeTemplates.Original(prefix + ".tooltip"));
+        else if (catalog.PreviewContent != null && catalog.PreviewSource != null)
+        {
+            Publish("merchant.tooltip", catalog.PreviewContent, catalog.PreviewSource, catalog.PreviewCloneOf);
+            PublishCopiedCards(catalog.PreviewSource, catalog.PreviewCloneOf);
+        }
         Publish("item.confirm", NativeTemplates.Original("item.confirm"));
         Publish("enhance.confirm", NativeTemplates.Original("enhance.confirm"));
         if (TownServicePresentation.Tray != null) Publish("tray", TownServicePresentation.Tray.Root);
         UITooltip? tooltip = NativeTemplates.Tooltip;
-        if (tooltip != null && tooltip.gameObject.activeInHierarchy && OwnsAnchor(tooltip.m_AnchorToTarget))
+        if (tooltip != null && catalog != null && catalog.HintContent != null && catalog.HintSource == tooltip.transform)
+        {
+            Publish(NativeTemplates.TooltipKey(tooltip), catalog.HintContent, catalog.HintSource, catalog.HintCloneOf);
+            PublishCopiedCards(tooltip.transform, catalog.HintCloneOf);
+        }
+        else if (tooltip != null && tooltip.gameObject.activeInHierarchy && OwnsAnchor(tooltip.m_AnchorToTarget))
             Publish(NativeTemplates.TooltipKey(tooltip), tooltip.transform);
         // Original pooled branches are separate modules: adding/removing a row must never change
         // the native static template or replace the inventory container behind another visitor.
@@ -151,11 +163,16 @@ internal static class TownServiceSync
     }
     private static void PublishHeld(TownServiceToken sample, Transform original)
     {
-        Transform? clone = sample.HeldCloneOf(original);
+        PublishCopiedCards(original, sample.HeldCloneOf);
+    }
+    private static void PublishCopiedCards(Transform original, Func<Transform, Transform?> cloneOf)
+    {
+        Transform? clone = cloneOf(original);
         string? key = DynamicKey(original);
-        if (clone != null && key != null) Publish(key, clone, original, sample.HeldCloneOf);
-        // The original-to-held map survives gameplay-component neutralization on the held sample.
-        for (int i = 0; i < original.childCount; i++) PublishHeld(sample, original.GetChild(i));
+        if (clone != null && key != null) Publish(key, clone, original, cloneOf);
+        // Native pooled card boundaries retain their original identities after local sample or
+        // preview neutralization; publishing only the outer tooltip would omit its item card.
+        for (int i = 0; i < original.childCount; i++) PublishCopiedCards(original.GetChild(i), cloneOf);
     }
     private static void Publish(string key, Transform? source, Transform? provenance = null, Func<Transform, Transform?>? cloneOf = null)
     {

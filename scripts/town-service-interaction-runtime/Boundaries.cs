@@ -281,8 +281,21 @@ namespace GloomhavenVR.WorldUI
         internal static void Reset() { }
         internal static void Tick(Transform frame, Transform? station) { }
     }
+    // Workspace geometry/roster interpolation has its own production-bound Unity suite.
+    // Here only the presentation owner's child lifetime and manual-tray ownership matter.
+    internal sealed class TownServiceWorkspace : IDisposable
+    {
+        internal Transform Root { get; }
+        internal Transform? FurnitureRoot => Root;
+        internal TownServiceWorkspace(Transform station)
+        { Root = Probe.Go("workspace", station).transform; }
+        internal void Tick() { Root.localPosition += new Vector3(.01f, 0f, 0f); }
+        internal void SetVisibility(float value) { }
+        public void Dispose() { UnityEngine.Object.Destroy(Root.gameObject); }
+    }
     internal sealed class TownServiceTray : IDisposable
     {
+        internal bool IsGrabbed;
         internal Transform Root = Probe.Go("tray").transform;
         internal TownServiceTray(TMPro.TMP_Text? text, Vector3 position, Quaternion rotation, float scale) { }
         internal void SetVisibility(float value) { }

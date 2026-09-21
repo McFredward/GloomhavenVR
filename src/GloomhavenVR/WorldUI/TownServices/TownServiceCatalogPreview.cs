@@ -81,7 +81,7 @@ internal sealed class TownServiceCatalogPreview : IDisposable
             {
                 // Hovering a physical card is also its inspect gesture. Use the game's actual
                 // rules-hint target; no fabricated descriptions or native trade callbacks.
-                target.OnPointerEnter(new PointerEventData(EventSystem.current));
+                target.OnPointerEnter(new PointerEventData(EventSystem.current) { pointerEnter = target.gameObject });
                 _ownsHint = target.TooltipShown;
             }
         }
@@ -120,7 +120,7 @@ internal sealed class TownServiceCatalogPreview : IDisposable
         {
             UITooltip? tooltip = NativeTemplates.Tooltip;
             if (tooltip != null && tooltip.m_AnchorToTarget == _hintTarget.transform && EventSystem.current != null)
-                _hintTarget.OnPointerExit(new PointerEventData(EventSystem.current));
+                _hintTarget.OnPointerExit(new PointerEventData(EventSystem.current) { pointerEnter = _hintTarget.gameObject });
             else
                 // A later native hover owns the shared tooltip now. Retire only our target's
                 // presentation flag; its HideTooltip callback would hide that unrelated hint.

@@ -530,6 +530,11 @@ internal static class NetProtocol
     // Native row selection remains authoritative. Original window wrappers preserve native
     // permissions and restore hierarchy on option changes, closure and partial setup failure.
     // Mirrors publish counter cards/controls and their opening alpha, not the obsolete list.
+    // Original item details and paired native rules hints have dedicated visible counter copies;
+    // their hidden list ancestors cannot suppress them or duplicate them in a price strip.
+    // Additional visitors receive full-size furniture-only counter extensions. Only owners
+    // resolve the complete native roster and animate workspace changes; receivers use those
+    // actual poses/material values. Manual tray placement takes precedence over rearrangement.
     // Modal orphan collection respects live town-service and error-window grip owners.
     // Both bundles are required; head-mounted presentation still needs hardware verification.
 

@@ -456,10 +456,32 @@ public static class InteractionProgram
         Clean();
     }
 
+    private static void ManualTrayPlacement()
+    {
+        var session = Open(1);
+        var tray = TownServicePresentation.Tray!;
+        Check(tray.Root.parent != null, "unmoved merchant tray belongs to its workspace");
+        Vector3 before = tray.Root.position;
+        TownServicePresentation.Tick();
+        Check(Vector3.Distance(tray.Root.position, before) > .001f, "unmoved tray follows owner workspace rearrangement");
+        tray.IsGrabbed = true;
+        Vector3 chosen = tray.Root.position + new Vector3(.3f, .2f, .4f);
+        tray.Root.position = chosen;
+        TownServicePresentation.Tick();
+        Check(tray.Root.parent == null && Vector3.Distance(tray.Root.position, chosen) < .001f,
+            "manual tray grab detaches before workspace movement");
+        tray.IsGrabbed = false;
+        TownServicePresentation.Tick();
+        Check(tray.Root.parent == null && Vector3.Distance(tray.Root.position, chosen) < .001f,
+            "released tray retains the player's chosen placement");
+        Check(session.Clicks == 0, "workspace rearrangement never confirms an item");
+        Clean();
+    }
+
     public static int Run()
     {
         _assertions = 0;
-        try { WindowMaskLifecycle(); IdentityChanges(); HoverAndRelease(); CancellationCompatibility(); Handoff(); RollbackAndContinuation(); OptionalPresentation(); return _assertions; }
+        try { WindowMaskLifecycle(); IdentityChanges(); HoverAndRelease(); CancellationCompatibility(); Handoff(); RollbackAndContinuation(); OptionalPresentation(); ManualTrayPlacement(); return _assertions; }
         finally { Clean(); }
     }
 }

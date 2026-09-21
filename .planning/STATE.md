@@ -21,7 +21,9 @@ change per build) → this file (where things stand and what is owed) → the bu
   cards per page, original prices and buy/sell/filter/exit controls on its counter. Physical
   samples still select through native rows; purchases retain native confirmation.
   Reversible wrappers hide the obsolete list without disabling gameplay, and orphan-frame
-  collection respects live service/error owners. Temple/enchantress gain the asset and
+  collection respects live service/error owners. Original item details/rule hints remain
+  visible on the counter; additional visitors have separate full-size workspaces with
+  owner-authored motion and materials. Temple/enchantress gain the asset and
   lifecycle corrections; their existing reading-surface interaction is not replaced by
   the merchant rack. Default-on settings and original-window rollback remain unchanged.
   Evidence, validation and hardware checklist: [research/TOWN-SERVICES-540.md](research/TOWN-SERVICES-540.md).

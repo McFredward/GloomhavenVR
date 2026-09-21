@@ -65,6 +65,7 @@ internal static class NativeTemplates
         _catalogNavigation = TownServiceCatalog.CreateNavigationTemplate(merchant.GetComponentInChildren<TMP_Text>(true));
         _catalogNavigation.transform.SetParent(_bank.transform, false);
         Add("merchant.catalognav", _catalogNavigation.transform);
+        Add("merchant.counter", TownServiceWorkspace.CounterTemplate);
         Add("temple", hud.templeWindow);
         Add("temple.inventory", hud.templeWindow.Shop);
         Add("temple.row", hud.templeWindow.Shop.slotPrefab);
