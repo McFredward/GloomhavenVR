@@ -16,7 +16,8 @@ internal sealed class TownServiceDecor : IDisposable
         internal string Key = string.Empty, Entry = string.Empty;
         internal Vector3 Position;
         internal float Size;
-        internal bool Candle, Arcane;
+        internal bool Candle, Arcane, FlameOnly, Template;
+        internal string Select = string.Empty;
         internal Material[] EffectMaterials = Array.Empty<Material>();
         internal GameObject? Holder;
         internal Vector3 Home;
@@ -24,19 +25,33 @@ internal sealed class TownServiceDecor : IDisposable
         internal AsyncOperationHandle<ApparanceResourceList> Handle;
         internal GameObject? Source;
         internal bool Inspected, Built;
+        internal readonly List<MaterialLoad> Materials = new();
     }
     private readonly List<Piece> _pieces = new();
-    private readonly Dictionary<object, AsyncOperationHandle<Material>> _loads = new();
+    private sealed class MaterialLoad
+    {
+        internal object Key = null!;
+        internal AsyncOperationHandle<Material> Handle;
+        internal bool Held, Ready;
+        internal int Attempts;
+        internal float Started, RetryAt;
+        internal string Failure = string.Empty;
+        internal bool Exhausted => !Held && Attempts >= 3;
+    }
+    private readonly Dictionary<object, MaterialLoad> _loads = new();
     private readonly List<Material> _materials = new();
     private readonly Transform _root;
     private readonly TownServiceLighting _lighting;
     private readonly TownServiceActivityProps _work;
-    private Piece? _workCoin, _arcane;
+    private Piece? _workCoin, _arcane, _coinTemplate;
+    private TownServiceArcaneEffect? _magic;
+    internal static Transform? CoinTemplate { get; private set; }
     private Transform? _castGrip;
     private bool _castGripBound;
     private float _visibility;
     private float _clock;
-    private bool _reported;
+    private readonly HashSet<string> _reported = new(StringComparer.Ordinal);
+    private float _nextLoadTick;
     private static readonly int Visibility = Shader.PropertyToID("_TownVisibility");
 
     internal TownServiceDecor(Transform station, byte service, TownServiceLighting lighting)
@@ -50,28 +65,41 @@ internal sealed class TownServiceDecor : IDisposable
 
     private void Populate(byte service)
     {
-        if (service == 1)
-            Add("Gaslight", "Gaslight.Lighting.Torch.Wall#1", new Vector3(-.61f, .957f, .17f), .42f, true);
-        else
-            Add("Tone_Candlelight", service == 2 ? "Candlelight.Lighting.Torch.Wall#3" : "Candlelight.Lighting.Torch.Wall#1",
-                new Vector3(-.61f, .957f, .17f), .38f, true);
+        // These are the freestanding bodies inside the native wall-lantern prefab.
+        // Its separate wall bracket is deliberately not copied onto the counter.
+        Lantern(new Vector3(-.68f, .957f, .20f), 0);
+        Lantern(new Vector3(.68f, .957f, service == 3 ? .70f : .20f), 1);
         if (service == 1)
         {
-            Add("Treasure", "Treasure.Clutter.FloorSmall#3", new Vector3(.59f, .957f, .12f), .20f);
+            Add("Treasure", "Treasure.Clutter.FloorSmall#3", new Vector3(.49f, .957f, .16f), .17f);
+            Add("AlchemyLab", "AlchemyLab.Clutter.Shelf.Individual#7", new Vector3(-.46f, .957f, .18f), .23f);
             Add("Library", "Library.Clutter.Shelf.Individual#7", new Vector3(0f, .957f, .22f), .32f);
             _workCoin = Add("Treasure", "Treasure.Clutter.Shelf.Individual#1", new Vector3(-.20f, .96f, .22f), .026f);
         }
         else if (service == 2)
         {
-            Add("Tone_Candlelight", "Candlelight.Lighting.Torch.Wall#3", new Vector3(.61f, .957f, .17f), .32f, true, 1);
-            Add("Chapel", "Chapel.Clutter.Shelf.Individual#7", new Vector3(.55f, .957f, -.13f), .15f);
+            Add("Chapel", "Chapel.Clutter.Shelf.Individual#7", new Vector3(0f, .957f, .18f), .18f);
+            Add("Library", "Library.Clutter.Shelf.Individual#7", new Vector3(-.33f, .957f, -.12f), .30f);
+            Add("Chapel", "Chapel.Clutter.Shelf.Individual#2", new Vector3(.40f, .957f, .23f), .20f);
+            _coinTemplate = Add("Treasure", "Treasure.Clutter.Shelf.Individual#1", Vector3.zero, .05f);
+            _coinTemplate.Template = true;
         }
         else
         {
-            Add("AlchemyLab", "AlchemyLab.Clutter.Shelf.Individual#3", new Vector3(.59f, .957f, .15f), .22f);
+            Add("AlchemyLab", "AlchemyLab.Clutter.Shelf.Individual#3", new Vector3(-.48f, .957f, .21f), .23f);
+            Add("AlchemyLab", "AlchemyLab.Clutter.Shelf.Individual#11", new Vector3(-.34f, .957f, .24f), .12f);
             Add("Library", "Library.Clutter.Shelf.Individual#7", new Vector3(0f, .957f, .22f), .32f);
-            _arcane = Add("Tone_Candlelight", "Candlelight.Lighting.Torch.Wall#1", Vector3.zero, .075f, arcane: true);
+            _arcane = Add("Tone_Candlelight", "Candlelight.Lighting.Torch.Wall#1", Vector3.zero, .11f, arcane: true);
         }
+    }
+
+    private void Lantern(Vector3 position, int slot)
+    {
+        Piece lantern = Add("Gaslight", "Gaslight.Lighting.Torch.Wall#1", position, .40f, true, slot);
+        lantern.Select = "CR_INT_Lantern_01_b";
+        Piece flame = Add("Tone_Candlelight", "Candlelight.Lighting.Torch.Wall#1", position + Vector3.up * .15f, .09f);
+        flame.Select = "CandlePivot";
+        flame.FlameOnly = true;
     }
 
     private Piece Add(string list, string entry, Vector3 position, float size, bool candle = false, int lightSlot = 0, bool arcane = false)
@@ -94,6 +122,10 @@ internal sealed class TownServiceDecor : IDisposable
 
     internal void Tick()
     {
+        float now = Time.unscaledTime;
+        if (now < _nextLoadTick) return;
+        _nextLoadTick = now + .1f;
+        foreach (MaterialLoad load in _loads.Values) Advance(load, now);
         foreach (Piece piece in _pieces)
         {
             if (piece.Built || !piece.Handle.IsDone) continue;
@@ -109,14 +141,24 @@ internal sealed class TownServiceDecor : IDisposable
                     foreach (MaterialLoader loader in piece.Source.GetComponentsInChildren<MaterialLoader>(true))
                         foreach (MaterialLoaderData data in loader.LoadersData)
                             foreach (AssetReferenceT<Material> reference in data.MaterialReferences)
-                                if (reference != null && reference.RuntimeKeyIsValid() && !_loads.ContainsKey(reference.RuntimeKey))
-                                    _loads.Add(reference.RuntimeKey, Addressables.LoadAssetAsync<Material>(reference.RuntimeKey));
+                                if (reference != null && reference.RuntimeKeyIsValid())
+                                {
+                                    if (!_loads.TryGetValue(reference.RuntimeKey, out MaterialLoad load))
+                                    {
+                                        load = new MaterialLoad { Key = reference.RuntimeKey };
+                                        _loads.Add(load.Key, load);
+                                        Advance(load, now);
+                                    }
+                                    if (!piece.Materials.Contains(load)) piece.Materials.Add(load);
+                                }
                 }
                 bool ready = true;
-                foreach (AsyncOperationHandle<Material> load in _loads.Values)
+                // A failed lantern material must not suppress an unrelated book, bowl or
+                // the other station's light. Only this piece's actual dependencies gate it.
+                foreach (MaterialLoad load in piece.Materials)
                 {
-                    if (!load.IsDone) ready = false;
-                    else if (load.Status != AsyncOperationStatus.Succeeded) throw new InvalidOperationException("Original decoration material unavailable");
+                    if (load.Exhausted) throw new InvalidOperationException("Original decoration material unavailable: " + load.Key + "; " + load.Failure);
+                    if (!load.Ready) ready = false;
                 }
                 if (!ready) continue;
                 Build(piece);
@@ -125,13 +167,58 @@ internal sealed class TownServiceDecor : IDisposable
             catch (Exception e)
             {
                 piece.Built = true;
-                if (!_reported)
-                {
-                    _reported = true;
-                    VRLog.Warn("TownServices", "Original town decoration could not be prepared: " + e.Message);
-                }
+                Report(piece.Entry, e.Message);
             }
         }
+    }
+
+    private void Advance(MaterialLoad load, float now)
+    {
+        if (load.Ready || load.Exhausted) return;
+        if (!load.Held)
+        {
+            if (now < load.RetryAt) return;
+            load.Attempts++;
+            load.Started = now;
+            try
+            {
+                load.Handle = Addressables.LoadAssetAsync<Material>(load.Key);
+                load.Held = load.Handle.IsValid();
+                if (!load.Held) Failed(load, now, "invalid handle");
+            }
+            catch (Exception error) { Failed(load, now, error.GetType().Name + ": " + error.Message); }
+            return;
+        }
+        if (!load.Handle.IsValid()) { Failed(load, now, "handle became invalid"); return; }
+        if (!load.Handle.IsDone)
+        {
+            if (now - load.Started > 30f) Failed(load, now, "load timed out");
+            return;
+        }
+        if (load.Handle.Status != AsyncOperationStatus.Succeeded || load.Handle.Result == null)
+        { Failed(load, now, load.Handle.OperationException?.Message ?? "original material unavailable"); return; }
+        load.Ready = true;
+    }
+
+    private void Failed(MaterialLoad load, float now, string reason)
+    {
+        Release(load);
+        load.Failure = reason;
+        load.RetryAt = now + (load.Attempts == 1 ? 1f : 4f);
+        if (load.Attempts == 1) Report(load.Key.ToString() ?? "material", "material load will retry: " + reason);
+    }
+
+    private static void Release(MaterialLoad load)
+    {
+        if (load.Held && load.Handle.IsValid()) Addressables.Release(load.Handle);
+        load.Held = false;
+        load.Ready = false;
+    }
+
+    private void Report(string key, string reason)
+    {
+        if (_reported.Count < 8 && _reported.Add(key))
+            VRLog.Warn("TownServices", "Original town decoration could not be prepared: " + key + "; " + reason);
     }
 
     private void Build(Piece piece)
@@ -149,12 +236,19 @@ internal sealed class TownServiceDecor : IDisposable
                     if (data.Renderer == null) continue;
                     var materials = new List<Material>();
                     foreach (AssetReferenceT<Material> reference in data.MaterialReferences)
-                        if (reference != null && _loads.TryGetValue(reference.RuntimeKey, out AsyncOperationHandle<Material> load)) materials.Add(load.Result);
+                        if (reference != null && _loads.TryGetValue(reference.RuntimeKey, out MaterialLoad load) && load.Ready) materials.Add(load.Handle.Result);
                     if (data.IsSaveExistedMaterials)
                         foreach (Material material in data.Renderer.sharedMaterials) if (material != null) materials.Add(material);
                     overrides[data.Renderer] = materials.ToArray();
                 }
             Transform visual = piece.Source.transform;
+            if (piece.Select.Length != 0)
+            {
+                Transform? selected = null;
+                foreach (Transform child in visual.GetComponentsInChildren<Transform>(true))
+                    if (child.name == piece.Select) { selected = child; break; }
+                visual = selected ?? throw new InvalidOperationException("Original prop part unavailable: " + piece.Select);
+            }
             if (piece.Arcane)
             {
                 // Reuse the original candle's soft glow texture/quad as a restrained hand
@@ -167,7 +261,7 @@ internal sealed class TownServiceDecor : IDisposable
                 visual = glow;
             }
             int materialStart = _materials.Count;
-            Copy(visual, holder.transform, overrides);
+            Copy(visual, holder.transform, overrides, piece.FlameOnly);
             if (piece.Arcane)
             {
                 piece.EffectMaterials = _materials.GetRange(materialStart, _materials.Count - materialStart).ToArray();
@@ -181,7 +275,7 @@ internal sealed class TownServiceDecor : IDisposable
             bool any = false;
             foreach (MeshFilter filter in holder.GetComponentsInChildren<MeshFilter>(true))
             {
-                if (filter.sharedMesh == null || (!piece.Arcane && IsFlame(filter.name))) continue;
+                if (filter.sharedMesh == null || (!piece.Arcane && !piece.FlameOnly && IsFlame(filter.name))) continue;
                 Bounds local = filter.sharedMesh.bounds;
                 for (int c = 0; c < 8; c++)
                 {
@@ -197,21 +291,48 @@ internal sealed class TownServiceDecor : IDisposable
             holder.transform.localScale = Vector3.one * factor;
             holder.transform.localPosition = piece.Position - new Vector3(bounds.center.x, bounds.min.y, bounds.center.z) * factor;
             if (piece.Candle)
-            {
-                Transform? flame = null;
-                foreach (Transform child in holder.GetComponentsInChildren<Transform>(true))
-                    if (child.name.IndexOf("Flame", StringComparison.OrdinalIgnoreCase) >= 0 || child.name == "Point Light") { flame = child; break; }
-                _lighting.SetFlame(flame != null ? flame.position : _root.TransformPoint(piece.Position + Vector3.up * piece.Size), piece.LightSlot);
-            }
+                _lighting.SetFlame(_root.TransformPoint(piece.Position + Vector3.up * .18f), piece.LightSlot);
             piece.Holder = holder;
             piece.Home = holder.transform.localPosition;
             if (piece == _workCoin) _work.BindCoin(holder.transform, piece.Home - piece.Position);
-            holder.SetActive(true);
+            if (piece.Arcane)
+            {
+                MeshFilter glow = holder.GetComponentInChildren<MeshFilter>(true);
+                _magic = new TownServiceArcaneEffect(_root, glow, piece.EffectMaterials);
+            }
+            if (piece.Template)
+            {
+                holder.name = "Town.OriginalCoinTemplate";
+                RegisterCoinTextures(holder.transform);
+                CoinTemplate = holder.transform;
+            }
+            else holder.SetActive(!piece.Arcane);
         }
         catch { UnityEngine.Object.Destroy(holder); throw; }
     }
 
-    private void Copy(Transform source, Transform parent, Dictionary<Renderer, Material[]> overrides)
+    private static void RegisterCoinTextures(Transform root)
+    {
+        int rendererIndex = 0;
+        foreach (MeshRenderer renderer in root.GetComponentsInChildren<MeshRenderer>(true))
+        {
+            int materialIndex = 0;
+            foreach (Material material in renderer.sharedMaterials)
+            {
+                foreach (string property in material.GetTexturePropertyNames())
+                {
+                    Texture texture = material.GetTexture(property);
+                    if (texture != null)
+                        GloomhavenVR.Net.TownServices.TownServiceMirror.Assets.RegisterOriginal(
+                            "town-prop|Treasure.Clutter.Shelf.Individual#1|" + rendererIndex + "|" + materialIndex + "|" + property, texture);
+                }
+                materialIndex++;
+            }
+            rendererIndex++;
+        }
+    }
+
+    private void Copy(Transform source, Transform parent, Dictionary<Renderer, Material[]> overrides, bool forceFlame = false)
     {
         // Reconstruct, do not Instantiate: even disabled MonoBehaviours can execute Awake.
         var obj = new GameObject(source.name) { layer = VRLayers.ModLayer };
@@ -227,14 +348,14 @@ internal sealed class TownServiceDecor : IDisposable
             MeshRenderer copy = obj.AddComponent<MeshRenderer>();
             Material[] originals = overrides.TryGetValue(renderer, out Material[] found) ? found : renderer.sharedMaterials;
             var materials = new Material[originals.Length];
-            bool flame = IsFlame(source.name);
+            bool flame = forceFlame || IsFlame(source.name);
             bool glass = source.name.EndsWith("_Glass", StringComparison.Ordinal);
             for (int i = 0; i < originals.Length; i++) materials[i] = Adapt(originals[i], flame || glass, flame);
             copy.sharedMaterials = materials;
             copy.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
             copy.receiveShadows = false;
         }
-        foreach (Transform child in source) Copy(child, obj.transform, overrides);
+        foreach (Transform child in source) Copy(child, obj.transform, overrides, forceFlame);
     }
 
     private static bool IsFlame(string name) => name.IndexOf("Flame", StringComparison.OrdinalIgnoreCase) >= 0
@@ -246,7 +367,7 @@ internal sealed class TownServiceDecor : IDisposable
         if (source == null || shader == null) throw new InvalidOperationException("Original decoration material or town shader missing");
         // Preserve original texture data, UV transform, tint and normal map. Change only the
         // render contract (stereo, practical lighting and station dissolve), on an owned copy.
-        var material = new Material(source) { name = "Town.Original." + source.name, shader = shader, renderQueue = shader.renderQueue };
+        var material = TownServiceDecorMaterial.Copy(source, shader);
         material.SetFloat(Visibility, _visibility);
         if (flame)
         {
@@ -272,11 +393,8 @@ internal sealed class TownServiceDecor : IDisposable
                 if (child.name == "ActivityGripRight") { _castGrip = child; break; }
         }
         if (_castGrip == null) return;
-        if (!_arcane.Holder.activeSelf) _arcane.Holder.SetActive(true);
         float strength = visual.Cast;
-        Transform effect = _arcane.Holder.transform;
-        effect.localPosition = _arcane.Home + _root.InverseTransformPoint(_castGrip.position)
-            + new Vector3(visual.CastSway, .035f, -.02f);
+        _magic?.Sample(_castGrip.position + _root.TransformVector(new Vector3(visual.CastSway, .12f, -.02f)), _clock, strength);
         foreach (Material material in _arcane.EffectMaterials)
             material.SetFloat(Visibility, _visibility * strength);
     }
@@ -284,6 +402,7 @@ internal sealed class TownServiceDecor : IDisposable
     internal void SuspendActivity()
     {
         _work.Suspend();
+        _magic?.Suspend();
         if (_arcane?.Holder != null) _arcane.Holder.SetActive(false);
     }
 
@@ -307,9 +426,11 @@ internal sealed class TownServiceDecor : IDisposable
 
     public void Dispose()
     {
+        if (_coinTemplate?.Holder != null && CoinTemplate == _coinTemplate.Holder.transform) CoinTemplate = null;
         _work.Dispose();
+        _magic?.Dispose();
         foreach (Material material in _materials) UnityEngine.Object.Destroy(material);
-        foreach (AsyncOperationHandle<Material> load in _loads.Values) if (load.IsValid()) Addressables.Release(load);
+        foreach (MaterialLoad load in _loads.Values) Release(load);
         foreach (Piece piece in _pieces) if (piece.Handle.IsValid()) Addressables.Release(piece.Handle);
         _materials.Clear(); _loads.Clear(); _pieces.Clear();
     }

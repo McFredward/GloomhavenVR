@@ -8,7 +8,7 @@ namespace GloomhavenVR.WorldUI;
 /// <summary>Owned lights for the mod layer; never changes native lights or global ambient.</summary>
 internal sealed class TownServiceLighting : IDisposable
 {
-    // At most one environment light and four practicals for the three live residents.
+    // At most one environment light and six practicals for the three live residents.
     // Exact object ownership, not layer/name/type heuristics: native lights keep their policy.
     private static readonly HashSet<Light> Owned = new();
     internal static bool Owns(Light light) => light != null && Owned.Contains(light);
@@ -37,7 +37,6 @@ internal sealed class TownServiceLighting : IDisposable
             : service == 2 ? new Color(1f, .82f, .60f) : new Color(1f, .74f, .48f);
         _power = service == 2 ? 1.25f : 1.05f;
         _stand.intensity = 0f;
-        if (service == 2)
         {
             var secondObject = new GameObject("TownService.SecondCandleLight");
             secondObject.transform.SetParent(root, false);
@@ -63,7 +62,7 @@ internal sealed class TownServiceLighting : IDisposable
     {
         _visibility = value;
         _stand.intensity = _hasFlame ? _power * value : 0f;
-        if (_second != null) _second.intensity = _hasSecond ? .75f * value : 0f;
+        if (_second != null) _second.intensity = _hasSecond ? _power * value : 0f;
     }
 
     internal void Refresh(Transform root)

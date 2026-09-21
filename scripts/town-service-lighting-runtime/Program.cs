@@ -27,7 +27,7 @@ internal static class Program
             var temple=new TownServiceLighting(root,2);
             var enchantress=new TownServiceLighting(root,3);
             var owned=Living().Where(TownServiceLighting.Owns).ToArray();
-            Check(owned.Length==5&&OwnedCount==5,"one moon and four practicals, bounded across repeated visits");
+            Check(owned.Length==7&&OwnedCount==7,"one moon and six practicals, bounded across repeated visits");
             Check(owned.Count(l=>l.type==LightType.Directional)==1,"shared moon light");
             Check(!TownServiceLighting.Owns(native)&&!TownServiceLighting.Owns(sameLayerNative)&&!TownServiceLighting.Owns(sameNameNative),"no name/layer ownership heuristic");
             LightStabiliser.Reset();
@@ -39,11 +39,13 @@ internal static class Program
             merchant.SetVisibility(.5f);merchant.SetFlame(new Vector3(2,3,4),0);
             var merchantLamp=owned.First(l=>l.type==LightType.Point);
             Near(merchantLamp.intensity,.525f,"late source uses current fade without damping");Near(merchantLamp.transform.position.y,3,"late source keeps original flame position");
+            merchant.SetFlame(new Vector3(-2,3,4),1);
+            Near(owned.Where(l=>l.type==LightType.Point).Skip(1).First().intensity,.525f,"second visible practical illuminates other side of face");
             merchant.SetVisibility(1);Near(merchantLamp.intensity,1.05f,"owner reaches full light immediately");
             SkyAlternative.HasMoon=false;enchantress.Refresh(root);Near(owned.Single(l=>l.type==LightType.Directional).intensity,0,"MR/default has no invented studio key");SkyAlternative.HasMoon=true;
-            merchant.Dispose();Check(OwnedCount==4,"single station leaves shared moon and other stations");
-            int destroys=UnityEngine.Object.DestroyRequests;merchant.Dispose();Check(UnityEngine.Object.DestroyRequests==destroys&&OwnedCount==4,"double dispose is inert");
-            temple.Dispose();Check(OwnedCount==2,"temple releases both candles");enchantress.Dispose();
+            merchant.Dispose();Check(OwnedCount==5,"single station leaves shared moon and other stations");
+            int destroys=UnityEngine.Object.DestroyRequests;merchant.Dispose();Check(UnityEngine.Object.DestroyRequests==destroys&&OwnedCount==5,"double dispose is inert");
+            temple.Dispose();Check(OwnedCount==3,"temple releases both candles");enchantress.Dispose();
             Check(OwnedCount==0,"last resident releases registry and shared moon before end-of-frame");
             UnityEngine.Object.FinishFrame();
         }
@@ -52,8 +54,8 @@ internal static class Program
         var oldMoon=Living().Single(l=>TownServiceLighting.Owns(l)&&l.type==LightType.Directional);
         UnityEngine.Object.ExternalDestroy(oldMoon.gameObject);
         first.Refresh(survivorRoot);
-        Check(OwnedCount==2,"externally destroyed moon reference removed before replacement");
-        var firstLamp=Living().Single(l=>TownServiceLighting.Owns(l)&&l.type==LightType.Point);
+        Check(OwnedCount==3,"externally destroyed moon reference removed before replacement");
+        var firstLamp=Living().First(l=>TownServiceLighting.Owns(l)&&l.type==LightType.Point);
         UnityEngine.Object.ExternalDestroy(firstLamp.gameObject);
         first.Dispose();Check(OwnedCount==0,"Unity fake-null practical still removed from registry");UnityEngine.Object.FinishFrame();
         Check(!TownServiceLighting.Owns(native),"native light ownership remains untouched");
