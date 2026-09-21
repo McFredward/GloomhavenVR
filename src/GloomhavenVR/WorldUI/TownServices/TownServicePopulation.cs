@@ -112,7 +112,7 @@ internal static class TownServicePopulation
             }
             resident.Station.SetVisibility(resident.Visibility);
             resident.Station.Sample(resident.Clip == 1 ? "Greeting" : "Idle", resident.Age);
-            resident.Visit.Tick(enabled && used && ready && resident.Visibility >= .99f);
+            resident.Visit.Tick(used && ready && resident.Visibility >= .99f);
             Transform station = resident.Station.Root;
             published.Set(service - 1, new TownResidentPose {
                 Pose = new RigPose { Position = _frame!.transform.InverseTransformPoint(station.position),

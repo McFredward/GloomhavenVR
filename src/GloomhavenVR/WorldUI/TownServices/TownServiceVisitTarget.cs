@@ -42,7 +42,8 @@ internal sealed class TownServiceVisitTarget : IPokeable, IDisposable
         Targets.Add(this);
     }
 
-    private bool Available => _visible && !StoryComposite.PointOfNoReturn
+    private bool Available => _visible && WorldUIConfig.ImmersiveTownServices.Value
+        && !StoryComposite.PointOfNoReturn
         && MapRoomDriver.CanVisitTownService(_mode);
     internal void Tick(bool visible)
     { _visible = visible; _collider.enabled = visible; }
