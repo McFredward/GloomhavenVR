@@ -65,10 +65,11 @@ def portrait_neck_patch(reference,head):
     image=next(n.image for m in head.data.materials for n in m.node_tree.nodes
                if n.type=='TEX_IMAGE' and n.image and Path(n.image.filepath).name=='front.png')
     nodes=mat.node_tree.nodes;tex=nodes.new('ShaderNodeTexImage');tex.image=image
-    uvnode=nodes.new('ShaderNodeUVMap');uvnode.uv_map='NativeNeckPortrait'
+    uvnode=nodes.new('ShaderNodeUVMap');uvnode.uv_map='Reference_front'
     mat.node_tree.links.new(uvnode.outputs[0],tex.inputs[0]);mat.node_tree.links.new(tex.outputs[0],nodes.get('Principled BSDF').inputs['Base Color'])
     patch.data.materials.clear();patch.data.materials.append(mat)
-    uv=patch.data.uv_layers.new(name='NativeNeckPortrait')
+    for layer in list(patch.data.uv_layers):patch.data.uv_layers.remove(layer)
+    uv=patch.data.uv_layers.new(name='Reference_front')
     for loop in patch.data.loops:
         x,y,z=patch.data.vertices[loop.vertex_index].co
         # Same low-neck portrait region as the adjacent fitted anatomical neck.

@@ -8,6 +8,7 @@ import bmesh
 import math
 import numpy as np
 from mathutils import Vector
+from town_npc_garment_weights import garment_support
 
 
 def shirt_band(bm, body, npc):
@@ -38,44 +39,6 @@ def shirt_band(bm, body, npc):
             for loop in face.loops:
                 loop[uv].uv=(sample[0]+loop.vert.co.x*.025,sample[1]+(loop.vert.co.z-top)*.025)
     return n*7
-
-
-def garment_support(bm, body, npc, rgba, uv):
-    """Keep the original cape/vest on the torso when nearby sleeves move."""
-    deform=bm.verts.layers.deform.active
-    groups={g.index:g.name for g in body.vertex_groups}
-    axial={body.vertex_groups[n].index:n for n in ('Hips','Spine','Chest')}
-    chest=body.vertex_groups['Chest'].index
-    samples={}
-    for vertex in bm.verts:
-        x,y,z=vertex.co
-        if not(.78<z<1.47 and abs(x)<.45):continue
-        if npc=='enchantress' and not(y>.065 or (z>1.24 and abs(x)<.255)):continue
-        if npc!='merchant' and abs(x)>.32 and z<1.20:continue
-        arm=sum(value for index,value in vertex[deform].items()
-                if groups[index].startswith(('UpperArm.','Forearm.','Hand.','Clavicle.')))
-        if arm<.0001:continue
-        colors=[]
-        for loop in vertex.link_loops:
-            co=loop[uv].uv
-            colors.append(rgba[max(0,min(rgba.shape[0]-1,int(co.y*rgba.shape[0]))),max(0,min(rgba.shape[1]-1,int(co.x*rgba.shape[1]))),:3])
-        if not colors:continue
-        r,g,b=np.median(colors,axis=0)
-        garment=((r>g*1.6 and b>g*1.12) or (g>r*.93 and g>b*1.3)) if npc=='merchant' else ((r>g*1.08 and (r-b)/max(.001,r+b)>.12) if npc=='priestess' else (g>r*1.10 and b>r*1.05))
-        key=tuple(round(float(v),5)for v in vertex.co)
-        samples.setdefault(key,[]).append((vertex,garment))
-    changed=0
-    for coincident in samples.values():
-        if not any(garment for _,garment in coincident):continue
-        for vertex,_ in coincident:
-            retained={index:value for index,value in vertex[deform].items() if index in axial}
-            total=sum(retained.values())
-            vertex[deform].clear()
-            if total>.0001:
-                for index,value in retained.items():vertex[deform][index]=value/total
-            else:vertex[deform][chest]=1
-            changed+=1
-    return changed
 
 
 def repair(body, npc):
