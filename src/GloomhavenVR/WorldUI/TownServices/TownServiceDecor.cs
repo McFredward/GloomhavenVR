@@ -16,7 +16,8 @@ internal sealed class TownServiceDecor : IDisposable
         internal string Key = string.Empty, Entry = string.Empty;
         internal Vector3 Position;
         internal float Size;
-        internal bool Candle;
+        internal bool Candle, Arcane;
+        internal Material[] EffectMaterials = Array.Empty<Material>();
         internal GameObject? Holder;
         internal Vector3 Home;
         internal int LightSlot;
@@ -30,7 +31,8 @@ internal sealed class TownServiceDecor : IDisposable
     private readonly Transform _root;
     private readonly TownServiceLighting _lighting;
     private readonly TownServiceActivityProps _work;
-    private Piece? _workCoin;
+    private Piece? _workCoin, _arcane;
+    private Transform? _castGrip;
     private float _visibility;
     private float _clock;
     private bool _reported;
@@ -67,13 +69,14 @@ internal sealed class TownServiceDecor : IDisposable
         {
             Add("AlchemyLab", "AlchemyLab.Clutter.Shelf.Individual#3", new Vector3(.59f, .957f, .15f), .22f);
             Add("Library", "Library.Clutter.Shelf.Individual#7", new Vector3(0f, .957f, .22f), .32f);
+            _arcane = Add("Tone_Candlelight", "Candlelight.Lighting.Torch.Wall#1", Vector3.zero, .075f, arcane: true);
         }
     }
 
-    private Piece Add(string list, string entry, Vector3 position, float size, bool candle = false, int lightSlot = 0)
+    private Piece Add(string list, string entry, Vector3 position, float size, bool candle = false, int lightSlot = 0, bool arcane = false)
     {
         string key = "Assets/PCG/PCG_" + list + ".asset";
-        var piece = new Piece { Key = key, Entry = entry, Position = position, Size = size, Candle = candle, LightSlot = lightSlot,
+        var piece = new Piece { Key = key, Entry = entry, Position = position, Size = size, Candle = candle, LightSlot = lightSlot, Arcane = arcane,
             Handle = Addressables.LoadAssetAsync<ApparanceResourceList>(key) };
         _pieces.Add(piece);
         return piece;
@@ -150,12 +153,34 @@ internal sealed class TownServiceDecor : IDisposable
                         foreach (Material material in data.Renderer.sharedMaterials) if (material != null) materials.Add(material);
                     overrides[data.Renderer] = materials.ToArray();
                 }
-            Copy(piece.Source.transform, holder.transform, overrides);
+            Transform visual = piece.Source.transform;
+            if (piece.Arcane)
+            {
+                // Reuse the original candle's soft glow texture/quad as a restrained hand
+                // effect. Copy rendering data only; never run native particle controllers.
+                Transform? glow = null;
+                foreach (Transform child in visual.GetComponentsInChildren<Transform>(true))
+                    if (child.name.IndexOf("Glow", StringComparison.OrdinalIgnoreCase) >= 0
+                        && child.GetComponent<MeshFilter>() != null) { glow = child; break; }
+                if (glow == null) throw new InvalidOperationException("Original candle glow mesh unavailable");
+                visual = glow;
+            }
+            int materialStart = _materials.Count;
+            Copy(visual, holder.transform, overrides);
+            if (piece.Arcane)
+            {
+                piece.EffectMaterials = _materials.GetRange(materialStart, _materials.Count - materialStart).ToArray();
+                foreach (Material material in piece.EffectMaterials)
+                {
+                    material.SetColor("_Color", new Color(.30f, .65f, .90f, .55f));
+                    material.SetFloat(Visibility, 0f);
+                }
+            }
             Bounds bounds = default;
             bool any = false;
             foreach (MeshFilter filter in holder.GetComponentsInChildren<MeshFilter>(true))
             {
-                if (filter.sharedMesh == null || IsFlame(filter.name)) continue;
+                if (filter.sharedMesh == null || (!piece.Arcane && IsFlame(filter.name))) continue;
                 Bounds local = filter.sharedMesh.bounds;
                 for (int c = 0; c < 8; c++)
                 {
@@ -233,7 +258,22 @@ internal sealed class TownServiceDecor : IDisposable
         return material;
     }
 
-    internal void SampleActivity(in TownActivityPose pose) => _work.Sample(in pose);
+    internal void SampleActivity(in TownActivityPose pose)
+    {
+        _work.Sample(in pose);
+        if (_arcane?.Holder == null) return;
+        if (_castGrip == null)
+            foreach (Transform child in _root.GetComponentsInChildren<Transform>(true))
+                if (child.name == "ActivityGripRight") { _castGrip = child; break; }
+        if (_castGrip == null) return;
+        float strength = TownServiceActivityMotion.Pulse(pose.WorkClock % 14f, 7f, 12f)
+            * (1f - TownServiceActivityMotion.Blend(in pose));
+        Transform effect = _arcane.Holder.transform;
+        effect.localPosition = _arcane.Home + _root.InverseTransformPoint(_castGrip.position)
+            + new Vector3(.018f * Mathf.Sin(pose.WorkClock * 2f), .035f, -.02f);
+        foreach (Material material in _arcane.EffectMaterials)
+            material.SetFloat(Visibility, _visibility * strength);
+    }
 
     internal void SetClock(float seconds)
     {
