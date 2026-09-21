@@ -148,13 +148,15 @@ internal static class TownServicePresentation
         {
             if (_tray != null && _tray.IsGrabbed && _tray.Root.parent == _workspace.Root)
                 _tray.Root.SetParent(null, true);
-            _workspace.Tick();
+            _workspace.Tick(_catalog?.CanRelocate != false);
             _workspace.SetVisibility(visibility);
         }
-        _catalog?.SetVisibility(visibility);
+        float relocation = _workspace?.RelocationVisibility ?? 1f;
+        bool allowInput = _workspace?.InputAvailable ?? true;
+        _catalog?.SetVisibility(visibility, relocation, allowInput);
         foreach (TownServiceSurface surface in Surfaces)
         {
-            if (_catalog != null) surface.SetVisibility(visibility);
+            if (_catalog != null) surface.SetVisibility(visibility * relocation, allowInput);
             surface.Tick(_origin, _yaw, _scale);
         }
         _catalog?.Tick(_scale);

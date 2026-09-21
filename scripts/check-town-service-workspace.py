@@ -22,19 +22,21 @@ def replace_once(source, before, after):
 
 def sources(root):
     base = root / "src/GloomhavenVR/WorldUI/TownServices"
-    names = ["TownServiceWorkspace.cs"]
+    names = ["TownServiceWorkspace.cs", "TownServicePlacement.cs", "TownServiceGrounding.cs"]
     bound = {name: (base / name).read_text() for name in names}
     return bound, {name: hashlib.sha256(text.encode()).hexdigest() for name, text in bound.items()}
 
 
 def mutations():
     return [
-        ("spacing", "TownServiceWorkspace.cs", "(slot - 2) * 1.8f", "(slot - 2) * 0f", "complete roster assigns distinct ordinal including flat peers"),
-        ("roster", "TownServiceWorkspace.cs", "player.Id > 0", "player.Id == local", "complete roster assigns distinct ordinal including flat peers"),
-        ("snap", "TownServiceWorkspace.cs", "Vector3.LerpUnclamped(_from, _target, t * t * (3f - 2f * t))", "_target", "roster change begins from existing owner pose"),
-        ("primary", "TownServiceWorkspace.cs", "_visibility * Mathf.Clamp01(Root.localPosition.magnitude / .5f)", "_visibility", "primary duplicate is hidden while extensions are visible"),
-        ("fifth", "TownServiceWorkspace.cs", "if (slot > 3) throw new InvalidOperationException(\"Merchant workspace roster exceeds four users\");", "if (slot > 3) slot = 3;", "unexpected fifth user is rejected instead of overlapping a valid seat"),
+        ("outer-ring", "TownServiceWorkspace.cs", "new Vector3(0f, 0f, 2.35f)", "new Vector3(0f, 0f, 4f)", "full-size counter stays inside solid scenery clearance"),
+        ("roster", "TownServiceWorkspace.cs", "player.Id > 0", "player.Id == local", "extra counter clears all three actual resident envelopes"),
+        ("visible-teleport", "TownServiceWorkspace.cs", "RelocationVisibility = 0f; ApplyTarget();", "RelocationVisibility = 1f; ApplyTarget();", "pose change has a fully invisible published frame"),
+        ("primary", "TownServiceWorkspace.cs", "_shownPrimary ? 0f : _visibility * RelocationVisibility", "_visibility * RelocationVisibility", "primary duplicate is hidden while extensions are visible"),
+        ("fifth", "TownServiceWorkspace.cs", 'if (slot > 3) throw new InvalidOperationException("Merchant workspace roster exceeds four users");', "if (slot > 3) slot = 3;", "unexpected fifth user is rejected instead of overlapping a valid seat"),
         ("materials", "TownServiceWorkspace.cs", "copy = new Material(original)", "copy = original", "each workspace owns its materials"),
+        ("held-relocation", "TownServiceWorkspace.cs", "_pending && mayRelocate && !_relocating", "_pending && !_relocating", "held or returning card defers relocation"),
+        ("floor", "TownServiceWorkspace.cs", "TownServicePlacement.GroundHeight(room, _target)", "room.position.y", "workspace rests on original sloped floor at its own target"),
     ]
 
 

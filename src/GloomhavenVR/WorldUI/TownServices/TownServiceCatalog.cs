@@ -57,6 +57,11 @@ internal sealed class TownServiceCatalog : IDisposable
     private object? _context;
     private float _nextCensus, _nextScrollPage, _lastScroll = 1f;
     private bool _disposed;
+    private bool _allowInput = true;
+    internal bool CanRelocate
+    {
+        get { foreach (TownServiceToken sample in _samples) if (sample.IsMoving) return false; return true; }
+    }
     internal IReadOnlyList<Entry> Entries => _entries;
     internal IReadOnlyList<TownServiceToken> Samples => _samples;
     internal Transform NavigationRoot => _navigation.transform;
@@ -140,10 +145,13 @@ internal sealed class TownServiceCatalog : IDisposable
         return false;
     }
 
-    internal void SetVisibility(float value)
+    internal void SetVisibility(float value, float relocation = 1f, bool allowInput = true)
     {
-        _opening.alpha = Mathf.Clamp01(value);
-        foreach (Control control in _controls) control.Surface.SetVisibility(value);
+        _allowInput = allowInput && relocation >= 1f;
+        float opacity = Mathf.Clamp01(value) * Mathf.Clamp01(relocation);
+        _opening.alpha = opacity;
+        _opening.interactable = _opening.blocksRaycasts = _allowInput;
+        foreach (Control control in _controls) control.Surface.SetVisibility(opacity, _allowInput);
     }
 
     internal void LateTick()
@@ -257,7 +265,7 @@ internal sealed class TownServiceCatalog : IDisposable
 
     internal void TurnPage(int direction)
     {
-        if (!_disposed && _alive()) SetPage(_page + direction, true);
+        if (!_disposed && _alive() && _allowInput) SetPage(_page + direction, true);
     }
 
     private void SetPage(int page, bool setScroll, bool force = false)
@@ -412,13 +420,13 @@ internal sealed class TownServiceCatalog : IDisposable
 
         private void Click()
         {
-            if (Sample.IsMoving || !Current || !RowSource.Selectable.IsActive() || !RowSource.Selectable.IsInteractable() || EventSystem.current == null) return;
+            if (!_owner._allowInput || Sample.IsMoving || !Current || !RowSource.Selectable.IsActive() || !RowSource.Selectable.IsInteractable() || EventSystem.current == null) return;
             var pointer = new PointerEventData(EventSystem.current) { button = PointerEventData.InputButton.Left };
             ExecuteEvents.Execute(RowSource.Selectable.gameObject, pointer, ExecuteEvents.pointerClickHandler);
         }
         private void Hover(bool enter)
         {
-            if (_hovered == enter || RowSource == null || EventSystem.current == null || (enter && !Current)) return;
+            if (_hovered == enter || RowSource == null || EventSystem.current == null || (enter && (!Current || !_owner._allowInput))) return;
             // A pooled row/context change can invalidate Current before disposal. Retire the
             // pointer enter we actually sent anyway; otherwise its native detail window remains
             // highlighted/open for the old owner. This is only hover exit, never selection.

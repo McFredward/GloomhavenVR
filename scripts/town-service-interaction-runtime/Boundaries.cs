@@ -231,7 +231,7 @@ namespace GloomhavenVR.WorldUI
             _panel = CanvasConversion.Convert(source);
         }
         internal bool OwnsGrab(GrabbableModal holder) => false;
-        internal void SetVisibility(float value) { }
+        internal void SetVisibility(float value, bool allowInput = true) { }
         internal void Tick(Vector3 origin, Quaternion yaw, float scale) { }
         internal void LateTick() { }
         public void Dispose() => CanvasConversion.Release(_panel);
@@ -255,7 +255,8 @@ namespace GloomhavenVR.WorldUI
             }
         }
         internal void Tick(float scale = 1) { foreach (var token in _tokens) token.Tick(scale); }
-        internal void SetVisibility(float value) { }
+        internal bool CanRelocate => !_tokens.Exists(t => t.IsMoving);
+        internal void SetVisibility(float value, float relocation = 1f, bool allowInput = true) { }
         internal void LateTick() { }
         public void Dispose()
         {
@@ -289,7 +290,9 @@ namespace GloomhavenVR.WorldUI
         internal Transform? FurnitureRoot => Root;
         internal TownServiceWorkspace(Transform station)
         { Root = Probe.Go("workspace", station).transform; }
-        internal void Tick() { Root.localPosition += new Vector3(.01f, 0f, 0f); }
+        internal void Tick(bool mayRelocate = true) { if (mayRelocate) Root.localPosition += new Vector3(.01f, 0f, 0f); }
+        internal float RelocationVisibility => 1f;
+        internal bool InputAvailable => true;
         internal void SetVisibility(float value) { }
         public void Dispose() { UnityEngine.Object.Destroy(Root.gameObject); }
     }

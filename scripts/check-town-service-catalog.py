@@ -35,8 +35,11 @@ def sources(root):
 
 def mutations():
     return [
+        ("held-relocation", "TownServiceCatalog.cs", "if (sample.IsMoving) return false", "if (false) return false", "held or returning original defers rack relocation"),
+        ("relocation-card-input", "TownServiceCatalog.cs", "_opening.interactable = _opening.blocksRaycasts = _allowInput;", "_opening.interactable = _opening.blocksRaycasts = true;", "relocation immediately blocks grabs before alpha has changed"),
+        ("relocation-control-input", "TownServiceSurface.cs", "_gate.interactable = interactable && _allowInput; _gate.blocksRaycasts = raycasts && _allowInput;", "_gate.interactable = interactable; _gate.blocksRaycasts = raycasts;", "relocating native controls use presentation-only input gate"),
         ("desktop-owned", "TownServiceCatalog.cs", "if (inventory._ownedFilter != null)", "if (true)", "desktop merchant opens without a gamepad Owned filter"),
-        ("hover-rebind", "TownServiceCatalog.cs", " || (enter && !Current)", " || !Current", "row rebind retires previous native hover"),
+        ("hover-rebind", "TownServiceCatalog.cs", " || (enter && (!Current || !_owner._allowInput))", " || !Current", "row rebind retires previous native hover"),
         ("hint-duplicate", "TownServiceCatalogPreview.cs", "_hintMask = new TownServiceWindowMask(rect);", "// mutation leaves duplicate native tooltip visible", "native shared hint is masked while its copy is visible"),
         ("preview-mask", "TownServiceCatalogPreview.cs", "_mount.transform.SetParent(parent, false)", "_mount.transform.SetParent(source.transform.parent, false)", "detail clone escapes hidden native viewport"),
         ("preview-leave", "TownServiceCatalogPreview.cs", "_source.IsShown &&", "true &&", "native hover exit hides copied details"),

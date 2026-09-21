@@ -75,7 +75,29 @@ public static class InteractionProgram
                 foreach (var control in catalog.Controls)
                     Check(Mathf.Abs(control.Surface.Panel.HostGo.GetComponent<CanvasGroup>().alpha - .21f) < .001f,
                         "counter visibility multiplies original native fade");
-                catalog.SetVisibility(1f);
+                catalog.Entries[0].Sample.IsMoving = true;
+                Check(!catalog.CanRelocate, "held or returning original defers rack relocation");
+                catalog.Entries[0].Sample.IsMoving = false;
+                Check(catalog.CanRelocate, "idle original cards allow rack relocation");
+                catalog.SetVisibility(1f, 1f, false); catalog.Tick(2f); catalog.LateTick();
+                Check(!catalog.Root.GetComponent<CanvasGroup>().interactable,
+                    "relocation immediately blocks grabs before alpha has changed");
+                catalog.SetVisibility(.35f, .4f); catalog.Tick(2f); catalog.LateTick();
+                Check(Mathf.Abs(catalog.Root.GetComponent<CanvasGroup>().alpha - .14f) < .001f,
+                    "relocation alpha multiplies service opening for original cards");
+                Check(!catalog.Root.GetComponent<CanvasGroup>().interactable && !catalog.Root.GetComponent<CanvasGroup>().blocksRaycasts,
+                    "relocating cards and navigation have no invisible input");
+                foreach (var control in catalog.Controls)
+                {
+                    var gate = control.Surface.Panel.HostGo.GetComponent<CanvasGroup>();
+                    Check(!gate.interactable && !gate.blocksRaycasts, "relocating native controls use presentation-only input gate");
+                }
+                int relocationPage = catalog.Page; catalog.TurnPage(1);
+                Check(catalog.Page == relocationPage, "relocation cannot rebuild cards through direct page input");
+                catalog.SetVisibility(1f); catalog.LateTick();
+                foreach (var control in catalog.Controls)
+                    Check(control.Surface.Panel.HostGo.GetComponent<CanvasGroup>().interactable,
+                        "original input availability returns after relocation");
                 Check(catalog.PageCount == 3 && catalog.Entries.Count == 6, "bounded six-card native catalog");
                 Check(catalog.Entries[0].ItemId == 1, "native hierarchy order wins over pool order");
                 Check(scroll.viewport.parent.GetComponent<CanvasGroup>().alpha == 0, "old viewport is hidden");

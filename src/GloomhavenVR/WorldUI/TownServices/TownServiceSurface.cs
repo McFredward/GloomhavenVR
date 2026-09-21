@@ -16,7 +16,7 @@ internal sealed class TownServiceSurface : IDisposable
     private readonly List<CanvasGroup> _nativeGroups = new();
     private readonly List<Transform> _nativeAncestors = new();
     private readonly CanvasGroup _gate;
-    private bool _placed;
+    private bool _placed, _allowInput = true;
     private readonly Transform? _counterAnchor;
     private float _visibility = 1f, _inheritedAlpha = 1f;
 
@@ -62,7 +62,7 @@ internal sealed class TownServiceSurface : IDisposable
             alpha *= group.alpha; interactable &= group.interactable; raycasts &= group.blocksRaycasts;
         }
         _inheritedAlpha = alpha;
-        _gate.alpha = alpha * _visibility; _gate.interactable = interactable; _gate.blocksRaycasts = raycasts;
+        _gate.alpha = alpha * _visibility; _gate.interactable = interactable && _allowInput; _gate.blocksRaycasts = raycasts && _allowInput;
         if (_counterAnchor != null)
         {
             // Physical countertop controls are horizontal objects, not pitched floating windows.
@@ -83,10 +83,14 @@ internal sealed class TownServiceSurface : IDisposable
         _grab.Tick();
     }
 
-    internal void SetVisibility(float value)
+    internal void SetVisibility(float value, bool allowInput = true)
     {
-        _visibility = Mathf.Clamp01(value);
-        if (_gate != null) _gate.alpha = _inheritedAlpha * _visibility;
+        _visibility = Mathf.Clamp01(value); _allowInput = allowInput;
+        if (_gate != null)
+        {
+            _gate.alpha = _inheritedAlpha * _visibility;
+            if (!allowInput) _gate.interactable = _gate.blocksRaycasts = false;
+        }
     }
 
     internal bool OwnsGrab(GrabbableModal holder) => Panel.IsAlive && ReferenceEquals(_grab, holder);

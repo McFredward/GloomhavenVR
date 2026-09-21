@@ -459,7 +459,19 @@ public static class InteractionProgram
     private static void ManualTrayPlacement()
     {
         var session = Open(1);
-        var tray = TownServicePresentation.Tray!;
+        Check(TownServicePresentation.Tray == null, "physical merchant has no transaction drop tray");
+        session.Grab();
+        Vector3 waiting = TownServicePresentation.WorkMat!.parent.position;
+        TownServicePresentation.Tick();
+        Check(Vector3.Distance(waiting, TownServicePresentation.WorkMat.parent.position) < .001f,
+            "presentation defers workspace relocation while original card is held");
+        session.Token.OnGrabCancelled(session.Hand);
+        Check(session.Clicks == 0, "waiting for relocation never confirms native selection");
+        // The shipping merchant uses an invisible inspection frame. Exercise the retained
+        // generic manual-tray lifetime branch with an explicitly supplied boundary fixture.
+        var tray = new TownServiceTray(null, Vector3.zero, Quaternion.identity, 1f);
+        tray.Root.SetParent(TownServicePresentation.WorkMat!.parent, false);
+        typeof(TownServicePresentation).GetField("_tray", Static)!.SetValue(null, tray);
         Check(tray.Root.parent != null, "unmoved merchant tray belongs to its workspace");
         Vector3 before = tray.Root.position;
         TownServicePresentation.Tick();

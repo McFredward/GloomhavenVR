@@ -1,36 +1,39 @@
 # Merchant visitor workspace checks
 
-Run `python3 scripts/check-town-service-workspace.py`. This compiles the production
-`TownServiceWorkspace` into separately named test assemblies and runs them in real
-Unity 2021.3.5 with the shipping town bundle. Only the connected native roster, the
-clock and bundle-location boundary are fixtures. `Time.unscaledTime` is bound to an
-explicit deterministic test clock; source hashes are retained beside each run.
+Run `python3 scripts/check-town-service-workspace.py`. This compiles production
+`TownServiceWorkspace` and `TownServicePlacement` into separate test assemblies and
+runs them in real Unity 2021.3.5 with the shipping town bundle. Native roster, clock,
+canonical map-frame/seat state and bundle location are explicit boundaries. Floor
+sampling, original mesh bounds, transforms and materials execute actual production.
 
-The primary ordinal keeps the existing NPC/front-counter position. Its extra
-furniture instance is inactive and dissolved, so it neither z-fights nor adds draw
-calls. Other ordinals have full-size counter extensions at x = -1.8 / 0 / +1.8 m,
-z = 2.2 m, in the station's outward frame. The 1.65 m tops have 15 cm gaps. Their near
-edge leaves at least 80 cm behind the NPC envelope. All owner positions, material
-values and intermediate motion must be published by the integration layer; observers
-must not derive their own offsets. Parent the catalogue to `Root`; preserve manual
-tray placement when handling later roster movement.
+Ordinal zero retains the original merchant counter. Its duplicate furniture remains
+inactive. Three full-size extra counters occupy the free southern clearing ring at
+radius 2.35 m and map-frame yaws -124°, 180°, +124°, facing inward. The conservative
+footprint |x| <= 0.9 m, |z| <= 0.422 m has outer radius 2.915 m, inside the nearest
+solid scenery radius 3.033 m, and inner radius 1.928 m, outside the map/seat radius
+1.05 m. SAT tests compare each counter against every original station pose produced
+by the actual placement source, and against other counters. Shipping furniture
+mesh bounds must fit this footprint. These checks do not certify hanging foliage
+or headset readability.
 
-Native `PlayerRegistry.CreatePlayer` takes `BoltConnection.ConnectionId` as PlayerID;
-`UdpSocket.AcceptConnection` increments `connectionIdCounter`, so IDs are not bounded
-party slots and reconnects can exceed four. `NetworkPlayer.Detached` removes the entry
-from `AllPlayers`. The existing `LocalStableIndex` uses *Participants*, which omits
-connected users with no active controllable. This helper instead uses current full
-`AllPlayers` ordinals via `CollectRoster`, including flat/unassigned users. It does not
-cache different rank histories on late join. A membership change moves the owner's
-workspace over 0.22 seconds; an impossible fifth ordinal throws before opening so the
-presentation's existing native-window fallback can remain usable.
+Native connection IDs are sparse and can exceed four after reconnects. Full native
+roster ordinals include flat/unassigned users and avoid divergent arrival-history
+caches. No network allocation protocol or purchase serialization is introduced.
+Only the owner resolves each pose; observers consume the actual published widget,
+card, furniture, material and transform state.
 
-Checks cover four distinct ordinals with sparse connection IDs, original furniture
-provenance, no cloned NPC or input-blocking colliders, separate owned materials without
-mesh property blocks, original-material preservation, intermediate owner movement,
-late joins, reconnects, offline/host placement, fifth-user rejection and immediate
-idempotent teardown. Six compiled mutations must fail the corresponding assertions.
+Roster, environment and canonical frame changes are checked on the existing 250 ms
+cadence. Floor geometry is sampled only when one changes. Relocation waits for held
+original cards and return flights to finish. The entire owner's workspace then fades
+out, changes pose in a guaranteed fully invisible frame, and fades in over 220 ms.
+It never sweeps a counter through the map or another permanent NPC. Original card
+sizes, native selection and transactions stay unchanged. Mod-owned CanvasGroups
+block new input during relocation without changing native Selectable availability.
 
-The helper check establishes neither network publication nor headset clearance against
-custom room walls. Those remain integration/hardware responsibilities. It introduces
-no wire allocation protocol and does not serialize concurrent shopping.
+Checks cover actual geometry, rotated/scaled map coordinates, sloped original ground,
+sparse rosters, full opacity synchronization, delayed relocation, native assets,
+private materials, no cloned NPC or active furniture colliders, late joins, reconnects,
+offline placement, fifth-user rejection and immediate idempotent disposal. Eight
+compiled negative controls must fail their corresponding behavioral assertions.
+The catalog suite additionally binds the actual visibility/input gate and moving-card
+condition; the interaction suite checks the production presentation handoff.

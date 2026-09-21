@@ -62,6 +62,7 @@ def mutations():
     # Every mutant compiles and must reach the specified runtime assertion. A compile error,
     # unrelated exception or changed source binding cannot count as a rejected negative control.
     return [
+        ("held-workspace", "Presentation.cs", "_workspace.Tick(_catalog?.CanRelocate != false);", "_workspace.Tick(true);", "presentation defers workspace relocation while original card is held"),
         ("physical-inspect-permission", "Token.cs", "(IsPhysical || _button.IsInteractable())", "_button.IsInteractable()", "unaffordable physical items remain inspectable"),
         ("physical-no-purchase", "Token.cs", "if (_physical != null)\n        {\n            // A sample is not a transaction", "if (false)\n        {\n            // A sample is not a transaction", "physical release over work tray never selects or purchases"),
         ("mask-wrapper-alpha", "WindowMask.cs", "mask.alpha = 0f;", "mask.alpha = 1f;", "mask suppresses rendering and raycasts on its own wrapper"),

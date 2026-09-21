@@ -3,7 +3,8 @@ using System.Collections.Generic;
 using System.Linq;
 using UnityEngine;
 
-// Only the connected native roster, clock and bundle-location boundary are fixtures.
+// Native roster, clock, canonical map/seat state and bundle location are boundaries.
+// Both workspace and actual station placement/floor sampling execute production source.
 // All workspace hierarchy, material ownership, placement, movement and disposal are production.
 namespace GloomhavenVR.Core
 {
@@ -37,4 +38,26 @@ namespace GloomhavenVR.WorldUI
             return bundle.LoadAsset<GameObject>("assets/bundle/townservices/prefabs/" + name + ".prefab");
         }
     }
+}
+
+namespace GloomhavenVR.WorldUI.MapRoom
+{
+    internal static class MapRoomSeat
+    {
+        internal struct Seat { internal float YawDegrees; internal Vector3 FloorPosition; }
+    }
+    internal static class MapRoomDriver
+    {
+        internal static bool Active = true, Available = true;
+        internal static Vector3 Center = new(70, 90, -140);
+        internal static float Scale = 198f, Yaw = 58f;
+        internal static bool TryGetParchmentFrame(out Vector3 center, out float scale)
+        { center = Center; scale = Scale; return Available; }
+        internal static bool TrySolveSeat(out MapRoomSeat.Seat seat, out string reason)
+        { seat = new MapRoomSeat.Seat { YawDegrees = Yaw, FloorPosition = Center }; reason = "fixture"; return Available; }
+    }
+}
+namespace GloomhavenVR.Core
+{
+    internal static class SkyAlternative { internal static Transform? PlacedRoomRoot; }
 }
