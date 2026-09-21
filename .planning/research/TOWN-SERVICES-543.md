@@ -119,3 +119,21 @@ skin weights supplied with the same CC0 source topology. A trial collar cylinder
 produced visible texture bands through extrapolated UV coordinates and was rejected;
 existing costume geometry must not be redesigned to hide an incorrect face fit.
 Final pictures and an actual-prefab skull/jaw preservation check remain required.
+
+## Hardware acceptance after final asset validation
+
+- Visit all three residents in each map environment. Inspect eyelid/brow alignment,
+  open eyes, complete blinks and the skin/costume boundary at close range. Move to
+  both sides and change viewing height; the jaw must preserve its shape and eyes
+  must remain inside their sockets. Observe a return toward neutral when leaving.
+- With another enabled VR participant, visit and leave the same resident. Compare
+  which participant the NPC follows, the head direction and blink/expression timing.
+  A shared NPC must not appear to look independently at every observer.
+- Switch immersive town services off and back on, leave/re-enter the map and test
+  a peer reconnect. Original service windows and transaction continuation remain
+  authoritative; cosmetic facial state must never block them.
+- Inspect the forest clearance and lighting, especially eyes at grazing angles and
+  heads looking upward. Measure the real headset cost with all three residents visible.
+- No new NPC speech is expected in this build. The oral rig is prepared and tested,
+  but no verified original recording is available for these residents and no generated
+  voice or silent speech animation is enabled.
