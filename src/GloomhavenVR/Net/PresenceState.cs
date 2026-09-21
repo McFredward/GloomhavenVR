@@ -4016,6 +4016,9 @@ internal static class PresenceSerializer
                 int records = buffer[i++];
                 for (int r = 0; r < records; r++)
                 {
+                    // Remember the extension identity even when its length/payload is truncated.
+                    // Otherwise valid79/80 followed by broken81 could masquerade as legacy face-only.
+                    if (length > i && buffer[i] == NetProtocol.ExtIdTownActivity) state.TownActivityRecordSeen = true;
                     if (length < i + 2)
                     {
                         if (length > i && buffer[i] == NetProtocol.ExtIdFanInsertionGap) return false;

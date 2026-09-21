@@ -40,6 +40,13 @@ internal static class TownActivityVectors
         count=PresenceSerializer.Write(in presence,bytes);t.True(PresenceSerializer.TryRead(bytes,count,out var parsed)&&parsed.HasTownActivity&&parsed.TownActivityRecordSeen&&parsed.TownActivity.Merchant.Engaged,"presence recovery");
         bytes[count-1]=2;
         t.True(PresenceSerializer.TryRead(bytes,count,out parsed)&&!parsed.HasTownActivity&&parsed.TownActivityRecordSeen,"malformed81 remains distinguishable from absent legacy extension");
+        var tail=new byte[400];Hex.Bytes("31 52 56 47 03 01 80 00 80 00 03").CopyTo(tail,0);
+        int tailAt=11;var residents=default(TownResidentsState);
+        TownResidentsCodec.Write(tail,ref tailAt,in residents);TownFaceCodec.Write(tail,ref tailAt,in face);
+        int activityAt=tailAt;Golden.CopyTo(tail,tailAt);
+        for(int remaining=1;remaining<54;remaining++)
+            t.True(PresenceSerializer.TryRead(tail,activityAt+remaining,out parsed)&&parsed.HasTownResidents&&parsed.HasTownFace
+                &&parsed.TownActivityRecordSeen&&!parsed.HasTownActivity,"reordered79+80+truncated81 preserves atomic marker"+remaining);
         presence.HasTownActivity=false;count=PresenceSerializer.Write(in presence,bytes);t.True(PresenceSerializer.TryRead(bytes,count,out parsed)&&!parsed.HasTownActivity,"absence retains oldwire");
         offset=7082;t.True(TownActivityCodec.Write(bytes,ref offset,in state)&&offset==7136,"worst snapshot exact7136");
         t.True(ExtrasFragments.MaxSnapshotBytes-offset==32&&PresenceSerializer.MaxSize-offset==257,"unchanged7168ceiling keeps32bytes and allocationmargin257");
