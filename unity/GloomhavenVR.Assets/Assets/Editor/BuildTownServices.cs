@@ -161,6 +161,7 @@ namespace GloomhavenVR
             Anchor(station, "HeadAnchor", new Vector3(0, 1.56f, 0.65f));
             Anchor(station, "ServiceSurface", new Vector3(0, 0.94f, 0));
             BuildStation(station, name);
+            if (name == "merchant") ExpandMerchantCounter(station);
             animation.GetClip("Idle").SampleAnimation(actor, 0); // Serialized opening pose already matches idle, before the first runtime tick.
             // The FBX idle pose applies its centimetre-to-metre armature scale. Calculating
             // before sampling and using Unity's skin bounds serializes a 1.75 cm LOD
@@ -279,6 +280,35 @@ namespace GloomhavenVR
                 Box(furniture, "ToolHead", new Vector3(0.15f, 0.983f, -0.18f), new Vector3(0.055f, 0.045f, 0.11f), "Brass");
             }
         }
+        static void ExpandMerchantCounter(GameObject root)
+        {
+            // The physical catalogue and selection tray share the counter rather than float
+            // past its edge. Keep the other service furniture and map table unchanged.
+            var counter = root.transform.Find("Counter");
+            var lip = counter.Find("TopUnderLip");
+            lip.localScale = new Vector3(1.61f, 0.07f, 0.81f);
+            for (var i = 0; i < 4; i++)
+            {
+                var plank = counter.Find("SurfacePlank" + i);
+                plank.localPosition = new Vector3(0, 0.925f, (i - 1.5f) * 0.20f);
+                plank.localScale = new Vector3(1.65f, 0.06f, 0.196f);
+            }
+            var edge = counter.Find("FrontBrassEdge");
+            edge.localPosition = new Vector3(0, 0.882f, -0.413f);
+            edge.localScale = new Vector3(1.60f, 0.018f, 0.018f);
+            for (var i = 0; i < 7; i++)
+                counter.Find("Coin" + i).localPosition = new Vector3(-0.58f + (i % 3) * 0.04f,
+                    0.964f + (i / 3) * 0.008f, 0.22f);
+        }
+        public static void RefreshMerchantCounter()
+        {
+            var path = Root + "/Prefabs/TownMerchant.prefab";
+            var root = PrefabUtility.LoadPrefabContents(path);
+            try { ExpandMerchantCounter(root); PrefabUtility.SaveAsPrefabAsset(root, path); }
+            finally { PrefabUtility.UnloadPrefabContents(root); }
+            AssetDatabase.SaveAssets();
+        }
+
         static void BuildWorkTray()
         {
             var tray = new GameObject("TownWorkTray");

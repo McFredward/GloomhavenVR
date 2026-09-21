@@ -93,6 +93,15 @@ public static class ValidateTownAssets
             foreach (var child in root.GetComponentsInChildren<Transform>(true)) child.gameObject.layer = 31;
             camera.transform.position = new Vector3(0, 1.6f, -2.3f);
             camera.transform.LookAt(new Vector3(0, .9f, .1f));
+            if (npc == "merchant")
+            {
+                var counter = root.transform.Find("Counter");
+                var planks = Enumerable.Range(0, 4).Select(i => counter.Find("SurfacePlank" + i).GetComponent<Renderer>().bounds).ToArray();
+                var top = planks[0]; foreach (var plank in planks) top.Encapsulate(plank);
+                Check(top.size.x >= 1.64f && top.size.z >= .79f, "Merchant top contains catalogue and tray footprint");
+                Check(counter.Find("Coin0").localPosition.x < -.45f && counter.Find("Coin0").localPosition.z > .15f,
+                    "Decorative coins clear selectable cards and tray");
+            }
             var lod = root.GetComponentInChildren<LODGroup>();
             Check(lod.size > 1.7f && lod.size < 2.2f, npc + " human-sized LOD envelope");
             Check(lod.GetLODs().Length == 3, npc + " retains automatic three-level LOD");
