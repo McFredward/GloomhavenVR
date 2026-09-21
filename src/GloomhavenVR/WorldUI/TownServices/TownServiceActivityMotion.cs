@@ -56,7 +56,7 @@ internal static class TownServiceActivityMotion
             float writing = Writing(clock);
             left = new Vector3(-.20f + .025f * Mathf.Sin(clock * 2.3f), 1.10f + .018f * Wave(clock, 1.4f), .36f);
             Vector3 restingPen = new Vector3(.22f, 1.10f, .36f);
-            Vector3 ledger = new Vector3(.085f + .010f * Mathf.Sin(clock * 10f), 1.08f, .29f + .012f * Mathf.Sin(clock * 4f));
+            Vector3 ledger = new Vector3(.14f + .010f * Mathf.Sin(clock * 10f), 1.045f, .29f + .012f * Mathf.Sin(clock * 4f));
             right = Vector3.Lerp(restingPen, ledger, writing); curl = .55f;
         }
         else if (service == 2)

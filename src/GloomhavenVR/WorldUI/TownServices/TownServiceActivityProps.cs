@@ -8,24 +8,25 @@ namespace GloomhavenVR.WorldUI;
 /// <summary>Presentation-only work tools stay in their real grips throughout interruptions.</summary>
 internal sealed class TownServiceActivityProps : IDisposable
 {
-    internal const float PenTipDistance = .05f;
+    internal const float PenTipDistance = .06f;
     private readonly Transform _root;
     private readonly byte _service;
     private readonly Shader? _shader;
     private Transform? _leftGrip, _rightGrip, _pen, _coin;
-    private Vector3 _coinOffset;
+    private Vector3 _coinOffset, _coinRest;
     private Mesh? _penMesh;
     private Material? _penMaterial;
     private float _visibility;
-    private bool _gripsBound;
+    private bool _gripsBound, _suspended;
     private static readonly int Visibility = Shader.PropertyToID("_TownVisibility");
     internal TownServiceActivityProps(Transform root, byte service, Shader? shader)
     { _root = root; _service = service; _shader = shader; }
     internal void BindCoin(Transform coin, Vector3 offset)
-    { _coin = coin; _coinOffset = offset; }
+    { _coin = coin; _coinOffset = offset; _coinRest = coin.localPosition; }
     internal void Sample(in TownActivityPose pose)
     {
         if (_service != 1) return;
+        _suspended = false;
         if (!_gripsBound)
         {
             _gripsBound = true; // Activity rig creates these synchronously; absent bones never trigger a per-frame hierarchy scan.
@@ -45,8 +46,9 @@ internal sealed class TownServiceActivityProps : IDisposable
         if (_rightGrip == null) return;
         if (_pen == null) CreatePen();
         if (_pen == null) return;
+        if (!_pen.gameObject.activeSelf) _pen.gameObject.SetActive(true);
         _pen.position = _rightGrip.position;
-        _pen.rotation = _root.rotation * Quaternion.Euler(-25f, 0f, -12f);
+        _pen.rotation = _rightGrip.rotation;
     }
 
     private void CreatePen()
@@ -76,13 +78,21 @@ internal sealed class TownServiceActivityProps : IDisposable
         { int swap = triangles[i + 1]; triangles[i + 1] = triangles[i + 2]; triangles[i + 2] = swap; }
         _penMesh = new Mesh { name = "Town.ReedPen", vertices = vertices, triangles = triangles };
         _penMesh.RecalculateNormals(); _penMesh.RecalculateBounds();
-        var material = new Material(shader) { name = "Town.ReedPen", color = new Color(.24f, .14f, .055f) };
+        var material = new Material(shader) { name = "Town.ReedPen", color = new Color(.42f, .27f, .11f) };
         material.SetFloat(Visibility, _visibility); _penMaterial = material;
         var obj = new GameObject("Town.ReedPen") { layer = VRLayers.ModLayer };
         _pen = obj.transform; _pen.SetParent(_root, false);
         obj.AddComponent<MeshFilter>().sharedMesh = _penMesh;
         MeshRenderer renderer = obj.AddComponent<MeshRenderer>(); renderer.sharedMaterial = material;
         renderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+    }
+
+    internal void Suspend()
+    {
+        if (_suspended) return;
+        _suspended = true;
+        if (_pen != null) _pen.gameObject.SetActive(false);
+        if (_coin != null) _coin.localPosition = _coinRest;
     }
 
     internal void SetVisibility(float value)

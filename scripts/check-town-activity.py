@@ -22,7 +22,7 @@ def replace_once(source, before, after):
 
 def sources(root):
     base = root / "src/GloomhavenVR/WorldUI/TownServices"
-    names = ["TownServiceActivityMotion.cs", "TownServiceActivityRig.cs", "TownServiceActivityProps.cs", "TownServiceFaceAttention.cs", "TownServiceFaceMotion.cs"]
+    names = ["TownServiceActivityMotion.cs", "TownServiceActivityRig.cs", "TownServiceActivityProps.cs", "TownServiceGrounding.cs", "TownServiceFaceAttention.cs", "TownServiceFaceMotion.cs"]
     bound = {name: (base / name).read_text() for name in names}
     bound["RemoteTownActivities.cs"] = (root / "src/GloomhavenVR/Net/Remote/RemoteTownActivities.cs").read_text()
     bound["TownActivityTypes.cs"] = (root / "src/GloomhavenVR/Net/TownActivityState.cs").read_text().split("/// <summary>Additive81:")[0]
@@ -38,6 +38,9 @@ def mutations():
         ("phase-jump", "TownServiceActivityMotion.cs", "state.FromBlend = Blend(in state);", "state.FromBlend = state.Engaged ? 1f : 0f;", "interrupted transition keeps current pose"),
         ("work-runs-while-engaged", "TownServiceActivityMotion.cs", "dt - Integral(in state, state.TransitionAge + dt) + Integral(in state, state.TransitionAge)", "dt", "engaged occupation remains paused"),
         ("ignore-ik", "TownServiceActivityRig.cs", "if (!Ready) return;", "if (Ready) return;", "actual hand reaches occupation target"),
+        ("prayer-snap", "TownServiceActivityRig.cs", "Quaternion.Slerp(Quaternion.LookRotation(_root.up, -side * _root.right), table, attention)", "(attention < .5f ? Quaternion.LookRotation(_root.up, -side * _root.right) : table)", "hand orientation remains smooth through prayer interruption"),
+        ("no-writing-reach", "TownServiceActivityRig.cs", "18f * TownServiceActivityMotion.Writing", "0f * TownServiceActivityMotion.Writing", "writing contact survives resolved terrain offsets"),
+        ("unpaired-sequences", "RemoteTownPerformance.cs", "if (!TownActivityCodec.Matches(in activity, in face)", "if (false", "mismatched sequence cannot partially advance pair"),
         ("stale-sequence", "RemoteTownActivities.cs", "!Newer(state.Sequence, peer.Latest.Sequence)", "false", "older occupation cannot replace current phase"),
     ]
 
@@ -71,7 +74,7 @@ def main():
             "bytes": args.bundle.stat().st_size, "sha256": bundle_hash}, indent=2) + "\n")
     manifest = {"result": str(run / "results.txt"), "cases": []}
     variants = [("production", None, None, None, "")]
-    if not args.no_negative_controls: variants += [v for v in mutations() if args.bundle or v[0] != "ignore-ik"]
+    if not args.no_negative_controls: variants += [v for v in mutations() if args.bundle or v[0] not in ("ignore-ik", "prayer-snap", "no-writing-reach")]
     print(f"Binding production from {args.source_root.resolve()}; evidence: {run}", flush=True)
     for name, filename, before, after, expected in variants:
         build = run / name

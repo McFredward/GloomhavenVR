@@ -78,8 +78,9 @@ public static class InteractionProgram
         Near(body.Clock,head.Clock,.00001f,"face and body share expression clock");
         var legacy=face;legacy.Sequence=100;
         Check(!RemoteTownPerformance.ObserveLegacyFace(2,in legacy),"legacy face cannot advance paired epoch alone");
-        var mismatched=face;mismatched.Sequence=3;
-        Check(!RemoteTownPerformance.Observe(2,in activity,in mismatched,false),"mismatched sequence cannot partially advance pair");
+        var nextBody=activity;nextBody.Sequence=3;
+        var mismatched=face;mismatched.Sequence=4;
+        Check(!RemoteTownPerformance.Observe(2,in nextBody,in mismatched,false),"mismatched sequence cannot partially advance pair");
         var older=activity;older.Sequence=1;
         Check(!RemoteTownPerformance.Observe(2,in older,in face,false),"reordered half cannot partially advance pair");
         activity.Sequence=3;face.Sequence=3;activity.Clock+=.066f;face.Clock=activity.Clock;
@@ -101,14 +102,16 @@ public static class InteractionProgram
                 try
                 {
                     Transform root=obj.transform;root.position=new Vector3(2,1,3);root.rotation=Quaternion.Euler(0,37,0);root.localScale=Vector3.one*.8f;
+                    var grounding=new TownServiceGrounding(root);grounding.Apply(0f,-.02f);
                     var rig=new TownServiceActivityRig(root,service);Check(rig.Ready,"actual imported arms found");
                     Animation animation=root.GetComponentInChildren<Animation>();
                     Transform hand=root.GetComponentsInChildren<Transform>(true).Single(t=>t.name=="Hand.R");
                     Transform upper=root.GetComponentsInChildren<Transform>(true).Single(t=>t.name=="UpperArm.R");
                     Transform fore=root.GetComponentsInChildren<Transform>(true).Single(t=>t.name=="Forearm.R");
-                    var phase=new TownActivityPose{TransitionAge=.65f};
+                    var phase=new TownActivityPose{TransitionAge=.65f};Quaternion previousHand=Quaternion.identity;
                     for(int n=0;n<2500;n++)
                     {
+                        if(n==833)grounding.Apply(.035f,-.02f);if(n==1666)grounding.Apply(-.035f,-.02f);
                         rig.BeforeBodySample();animation.Stop();var body=animation["Idle"];body.enabled=true;body.weight=1;body.time=n/90f;animation.Sample();body.enabled=false;
                         Quaternion before=upper.localRotation;
                         if(n==500)TownServiceActivityMotion.Engage(ref phase,true);if(n==1100)TownServiceActivityMotion.Engage(ref phase,false);
@@ -117,10 +120,14 @@ public static class InteractionProgram
                         float reach=Vector3.Distance(upper.position,fore.position)+Vector3.Distance(fore.position,hand.position);
                         Vector3 wanted=root.TransformPoint(target);float excess=Mathf.Max(0,Vector3.Distance(wanted,upper.position)-reach+.001f);
                         rig.Apply(in phase);
+                        if(service==1&&TownServiceActivityMotion.Writing(phase.WorkClock)>.99f&&TownServiceActivityMotion.Blend(in phase)<.01f)
+                            Check(Vector3.Distance(hand.position,wanted)<.003f,"writing contact survives resolved terrain offsets at "+n+": "+Vector3.Distance(hand.position,wanted));
+                        if(n>0)Check(Quaternion.Angle(previousHand,hand.rotation)<4f,"hand orientation remains smooth through prayer interruption");
+                        previousHand=hand.rotation;
                         Check(Vector3.Distance(hand.position,wanted)<=excess+.0001f,"actual hand reaches occupation target");
                         rig.BeforeBodySample();Check(Quaternion.Angle(upper.localRotation,before)<.05f,"original arm base restores without accumulation");
                     }
-                    ActivityRender.Render(obj, service, rig);
+                    grounding.Apply(0f,0f);ActivityRender.Render(obj, service, rig);
                 }
                 finally{UnityEngine.Object.DestroyImmediate(obj);}
             }

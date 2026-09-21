@@ -154,10 +154,15 @@ internal sealed class TownServiceStation : IDisposable
     internal void SampleActivity(in TownActivityPose pose)
     {
         if (_activityFailed) return;
-        try { _activity.Apply(in pose); _decor.SampleActivity(in pose); }
+        try
+        {
+            if (!_activity.Ready) { _decor.SuspendActivity(); return; }
+            _activity.Apply(in pose); _decor.SampleActivity(in pose);
+        }
         catch (Exception error)
         {
             _activityFailed = true;
+            try { _activity.Suspend(); _decor.SuspendActivity(); } catch { /* Cosmetic teardown must never gate a native visit. */ }
             if (_service >= 1 && _service <= 3 && !ActivityFailureReported[_service])
             {
                 ActivityFailureReported[_service] = true;

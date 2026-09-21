@@ -32,9 +32,21 @@ internal static class ActivityRender
             Transform shoulder=root.GetComponentsInChildren<Transform>(true).Single(t=>t.name=="UpperArm.R");Transform elbow=root.GetComponentsInChildren<Transform>(true).Single(t=>t.name=="Forearm.R");
             metrics.WriteLine("# shoulder="+shoulder.position.ToString("F5")+" upper="+Vector3.Distance(shoulder.position,elbow.position)+" fore="+Vector3.Distance(elbow.position,hand.position));
             metrics.WriteLine(string.Join(",",new[]{(float)phase,hand.position.x,hand.position.y,hand.position.z,grip.position.x,grip.position.y,grip.position.z,tip.x,tip.y,tip.z}.Select(v=>v.ToString("R",CultureInfo.InvariantCulture))));
-            GameObject snapshot=Snapshot(root);
-            foreach(int view in new[]{0,1})
+            using(var poses=new StreamWriter(Path.Combine(folder,"service"+service+"-phase"+phase+"-bones.json")))
             {
+                poses.Write("{\"bones\":[");bool comma=false;
+                foreach(Transform bone in root.GetComponentsInChildren<Transform>(true))
+                {
+                    if(!(bone.name=="Chest"||bone.name=="Neck"||bone.name=="Head"||bone.name.Contains(".L")||bone.name.Contains(".R")))continue;
+                    if(comma)poses.Write(",");comma=true;Quaternion q=bone.localRotation;
+                    poses.Write("{\"name\":\""+bone.name+"\",\"rotation\":["+string.Join(",",new[]{q.x,q.y,q.z,q.w}.Select(v=>v.ToString("R",CultureInfo.InvariantCulture)))+"]}");
+                }
+                poses.Write("]}");
+            }
+            GameObject snapshot=Snapshot(root);
+            foreach(int view in new[]{0,1,2})
+            {
+                if(pen!=null)pen.gameObject.SetActive(view!=2);
                 camera.transform.position=view==0?new Vector3(-.7f,1.9f,-.8f):new Vector3(.5f,2.05f,.15f);camera.transform.LookAt(new Vector3(0,1.15f,.4f));camera.Render();RenderTexture.active=rt;
                 var image=new Texture2D(rt.width,rt.height,TextureFormat.RGB24,false);image.ReadPixels(new Rect(0,0,rt.width,rt.height),0,0);image.Apply();File.WriteAllBytes(Path.Combine(folder,"service"+service+"-phase"+phase+"-view"+view+".png"),image.EncodeToPNG());UnityEngine.Object.DestroyImmediate(image);
             }

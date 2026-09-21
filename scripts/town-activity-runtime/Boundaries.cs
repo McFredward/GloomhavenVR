@@ -23,6 +23,8 @@ namespace GloomhavenVR.Net
 namespace GloomhavenVR.Rig { internal static class VRRigDriver { internal static Camera? HeadCamera=null; } }
 namespace GloomhavenVR.WorldUI
 {
+    internal static class SkyAlternative {internal static Transform? PlacedRoomRoot=null;}
+    internal static class TownServicePlacement {internal static float GroundHeight(Transform room,Vector3 world)=>world.y;}
     internal static class TownServicePresentation { internal static bool Active=false;internal static byte Service=0; }
 }
 namespace GloomhavenVR.Net.TownServices

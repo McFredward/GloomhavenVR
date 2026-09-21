@@ -41,22 +41,30 @@ rules: fast packets cannot resurrect a suspended peer; a newer same-epoch presen
 ## Focused validation and remaining limits
 
 - `check-town-activity.py --portable`: real production analytic phase and remote playback
-  bound to managed Unity math, 24,022 assertions and three deliberately compiled defects.
+  bound to managed Unity math, 24,022 assertions and four deliberately compiled defects.
   Registered for hosted CI; this mode makes no Unity scene/rig claim.
 - Real Unity optional `--bundle`: imported three-NPC arm chains, continuous target contact
-  and body reset/no accumulation. Latest positive run:39,026 assertions against the
+  and body reset/no accumulation. Production terrain grounding is applied at0/±3.5cm;
+  writing wrist contact must remain within3mm, and prayer wrist rotations stay continuous
+  during interruption. Latest run:47,098 assertions/seven compiled defects against the
   immutable build543 Linux bundle SHA256
   `be0f46bbe0241b3c2478b7872d5e2308cb701a0e57330eb34d6c08c3f1906b43`.
-- Direct wire executable:260,256 assertions passed before the subsequent malformed81
-  marker regression was added. Release compile:zero warnings/errors.
-- Resident lifecycle:143 assertions/eight negative controls; settings, station and
-  grounding:1,581/59/243 assertions and14 compiled negative controls.
+- Direct wire executable:260,310 assertions passed, including all partial81 tails after
+  valid79/80 and invalid full81. Release compile:zero warnings/errors.
+- Resident lifecycle:144 assertions/eight negative controls; settings, station and
+  grounding:1,581/71/243 assertions and14 compiled negative controls. Missing/failed arm
+  rigs withdraw work tools and never block native services. Face regression:2,076 assertions
+  and16 compiled negative controls.
 - Contact images are diagnostic, not headset evidence. The fixture now CPU-skins the
   current pose into an explicit static snapshot because multiple `Camera.Render` calls
   during one Editor tick can reuse an earlier GPU skinning upload. The native open-book
   geometry has a neutral diagnostic material; its diagnostic coin is labelled non-native.
   Runtime still uses the original game props/materials.
 
-Visual tool contact is still being calibrated. Final544 assets, actual terrain-offset
-contact, and headset motion are not yet verified. The checkpoint does not claim final
+Visual tool contact is still being calibrated. CPU contact-v8 has writing tip at
+(-.0594,.9968,.1806) in station metres; the merchant leans24 degrees while writing
+with a smooth45-degree wrist roll, preserving page contact after grounding. The separate
+pen-off view2 proves the remaining thumb flap is skinned hand geometry, not tool geometry.
+Exact diagnostic local bone rotations are exported alongside each image for asset review.
+Final544 assets and headset motion are not yet verified. The checkpoint does not claim final
 pose quality, multiplayer hardware parity or measured headset performance.

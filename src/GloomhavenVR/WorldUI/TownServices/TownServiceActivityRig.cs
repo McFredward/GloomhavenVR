@@ -40,6 +40,17 @@ internal sealed class TownServiceActivityRig
         if (_applied && _neck != null) _neck.localRotation = _sampledNeck;
         Restore(_left); Restore(_right); _applied = false;
     }
+    internal void Suspend()
+    {
+        BeforeBodySample();
+        ResetFingers(_left); ResetFingers(_right);
+    }
+    private static void ResetFingers(Arm? arm)
+    {
+        if (arm == null) return;
+        for (int n = 0; n < arm.Fingers.Count; n++)
+            if (arm.Fingers[n] != null) arm.Fingers[n].localRotation = arm.FingerRest[n];
+    }
     private static void Restore(Arm? arm)
     {
         if (arm == null || !arm.Applied) return;
@@ -87,7 +98,8 @@ internal sealed class TownServiceActivityRig
         if (_chest != null)
         {
             _sampledChest = _chest.localRotation; _applied = true;
-            _chest.rotation = Quaternion.AngleAxis(6f * (1f - TownServiceActivityMotion.Blend(in state)), -_root.right) * _chest.rotation;
+            _chest.rotation = Quaternion.AngleAxis((6f + (_service == 1 ? 18f * TownServiceActivityMotion.Writing(state.WorkClock) : 0f))
+                * (1f - TownServiceActivityMotion.Blend(in state)), -_root.right) * _chest.rotation;
         }
         if (_neck != null)
         {
@@ -96,9 +108,10 @@ internal sealed class TownServiceActivityRig
         }
         TownServiceActivityMotion.Hands(_service, in state, out Vector3 left, out Vector3 right, out float curl);
         float attention = TownServiceActivityMotion.Blend(in state);
-        Solve(_left!, left, 1f, curl, attention); Solve(_right!, right, -1f, curl, attention);
+        float writing = _service == 1 ? TownServiceActivityMotion.Writing(state.WorkClock) * (1f - attention) : 0f;
+        Solve(_left!, left, 1f, curl, attention, 0f); Solve(_right!, right, -1f, curl, attention, writing);
     }
-    private void Solve(Arm arm, Vector3 localTarget, float side, float curl, float attention)
+    private void Solve(Arm arm, Vector3 localTarget, float side, float curl, float attention, float writing)
     {
         arm.SampledUpper = arm.Upper.localRotation; arm.SampledFore = arm.Fore.localRotation;
         arm.SampledHand = arm.Hand.localRotation; arm.Applied = true;
@@ -121,11 +134,13 @@ internal sealed class TownServiceActivityRig
         Quaternion table = Quaternion.LookRotation(-_root.forward, -_root.up);
         Quaternion orientation = _service == 2
             ? Quaternion.Slerp(Quaternion.LookRotation(_root.up, -side * _root.right), table, attention) : table;
+        orientation = Quaternion.AngleAxis(45f * writing, _root.forward) * orientation;
         arm.Hand.rotation = orientation * Quaternion.Inverse(Quaternion.LookRotation(arm.PalmForward, arm.PalmNormal));
         for (int n = 0; n < arm.Fingers.Count; n++)
             arm.Fingers[n].localRotation = arm.FingerRest[n] * Quaternion.AngleAxis(curl * arm.CurlFactors[n], arm.CurlAxes[n]);
         Vector3 pinch = arm.IndexPinch != null && arm.ThumbPinch != null
             ? (arm.IndexPinch.position + arm.ThumbPinch.position) * .5f : arm.Hand.position;
-        arm.Grip.SetPositionAndRotation(pinch, arm.Hand.rotation);
+        Vector3 toolShaft = (arm.Hand.position - pinch + _root.up * .045f).normalized;
+        arm.Grip.SetPositionAndRotation(pinch, Quaternion.FromToRotation(Vector3.up, toolShaft));
     }
 }

@@ -48,6 +48,15 @@ internal static class StationLifecycle
             station.SetVisibility(.5f);
             Check(originalRenderer.PropertyWrites==1,"station-owned renderer fades");
             Check(laterCard.PropertyWrites==0,"late workspace card receives no station property block");
+            var activity=default(GloomhavenVR.Net.TownActivityPose);
+            TownServiceActivityRig.Available=false;station.SampleActivity(in activity);
+            Check(TownServiceDecor.Last.ActivitySamples==0&&TownServiceDecor.Last.Suspends==1,"missing arm rig cannot create ungripped tools");
+            TownServiceActivityRig.Available=true;station.SampleActivity(in activity);
+            Check(TownServiceDecor.Last.ActivitySamples==1,"ready activity applies tools");
+            TownServiceActivityRig.Throw=true;station.SampleActivity(in activity);int activitySamples=TownServiceDecor.Last.ActivitySamples;
+            Check(TownServiceDecor.Last.Suspends==2,"failed activity withdraws held tools");
+            station.SampleActivity(in activity);Check(TownServiceDecor.Last.ActivitySamples==activitySamples,"failed activity never retries or gates station");
+            TownServiceActivityRig.Throw=false;
             TownServiceFace.Throw=true;var face=default(GloomhavenVR.Net.TownFacePose);
             station.SampleFace(true,false,1,in face,0,0);int faceTicks=TownServiceFace.Ticks;
             station.SampleFace(true,false,1,in face,0,0);
@@ -95,7 +104,9 @@ namespace GloomhavenVR.WorldUI
         internal void Tick()=>Ticks++;
         internal void SetVisibility(float value){}
         internal void SetClock(float seconds){}
-        internal void SampleActivity(in GloomhavenVR.Net.TownActivityPose pose){}
+        internal int ActivitySamples,Suspends;
+        internal void SampleActivity(in GloomhavenVR.Net.TownActivityPose pose){ActivitySamples++;}
+        internal void SuspendActivity(){Suspends++;}
         public void Dispose()=>Disposed=true;
     }
 }
@@ -155,7 +166,9 @@ namespace GloomhavenVR.WorldUI
 {
     internal sealed class TownServiceActivityRig
     {
+        internal static bool Available=true,Throw;
+        internal bool Ready=>Available;
         internal TownServiceActivityRig(UnityEngine.Transform root,byte service){}
-        internal void BeforeBodySample(){} internal void Apply(in GloomhavenVR.Net.TownActivityPose pose){}
+        internal void Suspend(){} internal void BeforeBodySample(){} internal void Apply(in GloomhavenVR.Net.TownActivityPose pose){if(Throw)throw new InvalidOperationException("fixture arm failure");}
     }
 }
