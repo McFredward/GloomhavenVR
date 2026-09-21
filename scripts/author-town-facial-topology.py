@@ -94,7 +94,10 @@ def material(name,color,rough=.65):
 
 
 def head_mesh(raw,faces,groups,face_uv,name,refs,data):
-    chosen_indices=[i for i,(f,g) in enumerate(zip(faces,groups))if g=='body'and min(raw[f,1])>5.20]
+    # Below the original neck ring, include the neck only, not template shoulders.
+    chosen_indices=[i for i,(f,g) in enumerate(zip(faces,groups))
+                    if g=='body' and min(raw[f,1])>5.20
+                    and (min(raw[f,1])>=5.80 or max(abs(raw[f,0]))<.90)]
     chosen=[faces[i]for i in chosen_indices]
     ids=sorted({i for f in chosen for i in f});remap={old:new for new,old in enumerate(ids)}
     mesh=bpy.data.meshes.new('FacialLoops');mesh.from_pydata(fit(raw[ids],name).tolist(),[],[[remap[i]for i in f]for f in chosen]);mesh.update()

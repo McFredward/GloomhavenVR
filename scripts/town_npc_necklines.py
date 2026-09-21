@@ -1,7 +1,7 @@
 """Repair the open costume cuts around the fitted town NPC heads (Blender only).
 
 Keep the original costume atlas. Remove obsolete disconnected 542 neck covers,
-round the actual cut boundary and turn its edge inward as a sewn lining. The
+retain a lowered cloth neckline, and turn the actual cut edges inward as a sewn lining. The
 lining occupies the inside of the existing garment, not a visible neck cylinder.
 """
 import bmesh
@@ -12,26 +12,29 @@ from mathutils import Vector
 
 def shirt_band(bm, body, npc):
     """A sewn shirt opening below the jaw; it never follows the skull."""
-    if npc not in ('merchant','priestess'):return 0
+    if npc!='merchant':return 0
     uv=bm.loops.layers.uv.active;deform=bm.verts.layers.deform.active
     chest=body.vertex_groups['Chest'].index
     # Reuse a clean patch from this exact costume's original linen atlas.
     sample=(.5670,.6467) if npc=='merchant' else (.9710,.4420)
     top,drop,rx,ry,cy=(1.507,.035,.086,.091,.024) if npc=='merchant' else (1.445,.029,.083,.074,.016)
     rings=[];n=64
+    # A real folded collar has a front opening and two descending points. It is
+    # not a closed cylindrical band around the throat.
     for row in range(7):
         t=row/6;ring=[]
         for i in range(n):
-            angle=2*math.pi*i/n
-            fold=math.sin(angle*7+.4)*(.0015 if npc=='merchant' else .0035)*math.sin(t*math.pi)
-            x=(rx+t*.023+fold)*math.sin(angle)
-            y=cy-(ry+t*(.022 if npc=='merchant' else .075)+fold)*math.cos(angle)
-            z=top-drop*math.cos(angle)-t*(.047 if npc=='merchant' else .073)
+            angle=math.radians(16)+(2*math.pi-math.radians(32))*i/(n-1)
+            fold=.004*math.sin(math.pi*t)
+            front=max(0,math.cos(angle))
+            x=(rx+t*.027+fold)*math.sin(angle)
+            y=cy-(ry+t*.035+fold)*math.cos(angle)
+            z=top-drop*math.cos(angle)-t*(.038+.018*front**4)
             vertex=bm.verts.new((x,y,z));vertex[deform][chest]=1;ring.append(vertex)
         rings.append(ring)
     for row in range(6):
-        for i in range(n):
-            face=bm.faces.new((rings[row][i],rings[row+1][i],rings[row+1][(i+1)%n],rings[row][(i+1)%n]));face.material_index=0;face.smooth=True
+        for i in range(n-1):
+            face=bm.faces.new((rings[row][i],rings[row+1][i],rings[row+1][i+1],rings[row][i+1]));face.material_index=0;face.smooth=True
             for loop in face.loops:
                 loop[uv].uv=(sample[0]+loop.vert.co.x*.025,sample[1]+(loop.vert.co.z-top)*.025)
     return n*7
@@ -47,6 +50,8 @@ def garment_support(bm, body, npc, rgba, uv):
     for vertex in bm.verts:
         x,y,z=vertex.co
         if not(.78<z<1.47 and abs(x)<.45):continue
+        if npc=='enchantress' and not(y>.065 or (z>1.24 and abs(x)<.255)):continue
+        if npc!='merchant' and abs(x)>.32 and z<1.20:continue
         arm=sum(value for index,value in vertex[deform].items()
                 if groups[index].startswith(('UpperArm.','Forearm.','Hand.','Clavicle.')))
         if arm<.0001:continue
@@ -56,7 +61,7 @@ def garment_support(bm, body, npc, rgba, uv):
             colors.append(rgba[max(0,min(rgba.shape[0]-1,int(co.y*rgba.shape[0]))),max(0,min(rgba.shape[1]-1,int(co.x*rgba.shape[1]))),:3])
         if not colors:continue
         r,g,b=np.median(colors,axis=0)
-        garment=((r>g*1.6 and b>g*1.12) or (g>r*.93 and g>b*1.3)) if npc=='merchant' else ((r>g*1.15 and g>b*1.2) if npc=='priestess' else (g>r*1.10 and b>r*1.05))
+        garment=((r>g*1.6 and b>g*1.12) or (g>r*.93 and g>b*1.3)) if npc=='merchant' else ((r>g*1.08 and (r-b)/max(.001,r+b)>.12) if npc=='priestess' else (g>r*1.10 and b>r*1.05))
         key=tuple(round(float(v),5)for v in vertex.co)
         samples.setdefault(key,[]).append((vertex,garment))
     changed=0
@@ -75,7 +80,7 @@ def garment_support(bm, body, npc, rgba, uv):
 
 def repair(body, npc):
     bm=bmesh.new();bm.from_mesh(body.data)
-    seen=set();remove=[];removed_components=[]
+    seen=set();remove=[];removed_components=[];adapted_components=[]
     for vertex in bm.verts:
         if vertex in seen:continue
         queue=[vertex];seen.add(vertex);component=[]
@@ -110,12 +115,12 @@ def repair(body, npc):
     uv_layer=bm.loops.layers.uv.active;discard=[]
     for face in bm.faces:
         x,y,z=face.calc_center_median()
-        eligible=((1.44 if npc=='enchantress' else 1.49)<z<1.62 and abs(x)<.075 and y<.015) if npc!='merchant' else (z>1.477 and abs(x)<.135 and -.105<y<.14)
+        eligible=((1.44 if npc=='enchantress' else 1.49)<z<1.62 and abs(x)<(.075 if npc=='enchantress' else .095) and y<.035) if npc!='merchant' else ((z>1.473 and abs(x)<.135 and -.105<y<.14) or (z>1.435 and abs(x)<.055 and -.115<y<.035))
         if not eligible:continue
         co=sum((loop[uv_layer].uv for loop in face.loops),Vector((0,0)))/len(face.loops)
         r,g,b=rgba[max(0,min(image.size[1]-1,int(co.y*image.size[1]))),max(0,min(image.size[0]-1,int(co.x*image.size[0]))),:3]
-        skin=r>.32 and g>.25 and b>.20 and r>g*1.02 and r<b*1.9
-        linen=min(r,g,b)>.20 and max(r,g,b)-min(r,g,b)<.20
+        skin=r>.32 and g>.25 and b>.20 and r>g*(1.12 if npc=='priestess' and z<1.49 else 1.02) and r<b*1.9
+        linen=not(r>g*1.6 and b>g*1.12)
         if (npc!='merchant' and skin) or (npc=='merchant' and linen):discard.append(face)
     bmesh.ops.delete(bm,geom=discard,context='FACES')
     garment_vertices=garment_support(bm,body,npc,rgba,uv_layer)
@@ -172,4 +177,4 @@ def repair(body, npc):
     # original costume shells can invert otherwise valid outer cloth.
     bm.normal_update()
     bm.to_mesh(body.data);bm.free();body.data.update()
-    return {'removedDetachedVertices':len(remove),'removedComponents':removed_components,'linedEdges':edge_count,'torsoGarmentVertices':garment_vertices,'shirtVertices':added_band,'innerVertices':added,'maximumThicknessMeters':.003}
+    return {'removedDetachedVertices':len(remove),'removedComponents':removed_components,'adaptedComponents':adapted_components,'linedEdges':edge_count,'torsoGarmentVertices':garment_vertices,'shirtVertices':added_band,'innerVertices':added,'maximumThicknessMeters':.003}

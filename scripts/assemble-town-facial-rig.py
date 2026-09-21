@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Bake fitted anatomical face assets and replace only the previous facial shell.
 
-Blender 4.2 authoring. Costume geometry, existing weights and body actions remain
-unchanged. Facial loops are subdivided coherently across every expression; teeth
+Blender 4.2 authoring. Body actions and proportions remain unchanged; explicit
+neckline/garment support repairs are recorded per LOD. Facial loops are subdivided coherently across every expression; teeth
 and tongue keep their authored topology rather than quadrupling invisible molars.
 """
 import argparse, hashlib, json, math, sys
@@ -35,6 +35,51 @@ def subset(source, predicate, name):
             key=obj.shape_key_add(name=old.name)
             for v,i in zip(key.data,ids):v.co=old.data[i].co
     return obj
+
+
+
+def native_neck_faces(body):
+    """Select only the original exposed neck skin, behind the blouse and chain.
+
+    The bounded patch retains its native geometry. Cloth is neutral linen and
+    the gold chain has a much lower blue/green ratio than this warm skin patch.
+    """
+    image=next(n.image for n in body.data.materials[0].node_tree.nodes
+               if n.type=='TEX_IMAGE' and n.image)
+    rgba=np.asarray(image.pixels[:]).reshape(image.size[1],image.size[0],4)
+    uv=body.data.uv_layers.active;result=set()
+    for polygon in body.data.polygons:
+        x,y,z=polygon.center
+        if not(1.375<z<1.445 and abs(x)<.074 and -.105<y<.025):continue
+        co=sum((uv.data[i].uv for i in polygon.loop_indices),Vector((0,0)))/len(polygon.loop_indices)
+        r,g,b=rgba[max(0,min(image.size[1]-1,int(co.y*image.size[1]))),max(0,min(image.size[0]-1,int(co.x*image.size[0]))),:3]
+        if r>.25 and r>g*1.12 and b>g*.67:result.add(polygon.index)
+    return result
+
+
+def portrait_neck_patch(reference,head):
+    selected=native_neck_faces(reference)
+    patch=subset(reference,lambda p:p.index in selected,'OriginalNeckSkin')
+    assert 10<len(patch.data.polygons)<1500, 'Native neck skin selection escaped its bounded patch'
+    mat=bpy.data.materials.new('OriginalNeckPortrait');mat.use_nodes=True
+    image=next(n.image for m in head.data.materials for n in m.node_tree.nodes
+               if n.type=='TEX_IMAGE' and n.image and Path(n.image.filepath).name=='front.png')
+    nodes=mat.node_tree.nodes;tex=nodes.new('ShaderNodeTexImage');tex.image=image
+    uvnode=nodes.new('ShaderNodeUVMap');uvnode.uv_map='NativeNeckPortrait'
+    mat.node_tree.links.new(uvnode.outputs[0],tex.inputs[0]);mat.node_tree.links.new(tex.outputs[0],nodes.get('Principled BSDF').inputs['Base Color'])
+    patch.data.materials.clear();patch.data.materials.append(mat)
+    uv=patch.data.uv_layers.new(name='NativeNeckPortrait')
+    for loop in patch.data.loops:
+        x,y,z=patch.data.vertices[loop.vertex_index].co
+        # Same low-neck portrait region as the adjacent fitted anatomical neck.
+        px=357.5+x*2000;raw_height=5.8+(z-1.445)/.14
+        py=min(694,max(565,560+(6.16-raw_height)*140))
+        uv.data[loop.index].uv=(min(540,max(180,px))/718,1-py/718)
+    for polygon in patch.data.polygons:polygon.material_index=0
+    for key in head.data.shape_keys.key_blocks:patch.shape_key_add(name=key.name)
+    patch.vertex_groups.clear();patch.vertex_groups.new(name='Chest').add(list(range(len(patch.data.vertices))),1,'REPLACE')
+    print('NATIVE_NECK_SKIN_PATCH',len(patch.data.vertices),len(patch.data.polygons))
+    return join([head,patch],head)
 
 
 def evaluated_shapes(source,level,name):
@@ -91,6 +136,30 @@ def main():
     for key in head.data.shape_keys.key_blocks:key.value=0
     # The template includes the actual lower neck/clavicle loops; no boundary
     # extrusion or detached neck-cover geometry is needed.
+    if a.name=='priestess':
+        # Fit the anatomical lower neck behind the actual retained blouse/cape.
+        # A guessed torso radius can poke through cloth around the shoulder clasps.
+        from mathutils.bvhtree import BVHTree
+        with bpy.data.libraries.load(str(a.rig),link=False)as(source,target):
+            target.objects=[n for n in source.objects if n.startswith('LOD0_')]
+        reference=target.objects[0]
+        bm=bmesh.new();bm.from_mesh(reference.data)
+        remove=[f for f in bm.faces if not reference.data.materials[f.material_index].name.startswith('TownBody')]
+        bmesh.ops.delete(bm,geom=remove,context='FACES');bm.to_mesh(reference.data);bm.free()
+        repair_neckline(reference,a.name)
+        tree=BVHTree.FromPolygons([v.co for v in reference.data.vertices],[list(p.vertices)for p in reference.data.polygons])
+        moved=0
+        for index,vertex in enumerate(head.data.vertices):
+            x,y,z=vertex.co
+            if z>=1.445:continue
+            hit,normal,face,distance=tree.ray_cast(Vector((x,-1,z)),Vector((0,1,0)),1.2)
+            if hit is not None and hit.y<.035 and y<hit.y+.002:
+                delta=hit.y+.002-y
+                for key in head.data.shape_keys.key_blocks:key.data[index].co.y+=delta
+                moved+=1
+        head=portrait_neck_patch(reference,head)
+        bpy.data.objects.remove(reference,do_unlink=True)
+        print('LOWER_NECK_COSTUME_PROJECTION',a.name,moved)
     face_material=bake(head,a.output)
     facial=subset(head,lambda p:p.material_index<2,'AnatomicalFace');oral=subset(head,lambda p:p.material_index>=2,'OralAnatomy');bpy.data.objects.remove(head,do_unlink=True)
     eyes=[o for o in bpy.context.scene.objects if o.name.startswith('Eye')]
@@ -107,6 +176,11 @@ def main():
         body=next(o for o in target.objects if o.name.startswith('LOD'+str(level)+'_'))
         bm=bmesh.new();bm.from_mesh(body.data);remove=[f for f in bm.faces if not body.data.materials[f.material_index].name.startswith('TownBody')];bmesh.ops.delete(bm,geom=remove,context='FACES');bm.to_mesh(body.data);bm.free()
         neckline=repair_neckline(body,a.name);print('NECKLINE_REPAIR',a.name,level,neckline)
+        if a.name=='priestess':
+            selected=native_neck_faces(body)
+            bm=bmesh.new();bm.from_mesh(body.data);bm.faces.ensure_lookup_table()
+            bmesh.ops.delete(bm,geom=[bm.faces[i] for i in selected],context='FACES')
+            bm.to_mesh(body.data);bm.free()
         part=evaluated_shapes(facial,1 if level==0 else 0,'FaceLOD'+str(level));teeth=evaluated_shapes(oral,0,'OralLOD'+str(level));join([part,teeth],part)
         body_matrix=body.matrix_world.copy();body.parent=None;body.matrix_world=body_matrix
         original_uv=body.data.uv_layers.active.name
