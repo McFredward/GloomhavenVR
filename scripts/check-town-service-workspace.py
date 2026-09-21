@@ -29,6 +29,7 @@ def sources(root):
 
 def mutations():
     return [
+        ("no-relocation-revision", "TownServiceWorkspace.cs", "checked { RelocationRevision++; }", "", "only invisible pose change advances relocation revision"),
         ("outer-ring", "TownServiceWorkspace.cs", "new Vector3(0f, 0f, 2.35f)", "new Vector3(0f, 0f, 4f)", "full-size counter stays inside solid scenery clearance"),
         ("roster", "TownServiceWorkspace.cs", "player.Id > 0", "player.Id == local", "extra counter clears all three actual resident envelopes"),
         ("visible-teleport", "TownServiceWorkspace.cs", "RelocationVisibility = 0f; ApplyTarget();", "RelocationVisibility = 1f; ApplyTarget();", "pose change has a fully invisible published frame"),

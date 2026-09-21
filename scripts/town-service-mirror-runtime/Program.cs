@@ -712,6 +712,104 @@ public static class MirrorProgram
         }
     }
 
+    private static IEnumerator RelocationGeneration()
+    {
+        TownServiceMirror.Shutdown(); Baselines.Clear();
+        GloomhavenVR.WorldUI.TownServiceSync.Reset();
+        GloomhavenVR.WorldUI.TownServiceSync.BindModules = true;
+        var shared = Go("relocation-owner-frame").transform;
+        var observer = Go("relocation-observer-frame").transform;
+        observer.position = new Vector3(8, 0, 0); observer.localScale = Vector3.one * 1.4f;
+        var source = Rect("original-native-service", shared, Vector2.zero, new Vector2(200, 300));
+        source.localScale = Vector3.one * .01f; source.localPosition = new Vector3(-1.8f, 1f, -1.2f);
+        var opacity = source.gameObject.AddComponent<CanvasGroup>();
+        var native = source.gameObject.AddComponent<GloomhavenVR.WorldUI.PublisherWindow>();
+        GloomhavenVR.WorldUI.TownServicePresentation.Active = true;
+        GloomhavenVR.WorldUI.TownServicePresentation.Window = native;
+        GloomhavenVR.WorldUI.TownServicePresentation.Catalog = null;
+        GloomhavenVR.WorldUI.TownServicePresentation.LocalSurfaces.Clear();
+        GloomhavenVR.WorldUI.TownServicePresentation.Samples.Clear();
+        GloomhavenVR.WorldUI.TownServicePresentation.Service = 1;
+        GloomhavenVR.WorldUI.TownServicePresentation.Session = 41;
+        GloomhavenVR.WorldUI.TownServicePresentation.SessionAge = 9.25f;
+        GloomhavenVR.WorldUI.TownServicePresentation.RelocationRevision = 0;
+        GloomhavenVR.WorldUI.TownServicePresentation.RelocationVisibility = 1f;
+        GloomhavenVR.WorldUI.TownServiceSync.Tick(shared, shared);
+        var first = Capture(); Receive(7, first); TownServiceMirror.TickRemote(_ => observer);
+        var previous = Remote(7, 1)!;
+        Check(previous != null, "source-bound publisher creates original observer module");
+        uint firstGeneration = TownServiceMirror.RemoteSessions[7].Session;
+        // Ordinary authored fades and hand-sized motion retain their existing interpolation.
+        source.localPosition += new Vector3(.1f, .03f, 0); opacity.alpha = .7f;
+        GloomhavenVR.WorldUI.TownServiceSync.Tick(shared, shared);
+        Receive(7, Capture()); TownServiceMirror.TickRemote(_ => observer);
+        Check(TownServiceMirror.RemoteSessions[7].Session == firstGeneration && Remote(7, 1) == previous,
+            "ordinary fades and held motion preserve presentation generation");
+        Check(Vector3.Distance(previous.Root.position, observer.TransformPoint(source.localPosition)) > .001f,
+            "ordinary held motion retains existing observer interpolation");
+        for (float until = Time.unscaledTime + .13f; Time.unscaledTime < until;)
+        { TownServiceMirror.TickRemote(_ => observer); yield return null; }
+        // Lose ALL packets captured while the actual owner relocates at zero opacity.
+        // This deliberately includes the manifest, not just a sampled CanvasGroup value.
+        opacity.alpha = 0; source.localPosition = new Vector3(1.9f, 1f, -1.3f);
+        GloomhavenVR.WorldUI.TownServicePresentation.RelocationRevision = 1;
+        GloomhavenVR.WorldUI.TownServicePresentation.RelocationVisibility = 0;
+        GloomhavenVR.WorldUI.TownServiceSync.Tick(shared, shared);
+        var discarded = Capture();
+        Check(discarded.Count > 0, "fixture discards the entire zero-alpha presentation boundary");
+        Check(GloomhavenVR.WorldUI.TownServicePresentation.Session == 41
+            && GloomhavenVR.WorldUI.TownServicePresentation.Window == native && native.gameObject.activeInHierarchy,
+            "relocation leaves native session window and captured lifetime unchanged");
+        yield return null;
+        opacity.alpha = .4f; GloomhavenVR.WorldUI.TownServicePresentation.RelocationVisibility = .4f;
+        GloomhavenVR.WorldUI.TownServiceSync.Tick(shared, shared);
+        var visible = Capture();
+        foreach (var packet in visible)
+        {
+            TownServiceCodec.TryRead(packet, packet.Length, out var frame);
+            if (frame!.Session != firstGeneration && frame.Module != TownServiceFrame.ManifestModule)
+                Check(frame.BaseSequence == 0, "first visible relocation state is independently decodable");
+        }
+        Receive(7, visible); TownServiceMirror.TickRemote(_ => observer);
+        var relocated = Remote(7, 1);
+        Check(relocated != null && relocated != previous
+            && Vector3.Distance(relocated.Root.position, observer.TransformPoint(source.localPosition)) < .0001f,
+            "dropped invisible frames cannot interpolate across relocation");
+        uint secondGeneration = TownServiceMirror.RemoteSessions[7].Session;
+        Check(secondGeneration > firstGeneration, "relocation wire generation advances monotonically");
+        Check(Math.Abs(TownServiceMirror.RemoteSessions[7].SessionAge - 9.25f) < .02f,
+            "new wire generation preserves original native session age");
+        for (int i = 0; i < 4; i++)
+        {
+            yield return null; TownServiceMirror.TickRemote(_ => observer);
+            Check(Vector3.Distance(relocated!.Root.position, observer.TransformPoint(source.localPosition)) < .0001f,
+                "observer never sweeps through map after relocation generation");
+        }
+        GloomhavenVR.WorldUI.TownServicePresentation.RelocationVisibility = 1f; opacity.alpha = 1f;
+        GloomhavenVR.WorldUI.TownServiceSync.Tick(shared, shared);
+        Receive(7, Capture()); TownServiceMirror.TickRemote(_ => observer);
+        Check(TownServiceMirror.RemoteSessions[7].Session == secondGeneration, "fade completion does not allocate another generation");
+        GloomhavenVR.WorldUI.TownServicePresentation.Session++;
+        GloomhavenVR.WorldUI.TownServicePresentation.RelocationRevision = 0;
+        GloomhavenVR.WorldUI.TownServiceSync.Tick(shared, shared);
+        Receive(7, Capture()); TownServiceMirror.TickRemote(_ => observer);
+        uint reopened = TownServiceMirror.RemoteSessions[7].Session;
+        Check(reopened > secondGeneration, "native reopen cannot reuse a previous relocation generation");
+        GloomhavenVR.WorldUI.TownServiceSync.ResetNetwork();
+        GloomhavenVR.WorldUI.TownServiceSync.Tick(shared, shared);
+        Receive(7, Capture()); TownServiceMirror.TickRemote(_ => observer);
+        Check(TownServiceMirror.RemoteSessions[7].Session > reopened, "network reset never rewinds wire generation counter");
+        typeof(GloomhavenVR.WorldUI.TownServiceSync).GetField("_generation", BindingFlags.Static | BindingFlags.NonPublic)!.SetValue(null, uint.MaxValue);
+        GloomhavenVR.WorldUI.TownServicePresentation.RelocationRevision++;
+        GloomhavenVR.WorldUI.TownServiceSync.Tick(shared, shared);
+        Check(GloomhavenVR.WorldUI.TownServiceSync.GenerationReports == 1
+            && GloomhavenVR.WorldUI.TownServicePresentation.Session == 42 && native.gameObject.activeInHierarchy,
+            "generation exhaustion refuses wrap without native mutation");
+        for (int i = 0; i < 10; i++) GloomhavenVR.WorldUI.TownServiceSync.Tick(shared, shared);
+        Check(GloomhavenVR.WorldUI.TownServiceSync.GenerationReports == 1, "generation exhaustion is reported only once");
+        GloomhavenVR.WorldUI.TownServiceSync.BindModules = false;
+    }
+
     public static IEnumerator Run(string output, string variant, string suite)
     {
         _output = Path.Combine(output, variant + "-evidence"); Directory.CreateDirectory(_output); _assertions = 0;
@@ -721,6 +819,13 @@ public static class MirrorProgram
             _camera.orthographic = true; _camera.nearClipPlane = .01f; _camera.farClipPlane = 100;
             _camera.clearFlags = CameraClearFlags.SolidColor; _camera.backgroundColor = new Color(.025f, .03f, .04f, 1);
             GloomhavenVR.Rig.VRRigDriver.HeadCamera = _camera;
+            if (suite == "relocation")
+            {
+                IEnumerator relocation = RelocationGeneration();
+                while (relocation.MoveNext()) yield return relocation.Current;
+                File.WriteAllText(Path.Combine(_output, "assertions.txt"), _assertions + " assertions\n");
+                yield break;
+            }
             if (suite == "counter-final")
             {
                 IEnumerator furniture = FurniturePlayback();

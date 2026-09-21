@@ -45,6 +45,11 @@ internal static class TownServiceSync
     private static float _reportWindow;
     private static int _reportCount;
     private static uint _session;
+    // Wire lifetime is presentation-only. Never reuse an earlier generation after native
+    // close/reopen, network reset or relocation; captured native session closures stay intact.
+    private static uint _generation;
+    private static ulong _relocationRevision;
+    private static bool _generationExhausted;
     private static byte _service;
     private static ushort _nextId;
     private static Transform? _sharedFrame;
@@ -65,12 +70,28 @@ internal static class TownServiceSync
         if (!NativeTemplates.Ready) return;
         byte service = TownServicePresentation.Service;
         uint session = TownServicePresentation.Session;
-        if (_session != session || _service != service)
+        ulong relocation = TownServicePresentation.RelocationRevision;
+        if (_generationExhausted) return;
+        if (_session != session || _service != service || _relocationRevision != relocation)
         {
-            Reset(); _session = session; _service = service; _nextId = 0;
-            TownServiceMirror.BeginSession(service, session, sharedFrame, stationRoot, TownServicePresentation.SessionAge);
+            if (_generation == uint.MaxValue)
+            {
+                // Do not wrap into a still-known presentation. This process has exhausted its
+                // finite wire namespace; native services continue without new mirror sessions.
+                Reset(); _generationExhausted = true;
+                Report("generation", new InvalidOperationException("Town presentation generation exhausted; restart the mod to resume publishing."));
+                return;
+            }
+            Reset(); _session = session; _service = service; _relocationRevision = relocation; _nextId = 0;
+            _generation++;
         }
-        TownServiceMirror.BeginSession(service, session, sharedFrame, stationRoot, TownServicePresentation.SessionAge);
+        // A new existing wire session rebuilds observers at the actual new pose even when
+        // transport coalescing drops every invisible relocation sample. Ordinary native fades
+        // and hand movement retain this generation and therefore their normal interpolation.
+        TownServiceMirror.BeginSession(service, _generation, sharedFrame, stationRoot, TownServicePresentation.SessionAge);
+        // Do not establish invisible module baselines at the relocation boundary: losing those
+        // samples must not make the first visible state depend on a discarded zero-alpha packet.
+        if (TownServicePresentation.RelocationVisibility <= 0f) return;
         foreach (Published module in Modules.Values) module.Seen = false;
         foreach (SourceEntry source in Sources.Values) source.Seen = false;
         Visited.Clear(); Dynamic.Clear();

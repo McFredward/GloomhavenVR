@@ -70,6 +70,8 @@ namespace GloomhavenVR.WorldUI
         internal static byte Service = 1;
         internal static uint Session = 1200;
         internal static float SessionAge;
+        internal static ulong RelocationRevision;
+        internal static float RelocationVisibility = 1f;
         internal static PublisherWindow? Window;
         internal static TownServiceCatalog? Catalog;
         internal static List<TownServiceSurface> LocalSurfaces = new();
@@ -97,7 +99,10 @@ namespace GloomhavenVR.WorldUI
         internal static int SourceCount => Sources.Count;
         private static void Prepare() { }
         private static Transform? ResolveFrame(int peer) => _sharedFrame;
-        private static void Reset() { Modules.Clear(); Sources.Clear(); _session = 0; _service = 0; }
+        internal static bool BindModules;
+        internal static int GenerationReports;
+        private static readonly HashSet<string> Registered = new();
+        private static void Report(string scope, Exception error) { if (scope == "generation") GenerationReports++; }
         private static bool OwnsAnchor(Transform? anchor) => anchor != null;
         private static void Publish(string key, Transform? source, Transform? provenance = null, Func<Transform, Transform?>? cloneOf = null)
         {
@@ -107,6 +112,12 @@ namespace GloomhavenVR.WorldUI
             string identity = key + "@" + source.GetInstanceID();
             if (!Modules.TryGetValue(identity, out Published? module)) Modules.Add(identity, module = new() { Id = ++_nextId });
             module.Seen = true;
+            if (BindModules)
+            {
+                string address = key + "|";
+                if (Registered.Add(address)) TownServiceMirror.RegisterTemplate(_service, 1, source, address: address);
+                TownServiceMirror.RegisterModule(module.Id, 1, source, address: address);
+            }
         }
     }
 }

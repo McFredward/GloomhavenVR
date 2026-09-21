@@ -90,6 +90,7 @@ public static class InteractionProgram
             {
                 NetPlayerActors.Local = new[] { 1, 7, 19, 53 }[slot];
                 var workspace = new TownServiceWorkspace(station.transform); workspaces.Add(workspace); workspace.SetVisibility(1);
+                Check(workspace.RelocationRevision == 0, "initial placement does not advance relocation revision");
                 // Geometry first also proves the old outward layout fails the regression check.
                 if (slot > 0) CheckGeometry(workspaces);
                 Check(Close(workspace.Root.position, slot == 0 ? station.transform.position : Expected(slot)), "complete roster assigns distinct ordinal including flat peers");
@@ -111,14 +112,16 @@ public static class InteractionProgram
             WorkspaceClock.Now = 2; moving.Tick();
             Check(Close(moving.Root.position, previous) && moving.RelocationVisibility == 1f, "roster change begins from existing owner pose");
             Check(!moving.InputAvailable, "relocation blocks new grabs even in first fully opaque frame");
+            Check(moving.RelocationRevision == 0, "fade-out does not advance relocation revision");
             WorkspaceClock.Now = 2.055f; moving.Tick();
             Check(Close(moving.Root.position, previous) && Math.Abs(moving.RelocationVisibility - .5f) < .001f, "owner dissolves without moving visible original cards");
             Check(moving.Materials.All(m => Math.Abs(m.GetFloat("_TownVisibility") - .5f) < .001f), "furniture publishes same intermediate relocation fade");
             WorkspaceClock.Now = 2.12f; moving.Tick();
             Check(moving.RelocationVisibility == 0f && Close(moving.Root.position, Expected(2)), "pose change has a fully invisible published frame");
+            Check(moving.RelocationRevision == 1, "only invisible pose change advances relocation revision");
             WorkspaceClock.Now = 2.18f; moving.Tick(); Check(moving.RelocationVisibility > 0 && moving.RelocationVisibility < 1, "new pose fades in rather than popping");
             WorkspaceClock.Now = 2.23f; moving.Tick(); Check(moving.RelocationVisibility == 1 && Close(moving.Root.position, Expected(2)), "membership transition reaches full-opacity current ordinal");
-            WorkspaceClock.Now = 4; moving.Tick(); Check(moving.RelocationVisibility == 1f && moving.InputAvailable, "unchanged roster cannot restart transition");
+            WorkspaceClock.Now = 4; moving.Tick(); Check(moving.RelocationRevision == 1, "ordinary fade and stable roster retain relocation revision"); Check(moving.RelocationVisibility == 1f && moving.InputAvailable, "unchanged roster cannot restart transition");
             using (var lateJoin = new TownServiceWorkspace(station.transform)) Check(Close(lateJoin.Root.position, moving.Root.position), "late join and survivor converge from native roster");
             // Ground sampling and canonical frame changes are actual production placement code.
             var room = new GameObject("sloped room"); room.transform.position = MapRoomDriver.Center; room.transform.localScale = Vector3.one * MapRoomDriver.Scale;

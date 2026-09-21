@@ -27,6 +27,7 @@ internal sealed class TownServiceWorkspace : IDisposable
     private bool _pending, _relocating, _switched, _shownPrimary;
     internal float RelocationVisibility { get; private set; } = 1f;
     internal bool InputAvailable => !_relocating;
+    internal ulong RelocationRevision { get; private set; }
     private float _moveStarted, _nextRoster, _visibility, _appliedVisibility = -1f;
     private bool _disposed;
     internal Transform Root => _root.transform;
@@ -148,9 +149,12 @@ internal sealed class TownServiceWorkspace : IDisposable
             float t = Mathf.Clamp01((now - _moveStarted) / MoveSeconds);
             if (!_switched && t >= .5f)
             {
-                // Publish at least one completely invisible frame at the new pose. A direct
-                // chord or even ring arc can intersect another complete service stand.
-                RelocationVisibility = 0f; ApplyTarget(); _switched = true;
+                // Keep at least one completely invisible owner frame at the new pose. Sync
+                // uses the revision as a durable presentation-generation boundary rather than
+                // relying on delivery of that sample. Visible travel can cross other stands.
+                RelocationVisibility = 0f; ApplyTarget();
+                checked { RelocationRevision++; }
+                _switched = true;
             }
             else if (!_switched) RelocationVisibility = Mathf.Lerp(_fadeFrom, 0f, t * 2f);
             else

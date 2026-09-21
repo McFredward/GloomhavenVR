@@ -33,6 +33,8 @@ internal static class TownServicePresentation
     private static int _selectionMode;
     internal static byte Service { get; private set; }
     internal static uint Session => _session;
+    internal static ulong RelocationRevision => _workspace?.RelocationRevision ?? 0;
+    internal static float RelocationVisibility => _workspace?.RelocationVisibility ?? 1f;
     internal static UIWindow? Window => _window;
     internal static Transform? WorkMat => _mat != null ? _mat.transform : null;
     internal static TownServiceTray? Tray => _tray;

@@ -30,6 +30,11 @@ def sources(root):
     if motion.exists(): bound[motion.name] = motion.read_text()
     publisher = (base / "WorldUI/TownServices/TownServiceSync.cs").read_text()
     bound["PublisherTick.cs"] = "using System;\nusing GloomhavenVR.Net.TownServices;\nusing UnityEngine;\nnamespace GloomhavenVR.WorldUI;\ninternal static partial class TownServiceSync {\n" + "\n".join(method(publisher, signature) for signature in ("internal static void Tick(Transform sharedFrame, Transform? stationRoot)", "private static void PublishHeld(TownServiceToken sample, Transform original)", "private static void PublishCopiedCards(Transform original, Func<Transform, Transform?> cloneOf)", "private static string? DynamicKey(Transform source)")) + "\n}\n"
+    bound["PublisherTick.cs"] = bound["PublisherTick.cs"].replace("internal static partial class TownServiceSync {\n",
+        "internal static partial class TownServiceSync {\n" + "\n".join(expression(publisher, declaration) for declaration in
+        ("private static uint _generation", "private static ulong _relocationRevision", "private static bool _generationExhausted")) + "\n"
+        + method(publisher, "internal static void Reset()") + "\n"
+        + publisher[publisher.index("    internal static void ResetNetwork()"):publisher.index("\n", publisher.index("    internal static void ResetNetwork()"))] + "\n")
     town_neutralizer = base / "Net/TownServices/TownServiceNeutralize.cs"
     if town_neutralizer.exists():
         bound[town_neutralizer.name] = town_neutralizer.read_text()
@@ -53,7 +58,7 @@ def main():
     parser.add_argument("--source-root", type=Path, default=repo)
     parser.add_argument("--output-dir", type=Path, default=repo / ".planning/debug/town-service-mirror")
     parser.add_argument("--unity", type=Path, default=Path(os.environ.get("UNITY_PATH", "/home/claw/unity-2021.3.5/Editor/Unity")))
-    parser.add_argument("--suite", choices=("basic", "full", "lifecycle", "counter-final"), default="full")
+    parser.add_argument("--suite", choices=("basic", "full", "lifecycle", "counter-final", "relocation"), default="full")
     parser.add_argument("--no-negative-controls", action="store_true")
     args = parser.parse_args()
     args.source_root = args.source_root.resolve()
@@ -101,6 +106,15 @@ def main():
                 ("preview-nested-card", "PublisherTick.cs", "for (int i = 0; i < original.childCount; i++) PublishCopiedCards(original.GetChild(i), cloneOf);", "// omit nested card traversal", "native detail preview publishes its nested pooled item card"),
                 ("preview-provenance", "PublisherTick.cs", "Publish(key, clone, original, cloneOf);", "Publish(key, clone, null, null);", "nested preview retains original card provenance"),
                 ("furniture-visibility", "TownServiceMaterial.cs", "value.x = material.GetFloat(name);", "value.x = name == \"_TownVisibility\" ? 1f : material.GetFloat(name);", "remote furniture uses exact owned visibility material value"),
+            ]
+    if args.suite == "relocation":
+        variants = [("production", None, None, None, "")]
+        if not args.no_negative_controls:
+            variants += [
+                ("no-relocation-generation", "PublisherTick.cs", " || _relocationRevision != relocation", "", "dropped invisible frames cannot interpolate across relocation"),
+                ("invisible-baseline", "PublisherTick.cs", "if (TownServicePresentation.RelocationVisibility <= 0f) return;", "", "first visible relocation state is independently decodable"),
+                ("reused-generation", "PublisherTick.cs", "_generation++;", "_generation = session;", "dropped invisible frames cannot interpolate across relocation"),
+                ("generation-wrap", "PublisherTick.cs", "if (_generation == uint.MaxValue)", "if (false)", "Missing town-service session frame"),
             ]
     print(f"Production binding: {args.source_root.resolve()}; evidence: {run}", flush=True)
     for name, filename, before, after, expected in variants:

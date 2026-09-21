@@ -293,6 +293,7 @@ namespace GloomhavenVR.WorldUI
         internal void Tick(bool mayRelocate = true) { if (mayRelocate) Root.localPosition += new Vector3(.01f, 0f, 0f); }
         internal float RelocationVisibility => 1f;
         internal bool InputAvailable => true;
+        internal ulong RelocationRevision => 0;
         internal void SetVisibility(float value) { }
         public void Dispose() { UnityEngine.Object.Destroy(Root.gameObject); }
     }
