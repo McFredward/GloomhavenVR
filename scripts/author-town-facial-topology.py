@@ -165,7 +165,7 @@ def fit(raw,name,orbital=True):
         section=np.sqrt(np.maximum(.03,1-((world_z-1.600)/.15)**2))
         x=x*(1-side)+(.092*section*np.sin(angle))*side
         y=y*(1-side)+(.010+.108*section*np.cos(angle))*side
-        fold=(.0014+.0010*np.sin(angle*8+world_z*15))*coif
+        fold=(.0014+(.0010+.003*np.clip((1.58-world_z)/.13,0,1))*np.sin(angle*8+world_z*15))*coif
         x+=np.sin(angle)*fold;y+=np.cos(angle)*fold
     return np.column_stack((x,y,world_z))
 
@@ -257,7 +257,8 @@ def head_mesh(raw,faces,groups,face_uv,name,refs,data):
         x,y,z=raw[ids[loop.vertex_index]]
         orbital=math.exp(-((abs(x)-.34)/.24)**4-((y-7.35)/.19)**2)*max(0,min(1,(z-1.10)/.20))
         lips=math.exp(-(x/.37)**8-((y-6.61)/max(.035,.092-.040*(abs(x)/.37)**2))**8)*max(0,min(1,(z-1.36)/.12))
-        makeup.data[loop.index].color=(orbital*.80 if name=='enchantress' else 0,lips*.52 if name=='enchantress' else 0,0,1)
+        hair=max(0,min(1,(y-7.66)/.10),min(1,(abs(x)-.61)/.14)*max(0,min(1,(y-6.65)/.25)),min(1,(.65-z)/.15)*max(0,min(1,(y-6.5)/.25)))
+        makeup.data[loop.index].color=(orbital*.80 if name=='enchantress' else 0,lips*.52 if name=='enchantress' else 0,hair if name=='enchantress' else 0,1)
     coif=mesh.color_attributes.new(name='CoifCloth',type='FLOAT_COLOR',domain='CORNER')
     mesh.uv_layers.new(name='CoifUV')
     for loop in mesh.loops:
@@ -266,7 +267,7 @@ def head_mesh(raw,faces,groups,face_uv,name,refs,data):
         value=max(0,min(1,(oval-.90)/.08)) if name=='priestess' else 0
         value=max(value,max(0,min(1,(.80-z)/.16)),max(0,min(1,(y-7.65)/.07))) if name=='priestess' else 0
         mesh.color_attributes['CoifCloth'].data[loop.index].color=(value,value,value,1)
-        mesh.uv_layers['CoifUV'].data[loop.index].uv=(.971+x*.001,.442+(y-6.3)*.001)
+        mesh.uv_layers['CoifUV'].data[loop.index].uv=(.125+x*.018,.628+(y-6.3)*.007)
     weights=mesh.color_attributes.new(name='ProjectionWeights' ,type='FLOAT_COLOR',domain='CORNER')
     for loop in mesh.loops:
         x,y,z=raw[ids[loop.vertex_index]];angle=abs(math.atan2(x,z-.65))
@@ -288,7 +289,8 @@ def head_mesh(raw,faces,groups,face_uv,name,refs,data):
     cosmetics=nodes.new('ShaderNodeVertexColor');cosmetics.layer_name='PortraitMakeup';channels=nodes.new('ShaderNodeSeparateColor');links.new(cosmetics.outputs[0],channels.inputs[0])
     eye_tint=nodes.new('ShaderNodeMixRGB');links.new(channels.outputs[0],eye_tint.inputs[0]);links.new(tint.outputs[0],eye_tint.inputs[1]);eye_tint.inputs[2].default_value=(.055,.043,.10,1)
     lip_tint=nodes.new('ShaderNodeMixRGB');links.new(channels.outputs[1],lip_tint.inputs[0]);links.new(eye_tint.outputs[0],lip_tint.inputs[1]);lip_tint.inputs[2].default_value=(.14,.046,.17,1)
-    links.new(lip_tint.outputs[0],blend.inputs[1]);links.new(neck.outputs[0],blend.inputs[2])
+    hair_tint=nodes.new('ShaderNodeMixRGB');hair_tint.blend_type='MULTIPLY';links.new(channels.outputs[2],hair_tint.inputs[0]);links.new(lip_tint.outputs[0],hair_tint.inputs[1]);hair_tint.inputs[2].default_value=(.75,.38,1.45,1)
+    links.new(hair_tint.outputs[0],blend.inputs[1]);links.new(neck.outputs[0],blend.inputs[2])
     cloth=nodes.new('ShaderNodeTexImage');cloth.image=bpy.data.images.load(str(Path(__file__).resolve().parents[1]/'unity/GloomhavenVR.Assets/Assets/Bundle/TownServices/Actors/priestess/Textures/body_material_00_basecolor.png'));cloth.extension='EXTEND'
     cloth_uv=nodes.new('ShaderNodeUVMap');cloth_uv.uv_map='CoifUV';links.new(cloth_uv.outputs[0],cloth.inputs[0])
     cloth_weight=nodes.new('ShaderNodeVertexColor');cloth_weight.layer_name='CoifCloth';dressed=nodes.new('ShaderNodeMixRGB');links.new(cloth_weight.outputs[0],dressed.inputs[0]);links.new(blend.outputs[0],dressed.inputs[1]);links.new(cloth.outputs[0],dressed.inputs[2])

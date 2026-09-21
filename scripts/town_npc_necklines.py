@@ -11,7 +11,6 @@ from mathutils import Vector
 from town_npc_garment_weights import garment_support
 from town_npc_cloth_edges import repair_cloth_edges
 from town_npc_neck_inset import sew_inner_shirt
-from town_npc_hood_opening import repair_hood
 
 
 def shirt_band(bm, body, npc):
@@ -35,13 +34,14 @@ def shirt_band(bm, body, npc):
             x=(rx+t*.027+fold)*math.sin(angle)
             y=cy-(ry+t*.035+fold)*math.cos(angle)
             z=top-drop*math.cos(angle)-t*(.038+.018*front**4)
+            z+=.0025*math.sin(angle*7)*math.sin(math.pi*t)
             vertex=bm.verts.new((x,y,z));vertex[deform][chest]=1;ring.append(vertex)
         rings.append(ring)
     for row in range(6):
         for i in range(n-1):
             face=bm.faces.new((rings[row][i],rings[row+1][i],rings[row+1][i+1],rings[row][i+1]));face.material_index=0;face.smooth=True
             for loop in face.loops:
-                loop[uv].uv=(sample[0]+loop.vert.co.x*.025,sample[1]+(loop.vert.co.z-top)*.025)
+                loop[uv].uv=(sample[0]+loop.vert.co.x*.12,sample[1]+(loop.vert.co.z-top)*.10)
     return n*7
 
 
@@ -82,7 +82,7 @@ def repair(body, npc, neck=None):
     uv_layer=bm.loops.layers.uv.active;discard=[]
     for face in bm.faces:
         x,y,z=face.calc_center_median()
-        eligible=((1.44 if npc=='enchantress' else 1.49)<z<1.62 and abs(x)<(.075 if npc=='enchantress' else .095) and y<.035) if npc!='merchant' else ((z>1.473 and abs(x)<.135 and -.105<y<.14) or (z>1.435 and abs(x)<.055 and -.115<y<.035))
+        eligible=((1.44 if npc=='enchantress' else 1.49)<z<(1.62 if npc=='enchantress' else 1.73) and abs(x)<(.075 if npc=='enchantress' else .135) and y<(.035 if npc=='enchantress' else .075)) if npc!='merchant' else ((z>1.473 and abs(x)<.135 and -.105<y<.14) or (z>1.435 and abs(x)<.055 and -.115<y<.035))
         if not eligible:continue
         co=sum((loop[uv_layer].uv for loop in face.loops),Vector((0,0)))/len(face.loops)
         r,g,b=rgba[max(0,min(image.size[1]-1,int(co.y*image.size[1]))),max(0,min(image.size[0]-1,int(co.x*image.size[0]))),:3]
@@ -123,7 +123,6 @@ def repair(body, npc, neck=None):
             if vertex.co.z>1.4 and abs(vertex.co.x)<.17:
                 vertex[deform].clear();vertex[deform][chest]=1
     cloth_edges=repair_cloth_edges(bm,body,npc,rgba,uv_layer)
-    hood=repair_hood(bm,npc)
     added_band=shirt_band(bm,body,npc)
     inner_shirt=sew_inner_shirt(bm,body,neck,npc) if neck else 0
     faces=[face for face in bm.faces if face.calc_center_median().z>1.35]
@@ -159,4 +158,4 @@ def repair(body, npc, neck=None):
     # original costume shells can invert otherwise valid outer cloth.
     bm.normal_update()
     bm.to_mesh(body.data);bm.free();body.data.update()
-    return {'hoodOpening':hood,'innerShirtVertices':inner_shirt,'clothEdges':cloth_edges,'removedDetachedVertices':len(remove),'removedComponents':removed_components,'linedEdges':edge_count,'torsoGarmentVertices':garment_vertices,'shirtVertices':added_band,'innerVertices':added,'maximumThicknessMeters':.003}
+    return {'innerShirtVertices':inner_shirt,'clothEdges':cloth_edges,'removedDetachedVertices':len(remove),'removedComponents':removed_components,'linedEdges':edge_count,'torsoGarmentVertices':garment_vertices,'shirtVertices':added_band,'innerVertices':added,'maximumThicknessMeters':.003}
