@@ -6,6 +6,7 @@ using GloomhavenVR.Core;
 using GloomhavenVR.Net.TownServices;
 using GloomhavenVR.WorldUI.MapRoom;
 using ScenarioRuleLibrary;
+using ScenarioRuleLibrary.YML;
 using SpriteMemoryManagement;
 using UnityEngine;
 using UnityEngine.AddressableAssets;
@@ -58,13 +59,40 @@ internal static class TownServiceNativeAssets
 
     internal static void PrepareItem(ItemCardUI? source)
     {
-        if (!MapRoomDriver.Active || source == null || source.item == null || UIInfoTools.Instance == null) return;
+        if (source != null && source.item != null) PrepareItemId(source.item.ID);
+    }
+
+    /// <summary>Read immutable catalogue data, never CItem.YMLData. An inactive pool clone can
+    /// carry a default ID-zero model; that getter raises the game's blocking error dialog BEFORE
+    /// throwing. Catching its exception therefore cannot make a presentation scan safe.</summary>
+    internal static ItemCardYMLData? FindItemData(int id)
+    {
+        if (id <= 0 || ScenarioRuleClient.SRLYML == null || ScenarioRuleClient.SRLYML.ItemCards == null) return null;
+        ItemCardYMLData? found = null;
+        foreach (ItemCardYMLData candidate in ScenarioRuleClient.SRLYML.ItemCards)
+        {
+            if (candidate == null || candidate.ID != id) continue;
+            if (found != null) throw new InvalidOperationException("Duplicate original item definition: " + id);
+            found = candidate;
+        }
+        return found;
+    }
+
+    internal static void PrepareItemId(int id)
+    {
+        if (!MapRoomDriver.Active || id <= 0 || UIInfoTools.Instance == null) return;
         try
         {
-            CItem item = source.item;
-            Prepare(UIInfoTools.Instance.GetItemBackgroundSprite(item.YMLData.Art));
-            if (item.YMLData.ValidEquipCharacterClassIDs.Count > 0)
-                Prepare(UIInfoTools.Instance.GetCharacterAssemblyIcon(item.YMLData.ValidEquipCharacterClassIDs[0]));
+            ItemCardYMLData? data = FindItemData(id);
+            if (data == null)
+            {
+                if (ReportedUnavailable.Count < 8 && ReportedUnavailable.Add("item " + id))
+                    VRLog.Note("TownServices", "Original town item artwork has no catalogue definition (item " + id + ").");
+                return;
+            }
+            Prepare(UIInfoTools.Instance.GetItemBackgroundSprite(data.Art));
+            if (data.ValidEquipCharacterClassIDs.Count > 0)
+                Prepare(UIInfoTools.Instance.GetCharacterAssemblyIcon(data.ValidEquipCharacterClassIDs[0]));
         }
         catch (Exception e) { Report("item art", e); }
     }
