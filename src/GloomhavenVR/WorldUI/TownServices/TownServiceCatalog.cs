@@ -321,6 +321,11 @@ internal sealed class TownServiceCatalog : IDisposable
         private readonly TownServiceCatalog _owner;
         private readonly GameObject _root;
         private readonly Canvas _canvas;
+        private readonly Transform _display;
+        private readonly float _presentedAt;
+        private Vector3 _displayHome;
+        private Transform? _body;
+        internal Transform? BodyRoot => _body;
         private readonly RemoteWidgetMirror _row;
         private readonly List<KeyValuePair<Graphic, bool>> _raycastTargets = new();
         private readonly List<KeyValuePair<GraphicRaycaster, bool>> _raycasters = new();
@@ -343,14 +348,18 @@ internal sealed class TownServiceCatalog : IDisposable
             _owner = owner; RowSource = source; Item = source.Item;
             _root = new GameObject("CatalogItem");
             _root.transform.SetParent(owner.Root, false);
-            _root.transform.localPosition = new Vector3((position % 3 - 1) * .205f, .007f, position < 3 ? .105f : -.105f);
-            _root.transform.localRotation = Quaternion.Euler(90f, 0f, 0f);
+            _root.transform.localPosition = new Vector3((position % 3 - 1) * .205f, 0f, position < 3 ? .105f : -.105f);
+            _display = new GameObject("PhysicalCard").transform;
+            _display.SetParent(_root.transform, false);
+            _display.localRotation = Quaternion.Euler(65f, 0f, 0f);
+            _presentedAt = Time.unscaledTime + position * .025f;
             var face = new GameObject("Face", typeof(RectTransform), typeof(Canvas), typeof(GraphicRaycaster));
-            face.transform.SetParent(_root.transform, false);
+            face.transform.SetParent(_display, false);
             _canvas = face.GetComponent<Canvas>(); _canvas.renderMode = RenderMode.WorldSpace;
             VRLayers.Apply(face);
             var rowMount = new GameObject("Price"); rowMount.transform.SetParent(_root.transform, false);
-            rowMount.transform.localPosition = new Vector3(0f, -.081f, 0f);
+            rowMount.transform.localPosition = new Vector3(0f, .005f, -.077f);
+            rowMount.transform.localRotation = Quaternion.Euler(90f, 0f, 0f);
             _row = new RemoteWidgetMirror("CatalogPrice", rowMount.transform, .19f, .042f, Vector2.zero,
                 externallyShownBranch: node => node.GetComponent<UIPartyItemInventoryTooltip>() != null);
             RectTransform rowRect = (RectTransform)source.transform;
@@ -371,7 +380,12 @@ internal sealed class TownServiceCatalog : IDisposable
                 RectTransform host = (RectTransform)face.transform;
                 host.sizeDelta = size;
                 host.localScale = Vector3.one * Mathf.Min(.18f / size.x, .145f / size.y);
-                host.localPosition = new Vector3(0f, .025f, -.001f);
+                host.localPosition = new Vector3(0f, 0f, -.0012f);
+                Vector2 physicalSize = size * host.localScale.x;
+                _displayHome = new Vector3(0f, physicalSize.y * .5f * Mathf.Cos(65f * Mathf.Deg2Rad) + .006f, 0f);
+                _display.localPosition = _displayHome + new Vector3(0f, 0f, .045f);
+                _body = TownServiceCardBody.Create(_display).transform;
+                _body.localScale = new Vector3(physicalSize.x, physicalSize.y, 1f);
                 rect.anchorMin = rect.anchorMax = rect.pivot = new Vector2(.5f, .5f);
                 rect.anchoredPosition3D = Vector3.zero; rect.localRotation = Quaternion.identity; rect.localScale = Vector3.one;
                 foreach (GraphicRaycaster raycaster in _card.GetComponentsInChildren<GraphicRaycaster>(true))
@@ -388,7 +402,7 @@ internal sealed class TownServiceCatalog : IDisposable
                 hit.GetComponent<Image>().color = Color.clear;
                 UguiPokeSurfaces.Register(_canvas);
                 Sample = new TownServiceToken(rect, source.Selectable, () => source.Item,
-                    owner._contextIdentity, () => Current, owner._mat);
+                    owner._contextIdentity, () => Current, owner._mat, _display);
                 _row.Refresh(source.transform);
                 TownServiceNativeAssets.PrepareItem(CardUI);
             }
@@ -397,7 +411,7 @@ internal sealed class TownServiceCatalog : IDisposable
 
         private void Click()
         {
-            if (!Current || !RowSource.Selectable.IsActive() || !RowSource.Selectable.IsInteractable() || EventSystem.current == null) return;
+            if (Sample.IsMoving || !Current || !RowSource.Selectable.IsActive() || !RowSource.Selectable.IsInteractable() || EventSystem.current == null) return;
             var pointer = new PointerEventData(EventSystem.current) { button = PointerEventData.InputButton.Left };
             ExecuteEvents.Execute(RowSource.Selectable.gameObject, pointer, ExecuteEvents.pointerClickHandler);
         }
@@ -416,6 +430,12 @@ internal sealed class TownServiceCatalog : IDisposable
         {
             if (_disposed) return;
             if (!Current) { Sample.Dispose(); _root.SetActive(false); return; }
+            if (!Sample.IsMoving)
+            {
+                float t = Mathf.Clamp01((Time.unscaledTime - _presentedAt) / .24f);
+                float ease = t * t * (3f - 2f * t);
+                _display.localPosition = _displayHome + new Vector3(0f, 0f, .045f * (1f - ease));
+            }
             _canvas.worldCamera = VRRigDriver.HeadCamera != null ? VRRigDriver.HeadCamera : Camera.main;
             if (Time.unscaledTime >= _nextRefresh)
             {
