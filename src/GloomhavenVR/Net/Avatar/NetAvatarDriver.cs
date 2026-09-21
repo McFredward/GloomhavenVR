@@ -3772,6 +3772,7 @@ internal sealed partial class NetAvatarDriver : MonoBehaviour
         // and every player who has the 3D map switched off is byte-identical to build 221's. Full
         // contracts in RemoteMapRoom / RemoteMapStory and NetProtocol.ExtIdMapRoom /
         // NetProtocol.ExtIdSharedWindow.
+        RemoteTownResidents.Sample(ref extras);
         RemoteMapRoom.Sample(ref extras);
         RemoteMapStory.Sample(ref extras);
     }
@@ -4180,6 +4181,7 @@ internal sealed partial class NetAvatarDriver : MonoBehaviour
                     // peer's body. A packet WITHOUT either record forgets that peer's entry, which
                     // is what every player who is not in the 3D map room — and every pre-record
                     // build — transmits, and "forgotten" is exactly "not standing at this table".
+                    RemoteTownResidents.Observe(kv.Key, in p);
                     RemoteMapRoom.Observe(kv.Key, in p);
                     RemoteMapStory.Observe(kv.Key, in p);
                     RemoteVideoPlayback.Observe(kv.Key, in p);

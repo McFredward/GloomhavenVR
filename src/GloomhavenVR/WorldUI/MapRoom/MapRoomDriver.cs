@@ -240,6 +240,8 @@ internal static class MapRoomDriver
     /// <see cref="GuildmasterDestinations.LeaveMode"/> to return to the map, which is what runs
     /// the game's mode Exit. False when the room is down or the bar carries no such button.
     /// </summary>
+    internal static bool CanVisitTownService(EGuildmasterMode mode) => Active && Buttons.CanVisitTownService(mode);
+
     internal static bool PressGuildmasterMode(EGuildmasterMode mode, string source) =>
         Active && Buttons.PressMode(mode, source);
 

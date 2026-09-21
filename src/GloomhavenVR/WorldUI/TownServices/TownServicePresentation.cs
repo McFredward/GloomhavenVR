@@ -223,6 +223,15 @@ internal static class TownServicePresentation
 
     private static void BuildMat()
     {
+        if (Service == 1 && _station != null)
+        {
+            // Physical merchant cards are inspection objects; a drop-to-select tray would
+            // advertise the wrong interaction. Retain only a private coordinate reference.
+            _mat = new GameObject("GloomhavenVR.TownService.InspectionFrame");
+            _mat.transform.SetParent(_workspace != null ? _workspace.Root : _station.Root, false);
+            _mat.transform.localPosition = new Vector3(0f, .970f, 0f);
+            return;
+        }
         TMP_Text? nativeText = _window != null ? _window.GetComponentInChildren<TMP_Text>(true) : null;
         Vector3 position = _origin + _yaw * new Vector3(.12f, -.40f, -.20f) * _scale;
         Quaternion rotation = _yaw;
@@ -346,6 +355,7 @@ internal static class TownServicePresentation
         _counter = null;
         foreach (Graphic portrait in Portraits) if (portrait != null) portrait.enabled = true;
         Portraits.Clear();
+        if (_tray == null && _mat != null) UnityEngine.Object.Destroy(_mat);
         _tray?.Dispose(); _tray = null; _mat = null;
         _workspace?.Dispose(); _workspace = null;
         _station = null; // Population retains a station while another visitor still uses it.

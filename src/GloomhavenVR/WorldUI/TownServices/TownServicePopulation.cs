@@ -13,11 +13,16 @@ internal static class TownServicePopulation
     private sealed class Resident
     {
         internal TownServiceStation Station = null!;
-        internal float Visibility;
+        internal float Visibility, Age;
+        internal byte Clip;
+        internal TownServiceVisitTarget Visit = null!;
     }
     private static readonly Dictionary<byte, Resident> Residents = new();
     private static GameObject? _frame;
     internal static Transform? Frame => _frame != null ? _frame.transform : null;
+    internal static TownResidentsState Published { get; private set; }
+    internal static bool Available(byte service) => Residents.ContainsKey(service);
+    private static float _started, _retryAt;
 
     internal static bool HasRemoteVisitors
     {
@@ -32,8 +37,9 @@ internal static class TownServicePopulation
 
     internal static bool Prepare()
     {
-        if (!MapRoomDriver.TryGetParchmentFrame(out Vector3 center, out float scale)) return false;
-        if (_frame == null) _frame = new GameObject("GloomhavenVR.TownService.SharedFrame");
+        if (!MapRoomDriver.Active || !MapRoomDriver.TryGetParchmentFrame(out Vector3 center, out float scale)) return false;
+        if (_frame == null)
+        { _frame = new GameObject("GloomhavenVR.TownService.SharedFrame"); _started = Time.unscaledTime; }
         _frame.transform.SetPositionAndRotation(center, Quaternion.identity);
         _frame.transform.localScale = Vector3.one * scale;
         TownServiceMirror.SharedFrameForRemote = RemoteFrame;
@@ -49,60 +55,85 @@ internal static class TownServicePopulation
         TownServiceStation? station = TownServiceStation.Create(service, _frame!.transform.position, _frame.transform.localScale.x);
         if (station == null) return null;
         station.SetVisibility(0f);
-        Residents.Add(service, new Resident { Station = station });
+        Residents.Add(service, new Resident { Station = station, Visit = new TownServiceVisitTarget(service, station.Root) });
         return station;
     }
 
     internal static void Tick()
     {
-        // A local preference never changes another visitor's original presentation. With no
-        // visitor, the classic path needs neither a shared frame nor resident assets.
-        if (_frame == null && !TownServicePresentation.Active && !HasRemoteVisitors) return;
+        bool enabled = WorldUIConfig.ImmersiveTownServices.Value;
+        if (!MapRoomDriver.Active) { Reset(); return; }
+        if (_frame == null && !enabled && !HasRemoteVisitors) return;
         if (!Prepare()) { Reset(); return; }
         float now = Time.unscaledTime;
-        int local = NetPlayerActors.LocalPlayerId();
+        bool follows = RemoteTownResidents.TryAuthor(out TownResidentsState authored, out float elapsed);
+        var published = new TownResidentsState { Active = enabled };
+        bool retry = now >= _retryAt;
+        bool missing = false;
         for (byte service = 1; service <= 3; service++)
         {
-            bool used = TownServicePresentation.Active && TownServicePresentation.Service == service;
-            int author = used ? local : int.MaxValue;
-            float age = used ? TownServicePresentation.SessionAge : 0f;
-            TownServiceSessionInfo? owner = null;
+            bool visiting = TownServicePresentation.Active && TownServicePresentation.Service == service;
+            float visitAge = visiting ? TownServicePresentation.SessionAge : float.PositiveInfinity;
             foreach (TownServiceSessionInfo remote in TownServiceMirror.RemoteSessions.Values)
             {
-                if (!remote.Active || remote.Service != service || now - remote.ReceivedTime > 10f) continue;
-                used = true;
-                if (remote.Peer >= author) continue;
-                author = remote.Peer; owner = remote;
-                age = remote.SessionAge + Mathf.Max(0f, now - remote.ReceivedTime);
+                if (!remote.Active || remote.Service != service || now - remote.ReceivedTime > NetProtocol.StaleTimeoutSeconds) continue;
+                visiting = true;
+                visitAge = Mathf.Min(visitAge, remote.SessionAge + Mathf.Max(0f, now - remote.ReceivedTime));
             }
-            if (used) Acquire(service);
-            if (!Residents.TryGetValue(service, out Resident? resident)) continue;
-            // The active author's canonical station pose also reaches clients with another room.
-            // The local author keeps its opening pose; none of these objects follows the head.
-            if (owner != null)
-            {
-                Transform root = resident.Station.Root;
-                root.position = _frame!.transform.TransformPoint(owner.Position);
-                root.rotation = _frame.transform.rotation * owner.Rotation;
-                root.localScale = Vector3.Scale(_frame.transform.lossyScale, owner.Scale);
-            }
-            resident.Visibility = Mathf.MoveTowards(resident.Visibility, used ? 1f : 0f,
-                Time.unscaledDeltaTime / (used ? .22f : .18f));
-            resident.Station.SetVisibility(resident.Visibility);
+            bool used = enabled || visiting;
+            if (used && retry) Acquire(service);
+            if (!Residents.TryGetValue(service, out Resident? resident))
+            { if (used) missing = true; published.Active = false; continue; }
+            resident.Station.RefreshEnvironment(!follows);
             float greeting = resident.Station.GreetingDuration;
-            if (used) resident.Station.Sample(age < greeting ? "Greeting" : "Idle", age < greeting ? age : age - greeting);
+            if (used && follows)
+            {
+                TownResidentPose pose = authored.At(service - 1);
+                Transform root = resident.Station.Root;
+                root.SetPositionAndRotation(_frame!.transform.TransformPoint(pose.Pose.Position),
+                    _frame.transform.rotation * pose.Pose.Rotation);
+                root.localScale = Vector3.one * (_frame.transform.lossyScale.x * pose.Scale);
+                resident.Visibility = pose.Visibility / 255f;
+                resident.Age = pose.Age + elapsed;
+                resident.Clip = pose.Clip;
+                if (resident.Clip == 1 && resident.Age >= greeting)
+                { resident.Clip = 0; resident.Age -= greeting; }
+            }
+            else
+            {
+                resident.Visibility = Mathf.MoveTowards(resident.Visibility, used ? 1f : 0f,
+                    Time.unscaledDeltaTime / (used ? .22f : .18f));
+                resident.Clip = visiting && visitAge < greeting ? (byte)1 : (byte)0;
+                resident.Age = resident.Clip == 1 ? visitAge : visiting
+                    ? Mathf.Max(0f, visitAge - greeting) : Mathf.Max(0f, now - _started);
+            }
+            resident.Station.SetVisibility(resident.Visibility);
+            resident.Station.Sample(resident.Clip == 1 ? "Greeting" : "Idle", resident.Age);
+            resident.Visit.Tick(enabled && used && resident.Visibility >= .99f);
+            Transform station = resident.Station.Root;
+            published.Set(service - 1, new TownResidentPose {
+                Pose = new RigPose { Position = _frame!.transform.InverseTransformPoint(station.position),
+                    Rotation = Quaternion.Inverse(_frame.transform.rotation) * station.rotation },
+                Scale = station.lossyScale.x / _frame.transform.lossyScale.x,
+                Age = resident.Age, Clip = resident.Clip,
+                Visibility = (byte)Mathf.RoundToInt(resident.Visibility * 255f) });
             if (!used && resident.Visibility <= 0f)
-            { resident.Station.Dispose(); Residents.Remove(service); }
+            { resident.Visit.Dispose(); resident.Station.Dispose(); Residents.Remove(service); }
         }
+        if (missing && retry) _retryAt = now + 2f;
+        Published = published;
+        TownServiceVisitTarget.TickLaser();
     }
 
     internal static void Reset()
     {
+        Published = default;
         if (_frame == null && Residents.Count == 0) return;
         TownServiceSync.Shutdown();
-        foreach (Resident resident in Residents.Values) resident.Station.Dispose();
+        foreach (Resident resident in Residents.Values)
+        { resident.Visit.Dispose(); resident.Station.Dispose(); }
         Residents.Clear();
         if (_frame != null) Object.Destroy(_frame);
-        _frame = null;
+        _frame = null; _retryAt = 0f;
     }
 }

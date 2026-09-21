@@ -35,7 +35,7 @@ internal static class NativeTemplates
     private static UIGuildmasterHUD? _hud;
     private static bool _ready;
     private static TownServiceTray? _tray;
-    private static GameObject? _catalogNavigation;
+    private static GameObject? _catalogNavigation, _cardBody;
     internal static UITooltip? Tooltip { get; private set; }
     internal static bool Ready => _ready && _hud != null && _bank != null;
 
@@ -66,6 +66,8 @@ internal static class NativeTemplates
         _catalogNavigation.transform.SetParent(_bank.transform, false);
         Add("merchant.catalognav", _catalogNavigation.transform);
         Add("merchant.counter", TownServiceWorkspace.CounterTemplate);
+        _cardBody = TownServiceCardBody.Create(_bank.transform);
+        Add("merchant.cardbody", _cardBody.transform);
         Add("temple", hud.templeWindow);
         Add("temple.inventory", hud.templeWindow.Shop);
         Add("temple.row", hud.templeWindow.Shop.slotPrefab);
@@ -274,7 +276,7 @@ internal static class NativeTemplates
         Entries.Clear(); Roots.Clear(); _hud = null; _ready = false;
         _tray?.Dispose(); _tray = null; Tooltip = null;
         if (_catalogNavigation != null) Object.Destroy(_catalogNavigation);
-        _catalogNavigation = null;
+        _catalogNavigation = null; _cardBody = null;
         if (_bank != null) Object.Destroy(_bank); _bank = null;
     }
 }

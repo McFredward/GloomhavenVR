@@ -93,6 +93,7 @@ internal static class TownServiceSync
             {
                 if (!entry.Current) continue;
                 Publish("item." + entry.ItemId.ToString(System.Globalization.CultureInfo.InvariantCulture), entry.CardRoot);
+                Publish("merchant.cardbody", entry.BodyRoot);
                 if (entry.RowContent != null)
                     Publish("merchant.row", entry.RowContent, entry.RowSource.transform, entry.RowCloneOf);
             }
@@ -127,6 +128,7 @@ internal static class TownServiceSync
         }
         foreach (TownServiceToken sample in TownServicePresentation.Samples)
         {
+            if (sample.IsPhysical) continue; // The same native face and body already publish their held pose.
             Transform? held = sample.HeldContent;
             if (held == null) continue;
             PublishHeld(sample, sample.Source);

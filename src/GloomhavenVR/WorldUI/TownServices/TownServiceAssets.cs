@@ -30,5 +30,8 @@ internal static class TownServiceAssets
         return _bundle != null ? _bundle.LoadAsset<GameObject>("assets/bundle/townservices/prefabs/" + name + ".prefab") : null;
     }
 
+    internal static Shader? Shader(string name) => _bundle != null
+        ? _bundle.LoadAsset<Shader>("assets/bundle/townservices/shaders/" + name + ".shader") : null;
+
     internal static void Reset() { _bundle = null; _probed = false; }
 }

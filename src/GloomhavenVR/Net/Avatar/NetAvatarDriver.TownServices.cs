@@ -35,6 +35,6 @@ internal sealed partial class NetAvatarDriver
         }
         if (TownServiceMirror.SharedFrameForRemote != null) TownServiceMirror.TickRemote(TownServiceMirror.SharedFrameForRemote);
     }
-    private void ForgetTownServices(int peer) { _pendingTown.Remove(peer); TownServiceMirror.RemovePeer(peer); }
-    private void ResetTownServices() { _pendingTown.Clear(); TownServiceMirror.ResetNetwork(); }
+    private void ForgetTownServices(int peer) { _pendingTown.Remove(peer); TownServiceMirror.RemovePeer(peer); RemoteTownResidents.Forget(peer); }
+    private void ResetTownServices() { _pendingTown.Clear(); TownServiceMirror.ResetNetwork(); RemoteTownResidents.Reset(); }
 }

@@ -71,6 +71,7 @@ internal static class NetProtocol
     public const byte MsgTownService = 19;
     public const byte MsgTownServiceFragments = 20;
     public const byte ExtIdTownService = 78;
+    public const byte ExtIdTownResidents = 79;
     public const byte ExtIdItemAppearance = 76;
     public const byte ExtIdPresentationCompression = 64;
     public const byte ExtIdDamageAvoidance = 65;

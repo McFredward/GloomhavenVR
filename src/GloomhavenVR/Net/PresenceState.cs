@@ -13,6 +13,8 @@ internal struct PresenceState
 {
     /// <summary>Explicit ownership statement for shared map windows, including an all-zero release.
     /// A missing statement cannot establish that a remote player's stationary grip ended.</summary>
+    public bool HasTownResidents;
+    public TownResidentsState TownResidents;
     public bool HasSharedWindowMotion;
     public byte SharedWindowHeldMask;
     public byte SharedWindowReflowMask;
@@ -1620,6 +1622,9 @@ internal static class PresenceSerializer
     /// + 56 (HELD PROPS: 2 + its two-slot form, 2 x <c>NetProtocol.HeldPropSlotBytes</c>)
     /// = 1726.
     ///
+    /// <para>Permanent residents79 adds at most93 bytes: 6869 -> 6962 worst case; buffer7219
+    /// retains257 spare bytes. The7168-byte reassembly bound remains sufficient.</para>
+    ///
     /// <para>Shared window motion77 adds four bytes: 6865 -> 6869 worst case; buffer 7126
     /// retains 257 spare bytes, within the unchanged 7168-byte reassembly bound.</para>
     ///
@@ -1871,7 +1876,7 @@ internal static class PresenceSerializer
     /// ITS OWN COMMIT, and keeps a margin of at least one record's worth. Record 27 (track order)
     /// took the worst case 859 → 887 on 2026-08-08; the margin is 393 bytes, i.e. still more than
     /// every optional record on the tail put together.</para></summary>
-    public const int MaxSize = 7126;
+    public const int MaxSize = 7219;
 
     // ---- write --------------------------------------------------------------------------
 
@@ -1946,6 +1951,7 @@ internal static class PresenceSerializer
                           // The sampler already returns 0 outside the online card-selection phase,
                           // which is what keeps every packet of every other phase byte-identical
                           // to a pre-record-27 sender's.
+                          || state.HasTownResidents
                           || state.HasSharedWindowMotion
                           || state.HasVideoWindow
                           || state.HasRewardPoseHandshake
@@ -2711,6 +2717,8 @@ internal static class PresenceSerializer
                 records++;
             }
         }
+        if (state.HasTownResidents && TownResidentsCodec.Write(buffer, ref i, in state.TownResidents))
+            records++;
         // A zero mask is a positive release statement, not an omitted default. Stationary
         // grips must remain distinguishable from silence and from automatic layout movement.
         if (state.HasSharedWindowMotion && i + 2 + NetProtocol.SharedWindowMotionRecordBytes <= buffer.Length)
@@ -4045,6 +4053,11 @@ internal static class PresenceSerializer
     private static void ReadExtensionRecord(byte[] buffer, int i, byte id, int len,
                                             ref PresenceState state)
     {
+        if (id == NetProtocol.ExtIdTownResidents)
+        {
+            state.HasTownResidents = TownResidentsCodec.TryRead(buffer, i, len, out state.TownResidents);
+            return;
+        }
         if (id == NetProtocol.ExtIdSharedWindowMotion)
         {
             if (len >= NetProtocol.SharedWindowMotionRecordBytes)
