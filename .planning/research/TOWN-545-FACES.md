@@ -37,3 +37,14 @@ No paid generation or additional external asset purchase was used for build 545.
 | Enchantress | 139754 | 49318 | 29612 | 116552 |
 
 The additional hand material adds one draw per visible resident; one shared 2K atlas serves all three. Existing body/face texture resolution and facial channels are retained. Final hardware timing and visual acceptance remain outstanding.
+
+## Final artifact evidence
+
+- Windows bundle: 100,502,898 bytes, SHA256 `150fee4dcb663f05c3bb586c8c45a79a0c54bbd5f3706429cc96cbb72b84c61e`; below the 100 MiB GitHub object limit.
+- Matching Linux review bundle: SHA256 `c35244d2df2ab86f33abbe0d5ba726ea33bacbdb6d83ad82a47c4de71f96a422`.
+- Actual asset gate: 598 assertions and six deliberate visual negative controls. This includes true 2K standalone hand imports, three materials per LOD, hand-marker parenting, no animation tracks that overwrite reparented contact frames, facial channels, opaque/dissolved rendering, pose scale and native capped map clip planes.
+- Actual Windows shader programs: all four D3D fragment variants of each eye shader bind the real four-light inputs. The final cornea on/off probe under the actual 2.6-power lamps changes 3,088–5,458 pixels across three views, with peak differences of 50–56/255; the glints are produced by the actual lamps.
+- Evidence: `.planning/debug/town545-final-evidence-v2`, with a 128-input SHA256 manifest verified against the promoted source tree. `portrait-review` contains the approved geometry/material review; `practical-cornea` contains the isolated optical probe. Static station views intentionally omit runtime native decoration, which has separate integration evidence.
+- Canonical packed authoring inputs: `.planning/debug/town545-prototype-final`, `town545-rig-final`, and `town545-hands-v3`; the integrator archives these as `npc-authoring545` in the main checkout.
+
+The final shared hand atlas contributes one additional draw per NPC. Final imported mesh memory and triangle/vertex counts are recorded per NPC and LOD in the `*-facial-metrics.txt` evidence. Close stereo appearance, runtime timing and the lower-detail portrait-style collar/cloth surfaces remain hardware assessment items; no claim of photorealism is made.
