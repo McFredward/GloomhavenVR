@@ -260,6 +260,40 @@ def render_evidence(args, rig, meshes, output):
             bpy.ops.render.render(write_still=True)
 
 
+def smooth_face_normals(obj, name):
+    """Suppress reconstructed submillimetre folds without moving anatomy or UVs.
+
+    UV-corner normals remain independent for clothing. The neutral head is one
+    continuous outer surface; average its geometric normals in a bounded physical
+    neighbourhood rather than retaining provider/decimator microfold highlights.
+    """
+    from mathutils.kdtree import KDTree
+    mesh = obj.data
+    faces = [p for p in mesh.polygons if mesh.materials[p.material_index].name.startswith('TownFace')]
+    if not faces: return None
+    indices = sorted({v for p in faces for v in p.vertices})
+    normals = {i: Vector((0, 0, 0)) for i in indices}
+    for p in faces:
+        for index in p.vertices: normals[index] += p.normal * p.area
+    tree = KDTree(len(indices))
+    for index in indices: tree.insert(mesh.vertices[index].co, index)
+    tree.balance()
+    radius = .003 if name == 'merchant' else .0025
+    smoothed = {}
+    for index in indices:
+        result = Vector((0, 0, 0))
+        for _, neighbour, distance in tree.find_range(mesh.vertices[index].co, radius):
+            # Area weighting lets the surrounding surface dominate tiny inverted
+            # microfolds; an angular gate would preserve the bad inward normal.
+            result += normals[neighbour] * math.exp(-3 * (distance / radius) ** 2)
+        smoothed[index] = result.normalized() if result.length_squared else normals[index]
+    corners = [tuple(n.vector) for n in mesh.corner_normals]
+    for p in faces:
+        for loop in p.loop_indices: corners[loop] = tuple(smoothed[mesh.loops[loop].vertex_index])
+    mesh.normals_split_custom_set(corners)
+    return {'radiusMetres': radius, 'vertices': len(indices), 'positionsAndUvsUnchanged': True}
+
+
 def main():
     options = args()
     source, output = options.input_dir.resolve(), options.output_dir.resolve()
@@ -341,6 +375,7 @@ def main():
             point[1] = float(np.mean(np.quantile(nearby[:, 1], [0.1, 0.9])))
         profile[landmark] = point
     rig, definitions = create_rig(profile)
+    face_normals = {obj.name: smooth_face_normals(obj, options.name) for obj in meshes}
     records = {obj.name: weights(obj, rig, definitions, profile) for obj in meshes}
     durations = animate(rig)
     bpy.ops.file.pack_all()
@@ -354,7 +389,7 @@ def main():
         object_types={'MESH', 'ARMATURE'}, add_leaf_bones=False, bake_anim=True,
         bake_anim_use_nla_strips=False, bake_anim_use_all_actions=True, bake_anim_force_startend_keying=True,
         bake_anim_simplify_factor=0, axis_forward='-Z', axis_up='Y', path_mode='STRIP')
-    report = {'name': options.name, 'blender': bpy.app.version_string,
+    report = {'name': options.name, 'faceNormalCleanup': face_normals, 'blender': bpy.app.version_string,
               'authoringScriptSha256': hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
               'lodHelperSha256': hashlib.sha256(Path(__file__).with_name('prepare-npc-assets.py').read_bytes()).hexdigest(),
               'preparedInput': str(source), 'preparedManifestSha256': hashlib.sha256((source / 'manifest.json').read_bytes()).hexdigest(),

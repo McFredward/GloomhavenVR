@@ -1,52 +1,41 @@
-# Town-service source and license record
+# Town-service source record
 
-Furniture geometry and bounded station rig/actions are authored by the project scripts.
-Wood and stone textures reuse Poly Haven CC0 dark_wooden_planks and monastery_stone_floor.
-See the existing Assets/Bundle/Environments/License.md acquisition record.
+Furniture geometry and bounded station motions are authored by the project scripts. Wood and stone reuse the existing Poly Haven CC0 dark_wooden_planks and monastery_stone_floor assets; see `Assets/Bundle/Environments/License.md`. Native tabletop decoration is loaded from original game assets at runtime.
 
-NPCs derive from the selected Hunyuan results. Selected sources intentionally use specularColorFactor 1;
-the priestess selected source includes the reviewed normal-atlas seam repair.
-No additional roughness floor, atlas repainting, anatomy repair, or source smoothing was applied here.
-Normalized 500k source meshes and raw GLBs remain outside the bundle and source control.
+Build 542 replaces the neutral heads while retaining the original costumes and body proportions. The new heads have separate 4K reference-projected albedo and dedicated LOD geometry. The merchant uses a reviewed Trellis 2 reconstruction with closed surface repair; the women use Hunyuan3D v3 multiview sources. Raw provider files remain outside the bundle and source control. Detailed acquisition, rejected-source diagnosis and visual validation are in `.planning/research/TOWN-542-FACES.md`.
 
-The rig uses only bounded station motions. No general locomotion, grasping, facial animation,
-eye tracking, or individually validated finger articulation is claimed. Fine source/material seams
-remain visible in strong close views; headset review is still required.
-
-Source and derivative SHA-256 values:
+The existing rig provides bounded station motions only. No facial animation, mouth interior, eye tracking, general locomotion or validated finger grasping is claimed. These are first headset-review assets, not a statement of final photoreal quality.
 
 ## merchant
-- Selected model.glb: `27a85d8b6e4217219b475a5685072a0431444c0233b65a0eef56e9ff6822cf28`
-- Preparation manifest: `3741214298199a6128aed88e612120fa8cbcfc51dc8bbacc28abcdd4e4646d1b`
-- Rig manifest: `1d65532f7ea50c97c7260bf6929fb8986626dc6effffab8a704b840ec5f2610c`
-- Bundled rig FBX: `cdee2817445e7db12a8ea9a99be81ca2e0cce8544e4951d9149171805683a76a`
-- Source triangles: 499470; final LOD triangles: 80000 / 30000 / 10000.
-- Derived source weld: 313656 to 249691 vertices at 1e-6 m, unchanged faces, corner UVs and material assignments.
+
+- Raw head GLB SHA-256: `9837b103eaf7796550559d6ac90208498e2242cdb769416bcd5bb28551b51b16`.
+- Head request receipt SHA-256: `fd086cc7a4c86cbfd46dee554d88e2a07f73e74a194e27dc361f5c99746287ef`.
+- Combined preparation manifest SHA-256: `c10641e2bf7a12175ab0805e3c39987cdbd825d5301c1b3457d8348ca807147f`.
+- Bundled rig FBX SHA-256: `62bb9723cecb883b89b0b9dfdcbf0ced6d0f190aa87162148de6ae339bd31cff`.
+- Original costume GLB SHA-256: `27a85d8b6e4217219b475a5685072a0431444c0233b65a0eef56e9ff6822cf28`.
 
 ## priestess
-- Selected model.glb: `b6956c95689bde14127ccdda2ead71022d4def2521e266c120634aeec095bb2a`
-- Preparation manifest: `0b04af068422658946af33bdc90993b40a4ce1d749631413c7ff29d6d9d38994`
-- Rig manifest: `c1c0703f7ac1dd2bd2f0937a7a774c7b2c76aabdcc1052137cd20bfe0316773c`
-- Bundled rig FBX: `8021247913ea142cc7799ff4255afd1d32a793b49dba086480dd3fcf2c134ac5`
-- Source triangles: 499374; final LOD triangles: 80000 / 30000 / 10000.
-- Derived source weld: 298714 to 249649 vertices at 1e-6 m, unchanged faces, corner UVs and material assignments.
+
+- Raw head GLB SHA-256: `d20868f08d1f8d57da533382451dcf4c100561d890b16c98b284979a2353d5f8`.
+- Head request receipt SHA-256: `f080181d443a5a20788142e605f540270252f6ced12e5788138fcde15de2d96e`.
+- Combined preparation manifest SHA-256: `b18ebe07c61aaeeaef4147631cc47bc0d03d577d6ac4207322531c123a5d1936`.
+- Bundled rig FBX SHA-256: `cf15b960c4658f018a03a50721eba847fb7a08a00fb03025715c104dfdfae23f`.
+- Original costume GLB SHA-256: `b6956c95689bde14127ccdda2ead71022d4def2521e266c120634aeec095bb2a`.
 
 ## enchantress
-- Selected model.glb: `6923aceada531767169e9071c07057379a372f11dbb242d3843e50424f8f8f0e`
-- Preparation manifest: `ae963e04bb536e24e458ca0dd4fbda1d2ce4cb7d07a4b24b7a9d6e533f881a1b`
-- Rig manifest: `34a26e281e8a310f2cca52e2fa2e4a07e7b559c470795bcb209ffed01ebe2fb9`
-- Bundled rig FBX: `0dee94e1ea1163785e2d7caa6a136b02b01e0246808f593d7dd3a52e096a5fcd`
-- Source triangles: 499768; final LOD triangles: 80000 / 30000 / 10000.
-- Derived source weld: 312027 to 249812 vertices at 1e-6 m, unchanged faces, corner UVs and material assignments.
 
-## Toolchain
-- Blender: 4.2.22 LTS
-- Rig script: `095c7e6b75c566acf4714439a43718d7a7f5a8f5397bb765932e1599c1b9afdc`
-- Preparation / weld helper: `6fb2f5c40bed041efcaba840f42bb83bc50f3817eba7a2ca3307bafe6930ad82`
-- Unity 2021.3.5f1, StandaloneWindows64, TypeTrees enabled.
-- Standalone GPU textures: 4K BC7 base colour, 4K BC5 normals, 4K DXT5 metallic/smoothness.
-- Shared self-contained Standard PBR shader uses Cull Off and _TownVisibility dissolve.
+- Raw head GLB SHA-256: `c5f19c4b8aaa7496679c8ae5ec1fcb76299803513cadcd197303b77fdc005fdc`.
+- Head request receipt SHA-256: `2cd1ea383b9b4b0d20f7fc05344fa568f2f3f5360df7bfea6d48f8c9499407ba`.
+- Combined preparation manifest SHA-256: `8cc8eca898bb6e9238ed9030d5e4db2a943484aa146cc2a46274c4690a8c6e32`.
+- Bundled rig FBX SHA-256: `023950a14df567ba2405e5a209a3196d92c0a6e99a828734bed8b6eb911f787d`.
+- Original costume GLB SHA-256: `6923aceada531767169e9071c07057379a372f11dbb242d3843e50424f8f8f0e`.
 
-Furniture tile maps import at 1K; the nine NPC maps remain 4K.
-Conservative Unity key reduction measured 0.125 mm maximum posed vertex displacement
-against the unreduced clips over 108 sampled pose times.
+## Import and validation
+
+- Blender 4.2.22 LTS; Unity 2021.3.5f1; StandaloneWindows64 shipping bundle with type trees.
+- One skinned renderer per LOD, two materials (costume and head). Intended triangle budgets: 100k / 40k / 13k; final imported counts are recorded in the build-542 evidence.
+- Face and costume albedo: 4K BC7. Costume normal: 2K BC5. Costume metallic/smoothness mask: 1K DXT5. Repeated furniture tiles: 1K.
+- Face corner normals use area-weighted spatial smoothing within 3mm (merchant) / 2.5mm (women), preserving positions, UVs and costume normals.
+- Scene ambient/main/vertex lighting, original visibility dissolve and stereo support; no artificial studio-light floor.
+- Original flame atlases use the shared station clock and central-eye billboard.
+- Posed soles are measured with explicit CPU skinning, cross-checked against an explicitly scaled Unity bake. Runtime terrain offsets remain additive.

@@ -48,18 +48,19 @@ def remove_old_face(obj, name):
         if name == 'merchant':
             # Preserve the actual shirt collar and cloak behind the head, never the
             # red lips of the replaced source face.
-            if centre.z > 1.535: return False
-            if centre.y > .015: return True
-            if centre.z > 1.515: return False
-            if centre.y > -.065: return True
+            if centre.z > 1.535 and not (centre.y > .02 and centre.z < 1.56): return False
         if name == 'priestess' and 1.445 <= centre.z < 1.625: return False
         if name == 'enchantress' and (centre.z < 1.51 or (abs(centre.x) < .042 and centre.z < 1.606) or (abs(centre.x) < .061 and 1.575 < centre.z < 1.611 and centre.y > -.15)): return False
         point = sum((loop[uv].uv for loop in face.loops), Vector((0, 0))) / len(face.loops)
         r,g,b = pixels[min(image.size[1]-1,max(0,int(point.y*image.size[1]))),
                        min(image.size[0]-1,max(0,int(point.x*image.size[0]))),:3]
-        if name == 'merchant': return (r > g * 1.45 and b > g * 1.05) or (min(r,g,b) > .36 and max(r,g,b)-min(r,g,b) < .20)
+        if name == 'merchant':
+            if max(r,g,b)-min(r,g,b) < .12 and max(r,g,b) < .45: return False
+            if centre.y > .02 and centre.z < 1.56: return True
+            if centre.z > 1.515: return False
+            return centre.y > -.065 or (r > g * 1.45 and b > g * 1.05) or (min(r,g,b) > .36 and max(r,g,b)-min(r,g,b) < .20)
         if name == 'priestess' and centre.z < 1.445: return r < g * 1.10 or b > g * .9
-        if name == 'enchantress': return (g > r * .96 and b > r) or b > g * 1.05
+        if name == 'enchantress': return (g > r * .96 and b > r * 1.15) or b > g * 1.18
         return centre.z > 1.64 and r > g * 1.35 and g > b * 1.3 and b < .24
     faces = [f for f in bm.faces if replaced(f.calc_center_median()) and not clothing(f)]
     count = len(faces)
@@ -102,6 +103,36 @@ def continue_priestess_coif(body):
     return obj
 
 
+
+def close_merchant_neckline(body):
+    """Close the retained collar underneath the beard using original neck skin."""
+    mesh = body.data
+    skin_face = min(mesh.polygons, key=lambda f: (f.center - Vector((0, -.04, 1.46))).length_squared)
+    source_uv = mesh.uv_layers.active.data
+    centre_uv = sum((source_uv[i].uv for i in skin_face.loop_indices), Vector((0, 0))) / len(skin_face.loop_indices)
+    vertices, faces = [], []
+    rings, segments = 10, 48
+    for row in range(rings):
+        t = row/(rings-1)
+        for column in range(segments):
+            angle = 2*math.pi*column/segments
+            vertices.append(((.061+.009*t)*math.cos(angle), .025+(.052+.008*t)*math.sin(angle), 1.44+.12*t))
+            if row:
+                next_column = (column+1)%segments
+                faces.append(((row-1)*segments+column,(row-1)*segments+next_column,row*segments+next_column,row*segments+column))
+    faces.append(tuple(reversed(range(segments))))
+    faces.append(tuple((rings-1)*segments+i for i in range(segments)))
+    data=bpy.data.meshes.new('Inner neck closure');data.from_pydata(vertices,[],faces);data.update()
+    obj=bpy.data.objects.new('NeckClosure',data);bpy.context.collection.objects.link(obj)
+    data.materials.append(body.data.materials[0]);uv=data.uv_layers.new(name='UVMap')
+    for face in data.polygons:
+        face.use_smooth=True
+        for index in face.loop_indices:
+            row,column=divmod(data.loops[index].vertex_index,segments)
+            uv.data[index].uv=centre_uv+Vector(((column/segments-.5)*.004,(row/(rings-1)-.5)*.006))
+    return obj
+
+
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--body',type=Path,required=True)
@@ -118,6 +149,7 @@ def main():
     for obj in bodies:
         for material in obj.data.materials: material.name='TownBody'
     if a.name == 'priestess': bodies.append(continue_priestess_coif(bodies[0]))
+    if a.name == 'merchant': bodies.append(close_merchant_neckline(bodies[0]))
     before=set(bpy.context.scene.objects)
     source=next(d for d in head['derivatives'] if d['name'].endswith('_source'))
     bpy.ops.import_scene.gltf(filepath=str(a.head/source['glb']))
@@ -132,6 +164,12 @@ def main():
         bm = bmesh.new(); bm.from_mesh(obj.data)
         bottom = [f for f in bm.faces if f.calc_center_median().z < .014 or
                   (a.name != 'merchant' and f.calc_center_median().z < .085 and abs(f.calc_center_median().x) > (.050 if a.name == 'enchantress' else .060))]
+        if a.name == 'enchantress':
+            # The original purple hair is retained. The generated head's straight
+            # side hair is not an anatomical cheek/ear and must stay inside it.
+            bottom += [face for face in bm.faces if face not in bottom and
+                       face.calc_center_median().z < .20 and abs(face.calc_center_median().x) >
+                       float(np.interp(face.calc_center_median().z, [0,.08,.105,.155,.19,.20], [.043,.045,.057,.060,.055,.065]))]
         bmesh.ops.delete(bm, geom=bottom, context='FACES')
         for vertex in bm.verts:
             z = vertex.co.z

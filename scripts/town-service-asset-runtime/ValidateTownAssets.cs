@@ -188,6 +188,8 @@ public static class ValidateTownAssets
             actorRoot.localPosition = actorBase;
             var envelope = new Bounds(); bool hasEnvelope = false;
             var skin = lod.GetLODs()[0].renderers.OfType<SkinnedMeshRenderer>().Single();
+            Check(skin.sharedMaterials.Length == 2 && skin.sharedMaterials[1].mainTexture.width == 4096,
+                npc + " separate head atlas retains 4K without additional skinned renderers");
             Sample(root, "Idle", 0);
             var bakedControl = new Mesh(); skin.BakeMesh(bakedControl, true);
             var cpuControl = PosedVertices(skin, root.transform);
