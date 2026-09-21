@@ -533,7 +533,11 @@ internal static class NetProtocol
     // Additive record 80 and message 21 retain Version 3; resident record 79 is unchanged.
     // Presence recovery adds 96 bytes: worst 7082 < 7168 assembly capacity; allocation 7339
     // retains the 257-byte largest-record margin.
-    // Requires the matching facial-rig town bundle. Hardware anatomy/animation remains unverified.
+    // Fitted eyelid/lip loops, separate globe/cornea geometry and eleven shape channels per LOD
+    // replace the former static facial shell. Neutral and posed normals share one topology;
+    // anatomical Head/Neck weights preserve the complete jaw during gaze. Original body and
+    // costume channels remain unchanged. Requires the matching 99,211,283-byte town bundle.
+    // Actual bundled prefabs pass binding/anatomy checks; headset appearance remains unverified.
 
 
     // ModBuild 542 — persistent immersive town residents and physical merchant inspection.

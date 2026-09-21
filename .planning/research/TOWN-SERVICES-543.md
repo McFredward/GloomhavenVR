@@ -123,13 +123,14 @@ features instead of preserving the mandible. The asset correction uses the anato
 skin weights supplied with the same CC0 source topology. A trial collar cylinder also
 produced visible texture bands through extrapolated UV coordinates and was rejected;
 existing costume geometry must not be redesigned to hide an incorrect face fit.
-Final pictures and an actual-prefab skull/jaw preservation check remain required.
+The corrected weights are validated against both actual rendered poses and an
+independent actual-prefab skull/jaw preservation check.
 
 The v8 source review passes 468 asset assertions and six visual negative controls.
 Root inspected neutral, closed-blink, small oral deformation and extreme-gaze views;
 the previously stretched jaws and broad dark eyelid bands are corrected. Existing
 irregular costume cut edges are retained and are not claimed fixed by this facial work.
-Final bundled rendering and runtime binding remain separate gates.
+Final bundled rendering and runtime binding are recorded separately below.
 
 The unchanged environment was checked against the v8 imported triangle indices and
 CPU-skinned pose exports: 16 poses (11 unique) per resident at 360 bearings, with the
@@ -139,6 +140,33 @@ All exceed the unchanged 28.52 mm wind bound documented in
 [TOWN-542-SETTING.md](TOWN-542-SETTING.md). This is a sampled geometry check, not a
 headset visual guarantee. Input hashes, reproducible script and results are archived
 in `.planning/debug/town543-canopy-*`; no environment geometry was changed.
+
+## Final artifact acceptance
+
+- Loaded Linux asset bundle: 469 assertions and six visual negative controls.
+- Actual production rig on those final prefabs: 9862 assertions, three compiled
+  negative controls and nine deliberately corrupted Head/Neck jaw-weight cases.
+  All three residents retain three facial LODs and eleven channels per LOD.
+  Maximum sampled skull/jaw rigidity residual is 0.001864 mm; eye-target angular
+  error is at most 0.02798 degrees. This validates the bound samples, not visual realism.
+- The first actual-prefab attempt exposed a fixture-only JsonUtility nested-array
+  deserialization limitation. Explicit DataContract JSON handling fixes both metadata
+  reading and evidence writing. The asset and production runtime were unchanged.
+- Windows town bundle: 99,211,283 bytes; SHA256
+  `6df700ed2374c7f0f8ab4652363bce54a70ab54e33ee67c6879a889f533a08e3`.
+  Both bundles use UnityFS format 7 / Unity 2021.3.5f1; the main bundle is unchanged.
+  Root compared all 119 final asset/build-input hashes to the reviewed worker inputs.
+- Full runtime/wire guard results above remain applicable: subsequent production edits
+  only clarified build-note comments. Final source gates pass 14/14, strict Release
+  remains zero warnings/errors, and bilingual documentation and whitespace checks pass.
+  Asset and actual-prefab checks cover the subsequent authoring/export changes.
+- Final render evidence and packed Blender authoring sources are archived in the main
+  checkout at `.planning/debug/npc-authoring543/`. Runtime binding evidence is recorded
+  in [TOWN-543-GAZE.md](TOWN-543-GAZE.md); asset provenance, costs and limitations are
+  in [TOWN-543-FACES.md](TOWN-543-FACES.md).
+
+This is a development hardware candidate, not a release. It requires the matching
+DLL and town bundle; use the full installation package. No audible NPC speech is claimed.
 
 ## Hardware acceptance after final asset validation
 
