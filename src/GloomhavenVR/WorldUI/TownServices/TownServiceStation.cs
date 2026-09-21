@@ -22,6 +22,7 @@ internal sealed class TownServiceStation : IDisposable
     private static readonly int VisibilityId = Shader.PropertyToID("_TownVisibility");
     private float _visibility = -1f;
     internal Transform Root => _root.transform;
+    internal bool IsReady => _decor.Ready;
     internal Transform InteractionAnchor { get; }
     internal float GreetingDuration => _animation != null && _animation["Greeting"] != null
         ? _animation["Greeting"].length : 0f;
