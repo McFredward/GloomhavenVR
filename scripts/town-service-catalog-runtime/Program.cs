@@ -59,7 +59,14 @@ public static class InteractionProgram
         {
             for (int repetition = 0; repetition < 3; repetition++)
             {
+                // Desktop merchant prefabs have no gamepad-only Owned filter. The previous
+                // fixture supplied every field and therefore could not reproduce build 540.
+                inventory._ownedFilter = repetition == 1 ? null! : original[3];
                 var catalog = new TownServiceCatalog(inventory, anchor.transform, () => context, () => alive, anchor.transform);
+                Check(catalog.Controls.Count == (repetition == 1 ? 8 : 9), "only existing native merchant controls are presented");
+                bool ownsFilter = false;
+                foreach (var control in catalog.Controls) ownsFilter |= control.Key == "merchant.filter.owned";
+                Check(ownsFilter == (repetition != 1), "optional owned filter follows original prefab availability");
                 Census(catalog); catalog.Tick(2f); catalog.SetVisibility(.35f); catalog.LateTick();
                 Check(Mathf.Abs(catalog.Root.GetComponent<CanvasGroup>().alpha - .35f) < .001f, "owner visibility applies to cards and navigation");
                 foreach (var control in catalog.Controls)

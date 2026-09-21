@@ -104,7 +104,12 @@ internal sealed class TownServiceCatalog : IDisposable
             AddControl("merchant.buy", inventory.buyTab.transform, -.08f, .33f, .14f);
             AddControl("merchant.sell", inventory.sellTab.transform, .08f, .33f, .14f);
             AddControl("merchant.filter.all", inventory.allFilter.transform, -.24f, .265f, .055f);
-            AddControl("merchant.filter.owned", inventory._ownedFilter.transform, -.16f, .265f, .055f);
+            // The desktop merchant omits the gamepad-only Owned filter. Build 540
+            // dereferenced it after converting Buy/Sell/All, then rolled the whole service
+            // back to a window. Match the original prefab: move this control only when it
+            // exists; never fabricate a filter or change native inventory permissions.
+            if (inventory._ownedFilter != null)
+                AddControl("merchant.filter.owned", inventory._ownedFilter.transform, -.16f, .265f, .055f);
             AddControl("merchant.filter.head", inventory.headFilter.transform, -.08f, .265f, .055f);
             AddControl("merchant.filter.body", inventory.bodyFilter.transform, 0f, .265f, .055f);
             AddControl("merchant.filter.hands", inventory.handsFilter.transform, .08f, .265f, .055f);
