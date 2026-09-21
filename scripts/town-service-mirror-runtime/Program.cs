@@ -544,6 +544,52 @@ public static class MirrorProgram
         GloomhavenVR.WorldUI.TownServiceSync.Tick(shared, shared);
         Check(GloomhavenVR.WorldUI.TownServiceSync.ModuleCount == 15 && GloomhavenVR.WorldUI.TownServiceSync.SourceCount == 15,
             "publisher page shrink retires old cards and price modules");
+        // Physical detail/hint owners show cloned output while their native parent remains
+        // hidden. The dynamic card identity survives only on the original gameplay component.
+        var previewSource = Go("original-detail").transform;
+        var previewMiddle = Go("native-detail-container", previewSource).transform;
+        var previewCard = Go("native-detail-item", previewMiddle).AddComponent<GloomhavenVR.WorldUI.ItemCardUI>(); previewCard.CardID = 301;
+        var previewCopy = Go("visible-detail-copy").transform;
+        var previewCardCopy = Go("inert-detail-item", previewCopy).transform;
+        catalog.PreviewSource = previewSource; catalog.PreviewContent = previewCopy;
+        catalog.PreviewMap[previewSource] = previewCopy; catalog.PreviewMap[previewCard.transform] = previewCardCopy;
+        GloomhavenVR.WorldUI.NativeTemplates.Originals["merchant.tooltip"] = previewSource;
+        var hint = Go("original-global-hint").AddComponent<GloomhavenVR.WorldUI.UITooltip>();
+        hint.m_AnchorToTarget = window.transform;
+        GloomhavenVR.WorldUI.NativeTemplates.Tooltip = hint;
+        catalog.HintSource = hint.transform; catalog.HintContent = Go("visible-hint-copy").transform;
+        catalog.HintMap[hint.transform] = catalog.HintContent;
+        var hintCard = Go("hint-item", hint.transform).AddComponent<GloomhavenVR.WorldUI.ItemCardUI>(); hintCard.CardID = 302;
+        var hintCardCopy = Go("inert-hint-item", catalog.HintContent).transform;
+        catalog.HintMap[hintCard.transform] = hintCardCopy;
+        var heldSource = Go("original-held-card").AddComponent<GloomhavenVR.WorldUI.AbilityCardUI>(); heldSource.CardID = 777;
+        var heldCopy = Go("inert-held-card").transform;
+        var held = new GloomhavenVR.WorldUI.TownServiceToken { Source = heldSource.transform, HeldContent = heldCopy };
+        held.HeldMap[heldSource.transform] = heldCopy;
+        GloomhavenVR.WorldUI.TownServicePresentation.Samples.Add(held);
+        var furniture = Go("owner-workspace-furniture").transform;
+        GloomhavenVR.WorldUI.TownServicePresentation.CounterFurniture = furniture;
+        calls.Clear(); GloomhavenVR.WorldUI.TownServiceSync.Tick(shared, shared);
+        Check(calls.Exists(c => c.Key == "merchant.tooltip" && c.Source == previewCopy)
+            && !calls.Exists(c => c.Source == previewSource), "visible detail replaces the hidden original tooltip");
+        Check(calls.Exists(c => c.Key == "item.301" && c.Source == previewCardCopy),
+            "native detail preview publishes its nested pooled item card");
+        var copiedCard = calls.Find(c => c.Source == previewCardCopy);
+        Check(copiedCard != null && copiedCard.Provenance == previewCard.transform && copiedCard.CloneOf != null
+            && copiedCard.CloneOf(previewCard.transform) == previewCardCopy,
+            "nested preview retains original card provenance");
+        Check(calls.Exists(c => c.Key == "tooltip.fixture" && c.Source == catalog.HintContent)
+            && !calls.Exists(c => c.Source == hint.transform), "visible hint replaces the hidden original global tooltip");
+        Check(calls.Exists(c => c.Key == "item.302" && c.Source == hintCardCopy && c.Provenance == hintCard.transform),
+            "global hint publishes its nested pooled item card");
+        Check(calls.Exists(c => c.Key == "card.777" && c.Source == heldCopy && c.Provenance == heldSource.transform),
+            "held cards retain production recursive publication");
+        Check(calls.Exists(c => c.Key == "merchant.counter" && c.Source == furniture),
+            "extra visitor furniture is published in its owner workspace pose");
+        GloomhavenVR.WorldUI.TownServicePresentation.Samples.Clear();
+        GloomhavenVR.WorldUI.NativeTemplates.Tooltip = null;
+        GloomhavenVR.WorldUI.NativeTemplates.Originals.Clear();
+        GloomhavenVR.WorldUI.TownServicePresentation.CounterFurniture = null;
         GloomhavenVR.WorldUI.TownServicePresentation.Catalog = null;
         GloomhavenVR.WorldUI.TownServiceSync.Calls.Clear();
         GloomhavenVR.WorldUI.TownServiceSync.Tick(shared, shared);
@@ -598,6 +644,57 @@ public static class MirrorProgram
         for (int i = 0; i < 2; i++) ComparePixels(cards[i], Remote(3, (ushort)(i + 1))!.Root, "counter-page-shrink-" + i);
     }
 
+    private static IEnumerator FurniturePlayback()
+    {
+        TownServiceMirror.Shutdown(); Baselines.Clear();
+        var shared = Go("workspace-owner-frame").transform;
+        var observer = Go("workspace-observer-frame").transform; observer.position = new Vector3(7, 0, 0);
+        var original = Rect("original-furniture", shared, Vector2.zero, new Vector2(400, 260));
+        original.localScale = Vector3.one * .01f;
+        var plank = GameObject.CreatePrimitive(PrimitiveType.Cube); plank.name = "counter-planks";
+        plank.transform.SetParent(original, false); plank.transform.localScale = new Vector3(220, 120, 15);
+        var material = new Material(Shader.Find("GloomhavenVR/TownNpc")) { color = new Color(.55f, .24f, .09f, 1) };
+        material.SetFloat("_TownVisibility", 1); Assets.Add(material);
+        plank.GetComponent<MeshRenderer>().sharedMaterial = material;
+        TownServiceMirror.RegisterTemplate(1, 1, original, address: "merchant.counter|");
+        var first = new Vector3(-1.2f, .4f, .1f); var second = new Vector3(1.5f, .9f, -.3f);
+        original.localPosition = first;
+        TownServiceMirror.BeginSession(1, 1501, shared, original);
+        TownServiceMirror.RegisterModule(1, 1, original, address: "merchant.counter|");
+        yield return null;
+        Receive(1, Capture()); TownServiceMirror.TickRemote(_ => observer);
+        original.localPosition = second; original.localRotation = Quaternion.Euler(0, 23, 0);
+        TownServiceMirror.BeginSession(1, 1502, shared, original);
+        TownServiceMirror.RegisterModule(1, 1, original, address: "merchant.counter|");
+        yield return null;
+        Receive(2, Capture()); TownServiceMirror.TickRemote(_ => observer);
+        var one = Remote(1, 1); var two = Remote(2, 1);
+        Check(one != null && two != null && one != two, "concurrent merchant visitors retain separate furniture modules");
+        Check(Vector3.Distance(one!.Root.position, observer.TransformPoint(first)) < .0001f
+            && Vector3.Distance(two!.Root.position, observer.TransformPoint(second)) < .0001f,
+            "two visitor workspaces keep distinct owner-authored positions");
+        Check(Quaternion.Angle(one.Root.rotation, Quaternion.identity) < .01f
+            && Quaternion.Angle(two.Root.rotation, Quaternion.Euler(0, 23, 0)) < .01f,
+            "two visitor workspaces keep distinct owner-authored rotations");
+        for (int step = 0; step < 3; step++)
+        {
+            float visibility = step == 0 ? .37f : step == 1 ? .8f : 1f;
+            material.SetFloat("_TownVisibility", visibility);
+            yield return null;
+            Receive(2, Capture()); TownServiceMirror.TickRemote(_ => observer);
+            for (float settle = Time.unscaledTime + .13f; Time.unscaledTime < settle;)
+            { TownServiceMirror.TickRemote(_ => observer); yield return null; }
+            var renderer = two.Root.Find("counter-planks").GetComponent<MeshRenderer>();
+            Check(Mathf.Abs(renderer.sharedMaterial.GetFloat("_TownVisibility") - visibility) < .0001f,
+                "remote furniture uses exact owned visibility material value");
+            Check(!renderer.HasPropertyBlock() && renderer.sharedMaterial != material,
+                "remote furniture fade uses owned material without property blocks or source mutation");
+            ComparePixels(original, two.Root, "furniture-material-fade-" + step);
+            Check(Mathf.Abs(one.Root.Find("counter-planks").GetComponent<MeshRenderer>().sharedMaterial.GetFloat("_TownVisibility") - 1f) < .0001f,
+                "one visitor fade never mutates another visitor material");
+        }
+    }
+
     public static IEnumerator Run(string output, string variant, string suite)
     {
         _output = Path.Combine(output, variant + "-evidence"); Directory.CreateDirectory(_output); _assertions = 0;
@@ -607,6 +704,14 @@ public static class MirrorProgram
             _camera.orthographic = true; _camera.nearClipPlane = .01f; _camera.farClipPlane = 100;
             _camera.clearFlags = CameraClearFlags.SolidColor; _camera.backgroundColor = new Color(.025f, .03f, .04f, 1);
             GloomhavenVR.Rig.VRRigDriver.HeadCamera = _camera;
+            if (suite == "counter-final")
+            {
+                IEnumerator furniture = FurniturePlayback();
+                while (furniture.MoveNext()) yield return furniture.Current;
+                PublisherRouting();
+                File.WriteAllText(Path.Combine(_output, "assertions.txt"), _assertions + " assertions\n");
+                yield break;
+            }
             Transform shared = Go("Owner frame").transform; shared.gameObject.AddComponent<CanvasGroup>().alpha = .71f;
             Transform source = Source(shared);
             Transform observer = Go("Observer frame").transform; observer.position = new Vector3(12, 0, 0);

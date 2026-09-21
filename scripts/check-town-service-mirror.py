@@ -29,7 +29,7 @@ def sources(root):
     motion = base / "Net/TownServices/TownServiceMotion.cs"
     if motion.exists(): bound[motion.name] = motion.read_text()
     publisher = (base / "WorldUI/TownServices/TownServiceSync.cs").read_text()
-    bound["PublisherTick.cs"] = "using GloomhavenVR.Net.TownServices;\nusing UnityEngine;\nnamespace GloomhavenVR.WorldUI;\ninternal static partial class TownServiceSync {\n" + method(publisher, "internal static void Tick(Transform sharedFrame, Transform? stationRoot)") + "\n}\n"
+    bound["PublisherTick.cs"] = "using System;\nusing GloomhavenVR.Net.TownServices;\nusing UnityEngine;\nnamespace GloomhavenVR.WorldUI;\ninternal static partial class TownServiceSync {\n" + "\n".join(method(publisher, signature) for signature in ("internal static void Tick(Transform sharedFrame, Transform? stationRoot)", "private static void PublishHeld(TownServiceToken sample, Transform original)", "private static void PublishCopiedCards(Transform original, Func<Transform, Transform?> cloneOf)", "private static string? DynamicKey(Transform source)")) + "\n}\n"
     town_neutralizer = base / "Net/TownServices/TownServiceNeutralize.cs"
     if town_neutralizer.exists():
         bound[town_neutralizer.name] = town_neutralizer.read_text()
@@ -53,7 +53,7 @@ def main():
     parser.add_argument("--source-root", type=Path, default=repo)
     parser.add_argument("--output-dir", type=Path, default=repo / ".planning/debug/town-service-mirror")
     parser.add_argument("--unity", type=Path, default=Path(os.environ.get("UNITY_PATH", "/home/claw/unity-2021.3.5/Editor/Unity")))
-    parser.add_argument("--suite", choices=("basic", "full", "lifecycle"), default="full")
+    parser.add_argument("--suite", choices=("basic", "full", "lifecycle", "counter-final"), default="full")
     parser.add_argument("--no-negative-controls", action="store_true")
     args = parser.parse_args()
     args.source_root = args.source_root.resolve()
@@ -78,7 +78,7 @@ def main():
         ]
         if args.suite == "full":
             variants += [
-                ("publisher-old-window", "PublisherTick.cs", "if (catalog == null)", "if (true)", "physical counter does not publish suppressed flat merchant window"),
+                ("publisher-old-window", "PublisherTick.cs", 'if (catalog == null)\n            Publish(prefix,', 'if (true)\n            Publish(prefix,', "physical counter does not publish suppressed flat merchant window"),
                 ("publisher-stale-entry", "PublisherTick.cs", "if (!entry.Current) continue;", "// publish stale entry", "physical counter publishes only six current item cards"),
                 ("publisher-price-provenance", "PublisherTick.cs", "entry.RowSource.transform, entry.RowCloneOf", "null, null", "counter price clone retains original row provenance map"),
                 ("parent-alpha", "TownServiceMirror.cs", "alpha *= group.alpha;", "alpha *= Mathf.Abs(group.alpha - .37f) < .0001f ? 1f : group.alpha;", "counter opening transports inherited parent alpha"),
@@ -92,6 +92,14 @@ def main():
             variants.append(("cancel-target-restore", "TownServiceMotion.cs",
                 "if (_hasTarget)\n            for", "if (_hasTarget && _nodes.Length == 0)\n            for",
                 "reopen restores unchanged child target after interrupted tween"))
+    if args.suite == "counter-final":
+        variants = [("production", None, None, None, "")]
+        if not args.no_negative_controls:
+            variants += [
+                ("preview-nested-card", "PublisherTick.cs", "for (int i = 0; i < original.childCount; i++) PublishCopiedCards(original.GetChild(i), cloneOf);", "// omit nested card traversal", "native detail preview publishes its nested pooled item card"),
+                ("preview-provenance", "PublisherTick.cs", "Publish(key, clone, original, cloneOf);", "Publish(key, clone, null, null);", "nested preview retains original card provenance"),
+                ("furniture-visibility", "TownServiceMaterial.cs", "value.x = material.GetFloat(name);", "value.x = name == \"_TownVisibility\" ? 1f : material.GetFloat(name);", "remote furniture uses exact owned visibility material value"),
+            ]
     print(f"Production binding: {args.source_root.resolve()}; evidence: {run}", flush=True)
     for name, filename, before, after, expected in variants:
         build = run / name; production = build / "production"; production.mkdir(parents=True)
@@ -114,6 +122,10 @@ def main():
     project = run / "unity"; (project / "Assets/Editor").mkdir(parents=True)
     (project / "Packages").mkdir(); (project / "ProjectSettings").mkdir()
     shutil.copyfile(fixture / "Editor/MirrorRunner.cs", project / "Assets/Editor/MirrorRunner.cs")
+    # Exercise the actual dissolve/material contract, with no replacement test shader.
+    shader = args.source_root / "unity/GloomhavenVR.Assets/Assets/Bundle/TownServices/Shaders/TownNpc.shader"
+    shutil.copyfile(shader, project / "Assets/TownNpc.shader")
+    (run / "town-shader.sha256").write_text(hashlib.sha256(shader.read_bytes()).hexdigest() + "\n")
     (project / "Packages/manifest.json").write_text('{"dependencies":{"com.unity.ugui":"1.0.0","com.unity.textmeshpro":"3.0.6"}}\n')
     (project / "ProjectSettings/ProjectVersion.txt").write_text("m_EditorVersion: 2021.3.5f1\n")
     manifest_path = run / "manifest.json"; manifest_path.write_text(json.dumps(manifest, indent=2) + "\n")
