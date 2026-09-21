@@ -11,24 +11,6 @@ from mathutils import Vector
 from town_npc_garment_weights import garment_support
 
 
-def blouse_hem(bm, body):
-    """A narrow sewn edge following the retained priestess blouse opening."""
-    uv=bm.loops.layers.uv.active;deform=bm.verts.layers.deform.active
-    chest=body.vertex_groups['Chest'].index;rings=[];samples=65
-    for row in range(5):
-        u=row/4;ring=[]
-        for i in range(samples):
-            t=i/(samples-1)*2-1;offset=.003-.006*u
-            vertex=bm.verts.new((.068*t,-.099+.033*t*t+offset*.4-.0007*math.sin(math.pi*u),1.376+.023*t*t+offset))
-            vertex[deform][chest]=1;ring.append(vertex)
-        rings.append(ring)
-    for row in range(4):
-        for i in range(samples-1):
-            face=bm.faces.new((rings[row][i],rings[row+1][i],rings[row+1][i+1],rings[row][i+1]));face.material_index=0;face.smooth=True
-            for loop in face.loops:loop[uv].uv=(.07115+loop.vert.co.x*.04,.10280+(loop.vert.co.z-1.38)*.04)
-    return samples*5
-
-
 def shirt_band(bm, body, npc):
     """A sewn shirt opening below the jaw; it never follows the skull."""
     # Priestess retains her original blouse opening; no overlay strip is added.
@@ -62,7 +44,7 @@ def shirt_band(bm, body, npc):
 
 def repair(body, npc):
     bm=bmesh.new();bm.from_mesh(body.data)
-    seen=set();remove=[];removed_components=[];adapted_components=[]
+    seen=set();remove=[];removed_components=[]
     for vertex in bm.verts:
         if vertex in seen:continue
         queue=[vertex];seen.add(vertex);component=[]
@@ -164,4 +146,4 @@ def repair(body, npc):
     # original costume shells can invert otherwise valid outer cloth.
     bm.normal_update()
     bm.to_mesh(body.data);bm.free();body.data.update()
-    return {'removedDetachedVertices':len(remove),'removedComponents':removed_components,'adaptedComponents':adapted_components,'linedEdges':edge_count,'torsoGarmentVertices':garment_vertices,'shirtVertices':added_band,'innerVertices':added,'maximumThicknessMeters':.003}
+    return {'removedDetachedVertices':len(remove),'removedComponents':removed_components,'linedEdges':edge_count,'torsoGarmentVertices':garment_vertices,'shirtVertices':added_band,'innerVertices':added,'maximumThicknessMeters':.003}
