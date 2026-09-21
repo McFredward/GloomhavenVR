@@ -11,6 +11,13 @@ public static class InteractionProgram
     private static void Check(bool condition, string name) { assertions++; if (!condition) throw new Exception(name); }
     private static RectTransform Rect(string name, Transform parent, float width = 100f, float height = 50f)
     { var go = new GameObject(name, typeof(RectTransform)); go.transform.SetParent(parent, false); var rect = (RectTransform)go.transform; rect.sizeDelta = new Vector2(width, height); return rect; }
+    private static float Alpha(Transform target)
+    {
+        float alpha = 1f;
+        for (Transform? t = target; t != null; t = t.parent)
+            foreach (CanvasGroup group in t.GetComponents<CanvasGroup>()) if (group.enabled) alpha *= group.alpha;
+        return alpha;
+    }
     private static void Census(TownServiceCatalog catalog) => typeof(TownServiceCatalog).GetMethod("RefreshRows", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(catalog, null);
     public static int Run()
     {
@@ -20,6 +27,11 @@ public static class InteractionProgram
         var inventory = Rect("Inventory", root.transform).gameObject.AddComponent<UIShopItemInventory>();
         inventory.gameObject.AddComponent<CanvasGroup>().alpha = .6f;
         var scroll = Rect("Scroll", inventory.transform).gameObject.AddComponent<ScrollRect>();
+        inventory.itemTooltip = Rect("OriginalDetails", inventory.transform, 400, 500).gameObject.AddComponent<UIPartyItemInventoryTooltip>();
+        var detailCard = Rect("OriginalDetailCard", inventory.itemTooltip.transform).gameObject.AddComponent<ItemCardUI>();
+        detailCard.AllHintsCardTooltip = Rect("OriginalRulesTarget", detailCard.transform).gameObject.AddComponent<UITextTooltipTarget>();
+        inventory.itemTooltip.m_ItemCardUI = detailCard;
+        NativeTemplates.Tooltip = Rect("NativeGlobalHint", root.transform).gameObject.AddComponent<UITooltip>();
         inventory.scroll = scroll; scroll.viewport = Rect("Viewport", scroll.transform, 500, 500);
         scroll.content = Rect("Content", scroll.viewport, 500, 1800); scroll.content.pivot = new Vector2(.5f, 1f);
         inventory.buyTab = Rect("Buy", inventory.transform); inventory.sellTab = Rect("Sell", inventory.transform);
@@ -33,6 +45,7 @@ public static class InteractionProgram
         for (int i = 0; i < 17; i++)
         {
             var slot = Rect("Row" + i, scroll.content, 500, 50).gameObject.AddComponent<UIShopItemSlot>();
+            slot.gameObject.AddComponent<CatalogHoverProbe>();
             slot.Item = new ScenarioRuleLibrary.CItem(i + 1); var button = slot.gameObject.AddComponent<Button>();
             button.onClick.AddListener(() => clicks++); slot.Selectable = button; inventory.slotPool.Add(slot);
         }
@@ -82,16 +95,50 @@ public static class InteractionProgram
                 catalog.TurnPage(-1);
                 var entry0 = catalog.Entries[0];
                 var pointer = entry0.CardRoot.parent.GetComponent<TownServiceCatalogPointer>();
+                inventory.itemTooltip.transform.SetParent(entry0.RowSource.transform, false);
+                detailCard.item = new ScenarioRuleLibrary.CItem(entry0.Item.ID); inventory.itemTooltip.IsShown = true;
+                int enters = detailCard.AllHintsCardTooltip.Enters;
+                catalog.LateTick(); catalog.LateTick();
+                Check(catalog.PreviewSource == inventory.itemTooltip.transform && catalog.PreviewContent != null,
+                    "preview retains original tooltip provenance");
+                Check(catalog.PreviewContent != null, "native tooltip reuse accepts equivalent item identities");
+                Check(Alpha(inventory.itemTooltip.transform) == 0f && Alpha(catalog.PreviewContent!) > .99f,
+                    "detail clone escapes hidden native viewport");
+                Check(catalog.PreviewCloneOf(detailCard.transform) != null && detailCard.transform.parent == inventory.itemTooltip.transform,
+                    "nested native card maps without reparenting original");
+                Check(detailCard.AllHintsCardTooltip.Enters == enters + 1 && catalog.HintContent != null,
+                    "native rules target entered exactly once");
+                Check(Alpha(NativeTemplates.Tooltip!.transform) == 0f && Alpha(catalog.HintContent!) > .99f,
+                    "native shared hint is masked while its copy is visible");
+                inventory.itemTooltip.IsShown = false; catalog.LateTick();
+                Check(catalog.PreviewContent == null && catalog.HintContent == null, "native hover exit hides copied details");
+                inventory.itemTooltip.IsShown = true; catalog.LateTick();
+                var otherAnchor = Rect("OtherHintOwner", inventory.transform);
+                NativeTemplates.Tooltip!.m_AnchorToTarget = otherAnchor;
+                catalog.TurnPage(1);
+                Check(NativeTemplates.Tooltip.gameObject.activeSelf && Alpha(NativeTemplates.Tooltip.transform) > .99f, "ending inspect never hides another native tooltip");
+                Check(catalog.PreviewContent == null, "page change hides copied details immediately");
+                catalog.TurnPage(-1); entry0 = catalog.Entries[0];
+                pointer = entry0.CardRoot.parent.GetComponent<TownServiceCatalogPointer>();
                 pointer.OnPointerClick(new PointerEventData(EventSystem.current));
                 Check(clicks == repetition + 1, "physical card dispatches native select once");
                 entry0.RowSource.Selectable.interactable = false;
                 pointer.OnPointerClick(new PointerEventData(EventSystem.current));
                 Check(clicks == repetition + 1, "native disabled selection remains disabled");
                 entry0.RowSource.Selectable.interactable = true;
+                var hover = entry0.RowSource.GetComponent<CatalogHoverProbe>();
+                int oldEnters = hover.Enters, oldExits = hover.Exits;
+                pointer.OnPointerEnter(new PointerEventData(EventSystem.current));
+                pointer.OnPointerEnter(new PointerEventData(EventSystem.current));
+                Check(hover.Enters == oldEnters + 1, "physical hover enters native row only once");
                 var sample = entry0.Sample;
                 entry0.RowSource.Item = new ScenarioRuleLibrary.CItem(99);
                 Check(!sample.CanGrab, "rebound row immediately fences stale sample");
+                catalog.LateTick();
+                Check(catalog.PreviewContent == null, "rebound tooltip item cannot appear under new row identity");
                 Census(catalog); Check(sample.Disposed && catalog.Entries[0].ItemId == 99, "row reuse retires old sample before rebuild");
+                Check(hover.Exits == oldExits + 1, "row rebind retires previous native hover");
+                catalog.LateTick(); Check(catalog.PreviewContent == null, "rebound tooltip item cannot appear under new row identity");
                 catalog.Entries[0].RowSource.Item = new ScenarioRuleLibrary.CItem(1);
                 catalog.Entries[0].RowSource.gameObject.SetActive(false);
                 Census(catalog); Check(catalog.Entries[0].ItemId == 2 && catalog.Page == 0, "filter hides row and resets page");
@@ -100,6 +147,7 @@ public static class InteractionProgram
                 catalog.TurnPage(1); context = new object(); Census(catalog);
                 Check(catalog.Page == 0, "character or mode change resets page");
                 alive = false; catalog.Tick(2f);
+                Check(detailCard != null && detailCard.transform.parent == inventory.itemTooltip.transform, "disposing preview preserves original pooled tooltip card");
                 Check(catalog.Entries.Count == 0 && ObjectPool.Alive == 0, "closing returns every pooled card");
                 Check(UguiPokeSurfaces.Registered.Count == 0, "closing unregisters every physical input surface");
                 Check(CanvasConversion.Active.Count == 0, "closing retires every control conversion");

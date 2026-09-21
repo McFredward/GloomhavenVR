@@ -7,18 +7,40 @@ using UnityEngine.UI;
 public class UIShopItemInventory : MonoBehaviour
 {
     public ScrollRect scroll = null!;
+    public UIPartyItemInventoryTooltip itemTooltip = null!;
     public readonly List<UIShopItemSlot> slotPool = new();
     public Transform buyTab = null!, sellTab = null!, allFilter = null!, _ownedFilter = null!,
         headFilter = null!, bodyFilter = null!, handsFilter = null!, legsFilter = null!, smallItemsFilter = null!;
 }
+public class CatalogHoverProbe : MonoBehaviour, UnityEngine.EventSystems.IPointerEnterHandler, UnityEngine.EventSystems.IPointerExitHandler
+{
+    public int Enters, Exits;
+    public void OnPointerEnter(UnityEngine.EventSystems.PointerEventData data) { Enters++; }
+    public void OnPointerExit(UnityEngine.EventSystems.PointerEventData data) { Exits++; }
+}
 public class UIShopItemSlot : MonoBehaviour
 { public ScenarioRuleLibrary.CItem Item = null!; public Selectable Selectable = null!; }
+public class UIPartyItemInventoryTooltip : MonoBehaviour
+{ public bool IsShown; public ItemCardUI m_ItemCardUI = null!; }
+public class UITextTooltipTarget : MonoBehaviour
+{
+    public bool TooltipShown; public int Enters, Exits;
+    public void OnPointerEnter(UnityEngine.EventSystems.PointerEventData data)
+    {
+        Enters++; TooltipShown = true;
+        GloomhavenVR.WorldUI.NativeTemplates.Tooltip!.m_AnchorToTarget = (RectTransform)transform;
+        GloomhavenVR.WorldUI.NativeTemplates.Tooltip.gameObject.SetActive(true);
+    }
+    public void OnPointerExit(UnityEngine.EventSystems.PointerEventData data)
+    { Exits++; TooltipShown = false; GloomhavenVR.WorldUI.NativeTemplates.Tooltip!.gameObject.SetActive(false); }
+}
 public class ItemCardUI : MonoBehaviour
 {
+    public UITextTooltipTarget AllHintsCardTooltip = null!;
     public ScenarioRuleLibrary.CItem item = null!;
     public void Show(bool highlightElement) { if (item == null || item.ID == 0) throw new Exception("invalid pooled item"); gameObject.SetActive(true); }
 }
-namespace UnityEngine.UI { public class UIWindow : MonoBehaviour { } }
+namespace UnityEngine.UI { public class UIWindow : MonoBehaviour { } public class UITooltip : MonoBehaviour { public RectTransform m_AnchorToTarget = null!; } }
 namespace ScenarioRuleLibrary { public class CItem { public int ID; public CItem(int id) { ID = id; } } }
 public static class ObjectPool
 {
@@ -65,22 +87,34 @@ namespace GloomhavenVR.Net
     internal sealed class RemoteWidgetMirror
     {
         private readonly Dictionary<Transform, Transform> _clones = new(); private readonly Transform _mount;
-        internal RemoteWidgetMirror(string name, Transform mount, float width, float height, Vector2 offset) { _mount = mount; }
+        internal RemoteWidgetMirror(string name, Transform mount, float width, float height, Vector2 offset, Func<Transform, bool>? externallyShownBranch = null) { _mount = mount; }
         internal void SetOwnerFrame(Vector2 a, Vector2 b) { }
         internal bool Refresh(Transform source)
         {
-            if (!_clones.ContainsKey(source)) { var go = new GameObject("InertRow", typeof(RectTransform)); go.transform.SetParent(_mount, false); _clones[source] = go.transform; }
-            return true;
+            Clone(source, _mount); return true;
+        }
+        private void Clone(Transform source, Transform parent)
+        {
+            if (!_clones.TryGetValue(source, out Transform target))
+            {
+                var go = new GameObject("Inert:" + source.name, typeof(RectTransform));
+                go.transform.SetParent(parent, false); _clones[source] = target = go.transform;
+                CanvasGroup group = source.GetComponent<CanvasGroup>();
+                if (group != null) go.AddComponent<CanvasGroup>().alpha = group.alpha;
+            }
+            foreach (Transform child in source) Clone(child, target);
         }
         internal Transform? CloneOf(Transform source) => _clones.TryGetValue(source, out var clone) ? clone : null;
+        internal void SetShown(bool shown) { foreach (Transform clone in _clones.Values) if (clone != null && clone.parent == _mount) clone.gameObject.SetActive(shown); }
         internal void TickLive() { }
-        internal void Destroy() { foreach (Transform clone in _clones.Values) UnityEngine.Object.DestroyImmediate(clone.gameObject); _clones.Clear(); }
+        internal void Destroy() { foreach (Transform clone in _clones.Values) if (clone != null) UnityEngine.Object.DestroyImmediate(clone.gameObject); _clones.Clear(); }
     }
     internal static class RemoteItemCardSource
     { internal static void ReturnBorrowed(int id, GameObject go) { if (!go.GetComponent<Image>().raycastTarget || !go.GetComponent<GraphicRaycaster>().enabled) throw new Exception("pooled native input flags restored before recycle"); ObjectPool.Alive--; UnityEngine.Object.DestroyImmediate(go); } }
 }
 namespace GloomhavenVR.WorldUI
 {
+    internal static class NativeTemplates { internal static UITooltip? Tooltip; }
     internal static class TownServiceNativeAssets { internal static void PrepareItem(ItemCardUI item) { } }
     internal sealed class TownServiceToken : IDisposable
     {
