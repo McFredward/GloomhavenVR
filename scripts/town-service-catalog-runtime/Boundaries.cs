@@ -122,6 +122,8 @@ namespace GloomhavenVR.WorldUI
     {
         internal static GameObject Create(Transform parent)
         { var go = new GameObject("PhysicalCardBody"); go.transform.SetParent(parent, false); return go; }
+        internal static void SetVisibility(GameObject body, float value) { }
+        internal static void Dispose(GameObject body) { }
     }
     internal static class NativeTemplates { internal static UITooltip? Tooltip; }
     internal static class TownServiceNativeAssets { internal static void PrepareItem(ItemCardUI item) { } }

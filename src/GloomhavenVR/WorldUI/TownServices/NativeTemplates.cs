@@ -94,7 +94,8 @@ internal static class NativeTemplates
         // Discover the complete immutable canonical hierarchy only after all logical roots are
         // known, so sections and pooled rows cannot accidentally be duplicated in their parent.
         foreach (var entry in Entries) Freeze(entry.Key, entry.Value);
-        TownServiceMirror.ResolveTemplate = Resolve; _ready = true;
+        TownServiceMirror.ResolveTemplate = Resolve;
+        TownServiceMirror.PrepareInertGeometry = TownServiceCardBody.RebindClone; _ready = true;
         return true;
     }
 
@@ -118,6 +119,7 @@ internal static class NativeTemplates
         entry.Copy = Object.Instantiate(entry.Original.gameObject, _bank.transform, false);
         Prune(entry.Original, entry.Copy.transform);
         TownServiceNeutralize.Apply(entry.Copy);
+        TownServiceCardBody.RebindClone(key, entry.Copy);
         entry.Copy.SetActive(false);
         Partition(entry.Copy.transform, string.Empty, entry.Parts);
     }
@@ -273,6 +275,8 @@ internal static class NativeTemplates
     internal static void Shutdown()
     {
         TownServiceMirror.ResolveTemplate = null;
+        TownServiceMirror.PrepareInertGeometry = null;
+        if (_cardBody != null) TownServiceCardBody.Dispose(_cardBody);
         Entries.Clear(); Roots.Clear(); _hud = null; _ready = false;
         _tray?.Dispose(); _tray = null; Tooltip = null;
         if (_catalogNavigation != null) Object.Destroy(_catalogNavigation);

@@ -386,6 +386,7 @@ internal sealed class TownServiceCatalog : IDisposable
                 _display.localPosition = _displayHome + new Vector3(0f, 0f, .045f);
                 _body = TownServiceCardBody.Create(_display).transform;
                 _body.localScale = new Vector3(physicalSize.x, physicalSize.y, 1f);
+                TownServiceCardBody.SetVisibility(_body.gameObject, owner._opening.alpha);
                 rect.anchorMin = rect.anchorMax = rect.pivot = new Vector2(.5f, .5f);
                 rect.anchoredPosition3D = Vector3.zero; rect.localRotation = Quaternion.identity; rect.localScale = Vector3.one;
                 foreach (GraphicRaycaster raycaster in _card.GetComponentsInChildren<GraphicRaycaster>(true))
@@ -443,6 +444,7 @@ internal sealed class TownServiceCatalog : IDisposable
                 _row.Refresh(RowSource.transform);
                 CardFaceMipBake.Rescan(CardUI);
             }
+            if (_body != null) TownServiceCardBody.SetVisibility(_body.gameObject, _owner._opening.alpha);
             _row.TickLive();
             // The native detail widget follows the hovered row. It belongs to the full detail
             // placard, never inside this narrow price strip or its measured bounds.
@@ -459,6 +461,7 @@ internal sealed class TownServiceCatalog : IDisposable
             // Cancel a gesture before recycling its source; no release callback is dispatched.
             Sample?.Dispose(); Hover(false); _disposed = true;
             _row.Destroy(); UguiPokeSurfaces.Unregister(_canvas);
+            if (_body != null) TownServiceCardBody.Dispose(_body.gameObject);
             // Pool borrowers after us must receive the same input flags we received. The
             // catalog's separate pointer surface is not a permanent edit to native card input.
             foreach (var target in _raycastTargets) if (target.Key != null) target.Key.raycastTarget = target.Value;

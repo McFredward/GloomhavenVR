@@ -34,6 +34,9 @@ internal static class TownServiceMirror
     internal static Func<int, Transform?>? SharedFrameForRemote { get; set; }
     private static readonly Dictionary<string, GameObject> Templates = new(StringComparer.Ordinal);
     internal static Func<byte, ushort, string, bool>? ResolveTemplate { get; set; }
+    // Presentation-only clone preparation: native gameplay controllers remain neutralized.
+    // Generated physical bodies need their clone registered for later original silhouette updates.
+    internal static Action<string, GameObject>? PrepareInertGeometry { get; set; }
     private static readonly Dictionary<ushort, LocalModule> Local = new();
     private static readonly Dictionary<int, Dictionary<ushort, RemoteModule>> Remote = new();
     private static readonly Dictionary<int, Dictionary<ushort, TownServiceFrame>> Pending = new();
@@ -99,6 +102,7 @@ internal static class TownServiceMirror
         GameObject clone = Object.Instantiate(original.gameObject, _templateHost.transform, false);
         Prune(original, clone.transform, exclude);
         TownServiceNeutralize.Apply(clone);
+        PrepareInertGeometry?.Invoke(address, clone);
         foreach (UnityEngine.UI.Graphic graphic in clone.GetComponentsInChildren<UnityEngine.UI.Graphic>(true)) graphic.raycastTarget = false;
         clone.SetActive(false);
         using var check = new TownServiceBinding(clone.transform);
@@ -410,6 +414,7 @@ internal static class TownServiceMirror
         GameObject clone = Object.Instantiate(template, host.transform, false);
         // Templates are already inert; repeat the invariant before the clone can become active.
         TownServiceNeutralize.Apply(clone);
+        PrepareInertGeometry?.Invoke(frame.TemplateAddress, clone);
         VRLayers.Apply(host);
         foreach (Canvas originalCanvas in clone.GetComponentsInChildren<Canvas>(true))
             originalCanvas.worldCamera = Rig.VRRigDriver.HeadCamera != null ? Rig.VRRigDriver.HeadCamera : Camera.main;

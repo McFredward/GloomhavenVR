@@ -67,3 +67,24 @@ Hardware checks: approach the merchant; lift/turn each side's card without a pur
 verify its original slot is empty; release above and away from the counter; compare
 owner and observer face/body poses during lift/return; use native selection and confirm;
 change page/character/service while holding; test a visibly unaffordable item.
+
+### Integration review corrections
+
+The shared template pipeline clones mesh references, while `CardMesh.AttachBody`
+registers individual filters for later silhouette upgrades. Explicit inert-geometry
+preparation now registers all three clone boundaries: native frozen bank, transport
+bank and actual observer. This adds no controllers and changes no topology.
+
+Physical MeshRenderers also need their own opening fade: CanvasGroup opacity only
+covers the native face. Each local body owns two material copies, fades on the face's
+same clock, and restores authored cutout/depth ordering at full visibility. Shared
+fan materials remain untouched; late original silhouette textures still update the
+copy. Existing material capture transports all intermediate values without property
+blocks. Teardown destroys only owned copies.
+
+`python3 scripts/check-town-card-body.py` binds the actual helper, native Freeze method
+and full town mirror classes in Unity 2021.3.5: **15 assertions and four compiled
+negative controls pass**, evidence `/tmp/town-card-body-j9xdf9d4`. Material blending,
+clone registration, shared-material isolation and late texture changes are real Unity
+operations. The existing CardMesh cache's later contour event is an explicit simulated
+boundary. No pixel or headset claim is made from this fixture.
