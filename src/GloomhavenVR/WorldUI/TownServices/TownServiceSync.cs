@@ -127,6 +127,8 @@ internal static class TownServiceSync
             {
                 Publish(piece.Key, piece.Content, piece.Source.transform, piece.CloneOf);
                 Publish("merchant.cardbody", piece.Body);
+                if (piece.DetailContent != null && piece.DetailSource != null)
+                    Publish(piece.DetailKey, piece.DetailContent, piece.DetailSource, piece.DetailCloneOf);
             }
             foreach (TownServiceSurface surface in ritual.Surfaces)
                 Publish("enchant.holder", surface.Panel.Target);

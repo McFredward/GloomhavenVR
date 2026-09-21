@@ -45,6 +45,11 @@ internal sealed class TownServiceRitual : IDisposable
         internal readonly TownServiceToken Token;
         internal readonly Transform Body;
         private readonly RemoteWidgetMirror _mirror;
+        private RemoteWidgetMirror? _details;
+        private Transform? _detailMount;
+        private bool _hovering;
+        private readonly Selectable _button;
+        private float _detailRefresh;
         private readonly Func<object?> _identity;
         private readonly object? _createdIdentity;
         private readonly List<Graphic> _inscriptions;
@@ -55,6 +60,12 @@ internal sealed class TownServiceRitual : IDisposable
         private float _refreshAt;
         internal Transform? Content => _mirror.CloneOf(Source.transform);
         internal Transform? CloneOf(Transform original) => _mirror.CloneOf(original);
+        internal Transform? DetailSource => Source is UITempleShopSlot
+            ? _owner._window.GetComponent<UITempleWindow>().Shop.tooltip.transform
+            : Source is UINewEnhancementShopSlot ? _owner._window.GetComponent<UINewEnhancementWindow>().enhancementShop.tooltip.transform : null;
+        internal string DetailKey => Source is UITempleShopSlot ? "temple.tooltip" : "enchant.tooltip";
+        internal Transform? DetailContent => _hovering && DetailSource != null ? _details?.CloneOf(DetailSource) : null;
+        internal Transform? DetailCloneOf(Transform source) => _hovering ? _details?.CloneOf(source) : null;
         internal bool Current => Source != null && Source.gameObject.activeInHierarchy
             && ReferenceEquals(_createdIdentity, _identity());
 
@@ -62,7 +73,7 @@ internal sealed class TownServiceRitual : IDisposable
             Func<object?> identity, Func<bool> eligible, Func<bool> drop, Vector3 position,
             bool card, params Graphic[] inscriptions)
         {
-            _owner = owner; Source = source; Key = key; _identity = identity;
+            _owner = owner; Source = source; Key = key; _identity = identity; _button = button;
             _createdIdentity = identity(); _inscriptions = new List<Graphic>(inscriptions); _card = card;
             var root = new GameObject("GloomhavenVR.TownService." + key, typeof(RectTransform));
             Root = root.transform; Root.SetParent(owner.Root, false);
@@ -91,6 +102,29 @@ internal sealed class TownServiceRitual : IDisposable
             if (Time.unscaledTime >= _refreshAt)
             { _refreshAt = Time.unscaledTime + .2f; _mirror.Refresh(Source.transform); }
             _mirror.TickLive(); ApplyInscriptions(); Token.Tick(scale);
+            TickDetails();
+        }
+
+        private void TickDetails()
+        {
+            bool held = Token.HeldRoot != null && Current && DetailSource != null;
+            if (_hovering != held && EventSystem.current != null)
+            {
+                _hovering = held;
+                var pointer = new PointerEventData(EventSystem.current);
+                if (held) ExecuteEvents.Execute(_button.gameObject, pointer, ExecuteEvents.pointerEnterHandler);
+                else ExecuteEvents.Execute(_button.gameObject, pointer, ExecuteEvents.pointerExitHandler);
+            }
+            if (!held) { _details?.SetShown(false); return; }
+            if (_details == null)
+            {
+                _detailMount = new GameObject("Original offering description").transform;
+                _detailMount.SetParent(Root, false); _detailMount.localPosition = new Vector3(.21f, 0f, 0f);
+                _details = new RemoteWidgetMirror("RitualDetails", _detailMount, .22f, .22f, Vector2.zero, mrBacking: false);
+            }
+            if (Time.unscaledTime >= _detailRefresh)
+            { _detailRefresh = Time.unscaledTime + .15f; _details.Refresh(DetailSource!); }
+            _details.TickLive(); _details.SetShown(true);
         }
 
         private void ApplyInscriptions()
@@ -123,7 +157,13 @@ internal sealed class TownServiceRitual : IDisposable
         }
 
         public void Dispose()
-        { Token.Dispose(); _mirror.Destroy(); TownServiceCardBody.Dispose(Body.gameObject); UnityEngine.Object.Destroy(Root.gameObject); }
+        {
+            Token.Dispose();
+            if (_hovering && Current && EventSystem.current != null)
+                ExecuteEvents.Execute(_button.gameObject, new PointerEventData(EventSystem.current), ExecuteEvents.pointerExitHandler);
+            _details?.Destroy(); _mirror.Destroy(); TownServiceCardBody.Dispose(Body.gameObject);
+            UnityEngine.Object.Destroy(Root.gameObject);
+        }
     }
 
     private readonly UIWindow _window;
