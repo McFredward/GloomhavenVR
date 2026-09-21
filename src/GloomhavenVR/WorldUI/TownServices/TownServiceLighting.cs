@@ -1,0 +1,99 @@
+using System;
+using GloomhavenVR.Core;
+using UnityEngine;
+
+namespace GloomhavenVR.WorldUI;
+
+/// <summary>Owned lights for the mod layer; never changes native lights or global ambient.</summary>
+internal sealed class TownServiceLighting : IDisposable
+{
+    private static Light? _roomLight;
+    private static int _users;
+    private readonly Light _stand;
+    private readonly Light? _second;
+    private readonly float _power;
+    private float _visibility;
+    private bool _hasFlame, _hasSecond;
+
+    internal TownServiceLighting(Transform root, byte service)
+    {
+        _users++;
+        var lightObject = new GameObject("TownService.PracticalLight");
+        lightObject.transform.SetParent(root, false);
+        // Position is refined to the original candle's flame after its assets finish loading.
+        lightObject.transform.localPosition = new Vector3(-.57f, 1.30f, .16f);
+        _stand = lightObject.AddComponent<Light>();
+        _stand.type = LightType.Point;
+        _stand.renderMode = LightRenderMode.ForceVertex;
+        _stand.cullingMask = 1 << VRLayers.ModLayer;
+        _stand.shadows = LightShadows.None;
+        _stand.color = service == 1 ? new Color(1f, .71f, .40f)
+            : service == 2 ? new Color(1f, .82f, .60f) : new Color(1f, .74f, .48f);
+        _power = service == 2 ? 1.25f : 1.05f;
+        _stand.intensity = 0f;
+        if (service == 2)
+        {
+            var secondObject = new GameObject("TownService.SecondCandleLight");
+            secondObject.transform.SetParent(root, false);
+            _second = secondObject.AddComponent<Light>();
+            _second.type = LightType.Point;
+            _second.renderMode = LightRenderMode.ForceVertex;
+            _second.cullingMask = _stand.cullingMask;
+            _second.shadows = LightShadows.None;
+            _second.color = _stand.color;
+            _second.intensity = 0f;
+        }
+        Refresh(root);
+    }
+
+    internal void SetFlame(Vector3 world, int slot)
+    {
+        if (slot == 1 && _second != null) { _second.transform.position = world; _hasSecond = true; }
+        else { _stand.transform.position = world; _hasFlame = true; }
+        SetVisibility(_visibility);
+    }
+    internal void SetVisibility(float value)
+    {
+        _visibility = value;
+        _stand.intensity = _hasFlame ? _power * value : 0f;
+        if (_second != null) _second.intensity = _hasSecond ? .75f * value : 0f;
+    }
+
+    internal void Refresh(Transform root)
+    {
+        _stand.range = 2.65f * Mathf.Abs(root.lossyScale.x);
+        if (_second != null) _second.range = _stand.range;
+        if (_roomLight == null)
+        {
+            var obj = new GameObject("TownService.EnvironmentLight");
+            _roomLight = obj.AddComponent<Light>();
+            _roomLight.type = LightType.Directional;
+            _roomLight.cullingMask = 1 << VRLayers.ModLayer;
+            _roomLight.shadows = LightShadows.None;
+        }
+        if (SkyAlternative.TryRoomMoonDirection(out Vector3 direction, out Color moon, out _))
+        {
+            _roomLight.transform.rotation = Quaternion.LookRotation(-direction, Vector3.up);
+            _roomLight.color = moon;
+            _roomLight.intensity = .40f;
+        }
+        else
+        {
+            // Default/MR retain the native scene's ambient probe; only the visible practical
+            // light supplies additional light. Do not invent a white studio fill in darkness.
+            _roomLight.intensity = 0f;
+        }
+        SetVisibility(_visibility);
+    }
+
+    public void Dispose()
+    {
+        if (_stand != null) UnityEngine.Object.Destroy(_stand.gameObject);
+        if (_second != null) UnityEngine.Object.Destroy(_second.gameObject);
+        if (--_users == 0 && _roomLight != null)
+        {
+            UnityEngine.Object.Destroy(_roomLight.gameObject);
+            _roomLight = null;
+        }
+    }
+}
