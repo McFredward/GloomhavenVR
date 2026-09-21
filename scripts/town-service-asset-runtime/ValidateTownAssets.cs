@@ -23,6 +23,11 @@ public static class ValidateTownAssets
     { assertions++; if (!condition) throw new InvalidDataException(message); }
     static string Arg(string name)
     { var args = Environment.GetCommandLineArgs(); return args[Array.IndexOf(args, name) + 1]; }
+    public static void RunBundle()
+    {
+        output = Arg("-townEvidence"); Directory.CreateDirectory(output);
+        routine = Run(); EditorApplication.update += Step;
+    }
     public static void BuildAndRun()
     {
         try
@@ -344,11 +349,22 @@ public static class ValidateTownAssets
             // Native handoff runs around 198 world units per metre in the supplied map log.
             root.transform.localScale = Vector3.one * 198;
             light.transform.position *= 198; light.range *= 198;
-            camera.transform.position *= 198; camera.farClipPlane = 2000;
+            // Preserve the projection depth ratio with the scaled scene. Leaving the
+            // preceding close-up near plane at 0.01 creates artificial lining z-fighting.
+            float nearPlane = camera.nearClipPlane, farPlane = camera.farClipPlane;
+            camera.transform.position *= 198; camera.nearClipPlane *= 198; camera.farClipPlane *= 198;
             yield return null;
             var scaled = Picture(npc + "-scale198");
-            Check(Bright(scaled, true) > body * .9f, npc + " actor remains visible at map scale");
+            Check(Bright(scaled, true) > body * .9f, npc + " actor remains visible at equivalent map projection");
+            // Production TickClipPlanes caps near at 0.5 and far/near at 50,000.
+            // Exercise that worst allowed depth ratio as well, not only scaled projection.
+            camera.nearClipPlane = Mathf.Clamp(.05f * 198, .01f, .5f);
+            camera.farClipPlane = camera.nearClipPlane * 50000;
+            yield return null;
+            var nativeScaled = Picture(npc + "-scale198-native-clips");
+            Check(Bright(nativeScaled, true) > body * .9f, npc + " actor remains visible with native capped map clip planes");
             root.transform.localScale = Vector3.one; camera.transform.position /= 198;
+            camera.nearClipPlane = nearPlane; camera.farClipPlane = farPlane;
             light.transform.position /= 198; light.range /= 198;
             float size = lod.size; lod.size *= .01f;
             yield return null;
