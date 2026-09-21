@@ -148,3 +148,29 @@ non-solid effects/alpha foliage; it is not a visual foliage intersection oracle.
 Native Guildmaster bench/barrel geometry is outside that custom-environment bundle and
 still requires its separate scene check. The final build545 furniture/character bundle
 must repeat the focused geometry checks. None of these checks establishes headset quality.
+
+## Deferred temple/enchantment completion safety
+
+The original enhancement confirmation dispatches its purchase callback only after the hide
+transition. Returning from the physical drop therefore does not prove that the selected
+owner/item is still current when gameplay changes. A narrowly scoped prefix of the original
+Sprite `ShowConfirmation` overload captures both native callbacks during physical selection.
+At real completion it checks session, owner, selected identity and native eligibility again;
+a stale selection invokes the captured original cancellation cleanup instead. The unused
+native `_onCancelCallback` field is not a valid substitute: native Show captures its cancellation
+argument in its transition listener and never assigns that field. Completion/cancellation is
+one-shot. Ordinary flat prompts and other box instances remain outside the scope.
+
+Native source audit confirms TempleShopService.CanBuy checks native stock/affordability and
+network ownership/joining, not the pending-confirmation flag. The presentation session is the
+service window's lifetime, not the confirmation's hide fade. Successful normal completion
+therefore remains eligible. The existing native gameplay callback still performs the actual
+transaction; no currency, pending flag or server authority is written by this helper.
+
+Real Unity focused result: 120 assertions and ten compiled negative controls, including
+both services, delayed owner/item/affordability/session changes, destroyed offers, native
+disablement, cancellation before completion, duplicate completion and unrelated prompts.
+Evidence: `.planning/debug/town-ritual-transaction/run-128ot7yk`. Confirm/Click and the complete
+production guard are source-bound; native transition scheduling and Harmony prefix dispatch
+are explicit fixture boundaries. Root registers the real patch and owns the narrow Confirm
+scope hook. Strict production build with the new patch class: zero warnings/errors.

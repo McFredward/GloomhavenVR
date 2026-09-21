@@ -30,14 +30,23 @@ def sources(root):
     raw = (root / "src/GloomhavenVR/WorldUI/TownServices/TownServiceRitual.cs").read_text()
     methods = method(raw, "private bool Confirm(") + "\n" + method(raw, "private static bool Click(")
     methods = methods.replace("private bool Confirm(", "internal bool Confirm(")
-    text = "using System;using UnityEngine;using UnityEngine.UI;using UnityEngine.EventSystems;\n" + \
+    text = "using System;using UnityEngine;using UnityEngine.UI;using UnityEngine.EventSystems;using GloomhavenVR.WorldUI;\n" + \
         "internal sealed class BoundRitual {private readonly Func<bool> _alive;private readonly Func<object?> _context;" + \
         "internal BoundRitual(Func<bool> alive,Func<object?> context){_alive=alive;_context=context;}\n" + methods + "\n}"
-    return {"RitualTransactions.cs": text}, {"TownServiceRitual.cs": hashlib.sha256(raw.encode()).hexdigest()}
+    guard_path = root / "src/GloomhavenVR/WorldUI/TownServices/TownServiceRitualConfirmationGuard.cs"
+    if not guard_path.exists():
+        guard_path = Path(__file__).resolve().parent.parent / "src/GloomhavenVR/WorldUI/TownServices/TownServiceRitualConfirmationGuard.cs"
+    guard_raw = guard_path.read_text()
+    guard = guard_raw[:guard_raw.index("\n[HarmonyPatch")].replace("using HarmonyLib;\n", "")
+    return {"RitualTransactions.cs": text, "RitualGuard.cs": guard}, {"TownServiceRitual.cs": hashlib.sha256(raw.encode()).hexdigest(), "TownServiceRitualConfirmationGuard.cs": hashlib.sha256(guard_raw.encode()).hexdigest()}
 
 
 def mutations():
     return [
+        ("delayed-validation", "RitualGuard.cs", "_box != null && _valid()", "_box != null", "delayed owner change cancels original transaction"),
+        ("delayed-cancel", "RitualGuard.cs", "else cancel?.Invoke();", "else if (!requested) cancel?.Invoke();", "delayed owner change cancels original transaction"),
+        ("duplicate-completion", "RitualGuard.cs", "if (_completed) return;", "", "duplicate hidden completion is one shot"),
+        ("scope-boundary", "RitualGuard.cs", " || !ReferenceEquals(scope._box, box)", "", "unrelated box retains its native callbacks"),
         ("affordability-race", "RitualTransactions.cs", "if (!_alive() || !eligible() || !button.IsActive()", "if (!_alive() || !button.IsActive()", "post-selection affordability refused"),
         ("owner-race", "RitualTransactions.cs", "!ReferenceEquals(context, _context()) || ", "", "post-selection owner change refused"),
         ("item-race", "RitualTransactions.cs", " || !ReferenceEquals(selected, identity())", "", "post-selection selected item change refused"),
