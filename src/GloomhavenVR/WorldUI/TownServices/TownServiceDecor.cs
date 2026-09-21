@@ -29,10 +29,8 @@ internal sealed class TownServiceDecor : IDisposable
     private readonly List<Material> _materials = new();
     private readonly Transform _root;
     private readonly TownServiceLighting _lighting;
-    private readonly byte _service;
+    private readonly TownServiceActivityProps _work;
     private Piece? _workCoin;
-    private Transform? _leftGrip, _rightGrip, _pen;
-    private Mesh? _penMesh;
     private float _visibility;
     private float _clock;
     private bool _reported;
@@ -42,7 +40,7 @@ internal sealed class TownServiceDecor : IDisposable
     {
         _root = station;
         _lighting = lighting;
-        _service = service;
+        _work = new TownServiceActivityProps(station, service, TownServiceAssets.Shader("townnpc"));
         try { Populate(service); }
         catch { Dispose(); throw; }
     }
@@ -181,6 +179,7 @@ internal sealed class TownServiceDecor : IDisposable
             }
             piece.Holder = holder;
             piece.Home = holder.transform.localPosition;
+            if (piece == _workCoin) _work.BindCoin(holder.transform, piece.Home - piece.Position);
             holder.SetActive(true);
         }
         catch { UnityEngine.Object.Destroy(holder); throw; }
@@ -234,64 +233,7 @@ internal sealed class TownServiceDecor : IDisposable
         return material;
     }
 
-    internal void SampleActivity(in TownActivityPose pose)
-    {
-        if (_service != 1) return;
-        if (_leftGrip == null || _rightGrip == null)
-        {
-            foreach (Transform child in _root.GetComponentsInChildren<Transform>(true))
-            {
-                if (child.name == "ActivityGripLeft") _leftGrip = child;
-                else if (child.name == "ActivityGripRight") _rightGrip = child;
-            }
-        }
-        if (_leftGrip != null && _workCoin?.Holder != null)
-        {
-            Transform coin = _workCoin.Holder.transform;
-            // Keep the original coin mesh, materials and scale. Its grip remains visible
-            // through attention transitions rather than hiding or respawning a prop.
-            coin.localPosition = _workCoin.Home + _root.InverseTransformPoint(_leftGrip.position) - _workCoin.Position;
-        }
-        if (_rightGrip == null) return;
-        if (_pen == null) CreatePen();
-        if (_pen == null) return;
-        _pen.position = _rightGrip.position;
-        _pen.rotation = _root.rotation * Quaternion.Euler(-25f, 0f, -12f);
-    }
-
-    private void CreatePen()
-    {
-        Shader? shader = TownServiceAssets.Shader("townnpc");
-        if (shader == null) return;
-        // A small carved reed writing tool. The game provides the open ledger and coin;
-        // its PCG prop catalog contains no standalone writing implement. Do not pass a
-        // decorative knife or a complete feathered pole off as a pen.
-        const int sides = 8;
-        var vertices = new Vector3[sides * 2 + 2];
-        var triangles = new int[sides * 12];
-        for (int i = 0; i < sides; i++)
-        {
-            float a = i * Mathf.PI * 2f / sides;
-            vertices[i] = new Vector3(Mathf.Cos(a) * .0022f, -.012f, Mathf.Sin(a) * .0022f);
-            vertices[i + sides] = new Vector3(Mathf.Cos(a) * .0028f, .115f, Mathf.Sin(a) * .0028f);
-            int j = (i + 1) % sides, t = i * 12;
-            triangles[t] = i; triangles[t + 1] = j; triangles[t + 2] = i + sides;
-            triangles[t + 3] = j; triangles[t + 4] = j + sides; triangles[t + 5] = i + sides;
-            triangles[t + 6] = sides * 2; triangles[t + 7] = j; triangles[t + 8] = i;
-            triangles[t + 9] = sides * 2 + 1; triangles[t + 10] = i + sides; triangles[t + 11] = j + sides;
-        }
-        vertices[sides * 2] = new Vector3(0f, -.035f, 0f);
-        vertices[sides * 2 + 1] = new Vector3(0f, .115f, 0f);
-        _penMesh = new Mesh { name = "Town.ReedPen", vertices = vertices, triangles = triangles };
-        _penMesh.RecalculateNormals(); _penMesh.RecalculateBounds();
-        var material = new Material(shader) { name = "Town.ReedPen", color = new Color(.24f, .14f, .055f) };
-        material.SetFloat(Visibility, _visibility); _materials.Add(material);
-        var obj = new GameObject("Town.ReedPen") { layer = VRLayers.ModLayer };
-        _pen = obj.transform; _pen.SetParent(_root, false);
-        obj.AddComponent<MeshFilter>().sharedMesh = _penMesh;
-        MeshRenderer renderer = obj.AddComponent<MeshRenderer>(); renderer.sharedMaterial = material;
-        renderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
-    }
+    internal void SampleActivity(in TownActivityPose pose) => _work.Sample(in pose);
 
     internal void SetClock(float seconds)
     {
@@ -303,12 +245,13 @@ internal sealed class TownServiceDecor : IDisposable
     internal void SetVisibility(float value)
     {
         _visibility = value;
+        _work.SetVisibility(value);
         foreach (Material material in _materials) material.SetFloat(Visibility, value);
     }
 
     public void Dispose()
     {
-        if (_penMesh != null) UnityEngine.Object.Destroy(_penMesh);
+        _work.Dispose();
         foreach (Material material in _materials) UnityEngine.Object.Destroy(material);
         foreach (AsyncOperationHandle<Material> load in _loads.Values) if (load.IsValid()) Addressables.Release(load);
         foreach (Piece piece in _pieces) if (piece.Handle.IsValid()) Addressables.Release(piece.Handle);
