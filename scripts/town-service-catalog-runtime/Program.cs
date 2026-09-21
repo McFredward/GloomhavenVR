@@ -69,6 +69,19 @@ public static class InteractionProgram
         inventory.sellTab=Rect("Sell",inventory.transform).gameObject.AddComponent<Tab>();inventory.sellTab.Changed=()=>inventory.Selling=true;
         var slot=Rect("NativeSlot",root.transform).gameObject.AddComponent<UIShopItemSlot>();slot.Selectable=slot.gameObject.AddComponent<Button>();inventory.slotPrefab=slot;
         var confirmation=Rect("Confirmation",root.transform).gameObject.AddComponent<UIItemConfirmationBox>();confirmation.confirmButton=confirmation.gameObject.AddComponent<Button>();Singleton<UIItemConfirmationBox>.Instance=confirmation;
+        for(int failAt=1;failAt<=2;failAt++)
+        {
+            int sibling=inventory.transform.GetSiblingIndex();bool threw=false;
+            GloomhavenVR.Net.RemoteWidgetMirror.ThrowConstruction=failAt;
+            try{new TownServiceCatalog(inventory,root.transform,()=>inventory.character,()=>true,root.transform);}
+            catch(InvalidOperationException e){threw=e.Message=="injected mirror allocation failure";}
+            Check(threw,"injected preview constructor failure is exercised");
+            Check(inventory.transform.parent==root.transform&&inventory.transform.GetSiblingIndex()==sibling,"constructor failure restores native inventory ownership");
+            Check(GloomhavenVR.Core.Loc.Subscribers==0,"constructor failure removes acquired zone subscriptions");
+            foreach(Transform child in root.transform)
+                if(child.name=="GloomhavenVR.Merchant.HiddenBackend"||child.name=="GloomhavenVR.TownService.Catalog")
+                    Check(!child.gameObject.activeSelf,"failed presentation roots are immediately hidden");
+        }
         var counts=new[]{20,24,37,17,19,44,3};int id=1;
         for(int category=0;category<counts.Length;category++)for(int n=0;n<counts[category];n++,id++)
         {

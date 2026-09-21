@@ -174,3 +174,10 @@ Evidence: `.planning/debug/town-ritual-transaction/run-128ot7yk`. Confirm/Click 
 production guard are source-bound; native transition scheduling and Harmony prefix dispatch
 are explicit fixture boundaries. Root registers the real patch and owns the narrow Confirm
 scope hook. Strict production build with the new patch class: zero warnings/errors.
+
+Catalogue acquisition now rolls back even when a constructor throws after the native
+inventory was reparented. Native parent/sibling and permissions survive, partial presentation
+roots are immediately hidden, and already-acquired zone subscriptions are disposed. Injected
+failures at both detail-mirror construction boundaries are exercised before a successful reopen.
+Updated catalogue evidence: 1,847 real Unity assertions plus 14 compiled negative controls,
+`.planning/debug/town-service-catalog/run-f608an6y`; strict Release build remains zero warnings/errors.

@@ -41,6 +41,7 @@ def sources(root):
 
 def mutations():
     return [
+        ("constructor-rollback", "TownServiceCatalog.cs", "catch { Dispose(); throw; }\n    }\n    internal void SetVisibility", "catch { throw; }\n    }\n    internal void SetVisibility", "constructor failure restores native inventory ownership"),
         ("closed-render", "TownServiceCatalog.cs", "canvas.Key.enabled = exposed && canvas.Value;", "canvas.Key.enabled = canvas.Value;", "closed drawer skips canvas rendering without native artwork lifecycle reset"),
         ("initial-closed", "TownServiceMerchantDrawer.cs", "_amount = _target = level == 0 ? 1f : 0f;", "_amount = _target = 0f;", "first stock and owned drawers show immediately reachable cards"),
         ("stale-prompt", "TownServiceMerchantTransaction.cs", "if (created) confirmation.OnCancel();", "if (created) { }", "own stale item prompt cancelled through native lifecycle"),
@@ -53,7 +54,7 @@ def mutations():
         ("context-race", "TownServiceMerchantTransaction.cs", "if (!stillCurrent() || !Eligible(inventory, item, selling)\n            || !created", "if (!Eligible(inventory, item, selling)\n            || !created", "context race never confirms native callback"),
         ("confirmation-owner", "TownServiceMerchantTransaction.cs", "if (confirmation == null || confirmation.IsActive) return false;", "if (confirmation == null) return false;", "unrelated pending confirmation retained"),
         ("sell-identity", "TownServiceMerchantTransaction.cs", "return inventory.service.GetItemsToSell(inventory.character).Contains(item)", "return true", "stale owned item is ineligible"),
-        ("restore", "TownServiceCatalog.cs", "_inventory.transform.SetParent(_nativeHome,false);", "_inventory.transform.SetParent(_nativeWrapper.transform,false);", "opt out restores hidden native inventory hierarchy"),
+        ("restore", "TownServiceCatalog.cs", "_inventory.transform.SetParent(_nativeHome,false);", "_inventory.transform.SetParent(_nativeWrapper.transform,false);", "constructor failure restores native inventory ownership"),
     ]
 
 

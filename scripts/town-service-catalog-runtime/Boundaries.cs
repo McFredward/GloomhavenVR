@@ -118,7 +118,7 @@ namespace TMPro
 namespace GloomhavenVR.Core
 {
     internal static class VRLayers{internal static void Apply(GameObject go){}}
-    internal static class Loc{internal static event Action? OnChanged;internal static void Change()=>OnChanged?.Invoke();internal static string Mod(string key)=>key;}
+    internal static class Loc{internal static event Action? OnChanged;internal static int Subscribers=>OnChanged?.GetInvocationList().Length??0;internal static void Change()=>OnChanged?.Invoke();internal static string Mod(string key)=>key;}
 }
 namespace GloomhavenVR.Cards
 {internal static class ItemBurnPlayback{internal static void ObserveInitialState(ItemCardUI item){}}internal static class CardFaceMipBake{internal static void Rescan(ItemCardUI item){}}}
@@ -140,8 +140,9 @@ namespace GloomhavenVR.Net
 {
     internal sealed class RemoteWidgetMirror
     {
+        internal static int ThrowConstruction;
         private readonly Transform _mount;private readonly Dictionary<Transform,Transform> _clones=new();
-        internal RemoteWidgetMirror(string name,Transform mount,float width,float height,Vector2 offset,Func<Transform,bool>? externallyShownBranch=null,bool mrBacking=true){_mount=mount;}
+        internal RemoteWidgetMirror(string name,Transform mount,float width,float height,Vector2 offset,Func<Transform,bool>? externallyShownBranch=null,bool mrBacking=true){if(ThrowConstruction>0&&--ThrowConstruction==0)throw new InvalidOperationException("injected mirror allocation failure");_mount=mount;}
         internal void SetOwnerFrame(Vector2 a,Vector2 b){}
         internal bool Refresh(Transform source){if(!_clones.ContainsKey(source)){var clone=new GameObject("Clone",typeof(RectTransform));clone.transform.SetParent(_mount,false);_clones.Add(source,clone.transform);}return true;}
         internal Transform? CloneOf(Transform source)=>_clones.TryGetValue(source,out var clone)?clone:null;

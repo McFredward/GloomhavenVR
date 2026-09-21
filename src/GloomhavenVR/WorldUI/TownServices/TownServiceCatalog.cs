@@ -66,18 +66,22 @@ internal sealed class TownServiceCatalog : IDisposable
     {
         _inventory=inventory; _anchor=anchor; _mat=mat; _contextIdentity=contextIdentity; _alive=alive;
         _nativeHome=inventory.transform.parent; _nativeSibling=inventory.transform.GetSiblingIndex();
-        _nativeWrapper=new GameObject("GloomhavenVR.Merchant.HiddenBackend",typeof(RectTransform),typeof(CanvasGroup));
-        var rect=(RectTransform)_nativeWrapper.transform; rect.SetParent(_nativeHome,false);
-        rect.anchorMin=Vector2.zero;rect.anchorMax=Vector2.one;rect.offsetMin=rect.offsetMax=Vector2.zero;
-        inventory.transform.SetParent(rect,false);
-        _nativeGate=_nativeWrapper.GetComponent<CanvasGroup>();_nativeGate.alpha=0f;_nativeGate.blocksRaycasts=false;
-        _root=new GameObject("GloomhavenVR.TownService.Catalog");Root.SetParent(anchor,false);
-        _opening=_root.AddComponent<CanvasGroup>();_opening.alpha=0f;
-        _backend=new TownServiceMerchantRows(inventory);
-        TMP_Text? font=inventory.GetComponentInChildren<TMP_Text>(true);
-        _zones.Add(new TownServiceMerchantZone(Root,false,font));
-        _zones.Add(new TownServiceMerchantZone(Root,true,font));
-        if(inventory.itemTooltip!=null)_preview=new TownServiceCatalogPreview(inventory.itemTooltip,Root,()=>_inspected!=null&&_inspected.Current&&_inspected.Sample.IsHeld);
+        try
+        {
+            _nativeWrapper=new GameObject("GloomhavenVR.Merchant.HiddenBackend",typeof(RectTransform),typeof(CanvasGroup));
+            var rect=(RectTransform)_nativeWrapper.transform; rect.SetParent(_nativeHome,false);
+            rect.anchorMin=Vector2.zero;rect.anchorMax=Vector2.one;rect.offsetMin=rect.offsetMax=Vector2.zero;
+            inventory.transform.SetParent(rect,false);
+            _nativeGate=_nativeWrapper.GetComponent<CanvasGroup>();_nativeGate.alpha=0f;_nativeGate.blocksRaycasts=false;
+            _root=new GameObject("GloomhavenVR.TownService.Catalog");Root.SetParent(anchor,false);
+            _opening=_root.AddComponent<CanvasGroup>();_opening.alpha=0f;
+            _backend=new TownServiceMerchantRows(inventory);
+            TMP_Text? font=inventory.GetComponentInChildren<TMP_Text>(true);
+            _zones.Add(new TownServiceMerchantZone(Root,false,font));
+            _zones.Add(new TownServiceMerchantZone(Root,true,font));
+            if(inventory.itemTooltip!=null)_preview=new TownServiceCatalogPreview(inventory.itemTooltip,Root,()=>_inspected!=null&&_inspected.Current&&_inspected.Sample.IsHeld);
+        }
+        catch { Dispose(); throw; }
     }
     internal void SetVisibility(float value,float relocation=1f,bool allowInput=true)
     {
@@ -183,10 +187,11 @@ internal sealed class TownServiceCatalog : IDisposable
     private void ClearEntries(){ClearInspection();foreach(var entry in _entries)entry.Dispose();_entries.Clear();_samples.Clear();foreach(var drawer in _drawers)drawer.Dispose();_drawers.Clear();}
     public void Dispose()
     {
-        if(_disposed)return;_disposed=true;ClearEntries();_preview?.Dispose();_preview=null;_backend.Dispose();foreach(var zone in _zones)zone.Dispose();_zones.Clear();
-        if(_inventory!=null&&_inventory.transform.parent==_nativeWrapper.transform)
+        if(_disposed)return;_disposed=true;ClearEntries();_preview?.Dispose();_preview=null;_backend?.Dispose();foreach(var zone in _zones)zone.Dispose();_zones.Clear();
+        if(_inventory!=null&&_nativeWrapper!=null&&_inventory.transform.parent==_nativeWrapper.transform)
         {_inventory.transform.SetParent(_nativeHome,false);_inventory.transform.SetSiblingIndex(_nativeSibling);}
-        _nativeWrapper.SetActive(false);UnityEngine.Object.Destroy(_nativeWrapper);UnityEngine.Object.Destroy(_root);
+        if(_nativeWrapper!=null){_nativeWrapper.SetActive(false);UnityEngine.Object.Destroy(_nativeWrapper);}
+        if(_root!=null){_root.SetActive(false);UnityEngine.Object.Destroy(_root);}
     }
     // The old template address may exist in a previous snapshot. New publishers omit it.
     internal static GameObject CreateNavigationTemplate(TMP_Text? font)=>new GameObject("RetiredCatalogNavigation");
