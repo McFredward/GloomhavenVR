@@ -17,5 +17,22 @@
     "targets/expression/units/caucasian/eyebrows-right-up.target.gz": "66060c97949f4fb414fb1b731379f9ca5bcc000e4184ee1f7d527d94b70b14e8",
     "targets/expression/units/caucasian/eye-left-opened-up.target.gz": "842d95f9f0af1807ecf45c79a1def61152a253f0696afce41aa76156be697117",
     "targets/expression/units/caucasian/eye-right-opened-up.target.gz": "56f07d192a9321437cf6bdadc7800331316e3430ae29e9ce24f957639ccc0224"
+  },
+  "systemAssetPack": {
+    "url": "https://files2.makehumancommunity.org/asset_packs/makehuman_system_assets/makehuman_system_assets_cc0.zip",
+    "sha256": "b542127a8e25547c7c29c19f2d1d2adb9a664c80396ecd694095dbc8028a0107",
+    "license": "CC0-1.0",
+    "files": {
+      "tongue/tongue01/tongue01.obj": "12f4a6a9f85abae2ce3b4aa42d8119e1f679a437e0e89cb928ec68b29a7a1587",
+      "tongue/tongue01/tongue01.mhclo": "61d825899cd78ff3146fa1324118060cb44b095fae1427d408c199ade74e3c9e",
+      "tongue/tongue01/tongue01_diffuse.png": "3150be398e48e8ba1feac164c3143c16c0b2e959d9ffb6155f0171f59cfb4ea9",
+      "teeth/teeth_base/teeth_base.mhclo": "9edc3deff3bb97a95c791878064dd069a74a38f95ea6d9707a9ba68d888b3b5c",
+      "teeth/teeth_base/teeth_base.obj": "f55198069e55d360c4b4cc7ecb1cc292b2c7665753ab8b65eabf46a8783f2875",
+      "teeth/teeth_base/teeth.png": "d0afb57869c6fbb56b98f5efc4aec629ee7593e70d8dd2bfb9de923acfb65f43",
+      "eyes/materials/green_eye.png": "b9864ac4f4fa484b24e18f6aba030d70dbc8820cbbacfbe63a974c76772c2009",
+      "eyes/materials/brown_eye.png": "4659691c7295ad6206c78b003e5fd0e5f91dcd53032fa914a229bb48cabe424b",
+      "eyes/low-poly/low-poly.obj": "783fe1e6331162c876520b4c2bed7a8ca06354ca15497e8ebd68bb1b59f4d3de",
+      "eyes/low-poly/low-poly.mhclo": "68582e28e9176cba7cfcf35208f671b6201b8d1bc95c32decff61a3160ec34d8"
+    }
   }
 }

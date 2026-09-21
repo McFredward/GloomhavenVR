@@ -31,6 +31,7 @@ SHAPES = {
  'JawOpen': {'mouth-open':1}, 'MouthWide': {'mouth-retraction':.8},
  'MouthRound': {'mouth-pursing':.8}, 'Smile': {'mouth-corner-puller':.6},
  'BrowRaise': {'eyebrows-left-up':.5,'eyebrows-right-up':.5},
+ 'LidUpLeft': {}, 'LidDownLeft': {}, 'LidUpRight': {}, 'LidDownRight': {},
 }
 
 
@@ -78,7 +79,7 @@ def material(name,color,rough=.65):
     return m
 
 
-def head_mesh(raw,faces,groups,face_uv,name,refs):
+def head_mesh(raw,faces,groups,face_uv,name,refs,data):
     chosen_indices=[i for i,(f,g) in enumerate(zip(faces,groups))if g=='body'and min(raw[f,1])>5.80]
     chosen=[faces[i]for i in chosen_indices]
     ids=sorted({i for f in chosen for i in f});remap={old:new for new,old in enumerate(ids)}
@@ -90,6 +91,8 @@ def head_mesh(raw,faces,groups,face_uv,name,refs):
     bounds_back={'merchant':(116,13,607,679),'priestess':(156,29,561,692),'enchantress':(77,13,649,710)}[name]
     eye_y={'merchant':260,'priestess':294,'enchantress':313}[name]
     eye_width={'merchant':43,'priestess':34,'enchantress':35}[name]
+    closed=posed_source(posed_source(raw,'BlinkLeft',data),'BlinkRight',data)
+    closed_pixels=portrait_coordinates(closed[ids],profile)
     for label in ('front','left','back'):
         uv=mesh.uv_layers.new(name='Reference_'+label)
         for loop in mesh.loops:
@@ -102,7 +105,13 @@ def head_mesh(raw,faces,groups,face_uv,name,refs):
                 dx=(px-eye_x)/eye_width
                 if abs(dx)<1 and abs(py-eye_y)<22:
                     curve=math.sqrt(max(0,1-dx*dx));top=eye_y-16*curve;bottom=eye_y+13*curve
-                    if top-2<py<bottom+2:py=(top-3)if y>=7.28415 else(bottom+3)
+                    if top-7<py<bottom+2:
+                        if y>=7.28415:
+                            # Map a real two-dimensional skin patch below the eye
+                            # through the closed-lid coordinates. Collapsing every
+                            # rim UV onto one scanline creates shutter-like bands.
+                            py=max(eye_y+16*curve,eye_y+29+(closed_pixels[index,1]-eye_y)*.8)
+                        else:py=max(bottom+3,py)
             elif label=='left':
                 x0,y0,x1,y1=bounds_side;px=x0+(z+.391)/(1.6807+.391)*(x1-x0)
                 py=y0+(py-profile['bounds'][1])/(profile['bounds'][3]-profile['bounds'][1])*(y1-y0)
@@ -124,36 +133,104 @@ def head_mesh(raw,faces,groups,face_uv,name,refs):
     back=nodes.new('ShaderNodeMixRGB');links.new(split.outputs[1],back.inputs[0]);links.new(front.outputs[0],back.inputs[1]);links.new(textures['back'].outputs[0],back.inputs[2]);links.new(back.outputs[0],nodes.get('Principled BSDF').inputs['Base Color']);mesh.materials.append(m)
     mesh.materials.append(material('TownOralCavity',(.045,.008,.012),.50))
     for p,source in zip(mesh.polygons,chosen_indices):
-        if max(t[1]for t in face_uv[source])<.10 and np.mean(raw[faces[source],1])<7.05:p.material_index=1
+        if max(t[1]for t in face_uv[source])<.137 and np.mean(raw[faces[source],1])<7.05:p.material_index=1
     obj.shape_key_add(name='Basis')
     return obj,ids
 
 
+def posed_source(raw,shape,data):
+    posed=raw.copy()
+    for target,weight in SHAPES[shape].items():
+        for line in gzip.open(data/'targets/expression/units/caucasian'/(target+'.target.gz'),'rt'):
+            f=line.split()
+            if not f or f[0].startswith('#'):continue
+            posed[int(f[0])]+=np.array(list(map(float,f[1:4])))*weight
+    if shape.startswith('Lid'):
+        side=1 if shape.endswith('Left')else-1;centre=np.array([side*.30775,7.28415,1.24535])
+        delta=raw-centre;weight=np.clip(1-abs(delta[:,0])/.20,0,1)*np.clip(1-abs(delta[:,1])/.22,0,1)*np.clip((raw[:,2]-1.22)/.11,0,1)
+        weight*=np.clip((raw[:,0]*side)/.1,0,1)
+        angle=math.radians(11 if 'Up'in shape else-11)*weight
+        posed[:,1]=centre[1]+delta[:,1]*np.cos(angle)+delta[:,2]*np.sin(angle)
+        posed[:,2]=centre[2]+delta[:,2]*np.cos(angle)-delta[:,1]*np.sin(angle)
+    return posed
+
+
 def add_shapes(obj,ids,raw,name,data):
     for shape,recipes in SHAPES.items():
-        posed=raw.copy()
-        for target,weight in recipes.items():
-            for line in gzip.open(data/'targets/expression/units/caucasian'/(target+'.target.gz'),'rt'):
-                f=line.split()
-                if not f or f[0].startswith('#'):continue
-                posed[int(f[0])]+=np.array(list(map(float,f[1:4])))*weight
+        posed=posed_source(raw,shape,data)
         key=obj.shape_key_add(name=shape)
         for v,co in zip(key.data,fit(posed[ids],name)):v.co=co
 
 
+def oral_accessories(raw,name,data,head):
+    parts=[head]
+    for kind,stem,texture in [('teeth','teeth_base','teeth.png'),('tongue','tongue01','tongue01_diffuse.png')]:
+        folder=data/kind/stem;source,faces,_,face_uv=parse_obj(folder/(stem+'.obj'))
+        lines=(folder/(stem+'.mhclo')).read_text().splitlines();start=next(i for i,l in enumerate(lines)if l.startswith('verts '))+1
+        records=[list(map(float,l.split()))for l in lines[start:start+len(source)]]
+        def mapped(base):
+            result=[]
+            for r in records:
+                if len(r)==1:result.append(base[int(r[0])])
+                else:result.append(base[np.asarray(r[:3],dtype=int)].T@np.asarray(r[3:6])+np.asarray(r[6:9]))
+            return fit(np.asarray(result),name)
+        mesh=bpy.data.meshes.new(kind);mesh.from_pydata(mapped(raw).tolist(),[],faces);mesh.update()
+        obj=bpy.data.objects.new(kind,mesh);bpy.context.collection.objects.link(obj)
+        uv=mesh.uv_layers.new(name='OralTexture')
+        for p,coords in zip(mesh.polygons,face_uv):
+            p.use_smooth=True
+            for loop,co in zip(p.loop_indices,coords):uv.data[loop].uv=co
+        mat=material('Town'+kind.title(),(.5,.25,.20),.4);tex=mat.node_tree.nodes.new('ShaderNodeTexImage');tex.image=bpy.data.images.load(str(folder/texture));mapping=mat.node_tree.nodes.new('ShaderNodeUVMap');mapping.uv_map='OralTexture';mat.node_tree.links.new(mapping.outputs[0],tex.inputs[0]);mat.node_tree.links.new(tex.outputs[0],mat.node_tree.nodes.get('Principled BSDF').inputs['Base Color']);mesh.materials.append(mat)
+        obj.shape_key_add(name='Basis')
+        for shape in SHAPES:
+            key=obj.shape_key_add(name=shape)
+            for v,co in zip(key.data,mapped(posed_source(raw,shape,data))):v.co=co
+        parts.append(obj)
+    bpy.ops.object.select_all(action='DESELECT')
+    for part in parts:part.select_set(True)
+    bpy.context.view_layer.objects.active=head;bpy.ops.object.join()
+
+
 def eyes(raw,name,data):
     groups=json.loads((data/'mesh_metadata/basemesh_vertex_groups.json').read_text());out={}
+    eye_mat=material('TownEye',(.72,.70,.64),.28);tex=eye_mat.node_tree.nodes.new('ShaderNodeTexImage');tex.image=bpy.data.images.load(str(data/'eyes/materials'/('green_eye.png'if name=='enchantress'else'brown_eye.png')));eye_mat.node_tree.links.new(tex.outputs[0],eye_mat.node_tree.nodes.get('Principled BSDF').inputs['Base Color'])
+    cornea_mat=material('TownCornea',(.97,.99,1),.04);bsdf=cornea_mat.node_tree.nodes.get('Principled BSDF');bsdf.inputs['Transmission Weight'].default_value=1;bsdf.inputs['IOR'].default_value=1.376
     for side in ('l','r'):
-        indices=[i for a,b in groups['joint-'+side+'-eye']for i in range(a,b+1)]
-        centre=raw[indices].mean(0);fitted=fit(np.array([centre]),name)[0]
-        # Fit the same source anatomical globe instead of placing a disc over skin.
+        indices=[i for a,b in groups['joint-'+side+'-eye']for i in range(a,b+1)];centre=raw[indices].mean(0);fitted=fit(np.array([centre]),name)[0]
         corners=fit(np.array([centre+[.14,0,0],centre+[0,.14,0],centre+[0,0,.146]]),name)-fitted
-        scale=np.array([abs(corners[0,0]),abs(corners[2,1]),abs(corners[1,2])])
-        bpy.ops.mesh.primitive_uv_sphere_add(segments=48,ring_count=24,radius=1,location=fitted)
-        eye=bpy.context.object;eye.name='EyeLeft'if side=='l'else'EyeRight';eye.scale=scale
-        for p in eye.data.polygons:p.use_smooth=True
-        eye.data.materials.append(material('Sclera',(.72,.70,.64),.2))
-        out[eye.name]={'centerBlender':fitted.tolist(),'radiiBlender':scale.tolist()}
+        scale=np.array([abs(corners[0,0]),abs(corners[2,1]),abs(corners[1,2])]);label='EyeLeft'if side=='l'else'EyeRight'
+        pivot=bpy.data.objects.new(label,None);bpy.context.collection.objects.link(pivot);pivot.location=fitted
+        verts=[];uvs=[];faces=[];segments=40
+        # Front optical surface is negative Blender Y. The sclera terminates at
+        # the limbus; a recessed iris annulus and deep pupil have actual depth.
+        theta=.45;iris_radius=math.sin(theta);edge_depth=-math.cos(theta)
+        rings=[(math.sin(t),-math.cos(t),'sclera')for t in np.linspace(theta,math.pi,19)]
+        rings += [(r,edge_depth+.045*(1-r/iris_radius),'iris')for r in np.linspace(iris_radius,.13,5)]
+        rings += [(.13,edge_depth+.10,'pupil'),(0,edge_depth+.10,'pupil')]
+        for radius,depth,region in rings:
+            for j in range(segments):
+                angle=j*2*math.pi/segments;x=radius*math.cos(angle);z=radius*math.sin(angle)
+                verts.append((x*scale[0],depth*scale[1],z*scale[2]))
+                if region=='pupil':uvs.append((.704,.703))
+                else:uvs.append((.704+x/iris_radius*.116,.703+z/iris_radius*.116))
+        def connect(a,b):
+            for j in range(segments):faces.append((a*segments+j,a*segments+(j+1)%segments,b*segments+(j+1)%segments,b*segments+j))
+        for i in range(18):connect(i,i+1)
+        for i in range(19,len(rings)-1):connect(i,i+1)
+        # Separate coincident limbus ring joins both physical surfaces exactly.
+        mesh=bpy.data.meshes.new(label+'Globe');mesh.from_pydata(verts,[],faces);mesh.update();uv=mesh.uv_layers.new(name='EyeAtlas')
+        for loop in mesh.loops:uv.data[loop.index].uv=uvs[loop.vertex_index]
+        obj=bpy.data.objects.new(label+'Globe',mesh);bpy.context.collection.objects.link(obj);obj.parent=pivot;mesh.materials.append(eye_mat)
+        for polygon in mesh.polygons:polygon.use_smooth=True
+        verts=[];faces=[]
+        for i,t in enumerate(np.linspace(0,theta,9)):
+            for j in range(segments):
+                angle=j*2*math.pi/segments;verts.append((math.sin(t)*math.cos(angle)*scale[0],(-math.cos(t)-.002)*scale[1],math.sin(t)*math.sin(angle)*scale[2]))
+        for i in range(8):
+            for j in range(segments):faces.append((i*segments+j,(i+1)*segments+j,(i+1)*segments+(j+1)%segments,i*segments+(j+1)%segments))
+        mesh=bpy.data.meshes.new(label+'Cornea');mesh.from_pydata(verts,[],faces);mesh.update();obj=bpy.data.objects.new(label+'Cornea',mesh);bpy.context.collection.objects.link(obj);obj.parent=pivot;mesh.materials.append(cornea_mat)
+        for polygon in mesh.polygons:polygon.use_smooth=True
+        out[label]={'centerBlender':fitted.tolist(),'radiiBlender':scale.tolist(),'opticalForwardBlender':[0,-1,0]}
     return out
 
 
@@ -180,7 +257,7 @@ def main():
     for line in gzip.open(a.data/'targets/expression/units/caucasian/mouth-compression.target.gz','rt'):
         f=line.split()
         if f and not f[0].startswith('#'):raw[int(f[0])]+=np.array(list(map(float,f[1:4])))*.85
-    obj,ids=head_mesh(raw,faces,groups,face_uv,a.name,a.references);add_shapes(obj,ids,raw,a.name,a.data);eye=eyes(raw,a.name,a.data)
+    obj,ids=head_mesh(raw,faces,groups,face_uv,a.name,a.references,a.data);add_shapes(obj,ids,raw,a.name,a.data);oral_accessories(raw,a.name,a.data,obj);eye=eyes(raw,a.name,a.data)
     bpy.context.view_layer.objects.active=obj;obj.select_set(True);mod=obj.modifiers.new('Anatomical loop subdivision','SUBSURF');mod.levels=2;mod.render_levels=2
     bpy.ops.file.pack_all();bpy.ops.wm.save_as_mainfile(filepath=str(a.output/'face-prototype.blend'))
     (a.output/'landmarks.json').write_text(json.dumps({'name':a.name,'eyes':eye,'headVertices':len(ids),'headQuads':len(obj.data.polygons),'shapes':list(SHAPES)},indent=2)+'\n')
