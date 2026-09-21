@@ -241,7 +241,7 @@ namespace GloomhavenVR
                 // fronts/posts in these volumes would occlude or intersect the moving cards.
                 foreach (var side in new[] { -1, 1 })
                 {
-                    Box(furniture, "OuterPost" + side, new Vector3(side * 1.28f, .47f, .35f), new Vector3(.075f, .94f, .075f), wood);
+                    Box(furniture, "OuterPost" + side, new Vector3(side * 1.245f, .47f, .35f), new Vector3(.04f, .94f, .075f), wood);
                 }
                 Box(furniture, "CentreSupport", new Vector3(0f, .47f, .31f), new Vector3(.18f, .94f, .12f), wood);
             }
