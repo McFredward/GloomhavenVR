@@ -18,10 +18,22 @@ No paid generation has been requested. First geometry checks use reusable portra
 - Replace generated hands with the pinned CC0 hand topology/weights and a shared 2K original-skin atlas. There is one additional hand submesh/material per resident, with one skinned renderer retained. Original generated hand shells are removed at a cuff-hidden plane.
 - Hand local Y follows wrist to middle MCP; local Z is palmar and positive local X flexes each digit. `PalmContact.L/R` are actual skin-ray intersections, not guessed wrist offsets. `PalmCentre.L/R` and all five `*Tip.L/R` markers follow the appropriate hand/distal bone.
 - Restore imported bones to mesh bind transforms before attaching optical/contact markers. FBX's imported Idle transform differs from marker bind space; direct parenting previously introduced a roughly 16 cm false palm offset in the first prototype. Idle is sampled again after parenting.
-- Preserve the complete original hood/scarf silhouette and clean only its existing inner cut edge; an experimental broad aperture cut was rejected because it severed folded source cloth. The priestess's continuous fitted linen coif covers scalp and under-chin/neck surfaces instead of leaving hair and a mismatched exposed chest patch.
+- Preserve the complete original hood/scarf silhouette and clean only its existing inner cut edge; an experimental broad aperture cut was rejected because it severed folded source cloth. The priestess's fitted linen coif covers scalp and ears; the original portrait explicitly shows an aged bare neck down to the chain. An experimental full cloth bib was rejected and removed. The anatomical neck continues inside the original blouse.
 
 ## Review boundaries
 
 The frozen `Hands545v2/town-hands.bundle` is a contact-calibration artifact, not the final package. Its SHA256 is `e47a57d9891d3517b230ff103448e61849fb98a252e25ebcc985a1a6adf9f530`. It contains the stable new hand frames, but predates the final cuff and hood cleanup. Hardware acceptance remains outstanding. Final orbit, combined work/gaze, three-LOD eye/blink and actual-runtime hand contact evidence must accompany the final bundle.
 
 The optical surface now uses a distinct 7.8 mm anterior corneal curvature instead of reusing the 14 mm scleral radius. Primary measurements report mean radii of 7.86/7.66 mm ([Høvding 1983](https://pubmed.ncbi.nlm.nih.gov/6624411/)); this is an anatomical art-model approximation, not a clinical eye simulation. With the same limbus diameter, the steeper cap includes the actual side-lamp/view half-vector. The lids are fitted over this same bulge in neutral and blink; corneal highlight power is not artificially increased.
+
+## Final authoring costs and scope
+
+No paid generation or additional external asset purchase was used for build 545. The shared hand atlas uses the pinned CC0 skin images recorded in `npc-face-template/PROVENANCE.json`. The source actor triangles (before Unity UV splits) are:
+
+| Resident | LOD0 | LOD1 | LOD2 | Build544 LOD0 |
+|---|---:|---:|---:|---:|
+| Merchant | 135434 | 49203 | 31395 | 111763 |
+| Priestess | 134550 | 47391 | 28851 | 111695 |
+| Enchantress | 139754 | 49318 | 29612 | 116552 |
+
+The additional hand material adds one draw per visible resident; one shared 2K atlas serves all three. Existing body/face texture resolution and facial channels are retained. Final hardware timing and visual acceptance remain outstanding.

@@ -128,7 +128,7 @@ def fit(raw,name,orbital=True):
         cz=eye_height(name)
         cy=p['depthOffset']-1.24535*p['depthScale']
         aperture=np.clip((.34-np.abs(raw[:,1]-7.28415))/.20,0,1)*np.clip((.29-np.abs(raw[:,0]-side*.30775))/.08,0,1)*np.clip((raw[:,2]-1.12)/.10,0,1)
-        world_z+= (world_z-cz)*(.28 if name=='merchant' else .40)*aperture
+        world_z+= (world_z-cz)*(.024 if name=='merchant' else .12)*aperture
         dx=x-cx;dz=world_z-cz;radius=.014
         radial=(dx*dx+dz*dz)/(radius*radius)
         inner=np.clip((raw[:,2]-1.12)/.10,0,1)
@@ -160,6 +160,7 @@ def fit(raw,name,orbital=True):
     if name=='priestess':
         oval=(raw[:,0]/.80)**2+((raw[:,1]-7.01)/.86)**2
         coif=np.maximum.reduce((np.clip((oval-.90)/.08,0,1),np.clip((.80-raw[:,2])/.16,0,1),np.clip((raw[:,1]-7.65)/.07,0,1),np.clip((np.abs(raw[:,0])-.55)/.10,0,1)*np.clip((1.35-raw[:,2])/.15,0,1)))
+        coif*=np.clip((raw[:,1]-6.50)/.20,0,1)
         angle=np.arctan2(x,y-.010)
         side=np.clip((np.abs(raw[:,0])-.60)/.16,0,1)*np.clip((world_z-1.57)/.035,0,1)*coif
         section=np.sqrt(np.maximum(.03,1-((world_z-1.600)/.15)**2))
@@ -243,7 +244,7 @@ def head_mesh(raw,faces,groups,face_uv,name,refs,data):
             x,y,z=raw[ids[mesh.loops[loop_index].vertex_index]]
             plane=y+.65*z
             weight=max(0,min(1,(6.36-plane)/.30))
-            if name=='enchantress':weight=max(weight,max(0,min(1,(6.62-y-.25*z)/.22)))
+            if name in ('enchantress','priestess'):weight=max(weight,max(0,min(1,(6.62-y-.25*z)/.22)))
             weight=weight*weight*(3-2*weight)
             mesh.uv_layers['NeckSkin'].data[loop_index].uv=original_uv
             mesh.color_attributes['NeckWeight'].data[loop_index].color=(weight,weight,weight,1)
@@ -268,6 +269,7 @@ def head_mesh(raw,faces,groups,face_uv,name,refs,data):
         oval=(x/.80)**2+((y-7.01)/.86)**2
         value=max(0,min(1,(oval-.90)/.08)) if name=='priestess' else 0
         value=max(value,max(0,min(1,(.80-z)/.16)),max(0,min(1,(y-7.65)/.07)),max(0,min(1,(abs(x)-.55)/.10))*max(0,min(1,(1.35-z)/.15))) if name=='priestess' else 0
+        value*=max(0,min(1,(y-6.50)/.20))
         mesh.color_attributes['CoifCloth'].data[loop.index].color=(value,value,value,1)
         mesh.uv_layers['CoifUV'].data[loop.index].uv=(.125+x*.018,.628+(y-6.3)*.007)
     weights=mesh.color_attributes.new(name='ProjectionWeights' ,type='FLOAT_COLOR',domain='CORNER')
@@ -293,7 +295,11 @@ def head_mesh(raw,faces,groups,face_uv,name,refs,data):
     lip_tint=nodes.new('ShaderNodeMixRGB');links.new(channels.outputs[1],lip_tint.inputs[0]);links.new(eye_tint.outputs[0],lip_tint.inputs[1]);lip_tint.inputs[2].default_value=(.14,.046,.17,1)
     hair_luma=nodes.new('ShaderNodeRGBToBW');links.new(lip_tint.outputs[0],hair_luma.inputs[0]);hair_dark=nodes.new('ShaderNodeMapRange');hair_dark.clamp=True;hair_dark.inputs['From Min'].default_value=.06;hair_dark.inputs['From Max'].default_value=.20;hair_dark.inputs['To Min'].default_value=1;hair_dark.inputs['To Max'].default_value=0;links.new(hair_luma.outputs[0],hair_dark.inputs['Value']);hair_mask=nodes.new('ShaderNodeMath');hair_mask.operation='MULTIPLY';links.new(channels.outputs[2],hair_mask.inputs[0]);links.new(hair_dark.outputs[0],hair_mask.inputs[1])
     hair_tint=nodes.new('ShaderNodeMixRGB');hair_tint.blend_type='MULTIPLY';links.new(hair_mask.outputs[0],hair_tint.inputs[0]);links.new(lip_tint.outputs[0],hair_tint.inputs[1]);hair_tint.inputs[2].default_value=(.75,.38,1.45,1)
-    links.new(hair_tint.outputs[0],blend.inputs[1]);links.new(neck.outputs[0],blend.inputs[2])
+    links.new(hair_tint.outputs[0],blend.inputs[1])
+    # Match the borrowed anatomical neck albedo to the portrait's cool pale skin;
+    # geometry and the portrait's facial landmarks remain unchanged.
+    neck_tint=nodes.new('ShaderNodeMixRGB');neck_tint.blend_type='MULTIPLY';neck_tint.inputs[0].default_value=1;links.new(neck.outputs[0],neck_tint.inputs[1]);neck_tint.inputs[2].default_value=(.58,.85,1.50,1) if name=='enchantress' else (1,1,1,1)
+    links.new(neck_tint.outputs[0],blend.inputs[2])
     cloth=nodes.new('ShaderNodeTexImage');cloth.image=bpy.data.images.load(str(Path(__file__).resolve().parents[1]/'unity/GloomhavenVR.Assets/Assets/Bundle/TownServices/Actors/priestess/Textures/body_material_00_basecolor.png'));cloth.extension='EXTEND'
     cloth_uv=nodes.new('ShaderNodeUVMap');cloth_uv.uv_map='CoifUV';links.new(cloth_uv.outputs[0],cloth.inputs[0])
     cloth_weight=nodes.new('ShaderNodeVertexColor');cloth_weight.layer_name='CoifCloth';dressed=nodes.new('ShaderNodeMixRGB');links.new(cloth_weight.outputs[0],dressed.inputs[0]);links.new(blend.outputs[0],dressed.inputs[1]);links.new(cloth.outputs[0],dressed.inputs[2])

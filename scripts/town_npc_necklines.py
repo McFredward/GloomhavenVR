@@ -33,7 +33,7 @@ def shirt_band(bm, body, npc):
             front=max(0,math.cos(angle))
             x=(rx+t*.027+fold)*math.sin(angle)
             y=cy-(ry+t*.035+fold)*math.cos(angle)
-            z=top-drop*math.cos(angle)-t*(.038+.018*front**4)
+            z=top-drop*math.cos(angle)-.020*(1-t)-t*(.038+.018*front**4)+.035*math.sin(math.pi*t)
             z+=.0025*math.sin(angle*7)*math.sin(math.pi*t)
             vertex=bm.verts.new((x,y,z));vertex[deform][chest]=1;ring.append(vertex)
         rings.append(ring)
