@@ -33,6 +33,7 @@ internal sealed class TownServiceDecor : IDisposable
     private readonly TownServiceActivityProps _work;
     private Piece? _workCoin, _arcane;
     private Transform? _castGrip;
+    private bool _castGripBound;
     private float _visibility;
     private float _clock;
     private bool _reported;
@@ -262,9 +263,14 @@ internal sealed class TownServiceDecor : IDisposable
     {
         _work.Sample(in pose);
         if (_arcane?.Holder == null) return;
-        if (_castGrip == null)
+        if (!_castGripBound)
+        {
+            // The station constructs its immutable activity rig before decoration. Missing
+            // grips in an incompatible bundle must not turn into a hierarchy scan per frame.
+            _castGripBound = true;
             foreach (Transform child in _root.GetComponentsInChildren<Transform>(true))
                 if (child.name == "ActivityGripRight") { _castGrip = child; break; }
+        }
         if (_castGrip == null) return;
         float strength = TownServiceActivityMotion.Pulse(pose.WorkClock % 14f, 7f, 12f)
             * (1f - TownServiceActivityMotion.Blend(in pose));
