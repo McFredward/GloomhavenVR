@@ -12,6 +12,7 @@ import sys
 import tempfile
 import time
 import unittest
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parent.parent
 spec = importlib.util.spec_from_file_location('suite_runner', ROOT / 'scripts/run-test-suites.py')
@@ -245,8 +246,8 @@ r=importlib.util.module_from_spec(spec);spec.loader.exec_module(r)
 raise SystemExit(r.execute({suites!r}, 1, pathlib.Path({str(output)!r}), pathlib.Path({str(self.root)!r}), 'hash', 'local', (0,1)))'''
         return subprocess.Popen([sys.executable, '-c', code], stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
 
-    def wait_file(self, path):
-        deadline = time.monotonic() + 5
+    def wait_file(self, path, timeout=5):
+        deadline = time.monotonic() + timeout
         while not path.exists() and time.monotonic() < deadline:
             time.sleep(.02)
         self.assertTrue(path.exists())
@@ -294,6 +295,112 @@ raise SystemExit(r.execute({suites!r}, 1, pathlib.Path({str(output)!r}), pathlib
                                     capture_output=True, text=True)
             self.assertEqual(result.returncode, 2)
             self.assertIn('partial/group/list options', result.stderr)
+
+    def test_nested_cgroup_resource_limits_and_subtree_mount(self):
+        proc = self.root / 'proc'
+        (proc / 'self').mkdir(parents=True)
+        mount = self.root / 'cgroup'
+        current = mount / 'user/session'
+        current.mkdir(parents=True)
+        (proc / 'self/cgroup').write_text('0::/tenant/user/session\n')
+        (proc / 'self/mountinfo').write_text(f'1 0 0:1 /tenant {mount} rw - cgroup2 cgroup2 rw\n')
+        (proc / 'meminfo').write_text(f'MemAvailable: {32*1024*1024} kB\n')
+        (current / 'cpu.max').write_text('max 100000')
+        (current.parent / 'cpu.max').write_text('300000 100000')
+        (mount / 'cpu.max').write_text('200000 100000')
+        (current / 'memory.max').write_text(str(10*1024**3))
+        (current / 'memory.current').write_text(str(1024**3))
+        (mount / 'memory.max').write_text(str(8*1024**3))
+        (mount / 'memory.current').write_text(str(2*1024**3))
+        cpus, memory = runner.resource_budget(proc)
+        self.assertLessEqual(cpus, 2)
+        self.assertEqual(memory, 6*1024**3)
+        self.assertEqual(runner.cgroup_v2_ancestors(proc), [current, current.parent, mount])
+
+    def test_fixtures_and_compiler_ids_are_isolated(self):
+        # TMPDIR must stay outside the checkout. Otherwise standalone mutation projects
+        # silently inherit Directory.Build.props and different warning/build semantics.
+        code = f'''import os,pathlib
+p=pathlib.Path(os.environ['TMPDIR']).resolve()
+assert not p.is_relative_to(pathlib.Path({str(self.root)!r}))
+assert len(str(p / ('CoreFxPipe_' + os.environ['SharedCompilationId'])).encode()) < 104
+assert os.environ['UseSharedCompilation'] == 'true'
+print(os.environ['SharedCompilationId'])'''
+        # Even an explicitly configured TMPDIR under the checkout must not change fixtures.
+        with mock.patch.object(tempfile, 'tempdir', str(self.root)):
+            _, report, _ = self.run_suites([self.suite('one', code), self.suite('two', code)])
+        self.assertTrue(report['passed'])
+        ids = [r['compiler_id'] for r in report['results']]
+        self.assertEqual(len(set(ids)), 2)
+
+    @unittest.skipUnless(os.environ.get('GHVR_TEST_COMPILER_SMOKE') == '1', 'opt-in real SDK/compiler lifecycle proof')
+    def test_real_private_compiler_reuse_group_and_cleanup(self):
+        # The poisoned parent makes the historical TMPDIR-under-checkout error observable.
+        (self.root / 'Directory.Build.props').write_text('<Project><PropertyGroup><TreatWarningsAsErrors>true</TreatWarningsAsErrors></PropertyGroup></Project>')
+        suites = [self.suite(name, self.compiler_probe(name, False)) for name in ['compiler-one', 'compiler-two']]
+        _, report, log = self.run_suites(suites)
+        self.assertTrue(report['passed'], log)
+        pids = []
+        for name in ['compiler-one', 'compiler-two']:
+            data = json.loads((self.root / (name + '.json')).read_text())
+            self.assertEqual(data['first_pid'], data['second_pid'])
+            self.assertEqual(data['server_pgid'], data['suite_pgid'])
+            pids.append(data['second_pid'])
+            self.assert_process_stopped(data['second_pid'])
+        self.assertEqual(len(set(pids)), 2)
+
+    @unittest.skipUnless(os.environ.get('GHVR_TEST_COMPILER_SMOKE') == '1', 'opt-in real SDK/compiler lifecycle proof')
+    def test_real_private_compiler_cancellation_cleanup(self):
+        output = self.root / 'compiler-cancel'
+        name = 'compiler-cancel'
+        process = self.start_worker([self.suite(name, self.compiler_probe(name, True))], output)
+        try:
+            marker = self.root / (name + '.json')
+            self.wait_file(marker, timeout=40)
+            data = json.loads(marker.read_text())
+            process.send_signal(signal.SIGTERM)
+            _, error = process.communicate(timeout=8)
+            self.assertEqual(process.returncode, 143, error.decode())
+            self.assert_process_stopped(data['second_pid'])
+        finally:
+            if process.poll() is None:
+                process.send_signal(signal.SIGTERM)
+                process.wait(timeout=8)
+
+    def assert_process_stopped(self, pid):
+        stat = Path('/proc') / str(pid) / 'stat'
+        deadline = time.monotonic() + 3
+        while stat.exists() and stat.read_text().split()[2] != 'Z' and time.monotonic() < deadline:
+            time.sleep(.02)
+        self.assertTrue(not stat.exists() or stat.read_text().split()[2] == 'Z', f'Leaked process {pid}')
+
+    def compiler_probe(self, name, wait):
+        # Two actual changed builds prove reuse rather than a no-op incremental build.
+        return f'''import os,pathlib,subprocess,json,time
+root=pathlib.Path(os.environ['TMPDIR'])/'probe';root.mkdir()
+(root/'Probe.csproj').write_text('<Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><TargetFramework>net8.0</TargetFramework><GenerateDocumentationFile>true</GenerateDocumentationFile><NoWarn>1591</NoWarn></PropertyGroup></Project>')
+source=root/'Probe.cs'
+pipe=('-pipename:'+os.environ['SharedCompilationId']).encode()
+dotnet=pathlib.Path(os.environ.get('DOTNET_ROOT',str(pathlib.Path.home()/'.dotnet')))/'dotnet'
+def build(n):
+ source.write_text('/// <see cref="MissingMember"/>\\npublic class Probe {{ public int Value => '+str(n)+'; }}')
+ result=subprocess.run([str(dotnet),'build',str(root/'Probe.csproj'),'-v:normal','--nologo'],text=True,stdout=subprocess.PIPE,stderr=subprocess.STDOUT)
+ print(result.stdout,flush=True)
+ assert result.returncode==0,'Standalone fixture inherited error policy'
+ assert 'warning CS1574' in result.stdout,'Probe must reach the real compiler and diagnostic'
+ assert 'server processed compilation' in result.stdout,'Compiler unexpectedly fell back to standalone mode'
+ for path in pathlib.Path('/proc').glob('[0-9]*/cmdline'):
+  try:
+   args=path.read_bytes().split(b'\\0')
+   if pipe in args: return int(path.parent.name)
+  except (OSError,ProcessLookupError): pass
+ raise AssertionError('Private compiler server missing')
+a=build(1);b=build(2)
+data=dict(first_pid=a,second_pid=b,server_pgid=os.getpgid(b),suite_pgid=os.getpgrp())
+pathlib.Path({str(self.root / (name + '.json'))!r}).write_text(json.dumps(data))
+print(json.dumps(data),flush=True)
+if {wait!r}: time.sleep(60)
+'''
 
     def test_existing_output_is_rejected(self):
         output = self.root / 'output'

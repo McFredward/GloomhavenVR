@@ -4,7 +4,8 @@
 A suite owns one project and runs its negative controls serially. Different suites use
 separate project bin/obj directories or mktemp fixtures. Checkout/suite locks also
 serialize overlapping invocations. NuGet's package cache supports concurrent restore;
-compiler/MSBuild daemons are disabled so the scheduler owns the process lifetime.
+each suite gets a private warmed compiler server in its process group. MSBuild node
+reuse is disabled, and the scheduler cleans all descendants on completion or cancellation.
 """
 from __future__ import annotations
 
@@ -36,26 +37,50 @@ def read_limit(path):
         return None
 
 
-def resource_budget():
-    """Respect CPU affinity, cgroup v2 limits and currently available memory."""
-    cpus = len(os.sched_getaffinity(0)) if hasattr(os, 'sched_getaffinity') else os.cpu_count() or 1
+def cgroup_v2_ancestors(proc_root=Path('/proc')):
+    """Resolve this process's cgroup and every enforcing ancestor, including subtree mounts."""
     try:
-        quota, period = Path('/sys/fs/cgroup/cpu.max').read_text().split()
-        if quota != 'max':
-            cpus = min(cpus, max(1, math.ceil(int(quota) / int(period))))
-    except (OSError, ValueError):
+        membership = next(line[3:] for line in (proc_root / 'self/cgroup').read_text().splitlines()
+                          if line.startswith('0::'))
+        current = Path(membership)
+        for line in (proc_root / 'self/mountinfo').read_text().splitlines():
+            if ' - cgroup2 ' not in line:
+                continue
+            fields = line.split(' - ', 1)[0].split()
+            unescape = lambda value: re.sub(r'\\([0-7]{3})', lambda m: chr(int(m[1], 8)), value)
+            mount_root, mount = Path(unescape(fields[3])), Path(unescape(fields[4]))
+            try:
+                path = mount / current.relative_to(mount_root)
+            except ValueError:
+                continue
+            return [path, *[parent for parent in path.parents if parent == mount or mount in parent.parents]]
+    except (OSError, StopIteration, IndexError):
         pass
+    return []
+
+
+def resource_budget(proc_root=Path('/proc')):
+    """Respect CPU affinity and limits at the process's actual cgroup and all ancestors."""
+    cpus = len(os.sched_getaffinity(0)) if hasattr(os, 'sched_getaffinity') else os.cpu_count() or 1
     available = None
     try:
-        match = re.search(r'^MemAvailable:\s+(\d+) kB', Path('/proc/meminfo').read_text(), re.M)
+        match = re.search(r'^MemAvailable:\s+(\d+) kB', (proc_root / 'meminfo').read_text(), re.M)
         if match:
             available = int(match[1]) * 1024
     except OSError:
         pass
-    limit = read_limit('/sys/fs/cgroup/memory.max')
-    used = read_limit('/sys/fs/cgroup/memory.current')
-    if limit is not None and used is not None:
-        available = min(available or limit, max(0, limit - used))
+    for cgroup in cgroup_v2_ancestors(proc_root):
+        try:
+            quota, period = (cgroup / 'cpu.max').read_text().split()
+            if quota != 'max':
+                cpus = min(cpus, max(1, math.ceil(int(quota) / int(period))))
+        except (OSError, ValueError, ZeroDivisionError):
+            pass
+        limit = read_limit(cgroup / 'memory.max')
+        used = read_limit(cgroup / 'memory.current')
+        if limit is not None and used is not None:
+            remaining = max(0, limit - used)
+            available = remaining if available is None else min(available, remaining)
     return cpus, available
 
 
@@ -121,6 +146,24 @@ def terminate_group(proc, sig):
         pass
 
 
+
+def fixture_scratch(root):
+    # Standalone mutation projects must not inherit repository Directory.Build.* policy.
+    # Also reserve enough room for Unix's short named-pipe paths (compiler ID is 21 bytes).
+    for candidate in dict.fromkeys([Path(tempfile.gettempdir()), Path('/tmp')]):
+        base = candidate.resolve()
+        if len(os.fsencode(str(base))) > 50 or base == root or root in base.parents:
+            continue
+        if any((ancestor / name).exists() for ancestor in [base, *base.parents]
+               for name in ('Directory.Build.props', 'Directory.Build.targets')):
+            continue
+        try:
+            return Path(tempfile.mkdtemp(prefix='ghvr-', dir=base))
+        except OSError:
+            continue
+    raise ValueError('No short standalone temporary directory free of Directory.Build.* policy')
+
+
 def execute(suites, jobs, output, root, manifest_hash, group, shard):
     output.mkdir(parents=True, exist_ok=True)
     if any(output.iterdir()):
@@ -169,10 +212,14 @@ def execute(suites, jobs, output, root, manifest_hash, group, shard):
                     continue
                 log_path = output / f'{name}.log'
                 log = log_path.open('wb')
-                scratch = Path(tempfile.mkdtemp(prefix=f'{name}-', dir=output))
+                # Unix compiler pipes include TMPDIR in a ~108-byte socket path. Keep
+                # fixture temp roots short; logs and results remain in the output directory.
+                scratch = fixture_scratch(root)
+                compiler_id = 'ghvr-' + uuid.uuid4().hex[:16]
                 env = os.environ.copy()
                 env.update(TMPDIR=str(scratch), DOTNET_CLI_DO_NOT_USE_MSBUILD_SERVER='1',
-                           MSBUILDDISABLENODEREUSE='1', UseSharedCompilation='false',
+                           MSBUILDDISABLENODEREUSE='1', UseSharedCompilation='true',
+                           SharedCompilationId=compiler_id,
                            DOTNET_PROCESSOR_COUNT='2')
                 # No shell interpretation: commands are explicit argument vectors.
                 try:
@@ -187,7 +234,7 @@ def execute(suites, jobs, output, root, manifest_hash, group, shard):
                                      'duration_seconds': 0, 'log': log_path.name}
                 else:
                     running[name] = {'process': proc, 'log': log, 'lock': lock, 'scratch': scratch,
-                                     'started': time.monotonic(), 'log_path': log_path}
+                                     'started': time.monotonic(), 'log_path': log_path, 'compiler_id': compiler_id}
                 pending.remove(suite)
             for name, entry in list(running.items()):
                 code = entry['process'].poll()
@@ -201,7 +248,8 @@ def execute(suites, jobs, output, root, manifest_hash, group, shard):
                 duration = time.monotonic() - entry['started']
                 status = 'cancelled' if cancelled[0] else ('passed' if code == 0 else 'failed')
                 results[name] = {'id': name, 'status': status, 'exit_code': code,
-                                 'duration_seconds': round(duration, 3), 'log': entry['log_path'].name}
+                                 'duration_seconds': round(duration, 3), 'log': entry['log_path'].name,
+                                 'compiler_id': entry['compiler_id']}
                 print(f'[{status}] {name}: {duration:.1f}s', flush=True)
                 del running[name]
             if pending or running:
