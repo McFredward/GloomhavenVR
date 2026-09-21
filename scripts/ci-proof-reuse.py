@@ -21,6 +21,8 @@ from urllib.request import Request, urlopen
 WORKFLOW = '.github/workflows/ci.yml'
 HELPER = 'scripts/ci-proof-reuse.py'
 PROOF_STEP = 'Record full-check completion'
+PARALLEL_GATE = 'Require successful parallel checks'
+RUNTIME_SHARDS = 4
 MAX_AGE_DAYS = 30
 MAX_RUN_PAGES = 5
 SHA = re.compile(r'^[0-9a-f]{40}$')
@@ -129,18 +131,36 @@ def trusted_run(run, repository, workflow_id):
             and run.get('head_branch') == 'dev')
 
 
-def verify_job(run, jobs, expected_tree):
+def successful_job(run, job):
+    return (job.get('run_id') == run['id'] and job.get('run_attempt') == run['run_attempt']
+            and job.get('head_sha') == run['head_sha'] and job.get('status') == 'completed'
+            and job.get('conclusion') == 'success')
+
+
+def verify_job(run, jobs, expected_tree, parallel=False):
     named = [job for job in jobs if job.get('name') == f'Full checks [{expected_tree}]']
     if len(named) != 1:
         raise NoProof('The latest matching run has no unique full-check job (reuse is not proof).')
     job = named[0]
-    if (job.get('run_id') != run['id'] or job.get('run_attempt') != run['run_attempt']
-            or job.get('head_sha') != run['head_sha'] or job.get('status') != 'completed'
-            or job.get('conclusion') != 'success'):
+    if not successful_job(run, job):
         raise NoProof('The latest matching full-check job did not complete successfully.')
     markers = [step for step in job.get('steps', []) if step.get('name') == PROOF_STEP]
     if len(markers) != 1 or markers[0].get('status') != 'completed' or markers[0].get('conclusion') != 'success':
         raise NoProof('Full-check completion step is missing, skipped or unsuccessful.')
+
+    if parallel:
+        # The aggregator is necessary but not sufficient. Verify every required job
+        # independently, including attempt and source identity, so a missing shard or
+        # a falsely green completion marker can never authorize a release.
+        required = ['Source and build checks'] + [
+            f'Runtime suites [{index}/{RUNTIME_SHARDS}]' for index in range(RUNTIME_SHARDS)]
+        for name in required:
+            matches = [candidate for candidate in jobs if candidate.get('name') == name]
+            if len(matches) != 1 or not successful_job(run, matches[0]):
+                raise NoProof(f'Parallel CI dependency is missing or unsuccessful: {name}.')
+        gates = [step for step in job.get('steps', []) if step.get('name') == PARALLEL_GATE]
+        if len(gates) != 1 or gates[0].get('status') != 'completed' or gates[0].get('conclusion') != 'success':
+            raise NoProof('Parallel CI completion gate is missing or unsuccessful.')
 
 
 def find_proof(root, repository, wanted_tree, api, now=None):
@@ -176,7 +196,12 @@ def find_proof(root, repository, wanted_tree, api, now=None):
     if updated > now + timedelta(minutes=5) or now - updated > timedelta(days=MAX_AGE_DAYS):
         raise NoProof('The latest matching CI evidence is stale or has an invalid timestamp.')
     jobs = api.jobs(run['id'], run['run_attempt'])
-    verify_job(run, jobs, wanted_tree)
+    # Historical serial runs remain valid for their own exact trees, including release
+    # recovery. The workflow AT THE PROOF COMMIT determines which evidence is required;
+    # the current main/dev workflow may have adopted parallelism after that release.
+    proof_workflow = git(root, 'show', run['head_sha'] + ':' + WORKFLOW)
+    parallel = f'      - name: {PARALLEL_GATE}' in proof_workflow
+    verify_job(run, jobs, wanted_tree, parallel=parallel)
     # A rerun starting while jobs were read must invalidate the older result immediately.
     confirmed = api.get(f"/actions/runs/{run['id']}")
     if (confirmed.get('run_attempt'), confirmed.get('status'), confirmed.get('conclusion')) != (
