@@ -519,7 +519,7 @@ internal static class NetProtocol
     /// 15 Hz board pose while moving).</summary>
     public const ushort ModBuild = 539;
 
-    // ModBuild 539 — optional immersive town visits, disabled by default.
+    // ModBuild 539 — optional immersive town visits, enabled by default (user ruling).
     // VR options switch the local merchant, temple and enchantress between immersive
     // presentation and the ordinary 1.0.6 window path. Live disable cancels held samples,
     // restores original section parents and portraits, and preserves the native controller's

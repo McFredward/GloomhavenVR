@@ -14,11 +14,12 @@ change per build) → this file (where things stand and what is owed) → the bu
 ## 1. Position
 
 - **Town services / build 539:** VR options expose `WorldUI/ImmersiveTownServices`,
-  disabled by default. Turning it off restores the three original service windows through
+  enabled by default (maintainer clarification, 2026-09-21). Turning it off restores the three original service windows through
   the ordinary conversion path, including an already-open service, without changing native
   selection or invoking close/confirmation callbacks. Held samples are cancelled, original
   section parents and portraits restored. Enabled remote visitors remain visible regardless
-  of the observer's local preference. Hardware verification of live switching is pending.
+  of the observer's local preference. Unity validation passes 617 assertions and 22 compiled
+  negative controls. Hardware verification of live switching is pending.
 
 - **Town services / build 538:** first immersive merchant, temple and enchantress variant.
   Three generated NPCs have body/finger rigs, authored greeting/idle animations, three mesh

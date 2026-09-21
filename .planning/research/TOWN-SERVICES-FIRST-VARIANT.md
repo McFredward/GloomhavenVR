@@ -5,7 +5,8 @@ not a release announcement or a claim of headset validation.
 
 ## Interaction scope
 
-Build 539 adds **Immersive town visits** to VR options, disabled by default. The setting
+Build 539 adds **Immersive town visits** to VR options, enabled by default by the maintainer's
+explicit clarification on 2026-09-21. The setting
 controls the local merchant, temple and enchantress presentation. With it off, their original
 1.0.6 window flow remains in charge. Switching off during a visit cancels cosmetic samples,
 restores native sections and portraits, and keeps the same native controller and selection.

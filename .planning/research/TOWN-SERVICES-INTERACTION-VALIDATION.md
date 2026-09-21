@@ -4,6 +4,17 @@ The offline regression harness runs production interaction code in **Unity
 2021.3.5f1 play mode**, with real transforms, colliders, CanvasGroup, EventSystem,
 Selectable and Button. It does not launch Gloomhaven or require a headset.
 
+Build 539 validation: **617 production assertions and 22 compiled negative controls**.
+All three services are exercised with the option initially off and through repeated live
+off/on cycles. Checks cover exact descendant parents, original portrait enablement, one
+ordinary conversion owner, native selection preservation and ordinary fitting/placement
+flags. A held sample cannot select after disabling, even before the next presentation tick;
+still-held cancellation and re-enabling cannot revive a stale gesture. A fresh gesture still
+selects correctly. Three option-specific negative controls prove opening, release fencing
+and restoration of the ordinary lifecycle are tested. Retained evidence is under
+`.planning/debug/town-build-539/interaction/`; the complete worker run is
+`/home/claw/gvr-town-toggle-tests/.planning/debug/town-service-interaction/run-hh_ex53d`.
+
 ## Run
 
 ```sh
