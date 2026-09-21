@@ -17,6 +17,7 @@ namespace UnityEngine
     {
         public float x,y,z;
         public Vector3(float x,float y,float z) { this.x=x;this.y=y;this.z=z; }
+        public static Vector3 Lerp(Vector3 a,Vector3 b,float t)=>a+(b-a)*Mathf.Clamp01(t);
         public static Vector3 zero => new(0,0,0);
         public static Vector3 one => new(1,1,1);
         public float sqrMagnitude => x*x+y*y+z*z;
@@ -34,6 +35,12 @@ namespace UnityEngine
     public static class Time { public static float unscaledTime, unscaledDeltaTime; }
     public static class Mathf
     {
+        public const float PI=(float)Math.PI;
+        public static float Sin(float v)=>(float)Math.Sin(v);
+        public static float Cos(float v)=>(float)Math.Cos(v);
+        public static float Clamp01(float v)=>Math.Max(0,Math.Min(1,v));
+        public static float Lerp(float a,float b,float t)=>a+(b-a)*Clamp01(t);
+        public static float SmoothStep(float a,float b,float t){t=Clamp01(t);return a+(b-a)*t*t*(3-2*t);}
         public static float Abs(float v)=>Math.Abs(v);
         public static float Min(float a,float b)=>Math.Min(a,b);
         public static float Max(float a,float b)=>Math.Max(a,b);
@@ -84,7 +91,7 @@ namespace GloomhavenVR.WorldUI
         internal void RefreshEnvironment(bool author) { LastAuthor=author; if(author)Root.position=new Vector3(Root.position.x,Floor,Root.position.z); }
         internal void SetVisibility(float value)=>Visibility=value;
         internal bool PrepareActivityAttention(bool previous)=>false;
-        internal void SampleActivity(in GloomhavenVR.Net.TownActivityPose pose) { }
+        internal void SampleActivity(in TownActivityVisual pose) { }
         internal int FaceSeeds;internal bool FaceAuthor,FaceReceived;internal GloomhavenVR.Net.TownFacePose FacePose;
         internal void SeedFace(GloomhavenVR.Net.TownFacePose pose,int author,float elapsed){FaceSeeds++;FacePose=pose;}
         internal GloomhavenVR.Net.TownFacePose SampleFace(bool author,bool received,int authorId,in GloomhavenVR.Net.TownFacePose remote,float elapsed,float clock){FaceAuthor=author;FaceReceived=received;if(received)FacePose=remote;return FacePose;}
@@ -149,11 +156,10 @@ namespace GloomhavenVR.Net
 // isolates resident lifetime/authority routing from cosmetic pose details.
 namespace GloomhavenVR.WorldUI
 {
-    internal static class TownServiceActivityMotion
+    internal static class TownServiceFaceMotion
     {
-        internal const float TransitionSeconds=.65f;
-        internal static void Engage(ref GloomhavenVR.Net.TownActivityPose p,bool target){p.Engaged=target;p.FromBlend=0;}
-        internal static GloomhavenVR.Net.TownActivityPose Advance(GloomhavenVR.Net.TownActivityPose p,float dt){p.WorkClock+=dt;return p;}
+        internal static GloomhavenVR.Net.TownFacePose Interpolate(in GloomhavenVR.Net.TownFacePose a,in GloomhavenVR.Net.TownFacePose b,float t)
+            => new GloomhavenVR.Net.TownFacePose{HeadYaw=UnityEngine.Mathf.Lerp(a.HeadYaw,b.HeadYaw,t)};
     }
 }
 namespace GloomhavenVR.Net

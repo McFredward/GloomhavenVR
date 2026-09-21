@@ -23,7 +23,8 @@ internal sealed class TownServiceActivityProps : IDisposable
     { _root = root; _service = service; _shader = shader; }
     internal void BindCoin(Transform coin, Vector3 offset)
     { _coin = coin; _coinOffset = offset; _coinRest = coin.localPosition; }
-    internal void Sample(in TownActivityPose pose)
+    internal void Sample(in TownActivityPose pose) => Sample();
+    internal void Sample()
     {
         if (_service != 1) return;
         _suspended = false;

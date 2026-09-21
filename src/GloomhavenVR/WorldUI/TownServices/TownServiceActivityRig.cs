@@ -94,22 +94,24 @@ internal sealed class TownServiceActivityRig
     }
     internal void Apply(in TownActivityPose state)
     {
+        TownActivityVisual visual = TownServiceActivityMotion.Visual(_service, in state);
+        Apply(in visual);
+    }
+    internal void Apply(in TownActivityVisual visual)
+    {
         if (!Ready) return;
         if (_chest != null)
         {
             _sampledChest = _chest.localRotation; _applied = true;
-            _chest.rotation = Quaternion.AngleAxis((6f + (_service == 1 ? 18f * TownServiceActivityMotion.Writing(state.WorkClock) : 0f))
-                * (1f - TownServiceActivityMotion.Blend(in state)), -_root.right) * _chest.rotation;
+            _chest.rotation = Quaternion.AngleAxis((6f * (1f - visual.Attention) + 18f * visual.Writing), -_root.right) * _chest.rotation;
         }
         if (_neck != null)
         {
             _sampledNeck = _neck.localRotation; _applied = true;
-            _neck.rotation = Quaternion.AngleAxis(18f * (1f - TownServiceActivityMotion.Blend(in state)), -_root.right) * _neck.rotation;
+            _neck.rotation = Quaternion.AngleAxis(18f * (1f - visual.Attention), -_root.right) * _neck.rotation;
         }
-        TownServiceActivityMotion.Hands(_service, in state, out Vector3 left, out Vector3 right, out float curl);
-        float attention = TownServiceActivityMotion.Blend(in state);
-        float writing = _service == 1 ? TownServiceActivityMotion.Writing(state.WorkClock) * (1f - attention) : 0f;
-        Solve(_left!, left, 1f, curl, attention, 0f); Solve(_right!, right, -1f, curl, attention, writing);
+        Solve(_left!, visual.Left, 1f, visual.Curl, visual.Attention, 0f);
+        Solve(_right!, visual.Right, -1f, visual.Curl, visual.Attention, visual.Writing);
     }
     private void Solve(Arm arm, Vector3 localTarget, float side, float curl, float attention, float writing)
     {

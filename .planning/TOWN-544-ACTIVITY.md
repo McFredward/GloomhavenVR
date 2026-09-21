@@ -41,7 +41,7 @@ rules: fast packets cannot resurrect a suspended peer; a newer same-epoch presen
 ## Focused validation and remaining limits
 
 - `check-town-activity.py --portable`: real production analytic phase and remote playback
-  bound to managed Unity math, 24,022 assertions and four deliberately compiled defects.
+  bound to managed Unity math, 24,031 assertions and five deliberately compiled defects.
   Registered for hosted CI; this mode makes no Unity scene/rig claim.
 - Real Unity optional `--bundle`: imported three-NPC arm chains, continuous target contact
   and body reset/no accumulation. Production terrain grounding is applied at0/±3.5cm;
@@ -51,7 +51,7 @@ rules: fast packets cannot resurrect a suspended peer; a newer same-epoch presen
   `be0f46bbe0241b3c2478b7872d5e2308cb701a0e57330eb34d6c08c3f1906b43`.
 - Direct wire executable:260,310 assertions passed, including all partial81 tails after
   valid79/80 and invalid full81. Release compile:zero warnings/errors.
-- Resident lifecycle:144 assertions/eight negative controls; settings, station and
+- Resident lifecycle:145 assertions/eight negative controls; settings, station and
   grounding:1,581/71/243 assertions and14 compiled negative controls. Missing/failed arm
   rigs withdraw work tools and never block native services. Face regression:2,076 assertions
   and16 compiled negative controls.
@@ -68,3 +68,20 @@ pen-off view2 proves the remaining thumb flap is skinned hand geometry, not tool
 Exact diagnostic local bone rotations are exported alongside each image for asset review.
 Final544 assets and headset motion are not yet verified. The checkpoint does not claim final
 pose quality, multiplayer hardware parity or measured headset performance.
+
+## Returning-author recovery review
+
+A still-running lower-ID author may return after a network partition with a different
+visitor/work phase than the temporary author. Per-peer packet interpolation alone does
+not cover this source switch. Each resident now keeps the actually displayed contact
+pose and face angles, and reconciles source/epoch changes over a shared0.35-second window.
+A second handover during that window starts from the current intermediate pose. Evaluated
+hands, grip curl, chest/wrist turn and spell intensity/sway are blended directly; interpolating
+work clocks such as1000→8 would incorrectly race through many occupation loops.
+
+The returning-author regression passes through production math in the portable gate;
+a deliberately compiled immediate-snap variant fails the initial hand continuity check.
+The production population fixture now covers the delayed gaze convergence after a new
+author. No new bytes, gameplay gates or viewer-driven attention election were added.
+Final repaired544 bundle contact validation remains pending; the prior543 asset assertions
+are evidence for the previous geometry, not a claim about the unpublished replacement.

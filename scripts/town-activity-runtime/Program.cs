@@ -51,7 +51,7 @@ public static class InteractionProgram
         RemoteTownActivities.ObservePresence(2,in state);Check(RemoteTownActivities.Sample(2,out _,out _),"same epoch recovers after networkstall");
         var changed=state;changed.Epoch=2;changed.Sequence=1;RemoteTownActivities.ObservePresence(2,in changed);
         state.Sequence=7;RemoteTownActivities.ObservePresence(2,in state);RemoteTownActivities.Sample(2,out observed,out _);Check(observed.Epoch==2,"retired activity epoch cannot return");
-        Paired();
+        Paired();Handover();
         string[] args=Environment.GetCommandLineArgs();int at=Array.IndexOf(args,"-faceBundle");
         if(at>=0)Actual(args[at+1]);
         return count;
@@ -88,6 +88,31 @@ public static class InteractionProgram
         RemoteTownActivities.Forget(2);RemoteTownFaces.Forget(2);activity.Sequence=4;face.Sequence=4;
         Check(!RemoteTownPerformance.Observe(2,in activity,in face,false),"fast pair cannot revive suspension");
         Check(RemoteTownPerformance.Observe(2,in activity,in face,true),"presence pair resumes same process epoch");
+    }
+    private static void Handover()
+    {
+        var transition=new TownServiceActivityHandover();
+        var working=new TownActivityPose{WorkClock=1000,TransitionAge=.65f};
+        var visiting=new TownActivityPose{WorkClock=8,TransitionAge=.65f,Engaged=true};
+        var a=TownServiceActivityMotion.Visual(1,in working);var b=TownServiceActivityMotion.Visual(1,in visiting);
+        var faceA=new TownFacePose{HeadYaw=-30,LeftYaw=-8,RightYaw=-7};
+        var faceB=new TownFacePose{HeadYaw=35,LeftYaw=10,RightYaw=9};
+        transition.Sample(2,2,.01f,in a,in faceA,out var shown,out var head);
+        transition.Sample(1,1,.01f,in b,in faceB,out shown,out head);
+        Near(Vector3.Distance(shown.Right,a.Right),0,.00001f,"returning authority keeps displayed hands at first frame");
+        Near(head.HeadYaw,faceA.HeadYaw,.00001f,"returning authority keeps displayed gaze at first frame");
+        transition.Sample(1,1,.175f,in b,in faceB,out shown,out head);
+        Near(Vector3.Distance(shown.Right,Vector3.Lerp(a.Right,b.Right,.5f)),0,.00001f,"recovery blends evaluated contact rather than distant work clocks");
+        Near(head.HeadYaw,Mathf.Lerp(faceA.HeadYaw,faceB.HeadYaw,.5f),.0001f,"face and body share authority recovery interval");
+        var interrupted=shown;var interruptedHead=head;
+        transition.Sample(3,3,.01f,in a,in faceA,out shown,out head);
+        Near(Vector3.Distance(shown.Right,interrupted.Right),0,.00001f,"handover interrupted by third author preserves current hands");
+        Near(head.HeadYaw,interruptedHead.HeadYaw,.00001f,"handover interrupted by third author preserves current gaze");
+        transition.Sample(3,3,.35f,in a,in faceA,out shown,out head);
+        Near(Vector3.Distance(shown.Right,a.Right),0,.00001f,"recovery reaches new authority contact");
+        Near(head.HeadYaw,faceA.HeadYaw,.00001f,"recovery reaches new authority gaze");
+        transition.Sample(3,4,.01f,in b,in faceB,out shown,out head);
+        Near(Vector3.Distance(shown.Right,a.Right),0,.00001f,"same player new ownership epoch also reconciles");
     }
     private static void Actual(string path)
     {

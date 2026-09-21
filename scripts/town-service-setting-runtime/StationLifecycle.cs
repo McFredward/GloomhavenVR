@@ -48,7 +48,7 @@ internal static class StationLifecycle
             station.SetVisibility(.5f);
             Check(originalRenderer.PropertyWrites==1,"station-owned renderer fades");
             Check(laterCard.PropertyWrites==0,"late workspace card receives no station property block");
-            var activity=default(GloomhavenVR.Net.TownActivityPose);
+            var activity=default(GloomhavenVR.WorldUI.TownActivityVisual);
             TownServiceActivityRig.Available=false;station.SampleActivity(in activity);
             Check(TownServiceDecor.Last.ActivitySamples==0&&TownServiceDecor.Last.Suspends==1,"missing arm rig cannot create ungripped tools");
             TownServiceActivityRig.Available=true;station.SampleActivity(in activity);
@@ -105,7 +105,7 @@ namespace GloomhavenVR.WorldUI
         internal void SetVisibility(float value){}
         internal void SetClock(float seconds){}
         internal int ActivitySamples,Suspends;
-        internal void SampleActivity(in GloomhavenVR.Net.TownActivityPose pose){ActivitySamples++;}
+        internal void SampleActivity(in GloomhavenVR.WorldUI.TownActivityVisual pose){ActivitySamples++;}
         internal void SuspendActivity(){Suspends++;}
         public void Dispose()=>Disposed=true;
     }
@@ -164,11 +164,12 @@ namespace GloomhavenVR.Core {internal static class VRLog {internal static void W
 
 namespace GloomhavenVR.WorldUI
 {
+    internal struct TownActivityVisual { }
     internal sealed class TownServiceActivityRig
     {
         internal static bool Available=true,Throw;
         internal bool Ready=>Available;
         internal TownServiceActivityRig(UnityEngine.Transform root,byte service){}
-        internal void Suspend(){} internal void BeforeBodySample(){} internal void Apply(in GloomhavenVR.Net.TownActivityPose pose){if(Throw)throw new InvalidOperationException("fixture arm failure");}
+        internal void Suspend(){} internal void BeforeBodySample(){} internal void Apply(in GloomhavenVR.WorldUI.TownActivityVisual pose){if(Throw)throw new InvalidOperationException("fixture arm failure");}
     }
 }

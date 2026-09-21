@@ -9,6 +9,8 @@ import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
 FILES = {
+    "ActivityMotion.cs": "src/GloomhavenVR/WorldUI/TownServices/TownServiceActivityMotion.cs",
+    "Handover.cs": "src/GloomhavenVR/WorldUI/TownServices/TownServiceActivityHandover.cs",
     "Population.cs": "src/GloomhavenVR/WorldUI/TownServices/TownServicePopulation.cs",
     "Remote.cs": "src/GloomhavenVR/Net/Remote/RemoteTownResidents.cs",
     "State.cs": "src/GloomhavenVR/Net/TownResidentsState.cs",

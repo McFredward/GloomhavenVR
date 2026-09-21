@@ -151,7 +151,7 @@ internal sealed class TownServiceStation : IDisposable
         try { return _face.PrepareActivityAttention(wasEngaged); }
         catch (Exception error) { FaceFailure(error); return false; }
     }
-    internal void SampleActivity(in TownActivityPose pose)
+    internal void SampleActivity(in TownActivityVisual pose)
     {
         if (_activityFailed) return;
         try

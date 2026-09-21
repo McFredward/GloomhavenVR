@@ -17,6 +17,7 @@ internal static class TownServicePopulation
         internal byte Clip;
         internal TownActivityPose Activity = new TownActivityPose { TransitionAge = TownServiceActivityMotion.TransitionSeconds };
         internal bool ObservedActivity;
+        internal readonly TownServiceActivityHandover Handover = new();
         internal TownServiceVisitTarget Visit = null!;
     }
     private static readonly Dictionary<byte, Resident> Residents = new();
@@ -167,11 +168,18 @@ internal static class TownServicePopulation
                 // packets temporarily stop. Its last analytic transition simply completes.
                 resident.Activity = TownServiceActivityMotion.Advance(resident.Activity, Time.unscaledDeltaTime);
             }
-            resident.Station.SampleActivity(in resident.Activity);
-            activities.Set(service - 1, resident.Activity);
+            TownActivityVisual visual = TownServiceActivityMotion.Visual(service, in resident.Activity);
             TownFacePose remotePose = remoteFace.At(service - 1);
+            uint sourceEpoch = hasActivity ? remoteActivity.Epoch : IsFaceAuthor ? _faceEpoch : 0;
+            resident.Handover.Sample(faceAuthor, sourceEpoch, Time.unscaledDeltaTime, in visual, in remotePose,
+                out TownActivityVisual displayedActivity, out TownFacePose displayedFace);
+            resident.Station.SampleActivity(in displayedActivity);
+            activities.Set(service - 1, resident.Activity);
+            remotePose = displayedFace;
             if (seedAuthority) resident.Station.SeedFace(seed.At(service - 1), seedAuthor, seedElapsed);
-            faces.Set(service - 1, resident.Station.SampleFace(IsFaceAuthor, hasFace, faceAuthor, in remotePose, faceElapsed, _faceClock));
+            TownFacePose shownFace = resident.Station.SampleFace(IsFaceAuthor, hasFace, faceAuthor, in remotePose, faceElapsed, _faceClock);
+            resident.Handover.RecordFace(in shownFace);
+            faces.Set(service - 1, shownFace);
             resident.Visit.Tick(used && ready && resident.Visibility >= .99f);
             Transform station = resident.Station.Root;
             published.Set(service - 1, new TownResidentPose {

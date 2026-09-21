@@ -86,7 +86,9 @@ internal static class Program
         authority.TownActivityRecordSeen=false;
         RemoteTownResidents.Observe(2,in authority);Tick();
         Check(!TownServiceStation.Live[1].FaceAuthor&&TownServiceStation.Live[1].FaceReceived,"follower applies received face without local attention election");
-        Near(TownServiceStation.Live[1].FacePose.HeadYaw,22,"follower face retains authority angles");
+        Near(TownServiceStation.Live[1].FacePose.HeadYaw,0,"new authority starts from actual previously displayed gaze");
+        Tick(.35f);
+        Near(TownServiceStation.Live[1].FacePose.HeadYaw,22,"follower face reaches authority angles after shared recovery");
         Near(TownServicePopulation.PublishedFaces.Clock,20,"follower clock uses author even when local history is far ahead");
         NetPlayerActors.Local=1;Tick();
         Check(TownServiceStation.Live[1].FaceAuthor&&TownServiceStation.Live[1].FaceSeeds==1,"new lower ID seeds existing authority before authoring");

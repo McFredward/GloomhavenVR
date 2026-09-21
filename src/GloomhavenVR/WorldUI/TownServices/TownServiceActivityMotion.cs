@@ -5,6 +5,11 @@ namespace GloomhavenVR.WorldUI;
 
 /// <summary>Closed-form work/attention timeline. Rendering rate and packet frequency cannot
 /// change which activity phase a resident is performing. Reversals preserve the current pose.</summary>
+internal struct TownActivityVisual
+{
+    internal Vector3 Left, Right;
+    internal float Curl, Attention, Writing, Cast, CastSway;
+}
 internal static class TownServiceActivityMotion
 {
     internal const float TransitionSeconds = .65f;
@@ -46,6 +51,20 @@ internal static class TownServiceActivityMotion
     }
     internal static Vector3 RestFocus(byte service) => service == 2
         ? new Vector3(0f, 1.16f, .34f) : new Vector3(0f, 1.01f, .28f);
+    internal static TownActivityVisual Visual(byte service, in TownActivityPose state)
+    {
+        Hands(service, in state, out Vector3 left, out Vector3 right, out float curl);
+        float attention = Blend(in state);
+        return new TownActivityVisual { Left = left, Right = right, Curl = curl, Attention = attention,
+            Writing = service == 1 ? Writing(state.WorkClock) * (1f - attention) : 0f,
+            Cast = Pulse(state.WorkClock % 14f, 7f, 12f) * (1f - attention),
+            CastSway = .018f * Mathf.Sin(state.WorkClock * 2f) };
+    }
+    internal static TownActivityVisual Lerp(in TownActivityVisual from, in TownActivityVisual to, float t) => new TownActivityVisual {
+        Left = Vector3.Lerp(from.Left, to.Left, t), Right = Vector3.Lerp(from.Right, to.Right, t),
+        Curl = Mathf.Lerp(from.Curl, to.Curl, t), Attention = Mathf.Lerp(from.Attention, to.Attention, t),
+        Writing = Mathf.Lerp(from.Writing, to.Writing, t), Cast = Mathf.Lerp(from.Cast, to.Cast, t),
+        CastSway = Mathf.Lerp(from.CastSway, to.CastSway, t) };
     internal static void Hands(byte service, in TownActivityPose state, out Vector3 left, out Vector3 right, out float curl)
     {
         float clock = state.WorkClock, cycle = clock % 14f;

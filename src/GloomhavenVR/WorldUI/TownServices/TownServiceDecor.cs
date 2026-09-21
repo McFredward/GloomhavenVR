@@ -259,9 +259,9 @@ internal sealed class TownServiceDecor : IDisposable
         return material;
     }
 
-    internal void SampleActivity(in TownActivityPose pose)
+    internal void SampleActivity(in TownActivityVisual visual)
     {
-        _work.Sample(in pose);
+        _work.Sample();
         if (_arcane?.Holder == null) return;
         if (!_castGripBound)
         {
@@ -273,11 +273,10 @@ internal sealed class TownServiceDecor : IDisposable
         }
         if (_castGrip == null) return;
         if (!_arcane.Holder.activeSelf) _arcane.Holder.SetActive(true);
-        float strength = TownServiceActivityMotion.Pulse(pose.WorkClock % 14f, 7f, 12f)
-            * (1f - TownServiceActivityMotion.Blend(in pose));
+        float strength = visual.Cast;
         Transform effect = _arcane.Holder.transform;
         effect.localPosition = _arcane.Home + _root.InverseTransformPoint(_castGrip.position)
-            + new Vector3(.018f * Mathf.Sin(pose.WorkClock * 2f), .035f, -.02f);
+            + new Vector3(visual.CastSway, .035f, -.02f);
         foreach (Material material in _arcane.EffectMaterials)
             material.SetFloat(Visibility, _visibility * strength);
     }
