@@ -84,6 +84,8 @@ internal static class NativeTemplates
         Add("enchant.row", hud.enhancementWindow.enhancementShop.slotPrefab);
         Add("enchant.tooltip", hud.enhancementWindow.enhancementShop.tooltip);
         Add("enchant.holder", hud.enhancementWindow.cardHolder);
+        Add("enchant.buy", hud.enhancementWindow.buyButton);
+        Add("enchant.sell", hud.enhancementWindow.sellButton);
         Add("enchant.cards", hud.enhancementWindow.CardsDisplay);
         Add("enchant.scroll", hud.enhancementWindow.CardsDisplay.abilityCardsPanel);
         Add("enchant.cardrow", hud.enhancementWindow.CardsDisplay.slotPrefab);

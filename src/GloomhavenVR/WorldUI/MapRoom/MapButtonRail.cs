@@ -2609,8 +2609,7 @@ internal sealed class MapButtonRail
         if (TownServiceVisitTarget.ServiceOf(mode) == 0 || StoryComposite.PointOfNoReturn) return false;
         foreach (Cap cap in _caps)
             if (cap.Button != null && cap.Button.GuildmasterMode == mode)
-                return Deliverable(cap) && HasSomethingToDo(cap)
-                    && !GuildmasterDestinations.IsStanding(cap.DestinationWindow);
+                return Deliverable(cap) && HasSomethingToDo(cap);
         return false;
     }
 

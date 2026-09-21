@@ -22,6 +22,7 @@ internal static class TownServicePresentation
     private static GameObject? _mat;
     private static TownServiceTray? _tray;
     private static TownServiceCatalog? _catalog;
+    private static TownServiceRitual? _ritual;
     private static TownServiceWorkspace? _workspace;
     private static Transform? _counter;
     private static TownServiceWindowMask? _contextMask;
@@ -41,6 +42,7 @@ internal static class TownServicePresentation
     internal static Transform? CounterFurniture => _workspace?.FurnitureRoot;
     internal static IReadOnlyCollection<TownServiceToken> Samples => _catalog != null ? _catalog.Samples : Tokens.Values;
     internal static TownServiceCatalog? Catalog => _catalog;
+    internal static TownServiceRitual? Ritual => _ritual;
     internal static float SessionAge => Mathf.Max(0f, Time.unscaledTime - _opened);
     internal static IReadOnlyList<TownServiceSurface> LocalSurfaces => Surfaces;
     internal static Transform? ContextRoot => _context?.Target;
@@ -57,7 +59,7 @@ internal static class TownServicePresentation
 
     // Ownership lasts until rollback, even if the option changed earlier in this frame.
     // ModalFallback runs before our Tick and must not adopt a half-restored controller.
-    internal static bool OwnsWindow(UIWindow window) => _catalog != null && _window != null
+    internal static bool OwnsWindow(UIWindow window) => (_catalog != null || _ritual != null) && _window != null
         && (window == _window || window.transform.IsChildOf(_window.transform));
 
     internal static void Tick()
@@ -114,7 +116,7 @@ internal static class TownServicePresentation
             window.onHidden.AddListener(OnNativeHidden);
             if (!ModalFallback.ReleaseForTownService(window, context))
                 throw new InvalidOperationException("Previous service conversion has not restored its native hierarchy");
-            if (service == 1) _workspace = new TownServiceWorkspace(_station.Root);
+            _workspace = new TownServiceWorkspace(_station.Root);
             BuildMat();
             try
             {
@@ -128,10 +130,11 @@ internal static class TownServicePresentation
                 }
                 else
                 {
-                    BuildSections(window, service);
-                    HidePortrait(window);
-                    _context = ModalFallback.RestoreTownServiceContext(window, _origin, _yaw)
-                        ?? throw new InvalidOperationException("Native context could not be restored after section handoff");
+                    uint session = _session;
+                    _ritual = new TownServiceRitual(window, service, _workspace.Root,
+                        () => Active && _session == session, SelectionContext);
+                    _contextMask = new TownServiceWindowMask((RectTransform)window.transform);
+                    _context = null;
                 }
             }
             catch
@@ -150,7 +153,7 @@ internal static class TownServicePresentation
         {
             if (_tray != null && _tray.IsGrabbed && _tray.Root.parent == _workspace.Root)
                 _tray.Root.SetParent(null, true);
-            _workspace.Tick(_catalog?.CanRelocate != false);
+            _workspace.Tick(_catalog?.CanRelocate != false && _ritual?.CanRelocate != false);
             _workspace.SetVisibility(visibility);
         }
         float relocation = _workspace?.RelocationVisibility ?? 1f;
@@ -162,10 +165,11 @@ internal static class TownServicePresentation
             surface.Tick(_origin, _yaw, _scale);
         }
         _catalog?.Tick(_scale);
+        _ritual?.Tick(_scale);
         if (Time.unscaledTime >= _nextCensus)
         {
             _nextCensus = Time.unscaledTime + .25f;
-            if (_catalog == null) RefreshTokens();
+            if (_catalog == null && _ritual == null) RefreshTokens();
         }
         _tray?.Tick();
         _tray?.SetVisibility(visibility);
@@ -191,9 +195,7 @@ internal static class TownServicePresentation
         uint session = _session;
         _catalog = new TownServiceCatalog(shop.ItemInventory, _counter, SelectionContext,
             () => Active && _session == session, _mat.transform);
-        if (shop.exitShopButton == null || shop.exitShopButton.transform is not RectTransform exit)
-            throw new InvalidOperationException("Original merchant exit control is unavailable");
-        Surfaces.Add(new TownServiceSurface(40, exit, new Vector3(-.48f, .035f, -.20f), .18f, _counter));
+
     }
 
     private static void BuildSections(UIWindow window, byte service)
@@ -227,28 +229,10 @@ internal static class TownServicePresentation
 
     private static void BuildMat()
     {
-        if (Service == 1 && _station != null)
-        {
-            // Physical merchant cards are inspection objects; a drop-to-select tray would
-            // advertise the wrong interaction. Retain only a private coordinate reference.
-            _mat = new GameObject("GloomhavenVR.TownService.InspectionFrame");
-            _mat.transform.SetParent(_workspace != null ? _workspace.Root : _station.Root, false);
-            _mat.transform.localPosition = new Vector3(0f, .970f, 0f);
-            return;
-        }
-        TMP_Text? nativeText = _window != null ? _window.GetComponentInChildren<TMP_Text>(true) : null;
-        Vector3 position = _origin + _yaw * new Vector3(.12f, -.40f, -.20f) * _scale;
-        Quaternion rotation = _yaw;
-        if (Service == 1 && _station != null)
-        {
-            Transform workspace = _workspace != null ? _workspace.Root : _station.Root;
-            position = workspace.TransformPoint(new Vector3(.56f, .995f, -.02f));
-            rotation = workspace.rotation;
-        }
-        _tray = new TownServiceTray(nativeText, position, rotation, _scale);
-        _mat = _tray.Root.gameObject;
-        if (_workspace != null) _tray.Root.SetParent(_workspace.Root, true);
-        _tray.SetVisibility(0f);
+        if (_station == null) throw new InvalidOperationException("Town station is unavailable");
+        _mat = new GameObject("GloomhavenVR.TownService.InspectionFrame");
+        _mat.transform.SetParent(_workspace != null ? _workspace.Root : _station.Root, false);
+        _mat.transform.localPosition = new Vector3(0f, .970f, 0f);
     }
 
     private static void HidePortrait(UIWindow window)
@@ -352,6 +336,7 @@ internal static class TownServicePresentation
         if (_window != null && _context != null && _context.IsAlive)
             ModalFallback.ReleaseForComposite(_window);
         _catalog?.Dispose(); _catalog = null;
+        _ritual?.Dispose(); _ritual = null;
         for (int i = Surfaces.Count - 1; i >= 0; i--) Surfaces[i].Dispose();
         Surfaces.Clear();
         _contextMask?.Dispose(); _contextMask = null;

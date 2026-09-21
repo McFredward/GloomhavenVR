@@ -97,7 +97,7 @@ internal static class TownServiceSync
         Visited.Clear(); Dynamic.Clear();
         string prefix = service == 1 ? "merchant" : service == 2 ? "temple" : "enchant";
         TownServiceCatalog? catalog = TownServicePresentation.Catalog;
-        if (catalog == null)
+        if (catalog == null && TownServicePresentation.Ritual == null)
             Publish(prefix, TownServicePresentation.Window != null ? TownServicePresentation.Window.transform : null);
         foreach (TownServiceSurface surface in TownServicePresentation.LocalSurfaces)
             Publish(surface.Id == 40 ? "merchant.exit" : surface.Id == 10 ? prefix + ".inventory"
@@ -109,7 +109,7 @@ internal static class TownServiceSync
             // retain native template provenance but have the owner's physical layout.
             foreach (TownServiceCatalog.Control control in catalog.Controls)
                 Publish(control.Key, control.Surface.Panel.Target);
-            Publish("merchant.catalognav", catalog.NavigationRoot);
+
             foreach (TownServiceCatalog.Entry entry in catalog.Entries)
             {
                 if (!entry.Current) continue;
@@ -119,11 +119,22 @@ internal static class TownServiceSync
                     Publish("merchant.row", entry.RowContent, entry.RowSource.transform, entry.RowCloneOf);
             }
         }
-        if (service == 3) Publish("enchant.cards", NativeTemplates.Original("enchant.cards"));
-        Publish("banner", NativeTemplates.Original("banner"));
-        if (catalog == null)
+        TownServiceRitual? ritual = TownServicePresentation.Ritual;
+        if (ritual != null)
+        {
+            Publish("merchant.counter", TownServicePresentation.CounterFurniture);
+            foreach (TownServiceRitual.Piece piece in ritual.Pieces)
+            {
+                Publish(piece.Key, piece.Content, piece.Source.transform, piece.CloneOf);
+                Publish("merchant.cardbody", piece.Body);
+            }
+            foreach (TownServiceSurface surface in ritual.Surfaces)
+                Publish("enchant.holder", surface.Panel.Target);
+        }
+
+        if (catalog == null && ritual == null)
             Publish(prefix + ".tooltip", NativeTemplates.Original(prefix + ".tooltip"));
-        else if (catalog.PreviewContent != null && catalog.PreviewSource != null)
+        else if (catalog != null && catalog.PreviewContent != null && catalog.PreviewSource != null)
         {
             Publish("merchant.tooltip", catalog.PreviewContent, catalog.PreviewSource, catalog.PreviewCloneOf);
             PublishCopiedCards(catalog.PreviewSource, catalog.PreviewCloneOf);
