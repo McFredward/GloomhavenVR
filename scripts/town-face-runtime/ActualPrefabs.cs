@@ -3,6 +3,9 @@ using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
 using System.IO;
 using System.Linq;
+using System.Runtime.Serialization;
+using System.Runtime.Serialization.Json;
+using System.Text;
 using GloomhavenVR.Net;
 using GloomhavenVR.WorldUI;
 using UnityEngine;
@@ -11,25 +14,40 @@ using UnityEngine;
 /// the imported prefabs. Bounds prove finite geometry, not facial beauty or absence of seams.</summary>
 internal static class ActualPrefabs
 {
-    [Serializable] private sealed class Record
+    [DataContract] private sealed class Record
     {
-        public string npc = "", asset = "";
-        public int faceLods, shapeBindings, assertions, skullProbes, jawProbes, rejectedJawWeightCorruptions;
-        public float maximumSkullRigidityErrorMetres;
-        public float eyeSeparationMetres, opticalForwardDot, maximumEyeTargetErrorDegrees;
-        public Vector3 actorBoundsMinimum, actorBoundsMaximum;
+        [DataMember] public string npc = "", asset = "";
+        [DataMember] public int faceLods, shapeBindings, assertions, skullProbes, jawProbes, rejectedJawWeightCorruptions;
+        [DataMember] public int eyeRenderers, eyeVertices, eyeTriangles; [DataMember] public long eyeMeshMemoryBytes;
+        [DataMember] public float maximumSkullRigidityErrorMetres;
+        [DataMember] public float eyeSeparationMetres, opticalForwardDot, maximumEyeTargetErrorDegrees;
+        [DataMember] public float[] actorBoundsMinimum = Array.Empty<float>(), actorBoundsMaximum = Array.Empty<float>();
     }
-    [Serializable] private sealed class Evidence
-    { public string bundle = "", unity = ""; public Record[] residents = Array.Empty<Record>(); public int assertions; }
+    [DataContract] private sealed class Evidence
+    { [DataMember] public string bundle = "", unity = ""; [DataMember] public Record[] residents = Array.Empty<Record>(); [DataMember] public int assertions; }
     // Probe IDs originate in official template anatomy, independently of the final skin weights.
-    [Serializable] private sealed class AnatomyContract
-    { public int version = 0; public ResidentAnatomy[] residents = Array.Empty<ResidentAnatomy>(); }
-    [Serializable] private sealed class ResidentAnatomy
-    { public string npc = ""; public LodAnatomy[] lods = Array.Empty<LodAnatomy>(); }
-    [Serializable] private sealed class LodAnatomy
-    { public string renderer = ""; public int vertexCount = 0; public int[] skull = Array.Empty<int>(), jaw = Array.Empty<int>(); }
+    [DataContract] private sealed class AnatomyContract
+    { [DataMember] public int version = 0; [DataMember] public ResidentAnatomy[] residents = Array.Empty<ResidentAnatomy>(); }
+    [DataContract] private sealed class ResidentAnatomy
+    { [DataMember] public string npc = ""; [DataMember] public LodAnatomy[] lods = Array.Empty<LodAnatomy>(); }
+    [DataContract] private sealed class LodAnatomy
+    { [DataMember] public string renderer = ""; [DataMember] public int vertexCount = 0; [DataMember] public int[] skull = Array.Empty<int>(), jaw = Array.Empty<int>(); }
     private struct AnatomyResult
     { internal int Skull, Jaw, Rejected; internal float MaximumError; }
+    // Unity JsonUtility drops nested DTO arrays from these dynamically loaded fixture assemblies.
+    // Explicit data contracts preserve the bundled semantic probes and per-resident evidence.
+    private static T ReadJson<T>(string text)
+    {
+        using var stream = new MemoryStream(Encoding.UTF8.GetBytes(text));
+        return (T)new DataContractJsonSerializer(typeof(T)).ReadObject(stream)!;
+    }
+    private static string WriteJson<T>(T value)
+    {
+        using var stream = new MemoryStream();
+        new DataContractJsonSerializer(typeof(T)).WriteObject(stream, value);
+        return Encoding.UTF8.GetString(stream.ToArray());
+    }
+    private static float[] Coordinates(Vector3 point) => new[] { point.x, point.y, point.z };
     private static int _count;
     private static void Check([DoesNotReturnIf(false)] bool value, string message)
     { _count++; if (!value) throw new Exception("Actual NPC prefab: " + message); }
@@ -166,7 +184,9 @@ internal static class ActualPrefabs
             Check(contracts.Length == 1, "bundle includes independent anatomical probe contract");
             TextAsset contractAsset = bundle.LoadAsset<TextAsset>(contracts[0]);
             Check(contractAsset != null, "anatomical probe contract loads");
-            AnatomyContract anatomy = JsonUtility.FromJson<AnatomyContract>(contractAsset!.text);
+            File.WriteAllText(evidencePath + ".contract-raw.json", contractAsset!.text);
+            AnatomyContract anatomy = ReadJson<AnatomyContract>(contractAsset.text);
+            File.WriteAllText(evidencePath + ".contract-parsed.json", WriteJson(anatomy));
             Check(anatomy != null && anatomy.version == 1, "supported anatomical probe contract version");
             foreach (string npc in new[] { "merchant", "priestess", "enchantress" })
             {
@@ -283,16 +303,21 @@ internal static class ActualPrefabs
                     Check(Quaternion.Angle(original, head.localRotation) < .04f, npc + " repeated gaze does not accumulate over native head pose");
                     Check(envelope.min.y > -.1f && envelope.max.y < 2.2f && envelope.size.x < 2f && envelope.size.z < 2f,
                         npc + " animated neck/head bounds remain in actor envelope");
+                    MeshRenderer[] eyeRenderers = head.GetComponentsInChildren<MeshRenderer>(true);
+                    Mesh[] eyeMeshes = eyeRenderers.Select(r => r.GetComponent<MeshFilter>().sharedMesh).ToArray();
+                    Check(eyeRenderers.Length == 4, npc + " four globe/cornea renderers below Head");
                     records.Add(new Record { npc = npc, asset = paths[0], faceLods = faces.Length, shapeBindings = bindings,
                         eyeSeparationMetres = separation, opticalForwardDot = opticalDot, maximumEyeTargetErrorDegrees = maximumError,
-                        actorBoundsMinimum = envelope.min, actorBoundsMaximum = envelope.max, assertions = _count - begin,
+                        actorBoundsMinimum = Coordinates(envelope.min), actorBoundsMaximum = Coordinates(envelope.max), assertions = _count - begin,
                         skullProbes = anatomical.Skull, jawProbes = anatomical.Jaw, rejectedJawWeightCorruptions = anatomical.Rejected,
-                        maximumSkullRigidityErrorMetres = anatomical.MaximumError });
+                        maximumSkullRigidityErrorMetres = anatomical.MaximumError, eyeRenderers = eyeRenderers.Length,
+                        eyeVertices = eyeMeshes.Sum(m => m.vertexCount), eyeTriangles = eyeMeshes.Sum(m => Enumerable.Range(0, m.subMeshCount).Sum(sub => (int)m.GetIndexCount(sub) / 3)),
+                        eyeMeshMemoryBytes = eyeMeshes.Distinct().Sum(m => UnityEngine.Profiling.Profiler.GetRuntimeMemorySizeLong(m)) });
                 }
                 finally { UnityEngine.Object.DestroyImmediate(instance); }
             }
-            File.WriteAllText(evidencePath, JsonUtility.ToJson(new Evidence { bundle = path, unity = Application.unityVersion,
-                residents = records.ToArray(), assertions = _count }, true) + "\n");
+            File.WriteAllText(evidencePath, WriteJson(new Evidence { bundle = path, unity = Application.unityVersion,
+                residents = records.ToArray(), assertions = _count }) + "\n");
         }
         finally { if (bundle != null) bundle.Unload(true); }
         return _count;

@@ -77,3 +77,50 @@ fixture cannot poison another case's physics scene. All these tests are source-b
 integrated checks and actual fitted asset validation are still required; no headset appearance
 result or final-mesh beauty is claimed. The real Unity fixture requires the Editor and is a
 local gate; it must not be added unchanged to hosted CI without an Editor.
+
+## Final imported asset binding (2026-09-21)
+
+Focused real-Unity run `/tmp/town543-final-prefabs/run-6cjzla3h` binds the unchanged production
+rig/motion to the final Linux validation bundle, rather than synthetic transform fixtures.
+Artifact: `/home/claw/gvr-town543-face/.planning/debug/town543-unity/final-evidence/town-review.bundle`,
+**99,233,188 bytes**, SHA-256
+`be0f46bbe0241b3c2478b7872d5e2308cb701a0e57330eb34d6c08c3f1906b43`.
+The checker hashes it before and after execution and rejects concurrent changes.
+
+The gate passes **9862 assertions**, **three separately compiled negative controls**, and
+**nine in-memory jaw-weight corruption controls**. Every resident has three facial LODs with
+all eleven runtime shape bindings (99 bindings overall), inward optical forward aligned with
+station -Z, actual binocular convergence, and head reset without accumulated rotation.
+The four imported body clips retain runtime eye rotations and cached facial weights at their
+sampled times. The three compiled controls break the optical frame, head reset and blink
+binding respectively; each fails at its expected assertion.
+
+| Resident | Eye separation | Maximum eye-target error | Maximum skull/jaw rigidity residual |
+| --- | ---: | ---: | ---: |
+| Merchant | 75.956 mm | 0.02798° | 0.001223 mm |
+| Priestess | 64.880 mm | 0.02798° | 0.001607 mm |
+| Enchantress | 52.286 mm | 0.02798° | 0.001864 mm |
+
+Each resident contributes 144 independent skull and 144 lower-jaw probes across its three LODs.
+The masks originate in the anatomical template and survive subdivision/import through a second
+UV channel; they are not selected by inspecting the final Head weights. The gate checks at least
+0.999 Head weight and less than 0.5 mm deviation from rigid head motion at all combinations of
+±50° yaw/±22° pitch, with both closed and 65%-open mouth expressions. Deliberately replacing a
+jaw probe with 50/50 Head/Neck weights must violate that same geometry limit in every LOD.
+
+Eye geometry totals per resident: four renderers, 2566 vertices, 4880 triangles and 144,536 bytes
+reported by Unity's runtime mesh memory API in this Editor run. This metric is mesh memory only;
+it is not a GPU frame-time, total-resident memory, or headset performance measurement. Actor
+CPU-skinned envelopes remain finite and approximately 1.75 metres tall through sampled body
+motion and facial poses.
+
+The first diagnostic run exposed a fixture issue: Unity JsonUtility omitted nested DTO arrays
+from the dynamically loaded test assembly. Explicit DataContract JSON handling now preserves
+both the bundled probe metadata and resident evidence; the final asset itself was unchanged.
+Static eye meshes intentionally lack CPU-readable index buffers, so triangle metrics use
+GetIndexCount instead of requesting a triangles array.
+
+This establishes binding and the sampled anatomical invariants for the stated artifact hash.
+It does not certify facial beauty, continuous neck-seam appearance, eye reflections, headset
+comfort, multiplayer transport on hardware, or a separately built Windows bundle's byte identity.
+The parent independently reviewed final v8 rendered views; headset results remain unverified.
