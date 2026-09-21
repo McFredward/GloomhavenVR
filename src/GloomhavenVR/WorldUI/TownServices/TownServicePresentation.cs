@@ -138,7 +138,13 @@ internal static class TownServicePresentation
             }
             VRLog.Note("WorldUI", "TOWN SERVICE OPEN: service=" + service + " session=" + _session + " native sections=" + Surfaces.Count);
         }
-        foreach (TownServiceSurface surface in Surfaces) surface.Tick(_origin, _yaw, _scale);
+        float visibility = Mathf.Clamp01(SessionAge / .22f);
+        _catalog?.SetVisibility(visibility);
+        foreach (TownServiceSurface surface in Surfaces)
+        {
+            if (_catalog != null) surface.SetVisibility(visibility);
+            surface.Tick(_origin, _yaw, _scale);
+        }
         _catalog?.Tick(_scale);
         if (Time.unscaledTime >= _nextCensus)
         {
@@ -146,7 +152,7 @@ internal static class TownServicePresentation
             if (_catalog == null) RefreshTokens();
         }
         _tray?.Tick();
-        _tray?.SetVisibility(Mathf.Clamp01(SessionAge / .22f));
+        _tray?.SetVisibility(visibility);
         foreach (TownServiceToken token in Tokens.Values) token.Tick(_scale);
     }
 
@@ -210,7 +216,7 @@ internal static class TownServicePresentation
         Quaternion rotation = _yaw;
         if (Service == 1 && _station != null)
         {
-            position = _station.Root.TransformPoint(new Vector3(.56f, 1.04f, -.02f));
+            position = _station.Root.TransformPoint(new Vector3(.56f, .995f, -.02f));
             rotation = _station.Root.rotation;
         }
         _tray = new TownServiceTray(nativeText, position, rotation, _scale);

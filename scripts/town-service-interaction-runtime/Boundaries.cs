@@ -231,6 +231,7 @@ namespace GloomhavenVR.WorldUI
             _panel = CanvasConversion.Convert(source);
         }
         internal bool OwnsGrab(GrabbableModal holder) => false;
+        internal void SetVisibility(float value) { }
         internal void Tick(Vector3 origin, Quaternion yaw, float scale) { }
         internal void LateTick() { }
         public void Dispose() => CanvasConversion.Release(_panel);
@@ -254,6 +255,7 @@ namespace GloomhavenVR.WorldUI
             }
         }
         internal void Tick(float scale = 1) { foreach (var token in _tokens) token.Tick(scale); }
+        internal void SetVisibility(float value) { }
         internal void LateTick() { }
         public void Dispose()
         {

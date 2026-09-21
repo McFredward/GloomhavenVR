@@ -517,7 +517,21 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 539;
+    public const ushort ModBuild = 540;
+
+    // ModBuild 540 — first town-service hardware corrections and physical merchant catalog.
+    // Build-539 logs show native item-ID-zero lookup opening GlobalErrorMessage from an
+    // inactive pooled card during mirror template preparation. Validate immutable item data
+    // before borrowing art and restore pooled input/model state; never invoke CItem.YMLData
+    // for a placeholder. Explicit renderer-space LOD bounds correct a 100x undersized NPC
+    // group; town materials retain textured illumination in map scenes without live lights.
+    // The merchant's original filtered inventory now drives six physical item cards with
+    // original prices, buy/sell/filter/exit controls and page navigation on the counter.
+    // Native row selection remains authoritative. Original window wrappers preserve native
+    // permissions and restore hierarchy on option changes, closure and partial setup failure.
+    // Mirrors publish counter cards/controls and their opening alpha, not the obsolete list.
+    // Modal orphan collection respects live town-service and error-window grip owners.
+    // Both bundles are required; head-mounted presentation still needs hardware verification.
 
     // ModBuild 539 — optional immersive town visits, enabled by default (user ruling).
     // VR options switch the local merchant, temple and enchantress between immersive
