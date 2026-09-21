@@ -1,0 +1,730 @@
+{
+  "schema_version": 1,
+  "suites": [
+    {
+      "id": "card-bindings",
+      "command": [
+        "bash",
+        "scripts/card-bindings-tests.sh"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 78
+    },
+    {
+      "id": "native-playback",
+      "command": [
+        "bash",
+        "scripts/native-playback-tests.sh"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 42
+    },
+    {
+      "id": "native-video",
+      "command": [
+        "bash",
+        "scripts/native-video-tests.sh"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 82
+    },
+    {
+      "id": "reward-showcase",
+      "command": [
+        "bash",
+        "scripts/reward-showcase-tests.sh"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 127
+    },
+    {
+      "id": "modal-close",
+      "command": [
+        "bash",
+        "scripts/modal-close-tests.sh"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 56
+    },
+    {
+      "id": "vr-options",
+      "command": [
+        "bash",
+        "scripts/vr-options-tests.sh"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 112
+    },
+    {
+      "id": "vr-options-close",
+      "command": [
+        "bash",
+        "scripts/vr-options-close-tests.sh"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 58
+    },
+    {
+      "id": "town-service-options",
+      "command": [
+        "bash",
+        "scripts/town-service-options-tests.sh"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 92
+    },
+    {
+      "id": "reward-pose",
+      "command": [
+        "bash",
+        "scripts/reward-pose-tests.sh"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 44
+    },
+    {
+      "id": "conversion-rollback",
+      "command": [
+        "bash",
+        "scripts/conversion-rollback-tests.sh"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 68
+    },
+    {
+      "id": "panel-material",
+      "command": [
+        "bash",
+        "scripts/panel-material-tests.sh"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 62
+    },
+    {
+      "id": "panel-ink",
+      "command": [
+        "bash",
+        "scripts/panel-ink-tests.sh"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 198
+    },
+    {
+      "id": "video-playback",
+      "command": [
+        "bash",
+        "scripts/video-playback-tests.sh"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 48
+    },
+    {
+      "id": "hint",
+      "command": [
+        "bash",
+        "scripts/hint-tests.sh"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 81
+    },
+    {
+      "id": "quest-hint",
+      "command": [
+        "bash",
+        "scripts/quest-hint-tests.sh"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 34
+    },
+    {
+      "id": "tutorial-scope",
+      "command": [
+        "bash",
+        "scripts/tutorial-scope-tests.sh"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 64
+    },
+    {
+      "id": "tutorial-controller",
+      "command": [
+        "bash",
+        "scripts/tutorial-controller-tests.sh"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 53
+    },
+    {
+      "id": "retry-start",
+      "command": [
+        "bash",
+        "scripts/retry-start-tests.sh"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 75
+    },
+    {
+      "id": "window-reflow",
+      "command": [
+        "bash",
+        "scripts/window-reflow-tests.sh"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 73
+    },
+    {
+      "id": "shared-window-reflow",
+      "command": [
+        "bash",
+        "scripts/shared-window-reflow-tests.sh"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 38
+    },
+    {
+      "id": "board-refresh",
+      "command": [
+        "bash",
+        "scripts/board-refresh-tests.sh"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 47
+    },
+    {
+      "id": "card-loss-modal",
+      "command": [
+        "bash",
+        "scripts/card-loss-modal-tests.sh"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 76
+    },
+    {
+      "id": "map-flow",
+      "command": [
+        "bash",
+        "scripts/map-flow-tests.sh"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 94
+    },
+    {
+      "id": "map-button",
+      "command": [
+        "bash",
+        "scripts/map-button-tests.sh"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 39
+    },
+    {
+      "id": "round-card",
+      "command": [
+        "bash",
+        "scripts/round-card-tests.sh"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 39
+    },
+    {
+      "id": "burn-layout",
+      "command": [
+        "bash",
+        "scripts/burn-layout-tests.sh"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 56
+    },
+    {
+      "id": "burn-replay",
+      "command": [
+        "bash",
+        "scripts/burn-replay-tests.sh"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 159
+    },
+    {
+      "id": "pick-tray",
+      "command": [
+        "bash",
+        "scripts/pick-tray-tests.sh"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 37
+    },
+    {
+      "id": "mr-backing",
+      "command": [
+        "bash",
+        "scripts/mr-backing-tests.sh"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 153
+    },
+    {
+      "id": "mr-backing-materialise",
+      "command": [
+        "bash",
+        "scripts/mr-backing-materialise-tests.sh"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 50
+    },
+    {
+      "id": "mr-backing-animation",
+      "command": [
+        "bash",
+        "scripts/mr-backing-animation-tests.sh"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 56
+    },
+    {
+      "id": "card-scene-lifetime",
+      "command": [
+        "bash",
+        "scripts/card-scene-lifetime-tests.sh"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 67
+    },
+    {
+      "id": "card-pool-lifetime",
+      "command": [
+        "bash",
+        "scripts/card-pool-lifetime-tests.sh"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 46
+    },
+    {
+      "id": "burn-material-ownership",
+      "command": [
+        "bash",
+        "scripts/burn-material-ownership-tests.sh"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 29
+    },
+    {
+      "id": "permanent-quest-log",
+      "command": [
+        "bash",
+        "scripts/permanent-quest-log-tests.sh"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 73
+    },
+    {
+      "id": "guildmaster-table",
+      "command": [
+        "bash",
+        "scripts/guildmaster-table-tests.sh"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 53
+    },
+    {
+      "id": "mr-scenario",
+      "command": [
+        "bash",
+        "scripts/mr-scenario-tests.sh"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 92
+    },
+    {
+      "id": "guildmaster-room",
+      "command": [
+        "bash",
+        "scripts/guildmaster-room-tests.sh"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 84
+    },
+    {
+      "id": "map-icon-picking",
+      "command": [
+        "bash",
+        "scripts/map-icon-picking-tests.sh"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 67
+    },
+    {
+      "id": "remote-burn-sequencing",
+      "command": [
+        "bash",
+        "scripts/remote-burn-sequencing-tests.sh"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 71
+    },
+    {
+      "id": "burn-completion",
+      "command": [
+        "bash",
+        "scripts/burn-completion-tests.sh"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 97
+    },
+    {
+      "id": "item-burn",
+      "command": [
+        "bash",
+        "scripts/item-burn-tests.sh"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 76
+    },
+    {
+      "id": "item-appearance",
+      "command": [
+        "bash",
+        "scripts/item-appearance-tests.sh"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 54
+    },
+    {
+      "id": "flight-timing",
+      "command": [
+        "bash",
+        "scripts/flight-timing-tests.sh"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 62
+    },
+    {
+      "id": "figure-hold",
+      "command": [
+        "bash",
+        "scripts/figure-hold-tests.sh"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 68
+    },
+    {
+      "id": "presentation-send",
+      "command": [
+        "bash",
+        "scripts/presentation-send-tests.sh"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 75
+    },
+    {
+      "id": "self-update-dialog",
+      "command": [
+        "bash",
+        "scripts/self-update-dialog-tests.sh"
+      ],
+      "groups": [
+        "ci"
+      ],
+      "weight": 35
+    },
+    {
+      "id": "banner-pose",
+      "command": [
+        "bash",
+        "scripts/banner-pose-tests.sh"
+      ],
+      "groups": [
+        "ci"
+      ],
+      "weight": 64
+    },
+    {
+      "id": "quest-seat",
+      "command": [
+        "bash",
+        "scripts/quest-seat-tests.sh"
+      ],
+      "groups": [
+        "ci"
+      ],
+      "weight": 36
+    },
+    {
+      "id": "patch-inventory",
+      "command": [
+        "bash",
+        "scripts/patch-inventory.sh",
+        "check"
+      ],
+      "groups": [
+        "source"
+      ]
+    },
+    {
+      "id": "frame-order",
+      "command": [
+        "bash",
+        "scripts/check-frame-order.sh"
+      ],
+      "groups": [
+        "source"
+      ]
+    },
+    {
+      "id": "mirrors",
+      "command": [
+        "bash",
+        "scripts/check-mirrors.sh"
+      ],
+      "groups": [
+        "source"
+      ]
+    },
+    {
+      "id": "partial-order",
+      "command": [
+        "python3",
+        "scripts/check-partial-order.py"
+      ],
+      "groups": [
+        "source"
+      ]
+    },
+    {
+      "id": "instrument-writes",
+      "command": [
+        "python3",
+        "scripts/check-instrument-writes.py"
+      ],
+      "groups": [
+        "source"
+      ]
+    },
+    {
+      "id": "remote-defaults",
+      "command": [
+        "python3",
+        "scripts/check-remote-defaults.py"
+      ],
+      "groups": [
+        "source"
+      ]
+    },
+    {
+      "id": "wire-coverage",
+      "command": [
+        "python3",
+        "scripts/check-wire-coverage.py"
+      ],
+      "groups": [
+        "source"
+      ]
+    },
+    {
+      "id": "tune-fields",
+      "command": [
+        "python3",
+        "scripts/check-tune-fields.py"
+      ],
+      "groups": [
+        "source"
+      ]
+    },
+    {
+      "id": "desync-surface",
+      "command": [
+        "python3",
+        "scripts/check-desync-surface.py"
+      ],
+      "groups": [
+        "source"
+      ]
+    },
+    {
+      "id": "hw-verify",
+      "command": [
+        "python3",
+        "scripts/check-hw-verify.py"
+      ],
+      "groups": [
+        "source"
+      ]
+    },
+    {
+      "id": "options-coverage",
+      "command": [
+        "python3",
+        "scripts/check-options-coverage.py"
+      ],
+      "groups": [
+        "source"
+      ]
+    },
+    {
+      "id": "card-identity-mask",
+      "command": [
+        "python3",
+        "scripts/check-card-identity-mask.py"
+      ],
+      "groups": [
+        "source"
+      ]
+    },
+    {
+      "id": "mirror-dials",
+      "command": [
+        "python3",
+        "scripts/check-mirror-dials.py"
+      ],
+      "groups": [
+        "source"
+      ]
+    },
+    {
+      "id": "enum-arrays",
+      "command": [
+        "python3",
+        "scripts/check-enum-arrays.py"
+      ],
+      "groups": [
+        "source"
+      ]
+    }
+  ]
+}
