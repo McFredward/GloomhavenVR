@@ -289,7 +289,7 @@ raise SystemExit(r.execute({suites!r}, 1, pathlib.Path({str(output)!r}), pathlib
             self.assertEqual(process.returncode, 0, error.decode())
 
     def test_full_wire_gate_rejects_partial_inventory_options(self):
-        for option in ['--group=ci', '--shard=0/4', '--list', '--verify-results=x']:
+        for option in ['--group=ci', '--shard=0/4', '--list', '--verify-results=x', '--help', '--unknown']:
             result = subprocess.run(['bash', str(ROOT / 'scripts/wire-tests.sh'), option],
                                     capture_output=True, text=True)
             self.assertEqual(result.returncode, 2)
