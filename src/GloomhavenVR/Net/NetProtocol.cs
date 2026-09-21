@@ -97,7 +97,7 @@ internal static class NetProtocol
     public const byte ExtIdCardBurnCompletion = 75;
     /// <summary>Explicit shared map-window ownership: held mask, then automatic-motion mask.
     /// Each byte uses bits 0/1/2 for story/quest/encounter. Zero explicitly clears ownership;
-    /// absence means the peer supplied no ownership statement. Additive TLV; 80 is next free.</summary>
+    /// absence means the peer supplied no ownership statement. Additive TLV.</summary>
     public const byte ExtIdSharedWindowMotion = 77;
     public const byte SharedWindowMotionRecordBytes = 2;
     public const byte SharedWindowMotionMapStoryBit = 1;
