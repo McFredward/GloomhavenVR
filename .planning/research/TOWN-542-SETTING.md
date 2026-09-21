@@ -228,3 +228,30 @@ yaws 0 and 90. The approved replacement targets have radius 2.35 m at bearings
 reading yaws find no contact; the radial bound covers intermediate yaws and triangle
 interiors. The workspace implementation and migration timing belong to the separate
 merchant interaction lane.
+
+## Final v21 posed-geometry cross-check
+
+The final actor comparison uses town bundle SHA-256
+`01974118cfff66abf8791009c8dabaa72e34e1c5a33ca38b343e2018f0146d53` and matching
+CPU-skinned pose exports from the asset worker's
+`.planning/debug/town542-final-v21-unity/town-assets-5obsmjek/evidence/`.
+Triangle indices come from that exact bundle, not the earlier proxy topology.
+For each actor, all 12 exported clip start/mid/end poses (eight distinct poses)
+were checked at 360 bearings against the original alpha-surviving canopy samples,
+including the actual forest foot height. Minimum sampled skin distances are:
+
+| Actor | Nearest visible canopy sample | Closest pose |
+| --- | ---: | --- |
+| Merchant | 78.29 mm | Greeting, 1.2 s |
+| Priestess | 94.66 mm | Greeting, 1.2 s |
+| Enchantress | 103.06 mm | Greeting, 1.2 s |
+
+All exceed the map's 28.52-mm unweighted wind displacement bound. The independent
+0.1-second animation envelope validation also keeps every actor inside the reserved
+station footprint; maximum outward Z is .9272 / .8600 / .8912 m respectively,
+below the reserved 1.15 m. No visible foliage intersection was established, and no
+canopy or room presentation was changed. Subsequent material-only corrections do
+not alter this geometry result; geometry changes must preserve the measured margin.
+This closes the asset-specific review with sampled geometric and desktop-render
+evidence, not a claim that every unsampled instant or headset pixel was measured.
+Detailed results: `/tmp/town542-final-canopy-check.json` and matching `.log` / `.py`.
