@@ -13,6 +13,7 @@ engineering evidence, historical decisions and current status; it is not the pla
 | [STATE.md](STATE.md) | Current build, validation and outstanding hardware checks |
 | [research/TOWN-SERVICES-544.md](research/TOWN-SERVICES-544.md) | Current NPC hardware corrections, shared occupations and validation status |
 | [research/TOWN-544-EYES.md](research/TOWN-544-EYES.md) | Actual Windows eye-shader defect and compiled/render regression evidence |
+| [research/TOWN-544-FACES.md](research/TOWN-544-FACES.md) | Anatomical fit, original costume repair and actual skinned-pose review |
 | [research/TOWN-544-BACKDROP-IDENTITY.md](research/TOWN-544-BACKDROP-IDENTITY.md) | Original backdrop identity collision and owner/observer correction |
 | [TOWN-544-ACTIVITY.md](TOWN-544-ACTIVITY.md) | Activity timeline, contact validation and atomic facial/body transport |
 | [research/TOWN-544-ANIMATION-SERVICES.md](research/TOWN-544-ANIMATION-SERVICES.md) | FAL and Meshy API capability/cost evaluation; no paid generation this round |
