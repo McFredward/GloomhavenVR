@@ -495,6 +495,109 @@ public static class MirrorProgram
 
     }
 
+    private static void PublisherRouting()
+    {
+        // Sink/provenance mapping are fixtures; production Tick chooses every published input.
+        var shared = Go("publisher-frame").transform;
+        var window = Go("suppressed-native-merchant").AddComponent<GloomhavenVR.WorldUI.PublisherWindow>();
+        var catalog = new GloomhavenVR.WorldUI.TownServiceCatalog { NavigationRoot = Go("page-navigation").transform };
+        GloomhavenVR.WorldUI.TownServicePresentation.Window = window;
+        GloomhavenVR.WorldUI.TownServicePresentation.Catalog = catalog;
+        GloomhavenVR.WorldUI.TownServicePresentation.LocalSurfaces.Clear();
+        var exit = new GloomhavenVR.WorldUI.TownServiceSurface { Id = 40 };
+        exit.Panel.Target = Go("original-exit").transform;
+        GloomhavenVR.WorldUI.TownServicePresentation.LocalSurfaces.Add(exit);
+        foreach (string key in new[] { "merchant.buy", "merchant.sell", "merchant.filter.all", "merchant.filter.owned",
+            "merchant.filter.head", "merchant.filter.body", "merchant.filter.hands", "merchant.filter.legs", "merchant.filter.small" })
+        {
+            var control = new GloomhavenVR.WorldUI.TownServiceCatalog.Control { Key = key };
+            control.Surface.Panel.Target = Go(key).transform; catalog.Controls.Add(control);
+        }
+        for (int i = 0; i < 7; i++) catalog.Entries.Add(new GloomhavenVR.WorldUI.TownServiceCatalog.Entry
+        {
+            ItemId = 101 + i, Current = i < 6, CardRoot = Go("original-card-" + i).transform,
+            RowSource = Go("original-row-" + i).transform, RowContent = Go("inert-price-" + i).transform
+        });
+        GloomhavenVR.WorldUI.TownServiceSync.Calls.Clear();
+        GloomhavenVR.WorldUI.TownServiceSync.Tick(shared, shared);
+        var calls = GloomhavenVR.WorldUI.TownServiceSync.Calls;
+        Check(!calls.Exists(c => c.Key == "merchant" || c.Key == "merchant.inventory" || c.Source == window.transform),
+            "physical counter does not publish suppressed flat merchant window");
+        Check(calls.FindAll(c => c.Key.StartsWith("item.")).Count == 6 && !calls.Exists(c => c.Key == "item.107"),
+            "physical counter publishes only six current item cards");
+        Check(calls.FindAll(c => c.Key == "merchant.row").Count == 6, "physical counter publishes every native price row");
+        foreach (var entry in catalog.Entries)
+        {
+            if (!entry.Current) continue;
+            var row = calls.Find(c => c.Source == entry.RowContent);
+            Check(row != null && row.Provenance == entry.RowSource && row.CloneOf != null
+                && row.CloneOf(entry.RowSource) == entry.RowContent,
+                "counter price clone retains original row provenance map");
+        }
+        foreach (var control in catalog.Controls)
+            Check(calls.Exists(c => c.Key == control.Key && c.Source == control.Surface.Panel.Target),
+                "counter publishes original filter and mode control: " + control.Key);
+        Check(calls.Exists(c => c.Key == "merchant.exit" && c.Source == exit.Panel.Target), "counter exit keeps distinct original provenance");
+        Check(calls.Exists(c => c.Key == "merchant.catalognav" && c.Source == catalog.NavigationRoot), "counter page navigation is published");
+        catalog.Entries.RemoveRange(2, 5);
+        GloomhavenVR.WorldUI.TownServiceSync.Calls.Clear();
+        GloomhavenVR.WorldUI.TownServiceSync.Tick(shared, shared);
+        Check(GloomhavenVR.WorldUI.TownServiceSync.ModuleCount == 15 && GloomhavenVR.WorldUI.TownServiceSync.SourceCount == 15,
+            "publisher page shrink retires old cards and price modules");
+        GloomhavenVR.WorldUI.TownServicePresentation.Catalog = null;
+        GloomhavenVR.WorldUI.TownServiceSync.Calls.Clear();
+        GloomhavenVR.WorldUI.TownServiceSync.Tick(shared, shared);
+        Check(calls.Exists(c => c.Key == "merchant" && c.Source == window.transform), "ordinary merchant route still publishes native window");
+        GloomhavenVR.WorldUI.TownServicePresentation.LocalSurfaces.Clear();
+    }
+
+    private static IEnumerator CounterPlayback()
+    {
+        TownServiceMirror.Shutdown(); Baselines.Clear();
+        var shared = Go("counter-owner-frame").transform;
+        var observer = Go("counter-observer-frame").transform; observer.position = new Vector3(8, 0, 0);
+        var counter = Rect("counter-opening", shared, Vector2.zero, new Vector2(900, 600));
+        counter.localScale = Vector3.one * .01f;
+        var opening = counter.gameObject.AddComponent<CanvasGroup>(); opening.alpha = 0;
+        var cards = new List<RectTransform>();
+        for (int i = 0; i < 6; i++)
+        {
+            var card = Rect("counter-card-" + i, counter, new Vector2((i % 3 - 1) * 135, i / 3 * 190 - 95), new Vector2(110, 160));
+            card.gameObject.AddComponent<Canvas>().renderMode = RenderMode.WorldSpace;
+            Image("original-art", card, Vector2.zero, new Vector2(110, 160), new Color(.2f + i * .1f, .7f - i * .07f, .45f, 1));
+            cards.Add(card);
+            TownServiceMirror.RegisterTemplate(1, 1, card, address: "counter." + i);
+        }
+        TownServiceMirror.BeginSession(1, 1100, shared, counter);
+        for (ushort i = 0; i < 6; i++) TownServiceMirror.RegisterModule((ushort)(i + 1), 1, cards[i], address: "counter." + i);
+        yield return null;
+        Receive(3, Capture()); TownServiceMirror.TickRemote(_ => observer);
+        for (int i = 0; i < 6; i++) Check(Remote(3, (ushort)(i + 1)) != null, "all six counter cards have observer modules");
+        opening.alpha = .37f;
+        yield return null;
+        var packets = Capture();
+        int faded = 0;
+        foreach (var packet in packets)
+        {
+            TownServiceCodec.TryRead(packet, packet.Length, out TownServiceFrame? frame);
+            if (frame!.Module == TownServiceFrame.ManifestModule) continue;
+            Check(Mathf.Abs(frame.ParentAlpha - .37f) < .0001f, "counter opening transports inherited parent alpha"); faded++;
+        }
+        Check(faded == 6, "counter opening updates all six original cards");
+        Receive(3, packets); TownServiceMirror.TickRemote(_ => observer);
+        for (float settle = Time.unscaledTime + .13f; Time.unscaledTime < settle;)
+        { TownServiceMirror.TickRemote(_ => observer); yield return null; }
+        for (int i = 0; i < 6; i++) ComparePixels(cards[i], Remote(3, (ushort)(i + 1))!.Root, "counter-partial-opening-" + i);
+        for (ushort i = 2; i < 6; i++) { cards[i].gameObject.SetActive(false); TownServiceMirror.UnregisterModule((ushort)(i + 1)); }
+        opening.alpha = 1f;
+        yield return null;
+        Receive(3, Capture()); TownServiceMirror.TickRemote(_ => observer);
+        for (int i = 2; i < 6; i++) Check(Remote(3, (ushort)(i + 1)) == null, "page shrink removes retired remote cards");
+        for (float settle = Time.unscaledTime + .13f; Time.unscaledTime < settle;)
+        { TownServiceMirror.TickRemote(_ => observer); yield return null; }
+        for (int i = 0; i < 2; i++) ComparePixels(cards[i], Remote(3, (ushort)(i + 1))!.Root, "counter-page-shrink-" + i);
+    }
+
     public static IEnumerator Run(string output, string variant, string suite)
     {
         _output = Path.Combine(output, variant + "-evidence"); Directory.CreateDirectory(_output); _assertions = 0;
@@ -556,6 +659,9 @@ public static class MirrorProgram
             {
                 IEnumerator extended = Full(source, shared, observer, copy, baseline, awakes, enables);
                 while (extended.MoveNext()) yield return extended.Current;
+                IEnumerator counter = CounterPlayback();
+                while (counter.MoveNext()) yield return counter.Current;
+                PublisherRouting();
             }
             File.WriteAllText(Path.Combine(_output, "assertions.txt"), _assertions + " assertions\n");
         }
