@@ -13,9 +13,15 @@ internal static class TownServicePlacement
         position = center;
         rotation = Quaternion.identity;
         if (!MapRoomDriver.Active || !MapRoomDriver.TrySolveSeat(out MapRoomSeat.Seat seat, out _)) return false;
-        // Three stalls around the clearing leave the initial seat and the map's sides accessible.
-        Vector3 offset = service == 1 ? new Vector3(-2.15f, 0f, 1.15f)
-            : service == 2 ? new Vector3(2.15f, 0f, 1.15f) : new Vector3(0f, 0f, 2.75f);
+        // The original outer ring put the enchantress's envelope into forest rocks and the
+        // cellar's north wall at different reading yaws. All roots now stay within 1.70 m.
+        // With the reserved station envelope |x| <= .90, -.50 <= z <= 1.15 (actor anchor
+        // remains +.65), the complete radial envelope is <= 2.989 m at EVERY reading yaw.
+        // Solid standing props start at 3.033 m (cellar stool) / 3.076 m (forest fern).
+        // Hanging leaves and dynamic element growth are separate visual-clearance checks.
+        // The counter's near edge stays about 1.332 m or farther from the map centre, clear of its seat ring.
+        Vector3 offset = service == 1 ? new Vector3(-1.6f, 0f, .55f)
+            : service == 2 ? new Vector3(1.6f, 0f, .55f) : new Vector3(0f, 0f, 1.7f);
         position = center + Quaternion.Euler(0f, seat.YawDegrees, 0f) * offset * scale;
         Transform? room = SkyAlternative.PlacedRoomRoot;
         // Build 541 used tracking floor, which is not the floor mesh beneath the floating map.

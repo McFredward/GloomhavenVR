@@ -43,6 +43,31 @@ static class Program
             Check(TownServicePlacement.TryResolve(1, Vector3.zero, scale, out Vector3 mr, out _), "MR/default floor");
             Near(mr.y, 20, "MR canonical seat");
         }
+        // The analytic all-yaw bound is sqrt(.90^2 + (1.70 + 1.15)^2) = 2.988729 m.
+        // Exercise the actual offsets over the full circle as an additional binding check.
+        // This reserves the actor envelope; final animated asset validation must fit inside it.
+        SkyAlternative.PlacedRoomRoot = null;
+        for (int yaw = 0; yaw < 360; yaw += 5)
+        {
+            MapRoomDriver.Yaw = yaw;
+            for (byte service = 1; service <= 3; service++)
+            {
+                Check(TownServicePlacement.TryResolve(service, Vector3.zero, 1, out Vector3 p, out _), "all-yaw placement");
+                float radius = MathF.Sqrt(p.x * p.x + p.z * p.z);
+                Check(radius <= 1.70001f, "roots remain within reserved clearing ring");
+                Check(radius - .36f >= 1.3318f, "counter leaves map and seat ring clear");
+                Vector3 outward = new Vector3(p.x, 0, p.z).normalized;
+                Vector3 right = new Vector3(outward.z, 0, -outward.x);
+                foreach (float x in new[] { -.90f, .90f })
+                    foreach (float z in new[] { -.50f, 1.15f })
+                    {
+                        Vector3 corner = p + right * x + outward * z;
+                        Check(MathF.Sqrt(corner.x * corner.x + corner.z * corner.z) < 3.00f,
+                            "reserved envelope clears nearest bundled solid standing prop at every tested yaw");
+                    }
+            }
+        }
+        MapRoomDriver.Yaw = 0;
         MapRoomDriver.Active = false;
         Check(!TownServicePlacement.TryResolve(1, Vector3.zero, 1, out _, out _), "no off-map spawn");
         Console.WriteLine($"Town setting: {assertions} production geometry assertions passed");

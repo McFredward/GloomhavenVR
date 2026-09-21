@@ -5,6 +5,9 @@ The runner compiles the complete production `TownServicePlacement.cs` and
 
 The geometry cases exercise triangle interpolation, reversed winding, terrain
 height, the actual placed-room plane, unreadable meshes and MR/default fallback.
+They also bind the production offsets to a reserved clearing envelope at 72 reading
+yaws. The analytic radial bound covers intermediate yaws too; final asset meshes
+and sampled actor poses must independently remain inside that reserved envelope.
 The lifecycle cases additionally execute the real station constructor,
 `RefreshEnvironment`, `SetVisibility`, and `Dispose`:
 
@@ -18,7 +21,8 @@ The lifecycle cases additionally execute the real station constructor,
 - invalid interaction anchors are rejected before lighting/decor acquisition;
 - owned lighting and decoration are released during disposal.
 
-Six compiled mutations recreate tracking-floor use, ignored relief, stale
+Seven compiled mutations recreate tracking-floor use, the unsafe outer station
+ring, ignored relief, stale
 handover placement, stale peer light range, late card property-block corruption,
 and resource acquisition before anchor validation. Each must fail at runtime.
 
