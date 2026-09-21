@@ -1,6 +1,6 @@
 # Planning index
 
-Updated 2026-09-21; dev 1.0.7 / build 538, first immersive town-service hardware variant. This directory holds internal
+Updated 2026-09-21; dev 1.0.7 / build 540, town-service hardware corrections. This directory holds internal
 engineering evidence, historical decisions and current status; it is not the player manual.
 
 ## Current entry points
@@ -10,6 +10,7 @@ engineering evidence, historical decisions and current status; it is not the pla
 | [../AGENTS.md](../AGENTS.md) | Agent workflow, integration ownership and current user rulings |
 | [../CLAUDE.md](../CLAUDE.md) | Technical contracts retained across agent tools |
 | [STATE.md](STATE.md) | Current build, validation and outstanding hardware checks |
+| [research/TOWN-SERVICES-540.md](research/TOWN-SERVICES-540.md) | NPC visibility, native error, physical merchant catalog and first-test corrections |
 | [RELEASE-READINESS.md](RELEASE-READINESS.md) | Historical 1.0.0 repository audit and publication prerequisites |
 | [../docs/DEVELOPING.md](../docs/DEVELOPING.md) | Developer setup and required gates |
 | [../docs/CI-CD.md](../docs/CI-CD.md) | Actual release pipeline and main-branch provenance |
