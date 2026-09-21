@@ -61,3 +61,6 @@ The full bundle is self-contained, Windows64, type trees enabled, and below GitH
 - Final actual Unity asset validation: `PASS 78 assertions; 6 visual negative controls`; private evidence `.planning/debug/town542-final-normal-unity/town-assets-r8lhmeve/evidence/`, log `unity-area.log`, exact source manifest `source-hashes.json`.
 - The prior v21 pose evidence used bundle `01974118cfff66abf8791009c8dabaa72e34e1c5a33ca38b343e2018f0146d53`; only corner normals changed afterwards. The final check exports final poses again.
 - All Python authoring scripts compile; `git diff --check` passes. The automated picture is an initial hardware candidate, not a tested headset result.
+- The primary checkout retains the original paid requests, selected prepared heads,
+  final assemblies/rigs, Poisson inputs and delivery evidence privately under
+  `.planning/debug/npc-authoring542/`. These are not release assets and remain ignored.

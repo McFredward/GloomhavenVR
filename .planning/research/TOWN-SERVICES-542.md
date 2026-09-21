@@ -89,9 +89,18 @@ opening alpha; every inert clone registers for late original silhouette updates.
   difference: 106 changed, 105 added/removed, zero order-only moves. Strict Release zero warnings/errors;
   bilingual docs and whitespace checks pass. Evidence: `/tmp/town542-generation-final-guard.log`
   and `.planning/debug/test-runs/20260921-160518-7bea6b4e/results.json`.
-  Asset-specific final checks follow.
-- Facial mesh assembly, visual review and matching town bundle are still in progress
-  at this integration checkpoint. This checkpoint is not a hardware handoff.
+- Final face/material asset check: 78 assertions and six visual negative controls pass
+  in Unity 2021.3.5. Root reviewed final assembled front views and the merchant stand.
+  Source provenance, image hashes and remaining close-view mesh artifacts are recorded
+  in [TOWN-542-FACES.md](TOWN-542-FACES.md). Neutral heads are not a completed facial
+  animation rig; headset appearance remains unverified.
+- Final Windows town bundle: 81,639,177 bytes, SHA-256
+  `9fa2c5a8f9f2412644b0cef00772b16cc11603a66da6d8e92ab53a5c7c15b04b`.
+  Both bundles and the matching DLL are required. No release has been published.
+- Integrated final-bundle workspace check: 1273 production assertions pass in Unity;
+  `/tmp/town542-integrated-bundle-workspace/run-wncusy57`. The unchanged runtime's
+  nine negative controls were already checked before this asset-only integration.
+  All 93 final asset source hashes match the reviewed worker evidence exactly.
 
 ## Hardware checklist
 
