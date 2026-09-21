@@ -151,7 +151,7 @@ def main():
             bmesh.ops.delete(bm,geom=[bm.faces[i] for i in selected],context='FACES')
             bm.to_mesh(body.data);bm.free();body.data.update()
         # The old skin cut must precede garment boundary reconstruction/lining.
-        neckline=repair_neckline(body,a.name);print('NECKLINE_REPAIR',a.name,level,neckline)
+        neckline=repair_neckline(body,a.name,facial);print('NECKLINE_REPAIR',a.name,level,neckline)
         hand_repair=hand_assets.remove_generated_shell(body,rig,hand_contract) if hands else None
         part=evaluated_shapes(facial,1 if level==0 else 0,'FaceLOD'+str(level));teeth=evaluated_shapes(oral,0,'OralLOD'+str(level));join([part,teeth],part)
         body_matrix=body.matrix_world.copy();body.parent=None;body.matrix_world=body_matrix

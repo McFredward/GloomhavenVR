@@ -151,6 +151,21 @@ public static class ValidateTownAssets
                 Check(renderer.sharedMaterial.shader.isSupported && renderer.sharedMaterial.HasProperty("_TownVisibility"), npc + " eye lighting and dissolve shader compiled");
         }
         Check(head.Find("MouthAudioAnchor") != null, npc + " anatomical mouth anchor retained without generated voice assets");
+        foreach (var side in new[] { "L", "R" })
+        {
+            var hand = actor.GetComponentsInChildren<Transform>().Single(t => t.name == "Hand." + side);
+            var palm = hand.Find("PalmContact." + side);
+            Check(palm != null, npc + " anatomical palm marker attached to hand");
+            Check(Vector3.Dot(palm.up, hand.up) > .999f && Vector3.Dot(palm.forward, hand.forward) > .999f,
+                npc + " palm marker preserves finger-forward and palmar-normal frame");
+            float offset = (actor.InverseTransformPoint(palm.position) - actor.InverseTransformPoint(hand.position)).magnitude;
+            Check(offset > .025f && offset < .085f, npc + " palm attachment uses bind pose rather than animated FBX opening pose");
+            foreach (var digit in new[] { "Thumb", "Index", "Middle", "Ring", "Little" })
+            {
+                var tip = actor.GetComponentsInChildren<Transform>().Single(t => t.name == digit + "Tip." + side);
+                Check(tip.parent.name == digit + "3." + side, npc + " anatomical fingertip follows distal joint");
+            }
+        }
         foreach (AnimationState clip in root.GetComponentInChildren<Animation>())
             Check(!AnimationUtility.GetCurveBindings(clip.clip).Any(binding => binding.propertyName.StartsWith("blendShape.")), npc + " body clips cannot overwrite facial state");
         var metrics = new System.Collections.Generic.List<string>();
@@ -161,7 +176,7 @@ public static class ValidateTownAssets
             if (level == 0) using (var writer = new BinaryWriter(File.Create(Path.Combine(output, npc + "-triangles.i32"))))
                 foreach (var index in mesh.triangles) writer.Write(index);
             Check(mesh.blendShapeCount == FaceShapes.Length, npc + " LOD" + level + " all facial channels present");
-            var bodyVertices = mesh.GetIndices(0).Distinct().ToArray();
+            var bodyVertices = mesh.GetIndices(0).Concat(mesh.GetIndices(2)).Distinct().ToArray();
             var vertexDelta = new Vector3[mesh.vertexCount]; var normalDelta = new Vector3[mesh.vertexCount];
             var tangentDelta = new Vector3[mesh.vertexCount];
             for (int shapeIndex = 0; shapeIndex < mesh.blendShapeCount; shapeIndex++)
@@ -317,8 +332,8 @@ public static class ValidateTownAssets
             actorRoot.localPosition = actorBase;
             var envelope = new Bounds(); bool hasEnvelope = false;
             var skin = lod.GetLODs()[0].renderers.OfType<SkinnedMeshRenderer>().Single();
-            Check(skin.sharedMaterials.Length == 2 && skin.sharedMaterials[1].mainTexture.width == 4096,
-                npc + " separate head atlas retains 4K without additional skinned renderers");
+            Check(skin.sharedMaterials.Length == 3 && skin.sharedMaterials[1].mainTexture.width == 4096 && skin.sharedMaterials[2].mainTexture.width == 2048,
+                npc + " separate 4K head and shared2K anatomical hand atlases retain one skinned renderer");
             Sample(root, "Idle", 0);
             var bakedControl = new Mesh(); skin.BakeMesh(bakedControl, true);
             var cpuControl = PosedVertices(skin, root.transform);

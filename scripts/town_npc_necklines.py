@@ -10,6 +10,7 @@ import numpy as np
 from mathutils import Vector
 from town_npc_garment_weights import garment_support
 from town_npc_cloth_edges import repair_cloth_edges
+from town_npc_neck_inset import sew_inner_shirt
 
 
 def shirt_band(bm, body, npc):
@@ -20,7 +21,7 @@ def shirt_band(bm, body, npc):
     chest=body.vertex_groups['Chest'].index
     # Reuse a clean patch from this exact costume's original linen atlas.
     sample=(.5670,.6467) if npc=='merchant' else (.9710,.4420)
-    top,drop,rx,ry,cy=(1.507,.035,.086,.091,.024) if npc=='merchant' else (1.445,.029,.083,.074,.016)
+    top,drop,rx,ry,cy=(1.486,.020,.066,.070,.024) if npc=='merchant' else (1.445,.029,.083,.074,.016)
     rings=[];n=64
     # A real folded collar has a front opening and two descending points. It is
     # not a closed cylindrical band around the throat.
@@ -43,7 +44,7 @@ def shirt_band(bm, body, npc):
     return n*7
 
 
-def repair(body, npc):
+def repair(body, npc, neck=None):
     bm=bmesh.new();bm.from_mesh(body.data)
     seen=set();remove=[];removed_components=[]
     for vertex in bm.verts:
@@ -110,6 +111,7 @@ def repair(body, npc):
                 vertex[deform].clear();vertex[deform][chest]=1
     cloth_edges=repair_cloth_edges(bm,body,npc,rgba,uv_layer)
     added_band=shirt_band(bm,body,npc)
+    inner_shirt=sew_inner_shirt(bm,body,neck,npc) if neck else 0
     faces=[face for face in bm.faces if face.calc_center_median().z>1.35]
     edge_count=sum(1 for e in bm.edges if e.is_boundary and all(v in cut for v in e.verts))
     # BMesh solidify uses an unbounded miter at almost coplanar reversed source
@@ -143,4 +145,4 @@ def repair(body, npc):
     # original costume shells can invert otherwise valid outer cloth.
     bm.normal_update()
     bm.to_mesh(body.data);bm.free();body.data.update()
-    return {'clothEdges':cloth_edges,'removedDetachedVertices':len(remove),'removedComponents':removed_components,'linedEdges':edge_count,'torsoGarmentVertices':garment_vertices,'shirtVertices':added_band,'innerVertices':added,'maximumThicknessMeters':.003}
+    return {'innerShirtVertices':inner_shirt,'clothEdges':cloth_edges,'removedDetachedVertices':len(remove),'removedComponents':removed_components,'linedEdges':edge_count,'torsoGarmentVertices':garment_vertices,'shirtVertices':added_band,'innerVertices':added,'maximumThicknessMeters':.003}

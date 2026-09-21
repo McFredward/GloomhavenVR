@@ -236,7 +236,13 @@ def head_mesh(raw,faces,groups,face_uv,name,refs,data):
         weight=max(weight,max(0,min(1,(abs(x)-.50)/.14))*max(0,min(1,(7.02-y)/.25)))
         weight*=max(0,min(1,(z-.35)/.35)) if name=='merchant' else 0
         beard.data[loop.index].color=(weight,weight,weight,1)
-    weights=mesh.color_attributes.new(name='ProjectionWeights',type='FLOAT_COLOR',domain='CORNER')
+    makeup=mesh.color_attributes.new(name='PortraitMakeup',type='FLOAT_COLOR',domain='CORNER')
+    for loop in mesh.loops:
+        x,y,z=raw[ids[loop.vertex_index]]
+        orbital=math.exp(-((abs(x)-.34)/.24)**4-((y-7.35)/.19)**2)*max(0,min(1,(z-1.10)/.20))
+        lips=math.exp(-(x/.37)**8-((y-6.61)/max(.035,.092-.040*(abs(x)/.37)**2))**8)*max(0,min(1,(z-1.36)/.12))
+        makeup.data[loop.index].color=(orbital*.80 if name=='enchantress' else 0,lips*.52 if name=='enchantress' else 0,0,1)
+    weights=mesh.color_attributes.new(name='ProjectionWeights' ,type='FLOAT_COLOR',domain='CORNER')
     for loop in mesh.loops:
         x,y,z=raw[ids[loop.vertex_index]];angle=abs(math.atan2(x,z-.65))
         front=max(0,min(1,(math.radians(80)-angle)/math.radians(30)))
@@ -254,7 +260,10 @@ def head_mesh(raw,faces,groups,face_uv,name,refs,data):
     neckweight=nodes.new('ShaderNodeVertexColor');neckweight.layer_name='NeckWeight'
     blend=nodes.new('ShaderNodeMixRGB');links.new(neckweight.outputs[0],blend.inputs[0]);identity=nodes.new('ShaderNodeVertexColor');identity.layer_name='BeardIdentity'
     tint=nodes.new('ShaderNodeMixRGB');tint.blend_type='MULTIPLY';links.new(identity.outputs[0],tint.inputs[0]);links.new(back.outputs[0],tint.inputs[1]);tint.inputs[2].default_value=(.56,.50,.44,1)
-    links.new(tint.outputs[0],blend.inputs[1]);links.new(neck.outputs[0],blend.inputs[2]);links.new(blend.outputs[0],nodes.get('Principled BSDF').inputs['Base Color']);mesh.materials.append(m)
+    cosmetics=nodes.new('ShaderNodeVertexColor');cosmetics.layer_name='PortraitMakeup';channels=nodes.new('ShaderNodeSeparateColor');links.new(cosmetics.outputs[0],channels.inputs[0])
+    eye_tint=nodes.new('ShaderNodeMixRGB');links.new(channels.outputs[0],eye_tint.inputs[0]);links.new(tint.outputs[0],eye_tint.inputs[1]);eye_tint.inputs[2].default_value=(.055,.043,.10,1)
+    lip_tint=nodes.new('ShaderNodeMixRGB');links.new(channels.outputs[1],lip_tint.inputs[0]);links.new(eye_tint.outputs[0],lip_tint.inputs[1]);lip_tint.inputs[2].default_value=(.14,.046,.17,1)
+    links.new(lip_tint.outputs[0],blend.inputs[1]);links.new(neck.outputs[0],blend.inputs[2]);links.new(blend.outputs[0],nodes.get('Principled BSDF').inputs['Base Color']);mesh.materials.append(m)
     mesh.materials.append(material('TownOralCavity',(.045,.008,.012),.50))
     for p,source in zip(mesh.polygons,chosen_indices):
         if max(t[1]for t in face_uv[source])<.137 and np.mean(raw[faces[source],1])<7.05:p.material_index=1
