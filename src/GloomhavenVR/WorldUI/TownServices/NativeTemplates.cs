@@ -35,6 +35,7 @@ internal static class NativeTemplates
     private static UIGuildmasterHUD? _hud;
     private static bool _ready;
     private static TownServiceTray? _tray;
+    private static GameObject? _catalogNavigation;
     internal static UITooltip? Tooltip { get; private set; }
     internal static bool Ready => _ready && _hud != null && _bank != null;
 
@@ -50,6 +51,20 @@ internal static class NativeTemplates
         Add("merchant.inventory", hud.shopWindow.ItemInventory);
         Add("merchant.row", hud.shopWindow.ItemInventory.slotPrefab);
         Add("merchant.tooltip", hud.shopWindow.ItemInventory.itemTooltip);
+        UIShopItemInventory merchant = hud.shopWindow.ItemInventory;
+        Add("merchant.buy", merchant.buyTab);
+        Add("merchant.sell", merchant.sellTab);
+        Add("merchant.filter.all", merchant.allFilter);
+        Add("merchant.filter.owned", merchant._ownedFilter);
+        Add("merchant.filter.head", merchant.headFilter);
+        Add("merchant.filter.body", merchant.bodyFilter);
+        Add("merchant.filter.hands", merchant.handsFilter);
+        Add("merchant.filter.legs", merchant.legsFilter);
+        Add("merchant.filter.small", merchant.smallItemsFilter);
+        Add("merchant.exit", hud.shopWindow.exitShopButton);
+        _catalogNavigation = TownServiceCatalog.CreateNavigationTemplate(merchant.GetComponentInChildren<TMP_Text>(true));
+        _catalogNavigation.transform.SetParent(_bank.transform, false);
+        Add("merchant.catalognav", _catalogNavigation.transform);
         Add("temple", hud.templeWindow);
         Add("temple.inventory", hud.templeWindow.Shop);
         Add("temple.row", hud.templeWindow.Shop.slotPrefab);
@@ -257,6 +272,8 @@ internal static class NativeTemplates
         TownServiceMirror.ResolveTemplate = null;
         Entries.Clear(); Roots.Clear(); _hud = null; _ready = false;
         _tray?.Dispose(); _tray = null; Tooltip = null;
+        if (_catalogNavigation != null) Object.Destroy(_catalogNavigation);
+        _catalogNavigation = null;
         if (_bank != null) Object.Destroy(_bank); _bank = null;
     }
 }

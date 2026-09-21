@@ -2286,6 +2286,8 @@ internal static partial class ModalFallback
         {
             if (window == null)
                 continue;
+            if (TownServicePresentation.OwnsWindow(window))
+                continue;
             // Test #21/#22: while the decision dock claims this window, it is NOT
             // part of the generic modal path — no float, no screen, no ModalUI
             // (still tracked in Open: the claim is re-checked every tick, so a
@@ -2831,6 +2833,8 @@ internal static partial class ModalFallback
         for (int i = 0; i < OpenWindows.Count; i++)
         {
             UIWindow window = OpenWindows[i];
+            if (TownServicePresentation.OwnsWindow(window))
+                continue;
             // Composite adoption runs after OpenWindows was sampled. Recheck the live
             // hierarchy here: a newly parked hint must not be converted again this tick.
             if (RendersInsideFloatedAncestor(window))

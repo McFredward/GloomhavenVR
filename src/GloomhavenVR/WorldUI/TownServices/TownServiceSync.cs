@@ -75,9 +75,27 @@ internal static class TownServiceSync
         foreach (SourceEntry source in Sources.Values) source.Seen = false;
         Visited.Clear(); Dynamic.Clear();
         string prefix = service == 1 ? "merchant" : service == 2 ? "temple" : "enchant";
-        Publish(prefix, TownServicePresentation.Window != null ? TownServicePresentation.Window.transform : null);
+        TownServiceCatalog? catalog = TownServicePresentation.Catalog;
+        if (catalog == null)
+            Publish(prefix, TownServicePresentation.Window != null ? TownServicePresentation.Window.transform : null);
         foreach (TownServiceSurface surface in TownServicePresentation.LocalSurfaces)
-            Publish(surface.Id == 10 ? prefix + ".inventory" : surface.Id == 11 ? "enchant.holder" : "enchant.scroll", surface.Panel.Target);
+            Publish(surface.Id == 40 ? "merchant.exit" : surface.Id == 10 ? prefix + ".inventory"
+                : surface.Id == 11 ? "enchant.holder" : "enchant.scroll", surface.Panel.Target);
+        if (catalog != null)
+        {
+            // Mirror the actual counter, not the suppressed flat inventory. These widgets
+            // retain native template provenance but have the owner's physical layout.
+            foreach (TownServiceCatalog.Control control in catalog.Controls)
+                Publish(control.Key, control.Surface.Panel.Target);
+            Publish("merchant.catalognav", catalog.NavigationRoot);
+            foreach (TownServiceCatalog.Entry entry in catalog.Entries)
+            {
+                if (!entry.Current) continue;
+                Publish("item." + entry.ItemId.ToString(System.Globalization.CultureInfo.InvariantCulture), entry.CardRoot);
+                if (entry.RowContent != null)
+                    Publish("merchant.row", entry.RowContent, entry.RowSource.transform, entry.RowCloneOf);
+            }
+        }
         if (service == 3) Publish("enchant.cards", NativeTemplates.Original("enchant.cards"));
         Publish("banner", NativeTemplates.Original("banner"));
         Publish(prefix + ".tooltip", NativeTemplates.Original(prefix + ".tooltip"));
