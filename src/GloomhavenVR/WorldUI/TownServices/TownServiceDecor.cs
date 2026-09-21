@@ -70,6 +70,15 @@ internal sealed class TownServiceDecor : IDisposable
             Handle = Addressables.LoadAssetAsync<ApparanceResourceList>(key) });
     }
 
+    internal bool Ready
+    {
+        get
+        {
+            foreach (Piece piece in _pieces) if (!piece.Built) return false;
+            return true;
+        }
+    }
+
     internal void Tick()
     {
         foreach (Piece piece in _pieces)
