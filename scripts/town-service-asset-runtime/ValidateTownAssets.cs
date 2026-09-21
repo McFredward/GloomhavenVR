@@ -164,6 +164,10 @@ public static class ValidateTownAssets
             {
                 var tip = actor.GetComponentsInChildren<Transform>().Single(t => t.name == digit + "Tip." + side);
                 Check(tip.parent.name == digit + "3." + side, npc + " anatomical fingertip follows distal joint");
+                var pad = actor.GetComponentsInChildren<Transform>().Single(t => t.name == digit + "Pad." + side);
+                Check(pad.parent == tip.parent, npc + " actual palmar pad follows the same distal joint");
+                float separation = (actor.InverseTransformPoint(pad.position) - actor.InverseTransformPoint(tip.position)).magnitude;
+                Check(separation > .001f && separation < .035f, npc + " pad is on the distal skin rather than at a guessed wrist offset");
             }
         }
         foreach (AnimationState clip in root.GetComponentInChildren<Animation>())

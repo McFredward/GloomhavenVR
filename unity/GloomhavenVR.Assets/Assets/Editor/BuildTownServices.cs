@@ -722,7 +722,9 @@ internal sealed class TownFacialClipPostprocessor : AssetPostprocessor
         if (!assetPath.StartsWith("Assets/Bundle/TownServices/Actors/", StringComparison.Ordinal)) return;
         foreach (var binding in AnimationUtility.GetCurveBindings(clip))
             if (binding.propertyName.StartsWith("blendShape.", StringComparison.Ordinal) ||
-                binding.path.Split('/').Any(segment => segment == "EyeLeft" || segment == "EyeRight"))
+                binding.path.Split('/').Any(segment => segment == "EyeLeft" || segment == "EyeRight" ||
+                    segment.StartsWith("PalmContact.") || segment.StartsWith("PalmCentre.") ||
+                    new[] { "Thumb", "Index", "Middle", "Ring", "Little" }.Any(digit => segment.StartsWith(digit + "Tip.") || segment.StartsWith(digit + "Pad."))))
                 AnimationUtility.SetEditorCurve(clip, binding, null);
     }
 }
