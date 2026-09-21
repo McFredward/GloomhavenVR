@@ -34,7 +34,7 @@ internal static class TownServicePlacement
         return true;
     }
 
-    private static float GroundHeight(Transform room, Vector3 position)
+    internal static float GroundHeight(Transform room, Vector3 position)
     {
         // The room floors deliberately have no gameplay colliders. Read only their actual mesh
         // triangles once per placement; never raycast water, furniture, scenery or native map tiles.
