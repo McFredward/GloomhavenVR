@@ -50,8 +50,8 @@ or free-running Unity animation.
 
 ## Verification
 
-- `scripts/check-town-decor.py`: genuine Unity 2021.3.5 runtime, 22 assertions;
-  four compiled negative controls demonstrate independent failure/recovery,
+- `scripts/check-town-decor.py`: genuine Unity 2021.3.5 runtime, 61 assertions;
+  seven compiled negative controls demonstrate independent failure/recovery,
   bounded timeout/retry, coin provenance/lifetime and original atlas mapping.
 - `scripts/check-town-service-lighting.py`: 805 production lifecycle/ownership
   assertions and five compiled negative controls; same-layer/name native lights
@@ -59,3 +59,20 @@ or free-running Unity animation.
 - These checks establish source behavior, not headset appearance. Final station
   geometry, native prop composition and anatomical hand contact require the
   integrated asset/runtime rendering pass and hardware review.
+
+## Additional visitor workspaces
+
+`StaticPropSource`, `StaticPropCount`, `TryStaticProp` expose stable sparse indices
+from the permanent station, excluding moving tools, magic and the hidden coin.
+The source transform changes on resident recreation; disposing an older instance
+cannot invalidate its replacement. Addresses are `decor.{service}.{index}`.
+`TryPractical` supplies the original flame point in the prop's own local frame
+and its normalization-to-station distance scale.
+
+`TownServiceWorkspacePractical.RebindClone` handles only whole lamp-root modules.
+Inactive frozen templates allocate no light. An enabled owner/remote instance
+owns one point light outside the published transform tree, so the helper cannot
+change native-template topology. It follows the exact local flame point, world
+scale, current replaced material and property-block dissolve. Disable/destroy
+immediately darkens and deactivates the light before releasing ownership; native
+lights and source materials remain untouched. Repeated binds are idempotent.

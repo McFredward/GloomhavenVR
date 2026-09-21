@@ -28,6 +28,40 @@ internal sealed class TownServiceDecor : IDisposable
         internal readonly List<MaterialLoad> Materials = new();
     }
     private readonly List<Piece> _pieces = new();
+    private static readonly Dictionary<byte, TownServiceDecor> Owners = new();
+    private readonly byte _service;
+
+    // Stable sparse indices: loading/failure never renumbers another source. Callers
+    // compare Source to invalidate clones after resident recreation, not instance IDs
+    // serialized onto the network. Every returned holder contains rendering data only.
+    internal static Transform? StaticPropSource(byte service)
+        => Owners.TryGetValue(service, out TownServiceDecor owner) && owner._root != null ? owner._root : null;
+    internal static int StaticPropCount(byte service)
+        => StaticPropSource(service) != null ? Owners[service]._pieces.Count : 0;
+    internal static bool TryStaticProp(byte service, int index, out Transform? source, out string address)
+    {
+        source = null; address = string.Empty;
+        if (StaticPropSource(service) == null) return false;
+        TownServiceDecor owner = Owners[service];
+        if (index < 0 || index >= owner._pieces.Count) return false;
+        Piece piece = owner._pieces[index];
+        if (piece == owner._workCoin || piece.Arcane || piece.Template || piece.Holder == null) return false;
+        source = piece.Holder.transform;
+        address = "decor." + service + "." + index;
+        return true;
+    }
+    internal static bool TryPractical(byte service, int index, out Vector3 localPoint, out float rangeScale)
+    {
+        localPoint = Vector3.zero; rangeScale = 1f;
+        if (!TryStaticProp(service, index, out Transform? source, out _) || source == null) return false;
+        TownServiceDecor owner = Owners[service];
+        Piece piece = owner._pieces[index];
+        if (!piece.Candle) return false;
+        localPoint = source.InverseTransformPoint(owner._root.TransformPoint(piece.Position + Vector3.up * .18f));
+        rangeScale = Mathf.Abs(owner._root.lossyScale.x) / Mathf.Max(.0001f, Mathf.Abs(source.lossyScale.x));
+        return true;
+    }
+
     private sealed class MaterialLoad
     {
         internal object Key = null!;
@@ -40,6 +74,7 @@ internal sealed class TownServiceDecor : IDisposable
     }
     private readonly Dictionary<object, MaterialLoad> _loads = new();
     private readonly List<Material> _materials = new();
+    private readonly List<Material> _timedMaterials = new();
     private readonly Transform _root;
     private readonly TownServiceLighting _lighting;
     private readonly TownServiceActivityProps _work;
@@ -54,13 +89,15 @@ internal sealed class TownServiceDecor : IDisposable
     private float _nextLoadTick;
     private uint _coinGeneration = uint.MaxValue;
     private static readonly int Visibility = Shader.PropertyToID("_TownVisibility");
+    private static readonly int AnimationTime = Shader.PropertyToID("_TownAnimationTime");
 
     internal TownServiceDecor(Transform station, byte service, TownServiceLighting lighting)
     {
         _root = station;
+        _service = service;
         _lighting = lighting;
         _work = new TownServiceActivityProps(station, service, TownServiceAssets.Shader("townnpc"));
-        try { Populate(service); }
+        try { Populate(service); Owners[service] = this; }
         catch { Dispose(); throw; }
     }
 
@@ -384,6 +421,7 @@ internal sealed class TownServiceDecor : IDisposable
             if (material.HasProperty("_TownAnimationTime")) material.SetFloat("_TownAnimationTime", _clock);
         }
         if (source.HasProperty("_BumpMap") && source.GetTexture("_BumpMap") != null) material.EnableKeyword("_NORMALMAP");
+        if (material.HasProperty(AnimationTime)) _timedMaterials.Add(material);
         _materials.Add(material);
         return material;
     }
@@ -417,12 +455,12 @@ internal sealed class TownServiceDecor : IDisposable
     internal void SetClock(float seconds)
     {
         _clock = seconds;
-        foreach (Material material in _materials)
-            if (material.HasProperty("_TownAnimationTime")) material.SetFloat("_TownAnimationTime", seconds);
+        foreach (Material material in _timedMaterials) material.SetFloat(AnimationTime, seconds);
     }
 
     internal void SetVisibility(float value)
     {
+        if (_visibility == value) return;
         _visibility = value;
         _work.SetVisibility(value);
         foreach (Material material in _materials) material.SetFloat(Visibility, value);
@@ -434,12 +472,13 @@ internal sealed class TownServiceDecor : IDisposable
 
     public void Dispose()
     {
+        if (Owners.TryGetValue(_service, out TownServiceDecor owner) && ReferenceEquals(owner, this)) Owners.Remove(_service);
         if (_coinTemplate?.Holder != null && CoinTemplate == _coinTemplate.Holder.transform) CoinTemplate = null;
         _work.Dispose();
         _magic?.Dispose();
         foreach (Material material in _materials) UnityEngine.Object.Destroy(material);
         foreach (MaterialLoad load in _loads.Values) Release(load);
         foreach (Piece piece in _pieces) if (piece.Handle.IsValid()) Addressables.Release(piece.Handle);
-        _materials.Clear(); _loads.Clear(); _pieces.Clear();
+        _materials.Clear(); _timedMaterials.Clear(); _loads.Clear(); _pieces.Clear();
     }
 }

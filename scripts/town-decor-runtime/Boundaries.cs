@@ -54,7 +54,13 @@ namespace GloomhavenVR.Net.TownServices
 }
 namespace GloomhavenVR.WorldUI
 {
-    internal static class TownServiceAssets { internal static Shader? Shader(string name)=>UnityEngine.Shader.Find(name=="townflame"?"Unlit/Transparent":"Unlit/Texture"); }
-    internal sealed class TownServiceLighting {internal readonly Dictionary<int,Vector3> Flames=new();internal void SetFlame(Vector3 world,int slot)=>Flames[slot]=world;}
+    internal static class TownServiceAssets { internal static Shader? Shader(string name)=>UnityEngine.Shader.Find(name=="townflame"?"GloomhavenVR/TownFlame":"GloomhavenVR/TownNpc"); }
+    internal sealed class TownServiceLighting {
+        internal static readonly HashSet<Light> Owned=new();
+        internal static void ClaimPractical(Light light)=>Owned.Add(light);
+        internal static void ForgetPractical(Light light)=>Owned.Remove(light);
+        internal static float PracticalPower(byte service)=>service==2?1.25f:1.05f;
+        internal static Color PracticalColour(byte service)=>Color.white;
+        internal readonly Dictionary<int,Vector3> Flames=new();internal void SetFlame(Vector3 world,int slot)=>Flames[slot]=world;}
     internal sealed class TownServiceActivityProps:IDisposable {internal TownServiceActivityProps(Transform root,byte service,Shader? shader){}internal void BindCoin(Transform coin,Vector3 offset){}internal void Sample(){}internal void Sample(in GloomhavenVR.Net.TownActivityVisual visual){}internal void Suspend(){}internal void SetVisibility(float value){}public void Dispose(){}}
 }

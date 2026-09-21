@@ -21,12 +21,15 @@ def main():
     run = Path(tempfile.mkdtemp(prefix='run-', dir=args.output_dir.resolve()))
     base = args.source_root / 'src/GloomhavenVR/WorldUI/TownServices'
     sources = {name: (base / name).read_text().replace('Time.unscaledTime', 'DecorClock.Now') for name in (
-        'TownServiceDecor.cs', 'TownServiceDecorMaterial.cs', 'TownServiceArcaneEffect.cs')}
+        'TownServiceDecor.cs', 'TownServiceDecorMaterial.cs', 'TownServiceArcaneEffect.cs', 'TownServiceWorkspacePractical.cs')}
     variants = [('production', None, '', '', ''),
         ('global-material-gate', 'TownServiceDecor.cs', 'foreach (MaterialLoad load in piece.Materials)', 'foreach (MaterialLoad load in _loads.Values)', 'unrelated book builds while lantern material fails'),
         ('no-retry', 'TownServiceDecor.cs', 'Attempts >= 3', 'Attempts >= 1', 'independent material retry restores both practicals'),
         ('wrong-atlas-quadrant', 'TownServiceDecorMaterial.cs', 'Vector2.one * tiling', 'Vector2.one * .5f', 'native atlas UVs do not sample stale Standard quadrant'),
-        ('template-leak', 'TownServiceDecor.cs', 'CoinTemplate = null;', 'CoinTemplate = CoinTemplate;', 'coin template cannot outlive owner materials')]
+        ('template-leak', 'TownServiceDecor.cs', 'CoinTemplate = null;', 'CoinTemplate = CoinTemplate;', 'coin template cannot outlive owner materials'),
+        ('workspace-light-in-template', 'TownServiceWorkspacePractical.cs', 'if (owner.isActiveAndEnabled)', 'if (true)', 'inactive frozen template never creates a practical'),
+        ('workspace-topology-change', 'TownServiceWorkspacePractical.cs', 'obj.transform.position = transform.TransformPoint(_point);', 'obj.transform.SetParent(transform,false); obj.transform.position = transform.TransformPoint(_point);', 'lighting cannot alter mirrored prop topology'),
+        ('workspace-ownership-leak', 'TownServiceWorkspacePractical.cs', 'TownServiceLighting.ForgetPractical(_light!);', '', 'disable immediately releases and darkens standalone light')]
     manifest = {'result': str(run / 'results.txt'), 'cases': []}
     fixture = ROOT / 'scripts/town-decor-runtime'
     dotnet = shutil.which('dotnet') or str(Path.home() / '.dotnet/dotnet')
@@ -55,6 +58,8 @@ def main():
     (project / 'Packages').mkdir()
     (project / 'ProjectSettings').mkdir()
     shutil.copyfile(ROOT / 'scripts/town-activity-runtime/Editor/InteractionRunner.cs', project / 'Assets/Editor/InteractionRunner.cs')
+    for shader in ('TownNpc.shader', 'TownFlame.shader'):
+        shutil.copyfile(args.source_root / 'unity/GloomhavenVR.Assets/Assets/Bundle/TownServices/Shaders' / shader, project / 'Assets' / shader)
     (project / 'Assets/NativeFixture.shader').write_text('Shader "Amp_TownDecorFixture" { Properties { _MainTex("Atlas",2D)="white"{} _UVTiling("UV",Float)=1 _Tint("Tint",Color)=(1,1,1,0) } SubShader { Pass {} } }')
     (project / 'Packages/manifest.json').write_text('{"dependencies":{"com.unity.modules.physics":"1.0.0"}}')
     (project / 'ProjectSettings/ProjectVersion.txt').write_text('m_EditorVersion: 2021.3.5f1\n')
@@ -62,6 +67,6 @@ def main():
     evidence = Path(manifest['result'])
     if evidence.exists(): print(evidence.read_text())
     if result.returncode or not evidence.exists(): raise SystemExit('FAIL: ' + str(run / 'unity.log'))
-    print('PASS: native decor loading/material tests and four compiled negative controls; evidence: ' + str(run))
+    print('PASS: native decor loading/material tests and seven compiled negative controls; evidence: ' + str(run))
 
 if __name__ == '__main__': main()

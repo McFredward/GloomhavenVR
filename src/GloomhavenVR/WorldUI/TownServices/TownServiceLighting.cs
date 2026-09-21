@@ -11,6 +11,11 @@ internal sealed class TownServiceLighting : IDisposable
     // At most one environment light and six practicals for the three live residents.
     // Exact object ownership, not layer/name/type heuristics: native lights keep their policy.
     private static readonly HashSet<Light> Owned = new();
+    internal static void ClaimPractical(Light light) => Owned.Add(light);
+    internal static void ForgetPractical(Light light) => Owned.Remove(light);
+    internal static float PracticalPower(byte service) => service == 2 ? 1.25f : 1.05f;
+    internal static Color PracticalColour(byte service) => service == 1 ? new Color(1f, .71f, .40f)
+        : service == 2 ? new Color(1f, .82f, .60f) : new Color(1f, .74f, .48f);
     internal static bool Owns(Light light) => light != null && Owned.Contains(light);
     private static Light? _roomLight;
     private static int _users;
@@ -33,9 +38,8 @@ internal sealed class TownServiceLighting : IDisposable
         _stand.renderMode = LightRenderMode.ForceVertex;
         _stand.cullingMask = 1 << VRLayers.ModLayer;
         _stand.shadows = LightShadows.None;
-        _stand.color = service == 1 ? new Color(1f, .71f, .40f)
-            : service == 2 ? new Color(1f, .82f, .60f) : new Color(1f, .74f, .48f);
-        _power = service == 2 ? 1.25f : 1.05f;
+        _stand.color = PracticalColour(service);
+        _power = PracticalPower(service);
         _stand.intensity = 0f;
         {
             var secondObject = new GameObject("TownService.SecondCandleLight");
