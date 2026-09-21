@@ -14,6 +14,15 @@ internal static class TownServiceAssets
     private static bool _probed;
 
     internal static GameObject? Prefab(string name)
+        => Load<GameObject>("prefabs/" + name + ".prefab");
+
+    internal static Shader? Shader(string name) => Load<Shader>("shaders/" + name + ".shader");
+    internal static AudioClip? Audio(string name) => Load<AudioClip>("audio/" + name + ".wav");
+    internal static TextAsset? Text(string name) => Load<TextAsset>("audio/" + name + ".json");
+
+    // Speech may prepare before the first native service window opens. All asset types
+    // share the same one-time probe and optional-install behavior as resident prefabs.
+    private static T? Load<T>(string relativePath) where T : UnityEngine.Object
     {
         if (!_probed)
         {
@@ -27,11 +36,8 @@ internal static class TownServiceAssets
                 if (File.Exists(path)) _bundle = AssetBundle.LoadFromFile(path);
             }
         }
-        return _bundle != null ? _bundle.LoadAsset<GameObject>("assets/bundle/townservices/prefabs/" + name + ".prefab") : null;
+        return _bundle != null ? _bundle.LoadAsset<T>("assets/bundle/townservices/" + relativePath) : null;
     }
-
-    internal static Shader? Shader(string name) => _bundle != null
-        ? _bundle.LoadAsset<Shader>("assets/bundle/townservices/shaders/" + name + ".shader") : null;
 
     internal static void Reset() { _bundle = null; _probed = false; }
 }
