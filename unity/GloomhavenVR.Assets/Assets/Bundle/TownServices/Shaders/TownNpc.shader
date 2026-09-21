@@ -1,7 +1,5 @@
-// Town stations live on the mod layer in maps with no enabled scene lights (build-539
-// hardware evidence). Use the same self-contained studio-light principle as BoardLit:
-// retain albedo, normal and metallic detail without depending on a game's light cap,
-// ambient probes or an observer's environment. One pass; no runtime Light components.
+// Environment-lit town surface. Vertex lights remain active with the VR pixel-light cap at zero.
+// No camera-relative studio light or unlit ambient floor: stand lighting is authored in the scene.
 Shader "GloomhavenVR/TownNpc"
 {
     Properties
@@ -23,16 +21,20 @@ Shader "GloomhavenVR/TownNpc"
         Cull Off
         Pass
         {
+            Tags { "LightMode"="ForwardBase" }
             CGPROGRAM
             #pragma vertex vert
             #pragma fragment frag
             #pragma target 3.0
             #pragma multi_compile_instancing
+            #pragma multi_compile_fwdbase
+            #pragma multi_compile_fog
             #pragma shader_feature_local _NORMALMAP
             #pragma shader_feature_local _METALLICGLOSSMAP
             #pragma shader_feature_local _EMISSION
             #include "UnityCG.cginc"
             #include "UnityStandardUtils.cginc"
+            #include "Lighting.cginc"
             sampler2D _MainTex, _BumpMap, _MetallicGlossMap;
             float4 _MainTex_ST;
             fixed4 _Color, _EmissionColor;
@@ -54,6 +56,8 @@ Shader "GloomhavenVR/TownNpc"
                 float3 tangent : TEXCOORD3;
                 float3 bitangent : TEXCOORD4;
                 float3 objectPosition : TEXCOORD5;
+                half3 vertexLight : TEXCOORD6;
+                UNITY_FOG_COORDS(7)
                 UNITY_VERTEX_OUTPUT_STEREO
             };
             Interpolated vert(AppData input)
@@ -69,6 +73,13 @@ Shader "GloomhavenVR/TownNpc"
                 output.normal = UnityObjectToWorldNormal(input.normal);
                 output.tangent = UnityObjectToWorldDir(input.tangent.xyz);
                 output.bitangent = cross(output.normal, output.tangent) * input.tangent.w * unity_WorldTransformParams.w;
+                #ifdef VERTEXLIGHT_ON
+                    output.vertexLight = Shade4PointLights(unity_4LightPosX0, unity_4LightPosY0,
+                        unity_4LightPosZ0, unity_LightColor[0].rgb, unity_LightColor[1].rgb,
+                        unity_LightColor[2].rgb, unity_LightColor[3].rgb, unity_4LightAtten0,
+                        output.worldPosition, normalize(output.normal));
+                #endif
+                UNITY_TRANSFER_FOG(output, output.position);
                 return output;
             }
             fixed4 frag(Interpolated input, fixed facing : VFACE) : SV_Target
@@ -96,20 +107,22 @@ Shader "GloomhavenVR/TownNpc"
                     metallic = masks.r;
                     smoothness = masks.a * _GlossMapScale;
                 #endif
-                half3 key = normalize(half3(-0.45, 0.8, -0.5));
-                half3 fill = normalize(half3(0.65, 0.35, 0.55));
+                half3 key = normalize(UnityWorldSpaceLightDir(input.worldPosition));
                 half keyDiffuse = saturate(dot(normal, key));
-                half fillDiffuse = saturate(dot(normal, fill));
-                half shade = 0.42h + 0.45h * keyDiffuse + 0.18h * fillDiffuse;
+                half3 ambient = max(half3(0, 0, 0), ShadeSH9(half4(normal, 1)));
+                half3 illumination = ambient + input.vertexLight + _LightColor0.rgb * keyDiffuse;
                 half3 view = normalize(_WorldSpaceCameraPos.xyz - input.worldPosition);
                 half3 halfway = normalize(key + view);
                 half gloss = pow(saturate(dot(normal, halfway)), exp2(3 + smoothness * 6));
                 half3 specular = lerp(half3(0.04, 0.04, 0.04), albedo, metallic);
-                half3 colour = albedo * shade + specular * gloss * keyDiffuse * (0.15h + smoothness * 0.55h);
+                half3 colour = albedo * illumination + specular * gloss * keyDiffuse *
+                    _LightColor0.rgb * (0.15h + smoothness * 0.55h);
                 #if defined(_EMISSION)
                     colour += _EmissionColor.rgb;
                 #endif
-                return fixed4(colour, 1);
+                fixed4 result = fixed4(colour, 1);
+                UNITY_APPLY_FOG(input.fogCoord, result);
+                return result;
             }
             ENDCG
         }

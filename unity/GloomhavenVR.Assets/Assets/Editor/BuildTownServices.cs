@@ -160,6 +160,9 @@ namespace GloomhavenVR
             Anchor(station, "InteractionAnchor", new Vector3(0, 0.95f, -0.42f));
             Anchor(station, "HeadAnchor", new Vector3(0, 1.56f, 0.65f));
             Anchor(station, "ServiceSurface", new Vector3(0, 0.94f, 0));
+            Anchor(station, "GroundAnchor", Vector3.zero);
+            Anchor(station, "DecorAnchor", new Vector3(-0.63f, 0.96f, 0.22f));
+            Anchor(station, "LightAnchor", new Vector3(-0.58f, 1.48f, 0.12f));
             BuildStation(station, name);
             if (name == "merchant") ExpandMerchantCounter(station);
             animation.GetClip("Idle").SampleAnimation(actor, 0); // Serialized opening pose already matches idle, before the first runtime tick.
@@ -224,8 +227,6 @@ namespace GloomhavenVR
                 Box(furniture, "FrontApron", new Vector3(0, 0.75f, -0.25f), new Vector3(1.24f, 0.20f, 0.075f), wood);
                 foreach (var side in new[] { -1, 1 })
                     Box(furniture, "SideApron" + side, new Vector3(side * 0.63f, 0.75f, 0), new Vector3(0.075f, 0.20f, 0.50f), wood);
-                Box(furniture, "StoredBook", new Vector3(0.35f, 0.35f, -0.04f), new Vector3(0.26f, 0.055f, 0.25f), "Leather");
-                Box(furniture, "StoredBookPages", new Vector3(0.35f, 0.386f, -0.04f), new Vector3(0.24f, 0.014f, 0.23f), "Parchment");
             }
             else
             {
@@ -246,40 +247,14 @@ namespace GloomhavenVR
             var blocker = furniture.AddComponent<BoxCollider>();
             blocker.center = new Vector3(0, 0.48f, 0);
             blocker.size = new Vector3(1.50f, 0.96f, 0.72f);
-            if (npc == "merchant")
-            {
-                Box(furniture, "LedgerCover", new Vector3(-0.47f, 0.975f, -0.03f), new Vector3(0.25f, 0.028f, 0.20f), "Leather");
-                Box(furniture, "LedgerPages", new Vector3(-0.47f, 0.993f, -0.03f), new Vector3(0.23f, 0.014f, 0.18f), "Parchment");
-                for (var i = 0; i < 7; ++i)
-                    Primitive(furniture, "Coin" + i, PrimitiveType.Cylinder, new Vector3(0.43f + (i % 3) * 0.04f, 0.964f + (i / 3) * 0.008f, -0.08f), new Vector3(0.040f, 0.0035f, 0.040f), Mat("Brass"));
-                Box(furniture, "LeatherMat", new Vector3(0, 0.961f, 0.06f), new Vector3(0.50f, 0.008f, 0.30f), "Leather");
-            }
-            else if (npc == "priestess")
-            {
+            // Native decoration is acquired from the game at runtime. Do not substitute
+            // primitive candles, coins or books; physical merchandise needs the clear top.
+            if (npc == "priestess")
                 Box(furniture, "AltarRunner", new Vector3(0, 0.963f, 0), new Vector3(0.38f, 0.009f, 0.66f), "AltarCloth");
-                foreach (var side in new[] { -1, 1 })
-                {
-                    Primitive(furniture, "CandleStand" + side, PrimitiveType.Cylinder, new Vector3(side * 0.55f, 0.99f, 0.10f), new Vector3(0.14f, 0.025f, 0.14f), Mat("Brass"));
-                    Primitive(furniture, "WaxCandle" + side, PrimitiveType.Cylinder, new Vector3(side * 0.55f, 1.08f, 0.10f), new Vector3(0.056f, 0.065f, 0.056f), Mat("Parchment"));
-                    Primitive(furniture, "CandleFlame" + side, PrimitiveType.Sphere, new Vector3(side * 0.55f, 1.163f, 0.10f), new Vector3(0.018f, 0.043f, 0.018f), Mat("CandleGlow"));
-                }
-                Primitive(furniture, "OfferingDish", PrimitiveType.Cylinder, new Vector3(0, 0.985f, -0.01f), new Vector3(0.23f, 0.018f, 0.23f), Mat("Brass"));
-            }
-            else
-            {
+            if (npc == "enchantress")
                 Box(furniture, "RuneMat", new Vector3(0, 0.965f, 0), new Vector3(0.55f, 0.01f, 0.40f), "AltarCloth");
-                for (var i = 0; i < 3; ++i)
-                {
-                    var center = new Vector3(-0.48f + i * 0.085f, 1.005f, 0.12f);
-                    Primitive(furniture, "ReagentBottle" + i, PrimitiveType.Sphere, center, new Vector3(0.067f, 0.090f, 0.067f), Mat("PotionGlass"));
-                    Primitive(furniture, "BottleNeck" + i, PrimitiveType.Cylinder, center + Vector3.up * 0.053f, new Vector3(0.027f, 0.021f, 0.027f), Mat("Brass"));
-                }
-                Primitive(furniture, "FocusCrystal", PrimitiveType.Sphere, new Vector3(0.48f, 1.06f, 0.08f), new Vector3(0.11f, 0.18f, 0.11f), Mat("ArcaneCrystal"));
-                Box(furniture, "FocusStand", new Vector3(0.48f, 0.984f, 0.08f), new Vector3(0.16f, 0.05f, 0.16f), "Brass");
-                Box(furniture, "ToolHandle", new Vector3(0.27f, 0.976f, -0.18f), new Vector3(0.25f, 0.027f, 0.027f), "Leather");
-                Box(furniture, "ToolHead", new Vector3(0.15f, 0.983f, -0.18f), new Vector3(0.055f, 0.045f, 0.11f), "Brass");
-            }
         }
+
         static void ExpandMerchantCounter(GameObject root)
         {
             // The physical catalogue and selection tray share the counter rather than float
@@ -296,9 +271,7 @@ namespace GloomhavenVR
             var edge = counter.Find("FrontBrassEdge");
             edge.localPosition = new Vector3(0, 0.882f, -0.413f);
             edge.localScale = new Vector3(1.60f, 0.018f, 0.018f);
-            for (var i = 0; i < 7; i++)
-                counter.Find("Coin" + i).localPosition = new Vector3(-0.58f + (i % 3) * 0.04f,
-                    0.964f + (i / 3) * 0.008f, 0.22f);
+
         }
         public static void RefreshMerchantCounter()
         {
@@ -407,6 +380,7 @@ namespace GloomhavenVR
                 // Prefab dependencies include the referenced meshes, clips, materials and textures.
                 // Do not expose the FBX import roots (duplicate actors with default materials).
                 var assets = Directory.GetFiles(Root + "/Prefabs", "*.prefab", SearchOption.AllDirectories)
+                    .Concat(Directory.GetFiles(Root + "/Shaders", "*.shader"))
                     .Select(p => p.Replace('\\', '/')).OrderBy(p => p).ToArray();
                 if (assets.Length == 0) throw new InvalidOperationException("No town assets to bundle");
                 Directory.CreateDirectory("Build/TownServices");
