@@ -872,6 +872,17 @@
         "local"
       ],
       "weight": 35
+    },
+    {
+      "id": "town-ritual-layout",
+      "command": [
+        "python3",
+        "scripts/check-town-ritual-layout.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 35
     }
   ]
 }

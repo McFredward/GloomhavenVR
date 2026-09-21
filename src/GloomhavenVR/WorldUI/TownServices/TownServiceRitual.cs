@@ -69,6 +69,7 @@ internal sealed class TownServiceRitual : IDisposable
         private readonly List<Graphic> _graphics = new();
         private readonly List<Material> _coinMaterials = new();
         private float _refreshAt;
+        private TownServiceRitualLayout.Placement _placement;
         internal Transform? Content => _mirror.CloneOf(Source.transform);
         internal Transform? CloneOf(Transform original) => _mirror.CloneOf(original);
         internal Transform? DetailSource => Source is UITempleShopSlot
@@ -81,20 +82,21 @@ internal sealed class TownServiceRitual : IDisposable
             && ReferenceEquals(_createdIdentity, _identity());
 
         internal Piece(TownServiceRitual owner, Component source, string key, Selectable button,
-            Func<object?> identity, Func<bool> eligible, Func<bool> drop, Vector3 position,
+            Func<object?> identity, Func<bool> eligible, Func<bool> drop, TownServiceRitualLayout.Placement placement,
             bool card, params Graphic[] inscriptions)
         {
             _owner = owner; Source = source; Key = key; _identity = identity; _button = button;
+            _placement = placement;
             _createdIdentity = identity(); _inscriptions = new List<Graphic>(inscriptions); _card = card;
             var root = new GameObject("GloomhavenVR.TownService." + key, typeof(RectTransform));
             Root = root.transform;
             try
             {
                 Root.SetParent(owner.Root, false);
-                Root.localPosition = position; Root.localRotation = Quaternion.Euler(65f, 0f, 0f);
+                Root.localPosition = placement.Position; Root.localRotation = placement.Rotation;
                 _reach = (RectTransform)Root;
                 bool offering = source is UITempleShopSlot;
-                _reach.sizeDelta = card ? new Vector2(.145f, .22f) : offering ? new Vector2(.075f, .075f) : new Vector2(.17f, .17f);
+                _reach.sizeDelta = placement.Size;
                 if (offering)
                 {
                     Transform template = TownServiceDecor.CoinTemplate
@@ -143,11 +145,19 @@ internal sealed class TownServiceRitual : IDisposable
         internal void Tick(float scale)
         {
             if (!Current) return;
+            if (!Token.IsMoving)
+            {
+                float blend = 1f - Mathf.Exp(-Time.unscaledDeltaTime / .06f);
+                Root.localPosition = Vector3.Lerp(Root.localPosition, _placement.Position, blend);
+                Root.localRotation = Quaternion.Slerp(Root.localRotation, _placement.Rotation, blend);
+            }
             if (Time.unscaledTime >= _refreshAt)
             { _refreshAt = Time.unscaledTime + .2f; _mirror.Refresh(Source.transform); }
             _mirror.TickLive(); ApplyInscriptions(); Token.Tick(scale);
             TickDetails();
         }
+
+        internal void Arrange(TownServiceRitualLayout.Placement placement) => _placement = placement;
 
         private void TickDetails()
         {
@@ -246,7 +256,7 @@ internal sealed class TownServiceRitual : IDisposable
         try
         {
             _opening = Root.gameObject.AddComponent<CanvasGroup>(); _opening.alpha = 0f;
-            Root.SetParent(station, false); Root.localPosition = new Vector3(0f, .978f, -.08f);
+            Root.SetParent(station, false); Root.localPosition = TownServiceRitualLayout.Origin;
             _zone = TownServiceMerchantZone.CreateTemplate(window.GetComponentInChildren<TMP_Text>(true));
             _zone.transform.SetParent(Root, false);
             _zone.transform.localPosition = service == 2 ? new Vector3(0f, .16f, .26f) : new Vector3(0f, .014f, 0f);
@@ -331,17 +341,19 @@ internal sealed class TownServiceRitual : IDisposable
             // A featureless primitive or a card-shaped replacement is not a coin offering.
             if (TownServiceDecor.CoinTemplate == null) return;
             UITempleWindow temple = _window.GetComponent<UITempleWindow>();
-            int index = 0;
+            int index = 0, count = 0;
+            foreach (UITempleShopSlot slot in temple.Shop.slots)
+                if (slot != null && slot.gameObject.activeInHierarchy && slot.Blessing != null) count++;
             foreach (UITempleShopSlot slot in temple.Shop.slots)
             {
                 if (slot == null || !slot.gameObject.activeInHierarchy || slot.Blessing == null) continue;
-                if (!_pieces.ContainsKey(slot))
-                    Add(slot, "temple.row", slot.button, () => slot.Blessing,
+                var placement = TownServiceRitualLayout.Offering(index++, count);
+                if (ArrangeExisting(slot, placement)) continue;
+                Add(slot, "temple.row", slot.button, () => slot.Blessing,
                         () => TempleEligible(temple, slot),
                         () => Confirm(slot.button, () => slot.Blessing, temple, () => TempleEligible(temple, slot)),
-                        new Vector3(-.42f + (index % 3) * .20f, .025f, .16f + index / 3 * .19f), false,
+                        placement, false,
                         slot.blessIcon, slot.blessName, slot.priceText);
-                index++;
             }
         }
         else
@@ -349,51 +361,61 @@ internal sealed class TownServiceRitual : IDisposable
             UINewEnhancementWindow shop = _window.GetComponent<UINewEnhancementWindow>();
             if (shop.shopService.IsSellAvailable)
             {
-                AddMode(shop.buyButton, "enchant.buy", new Vector3(-.16f, .025f, -.34f));
-                AddMode(shop.sellButton, "enchant.sell", new Vector3(.16f, .025f, -.34f));
+                AddMode(shop.buyButton, "enchant.buy", TownServiceRitualLayout.Mode(false));
+                AddMode(shop.sellButton, "enchant.sell", TownServiceRitualLayout.Mode(true));
             }
-            int index = 0;
+            int index = 0, count = 0;
+            foreach (UIEnhanceCardSlot slot in shop.CardsDisplay.slotsPool)
+                if (slot != null && slot.gameObject.activeInHierarchy && slot.AbilityCard != null) count++;
             foreach (UIEnhanceCardSlot slot in shop.CardsDisplay.slotsPool)
             {
                 if (slot == null || !slot.gameObject.activeInHierarchy || slot.AbilityCard == null) continue;
                 AbilityCardUI card = slot.AbilityCard;
-                if (!_pieces.ContainsKey(card))
-                    Add(card, NativeTemplates.CardKey(card), slot.Selectable,
+                var placement = TownServiceRitualLayout.Card(index++, count);
+                if (ArrangeExisting(card, placement)) continue;
+                Add(card, NativeTemplates.CardKey(card), slot.Selectable,
                         () => slot.AbilityCard != null ? slot.AbilityCard.AbilityCard : null,
                         () => slot.Selectable.IsInteractable(),
                         () => Click(slot.Selectable),
-                        new Vector3(-.58f - (index / 10) * .16f, .025f + (index % 10) * .010f,
-                            -.25f + (index % 10) * .035f), true);
-                index++;
+                        placement, true);
             }
-            index = 0;
+            index = count = 0;
+            foreach (UINewEnhancementShopSlot slot in shop.enhancementShop.slotsPool)
+                if (slot != null && slot.gameObject.activeInHierarchy && slot.enhancement != null) count++;
             foreach (UINewEnhancementShopSlot slot in shop.enhancementShop.slotsPool)
             {
                 if (slot == null || !slot.gameObject.activeInHierarchy || slot.enhancement == null) continue;
-                if (!_pieces.ContainsKey(slot))
-                    Add(slot, "enchant.row", slot.button, () => slot.enhancement,
+                var placement = TownServiceRitualLayout.Rune(index++, count);
+                if (ArrangeExisting(slot, placement)) continue;
+                Add(slot, "enchant.row", slot.button, () => slot.enhancement,
                         () => RuneEligible(shop, slot),
                         () => Confirm(slot.button, () => slot.enhancement, shop, () => RuneEligible(shop, slot)),
-                        new Vector3(.34f + (index % 3) * .18f, .025f, -.20f + index / 3 * .18f), false,
+                        placement, false,
                         slot.itemIcon, slot.itemName, slot.itemPrice, slot.enhancementPoints);
-                index++;
             }
         }
     }
 
-    private void AddMode(Selectable button, string key, Vector3 position)
+    private void AddMode(Selectable button, string key, TownServiceRitualLayout.Placement placement)
     {
-        if (_pieces.ContainsKey(button) || !button.gameObject.activeInHierarchy) return;
+        if (!button.gameObject.activeInHierarchy || ArrangeExisting(button, placement)) return;
         TMP_Text? label = button.GetComponentInChildren<TMP_Text>(true);
         Add(button, key, button, () => button, () => button.IsInteractable(),
-            () => Click(button), position, false, label!);
+            () => Click(button), placement, false, label!);
     }
 
     private void Add(Component source, string key, Selectable button, Func<object?> identity,
-        Func<bool> eligible, Func<bool> drop, Vector3 position, bool card, params Graphic[] inscriptions)
+        Func<bool> eligible, Func<bool> drop, TownServiceRitualLayout.Placement placement, bool card, params Graphic[] inscriptions)
     {
-        var piece = new Piece(this, source, key, button, identity, eligible, drop, position, card, inscriptions);
+        var piece = new Piece(this, source, key, button, identity, eligible, drop, placement, card, inscriptions);
         _pieces.Add(source, piece); _samples.Add(piece.Token);
+    }
+
+    private bool ArrangeExisting(Component source, TownServiceRitualLayout.Placement placement)
+    {
+        if (!_pieces.TryGetValue(source, out Piece? piece)) return false;
+        piece.Arrange(placement);
+        return true;
     }
 
     private static bool TempleEligible(UITempleWindow temple, UITempleShopSlot slot) => temple.character != null
