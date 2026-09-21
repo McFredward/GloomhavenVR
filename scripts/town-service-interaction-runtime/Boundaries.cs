@@ -12,10 +12,11 @@ public class UIWindow : MonoBehaviour
 {
     public bool IsOpen = true;
     public UnityEvent onHidden = new UnityEvent();
-    public void Hide() { IsOpen = false; onHidden.Invoke(); Probe.Events.Add("native-continuation"); }
+    // Native onHidden fires while IsOpen still reports true.
+    public void Hide() { onHidden.Invoke(); IsOpen = false; Probe.Events.Add("native-continuation"); }
 }
 public enum EGuildmasterMode { Merchant, Temple, Enchantress }
-public class UIShopItemWindow : UIWindow { public UIShopItemInventory ItemInventory = null!; }
+public class UIShopItemWindow : UIWindow { public UIShopItemInventory ItemInventory = null!; public Button exitShopButton = null!; }
 public class UIShopItemInventory : MonoBehaviour
 { public object character = new object(); public int mode; public List<UIShopItemSlot> slotPool = new(); }
 public class UIShopItemSlot : MonoBehaviour { public Selectable Selectable = null!; public object Item = new object(); }
@@ -172,6 +173,7 @@ namespace GloomhavenVR.WorldUI
         internal bool IsAlive = true;
         internal int FitAppliedGeneration;
     }
+    internal class GrabbableModal { }
     internal sealed class GrabFixture
     {
         internal Vector3 Position; internal Quaternion Rotation;
@@ -222,15 +224,43 @@ namespace GloomhavenVR.WorldUI
     {
         private ConvertedPanel _panel;
         internal static int FailAt;
-        internal TownServiceSurface(ushort id, RectTransform source, Vector3 offset, float width)
+        internal TownServiceSurface(ushort id, RectTransform source, Vector3 offset, float width, Transform? counterAnchor = null)
         {
             Probe.Events.Add("section:" + id);
             if (FailAt == id) throw new InvalidOperationException("section fixture failure");
             _panel = CanvasConversion.Convert(source);
         }
+        internal bool OwnsGrab(GrabbableModal holder) => false;
         internal void Tick(Vector3 origin, Quaternion yaw, float scale) { }
         internal void LateTick() { }
         public void Dispose() => CanvasConversion.Release(_panel);
+    }
+    // Catalog composition has a separate real-Unity harness. Here it owns original rows
+    // outside the masked context and REAL production tokens; no token fence is stubbed.
+    internal sealed class TownServiceCatalog : IDisposable
+    {
+        private readonly List<TownServiceToken> _tokens = new();
+        private readonly Dictionary<Transform, Transform> _parents = new();
+        internal IReadOnlyCollection<TownServiceToken> Samples => _tokens;
+        internal TownServiceCatalog(UIShopItemInventory inventory, Transform counter,
+            Func<object?> context, Func<bool> session, Transform mat)
+        {
+            foreach (UIShopItemSlot slot in inventory.slotPool)
+            {
+                _parents.Add(slot.transform, slot.transform.parent);
+                slot.transform.SetParent(counter, false);
+                _tokens.Add(new TownServiceToken((RectTransform)slot.transform, slot.Selectable,
+                    () => slot.Item, context, session, mat));
+            }
+        }
+        internal void Tick(float scale = 1) { foreach (var token in _tokens) token.Tick(scale); }
+        internal void LateTick() { }
+        public void Dispose()
+        {
+            foreach (var token in _tokens) token.Dispose();
+            foreach (var pair in _parents) pair.Key.SetParent(pair.Value, false);
+            _tokens.Clear();
+        }
     }
     internal sealed class TownServiceStation : IDisposable
     {

@@ -41,7 +41,11 @@ public static class InteractionProgram
     private static Dictionary<Component, TownServiceToken> Tokens =>
         (Dictionary<Component, TownServiceToken>)typeof(TownServicePresentation).GetField("Tokens", Static)!.GetValue(null)!;
     private static object Context() => typeof(TownServicePresentation).GetMethod("SelectionContext", Static)!.Invoke(null, null)!;
-    private static void Refresh() => typeof(TownServicePresentation).GetMethod("RefreshTokens", Static)!.Invoke(null, null);
+    private static void Refresh()
+    {
+        if (TownServicePresentation.Catalog != null) TownServicePresentation.Catalog.Tick();
+        else typeof(TownServicePresentation).GetMethod("RefreshTokens", Static)!.Invoke(null, null);
+    }
     private static T Child<T>(string name, Transform parent) where T : Component => Probe.Go(name, parent).AddComponent<T>();
     private static Button ButtonOn(GameObject go) => go.AddComponent<Button>();
 
@@ -51,7 +55,8 @@ public static class InteractionProgram
         internal Component Slot = null!;
         internal Button Button = null!;
         internal int Clicks;
-        internal TownServiceToken Token => Tokens[Slot];
+        internal TownServiceToken Token => TownServicePresentation.Catalog != null
+            ? new List<TownServiceToken>(TownServicePresentation.Catalog.Samples)[0] : Tokens[Slot];
         internal VRHand Hand = new();
         internal Transform OriginalParent = null!;
         internal WindowPanel OriginalPanel = null!;
@@ -88,6 +93,7 @@ public static class InteractionProgram
         {
             var win = root.AddComponent<UIShopItemWindow>();
             win.ItemInventory = Child<UIShopItemInventory>("catalog", root.transform);
+            win.exitShopButton = Child<Button>("exit", root.transform);
             var slot = Child<UIShopItemSlot>("item", win.ItemInventory.transform);
             s.Button = ButtonOn(slot.gameObject); slot.Selectable = s.Button;
             win.ItemInventory.slotPool.Add(slot); s.Slot = slot; s.Window = win;
@@ -305,6 +311,7 @@ public static class InteractionProgram
     {
         Check(s.Window.IsOpen && s.HiddenCallbacks == 0 && s.Clicks == 0,
             "toggle preserves native open controller without continuation callbacks");
+        Check(!TownServicePresentation.OwnsWindow(s.Window), "rollback releases native window suppression claim");
         Check(!TownServicePresentation.Active && TownServicePresentation.Tray == null
             && TownServicePresentation.WorkMat == null && TownServicePresentation.Samples.Count == 0
             && TownServicePresentation.LocalSurfaces.Count == 0 && TownServicePresentation.StationRoot == null,
@@ -332,7 +339,7 @@ public static class InteractionProgram
         for (byte service = 1; service <= 3; service++)
         {
             var s = Open(service, false);
-            Check(ReferenceEquals(s.OriginalPanel, ModalFallback.Converted[0])
+            Check(ModalFallback.Converted.Count == 1 && ReferenceEquals(s.OriginalPanel, ModalFallback.Converted[0])
                 && !Probe.Events.Exists(x => x.StartsWith("section:") || x.StartsWith("release:")),
                 "disabled opening never takes ownership of original window");
             CheckClassic(s);
@@ -346,17 +353,20 @@ public static class InteractionProgram
                 WorldUIConfig.ImmersiveTownServices.Value = true;
                 TownServicePresentation.Tick(); Refresh();
                 Check(TownServicePresentation.Active && TownServicePresentation.Session != previousSession
-                    && !s.Portrait.enabled && TownServicePresentation.Samples.Count == 1,
+                    && (service == 1 ? TownServicePresentation.OwnsWindow(s.Window) : !s.Portrait.enabled)
+                    && TownServicePresentation.Samples.Count == 1,
                     "reenabling creates a fresh usable immersive session");
                 previousSession = TownServicePresentation.Session;
                 int expectedSurfaces = service == 3 ? 3 : 1;
-                Check(CanvasConversion.ActivePanels.Count == expectedSurfaces + 1
+                Check(CanvasConversion.ActivePanels.Count == expectedSurfaces + (service == 1 ? 0 : 1)
                     && TownServicePresentation.LocalSurfaces.Count == expectedSurfaces,
                     "reenabling does not duplicate section or context owners");
                 s.Grab(); TownServiceToken stale = s.Token;
                 WorldUIConfig.ImmersiveTownServices.Value = false;
                 // This release runs before the normal presentation update can tear down its
                 // objects: the live config fence itself must revoke selection immediately.
+                if (service == 1) Check(TownServicePresentation.OwnsWindow(s.Window),
+                    "suppression ownership persists until rollback despite disabled option");
                 s.Release();
                 Check(s.Clicks == 0, "disabled option immediately fences a held release before next tick");
                 TownServicePresentation.Tick();
@@ -389,10 +399,67 @@ public static class InteractionProgram
         }
     }
 
+    private static void WindowMaskLifecycle()
+    {
+        var parent = (RectTransform)Probe.Go("mask-native-parent").transform;
+        parent.sizeDelta = new Vector2(820, 530);
+        parent.pivot = new Vector2(.23f, .77f);
+        parent.position = new Vector3(14, -8, 2);
+        parent.localRotation = Quaternion.Euler(0, 27, 0);
+        Probe.Go("older-sibling", parent);
+        var source = (RectTransform)Probe.Go("mask-native-window", parent).transform;
+        source.anchorMin = new Vector2(.15f, .2f); source.anchorMax = new Vector2(.84f, .91f);
+        source.pivot = new Vector2(.3f, .8f); source.sizeDelta = new Vector2(90, -45);
+        source.anchoredPosition3D = new Vector3(17, -19, 3);
+        source.localScale = new Vector3(.83f, .91f, 1);
+        source.localRotation = Quaternion.Euler(0, 0, 4);
+        Probe.Go("newer-sibling", parent);
+        var native = source.gameObject.AddComponent<CanvasGroup>();
+        native.alpha = .63f; native.interactable = false; native.blocksRaycasts = true;
+        int sibling = source.GetSiblingIndex();
+        var corners = new Vector3[4]; source.GetWorldCorners(corners);
+        Vector2 anchorMin = source.anchorMin, anchorMax = source.anchorMax, pivot = source.pivot, size = source.sizeDelta;
+        Vector3 position = source.anchoredPosition3D, scale = source.localScale;
+        Quaternion rotation = source.localRotation;
+        for (int cycle = 0; cycle < 20; cycle++)
+        {
+            var mask = new TownServiceWindowMask(source);
+            Check(source.parent != parent, "mask owns a separate wrapper without disabling source");
+            Check(source.gameObject.activeInHierarchy && source.GetComponents<CanvasGroup>().Length == 1
+                && source.GetComponent<CanvasGroup>() == native,
+                "same-frame reopen never duplicates or replaces native CanvasGroup");
+            var suppression = source.parent.GetComponent<CanvasGroup>();
+            Check(suppression != null && suppression.alpha == 0 && !suppression.blocksRaycasts,
+                "mask suppresses rendering and raycasts on its own wrapper");
+            var currentCorners = new Vector3[4]; source.GetWorldCorners(currentCorners);
+            for (int i = 0; i < 4; i++) Check(Vector3.Distance(corners[i], currentCorners[i]) < .001f,
+                "mask preserves native geometry with asymmetric parent pivot");
+            // Native animations remain authoritative while the old illustration is masked.
+            native.alpha = .41f + cycle * .01f; native.interactable = cycle % 2 == 0;
+            native.blocksRaycasts = cycle % 3 == 0;
+            float currentAlpha = native.alpha; bool currentInteractable = native.interactable, currentRaycasts = native.blocksRaycasts;
+            mask.Dispose(); mask.Dispose();
+            Check(source.parent == parent && source.GetSiblingIndex() == sibling,
+                "mask disposal restores original parent and sibling exactly");
+            Check(source.anchorMin == anchorMin && source.anchorMax == anchorMax && source.pivot == pivot
+                && source.sizeDelta == size && source.anchoredPosition3D == position && source.localScale == scale
+                && Quaternion.Angle(source.localRotation, rotation) < .001f,
+                "mask preserves all native local rect properties across repeated toggles");
+            Check(native.alpha == currentAlpha && native.interactable == currentInteractable && native.blocksRaycasts == currentRaycasts,
+                "mask disposal preserves current native animation and permissions");
+        }
+        // A native reparent beats disposal: the mask cannot reclaim a window from another owner.
+        var moved = Probe.Go("native-new-home").transform;
+        var relocatedMask = new TownServiceWindowMask(source);
+        source.SetParent(moved, false); relocatedMask.Dispose();
+        Check(source.parent == moved, "native reparent is never overwritten during mask disposal");
+        Clean();
+    }
+
     public static int Run()
     {
         _assertions = 0;
-        try { IdentityChanges(); HoverAndRelease(); CancellationCompatibility(); Handoff(); RollbackAndContinuation(); OptionalPresentation(); return _assertions; }
+        try { WindowMaskLifecycle(); IdentityChanges(); HoverAndRelease(); CancellationCompatibility(); Handoff(); RollbackAndContinuation(); OptionalPresentation(); return _assertions; }
         finally { Clean(); }
     }
 }
