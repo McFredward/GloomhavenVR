@@ -290,7 +290,9 @@ internal static class TownServicePresentation
         if (Service == 1)
         {
             UIShopItemInventory shop = _window.GetComponent<UIShopItemWindow>().ItemInventory;
-            owner = shop.character; mode = (int)shop.mode;
+            // Buy and sell samples coexist. The hidden native tab changes during a guarded
+            // drop transaction and is not an owner/selection change of this physical catalog.
+            owner = shop.character;
         }
         else if (Service == 2) owner = _window.GetComponent<UITempleWindow>().character;
         else

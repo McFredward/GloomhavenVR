@@ -259,8 +259,8 @@ internal sealed class TownServiceRitual : IDisposable
                 if (slot == null || !slot.gameObject.activeInHierarchy || slot.Blessing == null) continue;
                 if (!_pieces.ContainsKey(slot))
                     Add(slot, "temple.row", slot.button, () => slot.Blessing,
-                        () => temple.Shop.slotsCanvasGroup.interactable && slot.button.IsInteractable() && slot.IsAvailable,
-                        () => Confirm(slot.button, () => slot.Blessing, temple),
+                        () => TempleEligible(temple, slot),
+                        () => Confirm(slot.button, () => slot.Blessing, temple, () => TempleEligible(temple, slot)),
                         new Vector3(-.42f + (index % 3) * .20f, .025f, .16f + index / 3 * .19f), false,
                         slot.blessIcon, slot.blessName, slot.priceText);
                 index++;
@@ -294,8 +294,8 @@ internal sealed class TownServiceRitual : IDisposable
                 if (slot == null || !slot.gameObject.activeInHierarchy || slot.enhancement == null) continue;
                 if (!_pieces.ContainsKey(slot))
                     Add(slot, "enchant.row", slot.button, () => slot.enhancement,
-                        () => slot.button.IsInteractable(),
-                        () => Confirm(slot.button, () => slot.enhancement, shop),
+                        () => RuneEligible(shop, slot),
+                        () => Confirm(slot.button, () => slot.enhancement, shop, () => RuneEligible(shop, slot)),
                         new Vector3(.34f + (index % 3) * .18f, .025f, -.20f + index / 3 * .18f), false,
                         slot.itemIcon, slot.itemName, slot.itemPrice, slot.enhancementPoints);
                 index++;
@@ -315,17 +315,33 @@ internal sealed class TownServiceRitual : IDisposable
         Func<bool> eligible, Func<bool> drop, Vector3 position, bool card, params Graphic[] inscriptions)
     { _pieces.Add(source, new Piece(this, source, key, button, identity, eligible, drop, position, card, inscriptions)); }
 
-    private bool Confirm(Selectable button, Func<object?> identity, Component controller)
+    private static bool TempleEligible(UITempleWindow temple, UITempleShopSlot slot) => temple.character != null
+        && temple.Shop.slotsCanvasGroup.interactable && slot.IsAvailable && slot.button.IsInteractable()
+        && temple.service.CanBuy(temple.character.CharacterID, slot.Blessing);
+
+    private static bool RuneEligible(UINewEnhancementWindow shop, UINewEnhancementShopSlot slot)
+    {
+        if (shop.character == null || slot.enhancement == null || !slot.button.IsInteractable()
+            || !shop.enhancementShop.enhancementsCanvasGroup.interactable) return false;
+        EnhancementSlot enhancement = slot.enhancement;
+        if (!enhancement.BuyMode) return shop.shopService.IsSellAvailable && enhancement.AvailableToSell;
+        return enhancement.AvailableToBuy && enhancement.priceCalculator != null
+            && shop.character.Gold >= enhancement.priceCalculator.CalculateTotalPrice(enhancement)
+            && EnhancementBuyPriceCalculator.CanAffordPoints(enhancement, shop.character);
+    }
+
+    private bool Confirm(Selectable button, Func<object?> identity, Component controller, Func<bool> eligible)
     {
         UIEnhancementConfirmationBox? box = Singleton<UIEnhancementConfirmationBox>.Instance;
-        if (!_alive() || box == null || box.GetComponent<UIWindow>().IsOpen || !button.IsInteractable()) return false;
+        if (!_alive() || box == null || box.GetComponent<UIWindow>().IsOpen || !button.IsInteractable() || !eligible()) return false;
         object? context = _context(), selected = identity();
         Action? previous = box._onConfirmCallback;
         if (!Click(button)) return false;
         // The native selection synchronously installs its callback. Refusal or an unrelated
         // pre-existing prompt cannot become an implicit purchase. The callback still owns
         // server validation, currency, devotion, enhancement limits and transition completion.
-        if (!_alive() || !ReferenceEquals(context, _context()) || !ReferenceEquals(selected, identity())
+        if (!_alive() || !eligible() || !button.IsActive() || !button.IsInteractable()
+            || !ReferenceEquals(context, _context()) || !ReferenceEquals(selected, identity())
             || !box.GetComponent<UIWindow>().IsOpen || box._onConfirmCallback == null
             || ReferenceEquals(previous, box._onConfirmCallback)) return false;
         bool owns = controller is UITempleWindow temple ? temple._isConfirmationBoxOpened
