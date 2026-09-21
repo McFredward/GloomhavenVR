@@ -16,7 +16,8 @@ internal sealed class TownServiceStation : IDisposable
     private Transform? _room;
     private Vector3 _center;
     private float _scale;
-    private bool _placed;
+    private bool _placed, _authorPose;
+    private float _lightScale;
     private readonly Renderer[] _renderers;
     private readonly MaterialPropertyBlock _properties = new();
     private static readonly int VisibilityId = Shader.PropertyToID("_TownVisibility");
@@ -33,13 +34,13 @@ internal sealed class TownServiceStation : IDisposable
         _service = service;
         _center = center;
         _scale = scale;
-        _lighting = new TownServiceLighting(root.transform, service);
-        try { _decor = new TownServiceDecor(root.transform, service, _lighting); }
-        catch { _lighting.Dispose(); throw; }
         InteractionAnchor = root.transform.Find("InteractionAnchor")
             ?? throw new InvalidOperationException("Town station has no InteractionAnchor");
         _animation = root.GetComponentInChildren<Animation>(true);
         _renderers = root.GetComponentsInChildren<Renderer>(true);
+        _lighting = new TownServiceLighting(root.transform, service);
+        try { _decor = new TownServiceDecor(root.transform, service, _lighting); }
+        catch { _lighting.Dispose(); throw; }
     }
 
     internal static TownServiceStation? Create(byte service, Vector3 center, float scale)
@@ -87,7 +88,7 @@ internal sealed class TownServiceStation : IDisposable
     internal void RefreshEnvironment(bool authorPose)
     {
         Transform? room = SkyAlternative.PlacedRoomRoot;
-        bool changed = !_placed || room != _room;
+        bool changed = !_placed || room != _room || (authorPose && !_authorPose);
         if (authorPose && MapRoomDriver.TryGetParchmentFrame(out Vector3 center, out float scale))
         {
             changed |= center != _center || scale != _scale;
@@ -98,7 +99,10 @@ internal sealed class TownServiceStation : IDisposable
                 _center = center; _scale = scale;
             }
         }
-        if (changed) { _lighting.Refresh(Root); _room = room; _placed = true; }
+        float lightScale = Root.lossyScale.x;
+        if (changed || lightScale != _lightScale)
+        { _lighting.Refresh(Root); _lightScale = lightScale; _room = room; _placed = true; }
+        _authorPose = authorPose;
         _decor.Tick();
     }
 
