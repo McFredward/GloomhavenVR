@@ -196,3 +196,35 @@ side views do not show the originally alleged broad head intersection. This rend
 uses pre-final facial assets as a station proxy, and Linux shader compilation; final
 baked actor geometry still needs comparison. No canopy or other environment is
 modified merely to remove transparent triangle corners.
+
+The narrower CPU-skin comparison uses all three current source LOD0 meshes (80,000
+triangles each), original alpha-surviving canopy samples and 360 station bearings.
+With actual floor contact, sampled nearest surface distances are 89.84 mm merchant,
+103.48 mm priestess and 107.09 mm enchantress. Without the grounding correction they
+were 63.07 / 74.86 / 78.79 mm respectively. These are sampled distances, not an
+interval-proof for unsampled final animation frames. Evidence: the three
+`/tmp/gvr-town-canopy-grounded-*.log` reports and CPU-skinned OBJ files beside the
+Unity renders. An independently computed CPU skin matches `BakeMesh(mesh, true)`;
+Unity 2021's default `BakeMesh(mesh)` followed by this FBX renderer's scale-100
+transform incorrectly reports a 175-metre actor, so that method must not be used
+for sole or envelope measurements.
+
+The map does not carry the scenario's storm. `ElementMood.Tick` stands down when
+`ScenarioBoardExists` is false; `StandDown` publishes zero element globals, and even
+the debug force requires a scenario board. In the map, `GhvrWind` therefore has
+`storm=0`. With the authored `.045` amplitude and forest metre conversion, its
+conservative unweighted displacement bound is only
+`.045 * .6 * sqrt(1 + .30^2 + .16^2) = .02852 m`. The previous full-storm concern was
+outside this feature's map scope. No canopy mutation is warranted by these current
+skin/render results; final facial assets and sampled animation envelopes remain the
+last asset-specific cross-check.
+
+The old multiplayer workspace targets at station-local `z=2.2` are independently
+unsafe: their centres lie approximately 3.89–4.29 m from map centre. Actual cellar
+wall and forest trunk/rock vertices enter their counter volumes, already at reading
+yaws 0 and 90. The approved replacement targets have radius 2.35 m at bearings
+-124, 180 and 124 degrees. Counter half-extents `.90/.422` give maximum radial extent
+2.914 m, below the nearest solid prop's 3.033 m. Actual solid-mesh checks at 72
+reading yaws find no contact; the radial bound covers intermediate yaws and triangle
+interiors. The workspace implementation and migration timing belong to the separate
+merchant interaction lane.
