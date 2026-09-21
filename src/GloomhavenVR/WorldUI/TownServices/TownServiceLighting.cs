@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using GloomhavenVR.Core;
 using UnityEngine;
 
@@ -7,13 +8,17 @@ namespace GloomhavenVR.WorldUI;
 /// <summary>Owned lights for the mod layer; never changes native lights or global ambient.</summary>
 internal sealed class TownServiceLighting : IDisposable
 {
+    // At most one environment light and four practicals for the three live residents.
+    // Exact object ownership, not layer/name/type heuristics: native lights keep their policy.
+    private static readonly HashSet<Light> Owned = new();
+    internal static bool Owns(Light light) => light != null && Owned.Contains(light);
     private static Light? _roomLight;
     private static int _users;
     private readonly Light _stand;
     private readonly Light? _second;
     private readonly float _power;
     private float _visibility;
-    private bool _hasFlame, _hasSecond;
+    private bool _hasFlame, _hasSecond, _disposed;
 
     internal TownServiceLighting(Transform root, byte service)
     {
@@ -23,6 +28,7 @@ internal sealed class TownServiceLighting : IDisposable
         // Position is refined to the original candle's flame after its assets finish loading.
         lightObject.transform.localPosition = new Vector3(-.57f, 1.30f, .16f);
         _stand = lightObject.AddComponent<Light>();
+        Owned.Add(_stand);
         _stand.type = LightType.Point;
         _stand.renderMode = LightRenderMode.ForceVertex;
         _stand.cullingMask = 1 << VRLayers.ModLayer;
@@ -36,6 +42,7 @@ internal sealed class TownServiceLighting : IDisposable
             var secondObject = new GameObject("TownService.SecondCandleLight");
             secondObject.transform.SetParent(root, false);
             _second = secondObject.AddComponent<Light>();
+            Owned.Add(_second);
             _second.type = LightType.Point;
             _second.renderMode = LightRenderMode.ForceVertex;
             _second.cullingMask = _stand.cullingMask;
@@ -65,8 +72,12 @@ internal sealed class TownServiceLighting : IDisposable
         if (_second != null) _second.range = _stand.range;
         if (_roomLight == null)
         {
+            // A scene teardown can destroy a Unity object before its station is disposed.
+            // Remove the stale managed reference before replacing that light.
+            if (_roomLight is not null) Owned.Remove(_roomLight);
             var obj = new GameObject("TownService.EnvironmentLight");
             _roomLight = obj.AddComponent<Light>();
+            Owned.Add(_roomLight);
             _roomLight.type = LightType.Directional;
             _roomLight.cullingMask = 1 << VRLayers.ModLayer;
             _roomLight.shadows = LightShadows.None;
@@ -88,11 +99,18 @@ internal sealed class TownServiceLighting : IDisposable
 
     public void Dispose()
     {
+        if (_disposed) return;
+        _disposed = true;
+        // Remove synchronously, before Unity's deferred Destroy; a same-frame scene sweep
+        // must never retain a disposed helper as a live owner.
+        Owned.Remove(_stand);
+        if (_second is not null) Owned.Remove(_second);
         if (_stand != null) UnityEngine.Object.Destroy(_stand.gameObject);
         if (_second != null) UnityEngine.Object.Destroy(_second.gameObject);
-        if (--_users == 0 && _roomLight != null)
+        if (--_users == 0)
         {
-            UnityEngine.Object.Destroy(_roomLight.gameObject);
+            if (_roomLight is not null) Owned.Remove(_roomLight);
+            if (_roomLight != null) UnityEngine.Object.Destroy(_roomLight.gameObject);
             _roomLight = null;
         }
     }
