@@ -16,6 +16,9 @@ Player.log:7133; Hydra DNS failures also occur independently of the catalog stac
 ## Cause and correction
 
 The next constructor expression dereferenced `inventory._ownedFilter.transform`.
+[Original serialized scene inspection](TOWN-541-NATIVE.md) confirms that both campaign
+and Guildmaster desktop inventories have a null Owned pointer; both gamepad variants
+have a valid original. All other constructor control/tooltip references resolve correctly.
 Owned belongs to the game's controller-oriented merchant. Native mouse-input paths
 exclude it in Awake and filter enumeration. Build 540 unconditionally required it,
 although template registration already tolerated absent controls. The constructor now
@@ -37,6 +40,16 @@ presentation modes. The persisted `WorldUI/ImmersiveTownServices` bool and its t
 remain unchanged; choosing ordinary windows still uses the existing reversible handoff.
 
 ## Validation and hardware follow-up
+
+Focused catalog validation: 285 Unity assertions / 16 compiled negative controls.
+Window/session interaction: 876 Unity assertions / 28 compiled negative controls.
+Menu path and selection: 463 assertions / seven compiled negative controls, binding the
+real curated tree, visibility filters, row dispatch and dropdown callbacks. Native UI
+pixels and BepInEx persistence remain explicit menu-fixture boundaries. The menu suite
+now runs in the local full gate and hosted dev CI.
+
+The exact German menu path is **VR-Optionen → Tafeln → Händler, Tempel & Verzauberin →
+Stadtbesuch-Modus**, with **Immersive NPCs** and **Originale Fenster** as the two values.
 
 Final integrated validation is recorded below after completion. Both bundles are unchanged
 from build 540. This is an unreleased development correction.
