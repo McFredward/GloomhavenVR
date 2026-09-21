@@ -195,7 +195,7 @@ internal sealed class TownServiceDecor : IDisposable
 
     private Material Adapt(Material source, bool flame, bool billboard)
     {
-        Shader? shader = Shader.Find(flame ? "GloomhavenVR/TownFlame" : "GloomhavenVR/TownNpc");
+        Shader? shader = TownServiceAssets.Shader(flame ? "townflame" : "townnpc");
         if (source == null || shader == null) throw new InvalidOperationException("Original decoration material or town shader missing");
         // Preserve original texture data, UV transform, tint and normal map. Change only the
         // render contract (stereo, practical lighting and station dissolve), on an owned copy.
@@ -203,6 +203,7 @@ internal sealed class TownServiceDecor : IDisposable
         material.SetFloat(Visibility, _visibility);
         if (flame)
         {
+            if (source.HasProperty("_TintColor")) material.SetColor("_Color", source.GetColor("_TintColor"));
             if (material.HasProperty("_Billboard")) material.SetFloat("_Billboard", billboard ? 1f : 0f);
             if (material.HasProperty("_TownAnimationTime")) material.SetFloat("_TownAnimationTime", _clock);
         }
