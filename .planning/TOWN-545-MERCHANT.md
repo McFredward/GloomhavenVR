@@ -76,3 +76,30 @@ on the observer's gaze. Existing record grammar remains root integration ownersh
 Final furniture/material rendering, nearest-hit tests for every overlapping card strip,
 actual scene clearance and hardware appearance remain separate validation tasks. Original
 inventory hierarchy and permissions are restored on teardown/opt-out.
+
+## Native refusal and integration follow-up
+
+A post-selection refusal now cancels the exact newly installed merchant confirmation
+through its original `OnCancel` transition. The captured item and changed native callback
+identify ownership; a pre-existing or unrelated prompt is never cancelled. Native service
+validation remains authoritative. Strict Release compilation passed with no warnings/errors.
+
+- Catalogue: 1,407 assertions + 11 compiled falsifiers,
+  `.planning/debug/town-service-catalog/run-2snvnihc`.
+- Updated presentation/token integration: 930 assertions + 34 compiled falsifiers,
+  `.planning/debug/town-service-interaction/run-4tawfyev`.
+- Original ritual Confirm/Click method bodies: 34 assertions + 6 compiled falsifiers,
+  `.planning/debug/town-ritual-transaction/run-8bqdhxc6`.
+
+The ritual callback fixture binds the integration checkout source read-only and records
+its SHA-256. It uses real Unity buttons/EventSystem and controlled native prompt/cost
+responses. Both temple and enchantress cover initial/post-selection affordability,
+owner/item changes, existing/unowned prompts, native refusal and stale-own-prompt
+cancellation. It does not execute the game's economic service offline. Physical release
+cancellation is covered separately by the complete production Token integration fixture.
+
+Presentation tests now expect whole-window suppression and physical ritual lifetime,
+not build544's three floating sections. The retained legacy section/tray rollback branches
+are explicitly injected fixture scenarios. Ritual artwork/geometry are boundary components;
+actual production Token/session/context guards remain bound. Merchant backend tab changes
+correctly preserve the held physical item; enhancement mode changes still cancel it.

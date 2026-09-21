@@ -44,7 +44,7 @@ public static class InteractionProgram
     private static void Refresh()
     {
         if (TownServicePresentation.Catalog != null) TownServicePresentation.Catalog.Tick();
-        else typeof(TownServicePresentation).GetMethod("RefreshTokens", Static)!.Invoke(null, null);
+        else TownServicePresentation.Ritual?.Tick();
     }
     private static T Child<T>(string name, Transform parent) where T : Component => Probe.Go(name, parent).AddComponent<T>();
     private static Button ButtonOn(GameObject go) => go.AddComponent<Button>();
@@ -56,7 +56,7 @@ public static class InteractionProgram
         internal Button Button = null!;
         internal int Clicks;
         internal TownServiceToken Token => TownServicePresentation.Catalog != null
-            ? new List<TownServiceToken>(TownServicePresentation.Catalog.Samples)[0] : Tokens[Slot];
+            ? new List<TownServiceToken>(TownServicePresentation.Catalog.Samples)[0] : new List<TownServiceToken>(TownServicePresentation.Ritual!.Samples)[0];
         internal VRHand Hand = new();
         internal Transform OriginalParent = null!;
         internal WindowPanel OriginalPanel = null!;
@@ -146,7 +146,7 @@ public static class InteractionProgram
     private static void Clean()
     {
         CanvasConversion.DeferParent = false; CanvasConversion.KeepActive = false;
-        TownServiceSurface.FailAt = 0; ModalFallback.FailConvert = false;
+        TownServiceSurface.FailAt = 0; TownServiceRitual.Fail = false; ModalFallback.FailConvert = false;
         TownServicePresentation.Reset();
         typeof(TownServicePresentation).GetField("_failedWindow", Static)!.SetValue(null, null);
         Tokens.Clear(); ModalFallback.Converted.Clear(); CanvasConversion.ActivePanels.Clear();
@@ -170,13 +170,17 @@ public static class InteractionProgram
             Check(s.Hand.Grabber.Heal() && s.Hand.Grabber.Held == null, "cancelled token releases grabber hand ownership");
             s.Release(); Check(s.Clicks == 0, "owner switch never clicks native selection"); Clean();
         }
-        foreach (byte service in new byte[] { 1, 3 })
+        foreach (byte service in new byte[] { 3 })
         {
             var s = Open(service); s.Grab();
             if (service == 1) ((UIShopItemWindow)s.Window).ItemInventory.mode++;
             else ((UINewEnhancementWindow)s.Window).mode++;
             s.Token.Tick(1); Check(s.Token.HeldRoot == null, "mode switch cancels held selection"); Clean();
         }
+        var merchantMode = Open(1); merchantMode.Grab();
+        ((UIShopItemWindow)merchantMode.Window).ItemInventory.mode++;
+        merchantMode.Token.Tick(1);
+        Check(merchantMode.Token.HeldRoot != null, "native merchant tab switch preserves physical catalog selection"); Clean();
         var enhancement = Open(3); enhancement.Grab();
         ((UINewEnhancementWindow)enhancement.Window).selectedCard = new AbilityCardUI();
         enhancement.Token.Tick(1); Check(enhancement.Token.HeldRoot == null, "committed card switch cancels held selection"); Clean();
@@ -282,6 +286,31 @@ public static class InteractionProgram
     private static void RollbackAndContinuation()
     {
         var s = Open(3);
+        // Physical stations own a whole-window mask, not the old three floating sections.
+        Probe.Events.Clear(); s.Window.Hide();
+        Check(!TownServicePresentation.Active && s.Window.transform.parent == s.OriginalParent
+            && CanvasConversion.ActivePanels.Count == 0, "native hide immediately restores hierarchy and all owners");
+        foreach (var pair in s.NativeParents) Check(pair.Key.parent == pair.Value, "native hide restores physical ritual sources");
+        Check(Probe.Events.Contains("native-continuation") && !Probe.Events.Exists(x => x.StartsWith("sample:")),
+            "native continuation completes without animation sampling"); Clean();
+
+        TownServiceRitual.Fail = true; s = Open(3);
+        Check(!TownServicePresentation.Active && CanvasConversion.ActivePanels.Count == 1,
+            "ritual construction failure leaves exactly one native context owner");
+        foreach (var pair in s.NativeParents) Check(pair.Key.parent == pair.Value, "ritual failure restores native hierarchy");
+        Check(ModalFallback.Converted.Count == 1 && ModalFallback.Converted[0].Panel.OriginalParent == s.OriginalParent,
+            "fallback context remembers original native parent"); Clean();
+
+        // Retained legacy section rollback is explicitly injected; no claim that 545
+        // creates these sections in its normal physical presentation.
+        s = Open(3);
+        var win = (UINewEnhancementWindow)s.Window;
+        var sections = (List<TownServiceSurface>)typeof(TownServicePresentation).GetField("Surfaces", Static)!.GetValue(null)!;
+        sections.Add(new TownServiceSurface(10, (RectTransform)win.enhancementShop.transform, Vector3.zero, 1));
+        sections.Add(new TownServiceSurface(11, (RectTransform)win.cardHolder.transform, Vector3.zero, 1));
+        sections.Add(new TownServiceSurface(12, win.CardsDisplay.abilityCardsPanel, Vector3.zero, 1));
+        var context = CanvasConversion.Convert(win.transform);
+        typeof(TownServicePresentation).GetField("_context", Static)!.SetValue(null, context);
         Probe.Events.Clear(); s.Window.Hide();
         var order = string.Join(",", Probe.Events);
         Check(order.IndexOf("release:native-window", StringComparison.Ordinal) >= 0
@@ -289,22 +318,7 @@ public static class InteractionProgram
             "context retires before restoring descendant sections");
         Check(order.IndexOf("release:card-scroll", StringComparison.Ordinal) < order.IndexOf("release:card-holder", StringComparison.Ordinal)
             && order.IndexOf("release:card-holder", StringComparison.Ordinal) < order.IndexOf("release:enhancements", StringComparison.Ordinal),
-            "section rollback restores native hierarchy in LIFO order");
-        Check(!TownServicePresentation.Active && s.Window.transform.parent == s.OriginalParent
-            && CanvasConversion.ActivePanels.Count == 0, "native hide immediately restores hierarchy and all owners");
-        Check(Probe.Events.Contains("native-continuation") && !Probe.Events.Exists(x => x.StartsWith("sample:")),
-            "native continuation completes without animation sampling"); Clean();
-
-        // Failure after two sections: the actual production catch must unwind and re-enroll the
-        // intact native context. The fixture throws before the third section takes ownership.
-        TownServiceSurface.FailAt = 12; s = Open(3);
-        Check(!TownServicePresentation.Active && CanvasConversion.ActivePanels.Count == 1,
-            "partial section failure leaves exactly one native context owner");
-        var win = (UINewEnhancementWindow)s.Window;
-        Check(win.cardHolder.transform.parent == win.transform && win.enhancementShop.transform.parent == win.transform,
-            "partial section failure restores previous sections");
-        Check(ModalFallback.Converted.Count == 1 && ModalFallback.Converted[0].Panel.OriginalParent == s.OriginalParent,
-            "fallback context remembers original native parent"); Clean();
+            "section rollback restores native hierarchy in LIFO order"); Clean();
     }
 
     private static void CheckClassic(Session s)
@@ -353,13 +367,12 @@ public static class InteractionProgram
                 WorldUIConfig.ImmersiveTownServices.Value = true;
                 TownServicePresentation.Tick(); Refresh();
                 Check(TownServicePresentation.Active && TownServicePresentation.Session != previousSession
-                    && (service == 1 ? TownServicePresentation.OwnsWindow(s.Window) : !s.Portrait.enabled)
+                    && TownServicePresentation.OwnsWindow(s.Window)
                     && TownServicePresentation.Samples.Count == 1,
                     "reenabling creates a fresh usable immersive session");
                 previousSession = TownServicePresentation.Session;
-                int expectedSurfaces = service == 3 ? 3 : 1;
-                Check(CanvasConversion.ActivePanels.Count == expectedSurfaces + (service == 1 ? 0 : 1)
-                    && TownServicePresentation.LocalSurfaces.Count == expectedSurfaces,
+                Check(CanvasConversion.ActivePanels.Count == 0
+                    && TownServicePresentation.LocalSurfaces.Count == 0,
                     "reenabling does not duplicate section or context owners");
                 s.Grab(); TownServiceToken stale = s.Token;
                 WorldUIConfig.ImmersiveTownServices.Value = false;

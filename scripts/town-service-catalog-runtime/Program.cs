@@ -88,6 +88,7 @@ public static class InteractionProgram
         confirmation.IsActive=true;Check(!TownServiceMerchantTransaction.Commit(inventory,buy,false,()=>true),"unrelated pending confirmation retained");confirmation.IsActive=false;
         bool current=true;confirmation.BeforeShow=()=>current=false;
         Check(!TownServiceMerchantTransaction.Commit(inventory,buy,false,()=>current),"context race never confirms native callback");
+        Check(!confirmation.IsActive && confirmation.Cancels==1,"own stale item prompt cancelled through native lifecycle");
         Check(inventory.service.Commits==1,"refusals never spend");confirmation.BeforeShow=null;confirmation.IsActive=false;
         CItem owned=inventory.service.Sell[0];
         Check(TownServiceMerchantTransaction.Commit(inventory,owned,true,()=>true),"owned item exact identity sells through native confirmation");

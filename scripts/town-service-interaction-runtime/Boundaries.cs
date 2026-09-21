@@ -266,6 +266,44 @@ namespace GloomhavenVR.WorldUI
             _tokens.Clear();
         }
     }
+    // Ritual artwork/geometry have a separate fixture. This boundary feeds genuine
+    // production tokens and the presentation-supplied lifetime/context delegates.
+    internal sealed class TownServiceRitual : IDisposable
+    {
+        internal static bool Fail;
+        private readonly List<TownServiceToken> _tokens = new();
+        private readonly Dictionary<Transform, Transform> _parents = new();
+        internal IReadOnlyCollection<TownServiceToken> Samples => _tokens;
+        internal Transform Root { get; }
+        internal bool CanRelocate => !_tokens.Exists(t => t.IsMoving);
+        internal TownServiceRitual(UIWindow window, byte service, Transform parent,
+            Func<bool> session, Func<object?> context)
+        {
+            if (Fail) throw new InvalidOperationException("ritual fixture failure");
+            Root = Probe.Go("ritual", parent).transform;
+            Transform mat = TownServicePresentation.WorkMat!;
+            if (service == 2)
+            {
+                foreach (var slot in window.GetComponent<UITempleWindow>().Shop.slots)
+                    Add(slot.transform, slot.button, () => slot.Blessing, context, session, mat);
+            }
+            else foreach (var slot in window.GetComponent<UINewEnhancementWindow>().CardsDisplay.slotsPool)
+                Add(slot.transform, slot.Selectable, () => slot.AbilityCard?.AbilityCard, context, session, mat);
+        }
+        private void Add(Transform source, Selectable button, Func<object?> identity,
+            Func<object?> context, Func<bool> session, Transform mat)
+        {
+            _parents.Add(source, source.parent); source.SetParent(Root, false);
+            _tokens.Add(new TownServiceToken((RectTransform)source, button, identity, context, session, mat));
+        }
+        internal void Tick(float scale=1) { foreach (var token in _tokens) token.Tick(scale); }
+        public void Dispose()
+        {
+            foreach (var token in _tokens) token.Dispose();
+            foreach (var pair in _parents) pair.Key.SetParent(pair.Value, false);
+            _tokens.Clear(); UnityEngine.Object.Destroy(Root.gameObject);
+        }
+    }
     internal sealed class TownServiceStation : IDisposable
     {
         internal Transform Root = Probe.Go("station").transform;

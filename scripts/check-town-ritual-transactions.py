@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Compile complete physical merchant catalog, drawer, native transaction and teardown cases and run them inside Unity 2021.3.5.
+"""Compile production ritual confirmation guards and native-callback race cases and run them inside Unity 2021.3.5.
 
 No game launch, network service, source mutation or generated tracked files.
-Explicit fixture boundaries are documented in town-service-catalog-runtime/Boundaries.cs.
+Native callback/state boundaries are documented in town-ritual-transaction-runtime/Program.cs.
 """
 import argparse
 import hashlib
@@ -27,25 +27,23 @@ def replace_once(source, before, after):
 
 
 def sources(root):
-    base = root / "src/GloomhavenVR/WorldUI/TownServices"
-    names = ["TownServiceCatalog.cs", "TownServiceMerchantRows.cs", "TownServiceMerchantTransaction.cs", "TownServiceMerchantDrawer.cs", "TownServiceMerchantZone.cs", "TownServiceCatalogPreview.cs", "TownServiceWindowMask.cs"]
-    bound = {name: (base / name).read_text() for name in names}
-    return bound, {name: hashlib.sha256(text.encode()).hexdigest() for name, text in bound.items()}
+    raw = (root / "src/GloomhavenVR/WorldUI/TownServices/TownServiceRitual.cs").read_text()
+    methods = method(raw, "private bool Confirm(") + "\n" + method(raw, "private static bool Click(")
+    methods = methods.replace("private bool Confirm(", "internal bool Confirm(")
+    text = "using System;using UnityEngine;using UnityEngine.UI;using UnityEngine.EventSystems;\n" + \
+        "internal sealed class BoundRitual {private readonly Func<bool> _alive;private readonly Func<object?> _context;" + \
+        "internal BoundRitual(Func<bool> alive,Func<object?> context){_alive=alive;_context=context;}\n" + methods + "\n}"
+    return {"RitualTransactions.cs": text}, {"TownServiceRitual.cs": hashlib.sha256(raw.encode()).hexdigest()}
 
 
 def mutations():
     return [
-        ("stale-prompt", "TownServiceMerchantTransaction.cs", "if (created) confirmation.OnCancel();", "if (created) { }", "own stale item prompt cancelled through native lifecycle"),
-        ("cap", "TownServiceCatalog.cs", "foreach(var row in _backend.Rows)", "foreach(var row in _backend.Rows.GetRange(0, Math.Min(6,_backend.Rows.Count)))", "all 164 stock and 164 owned entries persist without pagination"),
-        ("held-relocation", "TownServiceCatalog.cs", "if (sample.IsMoving) return false", "if (sample.IsMoving && _disposed) return false", "held or returning sample prevents station relocation"),
-        ("drawer-relocation", "TownServiceCatalog.cs", "if(drawer.Moving)return false", "if(drawer.Moving && _disposed)return false", "moving drawer prevents workspace relocation"),
-        ("closed-pick", "TownServiceCatalog.cs", "inspect: () => drawer.Accessible", "inspect: () => true", "closed opaque drawers prevent picking through cabinet"),
-        ("partial-pull", "TownServiceMerchantDrawer.cs", "Travel = .78f", "Travel = .48f", "full pull clears native countertop back rows"),
-        ("close-held", "TownServiceMerchantDrawer.cs", "if(_hand==null&&_mayClose())_target=0f", "if(_hand==null)_target=0f", "drawer cannot close on held card"),
-        ("context-race", "TownServiceMerchantTransaction.cs", "if (!stillCurrent() || !Eligible(inventory, item, selling)\n            || !created", "if (!Eligible(inventory, item, selling)\n            || !created", "context race never confirms native callback"),
-        ("confirmation-owner", "TownServiceMerchantTransaction.cs", "if (confirmation == null || confirmation.IsActive) return false;", "if (confirmation == null) return false;", "unrelated pending confirmation retained"),
-        ("sell-identity", "TownServiceMerchantTransaction.cs", "return inventory.service.GetItemsToSell(inventory.character).Contains(item)", "return true", "stale owned item is ineligible"),
-        ("restore", "TownServiceCatalog.cs", "_inventory.transform.SetParent(_nativeHome,false);", "_inventory.transform.SetParent(_nativeWrapper.transform,false);", "opt out restores hidden native inventory hierarchy"),
+        ("affordability-race", "RitualTransactions.cs", "if (!_alive() || !eligible() || !button.IsActive()", "if (!_alive() || !button.IsActive()", "post-selection affordability refused"),
+        ("owner-race", "RitualTransactions.cs", "!ReferenceEquals(context, _context()) || ", "", "post-selection owner change refused"),
+        ("item-race", "RitualTransactions.cs", " || !ReferenceEquals(selected, identity())", "", "post-selection selected item change refused"),
+        ("existing-prompt", "RitualTransactions.cs", " || box.GetComponent<UIWindow>().IsOpen || !button.IsInteractable()", " || !button.IsInteractable()", "existing unrelated prompt untouched"),
+        ("ownership", "RitualTransactions.cs", "bool created = owns &&", "bool created =", "unowned new callback not confirmed"),
+        ("stale-prompt", "RitualTransactions.cs", "if (created) box.Hide();", "if (created) { }", "own stale prompt cancelled through native lifecycle"),
     ]
 
 
@@ -53,14 +51,14 @@ def main():
     repo = Path(__file__).resolve().parent.parent
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--source-root", type=Path, default=repo, help="Production checkout to bind (read only)")
-    parser.add_argument("--output-dir", type=Path, default=repo / ".planning/debug/town-service-catalog")
+    parser.add_argument("--output-dir", type=Path, default=repo / ".planning/debug/town-ritual-transaction")
     parser.add_argument("--unity", type=Path, default=Path(os.environ.get("UNITY_PATH", "/home/claw/unity-2021.3.5/Editor/Unity")))
     parser.add_argument("--unity-ui", type=Path, help="Real UnityEngine.UI.dll (never metadata-only RefAsm)")
     parser.add_argument("--no-negative-controls", action="store_true", help="Quick positive run; not complete validation")
     args = parser.parse_args()
     args.output_dir.mkdir(parents=True, exist_ok=True)
     run = Path(tempfile.mkdtemp(prefix="run-", dir=args.output_dir.resolve()))
-    fixture = Path(__file__).resolve().parent / "town-service-catalog-runtime"
+    fixture = Path(__file__).resolve().parent / "town-ritual-transaction-runtime"
     ui_candidates = [
         args.source_root / "unity/GloomhavenVR.Assets/Library/ScriptAssemblies/UnityEngine.UI.dll",
         args.source_root / "ressources/GH_Data/Managed/UnityEngine.UI.dll",

@@ -46,13 +46,23 @@ internal static class TownServiceMerchantTransaction
             { selected = row; break; }
         }
         if (selected == null) return false;
+        CItem selectedItem = selected.Item;
+        Action? previous = confirmation._onConfirmedCallback;
         var pointer = new PointerEventData(EventSystem.current) { button = PointerEventData.InputButton.Left };
         ExecuteEvents.Execute(selected.Selectable.gameObject, pointer, ExecuteEvents.pointerClickHandler);
         // The exact native item is the confirmation scope. Revalidate after the callback:
         // refusal, ownership changes and another input can never confirm a different item.
+        bool created = confirmation.IsActive && confirmation.IsConfirmingItem(selectedItem)
+            && confirmation._onConfirmedCallback != null
+            && !ReferenceEquals(previous, confirmation._onConfirmedCallback);
         if (!stillCurrent() || !Eligible(inventory, item, selling)
-            || !confirmation.IsActive || !confirmation.IsConfirmingItem(selected.Item)
-            || !confirmation.confirmButton.IsActive() || !confirmation.confirmButton.IsInteractable()) return false;
+            || !created || !confirmation.confirmButton.IsActive() || !confirmation.confirmButton.IsInteractable())
+        {
+            // Use the native cancellation transition only for the prompt this selection
+            // just installed. A rejected gesture must not leave a stale purchase available.
+            if (created) confirmation.OnCancel();
+            return false;
+        }
         ExecuteEvents.Execute(confirmation.confirmButton.gameObject, pointer, ExecuteEvents.pointerClickHandler);
         return true;
     }
