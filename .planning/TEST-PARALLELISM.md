@@ -51,7 +51,21 @@ runs still have different machines/cache conditions, so it is an observed compar
 a universal timing guarantee. The earlier build-540 CI run took 16m18s, illustrating that
 variation. Structured baseline evidence: `.planning/debug/parallel-tests/ci-sequential-baseline.json`.
 
-Integrated parallel timing and hosted results are recorded after validation below.
+The complete integrated parallel gate took **427.64 seconds (7m08s)**: **2.07× faster**
+than the serial baseline, reducing elapsed time by **51.64%**. All 14 source gates and
+46 local runtime suites passed; the runtime group took 387.9s with eight workers.
+All **373 original assertion/negative-control result lines match exactly**, including
+**255,887 golden wire assertions**. Public surfaces remain 626 config keys, 174 patch
+registrations and 4,746 log tokens. The historical compiled comparison remains
+0 moved / 104 changed / 95 added or removed; that expected difference explains exit 1.
+Evidence: `.planning/debug/parallel-tests/guard-timing.json`, `guard-parallel.log`,
+`coverage-comparison.json`, and the per-suite reports under `.planning/debug/test-runs/`.
+
+The first hosted parallel run is checked after pushing this integration. Its GitHub job
+metadata and timing comparison are retained in
+`.planning/debug/parallel-tests/ci-parallel-result.json`; the completed Actions run is
+also the authoritative validation evidence for the pushed tree. Local timing alone does
+not establish the hosted speedup.
 
 ## Rejected initial trial
 
