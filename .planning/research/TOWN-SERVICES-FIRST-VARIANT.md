@@ -3,6 +3,10 @@
 Implementation record, 2026-09-21. This is development work for the maintainer,
 not a release announcement or a claim of headset validation.
 
+**Superseded for the current handoff:** [build 540](TOWN-SERVICES-540.md) records the
+first hardware failures and their corrections, physical merchant catalog and replacement
+town bundle. Counts, hashes and layout below describe the original 538/539 variant.
+
 ## Interaction scope
 
 Build 539 adds **Immersive town visits** to VR options, enabled by default by the maintainer's

@@ -55,6 +55,13 @@ those two stations as merchant racks.
 - Window/session interaction: 871 Unity assertions / 27 compiled negative controls;
   final integration positive run repeats 871 after the owner-level fade wiring.
 - Orphan ownership: six assertions across 13 sweeps / three compiled negative controls.
+- Multiplayer: 428 Unity assertions / 14 compiled negative controls. Production publisher
+  routing excludes the obsolete window, retains price provenance and removes old pages;
+  capture/codec/playback render comparisons cover six cards at intermediate inherited alpha.
+  Template creation and native catalogue inputs remain explicit fixtures in that suite.
+- Existing movie ownership tests: 66 assertions / six compiled negative controls, with the
+  real sweep and unchanged movie owner. Only the extraction fixture needed adaptation to
+  recognize the additional town/error owners.
 
 These harnesses bind production code but use explicit adapters for game-controller state.
 Asset pixels use a same-source Linux review bundle; Windows stereo output remains a
