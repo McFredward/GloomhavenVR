@@ -1286,6 +1286,18 @@ internal static partial class VROptionsTab
             {
                 new()
                 {
+                    // Build 540's checkbox was buried among combat-log and wrist readouts;
+                    // the hardware tester could not find the NPC/window presentation choice.
+                    // Give the three named services their own first section, above the scroll
+                    // fold. The existing bool remains the persisted setting, including live off.
+                    LocKey = "vr_sec_townservices",
+                    Entries = new CuratedEntry[]
+                    {
+                        new("WorldUI", "ImmersiveTownServices", "vr_o_immersivetown"),
+                    },
+                },
+                new()
+                {
                     // SETTINGS AUDIT ROUND 2 (user ruling 2026-08-13, verbatim: "Die
                     // Initativreihenfolge ausschalten zu können am Controllboard macht keinen
                     // Sinn."). This section used to be fourteen rows; nine of them are gone with
@@ -1314,7 +1326,6 @@ internal static partial class VROptionsTab
                                            Surfaces.CombatLogSurface.SpawnFromOptions),
                         new("WorldUI", "CombatLog", "show_combat_log"),
                         new("WorldUI", "WristHud", "vr_o_wristhud"),
-                        new("WorldUI", "ImmersiveTownServices", "vr_o_immersivetown"),
                         new("WorldUI", "Dialogs", "vr_o_dialogs"),
                         new("WorldUI", "DecisionDock", "vr_o_decisiondock"),
                         new("WorldUI", "LoadingIndicator", "vr_o_loading"),
@@ -1557,6 +1568,8 @@ internal static partial class VROptionsTab
         // exactly what this table is for.
         || (string.Equals(item.Section, "WorldUI", StringComparison.Ordinal)
             && string.Equals(item.Key, "WindowFacing", StringComparison.Ordinal))
+        || (string.Equals(item.Section, "WorldUI", StringComparison.Ordinal)
+            && string.Equals(item.Key, "ImmersiveTownServices", StringComparison.Ordinal))
         // THE SIXTH, and the third instance of one defect: [PeerBoardFade] Mode is an enum, so the
         // generic Choice row labelled its dropdown "Off / Transparent / Hidden" — the raw C# member
         // names, in both languages, on a CURATED everyday row (Avatar & Mehrspieler ▸ Zusammen
@@ -1611,6 +1624,9 @@ internal static partial class VROptionsTab
     {
         if (!HasSpecialRow(item))
             return false;
+
+        if (TryBuildTownServiceModeRow(parent, item, caption, hintKey))
+            return true;
 
         // Item 12: the board movement scheme is a user-facing CHOICE (like the board material or
         // the hand style), so the dropdown must read in the player's language — the generic
@@ -1764,6 +1780,25 @@ internal static partial class VROptionsTab
 
         BuildPresetRow(parent, item, caption, hintKey, MixedReality.KeyColorNames, MixedReality.KeyColorIndex,
                        MixedReality.SetKeyColor);
+        return true;
+    }
+
+    /// <summary>Both presentations remain usable; name them instead of suggesting off hides services.</summary>
+    private static bool TryBuildTownServiceModeRow(Transform parent, ConfigCatalog.ConfigItem item,
+                                                  string? caption, string? hintKey)
+    {
+        if (!string.Equals(item.Section, "WorldUI", StringComparison.Ordinal)
+            || !string.Equals(item.Key, "ImmersiveTownServices", StringComparison.Ordinal))
+            return false;
+
+        string[] names = { Loc.Mod("town_mode_npcs"), Loc.Mod("town_mode_windows") };
+        BuildPresetRow(parent, item, caption, hintKey, names,
+                       item.Entry.BoxedValue is bool enabled && enabled ? 0 : 1,
+                       index =>
+                       {
+                           if (index >= 0 && index < names.Length)
+                               item.Entry.BoxedValue = index == 0;
+                       });
         return true;
     }
 
