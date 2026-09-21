@@ -84,11 +84,11 @@ opening alpha; every inert clone registers for late original silhouette updates.
   clearing. Native sessions and selection stay unchanged. Lost fade samples remain a
   transport limitation; see `scripts/town-service-mirror-runtime/RELOCATION.md`.
 - Full mirror/render suite passes, including physical body and held-duplicate mutations.
-- Complete guard: 14 source checks and all 49 local suites pass (419.5 seconds),
+- Complete guard: 14 source checks and all 49 local suites pass (419.4 seconds),
   plus 257025 wire assertions. Exit 1 reports only the expected old-baseline compiled
   difference: 106 changed, 105 added/removed, zero order-only moves. Strict Release zero warnings/errors;
-  bilingual docs and whitespace checks pass. Evidence: `/tmp/town542-final-guard.log`
-  and `.planning/debug/test-runs/20260921-153333-2134e554/results.json`.
+  bilingual docs and whitespace checks pass. Evidence: `/tmp/town542-generation-final-guard.log`
+  and `.planning/debug/test-runs/20260921-160518-7bea6b4e/results.json`.
   Asset-specific final checks follow.
 - Facial mesh assembly, visual review and matching town bundle are still in progress
   at this integration checkpoint. This checkpoint is not a hardware handoff.

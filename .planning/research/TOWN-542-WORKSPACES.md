@@ -15,7 +15,9 @@ Original floor mesh sampling supplies each counter's own standing height.
 
 Membership changes wait for held/returning cards. A 220 ms fade-out/pose-change/
 fade-in includes one completely invisible frame at the new position, avoiding
-visible sweeps through other stands. The original card itself is retained. Native
+visible sweeps through other stands. A new wire presentation generation at that boundary
+prevents remote interpolation across the clearing even when every invisible packet is
+coalesced. The native session and original card are retained. Native
 Selectable availability remains unchanged; only presentation CanvasGroups gate
 input during relocation. Stable rosters do not restart fades.
 
@@ -25,8 +27,11 @@ confirm comfortable reach, composition and simultaneous four-player browsing.
 
 Targeted evidence (Unity 2021.3.5f1):
 
-- Workspace: 1,580 assertions + 8 compiled negative controls,
-  `/tmp/town542-compact-workspace/run-oeh8nhbv`.
+- Workspace: 1,587 assertions + 9 compiled negative controls,
+  `/tmp/town542-generation-workspace/run-koxhkjvc`.
+- Relocation publication: 61 production-path assertions + 4 compiled negative controls,
+  `/tmp/town542-generation-mirror/run-oriul7_r`; intentionally drops every zero-alpha
+  packet. See `scripts/town-service-mirror-runtime/RELOCATION.md` for transport limits.
 - Catalog and original controls: 409 assertions + 19 compiled negative controls,
   `/tmp/town542-compact-catalog/run-a5ihro_7`.
 - Presentation/interaction: 901 assertions and all 31 negative controls against
