@@ -10,8 +10,11 @@ are recorded privately in `.planning/debug/town544-hardware-sources.json`.
 All six screenshots were inspected. They show black eye apertures on all three NPCs,
 a longer/narrower merchant face, a polygonal grey rear-scalp patch, open or ragged
 collar/hood joins during head motion, and priestess clothing covering the lower face.
-No Error/Fatal entries occur in the supplied mod log. Absence of exceptions does not
-establish visual correctness.
+No Error/Fatal entries occur in the supplied mod log. The separate `Player.log`
+contains one stackless `NullReferenceException` during application teardown, after
+`Bootstrap.OnDestroy` / UI-navigation deselection (line 9697). Its owner is not
+established; it is not treated as proof of an NPC failure. Clean mod error counters
+do not establish visual correctness.
 
 ## Source-proven defects
 

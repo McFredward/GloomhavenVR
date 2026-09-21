@@ -11,6 +11,11 @@ engineering evidence, historical decisions and current status; it is not the pla
 | [../CLAUDE.md](../CLAUDE.md) | Technical contracts retained across agent tools |
 | [TEST-PARALLELISM.md](TEST-PARALLELISM.md) | Parallel local/CI execution, coverage and measured timing |
 | [STATE.md](STATE.md) | Current build, validation and outstanding hardware checks |
+| [research/TOWN-SERVICES-544.md](research/TOWN-SERVICES-544.md) | Current NPC hardware corrections, shared occupations and validation status |
+| [research/TOWN-544-EYES.md](research/TOWN-544-EYES.md) | Actual Windows eye-shader defect and compiled/render regression evidence |
+| [research/TOWN-544-BACKDROP-IDENTITY.md](research/TOWN-544-BACKDROP-IDENTITY.md) | Original backdrop identity collision and owner/observer correction |
+| [TOWN-544-ACTIVITY.md](TOWN-544-ACTIVITY.md) | Activity timeline, contact validation and atomic facial/body transport |
+| [research/TOWN-544-ANIMATION-SERVICES.md](research/TOWN-544-ANIMATION-SERVICES.md) | FAL and Meshy API capability/cost evaluation; no paid generation this round |
 | [research/TOWN-SERVICES-543.md](research/TOWN-SERVICES-543.md) | Anatomical face fitting, shared gaze and final asset-review status |
 | [research/TOWN-543-FACES.md](research/TOWN-543-FACES.md) | Final facial assets, authoring provenance, bundle hashes and rendering costs |
 | [research/TOWN-543-VOICE.md](research/TOWN-543-VOICE.md) | Original game voice inventory and unvoiced resident-dialogue evidence |
