@@ -229,18 +229,21 @@ namespace GloomhavenVR
                 Box(furniture, "FrontApron", new Vector3(0, 0.75f, -0.25f), new Vector3(1.24f, 0.20f, 0.075f), wood);
                 foreach (var side in new[] { -1, 1 })
                     Box(furniture, "SideApron" + side, new Vector3(side * 0.63f, 0.75f, 0), new Vector3(0.075f, 0.20f, 0.50f), wood);
+                // The real lantern stands on a supported rear return, clear of rune samples.
+                Box(furniture, "LanternReturn", new Vector3(.68f, .925f, .57f), new Vector3(.36f, .06f, .58f), wood);
+                foreach (var x in new[] { .54f, .82f })
+                    Box(furniture, "LanternReturnLeg" + x, new Vector3(x, .45f, .77f), new Vector3(.085f, .90f, .085f), wood);
             }
             else
             {
                 Box(furniture, "FootPlinth", new Vector3(0, 0.08f, 0), new Vector3(1.42f, 0.16f, 0.66f), wood);
-                for (var i = 0; i < 5; ++i)
-                    Box(furniture, "FrontPanel" + i, new Vector3((i - 2) * 0.255f, 0.48f, -0.22f), new Vector3(0.25f, 0.72f, 0.09f), wood);
+                // Open cabinet bays receive real sliding card registers. Solid decorative
+                // fronts/posts in these volumes would occlude or intersect the moving cards.
                 foreach (var side in new[] { -1, 1 })
                 {
-                    Box(furniture, "SidePanel" + side, new Vector3(side * 0.635f, 0.48f, 0), new Vector3(0.09f, 0.72f, 0.49f), wood);
-                    Box(furniture, "CornerPost" + side, new Vector3(side * 0.66f, 0.47f, -0.24f), new Vector3(0.11f, 0.80f, 0.11f), wood);
-                    Box(furniture, "Inlay" + side, new Vector3(side * 0.66f, 0.50f, -0.300f), new Vector3(0.022f, 0.52f, 0.009f), "Brass");
+                    Box(furniture, "OuterPost" + side, new Vector3(side * 1.245f, .47f, .35f), new Vector3(.075f, .94f, .075f), wood);
                 }
+                Box(furniture, "CentreSupport", new Vector3(0f, .47f, .31f), new Vector3(.18f, .94f, .12f), wood);
             }
             Box(furniture, "TopUnderLip", new Vector3(0, 0.86f, 0), new Vector3(1.46f, 0.07f, 0.69f), wood);
             for (var i = 0; i < 4; ++i)
@@ -249,19 +252,12 @@ namespace GloomhavenVR
             var blocker = furniture.AddComponent<BoxCollider>();
             blocker.center = new Vector3(0, 0.48f, 0);
             blocker.size = new Vector3(1.50f, 0.96f, 0.72f);
-            if (npc == "merchant")
-            {
-                foreach (var z in new[] { 0.0393f, -0.1707f })
-                    Box(furniture, "CardRackLip" + z, new Vector3(0, 0.965f, z), new Vector3(0.60f, 0.020f, 0.012f), wood);
-                foreach (var z in new[] { 0.145f, -0.065f })
-                    Box(furniture, "CardRackSupport" + z, new Vector3(0, 1.015f, z), new Vector3(0.60f, 0.012f, 0.012f), wood);
-            }
             // Native decoration is acquired from the game at runtime. Do not substitute
             // primitive candles, coins or books; physical merchandise needs the clear top.
             if (npc == "priestess")
                 Box(furniture, "AltarRunner", new Vector3(0, 0.963f, 0), new Vector3(0.38f, 0.009f, 0.66f), "AltarCloth");
             if (npc == "enchantress")
-                Box(furniture, "RuneMat", new Vector3(0, 0.965f, 0), new Vector3(0.55f, 0.01f, 0.40f), "AltarCloth");
+                Box(furniture, "RuneMat", new Vector3(0, 0.957f, 0), new Vector3(0.55f, 0.0015f, 0.40f), "Leather");
         }
 
         static void ExpandMerchantCounter(GameObject root)
@@ -270,16 +266,16 @@ namespace GloomhavenVR
             // past its edge. Keep the other service furniture and map table unchanged.
             var counter = root.transform.Find("Counter");
             var lip = counter.Find("TopUnderLip");
-            lip.localScale = new Vector3(1.61f, 0.07f, 0.81f);
+            lip.localScale = new Vector3(2.50f, 0.07f, 0.81f);
             for (var i = 0; i < 4; i++)
             {
                 var plank = counter.Find("SurfacePlank" + i);
                 plank.localPosition = new Vector3(0, 0.925f, (i - 1.5f) * 0.20f);
-                plank.localScale = new Vector3(1.65f, 0.06f, 0.196f);
+                plank.localScale = new Vector3(2.54f, 0.06f, 0.196f);
             }
             var edge = counter.Find("FrontBrassEdge");
             edge.localPosition = new Vector3(0, 0.882f, -0.413f);
-            edge.localScale = new Vector3(1.60f, 0.018f, 0.018f);
+            edge.localScale = new Vector3(2.50f, 0.018f, 0.018f);
 
         }
         public static void RefreshMerchantCounter()
