@@ -1,6 +1,6 @@
 # State — where the project stands
 
-**Updated 2026-09-22 for physical town services; dev 1.0.7 / ModBuild 545 (integration in progress).** The file this replaces had gone 168 builds
+**Updated 2026-09-22 for physical town services; dev 1.0.7 / ModBuild 545 (hardware candidate).** The file this replaces had gone 168 builds
 stale while still saying "read this first"; it is kept as `STATE-ARCHIVE-through-2026-08.md` for
 its round-by-round narrative and for nothing else.
 
@@ -13,14 +13,17 @@ change per build) → this file (where things stand and what is owed) → the bu
 
 ## 1. Position
 
-- **Town hardware corrections / build 545 (final validation in progress):** build 544's eleven
+- **Town hardware corrections / build 545 (hardware candidate):** build 544's eleven
   screenshots supersede earlier asset-quality assumptions. Physical complete merchant stock,
   native coin offerings, physical enhancement choices, original decoration and owner-authored
   multiplayer output are integrated. Final portrait-fitted faces, spherical eyes, closed
   costume joins and anatomical hands ship in the matching 100,501,555-byte Windows town bundle
   (`08ff8501…fe597e`). Actual asset validation passes 599 render assertions / six negatives; actual
   activity/contact validation passes 125088 / eleven negatives. All map environments share
-  one scenery-checked station layout. Full integrated gates, package and CI are being finalized.
+  one scenery-checked station layout. Full local guard passes 14 source / 59 runtime suites and 260312 wire assertions; only
+  the expected historical compiled-baseline differences remain. Strict Release has zero
+  warnings/errors. The full matching ZIP is built and CRC/hash-verified. Dev CI status is
+  checked at handoff; private evidence is `debug/town545-package-verification.json`.
   Close stereo appearance and hardware timing remain unverified; install the complete package
   on all VR peers. See [research/TOWN-SERVICES-545.md](research/TOWN-SERVICES-545.md).
 

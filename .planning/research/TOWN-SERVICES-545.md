@@ -143,8 +143,13 @@ subsequent parallel repeat exposed a nondeterministic existing PanelInk allocati
 the positive rerun passes. Its measurement now has three fixed full-boundary warmups and
 still requires exactly zero bytes, without retries/tolerance. Forty concurrent fresh-process
 runs pass, and an intentional allocation mutation fails with 240000 bytes. The transient's
-cause remains unproven. The final complete guard is running against this frozen fixture. Final
-package and dev CI evidence is retained with the hardware-candidate handoff.
+cause remains unproven. The final complete guard also passes all 14 source / 59 runtime suites and 260312 wire
+assertions against this frozen fixture; its exit 1 reports only the expected historical
+compiled-baseline differences (0 moved, 109 changed, 140 added/removed). Strict Release and
+docs checks exit 0. Final guard evidence is the 20260922-001235 / 001251 test-run reports.
+The complete 185848785-byte development ZIP is CRC-verified and matches the DLL plus both
+bundles; hashes and the exact package source commit are recorded in
+`.planning/debug/town545-package-verification.json`. Dev CI is checked before handoff.
 
 ## Hardware acceptance checklist
 

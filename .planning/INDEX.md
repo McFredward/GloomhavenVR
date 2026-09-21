@@ -1,6 +1,6 @@
 # Planning index
 
-Updated 2026-09-22; dev 1.0.7 / build 545 integration, physical town services and portrait identity. This directory holds internal
+Updated 2026-09-22; dev 1.0.7 / build 545 hardware candidate, physical town services and portrait identity. This directory holds internal
 engineering evidence, historical decisions and current status; it is not the player manual.
 
 ## Current entry points
