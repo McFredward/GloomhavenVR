@@ -31,6 +31,7 @@ namespace GloomhavenVR.WorldUI
             internal bool Current = true;
             internal int ItemId;
             internal Transform CardRoot = null!;
+            internal Transform? BodyRoot;
             internal Transform? RowContent;
             internal Transform RowSource = null!;
             internal Transform? RowCloneOf(Transform source) => source == RowSource ? RowContent : null;
@@ -46,6 +47,7 @@ namespace GloomhavenVR.WorldUI
     }
     internal sealed class TownServiceToken
     {
+        internal bool IsPhysical;
         internal Transform? HeldContent;
         internal Transform Source = null!;
         internal readonly Dictionary<Transform, Transform> HeldMap = new();

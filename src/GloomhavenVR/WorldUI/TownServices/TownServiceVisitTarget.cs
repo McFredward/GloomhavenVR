@@ -45,7 +45,7 @@ internal sealed class TownServiceVisitTarget : IPokeable, IDisposable
     private bool Available => _visible && !StoryComposite.PointOfNoReturn
         && MapRoomDriver.CanVisitTownService(_mode);
     internal void Tick(bool visible)
-    { _visible = visible; _collider.enabled = Available; }
+    { _visible = visible; _collider.enabled = visible; }
 
     private void Visit(VRHand hand)
     {
@@ -56,6 +56,16 @@ internal sealed class TownServiceVisitTarget : IPokeable, IDisposable
     public void OnPokeEnter(VRHand hand) { if (Available) hand.SendHaptic(HapticPreset.HoverTick); }
     public void OnPokeExit(VRHand hand) { }
     public void OnPoke(VRHand hand) => Visit(hand);
+
+    internal static float OccludingDistance(Vector3 origin, Vector3 direction, float maximum)
+    {
+        float nearest = float.PositiveInfinity;
+        var ray = new Ray(origin, direction);
+        foreach (TownServiceVisitTarget target in Targets)
+            if (target._collider.enabled && target._collider.Raycast(ray, out RaycastHit hit, Mathf.Min(maximum, nearest)))
+                nearest = hit.distance;
+        return nearest;
+    }
 
     internal static void TickLaser()
     {
@@ -77,7 +87,7 @@ internal sealed class TownServiceVisitTarget : IPokeable, IDisposable
                 || (hand.RayUgui.HasHit && hand.RayUgui.HitDistance < best)
                 || hand.Ray.SolidOccluderDistance < best - .005f * hand.WorldScale) hit = null;
         }
-        if (hit != _hover && hit != null) hand.SendHaptic(HapticPreset.HoverTick);
+        if (hit != _hover && hit != null && hit.Available) hand.SendHaptic(HapticPreset.HoverTick);
         _hover = hit;
         if (hit == null) return;
         hand.Ray.UiHitOverride = point;

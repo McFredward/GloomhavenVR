@@ -68,9 +68,13 @@ internal static class TownResidentsCodec
         if (!read.Active) return true;
         for (int n = 0; n < 3; n++)
         {
-            bool nonzero = false;
-            for (int k = 0; k < 8; k++) nonzero |= buffer[offset + 12 + k] != 0;
-            if (!nonzero) return false; // The legacy pose reader repairs zero quaternions.
+            int raw = offset + 12;
+            double norm = 0d;
+            for (int k = 0; k < 4; k++)
+            { double q = AvatarSerializer.ReadI16(buffer, ref raw) / 32767d; norm += q * q; }
+            // The legacy pose reader normalizes arbitrary nonzero input. Reject malformed
+            // new-record rotations before that repair can disguise them as valid poses.
+            if (System.Math.Abs(norm - 1d) > .01d) return false;
             var entry = new TownResidentPose();
             AvatarSerializer.ReadPoseShared(buffer, ref offset, out entry.Pose);
             entry.Scale = AvatarSerializer.ReadF32(buffer, ref offset);

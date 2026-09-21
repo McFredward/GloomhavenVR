@@ -516,6 +516,7 @@ public static class MirrorProgram
         for (int i = 0; i < 7; i++) catalog.Entries.Add(new GloomhavenVR.WorldUI.TownServiceCatalog.Entry
         {
             ItemId = 101 + i, Current = i < 6, CardRoot = Go("original-card-" + i).transform,
+            BodyRoot = Go("physical-card-body-" + i).transform,
             RowSource = Go("original-row-" + i).transform, RowContent = Go("inert-price-" + i).transform
         });
         GloomhavenVR.WorldUI.TownServiceSync.Calls.Clear();
@@ -525,6 +526,7 @@ public static class MirrorProgram
             "physical counter does not publish suppressed flat merchant window");
         Check(calls.FindAll(c => c.Key.StartsWith("item.")).Count == 6 && !calls.Exists(c => c.Key == "item.107"),
             "physical counter publishes only six current item cards");
+        Check(calls.FindAll(c => c.Key == "merchant.cardbody").Count == 6, "every original face retains its physical body remotely");
         Check(calls.FindAll(c => c.Key == "merchant.row").Count == 6, "physical counter publishes every native price row");
         foreach (var entry in catalog.Entries)
         {
@@ -542,8 +544,23 @@ public static class MirrorProgram
         catalog.Entries.RemoveRange(2, 5);
         GloomhavenVR.WorldUI.TownServiceSync.Calls.Clear();
         GloomhavenVR.WorldUI.TownServiceSync.Tick(shared, shared);
-        Check(GloomhavenVR.WorldUI.TownServiceSync.ModuleCount == 15 && GloomhavenVR.WorldUI.TownServiceSync.SourceCount == 15,
+        Check(GloomhavenVR.WorldUI.TownServiceSync.ModuleCount == 17 && GloomhavenVR.WorldUI.TownServiceSync.SourceCount == 17,
             "publisher page shrink retires old cards and price modules");
+        var physical = new GloomhavenVR.WorldUI.TownServiceToken { IsPhysical = true,
+            Source = Go("duplicate-physical-source").AddComponent<GloomhavenVR.WorldUI.ItemCardUI>().transform,
+            HeldContent = Go("unwanted-duplicate").transform };
+        physical.Source.GetComponent<GloomhavenVR.WorldUI.ItemCardUI>().CardID = 999;
+        physical.HeldMap[physical.Source] = physical.HeldContent;
+        GloomhavenVR.WorldUI.TownServicePresentation.Samples.Add(physical);
+        catalog.Entries[0].CardRoot.position = new Vector3(.5f, 1.2f, -.8f);
+        catalog.Entries[0].BodyRoot!.position = catalog.Entries[0].CardRoot.position;
+        GloomhavenVR.WorldUI.TownServiceSync.Calls.Clear();
+        GloomhavenVR.WorldUI.TownServiceSync.Tick(shared, shared);
+        Check(!calls.Exists(c => c.Key == "item.999"), "physical original is not duplicated by generic held publication");
+        Check(calls.Exists(c => c.Key == "item.101" && c.Source == catalog.Entries[0].CardRoot)
+            && calls.Exists(c => c.Key == "merchant.cardbody" && c.Source == catalog.Entries[0].BodyRoot),
+            "moving a physical card keeps its original face and body publication");
+        GloomhavenVR.WorldUI.TownServicePresentation.Samples.Remove(physical);
         // Physical detail/hint owners show cloned output while their native parent remains
         // hidden. The dynamic card identity survives only on the original gameplay component.
         var previewSource = Go("original-detail").transform;

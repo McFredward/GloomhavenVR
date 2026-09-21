@@ -80,6 +80,8 @@ def main():
             variants += [
                 ("publisher-old-window", "PublisherTick.cs", 'if (catalog == null)\n            Publish(prefix,', 'if (true)\n            Publish(prefix,', "physical counter does not publish suppressed flat merchant window"),
                 ("publisher-stale-entry", "PublisherTick.cs", "if (!entry.Current) continue;", "// publish stale entry", "physical counter publishes only six current item cards"),
+                ("publisher-cardbody", "PublisherTick.cs", 'Publish("merchant.cardbody", entry.BodyRoot);', '// body omitted', "every original face retains its physical body remotely"),
+                ("publisher-held-duplicate", "PublisherTick.cs", 'if (sample.IsPhysical) continue;', '// physical guard omitted', "physical original is not duplicated by generic held publication"),
                 ("publisher-price-provenance", "PublisherTick.cs", "entry.RowSource.transform, entry.RowCloneOf", "null, null", "counter price clone retains original row provenance map"),
                 ("parent-alpha", "TownServiceMirror.cs", "alpha *= group.alpha;", "alpha *= Mathf.Abs(group.alpha - .37f) < .0001f ? 1f : group.alpha;", "counter opening transports inherited parent alpha"),
                 ("canvas", "TownServiceBinding.cs", "canvas.enabled = n[0] != 0;", "canvas.enabled = true;", "false Canvas remains disabled"),
