@@ -595,8 +595,9 @@ internal static class WorldUIConfig
             "'Kampflog jetzt einblenden' brings the panel up at any time, and the panel's own X " +
             "closes it again. Off = it simply is not there until you ask for it.");
         ImmersiveTownServices = _file.Bind("WorldUI", "ImmersiveTownServices", Defaults.ImmersiveTownServices,
-            "Visit the merchant, temple and enchantress as immersive NPC stations with movable " +
-            "surfaces and grabbable samples. Off restores the original service windows and their " +
+            "Keep the merchant, temple and enchantress in the map environment. Point and click or " +
+            "touch an NPC to visit. Merchant cards can be picked up without buying them. " +
+            "Off restores the original service windows and their " +
             "controls, including an already open visit. Other players retain their chosen presentation.");
         Dialogs = _file.Bind("WorldUI", "Dialogs", Defaults.Dialogs,
             "Confirmation dialogs as world-space modals in front of the HMD (poke yes/no). " +

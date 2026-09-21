@@ -98,6 +98,30 @@
       "weight": 92
     },
     {
+      "id": "town-service-setting",
+      "command": [
+        "python3",
+        "scripts/check-town-service-setting.py"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 12
+    },
+    {
+      "id": "town-residents",
+      "command": [
+        "python3",
+        "scripts/check-town-residents.py"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 20
+    },
+    {
       "id": "reward-pose",
       "command": [
         "bash",

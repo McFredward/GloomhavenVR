@@ -93,7 +93,7 @@ internal static class NetProtocol
     public const byte ExtIdCardBurnCompletion = 75;
     /// <summary>Explicit shared map-window ownership: held mask, then automatic-motion mask.
     /// Each byte uses bits 0/1/2 for story/quest/encounter. Zero explicitly clears ownership;
-    /// absence means the peer supplied no ownership statement. Additive TLV; 79 is next free.</summary>
+    /// absence means the peer supplied no ownership statement. Additive TLV; 80 is next free.</summary>
     public const byte ExtIdSharedWindowMotion = 77;
     public const byte SharedWindowMotionRecordBytes = 2;
     public const byte SharedWindowMotionMapStoryBit = 1;
@@ -518,7 +518,27 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 541;
+    public const ushort ModBuild = 542;
+
+    // ModBuild 542 — persistent immersive town residents and physical merchant inspection.
+    // The supplied build-541 run opens merchant/temple/merchant without fallback. Screenshots
+    // instead identify floating stands, damaged generated faces, fixed studio illumination
+    // and a flat merchant presentation. Place all three residents on the actual room floor,
+    // independently of an open service, while retaining original-window rollback when disabled.
+    // The NPC is the guarded visit target; hide only its replaced map cap, and include its
+    // collider in pointer arbitration before UI/map dispatch. Native locks and confirmation
+    // paths remain authoritative. Decoration reconstructs original game meshes/material data
+    // without native controllers. Original lantern/candle sources light each stand; entrance
+    // waits for cosmetic loading, never for gameplay continuation.
+    // Additive presence79 publishes canonical poses, scales, visibility and animation clocks;
+    // the lowest fresh enabled peer authors all residents, including between visits. Disabled
+    // observers still retain actual remote visits. Wire v3 and all old records stay unchanged;
+    // worst presence6962 +257 margin=7219 allocation, within unchanged7168 assembly capacity.
+    // Merchant cards retain their original ItemCardUI face and physical item-card rim/reverse.
+    // Inspection moves that same card, including remotely, and release returns it to the rack
+    // without selecting or buying. Explicit native selection/purchase remains separate.
+    // Head/stand asset changes require the matching ghvr-town.bundle, not a DLL-only install.
+    // Source/runtime evidence and remaining headset checks: research/TOWN-SERVICES-542.md.
 
     // ModBuild 541 — desktop merchant initialization and discoverable town presentation choice.
     // Build-540 hardware logs show Buy/Sell/All converted, then catalog construction throwing

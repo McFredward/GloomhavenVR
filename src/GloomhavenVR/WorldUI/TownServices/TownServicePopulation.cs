@@ -21,7 +21,8 @@ internal static class TownServicePopulation
     private static GameObject? _frame;
     internal static Transform? Frame => _frame != null ? _frame.transform : null;
     internal static TownResidentsState Published { get; private set; }
-    internal static bool Available(byte service) => Residents.ContainsKey(service);
+    internal static bool Available(byte service) => Residents.TryGetValue(service, out Resident? resident)
+        && resident.Station.IsReady;
     private static float _started, _retryAt;
 
     internal static bool HasRemoteVisitors
@@ -30,7 +31,7 @@ internal static class TownServicePopulation
         {
             float now = Time.unscaledTime;
             foreach (TownServiceSessionInfo remote in TownServiceMirror.RemoteSessions.Values)
-                if (remote.Active && now - remote.ReceivedTime <= 10f) return true;
+                if (remote.Active && now - remote.ReceivedTime <= NetProtocol.StaleTimeoutSeconds) return true;
             return false;
         }
     }
@@ -85,8 +86,10 @@ internal static class TownServicePopulation
             if (!Residents.TryGetValue(service, out Resident? resident))
             { if (used) missing = true; published.Active = false; continue; }
             resident.Station.RefreshEnvironment(!follows);
+            bool ready = resident.Station.IsReady;
+            if (!ready) published.Active = false;
             float greeting = resident.Station.GreetingDuration;
-            if (used && follows)
+            if (used && ready && follows)
             {
                 TownResidentPose pose = authored.At(service - 1);
                 Transform root = resident.Station.Root;
@@ -101,7 +104,7 @@ internal static class TownServicePopulation
             }
             else
             {
-                resident.Visibility = Mathf.MoveTowards(resident.Visibility, used ? 1f : 0f,
+                resident.Visibility = Mathf.MoveTowards(resident.Visibility, used && ready ? 1f : 0f,
                     Time.unscaledDeltaTime / (used ? .22f : .18f));
                 resident.Clip = visiting && visitAge < greeting ? (byte)1 : (byte)0;
                 resident.Age = resident.Clip == 1 ? visitAge : visiting
@@ -109,7 +112,7 @@ internal static class TownServicePopulation
             }
             resident.Station.SetVisibility(resident.Visibility);
             resident.Station.Sample(resident.Clip == 1 ? "Greeting" : "Idle", resident.Age);
-            resident.Visit.Tick(enabled && used && resident.Visibility >= .99f);
+            resident.Visit.Tick(enabled && used && ready && resident.Visibility >= .99f);
             Transform station = resident.Station.Root;
             published.Set(service - 1, new TownResidentPose {
                 Pose = new RigPose { Position = _frame!.transform.InverseTransformPoint(station.position),

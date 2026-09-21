@@ -2347,8 +2347,9 @@ internal static partial class Loc
                 + "\"Kampflog jetzt einblenden\" die Tafel jederzeit hervor, und das X oben rechts an "
                 + "der Tafel schließt sie wieder. Aus = sie ist einfach nicht da, bis du sie holst.",
             ["WorldUI/ImmersiveTownServices"] =
-                "Besuche Händler, Tempel und Verzauberin als immersive NPC-Stationen mit beweglichen "
-                + "Tafeln und greifbaren Mustern. Aus stellt die bisherigen Fenster und ihre Bedienung "
+                "Händler, Tempel und Verzauberin bleiben in der Kartenumgebung sichtbar. Zum Besuchen "
+                + "mit dem Laser anklicken oder den NPC berühren. Händlerkarten lassen sich ohne Kauf "
+                + "in die Hand nehmen. Aus stellt die bisherigen Fenster und ihre Bedienung "
                 + "wieder her, auch bei einem bereits geöffneten Besuch. Andere Spieler behalten ihre "
                 + "gewählte Darstellung.",
             ["WorldUI/Dialogs"] = "Bestätigungsdialoge als Welt-Modale vor dem HMD (Ja/Nein antippen).",
