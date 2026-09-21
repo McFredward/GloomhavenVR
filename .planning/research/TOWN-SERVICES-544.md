@@ -86,3 +86,19 @@ were added for this presentation reconciliation.
 animation presets and Meshy's direct Text to Motion API. No paid generation was used
 for this round; generated body motion remains a possible future input to the existing
 rig/contact system. No generated voices are introduced.
+
+## Hardware acceptance still required
+
+- Install the matching DLL and complete asset package on every VR peer. Check all
+  three residents from the front, side and above, including the head-turn limits.
+  Eyes must retain their lit iris/sclera and neck/costume seams must stay closed.
+- Watch each work loop from outside attention range, then approach and leave during
+  writing, prayer and casting. Hands, tools, clothing and head motion must settle and
+  resume smoothly. Compare both observers during a multiplayer visit.
+- Reconnect a peer while a resident is working or attending a visitor; verify that
+  a returning authority does not restart the loop or snap the displayed pose.
+- Open and complete each native service flow, and toggle immersive services off/on.
+  Cosmetic motion must never block native selection, confirmation or continuation.
+
+These are validation requests, not reported headset outcomes. The working loops are
+authored contact poses on the existing rigs, not newly generated motion-capture clips.
