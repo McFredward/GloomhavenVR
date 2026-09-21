@@ -41,7 +41,7 @@ def shirt_band(bm, body, npc):
         for i in range(n-1):
             face=bm.faces.new((rings[row][i],rings[row+1][i],rings[row+1][i+1],rings[row][i+1]));face.material_index=0;face.smooth=True
             for loop in face.loops:
-                loop[uv].uv=(sample[0]+loop.vert.co.x*.12,sample[1]+(loop.vert.co.z-top)*.10)
+                loop[uv].uv=(sample[0]+loop.vert.co.x*.025,sample[1]+(loop.vert.co.z-top)*.025)
     return n*7
 
 

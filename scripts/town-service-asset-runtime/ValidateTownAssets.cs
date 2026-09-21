@@ -171,7 +171,10 @@ public static class ValidateTownAssets
             }
         }
         foreach (AnimationState clip in root.GetComponentInChildren<Animation>())
-            Check(!AnimationUtility.GetCurveBindings(clip.clip).Any(binding => binding.propertyName.StartsWith("blendShape.")), npc + " body clips cannot overwrite facial state");
+            Check(!AnimationUtility.GetCurveBindings(clip.clip).Any(binding => binding.propertyName.StartsWith("blendShape.") ||
+                binding.path.Split('/').Any(segment => segment.StartsWith("PalmContact.") || segment.StartsWith("PalmCentre.") ||
+                    new[] { "Thumb", "Index", "Middle", "Ring", "Little" }.Any(digit => segment.StartsWith(digit + "Tip.") || segment.StartsWith(digit + "Pad.")))),
+                npc + " body clips cannot overwrite facial state or reparented hand contact frames");
         var metrics = new System.Collections.Generic.List<string>();
         for (int level = 0; level < 3; level++)
         {

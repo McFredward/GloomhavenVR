@@ -37,6 +37,7 @@ control = (root / 'scripts/town-service-asset-runtime/TownNpc539.shader').read_b
 validation_sources = [root / path for path in (
     'scripts/check-town-service-assets.py', 'scripts/town-service-asset-runtime/ValidateTownAssets.cs',
     'scripts/author-town-facial-topology.py', 'scripts/assemble-town-facial-rig.py',
+    'scripts/author-town-npc-hands.py', 'scripts/town_npc_hand_integration.py', 'scripts/town_npc_neck_inset.py',
     'scripts/town_npc_necklines.py', 'scripts/town_npc_garment_weights.py', 'scripts/town_npc_cloth_edges.py',
     'unity/GloomhavenVR.Assets/Assets/Editor/BuildTownServices.cs')]
 inputs = {str(p.relative_to(root)): hashlib.sha256(p.read_bytes()).hexdigest()
