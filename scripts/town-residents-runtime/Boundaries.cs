@@ -1,0 +1,122 @@
+using System;
+using System.Collections.Generic;
+namespace UnityEngine
+{
+    public class Object { public static void Destroy(Object value) { } }
+    public class GameObject : Object { public readonly Transform transform = new(); public GameObject(string name) { } }
+    public class Transform
+    {
+        public Vector3 position, localScale = Vector3.one;
+        public Quaternion rotation = Quaternion.identity;
+        public Vector3 lossyScale => localScale;
+        public void SetPositionAndRotation(Vector3 p, Quaternion q) { position = p; rotation = q; }
+        public Vector3 TransformPoint(Vector3 p) => position + p * localScale.x;
+        public Vector3 InverseTransformPoint(Vector3 p) => (p - position) * (1f / localScale.x);
+    }
+    public struct Vector3
+    {
+        public float x,y,z;
+        public Vector3(float x,float y,float z) { this.x=x;this.y=y;this.z=z; }
+        public static Vector3 zero => new(0,0,0);
+        public static Vector3 one => new(1,1,1);
+        public float sqrMagnitude => x*x+y*y+z*z;
+        public static Vector3 operator +(Vector3 a,Vector3 b)=>new(a.x+b.x,a.y+b.y,a.z+b.z);
+        public static Vector3 operator -(Vector3 a,Vector3 b)=>new(a.x-b.x,a.y-b.y,a.z-b.z);
+        public static Vector3 operator *(Vector3 a,float s)=>new(a.x*s,a.y*s,a.z*s);
+    }
+    public struct Quaternion
+    {
+        public float x,y,z,w;
+        public static Quaternion identity => new(){w=1};
+        public static Quaternion Inverse(Quaternion q) => q;
+        public static Quaternion operator *(Quaternion a,Quaternion b)=>identity;
+    }
+    public static class Time { public static float unscaledTime, unscaledDeltaTime; }
+    public static class Mathf
+    {
+        public static float Min(float a,float b)=>Math.Min(a,b);
+        public static float Max(float a,float b)=>Math.Max(a,b);
+        public static int RoundToInt(float v)=>(int)Math.Round(v);
+        public static float MoveTowards(float v,float target,float delta)=>Math.Abs(v-target)<=delta?target:v+Math.Sign(target-v)*delta;
+    }
+}
+namespace GloomhavenVR.WorldUI.MapRoom
+{
+    using UnityEngine;
+    internal static class MapRoomDriver
+    {
+        internal static bool Active, FrameReady=true;
+        internal static Vector3 Center=new(10,20,30);
+        internal static float Scale=2;
+        internal static bool TryGetParchmentFrame(out Vector3 p,out float scale) { p=Center;scale=Scale;return FrameReady; }
+    }
+}
+namespace GloomhavenVR.WorldUI
+{
+    using UnityEngine;
+    internal static class WorldUIConfig
+    { internal sealed class Entry { internal bool Value; } internal static readonly Entry ImmersiveTownServices=new(); }
+    internal static class TownServicePresentation { internal static bool Active; internal static byte Service; internal static float SessionAge; }
+    internal static class TownServiceSync { internal static int Shutdowns; internal static void Shutdown()=>Shutdowns++; }
+    internal sealed class TownServiceStation
+    {
+        internal static readonly Dictionary<byte,TownServiceStation> Live=new();
+        internal static readonly HashSet<byte> Missing=new();
+        internal static bool Ready=true;
+        internal static int Creates, Disposals;
+        internal static float Floor;
+        internal readonly byte Service;
+        internal readonly Transform Root=new();
+        internal bool IsReady=>Ready;
+        internal float GreetingDuration=>2f;
+        internal float Visibility, Age;
+        internal bool? LastAuthor;
+        internal string Clip="";
+        private TownServiceStation(byte service) { Service=service; }
+        internal static TownServiceStation? Create(byte service,Vector3 center,float scale)
+        {
+            Creates++;
+            if(Missing.Contains(service))return null;
+            var station=new TownServiceStation(service); station.Root.position=center;station.Root.localScale=Vector3.one*scale;Live[service]=station;return station;
+        }
+        internal void RefreshEnvironment(bool author) { LastAuthor=author; if(author)Root.position=new Vector3(Root.position.x,Floor,Root.position.z); }
+        internal void SetVisibility(float value)=>Visibility=value;
+        internal void Sample(string clip,float age) { Clip=clip;Age=age; }
+        internal void Dispose() { Live.Remove(Service);Disposals++; }
+    }
+    internal sealed class TownServiceVisitTarget
+    {
+        internal static readonly Dictionary<byte,TownServiceVisitTarget> Live=new();
+        internal readonly byte Service;
+        internal bool Enabled;
+        internal TownServiceVisitTarget(byte service,Transform root) { Service=service;Live[service]=this; }
+        internal void Tick(bool enabled)=>Enabled=enabled;
+        internal static void TickLaser() { }
+        internal void Dispose()=>Live.Remove(Service);
+    }
+}
+namespace GloomhavenVR.Net.TownServices
+{
+    using UnityEngine;
+    internal sealed class TownServiceSessionInfo
+    { internal bool Active;internal byte Service;internal float ReceivedTime,SessionAge;internal int Peer; }
+    internal static class TownServiceMirror
+    { internal static readonly Dictionary<int,TownServiceSessionInfo> RemoteSessions=new();internal static Func<int,Transform?>? SharedFrameForRemote; }
+}
+namespace GloomhavenVR.Net
+{
+    using UnityEngine;
+    internal static class NetPlayerActors { internal static int Local=10; internal static int LocalPlayerId()=>Local; }
+    internal static class NetProtocol { internal const float StaleTimeoutSeconds=3; internal const byte ExtIdTownResidents=79; }
+    internal struct RigPose { internal Vector3 Position; internal Quaternion Rotation; }
+    internal struct PresenceState { internal bool HasTownResidents; internal TownResidentsState TownResidents; }
+    // Serialization is independently covered by golden wire tests. Any accidental use here fails.
+    internal static class AvatarSerializer
+    {
+        internal static void WritePoseShared(byte[] b,ref int o,in RigPose p)=>throw new Exception("Unexpected codec boundary");
+        internal static void WriteF32(byte[] b,ref int o,float p)=>throw new Exception("Unexpected codec boundary");
+        internal static short ReadI16(byte[] b,ref int o)=>throw new Exception("Unexpected codec boundary");
+        internal static float ReadF32(byte[] b,ref int o)=>throw new Exception("Unexpected codec boundary");
+        internal static void ReadPoseShared(byte[] b,ref int o,out RigPose p)=>throw new Exception("Unexpected codec boundary");
+    }
+}
