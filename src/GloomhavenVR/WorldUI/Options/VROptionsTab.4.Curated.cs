@@ -1314,6 +1314,7 @@ internal static partial class VROptionsTab
                                            Surfaces.CombatLogSurface.SpawnFromOptions),
                         new("WorldUI", "CombatLog", "show_combat_log"),
                         new("WorldUI", "WristHud", "vr_o_wristhud"),
+                        new("WorldUI", "ImmersiveTownServices", "vr_o_immersivetown"),
                         new("WorldUI", "Dialogs", "vr_o_dialogs"),
                         new("WorldUI", "DecisionDock", "vr_o_decisiondock"),
                         new("WorldUI", "LoadingIndicator", "vr_o_loading"),

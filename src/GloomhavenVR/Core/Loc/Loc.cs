@@ -883,6 +883,7 @@ internal static partial class Loc
         // are gone with their dials, because the pair clamped a factor that is 1.0 at the shipped
         // zoom and therefore did nothing a player could see (ActorBars.ZoomFollowMin has the proof).
         ["vr_o_barsize"] = Pair("Health bars: size", "Lebensbalken: Größe"),
+        ["vr_o_immersivetown"] = Pair("Immersive town visits", "Immersive Stadtbesuche"),
         ["vr_o_dialogs"] = Pair("Dialogs in VR", "Dialoge in VR"),
         ["vr_o_decisiondock"] = Pair("Decision dock", "Entscheidungsleiste"),
         // The board family on the "Objekt: Wirkung" colon pattern (2026-08 naming pass, audit
@@ -1229,6 +1230,11 @@ internal static partial class Loc
         // The hint now carries what the two removed bound-dials used to claim to configure: the
         // bars follow the table zoom only inside a fixed band, so this one number is the whole size.
         ["h_vr_o_barsize"] = Pair("How large the bars are in front of your eyes. 1.0 is the size they have always had, and it holds however far you zoom the table.", "Wie groß die Balken vor deinen Augen sind. 1.0 ist die Größe, die sie immer hatten — und sie bleibt es, wie weit du den Tisch auch zoomst."),
+        ["h_vr_o_immersivetown"] = Pair(
+            "Merchant, temple and enchantress with NPCs and grabbable samples. Off restores their "
+            + "original windows immediately. Other players retain their chosen presentation.",
+            "Händler, Tempel und Verzauberin mit NPCs und greifbaren Mustern. Aus stellt sofort die "
+            + "bisherigen Fenster wieder her. Andere Spieler behalten ihre gewählte Darstellung."),
         ["h_vr_o_dialogs"] = Pair("Show the game's dialogs as panels in front of you.", "Zeigt die Dialoge des Spiels als Tafeln vor dir."),
         ["h_vr_o_decisiondock"] = Pair("A bar within reach for choices you have to make.", "Eine Leiste in Reichweite für Entscheidungen."),
         ["h_control_board"] = Pair("Which control board model sits in front of you.", "Welches Kontrollbrett-Modell vor dir steht."),
