@@ -1,6 +1,6 @@
 # State — where the project stands
 
-**Updated 2026-09-21 for NPC hardware corrections; dev 1.0.7 / ModBuild 544 (integration in progress).** The file this replaces had gone 168 builds
+**Updated 2026-09-21 for NPC hardware corrections; dev 1.0.7 / ModBuild 544 (hardware candidate).** The file this replaces had gone 168 builds
 stale while still saying "read this first"; it is kept as `STATE-ARCHIVE-through-2026-08.md` for
 its round-by-round narrative and for nothing else.
 
@@ -14,11 +14,16 @@ change per build) → this file (where things stand and what is owed) → the bu
 ## 1. Position
 
 - **Town hardware corrections / build 544:** the build-543 test exposed black eyes,
-  merchant identity drift and open costume joins. Windows eye shaders omitted practical
-  lights from their fragment programs; head fitting and costume topology also need
-  correction. Shared resident occupations and smooth nearby-player attention are now
-  integrated, including atomic face/body transport. Final asset review and packaging
-  remain in progress; do not install a mixed 543/544 bundle set. See
+  merchant identity drift and open costume joins. Corrected Windows eye lighting, fitted
+  heads, continuous neck/costume joins and shared work/attention animation are integrated.
+  Full local guard passes 14 source / 51 runtime suites and 260310 wire assertions;
+  strict Release has zero warnings/errors. Final assets pass 489 assertions / six visual
+  negative controls, actual prefab faces 9862 assertions / three compiled negatives /
+  nine anatomical corruption controls, and activities 92107 assertions / nine compiled
+  negatives. The source-only CI subset passes 24031 assertions / five negatives.
+  The full package contains the matching 98,325,951-byte Windows town bundle; the main
+  bundle is unchanged. Install the full package on all VR peers. Headset appearance,
+  close-range stereo and hardware frame timing remain unverified. See
   [research/TOWN-SERVICES-544.md](research/TOWN-SERVICES-544.md).
 
 - **Town faces / build 543 (hardware defects confirmed; superseded by 544 work):** anatomical faces, separate eyes, shared

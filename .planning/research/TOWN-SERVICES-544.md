@@ -70,8 +70,8 @@ Runtime integration passes all 14 source suites, all 51 local runtime suites and
 260310 wire assertions. Strict Release has zero warnings/errors; bilingual player
 documentation checks pass. The compiled guard reports the expected old-baseline
 differences (106 changed and 126 added/removed types, no order-only moves), with no
-removed public config/log/patch surfaces. Final asset review and packaging remain in
-progress; this is not hardware acceptance or completed shipping validation.
+removed public config/log/patch surfaces. Final assets and the full local package are
+now verified. This is a hardware candidate, not headset acceptance.
 
 The first contact render caught reversed anatomical left/right targets, unreachable
 writing contact and incorrect palm orientation despite passing mathematical IK tests.
@@ -83,7 +83,17 @@ Subsequent thumb calibration and the source-only CI fixture were checked separat
 the activity suite passes 92107 assertions and nine compiled negative controls against
 the prior real bundle, and the portable phase/network suite passes 24031 assertions
 and five negative controls without game assemblies. These establish runtime behaviour;
-they do not replace the pending validation against the final build-544 assets.
+the same 92107 assertions and nine negatives also pass against the final build-544
+bundle. Its face binding passes 9862 assertions, three compiled negative controls and
+nine rejected anatomical corruption cases. Final asset rendering passes 489 assertions
+and six visual negative controls, including the actual capped map camera projection.
+Both shipping Windows eye shaders retain their four-light bindings in all four compiled
+D3D fragment variants. See [final asset evidence](TOWN-544-FACES.md) for bundle hashes.
+
+The verified local package is `dist/GloomhavenVR-1.0.7.zip` (183638080 bytes). ZIP CRCs,
+DLL and both bundled asset hashes match the built files; the private package manifest
+is `.planning/debug/town544-package-verification.json`. Final packed authoring sources
+and render evidence are archived under `.planning/debug/npc-authoring544/`.
 
 A separate returning-author review found that a network partition could leave the
 old and temporary NPC authorities at different work phases. Recovery now blends
