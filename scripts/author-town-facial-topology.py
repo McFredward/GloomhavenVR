@@ -14,7 +14,7 @@ from mathutils import Vector
 # Source image pixels are measured on the approved 718px frontal references.
 # The vertical samples pin actual anatomical loops to the corresponding portrait
 # features; fitting the photographic eye to an unrelated closed shell is not used.
-RAW_HEIGHT = [5.80,6.16,6.608,6.676,6.75,6.91,7.28415,7.51,8.4913]
+RAW_HEIGHT = [5.80,6.16,6.527,6.615,6.696,6.91,7.28415,7.51,8.4913]
 PROFILES = {
  'merchant': dict(base=1.440, lo=(-.10915041,-.12370944,-.01239385), hi=(.10918231,.12368525,.30980915),
                   bounds=(132,18,592,703), center=362, pixelsPerX=260, depthScale=.100, depthOffset=.056,
@@ -35,16 +35,18 @@ SHAPES = {
 
 
 def parse_obj(path):
-    vertices=[]; faces=[]; groups=[]; group=''
+    vertices=[]; faces=[]; groups=[]; uv=[]; face_uv=[]; group=''
     for line in path.read_text().splitlines():
         fields=line.split()
         if not fields: continue
         if fields[0]=='v': vertices.append(tuple(map(float,fields[1:4])))
+        elif fields[0]=='vt': uv.append(tuple(map(float,fields[1:3])))
         elif fields[0]=='g': group=fields[1]
         elif fields[0]=='f':
             faces.append([int(f.split('/')[0])-1 for f in fields[1:]])
             groups.append(group)
-    return np.asarray(vertices),faces,groups
+            face_uv.append([uv[int(f.split('/')[1])-1] for f in fields[1:]])
+    return np.asarray(vertices),faces,groups,face_uv
 
 
 def portrait_coordinates(raw,profile):
@@ -76,17 +78,53 @@ def material(name,color,rough=.65):
     return m
 
 
-def head_mesh(raw,faces,groups,name,refs):
-    chosen=[f for f,g in zip(faces,groups)if g=='body'and min(raw[f,1])>5.80]
+def head_mesh(raw,faces,groups,face_uv,name,refs):
+    chosen_indices=[i for i,(f,g) in enumerate(zip(faces,groups))if g=='body'and min(raw[f,1])>5.80]
+    chosen=[faces[i]for i in chosen_indices]
     ids=sorted({i for f in chosen for i in f});remap={old:new for new,old in enumerate(ids)}
     mesh=bpy.data.meshes.new('FacialLoops');mesh.from_pydata(fit(raw[ids],name).tolist(),[],[[remap[i]for i in f]for f in chosen]);mesh.update()
     obj=bpy.data.objects.new('Face',mesh);bpy.context.collection.objects.link(obj)
     for p in mesh.polygons:p.use_smooth=True
-    uv=mesh.uv_layers.new(name='FrontReference');pixels=portrait_coordinates(raw[ids],PROFILES[name])
-    for loop in mesh.loops: uv.data[loop.index].uv=(pixels[loop.vertex_index,0]/718,1-pixels[loop.vertex_index,1]/718)
-    m=material('TownFace',(.65,.4,.3));nodes=m.node_tree.nodes;links=m.node_tree.links
-    image=bpy.data.images.load(str(refs/'front.png'));tex=nodes.new('ShaderNodeTexImage');tex.image=image;tex.extension='EXTEND'
-    links.new(tex.outputs['Color'],nodes.get('Principled BSDF').inputs['Base Color']);mesh.materials.append(m)
+    pixels=portrait_coordinates(raw[ids],PROFILES[name]);profile=PROFILES[name]
+    bounds_side={'merchant':(66,12,633,699),'priestess':(111,25,610,700),'enchantress':(34,6,638,717)}[name]
+    bounds_back={'merchant':(116,13,607,679),'priestess':(156,29,561,692),'enchantress':(77,13,649,710)}[name]
+    eye_y={'merchant':260,'priestess':294,'enchantress':313}[name]
+    eye_width={'merchant':43,'priestess':34,'enchantress':35}[name]
+    for label in ('front','left','back'):
+        uv=mesh.uv_layers.new(name='Reference_'+label)
+        for loop in mesh.loops:
+            index=loop.vertex_index;x,y,z=raw[ids[index]];px,py=pixels[index]
+            if label=='front':
+                # Skin loops never sample the photographic pupil/sclera. UVs on
+                # the upper/lower orbital rim stay in the corresponding lid skin
+                # when the original closure target unfolds that skin over the globe.
+                eye_x=profile['center']+(.30775 if x>0 else -.30775)*profile['pixelsPerX']
+                dx=(px-eye_x)/eye_width
+                if abs(dx)<1 and abs(py-eye_y)<22:
+                    curve=math.sqrt(max(0,1-dx*dx));top=eye_y-16*curve;bottom=eye_y+13*curve
+                    if top-2<py<bottom+2:py=(top-3)if y>=7.28415 else(bottom+3)
+            elif label=='left':
+                x0,y0,x1,y1=bounds_side;px=x0+(z+.391)/(1.6807+.391)*(x1-x0)
+                py=y0+(py-profile['bounds'][1])/(profile['bounds'][3]-profile['bounds'][1])*(y1-y0)
+            else:
+                x0,y0,x1,y1=bounds_back;px=x0+(.95-x)/1.90*(x1-x0)
+                py=y0+(py-profile['bounds'][1])/(profile['bounds'][3]-profile['bounds'][1])*(y1-y0)
+            uv.data[loop.index].uv=(px/718,1-py/718)
+    weights=mesh.color_attributes.new(name='ProjectionWeights',type='FLOAT_COLOR',domain='CORNER')
+    for loop in mesh.loops:
+        x,y,z=raw[ids[loop.vertex_index]];angle=abs(math.atan2(x,z-.65))
+        front=max(0,min(1,(math.radians(80)-angle)/math.radians(30)))
+        back=max(0,min(1,(angle-math.radians(115))/math.radians(35)))
+        weights.data[loop.index].color=(front,back,0,1)
+    m=material('TownFace',(.65,.4,.3));nodes=m.node_tree.nodes;links=m.node_tree.links;textures={}
+    for label in ('front','left','back'):
+        image=bpy.data.images.load(str(refs/(label+'.png')));tex=nodes.new('ShaderNodeTexImage');tex.image=image;tex.extension='EXTEND';uv=nodes.new('ShaderNodeUVMap');uv.uv_map='Reference_'+label;links.new(uv.outputs[0],tex.inputs[0]);textures[label]=tex
+    colors=nodes.new('ShaderNodeVertexColor');colors.layer_name='ProjectionWeights';split=nodes.new('ShaderNodeSeparateColor');links.new(colors.outputs[0],split.inputs[0])
+    front=nodes.new('ShaderNodeMixRGB');links.new(split.outputs[0],front.inputs[0]);links.new(textures['left'].outputs[0],front.inputs[1]);links.new(textures['front'].outputs[0],front.inputs[2])
+    back=nodes.new('ShaderNodeMixRGB');links.new(split.outputs[1],back.inputs[0]);links.new(front.outputs[0],back.inputs[1]);links.new(textures['back'].outputs[0],back.inputs[2]);links.new(back.outputs[0],nodes.get('Principled BSDF').inputs['Base Color']);mesh.materials.append(m)
+    mesh.materials.append(material('TownOralCavity',(.045,.008,.012),.50))
+    for p,source in zip(mesh.polygons,chosen_indices):
+        if max(t[1]for t in face_uv[source])<.10 and np.mean(raw[faces[source],1])<7.05:p.material_index=1
     obj.shape_key_add(name='Basis')
     return obj,ids
 
@@ -126,17 +164,23 @@ def render(output,obj):
     for loc,energy,size in [((-1,-2,3),130,1.6),((1,-.5,2),45,1.2)]:
         d=bpy.data.lights.new('Review','AREA');d.energy=energy;d.shape='DISK';d.size=size;l=bpy.data.objects.new('Review',d);scene.collection.objects.link(l);l.location=loc;l.rotation_euler=(Vector((0,0,1.6))-l.location).to_track_quat('-Z','Y').to_euler()
     c=bpy.data.cameras.new('FaceReview');c.type='ORTHO';c.ortho_scale=.37;camera=bpy.data.objects.new('FaceReview',c);scene.collection.objects.link(camera);scene.camera=camera
-    for pose in ('neutral','blink','jaw'):
+    for pose in ('neutral','blink','jaw','clay'):
         for key in obj.data.shape_keys.key_blocks:key.value=0
         if pose=='blink':obj.data.shape_keys.key_blocks['BlinkLeft'].value=1;obj.data.shape_keys.key_blocks['BlinkRight'].value=1
         if pose=='jaw':obj.data.shape_keys.key_blocks['JawOpen'].value=1
+        if pose=='clay':
+            obj.data.materials[0]=material('Clay',(.4,.4,.4),.7)
         for view,pos in [('front',(0,-2,1.6)),('oblique',(.8,-1.7,1.6))]:
             camera.location=pos;camera.rotation_euler=(Vector((0,-.015,1.6))-camera.location).to_track_quat('-Z','Y').to_euler();scene.render.filepath=str(output/(pose+'-'+view+'.png'));bpy.ops.render.render(write_still=True)
 
 
 def main():
     p=argparse.ArgumentParser(description=__doc__);p.add_argument('--data',type=Path,required=True);p.add_argument('--references',type=Path,required=True);p.add_argument('--output',type=Path,required=True);p.add_argument('--name',choices=PROFILES,required=True);p.add_argument('--render',action='store_true');a=p.parse_args(sys.argv[sys.argv.index('--')+1:]);a.output.mkdir(parents=True,exist_ok=True)
-    bpy.ops.wm.read_factory_settings(use_empty=True);raw,faces,groups=parse_obj(a.data/'3dobjs/base.obj');obj,ids=head_mesh(raw,faces,groups,a.name,a.references);add_shapes(obj,ids,raw,a.name,a.data);eye=eyes(raw,a.name,a.data)
+    bpy.ops.wm.read_factory_settings(use_empty=True);raw,faces,groups,face_uv=parse_obj(a.data/'3dobjs/base.obj');
+    for line in gzip.open(a.data/'targets/expression/units/caucasian/mouth-compression.target.gz','rt'):
+        f=line.split()
+        if f and not f[0].startswith('#'):raw[int(f[0])]+=np.array(list(map(float,f[1:4])))*.85
+    obj,ids=head_mesh(raw,faces,groups,face_uv,a.name,a.references);add_shapes(obj,ids,raw,a.name,a.data);eye=eyes(raw,a.name,a.data)
     bpy.context.view_layer.objects.active=obj;obj.select_set(True);mod=obj.modifiers.new('Anatomical loop subdivision','SUBSURF');mod.levels=2;mod.render_levels=2
     bpy.ops.file.pack_all();bpy.ops.wm.save_as_mainfile(filepath=str(a.output/'face-prototype.blend'))
     (a.output/'landmarks.json').write_text(json.dumps({'name':a.name,'eyes':eye,'headVertices':len(ids),'headQuads':len(obj.data.polygons),'shapes':list(SHAPES)},indent=2)+'\n')

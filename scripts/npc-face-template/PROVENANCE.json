@@ -1,0 +1,21 @@
+{
+  "repository": "https://github.com/makehumancommunity/mpfb2",
+  "revision": "b58176c661a9680294eb75f127842cb8378e4974",
+  "license": "CC0-1.0",
+  "scope": "Bundled asset data only; no upstream program code.",
+  "files": {
+    "3dobjs/base.obj": "8e761e6624b8f54536409135d1636da63b32486a90d4897f84e121d144f6fb4c",
+    "mesh_metadata/basemesh_vertex_groups.json": "8cb1417bc55ae5ec8aa99f90734e81ed5fbb556511ff6a2c00e0534b70911444",
+    "targets/expression/units/caucasian/eye-left-closure.target.gz": "ff0d21ceb6da55fe51e03b48a7562a650924fea9bef0c686fcd7aa44d16422ed",
+    "targets/expression/units/caucasian/eye-right-closure.target.gz": "2b7be6bc65845d77e5f83b7bf852090854747e448644997795fa59b6cf76122d",
+    "targets/expression/units/caucasian/mouth-open.target.gz": "dc1260a8728d93a9c52d6b35b5f55ad39ab8096090acd5ccad7f973c26e28818",
+    "targets/expression/units/caucasian/mouth-retraction.target.gz": "082173954f0ee4e40a878ebbd1a69d8037112bc50fc52e624ec677484c821ea7",
+    "targets/expression/units/caucasian/mouth-pursing.target.gz": "9a5968be7a322d01db28490667746e711ca05d679aeaf7273b25f71c89d1bd49",
+    "targets/expression/units/caucasian/mouth-corner-puller.target.gz": "d881bb8feda2637bdaef2c7d7c6bed12f0be5914949e5a2cb9b06a583af412c0",
+    "targets/expression/units/caucasian/mouth-compression.target.gz": "c1dad4335810949a4591794023de4cf502a677c0aa59d40f7e70b99d4aac20c1",
+    "targets/expression/units/caucasian/eyebrows-left-up.target.gz": "e0be77b6846c62ecc54d589ad1430a2b1a145e8ec067507fae181bd7e6a4eb54",
+    "targets/expression/units/caucasian/eyebrows-right-up.target.gz": "66060c97949f4fb414fb1b731379f9ca5bcc000e4184ee1f7d527d94b70b14e8",
+    "targets/expression/units/caucasian/eye-left-opened-up.target.gz": "842d95f9f0af1807ecf45c79a1def61152a253f0696afce41aa76156be697117",
+    "targets/expression/units/caucasian/eye-right-opened-up.target.gz": "56f07d192a9321437cf6bdadc7800331316e3430ae29e9ce24f957639ccc0224"
+  }
+}
