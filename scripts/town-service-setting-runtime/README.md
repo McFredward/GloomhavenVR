@@ -1,7 +1,8 @@
 # Production station placement and lifecycle
 
-The runner compiles the complete production `TownServicePlacement.cs` and
-`TownServiceStation.cs`, not a copied implementation of their methods.
+The runner compiles the complete production `TownServicePlacement.cs`,
+`TownServiceStation.cs`, and `TownServiceGrounding.cs`, not copied implementations
+of their methods.
 
 The geometry cases exercise triangle interpolation, reversed winding, terrain
 height, the actual placed-room plane, unreadable meshes and MR/default fallback.
@@ -21,10 +22,19 @@ The lifecycle cases additionally execute the real station constructor,
 - invalid interaction anchors are rejected before lighting/decor acquisition;
 - owned lighting and decoration are released during disposal.
 
-Seven compiled mutations recreate tracking-floor use, the unsafe outer station
-ring, ignored relief, stale
-handover placement, stale peer light range, late card property-block corruption,
-and resource acquisition before anchor validation. Each must fail at runtime.
+Thirteen compiled mutations recreate tracking-floor use, the unsafe outer station
+ring, ignored relief, stale handover placement, stale peer light range, late card property-block corruption,
+resource acquisition before anchor validation, retained follower grounding after
+handover, lost authored sole correction, root-only terrain sampling, shifted
+furniture tops, redundant steady-frame transform writes and support feet above the
+lowest terrain. Each must fail at runtime.
+
+Grounding cases execute the complete production helper against the real floor
+interpolation method on an inclined mesh at scales 1 and 198, and multiple yaws.
+They verify stable foot samples, actual support footprints, repeated-apply invariance,
+authored actor offset preservation, fixed upper support edges, all three support
+families, furniture-only workspaces and MR/default reset. These geometric assertions
+use an explicit hierarchical Unity transform double; they do not render mesh pixels.
 
 Unity object construction, renderer output, asset loading, lighting and decoration
 are explicit dependency doubles. Pose-write counts and rendering requests are

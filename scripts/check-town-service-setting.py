@@ -11,6 +11,7 @@ ROOT = Path(__file__).resolve().parents[1]
 FILES = {
     "Placement.cs": "src/GloomhavenVR/WorldUI/TownServices/TownServicePlacement.cs",
     "Station.cs": "src/GloomhavenVR/WorldUI/TownServices/TownServiceStation.cs",
+    "Grounding.cs": "src/GloomhavenVR/WorldUI/TownServices/TownServiceGrounding.cs",
 }
 
 def main():
@@ -23,6 +24,12 @@ def main():
     anchor = '        InteractionAnchor = root.transform.Find("InteractionAnchor")\n            ?? throw new InvalidOperationException("Town station has no InteractionAnchor");\n'
     variants = [
         ("baseline", {}),
+        ("unchanged followers dirty geometry every frame", {"Grounding.cs": sources["Grounding.cs"].replace('if (_applied && actorOffset == _actorOffset && furnitureBottom == _furnitureBottom) return;', 'if (_applied && actorOffset == _actorOffset && furnitureBottom == _furnitureBottom && false) return;')}),
+        ("handover leaves old ground geometry", {"Station.cs": sources["Station.cs"].replace('SetGrounding(actorFloor, furnitureBottom);', '// SetGrounding intentionally omitted by negative control')}),
+        ("actor correction overwrites authored soles", {"Grounding.cs": sources["Grounding.cs"].replace('_actorRest + Vector3.up * actorOffset', 'Vector3.up * actorOffset')}),
+        ("grounding samples only station root", {"Grounding.cs": sources["Grounding.cs"].replace('Height(room, new Vector3(-.12f, 0f, .65f))', 'Height(room, Vector3.zero)').replace('Height(room, new Vector3(.12f, 0f, .65f))', 'Height(room, Vector3.zero)')}),
+        ("furniture top moves with its bottom", {"Grounding.cs": sources["Grounding.cs"].replace('position.y = top - scale.y * .5f;', 'position.y = support.Position.y + bottom;')}),
+        ("furniture does not reach lowest foot", {"Grounding.cs": sources["Grounding.cs"].replace('furnitureBottom = float.PositiveInfinity;', 'furnitureBottom = float.NegativeInfinity;').replace('furnitureBottom = Mathf.Min(furnitureBottom, Height(room, point))', 'furnitureBottom = Mathf.Max(furnitureBottom, Height(room, point))')}),
         ("tracking floor regression", {"Placement.cs": sources["Placement.cs"].replace(
             'position.y = room != null ? room.position.y : seat.FloorPosition.y;', 'position.y = seat.FloorPosition.y;').replace(
             'if (room != null) position.y = GroundHeight(room, position);', '')}),

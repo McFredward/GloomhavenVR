@@ -72,6 +72,7 @@ static class Program
         Check(!TownServicePlacement.TryResolve(1, Vector3.zero, 1, out _, out _), "no off-map spawn");
         Console.WriteLine($"Town setting: {assertions} production geometry assertions passed");
         StationLifecycle.Run();
+        GroundingLifecycle.Run();
     }
 }
 
@@ -114,8 +115,9 @@ namespace UnityEngine
     }
     public struct Quaternion
     {
-        float yaw;
+        internal float yaw;
         public static Quaternion identity=>new();
+        public static Quaternion Inverse(Quaternion q)=>new(){yaw=-q.yaw};
         public static Quaternion Euler(float x,float y,float z)=>new(){yaw=y*MathF.PI/180};
         public static Quaternion LookRotation(Vector3 forward,Vector3 up)=>new();
         public static Vector3 operator *(Quaternion q,Vector3 v)=>new(MathF.Cos(q.yaw)*v.x+MathF.Sin(q.yaw)*v.z,v.y,-MathF.Sin(q.yaw)*v.x+MathF.Cos(q.yaw)*v.z);
@@ -124,20 +126,27 @@ namespace UnityEngine
     {
         internal GameObject? Owner;
         public GameObject gameObject=>Owner??=new GameObject(this);
-        public Vector3 position,localScale=Vector3.one;
-        public Vector3 lossyScale=>localScale;
+        private Vector3 _localPosition, _localScale=Vector3.one;
+        public int LocalWrites;
+        public Vector3 localPosition {get=>_localPosition;set{_localPosition=value;LocalWrites++;}}
+        public Vector3 localScale {get=>_localScale;set{_localScale=value;LocalWrites++;}}
+        public Transform? parent;
+        private readonly System.Collections.Generic.Dictionary<string,Transform> children=new();
+        public void Add(string name,Transform child){children[name]=child;child.parent=this;}
+        public Vector3 position {get=>parent!=null?parent.TransformPoint(localPosition):localPosition;set=>localPosition=parent!=null?parent.InverseTransformPoint(value):value;}
+        public Vector3 lossyScale=>parent!=null?new Vector3(parent.lossyScale.x*localScale.x,parent.lossyScale.y*localScale.y,parent.lossyScale.z*localScale.z):localScale;
         public Quaternion rotation;
         public int PoseWrites;
         public bool HasAnchor=true;
         public void SetPositionAndRotation(Vector3 p,Quaternion q) { position=p;rotation=q;PoseWrites++; }
         public Transform? floor;
         public Mesh? mesh;
-        public Transform? Find(string name)=>name=="RoomGeo/Ground"?floor:name=="InteractionAnchor"&&HasAnchor?new Transform():null;
+        public Transform? Find(string name)=>children.TryGetValue(name,out var child)?child:name=="RoomGeo/Ground"?floor:name=="InteractionAnchor"&&HasAnchor?new Transform():null;
         public T? GetComponent<T>() where T:class=>new MeshFilter {sharedMesh=mesh} as T;
-        public Vector3 InverseTransformPoint(Vector3 v)=>v-position;
-        public Vector3 TransformPoint(Vector3 v)=>v+position;
+        public Vector3 InverseTransformPoint(Vector3 v){if(parent!=null)v=parent.InverseTransformPoint(v);v=Quaternion.Inverse(rotation)*(v-localPosition);return new Vector3(v.x/localScale.x,v.y/localScale.y,v.z/localScale.z);}
+        public Vector3 TransformPoint(Vector3 v){v=new Vector3(v.x*localScale.x,v.y*localScale.y,v.z*localScale.z);v=rotation*v+localPosition;return parent!=null?parent.TransformPoint(v):v;}
     }
     public class MeshFilter { public Mesh? sharedMesh; }
     public class Mesh { public bool isReadable=true; public Vector3[] vertices=Array.Empty<Vector3>(); public int[] triangles=Array.Empty<int>(); }
-    public static class Mathf { public static float Abs(float v)=>Math.Abs(v); public static float Max(float a,float b)=>Math.Max(a,b); }
+    public static class Mathf { public static float Abs(float v)=>Math.Abs(v); public static float Max(float a,float b)=>Math.Max(a,b); public static float Min(float a,float b)=>Math.Min(a,b); }
 }

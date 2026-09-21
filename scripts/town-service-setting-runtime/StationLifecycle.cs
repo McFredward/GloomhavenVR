@@ -20,11 +20,16 @@ internal static class StationLifecycle
             Check(station!=null,"station created");
             station!.RefreshEnvironment(false);
             station.Root.position=new Vector3(9,100,7); // Incoming author's deliberately different floor.
+            station.SetGrounding(-.04f,-.06f);
             station.RefreshEnvironment(false);
             Near(station.Root.position.y,100,"follower keeps incoming pose");
+            Near(station.ActorFloorOffset,-.04f,"follower retains author sole correction");
+            Near(station.FurnitureBottom,-.06f,"follower retains author support correction");
             int before=station.Root.PoseWrites;
             station.RefreshEnvironment(true);
             Near(station.Root.position.y,4,"follower to author resolves actual floor with unchanged room/frame");
+            Near(station.ActorFloorOffset,0,"new author replaces old sole correction");
+            Near(station.FurnitureBottom,0,"new author replaces old support correction");
             Check(station.Root.PoseWrites==before+1,"handover performs one placement");
             station.RefreshEnvironment(true);Check(station.Root.PoseWrites==before+1,"steady author does not re-place");
             station.RefreshEnvironment(false);station.Root.position=new Vector3(9,123,7);

@@ -138,8 +138,8 @@ released with the station. Geometry does not intercept lasers or hand targeting.
 ## Validation and integration
 
 - `python3 scripts/check-town-service-setting.py`: 1,581 assertions executing the
-  production geometry, 44 executing the complete production station lifecycle,
-  plus seven compiled runtime negative controls. The prior outer-ring source fails
+  production geometry, 56 executing the complete production station lifecycle,
+  243 grounding assertions, plus thirteen compiled runtime negative controls. The prior outer-ring source fails
   the new baseline at runtime; the candidate offsets pass with the current integrated
   station implementation (including author handover and incoming scale changes).
 - Strict Release build: zero warnings and zero errors.
@@ -152,3 +152,47 @@ released with the station. Geometry does not intercept lasers or hand targeting.
 
 Hardware floor contact, scenery clearance, brightness, native decoration appearance
 and repeated room switches remain unverified until the next headset test.
+
+## Terrain contact refinement
+
+The actual bundled forest floor is not planar at the new station positions. Triangle
+interpolation at the authored actor foot anchors (`x=+/- .12,z=.65`) versus the root
+found -60.1 to +13.2 mm across reading yaws. At the supplied yaw 90 the merchant
+soles would float 56–58 mm and the enchantress 18–19 mm. Counter support regions
+also vary; the cellar comparison is only approximately +/-4 mm. Evidence:
+`/tmp/gvr-town-floor-audit.py` and its output (same environment bundle hash above).
+
+`TownServiceGrounding` caches the original actor offset and original support cube
+geometry once per station/workspace. `Resolve` is author-only and runs after a
+placement change; it reads the actual floor at stable foot anchors and at the
+original support footprint corners. The lower sample supplies contact, allowing
+only the hidden lower portion to embed slightly on uneven ground. `Apply` adds
+the actor delta to the authored sole correction and stretches only existing support
+bottoms, preserving their upper edges, tabletop, width and depth. Zero values restore
+flat-ground geometry. The workbench's authored leg bottom is separately corrected
+from +.02 m to zero in the final prefab. Furniture-only workspaces use the same helper.
+Unchanged follower values skip transform writes after the first apply.
+No new meshes, renderer scans, per-frame terrain scans or owned resources are added.
+
+Actor offset and furniture bottom are published by the elected authority; followers
+apply those values without resolving their preferred environment's floor. The helper
+is covered by 243 production assertions, plus station handover/follower assertions
+and compiled mutations for each previously unsafe operation. Headset contact remains
+a hardware outcome to check.
+
+## Alpha-aware canopy follow-up
+
+The first conservative canopy warning included transparent corners of large twig
+cards. The actual `S_Foliage` shader is two-sided (`Cull Off`) with `_Cutoff=.42`.
+Sampling each nearby source triangle on an 80-step barycentric grid and sampling its
+original `fir_twig_alb.png` alpha moves the minimum visible foliage in the actor radial
+band from approximately 1.39 m to 1.702 m. The remaining samples occupy a narrow
+region around forest real `(x,z)=(2.38,-1.08)`; a reserved box hit is still not proof
+that a final animated face or hood intersects visible needles.
+
+Unity 2021.3.5/GL renders of the real source environment and the current source NPC
+at twelve reading yaws are in `/tmp/town542-clearing-render/evidence/`. Front and
+side views do not show the originally alleged broad head intersection. This render
+uses pre-final facial assets as a station proxy, and Linux shader compilation; final
+baked actor geometry still needs comparison. No canopy or other environment is
+modified merely to remove transparent triangle corners.
