@@ -13,316 +13,117 @@ using UnityEngine.UI;
 
 namespace GloomhavenVR.WorldUI;
 
-/// <summary>A bounded rack of original item cards, backed by the native merchant's filtered
-/// rows. The original controller retains prices, permissions, selection and confirmation.
-/// An owned wrapper suppresses the old list; original controls move to reversible counter
-/// surfaces. No native controller or payment state is replaced.</summary>
+/// <summary>Complete native merchant stock and owned inventory in physical filing racks.
+/// No page/filter controls and no hidden count cap. Only an explicit eligible zone drop
+/// enters the original native transaction; picking up a card is always inspection.</summary>
 internal sealed class TownServiceCatalog : IDisposable
 {
-    internal const int PageSize = 6;
     private readonly UIShopItemInventory _inventory;
     private readonly Transform _anchor, _mat;
     private readonly Func<object?> _contextIdentity;
     private readonly Func<bool> _alive;
-    private readonly ScrollRect _scroll;
-    private readonly CanvasGroup _listGate;
-    private readonly Transform _listHome;
-    private readonly int _listSibling;
-    private readonly GameObject _listWrapper;
     private readonly GameObject _root;
     private readonly CanvasGroup _opening;
-    private readonly Canvas _navigation = null!;
-    private TownServiceCatalogPreview? _preview;
-    internal Transform? PreviewSource => _preview?.Source;
-    internal Transform? PreviewContent => _preview?.Content;
-    internal Transform? PreviewCloneOf(Transform source) => _preview?.CloneOf(source);
-    internal bool OwnsHintSource => _preview?.OwnsHintSource == true;
-    internal Transform? HintSource => _preview?.HintSource;
-    internal Transform? HintContent => _preview?.HintContent;
-    internal Transform? HintCloneOf(Transform source) => _preview?.HintCloneOf(source);
-    private readonly TMP_Text _pageLabel;
-    private readonly Button _previous, _next;
-    private readonly List<UIShopItemSlot> _rows = new();
+    private readonly TownServiceMerchantRows _backend;
     private readonly List<Entry> _entries = new();
     private readonly List<TownServiceToken> _samples = new();
     private readonly List<Control> _controls = new();
+    private readonly CanvasGroup _nativeGate;
+    private readonly GameObject _nativeWrapper;
+    private readonly Transform _nativeHome;
+    private readonly int _nativeSibling;
+    private float _nextCensus;
+    private bool _disposed, _allowInput;
+    private object? _context;
+    internal IReadOnlyList<Entry> Entries => _entries;
+    internal IReadOnlyList<TownServiceToken> Samples => _samples;
     internal IReadOnlyList<Control> Controls => _controls;
+    internal Transform Root => _root.transform;
+    // Legacy transport call sites are retained until the integration switches to zone roots.
+    internal Transform NavigationRoot => Root;
+    internal Transform? PreviewSource => null;
+    internal Transform? PreviewContent => null;
+    internal Transform? PreviewCloneOf(Transform source) => null;
+    internal bool OwnsHintSource => false;
+    internal Transform? HintSource => null;
+    internal Transform? HintContent => null;
+    internal Transform? HintCloneOf(Transform source) => null;
+    internal bool CanRelocate { get { foreach (var sample in _samples) if (sample.IsMoving) return false; return true; } }
     internal readonly struct Control
     {
         internal readonly string Key;
         internal readonly TownServiceSurface Surface;
         internal Control(string key, TownServiceSurface surface) { Key = key; Surface = surface; }
     }
-    private int _page;
-    private object? _context;
-    private float _nextCensus, _nextScrollPage, _lastScroll = 1f;
-    private bool _disposed;
-    private bool _allowInput = true;
-    internal bool CanRelocate
-    {
-        get { foreach (TownServiceToken sample in _samples) if (sample.IsMoving) return false; return true; }
-    }
-    internal IReadOnlyList<Entry> Entries => _entries;
-    internal IReadOnlyList<TownServiceToken> Samples => _samples;
-    internal Transform NavigationRoot => _navigation.transform;
-    internal Transform Root => _root.transform;
-    internal int Page => _page;
-    internal int PageCount => Mathf.Max(1, (_rows.Count + PageSize - 1) / PageSize);
-
     internal TownServiceCatalog(UIShopItemInventory inventory, Transform anchor,
         Func<object?> contextIdentity, Func<bool> alive, Transform mat)
     {
-        _inventory = inventory; _anchor = anchor; _mat = mat;
-        _contextIdentity = contextIdentity; _alive = alive;
-        _scroll = inventory.scroll;
-        if (_scroll == null || _scroll.viewport == null)
-            throw new InvalidOperationException("The original merchant scroll viewport is missing");
-        // Unity permits only one CanvasGroup per object. Put our gate on an owned wrapper,
-        // never overwrite a native group's live fade/permission fields. The wrapper has exactly
-        // its parent's rect, so the unchanged viewport anchors still resolve to the same frame.
-        _listHome = _scroll.viewport.parent; _listSibling = _scroll.viewport.GetSiblingIndex();
-        _listWrapper = new GameObject("GloomhavenVR.Catalog.HiddenList", typeof(RectTransform));
-        var wrapper = (RectTransform)_listWrapper.transform;
-        wrapper.SetParent(_listHome, false); wrapper.SetSiblingIndex(_listSibling);
-        wrapper.anchorMin = Vector2.zero; wrapper.anchorMax = Vector2.one;
-        wrapper.offsetMin = wrapper.offsetMax = Vector2.zero;
-        if (_listHome is RectTransform homeRect) wrapper.pivot = homeRect.pivot;
-        _scroll.viewport.SetParent(wrapper, false);
-        _listGate = _listWrapper.AddComponent<CanvasGroup>();
-        _listGate.alpha = 0f; _listGate.blocksRaycasts = false;
-        _root = new GameObject("GloomhavenVR.TownService.Catalog");
-        Root.SetParent(anchor, false);
-        _opening = _root.AddComponent<CanvasGroup>(); _opening.alpha = 0f;
-        try
-        {
-            TMP_Text? font = inventory.GetComponentInChildren<TMP_Text>(true);
-            GameObject navigation = CreateNavigationTemplate(font);
-            navigation.transform.SetParent(Root, false);
-            navigation.SetActive(true);
-            _navigation = navigation.GetComponent<Canvas>();
-            _pageLabel = navigation.transform.Find("Page").GetComponent<TMP_Text>();
-            _previous = navigation.transform.Find("Previous").GetComponent<Button>();
-            _next = navigation.transform.Find("Next").GetComponent<Button>();
-            _previous.onClick.AddListener(() => TurnPage(-1));
-            _next.onClick.AddListener(() => TurnPage(1));
-            UguiPokeSurfaces.Register(_navigation);
-            AddControl("merchant.buy", inventory.buyTab.transform, -.08f, .33f, .14f);
-            AddControl("merchant.sell", inventory.sellTab.transform, .08f, .33f, .14f);
-            AddControl("merchant.filter.all", inventory.allFilter.transform, -.24f, .265f, .055f);
-            // The desktop merchant omits the gamepad-only Owned filter. Build 540
-            // dereferenced it after converting Buy/Sell/All, then rolled the whole service
-            // back to a window. Match the original prefab: move this control only when it
-            // exists; never fabricate a filter or change native inventory permissions.
-            if (inventory._ownedFilter != null)
-                AddControl("merchant.filter.owned", inventory._ownedFilter.transform, -.16f, .265f, .055f);
-            AddControl("merchant.filter.head", inventory.headFilter.transform, -.08f, .265f, .055f);
-            AddControl("merchant.filter.body", inventory.bodyFilter.transform, 0f, .265f, .055f);
-            AddControl("merchant.filter.hands", inventory.handsFilter.transform, .08f, .265f, .055f);
-            AddControl("merchant.filter.legs", inventory.legsFilter.transform, .16f, .265f, .055f);
-            AddControl("merchant.filter.small", inventory.smallItemsFilter.transform, .24f, .265f, .055f);
-            if (inventory.itemTooltip != null)
-                _preview = new TownServiceCatalogPreview(inventory.itemTooltip, Root, PreviewIsCurrent);
-        }
-        catch { Dispose(); throw; }
+        _inventory=inventory; _anchor=anchor; _mat=mat; _contextIdentity=contextIdentity; _alive=alive;
+        _nativeHome=inventory.transform.parent; _nativeSibling=inventory.transform.GetSiblingIndex();
+        _nativeWrapper=new GameObject("GloomhavenVR.Merchant.HiddenBackend",typeof(RectTransform),typeof(CanvasGroup));
+        var rect=(RectTransform)_nativeWrapper.transform; rect.SetParent(_nativeHome,false);
+        rect.anchorMin=Vector2.zero;rect.anchorMax=Vector2.one;rect.offsetMin=rect.offsetMax=Vector2.zero;
+        inventory.transform.SetParent(rect,false);
+        _nativeGate=_nativeWrapper.GetComponent<CanvasGroup>();_nativeGate.alpha=0f;_nativeGate.blocksRaycasts=false;
+        _root=new GameObject("GloomhavenVR.TownService.Catalog");Root.SetParent(anchor,false);
+        _opening=_root.AddComponent<CanvasGroup>();_opening.alpha=0f;
+        _backend=new TownServiceMerchantRows(inventory);
     }
-
-    private void AddControl(string key, Transform source, float x, float z, float width)
+    internal void SetVisibility(float value,float relocation=1f,bool allowInput=true)
     {
-        if (source is not RectTransform rect) throw new InvalidOperationException("Native merchant control is not a RectTransform: " + key);
-        _controls.Add(new Control(key, new TownServiceSurface((ushort)(20 + _controls.Count), rect,
-            new Vector3(x, .008f, z), width, _anchor)));
+        _allowInput=allowInput&&relocation>=1f;
+        _opening.alpha=Mathf.Clamp01(value)*Mathf.Clamp01(relocation);
+        _opening.interactable=_allowInput;_opening.blocksRaycasts=false;
     }
-
-    private bool PreviewIsCurrent()
-    {
-        if (_disposed || !_alive() || _inventory.itemTooltip == null) return false;
-        Transform source = _inventory.itemTooltip.transform;
-        foreach (Entry entry in _entries)
-            if (entry.Current && source.IsChildOf(entry.RowSource.transform)
-                && _inventory.itemTooltip.m_ItemCardUI != null
-                && _inventory.itemTooltip.m_ItemCardUI.item != null
-                && _inventory.itemTooltip.m_ItemCardUI.item.ID == entry.Item.ID) return true;
-        return false;
-    }
-
-    internal void SetVisibility(float value, float relocation = 1f, bool allowInput = true)
-    {
-        _allowInput = allowInput && relocation >= 1f;
-        float opacity = Mathf.Clamp01(value) * Mathf.Clamp01(relocation);
-        _opening.alpha = opacity;
-        _opening.interactable = _opening.blocksRaycasts = _allowInput;
-        foreach (Control control in _controls) control.Surface.SetVisibility(opacity, _allowInput);
-    }
-
-    internal void LateTick()
-    {
-        foreach (Control control in _controls) control.Surface.Tick(Vector3.zero, Quaternion.identity, 1f);
-        _preview?.Tick();
-    }
-
-    /// <summary>Identical original visual source for observers, without service controllers or
-    /// callbacks. Symbols and a numeric fraction need no language-dependent replacement text.</summary>
-    internal static GameObject CreateNavigationTemplate(TMP_Text? font)
-    {
-        var go = new GameObject("CatalogNavigation", typeof(RectTransform), typeof(Canvas), typeof(GraphicRaycaster));
-        go.SetActive(false);
-        Canvas canvas = go.GetComponent<Canvas>();
-        canvas.renderMode = RenderMode.WorldSpace;
-        RectTransform rect = (RectTransform)go.transform;
-        rect.sizeDelta = new Vector2(600f, 56f);
-        rect.localScale = Vector3.one * .001f;
-        rect.localPosition = new Vector3(0f, .004f, -.235f);
-        rect.localRotation = Quaternion.Euler(90f, 0f, 0f);
-        AddLabel(rect, "Previous", "‹", -235f, true, font);
-        AddLabel(rect, "Page", "1 / 1", 0f, false, font);
-        AddLabel(rect, "Next", "›", 235f, true, font);
-        VRLayers.Apply(go);
-        return go;
-    }
-
-    private static void AddLabel(RectTransform parent, string name, string text, float x, bool button, TMP_Text? native)
-    {
-        var go = new GameObject(name, typeof(RectTransform));
-        var rect = (RectTransform)go.transform;
-        rect.SetParent(parent, false);
-        rect.sizeDelta = new Vector2(button ? 110f : 240f, 56f);
-        rect.anchoredPosition = new Vector2(x, 0f);
-        var label = go.AddComponent<TextMeshProUGUI>();
-        if (native != null) { label.font = native.font; label.fontSharedMaterial = native.fontSharedMaterial; }
-        label.text = text; label.fontSize = button ? 48f : 28f;
-        label.alignment = TextAlignmentOptions.Center;
-        label.color = new Color(.95f, .89f, .69f, 1f);
-        label.raycastTarget = button;
-        if (button)
-        {
-            Button control = go.AddComponent<Button>(); control.targetGraphic = label;
-            ColorBlock colors = control.colors;
-            colors.normalColor = Color.white; colors.highlightedColor = new Color(1f, .82f, .25f);
-            colors.pressedColor = new Color(.8f, .6f, .12f); colors.disabledColor = new Color(.4f, .4f, .4f);
-            control.colors = colors;
-        }
-    }
-
+    internal void LateTick() { }
     internal void Tick(float scale)
     {
-        if (_disposed) return;
-        if (!_alive() || _inventory == null || _anchor == null) { Dispose(); return; }
-        _navigation.worldCamera = VRRigDriver.HeadCamera != null ? VRRigDriver.HeadCamera : Camera.main;
-        if (Time.unscaledTime >= _nextCensus)
-        {
-            _nextCensus = Time.unscaledTime + .25f;
-            RefreshRows();
-        }
-        float scroll = _scroll.verticalNormalizedPosition;
-        if (!float.IsNaN(scroll) && Mathf.Abs(scroll - _lastScroll) > .001f)
-        {
-            _lastScroll = scroll;
-            SetPage(Mathf.RoundToInt((1f - Mathf.Clamp01(scroll)) * (PageCount - 1)), false);
-        }
-        foreach (Entry entry in _entries) entry.Tick(scale);
+        if(_disposed)return;
+        if(!_alive()||_inventory==null||_anchor==null){Dispose();return;}
+        if(Time.unscaledTime>=_nextCensus){_nextCensus=Time.unscaledTime+.5f;RefreshRows();}
+        foreach(var entry in _entries)entry.Tick(scale);
     }
-
     private void RefreshRows()
     {
-        var rows = new List<UIShopItemSlot>();
-        foreach (UIShopItemSlot row in _inventory.slotPool)
-            if (row != null && row.Item != null && row.Item.ID != 0 && row.gameObject.activeInHierarchy) rows.Add(row);
-        rows.Sort((a, b) => CompareOrder(a.transform, b.transform));
-        object? context = _contextIdentity();
-        bool changed = !ReferenceEquals(context, _context) || rows.Count != _rows.Count;
-        for (int i = 0; !changed && i < rows.Count; i++) changed = !ReferenceEquals(rows[i], _rows[i]);
-        _rows.Clear(); _rows.AddRange(rows); _context = context;
-        if (changed) SetPage(0, true, true);
-        else if (_entries.Count == 0 && _rows.Count != 0) Rebuild();
-        else
+        object? context=_contextIdentity();
+        bool changed=_backend.Refresh();
+        if(changed||!ReferenceEquals(context,_context))
         {
-            // Native pooled rows may be rebound without changing their GameObject or order.
-            foreach (Entry entry in _entries)
-                if (!ReferenceEquals(entry.Item, entry.RowSource.Item)) { Rebuild(); break; }
-        }
-    }
-
-    private static int CompareOrder(Transform a, Transform b)
-    {
-        if (a == b) return 0;
-        int ad = 0, bd = 0;
-        for (Transform? t = a; t != null; t = t.parent) ad++;
-        for (Transform? t = b; t != null; t = t.parent) bd++;
-        while (ad > bd && a.parent != null) { a = a.parent; ad--; }
-        while (bd > ad && b.parent != null) { b = b.parent; bd--; }
-        while (a.parent != b.parent && a.parent != null && b.parent != null) { a = a.parent; b = b.parent; }
-        return a.GetSiblingIndex().CompareTo(b.GetSiblingIndex());
-    }
-
-    private void ScrollPage(int direction)
-    {
-        // Thumbstick scroll is emitted each frame. Keep a single owner-level repeat timer;
-        // rebuilding a page must not reset it and race through every card borrow in one gesture.
-        if (Time.unscaledTime < _nextScrollPage) return;
-        _nextScrollPage = Time.unscaledTime + .20f;
-        TurnPage(direction);
-    }
-
-    internal void TurnPage(int direction)
-    {
-        if (!_disposed && _alive() && _allowInput) SetPage(_page + direction, true);
-    }
-
-    private void SetPage(int page, bool setScroll, bool force = false)
-    {
-        page = Mathf.Clamp(page, 0, PageCount - 1);
-        bool changed = page != _page; _page = page;
-        if (setScroll)
-        {
-            _scroll.StopMovement();
-            _lastScroll = PageCount > 1 ? 1f - (float)_page / (PageCount - 1) : 1f;
-            _scroll.verticalNormalizedPosition = _lastScroll;
-        }
-        if (changed || force) Rebuild();
-    }
-
-    private void Rebuild()
-    {
-        ClearEntries();
-        try
-        {
-            for (int i = _page * PageSize; i < Mathf.Min(_rows.Count, (_page + 1) * PageSize); i++)
+            ClearEntries();_context=context;
+            int buy=0,sell=0;
+            foreach(var row in _backend.Rows)
             {
-                var entry = new Entry(this, _rows[i], i % PageSize);
-                _entries.Add(entry); _samples.Add(entry.Sample);
+                var entry=new Entry(this,row.Source,row.Selling?sell++:buy++,row.Selling);
+                _entries.Add(entry);_samples.Add(entry.Sample);
             }
-            _pageLabel.text = (_page + 1) + " / " + PageCount;
-            _previous.interactable = _page > 0; _next.interactable = _page + 1 < PageCount;
         }
-        catch { ClearEntries(); throw; }
     }
-
-    private void ClearEntries()
+    internal static Vector3 RackPosition(int ordinal,bool selling)
     {
-        _preview?.Clear();
-        foreach (Entry entry in _entries) entry.Dispose();
-        _entries.Clear(); _samples.Clear();
+        // Twelve exposed card edges per slanted lane. New lanes extend outwards rather
+        // than replacing existing entries or stranding stock behind a page control.
+        int lane=ordinal/12,depth=ordinal%12;
+        return new Vector3((selling?1f:-1f)*(.30f+lane*.205f),depth*.022f,.10f+depth*.045f);
     }
-
+    internal bool Eligible(Entry entry)=>_allowInput&&entry.Current
+        &&TownServiceMerchantTransaction.Eligible(_inventory,entry.Item,entry.Selling);
+    internal bool Drop(Entry entry)
+    {
+        if(!Eligible(entry))return false;
+        object? context=_contextIdentity();
+        return TownServiceMerchantTransaction.Commit(_inventory,entry.Item,entry.Selling,
+            ()=>entry.Current&&_allowInput&&ReferenceEquals(context,_contextIdentity()));
+    }
+    private void ClearEntries(){foreach(var entry in _entries)entry.Dispose();_entries.Clear();_samples.Clear();}
     public void Dispose()
     {
-        if (_disposed) return;
-        _disposed = true;
-        _preview?.Dispose(); _preview = null;
-        ClearEntries();
-        for (int i = _controls.Count - 1; i >= 0; i--) _controls[i].Surface.Dispose();
-        _controls.Clear();
-        if (_navigation != null) UguiPokeSurfaces.Unregister(_navigation);
-        if (_scroll != null && _scroll.viewport != null && _listWrapper != null && _scroll.viewport.parent == _listWrapper.transform)
-        {
-            _scroll.viewport.SetParent(_listHome, false);
-            _scroll.viewport.SetSiblingIndex(_listSibling);
-        }
-        // Detach before deferred destruction: same-frame reopening never finds an old gate.
-        if (_listWrapper != null)
-        { _listWrapper.SetActive(false); UnityEngine.Object.Destroy(_listWrapper); }
-        UnityEngine.Object.Destroy(_root);
+        if(_disposed)return;_disposed=true;ClearEntries();_backend.Dispose();
+        if(_inventory!=null&&_inventory.transform.parent==_nativeWrapper.transform)
+        {_inventory.transform.SetParent(_nativeHome,false);_inventory.transform.SetSiblingIndex(_nativeSibling);}
+        _nativeWrapper.SetActive(false);UnityEngine.Object.Destroy(_nativeWrapper);UnityEngine.Object.Destroy(_root);
     }
+    // The old template address may exist in a previous snapshot. New publishers omit it.
+    internal static GameObject CreateNavigationTemplate(TMP_Text? font)=>new GameObject("RetiredCatalogNavigation");
 
     internal sealed class Entry : IDisposable
     {
@@ -339,9 +140,11 @@ internal sealed class TownServiceCatalog : IDisposable
         private readonly List<KeyValuePair<GraphicRaycaster, bool>> _raycasters = new();
         private GameObject? _card;
         private float _nextRefresh;
-        private bool _disposed, _hovered;
+        private bool _disposed;
         internal readonly UIShopItemSlot RowSource;
         internal readonly CItem Item;
+        internal readonly bool Selling;
+        internal readonly int Ordinal;
         internal readonly TownServiceToken Sample;
         internal ItemCardUI CardUI { get; private set; } = null!;
         internal Transform CardRoot => CardUI.transform;
@@ -351,16 +154,16 @@ internal sealed class TownServiceCatalog : IDisposable
         internal bool Current => !_disposed && _owner._alive() && RowSource != null
             && RowSource.gameObject.activeInHierarchy && ReferenceEquals(Item, RowSource.Item);
 
-        internal Entry(TownServiceCatalog owner, UIShopItemSlot source, int position)
+        internal Entry(TownServiceCatalog owner, UIShopItemSlot source, int position, bool selling)
         {
-            _owner = owner; RowSource = source; Item = source.Item;
+            _owner = owner; RowSource = source; Item = source.Item; Selling = selling; Ordinal = position;
             _root = new GameObject("CatalogItem");
             _root.transform.SetParent(owner.Root, false);
-            _root.transform.localPosition = new Vector3((position % 3 - 1) * .205f, 0f, position < 3 ? .105f : -.105f);
+            _root.transform.localPosition = RackPosition(position, selling);
             _display = new GameObject("PhysicalCard").transform;
             _display.SetParent(_root.transform, false);
             _display.localRotation = Quaternion.Euler(65f, 0f, 0f);
-            _presentedAt = Time.unscaledTime + position * .025f;
+            _presentedAt = Time.unscaledTime + Mathf.Min(position, 12) * .015f;
             var face = new GameObject("Face", typeof(RectTransform), typeof(Canvas), typeof(GraphicRaycaster));
             face.transform.SetParent(_display, false);
             _canvas = face.GetComponent<Canvas>(); _canvas.renderMode = RenderMode.WorldSpace;
@@ -399,42 +202,21 @@ internal sealed class TownServiceCatalog : IDisposable
                 rect.anchoredPosition3D = Vector3.zero; rect.localRotation = Quaternion.identity; rect.localScale = Vector3.one;
                 foreach (GraphicRaycaster raycaster in _card.GetComponentsInChildren<GraphicRaycaster>(true))
                 { _raycasters.Add(new KeyValuePair<GraphicRaycaster, bool>(raycaster, raycaster.enabled)); raycaster.enabled = false; }
-                // A separate original-card face forwards input to the native row. Its own
-                // presentation controller never gains service selection/payment callbacks.
-                var pointer = face.AddComponent<TownServiceCatalogPointer>();
-                pointer.Click = Click; pointer.Hover = Hover; pointer.Scroll = owner.ScrollPage;
+                // A card has one interaction owner: its physical collider. A transparent
+                // clickable uGUI overlay used to veto near grabs and could never far-grab.
                 foreach (Graphic graphic in _card.GetComponentsInChildren<Graphic>(true))
                 { _raycastTargets.Add(new KeyValuePair<Graphic, bool>(graphic, graphic.raycastTarget)); graphic.raycastTarget = false; }
-                var hit = new GameObject("Input", typeof(RectTransform), typeof(Image));
-                var hitRect = (RectTransform)hit.transform; hitRect.SetParent(face.transform, false);
-                hitRect.sizeDelta = size; hitRect.localPosition = new Vector3(0f, 0f, -.001f);
-                hit.GetComponent<Image>().color = Color.clear;
-                UguiPokeSurfaces.Register(_canvas);
+                face.GetComponent<GraphicRaycaster>().enabled=false;
                 Sample = new TownServiceToken(rect, source.Selectable, () => source.Item,
-                    owner._contextIdentity, () => Current, owner._mat, _display);
+                    owner._contextIdentity, () => Current, owner._mat, _display,
+                    drop: () => owner.Drop(this), eligible: () => owner.Eligible(this),
+                    zoneCenter: new Vector3(selling ? .27f : -.27f, .015f, -.20f));
                 _row.Refresh(source.transform);
                 TownServiceNativeAssets.PrepareItem(CardUI);
             }
             catch { Dispose(); throw; }
         }
 
-        private void Click()
-        {
-            if (!_owner._allowInput || Sample.IsMoving || !Current || !RowSource.Selectable.IsActive() || !RowSource.Selectable.IsInteractable() || EventSystem.current == null) return;
-            var pointer = new PointerEventData(EventSystem.current) { button = PointerEventData.InputButton.Left };
-            ExecuteEvents.Execute(RowSource.Selectable.gameObject, pointer, ExecuteEvents.pointerClickHandler);
-        }
-        private void Hover(bool enter)
-        {
-            if (_hovered == enter || RowSource == null || EventSystem.current == null || (enter && (!Current || !_owner._allowInput))) return;
-            // A pooled row/context change can invalidate Current before disposal. Retire the
-            // pointer enter we actually sent anyway; otherwise its native detail window remains
-            // highlighted/open for the old owner. This is only hover exit, never selection.
-            _hovered = enter;
-            var pointer = new PointerEventData(EventSystem.current);
-            if (enter) ExecuteEvents.Execute(RowSource.Selectable.gameObject, pointer, ExecuteEvents.pointerEnterHandler);
-            else ExecuteEvents.Execute(RowSource.Selectable.gameObject, pointer, ExecuteEvents.pointerExitHandler);
-        }
         internal void Tick(float scale)
         {
             if (_disposed) return;
@@ -467,7 +249,7 @@ internal sealed class TownServiceCatalog : IDisposable
         {
             if (_disposed) return;
             // Cancel a gesture before recycling its source; no release callback is dispatched.
-            Sample?.Dispose(); Hover(false); _disposed = true;
+            Sample?.Dispose(); _disposed = true;
             _row.Destroy(); UguiPokeSurfaces.Unregister(_canvas);
             if (_body != null) TownServiceCardBody.Dispose(_body.gameObject);
             // Pool borrowers after us must receive the same input flags we received. The

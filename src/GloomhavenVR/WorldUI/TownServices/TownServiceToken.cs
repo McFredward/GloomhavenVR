@@ -23,10 +23,17 @@ internal sealed class TownServiceToken : IGrabbable, ITriggerOnlyGrabbable, IGra
     private readonly Func<object?> _contextIdentity;
     private readonly Transform _mat;
     private readonly Transform? _physical;
+    private readonly Func<bool>? _drop, _eligible;
+    private readonly Vector3 _zoneCenter;
+    internal bool IsHeld => _hand != null;
+    internal bool DropEligible => _hand != null && (_eligible?.Invoke() ?? false);
+    internal Collider PickCollider => _shape;
+    internal Transform ZoneFrame => _mat;
+    internal Vector3 ZoneCenter => _zoneCenter;
     private Vector3 _homePosition, _homeScale, _returnPosition;
     private Quaternion _homeRotation, _returnRotation;
     private float _returnStarted;
-    private bool _returning;
+    private bool _returning, _heldTracked;
     internal bool IsPhysical => _physical != null;
     internal bool IsMoving => _hand != null || _returning;
     private readonly GameObject _pick;
@@ -55,13 +62,15 @@ internal sealed class TownServiceToken : IGrabbable, ITriggerOnlyGrabbable, IGra
         && (!ReferenceEquals(hand.Grabber.Held, this) || _hand == hand);
     public bool CanGrab => !_disposed && _hand == null && !_returning && _sessionAlive()
         && _source != null && _source.gameObject.activeInHierarchy
-        && _button != null && _button.IsActive() && (IsPhysical || _button.IsInteractable()) && _shape.enabled;
+        && (IsPhysical || (_button != null && _button.IsActive() && _button.IsInteractable())) && _shape.enabled;
 
     internal TownServiceToken(RectTransform source, Selectable button, Func<object?> identity,
-        Func<object?> contextIdentity, Func<bool> sessionAlive, Transform mat, Transform? physical = null)
+        Func<object?> contextIdentity, Func<bool> sessionAlive, Transform mat, Transform? physical = null,
+        Func<bool>? drop = null, Func<bool>? eligible = null, Vector3 zoneCenter = default)
     {
         _source = source; _button = button; _identity = identity; _contextIdentity = contextIdentity;
         _sessionAlive = sessionAlive; _mat = mat; _physical = physical;
+        _drop = drop; _eligible = eligible; _zoneCenter = zoneCenter;
         _pick = new GameObject("GloomhavenVR.TownService.SampleReach");
         _shape = _pick.AddComponent<BoxCollider>();
         _shape.isTrigger = true;
@@ -80,6 +89,7 @@ internal sealed class TownServiceToken : IGrabbable, ITriggerOnlyGrabbable, IGra
             { CancelHold(); return; }
             if (_held != null)
             {
+                _heldTracked = true;
                 _held.transform.SetPositionAndRotation(_hand.Rig.GrabAnchor.TransformPoint(_heldPosition),
                     _hand.Rig.GrabAnchor.rotation * _heldRotation);
                 if (!IsPhysical) _held.transform.localScale = Vector3.one * scale;
@@ -142,7 +152,7 @@ internal sealed class TownServiceToken : IGrabbable, ITriggerOnlyGrabbable, IGra
         _pickedIdentity = _identity();
         _pickedContext = _contextIdentity();
         if (_pickedIdentity == null) return;
-        _hand = hand;
+        _hand = hand; _heldTracked = false;
         float side = Board.FigureGrab.HeldPoseMirror.OffsetSign(hand.Side == HandSide.Left);
         Vector3 pinch = new Vector3(0f, CardsConfig.HeldOffPalm.Value, CardsConfig.HeldForward.Value);
         FingerJoints thumb = hand.Rig.GetFinger(Finger.Thumb), index = hand.Rig.GetFinger(Finger.Index);
@@ -176,12 +186,16 @@ internal sealed class TownServiceToken : IGrabbable, ITriggerOnlyGrabbable, IGra
         if (_hand != hand) return;
         if (_physical != null)
         {
-            // A sample is not a transaction: release anywhere (including the old work tray)
-            // returns it to the rack. Only an explicit native click may select an item.
+            // A deliberate trigger release in the matching zone is the sole transaction
+            // gesture. Cancellation, stale context, pose loss and all other drops return.
+            bool commit = _heldTracked && hand.HasPose && hand.TriggerUp && _drop != null && DropEligible
+                && ReferenceEquals(_pickedIdentity, _identity()) && ReferenceEquals(_pickedContext, _contextIdentity())
+                && _held != null && InDropZone(_mat.InverseTransformPoint(_held.transform.position) - _zoneCenter);
             Hover(false);
             _returnPosition = _physical.localPosition; _returnRotation = _physical.localRotation;
             _returnStarted = Time.unscaledTime; _returning = true;
             _held = null; _hand = null; _pickedIdentity = null; _pickedContext = null;
+            if (commit) _drop!();
             return;
         }
         bool select = hand.HasPose && hand.TriggerUp && !_disposed && _sessionAlive() && _button != null && _button.IsInteractable()
@@ -201,6 +215,9 @@ internal sealed class TownServiceToken : IGrabbable, ITriggerOnlyGrabbable, IGra
         ExecuteEvents.Execute(_button!.gameObject, pointer, ExecuteEvents.pointerClickHandler);
     }
 
+    internal static bool InDropZone(Vector3 point) => Mathf.Abs(point.x) < .20f
+        && Mathf.Abs(point.z) < .14f && point.y > -.045f && point.y < .15f;
+
     public void OnGrabHighlight(VRHand hand, bool highlighted) => Hover(highlighted);
 
     public void OnGrabCancelled(VRHand hand)
@@ -210,7 +227,7 @@ internal sealed class TownServiceToken : IGrabbable, ITriggerOnlyGrabbable, IGra
 
     private void Hover(bool value)
     {
-        if (_hover == value || _button == null || EventSystem.current == null) return;
+        if (IsPhysical || _hover == value || _button == null || EventSystem.current == null) return;
         _hover = value;
         var pointer = new PointerEventData(EventSystem.current);
         if (value) ExecuteEvents.Execute(_button.gameObject, pointer, ExecuteEvents.pointerEnterHandler);

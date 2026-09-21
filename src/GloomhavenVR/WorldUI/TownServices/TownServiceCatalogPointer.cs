@@ -8,9 +8,9 @@ namespace GloomhavenVR.WorldUI;
 internal sealed class TownServiceCatalogPointer : MonoBehaviour, IPointerClickHandler,
     IPointerEnterHandler, IPointerExitHandler, IScrollHandler
 {
-    internal Action? Click;
-    internal Action<bool>? Hover;
-    internal Action<int>? Scroll;
+    internal Action? Click = null;
+    internal Action<bool>? Hover = null;
+    internal Action<int>? Scroll = null;
     public void OnPointerClick(PointerEventData eventData)
     {
         if (eventData.button == PointerEventData.InputButton.Left) Click?.Invoke();
