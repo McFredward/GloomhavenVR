@@ -1,6 +1,6 @@
 # Planning index
 
-Updated 2026-09-21; dev 1.0.7 / build 543 hardware candidate, anatomical faces and shared facial motion. This directory holds internal
+Updated 2026-09-22; dev 1.0.7 / build 545 integration, physical town services and portrait identity. This directory holds internal
 engineering evidence, historical decisions and current status; it is not the player manual.
 
 ## Current entry points
@@ -11,7 +11,11 @@ engineering evidence, historical decisions and current status; it is not the pla
 | [../CLAUDE.md](../CLAUDE.md) | Technical contracts retained across agent tools |
 | [TEST-PARALLELISM.md](TEST-PARALLELISM.md) | Parallel local/CI execution, coverage and measured timing |
 | [STATE.md](STATE.md) | Current build, validation and outstanding hardware checks |
-| [research/TOWN-SERVICES-544.md](research/TOWN-SERVICES-544.md) | Current NPC hardware corrections, shared occupations and validation status |
+| [research/TOWN-SERVICES-545.md](research/TOWN-SERVICES-545.md) | Current physical interactions, portrait corrections, native decoration and integration evidence |
+| [TOWN-545-MERCHANT.md](TOWN-545-MERCHANT.md) | Complete physical catalog, drawer lifecycle and native transaction ownership |
+| [research/TOWN-545-FACES.md](research/TOWN-545-FACES.md) | Final portrait fitting, anatomical hands, optical rendering and asset provenance |
+| [research/TOWN-545-STANDS.md](research/TOWN-545-STANDS.md) | Native decoration, practical lights and resident activities |
+| [research/TOWN-SERVICES-544.md](research/TOWN-SERVICES-544.md) | Previous NPC corrections; superseded by the build-544 hardware findings |
 | [research/TOWN-544-EYES.md](research/TOWN-544-EYES.md) | Actual Windows eye-shader defect and compiled/render regression evidence |
 | [research/TOWN-544-FACES.md](research/TOWN-544-FACES.md) | Anatomical fit, original costume repair and actual skinned-pose review |
 | [research/TOWN-544-BACKDROP-IDENTITY.md](research/TOWN-544-BACKDROP-IDENTITY.md) | Original backdrop identity collision and owner/observer correction |

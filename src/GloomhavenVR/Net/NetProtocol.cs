@@ -522,8 +522,26 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 544;
+    public const ushort ModBuild = 545;
 
+    // ModBuild 545 — physical town stock, offerings and enhancement work surfaces.
+    // Hardware 544 exposed damaged hands/costume joins, unrecognizable/dark faces,
+    // floating decoration and non-grabbable merchandise. Restore portrait landmarks,
+    // anatomical hands/contact markers, fitted clothing and actual practical eye lighting.
+    // Physical merchant filing drawers retain every native stock/owned item without pages;
+    // only a deliberate eligible buy/sell drop dispatches native selection/confirmation.
+    // Temple uses original coin offerings and devotion inscriptions; enchantment retains
+    // original card hotspots, costs, legal rune choices and refund rules on physical objects.
+    // Exact original decoration, held details, drawer movement, drop marks and extra-owner
+    // furniture are mirrored; closed opaque stock is retained without per-frame widget scans.
+    // MaxModules grows to 2048 within unchanged bounded wire envelopes; presence does not grow.
+    // Shared map-relative station poses clear native Guildmaster furniture and custom rooms.
+    // Deferred native confirms revalidate selection after the hide fade; flames advance
+    // between packets without material churn. Original callbacks remain authoritative;
+    // opt-out restores classic windows. Native billboard shaders retain per-object origins
+    // instead of disappearing when Unity dynamically batches their small quads.
+    // See .planning/research/TOWN-SERVICES-545.md for visual/runtime evidence and hardware limits.
+    //
     // ModBuild 544 — town eye lighting, fitted head/costume joins and resident work activities.
     // Hardware 543: all six NPC screenshots show black eyes, identity drift (merchant),
     // scalp texture patches and open/ragged clothing around moving heads. Actual D3D11
