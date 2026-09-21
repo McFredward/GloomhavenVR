@@ -9,6 +9,7 @@ import math
 import numpy as np
 from mathutils import Vector
 from town_npc_garment_weights import garment_support
+from town_npc_cloth_edges import repair_cloth_edges
 
 
 def shirt_band(bm, body, npc):
@@ -79,12 +80,7 @@ def repair(body, npc):
     uv_layer=bm.loops.layers.uv.active;discard=[]
     for face in bm.faces:
         x,y,z=face.calc_center_median()
-        eligible=((1.44 if npc=='enchantress' else 1.49)<z<1.62 and abs(x)<(.075 if npc=='enchantress' else .095) and y<.035) if npc!='merchant' else ((z>1.473 and abs(x)<.135 and -.105<y<.14) or (z>1.428 and abs(x)<.055 and -.115<y<.035))
-        if npc=='merchant' and 1.40<z<1.44 and abs(x)<.026 and y<.035:
-            co=sum((loop[uv_layer].uv for loop in face.loops),Vector((0,0)))/len(face.loops)
-            r,g,b=rgba[max(0,min(image.size[1]-1,int(co.y*image.size[1]))),max(0,min(image.size[0]-1,int(co.x*image.size[0]))),:3]
-            if r<g*1.15 and b>g*.80:
-                discard.append(face);continue
+        eligible=((1.44 if npc=='enchantress' else 1.49)<z<1.62 and abs(x)<(.075 if npc=='enchantress' else .095) and y<.035) if npc!='merchant' else ((z>1.473 and abs(x)<.135 and -.105<y<.14) or (z>1.435 and abs(x)<.055 and -.115<y<.035))
         if not eligible:continue
         co=sum((loop[uv_layer].uv for loop in face.loops),Vector((0,0)))/len(face.loops)
         r,g,b=rgba[max(0,min(image.size[1]-1,int(co.y*image.size[1]))),max(0,min(image.size[0]-1,int(co.x*image.size[0]))),:3]
@@ -112,6 +108,7 @@ def repair(body, npc):
         for vertex in bm.verts:
             if vertex.co.z>1.4 and abs(vertex.co.x)<.17:
                 vertex[deform].clear();vertex[deform][chest]=1
+    cloth_edges=repair_cloth_edges(bm,body,npc,rgba,uv_layer)
     added_band=shirt_band(bm,body,npc)
     faces=[face for face in bm.faces if face.calc_center_median().z>1.35]
     edge_count=sum(1 for e in bm.edges if e.is_boundary and all(v in cut for v in e.verts))
@@ -146,4 +143,4 @@ def repair(body, npc):
     # original costume shells can invert otherwise valid outer cloth.
     bm.normal_update()
     bm.to_mesh(body.data);bm.free();body.data.update()
-    return {'removedDetachedVertices':len(remove),'removedComponents':removed_components,'linedEdges':edge_count,'torsoGarmentVertices':garment_vertices,'shirtVertices':added_band,'innerVertices':added,'maximumThicknessMeters':.003}
+    return {'clothEdges':cloth_edges,'removedDetachedVertices':len(remove),'removedComponents':removed_components,'linedEdges':edge_count,'torsoGarmentVertices':garment_vertices,'shirtVertices':added_band,'innerVertices':added,'maximumThicknessMeters':.003}
