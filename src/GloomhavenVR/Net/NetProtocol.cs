@@ -520,8 +520,23 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 543;
+    public const ushort ModBuild = 544;
 
+    // ModBuild 544 — town eye lighting, fitted head/costume joins and resident work activities.
+    // Hardware 543: all six NPC screenshots show black eyes, identity drift (merchant),
+    // scalp texture patches and open/ragged clothing around moving heads. Actual D3D11
+    // shader inspection proves fwdbase omitted VERTEXLIGHT_ON from the eye fragment
+    // programs even though the isolated OpenGL light test passed. Carry the vertex-stage
+    // light selection into the fragment explicitly; retain real practical lighting.
+    // Facial authoring corrects beard-vs-chin landmark fitting, scalp projection and
+    // neck/garment closure. All-angle render evidence is required; a green source check
+    // does not certify headset appearance. Full updated town bundle installation required.
+    // Resident activities use shared work clocks and smooth attention transitions with
+    // real hand targets/native books and coins. Additive TLV81/msg22 preserves previous
+    // records and wire version3; no cosmetic activity owns native transaction continuation.
+    // Original game NPC speech remains unavailable; no generated voices are introduced.
+    // See .planning/research/TOWN-SERVICES-544.md for evidence and hardware limits.
+    //
     // ModBuild 543 — anatomically fitted town faces with real eyes and shared facial motion.
     // Head and binocular eye gaze follow one resident authority, preferring active visitors.
     // Actual bounded angles use a 102-byte map-only packet at 15 Hz (all three residents together);
