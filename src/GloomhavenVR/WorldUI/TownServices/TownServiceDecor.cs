@@ -52,6 +52,7 @@ internal sealed class TownServiceDecor : IDisposable
     private float _clock;
     private readonly HashSet<string> _reported = new(StringComparer.Ordinal);
     private float _nextLoadTick;
+    private uint _coinGeneration = uint.MaxValue;
     private static readonly int Visibility = Shader.PropertyToID("_TownVisibility");
 
     internal TownServiceDecor(Transform station, byte service, TownServiceLighting lighting)
@@ -125,6 +126,12 @@ internal sealed class TownServiceDecor : IDisposable
         float now = Time.unscaledTime;
         if (now < _nextLoadTick) return;
         _nextLoadTick = now + .1f;
+        if (_coinTemplate?.Holder != null
+            && _coinGeneration != GloomhavenVR.Net.TownServices.TownServiceMirror.Assets.Generation)
+        {
+            RegisterCoinTextures(_coinTemplate.Holder.transform);
+            _coinGeneration = GloomhavenVR.Net.TownServices.TownServiceMirror.Assets.Generation;
+        }
         foreach (MaterialLoad load in _loads.Values) Advance(load, now);
         foreach (Piece piece in _pieces)
         {
@@ -304,6 +311,7 @@ internal sealed class TownServiceDecor : IDisposable
             {
                 holder.name = "Town.OriginalCoinTemplate";
                 RegisterCoinTextures(holder.transform);
+                _coinGeneration = GloomhavenVR.Net.TownServices.TownServiceMirror.Assets.Generation;
                 CoinTemplate = holder.transform;
             }
             else holder.SetActive(!piece.Arcane);

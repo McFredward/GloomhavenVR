@@ -50,11 +50,11 @@ namespace GloomhavenVR.Net {internal struct TownActivityVisual {internal float C
 namespace GloomhavenVR.Net.TownServices
 {
     internal static class TownServiceMirror {internal static Registry Assets=new();}
-    internal sealed class Registry {internal readonly Dictionary<string,UnityEngine.Object> Items=new();internal void RegisterOriginal(string key,UnityEngine.Object value){if(Items.TryGetValue(key,out var old)&&old!=value)throw new Exception("unstable texture identity");Items[key]=value;}}
+    internal sealed class Registry {internal uint Generation {get;set;} internal readonly Dictionary<string,UnityEngine.Object> Items=new();internal void RegisterOriginal(string key,UnityEngine.Object value){if(Items.TryGetValue(key,out var old)&&old!=value)throw new Exception("unstable texture identity");Items[key]=value;}}
 }
 namespace GloomhavenVR.WorldUI
 {
     internal static class TownServiceAssets { internal static Shader? Shader(string name)=>UnityEngine.Shader.Find(name=="townflame"?"Unlit/Transparent":"Unlit/Texture"); }
     internal sealed class TownServiceLighting {internal readonly Dictionary<int,Vector3> Flames=new();internal void SetFlame(Vector3 world,int slot)=>Flames[slot]=world;}
-    internal sealed class TownServiceActivityProps:IDisposable {internal TownServiceActivityProps(Transform root,byte service,Shader? shader){}internal void BindCoin(Transform coin,Vector3 offset){}internal void Sample(){}internal void Suspend(){}internal void SetVisibility(float value){}public void Dispose(){}}
+    internal sealed class TownServiceActivityProps:IDisposable {internal TownServiceActivityProps(Transform root,byte service,Shader? shader){}internal void BindCoin(Transform coin,Vector3 offset){}internal void Sample(){}internal void Sample(in GloomhavenVR.Net.TownActivityVisual visual){}internal void Suspend(){}internal void SetVisibility(float value){}public void Dispose(){}}
 }

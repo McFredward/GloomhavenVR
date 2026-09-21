@@ -61,6 +61,10 @@ public static class InteractionProgram
         Check(coin!.GetComponentsInChildren<MeshRenderer>(true).Length==1,"native coin rendering retained");
         Check(Math.Abs(coin.localScale.x-.05f)<.0001f,"coin normalized to five centimetres");
         Check(GloomhavenVR.Net.TownServices.TownServiceMirror.Assets.Items.Count>0,"coin texture explicit original provenance registered");
+        GloomhavenVR.Net.TownServices.TownServiceMirror.Assets.Items.Clear();
+        GloomhavenVR.Net.TownServices.TownServiceMirror.Assets.Generation++;
+        Tick(decor,.22f);
+        Check(GloomhavenVR.Net.TownServices.TownServiceMirror.Assets.Items.Count>0,"network asset reset rebinds living native coin textures");
         decor.Dispose();Check(TownServiceDecor.CoinTemplate==null&&Addressables.Held==0,"coin template cannot outlive owner materials");UnityEngine.Object.DestroyImmediate(root);
         Shader amp=Shader.Find("Amp_TownDecorFixture");Check(amp!=null,"native shader input fixture imported");
         var original=new Material(amp);original.mainTextureScale=new Vector2(.5f,.5f);original.SetFloat("_UVTiling",1f);original.SetColor("_Tint",new Color(.8f,.7f,.6f,0));

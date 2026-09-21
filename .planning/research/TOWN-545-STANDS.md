@@ -38,7 +38,8 @@ The enchantress's front-right rune inventory stays clear of her vessels.
 
 `TownServiceDecor.CoinTemplate` is an inert, hidden native coin, normalized to
 five centimetres. The priestess decor owns its meshes/material handles; disposal
-clears its static lookup before releasing materials. The integrator registers the
+clears its static lookup before releasing materials. A network asset-registry reset
+rebinds the live template textures on the next bounded loader tick. The integrator registers the
 `ritual.coin` presentation template. Texture provenance derives from this exact
 native source hierarchy, not asynchronous completion order or instance IDs.
 
@@ -49,7 +50,7 @@ or free-running Unity animation.
 
 ## Verification
 
-- `scripts/check-town-decor.py`: genuine Unity 2021.3.5 runtime, 21 assertions;
+- `scripts/check-town-decor.py`: genuine Unity 2021.3.5 runtime, 22 assertions;
   four compiled negative controls demonstrate independent failure/recovery,
   bounded timeout/retry, coin provenance/lifetime and original atlas mapping.
 - `scripts/check-town-service-lighting.py`: 805 production lifecycle/ownership
