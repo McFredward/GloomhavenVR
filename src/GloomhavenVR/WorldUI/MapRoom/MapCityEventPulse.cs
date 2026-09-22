@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using GloomhavenVR.Core;
 using GloomhavenVR.Net;
 using UnityEngine;
@@ -18,6 +19,7 @@ internal sealed class MapCityEventPulse
     private Image? _image;
     private bool _playing;
     private bool _refused;
+    private readonly List<Material> _materials = new();
     internal Image? Sample(UICityEncounterButton source, bool live)
     {
         if (source.gameObject.activeInHierarchy || !live)
@@ -41,6 +43,13 @@ internal sealed class MapCityEventPulse
             var city = clone.GetComponent<UICityEncounterButton>();
             GUIAnimator? animator = MapCityEventSource.Field<GUIAnimator>(city, "highlightAnimator");
             if (animator is not LeanTweenGUIAnimator) throw new InvalidOperationException("city highlight is not the verified native tween recipe");
+            // A native fade setting may animate a material rather than Graphic.color. Isolate
+            // every copied graphic material before capturing or running the original recipe.
+            foreach (Graphic graphic in clone.GetComponentsInChildren<Graphic>(true))
+            {
+                if (graphic.material == null) continue;
+                Material material = new(graphic.material); _materials.Add(material); graphic.material = material;
+            }
             foreach (NativeUseBarAnimationBinding binding in NativeUseBarAnimationBinding.Capture(animator, clone.transform))
                 if (binding.Target != clone.transform && !binding.Target.IsChildOf(clone.transform))
                     throw new InvalidOperationException("city highlight targets outside its private clone");
@@ -62,7 +71,13 @@ internal sealed class MapCityEventPulse
             stage.transform.position = new Vector3(0f, -100000f, 0f);
             _stage = stage; stage.SetActive(true);
         }
-        catch { Object.Destroy(stage); throw; }
+        catch { Object.Destroy(stage); ReleaseMaterials(); throw; }
     }
-    internal void Destroy() { _animator?.Stop(); if (_stage != null) Object.Destroy(_stage); _stage = null; _animator = null; _playing = false; }
+    internal void Destroy()
+    {
+        _animator?.Stop();
+        if (_stage != null) { _stage.SetActive(false); Object.Destroy(_stage); }
+        ReleaseMaterials(); _stage = null; _animator = null; _playing = false;
+    }
+    private void ReleaseMaterials() { foreach (Material material in _materials) Object.Destroy(material); _materials.Clear(); }
 }
