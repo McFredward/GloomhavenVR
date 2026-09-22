@@ -445,7 +445,7 @@ internal static class MapButtonTooltipPresentation
             {
                 var p = new Picture { Key = key, Detail = Bool(r), Position = Vector(r), Scale = Vector(r),
                     Rotation = new Quaternion(Number(r), Number(r), Number(r), Number(r)) };
-                if (p.Detail != (i == 1) || p.Scale.x <= 0 || p.Scale.y <= 0 || p.Scale.z <= 0 || p.Scale.sqrMagnitude > 10f
+                if (p.Detail != (i == 1) || p.Scale.sqrMagnitude > 10f
                     || Mathf.Abs(Quaternion.Dot(p.Rotation, p.Rotation) - 1f) > .01f) return false;
                 int lines = r.ReadByte(); if (lines > 16 || lines % 4 != 0) return false; p.Lines = new string[lines];
                 for (int j = 0; j < lines; j++) { p.Lines[j] = Text(r); if (j % 4 == 0 && p.Lines[j] != "0" && p.Lines[j] != "1" && p.Lines[j] != "2" && p.Lines[j] != "3") return false; }
