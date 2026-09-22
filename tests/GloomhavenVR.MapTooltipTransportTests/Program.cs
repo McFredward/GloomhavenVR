@@ -72,7 +72,9 @@ internal sealed partial class NetAvatarDriver
         var d = Fresh();
         byte[] stationary = Picture();
         byte[] moved = Picture();
-        moved[2] = 32; // A geometry change belonging to the same stable native cap.
+        // Bytes 0..2 are the schema, cap key and surface count. Geometry begins after that
+        // header; changing the count would correctly start a new interpolation episode.
+        moved[3] = 32; // A geometry change belonging to the same stable native cap.
         MapButtonTooltipPresentation.Current = stationary;
         d.TickMapButtonTooltipSend(0);
         d.TickMapButtonTooltipSend(.25f);
