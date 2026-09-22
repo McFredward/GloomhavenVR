@@ -527,8 +527,9 @@ internal static class NetProtocol
     // Presentation-only 2D/3D map transitions retain native window state and re-enrol the
     // original character/quest windows. Map cap hints carry native output through additive
     // message 23 / TLV 82; IDs used by the isolated NPC branch remain reserved.
-    // AoE rotation follows native targeting eligibility and the tutorial names the actual
-    // configured horizontal stick. Builds 538–545 identify the isolated NPC development.
+    // AoE rotation follows native targeting eligibility. Default B/Y release gestures leave
+    // both locomotion sticks free and defer to the recenter chord; an optional stick binding
+    // and live tutorial text follow the configured input. Builds 538–545 remain NPC-only.
     // Automated verification and hardware checklist: .planning/MAP-546.md.
 
     // ModBuild 537 — independent VR options toggle and native close ordering.

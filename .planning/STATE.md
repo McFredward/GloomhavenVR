@@ -18,6 +18,17 @@ change per build) → this file (where things stand and what is owed) → the bu
 
 ## 1. Position
 
+- **dev / 1.0.7 / ModBuild 546**, based on the 1.0.6 runtime without NPC services:
+  campaign city-event cap and native animation, original permanent map windows across
+  2D/3D switches, and native map-button hints beside physical caps with synchronized
+  multiplayer presentation. AoE uses short B/Y releases by default; both locomotion
+  sticks stay available. A normal Comfort setting offers the legacy stick alternative,
+  and English/German tutorial hints update to the selected binding even while open.
+  Native targeting authority and shared encounter continuation remain in charge.
+  Evidence, validation and hardware checklist: [MAP-546.md](MAP-546.md).
+  Supplied logs are older NPC build 544 / remote build 500, so this implementation has
+  no matching headset confirmation yet. No release or NPC-branch changes are included.
+
 - **dev / 1.0.6 / ModBuild 537** removes VR-triggered native focus handoffs:
   opening settings must not shade otherwise usable menu entries. Native hidden callbacks
   are accepted in their actual order, and the row is silently cleared at closure rather
