@@ -461,7 +461,7 @@ internal static class MapButtonTooltipPresentation
             }
             if (stream.Position != stream.Length) return false; pictures = result; return true;
         }
-        catch (Exception e) when (e is IOException || e is ArgumentException || e is OverflowException) { return false; }
+        catch (Exception e) when (e is IOException || e is InvalidDataException || e is ArgumentException || e is OverflowException) { return false; }
     }
     private static bool TextStyleValid(float[] s) => s[0] >= 0 && s[0] <= 1000 && s[1] >= 0 && s[2] >= s[1] && s[2] <= 1000
         && s[7] >= 100 && s[7] <= 900 && s[7] % 100 == 0 && s[8] >= 0 && s[8] <= 4095 && s[8] == (int)s[8]
