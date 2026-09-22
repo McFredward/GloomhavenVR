@@ -1048,7 +1048,7 @@ internal sealed class MapButtonRail
             GUIAnimator? animator = MapCityEventSource.Field<GUIAnimator>(city, "highlightAnimator");
             c.HighlightGo = animator != null ? animator.gameObject : null;
             c.HighlightImage = animator != null ? animator.GetComponentInChildren<Image>(true) : null;
-            if (c.HighlightImage != null) c.HighlightBaseScale = c.HighlightImage.transform.localScale;
+            if (c.HighlightImage != null) c.HighlightBaseScale = MapCityEventPulse.Scale(c.HighlightImage, city.transform);
             c.Target = MapCityEventSource.Field<ExtendedButton>(city, "button")?.gameObject;
         }
         else BindGameGraphics(c, button!);
@@ -1346,15 +1346,18 @@ internal sealed class MapButtonRail
                 if (glowing)
                 {
                     ResolveSprite(c.Glow, c.HighlightImage!.sprite, ref c.GlowSource);
-                    Color gc = c.HighlightImage.color;
-                    gc.a *= groupAlpha;
+                    Transform? cityRoot = c.City != null ? pulse != null ? c.CityPulse?.VisualRoot : c.City.transform : null;
+                    Color gc = cityRoot != null ? MapCityEventPulse.Color(c.HighlightImage, cityRoot) : c.HighlightImage.color;
+                    if (cityRoot == null) gc.a *= groupAlpha;
                     if (c.Glow.color != gc)
                         c.Glow.color = gc;
+                    Vector3 actualScale = cityRoot != null ? MapCityEventPulse.Scale(c.HighlightImage, cityRoot) : c.HighlightImage.transform.localScale;
                     float ratio = c.HighlightBaseScale.x > 1e-4f
-                        ? c.HighlightImage.transform.localScale.x / c.HighlightBaseScale.x
+                        ? actualScale.x / c.HighlightBaseScale.x
                         : 1f;
                     float size = c.IconWorldSize / IconFraction * GlowFraction * ratio;
-                    var want = new Vector2(size, size);
+                    float yRatio = c.HighlightBaseScale.y > 1e-4f ? actualScale.y / c.HighlightBaseScale.y : 1f;
+                    var want = new Vector2(size, cityRoot != null ? c.IconWorldSize / IconFraction * GlowFraction * yRatio : size);
                     if (c.Glow.size != want)
                         c.Glow.size = want;
                 }

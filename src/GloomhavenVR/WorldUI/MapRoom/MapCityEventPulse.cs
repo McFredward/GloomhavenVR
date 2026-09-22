@@ -19,6 +19,7 @@ internal sealed class MapCityEventPulse
     private Image? _image;
     private bool _playing;
     private bool _refused;
+    internal Transform? VisualRoot { get; private set; }
     private readonly List<Material> _materials = new();
     internal Image? Sample(UICityEncounterButton source, bool live)
     {
@@ -67,6 +68,7 @@ internal sealed class MapCityEventPulse
                 }
             }
             _animator = animator; _image = animator.GetComponentInChildren<Image>(true);
+            VisualRoot = clone.transform;
             clone.SetActive(true); animator.gameObject.SetActive(true);
             stage.transform.position = new Vector3(0f, -100000f, 0f);
             _stage = stage; stage.SetActive(true);
@@ -77,7 +79,27 @@ internal sealed class MapCityEventPulse
     {
         _animator?.Stop();
         if (_stage != null) { _stage.SetActive(false); Object.Destroy(_stage); }
-        ReleaseMaterials(); _stage = null; _animator = null; _playing = false;
+        ReleaseMaterials(); _stage = null; _animator = null; VisualRoot = null; _playing = false;
     }
     private void ReleaseMaterials() { foreach (Material material in _materials) Object.Destroy(material); _materials.Clear(); }
+
+    internal static Vector3 Scale(Image image, Transform root)
+    {
+        // Include the animator holder and intermediate parents, not just Image.localScale.
+        Vector3 scale = Vector3.one;
+        for (Transform? t = image.transform; t != null; t = t.parent)
+        { scale = Vector3.Scale(scale, t.localScale); if (ReferenceEquals(t, root)) break; }
+        return scale;
+    }
+    internal static Color Color(Image image, Transform root)
+    {
+        Color color = image.color * image.canvasRenderer.GetColor();
+        for (Transform? t = image.transform; t != null; t = t.parent)
+        {
+            CanvasGroup? group = t.GetComponent<CanvasGroup>();
+            if (group != null && group.enabled) { color.a *= group.alpha; if (group.ignoreParentGroups) break; }
+            if (ReferenceEquals(t, root)) break;
+        }
+        return color;
+    }
 }
