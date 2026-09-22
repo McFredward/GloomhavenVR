@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using System.Reflection;
+using GLOOM;
 using GloomhavenVR.Core;
 using GloomhavenVR.Hands;
 using GloomhavenVR.Hands.Interact;
@@ -369,6 +370,9 @@ internal sealed class MapButtonRail
     private sealed class Cap
     {
         internal UIGuildmasterButton Button = null!;
+        internal UICityEncounterButton? City;
+        internal MapCityEventPulse? CityPulse;
+        internal Component Native => City != null ? City : Button;
         internal GameObject Go = null!;
         internal BoxCollider Collider = null!;
 
@@ -477,7 +481,8 @@ internal sealed class MapButtonRail
     /// <summary>Caps whose fingertip reached the fire depth this frame, held between the two phases
     /// of <see cref="TickPokeDepths"/> so the commit happens outside the loop over
     /// <see cref="_caps"/>. Reused, never reallocated; normally empty.</summary>
-    private readonly List<(UIGuildmasterButton Button, VRHand Hand)> _pendingPress = new(2);
+    private readonly List<(Cap Cap, VRHand Hand)> _pendingPress = new(2);
+    private UICityEncounterButton? _citySource;
     private GameObject? _root;
     private int _scanFrame = int.MinValue;
     private float _scale = 1f;
@@ -521,6 +526,8 @@ internal sealed class MapButtonRail
         TickPokeDepths();
         SampleState();
         TickLaser();
+        MapButtonTooltipPresentation.SetLocalHover(_laserHover?.Native,
+            _laserHover?.Go.transform, _scale);
 
         // THE ALIASING INSTRUMENT (ModBuild 199). On its own slow cadence and only when a head
         // camera exists — it measures, it never treats, so a tick that finds nothing is a finding
@@ -537,6 +544,7 @@ internal sealed class MapButtonRail
     /// <summary>Tear the rail down. Idempotent; the only exit.</summary>
     internal void Release(string reason)
     {
+        MapButtonTooltipPresentation.ClearLocal();
         ClearLaserHover();
         // Hand every pointerEnter back to the game BEFORE the caps go away. The game's own bar
         // button would otherwise stay highlighted forever, and the mod-wide UguiHoverTracker
@@ -544,6 +552,7 @@ internal sealed class MapButtonRail
         DropAllHovers(reason);
         for (int i = 0; i < _caps.Count; i++)
         {
+            _caps[i].CityPulse?.Destroy();
             if (_caps[i].Poke != null)
                 VRInteractables.UnregisterPokeable(_caps[i].Poke);
         }
@@ -564,6 +573,7 @@ internal sealed class MapButtonRail
 
     private void Rescan()
     {
+        _citySource = MapCityEventSource.Resolve();
         _scratch.Clear();
         _scanSource = "no UIGuildmasterButton was found at all";
         if (Singleton<UIGuildmasterHUD>.IsInitialized)
@@ -578,7 +588,7 @@ internal sealed class MapButtonRail
         }
         // Fallback for a HUD that is not the singleton yet (or a version that parents the bar
         // elsewhere) — the component type is public, so this needs no name matching.
-        if (_scratch.Count == 0)
+        if (_scratch.Count == 0 && _citySource == null)
         {
             UIGuildmasterButton[] sweep = Object.FindObjectsOfType<UIGuildmasterButton>(true);
             _scratch.AddRange(sweep);
@@ -607,7 +617,7 @@ internal sealed class MapButtonRail
 
         // Two empty sets are not proof that the native HUD was acquired. Build 530's early
         // SameSet return hid that case from the existing one-shot discovery diagnostic.
-        if (_scratch.Count == 0)
+        if (_scratch.Count == 0 && _citySource == null)
         {
             if (_caps.Count != 0) Release("the guildmaster bar changed");
             if (!_emptyReported)
@@ -692,10 +702,15 @@ internal sealed class MapButtonRail
 
     private bool SameSet()
     {
-        if (_scratch.Count != _caps.Count)
+        if (_scratch.Count + (_citySource != null ? 1 : 0) != _caps.Count)
             return false;
         for (int i = 0; i < _caps.Count; i++)
         {
+            if (_caps[i].City != null)
+            {
+                if (!ReferenceEquals(_caps[i].City, _citySource)) return false;
+                continue;
+            }
             if (_caps[i].Button == null || !_scratch.Contains(_caps[i].Button))
                 return false;
         }
@@ -726,6 +741,7 @@ internal sealed class MapButtonRail
         // Guildmaster's native knife/bench layout leaves no supported near-edge rail. Keep
         // campaign placement unchanged and fit this mode's caps to the right-hand tabletop.
         int[] rowCount = new int[GuildmasterDestinations.RailRowCount];
+        if (_citySource != null) rowCount[0]++;
         for (int i = 0; i < _scratch.Count; i++)
         {
             if (_scratch[i] == null)
@@ -813,6 +829,17 @@ internal sealed class MapButtonRail
         int built = 0;
         int withIcon = 0;
         int withGlow = 0;
+        if (_citySource != null)
+        {
+            // City encounters are not a UIGuildmasterButton and were absent from the type scan.
+            // Keep their native button/GUIAnimator in the same physical cap and input pipeline.
+            Cap city = BuildCap(null, new Vector3(rowX[0], 0f, 0f), capLocalRot, cap, depth, _citySource);
+            _caps.Add(city);
+            rowPlaced[0]++;
+            built++;
+            if (city.Icon != null) withIcon++;
+            if (city.Glow != null) withGlow++;
+        }
         for (int i = 0; i < _scratch.Count; i++)
         {
             UIGuildmasterButton button = _scratch[i];
@@ -928,6 +955,11 @@ internal sealed class MapButtonRail
             for (int i = 0; i < _caps.Count; i++)
             {
                 UIGuildmasterButton button = _caps[i].Button;
+                if (_caps[i].City != null)
+                {
+                    if (row == 0) { sb.Append("ROW 0 (far, nearest the map): 1 CityEncounter"); inRow++; }
+                    continue;
+                }
                 EGuildmasterMode mode = button != null ? button.GuildmasterMode : EGuildmasterMode.None;
                 if (GuildmasterDestinations.RailRow(mode) != row)
                     continue;
@@ -988,10 +1020,10 @@ internal sealed class MapButtonRail
         VRLog.Note(Scope, sb.ToString());
     }
 
-    private Cap BuildCap(UIGuildmasterButton button, Vector3 localPos, Quaternion localRot,
-                         float cap, float depth)
+    private Cap BuildCap(UIGuildmasterButton? button, Vector3 localPos, Quaternion localRot,
+                         float cap, float depth, UICityEncounterButton? city = null)
     {
-        var go = new GameObject($"Cap_{button.GuildmasterMode}");
+        var go = new GameObject($"Cap_{(city != null ? "CityEncounter" : button!.GuildmasterMode.ToString())}");
         go.transform.SetParent(_root!.transform, worldPositionStays: false);
         go.transform.localPosition = localPos;
         go.transform.localRotation = localRot;
@@ -1002,16 +1034,27 @@ internal sealed class MapButtonRail
 
         var c = new Cap
         {
-            Button = button,
+            Button = button!, City = city,
             Go = go,
             Collider = col,
             IconWorldSize = cap * IconFraction,
             TravelWorld = TravelMeters * _scale,
         };
-        BindGameGraphics(c, button);
+        if (city != null)
+        {
+            c.CityPulse = new MapCityEventPulse();
+            c.IconImage = MapCityEventSource.Field<Image>(city, "icon");
+            c.Group = city.GetComponent<CanvasGroup>();
+            GUIAnimator? animator = MapCityEventSource.Field<GUIAnimator>(city, "highlightAnimator");
+            c.HighlightGo = animator != null ? animator.gameObject : null;
+            c.HighlightImage = animator != null ? animator.GetComponentInChildren<Image>(true) : null;
+            if (c.HighlightImage != null) c.HighlightBaseScale = MapCityEventPulse.Scale(c.HighlightImage, city.transform);
+            c.Target = MapCityEventSource.Field<ExtendedButton>(city, "button")?.gameObject;
+        }
+        else BindGameGraphics(c, button!);
         // The one game object this cap drives, for BOTH hover and press. Resolved once here rather
         // than per event so a fingertip enter and a laser click can never land on different objects.
-        c.Target = c.Toggle != null ? c.Toggle.gameObject : button.gameObject;
+        if (city == null) c.Target = c.Toggle != null ? c.Toggle.gameObject : button!.gameObject;
 
         // THE SOCKET — a static, darker disc a fifth wider than the cap. It never moves, and that
         // is its whole job: a cap that sinks against nothing reads as a shrinking picture, while a
@@ -1075,7 +1118,7 @@ internal sealed class MapButtonRail
             textGo.transform.SetParent(body.transform, worldPositionStays: false);
             textGo.transform.localPosition = new Vector3(0f, 0f, front - step * 2f);
             TextMeshPro label = textGo.AddComponent<TextMeshPro>();
-            label.text = button.GuildmasterMode.ToString();
+            label.text = city != null ? LocalizationManager.GetTranslation("GUI_CITY_ENCOUNTER") : button!.GuildmasterMode.ToString();
             label.fontSize = cap * 8f;
             label.alignment = TextAlignmentOptions.Center;
             label.rectTransform.sizeDelta = new Vector2(cap, cap);
@@ -1084,7 +1127,7 @@ internal sealed class MapButtonRail
         }
 
         c.Poke = go.AddComponent<MapButtonPoke>();
-        c.Poke.Bind(this, c.Button);
+        c.Poke.Bind(this, c.Native);
         VRInteractables.RegisterPokeable(c.Poke, col);
         return c;
     }
@@ -1178,7 +1221,7 @@ internal sealed class MapButtonRail
         for (int i = 0; i < _caps.Count; i++)
         {
             Cap c = _caps[i];
-            if (c.Go == null || c.Button == null)
+            if (c.Go == null || c.Native == null)
                 continue;
 
             VRHand? hand = c.PokeHand;
@@ -1197,14 +1240,14 @@ internal sealed class MapButtonRail
             c.FollowDepth = KeycapPress.FollowDepth01(c.Collider, hand, FingertipRadius,
                                                       c.TravelWorld, c.Go.transform.lossyScale.z);
             if (c.Gate.AtFireDepth(c.FollowDepth) && c.Gate.TryFireFromDepth())
-                _pendingPress.Add((c.Button, hand));
+                _pendingPress.Add((c, hand));
         }
 
         // PHASE 2 — dispatch. Normally empty; at most one entry per hand.
         for (int i = 0; i < _pendingPress.Count; i++)
         {
-            (UIGuildmasterButton button, VRHand hand) = _pendingPress[i];
-            Press(button, $"{hand.Side} fingertip (depth-fire)", hand: hand);
+            (Cap cap, VRHand hand) = _pendingPress[i];
+            PressCap(cap, $"{hand.Side} fingertip (depth-fire)", hand);
         }
         _pendingPress.Clear();
     }
@@ -1232,7 +1275,7 @@ internal sealed class MapButtonRail
         for (int i = 0; i < _caps.Count; i++)
         {
             Cap c = _caps[i];
-            if (c.Go == null || c.Button == null)
+            if (c.Go == null || c.Native == null)
                 continue;
 
             TickTravel(c, c.FollowDepth);
@@ -1253,7 +1296,7 @@ internal sealed class MapButtonRail
                 c.Interactable = live;
                 // HONEST AFFORDANCE: a cap the game would refuse is physically inert, so neither a
                 // fingertip nor the laser can promise a press that cannot happen.
-                c.Collider.enabled = live;
+                c.Collider.enabled = true; // Disabled caps still own hover explanations and occlude clicks.
                 // A cap that just went inert must also hand back any hover it holds on the game's
                 // button: the laser scan and the poke interactor both skip a disabled collider, so
                 // neither of them will ever send the matching exit by itself.
@@ -1261,7 +1304,7 @@ internal sealed class MapButtonRail
                 {
                     if (ReferenceEquals(_laserHover, c))
                         _laserHover = null;
-                    DropHover(c, GuildmasterDestinations.IsMapSurfaceMode(c.Button.GuildmasterMode)
+                    DropHover(c, c.Button != null && GuildmasterDestinations.IsMapSurfaceMode(c.Button.GuildmasterMode)
                         ? "this map surface is the one the room is standing on — its cap is inert"
                         : "the game turned this button off");
                 }
@@ -1292,25 +1335,33 @@ internal sealed class MapButtonRail
             // exact and needs no knowledge of the curves.
             if (c.Glow != null)
             {
+                Image? pulse = c.City != null ? c.CityPulse?.Sample(c.City, live) : null;
+                Image? originalHighlight = c.HighlightImage;
+                if (pulse != null) c.HighlightImage = pulse;
                 bool glowing = c.HighlightGo != null && c.HighlightGo.activeInHierarchy
                                && c.HighlightImage != null && c.HighlightImage.enabled;
+                if (pulse != null) glowing = pulse.enabled;
                 if (c.Glow.enabled != glowing)
                     c.Glow.enabled = glowing;
                 if (glowing)
                 {
                     ResolveSprite(c.Glow, c.HighlightImage!.sprite, ref c.GlowSource);
-                    Color gc = c.HighlightImage.color;
-                    gc.a *= groupAlpha;
+                    Transform? cityRoot = c.City != null ? pulse != null ? c.CityPulse?.VisualRoot : c.City.transform : null;
+                    Color gc = cityRoot != null ? MapCityEventPulse.Color(c.HighlightImage, cityRoot) : c.HighlightImage.color;
+                    if (cityRoot == null) gc.a *= groupAlpha;
                     if (c.Glow.color != gc)
                         c.Glow.color = gc;
+                    Vector3 actualScale = cityRoot != null ? MapCityEventPulse.Scale(c.HighlightImage, cityRoot) : c.HighlightImage.transform.localScale;
                     float ratio = c.HighlightBaseScale.x > 1e-4f
-                        ? c.HighlightImage.transform.localScale.x / c.HighlightBaseScale.x
+                        ? actualScale.x / c.HighlightBaseScale.x
                         : 1f;
                     float size = c.IconWorldSize / IconFraction * GlowFraction * ratio;
-                    var want = new Vector2(size, size);
+                    float yRatio = c.HighlightBaseScale.y > 1e-4f ? actualScale.y / c.HighlightBaseScale.y : 1f;
+                    var want = new Vector2(size, cityRoot != null ? c.IconWorldSize / IconFraction * GlowFraction * yRatio : size);
                     if (c.Glow.size != want)
                         c.Glow.size = want;
                 }
+                c.HighlightImage = originalHighlight;
             }
 
             if (c.Badge != null)
@@ -1398,7 +1449,8 @@ internal sealed class MapButtonRail
     /// dictionary probe and one bool field. The reason it has to be per frame at all is that it is
     /// the answer to "is this destination on the table", and that changes without any press.</para>
     /// </summary>
-    private static bool Pressable(Cap c) => Deliverable(c) && HasSomethingToDo(c);
+    private static bool Pressable(Cap c) => c.City != null
+        ? MapCityEventSource.Pressable(c.City) : Deliverable(c) && HasSomethingToDo(c);
 
     /// <summary>
     /// CAN A POINTER EVENT REACH THIS BUTTON AT ALL? <c>ExecuteEvents</c> silently drops everything
@@ -1989,7 +2041,7 @@ internal sealed class MapButtonRail
     }
 
     private static string CapName(Cap c) =>
-        "map table cap '" + (c.Button != null ? c.Button.GuildmasterMode.ToString() : "?") + "'";
+        "map table cap '" + (c.City != null ? "CityEncounter" : c.Button != null ? c.Button.GuildmasterMode.ToString() : "?") + "'";
 
     /// <summary>Find the cap that drives this game button, or null. Linear over at most eight.</summary>
     private Cap? CapOf(UIGuildmasterButton button)
@@ -2019,11 +2071,11 @@ internal sealed class MapButtonRail
     /// follow. Only on a cap the room would actually accept a press on: a tick on a dead cap is a
     /// promise the press then refuses.</para>
     /// </summary>
-    internal void SetPokeHover(UIGuildmasterButton button, VRHand hand, bool hovered, string source)
+    internal void SetPokeHover(Component button, VRHand hand, bool hovered, string source)
     {
         if (button == null)
             return;
-        Cap? c = CapOf(button);
+        Cap? c = _caps.Find(candidate => ReferenceEquals(candidate.Native, button));
         if (c == null)
             return;
         if (hovered)
@@ -2171,7 +2223,7 @@ internal sealed class MapButtonRail
         if (hand.TriggerDown)
         {
             hand.Ray.SuppressFarClick();
-            Press(hit.Button, $"{hand.Side} trigger", hand: hand);
+            PressCap(hit, $"{hand.Side} trigger", hand);
         }
     }
 
@@ -2183,6 +2235,22 @@ internal sealed class MapButtonRail
             _laserHover = null;           // cleared FIRST: RemoveHover must not re-enter this
             RemoveHover(c, "laser left");
         }
+    }
+
+    private void PressCap(Cap cap, string source, VRHand hand)
+    {
+        if (!Pressable(cap)) return;
+        if (cap.City == null) { Press(cap.Button, source, hand: hand); return; }
+        if (!cap.Gate.TryCommit()) return;
+        cap.PressedUntil = Time.unscaledTime + PressHoldSeconds;
+        cap.Presses++;
+        hand.SendHaptic(HapticPreset.ClickPulse);
+        if (cap.Target != null && cap.Target.activeInHierarchy)
+            NativeUiPress.Press(cap.Target, cap.GameHovered, CapName(cap) + " (" + source + ")");
+        else
+            // OnDisable unregisters onClick when native gamepad presentation hides this control.
+            // Its public native method is the same action, after the same interaction locks.
+            cap.City.OpenCityEvent();
     }
 
     // ---- the click ---------------------------------------------------------------------------
@@ -2689,9 +2757,9 @@ internal sealed class MapButtonRail
 internal sealed class MapButtonPoke : MonoBehaviour, IPokeable
 {
     private MapButtonRail? _rail;
-    private UIGuildmasterButton? _button;
+    private Component? _button;
 
-    internal void Bind(MapButtonRail rail, UIGuildmasterButton button)
+    internal void Bind(MapButtonRail rail, Component button)
     {
         _rail = rail;
         _button = button;

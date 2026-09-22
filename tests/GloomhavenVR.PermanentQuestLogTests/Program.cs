@@ -7,6 +7,7 @@ namespace UnityEngine.UI
     internal sealed class UIWindow
     {
         internal bool QuestLog;
+        internal bool PartyPanel;
         internal bool IsOpen;
         internal bool Destroyed;
         public static bool operator ==(UIWindow? a, UIWindow? b) =>
@@ -44,8 +45,11 @@ namespace GloomhavenVR.WorldUI
     internal static partial class ModalFallback
     {
         private static readonly List<UIWindow> OpenWindows = new();
+        private static readonly HashSet<UIWindow> Floated = new();
         private static int _checks;
         private static bool IsQuestLogWindow(UIWindow? window) => window != null && window.QuestLog;
+        private static bool IsMapRoomPermanent(UIWindow window) => window.PartyPanel || window.QuestLog;
+        private static bool IsFloatedByUs(UIWindow window) => Floated.Contains(window);
         private static void AddPollWindow(UIWindow window)
         {
             if (!FloatRefusalTable.Refuses(window) && !OpenWindows.Contains(window))
@@ -165,14 +169,87 @@ namespace GloomhavenVR.WorldUI
             QuestManager.Instance = null;
             Tick();
             Check(OpenWindows.Count == 0, "Destroyed native manager cannot restore a stale quest list");
+            TestPresentationReturn();
             Console.WriteLine($"Permanent quest log: {_checks} production-linked assertions passed.");
+        }
+
+        private static void TestPresentationReturn()
+        {
+            ResetPermanentQuestLog();
+            MapRuleLibrary.Adventure.AdventureState.MapState.IsCampaign = true;
+            foreach (bool flat in new[] { false, true })
+            foreach (bool map in new[] { false, true })
+            foreach (bool running in new[] { false, true })
+                Check(MapRoomWindowReturn.IsPresentationSwitch(flat, map, running) == (flat && map && running),
+                    "only a live flat-map presentation switch may preserve native windows");
+
+            // Repeat beyond the catch-all's historical three-open fuse. Enrollment must not
+            // depend on a new native Show or on that catch-all counter; the real original is used.
+            for (int cycle = 0; cycle < 100; cycle++)
+            {
+                Floated.Clear();
+                QuestManager.Instance = null;
+                NewPartyDisplayUI.PartyDisplay = null;
+                MapRoomWindowReturn.Arm();
+                Tick();
+                Check(OpenWindows.Count == 0, "missing native roots must wait without inventing widgets");
+                var party = new UIWindow { PartyPanel = true, IsOpen = false };
+                var quest = new UIWindow { QuestLog = true, IsOpen = false };
+                NewPartyDisplayUI.PartyDisplay = new NativeQuestLog { Window = party };
+                QuestManager.Instance = new QuestManager { questLog = new NativeQuestLog { Window = quest } };
+                MapRuleLibrary.Adventure.AdventureState.MapState.HeadquartersState.PartyUIUnlocked = false;
+                Tick();
+                Check(OpenWindows.Count == 0, "native introductory character unlock must remain authoritative");
+                MapRuleLibrary.Adventure.AdventureState.MapState.HeadquartersState.PartyUIUnlocked = true;
+                StoryComposite.PointOfNoReturn = true;
+                Tick();
+                Check(OpenWindows.Count == 0, "return must wait for actual quest story and loadout");
+                StoryComposite.PointOfNoReturn = false;
+                FloatRefusalTable.Refused = true;
+                Tick();
+                Check(OpenWindows.Count == 0, "journey and other temporary refusal must retain authority");
+                FloatRefusalTable.Refused = false;
+                WorldUIConfig.ConversionActive = false;
+                Tick();
+                Check(OpenWindows.Count == 0, "2D presentation must not enroll VR windows");
+                WorldUIConfig.ConversionActive = true;
+                MapRoom.MapRoomDriver.Active = false;
+                Tick();
+                Check(OpenWindows.Count == 0, "a room not yet ready cannot return windows");
+                MapRoom.MapRoomDriver.Active = true;
+                MapRoom.MapRoomDriver.ParchmentRenderer!.enabled = false;
+                Tick();
+                Check(OpenWindows.Count == 0, "hidden map must not return its windows");
+                MapRoom.MapRoomDriver.ParchmentRenderer.enabled = true;
+                Tick();
+                Check(OpenWindows.Count == 2 && OpenWindows.Contains(party) && OpenWindows.Contains(quest),
+                    "return must enroll both original native-hidden permanent windows");
+                Tick();
+                Check(OpenWindows.Count == 2, "requests survive conversion delay without duplicate enrollment");
+                Check(!party.IsOpen && !quest.IsOpen, "return must not call native Show or mutate open state");
+                Floated.Add(party);
+                Tick();
+                Check(OpenWindows.Count == 1 && OpenWindows.Contains(quest),
+                    "successful party conversion leaves the pending quest independently recoverable");
+                Floated.Add(quest);
+                Tick();
+                Check(OpenWindows.Count == 0, "successful conversion consumes both requests");
+                Floated.Clear();
+                Tick();
+                Check(OpenWindows.Count == 0, "later native flow must not trigger an unsolicited reentry");
+                MapRoomWindowReturn.Arm();
+                MapRoomWindowReturn.Reset();
+                Tick();
+                Check(OpenWindows.Count == 0, "scene teardown cancels pending restoration");
+            }
         }
     }
 }
 
 namespace MapRuleLibrary.Adventure
 {
-    internal sealed class MapState { internal bool IsCampaign = true; }
+    internal sealed class MapState { internal bool IsCampaign = true; internal HeadquartersState HeadquartersState = new(); }
+    internal sealed class HeadquartersState { internal bool PartyUIUnlocked; }
     internal static class AdventureState { internal static MapState MapState = new(); }
 }
 internal sealed class QuestManager
@@ -185,3 +262,4 @@ internal sealed class NativeQuestLog
     internal UIWindow? Window;
     internal T? GetComponent<T>() where T : class => Window as T;
 }
+internal static class NewPartyDisplayUI { internal static NativeQuestLog? PartyDisplay; }

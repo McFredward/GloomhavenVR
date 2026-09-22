@@ -37,6 +37,8 @@ internal sealed partial class NetAvatarDriver
         catch (Exception e) { LogPhaseError("Sample native decision prompt", e); }
         try { TickItemAppearanceSend(now); }
         catch (Exception e) { LogPhaseError("Sample native item appearance", e); }
+        try { TickMapButtonTooltipSend(now); }
+        catch (Exception e) { LogPhaseError("Sample map button tooltip", e); }
         try { TickCardAppearanceSend(now); }
         catch (Exception e) { LogPhaseError("Sample native card appearance", e); }
         try { TickNativeBoardSend(now); }
@@ -115,6 +117,8 @@ internal sealed partial class NetAvatarDriver
 
     private bool QueueNativePresentation(int sender, byte[] buffer, int length)
     {
+        if (NetPacket.PeekType(buffer, length) == NetProtocol.MsgMapButtonTooltip)
+            return QueueMapButtonTooltip(sender, buffer, length);
         if (NetPacket.PeekType(buffer, length) == NetProtocol.MsgNativeDecisionPrompt)
             return QueueNativePrompt(sender, buffer, length);
         if (NetPacket.PeekType(buffer, length) == NetProtocol.MsgItemAppearance)
@@ -161,6 +165,7 @@ internal sealed partial class NetAvatarDriver
 
     private void ApplyNativePresentation()
     {
+        ApplyMapButtonTooltip();
         ApplyItemAppearance();
         ApplyCardAppearance();
         ApplyNativePrompt();
@@ -203,12 +208,13 @@ internal sealed partial class NetAvatarDriver
     }
 
     private void ForgetNativePresentation(int sender)
-    { _pendingPlumes.Remove(sender); _pendingNative.Remove(sender); _pendingBoards.Remove(sender); ForgetItemAppearance(sender); ForgetCardAppearance(sender); ForgetNativePrompt(sender); }
+    { _pendingPlumes.Remove(sender); _pendingNative.Remove(sender); _pendingBoards.Remove(sender); ForgetItemAppearance(sender); ForgetCardAppearance(sender); ForgetNativePrompt(sender); ForgetMapButtonTooltip(sender); }
 
     private void ResetNativePresentation()
     {
         _pendingPlumes.Clear(); _pendingNative.Clear(); _pendingBoards.Clear();
         ResetItemAppearance();
+        ResetMapButtonTooltip();
         ResetCardAppearance();
         ResetNativePrompt();
         _lastSentDamageDecisionPreview = null;

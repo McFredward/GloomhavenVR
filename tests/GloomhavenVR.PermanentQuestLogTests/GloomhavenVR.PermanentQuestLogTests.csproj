@@ -4,6 +4,7 @@
     <Nullable>enable</Nullable><TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <QuestLogSource Condition="'$(QuestLogSource)' == ''">../../src/GloomhavenVR/WorldUI/Modal/ModalFallback.PermanentQuestLog.cs</QuestLogSource>
     <CurtainSource Condition="'$(CurtainSource)' == ''">../../src/GloomhavenVR/WorldUI/Composites/MapStoryCurtainPolicy.cs</CurtainSource>
+    <ReturnSource Condition="'$(ReturnSource)' == ''">../../src/GloomhavenVR/WorldUI/Modal/MapRoomWindowReturn.cs</ReturnSource>
   </PropertyGroup>
-  <ItemGroup><Compile Include="$(QuestLogSource)" Link="Production/PermanentQuestLog.cs" /><Compile Include="$(CurtainSource)" Link="Production/CurtainPolicy.cs" /></ItemGroup>
+  <ItemGroup><Compile Include="$(QuestLogSource)" Link="Production/PermanentQuestLog.cs" /><Compile Include="$(CurtainSource)" Link="Production/CurtainPolicy.cs" /><Compile Include="$(ReturnSource)" Link="Production/MapRoomWindowReturn.cs" /></ItemGroup>
 </Project>

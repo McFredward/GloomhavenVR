@@ -2432,6 +2432,11 @@ internal static partial class ModalFallback
     /// when it leaves the HQ. Then say so, ALWAYS, including when it finds nothing: a sweep that only
     /// speaks on success hides that it never ran.</para>
     ///
+    /// <para>A live switch to the flat map is a presentation change, not an HQ exit.
+    /// With closeNativeWindows=false the same float cleanup restores the original flat UI
+    /// without calling Hide. Calling Hide here used to strand both permanent map windows
+    /// on the subsequent 3D entry, because toggling VR presentation emits no native Show.</para>
+    ///
     /// <para>WHY EVERY FLOAT AND NOT A NAMED LIST. While the room stands there is no scenario board
     /// (<c>MapRoomDriver.Active</c> and the scenario predicate are mutually exclusive by
     /// construction), so everything in <see cref="Converted"/> at this instant is a window the ROOM
@@ -2448,7 +2453,7 @@ internal static partial class ModalFallback
     /// The pose paths cannot resurrect anything either: they reach a window only through
     /// <c>SharedWindows.TryGetGrab</c>, which walks the very list this method empties.</para>
     /// </summary>
-    internal static void ReleaseMapRoomFloats(string reason)
+    internal static void ReleaseMapRoomFloats(string reason, bool closeNativeWindows = true)
     {
         ResetPermanentQuestLog();
         // WINDOW MATERIALISE — same reasoning as ReleaseAllWindows: a map-room stand-down must not
@@ -2480,7 +2485,7 @@ internal static partial class ModalFallback
             // to be closed. Hide() and not Escape(): Escape runs the window's escape ACTION, which
             // for several of these windows opens or focuses something else, and this is a teardown,
             // not a user gesture.
-            if (wasOpen)
+            if (wasOpen && closeNativeWindows)
             {
                 window!.Hide();
                 hidden++;
@@ -2495,7 +2500,9 @@ internal static partial class ModalFallback
                               + (released == 0
                                   ? "NOTHING WAS FLOATED — this line is printed anyway, so a silent sweep "
                                     + "can never be mistaken for a sweep that did not run."
-                                  : $"Windows: {names}."));
+                                  : $"Windows: {names}.")
+                              + (closeNativeWindows ? string.Empty
+                                  : " Presentation-only map switch: native window states were preserved."));
     }
 
     // ---- THE EMPTY-WINDOW INVARIANT (ModBuild 226) ---------------------------------------------

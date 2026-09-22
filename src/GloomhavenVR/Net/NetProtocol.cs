@@ -68,6 +68,10 @@ internal static class NetProtocol
     public const byte MsgPresentationCompression = 16;
     public const byte MsgItemAppearance = 17;
     public const byte MsgItemAppearanceFragments = 18;
+    // 19–22 / 78–81 belong to feature/immersive-town-services; do not reuse across branches.
+    public const byte MsgMapButtonTooltip = 23;
+    public const byte MsgMapButtonTooltipFragments = 24;
+    public const byte ExtIdMapButtonTooltip = 82;
     public const byte ExtIdItemAppearance = 76;
     public const byte ExtIdPresentationCompression = 64;
     public const byte ExtIdDamageAvoidance = 65;
@@ -89,7 +93,8 @@ internal static class NetProtocol
     public const byte ExtIdCardBurnCompletion = 75;
     /// <summary>Explicit shared map-window ownership: held mask, then automatic-motion mask.
     /// Each byte uses bits 0/1/2 for story/quest/encounter. Zero explicitly clears ownership;
-    /// absence means the peer supplied no ownership statement. Additive TLV; 78 is next free.</summary>
+    /// absence means the peer supplied no ownership statement. Additive TLV; 83 is next free
+    /// (78–81 are reserved by the isolated NPC branch, 82 carries map-button hints).</summary>
     public const byte ExtIdSharedWindowMotion = 77;
     public const byte SharedWindowMotionRecordBytes = 2;
     public const byte SharedWindowMotionMapStoryBit = 1;
@@ -514,7 +519,18 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 537;
+    public const ushort ModBuild = 546;
+
+    // ModBuild 546 — 1.0.7 map hotfix line, without immersive town services.
+    // Restore the separate native campaign city-event control and its original animation;
+    // keep city/road encounter decisions on the existing shared, host-validated click path.
+    // Presentation-only 2D/3D map transitions retain native window state and re-enrol the
+    // original character/quest windows. Map cap hints carry native output through additive
+    // message 23 / TLV 82; IDs used by the isolated NPC branch remain reserved.
+    // AoE rotation follows native targeting eligibility. Default B/Y release gestures leave
+    // both locomotion sticks free and defer to the recenter chord; an optional stick binding
+    // and live tutorial text follow the configured input. Builds 538–545 remain NPC-only.
+    // Automated verification and hardware checklist: .planning/MAP-546.md.
 
     // ModBuild 537 — independent VR options toggle and native close ordering.
     // Build-536 hardware confirms repeated opening, but host SetFocused(false) dims usable

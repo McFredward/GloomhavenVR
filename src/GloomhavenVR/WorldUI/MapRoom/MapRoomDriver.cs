@@ -644,6 +644,7 @@ internal static class MapRoomDriver
     {
         FlatScreenStereo.MapRoomOwnsParchment = true;
         Active = true;
+        MapRoomWindowReturn.Arm();
         // ModBuild 190: the travel confirmation. Installed from HERE rather than from
         // WorldUIModule because the room is the only thing it applies to, and because its prefix
         // must be live before the first location can be pressed. Idempotent.
@@ -775,7 +776,15 @@ internal static class MapRoomDriver
         // BEFORE the room's own furniture, so the sweep still runs even if a later release throws.
         // The count and the names are logged every time, including zero. See ReleaseMapRoomFloats
         // for the hardware evidence that a released float is not a closed window.
-        ModalFallback.ReleaseMapRoomFloats(reason);
+        // Switching only the presentation must not call native Hide: the flat map has no
+        // matching Show edge on returning to 3D, so its permanent controls would stay closed.
+        bool nativeMapVisible = _choreo != null
+            && ((_choreo.worldMap != null && _choreo.worldMap.activeInHierarchy)
+                || (_choreo.cityMap != null && _choreo.cityMap.activeInHierarchy));
+        bool presentationSwitch = MapRoomWindowReturn.IsPresentationSwitch(
+            Plugin.Vanilla2DMap != null && Plugin.Vanilla2DMap.Value,
+            nativeMapVisible, VRSession.IsRunning);
+        ModalFallback.ReleaseMapRoomFloats(reason, closeNativeWindows: !presentationSwitch);
         Parchment.Release(reason);
         FlatScreenStereo.MapRoomOwnsParchment = false;
         VRLog.Info(Scope, $"MAP ROOM stood down ({reason}) — parchment materials restored, icon command "
@@ -793,6 +802,7 @@ internal static class MapRoomDriver
     /// </summary>
     internal static void ForgetScene()
     {
+        MapRoomWindowReturn.Reset();
         _choreo = null;
         _findFrameValid = false;
         _findFrame = 0;

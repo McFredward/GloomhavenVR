@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <MapCitySource Condition="'$(MapCitySource)' == ''">../../src/GloomhavenVR/WorldUI/MapRoom/MapCityEventSource.cs</MapCitySource>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="$(MapCitySource)" Link="Production/MapCityEventSource.cs" />
+  </ItemGroup>
+</Project>

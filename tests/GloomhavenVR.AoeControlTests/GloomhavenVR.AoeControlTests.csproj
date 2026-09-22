@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType><TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable><ImplicitUsings>enable</ImplicitUsings>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <AoeSource Condition="'$(AoeSource)' == ''">$(MSBuildThisFileDirectory)../../src/GloomhavenVR/Board/AoeControl.cs</AoeSource>
+    <HintSource Condition="'$(HintSource)' == ''">$(MSBuildThisFileDirectory)../../src/GloomhavenVR/Compat/Tutorial/TutorialAoeHint.cs</HintSource>
+    <BoardSources Condition="'$(BoardSources)' == ''">$(MSBuildThisFileDirectory)../../src/GloomhavenVR/Board</BoardSources>
+    <RefreshSource Condition="'$(RefreshSource)' == ''">$(MSBuildThisFileDirectory)../../src/GloomhavenVR/Compat/Tutorial/TutorialAoeHintRefresh.cs</RefreshSource>
+    <GestureSource Condition="'$(GestureSource)' == ''">$(BoardSources)/AoeFaceButtonGesture.cs</GestureSource>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="$(AoeSource)" Link="AoeControl.cs" />
+    <Compile Include="$(HintSource)" Link="TutorialAoeHint.cs" />
+    <Compile Include="$(BoardSources)/AoeRotationInputMode.cs" Link="AoeRotationInputMode.cs" />
+    <Compile Include="$(GestureSource)" Link="AoeFaceButtonGesture.cs" />
+    <Compile Include="$(RefreshSource)" Link="TutorialAoeHintRefresh.cs" />
+  </ItemGroup>
+</Project>

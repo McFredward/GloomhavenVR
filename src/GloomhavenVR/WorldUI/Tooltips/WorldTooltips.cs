@@ -1311,6 +1311,14 @@ internal sealed class WorldTooltips
         // is ever built at all. `contentShown` is the box's own alpha, so the latch may keep
         // parking the canvas for the next hover while the backing goes when the content goes.
         _backingShown = contentShown;
+        if (MapRoom.MapButtonTooltipPresentation.PlaceNativeExplanation(_tooltip, _canvas))
+        {
+            // This is an original map-button explanation, owned by the cap beside the map.
+            // Its complete native hierarchy has a dedicated shared map stream; do not also
+            // publish the same hint on the remote control-board tooltip mount.
+            WireText = null;
+            return;
+        }
         LogMrEvidence();
 
         // Diagnostic (user #7a): one line when the hint parks at the resolved board anchor

@@ -29,7 +29,6 @@ checks=[
  '&& GuildmasterRoomLayout.HasUsableCap(layout, capSize)' in g,
  'renderer.isPartOfStaticBatch || filter == null' in g,
  'if (!supportedRail && !_fitWarned)' in b,
- b.index('if (_scratch.Count == 0)', b.index('_scratch.Sort(CompareByDeclaredRank)')) < b.index('if (SameSet())'),
  'float size = c.IconWorldSize / IconFraction * GlowFraction * ratio;' in b,
  'keeping the native actions on the right-side fallback rail.' in b,
  'return; // The slab may still be loading' not in b,
@@ -40,12 +39,23 @@ checks=[
  s.index('GuildmasterRoomGeometry.TryFloor') < s.index('room.transform.SetPositionAndRotation(new Vector3(center.x, floorY, center.z)')
 ]
 assert all(checks),checks
+def keeps_complete_discovery_before_reuse(source):
+ # The city encounter uses a separate native component, so an empty mode-button scan alone
+ # no longer means the entire rail is empty. Validate both discoveries before SameSet's reuse
+ # path; otherwise startup with only a city control can remain missing without a retry/build.
+ ordered=source[source.index('_scratch.Sort(CompareByDeclaredRank)'):source.index('private void RefreshDestinationWindows()')]
+ guard=ordered.find('if (_scratch.Count == 0 && _citySource == null)')
+ reuse=ordered.find('if (SameSet())')
+ return guard >= 0 and reuse >= 0 and guard < reuse
+assert keeps_complete_discovery_before_reuse(b)
+assert not keeps_complete_discovery_before_reuse(b.replace(
+ 'if (_scratch.Count == 0 && _citySource == null)', 'if (_scratch.Count == 0)'))
 def keeps_cadence(source):
  tick=source[source.index('internal void Tick()'):source.index('internal void Release(')]
  return tick.index('Rescan();') < tick.index('_scanFrame = Time.frameCount;')
 assert keeps_cadence(b)
 assert not keeps_cadence(b.replace('            Rescan();', '            _scanFrame = Time.frameCount;\n            Rescan();',1))
-print(f'Guildmaster room bindings: {len(checks)+1} passed; failed-build cadence negative rejected.')
+print(f'Guildmaster room bindings: {len(checks)+2} passed; city-discovery and failed-build cadence negatives rejected.')
 PY
 mutation_dir="$(mktemp -d)"
 trap 'rm -rf "$mutation_dir"' EXIT

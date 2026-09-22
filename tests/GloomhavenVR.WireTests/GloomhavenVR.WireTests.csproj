@@ -57,6 +57,8 @@
        moved during the refactor, this list is what fails first — which is intended. -->
   <ItemGroup>
     <Compile Include="$(RepoRoot)src\GloomhavenVR\Net\NetProtocol.cs" Link="wire\NetProtocol.cs" />
+    <Compile Include="$(RepoRoot)src/GloomhavenVR/Net/MapButtonTooltipCodec.cs" />
+    <Compile Include="MapButtonTooltipVectors.cs" />
     <Compile Include="$(RepoRoot)src\GloomhavenVR\Net\Avatar\AvatarState.cs" Link="wire\AvatarState.cs" />
     <Compile Include="$(RepoRoot)src\GloomhavenVR\Net\Avatar\AvatarSerializer.cs" Link="wire\AvatarSerializer.cs" />
     <Compile Include="$(RepoRoot)src\GloomhavenVR\Net\PresenceState.cs" Link="wire\PresenceState.cs" />

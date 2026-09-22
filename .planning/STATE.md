@@ -1,6 +1,11 @@
 # State — where the project stands
 
-**Updated 2026-09-20 for independent VR options toggling and native close ordering; dev 1.0.6 / ModBuild 537.** The file this replaces had gone 168 builds
+**Updated 2026-09-22 for map hotfixes; dev 1.0.7 / ModBuild 546, without NPC services.**
+The complete NPC development is isolated on `feature/immersive-town-services` for a
+future release of at least 1.1.0. Builds 538–545 remain reserved for that branch.
+Current fixes and validation: [MAP-546.md](MAP-546.md).
+
+The file this replaces had gone 168 builds
 stale while still saying "read this first"; it is kept as `STATE-ARCHIVE-through-2026-08.md` for
 its round-by-round narrative and for nothing else.
 
@@ -12,6 +17,17 @@ change per build) → this file (where things stand and what is owed) → the bu
 ---
 
 ## 1. Position
+
+- **dev / 1.0.7 / ModBuild 546**, based on the 1.0.6 runtime without NPC services:
+  campaign city-event cap and native animation, original permanent map windows across
+  2D/3D switches, and native map-button hints beside physical caps with synchronized
+  multiplayer presentation. AoE uses short B/Y releases by default; both locomotion
+  sticks stay available. A normal Comfort setting offers the legacy stick alternative,
+  and English/German tutorial hints update to the selected binding even while open.
+  Native targeting authority and shared encounter continuation remain in charge.
+  Evidence, validation and hardware checklist: [MAP-546.md](MAP-546.md).
+  Supplied logs are older NPC build 544 / remote build 500, so this implementation has
+  no matching headset confirmation yet. No release or NPC-branch changes are included.
 
 - **dev / 1.0.6 / ModBuild 537** removes VR-triggered native focus handoffs:
   opening settings must not shade otherwise usable menu entries. Native hidden callbacks
