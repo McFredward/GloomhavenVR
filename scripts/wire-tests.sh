@@ -16,33 +16,12 @@
 # at tests/.
 set -euo pipefail
 
-# This entry point is the complete local gate. Partial discovery/shard runs belong to
-# run-test-suites.py directly and must never masquerade as a full golden-vector check.
-expect_value=false
-for argument in "$@"; do
-    if $expect_value; then
-        expect_value=false
-        continue
-    fi
-    case "$argument" in
-        --jobs|--output-dir) expect_value=true ;;
-        --jobs=*|--output-dir=*) ;;
-        *)
-            echo "wire tests: only --jobs and --output-dir are supported; partial/group/list options require scripts/run-test-suites.py directly" >&2
-            exit 2 ;;
-    esac
-done
-if $expect_value; then
-    echo "wire tests: missing option value" >&2
-    exit 2
-fi
-
 ROOT_FOR_HINT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 # A FRESH WORKTREE IS NOT A FAILING CHANGE, and until this guard existed it looked exactly
 # like one. Both of the per-machine, gitignored inputs below are linked in by
 # scripts/worktree-setup.sh, and neither absence announces itself usefully on its own:
-# a missing game Managed folder surfaces as a bare "The directory ... does not exist", and a
+# a missing ressources/Managed surfaces as a bare "The directory ... does not exist", and a
 # missing Directory.Build.props.user surfaces as a BadImageFormatException reading
 # "Reference assemblies cannot be loaded for execution" — which names neither the file nor
 # the remedy. Two parallel workers read those as real gate failures and went looking for a
@@ -55,8 +34,8 @@ _worktree_hint() {
     echo "        Directory.Build.props.user in from the main checkout)" >&2
     exit 1
 }
-[[ -d "$ROOT_FOR_HINT/ressources/GH_Data/Managed" || -d "$ROOT_FOR_HINT/ressources/Managed" ]] \
-    || _worktree_hint "game references are missing (expected ressources/GH_Data/Managed or ressources/Managed)"
+[[ -d "$ROOT_FOR_HINT/ressources/Managed" ]] \
+    || _worktree_hint "ressources/Managed is missing (the game's reference assemblies)"
 [[ -e "$ROOT_FOR_HINT/Directory.Build.props.user" ]] \
     || _worktree_hint "Directory.Build.props.user is missing (the per-machine GameManaged path)"
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -65,12 +44,6 @@ if ! command -v dotnet >/dev/null 2>&1 && [[ -x "$HOME/.dotnet/dotnet" ]]; then
     export DOTNET_ROOT="$HOME/.dotnet"
 fi
 export PATH="${DOTNET_ROOT:-$HOME/.dotnet}:$PATH"
-
-# Serialize complete wire invocations in this checkout: compilation and execution use the
-# same bin/obj. Independent presentation suites have their own runner-managed locks.
-mkdir -p "$ROOT/.planning/debug/test-locks"
-exec 9>"$ROOT/.planning/debug/test-locks/wire.lock"
-flock 9
 
 PROJ="$ROOT/tests/GloomhavenVR.WireTests/GloomhavenVR.WireTests.csproj"
 OUT="$ROOT/tests/GloomhavenVR.WireTests/bin/Release/net8.0/GloomhavenVR.WireTests"
@@ -83,12 +56,56 @@ OUT="$ROOT/tests/GloomhavenVR.WireTests/bin/Release/net8.0/GloomhavenVR.WireTest
 # `set -e` the script exited 1 having printed nothing at all, and "the wire tests failed" was
 # indistinguishable from "the wire tests printed nothing". Captured and re-emitted on failure —
 # the output is still hidden on success, which is what the quiet flag was for.
-if ! BUILD_LOG="$(dotnet build "$PROJ" -c Release -v quiet --nologo 9>&- 2>&1)"; then
+if ! BUILD_LOG="$(dotnet build "$PROJ" -c Release -v quiet --nologo 2>&1)"; then
     echo "wire tests: THE TEST PROJECT DID NOT COMPILE — not one vector ran." >&2
     echo "$BUILD_LOG" >&2
     exit 1
 fi
-# Each unchanged harness keeps its mutations serial; independent suites run concurrently.
-python3 -m unittest discover -s "$ROOT/tests" -p test_parallel_test_suites.py 9>&-
-python3 "$ROOT/scripts/run-test-suites.py" --group local "$@" 9>&-
-"$OUT" "$ROOT" 9>&-
+# Exercise production native hierarchy discovery as well as pure wire DTO fixtures. The
+# controlled tree harness also proves that reinstating the old eight-group cap fails at runtime.
+bash "$ROOT/scripts/card-bindings-tests.sh"
+bash "$ROOT/scripts/native-playback-tests.sh"
+bash "$ROOT/scripts/native-video-tests.sh"
+bash "$ROOT/scripts/reward-showcase-tests.sh"
+bash "$ROOT/scripts/modal-close-tests.sh"
+bash "$ROOT/scripts/vr-options-tests.sh"
+bash "$ROOT/scripts/vr-options-close-tests.sh"
+bash "$ROOT/scripts/reward-pose-tests.sh"
+bash "$ROOT/scripts/conversion-rollback-tests.sh"
+bash "$ROOT/scripts/panel-material-tests.sh"
+bash "$ROOT/scripts/panel-ink-tests.sh"
+bash "$ROOT/scripts/video-playback-tests.sh"
+bash "$ROOT/scripts/hint-tests.sh"
+bash "$ROOT/scripts/quest-hint-tests.sh"
+bash "$ROOT/scripts/tutorial-scope-tests.sh"
+bash "$ROOT/scripts/tutorial-controller-tests.sh"
+bash "$ROOT/scripts/retry-start-tests.sh"
+bash "$ROOT/scripts/window-reflow-tests.sh"
+bash "$ROOT/scripts/shared-window-reflow-tests.sh"
+bash "$ROOT/scripts/board-refresh-tests.sh"
+bash "$ROOT/scripts/card-loss-modal-tests.sh"
+bash "$ROOT/scripts/map-flow-tests.sh"
+bash "$ROOT/scripts/map-button-tests.sh"
+bash "$ROOT/scripts/round-card-tests.sh"
+bash "$ROOT/scripts/burn-layout-tests.sh"
+bash "$ROOT/scripts/burn-replay-tests.sh"
+bash "$ROOT/scripts/pick-tray-tests.sh"
+bash "$ROOT/scripts/mr-backing-tests.sh"
+bash "$ROOT/scripts/mr-backing-materialise-tests.sh"
+bash "$ROOT/scripts/mr-backing-animation-tests.sh"
+bash "$ROOT/scripts/card-scene-lifetime-tests.sh"
+bash "$ROOT/scripts/card-pool-lifetime-tests.sh"
+bash "$ROOT/scripts/burn-material-ownership-tests.sh"
+bash "$ROOT/scripts/permanent-quest-log-tests.sh"
+bash "$ROOT/scripts/guildmaster-table-tests.sh"
+bash "$ROOT/scripts/mr-scenario-tests.sh"
+bash "$ROOT/scripts/guildmaster-room-tests.sh"
+bash "$ROOT/scripts/map-icon-picking-tests.sh"
+bash "$ROOT/scripts/remote-burn-sequencing-tests.sh"
+bash "$ROOT/scripts/burn-completion-tests.sh"
+bash "$ROOT/scripts/item-burn-tests.sh"
+bash "$ROOT/scripts/item-appearance-tests.sh"
+bash "$ROOT/scripts/flight-timing-tests.sh"
+bash "$ROOT/scripts/figure-hold-tests.sh"
+bash "$ROOT/scripts/presentation-send-tests.sh"
+exec "$OUT" "$ROOT"

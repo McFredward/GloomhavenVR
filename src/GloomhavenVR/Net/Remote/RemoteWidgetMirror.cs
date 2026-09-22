@@ -293,7 +293,7 @@ internal sealed class RemoteWidgetMirror : WorldUI.MrBacking.IBackedSurface, Wor
         LayoutOwner layoutOwner = LayoutOwner.Source,
         System.Func<Transform, bool>? externallyShownBranch = null, bool contentOutsideFrame = false,
         System.Func<Transform, bool>? excludedFromFitBranch = null,
-        System.Func<Transform, Transform?>? backingContentRoot = null, bool mrBacking = true)
+        System.Func<Transform, Transform?>? backingContentRoot = null)
     {
         _contentOutsideFrame = contentOutsideFrame;
         _backingContentRoot = backingContentRoot;
@@ -311,7 +311,7 @@ internal sealed class RemoteWidgetMirror : WorldUI.MrBacking.IBackedSurface, Wor
         // MR readability: claim the converted-panel treatment the owner's own copy of this panel
         // gets for free (see the class doc's MIXED REALITY block). Registration is MR-agnostic and
         // costs one list entry — no plate exists until MR is actually on.
-        if (mrBacking) WorldUI.MrBacking.Surface(this);
+        WorldUI.MrBacking.Surface(this);
     }
 
     private Vector2 _ownerFramePixels, _ownerParentPixels;

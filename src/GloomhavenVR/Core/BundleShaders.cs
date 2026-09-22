@@ -76,7 +76,6 @@ internal static class BundleShaders
         { "GloomhavenVR/WindowMaterialise", "Assets/Bundle/Table/WindowMaterialise.shader" },
         { "GloomhavenVR/HeadUnlit",      "Assets/Bundle/Head/HeadUnlit.shader" },
         { "GloomhavenVR/WaterVR",        "Assets/Bundle/Environments/WaterVR.shader" },
-        { "GloomhavenVR/TownFlame",      "Assets/Bundle/TownServices/Shaders/TownFlame.shader" },
     };
 
     /// <summary>Shaders that have resolved. Only SUCCESSES are cached — a miss must be retried,

@@ -109,10 +109,6 @@ namespace GloomhavenVR
             foreach (var file in Directory.GetFiles(ContentRoot, "*", SearchOption.AllDirectories))
             {
                 var path = file.Replace('\\', '/');
-                // Town NPCs have a separate bank so neither committed binary exceeds GitHub's
-                // file limit, and regenerating town art cannot replace the established main bank.
-                if (path.StartsWith(ContentRoot + "/TownServices/", StringComparison.Ordinal))
-                    continue;
                 var ext = Path.GetExtension(path).ToLowerInvariant();
                 var name = Path.GetFileName(path);
                 if (ExcludedExtensions.Contains(ext) || name.StartsWith("."))

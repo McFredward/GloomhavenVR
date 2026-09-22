@@ -91,12 +91,6 @@ die Belohnung; der Spieler des betroffenen Characters bestätigt für die Gruppe
 Auf einen Ort zeigen, um dessen Auftragsschild einzublenden. Die Gildenmeister-Tasten liegen am
 Tischrand. Für die originale flache Karte **Umgebung & Ton ▸ Kampagnenkarte ▸ Originale 2D-Karte** aktivieren.
 
-**Stadtbesuche:** Händler, Tempel und Verzauberin bleiben neben der Karte stehen. Zum Besuchen
-mit dem Laser auf den NPC zeigen und den Trigger drücken oder ihn berühren. Händlerkarten
-kannst du zum Ansehen hochheben; beim Loslassen kehren sie auf den Tisch zurück. Kaufen musst
-du weiterhin über die Kaufbedienung. Unter **VR Optionen ▸ Tafeln ▸ Händler, Tempel & Verzauberin**
-stellst du mit **Originale Fenster** die vorherige Fensterbedienung wieder her.
-
 ## Umgebungen
 
 <p align="center">

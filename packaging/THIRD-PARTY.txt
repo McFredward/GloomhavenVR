@@ -1,9 +1,9 @@
-GloomhavenVR — third-party assets shipped inside the asset bundles
-=================================================================
+GloomhavenVR — third-party assets shipped inside gloomhavenvr.bundle
+====================================================================
 
-This file lists third-party material inside gloomhavenvr.bundle and ghvr-town.bundle:
-what it is, who made it, and under what terms it travels with the mod. Read the last
-section before reusing bundle assets — one asset is NOT redistributable by you.
+This file lists the third-party material inside gloomhavenvr.bundle: what it is, who
+made it, and under what terms it travels with the mod. Read the last section before
+reusing anything from this bundle — one asset in it is NOT redistributable by you.
 
 The full provenance record for the environment art — every source URL, the date each
 licence was re-read at its source, and the modifications made — lives in the repository
@@ -95,24 +95,6 @@ Public domain / CC0 1.0 — no attribution required, credited here with thanks:
   * Bright Star Catalogue, 5th Revised Edition — Hoffleit D. & Warren Jr. W.H., 1991,
     Astronomical Data Center, NSSDC/ADC. A US Government work, not subject to
     copyright. Drives the star field.
-
-
-TOWN RESIDENT FACIAL GEOMETRY
------------------------------
-The articulated faces in ghvr-town.bundle use adapted MakeHuman Community / MPFB
-asset data under CC0 1.0 Universal: anatomical head topology, facial deformation
-targets, teeth, tongue and eye assets. The heads are fitted and textured for the
-three residents; the facial rig and runtime integration are mod-authored. No MPFB
-program code is embedded in the mod.
-
-    https://github.com/makehumancommunity/mpfb2
-    https://www.makehumancommunity.org/
-    https://creativecommons.org/publicdomain/zero/1.0/
-
-Pinned source revisions and asset hashes are recorded in the repository at
-scripts/npc-face-template/PROVENANCE.json. The CC0 text is included beside this
-notice in Licenses/MakeHuman-CC0-1.0.txt. This attribution covers those asset data;
-it does not relicense the game's character designs or other bundled material.
 
 
 THE ONE ASSET THAT IS NOT REDISTRIBUTABLE BY YOU

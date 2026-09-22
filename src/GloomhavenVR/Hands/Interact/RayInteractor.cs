@@ -786,10 +786,8 @@ internal sealed class RayInteractor : IPickProvider
         {
             liveBoard = _boardOccluderHeldDistance;
         }
-        float resident = WorldUI.TownServiceVisitTarget.OccludingDistance(origin, direction, maxDistance);
-        resident = Mathf.Min(resident, WorldUI.TownServicePhysicalRay.OccludingDistance(origin, direction, maxDistance));
-        SolidOccluderDistance = Mathf.Min(Mathf.Min(FanOccluderDistance, liveBoard), resident);
-        SolidOccluderIsBoard = liveBoard < FanOccluderDistance && liveBoard < resident;
+        SolidOccluderDistance = Mathf.Min(FanOccluderDistance, liveBoard);
+        SolidOccluderIsBoard = liveBoard < FanOccluderDistance;
 
         // The physics pick ALWAYS runs — in every mode, under every modal (user ruling
         // 2026-08: the laser must exist and collide without exception). The former modal

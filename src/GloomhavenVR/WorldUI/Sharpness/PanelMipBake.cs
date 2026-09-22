@@ -282,12 +282,6 @@ internal static class PanelMipBake
         }
     }
 
-    /// <summary>Read-only native identity for public raw-image presentation; never changes the
-    /// owner's mipmapped output or the cache's lifetime.</summary>
-    internal static Texture OriginalFor(Texture texture) =>
-        s_rawOriginalByBaked.TryGetValue(texture.GetInstanceID(), out Texture original) && original != null
-            ? original : texture;
-
     /// <summary>
     /// Hand every graphic under <paramref name="root"/> its ORIGINAL sprite/texture back --
     /// called before a surface returns its canvas to the game (track release/shutdown,

@@ -419,8 +419,6 @@ internal static partial class ModalFallback
     /// </summary>
     private static bool CatchAllEligible(UIWindow window)
     {
-        if (TownServicePresentation.OwnsWindow(window))
-            return false;
         // ModBuild 232 — the refusal table, in its PURE form (no logging, no edge state): this
         // predicate is re-entered several times per tick, once per level of the AncestorWillBeFloated
         // recursion, and every consumer of it must get the same answer the loop above acts on. The

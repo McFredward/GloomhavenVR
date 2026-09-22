@@ -28,9 +28,9 @@ assert guard.count(needle_guard) == 1
 release = pointer[pointer.index('    internal void Release('):pointer.index('    internal static bool ShouldWithholdUnstartedWindowClick(')]
 assert release.index('ShouldWithholdUnstartedWindowClick(_pressedClickHandler, _sourceTag)') < release.index('ExecuteEvents.Execute(_pressedClickHandler, data, ExecuteEvents.pointerClickHandler)')
 (out / 'ChromeSweep.fixture').write_text(sweep)
-needle = 'NativeVideoWindow.OwnsGrab(holder)'
+needle = 'bool owned = NativeVideoWindow.OwnsGrab(holder);'
 assert sweep.count(needle) == 1
-(out / 'ChromeSweep.mutant').write_text(sweep.replace(needle, 'false'))
+(out / 'ChromeSweep.mutant').write_text(sweep.replace(needle, 'bool owned = false;'))
 # Teardown must close the video as well as the ordinary conversions it owns.
 start = source.index('    private static void ReleaseAllWindows(')
 assert 'NativeVideoWindow.Shutdown();' in source[start:source.index('WindowMaterialise.CancelAll(reason);', start)]

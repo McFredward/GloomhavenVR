@@ -78,16 +78,11 @@ if ($FakeVersion) {
 # Ignored Unity output can be stale. Select the committed asset set by default and
 # reject a missing explicitly requested local build before any installation writes.
 $bundle = Join-Path $root "prebuilt\gloomhavenvr.bundle"
-$townBundle = Join-Path $root "prebuilt\ghvr-town.bundle"
 if ($UseLocalBundle) {
     $bundle = Join-Path $root "unity\GloomhavenVR.Assets\Build\Bundles\gloomhavenvr.bundle"
-    $townBundle = Join-Path $root "unity\GloomhavenVR.Assets\Build\TownServices\ghvr-town.bundle"
     if (-not (Test-Path -LiteralPath $bundle -PathType Leaf)) {
         Write-Error "-UseLocalBundle requested a missing local bundle: $bundle"
     }
-}
-if (-not (Test-Path -LiteralPath $townBundle -PathType Leaf)) {
-    Write-Error "Missing town-service asset bundle: $townBundle"
 }
 Write-Host "Asset bundle source: $bundle"
 if (-not (Test-Path -LiteralPath $bundle -PathType Leaf)) { $bundle = $null }
@@ -368,7 +363,6 @@ if (-not $bundle) {
                    "flat board, no environments. Shipping packaging\gloomhavenvr.bundle.README.txt in its place.")
     Write-WindowsText (Join-Path $root "packaging\gloomhavenvr.bundle.README.txt") (Join-Path $pluginDir "gloomhavenvr.bundle.README.txt")
 }
-Copy-Item -LiteralPath $townBundle -Destination (Join-Path $pluginDir "ghvr-town.bundle") -Force
 if ($bundle) {
     Copy-Item $bundle -Destination (Join-Path $pluginDir "gloomhavenvr.bundle") -Force
     # A STALE README FROM AN EARLIER INSTALL MUST GO (2026-09-03). The zip is built from this

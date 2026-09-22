@@ -13,7 +13,7 @@ A hosted Ubuntu runner produces the complete release archive using these inputs:
 | Plugin and preloader | Source in `src/`; the plugin compiles against committed metadata-only `libs/RefAsm` when no game install is available |
 | Unity XR managed dependencies | `scripts/build-runtimedeps.sh`, from pinned package-source tags |
 | OpenXR native libraries | `scripts/fetch-natives.sh`, with pinned SHA256 hashes |
-| Asset bundles | Committed `prebuilt/gloomhavenvr.bundle` and `prebuilt/ghvr-town.bundle`; local Unity output requires explicit opt-in |
+| Asset bundle | Committed `prebuilt/gloomhavenvr.bundle` by default; local Unity output requires explicit opt-in |
 | Installation instructions | `packaging/INSTALL.txt.in` and `packaging/INSTALL.de.txt.in` |
 | License texts and notices | Root GPL `LICENSE`, `packaging/THIRD-PARTY.txt` and pinned XR dependency notices under `Licenses/` in the archive |
 
@@ -272,27 +272,6 @@ Negative controls remove the callback, broaden producer matching and remove the 
 `scripts/video-playback-tests.sh` additionally exercises cosmetic decoder failures and native audio
 restoration; wire vectors cover the additive movie record and stale playback identities.
 
-### Parallel execution
-
-Full dev CI runs a source/build job alongside four runtime jobs. Each runtime job executes
-a disjoint shard of the hosted suites, with two suites running concurrently. The shared
-source gates also run concurrently. `scripts/test-suites.json` defines both inventories;
-`scripts/run-test-suites.py` retains per-suite output, verifies process exit status and prints
-complete logs and durations. The local guard uses the same scheduler for its local suites and
-still runs the golden wire executable against the real game runtime.
-
-A suite's negative controls remain sequential inside that suite. Build and temporary outputs
-are isolated; worker counts are bounded rather than spawning every compiler at once. Matrix
-`fail-fast` is disabled so a failed shard does not hide failures in the others. No routine
-report artifacts are uploaded: detailed output remains in Actions logs. Runtime jobs restore
-NuGet caches without competing to save the same cache; the build job remains the cache writer.
-
-`Full checks [TREE]` is a completion job requiring successful source/build validation and all
-four runtime shards. The final `Build and gates` check keeps its existing name. Optional manual
-DLL downloads originate from the build job and can appear while tests are still running;
-check the final gate before using one. Release publication remains on main and requires full
-exact-tree evidence; it does not repeat these tests.
-
 ### Exact-tree CI evidence
 
 `scripts/ci-proof-reuse.py` uses GitHub's [workflow-run metadata](https://docs.github.com/en/rest/actions/workflow-runs)
@@ -306,11 +285,6 @@ For PRs, the checked-out synthetic merge must have the event's exact base and he
 parents. The workflow-run `head_sha` alone never establishes which PR merge was tested.
 Only the dedicated `Full checks [TREE]` job and its successful final completion step establish
 proof; `Build and gates` remains the required branch-protection check but cannot mint proof.
-For parallel runs the verifier additionally requires the source/build job and every named
-runtime shard to have succeeded for the same run attempt and source commit. Missing,
-duplicate, skipped, failed or cancelled shards reject proof even if the completion job is green.
-Historical serial runs are judged by the workflow at their own tested commit, preserving
-recovery of old release uploads without treating an incomplete parallel run as serial proof.
 A reused PR success cannot be reused recursively as if it had executed tests.
 
 The newest matching dev run and its latest attempt must succeed. A later failed, cancelled,
@@ -445,15 +419,6 @@ already calls it.
 Pure source checks should live in `scripts/`, or have a standalone twin there, so CI
 can execute them. `check-card-identity-mask.py` and `CardIdentityMaskVectors.cs` are such
 a pair; keep their rules aligned.
-
-### Facial rig tests require the real Unity editor
-
-The local `town-face` suite runs `scripts/check-town-face.py` in Unity 2021.3.5f1.
-It exercises production bone transforms, skinned blend shapes, gaze occlusion and
-observer playback, including deliberately broken variants. Hosted runners do not
-have that editor, so the suite belongs to the local group only. Hosted CI compiles
-the production implementation and its facial wire vectors; that is not a substitute
-for the local runtime assertions or inspection of the actual bundled faces.
 
 ### Other limits
 

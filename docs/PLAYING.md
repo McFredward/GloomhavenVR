@@ -89,12 +89,6 @@ the reward; the player controlling that character confirms for the group.
 Point at a location to show its quest placard. Guildmaster buttons sit on the table rim.
 For the original flat map, enable **World & sound ▸ Campaign map ▸ Original 2D map**.
 
-**Town visits:** the merchant, temple and enchantress stay beside the map. Point at an NPC
-and press the trigger, or touch them, to visit. Pick up merchant cards to inspect them;
-letting go returns them to the counter. Buying still requires the purchase controls.
-Under **VR Options ▸ Boards ▸ Merchant, temple & enchantress**, choose **Original windows**
-to use the previous window controls instead.
-
 ## Environments
 
 <p align="center">

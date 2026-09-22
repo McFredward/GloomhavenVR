@@ -27,7 +27,6 @@ needle = 'if (backingGeometry) MrBackingBoundsTrace.Observe(panel, ink, measured
 assert source.count(needle) == 1
 (root / 'trace-binding.fixture').write_text(source.replace(needle,''))
 for name, needle, replacement in [
-    ('live-allocation', 'float alpha = 0f;', 'System.GC.KeepAlive(new object()); float alpha = 0f;'),
     ('live-hidden', ' || !graphic.gameObject.activeInHierarchy', ''),
     ('live-alpha', 'graphic.color.a * renderer.GetInheritedAlpha()', 'graphic.color.a'),
     ('live-canvas', ' || !canvas.isActiveAndEnabled', ''),
@@ -125,7 +124,7 @@ assert 'out content, out contributors, out _, out _, includeParkedHint)' in code
 print('Placement binding negative control: inclusion of owner annotation rejected.')
 PY
 dotnet run --project "$project" --configuration Release --property:ReflowBoundsSource="$repo_root/src/GloomhavenVR/WorldUI/Modal/WindowReflowBounds.cs" --property:RootWatchSource="$watch_source" --property:DrawnUnionSource="$mutation_dir/union.fixture"
-for mutation in live-allocation missing broad hint-ink hint-union reward-heading mr-frame mr-hover mr-scope mr-scope-plate mr-scope-clip live-hidden live-alpha live-canvas live-clear paint-mask paint-alpha paint-transform paint-backdrop paint-layout trace-cap trace-steady trace-throw trace-binding live-own-alpha paint-own-alpha paint-original-alpha capture-clip capture-host; do
+for mutation in missing broad hint-ink hint-union reward-heading mr-frame mr-hover mr-scope mr-scope-plate mr-scope-clip live-hidden live-alpha live-canvas live-clear paint-mask paint-alpha paint-transform paint-backdrop paint-layout trace-cap trace-steady trace-throw trace-binding live-own-alpha paint-own-alpha paint-original-alpha capture-clip capture-host; do
     ink_source="$mutation_dir/$mutation.fixture"
     capture_bounds_source="$repo_root/src/GloomhavenVR/WorldUI/Conversion/MrBackingCaptureBounds.cs"
     capture_accessor_source="$repo_root/src/GloomhavenVR/WorldUI/Sharpness/PanelSupersample.MrBacking.cs"
@@ -149,7 +148,7 @@ for mutation in live-allocation missing broad hint-ink hint-union reward-heading
         ink_source="$source_file"
         painted_source="$mutation_dir/$mutation.fixture"
     fi
-    if [[ "$mutation" == live-allocation || "$mutation" == live-hidden || "$mutation" == live-alpha || "$mutation" == live-canvas || "$mutation" == live-own-alpha ]]; then
+    if [[ "$mutation" == live-hidden || "$mutation" == live-alpha || "$mutation" == live-canvas || "$mutation" == live-own-alpha ]]; then
         ink_source="$source_file"
         visibility_source="$mutation_dir/$mutation.fixture"
     fi
@@ -164,7 +163,6 @@ for mutation in live-allocation missing broad hint-ink hint-union reward-heading
         exit 1
     fi
     expected='full-frame movie remains measurable content'
-    if [[ "$mutation" == live-allocation ]]; then expected='cached live visibility allocates nothing per frame'; fi
     if [[ "$mutation" == broad ]]; then expected='content exemption never admits a neighboring backdrop'; fi
     if [[ "$mutation" == hint-ink ]]; then expected='placement fallback excludes hint'; fi
     if [[ "$mutation" == reward-heading ]]; then expected='reward heading includes overflowing glyphs'; fi

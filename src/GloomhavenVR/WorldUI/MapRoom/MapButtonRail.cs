@@ -473,16 +473,6 @@ internal sealed class MapButtonRail
 
     private readonly List<Cap> _caps = new(8);
     private readonly List<UIGuildmasterButton> _scratch = new(8);
-    private int _residentLayoutMask;
-
-    private int ResidentLayoutMask()
-    {
-        int mask = 0;
-        foreach (UIGuildmasterButton button in _scratch)
-            if (button != null && TownServiceVisitTarget.Replaces(button.GuildmasterMode))
-                mask |= 1 << TownServiceVisitTarget.ServiceOf(button.GuildmasterMode);
-        return mask;
-    }
 
     /// <summary>Caps whose fingertip reached the fire depth this frame, held between the two phases
     /// of <see cref="TickPokeDepths"/> so the commit happens outside the loop over
@@ -702,7 +692,6 @@ internal sealed class MapButtonRail
 
     private bool SameSet()
     {
-        if (_residentLayoutMask != ResidentLayoutMask()) return false;
         if (_scratch.Count != _caps.Count)
             return false;
         for (int i = 0; i < _caps.Count; i++)
@@ -715,7 +704,6 @@ internal sealed class MapButtonRail
 
     private void Build()
     {
-        _residentLayoutMask = ResidentLayoutMask();
         if (!MapRoomDriver.TrySolveSeat(out MapRoomSeat.Seat seat, out _))
             return;
         MeshRenderer? parchment = MapRoomDriver.ParchmentRenderer;
@@ -740,7 +728,7 @@ internal sealed class MapButtonRail
         int[] rowCount = new int[GuildmasterDestinations.RailRowCount];
         for (int i = 0; i < _scratch.Count; i++)
         {
-            if (_scratch[i] == null || TownServiceVisitTarget.Replaces(_scratch[i].GuildmasterMode))
+            if (_scratch[i] == null)
                 continue;
             int r = GuildmasterDestinations.RailRow(_scratch[i].GuildmasterMode);
             if (r >= 0 && r < rowCount.Length)
@@ -840,7 +828,7 @@ internal sealed class MapButtonRail
                     out float x, out float z);
                 localPos = new Vector3(x, 0f, z);
             }
-            if (!TownServiceVisitTarget.Replaces(button.GuildmasterMode)) rowPlaced[row]++;
+            rowPlaced[row]++;
             Cap c = BuildCap(button, localPos, capLocalRot, cap, depth);
             _caps.Add(c);
             built++;
@@ -1259,9 +1247,7 @@ internal sealed class MapButtonRail
             // icon's scale animation, the highlight pulse, the badge — is untouched and still sampled
             // live off the game's own graphics, exactly as the user's ruling requires. See the class
             // doc for the hardware evidence and the rejected alternatives.
-            bool replaced = TownServiceVisitTarget.Replaces(c.Button.GuildmasterMode);
-            if (c.Go.activeSelf == replaced) c.Go.SetActive(!replaced);
-            bool live = !replaced && Pressable(c);
+            bool live = Pressable(c);
             if (live != c.Interactable)
             {
                 c.Interactable = live;
@@ -2604,15 +2590,6 @@ internal sealed class MapButtonRail
     /// on the player's behalf — the game-side half of a close, or the multiplayer surface mirror —
     /// and none of them is a hand on this cap. The dispatch is identical; only the cap's own travel
     /// animation is suppressed. See <see cref="Press"/>'s <c>physical</c> parameter.</para>
-    internal bool CanVisitTownService(EGuildmasterMode mode)
-    {
-        if (TownServiceVisitTarget.ServiceOf(mode) == 0 || StoryComposite.PointOfNoReturn) return false;
-        foreach (Cap cap in _caps)
-            if (cap.Button != null && cap.Button.GuildmasterMode == mode)
-                return Deliverable(cap) && HasSomethingToDo(cap);
-        return false;
-    }
-
     internal bool PressMode(EGuildmasterMode mode, string source)
     {
         for (int i = 0; i < _caps.Count; i++)

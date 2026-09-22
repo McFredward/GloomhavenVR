@@ -41,18 +41,12 @@ CONFIG=Release
 # bundle unless the developer explicitly requests their local build. Validate that
 # request before building or replacing anything in dist/.
 BUNDLE="$ROOT/prebuilt/gloomhavenvr.bundle"
-TOWN_BUNDLE="$ROOT/prebuilt/ghvr-town.bundle"
 if [[ "${GHVR_USE_LOCAL_BUNDLE:-0}" == "1" ]]; then
     BUNDLE="$ROOT/unity/GloomhavenVR.Assets/Build/Bundles/gloomhavenvr.bundle"
-    TOWN_BUNDLE="$ROOT/unity/GloomhavenVR.Assets/Build/TownServices/ghvr-town.bundle"
     if [[ ! -f "$BUNDLE" ]]; then
         echo "error: GHVR_USE_LOCAL_BUNDLE=1 requested a missing local bundle: $BUNDLE" >&2
         exit 1
     fi
-fi
-if [[ ! -f "$TOWN_BUNDLE" ]]; then
-    echo "error: missing town-service asset bundle: $TOWN_BUNDLE" >&2
-    exit 1
 fi
 echo "Asset bundle source: $BUNDLE"
 
@@ -149,8 +143,6 @@ else
     stage_text "$ROOT/packaging/gloomhavenvr.bundle.README.txt" "$PLUGDIR/gloomhavenvr.bundle.README.txt"
 fi
 
-cp "$TOWN_BUNDLE" "$PLUGDIR/ghvr-town.bundle"
-
 # ---- INSTALL.txt / INSTALL-DEUTSCH.txt -------------------------------------------------------
 # ONE source of truth per language for the text a drag-and-drop user reads:
 # packaging/INSTALL.txt.in and packaging/INSTALL.de.txt.in. install.ps1 renders the same
@@ -203,7 +195,6 @@ unzip -l "$ZIP"
 LISTING="$(unzip -l "$ZIP")"
 for path in \
     "BepInEx/plugins/GloomhavenVR/GloomhavenVR.dll" \
-    "BepInEx/plugins/GloomhavenVR/ghvr-town.bundle" \
     "BepInEx/plugins/GloomhavenVR/LICENSE.txt" \
     "BepInEx/plugins/GloomhavenVR/Licenses/SOURCES.txt" \
     "BepInEx/plugins/GloomhavenVR/RuntimeDeps/Unity.XR.OpenXR.dll" \

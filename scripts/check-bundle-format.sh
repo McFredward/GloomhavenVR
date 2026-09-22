@@ -54,6 +54,3 @@ if [[ "$ver" != "2021.3.5f1" ]]; then
 fi
 
 echo "bundle OK: UnityFS format $fmt, Unity $ver, $(stat -c%s "$BUNDLE") bytes"
-if [[ $# -eq 0 ]]; then
-    bash "${BASH_SOURCE[0]}" "$ROOT/prebuilt/ghvr-town.bundle"
-fi

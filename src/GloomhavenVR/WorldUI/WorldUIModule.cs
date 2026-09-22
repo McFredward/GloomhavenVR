@@ -53,7 +53,6 @@ internal sealed class WorldUIModule : IVRModule
         VRSession.Harmony?.PatchAll(typeof(InputManager_SetGamepadInputDevice_Patch));
         VRSession.Harmony?.PatchAll(typeof(InputManager_AssignGamepadBindings_Patch));
         VRSession.Harmony?.PatchAll(typeof(UITextInfoPanel_Show_Patch)); // test #18 attribution diagnostic
-        VRSession.Harmony?.PatchAll(typeof(TownServiceRitualConfirmationCapture)); // preserve offering ownership through native confirmation fade
         VRSession.Harmony?.PatchAll(typeof(Patches.TakeDamagePanelSafety)); // test #23 item 6: burn-two NRE/deadlock guard + MP #10a mandatory-bonus auto-use
         VRSession.Harmony?.PatchAll(typeof(Patches.InitiativeHoverCardBlock)); // MP #10b: no room-sized card on player-entry hover
         VRSession.Harmony?.PatchAll(typeof(Patches.TooltipRaiseGuard)); // 2026-08-09: no head-swept mouse tooltips on world surfaces, none at all while a beam is on a card fan
@@ -206,10 +205,6 @@ internal sealed class WorldUIModule : IVRModule
     {
         VREvents.UiLockChanged -= OnUiLock;
         VREvents.SessionResumed -= OnSessionResumed;
-        TownServicePresentation.Reset();
-        TownServicePopulation.Reset();
-        TownServiceSync.Shutdown();
-        TownServiceAssets.Reset();
         ModalFallback.Detach();
         NonDominantHold.Reset();
 
@@ -353,10 +348,7 @@ internal sealed class WorldUIModule : IVRModule
                 // peek, before ModalFallback so its show/dismiss is reflected by the level-message
                 // poll in the same tick, exactly like a scripted message would be.
                 ("Compat.TutorialGrabStep", Compat.TutorialGrabStep.Tick),
-                ("TownServiceSync.Prepare", TownServiceSync.Prepare), // preserve original template roots before handoff
                 ("ModalFallback", ModalFallback.Tick),      // before the flat screen reads ScreenWanted
-                ("TownServicePresentation", TownServicePresentation.Tick),
-                ("TownServicePopulation", TownServicePopulation.Tick),
                 ("OptionsToggle", _optionsToggle.Tick),     // reads the settled short-tap edge (after the hold arbiters)
                 ("VROptionsTab", VROptionsTab.Tick),        // after OptionsToggle: the pause menu it opens is where the tab is reached
                 ("VRMenuEntry", VRMenuEntry.Tick),          // after the tab: the pause-menu row opens the window and then SELECTS that tab
@@ -469,7 +461,6 @@ internal sealed class WorldUIModule : IVRModule
             //   round, so the rod that is drawn this frame is the eased one and nothing measures a
             //   half-moved rod. Moving it ABOVE the surfaces would present last frame's target.
             late.Add(("PanelMipBake.Arrivals", PanelMipBake.TickArrivals));
-            late.Add(("TownServicePresentation.Late", TownServicePresentation.LateTick));
             // GRAB BAR TRANSITIONS (2026-09-03, "es ploppt"). Every writer of a window's grab bar
             // sets a TARGET on GrabBarTween during Update; this is the one step that moves the
             // DRAWN rod — its root, its length, its laser capsule and the palm zone — toward it.
@@ -543,8 +534,6 @@ internal sealed class WorldUIModule : IVRModule
         /// </summary>
         private void OnDestroy()
         {
-            TickGuard.Run("WorldUI.Shutdown.TownService", TownServicePresentation.Reset, "WorldUI");
-            TickGuard.Run("WorldUI.Shutdown.TownPopulation", TownServicePopulation.Reset, "WorldUI");
             TickGuard.Run("WorldUI.Shutdown.CameraInventory", CameraInventory.Detach, "WorldUI");
             for (int i = 0; i < _slotSurfaces.Length; i++)
             {

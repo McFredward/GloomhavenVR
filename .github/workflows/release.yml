@@ -221,8 +221,6 @@ jobs:
           unzip -l "$ZIP" > /tmp/zip-listing.txt
           grep -qF 'BepInEx/plugins/GloomhavenVR/gloomhavenvr.bundle' /tmp/zip-listing.txt \
             || { echo "::error::the asset bundle is not in the archive"; exit 1; }
-          grep -qF 'BepInEx/plugins/GloomhavenVR/ghvr-town.bundle' /tmp/zip-listing.txt \
-            || { echo "::error::the town-service asset bundle is not in the archive"; exit 1; }
           # The build must not have dirtied a tracked file behind our back — the stamp
           # inside that DLL is only trustworthy if this is still true.
           [[ -z "$(git status --porcelain --untracked-files=no)" ]] \

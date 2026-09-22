@@ -194,12 +194,6 @@ internal sealed class RayUguiDriver
         if (best != null && pick.HasHit && pick.HitDistance < bestDist - OcclusionEpsilonMeters * scale)
             best = null;
 
-        // A physical town object in front owns the gesture before native UI receives hover
-        // or pointer-down. Its own artwork is presentation-only and never a second target.
-        if (best != null && WorldUI.TownServicePhysicalRay.TryPick(_hand, out _, out _, out float objectDistance)
-            && objectDistance <= bestDist + OcclusionEpsilonMeters * scale)
-            best = null;
-
         // Solid-occluder rule (fan cards AND the control board, user report 2026-08-04): a
         // solid mod-owned surface in front of the panel blocks the UI hit — the laser must
         // not click a menu visible THROUGH the hand of cards or select options-menu tabs

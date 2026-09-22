@@ -36,8 +36,7 @@
 #   1. the argument
 #   2. $GameManaged
 #   3. <GameManaged> in Directory.Build.props.user
-#   4. ./ressources/GH_Data/Managed (the full game-data reference)
-#   5. ./ressources/Managed (the legacy managed-only reference)
+#   4. ./ressources/Managed (the dev symlink into the install)
 #
 # ONE-TIME TOOL INSTALL (the only command the user runs by hand):
 #   dotnet tool install -g JetBrains.Refasmer.CliTool
@@ -81,16 +80,12 @@ MANAGED="${1:-${GameManaged:-}}"
 if [[ -z "$MANAGED" && -f "$ROOT/Directory.Build.props.user" ]]; then
     MANAGED="$(sed -n 's:.*<GameManaged>\(.*\)</GameManaged>.*:\1:p' "$ROOT/Directory.Build.props.user" | head -1)"
 fi
-if [[ -z "$MANAGED" && -d "$ROOT/ressources/GH_Data/Managed" ]]; then
-    MANAGED="$ROOT/ressources/GH_Data/Managed"
-fi
 if [[ -z "$MANAGED" && -d "$ROOT/ressources/Managed" ]]; then
     MANAGED="$ROOT/ressources/Managed"
 fi
 if [[ -z "$MANAGED" || ! -d "$MANAGED" ]]; then
     echo "error: no game Managed folder. Pass it as an argument, set \$GameManaged," >&2
     echo "       or put <GameManaged> in Directory.Build.props.user." >&2
-    echo "       Automatic paths: ressources/GH_Data/Managed or ressources/Managed." >&2
     exit 1
 fi
 MANAGED="$(cd "$MANAGED" && pwd)"
