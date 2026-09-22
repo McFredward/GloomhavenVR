@@ -60,6 +60,8 @@ internal sealed class FfsNetTransport : INetTransport
         NetProtocol.MsgCardAppearanceFragments, CardAppearanceCodec.MaxSize, ExtrasFragments.PresentationAssemblyLifetime);
     private readonly ExtrasFragments _itemAppearanceFragments = new(NetProtocol.MsgItemAppearance,
         NetProtocol.MsgItemAppearanceFragments, ItemAppearanceCodec.MaxSize, ExtrasFragments.PresentationAssemblyLifetime);
+    private readonly ExtrasFragments _mapTooltipFragments = new(NetProtocol.MsgMapButtonTooltip,
+        NetProtocol.MsgMapButtonTooltipFragments, MapButtonTooltipCodec.MaxSize, ExtrasFragments.PresentationAssemblyLifetime);
     private readonly ExtrasFragments _boardFragments = new(NetProtocol.MsgNativeBoard,
         NetProtocol.MsgNativeBoardFragments, NativeBoardCodec.MaxSize, ExtrasFragments.PresentationAssemblyLifetime);
     private readonly ExtrasFragments[] _nativeFragments = CreateNativeFragments();
@@ -86,6 +88,7 @@ internal sealed class FfsNetTransport : INetTransport
         _boardFragments.Forget(senderId);
         _appearanceFragments.Forget(senderId);
         _itemAppearanceFragments.Forget(senderId);
+        _mapTooltipFragments.Forget(senderId);
         _promptFragments.Forget(senderId);
         for (int i = 8; i < _nativeFragments.Length; i++) _nativeFragments[i].Forget(senderId);
     }
@@ -95,7 +98,7 @@ internal sealed class FfsNetTransport : INetTransport
         _animationFragments.Clear();
         _plumeFragments.Clear();
         _boardFragments.Clear();
-        _appearanceFragments.Clear(); _itemAppearanceFragments.Clear();
+        _appearanceFragments.Clear(); _itemAppearanceFragments.Clear(); _mapTooltipFragments.Clear();
         _promptFragments.Clear();
         for (int i = 8; i < _nativeFragments.Length; i++) _nativeFragments[i].Clear();
         _extrasQueue.Clear();
@@ -257,7 +260,7 @@ internal sealed class FfsNetTransport : INetTransport
         {
             if (length < 6 || length > payload.Length) return;
             int type = NetPacket.PeekType(payload, length);
-            if (type == NetProtocol.MsgExtras || type == NetProtocol.MsgUseBarAnimation || type == NetProtocol.MsgCardPlume || type == NetProtocol.MsgNativeBoard || type == NetProtocol.MsgCardAppearance || type == NetProtocol.MsgNativeDecisionPrompt || type == NetProtocol.MsgItemAppearance)
+            if (type == NetProtocol.MsgExtras || type == NetProtocol.MsgUseBarAnimation || type == NetProtocol.MsgCardPlume || type == NetProtocol.MsgNativeBoard || type == NetProtocol.MsgCardAppearance || type == NetProtocol.MsgNativeDecisionPrompt || type == NetProtocol.MsgItemAppearance || type == NetProtocol.MsgMapButtonTooltip)
             {
                 // Native writers already hold the immutable snapshot which produced these bytes.
                 // Re-decoding it here allocated a second complete card/widget graph per send.
@@ -419,12 +422,13 @@ internal sealed class FfsNetTransport : INetTransport
                 NetProtocol.MsgNativeBoard => NetProtocol.MsgNativeBoardFragments,
                 NetProtocol.MsgCardAppearance => NetProtocol.MsgCardAppearanceFragments,
                 NetProtocol.MsgItemAppearance => NetProtocol.MsgItemAppearanceFragments,
+                NetProtocol.MsgMapButtonTooltip => NetProtocol.MsgMapButtonTooltipFragments,
                 NetProtocol.MsgNativeDecisionPrompt => NetProtocol.MsgNativeDecisionPromptFragments,
                 _ => -1,
             } : type;
             if (routedType == NetProtocol.MsgExtrasFragments || routedType == NetProtocol.MsgUseBarAnimationFragments
                 || routedType == NetProtocol.MsgCardPlumeFragments || routedType == NetProtocol.MsgNativeUseBarFragments
-                || routedType == NetProtocol.MsgNativeBoardFragments || routedType == NetProtocol.MsgCardAppearanceFragments || routedType == NetProtocol.MsgNativeDecisionPromptFragments || routedType == NetProtocol.MsgItemAppearanceFragments)
+                || routedType == NetProtocol.MsgNativeBoardFragments || routedType == NetProtocol.MsgCardAppearanceFragments || routedType == NetProtocol.MsgNativeDecisionPromptFragments || routedType == NetProtocol.MsgItemAppearanceFragments || routedType == NetProtocol.MsgMapButtonTooltipFragments)
             {
                 _receivedFragments++;
                 int slot = routedType == NetProtocol.MsgNativeUseBarFragments ? ExtrasFragments.NativeSlotStream(buffer, length) : -1;
@@ -434,6 +438,7 @@ internal sealed class FfsNetTransport : INetTransport
                     : routedType == NetProtocol.MsgCardPlumeFragments ? _plumeFragments
                     : routedType == NetProtocol.MsgNativeBoardFragments ? _boardFragments
                     : routedType == NetProtocol.MsgItemAppearanceFragments ? _itemAppearanceFragments
+                    : routedType == NetProtocol.MsgMapButtonTooltipFragments ? _mapTooltipFragments
                     : routedType == NetProtocol.MsgCardAppearanceFragments ? _appearanceFragments
                     : routedType == NetProtocol.MsgNativeDecisionPromptFragments ? _promptFragments : _nativeFragments[slot];
                 byte[]? complete = assembler.Accept(senderId, buffer, length,

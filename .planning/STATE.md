@@ -1,6 +1,11 @@
 # State — where the project stands
 
-**Updated 2026-09-20 for independent VR options toggling and native close ordering; dev 1.0.6 / ModBuild 537.** The file this replaces had gone 168 builds
+**Updated 2026-09-22 for map hotfixes; dev 1.0.7 / ModBuild 546, without NPC services.**
+The complete NPC development is isolated on `feature/immersive-town-services` for a
+future release of at least 1.1.0. Builds 538–545 remain reserved for that branch.
+Current fixes and validation: [MAP-546.md](MAP-546.md).
+
+The file this replaces had gone 168 builds
 stale while still saying "read this first"; it is kept as `STATE-ARCHIVE-through-2026-08.md` for
 its round-by-round narrative and for nothing else.
 

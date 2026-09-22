@@ -37,6 +37,7 @@ internal static class Program
             SpentBurnContinuityVectors.Run(t);
             CharacterDecisionParityVectors.Run(t, repoRoot);
             NativeDecisionPromptVectors.Run(t);
+            MapButtonTooltipVectors.Run(t);
             PresentationCompressionVectors.Run(t);
             DecisionAttributionVectors.Run(t);
             CardFlightHistoryVectors.Run(t);

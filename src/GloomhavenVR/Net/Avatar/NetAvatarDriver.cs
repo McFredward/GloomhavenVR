@@ -3968,6 +3968,7 @@ internal sealed partial class NetAvatarDriver : MonoBehaviour
             case NetProtocol.MsgNativeUseBar:
             case NetProtocol.MsgNativeBoard:
             case NetProtocol.MsgItemAppearance:
+            case NetProtocol.MsgMapButtonTooltip:
             case NetProtocol.MsgCardAppearance:
             case NetProtocol.MsgNativeDecisionPrompt:
                 parsed = QueueNativePresentation(senderId, buffer, length);

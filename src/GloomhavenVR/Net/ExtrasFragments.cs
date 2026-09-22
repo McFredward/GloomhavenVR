@@ -249,7 +249,8 @@ internal sealed class ExtrasFragments
     private static bool PayloadAllowed(int type) => type == NetProtocol.MsgExtras
         || type == NetProtocol.MsgUseBarAnimation || type == NetProtocol.MsgCardPlume
         || type == NetProtocol.MsgNativeUseBar || type == NetProtocol.MsgNativeBoard
-        || type == NetProtocol.MsgCardAppearance || type == NetProtocol.MsgNativeDecisionPrompt || type == NetProtocol.MsgItemAppearance;
+        || type == NetProtocol.MsgCardAppearance || type == NetProtocol.MsgNativeDecisionPrompt || type == NetProtocol.MsgItemAppearance
+        || type == NetProtocol.MsgMapButtonTooltip;
 
     /// <summary>Message8 assigns the low five opaque sequence bits to its native slot stream.
     /// Validate routing metadata before choosing an assembler; Accept validates the whole page.</summary>
