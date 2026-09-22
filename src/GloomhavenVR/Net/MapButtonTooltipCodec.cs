@@ -21,10 +21,11 @@ internal sealed class MapButtonTooltipSnapshot
     internal static bool SameIdentity(MapButtonTooltipSnapshot a, MapButtonTooltipSnapshot b)
     {
         if (a.Payload == null || b.Payload == null) return a.Payload == b.Payload;
-        // The native presentation schema starts with version and stable cap key. Switching
-        // caps is an identity boundary even when both pictures happen within one send turn.
-        return a.Payload.Length >= 2 && b.Payload.Length >= 2
-            && a.Payload[0] == b.Payload[0] && a.Payload[1] == b.Payload[1];
+        // The schema starts with version, cap key and surface count. A disabled explanation
+        // appearing/disappearing is a boundary even when the pointer remains on the same cap.
+        return a.Payload.Length >= 3 && b.Payload.Length >= 3
+            && a.Payload[0] == b.Payload[0] && a.Payload[1] == b.Payload[1]
+            && a.Payload[2] == b.Payload[2];
     }
 }
 

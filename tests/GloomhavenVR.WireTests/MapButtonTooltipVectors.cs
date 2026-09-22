@@ -62,11 +62,13 @@ internal static class MapButtonTooltipVectors
         scheduler.Clear();
         t.True(scheduler.Next(100) == null, "session reset clears tooltip queue");
 
-        var first = new MapButtonTooltipSnapshot(5, new byte[] { 1, 2, 0 });
-        var animated = new MapButtonTooltipSnapshot(6, new byte[] { 1, 2, 1 });
-        var other = new MapButtonTooltipSnapshot(7, new byte[] { 1, 255, 0 });
+        var first = new MapButtonTooltipSnapshot(5, new byte[] { 1, 2, 1, 0 });
+        var animated = new MapButtonTooltipSnapshot(6, new byte[] { 1, 2, 1, 1 });
+        var other = new MapButtonTooltipSnapshot(7, new byte[] { 1, 255, 1, 0 });
         t.True(MapButtonTooltipSnapshot.SameIdentity(first, animated), "animation stays in the same cap episode");
         t.True(!MapButtonTooltipSnapshot.SameIdentity(first, other), "city hover is a distinct identity boundary");
+        t.True(!MapButtonTooltipSnapshot.SameIdentity(first, new MapButtonTooltipSnapshot(7, new byte[] { 1, 2, 2, 0 })),
+            "disabled explanation appearance is a distinct same-cap boundary");
         var pending = new System.Collections.Generic.List<MapButtonTooltipSnapshot>();
         foreach (var sample in new[] { first, animated, other, new MapButtonTooltipSnapshot(8, null),
                      new MapButtonTooltipSnapshot(9, new byte[] { 1, 2, 2 }) })
