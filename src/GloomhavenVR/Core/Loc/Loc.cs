@@ -408,6 +408,20 @@ internal static partial class Loc
             "Press BOTH thumbsticks down, then pull your hands apart or together.",
             "Drück BEIDE Sticks nach unten und zieh die Hände auseinander oder zusammen."),
 
+        ["tut_vr_aoe_left"] = Pair(
+            "Rotate a ranged area effect: move the LEFT thumbstick left or right for 60° steps, " +
+            "without clicking it. Aim at a hex, then confirm on the control board. " +
+            "Melee area effects face the hex you point at.",
+            "Flächeneffekte mit Reichweite drehen: Bewege den LINKEN Stick nach links oder rechts " +
+            "für 60°-Schritte, ohne ihn einzudrücken. Ziele auf ein Feld und bestätige am " +
+            "Kontrollboard. Nahkampf-Flächeneffekte richten sich nach dem Feld, auf das du zeigst."),
+        ["tut_vr_aoe_right"] = Pair(
+            "Rotate a ranged area effect: move the RIGHT thumbstick left or right for 60° steps, " +
+            "without clicking it. Aim at a hex, then confirm on the control board. " +
+            "Melee area effects face the hex you point at.",
+            "Flächeneffekte mit Reichweite drehen: Bewege den RECHTEN Stick nach links oder rechts " +
+            "für 60°-Schritte, ohne ihn einzudrücken. Ziele auf ein Feld und bestätige am " +
+            "Kontrollboard. Nahkampf-Flächeneffekte richten sich nach dem Feld, auf das du zeigst."),
         ["ctl_rotate_t"] = Pair("Turn the table", "Den Tisch drehen"),
         ["ctl_rotate_b"] = Pair(
             "Keep BOTH thumbsticks down and turn your hands around each other.",

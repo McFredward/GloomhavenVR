@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType><TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable><ImplicitUsings>enable</ImplicitUsings>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <AoeSource Condition="'$(AoeSource)' == ''">$(MSBuildThisFileDirectory)../../src/GloomhavenVR/Board/AoeControl.cs</AoeSource>
+    <HintSource Condition="'$(HintSource)' == ''">$(MSBuildThisFileDirectory)../../src/GloomhavenVR/Compat/Tutorial/TutorialAoeHint.cs</HintSource>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="$(AoeSource)" Link="AoeControl.cs" />
+    <Compile Include="$(HintSource)" Link="TutorialAoeHint.cs" />
+  </ItemGroup>
+</Project>

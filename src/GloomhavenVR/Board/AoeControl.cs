@@ -8,7 +8,7 @@ using UnityEngine;
 namespace GloomhavenVR.Board;
 
 /// <summary>
-/// AoE pattern rotation (Phase 3a): while the mode machine is in BoardTargeting and
+/// AoE pattern rotation: while native targeting accepts rotation and
 /// a ranged AoE pattern is active on <c>WorldspaceStarHexDisplay</c>, a horizontal
 /// thumbstick flick rotates the pattern one 60° step (right = clockwise), with a
 /// haptic tick per step and hold-to-repeat.
@@ -108,13 +108,25 @@ internal static class AoeControl
     /// dodge, and answering "primary" is the pre-existing behaviour.</para>
     /// </summary>
     internal static VRHand? ResolveRotationHand()
+        => VRHands.Get(ResolveRotationSide());
+
+    // Tutorial wording must resolve the same physical side even before tracked hands exist.
+    internal static HandSide ResolveRotationSide()
     {
         if (!ComfortSettings.IsBound || ComfortSettings.Turn.Value == TurnMode.Off)
-            return VRHands.Primary;
+            return VRHands.Primary != null ? VRHands.Primary.Side : HandSide.Right;
 
         HandSide turn = LocalTurnControl.Resolve(ComfortSettings.TurnHand.Value);
-        return VRHands.Get(turn == HandSide.Left ? HandSide.Right : HandSide.Left);
+        return turn == HandSide.Left ? HandSide.Right : HandSide.Left;
     }
+
+    // Native PlayerSelectingObjectPosition and ActorIsSelectingDamageFocus can leave the
+    // choreography in Play while WorldspaceStarHexDisplay is already TargetSelection. Requiring
+    // the derived BoardTargeting mode silently removed rotation for these valid effects. Native
+    // display/authority gates below decide eligibility; mod menus and selection still block it.
+    private static bool ModeAllowsRotation => VRModeStateMachine.CurrentMode != VRMode.Menu2D
+        && VRModeStateMachine.CurrentMode != VRMode.ModalUI
+        && VRModeStateMachine.CurrentMode != VRMode.CardSelection;
 
     /// <summary>
     /// Would a stick flick REALLY rotate something this frame? The honest predicate the locomotion
@@ -132,7 +144,7 @@ internal static class AoeControl
         {
             try
             {
-                if (VRModeStateMachine.CurrentMode != VRMode.BoardTargeting)
+                if (!ModeAllowsRotation)
                     return false;
                 // Unity-null: a destroyed display compares equal to null.
                 WorldspaceStarHexDisplay? display = WorldspaceStarHexDisplay.Instance;
@@ -163,7 +175,8 @@ internal static class AoeControl
     internal static bool ClaimsStick(HandSide side)
     {
         VRHand? hand = ResolveRotationHand();
-        return hand != null && hand.Side == side && WouldRotate;
+        return hand != null && hand.HasPose && !hand.ThumbstickClick
+            && hand.Side == side && WouldRotate;
     }
 
     /// <summary>Per-frame from <see cref="BoardDriver"/>.</summary>
@@ -184,14 +197,21 @@ internal static class AoeControl
                                 "deliberately left alone (TURN NEVER, user ModBuild 138).");
         }
 
-        if (VRModeStateMachine.CurrentMode != VRMode.BoardTargeting)
+        if (!ModeAllowsRotation)
         {
             _armed = true;
             return;
         }
 
-        if (hand == null || !hand.HasPose)
+        if (hand == null || !hand.HasPose || hand.ThumbstickClick)
             return;
+
+        WorldspaceStarHexDisplay? display = WorldspaceStarHexDisplay.Instance;
+        if (display == null || !CanRotate(display))
+        {
+            Reset();
+            return;
+        }
 
         float x = hand.Thumbstick.x;
         float threshold = Mathf.Clamp(BoardConfig.AoeFlickThreshold.Value, 0.2f, 0.95f);
@@ -218,10 +238,6 @@ internal static class AoeControl
         if (!fire)
             return;
         _nextRepeatTime = Time.unscaledTime + repeat;
-
-        WorldspaceStarHexDisplay? display = WorldspaceStarHexDisplay.Instance;
-        if (display == null || !CanRotate(display))
-            return;
 
         display.RotateAOEClockwise(turnRight: x > 0f);
         RefreshStars(display);

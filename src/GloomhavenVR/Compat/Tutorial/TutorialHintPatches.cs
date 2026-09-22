@@ -261,7 +261,8 @@ internal static class TutorialHints
 
     internal static bool TryOverrideBody(string? key, string? controllerKey, string? resolved,
         out string text)
-        => TryOverrideBurntCard(key, controllerKey, resolved, out text)
+        => TutorialAoeHint.TryOverride(key, controllerKey, out text)
+        || TryOverrideBurntCard(key, controllerKey, resolved, out text)
         || TryOverride(key, controllerKey, resolved, BodyOverrides,
             "tut_vr_move_body", "tut_vr_controls_body", "page", null, out text);
 
@@ -282,6 +283,8 @@ internal static class TutorialHints
             text = Loc.Mod("tut_vr_grab_intent");
             return true;
         }
+        if (TutorialAoeHint.TryOverride(message.TitleKey, message.TitleKeyController, out text))
+            return true;
         return TryOverride(message.TitleKey, message.TitleKeyController, resolved, TitleOverrides,
             "tut_vr_move_title", "tut_vr_controls_line", "title", message.DismissTrigger, out text);
     }

@@ -68,6 +68,10 @@ Select a hex, enemy, door or chest with the **laser + trigger**, or hold **grip*
 a fingertip. Pick up a figure with the trigger to inspect its stats and planned turn.
 Use both hands to grab, move, turn and scale the scenario.
 
+**Rotate an area effect:** move the **left stick left/right** for 60° steps, without clicking it,
+then confirm on the control board. Rotation uses the stick opposite your configured turning hand;
+with turning disabled, it uses your main hand. Melee area effects face the hex you point at.
+
 ## Windows
 
 Move a window by grabbing its top bar directly or with the laser. While holding it with the laser,
