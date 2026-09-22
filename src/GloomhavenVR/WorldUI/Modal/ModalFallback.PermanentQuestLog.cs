@@ -56,6 +56,7 @@ internal static partial class ModalFallback
 
     private static void TickPermanentQuestLog()
     {
+        MapRoomWindowReturn.Tick();
         bool guildmaster = GuildmasterMapVisible;
         if (guildmaster && _permanentQuestLog == null)
         {

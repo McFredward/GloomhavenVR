@@ -16,14 +16,21 @@ assert 'if (refused && alive && !wp.UserClosing && !wp.EmptyReleasePending)\n   
 assert 'TickCatchAll(inScenario);\n        TickPermanentQuestLog();' in tick
 assert 'Converted.Add(wp);\n            CompletePermanentQuestLogReturn(window);' in convert
 assert 'ReleaseAllWindows("module shutdown");\n        ResetPermanentQuestLog();' in tick
-assert 'ReleaseMapRoomFloats(string reason)\n    {\n        ResetPermanentQuestLog();' in spawn
+assert 'ReleaseMapRoomFloats(string reason, bool closeNativeWindows = true)\n    {\n        ResetPermanentQuestLog();' in spawn
+assert 'if (wasOpen && closeNativeWindows)\n            {\n                window!.Hide();' in spawn
+driver=(root.parent/'MapRoom/MapRoomDriver.cs').read_text()
+assert 'Active = true;\n        MapRoomWindowReturn.Arm();' in driver
+assert 'internal static void ForgetScene()\n    {\n        MapRoomWindowReturn.Reset();' in driver
+assert 'MapRoomWindowReturn.IsPresentationSwitch(' in driver
+assert 'ModalFallback.ReleaseMapRoomFloats(reason, closeNativeWindows: !presentationSwitch);' in driver
+assert 'MapRoomWindowReturn.Tick();' in (root/'ModalFallback.PermanentQuestLog.cs').read_text()
 story=(root.parent/'Composites/StoryComposite.cs').read_text()
 assert 'MapStoryCurtainPolicy.HidesForMessage(' in story
 assert 'state == null || state.IsCampaign, !mc.isVisibleOtherUI,' in story
 assert 'QuestJourneyCurtain.PartyCommitted, LoadoutScreenOpen,' in story
 for phase in ['Moving', 'RoadEvent', 'AtScenario']:
     assert 'state.CurrentMapPhaseType == MapRuleLibrary.PhaseManager.EMapPhaseType.' + phase in story
-print('Permanent quest log: 11 production binding checks passed.')
+print('Permanent quest log: 17 production binding checks passed.')
 PY
 mutation_dir="$(mktemp -d)"
 trap 'rm -rf "$mutation_dir"' EXIT
@@ -71,3 +78,33 @@ if ! rg -qF 'Story curtain must distinguish browsing from actual quest commitmen
     cat "$mutation_dir/curtain-output"; exit 1
 fi
 echo 'Permanent quest log negative rejected: ordinary-dialog-curtain'
+
+for mutation in native-hide unlock story return-consumed; do
+    python3 - "$repo_root" "$mutation_dir/Return.cs" "$mutation" <<'PY_RETURN'
+from pathlib import Path
+import sys
+s=(Path(sys.argv[1])/'src/GloomhavenVR/WorldUI/Modal/MapRoomWindowReturn.cs').read_text()
+changes={
+ 'native-hide': ('flatMapWanted && nativeMapVisible && running', 'false'),
+ 'unlock': ('!state.HeadquartersState.PartyUIUnlocked', 'false'),
+ 'story': ('|| StoryComposite.PointOfNoReturn', '|| false'),
+ 'return-consumed': ('pending = !ModalFallback.ReturnPermanentMapWindow(window);', 'ModalFallback.ReturnPermanentMapWindow(window); pending = false;'),
+}
+old,new=changes[sys.argv[3]]
+assert s.count(old)==1
+Path(sys.argv[2]).write_text(s.replace(old,new))
+PY_RETURN
+    if dotnet run --project "$project" --configuration Release --property:ReturnSource="$mutation_dir/Return.cs" > "$mutation_dir/return-output" 2>&1; then
+        echo "FAIL: map presentation return mutation survived: $mutation" >&2; exit 1
+    fi
+    case "$mutation" in
+        native-hide) expected='only a live flat-map presentation switch may preserve native windows' ;;
+        unlock) expected='native introductory character unlock must remain authoritative' ;;
+        story) expected='return must wait for actual quest story and loadout' ;;
+        return-consumed) expected='requests survive conversion delay without duplicate enrollment' ;;
+    esac
+    if ! rg -qF "Unhandled exception. System.Exception: $expected" "$mutation_dir/return-output"; then
+        cat "$mutation_dir/return-output"; exit 1
+    fi
+    echo "Map presentation return negative rejected: $mutation"
+done
