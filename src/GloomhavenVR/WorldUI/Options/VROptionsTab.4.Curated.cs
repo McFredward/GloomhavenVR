@@ -425,6 +425,10 @@ internal static partial class VROptionsTab
                         // Empty caption key — "Vibration bei Wechsel" is already the row's name.
                         new("Board", "HoverHaptics", ""),
                         new("Board", "AoeRotationInput", ""),
+                        // Keep the optional stick's sensitivity and repeat beside its binding.
+                        // Their localized descriptions explicitly scope them to stick mode.
+                        new("Board", "AoeFlickThreshold", ""),
+                        new("Board", "AoeRepeatInterval", ""),
                     },
                 },
             },
