@@ -72,6 +72,9 @@ with tempfile.TemporaryDirectory(prefix="map-tooltip-driver-") as folder:
             'try { MapButtonTooltipPresentation.Tick(); }\n        catch (Exception e) { LogPhaseError("Update map button tooltip", e); }',
             "MapButtonTooltipPresentation.Tick();",
             "tooltip tick failure must not abort subsequent native presentation"),
+        "stationary-hold": (
+            "now - _mapTooltipSampleTime > .25f", "now - _mapTooltipSampleTime > 25f",
+            "movement after a stationary gap must send the last stable sample before the changed sample"),
     }
     for name, (old, new, expected) in mutations.items():
         assert original_driver.count(old) == 1, f"production mutation seam moved: {name}"

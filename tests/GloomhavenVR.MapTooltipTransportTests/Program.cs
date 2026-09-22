@@ -26,7 +26,7 @@ internal sealed partial class NetAvatarDriver
     }
     private static void Main()
     {
-        SendCadence(); ReceiveOrdering(); BoundedBursts(); Lifecycle(); FaultIsolation();
+        SendCadence(); StationaryHold(); ReceiveOrdering(); BoundedBursts(); Lifecycle(); FaultIsolation();
         Console.WriteLine($"Map tooltip transport: {_checks} production-driver assertions passed.");
     }
 
@@ -62,7 +62,47 @@ internal sealed partial class NetAvatarDriver
         catch (InvalidOperationException) { }
         d._transport.Throw = false;
         d.TickMapButtonTooltipSend(13.01f);
-        Check(d._transport.Sent.Count == 7, "failed transport must not consume changed state");
+        Check(d._transport.Sent.Count >= 7 && d._transport.Sent.Last().SampleTime == 13.01f
+            && d._transport.Sent.Last().Payload!.SequenceEqual(MapButtonTooltipPresentation.Current!),
+            "failed transport must not consume changed state");
+    }
+
+    private static void StationaryHold()
+    {
+        var d = Fresh();
+        byte[] stationary = Picture();
+        byte[] moved = Picture();
+        moved[2] = 32; // A geometry change belonging to the same stable native cap.
+        MapButtonTooltipPresentation.Current = stationary;
+        d.TickMapButtonTooltipSend(0);
+        d.TickMapButtonTooltipSend(.25f);
+        d.TickMapButtonTooltipSend(.49f);
+        Check(d._transport.Sent.Count == 1, "stationary hold must stay silent before the heartbeat");
+        MapButtonTooltipPresentation.Current = moved;
+        d.TickMapButtonTooltipSend(.5f);
+        Check(d._transport.Sent.Count == 3,
+            "movement after a stationary gap must send the last stable sample before the changed sample");
+        var hold = d._transport.Sent[1];
+        var movement = d._transport.Sent[2];
+        Check(hold.SampleTime == .49f && hold.Payload!.SequenceEqual(stationary),
+            "hold endpoint must use the last observed unchanged frame, not the old send time");
+        Check(movement.SampleTime == .5f && movement.Payload!.SequenceEqual(moved),
+            "new native geometry must retain its actual changed frame time");
+        Check(MapButtonTooltipSnapshot.SameIdentity(hold, movement),
+            "hold endpoint and movement must remain one native cap interpolation identity");
+        foreach (var sample in d._transport.Sent)
+            d.Queue(2, sample.SampleTime, sample.Payload);
+        d.ApplyMapButtonTooltip(); d.ApplyMapButtonTooltip(); d.ApplyMapButtonTooltip();
+        var applied = MapButtonTooltipPresentation.Applied;
+        Check(applied.Count == 3 && applied[1].Time == .49f && applied[2].Time == .5f,
+            "receive and apply must preserve the hold endpoint immediately before movement");
+        Check(applied[1].Payload!.SequenceEqual(stationary) && applied[2].Payload!.SequenceEqual(moved),
+            "movement must not be interpolated over the preceding stationary half-second");
+        int sent = d._transport.Sent.Count;
+        MapButtonTooltipPresentation.Current = Picture(2);
+        d.TickMapButtonTooltipSend(.51f);
+        Check(d._transport.Sent.Count == sent + 1,
+            "adjacent native samples must not insert redundant hold endpoints");
     }
 
     private static void ReceiveOrdering()
