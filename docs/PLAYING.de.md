@@ -70,10 +70,10 @@ Ein Feld, einen Gegner, eine Tür oder eine Truhe mit **Laser + Trigger** auswä
 halten und mit der Fingerspitze berühren. Eine Figur mit dem Trigger hochheben, um ihre Werte und
 ihren geplanten Zug zu sehen. Das Szenario mit beiden Händen greifen, verschieben, drehen und skalieren.
 
-**Flächeneffekt drehen:** Bewege den **linken Stick nach links/rechts** für 60°-Schritte, ohne ihn
-einzudrücken, und bestätige am Kontrollboard. Dafür wird der Stick gegenüber deiner eingestellten
-Drehhand verwendet; ist das Drehen ausgeschaltet, ist es die Haupthand. Nahkampf-Flächeneffekte
-richten sich nach dem Feld, auf das du zeigst.
+**Flächeneffekt drehen:** Tippe kurz **B** im Uhrzeigersinn oder **Y** dagegen; beim Loslassen
+wird um 60° gedreht. Bestätige am Kontrollboard. Beide Sticks bleiben zur Bewegung verfügbar;
+**B + Y** halten zentriert dich weiterhin neu. Die Belegung findest du unter **Komfort ▸ Hände &
+Zielen ▸ Flächeneffekt drehen**. Nahkampf-Flächeneffekte richten sich nach dem Feld, auf das du zeigst.
 
 ## Fenster
 

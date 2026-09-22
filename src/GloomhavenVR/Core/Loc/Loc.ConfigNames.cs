@@ -222,6 +222,7 @@ internal static partial class Loc
             ["Board/HoverHaptics"] = Pair("Haptics on new target", "Vibration bei Wechsel"),
             ["Board/AutoFocusOnTurn"] =
                 Pair("Follow the character at turn", "Automatisch zum Character am Zug"),
+            ["Board/AoeRotationInput"] = Pair("Area-effect rotation", "Flächeneffekt drehen"),
             ["Board/AoeFlickThreshold"] = Pair("AoE turn: stick min", "AoE-Drehen: Schwelle"),
             ["Board/AoeRepeatInterval"] = Pair("AoE turn: repeat (s)", "AoE-Drehen: Takt (s)"),
             // FIVE [HexHighlight] NAMES ARE GONE — SwapStableShader, StableZTest, StableDepthBias,

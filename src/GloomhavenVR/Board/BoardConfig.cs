@@ -42,6 +42,8 @@ internal static class BoardConfig
     /// <summary>Seconds between AoE rotation steps while the stick is held past the threshold.</summary>
     public static ConfigEntry<float> AoeRepeatInterval = null!;
 
+    public static ConfigEntry<AoeRotationInputMode> AoeRotationInput = null!;
+
     private static ConfigFile? _file;
 
     public static void Bind()
@@ -81,6 +83,11 @@ internal static class BoardConfig
             "character comes up. Never touches another player's view and never changes whose turn " +
             "it is. Off = the view stays where you put it and the red 'wrong character' ring asks " +
             "you to click back yourself.");
+        AoeRotationInput = config.Bind("Board", "AoeRotationInput", Defaults.AoeRotationInput,
+            "Rotate ranged area effects with short B/Y taps (B clockwise, Y counterclockwise; " +
+            "rotation happens on release). Holding both still recenters and never rotates an effect. " +
+            "Alternatively use the stick opposite your turning hand; this takes its horizontal " +
+            "axis away from strafing while targeting. With turning off, that option uses the main hand.");
         // THE RANGE IS THE CLAMP THE CODE ALREADY APPLIES (2026-08-22 settings audit, user:
         // "Prüfe für jede Einstellung die Bedienmöglichkeit"). The description already SAID
         // "0.2-0.95" and nothing enforced it — AoeControl.cs clamps at read, so every press past
@@ -89,12 +96,12 @@ internal static class BoardConfig
         AoeFlickThreshold = config.Bind(
             "Board", "AoeFlickThreshold", Defaults.AoeFlickThreshold,
             new ConfigDescription(
-                "Thumbstick horizontal deflection (0.2-0.95) that rotates an active AoE pattern " +
+                "With stick rotation selected: thumbstick horizontal deflection (0.2-0.95) that rotates an active AoE pattern " +
                 "one 60 degree step (left = counter-clockwise, right = clockwise).",
                 new AcceptableValueRange<float>(0.2f, 0.95f)));
         AoeRepeatInterval = config.Bind(
             "Board", "AoeRepeatInterval", Defaults.AoeRepeatInterval,
-            "Seconds between AoE rotation steps while the stick stays deflected. Values below " +
+            "With stick rotation selected: seconds between AoE rotation steps while the stick stays deflected. Values below " +
             "0.3 fight the game's own direction latch in RotateAOEClockwise (it ignores " +
             "direction changes within 0.3 s).");
     }

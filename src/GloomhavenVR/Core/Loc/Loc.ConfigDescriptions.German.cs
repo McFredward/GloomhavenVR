@@ -871,8 +871,8 @@ internal static partial class Loc
                 "Obere Grenze der Pinch-Skalierung als Vielfaches der Grund-WorldScale. Solange FreeMovement "
                 + "an ist, liegt die wirksame Obergrenze unabhängig von diesem Wert bei mindestens 12x.",
             ["Comfort/TurnMode"] =
-                "Drehen per Thumbstick: Snap = stufenweise Schritte, Smooth = stufenlos, Off = aus. Im "
-                + "Ziel-Modus auf dem Spielbrett nie aktiv (dort dreht der Stick die AoE-Muster).",
+                "Drehen per Thumbstick: Snap = stufenweise Schritte, Smooth = stufenlos, Off = aus. "
+                + "Die Drehhand bleibt auch beim Ausrichten von Flächeneffekten verfügbar.",
             ["Comfort/SnapTurnDegrees"] =
                 "Gierwinkel in Grad pro Schritt beim stufenweisen Drehen (typisch 30 oder 45).",
             ["Comfort/SmoothTurnSpeed"] = "Geschwindigkeit des stufenlosen Drehens in Grad pro Sekunde.",
@@ -3101,11 +3101,17 @@ internal static partial class Loc
                 + "nächsten Charakter so. Rührt nie die Ansicht eines Mitspielers an und ändert nie, "
                 + "wer am Zug ist. Aus = die Ansicht bleibt, wo du sie hingestellt hast, und der rote "
                 + "„falscher Charakter“-Ring bittet dich, selbst zurückzuklicken.",
+            ["Board/AoeRotationInput"] =
+                "Flächeneffekte mit kurzen B/Y-Tipps drehen: B im Uhrzeigersinn, Y dagegen; "
+                + "gedreht wird beim Loslassen. Beide halten zentriert dich neu und dreht keinen Effekt. "
+                + "Alternativ den Stick gegenüber der Drehhand verwenden: Dessen waagerechte Achse "
+                + "steht beim Zielen dann nicht zum Seitwärtsfliegen bereit. Ist Drehen aus, wird "
+                + "bei dieser Option die Haupthand verwendet.",
             ["Board/AoeFlickThreshold"] =
-                "Waagerechte Auslenkung des Thumbsticks (0.2-0.95), die ein aktives AoE-Muster um einen "
+                "Bei gewählter Stick-Drehung: waagerechte Auslenkung des Thumbsticks (0.2-0.95), die ein aktives AoE-Muster um einen "
                 + "Schritt von 60 Grad dreht (links = gegen den Uhrzeigersinn, rechts = im Uhrzeigersinn).",
             ["Board/AoeRepeatInterval"] =
-                "Sekunden zwischen den AoE-Drehschritten, solange der Stick ausgelenkt bleibt. Werte unter "
+                "Bei gewählter Stick-Drehung: Sekunden zwischen den AoE-Drehschritten, solange der Stick ausgelenkt bleibt. Werte unter "
                 + "0.3 arbeiten gegen die spieleigene Richtungssperre in RotateAOEClockwise (sie ignoriert "
                 + "Richtungswechsel innerhalb von 0.3 s).",
             // ---- [FigureGrab] ----

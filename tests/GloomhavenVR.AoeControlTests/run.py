@@ -12,6 +12,8 @@ here = Path(__file__).resolve().parent
 dotnet = shutil.which('dotnet') or str(Path(os.environ.get('DOTNET_ROOT', Path.home()/'.dotnet'))/'dotnet')
 aoe = root/'src/GloomhavenVR/Board/AoeControl.cs'
 hint = root/'src/GloomhavenVR/Compat/Tutorial/TutorialAoeHint.cs'
+gesture = root/'src/GloomhavenVR/Board/AoeFaceButtonGesture.cs'
+refresh = root/'src/GloomhavenVR/Compat/Tutorial/TutorialAoeHintRefresh.cs'
 project = here/'GloomhavenVR.AoeControlTests.csproj'
 
 def run(project_path, **sources):
@@ -27,6 +29,10 @@ assert 'TutorialAoeHint.TryOverride(key, controllerKey, out text)' in dispatch
 assert 'TutorialAoeHint.TryOverride(message.TitleKey, message.TitleKeyController, out text)' in dispatch
 assert 'TutorialVR.Enabled' in dispatch and 'TutorialVR.IsTutorialActive' in dispatch
 assert 'TickGuard.Run("Board.Aoe", AoeControl.Tick)' in code(root/'src/GloomhavenVR/Board/BoardDriver.cs')
+assert 'AoeRotationInput = AoeRotationInputMode.UpperFaceButtons;' in code(root/'src/GloomhavenVR/Defaults/Defaults.Board.cs')
+options = code(root/'src/GloomhavenVR/WorldUI/Options/VROptionsTab.4.Curated.cs')
+assert 'new("Board", "AoeRotationInput", "")' in options
+assert 'Loc.Mod("aoe_input_buttons")' in options and 'Loc.Mod("aoe_input_stick")' in options
 loc = (root/'src/GloomhavenVR/Core/Loc/Loc.cs').read_text()
 for side, german in [('left', 'LINKEN'), ('right', 'RECHTEN')]:
     block = loc.split(f'["tut_vr_aoe_{side}"] = Pair(', 1)[1].split('),', 1)[0]
@@ -48,6 +54,11 @@ mutations = [
     ('controller-key', hint, 'if (!Matches(key) && !Matches(controllerKey))', 'if (!Matches(key))',
      'Both native hint keys must resolve'),
     ('world-grab', aoe, ' || hand.ThumbstickClick)', ')', 'Clicked stick belongs to world grab must not rotate'),
+    ('stick-free', aoe, 'if (!UsesStick) return false;', '', 'Default B/Y mode must leave every locomotion stick axis free'),
+    ('native-latch', aoe, 'buttonDisplay.m_TurningRight = step > 0;', '', 'Rapid B/Y alternation must override native keyboard direction latch'),
+    ('recenter', gesture, 'if (leftDown && rightDown) _chord = true;', '', 'Same-frame chord must consume both releases'),
+    ('target-identity', gesture, ' || !ReferenceEquals(press.Target, target)', '', 'Target change cancels a pending tap'),
+    ('live-hint', refresh, 'BoardConfig.AoeRotationInput.SettingChanged += OnChanged;', '', 'Already-open tutorial body and title must refresh immediately'),
 ]
 with tempfile.TemporaryDirectory(prefix='gvr-aoe-test-') as temp:
     dest = Path(temp)
@@ -60,7 +71,10 @@ with tempfile.TemporaryDirectory(prefix='gvr-aoe-test-') as temp:
         changed.write_text(text.replace(old, new))
         result = run(dest/project.name,
                      AoeSource=changed if source == aoe else aoe,
-                     HintSource=changed if source == hint else hint)
+                     HintSource=changed if source == hint else hint,
+                     BoardSources=aoe.parent,
+                     GestureSource=changed if source == gesture else gesture,
+                     RefreshSource=changed if source == refresh else refresh)
         assert result.returncode != 0 and expected in result.stdout + result.stderr, (
             name + ' did not fail for the expected reason:\n' + result.stdout + result.stderr)
         print(f'AoE negative control: {name} rejected.')

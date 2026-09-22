@@ -68,9 +68,10 @@ Select a hex, enemy, door or chest with the **laser + trigger**, or hold **grip*
 a fingertip. Pick up a figure with the trigger to inspect its stats and planned turn.
 Use both hands to grab, move, turn and scale the scenario.
 
-**Rotate an area effect:** move the **left stick left/right** for 60° steps, without clicking it,
-then confirm on the control board. Rotation uses the stick opposite your configured turning hand;
-with turning disabled, it uses your main hand. Melee area effects face the hex you point at.
+**Rotate an area effect:** briefly tap **B** clockwise or **Y** counterclockwise; releasing the
+button rotates 60°. Confirm on the control board. Both sticks stay available for movement;
+holding **B + Y** still recenters you. Change the binding under **Comfort ▸ Hands & aiming ▸
+Area-effect rotation**. Melee area effects face the hex you point at.
 
 ## Windows
 

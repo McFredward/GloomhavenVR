@@ -9,11 +9,11 @@ namespace GloomhavenVR.Board;
 
 /// <summary>
 /// AoE pattern rotation: while native targeting accepts rotation and
-/// a ranged AoE pattern is active on <c>WorldspaceStarHexDisplay</c>, a horizontal
-/// thumbstick flick rotates the pattern one 60° step (right = clockwise), with a
-/// haptic tick per step and hold-to-repeat.
+/// a ranged AoE pattern is active on <c>WorldspaceStarHexDisplay</c>, short B/Y releases
+/// rotate one 60° step (B = clockwise), leaving all locomotion axes available. The
+/// optional legacy stick binding supports a horizontal flick and hold-to-repeat.
 ///
-/// <para>WHICH STICK — AND WHY IT IS NO LONGER THE PRIMARY HAND. TURN NEVER (user, hardware
+/// <para>OPTIONAL LEGACY STICK — AND WHY IT IS NOT THE PRIMARY HAND. TURN NEVER (user, hardware
 /// ModBuild 138: "Die drehung soll nie blockiert sein!"). This class used to read
 /// <c>VRHands.Primary</c>, which under the shipped defaults is the SAME controller
 /// <c>[Comfort] TurnHand</c> turns with (both Right) — so the two really did contend for one
@@ -71,6 +71,13 @@ namespace GloomhavenVR.Board;
 /// </summary>
 internal static class AoeControl
 {
+    // User ruling, 2026-09-22: both sticks must remain available for locomotion by default.
+    // Upper face buttons are otherwise used only by the two-button recenter chord. Release
+    // recognition below distinguishes a short single tap from that chord and from long holds.
+    private static readonly AoeFaceButtonGesture FaceButtons = new();
+    internal static bool UsesStick => BoardConfig.AoeRotationInput != null
+        && BoardConfig.AoeRotationInput.Value == AoeRotationInputMode.OppositeTurnStick;
+
     /// <summary>Stick must return below this before a new flick step can fire.</summary>
     private const float RearmThreshold = 0.3f;
 
@@ -174,6 +181,7 @@ internal static class AoeControl
     /// </summary>
     internal static bool ClaimsStick(HandSide side)
     {
+        if (!UsesStick) return false;
         VRHand? hand = ResolveRotationHand();
         return hand != null && hand.HasPose && !hand.ThumbstickClick
             && hand.Side == side && WouldRotate;
@@ -182,6 +190,31 @@ internal static class AoeControl
     /// <summary>Per-frame from <see cref="BoardDriver"/>.</summary>
     public static void Tick()
     {
+        WorldspaceStarHexDisplay? buttonDisplay = WorldspaceStarHexDisplay.Instance;
+        bool buttonsEligible = !UsesStick && ModeAllowsRotation
+            && buttonDisplay != null && CanRotate(buttonDisplay);
+        VRHand? left = VRHands.Left, right = VRHands.Right;
+        int step = FaceButtons.Tick(left != null && left.SecondaryButton,
+            right != null && right.SecondaryButton,
+            buttonsEligible && left != null && left.HasPose,
+            buttonsEligible && right != null && right.HasPose,
+            buttonDisplay?.m_SavedAbility, Time.unscaledTime);
+        if (!UsesStick)
+        {
+            Reset();
+            if (step != 0 && buttonDisplay != null)
+            {
+                // Native keyboard input only rotates clockwise, and its 0.3-second direction
+                // latch otherwise reverses a quick B/Y alternation. This is preview input state,
+                // not ability/gameplay state: select the explicit button direction before using
+                // the same native rotation/redraw and eventual TargetSelectionToken as flat.
+                buttonDisplay.m_TurningRight = step > 0;
+                buttonDisplay.RotateAOEClockwise(turnRight: step > 0);
+                RefreshStars(buttonDisplay);
+                (step > 0 ? right : left)?.SendHaptic(HapticPreset.HoverTick);
+            }
+            return;
+        }
         VRHand? hand = ResolveRotationHand();
         if (hand != null && _stickHand != hand.Side)
         {

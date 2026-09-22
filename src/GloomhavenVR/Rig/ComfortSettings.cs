@@ -328,7 +328,7 @@ internal static class ComfortSettings
             new AcceptableValueRange<float>(1f, 20f));
         Turn = Bind("TurnMode", Defaults.Comfort_TurnMode,
             "Thumbstick turning: Snap = discrete steps, Smooth = continuous, Off = disabled. " +
-            "Never active in board-targeting mode (the stick rotates AoE patterns there).");
+            "Your turning hand remains available while aiming area effects.");
         SnapTurnDegrees = Bind("SnapTurnDegrees", Defaults.SnapTurnDegrees,
             "Yaw degrees per snap-turn step (30 or 45 typical).",
             new AcceptableValueRange<float>(15f, 90f));

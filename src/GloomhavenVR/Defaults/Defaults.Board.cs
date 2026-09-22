@@ -19,6 +19,7 @@ internal static partial class Defaults
     internal const float TouchRange = 0.10f;         // => [Board] TouchRange
     internal const bool SnapToHexCenter = false;     // => [Board] SnapToHexCenter
     internal const bool HoverHaptics = true;         // => [Board] HoverHaptics
+    internal const AoeRotationInputMode AoeRotationInput = AoeRotationInputMode.UpperFaceButtons; // => [Board] AoeRotationInput
     internal const float AoeFlickThreshold = 0.6f;   // => [Board] AoeFlickThreshold
     internal const float AoeRepeatInterval = 0.35f;  // => [Board] AoeRepeatInterval
     internal const bool AutoFocusOnTurn = true;      // => [Board] AutoFocusOnTurn

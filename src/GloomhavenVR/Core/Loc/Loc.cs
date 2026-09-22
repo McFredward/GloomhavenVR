@@ -408,6 +408,17 @@ internal static partial class Loc
             "Press BOTH thumbsticks down, then pull your hands apart or together.",
             "Drück BEIDE Sticks nach unten und zieh die Hände auseinander oder zusammen."),
 
+        ["aoe_input_buttons"] = Pair("B / Y buttons", "Tasten B / Y"),
+        ["aoe_input_stick"] = Pair("Opposite turning stick", "Stick gegenüber der Drehhand"),
+        ["tut_vr_aoe_buttons"] = Pair(
+            "Rotate a ranged area effect: briefly tap B (right controller) clockwise or Y " +
+            "(left controller) counterclockwise. Each release rotates 60°. Holding B + Y still " +
+            "recenters you. Confirm the target on the control board. Melee area effects face " +
+            "the hex you point at.",
+            "Flächeneffekte mit Reichweite drehen: Tippe kurz B (rechter Controller) im " +
+            "Uhrzeigersinn oder Y (linker Controller) dagegen. Beim Loslassen wird um 60° " +
+            "gedreht. B + Y halten zentriert dich weiterhin neu. Bestätige das Ziel am " +
+            "Kontrollboard. Nahkampf-Flächeneffekte richten sich nach dem Feld, auf das du zeigst."),
         ["tut_vr_aoe_left"] = Pair(
             "Rotate a ranged area effect: move the LEFT thumbstick left or right for 60° steps, " +
             "without clicking it. Aim at a hex, then confirm on the control board. " +

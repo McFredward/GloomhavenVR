@@ -16,7 +16,9 @@ internal static class TutorialAoeHint
         text = string.Empty;
         if (!Matches(key) && !Matches(controllerKey))
             return false;
-        text = Loc.Mod(AoeControl.ResolveRotationSide() == HandSide.Left
+        TutorialAoeHintRefresh.EnsureBound();
+        text = Loc.Mod(!AoeControl.UsesStick ? "tut_vr_aoe_buttons"
+            : AoeControl.ResolveRotationSide() == HandSide.Left
             ? "tut_vr_aoe_left" : "tut_vr_aoe_right");
         return true;
     }

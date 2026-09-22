@@ -15,6 +15,7 @@ static class Program
     }
     static WorldspaceStarHexDisplay Fresh()
     {
+        BoardConfig.AoeRotationInput.Value = AoeRotationInputMode.OppositeTurnStick;
         AoeControl.Reset();
         Time.unscaledTime += 2;
         VRModeStateMachine.CurrentMode = VRMode.BoardTargeting;
@@ -26,7 +27,7 @@ static class Program
         ComfortSettings.TurnHand.Value = TurnHandChoice.Right;
         VRHands.Primary = VRHands.Right;
         foreach (var h in new[] { VRHands.Left, VRHands.Right })
-        { h.Thumbstick = (0, 0); h.HasPose = true; h.ThumbstickClick = false; }
+        { h.Thumbstick = (0, 0); h.HasPose = true; h.ThumbstickClick = false; h.SecondaryButton = false; }
         return WorldspaceStarHexDisplay.Instance = new();
     }
     static void Blocked(Action change, string label)
@@ -92,6 +93,91 @@ static class Program
         Blocked(() => WorldspaceStarHexDisplay.Instance!.LockView = true, "Locked native view");
         Blocked(() => VRHands.Left.HasPose = false, "Untracked controller");
         Blocked(() => VRHands.Left.ThumbstickClick = true, "Clicked stick belongs to world grab");
+        FaceButtonTests();
+        VisibleHintTests();
         Console.WriteLine($"AoE control: {count} production runtime assertions passed.");
+    }
+
+    static void FaceButtonTests()
+    {
+        var target = new object();
+        foreach (bool rightFirst in new[] { false, true })
+        foreach (bool rightReleasedFirst in new[] { false, true })
+        {
+            var gesture = new AoeFaceButtonGesture();
+            Check(gesture.Tick(!rightFirst, rightFirst, true, true, target, 0) == 0, "Press must wait for release");
+            Check(gesture.Tick(true, true, true, true, target, .1f) == 0, "Staggered recenter chord must not rotate");
+            Check(gesture.Tick(true, true, true, true, target, 2) == 0, "Held recenter must not repeat");
+            Check(gesture.Tick(rightReleasedFirst, !rightReleasedFirst, true, true, target, 2.1f) == 0, "First chord release must not rotate");
+            Check(gesture.Tick(false, false, true, true, target, 2.2f) == 0, "Second chord release must not rotate");
+            gesture.Tick(false, true, true, true, target, 3);
+            Check(gesture.Tick(false, false, true, true, target, 3.1f) == 1, "Ordinary B tap must rearm after recenter");
+        }
+        {
+            var gesture = new AoeFaceButtonGesture();
+            gesture.Tick(true, true, true, true, target, 0);
+            Check(gesture.Tick(false, false, true, true, target, .1f) == 0, "Same-frame chord must consume both releases");
+            gesture.Tick(false, true, true, true, target, 1);
+            Check(gesture.Tick(false, false, true, true, target, 2) == 0, "Long single hold must not rotate");
+            gesture.Tick(false, true, true, true, target, 3);
+            gesture.Tick(false, true, true, false, target, 3.05f);
+            Check(gesture.Tick(false, false, true, true, target, 3.1f) == 0, "Lost tracking or a menu cancels a pending tap even after recovery");
+            gesture.Tick(true, false, true, true, target, 4);
+            gesture.Tick(true, false, true, true, new object(), 4.05f);
+            Check(gesture.Tick(false, false, true, true, target, 4.1f) == 0, "Target change cancels a pending tap even if old target returns");
+        }
+        var display = Fresh();
+        BoardConfig.AoeRotationInput.Value = AoeRotationInputMode.UpperFaceButtons;
+        VRHands.Left.Thumbstick = (1, 1); VRHands.Right.Thumbstick = (1, 1);
+        AoeControl.Tick();
+        Check(display.Calls == 0 && !AoeControl.ClaimsStick(HandSide.Left) && !AoeControl.ClaimsStick(HandSide.Right),
+            "Default B/Y mode must leave every locomotion stick axis free");
+        Check(TutorialAoeHint.TryOverride("SCENARIO_PUZZLE_5B_08", null, out var hint)
+            && hint == "tut_vr_aoe_buttons", "Tutorial must reflect face-button setting");
+        VRHands.Right.SecondaryButton = true; AoeControl.Tick();
+        Check(display.Calls == 0, "B press must not rotate before release");
+        Time.unscaledTime += .05f; VRHands.Right.SecondaryButton = false; AoeControl.Tick();
+        Check(display.Calls == 1 && display.AreaEffectAngle == 300, "B release must rotate clockwise once");
+        VRHands.Left.SecondaryButton = true; AoeControl.Tick();
+        Time.unscaledTime += .05f; VRHands.Left.SecondaryButton = false; AoeControl.Tick();
+        Check(display.Calls == 2 && display.AreaEffectAngle == 0, "Rapid B/Y alternation must override native keyboard direction latch");
+        VRHands.Right.SecondaryButton = true; AoeControl.Tick();
+        VRModeStateMachine.CurrentMode = VRMode.ModalUI; AoeControl.Tick();
+        VRModeStateMachine.CurrentMode = VRMode.BoardTargeting; VRHands.Right.SecondaryButton = false; AoeControl.Tick();
+        Check(display.Calls == 2, "Menu transition must cancel pending rotation");
+        VRHands.Right.SecondaryButton = true; AoeControl.Tick();
+        display.m_SavedAbility = new(); AoeControl.Tick(); VRHands.Right.SecondaryButton = false; AoeControl.Tick();
+        Check(display.Calls == 2, "New ability must not inherit the previous ability's held B");
+        VRHands.Right.SecondaryButton = true; AoeControl.Tick();
+        BoardConfig.AoeRotationInput.Value = AoeRotationInputMode.OppositeTurnStick;
+        VRHands.Left.Thumbstick = (0, 0); AoeControl.Tick();
+        BoardConfig.AoeRotationInput.Value = AoeRotationInputMode.UpperFaceButtons;
+        VRHands.Right.SecondaryButton = false; AoeControl.Tick();
+        Check(display.Calls == 2, "Binding changes must cancel a held face button");
+    }
+
+    static void VisibleHintTests()
+    {
+        var page = new LevelMessagePageUI { page = new MessagePage { PageTextKey = "SCENARIO_PUZZLE_5B_08", PageTextKeyController = null } };
+        var title = new LevelMessageUILayout { _message = new Message { TitleKey = null, TitleKeyController = "Consoles/SCENARIO_PUZZLE_5B_ROTATE_MESSAGE" } };
+        var story = new LevelMessagePageUI { page = new MessagePage { PageTextKey = "STORY_OTHER" } };
+        UnityEngine.Object.Instances = [page, title, story];
+        BoardConfig.AoeRotationInput.Value = AoeRotationInputMode.UpperFaceButtons;
+        Check(page.information!.text == "tut_vr_aoe_buttons" && title.title!.text == "tut_vr_aoe_buttons",
+            "Already-open tutorial body and title must refresh immediately when binding changes");
+        Check(story.information!.text == "unchanged", "Binding changes must never rewrite unrelated story text");
+        ComfortSettings.Turn.Value = TurnMode.Snap; ComfortSettings.TurnHand.Value = TurnHandChoice.Right;
+        BoardConfig.AoeRotationInput.Value = AoeRotationInputMode.OppositeTurnStick;
+        Check(page.information.text == "tut_vr_aoe_left", "Open tutorial must reflect the optional stick binding");
+        ComfortSettings.TurnHand.Value = TurnHandChoice.Left; ComfortSettings.RaiseChanged("TurnHand");
+        Check(page.information.text == "tut_vr_aoe_right", "Open tutorial must follow changed turning hand");
+        ComfortSettings.Turn.Value = TurnMode.Off; VRHands.Primary = VRHands.Left;
+        GloomhavenVR.Plugin.PrimaryHand.Value = "Left";
+        Check(page.information.text == "tut_vr_aoe_left", "Open tutorial must follow changed main hand with turning off");
+        GloomhavenVR.Compat.TutorialVR.IsTutorialActive = false;
+        BoardConfig.AoeRotationInput.Value = AoeRotationInputMode.UpperFaceButtons;
+        Check(page.information.text == "tut_vr_aoe_left", "Leaving the tutorial must stop stale presentation updates");
+        GloomhavenVR.Compat.TutorialVR.IsTutorialActive = true;
+        UnityEngine.Object.Instances = [];
     }
 }

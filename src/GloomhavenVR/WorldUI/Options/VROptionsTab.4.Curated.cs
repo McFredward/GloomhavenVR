@@ -424,6 +424,7 @@ internal static partial class VROptionsTab
                         // quieter controller, and it belongs with the aiming rows it fires from.
                         // Empty caption key — "Vibration bei Wechsel" is already the row's name.
                         new("Board", "HoverHaptics", ""),
+                        new("Board", "AoeRotationInput", ""),
                     },
                 },
             },
@@ -1541,7 +1542,9 @@ internal static partial class VROptionsTab
     /// one table row rather than another branch.</para>
     /// </summary>
     private static bool HasSpecialRow(ConfigCatalog.ConfigItem item) =>
-        (string.Equals(item.Section, "MixedReality", StringComparison.Ordinal)
+        (string.Equals(item.Section, "Board", StringComparison.Ordinal)
+         && string.Equals(item.Key, "AoeRotationInput", StringComparison.Ordinal))
+        || (string.Equals(item.Section, "MixedReality", StringComparison.Ordinal)
          && string.Equals(item.Key, "KeyColor", StringComparison.Ordinal))
         || (string.Equals(item.Section, "Cards", StringComparison.Ordinal)
             && string.Equals(item.Key, "BoardMoveMode", StringComparison.Ordinal))
@@ -1627,6 +1630,15 @@ internal static partial class VROptionsTab
             BuildPresetRow(parent, item, caption, hintKey, modeNames,
                            (int)Cards.CardsConfig.BoardMoveMode.Value,
                            index => Cards.CardsConfig.BoardMoveMode.Value = (Cards.BoardMoveMode)index);
+            return true;
+        }
+
+        if (string.Equals(item.Section, "Board", StringComparison.Ordinal))
+        {
+            string[] rotationNames = { Loc.Mod("aoe_input_buttons"), Loc.Mod("aoe_input_stick") };
+            BuildPresetRow(parent, item, caption, hintKey, rotationNames,
+                (int)Board.BoardConfig.AoeRotationInput.Value,
+                index => Board.BoardConfig.AoeRotationInput.Value = (Board.AoeRotationInputMode)index);
             return true;
         }
 
