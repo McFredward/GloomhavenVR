@@ -179,7 +179,7 @@ internal static class MapButtonTooltipPresentation
         if (payload != null && !TryRead(payload, out pictures)) return;
         if (!Peers.TryGetValue(sender, out Peer? peer)) Peers[sender] = peer = new Peer();
         if (sampleTime <= peer.SampleTime) return;
-        if (peer.History.Count == 0 || pictures.Length > 0 && (peer.Pictures.Length == 0 || pictures[0].Key != peer.Pictures[0].Key))
+        if (peer.History.Count == 0)
         { peer.History.Clear(); peer.Clock.Reset(sampleTime, Time.unscaledTime); }
         peer.SampleTime = sampleTime; peer.Pictures = pictures;
         if (peer.History.Count == 32) peer.History.RemoveAt(0);
