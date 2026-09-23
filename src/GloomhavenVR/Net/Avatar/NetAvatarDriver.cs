@@ -2108,6 +2108,11 @@ internal sealed partial class NetAvatarDriver : MonoBehaviour
         }
 
         extras.HandCardCount = (byte)Mathf.Clamp(handNow, 0, 255);
+        if (RevealGate.ShowMapPhaseHandFronts && CardsDriver.OffScenarioFanActive
+            && CardsDriver.OffScenarioFanCards is { Count: > 0 } mapLoadout
+            && mapLoadout.Count <= NetProtocol.MaxMapLoadoutCount)
+            extras.MapLoadoutCount = (byte)mapLoadout.Count;
+
         extras.HasFanInsertionGap = true;
         extras.FanInsertionGap = fanInsertionGap;
         // …AND THE ORDER THOSE SLABS GO IN (record 44). Written beside the count it permutes, from

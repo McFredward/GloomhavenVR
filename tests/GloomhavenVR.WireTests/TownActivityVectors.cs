@@ -49,7 +49,7 @@ internal static class TownActivityVectors
                 &&parsed.TownActivityRecordSeen&&!parsed.HasTownActivity,"reordered79+80+truncated81 preserves atomic marker"+remaining);
         presence.HasTownActivity=false;count=PresenceSerializer.Write(in presence,bytes);t.True(PresenceSerializer.TryRead(bytes,count,out parsed)&&!parsed.HasTownActivity,"absence retains oldwire");
         offset=7082;t.True(TownActivityCodec.Write(bytes,ref offset,in state)&&offset==7136,"worst snapshot exact7136");
-        t.True(ExtrasFragments.MaxSnapshotBytes-offset==32&&PresenceSerializer.MaxSize-offset==257,"unchanged7168ceiling keeps32bytes and allocationmargin257");
+        t.True(ExtrasFragments.MaxSnapshotBytes-offset==32&&PresenceSerializer.MaxSize-(offset+3)==257,"unchanged7168ceiling keeps32bytes and allocationmargin257 including public loadout83");
         t.True(NetProtocol.Version==3&&NetProtocol.ExtIdTownResidents==79&&TownResidentsCodec.MaxPayload==115&&TownFaceCodec.MaxPayload==94,"79and80unchanged");
     }
 }

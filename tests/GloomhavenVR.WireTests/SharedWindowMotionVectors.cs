@@ -99,7 +99,7 @@ internal static class SharedWindowMotionVectors
         t.True(NetProtocol.Version == 3 && NetProtocol.ExtIdSharedWindowMotion == 77
             && NetProtocol.SharedWindowMotionRecordBytes == 2 && NetProtocol.SharedWindowMotionDefinedMask == 7,
             "additive ownership leaves v3 and all earlier record identities unchanged");
-        t.True(6869 <= ExtrasFragments.MaxSnapshotBytes && PresenceSerializer.MaxSize == 7393
+        t.True(6869 <= ExtrasFragments.MaxSnapshotBytes && PresenceSerializer.MaxSize == 7396
             && PresenceSerializer.MaxSize - 6869 >= 257,
             "record77 margin remains intact after resident79 adds117 and face80 adds96 allocation bytes");
     }

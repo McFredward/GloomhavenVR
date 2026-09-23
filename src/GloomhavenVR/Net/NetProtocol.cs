@@ -79,6 +79,8 @@ internal static class NetProtocol
     public const byte MsgMapButtonTooltip = 23;
     public const byte MsgMapButtonTooltipFragments = 24;
     public const byte ExtIdMapButtonTooltip = 82;
+    public const byte ExtIdMapLoadoutCount = 83;
+    public const byte MaxMapLoadoutCount = 64;
     public const byte ExtIdItemAppearance = 76;
     public const byte ExtIdPresentationCompression = 64;
     public const byte ExtIdDamageAvoidance = 65;

@@ -45,6 +45,10 @@ internal struct PresenceState
     /// <summary>How many cards are in the sender's hand fan (0..255). Rendered as backs only.</summary>
     public byte HandCardCount;
 
+    /// <summary>Complete public map loadout size, including cards offered to a town resident.
+    /// Zero means absent. Record44 still names the exact visible fan subset.</summary>
+    public byte MapLoadoutCount;
+
     /// <summary>True when the sender's dominant hand is the RIGHT hand (mirror of the rig flag).
     /// Defaults true (right-dominant) when unknown.</summary>
     public bool DominantRight;
@@ -1885,7 +1889,7 @@ internal static class PresenceSerializer
     /// ITS OWN COMMIT, and keeps a margin of at least one record's worth. Record 27 (track order)
     /// took the worst case 859 → 887 on 2026-08-08; the margin is 393 bytes, i.e. still more than
     /// every optional record on the tail put together.</para></summary>
-    public const int MaxSize = 7393; // TownActivity81 adds54; worst7136 +257 spare.
+    public const int MaxSize = 7396; // MapLoadoutCount83 adds3; prior fields and spare remain unchanged.
 
     // ---- write --------------------------------------------------------------------------
 
@@ -1960,6 +1964,7 @@ internal static class PresenceSerializer
                           // The sampler already returns 0 outside the online card-selection phase,
                           // which is what keeps every packet of every other phase byte-identical
                           // to a pre-record-27 sender's.
+                          || state.MapLoadoutCount > 0
                           || state.HasTownActivity
                           || state.HasTownFace
                           || state.HasTownResidents
@@ -2690,6 +2695,14 @@ internal static class PresenceSerializer
                     AvatarSerializer.WriteI32(buffer, ref i, state.TrackOrderIds[k]);
                 records++;
             }
+        }
+        if (state.MapLoadoutCount > 0 && state.MapLoadoutCount <= NetProtocol.MaxMapLoadoutCount
+            && i + 3 <= buffer.Length)
+        {
+            buffer[i++] = NetProtocol.ExtIdMapLoadoutCount;
+            buffer[i++] = 1;
+            buffer[i++] = state.MapLoadoutCount;
+            records++;
         }
         if (state.HasFanArcOrder && state.FanArcOrder != null && state.FanArcOrderCount > 0)
         {
@@ -4073,6 +4086,12 @@ internal static class PresenceSerializer
     private static void ReadExtensionRecord(byte[] buffer, int i, byte id, int len,
                                             ref PresenceState state)
     {
+        if (id == NetProtocol.ExtIdMapLoadoutCount)
+        {
+            if (len >= 1 && buffer[i] <= NetProtocol.MaxMapLoadoutCount)
+                state.MapLoadoutCount = buffer[i];
+            return;
+        }
         if (id == NetProtocol.ExtIdTownActivity)
         {
             state.TownActivityRecordSeen = true;

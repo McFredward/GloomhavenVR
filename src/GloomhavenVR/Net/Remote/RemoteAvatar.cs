@@ -408,6 +408,7 @@ internal sealed class RemoteAvatar
 
     /// <summary>How many entries of <see cref="FanArcOrder"/> are valid. 0 when none.</summary>
     internal int FanArcOrderCount { get; private set; }
+    internal int MapLoadoutCount { get; private set; }
 
     /// <summary>Owner's insertion marker/gap in this same count/order snapshot; -1 inactive.</summary>
     internal int FanInsertionGap { get; private set; } = -1;
@@ -1644,6 +1645,7 @@ internal sealed class RemoteAvatar
         // exactly like every other optional record here: a sender that omits it leaves the previous
         // answer standing for one packet at most, because the count above moves with it and the
         // consumer re-belts the pair every frame.
+        MapLoadoutCount = p.MapLoadoutCount;
         FanArcOrder = p.HasFanArcOrder ? p.FanArcOrder : null;
         FanArcOrderCount = p.HasFanArcOrder ? p.FanArcOrderCount : 0;
         FanInsertionGap = p.HasFanInsertionGap ? p.FanInsertionGap : -1;

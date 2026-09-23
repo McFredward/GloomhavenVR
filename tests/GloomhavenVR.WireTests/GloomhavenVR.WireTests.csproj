@@ -633,5 +633,6 @@
     <Compile Include="CardFlightHistoryVectors.cs" />
     <Compile Include="CardBurnCompletionVectors.cs" />
     <Compile Include="SharedWindowMotionVectors.cs" />
+    <Compile Include="MapLoadoutCountVectors.cs" />
   </ItemGroup>
 </Project>

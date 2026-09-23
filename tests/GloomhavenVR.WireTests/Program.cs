@@ -57,6 +57,7 @@ internal static class Program
             // an ActionProcessor halt — a stuck party, with nothing thrown and nothing logged.
             MapSyncVectors.Run(t);
             SharedWindowMotionVectors.Run(t);
+            MapLoadoutCountVectors.Run(t);
             RelaunchVectors.Run(t);
             ConfigStepVectors.Run(t, repoRoot);
             ScrollTurnGateVectors.Run(t);

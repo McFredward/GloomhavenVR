@@ -2122,6 +2122,11 @@ internal sealed class RemoteHandFan
     /// </summary>
     private void ResolveMapFronts(int loadoutSize)
     {
+        // A card on the enchantress's palm is neither in the fan nor in a player's fist.
+        // Keep the existing exact-length belt against the owner's complete source, then
+        // record44 gathers the remaining fan seats. No identity or concealment rule changes.
+        if (_owner.MapLoadoutCount > 0) loadoutSize = _owner.MapLoadoutCount;
+
         RemoteMapRoom.TryGetPeerFanCharacterKey(_owner.PlayerId, out uint characterKey);
         // Count and character identity cannot detect a same-size loadout replacement. Read
         // the bounded replicated list on every draw; per-card print keys still avoid rebuilds.
