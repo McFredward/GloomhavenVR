@@ -29,7 +29,7 @@ namespace GloomhavenVR.WorldUI
 }
 namespace GloomhavenVR.Net.TownServices
 {
-    internal sealed class TownServiceSessionInfo { internal bool Active=false;internal byte Service=0;internal float ReceivedTime=0; }
+    internal sealed class TownServiceSessionInfo { internal bool Active=false;internal byte Service=0;internal float LastSeenTime=0; }
     internal static class TownServiceMirror {internal static readonly Dictionary<int,TownServiceSessionInfo> RemoteSessions=new();}
 }
 

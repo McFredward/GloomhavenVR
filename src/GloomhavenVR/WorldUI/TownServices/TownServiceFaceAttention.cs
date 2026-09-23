@@ -18,7 +18,7 @@ internal sealed class TownServiceFaceAttention
     {
         if (player == local) return TownServicePresentation.Active && TownServicePresentation.Service == service;
         return TownServiceMirror.RemoteSessions.TryGetValue(player, out TownServiceSessionInfo? info)
-            && info.Active && info.Service == service && Time.unscaledTime - info.ReceivedTime <= NetProtocol.StaleTimeoutSeconds;
+            && info.Active && info.Service == service && Time.unscaledTime - info.LastSeenTime <= NetProtocol.StaleTimeoutSeconds;
     }
     private static bool Head(int player, int local, out Vector3 point)
     {

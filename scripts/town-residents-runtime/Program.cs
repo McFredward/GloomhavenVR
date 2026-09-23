@@ -71,7 +71,7 @@ internal static class Program
         Observe(2,State());NetPlayerActors.Local=1;Check(!RemoteTownResidents.TryAuthor(out _,out _),"lower local player retains authority");WorldUIConfig.ImmersiveTownServices.Value=false;Check(RemoteTownResidents.TryAuthor(out _,out _),"opted-out local cannot claim authority");
 
         Reset();WorldUIConfig.ImmersiveTownServices.Value=false;Observe(2,State());Tick();Check(TownServiceStation.Live.Count==0,"remote permanent residents alone do not override opted-out viewer");
-        TownServiceMirror.RemoteSessions[2]=new TownServiceSessionInfo{Peer=2,Active=true,Service=1,ReceivedTime=Time.unscaledTime,SessionAge=.3f};Tick(.1f);
+        TownServiceMirror.RemoteSessions[2]=new TownServiceSessionInfo{Peer=2,Active=true,Service=1,ReceivedTime=Time.unscaledTime,LastSeenTime=Time.unscaledTime,SessionAge=.3f};Tick(.1f);
         Check(TownServiceStation.Live.Count==1&&TownServiceStation.Live.ContainsKey(1),"actual remote visitor only opens its station for opted-out viewer");Check(!TownServiceVisitTarget.Live[1].Enabled,"opted-out viewer has no immersive visit input");Check(TownServiceVisitTarget.Live[1].Visible,"visible remote resident still occludes behind UI for opted-out viewer");Check(!TownServicePopulation.Published.Active,"observer of remote visit never advertises enabled population");
         Time.unscaledTime+=NetProtocol.StaleTimeoutSeconds+.1f;Tick();Check(TownServiceStation.Live.Count==0,"stale visitor station retires");Check(!TownServicePopulation.HasRemoteVisitors,"stale visitor does not keep remote presence alive");
         Reset();var presence=default(PresenceState);presence.TownActivityRecordSeen=false;MapRoomDriver.Active=false;RemoteTownResidents.Sample(ref presence);Check(!presence.HasTownResidents,"no resident presence outside map");MapRoomDriver.Active=true;Tick();RemoteTownResidents.Sample(ref presence);Check(presence.HasTownResidents&&presence.TownResidents.Active,"map presence publishes all prepared residents");
@@ -95,7 +95,7 @@ internal static class Program
         Near(TownServiceStation.Live[1].FacePose.HeadYaw,22,"handover retains existing head angle");
         Check(TownServicePopulation.PublishedFaces.Clock>=20 && TownServicePopulation.PublishedFaces.Clock<21,"handover face clock never regresses");
         WorldUIConfig.ImmersiveTownServices.Value=false;
-        TownServiceMirror.RemoteSessions[3]=new TownServiceSessionInfo{Peer=3,Active=true,Service=1,ReceivedTime=Time.unscaledTime};
+        TownServiceMirror.RemoteSessions[3]=new TownServiceSessionInfo{Peer=3,Active=true,Service=1,ReceivedTime=Time.unscaledTime,LastSeenTime=Time.unscaledTime};
         RemoteTownResidents.Forget(2);RemoteTownFaces.Forget(2);Tick();
         Check(!TownServiceStation.Live[1].FaceAuthor&&!TownServicePopulation.IsFaceAuthor,"opted out observer never authors even without eligible peer");
         Check(!TownServicePopulation.PublishedFaces.Active,"opted out observer never publishes face ownership");

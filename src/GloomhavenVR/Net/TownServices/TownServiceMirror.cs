@@ -13,7 +13,7 @@ internal sealed class TownServiceSessionInfo
     internal byte Service;
     internal uint Session;
     internal ulong Sequence;
-    internal float SampleTime, ReceivedTime, SessionAge;
+    internal float SampleTime, ReceivedTime, LastSeenTime, SessionAge;
     internal bool Active;
     internal Vector3 Position, Scale;
     internal Quaternion Rotation;
@@ -264,7 +264,7 @@ internal static class TownServiceMirror
             if (Sessions.TryGetValue(peer, out TownServiceSessionInfo? previous) && frame.Sequence <= previous.Sequence) return true;
             if (previous != null && (previous.Session != frame.Session || previous.Service != frame.Service)) ClearRemoteModules(peer);
             Sessions[peer] = new TownServiceSessionInfo { Peer = peer, Service = frame.Service, Session = frame.Session,
-                Sequence = frame.Sequence, SampleTime = frame.SampleTime, ReceivedTime = Time.unscaledTime, Active = frame.Visible,
+                Sequence = frame.Sequence, SampleTime = frame.SampleTime, ReceivedTime = Time.unscaledTime, LastSeenTime = Time.unscaledTime, Active = frame.Visible,
                 SessionAge = frame.SessionAge,
                 Modules = frame.Modules, Position = Position(frame.Pose), Rotation = Rotation(frame.Pose), Scale = Scale(frame.Pose) };
             if (!frame.Visible) ClearRemoteModules(peer);
@@ -285,7 +285,7 @@ internal static class TownServiceMirror
         }
         if (Sessions.TryGetValue(peer, out TownServiceSessionInfo? live) && live.Active
             && live.Session == frame.Session && live.Service == frame.Service && Array.BinarySearch(live.Modules, frame.Module) >= 0)
-            live.ReceivedTime = Time.unscaledTime;
+            live.LastSeenTime = Time.unscaledTime;
         if (pending.Count >= TownServiceFrame.MaxModules && !pending.ContainsKey(frame.Module)) return true;
         // A keyframe may finish after a newer delta. Keep it even though its sample is older:
         // the waiting cumulative delta names this exact baseline and then becomes usable.
@@ -322,7 +322,7 @@ internal static class TownServiceMirror
         foreach (var entry in Sessions)
         {
             TownServiceSessionInfo session = entry.Value;
-            if (!session.Active || now - session.ReceivedTime > 10)
+            if (!session.Active || now - session.LastSeenTime > 10)
             { ClearRemoteModules(entry.Key); session.Active = false; continue; }
             Transform? parent = sharedFrame(entry.Key);
             if (parent == null || !Pending.TryGetValue(entry.Key, out Dictionary<ushort, TownServiceFrame>? pending)) continue;

@@ -449,7 +449,7 @@ public static partial class MirrorProgram
         TownServiceMirror.RemovePeer(3); Check(Remote(3) == null && Remote(2) != null, "peer loss removes only lost owner");
         var sessions = (IDictionary)typeof(TownServiceMirror).GetField("Sessions", PrivateStatic)!.GetValue(null)!;
         object session = sessions[2]!;
-        session.GetType().GetField("ReceivedTime", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(session, Time.unscaledTime - 11);
+        session.GetType().GetField("LastSeenTime", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(session, Time.unscaledTime - 11);
         TownServiceMirror.TickRemote(id => frames[id]);
         Check(Remote(2) == null && Remote(1) != null, "stale owner timeout preserves other owners");
 

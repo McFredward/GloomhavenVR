@@ -106,7 +106,7 @@ public static class InteractionProgram
         NetPlayerActors.Local=1;FaceClock.Now=0;var attention=new TownServiceFaceAttention();
         Check(attention.Select(1,root,Quaternion.identity,head.position).HasValue,"valid local headset is target");
         NetAvatarDriver.Heads[2]=head.position+new Vector3(-1,0,2);
-        TownServiceMirror.RemoteSessions[2]=new TownServiceSessionInfo{Active=true,Service=1,ReceivedTime=2};
+        TownServiceMirror.RemoteSessions[2]=new TownServiceSessionInfo{Active=true,Service=1,LastSeenTime=2};
         FaceClock.Now=2;var selected=attention.Select(1,root,Quaternion.identity,head.position);
         Check(selected.HasValue&&selected.Value.x<0,"active visitor preferred over equally close spectator");
         NetAvatarDriver.Heads.Clear();VRRigDriver.HeadCamera=null;FaceClock.Now=4;

@@ -66,6 +66,10 @@ internal static class HandContacts
                         rig.BeforeBodySample();
                         var work=new TownActivityPose{WorkClock=clock,TransitionAge=.65f};
                         var sample=TownServiceActivityMotion.Visual(1,in work);rig.Apply(in sample);props.Sample(in sample);
+                        // The settled phase8 has zero merchant grasp. Sample the actual
+                        // pinching interval too, or an excessive curl factor can escape.
+                        foreach(Transform thumb in root.GetComponentsInChildren<Transform>().Where(t=>t.name.StartsWith("Thumb")&&!t.name.Contains("Tip")&&!t.name.Contains("Pad")))
+                        {if(Quaternion.Angle(thumb.localRotation,Quaternion.identity)>55f)throw new Exception("anatomical thumb stays inside natural grasp range");checks++;}
                         for(int i=0;i<3;i++)
                         {
                             Transform shown=i==0?coin:root.Find("Town.CountingCoin"+i);

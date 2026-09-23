@@ -164,3 +164,19 @@ before old close120, and the first fragment of a new module before an excluding
 manifest. They require preservation and eventual complete delivery; a later close
 still prunes old complete data, and idle fragment lanes are reclaimed. Targeted
 Unity lifecycle checks and wire vectors cover the actual production paths.
+
+The follow-up review also separated session liveness (`LastSeenTime`) from the
+manifest's age anchor (`ReceivedTime`). Ordinary urgent packets refresh liveness
+without rewinding `SessionAge + now - ReceivedTime`, preventing repeated opening
+age/fade when censuses are less frequent. Population and attention stale checks
+use the independent liveness value. A regression holds the manifest anchor 20s
+old while delivering a current module: the visitor remains active and its age
+continues unchanged.
+
+The no-bundle activity gate now checks thumb articulation throughout actual grasp
+intervals. Its previous sole phase-8 check had zero merchant curl, allowing the
+excessive-thumb negative control to escape despite actual-prefab tests detecting
+it. Default validation now passes 58,481 assertions and 13 effective negatives.
+The final lower-tier furniture bundle, SHA256
+`6e62641e2853e3b87a7e5179d0b75953baa8a85a48b948a6b963ef05bc729fbf`,
+also passed the positive 157,544-contact suite and was rendered/inspected again.

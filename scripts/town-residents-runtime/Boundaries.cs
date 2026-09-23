@@ -114,7 +114,7 @@ namespace GloomhavenVR.Net.TownServices
 {
     using UnityEngine;
     internal sealed class TownServiceSessionInfo
-    { internal bool Active;internal byte Service;internal float ReceivedTime,SessionAge;internal int Peer; }
+    { internal bool Active;internal byte Service;internal float ReceivedTime,LastSeenTime,SessionAge;internal int Peer; }
     internal static class TownServiceMirror
     { internal static readonly Dictionary<int,TownServiceSessionInfo> RemoteSessions=new();internal static Func<int,Transform?>? SharedFrameForRemote; }
 }

@@ -32,8 +32,18 @@ public static partial class MirrorProgram
             Check(Has("ReceivedBaselines", 101) && Has("Pending", 101), "delayed census preserves newer complete baseline");
             TownServiceFrame current = Frame(102, 9, true); current.Modules = new ushort[] { 3 }; Deliver(current);
             Check(Has("ReceivedBaselines", 101), "new census can use already arrived baseline");
+            TownServiceSessionInfo live = TownServiceMirror.RemoteSessions[peer];
+            live.SessionAge = 17; live.ReceivedTime = UnityEngine.Time.unscaledTime - 3;
+            float previousAge = live.SessionAge + UnityEngine.Time.unscaledTime - live.ReceivedTime;
+            Deliver(Frame(103, 9, false));
+            Check(UnityEngine.Mathf.Abs(live.SessionAge + UnityEngine.Time.unscaledTime - live.ReceivedTime - previousAge) < .001f,
+                "module heartbeat cannot rewind author session age");
+            Check(UnityEngine.Mathf.Abs(live.LastSeenTime - UnityEngine.Time.unscaledTime) < .001f, "module heartbeat refreshes independent liveness");
+            live.ReceivedTime = UnityEngine.Time.unscaledTime - 20;
+            TownServiceMirror.TickRemote(_ => null);
+            Check(live.Active, "frequent modules keep session live without moving old manifest clock anchor");
             Deliver(Frame(110, 9, true, false));
-            Check(!Has("ReceivedBaselines", 101), "later close prunes old baseline");
+            Check(!Has("ReceivedBaselines", 103), "later close prunes old baseline");
             Deliver(Frame(121, 10, false));
             Deliver(Frame(120, 9, true, false)); // Old-session close overtakes a new-session baseline.
             Check(Has("ReceivedBaselines", 121) && Has("Pending", 121), "old close preserves newer reopened-session baseline");

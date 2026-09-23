@@ -39,7 +39,7 @@ internal static class TownServicePopulation
         {
             float now = Time.unscaledTime;
             foreach (TownServiceSessionInfo remote in TownServiceMirror.RemoteSessions.Values)
-                if (remote.Active && now - remote.ReceivedTime <= NetProtocol.StaleTimeoutSeconds) return true;
+                if (remote.Active && now - remote.LastSeenTime <= NetProtocol.StaleTimeoutSeconds) return true;
             return false;
         }
     }
@@ -119,7 +119,7 @@ internal static class TownServicePopulation
             float visitAge = visiting ? TownServicePresentation.SessionAge : float.PositiveInfinity;
             foreach (TownServiceSessionInfo remote in TownServiceMirror.RemoteSessions.Values)
             {
-                if (!remote.Active || remote.Service != service || now - remote.ReceivedTime > NetProtocol.StaleTimeoutSeconds) continue;
+                if (!remote.Active || remote.Service != service || now - remote.LastSeenTime > NetProtocol.StaleTimeoutSeconds) continue;
                 visiting = true;
                 visitAge = Mathf.Min(visitAge, remote.SessionAge + Mathf.Max(0f, now - remote.ReceivedTime));
             }
