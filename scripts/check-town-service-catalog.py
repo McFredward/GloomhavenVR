@@ -38,17 +38,19 @@ def sources(root):
 def mutations():
     return [
         ("overlapping-stock", "TownServiceMerchantCounter.cs", "ColumnPitch = .15f", "ColumnPitch = .07f", "physical card faces never overlap their adjacent column"),
-        ("npc-workspace", "TownServiceMerchantCounter.cs", "-1.32f + row * RowPitch", "-.72f + row * RowPitch", "all stock cards clear the NPC ledger and transaction workspace"),
+        ("npc-workspace", "TownServiceMerchantDrawer.cs", "-.20f, -.57f", "-.20f, -.10f", "all stock cards clear the NPC ledger and transaction workspace"),
         ("constructor-rollback", "TownServiceCatalog.cs", "catch { Dispose(); throw; }\n    }\n    internal void SetVisibility", "catch { throw; }\n    }\n    internal void SetVisibility", "constructor failure restores native inventory ownership"),
-        ("hidden-stock", "TownServiceCatalog.cs", "internal bool Exposed => Current;", "internal bool Exposed => Sample.IsMoving;", "every stock and owned card is visible before pickup"),
+        ("hidden-stock", "TownServiceCatalog.cs", "internal bool Exposed => Current && (Sample.IsMoving || Ordinal / TownServiceMerchantDrawer.Capacity == Rack.Page);", "internal bool Exposed => Current;", "only active tray cards are exposed; source identity remains alive"),
         ("stale-prompt", "TownServiceMerchantTransaction.cs", "if (created) confirmation.OnCancel();", "if (created) { }", "own stale item prompt cancelled through native lifecycle"),
-        ("cap", "TownServiceCatalog.cs", "foreach(var row in _backend.Rows)", "foreach(var row in _backend.Rows.GetRange(0, Math.Min(6,_backend.Rows.Count)))", "all 164 stock and 164 owned entries persist without pagination"),
+        ("cap", "TownServiceCatalog.cs", "foreach(var row in _backend.Rows)", "foreach(var row in _backend.Rows.GetRange(0, Math.Min(6,_backend.Rows.Count)))", "all 164 stock and 164 owned entries remain available across physical trays"),
         ("held-relocation", "TownServiceCatalog.cs", "if (sample.IsMoving) return false", "if (sample.IsMoving && _disposed) return false", "held or returning sample prevents station relocation"),
         ("held-return", "TownServiceToken.cs", "_physical.localPosition = _homePosition;", "_physical.localPosition = Vector3.zero;", "cancel restores the original counter pose"),
         ("held-scale", "TownServiceToken.cs", "_hand.Rig.GrabAnchor.TransformPoint(_heldPosition)", "_hand.Rig.GrabAnchor.TransformPoint(_heldPosition * scale)", "held card stays inside one hand span at every rig scale"),
         ("context-race", "TownServiceMerchantTransaction.cs", "if (!stillCurrent() || !Eligible(inventory, item, selling)\n            || !created", "if (!Eligible(inventory, item, selling)\n            || !created", "context race never confirms native callback"),
         ("confirmation-owner", "TownServiceMerchantTransaction.cs", "if (confirmation == null || confirmation.IsActive) return false;", "if (confirmation == null) return false;", "unrelated pending confirmation retained"),
         ("sell-identity", "TownServiceMerchantTransaction.cs", "return inventory.service.GetItemsToSell(inventory.character).Contains(item)", "return true", "stale owned item is ineligible"),
+        ("held-rack", "TownServiceCatalog.cs", "() => !_entries.Exists(entry => entry.Selling == bank && entry.Sample.IsMoving)", "() => true", "held merchandise prevents rack motion"),
+        ("early-tray-swap", "TownServiceMerchantDrawer.cs", "_turn>=.5f", "_turn>=.01f", "card identity is retained while outgoing front is visible"),
         ("restore", "TownServiceCatalog.cs", "_inventory.transform.SetParent(_nativeHome,false);", "_inventory.transform.SetParent(_nativeWrapper.transform,false);", "constructor failure restores native inventory ownership"),
     ]
 

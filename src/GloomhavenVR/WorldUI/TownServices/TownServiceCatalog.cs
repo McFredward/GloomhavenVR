@@ -13,8 +13,8 @@ using UnityEngine.UI;
 
 namespace GloomhavenVR.WorldUI;
 
-/// <summary>Complete native merchant stock and owned inventory on an open sales counter.
-/// No page/filter controls and no hidden count cap. Only an explicit eligible zone drop
+/// <summary>Complete native merchant stock and owned inventory in two revolving cabinet racks.
+/// Physical cranks cycle bounded trays without expanding the room. Only an explicit eligible zone drop
 /// enters the original native transaction; picking up a card is always inspection.</summary>
 internal sealed class TownServiceCatalog : IDisposable
 {
@@ -81,6 +81,14 @@ internal sealed class TownServiceCatalog : IDisposable
             TMP_Text? font=inventory.GetComponentInChildren<TMP_Text>(true);
             _zones.Add(new TownServiceMerchantZone(Root,false,font));
             _zones.Add(new TownServiceMerchantZone(Root,true,font));
+            foreach (bool selling in new[] { false, true })
+            {
+                bool bank = selling;
+                _drawers.Add(new TownServiceMerchantDrawer(Root, 0, bank, bank ? 1 : 0, "", font,
+                    () => !_disposed && _alive() && _allowInput,
+                    () => !_entries.Exists(entry => entry.Selling == bank && entry.Sample.IsMoving),
+                    drawer => ClearInspection()));
+            }
             if(inventory.itemTooltip!=null)_preview=new TownServiceCatalogPreview(inventory.itemTooltip,Root,()=>_inspected!=null&&_inspected.Current&&_inspected.Sample.IsHeld);
         }
         catch { Dispose(); throw; }
@@ -120,7 +128,7 @@ internal sealed class TownServiceCatalog : IDisposable
         if(_disposed)return;
         if(!_alive()||_inventory==null||_anchor==null){Dispose();return;}
         if(Time.unscaledTime>=_nextCensus){_nextCensus=Time.unscaledTime+.5f;RefreshRows();}
-        foreach(var extension in _extensions)extension.SetVisibility(_opening.alpha);
+        foreach(var drawer in _drawers)drawer.Tick(_opening.alpha);
         foreach(var entry in _entries)entry.Tick(scale);
         foreach(var zone in _zones)
         {
@@ -148,25 +156,17 @@ internal sealed class TownServiceCatalog : IDisposable
             // unlock or another visitor's purchase must never rearrange the card in a hand.
             int position=0;
             while(_entries.Exists(entry=>entry.Selling==row.Selling&&entry.Ordinal==position))position++;
-            Transform parent=Root;
-            Vector3 local;
-            if(!row.Selling&&position<TownServiceMerchantLayout.StockCapacity)
-                local=TownServiceMerchantLayout.StockPosition(position);
-            else
-            {
-                int remainder=row.Selling?position:position-TownServiceMerchantLayout.StockCapacity;
-                int band=remainder/TownServiceMerchantLayout.ReturnCapacity;
-                TownServiceMerchantCounter? extension=_extensions.Find(candidate=>candidate.Selling==row.Selling&&candidate.Band==band);
-                if(extension==null)
-                {
-                    extension=new TownServiceMerchantCounter(Root,_extensions.Count,row.Selling,band);
-                    _extensions.Add(extension);
-                }
-                parent=extension.Content;
-                local=TownServiceMerchantLayout.ReturnPosition(remainder%TownServiceMerchantLayout.ReturnCapacity);
-            }
+            TownServiceMerchantDrawer rack = _drawers[row.Selling ? 1 : 0];
+            Transform parent = rack.Content;
+            Vector3 local = TownServiceMerchantLayout.StockPosition(position % TownServiceMerchantDrawer.Capacity);
             var added=new Entry(this,row.Source,position,row.Selling,parent,local);
             _entries.Add(added);_samples.Add(added.Sample);
+        }
+        foreach (TownServiceMerchantDrawer rack in _drawers)
+        {
+            int maximum = -1;
+            foreach (Entry entry in _entries) if (entry.Selling == rack.Selling) maximum = Math.Max(maximum, entry.Ordinal);
+            rack.SetPageCount(maximum / TownServiceMerchantDrawer.Capacity + 1);
         }
     }
     internal bool Eligible(Entry entry)=>_allowInput&&entry.Current
@@ -181,7 +181,7 @@ internal sealed class TownServiceCatalog : IDisposable
     private void ClearEntries(){ClearInspection();foreach(var entry in _entries)entry.Dispose();_entries.Clear();_samples.Clear();foreach(var extension in _extensions)extension.Dispose();_extensions.Clear();}
     public void Dispose()
     {
-        if(_disposed)return;_disposed=true;ClearEntries();_preview?.Dispose();_preview=null;_backend?.Dispose();foreach(var zone in _zones)zone.Dispose();_zones.Clear();
+        if(_disposed)return;_disposed=true;ClearEntries();_preview?.Dispose();_preview=null;_backend?.Dispose();foreach(var drawer in _drawers)drawer.Dispose();_drawers.Clear();foreach(var zone in _zones)zone.Dispose();_zones.Clear();
         if(_inventory!=null&&_nativeWrapper!=null&&_inventory.transform.parent==_nativeWrapper.transform)
         {_inventory.transform.SetParent(_nativeHome,false);_inventory.transform.SetSiblingIndex(_nativeSibling);}
         if(_nativeWrapper!=null){_nativeWrapper.SetActive(false);UnityEngine.Object.Destroy(_nativeWrapper);}
@@ -211,7 +211,8 @@ internal sealed class TownServiceCatalog : IDisposable
         internal readonly CItem Item;
         internal readonly bool Selling;
         internal readonly int Ordinal;
-        internal bool Exposed => Current;
+        private TownServiceMerchantDrawer Rack => _owner._drawers[Selling ? 1 : 0];
+        internal bool Exposed => Current && (Sample.IsMoving || Ordinal / TownServiceMerchantDrawer.Capacity == Rack.Page);
         internal readonly TownServiceToken Sample;
         internal ItemCardUI CardUI { get; private set; } = null!;
         internal Transform CardRoot => CardUI.transform;
@@ -282,7 +283,7 @@ internal sealed class TownServiceCatalog : IDisposable
                     owner._contextIdentity, () => Current, owner._mat, _display,
                     drop: () => owner.Drop(this), eligible: () => owner.Eligible(this),
                     zoneCenter: new Vector3(selling ? .078f : -.078f, .015f, -.20f),
-                    inspect: () => owner._allowInput, zoneHalfWidth: .07f);
+                    inspect: () => owner._allowInput && Exposed && Rack.Accessible, zoneHalfWidth: .07f);
                 _row.Refresh(source.transform);
                 foreach(RawImage background in source.GetComponentsInChildren<RawImage>(true))_rowBackgrounds.Add(background.transform);
                 TownServiceNativeAssets.PrepareItem(CardUI);
@@ -303,9 +304,9 @@ internal sealed class TownServiceCatalog : IDisposable
                 _row.SetShown(exposed);
             }
             if (_body != null) TownServiceCardBody.SetVisibility(_body.gameObject, exposed ? _owner._opening.alpha : 0f);
-            // Native cards stay active while borrowed. There is no enclosing drawer, page,
-            // viewport or affordability gate which can erase a physically held sample.
-            if (!exposed) return;
+            // Hidden tray entries keep their native source alive, but lose both visual
+            // output and colliders. A held/returning sample always keeps its exposed page.
+            if (!exposed) { Sample.PickCollider.enabled = false; return; }
             if (!Sample.IsMoving)
             {
                 float t = Mathf.Clamp01((Time.unscaledTime - _presentedAt) / .24f);

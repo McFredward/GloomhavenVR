@@ -199,14 +199,42 @@ def terrace(name, columns=24, origin=-1.32, curved=True):
 
 
 def merchant():
-    terrace('Open stock terrace ')
-    # Coin counting contact patch must stay at .955m behind the exposed card tiers.
-    for i in range(6): rect('Ledger worktop plank', (i-2.5)*.285,.18,.280,.54,.955,.065)
-    for x in (-.73,.73): turned_leg(x,.30)
-    rect('Ledger leather',0,.15,.75,.40,.958,.004,'Leather',.002)
-    for x in (-1.86,1.86):
-        tube('Carved end upright',[(x,0,-.50),(x,.38,-.48),(x,.88,-.43)], [.085,.06,.075])
-        ring('Post cap', (x,.89,-.43),.076,.012)
+    # A portable folding campaign cabinet, not a dining hall. Its two revolving
+    # front trays are runtime parts; fixed furniture never grows with inventory.
+    for x in (-.65,.65):
+        turned_leg(x,.16)
+        # Fold-out front legs have visible brass hinge pivots and curved braces.
+        tube('Folding front leg',[(x,0,-.69),(x,.38,-.61),(x,.72,-.49)],[.036,.029,.04])
+        ring('Front leg hinge',(x,.71,-.49),.049,.009)
+        tube('Folding diagonal brace',[(x,.24,-.62),(x,.50,-.34),(x,.83,.02)],[.014]*3,'Brass',8)
+    # Clear native coin/ledger contact patch remains at the original height.
+    for i in range(6): rect('Ledger worktop plank',(i-2.5)*.232,.16,.230,.64,.955,.055)
+    rect('Ledger leather',0,.15,.72,.40,.958,.004,'Leather',.002)
+    for x in (-.70,.70):
+        rect('Rounded cabinet cheek',x,-.14,.055,.69,.91,.47,bevel=.020)
+        tube('Forged carry handle',[(x,.56,-.28),(x*1.04,.54,-.23),(x*1.04,.54,-.08),(x,.56,-.03)],[.009]*4,'Brass',10)
+    # Lower travelling trunk; revolving racks occupy x ±.35,z -.57,y .77.
+    rect('Travel trunk floor',0,-.40,1.36,.58,.43,.06,bevel=.017)
+    rect('Travel trunk apron',0,-.686,1.36,.035,.44,.19,bevel=.014)
+    for x in (-.64,0,.64):
+        rect('Forged travel strap',x,-.708,.027,.008,.44,.19,'Brass',.004)
+    for x in (-.35,.35):
+        # Top/bottom bearings support each visible turning card tray.
+        tube('Rack bearing upright',[(x,.43,-.57),(x,.455,-.57)],[.018]*2,'Brass',10)
+        tube('Rack upper pin',[(x,1.115,-.57),(x,1.15,-.57)],[.014]*2,'Brass',10)
+    for x in (-.685,.685):
+        tube('Rack folding frame',[(x,.43,-.57),(x,1.12,-.57)],[.020]*2)
+    tube('Folding cabinet crown',[(-.685,1.12,-.57),(0,1.15,-.57),(.685,1.12,-.57)],[.022]*3)
+    for x in (-.35,.35):
+        for z in (-.70,-.13):
+            tube('Leather securing belt',[(x,.443,z),(x,.451,z+.10)],[.012]*2,'Leather',6)
+
+
+def merchant_return():
+    # Legacy template address remains loadable, but no inventory-dependent returns
+    # are instantiated. Retain a small folded travel case rather than the huge terrace.
+    rect('Folded carrying case',0,0,.68,.18,.30,.30,bevel=.022)
+    for x in (-.22,.22): rect('Case strap',x,-.095,.022,.009,.29,.27,'Brass',.004)
 
 
 def enchantress():
@@ -284,4 +312,4 @@ def export(name, build):
 export('merchant',merchant)
 export('enchantress',enchantress)
 export('priestess',priestess)
-export('merchant_return',lambda:terrace('Open return terrace ',8,-.455,False))
+export('merchant_return',merchant_return)

@@ -22,7 +22,7 @@ public static class InteractionProgram
         var colliders=new List<Collider>();
         foreach(var entry in catalog.Entries)
         {
-            Set(entry,"_presentedAt",-1000f);entry.Tick(1f);entries.Add(entry);
+            Set(entry,"_presentedAt",-1000f);entry.Tick(1f);if(!entry.Exposed)continue;entries.Add(entry);
             colliders.Add(entry.Sample.PickCollider);
         }
         Physics.SyncTransforms();
@@ -41,6 +41,23 @@ public static class InteractionProgram
             Check(Vector3.Distance(colliders[n].ClosestPoint(target-card.forward*.01f),target)<.006f,
                 "physical fingertip can reach each exposed card face");
         }
+    }
+    private static void Turn(TownServiceCatalog catalog,TownServiceMerchantDrawer crank)
+    {
+        int previous=crank.Page;
+        Check(crank.RequestTurn(),"unheld stocked rack accepts one mechanical turn");
+        Check(!crank.RequestTurn(),"a running mechanical turn cannot restart");
+        Set(crank,"_clock",.20f);crank.Tick(1f);
+        Check(crank.Page==previous,"card identity is retained while outgoing front is visible");
+        Check(Quaternion.Angle(crank.HousingRoot.localRotation,Quaternion.identity)>10f,"rack itself rotates with cards instead of swapping a UI page");
+        Set(crank,"_clock",.45f);crank.Tick(1f);
+        Check(crank.Page==(previous+1)%crank.PageCount,"replacement happens behind the opaque tray back");
+        foreach(var entry in catalog.Entries)entry.Tick(1f);
+        foreach(var entry in catalog.Entries)if(entry.Selling==crank.Selling)
+            Check(!entry.Sample.CanGrab,"moving rack prevents a grab during mechanical turnover");
+        Set(crank,"_clock",.85f);crank.Tick(1f);
+        foreach(var entry in catalog.Entries)entry.Tick(1f);
+        Check(!crank.Moving&&Quaternion.Angle(crank.HousingRoot.localRotation,Quaternion.identity)<.001f,"rack settles at original front pose");
     }
     private static void HeldScale(TownServiceCatalog catalog,Transform anchor)
     {
@@ -109,16 +126,17 @@ public static class InteractionProgram
         object context=new object();bool alive=true;
         var catalog=new TownServiceCatalog(inventory,anchor.transform,()=>context,()=>alive,anchor.transform);
         catalog.SetVisibility(1f);Census(catalog);catalog.Tick(1f);
-        Check(catalog.Entries.Count==328,"all 164 stock and 164 owned entries persist without pagination");
+        Check(catalog.Entries.Count==328,"all 164 stock and 164 owned entries remain available across physical trays");
         Check(catalog.Controls.Count==0,"no flat filter or page buttons");
         Check(ObjectPool.Alive==328,"one physical original card per persistent entry");
-        Check(catalog.Drawers.Count==0,"no drawer or drawer interaction is created");
-        Check(catalog.Extensions.Count==3,"owned catalog grows into three furnished open returns");
+        Check(catalog.Drawers.Count==2,"two physical cranks replace inventory-dependent furniture");
+        Check(catalog.Extensions.Count==0,"stock growth never adds giant side returns");
         foreach(var e in catalog.Entries)
         {
-            Check(e.Exposed&&e.CardUI.GetComponentInParent<Canvas>().enabled&&e.CardUI.gameObject.activeInHierarchy,
-                "every stock and owned card is visible before pickup");
-            Check(e.Sample.CanGrab,"every exposed card is independently inspectable without opening controls");
+            bool visible=e.Ordinal<16;
+            Check(e.Exposed==visible&&e.CardUI.GetComponentInParent<Canvas>().enabled==visible&&e.CardUI.gameObject.activeInHierarchy,
+                "only active tray cards are exposed; source identity remains alive");
+            Check(e.Sample.CanGrab==visible,"only exposed tray cards have a physical pickup target");
             Check(e.CardUI.GetComponent<Image>().raycastTarget==false,"own card GUI cannot veto direct pickup");
             Check(e.BodyRoot!=null,"each item has physical body");
             if(!e.Selling)
@@ -128,7 +146,7 @@ public static class InteractionProgram
                 {
                     Vector3 point=anchor.transform.InverseTransformPoint(corner);
                     Check(point.z<-.19f,"all stock cards clear the NPC ledger and transaction workspace");
-                    Check(Mathf.Abs(point.x)<1.90f,"every stock card fits the authored main counter width");
+                    Check(Mathf.Abs(point.x)<.72f,"every stock card fits the portable cabinet width");
                 }
                 if(e.Ordinal%TownServiceMerchantLayout.StockColumns>0)
                 {
@@ -144,6 +162,14 @@ public static class InteractionProgram
         Check(catalog.Entries.Count==329,"late unlock adds card without dropping old stock");
         Check(catalog.Entries[0].CardRoot==stableRoot,"late unlock preserves existing card transforms");
         HeldScale(catalog,anchor.transform);
+        var crank=catalog.Drawers[0];
+        stable.Tick(1f);var holder=new VRHand();stable.Sample.OnGrab(holder);stable.Tick(1f);
+        Check(!crank.RequestTurn(),"held merchandise prevents rack motion");
+        Check(stable.Exposed&&crank.Page==0,"held card cannot be swapped into a hidden tray");
+        stable.Sample.OnGrabCancelled(holder);UnityEngine.Object.DestroyImmediate(holder.Rig.GrabAnchor.gameObject);
+        Turn(catalog,crank);Check(crank.Page==1,"one completed physical turn advances exactly one tray");
+        for(int n=1;n<crank.PageCount;n++)Turn(catalog,crank);
+        Check(crank.Page==0,"stock rack completes its accessible cycle");
         Check(inventory.service.Commits==0,"inspection census and opening never spend gold");
         var inspector=new VRHand();stable.Tick(1f);stable.Sample.OnGrab(inspector);stable.Tick(1f);catalog.LateTick();
         Check(inventory.itemTooltip.Shows>0&&inventory.itemTooltip.Service==inventory.service,"held inspection invokes native complete item detail with original discount service");
@@ -204,7 +230,16 @@ public static class InteractionProgram
                 Check(Mathf.Abs(extension.Root.localPosition.x)>2.5f,"side returns clear the merchant anatomy envelope");
                 Check(Mathf.Abs(extension.Root.localPosition.y+.970f)<.0001f,"furnished return retains the shared floor origin");
             }
-            Check(fullCatalog.Extensions.Count==8,"complete Guildmaster roster inventory creates eight open furnished returns");
+            Check(fullCatalog.Extensions.Count==0&&fullCatalog.Drawers.Count==2,"maximum roster inventory retains one compact cabinet");
+            Check(fullCatalog.Drawers[1].PageCount==32,"all 512 owned copies are reachable through the crank");
+            var seen=new HashSet<TownServiceCatalog.Entry>();
+            for(int page=0;page<32;page++)
+            {
+                foreach(var entry in fullCatalog.Entries)if(entry.Selling&&entry.Exposed)seen.Add(entry);
+                Turn(fullCatalog,fullCatalog.Drawers[1]);
+            }
+            Check(seen.Count==512,"complete crank cycle exposes every owned identity exactly once");
+            Check(fullCatalog.Drawers[1].Page==0,"mechanical cycle wraps to its first tray");
             CardReach(fullCatalog);
             foreach(var entry in fullCatalog.Entries)
             {

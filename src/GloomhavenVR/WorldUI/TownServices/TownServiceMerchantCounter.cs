@@ -5,40 +5,24 @@ using UnityEngine;
 
 namespace GloomhavenVR.WorldUI;
 
-/// <summary>Measured open-counter slots. Every card has an exposed face and its own collider;
-/// stock growth adds furnished side returns instead of replacing a page or closing a drawer.</summary>
+/// <summary>Two compact vertical card racks inside a travelling merchant cabinet.
+/// Inventory size changes the number of mechanical turns, never the furniture footprint.</summary>
 internal static class TownServiceMerchantLayout
 {
-    internal const int StockColumns = 24, StockRows = 8;
+    internal const int StockColumns = 4, StockRows = 4;
     internal const int StockCapacity = StockColumns * StockRows;
-    internal const int ReturnColumns = 8, ReturnRows = 8;
+    internal const int ReturnColumns = 4, ReturnRows = 4;
     internal const int ReturnCapacity = ReturnColumns * ReturnRows;
-    internal const float CardWidth = .14f, CardHeight = .112f, FacePitch = 65f;
-    internal const float WorktopHeight = .970f, ColumnPitch = .15f, RowPitch = .13f, TerraceRise = .008f;
-    // The tilted card's lower edge and original price strip must clear the terrace's
-    // retaining lip. WorktopHeight remains the native transaction/action surface.
+    internal const float CardWidth = .14f, CardHeight = .112f, FacePitch = 0f;
+    internal const float WorktopHeight = .970f, ColumnPitch = .15f, RowPitch = .14f, TerraceRise = 0f;
     internal const float CardSeatLift = .034f;
-
-    internal static Vector3 StockPosition(int ordinal)
-    {
-        float x = (ordinal % StockColumns - 11.5f) * ColumnPitch;
-        int row = ordinal / StockColumns;
-        float bow = x / 1.725f;
-        // Keep the rear edge in front of the NPC's ledger/coin workspace (z >= 0).
-        return new Vector3(x, CardSeatLift + row * TerraceRise, -1.32f + row * RowPitch + .16f * bow * bow);
-    }
-
-    internal static Vector3 ReturnPosition(int ordinal) => new Vector3(
-        (ordinal % ReturnColumns - 3.5f) * ColumnPitch, CardSeatLift + ordinal / ReturnColumns * TerraceRise,
-        -.455f + ordinal / ReturnColumns * RowPitch);
-
+    internal static Vector3 StockPosition(int ordinal) => new Vector3(
+        (ordinal % StockColumns - 1.5f) * ColumnPitch,
+        -.245f + (ordinal / StockColumns % StockRows) * RowPitch, -.025f);
+    internal static Vector3 ReturnPosition(int ordinal) => StockPosition(ordinal);
+    // Kept for old snapshot template construction; current catalogs never grow returns.
     internal static void ReturnPose(int ordinal, out Vector3 position, out Quaternion rotation)
-    {
-        int pair = ordinal / 2;
-        float side = ordinal % 2 == 0 ? -1f : 1f;
-        position = new Vector3(side * (2.85f + .25f * pair), 0f, -.25f + pair * 1.40f);
-        rotation = Quaternion.Euler(0f, -side * 10f, 0f);
-    }
+    { position = new Vector3(0f, 0f, -.2f); rotation = Quaternion.identity; }
 }
 
 /// <summary>An authored, decorated open return of the sales counter. The same immutable mesh
