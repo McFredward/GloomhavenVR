@@ -391,7 +391,8 @@ internal sealed class VRCard : GrabbableBehaviour, IGrabHighlight, IPokeable, IG
     /// dialog opens stays held (this only gates grab starts, incl. laser pluck).
     /// </summary>
     public override bool CanGrab => base.CanGrab && Grabbable
-        && Core.Events.VRModeStateMachine.CurrentMode != Core.Events.VRMode.ModalUI;
+        && (Core.Events.VRModeStateMachine.CurrentMode != Core.Events.VRMode.ModalUI
+            || WorldUI.TownServiceEnhancementHandoff.CanReclaim(this));
 
     // ------------------------------------------------------------------ build --
 

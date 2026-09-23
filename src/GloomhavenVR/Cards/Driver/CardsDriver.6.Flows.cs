@@ -4221,6 +4221,7 @@ internal sealed partial class CardsDriver
             if (card == null)
                 continue;
             HookCard(card);
+            if (WorldUI.TownServiceEnhancementHandoff.IsParked(card)) continue;
             _fanBuffer.Add(card);
         }
 
@@ -4292,6 +4293,35 @@ internal sealed partial class CardsDriver
     /// will actually see and say so in its log.</summary>
     internal static bool OffScenarioFanIsOpen =>
         OffScenarioFanActive && Instance != null && Instance._fan.IsOpen;
+
+    /// <summary>Return the original offered map card, including when the fan is closed.</summary>
+    internal static void ReturnTownOffering(VRCard card)
+    {
+        CardsDriver? driver = Instance;
+        if (driver == null || card == null || card.IsHeld) return;
+        if (!WorldUI.MapRoom.MapRoomHand.TryOwnedTownCard(card, out _, out _))
+        {
+            // Character/loadout changes must not insert the previous character's card into
+            // the newly selected hand. Its source owns the retired card's eventual disposal.
+            Transform? frame = Rig.VRRigDriver.RigRoot;
+            if (frame != null)
+                card.SetHome(frame, frame.InverseTransformPoint(card.transform.position),
+                    Quaternion.Inverse(frame.rotation) * card.transform.rotation,
+                    card.transform.lossyScale.x / frame.lossyScale.x);
+            driver.LeaveOffScenarioFan(card);
+            return;
+        }
+        Vector3 from = card.transform.position;
+        float width = CardsConfig.CardWidth.Value * Mathf.Abs(card.transform.lossyScale.x);
+        driver._fan.Add(card);
+        driver._offScenarioLast.Add(card); // an existing card returning, not a new materialization
+        if (!driver._fan.IsOpen && driver._fan.Root != null)
+            card.SetHome(driver._fan.Root, Vector3.zero, Quaternion.identity, 1f, instant: true);
+        if (driver._fan.TrySeatArrival(card, out _))
+            card.FlyFromPile(from, width, .45f, Vector3.up,
+                onComplete: () => { if (card != null) card.Grabbable = true; });
+        RequestRebuild();
+    }
 
     /// <summary>True while a character exchange is still in the air on the off-scenario fan. The
     /// swap wave owns every card's pose while it runs, so a single-card join must not also drive

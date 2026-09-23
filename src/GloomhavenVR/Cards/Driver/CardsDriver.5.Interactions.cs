@@ -354,6 +354,14 @@ internal sealed partial class CardsDriver
         // release branch below to commit into a gap or cancel to origin).
         bool fanOrigin = _fanOriginCards.Remove(card);
 
+        if (hand.HasPose && hand.TriggerUp
+            && WorldUI.TownServiceEnhancementHandoff.TryOffer(card))
+        {
+            ClearFanInsertion();
+            RequestRebuild();
+            return;
+        }
+
         if (_fakeActive)
         {
             RouteFakeRelease(card, hand);
@@ -431,6 +439,7 @@ internal sealed partial class CardsDriver
         if (card.InspectOnly)
         {
             ClearFanInsertion();
+            if (WorldUI.TownServiceEnhancementHandoff.ReturnReclaimed(card)) return;
             _fan.Add(card); // animated return HOME — the same glide every refused drop uses
             VRLog.Info("Cards", $"Inspect release ({hand.Side}): '{card.name}' returns HOME to the hand fan — " +
                                 $"the GRAB was allowed, the PLACEMENT is refused by: {_placementRefusal}. " +

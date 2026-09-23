@@ -92,6 +92,7 @@ internal static class TownServicePresentation
                 ModalFallback.RestoreClassicTownService(restore);
             return;
         }
+        TownServiceEnhancementHandoff.TickApproach();
         EGuildmasterMode mode = GuildmasterDestinations.CurrentDestinationMode();
         byte service = mode == EGuildmasterMode.Merchant ? (byte)1 : mode == EGuildmasterMode.Temple ? (byte)2
             : mode == EGuildmasterMode.Enchantress ? (byte)3 : (byte)0;

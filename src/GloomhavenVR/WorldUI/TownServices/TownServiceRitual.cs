@@ -239,6 +239,7 @@ internal sealed class TownServiceRitual : IDisposable
     private float _censusAt;
     private readonly float _started = Time.unscaledTime;
     private bool _disposed;
+    internal TownServiceEnhancementHandoff? Handoff { get; private set; }
     internal Transform Root { get; }
     internal IEnumerable<Piece> Pieces => _pieces.Values;
     internal IReadOnlyCollection<TownServiceToken> Samples => _samples;
@@ -246,7 +247,7 @@ internal sealed class TownServiceRitual : IDisposable
     internal Transform Zone => _zone.transform;
     internal IReadOnlyList<TownServiceSurface> Surfaces => _surfaces;
     internal bool CanRelocate
-    { get { foreach (Piece piece in _pieces.Values) if (piece.Token.IsMoving) return false; return true; } }
+    { get { if (Handoff?.Card != null) return false; foreach (Piece piece in _pieces.Values) if (piece.Token.IsMoving) return false; return true; } }
 
     internal TownServiceRitual(UIWindow window, byte service, Transform station,
         Func<bool> alive, Func<object?> context)
@@ -291,6 +292,9 @@ internal sealed class TownServiceRitual : IDisposable
                 // The selected original card retains its actual ability/enhancement hotspots.
                 // This is the narrow native UI required to choose which printed ability changes.
                 UINewEnhancementWindow shop = window.GetComponent<UINewEnhancementWindow>();
+                Handoff = new TownServiceEnhancementHandoff(shop,
+                    TownServicePresentation.StationRoot ?? throw new InvalidOperationException("Resident is unavailable"),
+                    alive, _alive);
                 _surfaces.Add(new TownServiceSurface(11, (RectTransform)shop.cardHolder.transform,
                     new Vector3(0f, .008f, 0f), .25f, Root));
                 // The original capacity group includes its label, icon and mutually exclusive
@@ -317,6 +321,7 @@ internal sealed class TownServiceRitual : IDisposable
 
     internal void Tick(float scale)
     {
+        Handoff?.Tick();
         if (_disposed || !_alive()) return;
         if (_service == 2 && TownServiceDecor.CoinTemplate == null && Time.unscaledTime - _started > 15f)
             throw new InvalidOperationException("Original offering geometry did not load; restoring the native temple window.");
@@ -370,21 +375,6 @@ internal sealed class TownServiceRitual : IDisposable
                 AddMode(shop.sellButton, "enchant.sell", TownServiceRitualLayout.Mode(true));
             }
             int index = 0, count = 0;
-            foreach (UIEnhanceCardSlot slot in shop.CardsDisplay.slotsPool)
-                if (slot != null && slot.gameObject.activeInHierarchy && slot.AbilityCard != null) count++;
-            foreach (UIEnhanceCardSlot slot in shop.CardsDisplay.slotsPool)
-            {
-                if (slot == null || !slot.gameObject.activeInHierarchy || slot.AbilityCard == null) continue;
-                AbilityCardUI card = slot.AbilityCard;
-                var placement = TownServiceRitualLayout.Card(index++, count);
-                if (ArrangeExisting(card, placement)) continue;
-                Add(card, NativeTemplates.CardKey(card), slot.Selectable,
-                        () => slot.AbilityCard != null ? slot.AbilityCard.AbilityCard : null,
-                        () => slot.Selectable.IsInteractable(),
-                        () => Click(slot.Selectable),
-                        placement, true);
-            }
-            index = count = 0;
             foreach (UINewEnhancementShopSlot slot in shop.enhancementShop.slotsPool)
                 if (slot != null && slot.gameObject.activeInHierarchy && slot.enhancement != null) count++;
             foreach (UINewEnhancementShopSlot slot in shop.enhancementShop.slotsPool)
@@ -484,6 +474,7 @@ internal sealed class TownServiceRitual : IDisposable
     public void Dispose()
     {
         if (_disposed) return; _disposed = true;
+        Handoff?.Dispose(); Handoff = null;
         foreach (Piece piece in _pieces.Values) piece.Dispose(); _pieces.Clear(); _samples.Clear();
         foreach (Inscription inscription in _inscriptions) inscription.Dispose(); _inscriptions.Clear();
         for (int i = _surfaces.Count - 1; i >= 0; i--) _surfaces[i].Dispose(); _surfaces.Clear();
