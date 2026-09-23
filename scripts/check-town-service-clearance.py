@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Compile production room clearance lifecycle and shared station layout cases and run them inside Unity 2021.3.5.
+"""Compile production read-only room classification and shared compact layout cases and run them inside Unity 2021.3.5.
 
 No game launch, network service, source mutation or generated tracked files.
 Explicit fixture boundaries are documented in town-service-clearance-runtime/Program.cs.
@@ -22,21 +22,30 @@ def replace_once(source, before, after):
 
 def sources(root):
     base = root / "src/GloomhavenVR/WorldUI/TownServices"
-    names = ["TownServiceRoomClearance.cs", "TownServiceRoomGeometry.cs", "TownServiceLayout.cs"]
+    names = ["TownServiceLayout.cs"]
     bound = {name: (base / name).read_text() for name in names}
     return bound, {name: hashlib.sha256(text.encode()).hexdigest() for name, text in bound.items()}
 
 
 def mutations():
     return [
-        ("partial-cleanup", "TownServiceRoomGeometry.cs", "            Dispose();\n            throw;", "            throw;", "partially constructed geometry disposes existing private meshes"),
-        ("disabled-allocation", "TownServiceRoomClearance.cs", "if (enabled && !_geometryAttempted)", "if (!_geometryAttempted)", "initial disabled mode never clones room meshes"),
-        ("tree-shape", "TownServiceRoomGeometry.cs", "_centres[i].x * (factor - 1f)", "_vertices[i].x * (factor - 1f)", "tree translation preserves every triangle edge"),
-        ("repeat-expansion", "TownServiceRoomClearance.cs", "if (_room == null || _room.localScale == _last) return;", "if (_room == null) return; if (_room.localScale == _last) { _base = _last; return; }", "repeated updates cannot compound expansion"),
-        ("relative-zoom", "TownServiceRoomClearance.cs", "_base *= ratio.y;", "_base = observed;", "relative external zoom cannot apply expansion twice"),
-        ("restore", "TownServiceRoomClearance.cs", "if (_room != null) _room.localScale = _base;", "", "reset preserves external zoom before next tick"),
-        ("environment-divergence", "TownServiceLayout.cs", "radius = ResidentRadius;", "radius = ResidentRadius + (environment == Environment.Forest ? .2f : 0f);", "environment choice preserves shared layout"),
+        ("room-scale", "TownServiceLayout.cs", "Quaternion.Euler(0f, room.eulerAngles.y, 0f)", "Quaternion.Euler(0f, (room.localScale = Vector3.one * 3.5f).y, 0f)", "layout preserves every original scenery transform"),
+        ("oversized-resident", "TownServiceLayout.cs", "ResidentRadius = 2.3f", "ResidentRadius = 4.8f", "residents fit the original room radius"),
+        ("oversized-visitor", "TownServiceLayout.cs", "radius = visitor == 3 ? 2.7f : 2.55f;", "radius = 5.8f;", "visitor workspaces fit the original room radius"),
+        ("environment-divergence", "TownServiceLayout.cs", "radius = service == 2 ? 2.2f : ResidentRadius;", "radius = service == 2 ? 2.2f : ResidentRadius + (environment == Environment.Forest ? .05f : 0f);", "environment choice preserves shared layout"),
+        ("invalid-reservation", "TownServiceLayout.cs", "visitor < 0 || visitor > 3", "visitor < 0 || visitor > 4", "invalid station identities cannot silently claim an existing reservation"),
     ]
+
+
+def verify_no_room_expansion(root):
+    # A bounded source guard for the exact regressed mechanism. This is not a claim
+    # that textual scanning proves every conceivable future scene mutation absent.
+    base = root / "src/GloomhavenVR/WorldUI/TownServices"
+    forbidden = ("TownServiceRoomClearance", "TownServiceRoomGeometry", "HorizontalExpansion", "TownClearance")
+    for source in base.glob("*.cs"):
+        if any(token in source.read_text() for token in forbidden):
+            raise SystemExit(f"FAIL: removed room expansion reintroduced in {source.name}")
+    print("PASS: removed room expansion/mesh rewrite mechanisms remain absent", flush=True)
 
 
 def main():
@@ -48,6 +57,7 @@ def main():
     parser.add_argument("--no-negative-controls", action="store_true", help="Quick positive run; not complete validation")
     parser.add_argument("--environment-bundle", type=Path, default=repo / "prebuilt/gloomhavenvr.bundle")
     args = parser.parse_args()
+    verify_no_room_expansion(args.source_root)
     bundle_hash = hashlib.sha256(args.environment_bundle.read_bytes()).hexdigest()
     args.output_dir.mkdir(parents=True, exist_ok=True)
     run = Path(tempfile.mkdtemp(prefix="run-", dir=args.output_dir.resolve()))
@@ -69,7 +79,7 @@ def main():
         for path, text in bound.items():
             if path == filename:
                 text = replace_once(text, before, after)
-            (production / path).write_text(text.replace("Time.unscaledTime", "ClearanceClock.Now").replace("UnityEngine.Object.Destroy(", "ClearanceDestroy.Record("))
+            (production / path).write_text(text)
         project = build / "Interaction.csproj"
         shutil.copyfile(fixture / "Clearance.csproj", project)
         assembly = "TownInteraction_" + name.replace("-", "_")
