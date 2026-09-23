@@ -4,10 +4,10 @@ using UnityEngine;
 namespace GloomhavenVR.WorldUI;
 
 /// <summary>Shared station and visitor poses, measured against both original rooms.
-/// The opened filing banks reserve their complete travel; reading-side yaw cannot rotate
-/// a validated forest gap into a tree or a cellar counter into its furniture.</summary>
+/// Positions use the common room frame, so observers with different environments agree.</summary>
 internal static class TownServiceLayout
 {
+    internal const float ResidentRadius = 4.8f;
     internal enum Environment { Open, Cellar, Forest }
 
     internal static Environment ForRoom(Transform? room) => room == null ? Environment.Open
@@ -26,16 +26,16 @@ internal static class TownServiceLayout
         // but published residents and independently resolved visitor counters share one town.
         if (visitor != 0)
         {
-            radius = visitor == 1 ? 2.3f : visitor == 2 ? 2.4f : 3.1f;
-            bearing = visitor == 1 ? 100f : visitor == 2 ? 220f : 270f;
-            yaw = visitor == 1 ? 100f : visitor == 2 ? 220f : 300f;
+            radius = 5.8f;
+            bearing = visitor == 1 ? 105f : visitor == 2 ? 255f : 180f;
+            yaw = bearing;
         }
         else
         {
             if (service < 1 || service > 3) throw new ArgumentOutOfRangeException(nameof(service));
-            radius = service == 3 ? 2.4f : 2.3f;
-            bearing = service == 1 ? 15f : service == 2 ? 320f : 160f;
-            yaw = service == 1 ? 15f : service == 2 ? 290f : 160f;
+            radius = ResidentRadius;
+            bearing = service == 1 ? 0f : service == 2 ? -60f : 60f;
+            yaw = bearing;
         }
         position = Quaternion.Euler(0f, bearing, 0f) * new Vector3(0f, 0f, radius);
     }
