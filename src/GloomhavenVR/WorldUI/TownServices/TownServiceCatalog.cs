@@ -18,8 +18,18 @@ namespace GloomhavenVR.WorldUI;
 /// enters the original native transaction; picking up a card is always inspection.</summary>
 internal sealed class TownServiceCatalog : IDisposable
 {
-    private static readonly HashSet<Transform> CardMounts = new();
-    internal static bool IsCardMountChild(Transform source) => source.parent != null && CardMounts.Contains(source.parent);
+    private static readonly Dictionary<Transform, Entry> CardMounts = new();
+    internal static bool IsCardMountChild(Transform source) => source.parent != null && CardMounts.ContainsKey(source.parent);
+    // Ownership survives hidden trays but ends before pooled native cards are returned.
+    // The mount also distinguishes a new catalog borrower reusing the same native transform.
+    internal static Transform? PresentationOwner(Transform source)
+    {
+        for (Transform? node = source; node != null; node = node.parent)
+            if (CardMounts.TryGetValue(node, out Entry? entry))
+                return source == entry.MountRoot || source == entry.CardRoot || source == entry.BodyRoot
+                    || source == entry.RowContent ? node : null;
+        return null;
+    }
     private readonly UIShopItemInventory _inventory;
     private readonly Transform _anchor, _mat;
     private readonly Func<object?> _contextIdentity;
@@ -240,7 +250,7 @@ internal sealed class TownServiceCatalog : IDisposable
             _root.transform.SetParent(parent, false);
             _root.transform.localPosition = local;
             _display = new GameObject("PhysicalCard").transform;
-            _display.SetParent(_root.transform, false); CardMounts.Add(_display);
+            _display.SetParent(_root.transform, false); CardMounts.Add(_display, this);
             _display.localRotation = Quaternion.Euler(TownServiceMerchantLayout.FacePitch, 0f, 0f);
             _presentedAt = Time.unscaledTime + Mathf.Min(position, 12) * .015f;
             var face = new GameObject("Face", typeof(RectTransform), typeof(Canvas), typeof(GraphicRaycaster));

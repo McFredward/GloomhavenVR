@@ -208,7 +208,10 @@ public static class InteractionProgram
         Check(!TownServiceMerchantTransaction.Commit(inventory,owned,true,()=>true),"stale owned item cannot sell a different copy");
         inventory.service.Buy.Remove(buy);
         Check(!TownServiceMerchantTransaction.Commit(inventory,buy,false,()=>true),"last stock race refuses purchase");
-        Transform originalParent=root.transform;catalog.Dispose();
+        Transform originalParent=root.transform,cachedMount=stable.MountRoot;
+        Check(TownServiceCatalog.PresentationOwner(stable.CardRoot)==cachedMount,"pooled card ownership resolves its actual physical mount");
+        catalog.Dispose();
+        Check(TownServiceCatalog.PresentationOwner(cachedMount)==null,"disposing physical catalog removes retained presentation ownership");
         Check(inventory.transform.parent==originalParent,"opt out restores hidden native inventory hierarchy");
         Check(ObjectPool.Alive==0,"all physical card loans returned on teardown");
         Check(VRInteractables.Registered.Count==0,"all physical pickup colliders unregistered on teardown");

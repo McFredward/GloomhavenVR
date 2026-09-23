@@ -31,12 +31,16 @@ def sources(root):
     motion = base / "Net/TownServices/TownServiceMotion.cs"
     if motion.exists(): bound[motion.name] = motion.read_text()
     publisher = (base / "WorldUI/TownServices/TownServiceSync.cs").read_text()
-    bound["PublisherTick.cs"] = "using System;\nusing System.Collections.Generic;\nusing GloomhavenVR.Net.TownServices;\nusing UnityEngine;\nnamespace GloomhavenVR.WorldUI;\ninternal static partial class TownServiceSync {\n" + "\n".join(method(publisher, signature) for signature in ("internal static void Tick(Transform sharedFrame, Transform? stationRoot)", "private static void PublishHeld(TownServiceToken sample, Transform original)", "private static void PublishCopiedCards(Transform original, Func<Transform, Transform?> cloneOf)", "private static string? DynamicKey(Transform source)", "private static void PublishRackClock(TownServiceCatalog catalog, TownServiceMerchantDrawer rack)", "private static void AddRackMembers(Transform? root,TownServiceCatalog.Entry entry,TownServiceMerchantDrawer rack,ushort rackId)", "private static int CompareRackMembers(TownRackMember a,TownRackMember b)")) + "\n}\n"
+    bound["PublisherTick.cs"] = "using System;\nusing System.IO;\nusing System.Collections.Generic;\nusing GloomhavenVR.Net.TownServices;\nusing UnityEngine;\nnamespace GloomhavenVR.WorldUI;\ninternal static partial class TownServiceSync {\n" + "\n".join(method(publisher, signature) for signature in ("internal static void Tick(Transform sharedFrame, Transform? stationRoot)", "private static void PublishHeld(TownServiceToken sample, Transform original)", "private static void PublishCopiedCards(Transform original, Func<Transform, Transform?> cloneOf)", "private static string? DynamicKey(Transform source)", "private static void PublishRackClock(TownServiceCatalog catalog, TownServiceMerchantDrawer rack)", "private static void AddRackMembers(Transform? root,TownServiceCatalog.Entry entry,TownServiceMerchantDrawer rack,ushort rackId)", "private static int CompareRackMembers(TownRackMember a,TownRackMember b)")) + "\n}\n"
     bound["PublisherTick.cs"] = bound["PublisherTick.cs"].replace("internal static partial class TownServiceSync {\n",
         "internal static partial class TownServiceSync {\n" + "\n".join(expression(publisher, declaration) for declaration in
         ("private static uint _generation", "private static ulong _relocationRevision", "private static bool _generationExhausted")) + "\n"
         + method(publisher, "internal static void Reset()") + "\n"
         + publisher[publisher.index("    internal static void ResetNetwork()"):publisher.index("\n", publisher.index("    internal static void ResetNetwork()"))] + "\n")
+    publish = method(publisher, "private static void Publish(string key, Transform? source, Transform? provenance = null, Func<Transform, Transform?>? cloneOf = null, bool prewarm = false)").replace("private static void Publish(", "private static void PublishNative(", 1)
+    bound["PublisherNative.cs"] = "using System;\nusing System.IO;\nusing System.Collections.Generic;\nusing UnityEngine;\nusing GloomhavenVR.Net.TownServices;\nnamespace GloomhavenVR.WorldUI;\ninternal static partial class TownServiceSync {\n" + publish + "\n}\n"
+    catalog = (base / "WorldUI/TownServices/TownServiceCatalog.cs").read_text()
+    bound["CatalogOwnership.cs"] = "using UnityEngine;\nnamespace GloomhavenVR.WorldUI;\ninternal sealed partial class TownServiceCatalog {\n" + method(catalog, "internal static Transform? PresentationOwner(Transform source)") + "\n}\n"
     drawer = (base / "WorldUI/TownServices/TownServiceMerchantDrawer.cs").read_text()
     bound["DrawerTemplates.cs"] = "using System;\nusing UnityEngine;\nusing TMPro;\nnamespace GloomhavenVR.WorldUI;\ninternal sealed partial class TownServiceMerchantDrawer {\n" + "\n".join(method(drawer, signature) for signature in ("internal static GameObject CreateTemplate(TMP_Text? font)", "internal static GameObject CreateHousingTemplate()", "private static Material OriginalWood()", "private static void Rod(Transform parent, string name, Vector3 start, Vector3 end, float radius)", "private static void Part(Transform parent,string name,Vector3 position,Vector3 scale)")) + "\n}\n"
     town_neutralizer = base / "Net/TownServices/TownServiceNeutralize.cs"
@@ -62,7 +66,7 @@ def main():
     parser.add_argument("--source-root", type=Path, default=repo)
     parser.add_argument("--output-dir", type=Path, default=repo / ".planning/debug/town-service-mirror")
     parser.add_argument("--unity", type=Path, default=Path(os.environ.get("UNITY_PATH", "/home/claw/unity-2021.3.5/Editor/Unity")))
-    parser.add_argument("--suite", choices=("basic", "full", "lifecycle", "counter-final", "relocation", "asset-identity", "rack-clock"), default="full")
+    parser.add_argument("--suite", choices=("basic", "full", "lifecycle", "counter-final", "relocation", "asset-identity", "rack-clock", "catalog-lifetime"), default="full")
     parser.add_argument("--no-negative-controls", action="store_true")
     args = parser.parse_args()
     args.source_root = args.source_root.resolve()
@@ -129,6 +133,14 @@ def main():
                 ("last-window-wins", "TownServiceAssets.cs", "if (_originalKeys.ContainsKey(id)) return;", "if (_originalKeys.ContainsKey(id)) { _keys[id] = key; return; }", "shared original keeps merchant provenance"),
                 ("same-backdrop-key", "TownServiceBackdropAssets.cs", '"native-town|backdrop|" + template + "|texture"', '"native-town|backdrop|same|texture"', "Conflicting original town-service provenance"),
                 ("retain-cleared-provenance", "TownServiceAssets.cs", "_originalKeys.Clear();", "", "Ambiguous native town-service texture"),
+            ]
+    if args.suite == "catalog-lifetime":
+        variants = [("production", None, None, None, "")]
+        if not args.no_negative_controls:
+            variants += [
+                ("retire-hidden-source", "PublisherTick.cs", "pair.Value.CatalogOwner == null", "true", "valid page cycling preserves the original module namespace"),
+                ("reuse-pooled-owner", "PublisherNative.cs", 'if (catalogOwner != null) identity += "/catalog/" + catalogOwner.GetInstanceID();', '// omit physical ownership identity', "pooled native replacement never inherits the previous borrower module ID"),
+                ("retain-popup-source", "PublisherTick.cs", "pair.Value.CatalogOwner == null", "false", "ordinary unrelated popup sources retire when unseen"),
             ]
     if args.suite == "rack-clock":
         variants = [("production", None, None, None, "")]

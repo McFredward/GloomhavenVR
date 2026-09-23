@@ -25,8 +25,9 @@ namespace GloomhavenVR.WorldUI
         internal PanelFixture Panel = new();
     }
     internal sealed class PanelFixture { internal Transform Target = null!; }
-    internal sealed class TownServiceCatalog
+    internal sealed partial class TownServiceCatalog
     {
+        internal static readonly Dictionary<Transform, Entry> CardMounts = new();
         internal sealed class Control { internal string Key = ""; internal TownServiceSurface Surface = new(); }
         internal sealed class Entry
         {
@@ -93,8 +94,17 @@ namespace GloomhavenVR.WorldUI
     }
     internal sealed class TownServiceTray { internal Transform Root = null!; }
     internal sealed class UITooltip : MonoBehaviour { internal Transform? m_AnchorToTarget; }
+    internal static class TownServiceNativeAssets { internal static void PrepareRoot(Transform source) { } }
     internal static class NativeTemplates
     {
+        internal sealed class Part { internal string Path = ""; }
+        private static readonly Part[] OnePart = { new() };
+        internal static IReadOnlyList<Part> Parts(string key) => OnePart;
+        internal static Transform At(Transform source,string path) => source;
+        internal static bool IsDynamic(Transform source) => false;
+        internal static bool IsBoundary(Transform source) => false;
+        internal static void Resolve(byte service,ushort template,string address)
+        { string key=address.Split('|')[0];TownServiceMirror.RegisterTemplate(service,template,Originals[key],address:address); }
         internal static bool Ready = true;
         internal static UITooltip? Tooltip;
         internal static readonly Dictionary<string, Transform> Originals = new();
@@ -123,8 +133,10 @@ namespace GloomhavenVR.WorldUI
     {
         internal sealed class Recorded
         { internal string Key = ""; internal Transform Source = null!; internal Transform? Provenance; internal Func<Transform, Transform?>? CloneOf; }
-        private sealed class Published { internal ushort Id; internal bool Seen; }
-        private sealed class SourceEntry { internal TownRackState? RackClock; internal bool Seen; internal List<Published> Parts = new(); }
+        private sealed class Published
+        { internal ushort Id; internal bool Seen; internal string Address = "", Identity = ""; internal Transform Source = null!; internal Func<Transform,bool> Exclude = null!; }
+        private sealed class SourceEntry
+        { internal TownRackState? RackClock; internal bool Seen,Complete; internal string Key=""; internal Transform Root=null!; internal Transform? CatalogOwner; internal List<Published> Parts = new(); }
         private static readonly Dictionary<string, Published> Modules = new();
         private static readonly List<TownRackMember> RackMembers = new();
         private static readonly Dictionary<Transform, SourceEntry> Sources = new();
@@ -136,19 +148,27 @@ namespace GloomhavenVR.WorldUI
         private static ushort _nextId;
         private static Transform? _sharedFrame;
         internal static readonly List<Recorded> Calls = new();
+        internal static bool UseProductionPublish;
+        internal static int AllocatedIds => _nextId;
+        internal static ushort ModuleId(Transform source) => Sources[source].Parts[0].Id;
         internal static int ModuleCount => Modules.Count;
+        private static bool Visible(SourceEntry source) => true;
+        private static void CollectDynamic(Transform source) { }
+        private static void CollectHeldBoundaries(Transform source,Func<Transform,Transform?> clone,HashSet<Transform> excluded) { }
+        private static bool IsPriority(Transform source) => false;
         internal static int SourceCount => Sources.Count;
         private static void Prepare() { }
         private static Transform? ResolveFrame(int peer) => _sharedFrame;
         internal static bool BindModules;
         internal static int GenerationReports;
         private static readonly HashSet<string> Registered = new();
-        private static void Report(string scope, Exception error) { if (scope == "generation") GenerationReports++; }
+        private static void Report(string scope, Exception error) { if (scope == "generation") GenerationReports++; else if (UseProductionPublish) throw error; }
         private static bool OwnsAnchor(Transform? anchor) => anchor != null;
         private static void Publish(string key, Transform? source, Transform? provenance = null, Func<Transform, Transform?>? cloneOf = null, bool prewarm = false)
         {
             if (source == null) return;
             Calls.Add(new() { Key = key, Source = source, Provenance = provenance, CloneOf = cloneOf });
+            if (UseProductionPublish) { NativeTemplates.Originals[key] = source; PublishNative(key,source,provenance,cloneOf,prewarm); return; }
             Sources[source] = new() { Seen = true };
             string identity = key + "@" + source.GetInstanceID();
             if (!Modules.TryGetValue(identity, out Published? module)) Modules.Add(identity, module = new() { Id = ++_nextId });

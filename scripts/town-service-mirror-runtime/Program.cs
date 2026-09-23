@@ -923,7 +923,13 @@ public static partial class MirrorProgram
             _camera.orthographic = true; _camera.nearClipPlane = .01f; _camera.farClipPlane = 100;
             _camera.clearFlags = CameraClearFlags.SolidColor; _camera.backgroundColor = new Color(.025f, .03f, .04f, 1);
             GloomhavenVR.Rig.VRRigDriver.HeadCamera = _camera;
-            if (suite == "rack-clock" || suite == "full")
+            if (suite == "catalog-lifetime")
+            {
+                CatalogLifetime();
+                if (suite == "catalog-lifetime")
+                { File.WriteAllText(Path.Combine(_output,"assertions.txt"),_assertions+" assertions\n");yield break; }
+            }
+            if (suite == "rack-clock")
             {
                 IEnumerator racks = RackClocks(); while (racks.MoveNext()) yield return racks.Current;
                 if (suite == "rack-clock")
@@ -1010,6 +1016,8 @@ public static partial class MirrorProgram
                 while (counter.MoveNext()) yield return counter.Current;
                 DrawerTemplates();
                 PublisherRouting();
+                IEnumerator racks = RackClocks(); while (racks.MoveNext()) yield return racks.Current;
+                CatalogLifetime();
             }
             File.WriteAllText(Path.Combine(_output, "assertions.txt"), _assertions + " assertions\n");
         }

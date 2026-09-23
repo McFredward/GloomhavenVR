@@ -13,7 +13,7 @@ public static partial class MirrorProgram
     {
         foreach(float scale in new[]{.05f,1f,2f,198.12f})
         {
-            TownServiceMirror.ResetNetwork();Baselines.Clear();
+            TownServiceMirror.Shutdown();TownServiceMirror.ResetNetwork();Baselines.Clear();
             var owner=new GameObject("rack owner").transform;Objects.Add(owner.gameObject);owner.localScale=Vector3.one*scale;
             var observer=new GameObject("rack observer").transform;Objects.Add(observer.gameObject);
             observer.localScale=Vector3.one*scale;observer.rotation=Quaternion.Euler(0,37,0);

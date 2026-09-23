@@ -50,6 +50,15 @@ restore the body page gate immediately, and preserve the new hand pose. Native v
 renderer enablement, and independent window/service fades remain authoritative.
 
 Stable trays reuse membership arrays and stamps; runtime body renderer arrays are cached.
+The publisher retains native module IDs for the four actual presentation roots of each live
+physical catalog entry, even outside the three warm pages. This does not publish hidden pages.
+Ownership ends on catalog disposal; destroyed roots and unrelated popups are removed. A new
+physical mount receives fresh IDs even when the native pool reuses the same item-card object,
+so delayed snapshots cannot target a replacement borrower. Session/reset clears the cache.
+The production publication lifetime fixture executes 1,100 page turns over 96 cards: 384 total
+IDs, 192 warm modules, no growth from repeat cycles. Its three negative controls cover hidden
+source retirement, pooled replacement ID reuse, and retaining an unrelated popup mounted
+under a physical card (`/tmp/town548-catalog-lifetime-final2/run-fz0v6sue`, 214,140 assertions).
 No additional per-frame log stream is introduced.
 
 ## Evidence

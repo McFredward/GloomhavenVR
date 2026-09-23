@@ -27,6 +27,7 @@ internal static class TownServiceSync
         internal string Key = string.Empty;
         internal Transform Root = null!;
         internal Transform? Parent;
+        internal Transform? CatalogOwner;
         internal readonly List<Published> Parts = new();
         internal readonly List<RectMask2D> Masks = new();
         internal readonly List<CanvasGroup> Groups = new();
@@ -237,7 +238,10 @@ internal static class TownServiceSync
         foreach (var pair in Modules) if (!pair.Value.Seen) Removed.Add(pair.Key);
         foreach (string key in Removed) { TownServiceMirror.UnregisterModule(Modules[key].Id); Modules.Remove(key); }
         RemovedSources.Clear();
-        foreach (var pair in Sources) if (!pair.Value.Seen || pair.Key == null) RemovedSources.Add(pair.Key!);
+        foreach (var pair in Sources)
+            if (pair.Key == null || !pair.Value.Seen && (pair.Value.CatalogOwner == null
+                || !ReferenceEquals(TownServiceCatalog.PresentationOwner(pair.Key), pair.Value.CatalogOwner)))
+                RemovedSources.Add(pair.Key!);
         foreach (Transform source in RemovedSources) Sources.Remove(source);
     }
     private static bool OwnsAnchor(Transform? target)
@@ -281,9 +285,11 @@ internal static class TownServiceSync
         if (source == null || !Visited.Add(source)) return;
         try
         {
-            if (!Sources.TryGetValue(source, out SourceEntry? sourceEntry) || sourceEntry.Key != key)
+            Transform? catalogOwner = TownServiceCatalog.PresentationOwner(source);
+            if (!Sources.TryGetValue(source, out SourceEntry? sourceEntry) || sourceEntry.Key != key
+                || !ReferenceEquals(sourceEntry.CatalogOwner, catalogOwner))
             {
-                sourceEntry = new SourceEntry { Key = key, Root = source }; Sources[source] = sourceEntry;
+                sourceEntry = new SourceEntry { Key = key, Root = source, CatalogOwner = catalogOwner }; Sources[source] = sourceEntry;
                 TownServiceNativeAssets.PrepareRoot(provenance != null ? provenance : source);
             }
             sourceEntry.Seen = true;
@@ -310,6 +316,7 @@ internal static class TownServiceSync
                 Transform? root = NativeTemplates.At(source, part.Path);
                 if (root == null) throw new InvalidDataException("Original subtree is absent: " + key + "|" + part.Path);
                 string address = key + "|" + part.Path, identity = address + "@" + source.GetInstanceID();
+                if (catalogOwner != null) identity += "/catalog/" + catalogOwner.GetInstanceID();
                 if (!Modules.TryGetValue(identity, out Published? module))
                 {
                     if (Modules.Count >= TownServiceFrame.MaxModules || _nextId >= ushort.MaxValue - 1)
