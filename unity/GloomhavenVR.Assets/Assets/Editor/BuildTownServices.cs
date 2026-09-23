@@ -201,83 +201,54 @@ namespace GloomhavenVR
         }
         static void Box(GameObject parent, string name, Vector3 position, Vector3 scale, string material)
         { Primitive(parent, name, PrimitiveType.Cube, position, scale, Mat(material)); }
+        static GameObject AuthoredFurniture(string name)
+        {
+            var path = Root + "/Furniture/" + name + ".fbx";
+            var importer = (ModelImporter)AssetImporter.GetAtPath(path);
+            if (importer == null) throw new FileNotFoundException("Authored town furniture is missing", path);
+            importer.materialImportMode = ModelImporterMaterialImportMode.None;
+            importer.importAnimation = false;
+            importer.importNormals = ModelImporterNormals.Import;
+            importer.importTangents = ModelImporterTangents.CalculateMikk;
+            importer.isReadable = true; // Actual mesh floor bounds are used by station grounding.
+            importer.SaveAndReimport();
+            var source = AssetDatabase.LoadAssetAtPath<GameObject>(path);
+            var furniture = UnityEngine.Object.Instantiate(source);
+            foreach (var renderer in furniture.GetComponentsInChildren<MeshRenderer>(true))
+            {
+                var separator = renderer.name.LastIndexOf('_');
+                var materialName = renderer.name.Substring(separator + 1);
+                var material = Mat(materialName);
+                if (material == null) throw new InvalidDataException("Unknown furniture material: " + renderer.name);
+                renderer.sharedMaterial = material;
+            }
+            return furniture;
+        }
+
         static void BuildStation(GameObject root, string npc)
         {
-            var furniture = new GameObject(npc == "priestess" ? "Shrine" : npc == "enchantress" ? "Workbench" : "Counter");
+            Mat("DarkWood").color = new Color(.49f, .31f, .17f);
+            Mat("PaleStone").color = new Color(.79f, .74f, .65f);
+            Mat("AltarCloth").color = new Color(.27f, .055f, .065f);
+            foreach (var name in new[] { "DarkWood", "PaleStone", "AltarCloth" })
+                EditorUtility.SetDirty(Mat(name));
+            // Generated concepts are rebuilt as bevelled, curved, UV-mapped meshes. No runtime
+            // procedural primitive furniture, drawer banks or decorated gameplay UI is authored here.
+            var furniture = AuthoredFurniture(npc);
+            furniture.name = npc == "priestess" ? "Shrine" : npc == "enchantress" ? "Workbench" : "Counter";
             furniture.transform.SetParent(root.transform, false);
-            var wood = npc == "priestess" ? "PaleStone" : "DarkWood";
-            if (npc == "priestess")
+            if (npc == "merchant")
             {
-                Box(furniture, "AltarPlinth", new Vector3(0, 0.065f, 0), new Vector3(1.35f, 0.13f, 0.64f), wood);
-                foreach (var side in new[] { -1, 1 })
-                {
-                    var x = side * 0.43f;
-                    Box(furniture, "PillarFoot" + side, new Vector3(x, 0.17f, 0), new Vector3(0.31f, 0.09f, 0.43f), wood);
-                    Primitive(furniture, "StonePillar" + side, PrimitiveType.Cylinder, new Vector3(x, 0.50f, 0), new Vector3(0.24f, 0.29f, 0.32f), Mat(wood));
-                    Box(furniture, "PillarCapital" + side, new Vector3(x, 0.80f, 0), new Vector3(0.32f, 0.08f, 0.43f), wood);
-                }
-                Box(furniture, "HangingAltarCloth", new Vector3(0, 0.56f, -0.26f), new Vector3(0.38f, 0.60f, 0.012f), "AltarCloth");
-                Primitive(furniture, "AltarEmblem", PrimitiveType.Sphere, new Vector3(0, 0.59f, -0.272f), new Vector3(0.09f, 0.13f, 0.014f), Mat("Brass"));
+                var extension = AuthoredFurniture("merchant_return");
+                extension.name = "CounterReturn";
+                extension.transform.SetParent(furniture.transform, false);
+                extension.SetActive(false); // Catalogue creates only the open wings it actually needs.
             }
-            else if (npc == "enchantress")
-            {
-                foreach (var x in new[] { -1, 1 }) foreach (var z in new[] { -1, 1 })
-                {
-                    Box(furniture, "WorkbenchLeg" + x + z, new Vector3(x * 0.63f, 0.44f, z * 0.24f), new Vector3(0.11f, 0.88f, 0.11f), wood);
-                    Box(furniture, "LegBand" + x + z, new Vector3(x * 0.63f, 0.18f, z * 0.24f), new Vector3(0.119f, 0.055f, 0.119f), "Brass");
-                }
-                Box(furniture, "LowerShelf", new Vector3(0, 0.29f, 0), new Vector3(1.20f, 0.055f, 0.50f), wood);
-                Box(furniture, "FrontApron", new Vector3(0, 0.75f, -0.25f), new Vector3(1.24f, 0.20f, 0.075f), wood);
-                foreach (var side in new[] { -1, 1 })
-                    Box(furniture, "SideApron" + side, new Vector3(side * 0.63f, 0.75f, 0), new Vector3(0.075f, 0.20f, 0.50f), wood);
-                // The real lantern stands on a supported rear return, clear of rune samples.
-                Box(furniture, "LanternReturn", new Vector3(.68f, .925f, .57f), new Vector3(.36f, .06f, .58f), wood);
-                foreach (var x in new[] { .54f, .82f })
-                    Box(furniture, "LanternReturnLeg" + x, new Vector3(x, .45f, .77f), new Vector3(.085f, .90f, .085f), wood);
-            }
-            else
-            {
-                // Drawer tracks extend to the floor; support the cabinet behind their travel.
-                // Open cabinet bays receive real sliding card registers. Solid decorative
-                // fronts/posts in these volumes would occlude or intersect the moving cards.
-                foreach (var side in new[] { -1, 1 })
-                {
-                    Box(furniture, "OuterPost" + side, new Vector3(side * 1.245f, .47f, .35f), new Vector3(.04f, .94f, .075f), wood);
-                }
-                Box(furniture, "CentreSupport", new Vector3(0f, .47f, .31f), new Vector3(.18f, .94f, .12f), wood);
-            }
-            Box(furniture, "TopUnderLip", new Vector3(0, 0.86f, 0), new Vector3(1.46f, 0.07f, 0.69f), wood);
-            for (var i = 0; i < 4; ++i)
-                Box(furniture, "SurfacePlank" + i, new Vector3(0, 0.925f, (i - 1.5f) * 0.17f), new Vector3(1.5f, 0.06f, 0.166f), wood);
-            Box(furniture, "FrontBrassEdge", new Vector3(0, 0.882f, -0.353f), new Vector3(1.42f, 0.018f, 0.018f), "Brass");
-            var blocker = furniture.AddComponent<BoxCollider>();
-            blocker.center = new Vector3(0, 0.48f, 0);
-            blocker.size = new Vector3(1.50f, 0.96f, 0.72f);
-            // Native decoration is acquired from the game at runtime. Do not substitute
-            // primitive candles, coins or books; physical merchandise needs the clear top.
-            if (npc == "priestess")
-                Box(furniture, "AltarRunner", new Vector3(0, 0.963f, 0), new Vector3(0.38f, 0.009f, 0.66f), "AltarCloth");
-            if (npc == "enchantress")
-                Box(furniture, "RuneMat", new Vector3(0, 0.957f, 0), new Vector3(0.55f, 0.0015f, 0.40f), "Leather");
         }
 
         static void ExpandMerchantCounter(GameObject root)
         {
-            // The physical catalogue and selection tray share the counter rather than float
-            // past its edge. Keep the other service furniture and map table unchanged.
-            var counter = root.transform.Find("Counter");
-            var lip = counter.Find("TopUnderLip");
-            lip.localScale = new Vector3(2.50f, 0.07f, 0.81f);
-            for (var i = 0; i < 4; i++)
-            {
-                var plank = counter.Find("SurfacePlank" + i);
-                plank.localPosition = new Vector3(0, 0.925f, (i - 1.5f) * 0.20f);
-                plank.localScale = new Vector3(2.54f, 0.06f, 0.196f);
-            }
-            var edge = counter.Find("FrontBrassEdge");
-            edge.localPosition = new Vector3(0, 0.882f, -0.413f);
-            edge.localScale = new Vector3(2.50f, 0.018f, 0.018f);
-
+            // Width and the eight open terraces are authored in Furniture/merchant.fbx.
         }
         public static void RefreshMerchantCounter()
         {

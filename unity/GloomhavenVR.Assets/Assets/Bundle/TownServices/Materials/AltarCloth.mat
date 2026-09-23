@@ -40,6 +40,6 @@ Material:
     - _Metallic: 0
     - _TownVisibility: 1
     m_Colors:
-    - _Color: {r: 0.22, g: 0.12, b: 0.26, a: 1}
+    - _Color: {r: 0.27, g: 0.055, b: 0.065, a: 1}
     - _EmissionColor: {r: 0, g: 0, b: 0, a: 1}
   m_BuildTextureStacks: []
