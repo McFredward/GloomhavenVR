@@ -74,6 +74,7 @@ internal static class NativeTemplates
         Add("merchant.return", TownServiceMerchantCounter.Template);
         AddPhysical("merchant.zone", TownServiceMerchantZone.CreateTemplate(physicalFont));
         AddPhysical("merchant.crank", TownServiceMerchantDrawer.CreateTemplate(physicalFont));
+        AddPhysical("merchant.cardmount", new GameObject("PhysicalCardMount"));
         AddPhysical("merchant.rack", TownServiceMerchantDrawer.CreateHousingTemplate());
         Add("merchant.counter", TownServiceWorkspace.FurnitureTemplate(1));
         Add("temple.counter", TownServiceWorkspace.FurnitureTemplate(2));
@@ -139,7 +140,7 @@ internal static class NativeTemplates
         _assetGeneration = TownServiceMirror.Assets.Generation;
     }
     internal static bool IsBoundary(Transform node) => Roots.ContainsKey(node) || IsDynamic(node)
-        || TownServiceMerchantDrawer.IsContentRoot(node);
+        || TownServiceMerchantDrawer.IsContentRoot(node) || TownServiceCatalog.IsCardMountChild(node);
     internal static bool IsDynamic(Transform node) => node.GetComponent<UIShopItemSlot>() != null
         || node.GetComponent<UITempleShopSlot>() != null || node.GetComponent<UINewEnhancementShopSlot>() != null
         || node.GetComponent<UIEnhanceCardSlot>() != null || node.GetComponent<UIEnhanceCardPoint>() != null

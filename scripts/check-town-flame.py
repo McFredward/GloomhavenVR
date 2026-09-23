@@ -21,7 +21,7 @@ def main():
     run = Path(tempfile.mkdtemp(prefix='run-', dir=args.output_dir.resolve()))
     base = args.source_root / 'src/GloomhavenVR/Net/TownServices'
     sources = {name: (base / name).read_text().replace('Time.unscaledTime', 'FlameTestClock.Now') for name in (
-        'TownServiceAssets.cs', 'TownServiceFrame.cs', 'TownServiceDelta.cs', 'TownServiceMaterial.cs', 'TownServiceBinding.cs', 'TownServiceFlameClock.cs')}
+        'TownServiceAssets.cs', 'TownServiceFrame.cs', 'TownRackState.cs', 'TownServiceDelta.cs', 'TownServiceMaterial.cs', 'TownServiceBinding.cs', 'TownServiceFlameClock.cs')}
     variants = [('production', None, '', '', ''),
         ('clock-pooling', 'TownServiceMaterial.cs', 'canonical.Numbers[n + 1] = 0f;', 'canonical.Numbers[n + 1] = clock;', 'pooled flame clock is canonical and immutable'),
         ('no-intermediate-clock', 'TownServiceFlameClock.cs', 'now + _ownerOffset - _sample', '0f', 'flame advances between owner packets'),

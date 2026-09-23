@@ -20,6 +20,8 @@ internal sealed class TownServiceFrame
     internal uint ParentBinding;
     internal uint Structure;
     internal bool Visible;
+    internal TownRackState? Rack;
+    internal TownRackStamp? RackMember;
     // Local transport scheduling only; never serialized or interpreted as gameplay authority.
     internal bool HighPriority;
     internal float SampleTime;

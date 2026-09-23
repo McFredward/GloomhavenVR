@@ -25,7 +25,7 @@ internal sealed class TownServiceSessionInfo
 /// gameplay service; register local modules after native conversion has completed. No callback,
 /// model setter, purchase command or game controller runs on these observer copies.
 /// </summary>
-internal static class TownServiceMirror
+internal static partial class TownServiceMirror
 {
     static TownServiceMirror() { TownServiceDelivery.Completed = SnapshotSent; }
     internal static readonly TownServiceAssets Assets = new();
@@ -87,6 +87,7 @@ internal static class TownServiceMirror
         internal string Address = string.Empty;
         internal ulong Sequence;
         internal TownServiceFrame? LastFrame;
+        internal Renderer[]? RackBodyRenderers;
         internal TownServiceMotion Motion = null!;
         public void Dispose()
         { Binding.Dispose(); if (Host != null) { Host.SetActive(false); Object.Destroy(Host); } }
@@ -165,7 +166,7 @@ internal static class TownServiceMirror
     internal static void UnregisterModule(ushort module)
     {
         if (!Local.TryGetValue(module, out LocalModule? current)) return;
-        current.Binding.Dispose(); Local.Remove(module); _nextManifest = 0;
+        current.Binding.Dispose(); Local.Remove(module); LocalRacks.Remove(module); LocalRackMembers.Remove(module); LocalRackGates.Remove(module); _nextManifest = 0;
     }
 
     internal static void SetPriority(ushort module, bool highPriority)
@@ -221,9 +222,16 @@ internal static class TownServiceMirror
                     frame.Template = module.Template; frame.TemplateAddress = module.Address; frame.Structure = module.Binding.Structure;
                     frame.Visible = source.gameObject.activeInHierarchy; frame.SampleTime = now;
                     frame.Pose = ReadPose(source, _sharedFrame, frame.Pose); frame.Nodes = nodes;
+                    frame.RackMember = LocalRackMembers.TryGetValue(module.Id, out TownRackStamp? rackMember) ? rackMember : null;
+                    frame.Rack = LocalRacks.TryGetValue(module.Id, out TownRackState? rackState) ? rackState : null;
                     frame.ParentModule = TownServiceFrame.ManifestModule; frame.ParentBinding = 0;
                     ResetCanvasFrame(frame);
                     ReadParent(module, frame); ReadCanvasFrame(source, frame);
+                    if (frame.RackMember != null)
+                    {
+                        float alpha = ReadRackAlpha(module);
+                        if (frame.RackMember.Alpha != alpha) { frame.RackMember = frame.RackMember.Copy(); frame.RackMember.Alpha = alpha; }
+                    }
                     if (SamePresentation(module.Last, frame)
                         && (now < module.NextRefresh || module.Last != null && module.LastSent < module.Last.Sequence)) continue;
                     frame.Sequence = NextSequence();
@@ -271,7 +279,7 @@ internal static class TownServiceMirror
             else if (Remote.TryGetValue(peer, out Dictionary<ushort, RemoteModule>? standing))
             {
                 var removed = new List<ushort>();
-                foreach (var pair in standing) if (Array.BinarySearch(frame.Modules, pair.Key) < 0) removed.Add(pair.Key);
+                foreach (var pair in standing) if (Array.BinarySearch(frame.Modules, pair.Key) < 0 && !RackRetains(peer, pair.Key)) removed.Add(pair.Key);
                 foreach (ushort id in removed) { standing[id].Dispose(); standing.Remove(id); }
             }
             PrunePending(Pending, peer, frame);
@@ -309,7 +317,7 @@ internal static class TownServiceMirror
             // Independent module lanes can overtake an older census/close packet. Keep
             // newer complete baselines until their own census arrives; TickRemote still
             // gates rendering by the current session and module membership.
-            if (pair.Value.Sequence <= manifest.Sequence && (!manifest.Visible
+            if (!RackRetains(peer, pair.Key) && pair.Value.Sequence <= manifest.Sequence && (!manifest.Visible
                 || pair.Value.Service != manifest.Service || pair.Value.Session != manifest.Session
                 || Array.BinarySearch(manifest.Modules, pair.Key) < 0)) removed.Add(pair.Key);
         foreach (ushort module in removed) modules.Remove(module);
@@ -329,6 +337,7 @@ internal static class TownServiceMirror
             if (!Remote.TryGetValue(entry.Key, out Dictionary<ushort, RemoteModule>? standing))
             { standing = new Dictionary<ushort, RemoteModule>(); Remote.Add(entry.Key, standing); }
             foreach (RemoteModule visible in standing.Values) { visible.Motion.Tick(now); visible.Binding.TickAnimation(now); }
+            UpdateRackClocks(entry.Key, pending, now);
             bool reorder = false;
             foreach (var packet in pending)
             {
@@ -346,7 +355,7 @@ internal static class TownServiceMirror
                 try
                 {
                     if (!frame.Visible)
-                    { if (module != null) { module.Host.SetActive(false); module.Motion.Reset(); module.Sequence = frame.Sequence; } continue; }
+                    { if (module != null) { module.Host.SetActive(false); module.Motion.Reset(); module.Sequence = frame.Sequence; module.LastFrame = frame; } continue; }
                     Transform mount = parent;
                     if (frame.ParentModule != TownServiceFrame.ManifestModule)
                     {
@@ -408,6 +417,7 @@ internal static class TownServiceMirror
                 }
             }
             if (reorder) OrderOriginalSiblings(standing);
+            TickRackClocks(entry.Key, standing, now);
         }
     }
 
@@ -514,9 +524,9 @@ internal static class TownServiceMirror
         ReportReset();
     }
     private static void ClearLocalModules()
-    { foreach (LocalModule module in Local.Values) module.Binding.Dispose(); Local.Clear(); }
+    { LocalRacks.Clear(); LocalRackMembers.Clear(); LocalRackGates.Clear(); foreach (LocalModule module in Local.Values) module.Binding.Dispose(); Local.Clear(); }
     private static void ClearRemoteModules(int peer)
-    { if (!Remote.TryGetValue(peer, out Dictionary<ushort, RemoteModule>? modules)) return;
+    { RemoteRacks.Remove(peer); if (!Remote.TryGetValue(peer, out Dictionary<ushort, RemoteModule>? modules)) return;
         foreach (RemoteModule module in modules.Values) module.Dispose(); Remote.Remove(peer); }
     private static string TemplateKey(byte service, ushort template, string address = "")
     { if (service < 1 || service > 3 || template == 0) throw new ArgumentException("Invalid town-service template identity.");
@@ -537,6 +547,8 @@ internal static class TownServiceMirror
     private static Vector3 Scale(float[] pose) => new(pose[7], pose[8], pose[9]);
     private static bool SamePresentation(TownServiceFrame? a, TownServiceFrame b)
     {
+        if ((a?.RackMember == null) != (b.RackMember == null) || a?.RackMember != null && !a.RackMember.Same(b.RackMember)) return false;
+        if ((a?.Rack == null) != (b.Rack == null) || a?.Rack != null && !a.Rack.Same(b.Rack)) return false;
         if (a == null || a.Visible != b.Visible || a.Structure != b.Structure || a.Nodes.Length != b.Nodes.Length
             || a.ParentModule != b.ParentModule || a.ParentBinding != b.ParentBinding || a.ParentAlpha != b.ParentAlpha
             || a.HasCanvasFrame != b.HasCanvasFrame || a.CanvasSortingLayer != b.CanvasSortingLayer || a.CanvasSortingOrder != b.CanvasSortingOrder) return false;

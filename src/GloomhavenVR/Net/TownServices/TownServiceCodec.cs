@@ -59,7 +59,8 @@ internal static class TownServiceCodec
             }
         }
         byte[] raw = body.ToArray();
-        int size = 6 + raw.Length + 2 * ((raw.Length + 254) / 255);
+        byte[] rack = frame.Rack != null ? frame.Rack.Write(frame.Module) : frame.RackMember?.Write(frame.Module) ?? Array.Empty<byte>();
+        int size = 6 + raw.Length + 2 * ((raw.Length + 254) / 255) + rack.Length + 2 * ((rack.Length + 254) / 255);
         if (size > TownServiceFrame.MaxBytes) throw new InvalidDataException("Town-service module exceeds the bounded snapshot size.");
         var packet = new byte[size];
         // NetProtocol.Magic (0x47565231) is written little endian by every existing lane.
@@ -70,6 +71,11 @@ internal static class TownServiceCodec
             int count = Math.Min(255, raw.Length - offset);
             packet[at++] = RecordId; packet[at++] = (byte)count;
             Buffer.BlockCopy(raw, offset, packet, at, count); at += count; offset += count;
+        }
+        for (int at = 6 + raw.Length + 2 * ((raw.Length + 254) / 255), offset = 0; offset < rack.Length;)
+        {
+            int count = Math.Min(255, rack.Length - offset); packet[at++] = TownRackState.RecordId; packet[at++] = (byte)count;
+            Buffer.BlockCopy(rack, offset, packet, at, count); at += count; offset += count;
         }
         return packet;
     }
@@ -83,12 +89,15 @@ internal static class TownServiceCodec
         try
         {
             using var body = new MemoryStream();
+            using var rack = new MemoryStream();
             for (int at = 6; at < length;)
             {
                 if (at + 2 > length) return false;
                 byte record = packet[at++], count = packet[at++];
                 if (at + count > length || (count == 0 && record == RecordId)) return false;
                 if (record == RecordId) body.Write(packet, at, count);
+                if (record == TownRackState.RecordId)
+                { if (count == 0) return false; rack.Write(packet, at, count); }
                 at += count;
             }
             body.Position = 0;
@@ -146,6 +155,13 @@ internal static class TownServiceCodec
                 result.Nodes[i] = node;
             }
             if (body.Position != body.Length) return false;
+            if (rack.Length != 0)
+            {
+                byte[] extension = rack.ToArray();
+                if (extension[0] == 1) result.Rack = TownRackState.Read(extension, result.Module);
+                else if (extension[0] == 2) result.RackMember = TownRackStamp.Read(extension, result.Module);
+                else return false;
+            }
             Validate(result); frame = result; return true;
         }
         catch (InvalidDataException) { return false; }
@@ -225,6 +241,18 @@ internal static class TownServiceCodec
     }
     internal static void Validate(TownServiceFrame frame)
     {
+        if (frame.RackMember != null)
+        {
+            if (frame.Service != 1 || frame.Rack != null) throw new InvalidDataException("Invalid cabinet membership");
+            frame.RackMember.Write(frame.Module);
+        }
+        if (frame.Rack != null)
+        {
+            if (frame.Service != 1 || (frame.TemplateAddress == null || !frame.TemplateAddress.StartsWith("merchant.rack|", StringComparison.Ordinal)))
+                throw new InvalidDataException("Cabinet clock belongs to a merchant rack module");
+            frame.Rack.Validate(frame.Module);
+        }
+
         if (frame.Module == TownServiceFrame.BundleStream || frame.Service < 1 || frame.Service > 3 || frame.Session == 0 || frame.Sequence == 0
             || frame.BaseSequence >= frame.Sequence && frame.BaseSequence != 0
             || (frame.Template == 0 && frame.Module != TownServiceFrame.ManifestModule)

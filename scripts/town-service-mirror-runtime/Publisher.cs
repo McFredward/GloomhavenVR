@@ -30,10 +30,10 @@ namespace GloomhavenVR.WorldUI
         internal sealed class Control { internal string Key = ""; internal TownServiceSurface Surface = new(); }
         internal sealed class Entry
         {
-            internal bool Current = true, Exposed = true;
+            internal bool Current = true, Exposed = true; internal bool Warm => Current && Exposed; internal int Page; internal bool Selling;
             internal TownServiceToken Sample = new();
             internal int ItemId;
-            internal Transform CardRoot = null!;
+            internal Transform CardRoot = null!; internal Transform MountRoot => CardRoot.parent; internal CanvasGroup? PageGate => CardRoot.parent.GetComponent<CanvasGroup>();
             internal Transform? BodyRoot;
             internal Transform? RowContent;
             internal Transform RowSource = null!;
@@ -51,7 +51,7 @@ namespace GloomhavenVR.WorldUI
         internal List<TownServiceMerchantCounter> Extensions = new();
         internal List<TownServiceMerchantZone> Zones = new();
     }
-    internal sealed partial class TownServiceMerchantDrawer { internal Transform Root = null!, HousingRoot = null!; internal bool Moving; }
+    internal sealed partial class TownServiceMerchantDrawer { internal Transform Root = null!, HousingRoot = null!; internal bool Moving,Selling; internal uint TurnEpoch; internal float TurnElapsed,LeadAngle; internal int Page,FromPage,ToPage; }
     internal sealed class TownServiceMerchantCounter { internal Transform Root = null!; }
     internal sealed class TownServiceEnhancementHandoff {
         internal sealed class ReturnPresentation { internal Transform? Face, Body, StationRoot; internal int CardId; internal uint Session; internal float SessionAge; }
@@ -124,8 +124,9 @@ namespace GloomhavenVR.WorldUI
         internal sealed class Recorded
         { internal string Key = ""; internal Transform Source = null!; internal Transform? Provenance; internal Func<Transform, Transform?>? CloneOf; }
         private sealed class Published { internal ushort Id; internal bool Seen; }
-        private sealed class SourceEntry { internal bool Seen; }
+        private sealed class SourceEntry { internal TownRackState? RackClock; internal bool Seen; internal List<Published> Parts = new(); }
         private static readonly Dictionary<string, Published> Modules = new();
+        private static readonly List<TownRackMember> RackMembers = new();
         private static readonly Dictionary<Transform, SourceEntry> Sources = new();
         private static readonly HashSet<Transform> Visited = new();
         private static readonly List<Transform> Dynamic = new(), RemovedSources = new(), PriorityRoots = new();
@@ -144,14 +145,14 @@ namespace GloomhavenVR.WorldUI
         private static readonly HashSet<string> Registered = new();
         private static void Report(string scope, Exception error) { if (scope == "generation") GenerationReports++; }
         private static bool OwnsAnchor(Transform? anchor) => anchor != null;
-        private static void Publish(string key, Transform? source, Transform? provenance = null, Func<Transform, Transform?>? cloneOf = null)
+        private static void Publish(string key, Transform? source, Transform? provenance = null, Func<Transform, Transform?>? cloneOf = null, bool prewarm = false)
         {
             if (source == null) return;
             Calls.Add(new() { Key = key, Source = source, Provenance = provenance, CloneOf = cloneOf });
             Sources[source] = new() { Seen = true };
             string identity = key + "@" + source.GetInstanceID();
             if (!Modules.TryGetValue(identity, out Published? module)) Modules.Add(identity, module = new() { Id = ++_nextId });
-            module.Seen = true;
+            module.Seen = true; Sources[source].Parts.Add(module);
             if (BindModules)
             {
                 string address = key + "|";

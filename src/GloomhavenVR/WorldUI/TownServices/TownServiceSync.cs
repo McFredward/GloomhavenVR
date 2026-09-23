@@ -32,9 +32,11 @@ internal static class TownServiceSync
         internal readonly List<CanvasGroup> Groups = new();
         internal bool Seen;
         internal bool Complete;
+        internal TownRackState? RackClock;
     }
     private static readonly Dictionary<Transform, SourceEntry> Sources = new();
     private static readonly List<Transform> RemovedSources = new();
+    private static readonly List<TownRackMember> RackMembers = new();
     private static readonly Vector3[] Corners = new Vector3[4];
     private static float _prepareAfter;
     private static readonly Dictionary<string, Published> Modules = new(StringComparer.Ordinal);
@@ -139,18 +141,21 @@ internal static class TownServiceSync
 
                 foreach (TownServiceCatalog.Entry entry in catalog.Entries)
                 {
-                    if (!entry.Current || !entry.Exposed) continue;
+                    if (!entry.Current || !entry.Warm) continue;
                     if (entry.Sample.IsMoving)
                     {
+                        PriorityRoots.Add(entry.MountRoot);
                         PriorityRoots.Add(entry.CardRoot);
                         if (entry.BodyRoot != null) PriorityRoots.Add(entry.BodyRoot);
                         if (entry.RowContent != null) PriorityRoots.Add(entry.RowContent);
                     }
-                    Publish("item." + entry.ItemId.ToString(System.Globalization.CultureInfo.InvariantCulture), entry.CardRoot);
-                    Publish("merchant.cardbody", entry.BodyRoot);
+                    Publish("merchant.cardmount", entry.MountRoot, prewarm: true);
+                    Publish("item." + entry.ItemId.ToString(System.Globalization.CultureInfo.InvariantCulture), entry.CardRoot, prewarm: true);
+                    Publish("merchant.cardbody", entry.BodyRoot, prewarm: true);
                     if (entry.RowContent != null)
-                        Publish("merchant.row", entry.RowContent, entry.RowSource.transform, entry.RowCloneOf);
+                        Publish("merchant.row", entry.RowContent, entry.RowSource.transform, entry.RowCloneOf, prewarm: true);
                 }
+                foreach (TownServiceMerchantDrawer rack in catalog.Drawers) PublishRackClock(catalog, rack);
             }
             TownServiceRitual? ritual = TownServicePresentation.Ritual;
             if (ritual != null)
@@ -271,7 +276,7 @@ internal static class TownServiceSync
         // preview neutralization; publishing only the outer tooltip would omit its item card.
         for (int i = 0; i < original.childCount; i++) PublishCopiedCards(original.GetChild(i), cloneOf);
     }
-    private static void Publish(string key, Transform? source, Transform? provenance = null, Func<Transform, Transform?>? cloneOf = null)
+    private static void Publish(string key, Transform? source, Transform? provenance = null, Func<Transform, Transform?>? cloneOf = null, bool prewarm = false)
     {
         if (source == null || !Visited.Add(source)) return;
         try
@@ -282,7 +287,7 @@ internal static class TownServiceSync
                 TownServiceNativeAssets.PrepareRoot(provenance != null ? provenance : source);
             }
             sourceEntry.Seen = true;
-            if (cloneOf == null && NativeTemplates.IsDynamic(source) && !Visible(sourceEntry)) return;
+            if (!prewarm && cloneOf == null && NativeTemplates.IsDynamic(source) && !Visible(sourceEntry)) return;
             if (cloneOf == null) CollectDynamic(source);
             if (sourceEntry.Complete)
             {
@@ -331,6 +336,44 @@ internal static class TownServiceSync
             sourceEntry.Complete = true;
         }
         catch (Exception e) { Report(key, e); }
+    }
+    private static void PublishRackClock(TownServiceCatalog catalog, TownServiceMerchantDrawer rack)
+    {
+        if (!Sources.TryGetValue(rack.HousingRoot, out SourceEntry? housing)
+            || !Sources.TryGetValue(rack.Root, out SourceEntry? crank) || housing.Parts.Count != 1 || crank.Parts.Count != 1) return;
+        RackMembers.Clear(); ushort rackId = housing.Parts[0].Id;
+        foreach (TownServiceCatalog.Entry entry in catalog.Entries)
+            if (entry.Selling == rack.Selling && entry.Warm)
+            {
+                AddRackMembers(entry.MountRoot, entry, rack, rackId);
+                AddRackMembers(entry.CardRoot, entry, rack, rackId);
+                AddRackMembers(entry.BodyRoot, entry, rack, rackId);
+                AddRackMembers(entry.RowContent, entry, rack, rackId);
+            }
+        RackMembers.Sort(CompareRackMembers);
+        TownRackState? previous = housing.RackClock;
+        bool sameMembers = previous != null && previous.Members.Length == RackMembers.Count;
+        if (sameMembers) for (int i=0;i<RackMembers.Count;i++) if (!RackMembers[i].Same(previous!.Members[i])) {sameMembers=false;break;}
+        if (sameMembers && previous!.Turn == rack.TurnEpoch && previous.Elapsed == rack.TurnElapsed
+            && previous.LeadAngle == rack.LeadAngle && previous.Crank == crank.Parts[0].Id
+            && previous.Page == rack.Page && previous.From == rack.FromPage && previous.To == rack.ToPage) return;
+        var state = new TownRackState { Turn = rack.TurnEpoch, Elapsed = rack.TurnElapsed, LeadAngle = rack.LeadAngle,
+            Crank = crank.Parts[0].Id, Page = (ushort)rack.Page, From = (ushort)rack.FromPage, To = (ushort)rack.ToPage,
+            Members = sameMembers ? previous!.Members : RackMembers.ToArray() };
+        housing.RackClock = state; TownServiceMirror.SetRack(rackId, state);
+    }
+    private static int CompareRackMembers(TownRackMember a,TownRackMember b)
+    {
+        return a.Id.CompareTo(b.Id);
+    }
+    private static void AddRackMembers(Transform? root,TownServiceCatalog.Entry entry,TownServiceMerchantDrawer rack,ushort rackId)
+    {
+        if (root == null || !Sources.TryGetValue(root,out SourceEntry? source)) return;
+        foreach (Published part in source.Parts) if (part.Seen)
+        {
+            RackMembers.Add(new TownRackMember(part.Id,(ushort)entry.Page,entry.Sample.IsMoving));
+            TownServiceMirror.SetRackMember(part.Id,rackId,(ushort)entry.Page,rack.TurnEpoch,entry.Sample.IsMoving,entry.PageGate);
+        }
     }
     private static bool IsPriority(Transform source)
     {

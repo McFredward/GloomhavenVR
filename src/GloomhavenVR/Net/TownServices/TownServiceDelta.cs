@@ -79,7 +79,7 @@ internal static class TownServiceDelta
     { TownServiceFrame result = Header(source); result.Nodes = (TownServiceNode[])source.Nodes.Clone(); return result; }
     private static TownServiceFrame Header(TownServiceFrame f) => new()
     {
-        Service = f.Service, Session = f.Session, Sequence = f.Sequence, BaseSequence = f.BaseSequence,
+        Rack = f.Rack?.Copy(), RackMember = f.RackMember?.Copy(), Service = f.Service, Session = f.Session, Sequence = f.Sequence, BaseSequence = f.BaseSequence,
         Module = f.Module, Template = f.Template, TemplateAddress = f.TemplateAddress, Structure = f.Structure, Visible = f.Visible,
         SampleTime = f.SampleTime, SessionAge = f.SessionAge, ParentModule = f.ParentModule, ParentBinding = f.ParentBinding,
         ParentAlpha = f.ParentAlpha, HasCanvasFrame = f.HasCanvasFrame, CanvasPose = (float[])f.CanvasPose.Clone(),

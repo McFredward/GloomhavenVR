@@ -9,7 +9,7 @@ This is an animated physical mechanism, with no page buttons, screen navigation,
 ## Geometry and interaction
 
 - Cabinet width is 1.45 m; rounded crank handles extend the combined footprint to approximately
-  1.51 m. The root placement audit should use half-width .81 m and depth -.78 .. +.53 m.
+  1.51 m. The root placement audit should use half-width .81 m and animated depth -.92 .. +.53 m.
 - Both trays are .63 m wide and .65 m tall, centred .77 m above the shared floor. The crown
   finishes at 1.15 m. Original card size remains .14 × .112 m maximum; 14 cm vertical spacing
   leaves room for the native price strip. Taking a card retains its original detail inspection.
@@ -18,8 +18,8 @@ This is an animated physical mechanism, with no page buttons, screen navigation,
 - Furniture never grows with stock. Full supplied-game 161 stock types and 512 distinct owned
   copies remain accessible; the latter require 32 tray positions.
 - A grip or laser crank interaction starts one .85 s revolution. All turnover requests are
-  blocked while that bank has a held or returning sample. Hidden entries lose canvases,
-  body visibility and physical colliders, but preserve the pooled source and item identity.
+  blocked while that bank has a held or returning sample. Hidden entries lose page visibility and physical colliders, but preserve their original
+  enabled canvases, pooled source and item identity for bounded hidden prewarming.
 - Native price, discount, affordability, multiplayer locks, stock ownership and explicit
   buy/sell confirmation remain the original transaction backend. Inspecting never transacts.
 - Stock refresh never moves an existing card to another slot. If the last tray disappears,
@@ -27,8 +27,30 @@ This is an animated physical mechanism, with no page buttons, screen navigation,
 
 The historical `TownServiceMerchantDrawer` and template addresses remain as transport API
 names. `Root` is now the crank, `HousingRoot` the rotating opaque tray, and `Content` contains
-its native card entries. Existing transform capture must publish both roots and exposed card
-poses throughout the turn. `Extensions` is always empty. No wire-format change is required.
+its native card entries. `Extensions` is always empty. Native transform capture publishes both
+roots and a shared physical card mount, with original face/body/price children.
+
+## Multiplayer mechanical presentation
+
+Additive TLV85 carries an explicit owner turn epoch, elapsed time, lead angle and bounded
+current/next/previous page membership; original TLV78 bytes, TLV84 batching and protocol3
+remain unchanged. Per-member stamps retain the rack/page, epoch, detached state and original
+ancestor alpha independently of the local page-visibility gate. Original widget contents and
+material state are still captured through the native snapshot path, with no gameplay callbacks.
+
+The publisher keeps at most three trays warm per rack. The observer presents each page only
+when the complete original face/body/price/mount group exists, swaps behind the opaque back,
+keeps the actual outgoing page when owner epochs were skipped, and reconstructs the full turn from the explicit clock so a coalesced0-to360 snapshot cannot
+alias a stationary rack. Late joiners adopt the received phase. Up to four pending revolutions
+are retained in order; dependency waits and catch-up are cosmetic only. A three-second missing
+baseline timeout discards obsolete queued waits and retries only the latest owner state on
+the normal baseline heartbeat; it never blocks
+native transactions or other town windows. Held-card stamps supersede old queued motion,
+restore the body page gate immediately, and preserve the new hand pose. Native visibility,
+renderer enablement, and independent window/service fades remain authoritative.
+
+Stable trays reuse membership arrays and stamps; runtime body renderer arrays are cached.
+No additional per-frame log stream is introduced.
 
 ## Evidence
 
@@ -43,6 +65,17 @@ actual physical pickup at four rig scales, all 512 owned copies across complete 
 no held-card turnover, correct hidden-card hit targets, and swapping only behind the tray back.
 The strict Release build also passed with zero warnings/errors before the final rounded-handle
 and delayed empty-tray adjustments; integration runs the required final checks again.
+
+The follow-up compiled rack-clock suite passes at rig scales .05,1,2 and198.12, with six
+independent negative controls (`/tmp/town548-rack-clock-final2/run-e_am3bnp`). It covers
+missing last baselines, late joining mid-turn, native card corners moving with their rack,
+native ancestor fades, hidden renderer restoration on pickup, manual crank lead after a prior
+turn, consecutive queued/reordered turns, and skipped epochs without a front-facing swap.
+The full production mirror suite also passes (`/tmp/town548-rack-mirror-full2/run-rf2ifw3e`).
+The updated catalog gate passes all16 variants, including stock shrink during a turn
+(`/tmp/town548-rack-catalog-final/run-v44rjkco`). Wire golden vectors independently specify
+both TLV85 variants, preserve all original TLV78 bytes, and exercise immutable deltas and
+unchanged fragmentation. These are source/runtime checks, not headset/network measurements.
 
 Headset checks remain necessary: physical crank reach, readable lower trays, turning-rack
 occlusion, original merchant contact animation, close-hand pickup and multiplayer intermediate

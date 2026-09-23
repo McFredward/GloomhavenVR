@@ -541,6 +541,12 @@ public static partial class MirrorProgram
             BodyRoot = Go("physical-card-body-" + i).transform,
             RowSource = Go("original-row-" + i).transform, RowContent = Go("inert-price-" + i).transform
         });
+        foreach(var entry in catalog.Entries)
+        {
+            var mount=Go("physical card mount").transform;mount.SetParent(rack.HousingRoot,false);
+            mount.gameObject.AddComponent<CanvasGroup>();entry.CardRoot.SetParent(mount,false);
+            entry.BodyRoot!.SetParent(mount,false);entry.RowContent!.SetParent(mount,false);
+        }
         GloomhavenVR.WorldUI.TownServiceSync.Calls.Clear();
         GloomhavenVR.WorldUI.TownServiceSync.Tick(shared, shared);
         var calls = GloomhavenVR.WorldUI.TownServiceSync.Calls;
@@ -575,7 +581,7 @@ public static partial class MirrorProgram
         catalog.Entries.RemoveRange(2, 5);
         GloomhavenVR.WorldUI.TownServiceSync.Calls.Clear();
         GloomhavenVR.WorldUI.TownServiceSync.Tick(shared, shared);
-        Check(GloomhavenVR.WorldUI.TownServiceSync.ModuleCount == 10 && GloomhavenVR.WorldUI.TownServiceSync.SourceCount == 10,
+        Check(GloomhavenVR.WorldUI.TownServiceSync.ModuleCount == 12 && GloomhavenVR.WorldUI.TownServiceSync.SourceCount == 12,
             "publisher stock shrink retires old cards and price modules");
         var physical = new GloomhavenVR.WorldUI.TownServiceToken { IsPhysical = true,
             Source = Go("duplicate-physical-source").AddComponent<GloomhavenVR.WorldUI.ItemCardUI>().transform,
@@ -917,6 +923,12 @@ public static partial class MirrorProgram
             _camera.orthographic = true; _camera.nearClipPlane = .01f; _camera.farClipPlane = 100;
             _camera.clearFlags = CameraClearFlags.SolidColor; _camera.backgroundColor = new Color(.025f, .03f, .04f, 1);
             GloomhavenVR.Rig.VRRigDriver.HeadCamera = _camera;
+            if (suite == "rack-clock" || suite == "full")
+            {
+                IEnumerator racks = RackClocks(); while (racks.MoveNext()) yield return racks.Current;
+                if (suite == "rack-clock")
+                { File.WriteAllText(Path.Combine(_output,"assertions.txt"),_assertions+" assertions\n");yield break; }
+            }
             if (suite == "asset-identity" || suite == "full")
             {
                 BackdropIdentity();

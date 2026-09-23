@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using GloomhavenVR.Core;
 using GloomhavenVR.Hands;
+using GloomhavenVR.Net.TownServices;
 using GloomhavenVR.Hands.Interact;
 using TMPro;
 using UnityEngine;
@@ -33,6 +34,11 @@ internal sealed class TownServiceMerchantDrawer : IGrabbable, IGrabbableHandFilt
     internal readonly bool Selling;
     internal readonly int Category;
     internal Transform HousingRoot => _housing.transform;
+    internal uint TurnEpoch { get; private set; }
+    internal int FromPage { get; private set; }
+    internal int ToPage { get; private set; }
+    internal float TurnElapsed => Mathf.Clamp(_clock, 0f, TownRackState.TurnDuration);
+    internal float LeadAngle => _leadAngle;
     internal int Page { get; private set; }
     internal int PageCount { get; private set; } = 1;
     private int _availablePages = 1;
@@ -60,13 +66,20 @@ internal sealed class TownServiceMerchantDrawer : IGrabbable, IGrabbableHandFilt
     internal void SetPageCount(int count)
     {
         _availablePages = Math.Max(1, count);
+        if (_turning && !_swapped) ToPage %= _availablePages;
         // A native sale/unlock census may arrive while a sample is still returning.
         // Keep its physical tray fixed; an empty last tray remains crankable back home.
         PageCount = Math.Max(_availablePages, Page + 1);
     }
+    internal bool RetainsPage(int page)
+    {
+        int count = Math.Max(PageCount, 1);
+        return page == Page || page == (Page + 1) % count || page == (Page + count - 1) % count;
+    }
     internal bool RequestTurn()
     {
         if (!CanGrab) return false;
+        TurnEpoch++; FromPage = Page; ToPage = (Page + 1) % _availablePages;
         _turning = true; _leadAngle = _pull * 35f; _clock = 0f; _swapped = false; _opening(this); return true;
     }
     internal static GameObject CreateHousingTemplate()
@@ -132,9 +145,9 @@ internal sealed class TownServiceMerchantDrawer : IGrabbable, IGrabbableHandFilt
         if (_turning)
         {
             _clock += Time.unscaledDeltaTime;
-            float t=Mathf.Clamp01(_clock/.85f); _turn=t*t*(3f-2f*t);
+            float t=Mathf.Clamp01(_clock/TownRackState.TurnDuration); _turn=TownRackState.Progress(_clock);
             // At half a revolution the complete opaque rack back faces the visitor.
-            if(!_swapped&&_turn>=.5f){Page=(Page+1)%_availablePages;PageCount=_availablePages;_swapped=true;}
+            if(!_swapped&&_turn>=.5f){Page=ToPage;PageCount=_availablePages;_swapped=true;}
             HousingRoot.localRotation=Quaternion.Euler(0f,360f*_turn,0f);
             Root.localRotation=Quaternion.Euler(0f,0f,-(_leadAngle+(360f-_leadAngle)*_turn));
             if(t>=1f){_turning=false;HousingRoot.localRotation=Quaternion.identity;Root.localRotation=Quaternion.identity;}

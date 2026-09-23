@@ -9,6 +9,7 @@ internal static class TownServiceTransportVectors
 {
     internal static void Run(Harness t)
     {
+        RackClocks(t);
         t.Case("Town service original widgets use the real wire header and loss-safe module lanes");
         var frame = Frame(62000, 1);
         byte[] raw = TownServiceCodec.Write(frame);
@@ -269,6 +270,47 @@ internal static class TownServiceTransportVectors
         t.Equal(0, expected.Count, "all synthetic native-like modules finish atomically before assembler expiry");
         Console.WriteLine("TOWN_COLD rows=" + rows + " modules=" + initialCount + " contention=" + contention
             + " raw=" + rawTotal + " compressedPages=" + wireTotal + " delivered=" + deliveredBytes + " completeSeconds=" + finished.ToString("F3"));
+    }
+    private static void RackClocks(Harness t)
+    {
+        t.Case("Cabinet clocks are additive85 with bounded explicit phase and causal stamps");
+        var frame=Frame(10,1,1);frame.TemplateAddress="merchant.rack|";
+        byte[] legacy=TownServiceCodec.Write(frame);
+        frame.Rack=new TownRackState {Turn=0x01020304,Elapsed=.425f,LeadAngle=17.5f,Crank=11,Page=1,From=0,To=1,
+            Members=new[]{new TownRackMember(12,0,false),new TownRackMember(13,1,true)}};
+        byte[] bytes=TownServiceCodec.Write(frame);var extension=new List<byte>();var old=new List<byte>();old.AddRange(new ArraySegment<byte>(bytes,0,6));
+        for(int at=6;at<bytes.Length;)
+        {
+            int start=at,id=bytes[at++],length=bytes[at++];
+            if(id==85)extension.AddRange(new ArraySegment<byte>(bytes,at,length));
+            else old.AddRange(new ArraySegment<byte>(bytes,start,length+2));at+=length;
+        }
+        byte[] golden=Hex.Bytes("01 04 03 02 01 9a 99 d9 3e 00 00 8c 41 0b 00 01 00 00 00 01 00 02 00 0c 00 00 00 00 0d 00 01 00 01");
+        t.Wire(golden,extension.ToArray(),extension.Count,"independently specified85 clock layout");
+        t.Wire(legacy,old.ToArray(),old.Count,"every legacy78 byte remains unchanged");
+        t.True(TownServiceCodec.TryRead(bytes,bytes.Length,out var decoded)&&decoded!.Rack!.Same(frame.Rack),"explicit clock survives production decoder");
+        t.True(TownServiceCodec.TryRead(old.ToArray(),old.Count,out var oldDecoded)&&oldDecoded!.Rack==null,"legacy readers can skip85 by its TLV length");
+        var next=TownServiceDelta.Copy(frame);next.Sequence=2;next.Rack!.Elapsed=.8f;
+        var delta=TownServiceDelta.Create(frame,next);var expanded=TownServiceDelta.Expand(frame,delta);
+        t.True(expanded?.Rack?.Elapsed==.8f&&frame.Rack.Elapsed==.425f,"cumulative delta retains immutable explicit phase");
+        for(int cut=legacy.Length+1;cut<bytes.Length;cut++)t.True(!TownServiceCodec.TryRead(bytes,cut,out _),"partial85 payload never publishes a clock");
+        byte[] malformed=(byte[])bytes.Clone();malformed[legacy.Length+2]=99;
+        t.True(!TownServiceCodec.TryRead(malformed,malformed.Length,out _),"unknown85 discriminator rejected without native fallback reinterpretation");
+        foreach(var broken in new[]{float.NaN,float.PositiveInfinity,-.01f,1f})
+        {
+            var bad=TownServiceDelta.Copy(frame);bad.Rack!.Elapsed=broken;bool rejected=false;
+            try{TownServiceCodec.Write(bad);}catch(System.IO.InvalidDataException){rejected=true;}
+            t.True(rejected,"unbounded or nonfinite revolution clock rejected");
+        }
+        var member=Frame(12,5,1);member.RackMember=new TownRackStamp{Rack=10,Page=1,Turn=0x01020304,Detached=true};
+        byte[] memberGolden=Hex.Bytes("02 0a 00 01 00 04 03 02 01 01 00 00 80 3f");
+        byte[] memberRaw=member.RackMember.Write(member.Module);t.Wire(memberGolden,memberRaw,memberRaw.Length,"independent85 member epoch and original-alpha layout");
+        byte[] stamped=TownServiceCodec.Write(member);t.True(TownServiceCodec.TryRead(stamped,stamped.Length,out var stamp)&&stamp!.RackMember!.Same(member.RackMember),"held epoch is carried with its own module lane");
+        var assembler=new TownServiceFragments();byte[]? complete=null;
+        byte[][] fragments=ExtrasFragments.Encode(bytes,bytes.Length,65536+10,TownServiceCodec.MessageType,TownServiceCodec.FragmentType,TownServiceFrame.MaxBytes,compress:false);
+        for(int i=fragments.Length-1;i>=0;i--)complete=assembler.Accept(2,fragments[i],fragments[i].Length,.1)??complete;
+        t.True(complete!=null&&TownServiceCodec.TryRead(complete,complete.Length,out var reassembled)&&reassembled!.Rack!=null,"existing unchanged fragment lane carries85 atomically");
+        t.True(TownRackState.Progress(0)==0&&Math.Abs(TownRackState.Progress(.425f)-.5f)<.00001f&&TownRackState.Progress(.85f)==1,"unwrapped owner curve retains an entire revolution");
     }
     private static TownServiceFrame Frame(ushort module, ulong sequence, int count = 64)
     {

@@ -196,3 +196,5 @@ namespace GloomhavenVR.WorldUI { internal sealed class TownServiceGrounding : Sy
  internal void Apply(float actor, float bottom) { }
  public void Dispose() { }
 } }
+
+namespace GloomhavenVR.Net.TownServices { internal static class TownServiceFrame { internal const ushort BundleStream=65534; } }

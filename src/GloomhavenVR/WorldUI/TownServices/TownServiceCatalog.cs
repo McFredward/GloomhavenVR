@@ -18,6 +18,8 @@ namespace GloomhavenVR.WorldUI;
 /// enters the original native transaction; picking up a card is always inspection.</summary>
 internal sealed class TownServiceCatalog : IDisposable
 {
+    private static readonly HashSet<Transform> CardMounts = new();
+    internal static bool IsCardMountChild(Transform source) => source.parent != null && CardMounts.Contains(source.parent);
     private readonly UIShopItemInventory _inventory;
     private readonly Transform _anchor, _mat;
     private readonly Func<object?> _contextIdentity;
@@ -195,10 +197,12 @@ internal sealed class TownServiceCatalog : IDisposable
         private readonly TownServiceCatalog _owner;
         private readonly GameObject _root;
         private readonly Canvas _canvas;
+        private readonly CanvasGroup _pageGate;
         private readonly Transform _display;
         private readonly float _presentedAt;
         private Vector3 _displayHome;
         private Transform? _body;
+        private Renderer[]? _bodyRenderers;
         internal Transform? BodyRoot => _body;
         private readonly RemoteWidgetMirror _row;
         private readonly List<KeyValuePair<Graphic, bool>> _raycastTargets = new();
@@ -212,10 +216,14 @@ internal sealed class TownServiceCatalog : IDisposable
         internal readonly bool Selling;
         internal readonly int Ordinal;
         private TownServiceMerchantDrawer Rack => _owner._drawers[Selling ? 1 : 0];
+        internal bool Warm => Current && (Sample.IsMoving || Rack.RetainsPage(Ordinal / TownServiceMerchantDrawer.Capacity));
+        internal int Page => Ordinal / TownServiceMerchantDrawer.Capacity;
         internal bool Exposed => Current && (Sample.IsMoving || Ordinal / TownServiceMerchantDrawer.Capacity == Rack.Page);
         internal readonly TownServiceToken Sample;
         internal ItemCardUI CardUI { get; private set; } = null!;
         internal Transform CardRoot => CardUI.transform;
+        internal Transform MountRoot => _display;
+        internal CanvasGroup PageGate => _pageGate;
         private readonly List<KeyValuePair<Canvas, bool>> _canvases = new();
         private bool _shown = true;
         internal Transform? RowContent => _row.CloneOf(RowSource.transform);
@@ -228,10 +236,11 @@ internal sealed class TownServiceCatalog : IDisposable
         {
             _owner = owner; RowSource = source; Item = source.Item; Selling = selling; Ordinal = position;
             _root = new GameObject("CatalogItem");
+            _pageGate = _root.AddComponent<CanvasGroup>(); _pageGate.blocksRaycasts = false;
             _root.transform.SetParent(parent, false);
             _root.transform.localPosition = local;
             _display = new GameObject("PhysicalCard").transform;
-            _display.SetParent(_root.transform, false);
+            _display.SetParent(_root.transform, false); CardMounts.Add(_display);
             _display.localRotation = Quaternion.Euler(TownServiceMerchantLayout.FacePitch, 0f, 0f);
             _presentedAt = Time.unscaledTime + Mathf.Min(position, 12) * .015f;
             var face = new GameObject("Face", typeof(RectTransform), typeof(Canvas), typeof(GraphicRaycaster));
@@ -296,17 +305,17 @@ internal sealed class TownServiceCatalog : IDisposable
             if (_disposed) return;
             if (!Current) { Sample.Dispose(); _root.SetActive(false); return; }
             bool exposed = Exposed;
-            if (_shown != exposed)
+            _pageGate.alpha = exposed ? 1f : 0f;
+            // Keep actual original content available for bounded hidden-page prewarming.
+            // The page gate is explicit presentation state: it never suppresses native data,
+            // changes a transaction, or uses a disabled ancestor Canvas invisible to capture.
+            if (_shown != exposed) { _shown = exposed; _row.SetShown(true); }
+            if (_body != null)
             {
-                _shown = exposed;
-                foreach (var canvas in _canvases)
-                    if (canvas.Key != null) canvas.Key.enabled = exposed && canvas.Value;
-                _row.SetShown(exposed);
+                TownServiceCardBody.SetVisibility(_body.gameObject, _owner._opening.alpha);
+                foreach (Renderer renderer in _bodyRenderers ??= _body.GetComponentsInChildren<Renderer>(true)) renderer.forceRenderingOff = !exposed;
             }
-            if (_body != null) TownServiceCardBody.SetVisibility(_body.gameObject, exposed ? _owner._opening.alpha : 0f);
-            // Hidden tray entries keep their native source alive, but lose both visual
-            // output and colliders. A held/returning sample always keeps its exposed page.
-            if (!exposed) { Sample.PickCollider.enabled = false; return; }
+            if (!Warm) { Sample.PickCollider.enabled = false; return; }
             if (!Sample.IsMoving)
             {
                 float t = Mathf.Clamp01((Time.unscaledTime - _presentedAt) / .24f);
@@ -331,13 +340,13 @@ internal sealed class TownServiceCatalog : IDisposable
                 Transform? inline = _row.CloneOf(_owner._inventory.itemTooltip.transform);
                 if (inline != null) inline.gameObject.SetActive(false);
             }
-            Sample.Tick(scale);
+            if (exposed) Sample.Tick(scale); else Sample.PickCollider.enabled = false;
         }
         public void Dispose()
         {
             if (_disposed) return;
             // Cancel a gesture before recycling its source; no release callback is dispatched.
-            Sample?.Dispose(); _disposed = true;
+            Sample?.Dispose(); _disposed = true; CardMounts.Remove(_display);
             _row.Destroy(); UguiPokeSurfaces.Unregister(_canvas);
             if (_body != null) TownServiceCardBody.Dispose(_body.gameObject);
             // Pool borrowers after us must receive the same input flags we received. The

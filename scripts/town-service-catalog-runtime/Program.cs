@@ -135,7 +135,7 @@ public static class InteractionProgram
         foreach(var e in catalog.Entries)
         {
             bool visible=e.Ordinal<16;
-            Check(e.Exposed==visible&&e.CardUI.GetComponentInParent<Canvas>().enabled==visible&&e.CardUI.gameObject.activeInHierarchy,
+            Check(e.Exposed==visible&&e.CardUI.GetComponentInParent<Canvas>().enabled&&e.CardUI.GetComponentInParent<CanvasGroup>().alpha==(visible?1f:0f)&&e.CardUI.gameObject.activeInHierarchy,
                 "only active tray cards are exposed; source identity remains alive");
             Check(e.Sample.CanGrab==visible,"only exposed tray cards have a physical pickup target");
             Check(e.CardUI.GetComponent<Image>().raycastTarget==false,"own card GUI cannot veto direct pickup");
@@ -171,6 +171,14 @@ public static class InteractionProgram
         Turn(catalog,crank);Check(crank.Page==1,"one completed physical turn advances exactly one tray");
         for(int n=1;n<crank.PageCount;n++)Turn(catalog,crank);
         Check(crank.Page==0,"stock rack completes its accessible cycle");
+        int fullPages=crank.PageCount;
+        Check(crank.RequestTurn(),"native stock can shrink during a valid pending turn");
+        crank.SetPageCount(1);
+        Check(crank.ToPage==0,"published target follows a stock shrink before the opaque swap");
+        Set(crank,"_clock",.45f);crank.Tick(1f);
+        Check(crank.Page==crank.ToPage,"owner page and explicit remote target agree after a mid-turn shrink");
+        Set(crank,"_clock",.85f);crank.Tick(1f);crank.SetPageCount(fullPages);
+        foreach(var entry in catalog.Entries)entry.Tick(1f);
         Check(inventory.service.Commits==0,"inspection census and opening never spend gold");
         var inspector=new VRHand();stable.Tick(1f);stable.Sample.OnGrab(inspector);stable.Tick(1f);catalog.LateTick();
         Check(inventory.itemTooltip.Shows>0&&inventory.itemTooltip.Service==inventory.service,"held inspection invokes native complete item detail with original discount service");

@@ -30,6 +30,7 @@ def sources(root):
     base = root / "src/GloomhavenVR/WorldUI/TownServices"
     names = ["TownServiceCatalog.cs", "TownServiceMerchantRows.cs", "TownServiceMerchantTransaction.cs", "TownServiceMerchantDrawer.cs", "TownServiceMerchantCounter.cs", "TownServiceMerchantZone.cs", "TownServiceCatalogPreview.cs", "TownServiceWindowMask.cs", "TownServiceToken.cs"]
     bound = {name: (base / name).read_text() for name in names}
+    bound["TownRackState.cs"] = (root / "src/GloomhavenVR/Net/TownServices/TownRackState.cs").read_text()
     bound["CardGripPose.cs"] = (root / "src/GloomhavenVR/Cards/CardGripPose.cs").read_text()
     hashes = {name: hashlib.sha256(text.encode()).hexdigest() for name, text in bound.items()}
     return bound, hashes

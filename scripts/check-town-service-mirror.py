@@ -24,14 +24,14 @@ def expression(text, signature):
 def sources(root):
     base = root / "src/GloomhavenVR"
     names = ["TownServiceAssets", "TownServiceBinding", "TownServiceCodec", "TownServiceDelta",
-             "TownServiceFrame", "TownServiceMaterial", "TownServiceFlameClock", "TownServiceMirror"]
+             "TownServiceFrame", "TownRackState", "TownServiceMirror.Racks", "TownServiceMaterial", "TownServiceFlameClock", "TownServiceMirror"]
     bound = {name + ".cs": (base / "Net/TownServices" / (name + ".cs")).read_text() for name in names}
     backdrop = base / "WorldUI/TownServices/TownServiceBackdropAssets.cs"
     if backdrop.exists(): bound[backdrop.name] = backdrop.read_text()
     motion = base / "Net/TownServices/TownServiceMotion.cs"
     if motion.exists(): bound[motion.name] = motion.read_text()
     publisher = (base / "WorldUI/TownServices/TownServiceSync.cs").read_text()
-    bound["PublisherTick.cs"] = "using System;\nusing System.Collections.Generic;\nusing GloomhavenVR.Net.TownServices;\nusing UnityEngine;\nnamespace GloomhavenVR.WorldUI;\ninternal static partial class TownServiceSync {\n" + "\n".join(method(publisher, signature) for signature in ("internal static void Tick(Transform sharedFrame, Transform? stationRoot)", "private static void PublishHeld(TownServiceToken sample, Transform original)", "private static void PublishCopiedCards(Transform original, Func<Transform, Transform?> cloneOf)", "private static string? DynamicKey(Transform source)")) + "\n}\n"
+    bound["PublisherTick.cs"] = "using System;\nusing System.Collections.Generic;\nusing GloomhavenVR.Net.TownServices;\nusing UnityEngine;\nnamespace GloomhavenVR.WorldUI;\ninternal static partial class TownServiceSync {\n" + "\n".join(method(publisher, signature) for signature in ("internal static void Tick(Transform sharedFrame, Transform? stationRoot)", "private static void PublishHeld(TownServiceToken sample, Transform original)", "private static void PublishCopiedCards(Transform original, Func<Transform, Transform?> cloneOf)", "private static string? DynamicKey(Transform source)", "private static void PublishRackClock(TownServiceCatalog catalog, TownServiceMerchantDrawer rack)", "private static void AddRackMembers(Transform? root,TownServiceCatalog.Entry entry,TownServiceMerchantDrawer rack,ushort rackId)", "private static int CompareRackMembers(TownRackMember a,TownRackMember b)")) + "\n}\n"
     bound["PublisherTick.cs"] = bound["PublisherTick.cs"].replace("internal static partial class TownServiceSync {\n",
         "internal static partial class TownServiceSync {\n" + "\n".join(expression(publisher, declaration) for declaration in
         ("private static uint _generation", "private static ulong _relocationRevision", "private static bool _generationExhausted")) + "\n"
@@ -62,7 +62,7 @@ def main():
     parser.add_argument("--source-root", type=Path, default=repo)
     parser.add_argument("--output-dir", type=Path, default=repo / ".planning/debug/town-service-mirror")
     parser.add_argument("--unity", type=Path, default=Path(os.environ.get("UNITY_PATH", "/home/claw/unity-2021.3.5/Editor/Unity")))
-    parser.add_argument("--suite", choices=("basic", "full", "lifecycle", "counter-final", "relocation", "asset-identity"), default="full")
+    parser.add_argument("--suite", choices=("basic", "full", "lifecycle", "counter-final", "relocation", "asset-identity", "rack-clock"), default="full")
     parser.add_argument("--no-negative-controls", action="store_true")
     args = parser.parse_args()
     args.source_root = args.source_root.resolve()
@@ -89,8 +89,8 @@ def main():
             variants += [
                 ("publisher-rack", "PublisherTick.cs", 'Publish("merchant.rack", rack.HousingRoot);', '// rack omitted', "crank and revolving rack publish their actual moving roots"),
                 ("publisher-old-window", "PublisherTick.cs", 'if (catalog == null && TownServicePresentation.Ritual == null)', 'if (true)', "physical counter does not publish suppressed flat merchant window"),
-                ("publisher-stale-entry", "PublisherTick.cs", "if (!entry.Current || !entry.Exposed) continue;", "// publish stale entry", "physical counter publishes only six current item cards"),
-                ("publisher-cardbody", "PublisherTick.cs", 'Publish("merchant.cardbody", entry.BodyRoot);', '// body omitted', "every original face retains its physical body remotely"),
+                ("publisher-stale-entry", "PublisherTick.cs", "if (!entry.Current || !entry.Warm) continue;", "// publish stale entry", "physical counter publishes only six current item cards"),
+                ("publisher-cardbody", "PublisherTick.cs", 'Publish("merchant.cardbody", entry.BodyRoot, prewarm: true);', '// body omitted', "every original face retains its physical body remotely"),
                 ("publisher-held-duplicate", "PublisherTick.cs", 'if (sample.IsPhysical) continue;', '// physical guard omitted', "physical original is not duplicated by generic held publication"),
                 ("publisher-price-provenance", "PublisherTick.cs", "entry.RowSource.transform, entry.RowCloneOf", "null, null", "counter price clone retains original row provenance map"),
                 ("parent-alpha", "TownServiceMirror.cs", "alpha *= group.alpha;", "alpha *= Mathf.Abs(group.alpha - .37f) < .0001f ? 1f : group.alpha;", "counter opening transports inherited parent alpha"),
@@ -129,6 +129,18 @@ def main():
                 ("last-window-wins", "TownServiceAssets.cs", "if (_originalKeys.ContainsKey(id)) return;", "if (_originalKeys.ContainsKey(id)) { _keys[id] = key; return; }", "shared original keeps merchant provenance"),
                 ("same-backdrop-key", "TownServiceBackdropAssets.cs", '"native-town|backdrop|" + template + "|texture"', '"native-town|backdrop|same|texture"', "Conflicting original town-service provenance"),
                 ("retain-cleared-provenance", "TownServiceAssets.cs", "_originalKeys.Clear();", "", "Ambiguous native town-service texture"),
+            ]
+    if args.suite == "rack-clock":
+        variants = [("production", None, None, None, "")]
+        if not args.no_negative_controls:
+            variants += [
+                ("rack-phase-alias", "TownServiceMirror.Racks.cs", "float displayed=clock.Turning?TownRackState.Progress(clock.Elapsed):1f;", "float displayed=1f;", "late join reconstructs the actual owner mid-turn phase"),
+                ("rack-incomplete-page", "TownServiceMirror.Racks.cs", "clock.Turning&&clock.Waiting&&fromReady&&toReady", "clock.Turning&&clock.Waiting", "missing one dependency keeps the complete outgoing page at rest"),
+                ("rack-native-fade", "TownServiceMirror.Racks.cs", "shown?stamp.Alpha:0f", "shown?1f:0f", "page gate preserves independent native ancestor fades"),
+                ("rack-hidden-body", "TownServiceMirror.Racks.cs", "renderer.forceRenderingOff=!shown;", "renderer.forceRenderingOff=true;", "incoming physical body appears with its face"),
+                ("rack-idle-crank", "TownServiceMirror.Racks.cs", "out var crank)&&replaying)", "out var crank)&&state.Turn!=0)", "idle manual lead pull is not overwritten by the previous clock"),
+                ("rack-skipped-epochs", "TownServiceMirror.Racks.cs", "FromPage=joining?state.From:DisplayPage;", "FromPage=state.From;", "skipped owner epochs preserve the actual outgoing front until the opaque midpoint"),
+                ("rack-turn-queue", "TownServiceMirror.Racks.cs", "if(!Turning&&Queue.Count==0)", "if(true)", "newer queued turn and reordered old packet do not reset an in-flight rack"),
             ]
     print(f"Production binding: {args.source_root.resolve()}; evidence: {run}", flush=True)
     for name, filename, before, after, expected in variants:
