@@ -71,9 +71,22 @@ independent head gaze must not stack with a generated 22-degree neck turn.
 
 The phase/packet/contact portable suite passes including its negative controls. Actual imported
 rig contact validation measures maximum planted-foot displacement of 0.35 mm, 0.30 mm and
-0.33 mm (merchant, priestess, enchantress). Body sample steps are at most 1.24 degrees at 90 Hz;
+0.24 mm (merchant, priestess, enchantress). Body sample steps are at most 1.24 degrees at 90 Hz;
 the final loop seam step is 0.22 degrees. Actual mesh renders remain under review until the
 serialized prefabs are rebuilt from the new FBX; replacing only an FBX leaves old eye transforms
 inside the prefab. A height-only initial leg mask also affected low resting hands; the corrected
 mask excludes every vertex with any existing arm/finger/torso influence.
+The enchantress plays at the generated 10.2-second duration. Effect and palm-roll keys follow
+that duration; her visit transition remains the shared 0.65 seconds. A down-to-up palm turn
+therefore peaks at 4.62 degrees/frame at 90 Hz, with 65% of the twist assigned to the forearm.
+The actual contact test allows 5 degrees for that transition and retains the 4-degree work bound.
+
+The final diagnostic work envelope (station-space) stays within x [-0.471, 0.551], with arm
+reach over the counter down to z 0.116. Priestess hands stay clasped and her work envelope
+starts at z 0.336. Grounded skin extends down to approximately y 0.000, without raised feet.
+All non-leg weights are asserted unchanged in the per-resident leg-weight receipts.
+
+Actual Unity work renders use 8 fps and do not establish headset frame pacing. The offered-palm
+transition uses 24 fps. Native coin material, final cabinet geometry and environment lighting
+are integration responsibilities; the motion render uses the physical diagnostic coin volume.
 Hardware naturalness remains a visual review, not a property established by an assertion count.

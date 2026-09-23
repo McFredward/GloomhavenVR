@@ -11,7 +11,10 @@ internal static class ActivityRender
     internal static void Render(GameObject obj,byte service,TownServiceActivityRig rig)
     {
         string[] args=Environment.GetCommandLineArgs();int output=Array.IndexOf(args,"-activityRender");if(output<0)return;
+        int selected=Array.IndexOf(args,"-activityService");if(selected>=0&&int.Parse(args[selected+1])!=service)return;
         bool sequence=Array.IndexOf(args,"-activitySequence")>=0;
+        bool attentionSequence=Array.IndexOf(args,"-activityAttentionSequence")>=0;
+        float frameSeconds=attentionSequence?1f/24f:1f/8f;
         string folder=args[output+1];Transform root=obj.transform;rig.BeforeBodySample();root.SetPositionAndRotation(Vector3.zero,Quaternion.identity);root.localScale=Vector3.one;
         Shader shader=obj.GetComponentsInChildren<SkinnedMeshRenderer>(true)[0].sharedMaterial.shader;
         using var props=new TownServiceActivityProps(root,service,shader);props.SetVisibility(1);
@@ -28,17 +31,25 @@ internal static class ActivityRender
         var gaze=default(TownFacePose);
         using var metrics=new StreamWriter(Path.Combine(folder,"service"+service+"-contacts.csv"));metrics.WriteLine("phase,handX,handY,handZ,gripX,gripY,gripZ,tipX,tipY,tipZ");
         float[] phases={.8f,1.8f,1.8f,5.4f,6.9f,8.1f,15.4f,17f};
-        if(sequence)phases=Enumerable.Range(0,240).Select(n=>n/8f).ToArray();
+        if(sequence)phases=Enumerable.Range(0,attentionSequence?192:240).Select(n=>n*frameSeconds).ToArray();
+        var transition=new TownActivityPose{WorkClock=5.3f,TransitionAge=.65f};
         var envelope=new Bounds();bool envelopeStarted=false;
         for(int phase=0;phase<phases.Length;phase++)
         {
             faceRig.BeforeBodySample();rig.BeforeBodySample();animation.Stop();var body=animation["Idle"];body.enabled=true;body.weight=1;body.time=0;animation.Sample();body.enabled=false;
             bool attentive=!sequence&&phase==2;
-            var state=new TownActivityPose{WorkClock=phases[phase],TransitionAge=.65f,FromBlend=attentive?1:0,Engaged=attentive};rig.Apply(in state);props.Sample(in state);
+            var state=new TownActivityPose{WorkClock=phases[phase],TransitionAge=.65f,FromBlend=attentive?1:0,Engaged=attentive};
+            if(attentionSequence)
+            {
+                TownServiceActivityMotion.Engage(ref transition,phases[phase]>=1f&&phases[phase]<4f);
+                transition=TownServiceActivityMotion.Advance(transition,frameSeconds);state=transition;
+                attentive=TownServiceActivityMotion.Blend(in state)>.5f;
+            }
+            rig.Apply(in state);props.Sample(in state);
             {
                 Vector3 focus=attentive?new Vector3(-.7f,1.9f,-.8f):root.Find("ActivityWorkFocus").position;
                 for(int frame=0;frame<(sequence?1:90);frame++)gaze=TownServiceFaceMotion.Aim(faceRig.OpticalRotation,root.lossyScale.x,
-                    faceRig.HeadPosition,faceRig.LeftPosition,faceRig.RightPosition,focus,in gaze,sequence?.125f:1f/90f);
+                    faceRig.HeadPosition,faceRig.LeftPosition,faceRig.RightPosition,focus,in gaze,sequence?frameSeconds:1f/90f);
                 TownServiceFacePose face=TownServiceFaceMotion.Evaluate(in gaze,phases[phase],service,Vector3.zero);faceRig.Apply(in face);
                 metrics.WriteLine("# normal-work-gaze pitch="+gaze.HeadPitch.ToString("R",CultureInfo.InvariantCulture)+" yaw="+gaze.HeadYaw.ToString("R",CultureInfo.InvariantCulture));
             }

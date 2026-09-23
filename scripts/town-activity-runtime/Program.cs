@@ -135,7 +135,7 @@ public static class InteractionProgram
             }
             var spell=TownServiceActivityMotion.Visual(3,in state);
             if(spell.Cast>.95f)large=true;
-            if(state.WorkClock>14.5f&&state.WorkClock<17f&&spell.Cast>.25f&&spell.Cast<.6f)small=true;
+            if(state.WorkClock>7.25f&&state.WorkClock<8.5f&&spell.Cast>.25f&&spell.Cast<.6f)small=true;
             if(spell.Cast>.25f)Check(spell.RightRoll>110f,"visible spell uses an upward-facing palm");
         }
         Check(large&&small,"distinct large two-arm and small palm spell phrases exist");
@@ -213,7 +213,11 @@ public static class InteractionProgram
                             Check(Quaternion.Angle(thumbs[digit].localRotation,thumbNeutral[digit])<55f,"anatomical thumb stays inside natural grasp range");
                         if(service==1&&TownServiceActivityMotion.Writing(phase.WorkClock)>.99f&&TownServiceActivityMotion.Blend(in phase)<.01f)
                             Check(Vector3.Distance(hand.position,wanted)<.003f,"writing contact survives resolved terrain offsets at "+n+": "+Vector3.Distance(hand.position,wanted));
-                        if(n>0)Check(Quaternion.Angle(previousHand,hand.rotation)<4f,"hand orientation remains smooth through prayer interruption");
+                        // A smooth 180-degree offered-palm turn over .65s has a 4.62-degree
+                        // peak at 90Hz; ordinary work and the 90-degree prayer turn stay below4.
+                        float blend=TownServiceActivityMotion.Blend(in phase);
+                        float turnLimit=service==3&&blend>0f&&blend<1f?5f:4f;
+                        if(n>0)Check(Quaternion.Angle(previousHand,hand.rotation)<turnLimit,"hand orientation remains smooth through prayer interruption: "+npc+" n="+n+" step="+Quaternion.Angle(previousHand,hand.rotation));
                         previousHand=hand.rotation;
                         if(TownServiceActivityMotion.Blend(in phase)<.001f && target.y>.99f)
                         {

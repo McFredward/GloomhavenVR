@@ -62,7 +62,9 @@ def main():
     parser.add_argument("--output-dir", type=Path, default=repo / ".planning/debug/town-activity")
     parser.add_argument("--unity", type=Path, default=Path(os.environ.get("UNITY_PATH", "/home/claw/unity-2021.3.5/Editor/Unity")))
     parser.add_argument("--render", type=Path, help="Optional output folder for actual rig/tool contact images")
-    parser.add_argument("--sequence", action="store_true", help="Render complete merchant/enchantress contact-space animations at 8 fps")
+    parser.add_argument("--attention-sequence", action="store_true", help="Render a24fps visitor-interruption transition instead of work cycle")
+    parser.add_argument("--render-service", type=int, choices=[1,2,3], help="Render only one resident; all contact checks still run")
+    parser.add_argument("--sequence", action="store_true", help="Render complete resident performances at 8 fps")
     parser.add_argument("--book-obj", type=Path, help="Read-only original-game open book OBJ (Blender Z-up export)")
     parser.add_argument("--book-texture", type=Path, help="Read-only original-game book atlas for the diagnostic render")
     parser.add_argument("--bundle", type=Path, help="Optional Linux final-asset bundle for actual prefab binding checks")
@@ -168,7 +170,9 @@ def main():
         args.render.mkdir(parents=True, exist_ok=True)
         command.remove("-nographics")
         command += ["-activityRender", str(args.render.resolve())]
-        if args.sequence: command += ["-activitySequence"]
+        if args.sequence or args.attention_sequence: command += ["-activitySequence"]
+        if args.attention_sequence: command += ["-activityAttentionSequence"]
+        if args.render_service: command += ["-activityService", str(args.render_service)]
         if args.book_obj: command += ["-activityBook", str(args.book_obj.resolve())]
         if args.book_texture: command += ["-activityBookTexture", str(args.book_texture.resolve())]
     completed = subprocess.run(command, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT, timeout=240)

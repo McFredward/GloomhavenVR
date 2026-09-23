@@ -153,38 +153,27 @@ internal static class TownServiceActivityMotion
     private readonly struct SpellKey
     {
         internal readonly float Time, LeftRoll, RightRoll, Strength;
-        internal readonly Vector3 Left, Right, Chest;
-        internal SpellKey(float time, Vector3 left, Vector3 right, float leftRoll, float rightRoll, Vector3 chest, float strength)
-        { Time = time; Left = left; Right = right; LeftRoll = leftRoll; RightRoll = rightRoll; Chest = chest; Strength = strength; }
+        internal SpellKey(float time, float leftRoll, float rightRoll, float strength)
+        { Time=time; LeftRoll=leftRoll; RightRoll=rightRoll; Strength=strength; }
     }
-    // Authored contact-space animation: study, prepare, open the palms, shape a large
-    // spell with both arms/torso, settle, then inspect a smaller spell above one palm.
-    // Unequal holds and anticipations replace the old periodic wrist bobbing.
+    // Palm orientation and effect envelopes follow the generated 10.2-second
+    // performance at its original speed. Hand/body trajectories come from the clip.
     private static readonly SpellKey[] Spell = {
-        new(0f, new(.15f,1.035f,.39f), new(-.14f,1.035f,.40f), 0f,0f,new(-2f,0f,0f),0f),
-        new(2.4f,new(.15f,1.035f,.39f), new(-.14f,1.035f,.40f), 0f,0f,new(-2f,0f,0f),0f),
-        new(3.3f,new(.18f,1.10f,.43f), new(-.19f,1.08f,.43f), 25f,30f,new(2f,-4f,2f),0f),
-        new(4.4f,new(.12f,1.24f,.34f), new(-.12f,1.21f,.32f), 110f,180f,new(0f,3f,-2f),.30f),
-        new(5.4f,new(.22f,1.32f,.29f), new(-.24f,1.31f,.28f), 150f,170f,new(-3f,7f,-3f),1f),
-        new(6.9f,new(.27f,1.30f,.33f), new(-.20f,1.38f,.35f), 125f,195f,new(1f,-7f,3f),.92f),
-        new(8.1f,new(.11f,1.29f,.32f), new(-.11f,1.28f,.31f), 110f,180f,new(2f,2f,0f),.45f),
-        new(9.0f,new(.21f,1.12f,.40f), new(-.19f,1.12f,.40f), 35f,50f,new(0f,0f,0f),0f),
-        new(10.6f,new(.15f,1.035f,.39f),new(-.14f,1.035f,.40f),0f,0f,new(-2f,0f,0f),0f),
-        new(13.2f,new(.15f,1.035f,.39f),new(-.14f,1.035f,.40f),0f,0f,new(-2f,0f,0f),0f),
-        new(14.2f,new(.13f,1.11f,.38f),new(-.20f,1.24f,.30f),30f,180f,new(0f,-5f,1f),.12f),
-        new(15.4f,new(.10f,1.25f,.30f),new(-.20f,1.27f,.30f),95f,180f,new(-1f,-7f,2f),.48f),
-        new(17.0f,new(.15f,1.15f,.36f),new(-.16f,1.30f,.33f),45f,195f,new(1f,-3f,1f),.34f),
-        new(18.4f,new(.15f,1.035f,.39f),new(-.14f,1.035f,.40f),0f,0f,new(-2f,0f,0f),0f),
-        new(20.4f,new(.15f,1.035f,.39f),new(-.14f,1.035f,.40f),0f,0f,new(-2f,0f,0f),0f)
+        new(0f,0f,0f,0f), new(1.2f,0f,0f,0f), new(1.65f,80f,100f,0f),
+        new(2.2f,110f,180f,.30f), new(2.7f,150f,170f,1f),
+        new(3.45f,125f,195f,.92f), new(4.05f,110f,180f,.45f),
+        new(4.9f,35f,50f,0f), new(5.3f,0f,0f,0f), new(6.1f,0f,0f,0f),
+        new(7.1f,30f,180f,.12f), new(7.7f,95f,180f,.48f),
+        new(8.5f,45f,165f,.34f), new(9.4f,0f,0f,0f), new(10.2f,0f,0f,0f)
     };
     private static TownActivityVisual Enchantress(float clock)
     {
-        float cycle = clock % 20.4f;
+        float cycle = clock % 10.2f;
         int next = 1;
         while (next < Spell.Length - 1 && Spell[next].Time < cycle) next++;
         SpellKey a = Spell[next - 1], b = Spell[next];
         float t = Ease(cycle, a.Time, b.Time);
-        var generated=TownServiceMotionClips.Sample(2, cycle / 20.4f);
+        var generated=TownServiceMotionClips.Sample(2, cycle / 10.2f);
         return new TownActivityVisual { Left = generated.Left, Right = generated.Right,
             LeftElbow=generated.LeftElbow, RightElbow=generated.RightElbow, Body=generated.Body,
             LeftRoll = Mathf.Lerp(a.LeftRoll,b.LeftRoll,t), RightRoll = Mathf.Lerp(a.RightRoll,b.RightRoll,t),
