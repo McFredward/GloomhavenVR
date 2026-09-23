@@ -151,20 +151,17 @@ public static class ValidateTownAssets
         return complete;
     }
 
-    static Color32[] ClosedEyeMask(GameObject root, string name)
-    {
-        FaceWeight(root, "BlinkLeft", 100); FaceWeight(root, "BlinkRight", 100);
-        Color32[] pixels = Picture(name); ResetFace(root); return pixels;
-    }
-
-    static void EyePixels(GameObject root, string npc, int level, Color32[] lit)
+    static IEnumerator EyePixels(GameObject root, string npc, int level, Color32[] lit)
     {
         var renderers = root.GetComponentsInChildren<MeshRenderer>().Where(r => r.sharedMaterial.shader.name == "GloomhavenVR/TownEye" || r.sharedMaterial.shader.name == "GloomhavenVR/TownCornea").ToArray();
         var original = renderers.Select(r => r.sharedMaterial).ToArray();
         var maskMaterial = new Material(Shader.Find("Unlit/Color")); maskMaterial.color = Color.magenta;
         foreach (var renderer in renderers) renderer.sharedMaterial = maskMaterial;
         var mask = Picture(npc + "-face-lod" + level + "-eye-aperture-mask");
-        var closed = ClosedEyeMask(root, npc + "-face-lod" + level + "-closed-eye-mask");
+        FaceWeight(root, "BlinkLeft", 100); FaceWeight(root, "BlinkRight", 100);
+        yield return null;
+        var closed = Picture(npc + "-face-lod" + level + "-closed-eye-mask");
+        ResetFace(root); yield return null;
         Check(EyeCentresVisible(root, mask, closed, out string centres),
             npc + " LOD" + level + " both physical iris centres are visible, not only displaced scleral slivers: " + centres);
         if (level == 0)
@@ -172,8 +169,12 @@ public static class ValidateTownAssets
             Transform[] eyes = new[] { "EyeLeft", "EyeRight" }.Select(name => root.GetComponentsInChildren<Transform>().Single(t => t.name == name)).ToArray();
             Vector3[] positions = eyes.Select(eye => eye.position).ToArray();
             for (int i = 0; i < eyes.Length; i++) eyes[i].position -= eyes[i].up * (.02f * Mathf.Abs(root.transform.lossyScale.x));
+            yield return null;
             Color32[] displaced = Picture(npc + "-negative-displaced-eyes");
-            var displacedClosed = ClosedEyeMask(root, npc + "-negative-displaced-eyes-closed");
+            FaceWeight(root, "BlinkLeft", 100); FaceWeight(root, "BlinkRight", 100);
+            yield return null;
+            var displacedClosed = Picture(npc + "-negative-displaced-eyes-closed");
+            ResetFace(root); yield return null;
             bool accepted = EyeCentresVisible(root, displaced, displacedClosed, out string displacedCentres);
             for (int i = 0; i < eyes.Length; i++) eyes[i].position = positions[i];
             Check(!accepted, npc + " negative control: cheek-displaced globes must fail iris-centre visibility: " + displacedCentres);
@@ -257,7 +258,8 @@ public static class ValidateTownAssets
             ResetFace(root);
             camera.transform.position = new Vector3(0, 1.60f, .03f); camera.transform.LookAt(new Vector3(0, 1.60f, .65f));
             yield return null; var neutral = Picture(npc + "-face-lod" + level + "-neutral");
-            EyePixels(root, npc, level, neutral);
+            var eyeReview = EyePixels(root, npc, level, neutral);
+            while (eyeReview.MoveNext()) yield return eyeReview.Current;
             FaceWeight(root, "BlinkLeft", 100); FaceWeight(root, "BlinkRight", 100);
             yield return null; var blink = Picture(npc + "-face-lod" + level + "-blink");
             Check(Different(neutral, blink) > 100, npc + " LOD" + level + " actual eyelid deformation renders");
