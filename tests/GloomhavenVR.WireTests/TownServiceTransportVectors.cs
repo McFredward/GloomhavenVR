@@ -61,7 +61,7 @@ internal static class TownServiceTransportVectors
         t.True(reopened, "closing and reopening preserves fragment sequence monotonicity");
         ColdService(t, 8, false); ColdService(t, 24, false); ColdService(t, 24, true); ColdService(t, 64, true);
         LateGameCatalog(t, false, 191 * 3 + 64); LateGameCatalog(t, false); LateGameCatalog(t, true);
-        BundleBounds(t); UrgentBundleDependency(t);
+        BundleBounds(t); UrgentBundleDependency(t); DelayedFragmentCensus(t);
     }
     private static void LateGameCatalog(Harness t, bool contention, int count = 673 * 3 + 64)
     {
@@ -153,6 +153,27 @@ internal static class TownServiceTransportVectors
         t.True(warmHeld>5&&warmMaxDelay<(contention?5:.5),"held motion stays live after cold catalog completes");
         t.Equal(0,missing.Count,"every late-game original face/body/quantity module completes");
         Console.WriteLine("TOWN_LATE modules="+count+" contention="+contention+" initialPages="+initialPages+" individualBytes="+initialWireBytes+" deliveredBytes="+deliveredBytes+" firstHeld="+firstHeld.ToString("F3")+" firstStock="+firstOrdinary.ToString("F3")+" complete="+completeAt.ToString("F3")+" warmHeldMaxDelay="+warmMaxDelay.ToString("F3"));
+    }
+    private static void DelayedFragmentCensus(Harness t)
+    {
+        t.Case("Delayed census cannot destroy a newer partial module");
+        var receiver=new TownServiceFragments();TownServiceFrame module=Frame(3,101,128);
+        byte[] raw=TownServiceCodec.Write(module);
+        byte[][] pages=ExtrasFragments.Encode(raw,raw.Length,65536+3,TownServiceCodec.MessageType,TownServiceCodec.FragmentType,TownServiceFrame.MaxBytes);
+        t.True(pages.Length>2,"adversarial module needs multiple datagrams");
+        t.True(receiver.Accept(2,pages[0],pages[0].Length,.1)==null,"new module starts before census completes");
+        TownServiceFrame census=Frame(TownServiceFrame.ManifestModule,100,0);census.Template=0;census.Structure=0;census.Modules=new ushort[]{1,2};
+        byte[] manifest=TownServiceCodec.Write(census);
+        foreach(byte[] page in ExtrasFragments.Encode(manifest,manifest.Length,65536+TownServiceFrame.ManifestModule,TownServiceCodec.MessageType,TownServiceCodec.FragmentType,TownServiceFrame.MaxBytes))
+            receiver.Accept(2,page,page.Length,.2);
+        byte[]? result=null;
+        for(int i=1;i<pages.Length;i++)result=receiver.Accept(2,pages[i],pages[i].Length,.3+i*.01)??result;
+        t.True(result!=null,"old census leaves newer assembly intact");
+        if(result!=null)t.Wire(raw,result,raw.Length,"new complete baseline survives old census byte for byte");
+        foreach(byte[] page in ExtrasFragments.Encode(manifest,manifest.Length,131072+TownServiceFrame.ManifestModule,TownServiceCodec.MessageType,TownServiceCodec.FragmentType,TownServiceFrame.MaxBytes))
+            receiver.Accept(2,page,page.Length,TownServiceFragments.AssemblyLifetime+2);
+        var streams=(System.Collections.IDictionary)typeof(TownServiceFragments).GetField("_streams",System.Reflection.BindingFlags.Instance|System.Reflection.BindingFlags.NonPublic)!.GetValue(receiver)!;
+        t.Equal(1,streams.Count,"expired historical lanes reclaimed within fixed pool bound");
     }
     private static void UrgentBundleDependency(Harness t)
     {

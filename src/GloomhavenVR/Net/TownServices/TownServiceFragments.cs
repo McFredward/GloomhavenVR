@@ -10,39 +10,46 @@ internal sealed class TownServiceFragments
     // At the unchanged globally saturated event cap this needs more than 32 seconds.
     internal const double AssemblyLifetime = 120;
     private readonly Dictionary<long, ExtrasFragments> _streams = new();
+    private readonly Dictionary<long, double> _lastActivity = new();
+    private readonly List<long> _expired = new();
+    private double _nextSweep;
     internal byte[]? Accept(int sender, byte[] packet, int length, double now)
     {
         int stream = Stream(packet, length);
-        if (sender <= 0 || stream < 0) return null;
+        if (sender <= 0 || stream < 0 || double.IsNaN(now) || double.IsInfinity(now)) return null;
+        if (now >= _nextSweep)
+        {
+            _nextSweep = now + 1; _expired.Clear();
+            foreach (var pair in _lastActivity)
+                if (now - pair.Value > AssemblyLifetime) _expired.Add(pair.Key);
+            foreach (long expired in _expired)
+            { _streams[expired].Clear(); _streams.Remove(expired); _lastActivity.Remove(expired); }
+        }
         long key = ((long)sender << 16) | (ushort)stream;
         if (!_streams.TryGetValue(key, out ExtrasFragments? assembler))
         {
-            if (_streams.Count >= 8 * (TownServiceFrame.MaxModules + 1)) return null;
+            if (_streams.Count >= 8 * (TownServiceFrame.MaxModules + 2)) return null;
             assembler = new ExtrasFragments(TownServiceCodec.MessageType, TownServiceCodec.FragmentType,
                 TownServiceFrame.MaxBytes, AssemblyLifetime);
             _streams.Add(key, assembler);
         }
+        _lastActivity[key] = now;
         byte[]? result = assembler.Accept(sender, packet, length, now);
         if (result == null) return null;
         if (stream == TownServiceFrame.BundleStream) return TownServiceCodec.TryReadBundle(result, result.Length, out _) ? result : null;
         if (!TownServiceCodec.TryRead(result, result.Length, out TownServiceFrame? frame) || frame!.Module != stream) return null;
-        if (frame.Module == TownServiceFrame.ManifestModule)
-        {
-            var removed = new List<long>();
-            foreach (long candidate in _streams.Keys)
-                if (candidate >> 16 == sender && (ushort)candidate != TownServiceFrame.ManifestModule && (ushort)candidate != TownServiceFrame.BundleStream
-                    && Array.BinarySearch(frame.Modules, (ushort)candidate) < 0) removed.Add(candidate);
-            foreach (long candidate in removed) { _streams[candidate].Clear(); _streams.Remove(candidate); }
-        }
+        // A delayed census cannot identify the presentation sequence of an incomplete
+        // module in another fragment lane. Never prune that assembly by membership;
+        // idle expiration and the fixed pool bound reclaim retired lanes safely.
         return result;
     }
     internal void Forget(int sender)
     {
         var keys = new List<long>();
         foreach (long key in _streams.Keys) if (key >> 16 == sender) keys.Add(key);
-        foreach (long key in keys) { _streams[key].Clear(); _streams.Remove(key); }
+        foreach (long key in keys) { _streams[key].Clear(); _streams.Remove(key); _lastActivity.Remove(key); }
     }
-    internal void Clear() { foreach (ExtrasFragments assembler in _streams.Values) assembler.Clear(); _streams.Clear(); }
+    internal void Clear() { foreach (ExtrasFragments assembler in _streams.Values) assembler.Clear(); _streams.Clear(); _lastActivity.Clear(); _expired.Clear(); _nextSweep = 0; }
     internal static int Stream(byte[] packet, int length)
     {
         if (packet == null || length < 20 || length > packet.Length || length > ExtrasFragments.MaxDatagramBytes) return -1;

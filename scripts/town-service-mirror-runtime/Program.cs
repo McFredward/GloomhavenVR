@@ -908,6 +908,7 @@ public static partial class MirrorProgram
         _output = Path.Combine(output, variant + "-evidence"); Directory.CreateDirectory(_output); _assertions = 0;
         try
         {
+            DelayedCensusRace();
             var cameraGo = Go("Camera"); _camera = cameraGo.AddComponent<Camera>(); _camera.enabled = false;
             _camera.orthographic = true; _camera.nearClipPlane = .01f; _camera.farClipPlane = 100;
             _camera.clearFlags = CameraClearFlags.SolidColor; _camera.backgroundColor = new Color(.025f, .03f, .04f, 1);

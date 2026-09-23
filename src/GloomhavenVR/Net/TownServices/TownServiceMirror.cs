@@ -306,8 +306,12 @@ internal static class TownServiceMirror
         if (!store.TryGetValue(peer, out Dictionary<ushort, TownServiceFrame>? modules)) return;
         var removed = new List<ushort>();
         foreach (var pair in modules)
-            if (!manifest.Visible || pair.Value.Service != manifest.Service || pair.Value.Session != manifest.Session
-                || Array.BinarySearch(manifest.Modules, pair.Key) < 0) removed.Add(pair.Key);
+            // Independent module lanes can overtake an older census/close packet. Keep
+            // newer complete baselines until their own census arrives; TickRemote still
+            // gates rendering by the current session and module membership.
+            if (pair.Value.Sequence <= manifest.Sequence && (!manifest.Visible
+                || pair.Value.Service != manifest.Service || pair.Value.Session != manifest.Session
+                || Array.BinarySearch(manifest.Modules, pair.Key) < 0)) removed.Add(pair.Key);
         foreach (ushort module in removed) modules.Remove(module);
     }
 

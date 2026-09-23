@@ -146,3 +146,21 @@ rings seen around cloth cuffs were reviewed with the face author: the new skin
 has a continuous 70mm forearm insertion and sealed hidden cap, so these are sleeve
 interiors rather than missing wrist geometry. Hardware contrast may still affect
 how clearly that continuity reads.
+
+## Delayed-census race review
+
+Independent urgent modules can overtake an older fragmented manifest. Previously,
+an older census (or old-session close) pruned a newer already received module
+baseline, and fragment-level pruning could discard a newer partial assembly.
+That left current pose deltas without their original dependency until refresh.
+Pruning now respects the presentation sequence: newer pending frames/baselines
+remain buffered, while existing session membership still gates their display.
+Fragment lanes cannot inspect a partial snapshot's presentation sequence, so they
+expire independently after bounded inactivity instead of being removed by an older
+census. The pool remains capped; a once-per-second sweep reclaims inactive lanes.
+
+Adversarial regressions send baseline101 before census100, reopened-session121
+before old close120, and the first fragment of a new module before an excluding
+manifest. They require preservation and eventual complete delivery; a later close
+still prunes old complete data, and idle fragment lanes are reclaimed. Targeted
+Unity lifecycle checks and wire vectors cover the actual production paths.
