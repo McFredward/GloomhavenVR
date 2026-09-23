@@ -139,7 +139,7 @@ public static class ValidateTownAssets
         File.AppendAllText(Path.Combine(output, npc + "-eye-pixels.txt"), "LOD" + level + " aperturePixels=" + visible + " litPixels=" + illuminated + " mean=" + (brightness / visible).ToString("F3", System.Globalization.CultureInfo.InvariantCulture) + "\n");
     }
 
-    static IEnumerator FacialEvidence(GameObject root, string npc, LODGroup lod)
+    static IEnumerator FacialEvidence(GameObject root, string npc, SkinnedMeshRenderer fixedSkin)
     {
         var actor = root.transform.Find("Actor");
         var head = root.GetComponentsInChildren<Transform>().Single(t => t.name == "Head");
@@ -178,9 +178,9 @@ public static class ValidateTownAssets
                     new[] { "Thumb", "Index", "Middle", "Ring", "Little" }.Any(digit => segment.StartsWith(digit + "Tip.") || segment.StartsWith(digit + "Pad.")))),
                 npc + " body clips cannot overwrite facial state or reparented hand contact frames");
         var metrics = new System.Collections.Generic.List<string>();
-        for (int level = 0; level < 3; level++)
+        for (int level = 0; level < 1; level++)
         {
-            var skin = lod.GetLODs()[level].renderers.OfType<SkinnedMeshRenderer>().Single();
+            var skin = fixedSkin;
             var mesh = skin.sharedMesh;
             if (level == 0) using (var writer = new BinaryWriter(File.Create(Path.Combine(output, npc + "-triangles.i32"))))
                 foreach (var index in mesh.triangles) writer.Write(index);
@@ -197,10 +197,10 @@ public static class ValidateTownAssets
             }
 
             foreach (var shape in FaceShapes) Check(mesh.GetBlendShapeIndex(shape) >= 0, npc + " LOD" + level + " " + shape);
-            Check(lod.GetLODs()[level].renderers.Length == 5, npc + " one skinned actor plus four bounded eye passes");
+            Check(actor.GetComponentsInChildren<Renderer>().Length == 5, npc + " one skinned actor plus four bounded eye passes");
             metrics.Add("LOD" + level + " vertices=" + mesh.vertexCount + " triangles=" + mesh.triangles.Length / 3 +
                 " meshMemoryBytes=" + UnityEngine.Profiling.Profiler.GetRuntimeMemorySizeLong(mesh));
-            lod.ForceLOD(level); ResetFace(root);
+            ResetFace(root);
             camera.transform.position = new Vector3(0, 1.60f, .03f); camera.transform.LookAt(new Vector3(0, 1.60f, .65f));
             yield return null; var neutral = Picture(npc + "-face-lod" + level + "-neutral");
             EyePixels(root, npc, level, neutral);
@@ -212,7 +212,7 @@ public static class ValidateTownAssets
             Check(Different(neutral, speech) > 100, npc + " LOD" + level + " small oral deformation renders");
         }
         File.WriteAllLines(Path.Combine(output, npc + "-facial-metrics.txt"), metrics.ToArray());
-        ResetFace(root); lod.ForceLOD(0);
+        ResetFace(root);
         var headRotation = head.rotation; var eyeRotations = eyes.Select(e => e.localRotation).ToArray();
         foreach (float yaw in new[] { -50f, 50f }) foreach (float pitch in new[] { -22f, 22f })
         {
@@ -222,7 +222,7 @@ public static class ValidateTownAssets
             FaceWeight(root, pitch > 0 ? "LidDownRight" : "LidUpRight", 100);
             camera.transform.position = new Vector3(.32f, 1.61f, .10f); camera.transform.LookAt(new Vector3(0, 1.59f, .65f));
             yield return null; Picture(npc + "-gaze-" + yaw + "-" + pitch);
-            var skin = lod.GetLODs()[0].renderers.OfType<SkinnedMeshRenderer>().Single();
+            var skin = fixedSkin;
             var points = PosedVertices(skin, root.transform);
             using (var writer = new BinaryWriter(File.Create(Path.Combine(output, npc + "-gaze-" + yaw + "-" + pitch + ".xyz32"))))
                 foreach (var point in points) { writer.Write(point.x); writer.Write(point.y); writer.Write(point.z); }
@@ -238,7 +238,7 @@ public static class ValidateTownAssets
         yield return null; Picture(npc + "-face-blink-oblique");
         ResetFace(root); FaceWeight(root, "JawOpen", 35); FaceWeight(root, "MouthWide", 20);
         yield return null; Picture(npc + "-face-speech-oblique");
-        ResetFace(root); lod.ForceLOD(-1);
+        ResetFace(root);
     }
 
     static IEnumerator routine;
@@ -267,36 +267,43 @@ public static class ValidateTownAssets
         return highest;
     }
 
-    static void ValidateSlots(Transform furniture, bool extension)
+    static void ValidateSlots(GameObject root)
     {
-        var colliders = FurnitureColliders(furniture);
-        Check(colliders.Count >= 2, "Authored stock counter has wood structure and separate forged decoration");
-        int count = extension ? TownServiceMerchantLayout.ReturnCapacity : TownServiceMerchantLayout.StockCapacity;
-        Quaternion tilt = Quaternion.Euler(TownServiceMerchantLayout.FacePitch, 0, 0);
-        for (int i = 0; i < count; i++)
+        GloomhavenVR.WorldUI.TownServiceAssets.Current = root;
+        var rack = GloomhavenVR.WorldUI.TownServiceMerchantDrawer.CreateHousingTemplate();
+        var crank = GloomhavenVR.WorldUI.TownServiceMerchantDrawer.CreateTemplate(null);
+        Check(crank.transform.Find("Handle") != null, "Actual cabinet materials support a physical crank factory");
+        rack.transform.SetParent(root.transform, false);
+        rack.transform.localPosition = new Vector3(-.35f, .770f, -.57f);
+        var colliders = FurnitureColliders(rack.transform);
+        var furniture = FurnitureColliders(root.transform.Find("Counter"));
+        for (int i = 0; i < TownServiceMerchantLayout.StockCapacity; i++)
         {
-            Vector3 centre = (extension ? TownServiceMerchantLayout.ReturnPosition(i) : TownServiceMerchantLayout.StockPosition(i))
-                + Vector3.up * TownServiceMerchantLayout.WorktopHeight;
-            float support = SupportHeight(colliders, furniture, centre);
-            Check(!float.IsInfinity(support) && centre.y - support > 0 && centre.y - support < .07f,
-                (extension ? "Return" : "Stock") + " card " + i + " has a nearby authored terrace beneath it");
-            // The production face is tilted and carries its original native price strip below
-            // centre. Testing only a renderer AABB or the card centre misses buried low edges.
-            foreach (float side in new[] { -1f, 1f })
-            foreach (float end in new[] { -1f, 1f })
+            Vector3 centre = TownServiceMerchantLayout.StockPosition(i);
+            foreach (float dx in new[] { -.5f, .5f }) foreach (float dy in new[] { -.5f, .5f })
             {
-                var corner = centre + tilt * new Vector3(side * TownServiceMerchantLayout.CardWidth / 2,
-                    end * TownServiceMerchantLayout.CardHeight / 2, -.0012f);
-                float top = SupportHeight(colliders, furniture, corner);
-                Check(!float.IsInfinity(top) && corner.y >= top + .001f,
-                    (extension ? "Return" : "Stock") + " card " + i + " tilted face clears actual terrace geometry");
-                var price = centre + tilt * new Vector3(side * .118f / 2, -.053f + end * .030f / 2, -.002f);
-                top = SupportHeight(colliders, furniture, price);
-                Check(!float.IsInfinity(top) && price.y >= top + .001f,
-                    (extension ? "Return" : "Stock") + " card " + i + " original price strip clears retaining lip");
+                Vector3 corner = centre + new Vector3(dx * TownServiceMerchantLayout.CardWidth,
+                    dy * TownServiceMerchantLayout.CardHeight, 0);
+                var ray = new Ray(rack.transform.TransformPoint(corner), rack.transform.forward);
+                Check(colliders.Any(c => c.Raycast(ray, out RaycastHit hit, .06f)), "Every vertical card corner has an actual opaque rack behind it");
+            }
+        }
+        // Sample real rack vertices throughout the complete mechanical revolution.
+        foreach (float angle in new[] { 0f, 45f, 90f, 135f, 180f, 225f, 270f, 315f, 360f })
+        {
+            rack.transform.localRotation = Quaternion.Euler(0, angle, 0);
+            foreach (var mesh in rack.GetComponentsInChildren<MeshFilter>())
+            foreach (var vertex in mesh.sharedMesh.vertices)
+            {
+                Vector3 point = root.transform.InverseTransformPoint(mesh.transform.TransformPoint(vertex));
+                Check(point.x >= -.81f && point.x <= .81f && point.z >= -.92f && point.z <= .53f,
+                    "Actual moving rack stays within the compact placement envelope");
             }
         }
         foreach (var collider in colliders) UnityEngine.Object.DestroyImmediate(collider);
+        foreach (var collider in furniture) UnityEngine.Object.DestroyImmediate(collider);
+        UnityEngine.Object.DestroyImmediate(rack); UnityEngine.Object.DestroyImmediate(crank);
+        GloomhavenVR.WorldUI.TownServiceAssets.Current = null;
     }
 
     static void ValidateFurniture(GameObject root, string npc)
@@ -316,13 +323,10 @@ public static class ValidateTownAssets
         foreach (var material in renderer.sharedMaterials)
             Check(material != null && material.shader != null && material.HasProperty("_TownVisibility"), npc + " every authored detail uses the lit dissolving town material");
         if (npc != "merchant") return;
-        ValidateSlots(furniture, false);
+        ValidateSlots(root);
         var template = furniture.Find("CounterReturn");
         Check(template != null && !template.gameObject.activeSelf, "Open return template exists without drawing unused stock wings");
-        var extension = UnityEngine.Object.Instantiate(template.gameObject);
-        extension.transform.SetPositionAndRotation(Vector3.zero, Quaternion.identity); extension.SetActive(true);
-        ValidateSlots(extension.transform, true);
-        UnityEngine.Object.DestroyImmediate(extension);
+        Check(TownServiceMerchantLayout.StockCapacity == 16, "Visible stock is bounded per mechanical rack");
         var surfaces = FurnitureColliders(furniture);
         foreach (float x in new[] { -.20f, 0f, .20f })
             Check(Mathf.Abs(SupportHeight(surfaces, furniture, new Vector3(x, 0, .18f)) - .958f) < .012f,
@@ -363,9 +367,9 @@ public static class ValidateTownAssets
             camera.transform.position = new Vector3(0, 1.6f, -2.3f);
             camera.transform.LookAt(new Vector3(0, .9f, .1f));
             ValidateFurniture(root, npc);
-            var lod = root.GetComponentInChildren<LODGroup>();
-            Check(lod.size > 1.7f && lod.size < 2.2f, npc + " human-sized LOD envelope");
-            Check(lod.GetLODs().Length == 3, npc + " retains automatic three-level LOD");
+            Check(root.GetComponentInChildren<LODGroup>() == null, npc + " has no view-dependent LOD switching");
+            var fixedSkin = root.GetComponentsInChildren<SkinnedMeshRenderer>(true).Single();
+            Check(fixedSkin.name.StartsWith("LOD0_"), npc + " ships only the original high-detail actor surface");
             Check(root.transform.Find("GroundAnchor") != null && root.transform.Find("LightAnchor") != null,
                 npc + " explicit floor and physical light anchors");
             Sample(root, "Idle", 0);
@@ -415,7 +419,7 @@ public static class ValidateTownAssets
                 camera.transform.position = centre + offset; camera.transform.LookAt(centre);
                 yield return null; Picture(npc + "-head-" + view);
             }
-            var faceReview = FacialEvidence(root, npc, lod);
+            var faceReview = FacialEvidence(root, npc, fixedSkin);
             while (faceReview.MoveNext()) yield return faceReview.Current;
             camera.transform.position = cameraPosition; camera.transform.rotation = cameraRotation;
             camera.fieldOfView = cameraFov;
@@ -430,7 +434,7 @@ public static class ValidateTownAssets
             }
             actorRoot.localPosition = actorBase;
             var envelope = new Bounds(); bool hasEnvelope = false;
-            var skin = lod.GetLODs()[0].renderers.OfType<SkinnedMeshRenderer>().Single();
+            var skin = fixedSkin;
             Check(skin.sharedMaterials.Length == 3 && skin.sharedMaterials[1].mainTexture.width == 4096 && skin.sharedMaterials[2].mainTexture.width == 2048,
                 npc + " separate 4K head and shared2K anatomical hand atlases retain one skinned renderer");
             Sample(root, "Idle", 0);
@@ -480,11 +484,16 @@ public static class ValidateTownAssets
             root.transform.localScale = Vector3.one; camera.transform.position /= 198;
             camera.nearClipPlane = nearPlane; camera.farClipPlane = farPlane;
             light.transform.position /= 198; light.range /= 198;
-            float size = lod.size; lod.size *= .01f;
+            // Re-introduce the old bad culling mechanism as a visual negative control;
+            // the shipped actor itself has no LODGroup or distance-dependent surface.
+            var lod = root.transform.Find("Actor").gameObject.AddComponent<LODGroup>();
+            lod.SetLODs(new[] { new LOD(.5f, root.transform.Find("Actor").GetComponentsInChildren<Renderer>()) });
+            lod.RecalculateBounds(); lod.size *= .01f;
             yield return null;
             var culled = Picture(npc + "-negative-lod");
             Check(Bright(culled, true) < body / 20, npc + " negative control: old tiny LOD removes actor");
-            lod.size = size;
+            UnityEngine.Object.DestroyImmediate(lod);
+            foreach (var renderer in root.transform.Find("Actor").GetComponentsInChildren<Renderer>()) renderer.enabled = true;
             UnityEngine.Object.DestroyImmediate(light.gameObject);
             RenderSettings.ambientLight = Color.black; RenderSettings.ambientIntensity = 0;
             foreach (var renderer in root.GetComponentsInChildren<Renderer>())

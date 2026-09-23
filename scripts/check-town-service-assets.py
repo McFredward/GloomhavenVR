@@ -35,6 +35,22 @@ layout_start = layout_source.index('internal static class TownServiceMerchantLay
 layout_end = layout_source.index('\n/// <summary>An authored', layout_start)
 (assets / 'Editor/TownServiceMerchantLayout.cs').write_text(
     'using UnityEngine;\nnamespace GloomhavenVR.WorldUI {\n' + layout_source[layout_start:layout_end] + '\n}\n')
+# Compile unchanged physical factory methods against the actual final prefab. The unused
+# TMP font argument is substituted with object; the crank deliberately contains no UI.
+drawer = (root / 'src/GloomhavenVR/WorldUI/TownServices/TownServiceMerchantDrawer.cs').read_text()
+def method(signature):
+    start = drawer.index('    ' + signature)
+    end = drawer.index('\n    }', start) + 6
+    return drawer[start:end].replace('TMP_Text?', 'object')
+methods = [method(signature) for signature in (
+    'internal static GameObject CreateTemplate(TMP_Text? font)',
+    'internal static GameObject CreateHousingTemplate()', 'private static Material OriginalWood()',
+    'private static void Rod(Transform parent, string name, Vector3 start, Vector3 end, float radius)',
+    'private static void Part(Transform parent,string name,Vector3 position,Vector3 scale)')]
+(assets / 'Editor/TownServiceRackFactories.cs').write_text(
+    'using System; using UnityEngine; namespace GloomhavenVR.WorldUI { '
+    'internal static class TownServiceAssets { internal static GameObject Current; internal static GameObject Prefab(string name) => Current; } '
+    'internal static class TownServiceMerchantDrawer {\n' + '\n'.join(methods) + '\n} }')
 (project / 'Packages').mkdir()
 (project / 'Packages/manifest.json').write_text(json.dumps({'dependencies': {
     'com.unity.modules.' + name: '1.0.0' for name in ['animation', 'assetbundle', 'imageconversion', 'physics', 'audio']}}))
