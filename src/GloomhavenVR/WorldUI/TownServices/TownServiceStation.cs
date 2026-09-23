@@ -52,7 +52,7 @@ internal sealed class TownServiceStation : IDisposable
         _activity = new TownServiceActivityRig(root.transform, service);
         _lighting = new TownServiceLighting(root.transform, service);
         try { _decor = new TownServiceDecor(root.transform, service, _lighting); }
-        catch { _lighting.Dispose(); throw; }
+        catch { _lighting.Dispose(); _grounding.Dispose(); throw; }
     }
 
     internal static TownServiceStation? Create(byte service, Vector3 center, float scale)
@@ -193,6 +193,7 @@ internal sealed class TownServiceStation : IDisposable
 
     public void Dispose()
     {
+        _grounding.Dispose();
         _decor.Dispose();
         _lighting.Dispose();
         if (_root != null) UnityEngine.Object.Destroy(_root);

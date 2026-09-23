@@ -29,19 +29,19 @@ def main():
         ("unchanged followers dirty geometry every frame", {"Grounding.cs": sources["Grounding.cs"].replace('if (_applied && actorOffset == _actorOffset && furnitureBottom == _furnitureBottom) return;', 'if (_applied && actorOffset == _actorOffset && furnitureBottom == _furnitureBottom && false) return;')}),
         ("handover leaves old ground geometry", {"Station.cs": sources["Station.cs"].replace('SetGrounding(actorFloor, furnitureBottom);', '// SetGrounding intentionally omitted by negative control')}),
         ("actor correction overwrites authored soles", {"Grounding.cs": sources["Grounding.cs"].replace('_actorRest + Vector3.up * actorOffset', 'Vector3.up * actorOffset')}),
-        ("grounding samples only station root", {"Grounding.cs": sources["Grounding.cs"].replace('Height(room, new Vector3(-.12f, 0f, .65f))', 'Height(room, Vector3.zero)').replace('Height(room, new Vector3(.12f, 0f, .65f))', 'Height(room, Vector3.zero)')}),
-        ("furniture top moves with its bottom", {"Grounding.cs": sources["Grounding.cs"].replace('position.y = top - scale.y * .5f;', 'position.y = support.Position.y + bottom;')}),
-        ("furniture does not reach lowest foot", {"Grounding.cs": sources["Grounding.cs"].replace('furnitureBottom = float.PositiveInfinity;', 'furnitureBottom = float.NegativeInfinity;').replace('furnitureBottom = Mathf.Min(furnitureBottom, Height(room, point))', 'furnitureBottom = Mathf.Max(furnitureBottom, Height(room, point))')}),
+        ("grounding samples only station root", {"Grounding.cs": sources["Grounding.cs"].replace('Height(floor, new Vector3(-.12f, 0f, .65f))', 'Height(floor, Vector3.zero)').replace('Height(floor, new Vector3(.12f, 0f, .65f))', 'Height(floor, Vector3.zero)')}),
+        ("furniture top moves with its bottom", {"Grounding.cs": sources["Grounding.cs"].replace('Part.position += anchor - Part.TransformPoint(TopPoint);', '// Deliberately skip top-anchor restoration' )}),
+        ("furniture does not reach lowest foot", {"Grounding.cs": sources["Grounding.cs"].replace('furnitureBottom = float.PositiveInfinity;', 'furnitureBottom = float.NegativeInfinity;').replace('furnitureBottom = Mathf.Min(furnitureBottom, Height(floor, point))', 'furnitureBottom = Mathf.Max(furnitureBottom, Height(floor, point))')}),
         ("tracking floor regression", {"Placement.cs": sources["Placement.cs"].replace(
             'position.y = room != null ? room.position.y : seat.FloorPosition.y;', 'position.y = seat.FloorPosition.y;').replace(
             'if (room != null) position.y = GroundHeight(room, position);', '')}),
-        ("unsafe outer station ring", {"Layout.cs": sources["Layout.cs"].replace("radius = service == 3 ? 2.4f : 2.3f;", "radius = 9f;")}),
+        ("unsafe outer station ring", {"Layout.cs": sources["Layout.cs"].replace("radius = ResidentRadius;", "radius = 9f;")}),
         ("ignored terrain relief", {"Placement.cs": sources["Placement.cs"].replace('if (room != null) position.y = GroundHeight(room, position);', '')}),
         ("handover does not replace peer floor", {"Station.cs": sources["Station.cs"].replace('(authorPose && !_authorPose)', '(authorPose && !_authorPose && false)')}),
         ("remote scale misses light update", {"Station.cs": sources["Station.cs"].replace('changed || lightScale != _lightScale', 'changed || false && lightScale != _lightScale')}),
         ("late card property block corruption", {"Station.cs": sources["Station.cs"].replace('foreach (Renderer renderer in _renderers)', 'foreach (Renderer renderer in _root.GetComponentsInChildren<Renderer>(true))')}),
         ("constructor resource acquisition before anchor validation", {"Station.cs": sources["Station.cs"].replace(anchor, '').replace(
-            '        catch { _lighting.Dispose(); throw; }', '        catch { _lighting.Dispose(); throw; }\n' + anchor)}),
+            '        catch { _lighting.Dispose(); _grounding.Dispose(); throw; }', '        catch { _lighting.Dispose(); _grounding.Dispose(); throw; }\n' + anchor)}),
     ]
     with tempfile.TemporaryDirectory(prefix="ghvr-setting-") as scratch:
         folder = Path(scratch)

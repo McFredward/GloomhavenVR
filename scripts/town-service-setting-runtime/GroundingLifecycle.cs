@@ -8,6 +8,12 @@ internal static class GroundingLifecycle
     private static int assertions;
     private static void Check(bool ok,string why){assertions++;if(!ok)throw new Exception(why);}
     private static void Near(float a,float b,string why)=>Check(Math.Abs(a-b)<.00015f,why+$": {a} != {b}");
+    private static Mesh SupportMesh()
+    {
+        var points=new System.Collections.Generic.List<Vector3>();
+        foreach(float x in new[]{-.5f,.5f})foreach(float y in new[]{-.5f,.5f})foreach(float z in new[]{-.5f,.5f})points.Add(new Vector3(x,y,z));
+        return new Mesh { vertices=points.ToArray() };
+    }
     internal static void Run()
     {
         // Real production floor interpolation on a known inclined mesh, with hierarchical
@@ -21,7 +27,7 @@ internal static class GroundingLifecycle
             var root=new Transform{localScale=Vector3.one*scale,rotation=Quaternion.Euler(0,yaw,0)};
             var actor=new Transform{localPosition=new Vector3(0,.015f,.65f)};root.Add("Actor",actor);
             var furniture=new Transform();root.Add("Counter",furniture);
-            var support=new Transform{localPosition=new Vector3(0,.08f,0),localScale=new Vector3(1.42f,.16f,.66f)};furniture.Add("FootPlinth",support);
+            var support=new Transform{localPosition=new Vector3(0,.08f,0),localScale=new Vector3(1.42f,.16f,.66f)};support.mesh=SupportMesh();furniture.Add("GroundSupportPlinth",support);
             var helper=new TownServiceGrounding(root);
             // Scale the test terrain with the station, preserving real local slopes.
             floor.localScale=Vector3.one*scale;
@@ -52,7 +58,7 @@ internal static class GroundingLifecycle
         floor.localScale=Vector3.one;
         // A workspace has only a Counter child; it uses exactly the same contact handling.
         var workspace=new Transform();var counter=new Transform();workspace.Add("Counter",counter);
-        var plinth=new Transform{localPosition=new Vector3(0,.08f,0),localScale=new Vector3(1.42f,.16f,.66f)};counter.Add("FootPlinth",plinth);
+        var plinth=new Transform{localPosition=new Vector3(0,.08f,0),localScale=new Vector3(1.42f,.16f,.66f)};plinth.mesh=SupportMesh();counter.Add("GroundSupportPlinth",plinth);
         var onlyFurniture=new TownServiceGrounding(workspace);onlyFurniture.Resolve(out float absentActor,out float floorBottom);
         Near(absentActor,0,"workspace has no actor correction");Check(floorBottom<0,"workspace samples its own floor");
         // All four workbench legs and the altar plinth use the same fixed-top operation.
@@ -62,7 +68,7 @@ internal static class GroundingLifecycle
             var parts=new System.Collections.Generic.List<Transform>();
             if(name=="Shrine")Add("AltarPlinth",new Vector3(0,.065f,0),new Vector3(1.35f,.13f,.64f));
             else foreach(int x in new[]{-1,1})foreach(int z in new[]{-1,1})Add("WorkbenchLeg"+x+z,new Vector3(x*.63f,.44f,z*.24f),new Vector3(.11f,.88f,.11f));
-            void Add(string partName,Vector3 pos,Vector3 size){var part=new Transform{localPosition=pos,localScale=size};furniture.Add(partName,part);parts.Add(part);}
+            void Add(string partName,Vector3 pos,Vector3 size){var part=new Transform{localPosition=pos,localScale=size};part.mesh=SupportMesh();furniture.Add("GroundSupport"+partName,part);parts.Add(part);}
             var helper=new TownServiceGrounding(root);helper.Resolve(out _,out float bottom);helper.Apply(0,bottom);
             foreach(var part in parts){Near(part.localPosition.y-part.localScale.y*.5f,bottom,"every authored support contacts bottom plane");Near(part.localPosition.y+part.localScale.y*.5f,name=="Shrine"?.13f:.88f,"all support tops preserved");}
             SkyAlternative.PlacedRoomRoot=null;helper.Resolve(out float actor,out bottom);Near(actor,0,"MR does not invent actor terrain");Near(bottom,0,"MR restores original furniture plane");helper.Apply(actor,bottom);

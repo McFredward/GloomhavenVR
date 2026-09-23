@@ -22,13 +22,14 @@ def replace_once(source, before, after):
 
 def sources(root):
     base = root / "src/GloomhavenVR/WorldUI/TownServices"
-    names = ["TownServiceWorkspace.cs", "TownServicePlacement.cs", "TownServiceGrounding.cs", "TownServiceLayout.cs"]
+    names = ["TownServiceWorkspace.cs", "TownServicePlacement.cs", "TownServiceGrounding.cs", "TownServiceLayout.cs", "TownServiceMerchantCounter.cs"]
     bound = {name: (base / name).read_text() for name in names}
     return bound, {name: hashlib.sha256(text.encode()).hexdigest() for name, text in bound.items()}
 
 
 def mutations():
     return [
+        ("ground-support", "TownServiceGrounding.cs", "support.Apply(furnitureBottom);", "support.Restore();", "return-table support reaches its own sampled terrain"),
         ("reading-fade", "TownServiceWorkspace.cs", "float layoutYaw = frame.eulerAngles.y;", "float layoutYaw = seat.YawDegrees;", "reading-side changes cannot restart unchanged workspace fade"),
         ("environment-divergence", "TownServiceLayout.cs", "radius = ResidentRadius;", "radius = 4.8f + (environment == Environment.Forest ? .15f : 0f);", "mixed environment peers resolve identical station poses"),
         ("parchment-frame", "TownServiceLayout.cs", "GloomhavenVR.Rig.VRRigDriver.YawOnly(parchment.rotation)", "Quaternion.identity", "default MR shares original parchment frame with custom rooms"),
@@ -51,6 +52,7 @@ def main():
     parser.add_argument("--source-root", type=Path, default=repo, help="Production checkout to bind (read only)")
     parser.add_argument("--output-dir", type=Path, default=repo / ".planning/debug/town-service-workspace")
     parser.add_argument("--unity", type=Path, default=Path(os.environ.get("UNITY_PATH", "/home/claw/unity-2021.3.5/Editor/Unity")))
+    parser.add_argument("--negative-control", action="append", choices=[case[0] for case in mutations()], help="Run production plus selected negative controls")
     parser.add_argument("--no-negative-controls", action="store_true", help="Quick positive run; not complete validation")
     parser.add_argument("--bundle", type=Path, help="Immutable final town bundle for actual mesh envelope validation")
     args = parser.parse_args()
@@ -67,7 +69,7 @@ def main():
     manifest = {"result": str(run / "results.txt"), "cases": []}
     variants = [("production", None, None, None, "")]
     if not args.no_negative_controls:
-        variants += mutations()
+        variants += [case for case in mutations() if not args.negative_control or case[0] in args.negative_control]
     print(f"Binding production from {args.source_root.resolve()}; evidence: {run}", flush=True)
     for name, filename, before, after, expected in variants:
         build = run / name

@@ -11,7 +11,7 @@ static class Program
     static void Near(float actual, float expected, string message) => Check(Math.Abs(actual - expected) < .0001f, message + $": {actual} != {expected}");
     static void Main()
     {
-        Vector3 a = new(-40, -.8f, -40), b = new(40, .8f, -40), c = new(0, 0, 40);
+        Vector3 a = new(-100, -2f, -100), b = new(100, 2f, -100), c = new(0, 0, 100);
         foreach (float x in new[] { -2f, 0f, 2f })
             foreach (float z in new[] { -1f, 0f, 1f })
             {
@@ -54,7 +54,7 @@ static class Program
             {
                 Check(TownServicePlacement.TryResolve(service,Vector3.zero,1,out var p,out _),"all-yaw open placement");
                 float radius=MathF.Sqrt(p.x*p.x+p.z*p.z);
-                Near(radius,service==3?2.4f:2.3f,"default station uses validated layout radius");
+                Near(radius,4.8f,"default station uses validated layout radius");
                 Check(radius-(service==1?.82f:.362f)>1.4f,"all opened resident furniture clears native map diagonal");
             }
         }
@@ -108,6 +108,8 @@ namespace UnityEngine
     public struct Vector3
     {
         public float x,y,z;
+        public float this[int axis] { get=>axis==0?x:axis==1?y:z; set { if(axis==0)x=value;else if(axis==1)y=value;else z=value; } }
+        public static float Dot(Vector3 a,Vector3 b)=>a.x*b.x+a.y*b.y+a.z*b.z;
         public Vector3(float x,float y,float z) { this.x=x;this.y=y;this.z=z; }
         public static Vector3 zero => new(0,0,0);
         public static Vector3 up => new(0,1,0);
@@ -134,6 +136,18 @@ namespace UnityEngine
     public class Transform
     {
         internal GameObject? Owner;
+        public string name="";
+        public Vector3 up=>TransformDirection(Vector3.up).normalized;
+        public Matrix4x4 worldToLocalMatrix=>new(InverseTransformPoint);
+        public Matrix4x4 localToWorldMatrix=>new(TransformPoint);
+        public Vector3 TransformDirection(Vector3 value) { value=rotation*value;return parent!=null?parent.TransformDirection(value):value; }
+        public T[] GetComponentsInChildren<T>(bool inactive) where T:class
+        {
+            var result=new System.Collections.Generic.List<T>();
+            if(typeof(T)==typeof(MeshFilter) && mesh!=null)result.Add((T)(object)new MeshFilter{sharedMesh=mesh,transform=this});
+            foreach(var child in children.Values)result.AddRange(child.GetComponentsInChildren<T>(inactive));
+            return result.ToArray();
+        }
         public GameObject gameObject=>Owner??=new GameObject(this);
         private Vector3 _localPosition, _localScale=Vector3.one;
         public int LocalWrites;
@@ -141,7 +155,7 @@ namespace UnityEngine
         public Vector3 localScale {get=>_localScale;set{_localScale=value;LocalWrites++;}}
         public Transform? parent;
         private readonly System.Collections.Generic.Dictionary<string,Transform> children=new();
-        public void Add(string name,Transform child){children[name]=child;child.parent=this;}
+        public void Add(string name,Transform child){children[name]=child;child.parent=this;child.name=name;}
         public Vector3 position {get=>parent!=null?parent.TransformPoint(localPosition):localPosition;set=>localPosition=parent!=null?parent.InverseTransformPoint(value):value;}
         public Vector3 lossyScale=>parent!=null?new Vector3(parent.lossyScale.x*localScale.x,parent.lossyScale.y*localScale.y,parent.lossyScale.z*localScale.z):localScale;
         public Quaternion rotation;
@@ -152,12 +166,26 @@ namespace UnityEngine
         public Transform? floor;
         public Mesh? mesh;
         public Transform? Find(string name)=>children.TryGetValue(name,out var child)?child:name=="RoomGeo/Ground"?floor:name=="InteractionAnchor"&&HasAnchor?new Transform():null;
-        public T? GetComponent<T>() where T:class=>new MeshFilter {sharedMesh=mesh} as T;
+        public T? GetComponent<T>() where T:class=>new MeshFilter {sharedMesh=mesh!,transform=this} as T;
         public Vector3 InverseTransformPoint(Vector3 v){if(parent!=null)v=parent.InverseTransformPoint(v);v=Quaternion.Inverse(rotation)*(v-localPosition);return new Vector3(v.x/localScale.x,v.y/localScale.y,v.z/localScale.z);}
         public Vector3 TransformPoint(Vector3 v){v=new Vector3(v.x*localScale.x,v.y*localScale.y,v.z*localScale.z);v=rotation*v+localPosition;return parent!=null?parent.TransformPoint(v):v;}
     }
-    public class MeshFilter { public Mesh? sharedMesh; }
-    public class Mesh { public bool isReadable=true; public Vector3[] vertices=Array.Empty<Vector3>(); public int[] triangles=Array.Empty<int>(); }
+    public readonly struct Matrix4x4
+    {
+        private readonly Func<Vector3,Vector3> map;
+        public Matrix4x4(Func<Vector3,Vector3> transform) { map=transform; }
+        public Vector3 MultiplyPoint3x4(Vector3 value)=>map(value);
+        public static Matrix4x4 operator *(Matrix4x4 a,Matrix4x4 b)=>new(v=>a.MultiplyPoint3x4(b.MultiplyPoint3x4(v)));
+    }
+    public struct Bounds { public Vector3 min,max; }
+    public class MeshFilter { public Mesh sharedMesh=null!;public Transform transform=new();public string name=>transform.name; }
+    public class Mesh { public bool isReadable=true; public Vector3[] vertices=Array.Empty<Vector3>(); public int[] triangles=Array.Empty<int>();
+        public Bounds bounds { get {
+            Vector3 low=new(float.PositiveInfinity,float.PositiveInfinity,float.PositiveInfinity), high=new(float.NegativeInfinity,float.NegativeInfinity,float.NegativeInfinity);
+            foreach(var v in vertices)for(int axis=0;axis<3;axis++){low[axis]=Math.Min(low[axis],v[axis]);high[axis]=Math.Max(high[axis],v[axis]);}
+            return new Bounds{min=low,max=high};
+        } }
+    }
     public static class Mathf { public static float Abs(float v)=>Math.Abs(v); public static float Max(float a,float b)=>Math.Max(a,b); public static float Min(float a,float b)=>Math.Min(a,b); }
 }
 

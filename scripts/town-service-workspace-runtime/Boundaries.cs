@@ -8,6 +8,7 @@ using UnityEngine;
 // All workspace hierarchy, material ownership, placement, movement and disposal are production.
 namespace GloomhavenVR.Core
 {
+    internal static class VRLog { internal static void Warn(string category,string message) { Debug.LogWarning(category + ": " + message); } }
     internal static class VRLayers
     {
         internal static void Apply(GameObject root)

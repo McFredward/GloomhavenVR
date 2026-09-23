@@ -119,6 +119,7 @@ namespace UnityEngine
     }
     public class GameObject : Object
     {
+        public bool activeSelf=true;
         public string name="";
         public int layer;
         public readonly Transform transform;

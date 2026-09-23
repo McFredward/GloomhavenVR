@@ -48,6 +48,11 @@ internal sealed class TownServiceMerchantCounter : IDisposable
     private readonly GameObject _root;
     private readonly List<Material> _materials = new();
     private readonly Dictionary<Material, Material> _copies = new();
+    private readonly TownServiceGrounding _grounding;
+    private Transform? _room;
+    private Vector3 _position, _scale, _roomScale;
+    private Quaternion _rotation;
+    private bool _grounded;
     private bool _disposed;
     private float _visibility = -1f;
     internal Transform Root => _root.transform;
@@ -81,12 +86,22 @@ internal sealed class TownServiceMerchantCounter : IDisposable
             }
             renderer.sharedMaterials = materials;
         }
+        _grounding = new TownServiceGrounding(Root, Root);
         VRLayers.Apply(_root);
         SetVisibility(0f); _root.SetActive(true);
     }
 
     internal void SetVisibility(float visibility)
     {
+        Transform? room = SkyAlternative.PlacedRoomRoot;
+        Vector3 roomScale = room != null ? room.lossyScale : Vector3.one;
+        if (!_grounded || Root.position != _position || Root.rotation != _rotation || Root.lossyScale != _scale
+            || room != _room || roomScale != _roomScale)
+        {
+            _grounding.Resolve(out float actorOffset, out float bottom); _grounding.Apply(actorOffset, bottom);
+            _grounded = true; _position = Root.position; _rotation = Root.rotation; _scale = Root.lossyScale;
+            _room = room; _roomScale = roomScale;
+        }
         visibility = Mathf.Clamp01(visibility);
         if (_visibility == visibility) return;
         _visibility = visibility;
@@ -97,7 +112,7 @@ internal sealed class TownServiceMerchantCounter : IDisposable
     public void Dispose()
     {
         if (_disposed) return;
-        _disposed = true; _root.SetActive(false);
+        _disposed = true; _grounding.Dispose(); _root.SetActive(false);
         foreach (Material material in _materials) UnityEngine.Object.Destroy(material);
         UnityEngine.Object.Destroy(_root); UnityEngine.Object.Destroy(Content.gameObject);
     }

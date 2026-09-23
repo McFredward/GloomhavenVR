@@ -99,6 +99,44 @@ public static class InteractionProgram
             }
         }
     }
+    private static void GroundingParity(Transform room)
+    {
+        foreach(byte service in new byte[]{1,2,3})
+        {
+            string name=service==1?"townmerchant":service==2?"townpriestess":"townenchantress";
+            var owner=UnityEngine.Object.Instantiate(TownServiceAssets.Prefab(name)!);
+            var peer=UnityEngine.Object.Instantiate(TownServiceAssets.Prefab(name)!);
+            owner.transform.position=peer.transform.position=room.position+room.TransformVector(new Vector3(2,.2f,2));
+            owner.transform.rotation=peer.transform.rotation=Quaternion.Euler(0,37,0);
+            owner.transform.localScale=peer.transform.localScale=room.lossyScale;
+            using var local=new TownServiceGrounding(owner.transform);
+            using var remote=new TownServiceGrounding(peer.transform);
+            try
+            {
+                var before=owner.GetComponentsInChildren<Transform>(true).ToDictionary(t=>t,t=>(t.localPosition,t.localScale));
+                var supports=owner.GetComponentsInChildren<MeshFilter>(true).Where(f=>f.name.StartsWith("GroundSupport") && f.gameObject.activeInHierarchy).ToArray();
+                var top=supports.ToDictionary(f=>f,f=>f.sharedMesh.vertices.Select(v=>f.transform.TransformPoint(v)).Max(v=>v.y));
+                Check(supports.Length>0,"every authored station exposes measured supports");
+                local.Resolve(out float actorOffset,out float bottom);local.Apply(actorOffset,bottom);
+                // Observers consume the owner's parameters even if their local room differs.
+                SkyAlternative.PlacedRoomRoot=null;remote.Apply(actorOffset,bottom);SkyAlternative.PlacedRoomRoot=room;
+                var mirrored=peer.GetComponentsInChildren<Transform>(true).Where(t=>t.name.StartsWith("GroundSupport") && t.gameObject.activeInHierarchy).ToDictionary(t=>t.name,t=>t);
+                foreach(var foot in supports)
+                {
+                    var world=foot.sharedMesh.vertices.Select(v=>foot.transform.TransformPoint(v)).ToArray();
+                    Check(Math.Abs(world.Max(v=>v.y)-top[foot])<.001f,"ground support stretching preserves authored top anchor");
+                    var target=mirrored[foot.name];
+                    Check(Close(foot.transform.localPosition,target.localPosition) && Close(foot.transform.localScale,target.localScale),"remote uses identical support transforms without local floor resolution");
+                }
+                foreach(var item in before)
+                    if(!item.Key.name.StartsWith("GroundSupport") && item.Key.name!="Actor")
+                        Check(Close(item.Key.localPosition,item.Value.localPosition) && Close(item.Key.localScale,item.Value.localScale),"grounding leaves all non-support furniture transforms untouched");
+                local.Dispose();
+                foreach(var item in before)Check(Close(item.Key.localPosition,item.Value.localPosition) && Close(item.Key.localScale,item.Value.localScale),"grounding disposal restores exact original transforms");
+            }
+            finally { SkyAlternative.PlacedRoomRoot=room;UnityEngine.Object.DestroyImmediate(owner);UnityEngine.Object.DestroyImmediate(peer); }
+        }
+    }
     private static void ReadingIndependentRooms()
     {
         float previousYaw=MapRoomDriver.Yaw;
@@ -248,7 +286,7 @@ public static class InteractionProgram
             var room = new GameObject("sloped room"); room.transform.position = MapRoomDriver.Center; room.transform.localScale = Vector3.one * MapRoomDriver.Scale;
             var geometry = new GameObject("RoomGeo"); geometry.transform.SetParent(room.transform, false);
             var ground = new GameObject("Ground"); ground.transform.SetParent(geometry.transform, false);
-            var mesh = new Mesh { vertices = new[] { new Vector3(-5, -.05f, -5), new Vector3(5, .15f, -5), new Vector3(5, .25f, 5), new Vector3(-5, .05f, 5) }, triangles = new[] { 0, 2, 1, 0, 3, 2 } };
+            var mesh = new Mesh { vertices = new[] { new Vector3(-10, -.2f, -10), new Vector3(10, .2f, -10), new Vector3(10, .4f, 10), new Vector3(-10, 0f, 10) }, triangles = new[] { 0, 2, 1, 0, 3, 2 } };
             ground.AddComponent<MeshFilter>().sharedMesh = mesh;
             try
             {
@@ -256,14 +294,28 @@ public static class InteractionProgram
                 Vector3 local = room.transform.InverseTransformPoint(moving.Root.position);
                 Check(Math.Abs(local.y - (.1f + .02f * local.x + .01f * local.z)) < .0001f, "workspace rests on original sloped floor at its own target");
                 Check(Math.Abs(local.y) > .005f, "slope fixture differs measurably from room-root height");
-                Transform foot = moving.FurnitureRoot.Find("CentreSupport") ?? moving.FurnitureRoot.Find("FootPlinth");
-                Check(foot!=null,"workspace has a grounded original support");
-                foreach (float x in new[] { -.5f, .5f }) foreach (float z in new[] { -.5f, .5f })
+                var supports=moving.FurnitureRoot.GetComponentsInChildren<MeshFilter>(true)
+                    .Where(f=>f.name.StartsWith("GroundSupport") && f.gameObject.activeInHierarchy).ToArray();
+                Check(supports.Length>0,"workspace has actual authored ground supports");
+                foreach(var foot in supports)
                 {
-                    Vector3 corner = foot!.TransformPoint(new Vector3(x, -.5f, z));
-                    float floor = TownServicePlacement.GroundHeight(room.transform, corner);
-                    Check(corner.y <= floor + .001f, "workspace support bottoms cannot float over sloped ground");
+                    var vertices=foot.sharedMesh.vertices;
+                    Vector3 corner=vertices.Select(v=>foot.transform.TransformPoint(v)).OrderBy(v=>v.y).First();
+                    float floor=TownServicePlacement.GroundHeight(room.transform,corner);
+                    Check(corner.y<=floor+.001f,"workspace support bottoms cannot float over sloped ground");
                 }
+                GroundingParity(room.transform);
+                var parent=new GameObject("ReturnParent").transform;parent.SetParent(moving.Root,false);
+                parent.localPosition=Vector3.up*TownServiceMerchantLayout.WorktopHeight;
+                using(var counter=new TownServiceMerchantCounter(parent,0,true,0))
+                {
+                    foreach(var foot in counter.Root.GetComponentsInChildren<MeshFilter>(true).Where(f=>f.name.StartsWith("GroundSupport")))
+                    {
+                        Vector3 corner=foot.sharedMesh.vertices.Select(v=>foot.transform.TransformPoint(v)).OrderBy(v=>v.y).First();
+                        Check(corner.y<=TownServicePlacement.GroundHeight(room.transform,corner)+.001f,"return-table support reaches its own sampled terrain");
+                    }
+                }
+                UnityEngine.Object.DestroyImmediate(parent.gameObject);
             }
             finally { SkyAlternative.PlacedRoomRoot = null; UnityEngine.Object.DestroyImmediate(room); UnityEngine.Object.DestroyImmediate(mesh); }
             Roster(1, 19, 53, 88); NetPlayerActors.Local = 88;

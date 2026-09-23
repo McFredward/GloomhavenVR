@@ -245,6 +245,7 @@ internal sealed class TownServiceWorkspace : IDisposable
     {
         if (_disposed) return;
         _disposed = true;
+        _grounding?.Dispose();
         if (_root != null) { _root.SetActive(false); UnityEngine.Object.Destroy(_root); }
         foreach (Material material in _materials) UnityEngine.Object.Destroy(material);
         _materials.Clear(); _materialCopies.Clear(); _animatedMaterials.Clear(); _props.Clear();
