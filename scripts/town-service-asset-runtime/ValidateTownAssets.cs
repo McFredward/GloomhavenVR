@@ -117,6 +117,46 @@ public static class ValidateTownAssets
     }
     static void ResetFace(GameObject root)
     { foreach (var name in FaceShapes) FaceWeight(root, name, 0); }
+    static bool EyeCentresVisible(GameObject root, Color32[] mask, Color32[] closed, out string evidence)
+    {
+        bool complete = true; evidence = "";
+        foreach (string name in new[] { "EyeLeft", "EyeRight" })
+        {
+            Transform eye = root.GetComponentsInChildren<Transform>().Single(t => t.name == name);
+            MeshFilter globe = eye.GetComponentsInChildren<MeshFilter>().Single(f => f.name.EndsWith("Globe"));
+            float radius = globe.sharedMesh.bounds.extents.x * Mathf.Abs(globe.transform.lossyScale.x);
+            Vector3 centre = eye.position + eye.forward * (radius * .9f);
+            Vector3 pixel = camera.WorldToScreenPoint(centre);
+            float screenRadius = Vector3.Distance(pixel, camera.WorldToScreenPoint(centre + camera.transform.right * (radius * .2f)));
+            int r = Mathf.Clamp(Mathf.RoundToInt(screenRadius), 2, 12), visible = 0, closedVisible = 0, samples = 0;
+            for (int dy = -r; dy <= r; dy++) for (int dx = -r; dx <= r; dx++)
+            {
+                if (dx * dx + dy * dy > r * r) continue;
+                samples++;
+                int x = Mathf.RoundToInt(pixel.x) + dx, y = Mathf.RoundToInt(pixel.y) + dy;
+                if (pixel.z <= 0 || x < 0 || y < 0 || x >= 800 || y >= 800) continue;
+                Color32 colour = mask[y * 800 + x];
+                if (colour.r > 220 && colour.b > 220 && colour.g < 20) visible++;
+                colour = closed[y * 800 + x];
+                if (colour.r > 220 && colour.b > 220 && colour.g < 20) closedVisible++;
+            }
+            // A few exposed scleral edge pixels passed the former global-area test
+            // even when a stale prefab placed both actual irises behind the cheeks.
+            // Require EACH physical iris to be exposed through its real lid aperture,
+            // and hidden by that lid when closed. A globe protruding through the
+            // cheek must fail even if its own centre happens to remain visible.
+            complete &= visible >= samples * .7f && closedVisible <= samples * .1f;
+            evidence += name + "=" + visible + "/" + samples + ";closed=" + closedVisible + ";";
+        }
+        return complete;
+    }
+
+    static Color32[] ClosedEyeMask(GameObject root, string name)
+    {
+        FaceWeight(root, "BlinkLeft", 100); FaceWeight(root, "BlinkRight", 100);
+        Color32[] pixels = Picture(name); ResetFace(root); return pixels;
+    }
+
     static void EyePixels(GameObject root, string npc, int level, Color32[] lit)
     {
         var renderers = root.GetComponentsInChildren<MeshRenderer>().Where(r => r.sharedMaterial.shader.name == "GloomhavenVR/TownEye" || r.sharedMaterial.shader.name == "GloomhavenVR/TownCornea").ToArray();
@@ -124,6 +164,20 @@ public static class ValidateTownAssets
         var maskMaterial = new Material(Shader.Find("Unlit/Color")); maskMaterial.color = Color.magenta;
         foreach (var renderer in renderers) renderer.sharedMaterial = maskMaterial;
         var mask = Picture(npc + "-face-lod" + level + "-eye-aperture-mask");
+        var closed = ClosedEyeMask(root, npc + "-face-lod" + level + "-closed-eye-mask");
+        Check(EyeCentresVisible(root, mask, closed, out string centres),
+            npc + " LOD" + level + " both physical iris centres are visible, not only displaced scleral slivers: " + centres);
+        if (level == 0)
+        {
+            Transform[] eyes = new[] { "EyeLeft", "EyeRight" }.Select(name => root.GetComponentsInChildren<Transform>().Single(t => t.name == name)).ToArray();
+            Vector3[] positions = eyes.Select(eye => eye.position).ToArray();
+            for (int i = 0; i < eyes.Length; i++) eyes[i].position -= eyes[i].up * (.02f * Mathf.Abs(root.transform.lossyScale.x));
+            Color32[] displaced = Picture(npc + "-negative-displaced-eyes");
+            var displacedClosed = ClosedEyeMask(root, npc + "-negative-displaced-eyes-closed");
+            bool accepted = EyeCentresVisible(root, displaced, displacedClosed, out string displacedCentres);
+            for (int i = 0; i < eyes.Length; i++) eyes[i].position = positions[i];
+            Check(!accepted, npc + " negative control: cheek-displaced globes must fail iris-centre visibility: " + displacedCentres);
+        }
         for (int i = 0; i < renderers.Length; i++) renderers[i].sharedMaterial = original[i];
         UnityEngine.Object.DestroyImmediate(maskMaterial);
         int visible = 0, illuminated = 0; double brightness = 0;
@@ -136,7 +190,7 @@ public static class ValidateTownAssets
         Check(visible > 30, npc + " LOD" + level + " actual globe aperture is visible through fitted lids");
         Check(illuminated > visible * .2 && brightness / visible > 18,
             npc + " LOD" + level + " visible eyes receive actual stand/environment light");
-        File.AppendAllText(Path.Combine(output, npc + "-eye-pixels.txt"), "LOD" + level + " aperturePixels=" + visible + " litPixels=" + illuminated + " mean=" + (brightness / visible).ToString("F3", System.Globalization.CultureInfo.InvariantCulture) + "\n");
+        File.AppendAllText(Path.Combine(output, npc + "-eye-pixels.txt"), "LOD" + level + " aperturePixels=" + visible + " litPixels=" + illuminated + " centres=" + centres + " mean=" + (brightness / visible).ToString("F3", System.Globalization.CultureInfo.InvariantCulture) + "\n");
     }
 
     static IEnumerator FacialEvidence(GameObject root, string npc, SkinnedMeshRenderer fixedSkin)
@@ -531,7 +585,7 @@ public static class ValidateTownAssets
         Check(Different(side, absent) > 1000, "Flame obeys station dissolve visibility");
         UnityEngine.Object.DestroyImmediate(flame);
         UnityEngine.Object.DestroyImmediate(frames); UnityEngine.Object.DestroyImmediate(flameMaterial);
-        File.WriteAllText(Path.Combine(output, "result.txt"), "PASS " + assertions + " assertions; 6 visual negative controls\n");
-        Debug.Log("TOWN_ASSET_VALIDATION_PASS assertions=" + assertions + " negativeControls=6");
+        File.WriteAllText(Path.Combine(output, "result.txt"), "PASS " + assertions + " assertions; 9 visual negative controls\n");
+        Debug.Log("TOWN_ASSET_VALIDATION_PASS assertions=" + assertions + " negativeControls=9");
     }
 }

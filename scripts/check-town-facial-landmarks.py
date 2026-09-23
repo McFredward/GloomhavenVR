@@ -55,7 +55,18 @@ def main():
     assert .27 < axial[0, 2] - axial[1, 2] < .29
     assert .35 < (axial[2, 2] - axial[1, 2]) / (axial[0, 2] - axial[1, 2]) < .42
     assertions += 2
-    print(f'PASS: {assertions} facial landmark assertions; 8 registration negative controls')
+    # Profile helix and lobe must land on the same photographed ear. A global
+    # depth projection put its dark concha on intact scalp behind the true ear.
+    ear = np.array([[.86, 7.40, .35], [.78, 7.02, .63]])
+    expected = np.array([[199.4, 227], [280.2, 395]])
+    actual = source.side_texture_coordinates(ear, 'merchant')
+    assert registered(actual, expected)
+    assertions += 1
+    old = np.column_stack((67 + (ear[:, 2] + .391) / 2.0717 * 543,
+                           source.portrait_coordinates(ear, source.PROFILES['merchant'])[:, 1]))
+    assert not registered(old, expected)
+    assertions += 1
+    print(f'PASS: {assertions} facial landmark assertions; 9 registration negative controls')
 
 
 if __name__ == '__main__':

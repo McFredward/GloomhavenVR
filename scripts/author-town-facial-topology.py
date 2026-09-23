@@ -73,6 +73,26 @@ def facial_texture_coordinates(raw, name):
     return pixels
 
 
+def side_texture_coordinates(raw, name):
+    """Register profile landmarks independently of the front portrait."""
+    p = PROFILES[name]
+    x0, y0, x1, y1 = {'merchant': (67, 22, 610, 696),
+                     'priestess': (111, 25, 610, 700),
+                     'enchantress': (34, 6, 638, 717)}[name]
+    front = facial_texture_coordinates(raw, name)
+    px = x0 + (raw[:, 2] + .391) / (1.6807 + .391) * (x1 - x0)
+    py = y0 + (front[:, 1] - p['bounds'][1]) / (p['bounds'][3] - p['bounds'][1]) * (y1 - y0)
+    if name == 'merchant':
+        # Measured HM08 helix/lobe depth .35-.63 and height 7.02-7.40
+        # register to the profile's x185-286/y227-395. The previous global
+        # projection printed a second ear behind the actual ear on the scalp.
+        px = np.interp(raw[:, 2], [-.391, .30, .65, 1.6807], [67, 185, 286, 610])
+        ear = np.clip((.85 - raw[:, 2]) / .20, 0, 1)
+        ear_y = np.interp(raw[:, 1], [5.8, 6.6, 7.02, 7.40, 7.51, 8.4913], [696, 480, 395, 227, 210, 22])
+        py = py * (1 - ear) + ear_y * ear
+    return np.column_stack((px, py))
+
+
 def profile_x_scale(name):
     if name == 'merchant': return .115
     p=PROFILES[name]
@@ -120,7 +140,8 @@ def fit(raw,name,orbital=True):
         # A friendly resting mouth follows the painted merchant's upturned corners.
         mouth=np.exp(-((raw[:,1]-6.64)/.18)**2)*np.clip((raw[:,2]-1.20)/.15,0,1)
         world_z+=.004*np.exp(-((np.abs(raw[:,0])-.32)/.14)**2)*mouth
-        x*=1+.10*mouth
+        world_z=world_z*(1-.35*mouth)+1.577*(.35*mouth)
+        y+=.003*mouth
         dome=np.clip((world_z-1.682)/.040,0,1);dome=dome*dome*(3-2*dome)
         angle=np.arctan2(x,y+.002)
         section=np.sqrt(np.maximum(0,1-((world_z-1.643)/.107)**2))
@@ -136,7 +157,13 @@ def fit(raw,name,orbital=True):
         cz=eye_height(name)
         cy=p['depthOffset']-1.24535*p['depthScale']
         aperture=np.clip((.34-np.abs(raw[:,1]-7.28415))/.20,0,1)*np.clip((.29-np.abs(raw[:,0]-side*.30775))/.08,0,1)*np.clip((raw[:,2]-1.12)/.10,0,1)
-        world_z+= (world_z-cz)*(.20 if name=='merchant' else .12)*aperture
+        world_z+= (world_z-cz)*(.03 if name=='merchant' else .12)*aperture
+        if name=='merchant':
+            # HM08's projected horizontal canthi exceeded the 28 mm globe.
+            # Keep the fleshy lid margin on the sphere instead of revealing
+            # a crescent of the unlit socket on either side of the sclera.
+            rim=np.exp(-((raw[:,1]-7.28415)/.11)**4)*aperture
+            x=cx+(x-cx)*(1-.16*rim)
         dx=x-cx;dz=world_z-cz;radius=.014
         radial=(dx*dx+dz*dz)/(radius*radius)
         inner=np.clip((raw[:,2]-1.12)/.10,0,1)
@@ -193,7 +220,7 @@ def head_mesh(raw,faces,groups,face_uv,name,refs,data):
     obj=bpy.data.objects.new('Face',mesh);bpy.context.collection.objects.link(obj)
     for p in mesh.polygons:p.use_smooth=True
     pixels=facial_texture_coordinates(raw[ids],name);profile=PROFILES[name]
-    bounds_side={'merchant':(67,22,610,696),'priestess':(111,25,610,700),'enchantress':(34,6,638,717)}[name]
+    side_pixels=side_texture_coordinates(raw[ids],name)
     bounds_back={'merchant':(140,22,622,691),'priestess':(156,29,561,692),'enchantress':(77,13,649,710)}[name]
     eye_y={'merchant':252,'priestess':294,'enchantress':313}[name]
     eye_width={'merchant':31,'priestess':34,'enchantress':35}[name]
@@ -216,8 +243,7 @@ def head_mesh(raw,faces,groups,face_uv,name,refs,data):
             index=loop.vertex_index;x,y,z=raw[ids[index]];px,py=pixels[index]
             if label=='front':pass
             elif label=='left':
-                x0,y0,x1,y1=bounds_side;px=x0+(z+.391)/(1.6807+.391)*(x1-x0)
-                py=y0+(py-profile['bounds'][1])/(profile['bounds'][3]-profile['bounds'][1])*(y1-y0)
+                px,py=side_pixels[index]
             else:
                 x0,y0,x1,y1=bounds_back;px=x0+(.95-x)/1.90*(x1-x0)
                 py=y0+(py-profile['bounds'][1])/(profile['bounds'][3]-profile['bounds'][1])*(y1-y0)
