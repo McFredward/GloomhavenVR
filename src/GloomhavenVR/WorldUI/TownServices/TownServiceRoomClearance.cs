@@ -1,3 +1,4 @@
+using System;
 using GloomhavenVR.Core;
 using UnityEngine;
 
@@ -11,6 +12,7 @@ internal static class TownServiceRoomClearance
     internal const float HorizontalExpansion = 3.5f;
     private static Transform? _room;
     private static TownServiceRoomGeometry? _geometry;
+    private static bool _geometryAttempted, _geometryWarningReported;
     private static Vector3 _base, _last;
     private static float _factor = 1f, _lastTime;
 
@@ -22,18 +24,38 @@ internal static class TownServiceRoomClearance
             Reset();
             if (room == null) return;
             _room = room; _base = room.localScale;
-            _geometry = new TownServiceRoomGeometry(room);
             // A freshly placed room has not yet appeared. Avoid an opening-frame resize.
             _factor = enabled ? HorizontalExpansion : 1f;
             _last = _base; _lastTime = Time.unscaledTime;
         }
-        if (_room == null) return;
+        if (_room == null) { Reset(); return; }
         CaptureExternalScale();
         float dt = Mathf.Max(0f, Time.unscaledTime - _lastTime); _lastTime = Time.unscaledTime;
         _factor = Mathf.MoveTowards(_factor, enabled ? HorizontalExpansion : 1f, dt * 3f);
         _last = Vector3.Scale(_base, new Vector3(_factor, 1f, _factor));
         _room.localScale = _last;
-        _geometry?.Apply(_factor);
+        if (enabled && !_geometryAttempted)
+        {
+            _geometryAttempted = true;
+            try { _geometry = new TownServiceRoomGeometry(_room); }
+            catch (Exception error) { GeometryFailed(error); }
+        }
+        if (_geometry != null)
+        {
+            try { _geometry.Apply(_factor); }
+            catch (Exception error) { GeometryFailed(error); }
+        }
+    }
+
+    // Asset presentation must never interrupt the native map flow. Older/unreadable
+    // room bundles keep the safe wider shell, with one useful warning per room instance.
+    private static void GeometryFailed(Exception error)
+    {
+        _geometry?.Dispose(); _geometry = null;
+        if (_geometryWarningReported) return;
+        _geometryWarningReported = true;
+        VRLog.Warn("TownServices", "Room detail proportions could not be preserved; using expanded shell: "
+            + error.GetType().Name + ": " + error.Message);
     }
 
     // Room placement writes an absolute uniform authored scale. A caller can also scale
@@ -60,5 +82,6 @@ internal static class TownServiceRoomClearance
         if (_room != null) _room.localScale = _base;
         _geometry?.Dispose(); _geometry = null;
         _room = null; _factor = 1f;
+        _geometryAttempted = false; _geometryWarningReported = false;
     }
 }

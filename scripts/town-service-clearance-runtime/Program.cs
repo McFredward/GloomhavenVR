@@ -9,8 +9,14 @@ using UnityEngine;
 
 // The room provider and clock are fixture boundaries. Actual Unity Transform/Quaternion
 // behavior and the production lifecycle/layout implementation run in the real player loop.
-namespace GloomhavenVR.Core { internal static class SkyAlternative { internal static Transform? PlacedRoomRoot; } }
+// Destruction is observed for cleanup assertions and still delegated to Unity unchanged.
+namespace GloomhavenVR.Core { internal static class SkyAlternative { internal static Transform? PlacedRoomRoot; } internal static class VRLog { internal static int Warnings; internal static void Warn(string category,string message) { Warnings++; } } }
 namespace GloomhavenVR.Rig { internal static class VRRigDriver { internal static Quaternion YawOnly(Quaternion q) => Quaternion.Euler(0f,q.eulerAngles.y,0f); } }
+internal static class ClearanceDestroy
+{
+    internal static readonly List<UnityEngine.Object> Destroyed=new();
+    internal static void Record(UnityEngine.Object value) { Destroyed.Add(value);UnityEngine.Object.Destroy(value); }
+}
 internal static class ClearanceClock { internal static float Now; }
 public static class InteractionProgram
 {
@@ -62,6 +68,49 @@ public static class InteractionProgram
         }
         finally { bundle.Unload(true); }
     }
+    private static void FailureRecovery()
+    {
+        TownServiceRoomClearance.Reset();
+        var root=new GameObject("UnreadableOldRoom").transform;
+        var geo=new GameObject("RoomGeo").transform;geo.SetParent(root,false);
+        var good=new Mesh { name="ReadableTrunk" };
+        good.vertices=new[]{Vector3.zero,Vector3.right,Vector3.up};good.triangles=new[]{0,1,2};
+        var bad=UnityEngine.Object.Instantiate(good);bad.name="UnreadableTrunk";bad.UploadMeshData(true);
+        MeshFilter Add(string name,Mesh mesh)
+        {
+            var go=new GameObject(name);go.transform.SetParent(geo,false);
+            var filter=go.AddComponent<MeshFilter>();filter.sharedMesh=mesh;return filter;
+        }
+        var first=Add("TrunksNear",good);Add("TrunksFar",bad);
+        try
+        {
+            int copies=Resources.FindObjectsOfTypeAll<Mesh>().Count(m=>m.name.EndsWith(" TownClearance"));
+            int warnings=VRLog.Warnings,disposed=ClearanceDestroy.Destroyed.Count;
+            root.localScale=Vector3.one*2;SkyAlternative.PlacedRoomRoot=root;
+            TownServiceRoomClearance.Tick(false);
+            Check(Resources.FindObjectsOfTypeAll<Mesh>().Count(m=>m.name.EndsWith(" TownClearance"))==copies,"initial disabled mode never clones room meshes");
+            Check(VRLog.Warnings==warnings,"disabled mode never reads incompatible room geometry");
+            ClearanceClock.Now+=10;TownServiceRoomClearance.Tick(true);
+            Check(ClearanceDestroy.Destroyed.Count==disposed+1,"partially constructed geometry disposes existing private meshes");
+            Check(first.sharedMesh==good,"failed preparation retains original mesh references");
+            Scale(root,Expanded(2),"incompatible geometry falls back to safe expanded shell");
+            for(int i=0;i<100;i++)TownServiceRoomClearance.Tick(true);
+            Check(VRLog.Warnings==warnings+1,"incompatible geometry reports once without repeated retries");
+            TownServiceRoomClearance.Reset();Scale(root,Vector3.one*2,"failed geometry still restores exact authored scale");
+            UnityEngine.Object.DestroyImmediate(geo.Find("TrunksFar").gameObject);
+            TownServiceRoomClearance.Tick(true);disposed=ClearanceDestroy.Destroyed.Count;
+            Check(first.sharedMesh!=good,"replacement room can prepare valid geometry after reset");
+            UnityEngine.Object.DestroyImmediate(root.gameObject);
+            SkyAlternative.PlacedRoomRoot=null;TownServiceRoomClearance.Tick(false);
+            Check(ClearanceDestroy.Destroyed.Count==disposed+1,"destroyed native room releases private meshes on next tick");
+        }
+        finally
+        {
+            TownServiceRoomClearance.Reset();SkyAlternative.PlacedRoomRoot=null;
+            if(root!=null)UnityEngine.Object.DestroyImmediate(root.gameObject);
+            UnityEngine.Object.DestroyImmediate(good);UnityEngine.Object.DestroyImmediate(bad);
+        }
+    }
     public static int Run()
     {
         var a=new GameObject("OriginalCellarRoom").transform;
@@ -94,6 +143,7 @@ public static class InteractionProgram
             UnityEngine.Object.DestroyImmediate(a.gameObject);TownServiceRoomClearance.Reset();
             Check(true,"destroyed room teardown is safe");
             Geometry();
+            FailureRecovery();
             var rows=new List<string>();
             foreach(TownServiceLayout.Environment environment in Enum.GetValues(typeof(TownServiceLayout.Environment)))
             {

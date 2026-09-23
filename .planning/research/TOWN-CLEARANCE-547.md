@@ -29,9 +29,10 @@ scales and meshes, including a scale change immediately before Reset.
 
 ## Evidence
 
-- Actual Unity 2021.3.5 fixture: 12,069 assertions and five effective negative
+- Actual Unity 2021.3.5 fixture: 12,078 assertions and seven effective negative
   controls. Tests bind production sources, original environment bundle and actual
-  Unity transforms/meshes; only room provider and time are fixture boundaries.
+  Unity transforms/meshes; room provider and time are fixture boundaries. Destruction calls are recorded and
+  still delegated to Unity to verify cleanup of a partially built geometry owner.
 - Original bundle SHA256:
   `fe1a659c17b4151e929691aa070d402b8cd299a462315b1d6691d2622d491693`.
 - Exported C# layout poses plus original room triangles: 42 padded station parts,
@@ -39,7 +40,7 @@ scales and meshes, including a scale change immediately before Reset.
   in either custom room. The test also checks a return against its own station.
 - Read-only native levels 4, 5, 9 and 10 (campaign/Guildmaster variants): zero
   contacts against their authored active furniture.
-- Private evidence: `.planning/debug/town-service-clearance/run-36v5e__d/` and
+- Private evidence: `.planning/debug/town-service-clearance/run-6ocol0zu/` and
   `.planning/debug/town547-faces/layout-preserved-worst.json` in the worker checkout.
 
 Reproduce the runtime fixture with `python3 scripts/check-town-service-clearance.py`.
@@ -58,3 +59,15 @@ safe lifecycle behavior; it does not claim the old environment art is visually
 identical after opening a substantially larger clearing. A purpose-authored large
 room variant can improve that composition later. Headset observation remains
 necessary for NPC accessibility, lighting and the surrounding canopy.
+
+## Construction failure containment
+
+The shipped bundle's tree meshes are readable in the actual Unity fixture. An
+additional fixture deliberately makes its second trunk mesh unreadable after the
+first private copy was created. Failed construction destroys earlier copies,
+retains original mesh references, emits one warning for the active room instance
+and keeps the expanded shell without retrying each frame. Apply failures use the
+same fallback. Disabled initial preparation never allocates geometry copies or
+reads incompatible mesh data. A destroyed native room releases its private mesh
+copies on the next tick, even when Unity's destroyed-object equality compares both
+room references as null. Reset still restores the exact authored room scale.

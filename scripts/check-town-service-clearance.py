@@ -29,6 +29,8 @@ def sources(root):
 
 def mutations():
     return [
+        ("partial-cleanup", "TownServiceRoomGeometry.cs", "            Dispose();\n            throw;", "            throw;", "partially constructed geometry disposes existing private meshes"),
+        ("disabled-allocation", "TownServiceRoomClearance.cs", "if (enabled && !_geometryAttempted)", "if (!_geometryAttempted)", "initial disabled mode never clones room meshes"),
         ("tree-shape", "TownServiceRoomGeometry.cs", "_centres[i].x * (factor - 1f)", "_vertices[i].x * (factor - 1f)", "tree translation preserves every triangle edge"),
         ("repeat-expansion", "TownServiceRoomClearance.cs", "if (_room == null || _room.localScale == _last) return;", "if (_room == null) return; if (_room.localScale == _last) { _base = _last; return; }", "repeated updates cannot compound expansion"),
         ("relative-zoom", "TownServiceRoomClearance.cs", "_base *= ratio.y;", "_base = observed;", "relative external zoom cannot apply expansion twice"),
@@ -67,7 +69,7 @@ def main():
         for path, text in bound.items():
             if path == filename:
                 text = replace_once(text, before, after)
-            (production / path).write_text(text.replace("Time.unscaledTime", "ClearanceClock.Now"))
+            (production / path).write_text(text.replace("Time.unscaledTime", "ClearanceClock.Now").replace("UnityEngine.Object.Destroy(", "ClearanceDestroy.Record("))
         project = build / "Interaction.csproj"
         shutil.copyfile(fixture / "Clearance.csproj", project)
         assembly = "TownInteraction_" + name.replace("-", "_")

@@ -18,18 +18,26 @@ internal sealed class TownServiceRoomGeometry : IDisposable
     {
         Transform? geometry = room.Find("RoomGeo");
         if (geometry == null) return;
-        foreach (Transform child in geometry)
+        try
         {
-            if (child.name == "TrunksNear" || child.name == "TrunksFar")
+            foreach (Transform child in geometry)
             {
-                MeshFilter? filter = child.GetComponent<MeshFilter>();
-                if (filter != null && filter.sharedMesh != null)
-                    _trees.Add(new IslandMesh(filter));
-                continue;
+                if (child.name == "TrunksNear" || child.name == "TrunksFar")
+                {
+                    MeshFilter? filter = child.GetComponent<MeshFilter>();
+                    if (filter != null && filter.sharedMesh != null)
+                        _trees.Add(new IslandMesh(filter));
+                    continue;
+                }
+                foreach (string prefix in PropPrefixes)
+                    if (child.name.StartsWith(prefix, StringComparison.Ordinal))
+                    { _props.Add((child, child.localScale)); break; }
             }
-            foreach (string prefix in PropPrefixes)
-                if (child.name.StartsWith(prefix, StringComparison.Ordinal))
-                { _props.Add((child, child.localScale)); break; }
+        }
+        catch
+        {
+            Dispose();
+            throw;
         }
     }
 
@@ -67,7 +75,18 @@ internal sealed class TownServiceRoomGeometry : IDisposable
             _vertices = _original.vertices;
             _centres = ComponentCentres(_vertices, _original.triangles);
             _output = new Vector3[_vertices.Length];
-            _copy = UnityEngine.Object.Instantiate(_original); _copy.name = _original.name + " TownClearance";
+            Mesh? created = null;
+            try
+            {
+                created = UnityEngine.Object.Instantiate(_original);
+                created.name = _original.name + " TownClearance";
+                _copy = created;
+            }
+            catch
+            {
+                if (created != null) UnityEngine.Object.Destroy(created);
+                throw;
+            }
         }
         internal void Apply(float factor)
         {
