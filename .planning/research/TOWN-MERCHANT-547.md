@@ -35,11 +35,11 @@ recycled held sample; the coordinate error does.
   material fade and exact transform are available for ordinary town mirror publication.
 
 `TownServiceMerchantLayout` is the geometry contract for the generated furniture.
-Main card centers: x=(column−11.5)×.15, y=row×.025,
+Main card centers: x=(column−11.5)×.15, y=.034+row×.008,
 z=−1.32+row×.13+.16×(x/1.725)^2, relative to the .970-m worktop.
-Return card centers: x=(column−3.5)×.15, y=row×.025, z=−.455+row×.13.
+Return card centers: x=(column−3.5)×.15, y=.034+row×.008, z=−.455+row×.13.
 The main counter needs 3.8 m width and extends from z−1.45 through +.4.
-Returns measure 1.30×1.15 m and expand alternately left/right without entering the NPC.
+Returns measure 1.36×1.15 m and expand alternately left/right without entering the NPC.
 
 ## Verification
 

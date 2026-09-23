@@ -534,8 +534,13 @@ internal static class NetProtocol
     // Restore feature-only resident, interaction and asset systems alongside map hints,
     // campaign events, permanent map windows and configurable AoE controls. Version 1.1.0.
     // User rejects drawers and mechanical occupation loops; this development iteration
-    // rebuilds counters, held-card handoffs, purposeful activities and portrait geometry.
-    // See .planning/research/TOWN-SERVICES-547.md for scope and validation status.
+    // rebuilds open counters, actual owned-card palm handoffs, coin contact, coordinated spells
+    // and portrait-fitted face geometry. Authored furniture supports conform through mirrored
+    // transforms; shared semicircle poses retain scenery clearance and restore on opt-out.
+    // Returning offered cards survive native window teardown without a duplicate static fan.
+    // Additive public map-loadout83 and bounded town-bundle84 retain complete native output;
+    // larger manifests, urgent dependencies and separate liveness/age handle heavy catalogues.
+    // See .planning/research/TOWN-SERVICES-547.md for validation and hardware boundaries.
 
     // ModBuild 546 — 1.0.7 map hotfix line, without immersive town services.
     // Restore the separate native campaign city-event control and its original animation;

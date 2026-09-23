@@ -1,6 +1,6 @@
 # State — where the project stands
 
-**Updated 2026-09-23: feature/immersive-town-services, version 1.1.0 / ModBuild 547 in development.**
+**Updated 2026-09-23: feature/immersive-town-services, version 1.1.0 / ModBuild 547 hardware candidate.**
 The feature is based on dev e63fb284, including released 1.0.7 / build 546. Dev remains
 the separate 1.0.8 hotfix line. The maintainer hardware-confirmed 546 before release.
 Current NPC revision: [research/TOWN-SERVICES-547.md](research/TOWN-SERVICES-547.md).
@@ -19,7 +19,18 @@ change per build) → this file (where things stand and what is owed) → the bu
 
 ## 1. Position
 
-- **dev / 1.0.7 / ModBuild 546**, based on the 1.0.6 runtime without NPC services:
+- **NPC feature / 1.1.0 / ModBuild 547 (hardware candidate):** open furnished counters,
+  physical merchandise inspection, actual owned-card enchantress handoff and return,
+  coin-contact and spell motion, portrait/hood/wrist repairs, and grounded semicircle
+  workspaces are integrated on the feature branch only. Combined verification covers
+  all 14 source and 66 runtime suites (three stale fixture bindings fixed and repeated),
+  286042 wire assertions, zero-warning strict Release and final asset validation
+  (3037 assertions / six visual negatives). The matching Windows town bundle is
+  103942692 bytes (`51791c7d…71bed`). Complete-package CRC/hash evidence is retained.
+  This does not establish headset quality or multiplayer frame timing. Evidence and
+  the hardware checklist: [research/TOWN-SERVICES-547.md](research/TOWN-SERVICES-547.md).
+
+- **dev / 1.0.8 hotfix line / ModBuild 546**, based on released 1.0.7 without NPC services:
   campaign city-event cap and native animation, original permanent map windows across
   2D/3D switches, and native map-button hints beside physical caps with synchronized
   multiplayer presentation. AoE uses short B/Y releases by default; both locomotion
@@ -27,8 +38,8 @@ change per build) → this file (where things stand and what is owed) → the bu
   and English/German tutorial hints update to the selected binding even while open.
   Native targeting authority and shared encounter continuation remain in charge.
   Evidence, validation and hardware checklist: [MAP-546.md](MAP-546.md).
-  Supplied logs are older NPC build 544 / remote build 500, so this implementation has
-  no matching headset confirmation yet. No release or NPC-branch changes are included.
+  The maintainer confirmed this map/AoE revision on hardware before releasing 1.0.7.
+  Dev remains the independent hotfix branch while NPC integration targets 1.1.0.
 
 - **Town hardware corrections / build 545 (hardware candidate):** build 544's eleven
   screenshots supersede earlier asset-quality assumptions. Physical complete merchant stock,
