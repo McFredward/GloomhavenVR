@@ -302,7 +302,7 @@ public static class InteractionProgram
                     var vertices=foot.sharedMesh.vertices;
                     Vector3 corner=vertices.Select(v=>foot.transform.TransformPoint(v)).OrderBy(v=>v.y).First();
                     float floor=TownServicePlacement.GroundHeight(room.transform,corner);
-                    Check(corner.y<=floor+.001f,"workspace support bottoms cannot float over sloped ground");
+                    Check(corner.y<=floor+.001f,"ground supports reach their sampled terrain: workspace");
                 }
                 GroundingParity(room.transform);
                 var parent=new GameObject("ReturnParent").transform;parent.SetParent(moving.Root,false);
@@ -312,7 +312,7 @@ public static class InteractionProgram
                     foreach(var foot in counter.Root.GetComponentsInChildren<MeshFilter>(true).Where(f=>f.name.StartsWith("GroundSupport")))
                     {
                         Vector3 corner=foot.sharedMesh.vertices.Select(v=>foot.transform.TransformPoint(v)).OrderBy(v=>v.y).First();
-                        Check(corner.y<=TownServicePlacement.GroundHeight(room.transform,corner)+.001f,"return-table support reaches its own sampled terrain");
+                        Check(corner.y<=TownServicePlacement.GroundHeight(room.transform,corner)+.001f,"ground supports reach their sampled terrain: legacy return");
                     }
                 }
                 UnityEngine.Object.DestroyImmediate(parent.gameObject);

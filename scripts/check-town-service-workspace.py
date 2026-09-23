@@ -29,7 +29,7 @@ def sources(root):
 
 def mutations():
     return [
-        ("ground-support", "TownServiceGrounding.cs", "support.Apply(furnitureBottom);", "support.Restore();", "workspace support bottoms cannot float over sloped ground"),
+        ("ground-support", "TownServiceGrounding.cs", "support.Apply(furnitureBottom);", "support.Restore();", "ground supports reach their sampled terrain"),
         ("reading-fade", "TownServiceWorkspace.cs", "float layoutYaw = frame.eulerAngles.y;", "float layoutYaw = seat.YawDegrees;", "reading-side changes cannot restart unchanged workspace fade"),
         ("environment-divergence", "TownServiceLayout.cs", "radius = service == 2 ? 2.2f : ResidentRadius;", "radius = (service == 2 ? 2.2f : ResidentRadius) + (environment == Environment.Forest ? .15f : 0f);", "mixed environment peers resolve identical station poses"),
         ("parchment-frame", "TownServiceLayout.cs", "GloomhavenVR.Rig.VRRigDriver.YawOnly(parchment.rotation)", "Quaternion.identity", "default MR shares original parchment frame with custom rooms"),
