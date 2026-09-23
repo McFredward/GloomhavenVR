@@ -29,6 +29,7 @@ internal sealed class TownServiceActivityRig
     private readonly Arm? _left, _right;
     private readonly Transform? _neck, _chest, _actor;
     private readonly float _actorRestHeight;
+    private readonly Transform _workFocus;
     internal Transform? OfferingPalm { get; }
     private Quaternion _sampledNeck, _sampledChest;
     private bool _applied;
@@ -36,6 +37,9 @@ internal sealed class TownServiceActivityRig
     internal TownServiceActivityRig(Transform root, byte service)
     {
         _root = root; _service = service;
+        _workFocus = new GameObject("ActivityWorkFocus").transform;
+        _workFocus.SetParent(root, false);
+        _workFocus.localPosition = TownServiceActivityMotion.RestFocus(service);
         _actor = root.Find("Actor"); _actorRestHeight = _actor != null ? _actor.localPosition.y : 0f; _left = Find(root, "L"); _right = Find(root, "R");
         foreach (Transform child in root.GetComponentsInChildren<Transform>(true))
         { if (child.name == "Neck") _neck = child; else if (child.name == "Chest") _chest = child; }
@@ -157,6 +161,10 @@ internal sealed class TownServiceActivityRig
             OfferingPalm.SetPositionAndRotation(right.PalmContact != null ? right.PalmContact.position : right.Hand.position,
                 Quaternion.LookRotation(forward, normal));
         }
+        _workFocus.position = _service == 1 ? _left!.Grip.position : _root.TransformPoint(TownServiceActivityMotion.RestFocus(_service));
+        if (_service == 3 && OfferingPalm != null)
+            _workFocus.position = Vector3.Lerp(_workFocus.position,
+                OfferingPalm.position + OfferingPalm.up * (.07f + .10f * visual.Cast), Mathf.Clamp01(visual.Cast * 3f));
     }
     private void Solve(Arm arm, Vector3 localTarget, float side, float curl, float attention, float roll, bool pinchTarget)
     {
@@ -181,11 +189,20 @@ internal sealed class TownServiceActivityRig
         }
         if (arm.Anatomical && pinchTarget && arm.ThumbBase != null && arm.ThumbPinch != null && arm.IndexPinch != null)
         {
-            Vector3 tip = arm.ThumbBase.InverseTransformPoint(arm.ThumbPinch.position);
-            Vector3 index = arm.ThumbBase.InverseTransformPoint(arm.IndexPinch.position);
-            tip.z = 0f; index.z = 0f;
-            float opposition = Mathf.Clamp(Vector3.SignedAngle(tip, index, Vector3.forward), -25f, 25f) * Mathf.Clamp01(curl / .55f);
-            arm.ThumbBase.localRotation *= Quaternion.AngleAxis(opposition, Vector3.forward);
+            Vector3 tip = arm.ThumbPinch.position - arm.ThumbBase.position;
+            Vector3 index = arm.IndexPinch.position - arm.ThumbBase.position;
+            float a = tip.magnitude, b = index.magnitude;
+            if (a > .001f && b > .001f)
+            {
+                // The original flat-plane thumb swing left a measured 35 mm gap
+                // around a 26 mm coin. Solve the opposition triangle from the real
+                // pads, retaining a small contact allowance for their skin thickness.
+                float gap = .024f * Mathf.Abs(_root.lossyScale.x);
+                float angle = Mathf.Acos(Mathf.Clamp((a * a + b * b - gap * gap) / (2f * a * b), -1f, 1f)) * Mathf.Rad2Deg;
+                float close = Mathf.Clamp(Vector3.Angle(tip, index) - angle, 0f, 35f) * Mathf.Clamp01(curl / .55f);
+                Vector3 axis = Vector3.Cross(tip, index);
+                if (axis.sqrMagnitude > 1e-10f) arm.ThumbBase.rotation = Quaternion.AngleAxis(close, axis.normalized) * arm.ThumbBase.rotation;
+            }
         }
         Vector3 target = _root.TransformPoint(localTarget);
         if (pinchTarget && arm.IndexPinch != null && arm.ThumbPinch != null)

@@ -139,6 +139,23 @@ public static class InteractionProgram
         float beforeHandover=output.HeadYaw;face.Seed(in remote,2,.2f);face.BeforeBodySample();output=face.Tick(true,false,1,in remote,0,3);
         Check(Mathf.Abs(output.HeadYaw-beforeHandover)<1,"authority handover preserves pose before smooth attention change");
         TownServiceFaceSpeech.Curve=null;TownServiceFaceSpeech.Observer=null;TownServiceFaceSpeech.Sampler=null;
+        VRRigDriver.HeadCamera=null;NetAvatarDriver.Heads.Clear();
+        var focus=new GameObject("ActivityWorkFocus");focus.transform.SetParent(root,false);
+        focus.transform.position=head.position+new Vector3(1,0,2);
+        for(int frame=0;frame<180;frame++)
+        {
+            face.BeforeBodySample();FaceClock.Now+=1f/90f;face.PrepareActivityAttention(false);
+            output=face.Tick(true,false,1,in remote,0,FaceClock.Now);
+        }
+        Check(output.HeadYaw>10,"work gaze follows the actual activity contact");
+        for(int frame=0;frame<180;frame++)
+        {
+            face.BeforeBodySample();FaceClock.Now+=1f/90f;face.PrepareActivityAttention(false);
+            // The activity pass updates its marker after attention preparation.
+            focus.transform.position=head.position+new Vector3(-1,0,2);
+            output=face.Tick(true,false,1,in remote,0,FaceClock.Now);
+        }
+        Check(output.HeadYaw< -10,"work gaze uses current post-activity contact");
         UnityEngine.Object.DestroyImmediate(root.gameObject);UnityEngine.Object.DestroyImmediate(second.gameObject);UnityEngine.Object.DestroyImmediate(camera.gameObject);
         if(bundleArgument>=0)
         {

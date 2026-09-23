@@ -19,6 +19,10 @@ pen oscillated over the ledger. None of that established credible tool use.
   inspection. Torso rotation, shoulder/forearm roll, finger curl and palm position
   share the same sampled pose. Arm roll distributes the palm turn over the upper
   arm and forearm rather than twisting the wrist alone.
+- Work gaze follows the actual coin grip or spell centre after this frame's activity
+  sample. The elected author still supplies the smoothed head/eye pose to every peer.
+  Render measurements also corrected a 35 mm pinch gap around the 26 mm coin:
+  thumb opposition now solves the actual pad triangle to a 24 mm contact allowance.
 - An approaching visitor interrupts work through the existing analytic shared
   attention transition. The enchantress presents her right palm upward. The marker
   `ActivityOfferingPalm` (also `TownServiceActivityRig.OfferingPalm`) follows the
@@ -57,3 +61,8 @@ coins are labeled contact cylinders; production uses the native decoration coin.
 The pre-integration visual review exposed wrist/cuff gaps in the old bundle and
 reported them to the face/mesh lane. Close stereo quality and headset timing still
 require hardware review.
+
+Pre-integration checks: strict Release zero warnings/errors; actual-bundle activity
+157,544 assertions with 14 compiled negative controls, portable activity 58,297 with
+six negatives, and native decoration 61 with seven negatives. The gaze suite adds a
+moving-work-target regression check; final integration should rerun against new assets.

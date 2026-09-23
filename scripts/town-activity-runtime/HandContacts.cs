@@ -70,6 +70,7 @@ internal static class HandContacts
                         {
                             Transform shown=i==0?coin:root.Find("Town.CountingCoin"+i);
                             float attached=i==0?sample.CoinGrip.x:i==1?sample.CoinGrip.y:sample.CoinGrip.z;
+                            if(attached!=0f&&attached!=1f)throw new Exception("coin is resting or rigidly gripped, never magnetically attracted");checks++;
                             Vector3 resting=i==0?sample.Coin0:i==1?sample.Coin1:sample.Coin2;
                             Vector3 wanted=attached>.99f?root.Find("ActivityGripLeft").position:root.TransformPoint(resting);
                             if(Vector3.Distance(shown.position,wanted)>.0001f)throw new Exception("real coin follows actual pinch or resting seat");checks++;

@@ -48,6 +48,7 @@ def mutations():
         ("stale-face", "RemoteTownFaces.cs", "elapsed > NetProtocol.StaleTimeoutSeconds", "elapsed > float.MaxValue", "stale facial stream expires"),
         ("gaze-through-wall", "TownServiceFaceAttention.cs", " || !Unobstructed(root, eye, point)", "", "native scenery blocks gaze election"),
         ("observer-elects-viewer", "TownServiceFace.cs", "if (author)", "if (author || !author)", "remote ignores observer headset"),
+        ("fixed-work-gaze", "TownServiceFace.cs", "_workFocus != null ? _workFocus.position : _root.TransformPoint(TownServiceActivityMotion.RestFocus(_service))", "_root.TransformPoint(TownServiceActivityMotion.RestFocus(_service))", "work gaze uses current post-activity contact"),
     ]
 
 

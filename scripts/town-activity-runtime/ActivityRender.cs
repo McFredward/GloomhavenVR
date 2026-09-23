@@ -25,6 +25,7 @@ internal static class ActivityRender
         var block=new MaterialPropertyBlock();block.SetFloat("_TownVisibility",1);foreach(Renderer r in obj.GetComponentsInChildren<Renderer>(true))r.SetPropertyBlock(block);
         Animation animation=root.GetComponentInChildren<Animation>();
         var faceRig=new TownServiceFaceRig(root);
+        var gaze=default(TownFacePose);
         using var metrics=new StreamWriter(Path.Combine(folder,"service"+service+"-contacts.csv"));metrics.WriteLine("phase,handX,handY,handZ,gripX,gripY,gripZ,tipX,tipY,tipZ");
         float[] phases={.8f,1.8f,1.8f,5.4f,6.9f,8.1f,15.4f,17f};
         if(sequence)phases=Enumerable.Range(0,174).Select(n=>n/8f).ToArray();
@@ -33,14 +34,11 @@ internal static class ActivityRender
             faceRig.BeforeBodySample();rig.BeforeBodySample();animation.Stop();var body=animation["Idle"];body.enabled=true;body.weight=1;body.time=0;animation.Sample();body.enabled=false;
             bool attentive=!sequence&&phase==2;
             var state=new TownActivityPose{WorkClock=phases[phase],TransitionAge=.65f,FromBlend=attentive?1:0,Engaged=attentive};rig.Apply(in state);props.Sample(in state);
-            if(phase==3&&!sequence)
             {
-                // Normal settled work focus, using the exact production residual-angle solver
-                // after the real body/activity pose. This is not an extra synthetic22° bend.
-                var gaze=default(TownFacePose);Vector3 focus=root.TransformPoint(TownServiceActivityMotion.RestFocus(service));
-                for(int frame=0;frame<90;frame++)gaze=TownServiceFaceMotion.Aim(faceRig.OpticalRotation,root.lossyScale.x,
-                    faceRig.HeadPosition,faceRig.LeftPosition,faceRig.RightPosition,focus,in gaze,1f/90f);
-                TownServiceFacePose face=TownServiceFaceMotion.Evaluate(in gaze,8f,service,Vector3.zero);faceRig.Apply(in face);
+                Vector3 focus=attentive?new Vector3(-.7f,1.9f,-.8f):root.Find("ActivityWorkFocus").position;
+                for(int frame=0;frame<(sequence?1:90);frame++)gaze=TownServiceFaceMotion.Aim(faceRig.OpticalRotation,root.lossyScale.x,
+                    faceRig.HeadPosition,faceRig.LeftPosition,faceRig.RightPosition,focus,in gaze,sequence?.125f:1f/90f);
+                TownServiceFacePose face=TownServiceFaceMotion.Evaluate(in gaze,phases[phase],service,Vector3.zero);faceRig.Apply(in face);
                 metrics.WriteLine("# normal-work-gaze pitch="+gaze.HeadPitch.ToString("R",CultureInfo.InvariantCulture)+" yaw="+gaze.HeadYaw.ToString("R",CultureInfo.InvariantCulture));
             }
             Transform hand=root.GetComponentsInChildren<Transform>(true).Single(t=>t.name=="Hand.R");Transform grip=root.Find("ActivityGripRight"),pen=root.Find("Town.ReedPen");Vector3 tip=Vector3.zero;

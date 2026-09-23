@@ -16,6 +16,8 @@ internal sealed class TownServiceFace
     private int _shownAuthor;
     private bool _hasRemote;
     private bool _prepared;
+    private bool _preparedEngaged, _workFocusBound;
+    private Transform? _workFocus;
     private Vector3? _preparedTarget;
     private static readonly bool[] ReportedMissing = new bool[4];
     internal TownServiceFace(Transform root, byte service)
@@ -33,7 +35,8 @@ internal sealed class TownServiceFace
         Vector3? target = _attention.Select(_service, _root, _rig.OpticalRotation, _rig.EyePosition);
         float reach = (wasEngaged ? 2.9f : 2.4f) * _root.lossyScale.x;
         bool engaged = target.HasValue && (_attention.Visitor || (target.Value - _rig.EyePosition).sqrMagnitude <= reach * reach);
-        _preparedTarget = engaged ? target : _root.TransformPoint(TownServiceActivityMotion.RestFocus(_service));
+        _preparedEngaged = engaged;
+        _preparedTarget = engaged ? target : null;
         _prepared = true; return engaged;
     }
     internal void BeforeBodySample() => _rig.BeforeBodySample();
@@ -51,6 +54,14 @@ internal sealed class TownServiceFace
         {
             _shownAuthor = authorId;
             Vector3? target = _prepared ? _preparedTarget : _attention.Select(_service, _root, _rig.OpticalRotation, _rig.EyePosition);
+            if (_prepared && !_preparedEngaged)
+            {
+                // Activity is applied between preparation and this final face sample.
+                // Look at this frame's actual coin/spell, not yesterday's fixed ledger
+                // point. Only the elected author computes gaze; peers replay its pose.
+                if (!_workFocusBound) { _workFocusBound = true; _workFocus = _root.Find("ActivityWorkFocus"); }
+                target = _workFocus != null ? _workFocus.position : _root.TransformPoint(TownServiceActivityMotion.RestFocus(_service));
+            }
             _prepared = false;
             _shown = TownServiceFaceMotion.Aim(_rig.OpticalRotation, _root.lossyScale.x, _rig.HeadPosition, _rig.LeftPosition, _rig.RightPosition, target, in _shown, Time.unscaledDeltaTime);
             _shown.Cue = 0; _shown.SpeechAge = 0f; _shown.Jaw = _shown.Wide = _shown.Round = 0;
