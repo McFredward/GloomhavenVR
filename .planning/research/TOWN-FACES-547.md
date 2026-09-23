@@ -22,6 +22,15 @@ head sheets supply the close-view skin/hair albedo.
 - All three: constrain frontal projection to the actual reference silhouette,
   including its narrowing below the ears. Previously it sampled the neutral
   studio background into grey wedges on the side of the jaw.
+- Motion-review evidence also exposed open wrists when hands turned palm-up.
+  Continue the anatomical skin 70 mm inside each sleeve, smoothly transfer its
+  proximal seam to the Forearm bone, follow that bone's actual centreline with
+  a tapered section, and close the hidden end. The source sleeve
+  cut and anatomical fingers stay in place; this is real wrist anatomy, not an
+  independent cuff cover. Final exports live under `wrist-fixed/<npc>`.
+- Remove degenerate/unused optical pole vertices and triangulate eye surfaces
+  before FBX export, with an explicit nonzero-normal assertion. Earlier Unity
+  imports had to regenerate invalid globe normals.
 
 ## Reproduction and evidence
 
@@ -40,7 +49,7 @@ Run Blender 4.2 with `--python-exit-code 1`:
    `hand-source.blend`; write fresh `rigged/<npc>` output.
 3. `review-town-facial-authoring.py` on each assembled `rig-source.blend`.
 4. Unity 2021.3.5 `GloomhavenVR.TownServicesBuilder.RefreshFacialRig`, with
-   `-townFaceRoot` pointing to the assembled `rigged` folder.
+   `-townFaceRoot` pointing to the final assembled `wrist-fixed` folder.
 
 `check-town-facial-landmarks.py` passes 18 assertions including eight negative
 registration controls. It measures reference-pixel alignment and plausible fitted
@@ -48,6 +57,8 @@ eye spacing; it does not establish final visual quality.
 
 Neutral front/oblique and left/right 45-degree head-turn views are rendered from
 the actual assembled meshes, separate from prototype front/blink/jaw/clay views.
+The `--wrists` review mode renders the real joined skin/costume at neutral and
+both 90-degree palm rotations, from dorsal and palmar viewing directions.
 Final Unity/D3D/stereo appearance, final activity poses and the rebuilt Windows
 bundle remain the integration/hardware validation responsibility. No paid API was
 used and no original game asset was edited.

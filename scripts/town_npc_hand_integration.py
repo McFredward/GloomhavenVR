@@ -11,6 +11,7 @@ def load(rig, folder, npc):
     with bpy.data.libraries.load(str(folder/'hand-source.blend'),link=False) as (source,target):
         target.objects=['Hands_'+npc]
     hands=target.objects[0];bpy.context.collection.objects.link(hands)
+    extend_wrist_skin(hands, rig, contract)
     bpy.context.view_layer.objects.active=rig;rig.select_set(True)
     bpy.ops.object.mode_set(mode='EDIT')
     for name,definition in contract['joints'].items():
@@ -32,6 +33,92 @@ def load(rig, folder, npc):
             hinge=forward.cross(palm).normalized()
             marker.rotation_euler=Matrix((hinge,forward,palm)).transposed().to_euler()
     return hands,contract
+
+
+def extend_wrist_skin(hands, rig, contract):
+    """Continue the real anatomical wrist into the sleeve during palm rotation.
+
+    The former 14 mm sleeve overlap moved out of the source cut when the palm
+    turned upwards. The proximal skin must belong to the forearm, while the
+    hand can pronate independently; closing a sleeve with an unrelated disk
+    would merely hide that missing anatomy.
+    """
+    bm=bmesh.new();bm.from_mesh(hands.data)
+    deform=bm.verts.layers.deform.active;uv=bm.loops.layers.uv.active
+    for side in ('L','R'):
+        wrist=Vector(contract['joints']['Hand.'+side]['head'])
+        direction=(Vector(contract['joints']['Hand.'+side]['tail'])-wrist).normalized()
+        arm=rig.data.bones['Forearm.'+side]
+        arm_direction=(arm.tail_local-arm.head_local).normalized()
+        alignment=direction.rotation_difference(arm_direction)
+        forearm=hands.vertex_groups['Forearm.'+side].index
+        # Only the anatomical cuff is an open boundary; finger/nail topology
+        # remains untouched. The two hands are separate connected components.
+        edges=[edge for edge in bm.edges if edge.is_boundary and all(
+            -.06<(v.co-wrist).dot(direction)<-.005 and
+            ((v.co-wrist)-direction*(v.co-wrist).dot(direction)).length<.06
+            for v in edge.verts)]
+        assert len(edges)>=8, ('Anatomical wrist boundary missing',side,len(edges))
+        originals={v for edge in edges for v in edge.verts}
+        skin_uv={vertex:vertex.link_loops[0][uv].uv.copy() for vertex in originals}
+        original_position={vertex:vertex.co.copy() for vertex in originals}
+        original_vertex={vertex:vertex for vertex in originals}
+        edge_uv={frozenset(edge.verts):{loop.vert:loop[uv].uv.copy()
+                  for loop in edge.link_faces[0].loops if loop.vert in edge.verts}
+                 for edge in edges}
+        # Match the actual source forearm at the shared cuff rather than
+        # allowing residual Hand weights to rotate the hidden skin seam away.
+        for vertex in bm.verts:
+            delta=vertex.co-wrist;along=delta.dot(direction)
+            if not(-.06<along<-.002 and (delta-direction*along).length<.06):continue
+            t=max(0,min(1,(-.002-along)/.022));t=t*t*(3-2*t)
+            weights=vertex[deform]
+            for group in list(weights.keys()):weights[group]*=1-t
+            weights[forearm]=weights.get(forearm,0)+t
+        ring=edges
+        for row in range(4):
+            previous={v for edge in ring for v in edge.verts}
+            extruded=bmesh.ops.extrude_edge_only(bm,edges=ring)
+            newverts=[item for item in extruded['geom'] if isinstance(item,bmesh.types.BMVert)]
+            newset=set(newverts)
+            for vertex in newverts:
+                source=min(previous,key=lambda v:(v.co-vertex.co).length_squared)
+                skin_uv[vertex]=skin_uv[source].copy()
+                original_position[vertex]=original_position[source]
+                original_vertex[vertex]=original_vertex[source]
+                offset=original_position[vertex]-wrist
+                depth=-offset.dot(direction)
+                radial=offset+direction*depth
+                # The forearm is not collinear with the fitted hand. Follow
+                # its real bone centreline, tapering inside the sleeve rather
+                # than letting a straight wrist extrusion pierce the cloth.
+                t=(row+1)/4
+                rotation=Matrix.Identity(3).to_quaternion().slerp(alignment,t)
+                centre=wrist-arm_direction*(depth+.0175*(row+1))
+                vertex.co=centre+(rotation@radial)*(1-.30*t)
+                vertex[deform].clear();vertex[deform][forearm]=1
+            for face in [item for item in extruded['geom'] if isinstance(item,bmesh.types.BMFace)]:
+                face.material_index=0;face.smooth=True
+                # Keep each original UV seam per corner. Taking one UV per
+                # vertex would span unrelated atlas islands at split seams and
+                # paint dark stripes onto an otherwise continuous wrist.
+                source_uv=edge_uv[frozenset(original_vertex[v] for v in face.verts)]
+                for loop in face.loops:loop[uv].uv=source_uv[original_vertex[loop.vert]]
+            ring=[item for item in extruded['geom'] if isinstance(item,bmesh.types.BMEdge)
+                  and all(v in newset for v in item.verts)]
+            assert len(ring)==len(edges), ('Wrist extension lost topology',side,row)
+        # The hidden proximal end has real skin topology too; the sleeve can
+        # never reveal an open hole through a skin tube in an extreme pose.
+        caps=bmesh.ops.holes_fill(bm,edges=ring,sides=0)['faces']
+        for face in caps:
+            face.material_index=0;face.smooth=True
+            sample=next(iter(skin_uv.values()))
+            for loop in face.loops:loop[uv].uv=sample
+    bmesh.ops.recalc_face_normals(bm,faces=list(bm.faces))
+    for vertex in bm.verts:
+        total=sum(vertex[deform].values())
+        assert .999<total<1.001, ('Wrist weights must remain normalized',total)
+    bm.to_mesh(hands.data);bm.free();hands.data.update()
 
 
 def remove_generated_shell(body, rig, contract):

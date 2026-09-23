@@ -186,7 +186,14 @@ def main():
         for child in pivot.children:child.data.transform(rotation.inverted())
         pivot.rotation_euler=(math.pi/2,0,0)
         for child in pivot.children:
-            bm=bmesh.new();bm.from_mesh(child.data);bmesh.ops.remove_doubles(bm,verts=list(bm.verts),dist=1e-7);bmesh.ops.recalc_face_normals(bm,faces=list(bm.faces));bm.to_mesh(child.data);bm.free();child.data.update()
+            bm=bmesh.new();bm.from_mesh(child.data)
+            bmesh.ops.remove_doubles(bm,verts=list(bm.verts),dist=1e-7)
+            bmesh.ops.dissolve_degenerate(bm,edges=list(bm.edges),dist=1e-8)
+            bmesh.ops.delete(bm,geom=[v for v in bm.verts if not v.link_faces],context='VERTS')
+            bmesh.ops.triangulate(bm,faces=list(bm.faces))
+            bmesh.ops.recalc_face_normals(bm,faces=list(bm.faces));bm.normal_update()
+            assert all(v.normal.length>.99 for v in bm.verts), 'Optical geometry has an undefined vertex normal'
+            bm.to_mesh(child.data);bm.free();child.data.update()
             if child.name.endswith('Globe'):
                 limit=max(v.co.z for v in child.data.vertices)*.82
                 assert all(p.center.dot(p.normal)>0 for p in child.data.polygons if p.center.z<limit),'Sclera normals must face outwards'

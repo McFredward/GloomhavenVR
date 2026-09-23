@@ -17,6 +17,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--input', type=Path, required=True)
     parser.add_argument('--output', type=Path, required=True)
+    parser.add_argument('--wrists', action='store_true', help='Review wrist pronation and sleeve overlap instead of the head')
     args = parser.parse_args(sys.argv[sys.argv.index('--') + 1:])
     args.output.mkdir(parents=True, exist_ok=True)
     bpy.ops.wm.open_mainfile(filepath=str(args.input))
@@ -50,15 +51,24 @@ def main():
     camera = bpy.data.objects.new('Review', data)
     scene.collection.objects.link(camera)
     scene.camera = camera
-    for pose, yaw in [('neutral', 0), ('turn-left', -45), ('turn-right', 45)]:
-        rig.pose.bones['Head'].rotation_quaternion = Quaternion((0, 1, 0), math.radians(yaw))
+    if args.wrists:
+        data.ortho_scale = .25
+        centre = rig.matrix_world @ rig.data.bones['Hand.R'].head_local
+        views = [('dorsal', centre+Vector((.35, -.55, .25))), ('palmar', centre+Vector((-.35, -.5, -.2)))]
+        poses = [('neutral', 0), ('palm-up', 90), ('palm-down', -90)]
+    else:
+        centre = Vector((0, 0, 1.50))
+        views = [('front', (0, -2.2, 1.55)), ('oblique', (.9, -1.8, 1.55))]
+        poses = [('neutral', 0), ('turn-left', -45), ('turn-right', 45)]
+    for pose, yaw in poses:
+        rig.pose.bones['Hand.R' if args.wrists else 'Head'].rotation_quaternion = Quaternion((0, 1, 0), math.radians(yaw))
         bpy.context.view_layer.update()
         delta = rig.pose.bones['Head'].matrix @ rig.data.bones['Head'].matrix_local.inverted()
         for obj in eyes:
             obj.matrix_world = rig.matrix_world @ delta @ rig.matrix_world.inverted() @ bind[obj]
-        for view, location in [('front', (0, -2.2, 1.55)), ('oblique', (.9, -1.8, 1.55))]:
+        for view, location in views:
             camera.location = location
-            camera.rotation_euler = (Vector((0, 0, 1.50)) - camera.location).to_track_quat('-Z', 'Y').to_euler()
+            camera.rotation_euler = (centre - camera.location).to_track_quat('-Z', 'Y').to_euler()
             scene.render.filepath = str(args.output / (pose + '-' + view + '.png'))
             bpy.ops.render.render(write_still=True)
 
