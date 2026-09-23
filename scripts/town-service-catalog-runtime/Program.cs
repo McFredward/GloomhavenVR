@@ -16,51 +16,68 @@ public static class InteractionProgram
     private static RectTransform Rect(string name,Transform parent)
     {var go=new GameObject(name,typeof(RectTransform));go.transform.SetParent(parent,false);var r=(RectTransform)go.transform;r.sizeDelta=new Vector2(500,50);return r;}
     private static void Census(TownServiceCatalog c)=>typeof(TownServiceCatalog).GetMethod("RefreshRows",BindingFlags.Instance|BindingFlags.NonPublic)!.Invoke(c,null);
-    private static void Advance(TownServiceMerchantDrawer drawer,float amount){Set(drawer,"_amount",amount);Set(drawer,"_target",amount);drawer.Tick(1f);}
-    private static void CardStripReach(TownServiceCatalog catalog)
+    private static void CardReach(TownServiceCatalog catalog)
     {
-        TownServiceMerchantDrawer? full=null;
-        foreach(var drawer in catalog.Drawers)
-        {
-            int count=0;foreach(var entry in catalog.Entries)if(entry.Drawer==drawer)count++;
-            if(count==64){full=drawer;break;}
-        }
-        Check(full!=null,"native Hands category supplies a completely full filing drawer");
-        Advance(full!,1f);
         var entries=new List<TownServiceCatalog.Entry>();
-        var colliders=new List<BoxCollider>();var corners=new Vector3[4];
-        foreach(var entry in catalog.Entries)if(entry.Drawer==full)
+        var colliders=new List<Collider>();
+        foreach(var entry in catalog.Entries)
         {
             Set(entry,"_presentedAt",-1000f);entry.Tick(1f);entries.Add(entry);
-            var shape=new GameObject("ActualTokenBounds").AddComponent<BoxCollider>();
-            CardColliderFit.Apply((RectTransform)entry.CardRoot,corners,shape.gameObject,shape,1f);
-            colliders.Add(shape);
+            colliders.Add(entry.Sample.PickCollider);
         }
         Physics.SyncTransforms();
         for(int n=0;n<entries.Count;n++)
         {
             var card=(RectTransform)entries[n].CardRoot;
-            Vector3 target=card.TransformPoint(new Vector3(0f,card.rect.height*.40f,0f));
-            // Approach the independently exposed upper strip along the actual face normal.
-            // Uses the production Token collider fitting block, real Unity Collider.Raycast,
-            // and all 64 neighbouring cards, not a nearest-centre approximation.
+            Vector3 target=card.position;
+            // The actual token owns these actual Unity colliders; the old test fitted a
+            // separate fake collider and stubbed the very grip which failed on hardware.
             var ray=new Ray(target-card.forward*.4f,card.forward);
             float closest=float.PositiveInfinity;int picked=-1;
             for(int candidate=0;candidate<colliders.Count;candidate++)
                 if(colliders[candidate].Raycast(ray,out RaycastHit hit,.8f)&&hit.distance<closest)
                 {closest=hit.distance;picked=candidate;}
-            Check(picked==n,"every filing strip is the nearest actual collider along its face approach");
+            Check(picked==n,"every open card is the nearest actual collider along its face approach");
             Check(Vector3.Distance(colliders[n].ClosestPoint(target-card.forward*.01f),target)<.006f,
-                "physical fingertip can reach each exposed filing strip");
+                "physical fingertip can reach each exposed card face");
         }
-        foreach(var collider in colliders)UnityEngine.Object.DestroyImmediate(collider.gameObject);
-        Advance(full!,0f);
+    }
+    private static void HeldScale(TownServiceCatalog catalog,Transform anchor)
+    {
+        var entry=catalog.Entries[0];var source=entry.CardRoot;
+        Transform physical=source.parent.parent;
+        foreach(float scale in new[]{.05f,1f,2f,198.12f})foreach(HandSide side in new[]{HandSide.Left,HandSide.Right})
+        {
+            anchor.localScale=Vector3.one*scale;
+            var hand=new VRHand{Side=side,WorldScale=scale};
+            hand.Rig.GrabAnchor.localScale=Vector3.one*scale;
+            hand.Rig.GrabAnchor.SetPositionAndRotation(new Vector3(1f,1.4f,-2f)*scale,Quaternion.Euler(-15f,37f,22f));
+            entry.Tick(scale);Vector3 home=physical.localPosition;Quaternion rotation=physical.localRotation;
+            Check(entry.Sample.CanGrab,"real physical token accepts an unowned inspection hand");
+            entry.Sample.OnGrab(hand);entry.Tick(scale);catalog.LateTick();
+            Check(entry.Sample.IsHeld&&entry.Sample.HeldRoot==physical,"pickup retains the same physical native card and body");
+            Check(source.gameObject.activeInHierarchy&&source.GetComponentInParent<Canvas>().enabled,
+                "held native face remains active and rendered through the original world canvas");
+            Vector3 local=hand.Rig.GrabAnchor.InverseTransformPoint(physical.position);
+            Check(local.magnitude<.15f,"held card stays inside one hand span at every rig scale");
+            Check(Vector3.Distance(source.position,physical.position)<.002f*scale,"native face retains the held body pose used by multiplayer publishing");
+            Check(!catalog.CanRelocate,"held or returning sample prevents station relocation");
+            Check(catalog.PreviewContent!=null,"native inspection detail remains available for multiplayer while held");
+            entry.Sample.OnGrabCancelled(hand);catalog.LateTick();
+            Check(Vector3.Distance(physical.localPosition,home)<.0001f&&Quaternion.Angle(physical.localRotation,rotation)<.001f,
+                "cancel restores the original counter pose");
+            UnityEngine.Object.DestroyImmediate(hand.Rig.GrabAnchor.gameObject);
+        }
+        anchor.localScale=Vector3.one;
     }
     public static int Run()
     {
         assertions=0;var root=new GameObject("MerchantFixture");var events=new GameObject("Events",typeof(EventSystem));
         var prefab=new GameObject("MerchantPrefab");var counter=new GameObject("Counter");counter.transform.SetParent(prefab.transform,false);
         var plank=GameObject.CreatePrimitive(PrimitiveType.Cube);plank.name="SurfacePlank0";plank.transform.SetParent(counter.transform,false);
+        var returnTemplate=new GameObject("CounterReturn");returnTemplate.transform.SetParent(counter.transform,false);
+        var returnTop=GameObject.CreatePrimitive(PrimitiveType.Cube);returnTop.transform.SetParent(returnTemplate.transform,false);
+        returnTop.transform.localPosition=new Vector3(0f,.96f,0f);returnTop.transform.localScale=new Vector3(1.30f,.02f,1.15f);returnTemplate.SetActive(false);
         TownServiceAssets.Merchant=prefab;
         var inventory=Rect("Inventory",root.transform).gameObject.AddComponent<UIShopItemInventory>();
         inventory.itemsCanvasGroup=inventory.gameObject.AddComponent<CanvasGroup>();
@@ -95,53 +112,45 @@ public static class InteractionProgram
         Check(catalog.Entries.Count==328,"all 164 stock and 164 owned entries persist without pagination");
         Check(catalog.Controls.Count==0,"no flat filter or page buttons");
         Check(ObjectPool.Alive==328,"one physical original card per persistent entry");
-        int openStock=0,openOwned=0;
-        foreach(var initial in catalog.Drawers)
-            if(initial.Accessible){if(initial.Selling)openOwned++;else openStock++;}
-        Check(openStock==1&&openOwned==1,"first stock and owned drawers show immediately reachable cards");
-        foreach(var initial in catalog.Drawers)Advance(initial,0f);
-        catalog.Tick(1f);
+        Check(catalog.Drawers.Count==0,"no drawer or drawer interaction is created");
+        Check(catalog.Extensions.Count==3,"owned catalog grows into three furnished open returns");
         foreach(var e in catalog.Entries)
         {
-            Check(!e.CardUI.GetComponentInParent<Canvas>().enabled && e.CardUI.gameObject.activeInHierarchy,
-                "closed drawer skips canvas rendering without native artwork lifecycle reset" + " id="+e.ItemId+" canvas="+e.CardUI.GetComponentInParent<Canvas>().enabled+" active="+e.CardUI.gameObject.activeInHierarchy+" exposed="+e.Exposed+" current="+e.Current);
-            Check(!e.Sample.CanGrab,"closed opaque drawers prevent picking through cabinet");
-            Check(!e.Exposed,"closed drawer contents excluded only when physically hidden");
+            Check(e.Exposed&&e.CardUI.GetComponentInParent<Canvas>().enabled&&e.CardUI.gameObject.activeInHierarchy,
+                "every stock and owned card is visible before pickup");
+            Check(e.Sample.CanGrab,"every exposed card is independently inspectable without opening controls");
             Check(e.CardUI.GetComponent<Image>().raycastTarget==false,"own card GUI cannot veto direct pickup");
             Check(e.BodyRoot!=null,"each item has physical body");
-        }
-        var drawer=catalog.Drawers[0];
-        Transform label=drawer.Root.Find("Label");
-        Check(label.GetComponent<TMPro.TextMeshProUGUI>()!=null && label.GetComponent<TMPro.TextMeshPro>()==null
-            && label.GetComponent<Canvas>().renderMode==RenderMode.WorldSpace,
-            "drawer label uses supported mirrored world canvas text");
-        Check(Mathf.Abs(((RectTransform)label).rect.width*label.localScale.x-.95f)<.0001f,
-            "drawer canvas text retains physical label width");
-        Advance(drawer,1f);
-        Check(drawer.Root.localPosition.z<-.58f,"full pull clears native countertop back rows");
-        foreach(var e in catalog.Entries)if(e.Drawer==drawer)
-        {
-            Check(e.Sample.CanGrab,"every exposed back card is independently inspectable");
-            Check(e.Exposed,"all open drawer items publish to observers");
-            Vector3 centre=anchor.transform.InverseTransformPoint(e.CardRoot.position);
-            Check(centre.z<-.35f,"all open back card centres clear counter front");
+            if(!e.Selling)
+            {
+                var corners=new Vector3[4];((RectTransform)e.CardRoot).GetWorldCorners(corners);
+                foreach(Vector3 corner in corners)
+                {
+                    Vector3 point=anchor.transform.InverseTransformPoint(corner);
+                    Check(point.z<-.19f,"all stock cards clear the NPC ledger and transaction workspace");
+                    Check(Mathf.Abs(point.x)<1.90f,"every stock card fits the authored main counter width");
+                }
+                if(e.Ordinal%TownServiceMerchantLayout.StockColumns>0)
+                {
+                    var previous=catalog.Entries.FindEntry(e.Ordinal-1,false);
+                    float separation=Mathf.Abs(e.CardRoot.position.x-previous.CardRoot.position.x);
+                    Check(separation>Vector3.Distance(corners[0],corners[3]),"physical card faces never overlap their adjacent column");
+                }
+            }
         }
         var stable=catalog.Entries[0];var stableRoot=stable.CardRoot;
         Census(catalog);Check(catalog.Entries[0].CardRoot==stableRoot,"unchanged census retains physical identity");
         var added=new CItem(999);added.YMLData.Slot=CItem.EItemSlot.Head;inventory.service.Buy.Add(added);Census(catalog);
         Check(catalog.Entries.Count==329,"late unlock adds card without dropping old stock");
         Check(catalog.Entries[0].CardRoot==stableRoot,"late unlock preserves existing card transforms");
-        Check(drawer.Accessible,"late unlock does not shut an open drawer");
-        stable.Sample.IsMoving=true;Check(!catalog.CanRelocate,"held or returning sample prevents station relocation");
-        drawer.Close();Check((float)typeof(TownServiceMerchantDrawer).GetField("_target",BindingFlags.Instance|BindingFlags.NonPublic)!.GetValue(drawer)! == 1f,"drawer cannot close on held card");
-        stable.Sample.IsMoving=false;
-        Set(drawer,"_target",0f);Check(!catalog.CanRelocate,"moving drawer prevents workspace relocation");Advance(drawer,1f);
+        HeldScale(catalog,anchor.transform);
         Check(inventory.service.Commits==0,"inspection census and opening never spend gold");
-        stable.Sample.IsHeld=true;stable.Sample.PickupSequence=1;catalog.LateTick();
-        Check(inventory.itemTooltip.Shows==1&&inventory.itemTooltip.Service==inventory.service,"held inspection invokes native complete item detail with original discount service");
+        var inspector=new VRHand();stable.Tick(1f);stable.Sample.OnGrab(inspector);stable.Tick(1f);catalog.LateTick();
+        Check(inventory.itemTooltip.Shows>0&&inventory.itemTooltip.Service==inventory.service,"held inspection invokes native complete item detail with original discount service");
         Check(inventory.service.Commits==0,"native details never select or transact");
         Check(catalog.PreviewContent!=null,"native detail content available for observer mirror");
-        stable.Sample.IsHeld=false;catalog.LateTick();Check(!inventory.itemTooltip.IsShown,"release retires attached inspection details");
+        stable.Sample.OnGrabCancelled(inspector);catalog.LateTick();Check(!inventory.itemTooltip.IsShown,"release retires attached inspection details");
+        UnityEngine.Object.DestroyImmediate(inspector.Rig.GrabAnchor.gameObject);
         CItem buy=inventory.service.Buy[0];
         Check(TownServiceMerchantTransaction.Commit(inventory,buy,false,()=>true),"explicit drop dispatches native buy confirmation");
         Check(inventory.service.Commits==1,"explicit drop commits exactly once");
@@ -167,7 +176,7 @@ public static class InteractionProgram
         Transform originalParent=root.transform;catalog.Dispose();
         Check(inventory.transform.parent==originalParent,"opt out restores hidden native inventory hierarchy");
         Check(ObjectPool.Alive==0,"all physical card loans returned on teardown");
-        Check(VRInteractables.Registered.Count==0,"all drawer grips unregistered on teardown");
+        Check(VRInteractables.Registered.Count==0,"all physical pickup colliders unregistered on teardown");
         Check(inventory.itemsCanvasGroup.interactable,"presentation never changes native permissions");
         // Original HQ reward/stock caps are Common6/Rare2/Relic1. Across all supplied
         // nonquest IDs that is512 sellable copies at21 roster characters, including multiple distinct CItems.
@@ -187,47 +196,30 @@ public static class InteractionProgram
         using(var fullCatalog=new TownServiceCatalog(inventory,anchor.transform,()=>context,()=>true,anchor.transform))
         {
             fullCatalog.SetVisibility(1f);Census(fullCatalog);fullCatalog.Tick(1f);
-            int soldCopies=0,ownedDrawers=0;var identities=new HashSet<CItem>();
+            int soldCopies=0;var identities=new HashSet<CItem>();
             foreach(var entry in fullCatalog.Entries)if(entry.Selling){soldCopies++;identities.Add(entry.Item);}
             Check(soldCopies==512&&identities.Count==512,"all native rarity-cap copies retain distinct owned identities");
-            foreach(var capacityDrawer in fullCatalog.Drawers)
+            foreach(var extension in fullCatalog.Extensions)
             {
-                if(capacityDrawer.Selling)ownedDrawers++;
-                bool upper=capacityDrawer.Root.localPosition.y>0f;
-                if(upper)
-                {
-                    Advance(capacityDrawer,0f);
-                    Check(capacityDrawer.Root.localPosition.z+.226f<.30f,"upper cabinet remains ahead of actual NPC anatomy envelope");
-                    Check(Mathf.Abs(capacityDrawer.Root.localPosition.x)-.538f>=.16f,"upper cabinet inner wall clears original ledger");
-                }
-                foreach(float amount in new[]{0f,1f})
-                {
-                    Advance(capacityDrawer,amount);
-                    foreach(var filter in capacityDrawer.Root.GetComponentsInChildren<MeshFilter>(true))
-                    {
-                        Bounds bounds=filter.sharedMesh.bounds;
-                        for(int corner=0;corner<8;corner++)
-                        {
-                            Vector3 point=bounds.center+Vector3.Scale(bounds.extents,new Vector3((corner&1)==0?-1:1,(corner&2)==0?-1:1,(corner&4)==0?-1:1));
-                            Vector3 p=anchor.transform.InverseTransformPoint(filter.transform.TransformPoint(point));
-                            Check(p.y+.970f>=0,"every native-capacity drawer remains above station floor");
-                            Check(p.y+.970f<=1.551f,"complete Guildmaster drawers stay inside measured furniture height");
-                        }
-                    }
-                }
-                Advance(capacityDrawer,0f);
+                Check(Mathf.Abs(extension.Root.localPosition.x)>2.5f,"side returns clear the merchant anatomy envelope");
+                Check(Mathf.Abs(extension.Root.localPosition.y+.970f)<.0001f,"furnished return retains the shared floor origin");
             }
-            Check(ownedDrawers==10,"complete Guildmaster roster inventory fits ten accessible drawers");
-            CardStripReach(fullCatalog);
+            Check(fullCatalog.Extensions.Count==8,"complete Guildmaster roster inventory creates eight open furnished returns");
+            CardReach(fullCatalog);
             foreach(var entry in fullCatalog.Entries)
             {
                 var corners=new Vector3[4];((RectTransform)entry.CardRoot).GetWorldCorners(corners);
                 foreach(var point in corners)
-                    Check(Mathf.Abs(entry.Drawer.Root.InverseTransformPoint(point).x)<.506f,"all eight card columns clear actual drawer inner walls");
+                    Check(point.y+.970f>=0,"every native-capacity card stays above the floor");
             }
         }
-        Check(ObjectPool.Alive==0&&VRInteractables.Registered.Count==0,"maximum native inventory releases every card and drawer");
+        Check(ObjectPool.Alive==0&&VRInteractables.Registered.Count==0,"maximum native inventory releases every card and return");
         UnityEngine.Object.DestroyImmediate(root);UnityEngine.Object.DestroyImmediate(prefab);UnityEngine.Object.DestroyImmediate(events);
         return assertions;
     }
+}
+internal static class CatalogFixtureLookup
+{
+    internal static TownServiceCatalog.Entry FindEntry(this IReadOnlyList<TownServiceCatalog.Entry> entries,int ordinal,bool selling)
+    {foreach(var entry in entries)if(entry.Ordinal==ordinal&&entry.Selling==selling)return entry;throw new Exception("Missing counter slot");}
 }

@@ -121,18 +121,37 @@ namespace GloomhavenVR.Core
     internal static class Loc{internal static event Action? OnChanged;internal static int Subscribers=>OnChanged?.GetInvocationList().Length??0;internal static void Change()=>OnChanged?.Invoke();internal static string Mod(string key)=>key;}
 }
 namespace GloomhavenVR.Cards
-{internal static class ItemBurnPlayback{internal static void ObserveInitialState(ItemCardUI item){}}internal static class CardFaceMipBake{internal static void Rescan(ItemCardUI item){}}}
+{
+    internal static class ItemBurnPlayback{internal static void ObserveInitialState(ItemCardUI item){}}
+    internal static class CardFaceMipBake{internal static void Rescan(ItemCardUI item){}}
+    internal sealed class ConfigFloat { internal float Value; internal ConfigFloat(float value){Value=value;} }
+    internal static class CardsConfig
+    { internal static ConfigFloat HeldOffPalm=new(.01f),HeldForward=new(.025f),HeldFaceBias=new(65f); }
+}
+namespace GloomhavenVR.Board.FigureGrab
+{ internal static class HeldPoseMirror { internal static float OffsetSign(bool left)=>left?-1f:1f; } }
 namespace GloomhavenVR.Rig{internal static class VRRigDriver{internal static Camera? HeadCamera;}}
 namespace GloomhavenVR.Hands
 {
-    public class VRHand{public HandRig Rig=new();public float WorldScale=1;public void GetAimRay(out Vector3 o,out Vector3 d){o=Rig.GrabAnchor.position;d=Rig.GrabAnchor.forward;}}
-    public class HandRig{public Transform GrabAnchor=new GameObject("Hand").transform;}
+    public enum HandSide{Left,Right}
+    public enum Finger{Thumb,Index}
+    public struct FingerJoints{public bool IsValid;public Transform Tip;}
+    public class VRHand
+    {
+        public HandRig Rig=new();public float WorldScale=1;public bool HasPose=true,TriggerUp;public HandSide Side;
+        internal GrabberFixture Grabber=new();
+        public void GetAimRay(out Vector3 o,out Vector3 d){o=Rig.GrabAnchor.position;d=Rig.GrabAnchor.forward;}
+    }
+    internal class GrabberFixture{internal GloomhavenVR.Hands.Interact.IGrabbable? Held;}
+    public class HandRig{public Transform GrabAnchor=new GameObject("Hand").transform;public FingerJoints GetFinger(Finger f)=>default;}
 }
 namespace GloomhavenVR.Hands.Interact
 {
     internal interface IGrabbable{bool CanGrab{get;}bool GrabWithGrip{get;}void OnGrab(GloomhavenVR.Hands.VRHand h);void OnRelease(GloomhavenVR.Hands.VRHand h,Vector3 v);}
     internal interface IGrabbableHandFilter{bool AllowsHand(GloomhavenVR.Hands.VRHand h);}
     internal interface IGrabCancellation{void OnGrabCancelled(GloomhavenVR.Hands.VRHand h);}
+    internal interface ITriggerOnlyGrabbable{}
+    internal interface IGrabHighlight{void OnGrabHighlight(GloomhavenVR.Hands.VRHand h,bool value);}
     internal static class VRInteractables{internal static readonly List<IGrabbable> Registered=new();internal static void RegisterGrabbable(IGrabbable g,Collider c)=>Registered.Add(g);internal static void UnregisterGrabbable(IGrabbable g)=>Registered.Remove(g);}
     internal static class UguiPokeSurfaces{internal static void Unregister(Canvas c){}}
 }
@@ -160,13 +179,7 @@ namespace GloomhavenVR.WorldUI
     internal class TownServiceSurface{}
     internal static class TownServicePhysicalRay{internal static void Claim(GloomhavenVR.Hands.VRHand hand){}}
     internal static class TownServiceAssets{internal static GameObject? Merchant;internal static GameObject? Prefab(string n)=>Merchant;}
-    internal sealed class TownServiceToken:IDisposable
-    {
-        internal bool IsMoving,DropEligible,IsHeld;internal ulong PickupSequence;private readonly Func<bool> _alive;private readonly Func<bool>? _inspect;
-        internal TownServiceToken(RectTransform s,Selectable b,Func<object?> i,Func<object?> c,Func<bool> alive,Transform mat,Transform? physical=null,Func<bool>? drop=null,Func<bool>? eligible=null,Vector3 zoneCenter=default,Func<bool>? inspect=null,float zoneHalfWidth=.20f){_alive=alive;_inspect=inspect;}
-        internal bool CanGrab=>_alive()&&(_inspect?.Invoke()??true);
-        internal void Tick(float s){}public void Dispose(){}
-    }
+    internal static class PanelLayout{internal static float WorldScale=>1f;}
 }
 
 // Confirmation presentation is tested with the actual mask in the interaction suite.

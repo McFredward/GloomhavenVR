@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Compile complete physical merchant catalog, drawer, native transaction and teardown cases and run them inside Unity 2021.3.5.
+"""Compile the open merchant counter, actual pickup, native transaction and teardown cases and run them inside Unity 2021.3.5.
 
 No game launch, network service, source mutation or generated tracked files.
 Explicit fixture boundaries are documented in town-service-catalog-runtime/Boundaries.cs.
@@ -28,31 +28,24 @@ def replace_once(source, before, after):
 
 def sources(root):
     base = root / "src/GloomhavenVR/WorldUI/TownServices"
-    names = ["TownServiceCatalog.cs", "TownServiceMerchantRows.cs", "TownServiceMerchantTransaction.cs", "TownServiceMerchantDrawer.cs", "TownServiceMerchantZone.cs", "TownServiceCatalogPreview.cs", "TownServiceWindowMask.cs"]
+    names = ["TownServiceCatalog.cs", "TownServiceMerchantRows.cs", "TownServiceMerchantTransaction.cs", "TownServiceMerchantDrawer.cs", "TownServiceMerchantCounter.cs", "TownServiceMerchantZone.cs", "TownServiceCatalogPreview.cs", "TownServiceWindowMask.cs", "TownServiceToken.cs"]
     bound = {name: (base / name).read_text() for name in names}
+    bound["CardGripPose.cs"] = (root / "src/GloomhavenVR/Cards/CardGripPose.cs").read_text()
     hashes = {name: hashlib.sha256(text.encode()).hexdigest() for name, text in bound.items()}
-    token = (base / "TownServiceToken.cs").read_text()
-    start = token.index("        _source.GetWorldCorners(_corners);", token.index("_shape.enabled = !_returning"))
-    end = token.index("\n    }", start)
-    bound["CardColliderFit.cs"] = "using UnityEngine;internal static class CardColliderFit { internal static void Apply(RectTransform _source, Vector3[] _corners, GameObject _pick, BoxCollider _shape, float scale) {\n" + token[start:end] + "\n}}"
-    hashes["TownServiceToken.cs"] = hashlib.sha256(token.encode()).hexdigest()
     return bound, hashes
 
 
 def mutations():
     return [
-        ("column-wall", "TownServiceMerchantDrawer.cs", "(index%8-3.5f)*.126f", "(index%8-3.5f)*.14f", "all eight card columns clear actual drawer inner walls"),
-        ("native-copy-capacity", "TownServiceMerchantDrawer.cs", "bool upper = level >= 7;", "bool upper = false;", "every native-capacity drawer remains above station floor"),
+        ("overlapping-stock", "TownServiceMerchantCounter.cs", "ColumnPitch = .15f", "ColumnPitch = .07f", "physical card faces never overlap their adjacent column"),
+        ("npc-workspace", "TownServiceMerchantCounter.cs", "-1.32f + row * RowPitch", "-.72f + row * RowPitch", "all stock cards clear the NPC ledger and transaction workspace"),
         ("constructor-rollback", "TownServiceCatalog.cs", "catch { Dispose(); throw; }\n    }\n    internal void SetVisibility", "catch { throw; }\n    }\n    internal void SetVisibility", "constructor failure restores native inventory ownership"),
-        ("closed-render", "TownServiceCatalog.cs", "canvas.Key.enabled = exposed && canvas.Value;", "canvas.Key.enabled = canvas.Value;", "closed drawer skips canvas rendering without native artwork lifecycle reset"),
-        ("initial-closed", "TownServiceMerchantDrawer.cs", "_amount = _target = level == 0 ? 1f : 0f;", "_amount = _target = 0f;", "first stock and owned drawers show immediately reachable cards"),
+        ("hidden-stock", "TownServiceCatalog.cs", "internal bool Exposed => Current;", "internal bool Exposed => Sample.IsMoving;", "every stock and owned card is visible before pickup"),
         ("stale-prompt", "TownServiceMerchantTransaction.cs", "if (created) confirmation.OnCancel();", "if (created) { }", "own stale item prompt cancelled through native lifecycle"),
         ("cap", "TownServiceCatalog.cs", "foreach(var row in _backend.Rows)", "foreach(var row in _backend.Rows.GetRange(0, Math.Min(6,_backend.Rows.Count)))", "all 164 stock and 164 owned entries persist without pagination"),
         ("held-relocation", "TownServiceCatalog.cs", "if (sample.IsMoving) return false", "if (sample.IsMoving && _disposed) return false", "held or returning sample prevents station relocation"),
-        ("drawer-relocation", "TownServiceCatalog.cs", "if(drawer.Moving)return false", "if(drawer.Moving && _disposed)return false", "moving drawer prevents workspace relocation"),
-        ("closed-pick", "TownServiceCatalog.cs", "inspect: () => drawer.Accessible", "inspect: () => true", "closed opaque drawers prevent picking through cabinet"),
-        ("partial-pull", "TownServiceMerchantDrawer.cs", "Travel = .78f", "Travel = .48f", "full pull clears native countertop back rows"),
-        ("close-held", "TownServiceMerchantDrawer.cs", "if(_hand==null&&_mayClose())_target=0f", "if(_hand==null)_target=0f", "drawer cannot close on held card"),
+        ("held-return", "TownServiceToken.cs", "_physical.localPosition = _homePosition;", "_physical.localPosition = Vector3.zero;", "cancel restores the original counter pose"),
+        ("held-scale", "TownServiceToken.cs", "_hand.Rig.GrabAnchor.TransformPoint(_heldPosition)", "_hand.Rig.GrabAnchor.TransformPoint(_heldPosition * scale)", "held card stays inside one hand span at every rig scale"),
         ("context-race", "TownServiceMerchantTransaction.cs", "if (!stillCurrent() || !Eligible(inventory, item, selling)\n            || !created", "if (!Eligible(inventory, item, selling)\n            || !created", "context race never confirms native callback"),
         ("confirmation-owner", "TownServiceMerchantTransaction.cs", "if (confirmation == null || confirmation.IsActive) return false;", "if (confirmation == null) return false;", "unrelated pending confirmation retained"),
         ("sell-identity", "TownServiceMerchantTransaction.cs", "return inventory.service.GetItemsToSell(inventory.character).Contains(item)", "return true", "stale owned item is ineligible"),
