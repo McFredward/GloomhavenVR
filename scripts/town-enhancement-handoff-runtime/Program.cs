@@ -54,15 +54,24 @@ public static class InteractionProgram
         CardsDriver.Returned = CardsDriver.Rebuilds = 0; CardsDriver.LastReturned = null;
         VRRigDriver.HeadCamera = null; VRHands.Left = VRHands.Right = null;
         MapRoomDriver.Active = true;
+        CardsDriver.OffScenarioFanCards = new[] { card };
         using (var handoff = new TownServiceEnhancementHandoff(shop, station, () => alive, () => input))
         {
             handoff.Tick();
+            Check(handoff.Zone.GetComponent<CanvasGroup>().alpha == 1f && !card.IsHeld,
+                "empty ready palm advertises an owned offering without requiring a held card");
             if (scenario == 1) shop.character = new Owner { CharacterID = "foreign" };
             if (scenario == 2) card.transform.position = palm.TransformPoint(new Vector3(0f, 0f, 1f));
             if (scenario == 3) slot.Selectable.interactable = false;
             if (scenario == 4) card.Owned = false;
             if (scenario == 8) shop._isConfirmationBoxOpened = true;
             if (scenario == 9) card.IsHeld = true;
+            if (scenario == 1 || scenario == 3 || scenario == 4 || scenario == 8)
+            {
+                handoff.Tick();
+                Check(handoff.Zone.GetComponent<CanvasGroup>().alpha == 0f,
+                    "foreign disabled or pending native selection never advertises a palm drop");
+            }
             bool offered = TownServiceEnhancementHandoff.TryOffer(card);
             string reason = scenario == 1 ? "foreign native character refuses offering"
                 : scenario == 2 ? "distant release refuses offering"
@@ -152,18 +161,56 @@ public static class InteractionProgram
         TownServicePopulation.Station = new TownServiceStation { Root = root.transform };
         var card = new GameObject("OwnedCard", typeof(VRCard)).GetComponent<VRCard>(); card.transform.SetParent(root.transform, false);
         var hand = new VRHand(); hand.Grabber.Held = card; VRHands.Left = hand;
+        CardsDriver.OffScenarioFanCards = new[] { card };
+        var head = new GameObject("Head", typeof(Camera)).GetComponent<Camera>(); head.transform.SetParent(root.transform, false);
+        VRRigDriver.HeadCamera = head;
+        void Outside()
+        {
+            head.transform.position = palm.position + Vector3.forward * 3f;
+            card.transform.position = palm.position + Vector3.forward * 3f;
+            TownServiceEnhancementHandoff.TickApproach();
+        }
+        void Offer() { card.transform.position = palm.position; TownServiceEnhancementHandoff.TickApproach(); }
+        Outside();
         MapRoomDriver.Visits = 0; GuildmasterDestinations.Mode = EGuildmasterMode.None;
-        card.Owned = false; TownServiceEnhancementHandoff.TickApproach();
+        card.Owned = false; Offer();
         Check(MapRoomDriver.Visits == 0, "foreign held card never opens native service");
-        card.Owned = true; StoryComposite.PointOfNoReturn = true; TownServiceEnhancementHandoff.TickApproach();
+        card.Owned = true; StoryComposite.PointOfNoReturn = true; Outside(); Offer();
         Check(MapRoomDriver.Visits == 0, "story commitment prevents automatic visit");
-        StoryComposite.PointOfNoReturn = false; MapRoomDriver.CanVisit = false; TownServiceEnhancementHandoff.TickApproach();
+        StoryComposite.PointOfNoReturn = false; MapRoomDriver.CanVisit = false; Outside(); Offer();
         Check(MapRoomDriver.Visits == 0, "native unavailable service never opens");
-        MapRoomDriver.CanVisit = true; card.transform.position = palm.position + Vector3.forward * 5f;
+        MapRoomDriver.CanVisit = true; Outside();
         TownServiceEnhancementHandoff.TickApproach(); Check(MapRoomDriver.Visits == 0, "distant card never opens service");
-        card.transform.position = palm.position; TownServiceEnhancementHandoff.TickApproach();
+        Offer();
         Check(MapRoomDriver.Visits == 1, "owned card approach opens through original native visit");
         TownServiceEnhancementHandoff.TickApproach(); Check(MapRoomDriver.Visits == 1, "repeated approach cannot toggle native service");
-        UnityEngine.Object.DestroyImmediate(root); VRHands.Left = null; TownServicePopulation.Station = null;
+        GuildmasterDestinations.Mode = EGuildmasterMode.None;
+        TownServiceEnhancementHandoff.TickApproach(); Check(MapRoomDriver.Visits == 1, "explicit close remains closed while card stays near");
+        VRHands.Left = null; Outside(); head.transform.position = palm.position;
+        TownServiceEnhancementHandoff.TickApproach(); Check(MapRoomDriver.Visits == 2, "head proximity opens original service without a held card");
+        GuildmasterDestinations.Mode = EGuildmasterMode.None;
+        TownServiceEnhancementHandoff.TickApproach(); Check(MapRoomDriver.Visits == 2, "explicit close remains closed while head stays near");
+        head.transform.position = palm.position + Vector3.forward * 1.6f; TownServiceEnhancementHandoff.TickApproach();
+        head.transform.position = palm.position; TownServiceEnhancementHandoff.TickApproach();
+        Check(MapRoomDriver.Visits == 2, "head hysteresis avoids boundary reopen");
+        Outside(); head.transform.position = palm.position; TownServiceEnhancementHandoff.TickApproach();
+        Check(MapRoomDriver.Visits == 3, "leaving and returning re-arms proximity greeting");
+        GuildmasterDestinations.Mode = EGuildmasterMode.Merchant;
+        Outside(); head.transform.position = palm.position; TownServiceEnhancementHandoff.TickApproach();
+        Check(MapRoomDriver.Visits == 3, "proximity never takes over another open service");
+        GuildmasterDestinations.Mode = EGuildmasterMode.None; TownServiceEnhancementHandoff.TickApproach();
+        Check(MapRoomDriver.Visits == 3, "closing another service while near does not take over");
+        Outside(); GloomhavenVR.Core.Events.VRModeStateMachine.CurrentMode = GloomhavenVR.Core.Events.VRMode.ModalUI;
+        head.transform.position = palm.position; TownServiceEnhancementHandoff.TickApproach();
+        Check(MapRoomDriver.Visits == 3, "modal confirmation prevents proximity opening");
+        GloomhavenVR.Core.Events.VRModeStateMachine.CurrentMode = GloomhavenVR.Core.Events.VRMode.TableIdle;
+        TownServiceEnhancementHandoff.TickApproach(); Check(MapRoomDriver.Visits == 3, "modal closure does not silently reopen a service");
+        VRHands.Left = hand; card.transform.position = palm.position; TownServiceEnhancementHandoff.TickApproach();
+        Check(MapRoomDriver.Visits == 4, "deliberately offering a card overrides an earlier proximity close");
+        GuildmasterDestinations.Mode = EGuildmasterMode.None; WorldUIConfig.MapRoomHand!.Value = false;
+        Outside(); head.transform.position = palm.position; Offer();
+        Check(!TownServiceEnhancementHandoff.Enabled && MapRoomDriver.Visits == 4, "disabled map hand prevents automatic immersive opening");
+        WorldUIConfig.MapRoomHand.Value = true;
+        UnityEngine.Object.DestroyImmediate(root); VRHands.Left = null; VRRigDriver.HeadCamera = null; TownServicePopulation.Station = null;
     }
 }

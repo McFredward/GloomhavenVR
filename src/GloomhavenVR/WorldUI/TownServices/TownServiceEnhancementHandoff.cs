@@ -17,9 +17,11 @@ namespace GloomhavenVR.WorldUI;
 internal sealed class TownServiceEnhancementHandoff : IDisposable
 {
     private static TownServiceEnhancementHandoff? _current;
-    private static float _approachAt;
     private static float _approachSearchAt;
     private static Transform? _approachPalm;
+    private static VRCard? _approachCard;
+    private static bool _headInside, _cardInside;
+    internal static bool Enabled => WorldUIConfig.MapRoomHand == null ? Defaults.MapRoomHand : WorldUIConfig.MapRoomHand.Value;
     private static System.Runtime.CompilerServices.ConditionalWeakTable<VRCard, ReturnPresentation> Reclaimed = new();
     private static bool _hasReclaimed;
     private static readonly List<ReturnPresentation> Returns = new(2);
@@ -119,12 +121,9 @@ internal sealed class TownServiceEnhancementHandoff : IDisposable
 
     internal static void TickApproach()
     {
-        if (!MapRoomDriver.Active || !WorldUIConfig.ImmersiveTownServices.Value
-            || StoryComposite.PointOfNoReturn || !TownServicePopulation.Available(3)
-            || Time.unscaledTime < _approachAt
-            || GuildmasterDestinations.CurrentDestinationMode() == EGuildmasterMode.Enchantress) return;
-        VRCard? held = HeldOwnedCard(VRHands.Left) ?? HeldOwnedCard(VRHands.Right);
-        if (held == null) return;
+        if (!MapRoomDriver.Active || !WorldUIConfig.ImmersiveTownServices.Value || !Enabled
+            || !TownServicePopulation.Available(3))
+        { _headInside = _cardInside = false; _approachCard = null; return; }
         if (_approachPalm == null && Time.unscaledTime >= _approachSearchAt)
         {
             _approachSearchAt = Time.unscaledTime + .5f;
@@ -132,10 +131,34 @@ internal sealed class TownServiceEnhancementHandoff : IDisposable
             _approachPalm = station != null ? FindPalm(station.Root) : null;
         }
         Transform? palm = _approachPalm;
-        if (palm == null || !Near(palm, held.transform.position, .85f)
+        if (palm == null) return;
+        Camera? head = VRRigDriver.HeadCamera;
+        if (head == null || !Near(palm, head.transform.position, 1.8f)) _headInside = false;
+        bool headEntered = head != null && !_headInside && Near(palm, head.transform.position, 1.4f);
+        if (headEntered) _headInside = true;
+        VRCard? held = HeldOwnedCard(VRHands.Left) ?? HeldOwnedCard(VRHands.Right);
+        if (held != _approachCard) { _approachCard = held; _cardInside = false; }
+        if (held == null || !Near(palm, held.transform.position, 1.05f)) _cardInside = false;
+        bool cardEntered = held != null && !_cardInside && Near(palm, held.transform.position, .85f);
+        if (cardEntered) _cardInside = true;
+        // Consume proximity edges even while blocked. Closing another service or explicitly
+        // closing this one never reopens it merely because the player is still standing here.
+        if (!headEntered && !cardEntered || !HasOwnedMapCard()
+            || GuildmasterDestinations.CurrentDestinationMode() != EGuildmasterMode.None
+            || StoryComposite.PointOfNoReturn
+            || Core.Events.VRModeStateMachine.CurrentMode == Core.Events.VRMode.ModalUI
             || !MapRoomDriver.CanVisitTownService(EGuildmasterMode.Enchantress)) return;
-        _approachAt = Time.unscaledTime + 1f;
-        MapRoomDriver.PressGuildmasterMode(EGuildmasterMode.Enchantress, "owned card offered to enchantress");
+        MapRoomDriver.PressGuildmasterMode(EGuildmasterMode.Enchantress,
+            cardEntered ? "owned card offered to enchantress" : "approached enchantress");
+    }
+
+    private static bool HasOwnedMapCard()
+    {
+        var cards = CardsDriver.OffScenarioFanCards;
+        if (cards == null) return false;
+        for (int i = 0; i < cards.Count; i++)
+            if (MapRoomHand.TryOwnedTownCard(cards[i], out _, out _)) return true;
+        return false;
     }
 
     private static VRCard? HeldOwnedCard(VRHand? hand) => hand != null && hand.HasPose
@@ -162,8 +185,7 @@ internal sealed class TownServiceEnhancementHandoff : IDisposable
             // Authored activity markers carry station units, not imported bone scale.
             _seat.localScale = Vector3.one;
         }
-        _zoneGate.alpha = Ready && _palm != null && Card == null
-            && (HeldOwnedCard(VRHands.Left) != null || HeldOwnedCard(VRHands.Right) != null) ? 1f : 0f;
+        _zoneGate.alpha = Ready && _palm != null && Card == null && HasAvailableOwnedCard() ? 1f : 0f;
         if (Card == null)
         {
             // Native character changes can automatically select their first card. Until a real
@@ -181,6 +203,29 @@ internal sealed class TownServiceEnhancementHandoff : IDisposable
     private bool ValidOwner(VRCard card) => MapRoomHand.TryOwnedTownCard(card, out var owner, out _)
         && _shop != null && _shop.character != null && owner != null
         && _shop.character.CharacterID == owner.CharacterID;
+
+    private bool HasAvailableOwnedCard()
+    {
+        var cards = CardsDriver.OffScenarioFanCards;
+        if (cards == null || !Enabled) return false;
+        for (int i = 0; i < cards.Count; i++)
+        {
+            VRCard card = cards[i];
+            if (!ValidOwner(card) || !MapRoomHand.TryOwnedTownCard(card, out _, out var model)) continue;
+            if (FindAvailableSlot(model) != null) return true;
+        }
+        return false;
+    }
+
+    private UIEnhanceCardSlot? FindAvailableSlot(CAbilityCard? model)
+    {
+        if (model == null) return null;
+        foreach (UIEnhanceCardSlot slot in _shop.CardsDisplay.slotsPool)
+            if (slot != null && slot.gameObject.activeInHierarchy && slot.AbilityCard != null
+                && slot.AbilityCard.AbilityCard == model && slot.Selectable != null
+                && slot.Selectable.IsActive() && slot.Selectable.IsInteractable()) return slot;
+        return null;
+    }
 
     internal static bool TryOffer(VRCard card)
     {
@@ -202,11 +247,7 @@ internal sealed class TownServiceEnhancementHandoff : IDisposable
         if (!Ready || Card != null || _palm == null || card == null || card.IsHeld
             || !Near(_seat, card.transform.position, .28f) || !ValidOwner(card)
             || !MapRoomHand.TryOwnedTownCard(card, out _, out var model)) return false;
-        UIEnhanceCardSlot? found = null;
-        foreach (UIEnhanceCardSlot slot in _shop.CardsDisplay.slotsPool)
-            if (slot != null && slot.gameObject.activeInHierarchy && slot.AbilityCard != null
-                && slot.AbilityCard.AbilityCard == model && slot.Selectable != null
-                && slot.Selectable.IsActive() && slot.Selectable.IsInteractable()) { found = slot; break; }
+        UIEnhanceCardSlot? found = FindAvailableSlot(model);
         if (found == null) return false;
         // Original selection changes only the candidate; gold and enhancements still require
         // the original rune confirmation path. Recheck after callbacks may rebuild the pool.

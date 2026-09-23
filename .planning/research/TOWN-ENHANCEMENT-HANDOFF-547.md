@@ -2,10 +2,22 @@
 
 The enchantress now accepts the owner's existing map hand card on the animated
 `ActivityOfferingPalm` marker. The old duplicate shop-card collection is removed.
-An owned card approaching the palm opens the original service through its existing
-guarded destination callback. A deliberate trigger release within 0.28 station
+Approaching within 1.4 station metres opens the original service through its existing
+guarded destination callback, and the empty palm advertises available owned hand
+cards before one is held. Walking beyond 1.8 metres re-arms this greeting. Closing
+the service while still near keeps it closed; deliberately bringing an owned card
+within 0.85 metres provides a separate intent edge (re-armed beyond 1.05 metres).
+Another native destination, story commitment, modal confirmation, unavailable
+service or missing owned hand cannot be taken over by proximity.
+A deliberate trigger release within 0.28 station
 metres selects the matching original `UIEnhanceCardSlot`; selection never purchases.
 Native selected-card enhancement hotspots remain adjacent on the workbench.
+
+When the map-hand setting is explicitly disabled, the enchantress uses the complete
+original enhancement window instead of a physical handoff. The NPC remains present,
+its ordinary visit gesture opens that window, and merchant/temple presentation stays
+immersive. Changing the setting live returns the offering and restores the native
+window through the existing reversible handoff; no user setting is forcibly changed.
 
 Ownership is resolved from `MapRoomHand`'s actual card provenance, current character,
 current loadout and local multiplayer controller. Native character identity, slot

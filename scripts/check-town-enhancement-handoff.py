@@ -37,12 +37,18 @@ def mutations():
     return [
         ("owner", name, "|| !Near(_seat, card.transform.position, .28f) || !ValidOwner(card)", "|| !Near(_seat, card.transform.position, .28f)", "foreign native character refuses offering"),
         ("distance", name, "|| !Near(_seat, card.transform.position, .28f)", "", "distant release refuses offering"),
-        ("native-disabled", name, "&& slot.Selectable.IsActive() && slot.Selectable.IsInteractable()", "&& slot.Selectable.IsActive()", "disabled native slot refuses offering"),
+        ("native-disabled", name, "&& slot.Selectable.IsActive() && slot.Selectable.IsInteractable()", "&& slot.Selectable.IsActive()", "foreign disabled or pending native selection never advertises a palm drop"),
         ("owner-race", name, "if (!Ready || !ValidOwner(card) || _shop.selectedCard == null", "if (!Ready || _shop.selectedCard == null", "native callback owner race refuses offering"),
         ("return", name, "if (card != null && !card.IsHeld && presentation != null) BeginReturn(presentation);", "if (card != null && !card.IsHeld && presentation != null) CardsDriver.RequestRebuild();", "walking away returns original card"),
         ("return-life", name, "finally { presentation.Started = true; PruneReturns(); }", "finally { presentation.Started = true; Returns.Remove(presentation); PruneReturns(); }", "return presentation survives ritual disposal with actual face and fixed identity"),
         ("reclaim", name, "Detach(); ClearNativeSelection();", "Detach();", "manual reclaim clears native options"),
         ("startup", name, "if (!ValidOwner(Card) || !_alive()", "if (!ValidOwner(Card) || !_alive() || !_input()", "opening input fade retains offering"),
+        ("head-proximity", name, "bool headEntered = head != null && !_headInside && Near(palm, head.transform.position, 1.4f);", "bool headEntered = false;", "head proximity opens original service without a held card"),
+        ("head-close", name, "if (headEntered) _headInside = true;", "", "explicit close remains closed while head stays near"),
+        ("card-close", name, "if (cardEntered) _cardInside = true;", "", "explicit close remains closed while card stays near"),
+        ("other-service", name, "GuildmasterDestinations.CurrentDestinationMode() != EGuildmasterMode.None", "GuildmasterDestinations.CurrentDestinationMode() == EGuildmasterMode.Enchantress", "proximity never takes over another open service"),
+        ("modal", name, "|| Core.Events.VRModeStateMachine.CurrentMode == Core.Events.VRMode.ModalUI", "", "modal confirmation prevents proximity opening"),
+        ("empty-palm", name, "&& Card == null && HasAvailableOwnedCard()", "&& Card == null && HeldOwnedCard(VRHands.Left) != null && HasAvailableOwnedCard()", "empty ready palm advertises an owned offering without requiring a held card"),
     ]
 
 

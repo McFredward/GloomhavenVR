@@ -28,7 +28,13 @@ public class UINewEnhancementWindow : MonoBehaviour
     public void DeselectCurrentCard() { }
     public void OnSelectedCardToEnhance(AbilityCardUI? card) { selectedCard = card; if (card == null) Clears++; }
 }
-public enum EGuildmasterMode { None, Enchantress }
+public enum EGuildmasterMode { None, Enchantress, Merchant }
+namespace GloomhavenVR { public static class Defaults { public const bool MapRoomHand = true; } }
+namespace GloomhavenVR.Core.Events
+{
+    public enum VRMode { TableIdle, ModalUI }
+    public static class VRModeStateMachine { public static VRMode CurrentMode; }
+}
 namespace GloomhavenVR.Core
 {
     public static class Loc { public static string Mod(string key) => key; }
@@ -58,6 +64,7 @@ namespace GloomhavenVR.Cards
     {
         public static int Returned, Rebuilds; public static VRCard? LastReturned; public static Transform? FanRoot;
         public static bool OffScenarioFanActive = true; public static Action? Completed;
+        public static IReadOnlyList<VRCard>? OffScenarioFanCards;
         public static void RequestRebuild() => Rebuilds++;
         public static void ReturnTownOffering(VRCard card, Action? completed = null)
         { Returned++; LastReturned = card; card.IsFlying = true; Completed = completed; card.transform.SetParent(FanRoot, true); }
@@ -82,7 +89,11 @@ namespace GloomhavenVR.WorldUI.MapRoom
 namespace GloomhavenVR.WorldUI
 {
     public static class TownServicePresentation { public static uint Session = 22; public static float SessionAge = 3f; }
-    public static class WorldUIConfig { public static readonly ToggleValue ImmersiveTownServices = new(); public class ToggleValue { public bool Value = true; } }
+    public static class WorldUIConfig
+    {
+        public static readonly ToggleValue ImmersiveTownServices = new(); public static ToggleValue? MapRoomHand = new();
+        public class ToggleValue { public bool Value = true; }
+    }
     public static class StoryComposite { public static bool PointOfNoReturn; }
     public sealed class TownServiceStation { public Transform Root = null!; }
     public static class TownServicePopulation

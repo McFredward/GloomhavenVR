@@ -50,6 +50,7 @@ internal static class TownServicePresentation
     internal static Transform? ContextRoot => _context?.Target;
     internal static Transform? StationRoot => _station?.Root;
     internal static bool Active => WorldUIConfig.ImmersiveTownServices.Value
+        && (Service != 3 || TownServiceEnhancementHandoff.Enabled)
         && _window != null && _window.IsOpen && _station != null;
 
     internal static bool OwnsGrab(GrabbableModal holder)
@@ -97,6 +98,15 @@ internal static class TownServicePresentation
         byte service = mode == EGuildmasterMode.Merchant ? (byte)1 : mode == EGuildmasterMode.Temple ? (byte)2
             : mode == EGuildmasterMode.Enchantress ? (byte)3 : (byte)0;
         UIWindow? window = service != 0 ? GuildmasterDestinations.ModeWindow(mode) : null;
+        if (service == 3 && !TownServiceEnhancementHandoff.Enabled)
+        {
+            // Respect the explicit map-hand preference. Without real hand cards the native
+            // enhancement window is the complete interaction path; other NPCs stay immersive.
+            UIWindow? restore = _window;
+            Reset(); _failedWindow = null;
+            if (restore != null && restore.IsOpen) ModalFallback.RestoreClassicTownService(restore);
+            return;
+        }
         if (!MapRoomDriver.Active || window == null || !window.IsOpen)
         { Reset(); _failedWindow = null; return; }
         if (_window != null && !ReferenceEquals(_window, window)) Reset();
