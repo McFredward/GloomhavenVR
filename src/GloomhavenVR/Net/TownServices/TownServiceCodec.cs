@@ -157,6 +157,7 @@ internal static class TownServiceCodec
     // The bundle is only a lossless transport container. Every child remains a complete
     // independently sequenced original module packet; no observer-template defaults apply.
     internal const int MaxBundleFrames = 32;
+    internal const byte BundleRecordId = 84; // NetProtocol.ExtIdTownServiceBundle.
     internal static byte[] WriteBundle(IReadOnlyList<byte[]> packets)
     {
         if (packets.Count < 1 || packets.Count > MaxBundleFrames) throw new InvalidDataException("Invalid town bundle count.");
@@ -170,21 +171,30 @@ internal static class TownServiceCodec
             body.Write(packet, 0, packet.Length);
         }
         byte[] raw = body.ToArray();
-        if (raw.Length + 8 > TownServiceFrame.MaxBytes) throw new InvalidDataException("Town bundle exceeds snapshot bound.");
-        // Zero-sized record78 is reserved for the bounded v3 bundle body. Keeping its
-        // bytes contiguous lets Deflate reuse repeated original material/property tables
-        // across children; slicing every255 bytes would destroy those matching runs.
-        var result = new byte[8+raw.Length]; result[0]=0x31; result[1]=0x52; result[2]=0x56; result[3]=0x47;
-        result[4]=3; result[5]=MessageType; result[6]=RecordId; result[7]=0;
-        Buffer.BlockCopy(raw,0,result,8,raw.Length);return result;
+        int size=6+raw.Length+2*((raw.Length+254)/255);
+        if(size>TownServiceFrame.MaxBytes)throw new InvalidDataException("Town bundle exceeds snapshot bound.");
+        var result=new byte[size];result[0]=0x31;result[1]=0x52;result[2]=0x56;result[3]=0x47;result[4]=3;result[5]=MessageType;
+        for(int at=6,offset=0;offset<raw.Length;)
+        {
+            int count=Math.Min(255,raw.Length-offset);result[at++]=BundleRecordId;result[at++]=(byte)count;
+            Buffer.BlockCopy(raw,offset,result,at,count);at+=count;offset+=count;
+        }
+        return result;
     }
     internal static bool TryReadBundle(byte[] packet, int length, out byte[][]? packets)
     {
         packets=null;
         if(packet==null||length<10||length>packet.Length||length>TownServiceFrame.MaxBytes
             ||packet[0]!=0x31||packet[1]!=0x52||packet[2]!=0x56||packet[3]!=0x47
-            ||packet[4]!=3||packet[5]!=MessageType||packet[6]!=RecordId||packet[7]!=0)return false;
-        var raw=new byte[length-8];Buffer.BlockCopy(packet,8,raw,0,raw.Length);
+            ||packet[4]!=3||packet[5]!=MessageType)return false;
+        using var body=new MemoryStream();
+        for(int at=6;at<length;)
+        {
+            if(at+2>length)return false;int record=packet[at++],count=packet[at++];
+            if(at+count>length||count==0)return false;
+            if(record==BundleRecordId)body.Write(packet,at,count);at+=count;
+        }
+        byte[] raw=body.ToArray();
         if(raw.Length<2||raw[0]!=3||raw[1]<1||raw[1]>MaxBundleFrames)return false;
         var result=new byte[raw[1]][];int position=2;byte service=0;uint session=0;
         for(int i=0;i<result.Length;i++)

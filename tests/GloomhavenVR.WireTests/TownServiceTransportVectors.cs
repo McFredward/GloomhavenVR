@@ -61,7 +61,7 @@ internal static class TownServiceTransportVectors
         t.True(reopened, "closing and reopening preserves fragment sequence monotonicity");
         ColdService(t, 8, false); ColdService(t, 24, false); ColdService(t, 24, true); ColdService(t, 64, true);
         LateGameCatalog(t, false, 191 * 3 + 64); LateGameCatalog(t, false); LateGameCatalog(t, true);
-        BundleBounds(t);
+        BundleBounds(t); UrgentBundleDependency(t);
     }
     private static void LateGameCatalog(Harness t, bool contention, int count = 673 * 3 + 64)
     {
@@ -154,13 +154,36 @@ internal static class TownServiceTransportVectors
         t.Equal(0,missing.Count,"every late-game original face/body/quantity module completes");
         Console.WriteLine("TOWN_LATE modules="+count+" contention="+contention+" initialPages="+initialPages+" individualBytes="+initialWireBytes+" deliveredBytes="+deliveredBytes+" firstHeld="+firstHeld.ToString("F3")+" firstStock="+firstOrdinary.ToString("F3")+" complete="+completeAt.ToString("F3")+" warmHeldMaxDelay="+warmMaxDelay.ToString("F3"));
     }
+    private static void UrgentBundleDependency(Harness t)
+    {
+        t.Case("Grabbing a card promotes its in-flight bundle baseline");
+        var queue=new TownServiceSendQueue(65536);var receiver=new TownServiceFragments();
+        for(ushort id=1;id<=20;id++){var baseline=Frame(id,1,16);byte[] raw=TownServiceCodec.Write(baseline);queue.Enqueue(raw,raw.Length,baseline);}
+        byte[] first=queue.Next(0)!;t.True(receiver.Accept(2,first,first.Length,0)==null,"cold bundle is still in flight");
+        TownServiceFrame original=Frame(2,1,16), current=Frame(2,2,16);current.Pose[0]=.4f;
+        TownServiceFrame moving=TownServiceDelta.Create(original,current);moving.HighPriority=true;
+        byte[] bytes=TownServiceCodec.Write(moving);queue.Enqueue(bytes,bytes.Length,moving);
+        bool baselineArrived=false,poseArrived=false,bundleArrived=false;
+        for(int i=1;i<20&&!poseArrived;i++)
+        {
+            byte[]? page=queue.Next(i*.051);if(page==null)continue;
+            byte[]? result=receiver.Accept(2,page,page.Length,i*.051);if(result==null)continue;
+            if(TownServiceCodec.TryReadBundle(result,result.Length,out _)){bundleArrived=true;continue;}
+            if(TownServiceCodec.TryRead(result,result.Length,out TownServiceFrame? frame)&&frame!.Module==2)
+            {if(frame.BaseSequence==0)baselineArrived=true;else poseArrived=true;}
+        }
+        t.True(baselineArrived&&poseArrived&&!bundleArrived,"urgent card renders with exact baseline before cold bundle completes");
+    }
     private static void BundleBounds(Harness t)
     {
         t.Case("Lossless town bundle bounds and CPU measurement");
+        byte[] legacy=Hex.Bytes("31 52 56 47 03 13 4e 61 01 01 63 00 00 00 07 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 04 00 03 00 00 00 7b 00 00 00 00 ff ff 00 00 00 00 00 00 80 3f 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 80 3f 00 00 80 3f 00 00 80 3f 00 00 80 3f 00 00 00 00 00");
+        t.True(TownServiceCodec.TryRead(legacy,legacy.Length,out TownServiceFrame? legacyFrame)&&legacyFrame!.Module==4&&legacyFrame.Sequence==7,"independent legacy record78 v1 golden still decodes");
         var frames=new List<byte[]>();
         for(ushort id=1;id<=16;id++)frames.Add(TownServiceCodec.Write(Frame(id,1,16)));
         byte[] packet=TownServiceCodec.WriteBundle(frames);
         t.True(TownServiceCodec.TryReadBundle(packet,packet.Length,out byte[][]? children),"bounded bundle parses");
+        for(int at=6;at<packet.Length;){t.Equal(84,(int)packet[at++],"additive bundle record84");int length=packet[at++];t.True(length>0&&at+length<=packet.Length,"ordinary bounded TLV framing");at+=length;}
         for(int i=0;i<frames.Count;i++)t.Wire(frames[i],children![i],frames[i].Length,"every original node/property/string survives byte for byte");
         for(int n=0;n<packet.Length;n+=97)t.True(!TownServiceCodec.TryReadBundle(packet,n,out _),"truncated bundle rejected");
         var tail=new byte[packet.Length+1];Buffer.BlockCopy(packet,0,tail,0,packet.Length);

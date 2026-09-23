@@ -86,14 +86,14 @@ and baseline, so unsent original snapshots do not accumulate replacement baselin
 
 Cold ordinary modules are compressed together, retaining their complete original
 packets byte for byte. A bundle contains at most 32 packets and 60,000 bytes and
-is strictly length/session validated before delivery. A reserved zero-length
-record 78 introduces the contiguous version-3 transport body; regular single
-module records remain unchanged. No template defaults, text or native properties
+is strictly length/session validated before delivery. Additive record 84 carries the version-3 bundle body using ordinary length-prefixed
+TLV chunks; regular single-module records remain unchanged. Record 78 never
+becomes an escape for an unframed payload. No template defaults, text or native properties
 are inferred. Held modules remain independent and can interrupt background work.
 The existing 864-byte/50-ms global budget is unchanged. Town-only Optimal Deflate
-reduces a 49,466-byte test bundle to 996 bytes versus 1,568 with Fastest. Replacing
+reduces a 49,852-byte test bundle to 1,996 bytes versus 2,885 with Fastest. Replacing
 the old bitwise CRC with its identical 256-entry lookup cuts measured desktop
-compression from roughly 1.8ms to 0.23ms; an independent bitwise checksum verifies
+compression from roughly 1.8ms to 0.33ms; an independent bitwise checksum verifies
 wire compatibility. These numbers are desktop harness timings, not headset FPS.
 
 The reproducible synthetic inventory has 16 native-like nodes per ordinary module
@@ -101,9 +101,9 @@ and eight 128-node modules, with material/text properties. At an 18fps sender:
 
 | Inventory / load | Cold completion | Town bytes including warm follow-up | Warm held maximum delay |
 | --- | ---: | ---: | ---: |
-| 161 stock +30 owned, 64 overhead, idle map | 6.39s | 63,502 | 0.056s |
-| 161 stock +512 owned, 64 overhead, idle map | 20.61s | 187,630 | 0.222s |
-| Same maximum, six continuously saturated other streams | 270.89s | 386,985 | 2.111s |
+| 161 stock +30 owned, 64 overhead, idle map | 6.94s | 110,656 | 0.056s |
+| 161 stock +512 owned, 64 overhead, idle map | 21.67s | 334,612 | 0.222s |
+| Same maximum, six continuously saturated other streams | 369.94s | 637,630 | 2.167s |
 
 The last case deliberately maintains six independent maximum-rate noisy streams;
 it demonstrates progress under the shared cap, not an acceptable hardware promise.
@@ -119,3 +119,8 @@ negative-control suite; wire vectors require the actual large manifest, every
 module, exact bundled bytes, parser truncation/overflow rejection, cold-load
 bounds, moving-card baseline expansion and steady-state delivery. The integration
 branch's new publisher extraction still requires its own combined guard run.
+
+An in-flight cold bundle does not own a grabbed card's dependency exclusively: its
+exact immutable initial baseline is copied to the urgent lane before the pose
+delta. Duplicate sequence reception remains idempotent. A focused regression
+requires both to arrive before the background bundle completes.

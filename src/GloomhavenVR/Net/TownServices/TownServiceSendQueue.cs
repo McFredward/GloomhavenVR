@@ -20,6 +20,8 @@ internal sealed class TownServiceSendQueue
     private double _nextManifest;
     private readonly ExtrasSendQueue _bundle;
     private readonly List<TownServiceFrame> _bundleFrames = new();
+    private readonly Dictionary<ushort, byte[]> _bundleBytes = new();
+    private readonly HashSet<ushort> _promotedBundle = new();
     private uint _session;
     private byte _service;
     internal TownServiceSendQueue(ulong seed)
@@ -57,7 +59,17 @@ internal sealed class TownServiceSendQueue
         }
         else
         {
-            if (frame.HighPriority) _priority.Add(frame.Module); else _priority.Remove(frame.Module);
+            if (frame.HighPriority)
+            {
+                _priority.Add(frame.Module);
+                // A just-grabbed card may have its first baseline inside a cold bundle.
+                // Deliver that exact immutable dependency urgently before its pose delta.
+                if (_bundleBytes.TryGetValue(frame.Module, out byte[]? baselineBytes) && _promotedBundle.Add(frame.Module))
+                    foreach (TownServiceFrame baseline in _bundleFrames)
+                        if (baseline.Module == frame.Module && baseline.BaseSequence == 0)
+                        { queue.Enqueue(baselineBytes, baselineBytes.Length, baseline); break; }
+            }
+            else _priority.Remove(frame.Module);
             queue.Enqueue(bytes, length, frame);
         }
     }
@@ -120,7 +132,7 @@ internal sealed class TownServiceSendQueue
     {
         if (!_bundle.HasInFlight && !_bundle.HasPending)
         {
-            var bytes = new List<byte[]>(); _bundleFrames.Clear(); int size = 2;
+            var bytes = new List<byte[]>(); _bundleFrames.Clear(); _bundleBytes.Clear(); _promotedBundle.Clear(); int size = 2;
             // Group neighboring native output before compression so repeated TMP styles,
             // material tables and card bodies cost once per bounded snapshot. Never wait
             // for a fuller batch: a lone changed module can leave on this same turn.
@@ -133,7 +145,7 @@ internal sealed class TownServiceSendQueue
                 if(size+2+length>58000){_cursor--;break;}
                 if(!queue.TryTakePending(out byte[]? packet,out object? identity))continue;
                 bytes.Add(packet!);size+=2+length;
-                if(identity is TownServiceFrame frame)_bundleFrames.Add(frame);
+                if(identity is TownServiceFrame frame){_bundleFrames.Add(frame);_bundleBytes[id]=packet!;}
             }
             if(bytes.Count==0)return null;
             byte[] container=TownServiceCodec.WriteBundle(bytes);
@@ -141,7 +153,7 @@ internal sealed class TownServiceSendQueue
         }
         byte[]? page=_bundle.Next(now);
         if(page!=null&&!_bundle.HasInFlight)
-        { foreach(TownServiceFrame frame in _bundleFrames)TownServiceDelivery.Completed?.Invoke(frame);_bundleFrames.Clear(); }
+        { foreach(TownServiceFrame frame in _bundleFrames)TownServiceDelivery.Completed?.Invoke(frame);_bundleFrames.Clear();_bundleBytes.Clear();_promotedBundle.Clear(); }
         return page;
     }
     private static void Completed(ExtrasSendQueue queue)
@@ -157,7 +169,7 @@ internal sealed class TownServiceSendQueue
     }
     internal void Clear()
     { foreach (var pair in _queues) { _sequences[pair.Key] = pair.Value.Sequence; pair.Value.Clear(); }
-        _bundle.Clear(); _bundleFrames.Clear(); _queues.Clear(); _order.Clear(); _priority.Clear(); _cursor = _priorityCursor = _priorityTurns = 0;
+        _bundle.Clear(); _bundleFrames.Clear(); _bundleBytes.Clear(); _promotedBundle.Clear(); _queues.Clear(); _order.Clear(); _priority.Clear(); _cursor = _priorityCursor = _priorityTurns = 0;
         _normalActive = _priorityActive = null; _manifestBytes = null; _manifestFrame = _sentManifest = null; _nextManifest = 0; }
     internal static bool SameIdentity(TownServiceFrame a, TownServiceFrame b) => a.Session == b.Session
         && a.Service == b.Service && a.Module == b.Module && a.Template == b.Template && a.TemplateAddress == b.TemplateAddress && a.Structure == b.Structure
