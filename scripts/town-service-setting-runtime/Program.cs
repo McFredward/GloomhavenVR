@@ -54,7 +54,7 @@ static class Program
             {
                 Check(TownServicePlacement.TryResolve(service,Vector3.zero,1,out var p,out _),"all-yaw open placement");
                 float radius=MathF.Sqrt(p.x*p.x+p.z*p.z);
-                Near(radius,4.8f,"default station uses validated layout radius");
+                Near(radius,service==2?2.2f:2.3f,"default station uses validated original-room layout radius");
                 Check(radius-(service==1?.82f:.362f)>1.4f,"all opened resident furniture clears native map diagonal");
             }
         }

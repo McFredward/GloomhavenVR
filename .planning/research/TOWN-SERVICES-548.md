@@ -28,16 +28,48 @@ and measured evidence; neither source checks nor offline rendering prove headset
 - Campaign city-event caps lack the optional Guildmaster button field. The previous
   sampler dereferenced it, repeatedly aborting the rest of the map update. The sampler
   now guards that optional field while retaining the original event eligibility.
-- Merchant likeness is being re-authored against the original game portrait, rather
-  than successively deforming earlier generated faces. Actual Unity eye, lid, neck
-  and gaze renders are required before promoting the new source assets.
+- Merchant likeness was re-authored against the original game portrait. Revised facial
+  proportions, eye apertures and ear UVs replace accumulated deformations. Final eyelid
+  fitting preserves layer separation through blinks; Unity renders cover neutral faces,
+  profiles, gaze and closed lids on all three actors. See [TOWN-FACES-548.md](TOWN-FACES-548.md).
+- Four NVIDIA Kimodo-generated body phrases replace mechanical motion loops. They are
+  baked offline, synchronized through the existing occupation clock, and combined with
+  prop-contact IK, planted feet and smooth attention transitions. They are generated
+  motion, not motion capture. The runtime requires no model or API. See
+  [TOWN-MOTION-548.md](TOWN-MOTION-548.md).
+- The multiplayer rack publishes an explicit owner clock and causal card membership
+  through additive TLV85. Hidden artwork, skipped turns, late joins and held cards share
+  the rack's visibility boundary. A live catalog preserves stable IDs across hidden
+  pages: 1,100 test turns retain 384 IDs and publish 192 warm modules. Replaced cards,
+  removed roots and unrelated popups are still retired.
 
 ## Integration status
 
-Final facial assets, generated activity clips and durable multiplayer rack playback are
-still being integrated. No build-548 hardware package has been published. Final source,
-runtime, wire, strict-build, asset-render and package results will be recorded here
-before handoff. Paid generation API spend in this revision is currently zero.
+The final Windows town bundle is 95,727,401 bytes, SHA256
+`afdd76b364ecf35e10dd3f9f74beb038713e8324573fea1d38a45b08316b88c9`.
+The original environment bundle is unchanged, SHA256
+`fe1a659c17b4151e929691aa070d402b8cd299a462315b1d6691d2622d491693`.
+The exact combined source assets pass 2,044 render assertions and nine visual negative
+controls. Actual imported activity/contact tests pass 185,546 assertions and sixteen
+negative controls. Maximum planted-foot drift is below 0.35 mm in these offline cases.
+The final bundle also passes 3,646 production facial-runtime assertions and four negative
+controls. The binder now recognizes a complete single-skin rig instead of falsely requiring
+the removed three LOD skins. Strict Release passes with zero warnings and errors; docs
+localization passes four English/German document pairs. All fourteen source suites passed. The complete local run passed 65/66 suites; its only
+failure was a stale 4.8-metre expectation in the placement fixture. Updating that expectation
+and its compiled unsafe-radius mutation produced 1,886 assertions and sixteen passing
+negative controls on the targeted repeat. All 66 runtime suites are therefore covered.
+The final compiled wire runner passes 286,090 assertions. Remaining bundle-format and
+surface gates pass; the compiled comparison reports historical baseline differences
+(118 changed types, 155 added/removed), not an unchanged-program claim.
+
+Whole-run evidence is `debug/test-runs/20260924-012915-fae19c55/results.json`; the targeted
+repeat is `/tmp/town548-root-setting-repeat.log`, wire evidence is
+`/tmp/town548-root-wire-final.log`, and the explicitly resumed bundle/surface/compiled
+comparison is `/tmp/town548-root-guard-resume.log`. No suite was silently skipped or recorded
+as passing in the failed whole-run report. Package verification is recorded separately in
+`debug/town548-package-verification.json` after packaging. No hardware outcome is claimed.
+Paid generation API spend in this revision is zero.
 
 ## Hardware checks after the final package
 

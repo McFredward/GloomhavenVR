@@ -72,9 +72,10 @@ independent head gaze must not stack with a generated 22-degree neck turn.
 The phase/packet/contact portable suite passes including its negative controls. Actual imported
 rig contact validation measures maximum planted-foot displacement of 0.35 mm, 0.30 mm and
 0.24 mm (merchant, priestess, enchantress). Body sample steps are at most 1.24 degrees at 90 Hz;
-the final loop seam step is 0.22 degrees. Actual mesh renders remain under review until the
-serialized prefabs are rebuilt from the new FBX; replacing only an FBX leaves old eye transforms
-inside the prefab. A height-only initial leg mask also affected low resting hands; the corrected
+the final loop seam step is 0.22 degrees. Final serialized prefabs were rebuilt from the combined facial and leg-weight FBX, then
+reviewed in Unity work/attention renders. Replacing only an FBX had left old eye transforms
+inside an earlier review prefab; that intermediate output was rejected. The final matching
+bundle passes 185,546 contact/activity assertions and sixteen negative controls. A height-only initial leg mask also affected low resting hands; the corrected
 mask excludes every vertex with any existing arm/finger/torso influence.
 The enchantress plays at the generated 10.2-second duration. Effect and palm-roll keys follow
 that duration; her visit transition remains the shared 0.65 seconds. A down-to-up palm turn

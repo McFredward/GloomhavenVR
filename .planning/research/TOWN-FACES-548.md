@@ -96,3 +96,16 @@ shape keys and every skin weight are protected by a before/after binary digest.
 The standard assembler invokes the same repair for future enchantress rebuilds;
 a second repair changes zero vertices. Full optical objects and protected leg
 weights are retained in the final combined export.
+
+## Final integrated binding check
+
+The exact combined Linux review bundle passes 3,646 actual-prefab runtime assertions and
+four compiled negative controls (single-skin completeness, optical frame, sampled-head
+reset and blink binding). Removing LOD exposed an old `Complete` predicate that required
+three facial skins; it now accepts one fully bound skin while rejecting missing anatomy
+or core expression channels. The old predicate caused a bounded false warning; facial
+animation itself still used the independent `Ready` predicate. The portable fixture
+passes 2,081 assertions with explicit single-skin and missing-channel cases.
+Evidence: `/tmp/town548-face-single-skin/run-0dkqi6d5`. Final source-asset rendering passes
+2,044 assertions and nine visual negative controls. See the integration note for the
+Windows bundle hash and hardware limits.

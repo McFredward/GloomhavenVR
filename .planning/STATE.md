@@ -1,9 +1,9 @@
 # State — where the project stands
 
-**Updated 2026-09-23: feature/immersive-town-services, version 1.1.0 / ModBuild 547 hardware candidate.**
+**Updated 2026-09-24: feature/immersive-town-services, version 1.1.0 / ModBuild 548 hardware candidate.**
 The feature is based on dev e63fb284, including released 1.0.7 / build 546. Dev remains
 the separate 1.0.8 hotfix line. The maintainer hardware-confirmed 546 before release.
-Current NPC revision: [research/TOWN-SERVICES-547.md](research/TOWN-SERVICES-547.md).
+Current NPC revision: [research/TOWN-SERVICES-548.md](research/TOWN-SERVICES-548.md).
 NPC workers integrate and push exclusively to the feature branch during this work.
 
 The file this replaces had gone 168 builds
@@ -19,16 +19,22 @@ change per build) → this file (where things stand and what is owed) → the bu
 
 ## 1. Position
 
-- **NPC feature / 1.1.0 / ModBuild 547 (hardware candidate):** open furnished counters,
-  physical merchandise inspection, actual owned-card enchantress handoff and return,
-  coin-contact and spell motion, portrait/hood/wrist repairs, and grounded semicircle
-  workspaces are integrated on the feature branch only. Combined verification covers
-  all 14 source and 66 runtime suites (three stale fixture bindings fixed and repeated),
-  286042 wire assertions, zero-warning strict Release and final asset validation
-  (3037 assertions / six visual negatives). The matching Windows town bundle is
-  103942692 bytes (`51791c7d…71bed`). Complete-package CRC/hash evidence is retained.
-  This does not establish headset quality or multiplayer frame timing. Evidence and
-  the hardware checklist: [research/TOWN-SERVICES-547.md](research/TOWN-SERVICES-547.md).
+- **NPC feature / 1.1.0 / ModBuild 548 (hardware candidate):** restores original cellar
+  and forest proportions, removes NPC distance LOD, replaces the oversized merchant
+  table with a compact cabinet and physically turning racks, and revises portrait
+  likeness, eye/lid geometry and prop-contact body motion. Four offline Kimodo-generated
+  phrases use existing shared occupation clocks. Multiplayer rack clocks and membership
+  use additive TLV85; live catalog IDs survive repeated page turns without exhaustion.
+  A campaign city-cap null dereference found in build-547 logs is also fixed.
+  The final Windows town bundle is 95,727,401 bytes (`afdd76b3…88c9`); the environment
+  bundle remains byte-identical. Actual source-asset renders pass 2,044 assertions / nine
+  visual negatives and final imported activity/contact tests pass 185,546 assertions /
+  sixteen negatives. Final checks cover all 14 source and 66 runtime suites (one stale
+  radius fixture was corrected and repeated), 286,090 wire assertions and a zero-warning
+  strict Release. Bundle/surface checks pass; historical compiled-baseline differences
+  remain. Exact package hashes and CRC evidence: `debug/town548-package-verification.json`.
+  Headset quality and multiplayer frame timing require hardware confirmation.
+  Evidence and checklist: [research/TOWN-SERVICES-548.md](research/TOWN-SERVICES-548.md).
 
 - **dev / 1.0.8 hotfix line / ModBuild 546**, based on released 1.0.7 without NPC services:
   campaign city-event cap and native animation, original permanent map windows across
