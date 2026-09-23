@@ -14,7 +14,10 @@ internal static class TownServiceMerchantLayout
     internal const int ReturnColumns = 8, ReturnRows = 8;
     internal const int ReturnCapacity = ReturnColumns * ReturnRows;
     internal const float CardWidth = .14f, CardHeight = .112f, FacePitch = 65f;
-    internal const float WorktopHeight = .970f, ColumnPitch = .15f, RowPitch = .13f, TerraceRise = .025f;
+    internal const float WorktopHeight = .970f, ColumnPitch = .15f, RowPitch = .13f, TerraceRise = .008f;
+    // The tilted card's lower edge and original price strip must clear the terrace's
+    // retaining lip. WorktopHeight remains the native transaction/action surface.
+    internal const float CardSeatLift = .034f;
 
     internal static Vector3 StockPosition(int ordinal)
     {
@@ -22,11 +25,11 @@ internal static class TownServiceMerchantLayout
         int row = ordinal / StockColumns;
         float bow = x / 1.725f;
         // Keep the rear edge in front of the NPC's ledger/coin workspace (z >= 0).
-        return new Vector3(x, row * TerraceRise, -1.32f + row * RowPitch + .16f * bow * bow);
+        return new Vector3(x, CardSeatLift + row * TerraceRise, -1.32f + row * RowPitch + .16f * bow * bow);
     }
 
     internal static Vector3 ReturnPosition(int ordinal) => new Vector3(
-        (ordinal % ReturnColumns - 3.5f) * ColumnPitch, ordinal / ReturnColumns * TerraceRise,
+        (ordinal % ReturnColumns - 3.5f) * ColumnPitch, CardSeatLift + ordinal / ReturnColumns * TerraceRise,
         -.455f + ordinal / ReturnColumns * RowPitch);
 
     internal static void ReturnPose(int ordinal, out Vector3 position, out Quaternion rotation)

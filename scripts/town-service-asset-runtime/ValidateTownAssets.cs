@@ -1,10 +1,12 @@
 using System;
 using System.Collections;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using UnityEditor;
 using UnityEngine;
 using UnityEngine.Rendering;
+using GloomhavenVR.WorldUI;
 
 // Actual scene lighting must drive NPCs, including a zero-pixel-light VR camera.
 public static class ValidateTownAssets
@@ -240,6 +242,90 @@ public static class ValidateTownAssets
     }
 
     static IEnumerator routine;
+    static List<MeshCollider> FurnitureColliders(Transform furniture)
+    {
+        var colliders = new List<MeshCollider>();
+        foreach (var filter in furniture.GetComponentsInChildren<MeshFilter>(true))
+        {
+            if (!filter.gameObject.activeInHierarchy) continue;
+            Check(filter.sharedMesh != null && filter.sharedMesh.isReadable, "Authored furniture geometry remains readable for grounding and support");
+            Check(filter.sharedMesh.uv.Length == filter.sharedMesh.vertexCount, "Authored furniture retains UVs on every vertex");
+            var collider = filter.gameObject.AddComponent<MeshCollider>(); collider.sharedMesh = filter.sharedMesh;
+            colliders.Add(collider);
+        }
+        Physics.SyncTransforms();
+        return colliders;
+    }
+
+    static float SupportHeight(List<MeshCollider> colliders, Transform frame, Vector3 point)
+    {
+        var origin = frame.TransformPoint(new Vector3(point.x, 2.4f, point.z));
+        var ray = new Ray(origin, -frame.up); float highest = float.NegativeInfinity;
+        foreach (var collider in colliders)
+            if (collider.Raycast(ray, out RaycastHit hit, 3f))
+                highest = Mathf.Max(highest, frame.InverseTransformPoint(hit.point).y);
+        return highest;
+    }
+
+    static void ValidateSlots(Transform furniture, bool extension)
+    {
+        var colliders = FurnitureColliders(furniture);
+        Check(colliders.Count >= 2, "Authored stock counter has wood structure and separate forged decoration");
+        int count = extension ? TownServiceMerchantLayout.ReturnCapacity : TownServiceMerchantLayout.StockCapacity;
+        Quaternion tilt = Quaternion.Euler(TownServiceMerchantLayout.FacePitch, 0, 0);
+        for (int i = 0; i < count; i++)
+        {
+            Vector3 centre = (extension ? TownServiceMerchantLayout.ReturnPosition(i) : TownServiceMerchantLayout.StockPosition(i))
+                + Vector3.up * TownServiceMerchantLayout.WorktopHeight;
+            float support = SupportHeight(colliders, furniture, centre);
+            Check(!float.IsInfinity(support) && centre.y - support > 0 && centre.y - support < .07f,
+                (extension ? "Return" : "Stock") + " card " + i + " has a nearby authored terrace beneath it");
+            // The production face is tilted and carries its original native price strip below
+            // centre. Testing only a renderer AABB or the card centre misses buried low edges.
+            foreach (float side in new[] { -1f, 1f })
+            foreach (float end in new[] { -1f, 1f })
+            {
+                var corner = centre + tilt * new Vector3(side * TownServiceMerchantLayout.CardWidth / 2,
+                    end * TownServiceMerchantLayout.CardHeight / 2, -.0012f);
+                float top = SupportHeight(colliders, furniture, corner);
+                Check(!float.IsInfinity(top) && corner.y >= top + .001f,
+                    (extension ? "Return" : "Stock") + " card " + i + " tilted face clears actual terrace geometry");
+                var price = centre + tilt * new Vector3(side * .118f / 2, -.053f + end * .030f / 2, -.002f);
+                top = SupportHeight(colliders, furniture, price);
+                Check(!float.IsInfinity(top) && price.y >= top + .001f,
+                    (extension ? "Return" : "Stock") + " card " + i + " original price strip clears retaining lip");
+            }
+        }
+        foreach (var collider in colliders) UnityEngine.Object.DestroyImmediate(collider);
+    }
+
+    static void ValidateFurniture(GameObject root, string npc)
+    {
+        var furniture = root.transform.Find(npc == "merchant" ? "Counter" : npc == "priestess" ? "Shrine" : "Workbench");
+        Check(furniture != null, npc + " has its authored furniture root");
+        var nodes = furniture.GetComponentsInChildren<Transform>(true);
+        Check(!nodes.Any(n => n.name.IndexOf("drawer", StringComparison.OrdinalIgnoreCase) >= 0), npc + " has no obsolete drawer banks");
+        var meshes = furniture.GetComponentsInChildren<MeshFilter>(true).Where(f => f.gameObject.activeInHierarchy).ToArray();
+        Check(meshes.Length >= 2 && meshes.Length <= 6, npc + " detailed furniture is grouped by material rather than one renderer per ornament");
+        Check(meshes.Sum(f => f.sharedMesh.triangles.Length / 3) > 1000, npc + " curved joinery and relief are actual geometry");
+        Check(nodes.All(n => n.GetComponents<Component>().All(c => c == null || c.GetType().Name != "Canvas")), npc + " furniture contains no baked gameplay UI");
+        foreach (var renderer in furniture.GetComponentsInChildren<MeshRenderer>(true))
+        foreach (var material in renderer.sharedMaterials)
+            Check(material != null && material.shader != null && material.HasProperty("_TownVisibility"), npc + " every authored detail uses the lit dissolving town material");
+        if (npc != "merchant") return;
+        ValidateSlots(furniture, false);
+        var template = furniture.Find("CounterReturn");
+        Check(template != null && !template.gameObject.activeSelf, "Open return template exists without drawing unused stock wings");
+        var extension = UnityEngine.Object.Instantiate(template.gameObject);
+        extension.transform.SetPositionAndRotation(Vector3.zero, Quaternion.identity); extension.SetActive(true);
+        ValidateSlots(extension.transform, true);
+        UnityEngine.Object.DestroyImmediate(extension);
+        var surfaces = FurnitureColliders(furniture);
+        foreach (float x in new[] { -.20f, 0f, .20f })
+            Check(Mathf.Abs(SupportHeight(surfaces, furniture, new Vector3(x, 0, .18f)) - .958f) < .012f,
+                "Merchant ledger and coin workspace remains supported behind stock terraces");
+        foreach (var collider in surfaces) UnityEngine.Object.DestroyImmediate(collider);
+    }
     static void Step()
     {
         try { if (!routine.MoveNext()) { EditorApplication.update -= Step; EditorApplication.Exit(0); } }
@@ -273,15 +359,7 @@ public static class ValidateTownAssets
             foreach (var child in root.GetComponentsInChildren<Transform>(true)) child.gameObject.layer = 31;
             camera.transform.position = new Vector3(0, 1.6f, -2.3f);
             camera.transform.LookAt(new Vector3(0, .9f, .1f));
-            if (npc == "merchant")
-            {
-                var counter = root.transform.Find("Counter");
-                var planks = Enumerable.Range(0, 4).Select(i => counter.Find("SurfacePlank" + i).GetComponent<Renderer>().bounds).ToArray();
-                var top = planks[0]; foreach (var plank in planks) top.Encapsulate(plank);
-                Check(top.size.x >= 1.64f && top.size.z >= .79f, "Merchant top contains catalogue and tray footprint");
-                Check(counter.Find("Coin0") == null && counter.Find("LedgerCover") == null && counter.Find("LeatherMat") == null,
-                    "Native decoration and physical cards replace primitive tabletop props");
-            }
+            ValidateFurniture(root, npc);
             var lod = root.GetComponentInChildren<LODGroup>();
             Check(lod.size > 1.7f && lod.size < 2.2f, npc + " human-sized LOD envelope");
             Check(lod.GetLODs().Length == 3, npc + " retains automatic three-level LOD");
@@ -303,6 +381,11 @@ public static class ValidateTownAssets
             Check(body > 10000, npc + " auto-LOD actor visible and textured with stand lighting");
             Check(furniture > 1000, npc + " furniture visible and textured with stand lighting");
             Check(!full.Any(p => p.r > 240 && p.b > 240 && p.g < 10), npc + " no unsupported shader magenta");
+            var overviewPosition = camera.transform.position; var overviewRotation = camera.transform.rotation;
+            camera.transform.position = new Vector3(0f, 1.8f, -4.5f);
+            camera.transform.LookAt(new Vector3(0f, .90f, -.30f));
+            yield return null; Picture(npc + "-stand-wide");
+            camera.transform.position = overviewPosition; camera.transform.rotation = overviewRotation;
             Visibility(root, .5f); yield return null; var half = Picture(npc + "-half");
             Visibility(root, 0); yield return null; var hidden = Picture(npc + "-hidden");
             Check(Bright(hidden, true) == 0 && Bright(hidden, false) == 0, npc + " fully hidden at zero visibility");
@@ -406,7 +489,11 @@ public static class ValidateTownAssets
             yield return null;
             var dark = Picture(npc + "-negative-lighting");
             Check(Bright(dark, true) > 10000, npc + " negative control: old studio light makes skin glow in darkness");
-            Check(Bright(dark, false) > 10000, npc + " negative control: old studio light makes furniture glow in darkness");
+            // Open carved stands occupy fewer pixels than the obsolete solid box fronts.
+            // Anchor the control to this mesh's measured lit footprint, retaining the same
+            // minimum visible-surface floor used by the production lighting assertion.
+            Check(Bright(dark, false) > 1000 && Bright(dark, false) >= furniture * .8f,
+                npc + " negative control: old studio light makes furniture glow in darkness");
             Debug.Log("TOWN_ASSET_PIXELS " + npc + " body=" + body + " furniture=" + furniture + " lod=" + size);
             UnityEngine.Object.DestroyImmediate(root);
         }

@@ -27,6 +27,14 @@ shutil.copytree(source, assets / 'Bundle/TownServices')
 (assets / 'Editor').mkdir()
 shutil.copy(root / 'scripts/town-service-asset-runtime/ValidateTownAssets.cs', assets / 'Editor')
 shutil.copy(root / 'unity/GloomhavenVR.Assets/Assets/Editor/BuildTownServices.cs', assets / 'Editor')
+# Bind the production slot equations; the mesh check must catch layout/asset drift,
+# not compare a fixture's hard-coded idea of where the stock ought to be.
+layout_path = root / 'src/GloomhavenVR/WorldUI/TownServices/TownServiceMerchantCounter.cs'
+layout_source = layout_path.read_text()
+layout_start = layout_source.index('internal static class TownServiceMerchantLayout')
+layout_end = layout_source.index('\n/// <summary>An authored', layout_start)
+(assets / 'Editor/TownServiceMerchantLayout.cs').write_text(
+    'using UnityEngine;\nnamespace GloomhavenVR.WorldUI {\n' + layout_source[layout_start:layout_end] + '\n}\n')
 (project / 'Packages').mkdir()
 (project / 'Packages/manifest.json').write_text(json.dumps({'dependencies': {
     'com.unity.modules.' + name: '1.0.0' for name in ['animation', 'assetbundle', 'imageconversion', 'physics', 'audio']}}))
@@ -38,6 +46,9 @@ validation_sources = [root / path for path in (
     'scripts/check-town-service-assets.py', 'scripts/town-service-asset-runtime/ValidateTownAssets.cs',
     'scripts/author-town-facial-topology.py', 'scripts/assemble-town-facial-rig.py',
     'scripts/author-town-npc-hands.py', 'scripts/town_npc_hand_integration.py', 'scripts/town_npc_neck_inset.py',
+    'scripts/author-town-furniture.py',
+    'src/GloomhavenVR/WorldUI/TownServices/TownServiceMerchantCounter.cs',
+    'src/GloomhavenVR/WorldUI/TownServices/TownServiceCatalog.cs',
     'scripts/town_npc_necklines.py', 'scripts/town_npc_garment_weights.py', 'scripts/town_npc_cloth_edges.py',
     'unity/GloomhavenVR.Assets/Assets/Editor/BuildTownServices.cs')]
 inputs = {str(p.relative_to(root)): hashlib.sha256(p.read_bytes()).hexdigest()
