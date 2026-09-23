@@ -46,7 +46,7 @@ namespace GloomhavenVR.Core
     internal static class VRLayers {internal const int ModLayer=27;}
     internal static class VRLog { internal static readonly List<string> Warnings=new();internal static void Warn(string source,string text)=>Warnings.Add(text); }
 }
-namespace GloomhavenVR.Net {internal struct TownActivityVisual {internal float Cast {get;set;} internal float CastSway {get;set;}} }
+namespace GloomhavenVR.Net {internal struct TownActivityVisual {internal float Cast {get;set;} internal float CastSway {get;set;} internal float EffectClock {get;set;}} }
 namespace GloomhavenVR.Net.TownServices
 {
     internal static class TownServiceMirror {internal static Registry Assets=new();}

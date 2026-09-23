@@ -11,6 +11,7 @@ internal static class ActivityRender
     internal static void Render(GameObject obj,byte service,TownServiceActivityRig rig)
     {
         string[] args=Environment.GetCommandLineArgs();int output=Array.IndexOf(args,"-activityRender");if(output<0)return;
+        bool sequence=Array.IndexOf(args,"-activitySequence")>=0;if(sequence&&service==2)return;
         string folder=args[output+1];Transform root=obj.transform;rig.BeforeBodySample();root.SetPositionAndRotation(Vector3.zero,Quaternion.identity);root.localScale=Vector3.one;
         Shader shader=obj.GetComponentsInChildren<SkinnedMeshRenderer>(true)[0].sharedMaterial.shader;
         using var props=new TownServiceActivityProps(root,service,shader);props.SetVisibility(1);
@@ -18,18 +19,21 @@ internal static class ActivityRender
         var coin=GameObject.CreatePrimitive(PrimitiveType.Cylinder);coin.name="Diagnostic coin contact volume (not native asset)";coin.transform.SetParent(root,false);coin.transform.localScale=new Vector3(.026f,.0015f,.026f);coin.GetComponent<Renderer>().sharedMaterial=new Material(Shader.Find("Standard")){color=new Color(.6f,.4f,.1f)};
         if(service==1)props.BindCoin(coin.transform,Vector3.zero);else coin.SetActive(false);
         var camera=new GameObject("Activity diagnostic camera").AddComponent<Camera>();camera.clearFlags=CameraClearFlags.SolidColor;camera.backgroundColor=new Color(.12f,.14f,.17f);camera.fieldOfView=48;camera.nearClipPlane=.02f;
-        var rt=new RenderTexture(1000,900,24);camera.targetTexture=rt;
+        var rt=new RenderTexture(sequence?640:1000,sequence?576:900,24);camera.targetTexture=rt;
         var light=new GameObject("Diagnostic stand light").AddComponent<Light>();light.type=LightType.Point;light.transform.position=new Vector3(-.4f,2.2f,-.7f);light.intensity=3;light.range=6;light.color=new Color(1,.89f,.72f);
         RenderSettings.ambientLight=new Color(.25f,.28f,.32f);RenderSettings.ambientIntensity=1;
         var block=new MaterialPropertyBlock();block.SetFloat("_TownVisibility",1);foreach(Renderer r in obj.GetComponentsInChildren<Renderer>(true))r.SetPropertyBlock(block);
         Animation animation=root.GetComponentInChildren<Animation>();
         var faceRig=new TownServiceFaceRig(root);
         using var metrics=new StreamWriter(Path.Combine(folder,"service"+service+"-contacts.csv"));metrics.WriteLine("phase,handX,handY,handZ,gripX,gripY,gripZ,tipX,tipY,tipZ");
-        foreach(int phase in new[]{0,1,2,3})
+        float[] phases={.8f,1.8f,1.8f,5.4f,6.9f,8.1f,15.4f,17f};
+        if(sequence)phases=Enumerable.Range(0,174).Select(n=>n/8f).ToArray();
+        for(int phase=0;phase<phases.Length;phase++)
         {
             faceRig.BeforeBodySample();rig.BeforeBodySample();animation.Stop();var body=animation["Idle"];body.enabled=true;body.weight=1;body.time=0;animation.Sample();body.enabled=false;
-            var state=new TownActivityPose{WorkClock=phase==0?2:8,TransitionAge=.65f,FromBlend=phase==2?1:0,Engaged=phase==2};rig.Apply(in state);props.Sample(in state);
-            if(phase==3)
+            bool attentive=!sequence&&phase==2;
+            var state=new TownActivityPose{WorkClock=phases[phase],TransitionAge=.65f,FromBlend=attentive?1:0,Engaged=attentive};rig.Apply(in state);props.Sample(in state);
+            if(phase==3&&!sequence)
             {
                 // Normal settled work focus, using the exact production residual-angle solver
                 // after the real body/activity pose. This is not an extra synthetic22° bend.
@@ -39,8 +43,14 @@ internal static class ActivityRender
                 TownServiceFacePose face=TownServiceFaceMotion.Evaluate(in gaze,8f,service,Vector3.zero);faceRig.Apply(in face);
                 metrics.WriteLine("# normal-work-gaze pitch="+gaze.HeadPitch.ToString("R",CultureInfo.InvariantCulture)+" yaw="+gaze.HeadYaw.ToString("R",CultureInfo.InvariantCulture));
             }
-            Transform hand=root.GetComponentsInChildren<Transform>(true).Single(t=>t.name=="Hand.R");Transform grip=root.Find("ActivityGripRight"),pen=root.Find("Town.ReedPen");Vector3 tip=pen!=null?pen.TransformPoint(new Vector3(0,-TownServiceActivityProps.PenTipDistance,0)):Vector3.zero;
+            Transform hand=root.GetComponentsInChildren<Transform>(true).Single(t=>t.name=="Hand.R");Transform grip=root.Find("ActivityGripRight"),pen=root.Find("Town.ReedPen");Vector3 tip=Vector3.zero;
             Transform shoulder=root.GetComponentsInChildren<Transform>(true).Single(t=>t.name=="UpperArm.R");Transform elbow=root.GetComponentsInChildren<Transform>(true).Single(t=>t.name=="Forearm.R");
+            if(service==1)
+            {
+                Transform index=root.GetComponentsInChildren<Transform>(true).Single(t=>t.name=="IndexTip.L");
+                Transform thumb=root.GetComponentsInChildren<Transform>(true).Single(t=>t.name=="ThumbTip.L");
+                metrics.WriteLine("# coin pinch gap="+Vector3.Distance(index.position,thumb.position).ToString("R",CultureInfo.InvariantCulture));
+            }
             metrics.WriteLine("# shoulder="+shoulder.position.ToString("F5")+" upper="+Vector3.Distance(shoulder.position,elbow.position)+" fore="+Vector3.Distance(elbow.position,hand.position));
             metrics.WriteLine(string.Join(",",new[]{(float)phase,hand.position.x,hand.position.y,hand.position.z,grip.position.x,grip.position.y,grip.position.z,tip.x,tip.y,tip.z}.Select(v=>v.ToString("R",CultureInfo.InvariantCulture))));
             using(var poses=new StreamWriter(Path.Combine(folder,"service"+service+"-phase"+phase+"-bones.json")))
@@ -55,12 +65,13 @@ internal static class ActivityRender
                 poses.Write("]}");
             }
             GameObject snapshot=Snapshot(root);
-            foreach(int view in new[]{0,1,2})
+            foreach(int view in sequence?new[]{0}:new[]{0,1,2})
             {
                 if(pen!=null)pen.gameObject.SetActive(view!=2);
                 camera.transform.position=view==0?new Vector3(-.7f,1.9f,-.8f):new Vector3(.5f,2.05f,.15f);camera.transform.LookAt(new Vector3(0,1.15f,.4f));camera.Render();RenderTexture.active=rt;
                 var image=new Texture2D(rt.width,rt.height,TextureFormat.RGB24,false);image.ReadPixels(new Rect(0,0,rt.width,rt.height),0,0);image.Apply();File.WriteAllBytes(Path.Combine(folder,"service"+service+"-phase"+phase+"-view"+view+".png"),image.EncodeToPNG());UnityEngine.Object.DestroyImmediate(image);
             }
+            foreach(MeshFilter mesh in snapshot.GetComponentsInChildren<MeshFilter>())UnityEngine.Object.DestroyImmediate(mesh.sharedMesh);
             UnityEngine.Object.DestroyImmediate(snapshot);
         }
         RenderTexture.active=null;camera.targetTexture=null;rt.Release();UnityEngine.Object.DestroyImmediate(rt);UnityEngine.Object.DestroyImmediate(camera.gameObject);UnityEngine.Object.DestroyImmediate(light.gameObject);

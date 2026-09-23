@@ -9,7 +9,7 @@ namespace GloomhavenVR.WorldUI;
 internal sealed class TownServiceArcaneEffect : IDisposable
 {
     private readonly Transform _root;
-    private readonly Transform[] _sparks = new Transform[12];
+    private readonly Transform[] _sparks = new Transform[24];
     private readonly Transform _core;
     private readonly float _meshScale;
     internal TownServiceArcaneEffect(Transform parent, MeshFilter source, Material[] materials)
@@ -34,19 +34,25 @@ internal sealed class TownServiceArcaneEffect : IDisposable
         return obj.transform;
     }
     internal void Sample(Vector3 centre, float clock, float strength)
+        => Sample(centre, Vector3.up, clock, strength);
+    internal void Sample(Vector3 centre, Vector3 normal, float clock, float strength)
     {
         bool visible = strength > .001f;
         if (_root.gameObject.activeSelf != visible) _root.gameObject.SetActive(visible);
         if (!visible) return;
         _root.position = centre;
-        _core.localScale = Vector3.one * ((.12f + .035f * Mathf.Sin(clock * 2f)) * _meshScale);
+        _root.rotation = Quaternion.FromToRotation(Vector3.up, normal);
+        // A formed two-hand spell occupies a visible hand-span. The second, quieter
+        // inspection phrase uses the same authored strength to contract the volume.
+        float radius = Mathf.Lerp(.055f, .22f, strength);
+        _core.localScale = Vector3.one * ((.055f + .15f * strength) * _meshScale);
         for (int i = 0; i < _sparks.Length; i++)
         {
-            float angle = clock * (i < 6 ? .9f : -.7f) + (i % 6) * Mathf.PI / 3f;
-            float radius = .115f + .018f * Mathf.Sin(clock * 1.4f + i);
+            bool outer = i < 12;
+            float angle = clock * (outer ? .9f : -.7f) + (i % 12) * Mathf.PI / 6f;
             _sparks[i].localPosition = new Vector3(Mathf.Cos(angle) * radius,
-                Mathf.Sin(angle) * radius * (i < 6 ? .45f : .9f), Mathf.Sin(angle) * radius * (i < 6 ? .9f : -.45f));
-            _sparks[i].localScale = Vector3.one * ((.021f + .008f * (.5f + .5f * Mathf.Sin(clock * 3f + i))) * _meshScale);
+                Mathf.Sin(angle) * radius * (outer ? .45f : .9f), Mathf.Sin(angle) * radius * (outer ? .9f : -.45f));
+            _sparks[i].localScale = Vector3.one * ((.018f + .022f * strength) * _meshScale);
         }
     }
     internal void Suspend() => _root.gameObject.SetActive(false);

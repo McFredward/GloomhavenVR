@@ -43,12 +43,15 @@ internal static class HandContacts
                 rig.Apply(in visual);
                 foreach(string side in new[]{"L","R"})
                 {
-                    Transform contact=root.GetComponentsInChildren<Transform>().Single(t=>t.name=="PalmContact."+side);
+                    Transform contact=service==1&&side=="L"?root.Find("ActivityGripLeft"):root.GetComponentsInChildren<Transform>().Single(t=>t.name=="PalmContact."+side);
                     Vector3 expected=root.TransformPoint(side=="L"?visual.Left:visual.Right);
                     Vector3 horizontal=contact.position-expected;horizontal=Vector3.ProjectOnPlane(horizontal,root.up);
                     if(horizontal.magnitude>.0001f)throw new Exception("anatomical palm contacts transformed counter surface");checks++;
                     float lowest=root.GetComponentsInChildren<Transform>().Where(t=>t.name=="PalmContact."+side||t.name.EndsWith("Pad."+side)).Min(t=>root.InverseTransformPoint(t.position).y);
-                    if(Mathf.Abs(lowest-.959f)>.0001f)throw new Exception("attentive palms rest at physical worktop height");checks++;
+                    if(!(service==1&&side=="L")&&!(service==3&&side=="R"))
+                    {if(Mathf.Abs(lowest-.959f)>.0001f)throw new Exception("attentive palms rest at physical worktop height");checks++;}
+                    if(service==3&&side=="R")
+                    {if(rig.OfferingPalm==null||Vector3.Dot(rig.OfferingPalm.up,root.up)<.99f)throw new Exception("offering palm faces upward");checks++;}
                     foreach(Transform tip in root.GetComponentsInChildren<Transform>().Where(t=>t.name.EndsWith("Tip."+side)))
                     {if(Quaternion.Angle(tip.localRotation,Quaternion.identity)>.001f)throw new Exception("contact markers are not articulated finger joints");checks++;}
                 }
@@ -56,14 +59,27 @@ internal static class HandContacts
                 {
                     using var props=new TownServiceActivityProps(root,service,Shader.Find("Unlit/Color"));
                     var coin=Child(root,"Native coin",new Vector3(-.2f,.96f,.22f));props.BindCoin(coin,Vector3.zero);props.Sample(in visual);
-                    if(Vector3.Distance(coin.localPosition,new Vector3(-.2f,.96f,.22f))>.0001f)throw new Exception("attentive merchant sets coin down");checks++;
-                    Transform pen=root.Find("Town.ReedPen");
-                    if(Mathf.Abs(pen.localPosition.y-.966f)>.0001f)throw new Exception("attentive merchant sets pen onto ledger edge");checks++;
+                    if(Vector3.Distance(coin.localPosition,visual.Coin0)>.0001f)throw new Exception("ungripped coin remains on its real seat");checks++;
+                    if(root.Find("Town.ReedPen")!=null)throw new Exception("imaginary writing prop removed");checks++;
+                    foreach(float clock in new[]{.5f,.8f,1f,1.3f,1.8f,2.84f,3.2f,3.6f,5.2f,9.5f,20.99f})
+                    {
+                        rig.BeforeBodySample();
+                        var work=new TownActivityPose{WorkClock=clock,TransitionAge=.65f};
+                        var sample=TownServiceActivityMotion.Visual(1,in work);rig.Apply(in sample);props.Sample(in sample);
+                        for(int i=0;i<3;i++)
+                        {
+                            Transform shown=i==0?coin:root.Find("Town.CountingCoin"+i);
+                            float attached=i==0?sample.CoinGrip.x:i==1?sample.CoinGrip.y:sample.CoinGrip.z;
+                            Vector3 resting=i==0?sample.Coin0:i==1?sample.Coin1:sample.Coin2;
+                            Vector3 wanted=attached>.99f?root.Find("ActivityGripLeft").position:root.TransformPoint(resting);
+                            if(Vector3.Distance(shown.position,wanted)>.0001f)throw new Exception("real coin follows actual pinch or resting seat");checks++;
+                        }
+                    }
                 }
                 rig.BeforeBodySample();
                 state=new TownActivityPose{WorkClock=8f,TransitionAge=.65f};
                 visual=TownServiceActivityMotion.Visual(service,in state);rig.Apply(in visual);
-                if(Quaternion.Angle(chest.localRotation,Quaternion.identity)>8.05f || Quaternion.Angle(neck.localRotation,Quaternion.identity)>4.05f)
+                if(Quaternion.Angle(chest.localRotation,Quaternion.identity)>13f || Quaternion.Angle(neck.localRotation,Quaternion.identity)>4.05f)
                     throw new Exception("work posture does not stack an extreme torso and neck bow");checks++;
                 foreach(Transform child in root.GetComponentsInChildren<Transform>())
                 {

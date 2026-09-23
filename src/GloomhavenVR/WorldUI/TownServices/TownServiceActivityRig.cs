@@ -29,6 +29,7 @@ internal sealed class TownServiceActivityRig
     private readonly Arm? _left, _right;
     private readonly Transform? _neck, _chest, _actor;
     private readonly float _actorRestHeight;
+    internal Transform? OfferingPalm { get; }
     private Quaternion _sampledNeck, _sampledChest;
     private bool _applied;
     internal bool Ready => _left != null && _right != null;
@@ -38,6 +39,11 @@ internal sealed class TownServiceActivityRig
         _actor = root.Find("Actor"); _actorRestHeight = _actor != null ? _actor.localPosition.y : 0f; _left = Find(root, "L"); _right = Find(root, "R");
         foreach (Transform child in root.GetComponentsInChildren<Transform>(true))
         { if (child.name == "Neck") _neck = child; else if (child.name == "Chest") _chest = child; }
+        if (service == 3 && _right != null)
+        {
+            OfferingPalm = new GameObject("ActivityOfferingPalm").transform;
+            OfferingPalm.SetParent(root, false);
+        }
     }
     internal void BeforeBodySample()
     {
@@ -133,17 +139,26 @@ internal sealed class TownServiceActivityRig
             // A small additional lean preserves palm contact without stretching arms or
             // lengthening the neck. This depends only on the replicated grounding offset.
             float terrainLean = _actor != null ? Mathf.Clamp((_actor.localPosition.y - _actorRestHeight) * 180f, 0f, 6f) : 0f;
-            _chest.rotation = Quaternion.AngleAxis(6f + 2f * visual.Writing + terrainLean, -_root.right) * _chest.rotation;
+            _chest.rotation = _root.rotation * Quaternion.Euler(visual.Chest + new Vector3(-6f - terrainLean, 0f, 0f))
+                * Quaternion.Inverse(_root.rotation) * _chest.rotation;
         }
         if (_neck != null)
         {
             _sampledNeck = _neck.localRotation; _applied = true;
             _neck.rotation = Quaternion.AngleAxis(4f * (1f - visual.Attention), -_root.right) * _neck.rotation;
         }
-        Solve(_left!, visual.Left, 1f, visual.Curl, visual.Attention, 0f);
-        Solve(_right!, visual.Right, -1f, visual.Curl, visual.Attention, visual.Writing);
+        Solve(_left!, visual.Left, 1f, visual.LeftCurl, visual.Attention, visual.LeftRoll, _service == 1);
+        Solve(_right!, visual.Right, -1f, visual.RightCurl, visual.Attention, visual.RightRoll, false);
+        if (OfferingPalm != null)
+        {
+            Arm right = _right!;
+            Vector3 normal = right.Hand.TransformDirection(right.PalmNormal).normalized;
+            Vector3 forward = right.Hand.TransformDirection(right.PalmForward).normalized;
+            OfferingPalm.SetPositionAndRotation(right.PalmContact != null ? right.PalmContact.position : right.Hand.position,
+                Quaternion.LookRotation(forward, normal));
+        }
     }
-    private void Solve(Arm arm, Vector3 localTarget, float side, float curl, float attention, float writing)
+    private void Solve(Arm arm, Vector3 localTarget, float side, float curl, float attention, float roll, bool pinchTarget)
     {
         arm.SampledUpper = arm.Upper.localRotation; arm.SampledFore = arm.Fore.localRotation;
         arm.SampledHand = arm.Hand.localRotation; arm.Applied = true;
@@ -153,26 +168,43 @@ internal sealed class TownServiceActivityRig
         Quaternion table = Quaternion.LookRotation(-_root.forward, -_root.up);
         Quaternion orientation = _service == 2
             ? Quaternion.Slerp(Quaternion.LookRotation(_root.up, -side * _root.right), table, attention) : table;
-        orientation = Quaternion.AngleAxis(45f * writing, _root.forward) * orientation;
+        orientation = Quaternion.AngleAxis(roll, _root.forward) * orientation;
         Quaternion handRotation = orientation * Quaternion.Inverse(Quaternion.LookRotation(arm.PalmForward, arm.PalmNormal));
         // Evaluate relaxed finger surfaces before IK. Their offsets from the wrist do
         // not depend on arm reach; resetting these rotations also prevents accumulation.
         arm.Hand.rotation = handRotation;
         for (int n = 0; n < arm.Fingers.Count; n++)
-            arm.Fingers[n].localRotation = arm.FingerRest[n] * Quaternion.AngleAxis(curl * arm.CurlFactors[n], arm.CurlAxes[n]);
-        Vector3 target = _root.TransformPoint(localTarget);
-        if (arm.Anatomical && attention > 0f)
         {
-            // Visual.Left/Right interpolate to the physical palm contact, not the wrist.
-            // Subtract the rotated marker offset through the same smooth interruption.
+            Transform finger = arm.Fingers[n];
+            float amount = pinchTarget && !finger.name.StartsWith("Index") && !finger.name.StartsWith("Thumb") ? curl * .3f : curl;
+            finger.localRotation = arm.FingerRest[n] * Quaternion.AngleAxis(amount * arm.CurlFactors[n], arm.CurlAxes[n]);
+        }
+        if (arm.Anatomical && pinchTarget && arm.ThumbBase != null && arm.ThumbPinch != null && arm.IndexPinch != null)
+        {
+            Vector3 tip = arm.ThumbBase.InverseTransformPoint(arm.ThumbPinch.position);
+            Vector3 index = arm.ThumbBase.InverseTransformPoint(arm.IndexPinch.position);
+            tip.z = 0f; index.z = 0f;
+            float opposition = Mathf.Clamp(Vector3.SignedAngle(tip, index, Vector3.forward), -25f, 25f) * Mathf.Clamp01(curl / .55f);
+            arm.ThumbBase.localRotation *= Quaternion.AngleAxis(opposition, Vector3.forward);
+        }
+        Vector3 target = _root.TransformPoint(localTarget);
+        if (pinchTarget && arm.IndexPinch != null && arm.ThumbPinch != null)
+            target -= (arm.IndexPinch.position + arm.ThumbPinch.position) * .5f - arm.Hand.position;
+        else if (arm.Anatomical)
+        {
+            // Targets now describe actual palm surfaces throughout the entire animation,
+            // including the offered hand. A wrist-space target left spells hovering over
+            // the knuckles and made authored object contact impossible to maintain.
             Vector3 palmOffset = handRotation * Vector3.Scale(arm.PalmOffset, arm.Hand.lossyScale);
-            target -= palmOffset * attention;
+            target -= palmOffset;
             float lowest = Vector3.Dot(palmOffset, _root.up);
             foreach (Transform support in arm.Supports)
                 if (support != null) lowest = Mathf.Min(lowest, Vector3.Dot(support.position - arm.Hand.position, _root.up));
             // A relaxed hand has an arched palm. Place its actual lowest palmar pad on
             // the wood, rather than driving the whole central palm into the surface.
-            target += _root.up * (Vector3.Dot(palmOffset, _root.up) - lowest) * attention;
+            float tableContact = (1f - Mathf.SmoothStep(0f, 1f, (localTarget.y - .960f) / .025f))
+                * (1f - Mathf.SmoothStep(0f, 1f, Mathf.Abs(roll) / 25f));
+            target += _root.up * (Vector3.Dot(palmOffset, _root.up) - lowest) * tableContact;
         }
         Vector3 delta = target - shoulder;
         float distance = Mathf.Clamp(delta.magnitude, Mathf.Abs(upper - lower) + .001f, upper + lower - .001f);
@@ -183,21 +215,14 @@ internal sealed class TownServiceActivityRig
         float along = (upper * upper - lower * lower + distance * distance) / (2f * distance);
         Vector3 wantedElbow = shoulder + direction * along + bend * Mathf.Sqrt(Mathf.Max(0f, upper * upper - along * along));
         arm.Upper.rotation = Quaternion.FromToRotation(elbow - shoulder, wantedElbow - shoulder) * arm.Upper.rotation;
+        // Palm-up gestures rotate the whole arm. Putting the entire half-turn into
+        // Hand alone used to wring the wrist/cuff while the forearm stayed palm-down.
+        arm.Upper.rotation = Quaternion.AngleAxis(roll * .20f, arm.Fore.position - arm.Upper.position) * arm.Upper.rotation;
         arm.Fore.rotation = Quaternion.FromToRotation(arm.Hand.position - arm.Fore.position,
             shoulder + direction * distance - arm.Fore.position) * arm.Fore.rotation;
+        arm.Fore.rotation = Quaternion.AngleAxis(roll * .65f, arm.Hand.position - arm.Fore.position) * arm.Fore.rotation;
         arm.Hand.localRotation = arm.RestHand;
         arm.Hand.rotation = handRotation;
-        if (arm.Anatomical && writing > 0f && arm.ThumbBase != null && arm.ThumbPinch != null && arm.IndexPinch != null)
-        {
-            // Oppose the real thumb toward the index pad in its own anatomical plane.
-            // A signed geometric angle works for both mirrored hands without a guessed
-            // left/right constant; the bounded base rotation cannot invert the thumb.
-            Vector3 tip = arm.ThumbBase.InverseTransformPoint(arm.ThumbPinch.position);
-            Vector3 index = arm.ThumbBase.InverseTransformPoint(arm.IndexPinch.position);
-            tip.z = 0f; index.z = 0f;
-            float opposition = Mathf.Clamp(Vector3.SignedAngle(tip, index, Vector3.forward), -25f, 25f) * writing;
-            arm.ThumbBase.localRotation *= Quaternion.AngleAxis(opposition, Vector3.forward);
-        }
         Vector3 pinch = arm.IndexPinch != null && arm.ThumbPinch != null
             ? (arm.IndexPinch.position + arm.ThumbPinch.position) * .5f : arm.Hand.position;
         Vector3 toolShaft = (arm.Hand.position - pinch + _root.up * .045f).normalized;

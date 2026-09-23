@@ -103,12 +103,12 @@ public static class InteractionProgram
         Check(GloomhavenVR.Net.TownServices.TownServiceMirror.Assets.Items.Count>0,"network asset reset rebinds living native coin textures");
         decor.Dispose();Check(TownServiceDecor.StaticPropSource(2)==null&&TownServiceDecor.StaticPropCount(2)==0,"disposed station invalidates static prop lookup");Check(TownServiceDecor.CoinTemplate==null&&Addressables.Held==0,"coin template cannot outlive owner materials");UnityEngine.Object.DestroyImmediate(root);
         Setup(0);root=new GameObject("enchantress");
-        var grip=new GameObject("ActivityGripRight");grip.transform.SetParent(root.transform,false);grip.transform.localPosition=new Vector3(.2f,1.1f,.3f);
+        var grip=new GameObject("ActivityOfferingPalm");grip.transform.SetParent(root.transform,false);grip.transform.localPosition=new Vector3(.2f,1.1f,.3f);
         decor=new TownServiceDecor(root.transform,3,light);Tick(decor,0);Tick(decor,.11f);decor.SetVisibility(.8f);decor.SetClock(100f);
-        var visual=new GloomhavenVR.Net.TownActivityVisual{Cast=.4f};decor.SampleActivity(in visual);
+        var visual=new GloomhavenVR.Net.TownActivityVisual{Cast=.4f,EffectClock=100f};decor.SampleActivity(in visual);
         Transform effect=root.transform.Find("Town.ArcaneConstellation");
         Check(effect!=null&&effect.gameObject.activeSelf,"native constellation visible during authored cast");
-        Check(effect!.childCount==13,"magic draw count is bounded");
+        Check(effect!.childCount==25,"magic draw count is bounded");
         Material glow=effect.GetComponentInChildren<MeshRenderer>().sharedMaterial;
         Check(Math.Abs(glow.GetFloat("_TownVisibility")-.32f)<.0001f,"magic opacity combines station fade and cast envelope");
         Vector3 orbit=effect.GetChild(4).position;decor.SampleActivity(in visual);

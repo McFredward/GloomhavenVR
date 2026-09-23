@@ -52,7 +52,7 @@ public static class InteractionProgram
         RemoteTownActivities.ObservePresence(2,in state);Check(RemoteTownActivities.Sample(2,out _,out _),"same epoch recovers after networkstall");
         var changed=state;changed.Epoch=2;changed.Sequence=1;RemoteTownActivities.ObservePresence(2,in changed);
         state.Sequence=7;RemoteTownActivities.ObservePresence(2,in state);RemoteTownActivities.Sample(2,out observed,out _);Check(observed.Epoch==2,"retired activity epoch cannot return");
-        Paired();Handover();
+        Paired();Handover();Choreography();
         string[] args=Environment.GetCommandLineArgs();int at=Array.IndexOf(args,"-faceBundle");
         if(at>=0)Actual(args[at+1]);
         return count;
@@ -115,6 +115,35 @@ public static class InteractionProgram
         transition.Sample(3,4,.01f,in b,in faceB,out shown,out head);
         Near(Vector3.Distance(shown.Right,a.Right),0,.00001f,"same player new ownership epoch also reconciles");
     }
+    private static void Choreography()
+    {
+        Vector3[] previous=new Vector3[3];
+        bool large=false,small=false;
+        for(int frame=0;frame<3889;frame++)
+        {
+            var state=new TownActivityPose{WorkClock=frame/90f,TransitionAge=.65f};
+            var merchant=TownServiceActivityMotion.Visual(1,in state);
+            for(int coin=0;coin<3;coin++)
+            {
+                float grip=coin==0?merchant.CoinGrip.x:coin==1?merchant.CoinGrip.y:merchant.CoinGrip.z;
+                Vector3 seat=coin==0?merchant.Coin0:coin==1?merchant.Coin1:merchant.Coin2;
+                Vector3 displayed=Vector3.Lerp(seat,merchant.Left,grip);
+                if(frame>0)Check(Vector3.Distance(previous[coin],displayed)<.014f,"counted coin never teleports across pickup/deposit/loop");
+                Check(grip==0f||grip==1f,"coin is resting or rigidly gripped, never magnetically attracted");
+                if(grip==0f)Check(displayed.y>=.969f&&displayed.y<=.977f,"released coins rest on counter/stack");
+                previous[coin]=displayed;
+            }
+            var spell=TownServiceActivityMotion.Visual(3,in state);
+            if(spell.Cast>.95f)large=true;
+            if(state.WorkClock>14.5f&&state.WorkClock<17f&&spell.Cast>.25f&&spell.Cast<.6f)small=true;
+            if(spell.Cast>.25f)Check(spell.RightRoll>110f,"visible spell uses an upward-facing palm");
+        }
+        Check(large&&small,"distinct large two-arm and small palm spell phrases exist");
+        var pause=new TownActivityPose{WorkClock=1.8f,TransitionAge=.65f};
+        TownServiceActivityMotion.Engage(ref pause,true);pause=TownServiceActivityMotion.Advance(pause,1f);
+        var held=TownServiceActivityMotion.Visual(1,in pause);
+        Check(held.CoinGrip.x==1f,"visitor interruption preserves held coin contact");
+    }
     private static void Actual(string path)
     {
         AssetBundle bundle=AssetBundle.LoadFromFile(path);Check(bundle!=null,"actual bundle loads");
@@ -154,8 +183,11 @@ public static class InteractionProgram
                             Check(Vector3.Distance(hand.position,wanted)<.003f,"writing contact survives resolved terrain offsets at "+n+": "+Vector3.Distance(hand.position,wanted));
                         if(n>0)Check(Quaternion.Angle(previousHand,hand.rotation)<4f,"hand orientation remains smooth through prayer interruption");
                         previousHand=hand.rotation;
-                        if(TownServiceActivityMotion.Blend(in phase)<.001f)
-                            Check(Vector3.Distance(hand.position,wanted)<=excess+.0001f,"actual hand reaches occupation target");
+                        if(TownServiceActivityMotion.Blend(in phase)<.001f && target.y>.99f)
+                        {
+                            Transform actualPalm=root.GetComponentsInChildren<Transform>(true).Single(t=>t.name=="PalmContact.R");
+                            Check(Vector3.Distance(actualPalm.position,wanted)<.012f,"actual palm reaches occupation target: "+npc+" n="+n+" error="+Vector3.Distance(actualPalm.position,wanted));
+                        }
                         else if(TownServiceActivityMotion.Blend(in phase)>.999f)
                         {
                             Transform[] markers=root.GetComponentsInChildren<Transform>(true);
@@ -163,7 +195,12 @@ public static class InteractionProgram
                             Transform[] supports=markers.Where(t=>t.name=="PalmContact.R"||t.name.EndsWith("Pad.R")).ToArray();
                             Check(supports.Length==6,"actual hand has five anatomical finger pads and palm support");
                             float lowest=supports.Min(t=>root.InverseTransformPoint(t.position).y);
-                            Check(Mathf.Abs(lowest-target.y)<.005f,"actual relaxed hand support rests on counter: "+npc+" n="+n+" lowest="+lowest+" target="+target.y);
+                            if(service==3)
+                            {
+                                Check(Vector3.Distance(palm.position,wanted)<.012f,"actual enchantress offered palm reaches handoff n="+n+" distance="+Vector3.Distance(palm.position,wanted)+" shoulder="+upper.position+" target="+wanted+" reach="+reach);
+                                Check(rig.OfferingPalm!=null&&Vector3.Dot(rig.OfferingPalm.up,root.up)>.99f,"actual offering normal points above palm");
+                            }
+                            else Check(Mathf.Abs(lowest-target.y)<.005f,"actual relaxed hand support rests on counter: "+npc+" n="+n+" lowest="+lowest+" target="+target.y);
                             Check(supports.All(t=>root.InverseTransformPoint(t.position).y>=.954f),"actual palmar skin stays above wood");
                         }
                         rig.BeforeBodySample();Check(Quaternion.Angle(upper.localRotation,before)<.05f,"original arm base restores without accumulation");

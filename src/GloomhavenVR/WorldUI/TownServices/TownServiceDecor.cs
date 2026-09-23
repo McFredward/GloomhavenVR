@@ -442,11 +442,12 @@ internal sealed class TownServiceDecor : IDisposable
             // grips in an incompatible bundle must not turn into a hierarchy scan per frame.
             _castGripBound = true;
             foreach (Transform child in _root.GetComponentsInChildren<Transform>(true))
-                if (child.name == "ActivityGripRight") { _castGrip = child; break; }
+                if (child.name == "ActivityOfferingPalm") { _castGrip = child; break; }
         }
         if (_castGrip == null) return;
         float strength = visual.Cast;
-        _magic?.Sample(_castGrip.position + _root.TransformVector(new Vector3(visual.CastSway, .12f, -.02f)), _clock, strength);
+        _magic?.Sample(_castGrip.position + _castGrip.up * (.07f + .10f * strength),
+            _castGrip.up, visual.EffectClock, strength);
         foreach (Material material in _arcane.EffectMaterials)
             material.SetFloat(Visibility, _visibility * strength);
     }
