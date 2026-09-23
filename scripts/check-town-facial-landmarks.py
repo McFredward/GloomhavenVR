@@ -1,7 +1,16 @@
 #!/usr/bin/env python3
 """Blender authoring checks against measured reference landmarks, not headset proof."""
 import importlib.util
+import os
+import subprocess
+import sys
 from pathlib import Path
+
+# The authoring module imports bpy. Run the same measured geometry assertions in
+# Blender when launched by the ordinary local test runner, instead of faking bpy.
+if importlib.util.find_spec("bpy") is None:
+    blender = os.environ.get("BLENDER_PATH", "/home/claw/blender-4.2/blender")
+    raise SystemExit(subprocess.run([blender, "--background", "--python", str(Path(__file__).resolve())]).returncode)
 
 import numpy as np
 

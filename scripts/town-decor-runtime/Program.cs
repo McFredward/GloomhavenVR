@@ -64,7 +64,9 @@ public static class InteractionProgram
                 Check(source!=null&&source!=TownServiceDecor.CoinTemplate,"hidden coin template excluded from workspace props");
                 Check(address=="decor.2."+index,"static prop address remains service/index stable");staticCount++;
             }
-        Check(staticCount==7,"all priestess static lamps ledger bowl and scrolls exposed");
+        Check(staticCount==9,"all priestess static lamps ledger bowl and scrolls exposed");
+        Check(root.GetComponentsInChildren<Transform>(true).Count(t => t.name == "Original.Chapel.Clutter.Shelf.Individual#2") == 3,
+            "three original chapel decorations retain independent stand poses");
         Check(TownServiceDecor.TryStaticProp(2,0,out var lampSource,out _),"priestess static lamp ready");
         Check(TownServiceDecor.TryPractical(2,0,out var lampPoint,out var rangeScale),"original lamp has exact flame calibration");
         var lamp=UnityEngine.Object.Instantiate(lampSource!.gameObject);lamp.SetActive(false);
