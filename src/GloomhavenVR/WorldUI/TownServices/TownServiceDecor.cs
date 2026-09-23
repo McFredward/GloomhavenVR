@@ -110,15 +110,19 @@ internal sealed class TownServiceDecor : IDisposable
         if (service == 1)
         {
             Add("Treasure", "Treasure.Clutter.FloorSmall#3", new Vector3(.49f, .957f, .16f), .17f);
-            Add("AlchemyLab", "AlchemyLab.Clutter.Shelf.Individual#7", new Vector3(-.46f, .957f, .18f), .23f);
-            Add("Library", "Library.Clutter.Shelf.Individual#7", new Vector3(0f, .957f, .22f), .32f);
+            Add("AlchemyLab", "AlchemyLab.Clutter.Shelf.Individual#7", new Vector3(-.53f, .957f, -.06f), .16f);
+            Add("Library", "Library.Clutter.Shelf.Individual#7", new Vector3(-.28f, .957f, .16f), .28f);
             _workCoin = Add("Treasure", "Treasure.Clutter.Shelf.Individual#1", new Vector3(-.20f, .96f, .22f), .026f);
+            Add("Treasure", "Treasure.Clutter.FloorSmall#3", new Vector3(.67f, .957f, -.035f), .12f);
+            Add("AlchemyLab", "AlchemyLab.Clutter.Shelf.Individual#7", new Vector3(-.68f, .957f, -.045f), .13f);
         }
         else if (service == 2)
         {
             Add("Chapel", "Chapel.Clutter.Shelf.Individual#7", new Vector3(0f, .957f, .18f), .18f);
             Add("Library", "Library.Clutter.Shelf.Individual#7", new Vector3(-.33f, .957f, -.12f), .30f);
             Add("Chapel", "Chapel.Clutter.Shelf.Individual#2", new Vector3(.40f, .957f, .23f), .20f);
+            Add("Chapel", "Chapel.Clutter.Shelf.Individual#2", new Vector3(.55f, .957f, .08f), .14f);
+            Add("Chapel", "Chapel.Clutter.Shelf.Individual#2", new Vector3(-.54f, .957f, .19f), .16f);
             _coinTemplate = Add("Treasure", "Treasure.Clutter.Shelf.Individual#1", Vector3.zero, .05f);
             _coinTemplate.Template = true;
         }
@@ -127,6 +131,8 @@ internal sealed class TownServiceDecor : IDisposable
             Add("AlchemyLab", "AlchemyLab.Clutter.Shelf.Individual#3", new Vector3(-.48f, .957f, .21f), .23f);
             Add("AlchemyLab", "AlchemyLab.Clutter.Shelf.Individual#11", new Vector3(-.34f, .957f, .24f), .12f);
             Add("Library", "Library.Clutter.Shelf.Individual#7", new Vector3(0f, .957f, .22f), .32f);
+            Add("AlchemyLab", "AlchemyLab.Clutter.Shelf.Individual#11", new Vector3(.48f, .957f, .26f), .15f);
+            Add("AlchemyLab", "AlchemyLab.Clutter.Shelf.Individual#3", new Vector3(.59f, .957f, .06f), .13f);
             _arcane = Add("Tone_Candlelight", "Candlelight.Lighting.Torch.Wall#1", Vector3.zero, .11f, arcane: true);
         }
     }
