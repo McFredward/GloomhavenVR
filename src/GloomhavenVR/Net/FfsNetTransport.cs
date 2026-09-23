@@ -435,7 +435,12 @@ internal sealed class FfsNetTransport : INetTransport
                 _receivedFragments++;
                 byte[]? complete = _townFragments.Accept(senderId, buffer, length,
                     System.Diagnostics.Stopwatch.GetTimestamp() / (double)System.Diagnostics.Stopwatch.Frequency);
-                if (complete != null) { _completedSnapshots++; PacketReceived?.Invoke(senderId, complete, complete.Length); }
+                if (complete != null)
+                {
+                    if (TownServices.TownServiceCodec.TryReadBundle(complete, complete.Length, out byte[][]? modules))
+                    { foreach (byte[] module in modules!) { _completedSnapshots++; PacketReceived?.Invoke(senderId, module, module.Length); } }
+                    else { _completedSnapshots++; PacketReceived?.Invoke(senderId, complete, complete.Length); }
+                }
                 return;
             }
             if (routedType == NetProtocol.MsgExtrasFragments || routedType == NetProtocol.MsgUseBarAnimationFragments

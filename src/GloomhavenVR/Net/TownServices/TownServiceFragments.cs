@@ -6,6 +6,9 @@ namespace GloomhavenVR.Net.TownServices;
 /// <summary>Each sender/module gets its own loss-safe assembler, within the existing datagram cap.</summary>
 internal sealed class TownServiceFragments
 {
+    // One background snapshot is allowed to finish while held-card updates preempt it.
+    // At the unchanged globally saturated event cap this needs more than 32 seconds.
+    internal const double AssemblyLifetime = 120;
     private readonly Dictionary<long, ExtrasFragments> _streams = new();
     internal byte[]? Accept(int sender, byte[] packet, int length, double now)
     {
@@ -16,17 +19,18 @@ internal sealed class TownServiceFragments
         {
             if (_streams.Count >= 8 * (TownServiceFrame.MaxModules + 1)) return null;
             assembler = new ExtrasFragments(TownServiceCodec.MessageType, TownServiceCodec.FragmentType,
-                TownServiceFrame.MaxBytes, ExtrasFragments.PresentationAssemblyLifetime);
+                TownServiceFrame.MaxBytes, AssemblyLifetime);
             _streams.Add(key, assembler);
         }
         byte[]? result = assembler.Accept(sender, packet, length, now);
         if (result == null) return null;
+        if (stream == TownServiceFrame.BundleStream) return TownServiceCodec.TryReadBundle(result, result.Length, out _) ? result : null;
         if (!TownServiceCodec.TryRead(result, result.Length, out TownServiceFrame? frame) || frame!.Module != stream) return null;
         if (frame.Module == TownServiceFrame.ManifestModule)
         {
             var removed = new List<long>();
             foreach (long candidate in _streams.Keys)
-                if (candidate >> 16 == sender && (ushort)candidate != TownServiceFrame.ManifestModule
+                if (candidate >> 16 == sender && (ushort)candidate != TownServiceFrame.ManifestModule && (ushort)candidate != TownServiceFrame.BundleStream
                     && Array.BinarySearch(frame.Modules, (ushort)candidate) < 0) removed.Add(candidate);
             foreach (long candidate in removed) { _streams[candidate].Clear(); _streams.Remove(candidate); }
         }

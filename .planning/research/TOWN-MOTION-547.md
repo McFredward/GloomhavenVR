@@ -66,3 +66,56 @@ Pre-integration checks: strict Release zero warnings/errors; actual-bundle activ
 157,544 assertions with 14 compiled negative controls, portable activity 58,297 with
 six negatives, and native decoration 61 with seven negatives. The gaze suite adds a
 moving-work-target regression check; final integration should rerun against new assets.
+
+## Cold catalogue transport audit
+
+The final catalogue can contain 161 stock and 512 owned entries, each with a
+native face, physical body and original quantity/price row. The previous 2,048
+module ceiling could omit overhead modules, and the original codec accidentally
+serialized manifest counts as one byte. The ceiling is now 4,096; body version 2
+writes a ushort count and still reads version 1. Stream 65,534 is reserved for
+bounded bundles; 65,535 remains the manifest.
+
+The previous queue alternated modules after each fragment and transmitted every
+repeated manifest ahead of stock. Large snapshots could expire unfinished, while
+held cards waited behind the entire catalogue. The queue now finishes an active
+snapshot, coalesces unchanged manifests, and gives moving modules two turns per
+background turn. One small module supplies session liveness. Closing manifests
+retain the short retry cadence. Completion schedules the next unchanged refresh
+and baseline, so unsent original snapshots do not accumulate replacement baselines.
+
+Cold ordinary modules are compressed together, retaining their complete original
+packets byte for byte. A bundle contains at most 32 packets and 60,000 bytes and
+is strictly length/session validated before delivery. A reserved zero-length
+record 78 introduces the contiguous version-3 transport body; regular single
+module records remain unchanged. No template defaults, text or native properties
+are inferred. Held modules remain independent and can interrupt background work.
+The existing 864-byte/50-ms global budget is unchanged. Town-only Optimal Deflate
+reduces a 49,466-byte test bundle to 996 bytes versus 1,568 with Fastest. Replacing
+the old bitwise CRC with its identical 256-entry lookup cuts measured desktop
+compression from roughly 1.8ms to 0.23ms; an independent bitwise checksum verifies
+wire compatibility. These numbers are desktop harness timings, not headset FPS.
+
+The reproducible synthetic inventory has 16 native-like nodes per ordinary module
+and eight 128-node modules, with material/text properties. At an 18fps sender:
+
+| Inventory / load | Cold completion | Town bytes including warm follow-up | Warm held maximum delay |
+| --- | ---: | ---: | ---: |
+| 161 stock +30 owned, 64 overhead, idle map | 6.39s | 63,502 | 0.056s |
+| 161 stock +512 owned, 64 overhead, idle map | 20.61s | 187,630 | 0.222s |
+| Same maximum, six continuously saturated other streams | 270.89s | 386,985 | 2.111s |
+
+The last case deliberately maintains six independent maximum-rate noisy streams;
+it demonstrates progress under the shared cap, not an acceptable hardware promise.
+Without batching the maximum idle catalogue took 124.28s, and saturation took
+1,399s. Actual native hierarchy sizes and simultaneously active streams determine
+hardware latency. No extra ordinary-level log stream was introduced. Native
+sampling still observes every update; the unpublished frame probe reuses arrays
+without mutating queued output. Further sampler CPU work must preserve animation
+and hierarchy changes rather than merely skip unchanged-looking modules.
+
+Validation: strict Release zero warnings/errors; complete Unity mirror render and
+negative-control suite; wire vectors require the actual large manifest, every
+module, exact bundled bytes, parser truncation/overflow rejection, cold-load
+bounds, moving-card baseline expansion and steady-state delivery. The integration
+branch's new publisher extraction still requires its own combined guard run.

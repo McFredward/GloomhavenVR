@@ -62,7 +62,7 @@ internal sealed class ExtrasFragments
         if (snapshot == null || length < 6 || length > snapshot.Length
             || length > snapshotLimit || NetPacket.PeekType(snapshot, length) != payloadType)
             throw new ArgumentException("Invalid presentation snapshot.", nameof(snapshot));
-        if (compress && PresentationCompression.TryCompress(snapshot, length) is byte[] packed)
+        if (compress && PresentationCompression.TryCompress(snapshot, length, payloadType == TownServices.TownServiceCodec.MessageType) is byte[] packed)
             return EncodeCompressed(snapshot, length, sequence, payloadType, packed);
         int chunkCount = (length + ChunkBytes - 1) / ChunkBytes;
         var packets = new byte[(chunkCount + 3) / 4][];

@@ -27,6 +27,7 @@ internal sealed class TownServiceSessionInfo
 /// </summary>
 internal static class TownServiceMirror
 {
+    static TownServiceMirror() { TownServiceDelivery.Completed = SnapshotSent; }
     internal static readonly TownServiceAssets Assets = new();
     private static readonly Dictionary<int, TownServiceSessionInfo> Sessions = new();
     internal static IReadOnlyDictionary<int, TownServiceSessionInfo> RemoteSessions => Sessions;
@@ -56,6 +57,7 @@ internal static class TownServiceMirror
     private static bool _active;
     private static float _nextManifest, _closedUntil;
     private static float _sessionStarted;
+    private static ushort _heartbeatModule;
     private static readonly Dictionary<string, float> Failures = new(StringComparer.Ordinal);
     private static float _reportWindow;
     private static int _reportCount;
@@ -70,6 +72,9 @@ internal static class TownServiceMirror
         internal float NextBaseline;
         internal float NextRefresh;
         internal float RetryAfter;
+        internal bool HighPriority, WasPriority;
+        internal ulong LastSent;
+        internal readonly TownServiceFrame Probe = new();
         internal Func<Transform, bool>? Exclude;
     }
     private sealed class RemoteModule : IDisposable
@@ -143,7 +148,7 @@ internal static class TownServiceMirror
     internal static void RegisterModule(ushort module, ushort template, Transform liveRoot,
         Func<Transform, bool>? exclude = null, string address = "")
     {
-        if (!_active || module == TownServiceFrame.ManifestModule || liveRoot == null
+        if (!_active || module >= TownServiceFrame.BundleStream || liveRoot == null
             || Local.Count >= TownServiceFrame.MaxModules && !Local.ContainsKey(module))
             throw new ArgumentException("Invalid live town-service module.");
         if (!Templates.ContainsKey(TemplateKey(_service, template, address)))
@@ -163,6 +168,21 @@ internal static class TownServiceMirror
         current.Binding.Dispose(); Local.Remove(module); _nextManifest = 0;
     }
 
+    internal static void SetPriority(ushort module, bool highPriority)
+    { if (Local.TryGetValue(module, out LocalModule? current)) current.HighPriority = highPriority; }
+
+    private static void SnapshotSent(TownServiceFrame frame)
+    {
+        if (frame.Session != _session || frame.Service != _service || !Local.TryGetValue(frame.Module, out LocalModule? module)) return;
+        module.LastSent = Math.Max(module.LastSent, frame.Sequence);
+        float now = Time.unscaledTime;
+        if (frame.BaseSequence == 0 && module.Baseline?.Sequence == frame.Sequence)
+            module.NextBaseline = now + 5f + module.Id % 13 * .07f;
+        // A single small ordinary module maintains session liveness; unchanged stock
+        // does not need 2,000 separate subsecond heartbeat packets behind it.
+        module.NextRefresh = now + (module.Id == _heartbeatModule ? .75f : 5f + module.Id % 7 * .03f);
+    }
+
     internal static void EndSession()
     { _active = false; _closedUntil = Time.unscaledTime + 5; _nextManifest = 0; ClearLocalModules(); }
 
@@ -174,6 +194,8 @@ internal static class TownServiceMirror
         if (_session == 0 || _sharedFrame == null || (!_active && now > _closedUntil)) return;
         if (_active)
         {
+            _heartbeatModule = ushort.MaxValue;
+            foreach (ushort id in Local.Keys) if (id < _heartbeatModule) _heartbeatModule = id;
             SourceParents.Clear();
             foreach (LocalModule source in Local.Values)
                 for (int i = 0; i < source.Binding.Nodes.Length; i++)
@@ -192,16 +214,25 @@ internal static class TownServiceMirror
                         module.Binding.Dispose(); module.Binding = new TownServiceBinding(source, module.Exclude);
                         nodes = module.Binding.Read(Assets);
                     }
-                    var frame = new TownServiceFrame { Service = _service, Session = _session, Module = module.Id,
-                        Template = module.Template, TemplateAddress = module.Address, Structure = module.Binding.Structure, Visible = source.gameObject.activeInHierarchy,
-                        SampleTime = now, Pose = ReadPose(source, _sharedFrame), Nodes = nodes };
+                    // Reuse only the unpublished probe. Emitted headers/node arrays are
+                    // retained separately, so a later read cannot mutate queued artwork.
+                    TownServiceFrame frame = module.Probe;
+                    frame.Service = _service; frame.Session = _session; frame.Module = module.Id;
+                    frame.Template = module.Template; frame.TemplateAddress = module.Address; frame.Structure = module.Binding.Structure;
+                    frame.Visible = source.gameObject.activeInHierarchy; frame.SampleTime = now;
+                    frame.Pose = ReadPose(source, _sharedFrame, frame.Pose); frame.Nodes = nodes;
+                    frame.ParentModule = TownServiceFrame.ManifestModule; frame.ParentBinding = 0;
+                    ResetCanvasFrame(frame);
                     ReadParent(module, frame); ReadCanvasFrame(source, frame);
-                    if (SamePresentation(module.Last, frame) && now < module.NextRefresh) continue;
+                    if (SamePresentation(module.Last, frame)
+                        && (now < module.NextRefresh || module.Last != null && module.LastSent < module.Last.Sequence)) continue;
                     frame.Sequence = NextSequence();
                     TownServiceFrame emitted;
                     if (module.Baseline == null || now >= module.NextBaseline || !TownServiceDelta.Compatible(module.Baseline, frame))
-                    { emitted = frame; module.Baseline = TownServiceDelta.Retain(frame); module.NextBaseline = now + 5f + module.Id % 13 * .07f; }
+                    { emitted = TownServiceDelta.Retain(frame); module.Baseline = emitted; module.NextBaseline = float.PositiveInfinity; }
                     else emitted = TownServiceDelta.Create(module.Baseline, frame);
+                    emitted.HighPriority = module.HighPriority || module.WasPriority || module.Id == _heartbeatModule;
+                    module.WasPriority = module.HighPriority;
                     byte[] packet = TownServiceCodec.Write(emitted);
                     send(packet, packet.Length, emitted); module.Last = TownServiceDelta.Retain(frame); module.NextRefresh = now + .75f + module.Id % 7 * .03f;
                 }
@@ -217,7 +248,7 @@ internal static class TownServiceMirror
                     Module = TownServiceFrame.ManifestModule, Sequence = NextSequence(), SampleTime = now,
                     SessionAge = now - _sessionStarted,
                     Visible = _active, Modules = ids.ToArray(), Pose = _station != null ? ReadPose(_station, _sharedFrame) : IdentityPose() };
-                byte[] packet = TownServiceCodec.Write(manifest); send(packet, packet.Length, manifest); _nextManifest = now + .5f;
+                byte[] packet = TownServiceCodec.Write(manifest); send(packet, packet.Length, manifest); _nextManifest = now + (_active ? 5f : .5f);
             }
             catch (Exception e) { Report("capture manifest", e); }
         }
@@ -252,6 +283,9 @@ internal static class TownServiceMirror
             if (Pending.Count >= 8) return true;
             pending = new Dictionary<ushort, TownServiceFrame>(); Pending.Add(peer, pending);
         }
+        if (Sessions.TryGetValue(peer, out TownServiceSessionInfo? live) && live.Active
+            && live.Session == frame.Session && live.Service == frame.Service && Array.BinarySearch(live.Modules, frame.Module) >= 0)
+            live.ReceivedTime = Time.unscaledTime;
         if (pending.Count >= TownServiceFrame.MaxModules && !pending.ContainsKey(frame.Module)) return true;
         // A keyframe may finish after a newer delta. Keep it even though its sample is older:
         // the waiting cumulative delta names this exact baseline and then becomes usable.
@@ -484,11 +518,14 @@ internal static class TownServiceMirror
     { if (service < 1 || service > 3 || template == 0) throw new ArgumentException("Invalid town-service template identity.");
         return service + ":" + (address.Length == 0 ? template.ToString() : address); }
     private static ulong NextSequence() { if (++_sequence == 0) ++_sequence; return _sequence; }
-    private static float[] ReadPose(Transform source, Transform frame)
+    private static float[] ReadPose(Transform source, Transform frame, float[]? destination = null)
     {
         Vector3 p = frame.InverseTransformPoint(source.position), s = source.lossyScale, basis = frame.lossyScale;
         Quaternion q = Quaternion.Inverse(frame.rotation) * source.rotation;
-        return new[] { p.x, p.y, p.z, q.x, q.y, q.z, q.w, s.x / basis.x, s.y / basis.y, s.z / basis.z };
+        float[] result = destination ?? new float[10];
+        result[0]=p.x; result[1]=p.y; result[2]=p.z; result[3]=q.x; result[4]=q.y; result[5]=q.z; result[6]=q.w;
+        result[7]=s.x/basis.x; result[8]=s.y/basis.y; result[9]=s.z/basis.z;
+        return result;
     }
     private static float[] IdentityPose() => new[] { 0f, 0f, 0f, 0f, 0f, 0f, 1f, 1f, 1f, 1f };
     private static Vector3 Position(float[] pose) => new(pose[0], pose[1], pose[2]);
@@ -518,11 +555,19 @@ internal static class TownServiceMirror
         Canvas? canvas = null;
         foreach (Canvas candidate in ParentCanvases) if (candidate.isActiveAndEnabled) { canvas = candidate.rootCanvas; break; }
         if (canvas == null || canvas.transform == source || canvas.transform is not RectTransform rect) return;
-        frame.HasCanvasFrame = true; frame.CanvasPose = ReadPose(canvas.transform, _sharedFrame);
-        frame.CanvasRect = new[] { rect.rect.width, rect.rect.height, rect.pivot.x, rect.pivot.y };
-        frame.CanvasSettings = new[] { canvas.referencePixelsPerUnit, canvas.pixelPerfect ? 1f : 0f,
-            canvas.overridePixelPerfect ? 1f : 0f, canvas.scaleFactor, (float)canvas.additionalShaderChannels };
+        frame.HasCanvasFrame = true; frame.CanvasPose = ReadPose(canvas.transform, _sharedFrame, frame.CanvasPose);
+        frame.CanvasRect[0]=rect.rect.width; frame.CanvasRect[1]=rect.rect.height; frame.CanvasRect[2]=rect.pivot.x; frame.CanvasRect[3]=rect.pivot.y;
+        frame.CanvasSettings[0]=canvas.referencePixelsPerUnit; frame.CanvasSettings[1]=canvas.pixelPerfect?1f:0f;
+        frame.CanvasSettings[2]=canvas.overridePixelPerfect?1f:0f; frame.CanvasSettings[3]=canvas.scaleFactor; frame.CanvasSettings[4]=(float)canvas.additionalShaderChannels;
         frame.CanvasSortingLayer = canvas.sortingLayerID; frame.CanvasSortingOrder = canvas.sortingOrder;
+    }
+    private static void ResetCanvasFrame(TownServiceFrame frame)
+    {
+        frame.HasCanvasFrame=false; frame.CanvasSortingLayer=frame.CanvasSortingOrder=0;
+        Array.Clear(frame.CanvasPose,0,frame.CanvasPose.Length);
+        frame.CanvasPose[6]=frame.CanvasPose[7]=frame.CanvasPose[8]=frame.CanvasPose[9]=1f;
+        frame.CanvasRect[0]=frame.CanvasRect[1]=100f; frame.CanvasRect[2]=frame.CanvasRect[3]=.5f;
+        frame.CanvasSettings[0]=100f;frame.CanvasSettings[1]=frame.CanvasSettings[2]=frame.CanvasSettings[4]=0f;frame.CanvasSettings[3]=1f;
     }
     private static void ReadParent(LocalModule module, TownServiceFrame frame)
     {
@@ -532,7 +577,7 @@ internal static class TownServiceMirror
             if (SourceParents.TryGetValue(parent, out ParentLink link) && link.Module != module.Id)
             {
                 frame.ParentModule = link.Module; frame.ParentBinding = link.Binding;
-                frame.ParentAlpha = alpha; frame.Pose = ReadPose(module.Binding.Root, parent); return;
+                frame.ParentAlpha = alpha; frame.Pose = ReadPose(module.Binding.Root, parent, frame.Pose); return;
             }
             bool stop = false;
             parent.GetComponents(ParentGroups);

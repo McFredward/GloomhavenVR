@@ -7,10 +7,10 @@ namespace GloomhavenVR.Net.TownServices;
 internal sealed class TownServiceFrame
 {
     // A complete late-game stock uses independent native card, price and physical-body
-    // modules. Keep payloads bounded; only the manifest's ushort ID census grows (4 KiB).
-    internal const int MaxBytes = 60000, MaxNodes = 256, MaxProperties = 128, MaxModules = 2048;
+    // modules. Keep payloads bounded; only the manifest's ushort ID census grows (8 KiB).
+    internal const int MaxBytes = 60000, MaxNodes = 256, MaxProperties = 128, MaxModules = 4096;
     internal byte Service;
-    internal const ushort ManifestModule = ushort.MaxValue;
+    internal const ushort ManifestModule = ushort.MaxValue, BundleStream = ushort.MaxValue - 1;
     internal uint Session;
     internal ulong Sequence;
     internal ulong BaseSequence;
@@ -20,6 +20,8 @@ internal sealed class TownServiceFrame
     internal uint ParentBinding;
     internal uint Structure;
     internal bool Visible;
+    // Local transport scheduling only; never serialized or interpreted as gameplay authority.
+    internal bool HighPriority;
     internal float SampleTime;
     internal float SessionAge;
     internal float ParentAlpha = 1f;
@@ -34,6 +36,12 @@ internal sealed class TownServiceFrame
     internal float[] CanvasSettings = new[] { 100f, 0f, 0f, 1f, 0f };
     internal int CanvasSortingOrder, CanvasSortingLayer;
     internal TownServiceNode[] Nodes = Array.Empty<TownServiceNode>();
+}
+
+/// <summary>Local completion of a snapshot's final datagram, never a remote acknowledgement.</summary>
+internal static class TownServiceDelivery
+{
+    internal static Action<TownServiceFrame>? Completed = null;
 }
 
 internal sealed class TownServiceNode

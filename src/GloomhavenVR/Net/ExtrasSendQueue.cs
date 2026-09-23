@@ -44,6 +44,10 @@ internal sealed class ExtrasSendQueue
     private readonly int _snapshotLimit;
     private readonly ulong _sequenceStride;
     internal ulong Sequence => _sequence;
+    internal bool HasInFlight => _pages != null;
+    internal bool HasPending => _pending.Count > 0 || _first != null || _latest != null;
+    internal object? CompletedIdentity { get; private set; }
+    private object? _activeIdentity;
 
     internal ExtrasSendQueue(ulong sequence, byte payloadType = NetProtocol.MsgExtras,
         byte envelopeType = NetProtocol.MsgExtrasFragments, bool preserveFirst = false,
@@ -57,7 +61,7 @@ internal sealed class ExtrasSendQueue
         _sequenceStride = sequenceStride;
     }
 
-    internal void Clear() { _pending.Clear(); _pages = null; _first = _latest = null; _page = 0; _next = 0; }
+    internal void Clear() { _pending.Clear(); _pages = null; _first = _latest = null; _page = 0; _next = 0; CompletedIdentity = _activeIdentity = null; }
 
     internal void Enqueue(byte[] snapshot, int length, object? identity = null)
     {
@@ -76,6 +80,15 @@ internal sealed class ExtrasSendQueue
         else _latest = copy;
     }
 
+    // Town batching drains exactly the next immutable queued snapshot, preserving the
+    // same first/latest transition order as normal per-module fragmentation.
+    internal int PendingLength => !HasInFlight && _pending.Count > 0 ? _pending[0].Bytes.Length : 0;
+    internal bool TryTakePending(out byte[]? bytes, out object? identity)
+    {
+        bytes=null;identity=null;if(PendingLength==0)return false;
+        bytes=_pending[0].Bytes;identity=_pending[0].Identity;_pending.RemoveAt(0);return true;
+    }
+
     internal byte[]? Next(double now)
     {
         if (now < _next) return null;
@@ -83,6 +96,7 @@ internal sealed class ExtrasSendQueue
         {
             byte[]? next = _pending.Count > 0 ? _pending[0].Bytes : _first ?? _latest;
             if (next == null) return null;
+            _activeIdentity = _pending.Count > 0 ? _pending[0].Identity : null;
             if (_pending.Count > 0) _pending.RemoveAt(0);
             else if (_first != null)
             {
@@ -95,7 +109,7 @@ internal sealed class ExtrasSendQueue
             _page = 0;
         }
         byte[] result = _pages[_page++];
-        if (_page == _pages.Length) _pages = null;
+        if (_page == _pages.Length) { _pages = null; CompletedIdentity = _activeIdentity; }
         _next = now + 0.05;
         return result;
     }

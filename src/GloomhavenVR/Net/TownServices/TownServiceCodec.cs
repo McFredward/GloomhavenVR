@@ -18,10 +18,10 @@ internal static class TownServiceCodec
         using var body = new MemoryStream();
         using (var w = new BinaryWriter(body, Utf8, true))
         {
-            w.Write((byte)1); w.Write(frame.Service); w.Write(frame.Session); w.Write(frame.Sequence); w.Write(frame.BaseSequence);
+            w.Write((byte)2); w.Write(frame.Service); w.Write(frame.Session); w.Write(frame.Sequence); w.Write(frame.BaseSequence);
             w.Write(frame.Module); w.Write(frame.Template); WriteText(w, frame.TemplateAddress); w.Write(frame.Structure); w.Write(frame.Visible);
             w.Write(frame.ParentModule); w.Write(frame.ParentBinding); w.Write(frame.ParentAlpha);
-            w.Write(frame.SampleTime); w.Write(frame.SessionAge); w.Write((byte)frame.Modules.Length);
+            w.Write(frame.SampleTime); w.Write(frame.SessionAge); w.Write((ushort)frame.Modules.Length);
             foreach (ushort module in frame.Modules) w.Write(module);
             foreach (float value in frame.Pose) w.Write(value);
             w.Write(frame.HasCanvasFrame);
@@ -93,14 +93,14 @@ internal static class TownServiceCodec
             }
             body.Position = 0;
             using var r = new BinaryReader(body, Utf8, false);
-            if (r.ReadByte() != 1) return false;
+            byte version = r.ReadByte(); if (version != 1 && version != 2) return false;
             var result = new TownServiceFrame { Service = r.ReadByte(), Session = r.ReadUInt32(),
                 Sequence = r.ReadUInt64(), BaseSequence = r.ReadUInt64(), Module = r.ReadUInt16(), Template = r.ReadUInt16(), TemplateAddress = ReadText(r),
                 Structure = r.ReadUInt32() };
             byte shown = r.ReadByte(); if (shown > 1) return false;
             result.Visible = shown != 0; result.ParentModule = r.ReadUInt16(); result.ParentBinding = r.ReadUInt32();
             result.ParentAlpha = r.ReadSingle(); result.SampleTime = r.ReadSingle(); result.SessionAge = r.ReadSingle();
-            int modules = r.ReadByte();
+            int modules = version == 1 ? r.ReadByte() : r.ReadUInt16();
             if (modules > TownServiceFrame.MaxModules) return false;
             result.Modules = new ushort[modules];
             for (int i = 0; i < modules; i++) result.Modules[i] = r.ReadUInt16();
@@ -154,6 +154,52 @@ internal static class TownServiceCodec
         catch (OverflowException) { return false; }
     }
 
+    // The bundle is only a lossless transport container. Every child remains a complete
+    // independently sequenced original module packet; no observer-template defaults apply.
+    internal const int MaxBundleFrames = 32;
+    internal static byte[] WriteBundle(IReadOnlyList<byte[]> packets)
+    {
+        if (packets.Count < 1 || packets.Count > MaxBundleFrames) throw new InvalidDataException("Invalid town bundle count.");
+        using var body = new MemoryStream();
+        body.WriteByte(3); body.WriteByte((byte)packets.Count);
+        foreach (byte[] packet in packets)
+        {
+            if (!TryRead(packet, packet.Length, out TownServiceFrame? frame) || frame!.Module == TownServiceFrame.ManifestModule)
+                throw new InvalidDataException("Invalid town bundle member.");
+            body.WriteByte((byte)packet.Length); body.WriteByte((byte)(packet.Length >> 8));
+            body.Write(packet, 0, packet.Length);
+        }
+        byte[] raw = body.ToArray();
+        if (raw.Length + 8 > TownServiceFrame.MaxBytes) throw new InvalidDataException("Town bundle exceeds snapshot bound.");
+        // Zero-sized record78 is reserved for the bounded v3 bundle body. Keeping its
+        // bytes contiguous lets Deflate reuse repeated original material/property tables
+        // across children; slicing every255 bytes would destroy those matching runs.
+        var result = new byte[8+raw.Length]; result[0]=0x31; result[1]=0x52; result[2]=0x56; result[3]=0x47;
+        result[4]=3; result[5]=MessageType; result[6]=RecordId; result[7]=0;
+        Buffer.BlockCopy(raw,0,result,8,raw.Length);return result;
+    }
+    internal static bool TryReadBundle(byte[] packet, int length, out byte[][]? packets)
+    {
+        packets=null;
+        if(packet==null||length<10||length>packet.Length||length>TownServiceFrame.MaxBytes
+            ||packet[0]!=0x31||packet[1]!=0x52||packet[2]!=0x56||packet[3]!=0x47
+            ||packet[4]!=3||packet[5]!=MessageType||packet[6]!=RecordId||packet[7]!=0)return false;
+        var raw=new byte[length-8];Buffer.BlockCopy(packet,8,raw,0,raw.Length);
+        if(raw.Length<2||raw[0]!=3||raw[1]<1||raw[1]>MaxBundleFrames)return false;
+        var result=new byte[raw[1]][];int position=2;byte service=0;uint session=0;
+        for(int i=0;i<result.Length;i++)
+        {
+            if(position+2>raw.Length)return false;int count=raw[position]|raw[position+1]<<8;position+=2;
+            if(count<8||position+count>raw.Length)return false;
+            var member=new byte[count];Buffer.BlockCopy(raw,position,member,0,count);position+=count;
+            if(!TryRead(member,count,out TownServiceFrame? frame)||frame!.Module==TownServiceFrame.ManifestModule)return false;
+            if(i==0){service=frame.Service;session=frame.Session;}
+            else if(frame.Service!=service||frame.Session!=session)return false;
+            result[i]=member;
+        }
+        if(position!=raw.Length)return false;packets=result;return true;
+    }
+
     private static void WriteText(BinaryWriter writer, string text)
     {
         byte[] bytes = Utf8.GetBytes(text);
@@ -169,7 +215,7 @@ internal static class TownServiceCodec
     }
     internal static void Validate(TownServiceFrame frame)
     {
-        if (frame.Service < 1 || frame.Service > 3 || frame.Session == 0 || frame.Sequence == 0
+        if (frame.Module == TownServiceFrame.BundleStream || frame.Service < 1 || frame.Service > 3 || frame.Session == 0 || frame.Sequence == 0
             || frame.BaseSequence >= frame.Sequence && frame.BaseSequence != 0
             || (frame.Template == 0 && frame.Module != TownServiceFrame.ManifestModule)
             || frame.TemplateAddress == null || frame.TemplateAddress.Length > 1024
@@ -204,7 +250,7 @@ internal static class TownServiceCodec
             throw new InvalidDataException("Malformed town-service manifest.");
         if (frame.SampleTime < 0) throw new InvalidDataException("Invalid town-service sample time.");
         for (int i = 0; i < frame.Modules.Length; i++)
-            if (frame.Modules[i] == TownServiceFrame.ManifestModule || (i > 0 && frame.Modules[i] <= frame.Modules[i - 1]))
+            if (frame.Modules[i] >= TownServiceFrame.BundleStream || (i > 0 && frame.Modules[i] <= frame.Modules[i - 1]))
                 throw new InvalidDataException("Invalid town-service manifest.");
         foreach (float value in frame.Pose) Finite(value);
         double norm = 0;
