@@ -4295,10 +4295,10 @@ internal sealed partial class CardsDriver
         OffScenarioFanActive && Instance != null && Instance._fan.IsOpen;
 
     /// <summary>Return the original offered map card, including when the fan is closed.</summary>
-    internal static void ReturnTownOffering(VRCard card)
+    internal static void ReturnTownOffering(VRCard card, System.Action? completed = null)
     {
         CardsDriver? driver = Instance;
-        if (driver == null || card == null || card.IsHeld) return;
+        if (driver == null || card == null || card.IsHeld) { completed?.Invoke(); return; }
         if (!WorldUI.MapRoom.MapRoomHand.TryOwnedTownCard(card, out _, out _))
         {
             // Character/loadout changes must not insert the previous character's card into
@@ -4308,18 +4308,47 @@ internal sealed partial class CardsDriver
                 card.SetHome(frame, frame.InverseTransformPoint(card.transform.position),
                     Quaternion.Inverse(frame.rotation) * card.transform.rotation,
                     card.transform.lossyScale.x / frame.lossyScale.x);
-            driver.LeaveOffScenarioFan(card);
+            driver.LeaveOffScenarioFan(card, completed);
             return;
         }
         Vector3 from = card.transform.position;
         float width = CardsConfig.CardWidth.Value * Mathf.Abs(card.transform.lossyScale.x);
+        // Resolve the owner's saved ordering before computing the flight target. The rendered
+        // arc deliberately omitted this card while offered, so Add alone would append it.
+        if (OffScenarioFanCards != null)
+        {
+            driver._fanBuffer.Clear();
+            foreach (VRCard source in OffScenarioFanCards)
+                if (source != null && (ReferenceEquals(source, card)
+                    || !WorldUI.TownServiceEnhancementHandoff.IsParked(source))) driver._fanBuffer.Add(source);
+            driver.ReorderFanBuffer();
+            driver._fan.SetCards(driver._fanBuffer);
+        }
         driver._fan.Add(card);
-        driver._offScenarioLast.Add(card); // an existing card returning, not a new materialization
         if (!driver._fan.IsOpen && driver._fan.Root != null)
             card.SetHome(driver._fan.Root, Vector3.zero, Quaternion.identity, 1f, instant: true);
         if (driver._fan.TrySeatArrival(card, out _))
+        {
+            // A flying card is presented through the town stream, not also as a static fan
+            // member. The temporary adoption above only resolves its real landing pose.
+            driver._fan.Remove(card);
             card.FlyFromPile(from, width, .45f, Vector3.up,
-                onComplete: () => { if (card != null) card.Grabbable = true; });
+                onComplete: () =>
+                {
+                    if (card != null && !card.IsHeld && Instance == driver
+                        && WorldUI.MapRoom.MapRoomHand.TryOwnedTownCard(card, out _, out _))
+                    {
+                        completed?.Invoke();
+                        driver._fan.Add(card);
+                        if (!driver._offScenarioLast.Contains(card)) driver._offScenarioLast.Add(card);
+                    }
+                    else if (card != null && !card.IsHeld && Instance == driver)
+                        driver.LeaveOffScenarioFan(card, completed);
+                    else completed?.Invoke();
+                    RequestRebuild();
+                });
+        }
+        else completed?.Invoke();
         RequestRebuild();
     }
 
@@ -4341,7 +4370,7 @@ internal sealed partial class CardsDriver
     /// </summary>
     internal static void OffScenarioFanLeave(VRCard card) => Instance?.LeaveOffScenarioFan(card);
 
-    private void LeaveOffScenarioFan(VRCard card)
+    private void LeaveOffScenarioFan(VRCard card, System.Action? completed = null)
     {
         if (card == null || card.IsHeld)
             return;
@@ -4366,6 +4395,7 @@ internal sealed partial class CardsDriver
         {
             if (leaving != null)
                 leaving.gameObject.SetActive(false);
+            completed?.Invoke();
         });
         // The fan's content changed OUTSIDE a publish (CardFan.Remove above), so the order line is
         // emitted here too — otherwise the last thing the log said about this fan would still name

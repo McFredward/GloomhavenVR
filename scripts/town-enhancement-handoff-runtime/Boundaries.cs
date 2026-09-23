@@ -47,7 +47,7 @@ namespace GloomhavenVR.Cards
     public class VRCard : MonoBehaviour
     {
         public Owner Owner = new(); public ScenarioRuleLibrary.CAbilityCard Model = new();
-        public bool Owned = true, InLoadout = true, CurrentCharacter = true, IsHeld, Grabbable, InspectOnly, AllowsGateHand;
+        public bool Owned = true, InLoadout = true, CurrentCharacter = true, IsHeld, IsFlying, IsVanishing, Grabbable, InspectOnly, AllowsGateHand;
         public event Action<VRCard, Hands.VRHand>? Grabbed;
         public void SetHome(Transform home, Vector3 p, Quaternion q, float scale)
         { transform.SetParent(home, false); transform.localPosition = p; transform.localRotation = q; transform.localScale = Vector3.one * scale; }
@@ -57,8 +57,11 @@ namespace GloomhavenVR.Cards
     public static class CardsDriver
     {
         public static int Returned, Rebuilds; public static VRCard? LastReturned; public static Transform? FanRoot;
+        public static bool OffScenarioFanActive = true; public static Action? Completed;
         public static void RequestRebuild() => Rebuilds++;
-        public static void ReturnTownOffering(VRCard card) { Returned++; LastReturned = card; card.transform.SetParent(FanRoot, true); }
+        public static void ReturnTownOffering(VRCard card, Action? completed = null)
+        { Returned++; LastReturned = card; card.IsFlying = true; Completed = completed; card.transform.SetParent(FanRoot, true); }
+        public static void Complete() { if (LastReturned != null) LastReturned.IsFlying = false; Completed?.Invoke(); Completed = null; }
     }
 }
 namespace GloomhavenVR.WorldUI.MapRoom
@@ -78,6 +81,7 @@ namespace GloomhavenVR.WorldUI.MapRoom
 }
 namespace GloomhavenVR.WorldUI
 {
+    public static class TownServicePresentation { public static uint Session = 22; public static float SessionAge = 3f; }
     public static class WorldUIConfig { public static readonly ToggleValue ImmersiveTownServices = new(); public class ToggleValue { public bool Value = true; } }
     public static class StoryComposite { public static bool PointOfNoReturn; }
     public sealed class TownServiceStation { public Transform Root = null!; }

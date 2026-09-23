@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using GloomhavenVR.Cards;
 using GloomhavenVR.Core;
 using GloomhavenVR.Hands;
@@ -19,7 +20,48 @@ internal sealed class TownServiceEnhancementHandoff : IDisposable
     private static float _approachAt;
     private static float _approachSearchAt;
     private static Transform? _approachPalm;
-    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<VRCard, object> Reclaimed = new();
+    private static System.Runtime.CompilerServices.ConditionalWeakTable<VRCard, ReturnPresentation> Reclaimed = new();
+    private static bool _hasReclaimed;
+    private static readonly List<ReturnPresentation> Returns = new(2);
+    /// <summary>The actual card remains mirrorable through its full return, independently of
+    /// native pooled widgets and the ritual window's lifetime.</summary>
+    internal sealed class ReturnPresentation
+    {
+        internal readonly VRCard Card;
+        internal readonly int CardId;
+        internal readonly Transform StationRoot;
+        internal readonly uint Session;
+        private readonly float _started, _sessionAge;
+        internal bool Started;
+        internal float SessionAge => _sessionAge + Mathf.Max(0f, Time.unscaledTime - _started);
+        internal Transform? Face => Card != null ? Card.GetComponentInChildren<FullAbilityCard>(true)?.transform : null;
+        internal Transform? Body => Card != null ? Card.transform.Find("Visual/Backing") : null;
+        internal ReturnPresentation(VRCard card, int cardId, Transform station)
+        {
+            Card = card; CardId = cardId; StationRoot = station;
+            Session = TownServicePresentation.Session; _sessionAge = TownServicePresentation.SessionAge;
+            _started = Time.unscaledTime;
+        }
+    }
+    internal static IReadOnlyList<ReturnPresentation> Returning
+    { get { PruneReturns(); return Returns; } }
+
+    private static void PruneReturns()
+    {
+        if (!MapRoomDriver.Active || !CardsDriver.OffScenarioFanActive)
+        {
+            Returns.Clear();
+            if (_hasReclaimed) { Reclaimed = new(); _hasReclaimed = false; }
+            return;
+        }
+        for (int i = Returns.Count - 1; i >= 0; i--)
+        {
+            ReturnPresentation entry = Returns[i];
+            if (entry.Card == null || entry.Card.IsHeld
+                || entry.Started && !entry.Card.IsFlying && !entry.Card.IsVanishing)
+                Returns.RemoveAt(i);
+        }
+    }
     private readonly UINewEnhancementWindow _shop;
     private readonly UIWindow _window;
     private readonly Func<bool> _alive;
@@ -56,13 +98,20 @@ internal sealed class TownServiceEnhancementHandoff : IDisposable
         ClearNativeSelection();
     }
 
-    internal static bool IsParked(VRCard card) => _current != null && ReferenceEquals(_current.Card, card);
-    internal static bool CanReclaim(VRCard card) => IsParked(card) && _current!.Ready
+    internal static bool IsParked(VRCard card)
+    {
+        if (_current != null && ReferenceEquals(_current.Card, card)) return true;
+        PruneReturns();
+        foreach (ReturnPresentation entry in Returns) if (ReferenceEquals(entry.Card, card)) return true;
+        return false;
+    }
+    internal static bool CanReclaim(VRCard card) => _current != null && ReferenceEquals(_current.Card, card) && _current.Ready
         && MapRoomHand.TryOwnedTownCard(card, out _, out _);
     internal static bool ReturnReclaimed(VRCard card)
     {
-        if (!Reclaimed.Remove(card)) return false;
-        CardsDriver.ReturnTownOffering(card);
+        if (!Reclaimed.TryGetValue(card, out ReturnPresentation presentation)) return false;
+        Reclaimed.Remove(card);
+        BeginReturn(presentation);
         return true;
     }
     private bool Ready => !_disposed && _shop != null && _window != null && _window.IsOpen
@@ -177,7 +226,9 @@ internal sealed class TownServiceEnhancementHandoff : IDisposable
     private void OnGrabbed(VRCard card, VRHand hand)
     {
         if (!ReferenceEquals(Card, card)) return;
-        Reclaimed.Remove(card); Reclaimed.Add(card, new object());
+        Reclaimed.Remove(card);
+        if (_model != null)
+        { Reclaimed.Add(card, new ReturnPresentation(card, _model.ID, _station)); _hasReclaimed = true; }
         Detach(); ClearNativeSelection();
         CardsDriver.RequestRebuild();
     }
@@ -199,9 +250,18 @@ internal sealed class TownServiceEnhancementHandoff : IDisposable
 
     private void Return()
     {
+        ReturnPresentation? presentation = Card != null && _model != null
+            ? new ReturnPresentation(Card, _model.ID, _station) : null;
         VRCard? card = Detach();
         ClearNativeSelection();
-        if (card != null && !card.IsHeld) CardsDriver.ReturnTownOffering(card);
+        if (card != null && !card.IsHeld && presentation != null) BeginReturn(presentation);
+    }
+
+    private static void BeginReturn(ReturnPresentation presentation)
+    {
+        Returns.Add(presentation);
+        try { CardsDriver.ReturnTownOffering(presentation.Card, () => Returns.Remove(presentation)); }
+        finally { presentation.Started = true; PruneReturns(); }
     }
 
     internal Transform? CloneOf(Transform original)

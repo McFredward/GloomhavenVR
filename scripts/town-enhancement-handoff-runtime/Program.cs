@@ -16,7 +16,7 @@ public static class InteractionProgram
         count = 0;
         Approach();
         foreach (float scale in new[] { .05f, 1f, 2f, 198.12f })
-        for (int scenario = 0; scenario < 18; scenario++) RunCase(scale, scenario);
+        for (int scenario = 0; scenario < 20; scenario++) RunCase(scale, scenario);
         return count;
     }
     private static void RunCase(float scale, int scenario)
@@ -30,6 +30,7 @@ public static class InteractionProgram
         var fan = new GameObject("Fan").transform; fan.SetParent(root.transform, false); CardsDriver.FanRoot = fan;
         var card = new GameObject("ActualHandCard", typeof(VRCard)).GetComponent<VRCard>(); card.transform.SetParent(fan, false);
         card.transform.position = palm.position; card.Owner = shop.character;
+        card.Model.ID = 123;
         var face = new GameObject("Full", typeof(FullAbilityCard)).GetComponent<FullAbilityCard>(); face.transform.SetParent(card.transform, false);
         new GameObject("Top").transform.SetParent(face.transform, false);
         var secondFaceTop = new GameObject("Top").transform; secondFaceTop.SetParent(face.transform, false);
@@ -91,6 +92,30 @@ public static class InteractionProgram
                 {
                     input = false; handoff.Tick();
                     Check(handoff.Card == card, "opening input fade retains offering");
+                }
+                else if (scenario >= 18)
+                {
+                    handoff.Dispose();
+                    var returning = TownServiceEnhancementHandoff.Returning;
+                    Check(returning.Count == 1 && returning[0].Card == card
+                        && returning[0].CardId == 123 && returning[0].Face == face.transform,
+                        "return presentation survives ritual disposal with actual face and fixed identity");
+                    UnityEngine.Object.DestroyImmediate(slot.AbilityCard.gameObject);
+                    Check(returning[0].Face == face.transform && returning[0].CardId == 123,
+                        "native pool recycling cannot change return face provenance");
+                    Check(TownServiceEnhancementHandoff.IsParked(card), "return flight stays excluded from static fan");
+                    if (scenario == 18)
+                    {
+                        CardsDriver.Complete();
+                        Check(TownServiceEnhancementHandoff.Returning.Count == 0 && !TownServiceEnhancementHandoff.IsParked(card),
+                            "only actual flight completion retires return presentation");
+                    }
+                    else
+                    {
+                        MapRoomDriver.Active = false;
+                        Check(TownServiceEnhancementHandoff.Returning.Count == 0, "map teardown clears return presentation");
+                        MapRoomDriver.Active = true;
+                    }
                 }
                 else if (scenario >= 12)
                 {

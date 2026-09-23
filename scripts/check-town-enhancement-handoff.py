@@ -39,7 +39,8 @@ def mutations():
         ("distance", name, "|| !Near(_seat, card.transform.position, .28f)", "", "distant release refuses offering"),
         ("native-disabled", name, "&& slot.Selectable.IsActive() && slot.Selectable.IsInteractable()", "&& slot.Selectable.IsActive()", "disabled native slot refuses offering"),
         ("owner-race", name, "if (!Ready || !ValidOwner(card) || _shop.selectedCard == null", "if (!Ready || _shop.selectedCard == null", "native callback owner race refuses offering"),
-        ("return", name, "if (card != null && !card.IsHeld) CardsDriver.ReturnTownOffering(card);", "if (card != null && !card.IsHeld) CardsDriver.RequestRebuild();", "walking away returns original card"),
+        ("return", name, "if (card != null && !card.IsHeld && presentation != null) BeginReturn(presentation);", "if (card != null && !card.IsHeld && presentation != null) CardsDriver.RequestRebuild();", "walking away returns original card"),
+        ("return-life", name, "finally { presentation.Started = true; PruneReturns(); }", "finally { presentation.Started = true; Returns.Remove(presentation); PruneReturns(); }", "return presentation survives ritual disposal with actual face and fixed identity"),
         ("reclaim", name, "Detach(); ClearNativeSelection();", "Detach();", "manual reclaim clears native options"),
         ("startup", name, "if (!ValidOwner(Card) || !_alive()", "if (!ValidOwner(Card) || !_alive() || !_input()", "opening input fade retains offering"),
     ]

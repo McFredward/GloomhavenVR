@@ -34,6 +34,19 @@ The integrator publishes its original widget appearance/body/pose and the palm
 drop zone through town-service mirroring. The fan source count remains unchanged,
 so the presence count plus existing named seat map can represent the parked gap.
 
+`TownServiceEnhancementHandoff.Returning` is independent of ritual/window lifetime.
+Each `ReturnPresentation` contains the actual `Card`, `Face`, `Body`, captured
+`CardId`, `StationRoot`, `Session` and advancing `SessionAge`. No pooled native
+widget survives in this record. Publish `face.<CardId>` from its actual FullAbilityCard
+root directly, plus its body, until the actual flight/vanish completes. A window
+close must retain this stream while records remain; another service may carry them
+in its current shared map frame. Map-room/driver teardown clears the records.
+
+The card remains excluded from the arc throughout its return, preventing a static
+remote fan copy alongside the flight. The driver temporarily resolves its real
+saved fan seat, removes it from the rendered arc, then re-adopts it on completion.
+An ownership change during flight transitions into the normal retired-card fade.
+
 ## Validation and limits
 
 `scripts/check-town-enhancement-handoff.py` compiles the production handoff and
