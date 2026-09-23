@@ -17,6 +17,16 @@ namespace UnityEngine
         public static float Distance(Vector3 a,Vector3 b){var d=a-b;return MathF.Sqrt(d.x*d.x+d.y*d.y+d.z*d.z);}
         public static Vector3 Lerp(Vector3 a,Vector3 b,float t)=>a+(b-a)*Mathf.Clamp01(t);
     }
+    public struct Quaternion
+    {
+        public float x,y,z,w;
+        public Quaternion(float x,float y,float z,float w){this.x=x;this.y=y;this.z=z;this.w=w;}
+        public static Quaternion identity=>new(0,0,0,1);
+        public static float Angle(Quaternion a,Quaternion b)
+        { float dot=Math.Abs(a.x*b.x+a.y*b.y+a.z*b.z+a.w*b.w);return 2f*MathF.Acos(Math.Min(dot,1f))*180f/MathF.PI; }
+        public static Quaternion Slerp(Quaternion a,Quaternion b,float t)
+        { var q=System.Numerics.Quaternion.Slerp(new(a.x,a.y,a.z,a.w),new(b.x,b.y,b.z,b.w),Math.Clamp(t,0,1));return new(q.X,q.Y,q.Z,q.W); }
+    }
     public static class Mathf
     {
         public const float PI=MathF.PI;
@@ -24,6 +34,7 @@ namespace UnityEngine
         public static float Cos(float v)=>MathF.Cos(v);
         public static float Abs(float v)=>MathF.Abs(v);
         public static float Min(float a,float b)=>MathF.Min(a,b);
+        public static int Min(int a,int b)=>Math.Min(a,b);
         public static float Max(float a,float b)=>MathF.Max(a,b);
         public static float Clamp(float v,float min,float max)=>Math.Clamp(v,min,max);
         public static float Clamp01(float v)=>Math.Clamp(v,0,1);

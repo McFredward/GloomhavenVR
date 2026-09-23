@@ -52,7 +52,7 @@ public static class InteractionProgram
         RemoteTownActivities.ObservePresence(2,in state);Check(RemoteTownActivities.Sample(2,out _,out _),"same epoch recovers after networkstall");
         var changed=state;changed.Epoch=2;changed.Sequence=1;RemoteTownActivities.ObservePresence(2,in changed);
         state.Sequence=7;RemoteTownActivities.ObservePresence(2,in state);RemoteTownActivities.Sample(2,out observed,out _);Check(observed.Epoch==2,"retired activity epoch cannot return");
-        Paired();Handover();Choreography();
+        Paired();Handover();Choreography();GeneratedMotion();
         string[] args=Environment.GetCommandLineArgs();int at=Array.IndexOf(args,"-faceBundle");
         if(at>=0)Actual(args[at+1]);
         return count;
@@ -128,7 +128,7 @@ public static class InteractionProgram
                 float grip=coin==0?merchant.CoinGrip.x:coin==1?merchant.CoinGrip.y:merchant.CoinGrip.z;
                 Vector3 seat=coin==0?merchant.Coin0:coin==1?merchant.Coin1:merchant.Coin2;
                 Vector3 displayed=Vector3.Lerp(seat,merchant.Left,grip);
-                if(frame>0)Check(Vector3.Distance(previous[coin],displayed)<.014f,"counted coin never teleports across pickup/deposit/loop");
+                if(frame>0)Check(Vector3.Distance(previous[coin],displayed)<.014f,"counted coin never teleports across pickup/deposit/loop frame="+frame+" coin="+coin+" delta="+Vector3.Distance(previous[coin],displayed));
                 Check(grip==0f||grip==1f,"coin is resting or rigidly gripped, never magnetically attracted");
                 if(grip==0f)Check(displayed.y>=.969f&&displayed.y<=.977f,"released coins rest on counter/stack");
                 previous[coin]=displayed;
@@ -143,6 +143,33 @@ public static class InteractionProgram
         TownServiceActivityMotion.Engage(ref pause,true);pause=TownServiceActivityMotion.Advance(pause,1f);
         var held=TownServiceActivityMotion.Visual(1,in pause);
         Check(held.CoinGrip.x==1f,"visitor interruption preserves held coin contact");
+    }
+    private static void GeneratedMotion()
+    {
+        float maximumBodyStep=0,maximumLoopStep=0;
+        for(int clip=0;clip<4;clip++)
+        {
+            var first=TownServiceMotionClips.Sample(clip,0);var last=TownServiceMotionClips.Sample(clip,1);
+            Check(Vector3.Distance(first.Left,last.Left)<.00001f,"generated hand loop closes");
+            Check(Vector3.Distance(first.Body.Offset,last.Body.Offset)<.00001f,"generated root loop closes");
+            float torsoTravel=0;var previous=first;
+            int frames=TownServiceMotionClips.Frames(clip)*3;
+            for(int frame=1;frame<=frames;frame++)
+            {
+                var current=TownServiceMotionClips.Sample(clip,(float)frame/frames);
+                for(int bone=0;bone<12;bone++)
+                {
+                    float step=Quaternion.Angle(previous.Body.Get(bone),current.Body.Get(bone));
+                    maximumBodyStep=Mathf.Max(maximumBodyStep,step);
+                    Check(step<4f,"generated body interpolation has no frame discontinuity");
+                    if(frame==frames)maximumLoopStep=Mathf.Max(maximumLoopStep,step);
+                }
+                torsoTravel=Mathf.Max(torsoTravel,Quaternion.Angle(first.Body.Chest,current.Body.Chest));
+                previous=current;
+            }
+            Check(torsoTravel>.5f,"generated occupation contains real torso movement");
+        }
+        Console.WriteLine("Motion metrics: maximum body step="+maximumBodyStep+" degrees, final seam step="+maximumLoopStep+" degrees at 90 Hz");
     }
     private static void Actual(string path)
     {
@@ -166,17 +193,22 @@ public static class InteractionProgram
                     Transform[] thumbs=root.GetComponentsInChildren<Transform>(true).Where(t=>t.name.StartsWith("Thumb")).ToArray();
                     Quaternion[] thumbNeutral=thumbs.Select(t=>t.localRotation).ToArray();
                     var phase=new TownActivityPose{TransitionAge=.65f};Quaternion previousHand=Quaternion.identity;
+                    Transform[] feet=root.GetComponentsInChildren<Transform>(true).Where(t=>t.name=="Foot.L"||t.name=="Foot.R").ToArray();
+                    Check(feet.Length==2,"both planted feet exist");float maxFootDrift=0,maxPalmError=0,maxHandStep=0;
+                    var sampledFeet=new Vector3[2];
                     for(int n=0;n<2500;n++)
                     {
                         if(n==833)grounding.Apply(.035f,-.02f);if(n==1666)grounding.Apply(-.035f,-.02f);
                         rig.BeforeBodySample();animation.Stop();var body=animation["Idle"];body.enabled=true;body.weight=1;body.time=n/90f;animation.Sample();body.enabled=false;
-                        Quaternion before=upper.localRotation;
+                        Quaternion before=upper.localRotation;for(int foot=0;foot<2;foot++)sampledFeet[foot]=feet[foot].position;
                         if(n==500)TownServiceActivityMotion.Engage(ref phase,true);if(n==1100)TownServiceActivityMotion.Engage(ref phase,false);
                         phase=TownServiceActivityMotion.Advance(phase,1f/90f);
                         TownServiceActivityMotion.Hands(service,in phase,out _,out var target,out _);
                         float reach=Vector3.Distance(upper.position,fore.position)+Vector3.Distance(fore.position,hand.position);
                         Vector3 wanted=root.TransformPoint(target);float excess=Mathf.Max(0,Vector3.Distance(wanted,upper.position)-reach+.001f);
                         rig.Apply(in phase);
+                        for(int foot=0;foot<2;foot++)maxFootDrift=Mathf.Max(maxFootDrift,Vector3.Distance(feet[foot].position,sampledFeet[foot]));
+                        if(n>0)maxHandStep=Mathf.Max(maxHandStep,Quaternion.Angle(previousHand,hand.rotation));
                         for(int digit=0;digit<thumbs.Length;digit++)
                             Check(Quaternion.Angle(thumbs[digit].localRotation,thumbNeutral[digit])<55f,"anatomical thumb stays inside natural grasp range");
                         if(service==1&&TownServiceActivityMotion.Writing(phase.WorkClock)>.99f&&TownServiceActivityMotion.Blend(in phase)<.01f)
@@ -186,6 +218,7 @@ public static class InteractionProgram
                         if(TownServiceActivityMotion.Blend(in phase)<.001f && target.y>.99f)
                         {
                             Transform actualPalm=root.GetComponentsInChildren<Transform>(true).Single(t=>t.name=="PalmContact.R");
+                            maxPalmError=Mathf.Max(maxPalmError,Vector3.Distance(actualPalm.position,wanted));
                             Check(Vector3.Distance(actualPalm.position,wanted)<.012f,"actual palm reaches occupation target: "+npc+" n="+n+" error="+Vector3.Distance(actualPalm.position,wanted));
                         }
                         else if(TownServiceActivityMotion.Blend(in phase)>.999f)
@@ -205,6 +238,8 @@ public static class InteractionProgram
                         }
                         rig.BeforeBodySample();Check(Quaternion.Angle(upper.localRotation,before)<.05f,"original arm base restores without accumulation");
                     }
+                    Console.WriteLine("Actual motion metrics "+npc+": foot drift="+maxFootDrift+"m palm error="+maxPalmError+"m hand step="+maxHandStep+" degrees/90Hz frame");
+                    Check(maxFootDrift<.003f,"generated stance keeps actual imported feet planted: "+npc+" "+maxFootDrift);
                     grounding.Apply(0f,0f);ActivityRender.Render(obj, service, rig);
                 }
                 finally{UnityEngine.Object.DestroyImmediate(obj);}

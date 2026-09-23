@@ -28,6 +28,9 @@ namespace UnityEngine
     public struct Quaternion
     {
         public float x,y,z,w;
+        public Quaternion(float x,float y,float z,float w){this.x=x;this.y=y;this.z=z;this.w=w;}
+        public static Quaternion Slerp(Quaternion a,Quaternion b,float t)
+        { var q=System.Numerics.Quaternion.Slerp(new(a.x,a.y,a.z,a.w),new(b.x,b.y,b.z,b.w),Math.Clamp(t,0,1));return new(q.X,q.Y,q.Z,q.W); }
         public static Quaternion identity => new(){w=1};
         public static Quaternion Inverse(Quaternion q) => q;
         public static Quaternion operator *(Quaternion a,Quaternion b)=>identity;
@@ -43,6 +46,7 @@ namespace UnityEngine
         public static float SmoothStep(float a,float b,float t){t=Clamp01(t);return a+(b-a)*t*t*(3-2*t);}
         public static float Abs(float v)=>Math.Abs(v);
         public static float Min(float a,float b)=>Math.Min(a,b);
+        public static int Min(int a,int b)=>Math.Min(a,b);
         public static float Max(float a,float b)=>Math.Max(a,b);
         public static int RoundToInt(float v)=>(int)Math.Round(v);
         public static float MoveTowards(float v,float target,float delta)=>Math.Abs(v-target)<=delta?target:v+Math.Sign(target-v)*delta;

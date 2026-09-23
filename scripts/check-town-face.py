@@ -23,6 +23,7 @@ def replace_once(source, before, after):
 def sources(root):
     base = root / "src/GloomhavenVR/WorldUI/TownServices"
     names = ["TownServiceFace.cs", "TownServiceFaceMotion.cs", "TownServiceFaceRig.cs", "TownServiceFaceAttention.cs", "TownServiceFaceSpeech.cs", "TownServiceActivityMotion.cs"]
+    names += ["TownServiceMotionClips.cs", "TownServiceMotionClips.Data.cs"]
     bound = {name: (base / name).read_text() for name in names}
     bound["RemoteTownFaces.cs"] = (root / "src/GloomhavenVR/Net/Remote/RemoteTownFaces.cs").read_text()
     bound["TownFaceTypes.cs"] = (root / "src/GloomhavenVR/Net/TownFaceState.cs").read_text().split("/// <summary>Additive80:")[0]

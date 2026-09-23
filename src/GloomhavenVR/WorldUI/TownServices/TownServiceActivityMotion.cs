@@ -7,7 +7,8 @@ namespace GloomhavenVR.WorldUI;
 /// change which activity phase a resident is performing. Reversals preserve the current pose.</summary>
 internal struct TownActivityVisual
 {
-    internal Vector3 Left, Right;
+    internal Vector3 Left, Right, LeftElbow, RightElbow;
+    internal TownMotionBody Body;
     internal float Curl, Attention, Writing, Cast, CastSway;
     internal float LeftCurl, RightCurl, LeftRoll, RightRoll;
     internal Vector3 Chest, Coin0, Coin1, Coin2, CoinGrip;
@@ -65,12 +66,15 @@ internal static class TownServiceActivityMotion
         work.RightCurl = Mathf.Lerp(work.RightCurl, service == 3 ? .08f : 0f, attention);
         work.LeftCurl = service == 1 ? work.LeftCurl : Mathf.Lerp(work.LeftCurl, 0f, attention);
         work.Chest = Vector3.Lerp(work.Chest, Vector3.zero, attention);
+        work.Body.Weight *= 1f - attention;
         work.Cast *= 1f - attention;
         work.Curl = Mathf.Max(work.LeftCurl, work.RightCurl);
         return work;
     }
     internal static TownActivityVisual Lerp(in TownActivityVisual from, in TownActivityVisual to, float t) => new TownActivityVisual {
         Left = Vector3.Lerp(from.Left, to.Left, t), Right = Vector3.Lerp(from.Right, to.Right, t),
+        LeftElbow = Vector3.Lerp(from.LeftElbow, to.LeftElbow, t), RightElbow = Vector3.Lerp(from.RightElbow, to.RightElbow, t),
+        Body = TownMotionBody.Lerp(in from.Body, in to.Body, t),
         Curl = Mathf.Lerp(from.Curl, to.Curl, t), Attention = Mathf.Lerp(from.Attention, to.Attention, t),
         Writing = Mathf.Lerp(from.Writing, to.Writing, t), Cast = Mathf.Lerp(from.Cast, to.Cast, t),
         CastSway = Mathf.Lerp(from.CastSway, to.CastSway, t),
@@ -90,27 +94,35 @@ internal static class TownServiceActivityMotion
         ? new Vector3(.08f, .970f + index * .003f, .34f)
         : new Vector3(.27f + index * .018f, .970f, .35f - index * .022f);
 
+    private static readonly float[] TransferEnd = { 4.8f, 8.9f, 14.6f, 19.1f, 24.3f, 28.6f };
     private static TownActivityVisual Merchant(float clock)
     {
-        float cycle = clock % 21.6f;
-        int transfer = (int)(cycle / 3.6f), index = transfer < 3 ? transfer : 5 - transfer;
-        bool returning = transfer >= 3;
-        float t = cycle - transfer * 3.6f;
+        // Unequal observation/settling intervals keep an occupation from becoming a
+        // metronome. This schedule is authored once and shared, never random per peer.
+        float cycle = clock % 28.6f;
+        int transfer=0;
+        while(transfer<5 && cycle>=TransferEnd[transfer]) transfer++;
+        float start=transfer==0?0f:TransferEnd[transfer-1];
+        int index=transfer<3?transfer:5-transfer;
+        bool returning=transfer>=3;
+        float segment=cycle-start, length=TransferEnd[transfer]-start;
+        float t=segment<3.25f?segment:3.25f+(segment-3.25f)*.35f/(length-3.25f);
         Vector3 source = CoinSeat(index, returning), destination = CoinSeat(index, !returning);
-        Vector3 home = new Vector3(.22f, 1.12f, .39f);
-        Vector3 inspect = new Vector3(.13f, 1.22f, .34f);
-        Vector3 hand;
-        if (t < .65f) hand = Vector3.Lerp(home, source, Ease(t, 0f, .65f));
-        else if (t < 1.12f) hand = source;
-        else if (t < 1.65f) hand = Vector3.Lerp(source, inspect, Ease(t, 1.12f, 1.65f));
-        else if (t < 2.05f) hand = inspect;
-        else if (t < 2.75f) hand = Vector3.Lerp(inspect, destination, Ease(t, 2.05f, 2.75f));
-        else if (t < 3.10f) hand = destination;
-        else hand = Vector3.Lerp(destination, home, Ease(t, 3.10f, 3.6f));
+        var visual = TownServiceMotionClips.Sample(returning ? 1 : 0, t / 3.6f);
+        // Generated wrists provide the full motion arc. Exact native coin seats are
+        // corrected only through stationary grasp/release windows; never attract a coin.
+        Vector3 hand = visual.Left;
+        Vector3 sourceDelta = source - CoinSeat(0, returning);
+        Vector3 targetDelta = destination - CoinSeat(0, !returning);
+        hand += Vector3.Lerp(sourceDelta, targetDelta, Ease(t, 1.12f, 2.75f))
+            * Ease(t, 0f, .65f) * (1f-Ease(t, 3.10f, 3.6f));
+        float contact = Ease(t, .43f, .65f) * (1f-Ease(t, 1.12f, 1.35f));
+        hand = Vector3.Lerp(hand, source, contact);
+        contact = Ease(t, 2.22f, 2.75f) * (1f-Ease(t, 3.10f, 3.32f));
+        hand = Vector3.Lerp(hand, destination, contact);
         float grip = Ease(t, .68f, .96f) * (1f - Ease(t, 2.84f, 3.08f));
-        var visual = new TownActivityVisual { Left = hand, Right = new Vector3(-.20f, .959f, .37f),
-            LeftCurl = grip * .55f, RightCurl = .025f,
-            Chest = new Vector3(-2f * Ease(t, .2f, .8f) * (1f - Ease(t, 2.8f, 3.6f)), -4f * grip, 0f) };
+        visual.Left = hand; visual.Right = new Vector3(-.20f, .959f, .37f);
+        visual.LeftCurl = grip * .55f; visual.RightCurl = .025f;
         for (int coin = 0; coin < 3; coin++)
         {
             bool counted = returning ? coin <= index : coin < index;
@@ -129,9 +141,13 @@ internal static class TownServiceActivityMotion
 
     private static TownActivityVisual Prayer(float clock)
     {
-        float breath = .003f * Mathf.Sin(clock * 1.15f);
-        return new TownActivityVisual { Left = new Vector3(.025f, 1.21f + breath, .39f),
-            Right = new Vector3(-.025f, 1.21f + breath, .39f), LeftCurl = .10f, RightCurl = .10f };
+        var visual=TownServiceMotionClips.Sample(3, (clock % 8f)/8f);
+        // The two actual palm surfaces stay together; the sampled body provides the
+        // quiet asymmetric breathing/weight change, not a synthetic wrist oscillator.
+        visual.Left = new Vector3(.025f,1.21f,.39f);
+        visual.Right = new Vector3(-.025f,1.21f,.39f);
+        visual.LeftCurl=.10f; visual.RightCurl=.10f;
+        return visual;
     }
 
     private readonly struct SpellKey
@@ -168,9 +184,11 @@ internal static class TownServiceActivityMotion
         while (next < Spell.Length - 1 && Spell[next].Time < cycle) next++;
         SpellKey a = Spell[next - 1], b = Spell[next];
         float t = Ease(cycle, a.Time, b.Time);
-        return new TownActivityVisual { Left = Vector3.Lerp(a.Left,b.Left,t), Right = Vector3.Lerp(a.Right,b.Right,t),
+        var generated=TownServiceMotionClips.Sample(2, cycle / 20.4f);
+        return new TownActivityVisual { Left = generated.Left, Right = generated.Right,
+            LeftElbow=generated.LeftElbow, RightElbow=generated.RightElbow, Body=generated.Body,
             LeftRoll = Mathf.Lerp(a.LeftRoll,b.LeftRoll,t), RightRoll = Mathf.Lerp(a.RightRoll,b.RightRoll,t),
-            Chest = Vector3.Lerp(a.Chest,b.Chest,t), Cast = Mathf.Lerp(a.Strength,b.Strength,t),
+            Chest = Vector3.zero, Cast = Mathf.Lerp(a.Strength,b.Strength,t),
             LeftCurl = .13f, RightCurl = .08f, EffectClock = clock };
     }
 }

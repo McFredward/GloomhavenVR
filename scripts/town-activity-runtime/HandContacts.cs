@@ -85,7 +85,7 @@ internal static class HandContacts
                 state=new TownActivityPose{WorkClock=8f,TransitionAge=.65f};
                 visual=TownServiceActivityMotion.Visual(service,in state);rig.Apply(in visual);
                 if(Quaternion.Angle(chest.localRotation,Quaternion.identity)>13f || Quaternion.Angle(neck.localRotation,Quaternion.identity)>4.05f)
-                    throw new Exception("work posture does not stack an extreme torso and neck bow");checks++;
+                    throw new Exception("work posture does not stack an extreme torso and neck bow service="+service+" chest="+Quaternion.Angle(chest.localRotation,Quaternion.identity)+" neck="+Quaternion.Angle(neck.localRotation,Quaternion.identity));checks++;
                 foreach(Transform child in root.GetComponentsInChildren<Transform>())
                 {
                     if((child.name.Contains("Tip.")||child.name.Contains("Pad."))&&Quaternion.Angle(child.localRotation,Quaternion.identity)>.001f)

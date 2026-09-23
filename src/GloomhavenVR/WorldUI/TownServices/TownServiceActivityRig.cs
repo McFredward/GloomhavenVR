@@ -30,6 +30,11 @@ internal sealed class TownServiceActivityRig
     private readonly Transform? _neck, _chest, _actor;
     private readonly float _actorRestHeight;
     private readonly Transform _workFocus;
+    private readonly Transform?[] _body = new Transform?[12];
+    private readonly Quaternion[] _bodyLocal = new Quaternion[12], _bodyWorld = new Quaternion[12];
+    private Vector3 _hipsPosition;
+    private readonly Vector3[] _bodyPositions = new Vector3[12];
+    private bool _bodyApplied;
     internal Transform? OfferingPalm { get; }
     private Quaternion _sampledNeck, _sampledChest;
     private bool _applied;
@@ -42,7 +47,10 @@ internal sealed class TownServiceActivityRig
         _workFocus.localPosition = TownServiceActivityMotion.RestFocus(service);
         _actor = root.Find("Actor"); _actorRestHeight = _actor != null ? _actor.localPosition.y : 0f; _left = Find(root, "L"); _right = Find(root, "R");
         foreach (Transform child in root.GetComponentsInChildren<Transform>(true))
-        { if (child.name == "Neck") _neck = child; else if (child.name == "Chest") _chest = child; }
+        {
+            if (child.name == "Neck") _neck = child; else if (child.name == "Chest") _chest = child;
+            for (int i=0;i<_body.Length;i++) if (child.name==TownServiceMotionClips.BodyBones[i]) _body[i]=child;
+        }
         if (service == 3 && _right != null)
         {
             OfferingPalm = new GameObject("ActivityOfferingPalm").transform;
@@ -54,6 +62,12 @@ internal sealed class TownServiceActivityRig
         if (_applied && _chest != null) _chest.localRotation = _sampledChest;
         if (_applied && _neck != null) _neck.localRotation = _sampledNeck;
         Restore(_left); Restore(_right); _applied = false;
+        if (_bodyApplied)
+        {
+            for (int i=0;i<_body.Length;i++) if (_body[i]!=null) _body[i]!.localRotation=_bodyLocal[i];
+            if (_body[0]!=null) _body[0]!.localPosition=_hipsPosition;
+            _bodyApplied=false;
+        }
     }
     internal void Suspend()
     {
@@ -136,6 +150,7 @@ internal sealed class TownServiceActivityRig
     internal void Apply(in TownActivityVisual visual)
     {
         if (!Ready) return;
+        ApplyBody(in visual.Body);
         if (_chest != null)
         {
             _sampledChest = _chest.localRotation; _applied = true;
@@ -149,10 +164,10 @@ internal sealed class TownServiceActivityRig
         if (_neck != null)
         {
             _sampledNeck = _neck.localRotation; _applied = true;
-            _neck.rotation = Quaternion.AngleAxis(4f * (1f - visual.Attention), -_root.right) * _neck.rotation;
+            _neck.rotation = Quaternion.AngleAxis(4f * (1f - visual.Attention) * (1f - visual.Body.Weight), -_root.right) * _neck.rotation;
         }
-        Solve(_left!, visual.Left, 1f, visual.LeftCurl, visual.Attention, visual.LeftRoll, _service == 1);
-        Solve(_right!, visual.Right, -1f, visual.RightCurl, visual.Attention, visual.RightRoll, false);
+        Solve(_left!, visual.Left, 1f, visual.LeftCurl, visual.Attention, visual.LeftRoll, _service == 1, visual.LeftElbow, visual.Body.Weight);
+        Solve(_right!, visual.Right, -1f, visual.RightCurl, visual.Attention, visual.RightRoll, false, visual.RightElbow, visual.Body.Weight);
         if (OfferingPalm != null)
         {
             Arm right = _right!;
@@ -166,7 +181,55 @@ internal sealed class TownServiceActivityRig
             _workFocus.position = Vector3.Lerp(_workFocus.position,
                 OfferingPalm.position + OfferingPalm.up * (.07f + .10f * visual.Cast), Mathf.Clamp01(visual.Cast * 3f));
     }
-    private void Solve(Arm arm, Vector3 localTarget, float side, float curl, float attention, float roll, bool pinchTarget)
+    private void ApplyBody(in TownMotionBody body)
+    {
+        // Capture every world baseline before changing any parent. Applying child
+        // deltas to an already rotated parent would double the generated torso turn.
+        for (int i=0;i<_body.Length;i++)
+            if (_body[i]!=null) { _bodyLocal[i]=_body[i]!.localRotation; _bodyWorld[i]=_body[i]!.rotation; _bodyPositions[i]=_body[i]!.position; }
+        if (_body[0]!=null) _hipsPosition=_body[0]!.localPosition;
+        _bodyApplied=true;
+        if (body.Weight<=0f) return;
+        if (_body[0]!=null) _body[0]!.position += _root.TransformVector(body.Offset)*body.Weight;
+        Quaternion inverse=Quaternion.Inverse(_root.rotation);
+        for (int i=0;i<_body.Length;i++)
+            if (_body[i]!=null) _body[i]!.rotation=_root.rotation*Quaternion.Slerp(Quaternion.identity,body.Get(i),body.Weight)*inverse*_bodyWorld[i];
+        // The target skin has longer, straighter legs than the generation skeleton.
+        // Lower the pelvis only as far as necessary to keep both original soles
+        // reachable; clamping each leg independently would visibly lift one foot.
+        if (_body[0]!=null) _body[0]!.position-=_root.up*Mathf.Max(RequiredPelvisDrop(6),RequiredPelvisDrop(9));
+        PlantFoot(6); PlantFoot(9);
+    }
+    private float RequiredPelvisDrop(int upperIndex)
+    {
+        Transform? upper=_body[upperIndex],lower=_body[upperIndex+1],foot=_body[upperIndex+2];
+        if(upper==null||lower==null||foot==null)return 0f;
+        Vector3 delta=upper.position-_bodyPositions[upperIndex+2];
+        float length=Vector3.Distance(upper.position,lower.position)+Vector3.Distance(lower.position,foot.position)-.0002f;
+        float horizontal=Vector3.ProjectOnPlane(delta,_root.up).sqrMagnitude;
+        float available=Mathf.Sqrt(Mathf.Max(0f,length*length-horizontal));
+        return Mathf.Max(0f,Vector3.Dot(delta,_root.up)-available);
+    }
+    private void PlantFoot(int upperIndex)
+    {
+        Transform? upper=_body[upperIndex],lower=_body[upperIndex+1],foot=_body[upperIndex+2];
+        if (upper==null||lower==null||foot==null) return;
+        Vector3 hip=upper.position,knee=lower.position,ankle=foot.position;
+        Vector3 delta=_bodyPositions[upperIndex+2]-hip;
+        float a=Vector3.Distance(hip,knee),b=Vector3.Distance(knee,ankle);
+        if(a<.001f||b<.001f||delta.sqrMagnitude<1e-8f)return;
+        float distance=Mathf.Clamp(delta.magnitude,Mathf.Abs(a-b)+.001f,a+b-.0001f);
+        Vector3 direction=delta.normalized,bend=Vector3.ProjectOnPlane(knee-hip,direction).normalized;
+        if(bend.sqrMagnitude<.5f)bend=-_root.forward;
+        float along=(a*a-b*b+distance*distance)/(2f*distance);
+        Vector3 targetKnee=hip+direction*along+bend*Mathf.Sqrt(Mathf.Max(0f,a*a-along*along));
+        Quaternion sole=_bodyWorld[upperIndex+2];
+        upper.rotation=Quaternion.FromToRotation(knee-hip,targetKnee-hip)*upper.rotation;
+        lower.rotation=Quaternion.FromToRotation(foot.position-lower.position,hip+direction*distance-lower.position)*lower.rotation;
+        foot.rotation=sole;
+    }
+    private void Solve(Arm arm, Vector3 localTarget, float side, float curl, float attention, float roll, bool pinchTarget,
+        Vector3 authoredElbow, float motionWeight)
     {
         arm.SampledUpper = arm.Upper.localRotation; arm.SampledFore = arm.Fore.localRotation;
         arm.SampledHand = arm.Hand.localRotation; arm.Applied = true;
@@ -226,7 +289,9 @@ internal sealed class TownServiceActivityRig
         Vector3 delta = target - shoulder;
         float distance = Mathf.Clamp(delta.magnitude, Mathf.Abs(upper - lower) + .001f, upper + lower - .001f);
         Vector3 direction = delta.normalized;
-        Vector3 pole = _root.TransformPoint(new Vector3(side * .34f, .98f, .56f)) - shoulder;
+        // Generated elbow motion preserves changing shoulder/elbow coordination.
+        // A fixed pole was one reason the former hands moved like mechanical arms.
+        Vector3 pole = _root.TransformPoint(Vector3.Lerp(new Vector3(side * .34f, .98f, .56f), authoredElbow, motionWeight)) - shoulder;
         Vector3 bend = Vector3.ProjectOnPlane(pole, direction).normalized;
         if (bend.sqrMagnitude < .5f) bend = _root.right * side;
         float along = (upper * upper - lower * lower + distance * distance) / (2f * distance);

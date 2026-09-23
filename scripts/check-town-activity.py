@@ -23,6 +23,7 @@ def replace_once(source, before, after):
 def sources(root):
     base = root / "src/GloomhavenVR/WorldUI/TownServices"
     names = ["TownServiceActivityHandover.cs", "TownServiceActivityMotion.cs", "TownServiceActivityRig.cs", "TownServiceActivityProps.cs", "TownServiceGrounding.cs", "TownServiceFaceAttention.cs", "TownServiceFaceMotion.cs", "TownServiceFaceRig.cs"]
+    names += ["TownServiceMotionClips.cs", "TownServiceMotionClips.Data.cs"]
     bound = {name: (base / name).read_text() for name in names}
     bound["RemoteTownActivities.cs"] = (root / "src/GloomhavenVR/Net/Remote/RemoteTownActivities.cs").read_text()
     bound["TownActivityTypes.cs"] = (root / "src/GloomhavenVR/Net/TownActivityState.cs").read_text().split("/// <summary>Additive81:")[0]
@@ -34,6 +35,8 @@ def sources(root):
 
 def mutations():
     return [
+        ("frozen-generated-body", "TownServiceMotionClips.cs", "body.Set(i,Rotation(data,a+15+i*4,b+15+i*4,t));", "body.Set(i,Quaternion.identity);", "generated occupation contains real torso movement"),
+        ("unplanted-feet", "TownServiceActivityRig.cs", "PlantFoot(6); PlantFoot(9);", "// negative control: uncorrected generated stance", "generated stance keeps actual imported feet planted"),
         ("phase-jump", "TownServiceActivityMotion.cs", "state.FromBlend = Blend(in state);", "state.FromBlend = state.Engaged ? 1f : 0f;", "interrupted transition keeps current pose"),
         ("work-runs-while-engaged", "TownServiceActivityMotion.cs", "dt - Integral(in state, state.TransitionAge + dt) + Integral(in state, state.TransitionAge)", "dt", "engaged occupation remains paused"),
         ("ignore-ik", "TownServiceActivityRig.cs", "if (!Ready) return;", "if (Ready) return;", "anatomical palm contacts transformed counter surface"),
@@ -74,7 +77,7 @@ def main():
     dotnet = shutil.which("dotnet") or str(Path.home() / ".dotnet/dotnet")
     bound, hashes = sources(args.source_root)
     if args.portable:
-        wanted = {"TownServiceActivityMotion.cs", "TownServiceActivityHandover.cs", "TownActivityTypes.cs",
+        wanted = {"TownServiceMotionClips.cs", "TownServiceMotionClips.Data.cs", "TownServiceActivityMotion.cs", "TownServiceActivityHandover.cs", "TownActivityTypes.cs",
                   "RemoteTownActivities.cs", "RemoteTownFaces.cs", "RemoteTownPerformance.cs", "FaceTypes.cs", "TownServiceFaceMotion.cs"}
         bound = {name: code for name, code in bound.items() if name in wanted}
         face = bound["TownServiceFaceMotion.cs"]
@@ -92,8 +95,8 @@ def main():
     manifest = {"result": str(run / "results.txt"), "cases": []}
     variants = [("production", None, None, None, "")]
     if not args.no_negative_controls:
-        rig_only = ("ignore-ik", "thumb-overcurl", "prayer-snap", "excessive-work-bow", "ignore-palm-offset", "curl-contact-markers", "downward-offering", "coin-detached-from-grip")
-        variants += [v for v in mutations() if (not args.portable or v[0] not in rig_only) and (args.bundle or v[0] != "prayer-snap")]
+        rig_only = ("unplanted-feet", "ignore-ik", "thumb-overcurl", "prayer-snap", "excessive-work-bow", "ignore-palm-offset", "curl-contact-markers", "downward-offering", "coin-detached-from-grip")
+        variants += [v for v in mutations() if (not args.portable or v[0] not in rig_only) and (args.bundle or v[0] not in ("prayer-snap", "unplanted-feet"))]
     print(f"Binding production from {args.source_root.resolve()}; evidence: {run}", flush=True)
     for name, filename, before, after, expected in variants:
         build = run / name

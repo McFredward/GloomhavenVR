@@ -11,7 +11,7 @@ internal static class ActivityRender
     internal static void Render(GameObject obj,byte service,TownServiceActivityRig rig)
     {
         string[] args=Environment.GetCommandLineArgs();int output=Array.IndexOf(args,"-activityRender");if(output<0)return;
-        bool sequence=Array.IndexOf(args,"-activitySequence")>=0;if(sequence&&service==2)return;
+        bool sequence=Array.IndexOf(args,"-activitySequence")>=0;
         string folder=args[output+1];Transform root=obj.transform;rig.BeforeBodySample();root.SetPositionAndRotation(Vector3.zero,Quaternion.identity);root.localScale=Vector3.one;
         Shader shader=obj.GetComponentsInChildren<SkinnedMeshRenderer>(true)[0].sharedMaterial.shader;
         using var props=new TownServiceActivityProps(root,service,shader);props.SetVisibility(1);
@@ -28,7 +28,8 @@ internal static class ActivityRender
         var gaze=default(TownFacePose);
         using var metrics=new StreamWriter(Path.Combine(folder,"service"+service+"-contacts.csv"));metrics.WriteLine("phase,handX,handY,handZ,gripX,gripY,gripZ,tipX,tipY,tipZ");
         float[] phases={.8f,1.8f,1.8f,5.4f,6.9f,8.1f,15.4f,17f};
-        if(sequence)phases=Enumerable.Range(0,174).Select(n=>n/8f).ToArray();
+        if(sequence)phases=Enumerable.Range(0,240).Select(n=>n/8f).ToArray();
+        var envelope=new Bounds();bool envelopeStarted=false;
         for(int phase=0;phase<phases.Length;phase++)
         {
             faceRig.BeforeBodySample();rig.BeforeBodySample();animation.Stop();var body=animation["Idle"];body.enabled=true;body.weight=1;body.time=0;animation.Sample();body.enabled=false;
@@ -62,7 +63,11 @@ internal static class ActivityRender
                 }
                 poses.Write("]}");
             }
+            var originalSkins=root.GetComponentsInChildren<SkinnedMeshRenderer>(true);
+            var enabledSkins=originalSkins.Select(r=>r.enabled).ToArray();
             GameObject snapshot=Snapshot(root);
+            foreach(MeshFilter skin in snapshot.GetComponentsInChildren<MeshFilter>())
+            {if(!envelopeStarted){envelope=skin.sharedMesh.bounds;envelopeStarted=true;}else envelope.Encapsulate(skin.sharedMesh.bounds);}
             foreach(int view in sequence?new[]{0}:new[]{0,1,2})
             {
                 if(pen!=null)pen.gameObject.SetActive(view!=2);
@@ -71,7 +76,9 @@ internal static class ActivityRender
             }
             foreach(MeshFilter mesh in snapshot.GetComponentsInChildren<MeshFilter>())UnityEngine.Object.DestroyImmediate(mesh.sharedMesh);
             UnityEngine.Object.DestroyImmediate(snapshot);
+            for(int i=0;i<originalSkins.Length;i++)originalSkins[i].enabled=enabledSkins[i];
         }
+        Console.WriteLine("Actual skinned work envelope service="+service+" min="+envelope.min.ToString("F5")+" max="+envelope.max.ToString("F5"));
         RenderTexture.active=null;camera.targetTexture=null;rt.Release();UnityEngine.Object.DestroyImmediate(rt);UnityEngine.Object.DestroyImmediate(camera.gameObject);UnityEngine.Object.DestroyImmediate(light.gameObject);
     }
     // Camera.Render calls in one Editor tick can reuse the previous GPU skinning upload.
@@ -81,7 +88,9 @@ internal static class ActivityRender
     {
         var holder=new GameObject("CPU-skinned current-pose diagnostic");holder.transform.SetParent(root,false);
         var lod=root.GetComponentInChildren<LODGroup>();
-        var selected=lod.GetLODs()[0].renderers.OfType<SkinnedMeshRenderer>().ToArray();lod.enabled=false;
+        var selected=lod!=null?lod.GetLODs()[0].renderers.OfType<SkinnedMeshRenderer>().ToArray()
+            :root.GetComponentsInChildren<SkinnedMeshRenderer>(true).Where(r=>r.enabled&&r.gameObject.activeInHierarchy).ToArray();
+        if(lod!=null)lod.enabled=false;
         foreach(var renderer in root.GetComponentsInChildren<SkinnedMeshRenderer>(true))renderer.enabled=false;
         foreach(var renderer in selected)
         {
