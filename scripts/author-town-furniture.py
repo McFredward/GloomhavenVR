@@ -170,8 +170,8 @@ def terrace(name, columns=24, origin=-1.32, curved=True):
             bend=.16*(x/1.725)**2 if curved else 0
             front.append((x,origin+row*.13-.063+bend))
             back.append((x,origin+row*.13+.063+bend))
-        slab(name+str(row), front+list(reversed(back)), .965+row*.025, .045)
-        tube('Stock retaining lip',[(x,.966+row*.025,z-.002) for x,z in front], [.006]*33, 'Brass',6)
+        slab(name+str(row), front+list(reversed(back)), .965+row*.008, .045)
+        tube('Stock retaining lip',[(x,.966+row*.008,z-.002) for x,z in front], [.006]*33, 'Brass',6)
     for x in (-width*.44,0,width*.44):
         for z in (origin+.02,origin+.86): turned_leg(x,z,.90)
     # Solid curved cabinet front with panel joinery, recessed fields and carved arches.
@@ -255,9 +255,18 @@ def priestess():
 def export(name, build):
     bpy.ops.object.select_all(action='SELECT'); bpy.ops.object.delete(use_global=False)
     parts.clear(); build()
-    # One renderer per material, not one renderer per rivet or carved leaf.
+    # Keep only physical floor-contacting supports separate: their ordinary transforms
+    # stretch down to terrain while their authored tops stay fixed. This presentation is
+    # mirrored by the existing multiplayer node transforms, without private mesh updates.
+    supports=[]
+    for obj in parts:
+        heights=[(obj.matrix_world @ vertex.co).z for vertex in obj.data.vertices]
+        if heights and min(heights) <= .03 and max(heights)-min(heights) >= .06:
+            obj.name=f'GroundSupport{len(supports):02d}_{obj.name}_{obj.data.materials[0].name}'
+            supports.append(obj)
+    # The remaining decor stays one renderer per material, not one per rivet or leaf.
     for material in materials.values():
-        objects=[o for o in bpy.context.scene.objects if o.type == 'MESH' and o.data.materials[0] == material]
+        objects=[o for o in bpy.context.scene.objects if o.type == 'MESH' and o not in supports and o.data.materials[0] == material]
         if not objects: continue
         bpy.ops.object.select_all(action='DESELECT')
         for obj in objects: obj.select_set(True)

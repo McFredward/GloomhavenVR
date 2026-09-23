@@ -51,9 +51,7 @@ public static class InteractionProgram
     {
         var parts=new List<Vector2[]>();
         bool merchant=service==1;
-        parts.Add(Rectangle(p,q,merchant?1.27f:.75f,merchant?-.422f:-.362f,merchant?.405f:.338f));
-        if(merchant)foreach(float x in new[]{-.68f,.68f})
-            parts.Add(Rectangle(p+q*new Vector3(x,0,0),q,.538f,-.82f,.416f));
+        parts.Add(Rectangle(p,q,merchant?1.94f:.87f,merchant?-1.40f:-.45f,merchant?.46f:.50f));
         if(actor)parts.Add(Rectangle(p,q,.60f,.3f,1.2f));
         if(service==3)parts.Add(Rectangle(p+q*new Vector3(.68f,0,0),q,.19f,.28f,.86f));
         return parts;
@@ -65,7 +63,7 @@ public static class InteractionProgram
         {
             Check(TownServicePlacement.TryResolve(service,MapRoomDriver.Center,MapRoomDriver.Scale,out var p,out var q),"actual resident source supplies clearance pose");
             var parts=Parts((p-MapRoomDriver.Center)/MapRoomDriver.Scale,q,service,true);
-            Vector3 inwardEdge=(p-MapRoomDriver.Center)/MapRoomDriver.Scale-q*new Vector3(0,0,service==1?.82f:.362f);
+            Vector3 inwardEdge=(p-MapRoomDriver.Center)/MapRoomDriver.Scale-q*new Vector3(0,0,service==1?1.40f:.45f);
             Check(new Vector2(inwardEdge.x,inwardEdge.z).magnitude>1.4f,"resident furniture clears full native map table diagonal");
             foreach(var previous in fixedStations)foreach(var a in parts)foreach(var b in previous)
                 Check(Separated(a,b),"permanent stations clear each other's actual work and actor envelopes");
@@ -77,8 +75,8 @@ public static class InteractionProgram
             var root=workspaces[i].Root;
             var parts=Parts((root.position-MapRoomDriver.Center)/MapRoomDriver.Scale,root.rotation,1,false);
             Vector3 inward=-root.forward;
-            Vector3 near=(root.position-MapRoomDriver.Center)/MapRoomDriver.Scale+inward*.82f;
-            Check(new Vector2(near.x,near.z).magnitude>1.40f,"opened drawer stays outside complete native map table diagonal");
+            Vector3 near=(root.position-MapRoomDriver.Center)/MapRoomDriver.Scale+inward*1.40f;
+            Check(new Vector2(near.x,near.z).magnitude>1.40f,"open counter stays outside complete native map table diagonal");
             Vector3 toward=MapRoomDriver.Center-root.position;toward.y=0f;
             Check(Vector3.Dot(inward,toward.normalized)>.85f,"angled counter still faces toward map");
             foreach(var fixedParts in fixedStations)foreach(var a in parts)foreach(var b in fixedParts)
@@ -86,14 +84,17 @@ public static class InteractionProgram
             foreach(var previous in extras)foreach(var a in parts)foreach(var b in previous)
                 Check(Separated(a,b),"full-size extra counters cannot overlap");
             extras.Add(parts);
+            var returnTemplate = workspaces[i].FurnitureRoot.Find("CounterReturn");
+            if (returnTemplate != null) Check(!returnTemplate.gameObject.activeSelf, "return authoring template stays hidden in the main counter");
             foreach(var filter in workspaces[i].FurnitureRoot.GetComponentsInChildren<MeshFilter>(true))
             {
+                if (returnTemplate != null && filter.transform.IsChildOf(returnTemplate)) continue;
                 Bounds bounds=filter.sharedMesh.bounds;
                 for(int c=0;c<8;c++)
                 {
                     var v=bounds.center+Vector3.Scale(bounds.extents,new Vector3((c&1)==0?-1:1,(c&2)==0?-1:1,(c&4)==0?-1:1));
                     var local=root.InverseTransformPoint(filter.transform.TransformPoint(v));
-                    Check(Mathf.Abs(local.x)<=1.271f&&local.z>=-.423f&&local.z<=.423f,"shipping furniture fits reserved physical counter envelope");
+                    Check(Mathf.Abs(local.x)<=1.951f&&local.z>=-1.41f&&local.z<=.461f,"shipping furniture fits reserved physical counter envelope");
                 }
             }
         }
