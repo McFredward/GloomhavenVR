@@ -506,7 +506,7 @@ public static class ValidateTownAssets
             // minimum visible-surface floor used by the production lighting assertion.
             Check(Bright(dark, false) > 1000 && Bright(dark, false) >= furniture * .8f,
                 npc + " negative control: old studio light makes furniture glow in darkness");
-            Debug.Log("TOWN_ASSET_PIXELS " + npc + " body=" + body + " furniture=" + furniture + " lod=" + size);
+            Debug.Log("TOWN_ASSET_PIXELS " + npc + " body=" + body + " furniture=" + furniture + " fixedDetail=true");
             UnityEngine.Object.DestroyImmediate(root);
         }
         Check(flameShader != null && flameShader.isSupported, "Native flame presentation shader compiles");

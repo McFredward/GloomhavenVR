@@ -94,7 +94,7 @@ public static class InteractionProgram
                 {
                     var v=bounds.center+Vector3.Scale(bounds.extents,new Vector3((c&1)==0?-1:1,(c&2)==0?-1:1,(c&4)==0?-1:1));
                     var local=root.InverseTransformPoint(filter.transform.TransformPoint(v));
-                    Check(Mathf.Abs(local.x)<=1.951f&&local.z>=-1.41f&&local.z<=.461f,"shipping furniture fits reserved physical counter envelope");
+                    Check(Mathf.Abs(local.x)<=.811f&&local.z>=-.921f&&local.z<=.531f,"shipping furniture fits reserved physical counter envelope");
                 }
             }
         }
