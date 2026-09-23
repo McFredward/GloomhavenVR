@@ -41,6 +41,7 @@ internal static class TownServiceSync
     private static readonly List<string> Removed = new();
     private static readonly HashSet<Transform> Visited = new();
     private static readonly List<Transform> Dynamic = new();
+    private static readonly List<Transform> PriorityRoots = new();
     private static readonly Dictionary<string, float> Failures = new(StringComparer.Ordinal);
     private static float _reportWindow;
     private static int _reportCount;
@@ -94,7 +95,7 @@ internal static class TownServiceSync
         if (TownServicePresentation.RelocationVisibility <= 0f) return;
         foreach (Published module in Modules.Values) module.Seen = false;
         foreach (SourceEntry source in Sources.Values) source.Seen = false;
-        Visited.Clear(); Dynamic.Clear();
+        Visited.Clear(); Dynamic.Clear(); PriorityRoots.Clear();
         string prefix = service == 1 ? "merchant" : service == 2 ? "temple" : "enchant";
         TownServiceCatalog? catalog = TownServicePresentation.Catalog;
         if (catalog == null && TownServicePresentation.Ritual == null)
@@ -105,11 +106,8 @@ internal static class TownServiceSync
         if (catalog != null)
         {
             Publish(prefix + ".counter", TownServicePresentation.CounterFurniture);
-            foreach (TownServiceMerchantDrawer drawer in catalog.Drawers)
-            {
-                Publish("merchant.drawer", drawer.Root);
-                Publish("merchant.drawerhousing", drawer.HousingRoot);
-            }
+            foreach (TownServiceMerchantCounter extension in catalog.Extensions)
+                Publish("merchant.return", extension.Root);
             foreach (TownServiceMerchantZone zone in catalog.Zones) Publish("merchant.zone", zone.Root);
             // Mirror the actual counter, not the suppressed flat inventory. These widgets
             // retain native template provenance but have the owner's physical layout.
@@ -119,6 +117,12 @@ internal static class TownServiceSync
             foreach (TownServiceCatalog.Entry entry in catalog.Entries)
             {
                 if (!entry.Current || !entry.Exposed) continue;
+                if (entry.Sample.IsMoving)
+                {
+                    PriorityRoots.Add(entry.CardRoot);
+                    if (entry.BodyRoot != null) PriorityRoots.Add(entry.BodyRoot);
+                    if (entry.RowContent != null) PriorityRoots.Add(entry.RowContent);
+                }
                 Publish("item." + entry.ItemId.ToString(System.Globalization.CultureInfo.InvariantCulture), entry.CardRoot);
                 Publish("merchant.cardbody", entry.BodyRoot);
                 if (entry.RowContent != null)
@@ -130,8 +134,27 @@ internal static class TownServiceSync
         {
             Publish("merchant.zone", ritual.Zone);
             Publish(prefix + ".counter", TownServicePresentation.CounterFurniture);
+            TownServiceEnhancementHandoff? handoff = ritual.Handoff;
+            if (handoff != null)
+            {
+                Publish("merchant.zone", handoff.Zone);
+                if (handoff.Card != null && handoff.NativeSource != null && handoff.Face != null)
+                {
+                    Transform? body = handoff.Card.transform.Find("Visual/Backing");
+                    PriorityRoots.Add(handoff.Face);
+                    if (body != null) PriorityRoots.Add(body);
+                    Publish("face." + handoff.NativeSource.CardID.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                        handoff.Face, handoff.NativeSource.fullAbilityCard.transform, handoff.CloneOf);
+                    Publish("map.cardbody", body);
+                }
+            }
             foreach (TownServiceRitual.Piece piece in ritual.Pieces)
             {
+                if (piece.Token.IsMoving)
+                {
+                    PriorityRoots.Add(piece.Body);
+                    if (piece.Content != null) PriorityRoots.Add(piece.Content);
+                }
                 Publish(piece.Key, piece.Content, piece.Source.transform, piece.CloneOf);
                 Publish(piece.BodyKey, piece.Body);
                 if (piece.DetailContent != null && piece.DetailSource != null)
@@ -150,6 +173,7 @@ internal static class TownServiceSync
             Publish(prefix + ".tooltip", NativeTemplates.Original(prefix + ".tooltip"));
         else if (catalog != null && catalog.PreviewContent != null && catalog.PreviewSource != null)
         {
+            PriorityRoots.Add(catalog.PreviewContent);
             Publish("merchant.tooltip", catalog.PreviewContent, catalog.PreviewSource, catalog.PreviewCloneOf);
             PublishCopiedCards(catalog.PreviewSource, catalog.PreviewCloneOf);
         }
@@ -159,6 +183,7 @@ internal static class TownServiceSync
         UITooltip? tooltip = NativeTemplates.Tooltip;
         if (tooltip != null && catalog != null && catalog.HintContent != null && catalog.HintSource == tooltip.transform)
         {
+            PriorityRoots.Add(catalog.HintContent);
             Publish(NativeTemplates.TooltipKey(tooltip), catalog.HintContent, catalog.HintSource, catalog.HintCloneOf);
             PublishCopiedCards(tooltip.transform, catalog.HintCloneOf);
         }
@@ -244,6 +269,7 @@ internal static class TownServiceSync
                         throw new InvalidDataException("Town service exceeds the simultaneous module budget.");
                     Modules[existing.Identity] = existing;
                     TownServiceMirror.RegisterModule(existing.Id, 1, existing.Source, existing.Exclude, existing.Address);
+                    TownServiceMirror.SetPriority(existing.Id, IsPriority(source));
                 }
                 return;
             }
@@ -275,11 +301,18 @@ internal static class TownServiceSync
                     TownServiceMirror.RegisterModule(module.Id, 1, root, module.Exclude, address);
                     Modules.Add(identity, module);
                 }
+                TownServiceMirror.SetPriority(module.Id, IsPriority(source));
                 module.Seen = true; sourceEntry.Parts.Add(module);
             }
             sourceEntry.Complete = true;
         }
         catch (Exception e) { Report(key, e); }
+    }
+    private static bool IsPriority(Transform source)
+    {
+        foreach (Transform root in PriorityRoots)
+            if (root != null && (source == root || source.IsChildOf(root))) return true;
+        return false;
     }
     private static void CollectDynamic(Transform root)
     {
@@ -357,7 +390,7 @@ internal static class TownServiceSync
     internal static void Reset()
     {
         if (_session != 0) TownServiceMirror.EndSession();
-        Modules.Clear(); Sources.Clear(); RemovedSources.Clear(); Visited.Clear(); Dynamic.Clear(); Removed.Clear(); _session = 0; _service = 0;
+        Modules.Clear(); Sources.Clear(); RemovedSources.Clear(); Visited.Clear(); Dynamic.Clear(); PriorityRoots.Clear(); Removed.Clear(); _session = 0; _service = 0;
     }
     internal static void ResetNetwork() { Reset(); TownServiceMirror.ResetNetwork(); }
     internal static void Shutdown()

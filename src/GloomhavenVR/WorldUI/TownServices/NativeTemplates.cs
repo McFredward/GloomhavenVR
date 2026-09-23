@@ -71,14 +71,14 @@ internal static class NativeTemplates
         Add("merchant.filter.small", merchant.smallItemsFilter);
         Add("merchant.exit", hud.shopWindow.exitShopButton);
         TMP_Text? physicalFont = merchant.GetComponentInChildren<TMP_Text>(true);
-        AddPhysical("merchant.drawer", TownServiceMerchantDrawer.CreateTemplate(physicalFont));
-        AddPhysical("merchant.drawerhousing", TownServiceMerchantDrawer.CreateHousingTemplate());
+        Add("merchant.return", TownServiceMerchantCounter.Template);
         AddPhysical("merchant.zone", TownServiceMerchantZone.CreateTemplate(physicalFont));
         Add("merchant.counter", TownServiceWorkspace.FurnitureTemplate(1));
         Add("temple.counter", TownServiceWorkspace.FurnitureTemplate(2));
         Add("enchant.counter", TownServiceWorkspace.FurnitureTemplate(3));
         _cardBody = TownServiceCardBody.Create(_bank.transform);
         Add("merchant.cardbody", _cardBody.transform);
+        Add("map.cardbody", GloomhavenVR.Cards.CardsDriver.CardBackingPrefab?.transform);
         Add("temple", hud.templeWindow);
         Add("temple.inventory", hud.templeWindow.Shop);
         Add("temple.row", hud.templeWindow.Shop.slotPrefab);
@@ -136,8 +136,7 @@ internal static class NativeTemplates
         TownServiceBackdropAssets.Register(TownServiceMirror.Assets, Original);
         _assetGeneration = TownServiceMirror.Assets.Generation;
     }
-    internal static bool IsBoundary(Transform node) => Roots.ContainsKey(node) || IsDynamic(node)
-        || TownServiceMerchantDrawer.IsContentRoot(node);
+    internal static bool IsBoundary(Transform node) => Roots.ContainsKey(node) || IsDynamic(node);
     internal static bool IsDynamic(Transform node) => node.GetComponent<UIShopItemSlot>() != null
         || node.GetComponent<UITempleShopSlot>() != null || node.GetComponent<UINewEnhancementShopSlot>() != null
         || node.GetComponent<UIEnhanceCardSlot>() != null || node.GetComponent<UIEnhanceCardPoint>() != null
@@ -216,6 +215,7 @@ internal static class NativeTemplates
     {
         Transform? source;
         if (key == "ritual.coin") source = TownServiceDecor.CoinTemplate;
+        else if (key == "map.cardbody") source = GloomhavenVR.Cards.CardsDriver.CardBackingPrefab?.transform;
         else if (key.StartsWith("decor.", StringComparison.Ordinal))
         {
             string[] parts = key.Split('.');
@@ -245,7 +245,8 @@ internal static class NativeTemplates
     private static void EnsureCard(string key)
     {
         bool item = key.StartsWith("item.", StringComparison.Ordinal) && key != "item.confirm";
-        if (Entries.ContainsKey(key) || !item && !key.StartsWith("card.", StringComparison.Ordinal)) return;
+        bool face = key.StartsWith("face.", StringComparison.Ordinal);
+        if (Entries.ContainsKey(key) || !item && !face && !key.StartsWith("card.", StringComparison.Ordinal)) return;
         if (!int.TryParse(key.Substring(5), NumberStyles.None, CultureInfo.InvariantCulture, out int id) || id <= 0 || ObjectPool.instance == null)
             throw new InvalidDataException("Invalid original ability-card template identity.");
         CAbilityCard? model = item ? null : CharacterClassManager.AllAbilityCards.Find(card => card.ID == id);
@@ -276,7 +277,10 @@ internal static class NativeTemplates
             }
             if (!item) borrowed.GetComponent<AbilityCardUI>().Init(model!, disableEventDetection: true);
             TownServiceNativeAssets.PrepareCard(item ? null : model, item ? borrowed.GetComponent<ItemCardUI>() : null);
-            var entry = new Entry { Original = borrowed.transform }; Freeze(key, entry); Entries.Add(key, entry);
+            // Map hand cards expose the original FullAbilityCard subtree, without a running
+            // AbilityCardUI wrapper. Keep the template at that same subtree boundary.
+            var original = face ? borrowed.GetComponent<AbilityCardUI>().fullAbilityCard.transform : borrowed.transform;
+            var entry = new Entry { Original = original }; Freeze(key, entry); Entries.Add(key, entry);
         }
         finally
         {

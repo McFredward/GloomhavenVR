@@ -51,6 +51,9 @@ static class Test
         NativeTemplates.Clear(); CharacterClassManager.AllAbilityCards.Add(new() { ID = 3 });
         NativeTemplates.Run("card.3");
         Assert(ObjectPool.LastAbility.Initialized && !ObjectPool.Activated, "validated ability template still initializes inactive");
+        NativeTemplates.Clear(); NativeTemplates.Run("face.3");
+        Assert(ReferenceEquals(NativeTemplates.FrozenRoot, ObjectPool.LastAbility.fullAbilityCard.transform), "parked map card freezes original full face subtree");
+        Assert(ObjectPool.LastAbility.Initialized && !ObjectPool.Activated, "parked face initializes without gameplay activation");
         NativeTemplates.Clear(); int before = ObjectPool.Spawns;
         bool invalidAbility = false;
         try { NativeTemplates.Run("card.99"); } catch (InvalidDataException) { invalidAbility = true; }
@@ -94,7 +97,8 @@ class GameObject
 }
 static class Object { public static void Destroy(GameObject obj) { } }
 class CAbilityCard { public int ID; }
-class AbilityCardUI { public bool Initialized; public void Init(CAbilityCard model, bool disableEventDetection) { Initialized = disableEventDetection; } }
+class FullAbilityCard { public Transform transform = new GameObject("full").transform; }
+class AbilityCardUI { public FullAbilityCard fullAbilityCard = new(); public bool Initialized; public void Init(CAbilityCard model, bool disableEventDetection) { Initialized = disableEventDetection; } }
 static class CharacterClassManager { public static List<CAbilityCard> AllAbilityCards = new(); }
 class ObjectPool
 {
@@ -111,11 +115,12 @@ static partial class NativeTemplates
 {
     class Entry { public Transform Original = null!; }
     static readonly Dictionary<string, Entry> Entries = new();
-    public static int FrozenId; public static bool ThrowFreeze;
+    public static int FrozenId; public static bool ThrowFreeze; public static Transform? FrozenRoot;
     public static void Clear() { Entries.Clear(); }
     public static void Run(string key) { EnsureCard(key); }
     static void Freeze(string key, Entry entry)
     {
+        FrozenRoot = entry.Original;
         var item = entry.Original.gameObject.Item;
         if (item != null) { TownServiceNativeAssets.PrepareItem(item); FrozenId = item.item!.ID; }
         if (ThrowFreeze) throw new InvalidOperationException("fixture freeze failure");

@@ -529,9 +529,9 @@ public static partial class MirrorProgram
         GloomhavenVR.WorldUI.TownServicePresentation.Window = window;
         GloomhavenVR.WorldUI.TownServicePresentation.Catalog = catalog;
         GloomhavenVR.WorldUI.TownServicePresentation.LocalSurfaces.Clear();
-        var drawer = new GloomhavenVR.WorldUI.TownServiceMerchantDrawer
-        { Root = Go("physical-drawer").transform, HousingRoot = Go("drawer-housing").transform };
-        catalog.Drawers.Add(drawer);
+        var extension = new GloomhavenVR.WorldUI.TownServiceMerchantCounter
+        { Root = Go("open-counter-return").transform };
+        catalog.Extensions.Add(extension);
         var zone = new GloomhavenVR.WorldUI.TownServiceMerchantZone { Root = Go("deliberate-buy-zone").transform };
         catalog.Zones.Add(zone);
         for (int i = 0; i < 7; i++) catalog.Entries.Add(new GloomhavenVR.WorldUI.TownServiceCatalog.Entry
@@ -559,19 +559,19 @@ public static partial class MirrorProgram
         }
         Check(!calls.Exists(c => c.Key == "merchant.exit" || c.Key == "merchant.catalognav"),
             "physical counter has no exit or pagination controls");
-        Check(calls.Exists(c => c.Key == "merchant.drawer" && c.Source == drawer.Root)
-            && calls.Exists(c => c.Key == "merchant.drawerhousing" && c.Source == drawer.HousingRoot),
-            "physical drawer and housing retain their actual poses");
+        Check(calls.Exists(c => c.Key == "merchant.return" && c.Source == extension.Root)
+            && !calls.Exists(c => c.Key == "merchant.drawer" || c.Key == "merchant.drawerhousing"),
+            "open counter extension retains its actual pose without drawers");
         Check(calls.Exists(c => c.Key == "merchant.zone" && c.Source == zone.Root),
             "deliberate purchase zone is published");
         catalog.Entries[5].Exposed = false;
         calls.Clear(); GloomhavenVR.WorldUI.TownServiceSync.Tick(shared, shared);
-        Check(!calls.Exists(c => c.Key == "item.106"), "closed opaque drawer omits hidden card modules");
+        Check(!calls.Exists(c => c.Key == "item.106"), "unexposed retired stock omits hidden card modules");
         catalog.Entries[5].Exposed = true;
         catalog.Entries.RemoveRange(2, 5);
         GloomhavenVR.WorldUI.TownServiceSync.Calls.Clear();
         GloomhavenVR.WorldUI.TownServiceSync.Tick(shared, shared);
-        Check(GloomhavenVR.WorldUI.TownServiceSync.ModuleCount == 9 && GloomhavenVR.WorldUI.TownServiceSync.SourceCount == 9,
+        Check(GloomhavenVR.WorldUI.TownServiceSync.ModuleCount == 8 && GloomhavenVR.WorldUI.TownServiceSync.SourceCount == 8,
             "publisher stock shrink retires old cards and price modules");
         var physical = new GloomhavenVR.WorldUI.TownServiceToken { IsPhysical = true,
             Source = Go("duplicate-physical-source").AddComponent<GloomhavenVR.WorldUI.ItemCardUI>().transform,
@@ -655,9 +655,29 @@ public static partial class MirrorProgram
             var holder = new GloomhavenVR.WorldUI.TownServiceSurface();
             holder.Panel.Target = Go("original-enchantment-card").transform;
             if (service == 3) ritual.Surfaces.Add(holder);
+            if (service == 3)
+            {
+                var offeringCard = Go("owned-offering-card").transform;
+                var visual = Go("Visual").transform; visual.SetParent(offeringCard, false);
+                var backing = Go("Backing").transform; backing.SetParent(visual, false);
+                var native = Go("native-offering").AddComponent<GloomhavenVR.WorldUI.AbilityCardUI>();
+                native.CardID = 123; native.fullAbilityCard = Go("native-full-face").transform;
+                ritual.Handoff = new GloomhavenVR.WorldUI.TownServiceEnhancementHandoff
+                { Card = offeringCard, NativeSource = native, Face = Go("offered-full-face").transform, Zone = Go("palm-zone").transform };
+            }
             GloomhavenVR.WorldUI.TownServicePresentation.Ritual = ritual;
             calls.Clear(); GloomhavenVR.WorldUI.TownServiceSync.Tick(shared, shared);
             Check(!calls.Exists(c => c.Source == window.transform), "ritual never republishes suppressed service window");
+            if (service == 3)
+            {
+                var offered = ritual.Handoff!;
+                Check(calls.Exists(c => c.Key == "face.123" && c.Source == offered.Face
+                    && c.Provenance == offered.NativeSource!.fullAbilityCard
+                    && c.CloneOf!(c.Provenance!) == offered.Face), "offered owned card mirrors original face provenance");
+                Check(calls.Exists(c => c.Key == "map.cardbody" && c.Source == offered.Card!.Find("Visual/Backing")),
+                    "offered owned card mirrors actual backing");
+                Check(calls.Exists(c => c.Key == "merchant.zone" && c.Source == offered.Zone), "actual palm target is shared");
+            }
             Check(calls.Exists(c => c.Key == piece.Key && c.Source == piece.Content && c.Provenance == piece.Source
                 && c.CloneOf!(piece.Source) == piece.Content), "physical ritual keeps original native inscription provenance");
             Check(calls.Exists(c => c.Key == piece.BodyKey && c.Source == piece.Body), "ritual mirrors exact physical coin or rune body");

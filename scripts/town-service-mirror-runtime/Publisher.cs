@@ -15,7 +15,7 @@ namespace GloomhavenVR.WorldUI
     internal sealed class UIEnhanceCardPoint : MonoBehaviour { }
     internal sealed class UIEnhancementButtonHighlight : MonoBehaviour { }
     internal sealed class ItemCardUI : MonoBehaviour { internal int CardID; }
-    internal sealed class AbilityCardUI : MonoBehaviour { internal int CardID; }
+    internal sealed class AbilityCardUI : MonoBehaviour { internal int CardID; internal Transform fullAbilityCard = null!; }
     internal static class TownServiceAssets { internal static GameObject? Furniture; internal static GameObject? Prefab(string name) => Furniture; }
     internal sealed class TownServiceWorkspace { internal sealed class Prop { internal string Key = ""; internal Transform Root = null!; } }
     internal sealed class PublisherWindow : MonoBehaviour { }
@@ -31,6 +31,7 @@ namespace GloomhavenVR.WorldUI
         internal sealed class Entry
         {
             internal bool Current = true, Exposed = true;
+            internal TownServiceToken Sample = new();
             internal int ItemId;
             internal Transform CardRoot = null!;
             internal Transform? BodyRoot;
@@ -46,15 +47,22 @@ namespace GloomhavenVR.WorldUI
         internal List<Control> Controls = new();
         internal Transform NavigationRoot = null!;
         internal List<Entry> Entries = new();
-        internal List<TownServiceMerchantDrawer> Drawers = new();
+        internal List<TownServiceMerchantCounter> Extensions = new();
         internal List<TownServiceMerchantZone> Zones = new();
     }
     internal sealed partial class TownServiceMerchantDrawer { internal Transform Root = null!, HousingRoot = null!; }
+    internal sealed class TownServiceMerchantCounter { internal Transform Root = null!; }
+    internal sealed class TownServiceEnhancementHandoff {
+        internal Transform? Card, Face, Zone; internal AbilityCardUI? NativeSource;
+        internal Transform? CloneOf(Transform original) => NativeSource != null && original == NativeSource.fullAbilityCard ? Face : null;
+    }
     internal sealed class TownServiceMerchantZone { internal Transform Root = null!; }
     internal sealed class TownServiceRitual
     {
+        internal TownServiceEnhancementHandoff? Handoff;
         internal sealed class Piece
         {
+            internal TownServiceToken Token = new();
             internal string Key = "", BodyKey = "merchant.cardbody", DetailKey = "";
             internal Transform Source = null!, Content = null!, Body = null!;
             internal Transform? DetailSource, DetailContent;
@@ -74,7 +82,7 @@ namespace GloomhavenVR.WorldUI
     }
     internal sealed class TownServiceToken
     {
-        internal bool IsPhysical;
+        internal bool IsPhysical, IsMoving;
         internal Transform? HeldContent;
         internal Transform Source = null!;
         internal readonly Dictionary<Transform, Transform> HeldMap = new();
@@ -117,7 +125,7 @@ namespace GloomhavenVR.WorldUI
         private static readonly Dictionary<string, Published> Modules = new();
         private static readonly Dictionary<Transform, SourceEntry> Sources = new();
         private static readonly HashSet<Transform> Visited = new();
-        private static readonly List<Transform> Dynamic = new(), RemovedSources = new();
+        private static readonly List<Transform> Dynamic = new(), RemovedSources = new(), PriorityRoots = new();
         private static readonly List<string> Removed = new();
         private static uint _session;
         private static byte _service;
