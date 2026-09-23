@@ -47,7 +47,6 @@ internal static class TownServicePopulation
     internal static bool Prepare()
     {
         if (!MapRoomDriver.Active || !MapRoomDriver.TryGetParchmentFrame(out Vector3 center, out float scale)) return false;
-        TownServiceRoomClearance.Tick(WorldUIConfig.ImmersiveTownServices.Value || HasRemoteVisitors);
         if (_frame == null)
         {
             _frame = new GameObject("GloomhavenVR.TownService.SharedFrame"); _started = Time.unscaledTime;
@@ -203,7 +202,6 @@ internal static class TownServicePopulation
 
     internal static void Reset()
     {
-        TownServiceRoomClearance.Reset();
         Published = default; PublishedFaces = default; PublishedActivities = default; IsFaceAuthor = false;
         _faceClock = 0f; _lastRemoteFaceTime = float.NegativeInfinity;
         if (_frame == null && Residents.Count == 0) return;

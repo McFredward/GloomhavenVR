@@ -1302,7 +1302,10 @@ internal sealed class MapButtonRail
             // icon's scale animation, the highlight pulse, the badge — is untouched and still sampled
             // live off the game's own graphics, exactly as the user's ruling requires. See the class
             // doc for the hardware evidence and the rejected alternatives.
-            bool replaced = TownServiceVisitTarget.Replaces(c.Button.GuildmasterMode);
+            // A campaign city-event cap wraps UICityEncounterButton, not a
+            // GuildmasterModeButton. Build 547 dereferenced its absent Button every
+            // frame, aborting the remaining map tick after the rail was acquired.
+            bool replaced = c.Button != null && TownServiceVisitTarget.Replaces(c.Button.GuildmasterMode);
             if (c.Go.activeSelf == replaced) c.Go.SetActive(!replaced);
             bool live = !replaced && Pressable(c);
             if (live != c.Interactable)

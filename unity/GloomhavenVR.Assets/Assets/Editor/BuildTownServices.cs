@@ -371,7 +371,8 @@ namespace GloomhavenVR
                     var height = posed.Max(v => v.y) - bottom;
                     if (height < 1.6f || height > 2.1f) throw new InvalidDataException("Unexpected authored actor height: " + height);
                     actor.localPosition -= new Vector3(0, bottom, 0);
-                    SetPosedLodBounds(actor.GetComponent<LODGroup>());
+                    var group = actor.GetComponent<LODGroup>();
+                    if (group != null) SetPosedLodBounds(group);
                     PrefabUtility.SaveAsPrefabAsset(root, path);
                     Debug.Log("TOWN_GROUND " + npc + " correction=" + bottom);
                 }
@@ -557,6 +558,7 @@ namespace GloomhavenVR
                 try
                 {
                     var group = root.GetComponentInChildren<LODGroup>();
+                    if (group == null) { PreserveActorDetail(root); continue; }
                     SetPosedLodBounds(group);
                     if (group.size < 1f || group.size > 3f)
                         throw new InvalidDataException(name + ": unexpected posed LOD size " + group.size);
@@ -568,11 +570,50 @@ namespace GloomhavenVR
             AssetDatabase.SaveAssets();
         }
 
+        // Build 548: NPC topology is fixed at conversational range. Hard switches between
+        // independently simplified faces also changed vertex-light interpolation in VR.
+        // Keep source authoring LODs in the FBX, but never ship their renderers or a group.
+        static void PreserveActorDetail(GameObject root)
+        {
+            var actor = root.transform.Find("Actor");
+            if (actor == null) throw new InvalidDataException(root.name + ": missing Actor");
+            var skins = actor.GetComponentsInChildren<SkinnedMeshRenderer>(true);
+            var primary = skins.Single(r => r.name.StartsWith("LOD0_", StringComparison.Ordinal));
+            foreach (var group in actor.GetComponentsInChildren<LODGroup>(true))
+                UnityEngine.Object.DestroyImmediate(group);
+            foreach (var skin in skins)
+                if (skin != primary) UnityEngine.Object.DestroyImmediate(skin.gameObject);
+            primary.enabled = true;
+            foreach (var eye in actor.GetComponentsInChildren<MeshRenderer>(true)) eye.enabled = true;
+        }
+
+        public static void RefreshFixedDetail()
+        {
+            foreach (var npc in Npcs)
+            {
+                var path = Root + "/Prefabs/Town" + Char.ToUpperInvariant(npc[0]) + npc.Substring(1) + ".prefab";
+                var root = PrefabUtility.LoadPrefabContents(path);
+                try { PreserveActorDetail(root); PrefabUtility.SaveAsPrefabAsset(root, path); }
+                finally { PrefabUtility.UnloadPrefabContents(root); }
+            }
+            var contractPath = Root + "/town-facial-rig-contract.json";
+            if (File.Exists(contractPath))
+            {
+                var contract = JsonUtility.FromJson<FacialContract>(File.ReadAllText(contractPath));
+                foreach (var resident in contract.residents)
+                    resident.lods = resident.lods.Where(l => l.renderer.StartsWith("LOD0_", StringComparison.Ordinal)).ToArray();
+                File.WriteAllText(contractPath, JsonUtility.ToJson(contract, true));
+            }
+            AssetDatabase.Refresh(ImportAssetOptions.ForceSynchronousImport);
+            AssetDatabase.SaveAssets();
+        }
+
         // Explicit standalone bundle build: keep the existing production bundle byte-identical.
         public static void BuildBundle()
         {
             try
             {
+                RefreshFixedDetail();
                 // Prefab dependencies include the referenced meshes, clips, materials and textures.
                 // Do not expose the FBX import roots (duplicate actors with default materials).
                 var assets = Directory.GetFiles(Root + "/Prefabs", "*.prefab", SearchOption.AllDirectories)

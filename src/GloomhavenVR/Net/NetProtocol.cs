@@ -528,7 +528,14 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 547;
+    public const ushort ModBuild = 548;
+
+    // ModBuild 548 — restore authored room proportions and compact immersive town services.
+    // Hardware rejects build 547's 3.5x horizontal room expansion and oversized counter.
+    // Keep original cellar/forest geometry intact; fit furniture and station positions to it.
+    // Campaign city-event caps have no GuildmasterModeButton: native presentation sampling
+    // must guard that optional field rather than throw for the rest of every map tick.
+    // Further NPC, merchant and motion evidence: .planning/research/TOWN-SERVICES-548.md.
 
     // ModBuild 547 — resume immersive town services on the released 1.0.7 foundation.
     // Restore feature-only resident, interaction and asset systems alongside map hints,
