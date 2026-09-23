@@ -36,20 +36,30 @@ def repair():
             centre = apex - radius
             key = obj.data.shape_keys.key_blocks['Blink' + side]
             basis = obj.data.shape_keys.key_blocks['Basis']
-            changed, maximum = 0, 0.
+            changed, maximum, amplitude = 0, 0., 0.
+            candidates = []
             for index, point in enumerate(key.data):
                 if (point.co - basis.data[index].co).length < .00005:
                     continue
                 world = obj.matrix_world @ point.co
                 local = optical @ world
                 radial = local.x * local.x + local.y * local.y
-                if radial >= radius * radius or not .006 < local.z < .030:
+                if radial >= .012 * .012 or not .006 < local.z < .030:
                     continue
-                envelope = centre + math.sqrt(radius * radius - radial) + .0007
-                if local.z >= envelope - 1e-7:
+                envelope = centre + math.sqrt(max(0, radius * radius - radial)) + .0007
+                weight = (1 - radial / (.012 * .012)) ** 2
+                candidates.append((point, local, weight))
+                if radial < radius * radius and local.z < envelope - 1e-7:
+                    amplitude = max(amplitude, (envelope - local.z) / weight)
+            # A common smooth displacement field retains separation of inner
+            # and outer lid layers. Clamping each point onto one envelope
+            # collapsed those layers and caused visible coplanar stippling.
+            assert amplitude < .006, (obj.name, side, 'Unexpected corneal clearance')
+            for point, local, weight in candidates:
+                correction = amplitude * weight
+                if correction < 1e-7:
                     continue
-                correction = envelope - local.z
-                local.z = envelope
+                local.z += correction
                 point.co = obj.matrix_world.inverted() @ eye.matrix_world @ local
                 changed += 1
                 maximum = max(maximum, correction)

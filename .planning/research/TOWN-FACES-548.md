@@ -88,8 +88,10 @@ not open geometric seams. This does not establish final headset appearance.
 
 The closed-lid gate exposed an additional inherited enchantress defect: the
 corneal apex penetrated the fully closed lid. Offline clearance fitting changes
-only BlinkLeft/BlinkRight vertices in the physical corneal envelope (60 vertices
-per full-detail lid, maximum displacement 1.719 mm). Neutral geometry, all other
+only BlinkLeft/BlinkRight vertices around the physical cornea (270 vertices
+per full-detail lid, maximum displacement 1.864 mm). A smooth shared displacement
+field preserves separation between inner and outer lid layers; projecting both
+layers directly onto the same envelope would produce coplanar stippling. Neutral geometry, all other
 shape keys and every skin weight are protected by a before/after binary digest.
 The standard assembler invokes the same repair for future enchantress rebuilds;
 a second repair changes zero vertices. Full optical objects and protected leg
