@@ -33,7 +33,7 @@ internal static class TownServiceMerchantLayout
     {
         int pair = ordinal / 2;
         float side = ordinal % 2 == 0 ? -1f : 1f;
-        position = new Vector3(side * (2.60f + .25f * pair), 0f, -.25f + pair * 1.40f);
+        position = new Vector3(side * (2.85f + .25f * pair), 0f, -.25f + pair * 1.40f);
         rotation = Quaternion.Euler(0f, -side * 10f, 0f);
     }
 }
