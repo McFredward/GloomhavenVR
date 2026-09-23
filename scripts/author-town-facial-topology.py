@@ -56,9 +56,26 @@ def portrait_coordinates(raw,profile):
     return np.column_stack((px,py))
 
 
+def facial_texture_coordinates(raw, name):
+    """Register nose albedo to the actual alar loops, independently of head fit.
+
+    The former whole-face projection put the photographed nostrils above the
+    anatomical recesses. Local, smooth UV registration retains the source image
+    while moving its nose landmarks onto the mesh rather than painting a second
+    pair of holes on otherwise unbroken skin.
+    """
+    pixels = portrait_coordinates(raw, PROFILES[name])
+    x, y, depth = raw.T
+    nose = np.exp(-((x / .30) ** 4 + ((y - 6.86) / .24) ** 4))
+    nose *= np.clip((depth - 1.28) / .16, 0, 1)
+    pixels[:, 1] -= {'merchant': 3., 'priestess': 18., 'enchantress': 4.}[name] * nose
+    pixels[:, 0] -= x * PROFILES[name]['pixelsPerX'] * {'merchant': .16, 'priestess': .34, 'enchantress': .42}[name] * nose
+    return pixels
+
+
 def profile_x_scale(name):
     p=PROFILES[name]
-    return (p['hi'][0]-p['lo'][0])*p['pixelsPerX']/(p['bounds'][2]-p['bounds'][0])*{'merchant':.86*1.04,'priestess':1.0,'enchantress':1.22}[name]
+    return (p['hi'][0]-p['lo'][0])*p['pixelsPerX']/(p['bounds'][2]-p['bounds'][0])*{'merchant':.86*1.04*.90,'priestess':1.0,'enchantress':1.22}[name]
 
 
 def eye_height(name):
@@ -90,14 +107,16 @@ def fit(raw,name,orbital=True):
         # them identically and elongated the whole mandible. Keep eye height but
         # restore the original merchant's shorter, broader lower face and scalp.
         world_z=np.interp(world_z,[1.30,1.42,1.475,1.565,1.636,1.750],[1.30,1.42,1.475,1.565,1.636,1.732])
-        broad=np.interp(raw[:,1],[5.8,6.16,6.7,7.284,8.49],[1,1.16,1.10,1.04,1.02]);x*=broad
+        # Hardware 545 showed a horizontally stretched merchant. Fit the cheek
+        # contour rather than compounding mouth, jaw and beard widening factors.
+        broad=np.interp(raw[:,1],[5.8,6.16,6.7,7.284,8.49],[1,1.02,.96,1.04,1.02]);x*=broad
     if name=='merchant':
         # The original trader has a broad, projecting nose rather than the
         # template's narrow bridge. Fit its volume without moving lip landmarks.
         nose=np.exp(-((raw[:,0]/.22)**2+((raw[:,1]-6.91)/.22)**2))*np.clip((raw[:,2]-1.35)/.15,0,1)
         x*=1+.30*nose;y-=.005*nose
         mouth=np.exp(-((raw[:,1]-6.66)/.22)**2)*np.clip((raw[:,2]-1.15)/.20,0,1)
-        x*=1+.15*mouth
+        x*=1+.025*mouth
         corners=np.exp(-((np.abs(raw[:,0])-.34)/.14)**2)*mouth
         world_z+=.004*corners
     # Physical interocular distance comes from the source character, not the
@@ -115,11 +134,12 @@ def fit(raw,name,orbital=True):
         x=x*(1-dome)+.098*section*np.sin(angle)*dome
         y=y*(1-dome)+(-.002+.112*section*np.cos(angle))*dome
         beard=np.exp(-((raw[:,1]-6.22)/.36)**2)*np.clip((raw[:,2]-.50)/.30,0,1)
-        x*=1+.32*beard;y-=.007*beard
+        x*=1+.12*beard;y-=.007*beard
         tip=np.exp(-((raw[:,1]-6.15)/.23)**2)*np.clip((raw[:,2]-.45)/.40,0,1)
         world_z-=.012*tip
         brow=np.exp(-((raw[:,1]-7.51)/.13)**2)*np.clip((raw[:,2]-1.03)/.20,0,1)
         world_z+=.003*brow*np.clip((np.abs(raw[:,0])-.15)/.25,-1,1)
+        x*=.90
     # A volumetric orbital surface follows the actual spherical eye. The previous
     # nonuniform portrait-height mapping flattened the globe vertically and left
     # a sharp elliptical cutout instead of an upper/lower lid against a sphere.
@@ -157,17 +177,14 @@ def fit(raw,name,orbital=True):
         # Concealed overlap beneath the original blouse: the visible neck and
         # chest silhouette stay fixed while oblique views cannot see inside it.
         world_z-=.020*np.clip((1.400-world_z)/.030,0,1)
-    if name=='priestess':
-        oval=(raw[:,0]/.80)**2+((raw[:,1]-7.01)/.86)**2
-        coif=np.maximum.reduce((np.clip((oval-.90)/.08,0,1),np.clip((.80-raw[:,2])/.16,0,1),np.clip((raw[:,1]-7.65)/.07,0,1),np.clip((np.abs(raw[:,0])-.55)/.10,0,1)*np.clip((1.35-raw[:,2])/.15,0,1)))
-        coif*=np.clip((raw[:,1]-6.50)/.20,0,1)
-        angle=np.arctan2(x,y-.010)
-        side=np.clip((np.abs(raw[:,0])-.60)/.16,0,1)*np.clip((world_z-1.57)/.035,0,1)*coif
-        section=np.sqrt(np.maximum(.03,1-((world_z-1.600)/.15)**2))
-        x=x*(1-side)+(.092*section*np.sin(angle))*side
-        y=y*(1-side)+(.010+.108*section*np.cos(angle))*side
-        fold=(.0014+(.0010+.003*np.clip((1.58-world_z)/.13,0,1))*np.sin(angle*8+world_z*15))*coif
-        x+=np.sin(angle)*fold;y+=np.cos(angle)*fold
+        # Fine swept locks are geometry on the complete scalp, not a grey
+        # cloth mask painted over forehead and ears. They remain under the
+        # original hood and share the anatomical head's deformation weights.
+        hair=np.maximum(np.clip((raw[:,1]-7.85)/.24,0,1),
+                        np.clip((.72-raw[:,2])/.22,0,1)*np.clip((raw[:,1]-6.9)/.5,0,1))
+        angle=np.arctan2(x,y-.01)
+        relief=.00065*np.sin(angle*54+world_z*35)*hair
+        x+=np.sin(angle)*relief;y+=np.cos(angle)*relief
     return np.column_stack((x,y,world_z))
 
 
@@ -187,7 +204,7 @@ def head_mesh(raw,faces,groups,face_uv,name,refs,data):
     mesh=bpy.data.meshes.new('FacialLoops');mesh.from_pydata(fit(raw[ids],name).tolist(),[],[[remap[i]for i in f]for f in chosen]);mesh.update()
     obj=bpy.data.objects.new('Face',mesh);bpy.context.collection.objects.link(obj)
     for p in mesh.polygons:p.use_smooth=True
-    pixels=portrait_coordinates(raw[ids],PROFILES[name]);profile=PROFILES[name]
+    pixels=facial_texture_coordinates(raw[ids],name);profile=PROFILES[name]
     bounds_side={'merchant':(66,12,633,699),'priestess':(111,25,610,700),'enchantress':(34,6,638,717)}[name]
     bounds_back={'merchant':(116,13,607,679),'priestess':(156,29,561,692),'enchantress':(77,13,649,710)}[name]
     eye_y={'merchant':260,'priestess':294,'enchantress':313}[name]
@@ -216,9 +233,11 @@ def head_mesh(raw,faces,groups,face_uv,name,refs,data):
             else:
                 x0,y0,x1,y1=bounds_back;px=x0+(.95-x)/1.90*(x1-x0)
                 py=y0+(py-profile['bounds'][1])/(profile['bounds'][3]-profile['bounds'][1])*(y1-y0)
-            if label!='front' or (name=='merchant' and py<180):
-                py=float(np.clip(py,35,675));left,right=skin_rows[label][int(py)]
-                px=float(np.clip(px,left,right))
+            # The actual head contour narrows below the ears. The original
+            # frontal projection sampled the grey studio background there,
+            # producing a conspicuous untextured wedge on the side of the jaw.
+            py=float(np.clip(py,35,675));left,right=skin_rows[label][int(py)]
+            px=float(np.clip(px,left,right))
             uv.data[loop.index].uv=(px/718,1-py/718)
     lid_uv=mesh.uv_layers.new(name='LidSkin')
     lid_weight=mesh.color_attributes.new(name='LidWeight',type='FLOAT_COLOR',domain='CORNER')
@@ -262,16 +281,6 @@ def head_mesh(raw,faces,groups,face_uv,name,refs,data):
         lips=math.exp(-(x/.37)**8-((y-6.61)/max(.035,.092-.040*(abs(x)/.37)**2))**8)*max(0,min(1,(z-1.36)/.12))
         hair=max(0,min(1,(y-7.66)/.10),min(1,(abs(x)-.61)/.14)*max(0,min(1,(y-6.65)/.25)),min(1,(.65-z)/.15)*max(0,min(1,(y-6.5)/.25)))
         makeup.data[loop.index].color=(orbital*.80 if name=='enchantress' else 0,lips*.52 if name=='enchantress' else 0,hair if name=='enchantress' else 0,1)
-    coif=mesh.color_attributes.new(name='CoifCloth',type='FLOAT_COLOR',domain='CORNER')
-    mesh.uv_layers.new(name='CoifUV')
-    for loop in mesh.loops:
-        x,y,z=raw[ids[loop.vertex_index]]
-        oval=(x/.80)**2+((y-7.01)/.86)**2
-        value=max(0,min(1,(oval-.90)/.08)) if name=='priestess' else 0
-        value=max(value,max(0,min(1,(.80-z)/.16)),max(0,min(1,(y-7.65)/.07)),max(0,min(1,(abs(x)-.55)/.10))*max(0,min(1,(1.35-z)/.15))) if name=='priestess' else 0
-        value*=max(0,min(1,(y-6.50)/.20))
-        mesh.color_attributes['CoifCloth'].data[loop.index].color=(value,value,value,1)
-        mesh.uv_layers['CoifUV'].data[loop.index].uv=(.125+x*.018,.628+(y-6.3)*.007)
     weights=mesh.color_attributes.new(name='ProjectionWeights' ,type='FLOAT_COLOR',domain='CORNER')
     for loop in mesh.loops:
         x,y,z=raw[ids[loop.vertex_index]];angle=abs(math.atan2(x,z-.65))
@@ -300,10 +309,7 @@ def head_mesh(raw,faces,groups,face_uv,name,refs,data):
     # geometry and the portrait's facial landmarks remain unchanged.
     neck_tint=nodes.new('ShaderNodeMixRGB');neck_tint.blend_type='MULTIPLY';neck_tint.inputs[0].default_value=1;links.new(neck.outputs[0],neck_tint.inputs[1]);neck_tint.inputs[2].default_value=(.58,.85,1.50,1) if name=='enchantress' else (1,1,1,1)
     links.new(neck_tint.outputs[0],blend.inputs[2])
-    cloth=nodes.new('ShaderNodeTexImage');cloth.image=bpy.data.images.load(str(Path(__file__).resolve().parents[1]/'unity/GloomhavenVR.Assets/Assets/Bundle/TownServices/Actors/priestess/Textures/body_material_00_basecolor.png'));cloth.extension='EXTEND'
-    cloth_uv=nodes.new('ShaderNodeUVMap');cloth_uv.uv_map='CoifUV';links.new(cloth_uv.outputs[0],cloth.inputs[0])
-    cloth_weight=nodes.new('ShaderNodeVertexColor');cloth_weight.layer_name='CoifCloth';dressed=nodes.new('ShaderNodeMixRGB');links.new(cloth_weight.outputs[0],dressed.inputs[0]);links.new(blend.outputs[0],dressed.inputs[1]);links.new(cloth.outputs[0],dressed.inputs[2])
-    links.new(dressed.outputs[0],nodes.get('Principled BSDF').inputs['Base Color']);mesh.materials.append(m)
+    links.new(blend.outputs[0],nodes.get('Principled BSDF').inputs['Base Color']);mesh.materials.append(m)
     mesh.materials.append(material('TownOralCavity',(.045,.008,.012),.50))
     for p,source in zip(mesh.polygons,chosen_indices):
         if max(t[1]for t in face_uv[source])<.137 and np.mean(raw[faces[source],1])<7.05:p.material_index=1
