@@ -162,7 +162,11 @@ internal sealed class TownServiceToken : IGrabbable, ITriggerOnlyGrabbable, IGra
         if (thumb.IsValid && index.IsValid)
             pinch = hand.Rig.GrabAnchor.InverseTransformPoint((thumb.Tip.position + index.Tip.position) * .5f);
         _source.GetWorldCorners(_corners);
-        float heldHeight = IsPhysical ? Vector3.Distance(_corners[0], _corners[1]) : .24f;
+        // ReadingPose consumes anchor-local metres. World corners already include the
+        // tabletop scale; using their world distance scales the grip offset a second time.
+        float heldHeight = IsPhysical ? Vector3.Distance(
+            hand.Rig.GrabAnchor.InverseTransformPoint(_corners[0]),
+            hand.Rig.GrabAnchor.InverseTransformPoint(_corners[1])) : .24f;
         CardGripPose.ReadingPose(CardsConfig.HeldFaceBias.Value, side, pinch, heldHeight, .15f,
             out _heldPosition, out _heldRotation);
         _shape.enabled = false;
