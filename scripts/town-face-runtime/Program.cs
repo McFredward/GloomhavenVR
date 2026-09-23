@@ -12,13 +12,13 @@ public static class InteractionProgram
     private static void Near(float actual,float expected,string message)=>Check(Mathf.Abs(actual-expected)<.001f,message+" actual="+actual+" expected="+expected);
     private static Transform Child(Transform parent,string name,Vector3 position)
     {var t=new GameObject(name).transform;t.SetParent(parent,false);t.localPosition=position;return t;}
-    private static Transform Rig(out Transform head,out Transform left,out Transform right,out SkinnedMeshRenderer[] skins)
+    private static Transform Rig(out Transform head,out Transform left,out Transform right,out SkinnedMeshRenderer[] skins,int rendererCount=3)
     {
         var root=new GameObject("Station").transform;
         head=Child(root,"Head",new Vector3(0,1.6f,.65f));
         left=Child(head,"EyeLeft",new Vector3(-.032f,0,.07f));right=Child(head,"EyeRight",new Vector3(.032f,0,.07f));
-        skins=new SkinnedMeshRenderer[3];
-        for(int n=0;n<3;n++)
+        skins=new SkinnedMeshRenderer[rendererCount];
+        for(int n=0;n<rendererCount;n++)
         {
             var mesh=new Mesh();mesh.vertices=new[]{Vector3.zero,Vector3.right,Vector3.up};mesh.triangles=new[]{0,1,2};
             foreach(string shape in TownServiceFaceRig.ShapeNames)mesh.AddBlendShapeFrame(shape,100,new[]{Vector3.forward,Vector3.forward,Vector3.forward},null,null);
@@ -35,6 +35,13 @@ public static class InteractionProgram
             Check(bundleArgument>=0&&bundleArgument+1<arguments.Length&&outputArgument>=0&&outputArgument+1<arguments.Length,"actual bundle evidence arguments are complete");
             return ActualPrefabs.Run(arguments[bundleArgument+1],arguments[outputArgument+1]);
         }
+        var single=Rig(out _,out _,out _,out var singleSkins,1);
+        Check(new TownServiceFaceRig(single).Complete,"one complete fixed-detail skin satisfies anatomical contract");
+        singleSkins[0].sharedMesh.ClearBlendShapes();
+        Check(!new TownServiceFaceRig(single).Complete,"optical pivots without any facial skin are incomplete");
+        singleSkins[0].sharedMesh.AddBlendShapeFrame("BlinkLeft",100,new[]{Vector3.forward,Vector3.forward,Vector3.forward},null,null);
+        Check(!new TownServiceFaceRig(single).Complete,"single skin missing core expression channels is incomplete");
+        UnityEngine.Object.DestroyImmediate(single.gameObject);
         FaceClock.Now=0;RemoteTownFaces.Reset();NetAvatarDriver.Heads.Clear();TownServiceMirror.RemoteSessions.Clear();
         var root=Rig(out var head,out var left,out var right,out var skins);
         var rig=new TownServiceFaceRig(root);Check(rig.Ready,"anatomical pivots discovered");

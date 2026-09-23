@@ -83,6 +83,7 @@ def main():
     if not args.no_negative_controls:
         if args.bundle_only:
             variants += [
+                ("asset-lod-count", "TownServiceFaceRig.cs", "facialRenderers > 0", "facialRenderers >= 3", "production binder accepts final imported contract"),
                 ("asset-optical-frame", "TownServiceFaceRig.cs", "Quaternion frame = OpticalRotation;", "Quaternion frame = _root.rotation;", "actual moving head and eyes converge on elevated side target"),
                 ("asset-head-reset", "TownServiceFaceRig.cs", "_head.localRotation = _sampledHead", "_head.localRotation = _head.localRotation", "reset restores sampled imported Head before body clip"),
                 ("asset-blink-binding", "TownServiceFaceRig.cs", "binding.Shape == shape && binding.Renderer != null", "binding.Shape == shape && shape != 0 && binding.Renderer != null", "runtime weight reaches"),

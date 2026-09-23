@@ -64,7 +64,9 @@ internal sealed class TownServiceFaceRig
                 else if (facial && shape < 7) complete = false;
             }
         }
-        Complete = Ready && complete && facialRenderers >= 3;
+        // Completeness describes the available anatomy, not the number of LODs.
+        // Fixed-detail assets have one skin; older bundles may retain several.
+        Complete = Ready && complete && facialRenderers > 0;
     }
     internal void Apply(in TownServiceFacePose pose)
     {
