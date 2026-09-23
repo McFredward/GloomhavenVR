@@ -1,6 +1,6 @@
 # Planning index
 
-Updated 2026-09-22; dev 1.0.7 / build 545 hardware candidate, physical town services and portrait identity. This directory holds internal
+Updated 2026-09-24; feature/immersive-town-services build 548 integration in progress. Dev remains the separate hotfix branch. This directory holds internal
 engineering evidence, historical decisions and current status; it is not the player manual.
 
 ## Current entry points
@@ -11,7 +11,8 @@ engineering evidence, historical decisions and current status; it is not the pla
 | [../CLAUDE.md](../CLAUDE.md) | Technical contracts retained across agent tools |
 | [TEST-PARALLELISM.md](TEST-PARALLELISM.md) | Parallel local/CI execution, coverage and measured timing |
 | [STATE.md](STATE.md) | Current build, validation and outstanding hardware checks |
-| [research/TOWN-SERVICES-545.md](research/TOWN-SERVICES-545.md) | Current physical interactions, portrait corrections, native decoration and integration evidence |
+| [research/TOWN-SERVICES-548.md](research/TOWN-SERVICES-548.md) | Current room restoration, compact merchant, fixed-detail actors and motion integration |
+| [research/TOWN-SERVICES-545.md](research/TOWN-SERVICES-545.md) | Historical physical interaction and portrait revision; superseded by subsequent hardware reports |
 | [TOWN-545-MERCHANT.md](TOWN-545-MERCHANT.md) | Complete physical catalog, drawer lifecycle and native transaction ownership |
 | [research/TOWN-545-FACES.md](research/TOWN-545-FACES.md) | Final portrait fitting, anatomical hands, optical rendering and asset provenance |
 | [research/TOWN-545-STANDS.md](research/TOWN-545-STANDS.md) | Native decoration, practical lights and resident activities |

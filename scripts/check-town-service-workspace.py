@@ -29,12 +29,12 @@ def sources(root):
 
 def mutations():
     return [
-        ("ground-support", "TownServiceGrounding.cs", "support.Apply(furnitureBottom);", "support.Restore();", "return-table support reaches its own sampled terrain"),
+        ("ground-support", "TownServiceGrounding.cs", "support.Apply(furnitureBottom);", "support.Restore();", "workspace support bottoms cannot float over sloped ground"),
         ("reading-fade", "TownServiceWorkspace.cs", "float layoutYaw = frame.eulerAngles.y;", "float layoutYaw = seat.YawDegrees;", "reading-side changes cannot restart unchanged workspace fade"),
-        ("environment-divergence", "TownServiceLayout.cs", "radius = ResidentRadius;", "radius = 4.8f + (environment == Environment.Forest ? .15f : 0f);", "mixed environment peers resolve identical station poses"),
+        ("environment-divergence", "TownServiceLayout.cs", "radius = service == 2 ? 2.2f : ResidentRadius;", "radius = (service == 2 ? 2.2f : ResidentRadius) + (environment == Environment.Forest ? .15f : 0f);", "mixed environment peers resolve identical station poses"),
         ("parchment-frame", "TownServiceLayout.cs", "GloomhavenVR.Rig.VRRigDriver.YawOnly(parchment.rotation)", "Quaternion.identity", "default MR shares original parchment frame with custom rooms"),
         ("no-relocation-revision", "TownServiceWorkspace.cs", "checked { RelocationRevision++; }", "", "only invisible pose change advances relocation revision"),
-        ("counter-ring", "TownServiceLayout.cs", "radius = 5.8f;", "radius = 1.5f;", "open counter stays outside complete native map table diagonal"),
+        ("counter-ring", "TownServiceLayout.cs", "radius = visitor == 3 ? 2.7f : 2.55f;", "radius = 1.5f;", "open counter stays outside complete native map table diagonal"),
         ("room-frame", "TownServiceLayout.cs", "Quaternion.Euler(0f, room.eulerAngles.y, 0f)", "Quaternion.identity", "room frame matches canonical parchment yaw"),
         ("roster", "TownServiceWorkspace.cs", "player.Id > 0", "player.Id == local", "extra counter clears all three actual resident envelopes"),
         ("visible-teleport", "TownServiceWorkspace.cs", "RelocationVisibility = 0f; ApplyTarget();", "RelocationVisibility = 1f; ApplyTarget();", "pose change has a fully invisible published frame"),

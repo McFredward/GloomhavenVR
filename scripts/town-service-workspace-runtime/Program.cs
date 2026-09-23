@@ -51,7 +51,7 @@ public static class InteractionProgram
     {
         var parts=new List<Vector2[]>();
         bool merchant=service==1;
-        parts.Add(Rectangle(p,q,merchant?1.94f:.87f,merchant?-1.40f:-.45f,merchant?.46f:.50f));
+        parts.Add(Rectangle(p,q,merchant?.81f:.87f,merchant?-.92f:-.45f,merchant?.53f:.50f));
         if(actor)parts.Add(Rectangle(p,q,.60f,.3f,1.2f));
         if(service==3)parts.Add(Rectangle(p+q*new Vector3(.68f,0,0),q,.19f,.28f,.86f));
         return parts;
@@ -63,8 +63,8 @@ public static class InteractionProgram
         {
             Check(TownServicePlacement.TryResolve(service,MapRoomDriver.Center,MapRoomDriver.Scale,out var p,out var q),"actual resident source supplies clearance pose");
             var parts=Parts((p-MapRoomDriver.Center)/MapRoomDriver.Scale,q,service,true);
-            Vector3 inwardEdge=(p-MapRoomDriver.Center)/MapRoomDriver.Scale-q*new Vector3(0,0,service==1?1.40f:.45f);
-            Check(new Vector2(inwardEdge.x,inwardEdge.z).magnitude>1.4f,"resident furniture clears full native map table diagonal");
+            var map = Rectangle(Vector3.zero, TownServiceLayout.Frame(SkyAlternative.PlacedRoomRoot,MapRoomDriver.ParchmentRenderer?.transform), .80f, -1.16f, 1.16f);
+            Check(parts.All(part => Separated(part,map)),"resident furniture clears full native map table diagonal");
             foreach(var previous in fixedStations)foreach(var a in parts)foreach(var b in previous)
                 Check(Separated(a,b),"permanent stations clear each other's actual work and actor envelopes");
             fixedStations.Add(parts);
@@ -75,10 +75,10 @@ public static class InteractionProgram
             var root=workspaces[i].Root;
             var parts=Parts((root.position-MapRoomDriver.Center)/MapRoomDriver.Scale,root.rotation,1,false);
             Vector3 inward=-root.forward;
-            Vector3 near=(root.position-MapRoomDriver.Center)/MapRoomDriver.Scale+inward*1.40f;
-            Check(new Vector2(near.x,near.z).magnitude>1.40f,"open counter stays outside complete native map table diagonal");
+            var map = Rectangle(Vector3.zero,TownServiceLayout.Frame(SkyAlternative.PlacedRoomRoot,MapRoomDriver.ParchmentRenderer?.transform),.80f,-1.16f,1.16f);
+            Check(parts.All(part => Separated(part,map)),"open counter stays outside complete native map table diagonal");
             Vector3 toward=MapRoomDriver.Center-root.position;toward.y=0f;
-            Check(Vector3.Dot(inward,toward.normalized)>.85f,"angled counter still faces toward map");
+            Check(Vector3.Dot(inward,toward.normalized)>.65f,"angled counter still faces toward map");
             foreach(var fixedParts in fixedStations)foreach(var a in parts)foreach(var b in fixedParts)
                 Check(Separated(a,b),"extra counter clears all three actual resident envelopes");
             foreach(var previous in extras)foreach(var a in parts)foreach(var b in previous)

@@ -64,6 +64,7 @@ validation_sources = [root / path for path in (
     'scripts/author-town-npc-hands.py', 'scripts/town_npc_hand_integration.py', 'scripts/town_npc_neck_inset.py',
     'scripts/author-town-furniture.py',
     'src/GloomhavenVR/WorldUI/TownServices/TownServiceMerchantCounter.cs',
+    'src/GloomhavenVR/WorldUI/TownServices/TownServiceMerchantDrawer.cs',
     'src/GloomhavenVR/WorldUI/TownServices/TownServiceCatalog.cs',
     'scripts/town_npc_necklines.py', 'scripts/town_npc_garment_weights.py', 'scripts/town_npc_cloth_edges.py',
     'unity/GloomhavenVR.Assets/Assets/Editor/BuildTownServices.cs')]
