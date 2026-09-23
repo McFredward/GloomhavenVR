@@ -155,6 +155,26 @@ public static class InteractionProgram
         foreach (var texture in Textures) if (texture != null) UnityEngine.Object.DestroyImmediate(texture);
         Textures.Clear();
         WorldUIConfig.ImmersiveTownServices.Value = true;
+        TownServiceEnhancementHandoff.Enabled = true;
+    }
+
+    private static void MapHandFallback()
+    {
+        var session = Open(3);
+        Check(TownServicePresentation.Active, "enabled map hand uses physical enhancement");
+        TownServiceEnhancementHandoff.Enabled = false;
+        Check(!TownServicePresentation.Active, "map hand disable immediately fences physical enhancement");
+        TownServicePresentation.Tick();
+        Check(!TownServicePresentation.Active && CanvasConversion.ActivePanels.Count == 1,
+            "map hand disable restores one usable native enhancement window");
+        foreach (var pair in session.NativeParents) Check(pair.Key.parent == pair.Value,
+            "map hand disable restores original enhancement widget parents");
+        Clean(); TownServiceEnhancementHandoff.Enabled = false; session = Open(1);
+        Check(TownServicePresentation.Active, "map hand preference cannot disable physical merchant");
+        Clean(); TownServiceEnhancementHandoff.Enabled = false; session = Open(3);
+        Check(!TownServicePresentation.Active && CanvasConversion.ActivePanels.Count == 1,
+            "manual enhancement visit without map hand keeps complete native window");
+        Clean();
     }
 
     private static void IdentityChanges()
@@ -611,7 +631,7 @@ public static class InteractionProgram
     public static int Run()
     {
         _assertions = 0;
-        try { PhysicalCommitCases(); PhysicalMerchantSamples(); WindowMaskLifecycle(); ConfirmationFadeLifecycle(); IdentityChanges(); HoverAndRelease(); CancellationCompatibility(); Handoff(); RollbackAndContinuation(); OptionalPresentation(); ManualTrayPlacement(); return _assertions; }
+        try { PhysicalCommitCases(); PhysicalMerchantSamples(); WindowMaskLifecycle(); ConfirmationFadeLifecycle(); IdentityChanges(); HoverAndRelease(); CancellationCompatibility(); Handoff(); RollbackAndContinuation(); OptionalPresentation(); ManualTrayPlacement(); MapHandFallback(); return _assertions; }
         finally { Clean(); }
     }
 }

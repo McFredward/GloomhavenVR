@@ -306,7 +306,10 @@ public static class ValidateTownAssets
         var nodes = furniture.GetComponentsInChildren<Transform>(true);
         Check(!nodes.Any(n => n.name.IndexOf("drawer", StringComparison.OrdinalIgnoreCase) >= 0), npc + " has no obsolete drawer banks");
         var meshes = furniture.GetComponentsInChildren<MeshFilter>(true).Where(f => f.gameObject.activeInHierarchy).ToArray();
-        Check(meshes.Length >= 2 && meshes.Length <= 6, npc + " detailed furniture is grouped by material rather than one renderer per ornament");
+        var fixedMeshes = meshes.Where(mesh => !mesh.name.StartsWith("GroundSupport", StringComparison.Ordinal)).ToArray();
+        Check(fixedMeshes.Length >= 2 && fixedMeshes.Length <= 6, npc + " fixed furniture is grouped by material rather than one renderer per ornament");
+        Check(meshes.Length > fixedMeshes.Length && meshes.Length - fixedMeshes.Length <= 20,
+            npc + " only bounded physical floor supports retain independent grounding transforms");
         Check(meshes.Sum(f => f.sharedMesh.triangles.Length / 3) > 1000, npc + " curved joinery and relief are actual geometry");
         Check(nodes.All(n => n.GetComponents<Component>().All(c => c == null || c.GetType().Name != "Canvas")), npc + " furniture contains no baked gameplay UI");
         foreach (var renderer in furniture.GetComponentsInChildren<MeshRenderer>(true))
