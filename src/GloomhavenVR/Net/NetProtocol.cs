@@ -536,7 +536,16 @@ internal static class NetProtocol
     // Keep original cellar/forest geometry intact; fit furniture and station positions to it.
     // Campaign city-event caps have no GuildmasterModeButton: native presentation sampling
     // must guard that optional field rather than throw for the rest of every map tick.
-    // Further NPC, merchant and motion evidence: .planning/research/TOWN-SERVICES-548.md.
+    // High-detail-only actors remove geometry/vertex-light LOD transitions; original-portrait
+    // merchant fitting, real iris/lid probes and separated closed corneal clearance repair faces.
+    // Offline Kimodo occupation clips retain native coin/palm contact and planted feet. Playback
+    // uses the existing shared work clock, with no inference or network service during play.
+    // A compact travelling cabinet uses physical revolving trays instead of inventory-wide tables.
+    // Additive TLV85 stages complete original pages and authors unwrapped rack/crank turns,
+    // retaining causal held-card precedence, original opacity, late joins and bounded recovery.
+    // Existing records and protocol version3 are unchanged. Original coin material resolves via
+    // its registered native subasset instead of the missing GUID used by the previous prefab.
+    // Evidence and hardware limits: .planning/research/TOWN-SERVICES-548.md.
 
     // ModBuild 547 — resume immersive town services on the released 1.0.7 foundation.
     // Restore feature-only resident, interaction and asset systems alongside map hints,

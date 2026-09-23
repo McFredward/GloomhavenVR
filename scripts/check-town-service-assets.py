@@ -61,6 +61,8 @@ control = (root / 'scripts/town-service-asset-runtime/TownNpc539.shader').read_b
 validation_sources = [root / path for path in (
     'scripts/check-town-service-assets.py', 'scripts/town-service-asset-runtime/ValidateTownAssets.cs',
     'scripts/author-town-facial-topology.py', 'scripts/assemble-town-facial-rig.py',
+    'scripts/author-town-eyelid-clearance.py', 'scripts/town_npc_eyelid_clearance.py',
+    'scripts/author-town-leg-weights.py',
     'scripts/author-town-npc-hands.py', 'scripts/town_npc_hand_integration.py', 'scripts/town_npc_neck_inset.py',
     'scripts/author-town-furniture.py',
     'src/GloomhavenVR/WorldUI/TownServices/TownServiceMerchantCounter.cs',
