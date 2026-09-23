@@ -689,6 +689,21 @@ public static partial class MirrorProgram
                 "ritual preserves devotion ledger or original ability hotspots");
         }
         GloomhavenVR.WorldUI.TownServicePresentation.Ritual = null;
+        GloomhavenVR.WorldUI.TownServicePresentation.Active = false;
+        var returning = new GloomhavenVR.WorldUI.TownServiceEnhancementHandoff.ReturnPresentation
+        { CardId = 123, Face = Go("actual-return-face").transform, Body = Go("actual-return-body").transform,
+            Session = GloomhavenVR.WorldUI.TownServicePresentation.Session, SessionAge = 3f };
+        GloomhavenVR.WorldUI.TownServiceEnhancementHandoff.Returning.Add(returning);
+        calls.Clear(); GloomhavenVR.WorldUI.TownServiceSync.Tick(shared, null);
+        Check(calls.Exists(c => c.Key == "face.123" && c.Source == returning.Face && c.Provenance == null),
+            "closed window retains actual return face without recycled native provenance");
+        Check(calls.Exists(c => c.Key == "map.cardbody" && c.Source == returning.Body),
+            "closed window retains actual return backing");
+        Check(!calls.Exists(c => c.Source == window.transform), "closed return session does not resurrect native window");
+        GloomhavenVR.WorldUI.TownServiceEnhancementHandoff.Returning.Clear();
+        GloomhavenVR.WorldUI.TownServiceSync.Tick(shared, null);
+        Check(GloomhavenVR.WorldUI.TownServiceSync.ModuleCount == 0, "completed return retires final presentation modules");
+        GloomhavenVR.WorldUI.TownServicePresentation.Active = true;
         GloomhavenVR.WorldUI.TownServicePresentation.Service = 1;
     }
 

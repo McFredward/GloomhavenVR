@@ -66,12 +66,14 @@ internal static class TownServiceSync
         _sharedFrame = sharedFrame;
         TownServiceMirror.SharedFrameForRemote = ResolveFrame;
         Prepare();
-        if (!TownServicePresentation.Active || stationRoot == null)
-        { Reset(); return; }
+        IReadOnlyList<TownServiceEnhancementHandoff.ReturnPresentation> returns = TownServiceEnhancementHandoff.Returning;
+        bool active = TownServicePresentation.Active && stationRoot != null;
+        if (!active && returns.Count == 0) { Reset(); return; }
         if (!NativeTemplates.Ready) return;
-        byte service = TownServicePresentation.Service;
-        uint session = TownServicePresentation.Session;
-        ulong relocation = TownServicePresentation.RelocationRevision;
+        byte service = active ? TownServicePresentation.Service : (byte)3;
+        uint session = active ? TownServicePresentation.Session : returns[0].Session;
+        ulong relocation = active ? TownServicePresentation.RelocationRevision : _relocationRevision;
+        if (!active) stationRoot = returns[0].StationRoot != null ? returns[0].StationRoot : sharedFrame;
         if (_generationExhausted) return;
         if (_session != session || _service != service || _relocationRevision != relocation)
         {
@@ -89,120 +91,134 @@ internal static class TownServiceSync
         // A new existing wire session rebuilds observers at the actual new pose even when
         // transport coalescing drops every invisible relocation sample. Ordinary native fades
         // and hand movement retain this generation and therefore their normal interpolation.
-        TownServiceMirror.BeginSession(service, _generation, sharedFrame, stationRoot, TownServicePresentation.SessionAge);
+        TownServiceMirror.BeginSession(service, _generation, sharedFrame, stationRoot!,
+            active ? TownServicePresentation.SessionAge : returns[0].SessionAge);
         // Do not establish invisible module baselines at the relocation boundary: losing those
         // samples must not make the first visible state depend on a discarded zero-alpha packet.
-        if (TownServicePresentation.RelocationVisibility <= 0f) return;
+        if (active && TownServicePresentation.RelocationVisibility <= 0f) return;
         foreach (Published module in Modules.Values) module.Seen = false;
         foreach (SourceEntry source in Sources.Values) source.Seen = false;
         Visited.Clear(); Dynamic.Clear(); PriorityRoots.Clear();
-        string prefix = service == 1 ? "merchant" : service == 2 ? "temple" : "enchant";
-        TownServiceCatalog? catalog = TownServicePresentation.Catalog;
-        if (catalog == null && TownServicePresentation.Ritual == null)
-            Publish(prefix, TownServicePresentation.Window != null ? TownServicePresentation.Window.transform : null);
-        foreach (TownServiceSurface surface in TownServicePresentation.LocalSurfaces)
-            Publish(surface.Id == 40 ? "merchant.exit" : surface.Id == 10 ? prefix + ".inventory"
-                : surface.Id == 11 ? "enchant.holder" : "enchant.scroll", surface.Panel.Target);
-        if (catalog != null)
+        foreach (TownServiceEnhancementHandoff.ReturnPresentation returning in returns)
         {
-            Publish(prefix + ".counter", TownServicePresentation.CounterFurniture);
-            foreach (TownServiceMerchantCounter extension in catalog.Extensions)
-                Publish("merchant.return", extension.Root);
-            foreach (TownServiceMerchantZone zone in catalog.Zones) Publish("merchant.zone", zone.Root);
-            // Mirror the actual counter, not the suppressed flat inventory. These widgets
-            // retain native template provenance but have the owner's physical layout.
-            foreach (TownServiceCatalog.Control control in catalog.Controls)
-                Publish(control.Key, control.Surface.Panel.Target);
-
-            foreach (TownServiceCatalog.Entry entry in catalog.Entries)
-            {
-                if (!entry.Current || !entry.Exposed) continue;
-                if (entry.Sample.IsMoving)
-                {
-                    PriorityRoots.Add(entry.CardRoot);
-                    if (entry.BodyRoot != null) PriorityRoots.Add(entry.BodyRoot);
-                    if (entry.RowContent != null) PriorityRoots.Add(entry.RowContent);
-                }
-                Publish("item." + entry.ItemId.ToString(System.Globalization.CultureInfo.InvariantCulture), entry.CardRoot);
-                Publish("merchant.cardbody", entry.BodyRoot);
-                if (entry.RowContent != null)
-                    Publish("merchant.row", entry.RowContent, entry.RowSource.transform, entry.RowCloneOf);
-            }
+            Transform? face = returning.Face, body = returning.Body;
+            if (face != null) PriorityRoots.Add(face);
+            if (body != null) PriorityRoots.Add(body);
+            // The window's pooled selected-card widget may already be recycled. The actual
+            // flying face and captured identity are the only lifetime-safe provenance here.
+            Publish("face." + returning.CardId.ToString(System.Globalization.CultureInfo.InvariantCulture), face);
+            Publish("map.cardbody", body);
         }
-        TownServiceRitual? ritual = TownServicePresentation.Ritual;
-        if (ritual != null)
+        if (active)
         {
-            Publish("merchant.zone", ritual.Zone);
-            Publish(prefix + ".counter", TownServicePresentation.CounterFurniture);
-            TownServiceEnhancementHandoff? handoff = ritual.Handoff;
-            if (handoff != null)
+            string prefix = service == 1 ? "merchant" : service == 2 ? "temple" : "enchant";
+            TownServiceCatalog? catalog = TownServicePresentation.Catalog;
+            if (catalog == null && TownServicePresentation.Ritual == null)
+                Publish(prefix, TownServicePresentation.Window != null ? TownServicePresentation.Window.transform : null);
+            foreach (TownServiceSurface surface in TownServicePresentation.LocalSurfaces)
+                Publish(surface.Id == 40 ? "merchant.exit" : surface.Id == 10 ? prefix + ".inventory"
+                    : surface.Id == 11 ? "enchant.holder" : "enchant.scroll", surface.Panel.Target);
+            if (catalog != null)
             {
-                Publish("merchant.zone", handoff.Zone);
-                if (handoff.Card != null && handoff.NativeSource != null && handoff.Face != null)
+                Publish(prefix + ".counter", TownServicePresentation.CounterFurniture);
+                foreach (TownServiceMerchantCounter extension in catalog.Extensions)
+                    Publish("merchant.return", extension.Root);
+                foreach (TownServiceMerchantZone zone in catalog.Zones) Publish("merchant.zone", zone.Root);
+                // Mirror the actual counter, not the suppressed flat inventory. These widgets
+                // retain native template provenance but have the owner's physical layout.
+                foreach (TownServiceCatalog.Control control in catalog.Controls)
+                    Publish(control.Key, control.Surface.Panel.Target);
+
+                foreach (TownServiceCatalog.Entry entry in catalog.Entries)
                 {
-                    Transform? body = handoff.Card.transform.Find("Visual/Backing");
-                    PriorityRoots.Add(handoff.Face);
-                    if (body != null) PriorityRoots.Add(body);
-                    Publish("face." + handoff.NativeSource.CardID.ToString(System.Globalization.CultureInfo.InvariantCulture),
-                        handoff.Face, handoff.NativeSource.fullAbilityCard.transform, handoff.CloneOf);
-                    Publish("map.cardbody", body);
+                    if (!entry.Current || !entry.Exposed) continue;
+                    if (entry.Sample.IsMoving)
+                    {
+                        PriorityRoots.Add(entry.CardRoot);
+                        if (entry.BodyRoot != null) PriorityRoots.Add(entry.BodyRoot);
+                        if (entry.RowContent != null) PriorityRoots.Add(entry.RowContent);
+                    }
+                    Publish("item." + entry.ItemId.ToString(System.Globalization.CultureInfo.InvariantCulture), entry.CardRoot);
+                    Publish("merchant.cardbody", entry.BodyRoot);
+                    if (entry.RowContent != null)
+                        Publish("merchant.row", entry.RowContent, entry.RowSource.transform, entry.RowCloneOf);
                 }
             }
-            foreach (TownServiceRitual.Piece piece in ritual.Pieces)
+            TownServiceRitual? ritual = TownServicePresentation.Ritual;
+            if (ritual != null)
             {
-                if (piece.Token.IsMoving)
+                Publish("merchant.zone", ritual.Zone);
+                Publish(prefix + ".counter", TownServicePresentation.CounterFurniture);
+                TownServiceEnhancementHandoff? handoff = ritual.Handoff;
+                if (handoff != null)
                 {
-                    PriorityRoots.Add(piece.Body);
-                    if (piece.Content != null) PriorityRoots.Add(piece.Content);
+                    Publish("merchant.zone", handoff.Zone);
+                    if (handoff.Card != null && handoff.NativeSource != null && handoff.Face != null)
+                    {
+                        Transform? body = handoff.Card.transform.Find("Visual/Backing");
+                        PriorityRoots.Add(handoff.Face);
+                        if (body != null) PriorityRoots.Add(body);
+                        Publish("face." + handoff.NativeSource.CardID.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                            handoff.Face, handoff.NativeSource.fullAbilityCard.transform, handoff.CloneOf);
+                        Publish("map.cardbody", body);
+                    }
                 }
-                Publish(piece.Key, piece.Content, piece.Source.transform, piece.CloneOf);
-                Publish(piece.BodyKey, piece.Body);
-                if (piece.DetailContent != null && piece.DetailSource != null)
-                    Publish(piece.DetailKey, piece.DetailContent, piece.DetailSource, piece.DetailCloneOf);
+                foreach (TownServiceRitual.Piece piece in ritual.Pieces)
+                {
+                    if (piece.Token.IsMoving)
+                    {
+                        PriorityRoots.Add(piece.Body);
+                        if (piece.Content != null) PriorityRoots.Add(piece.Content);
+                    }
+                    Publish(piece.Key, piece.Content, piece.Source.transform, piece.CloneOf);
+                    Publish(piece.BodyKey, piece.Body);
+                    if (piece.DetailContent != null && piece.DetailSource != null)
+                        Publish(piece.DetailKey, piece.DetailContent, piece.DetailSource, piece.DetailCloneOf);
+                }
+                foreach (TownServiceSurface surface in ritual.Surfaces)
+                    Publish("enchant.holder", surface.Panel.Target);
+                foreach (TownServiceRitual.Inscription inscription in ritual.Inscriptions)
+                    Publish(inscription.Key, inscription.Content, inscription.Source, inscription.CloneOf);
             }
-            foreach (TownServiceSurface surface in ritual.Surfaces)
-                Publish("enchant.holder", surface.Panel.Target);
-            foreach (TownServiceRitual.Inscription inscription in ritual.Inscriptions)
-                Publish(inscription.Key, inscription.Content, inscription.Source, inscription.CloneOf);
-        }
 
-        if (TownServicePresentation.WorkspaceProps != null)
-            foreach (TownServiceWorkspace.Prop prop in TownServicePresentation.WorkspaceProps) Publish(prop.Key, prop.Root);
+            if (TownServicePresentation.WorkspaceProps != null)
+                foreach (TownServiceWorkspace.Prop prop in TownServicePresentation.WorkspaceProps) Publish(prop.Key, prop.Root);
 
-        if (catalog == null && ritual == null)
-            Publish(prefix + ".tooltip", NativeTemplates.Original(prefix + ".tooltip"));
-        else if (catalog != null && catalog.PreviewContent != null && catalog.PreviewSource != null)
-        {
-            PriorityRoots.Add(catalog.PreviewContent);
-            Publish("merchant.tooltip", catalog.PreviewContent, catalog.PreviewSource, catalog.PreviewCloneOf);
-            PublishCopiedCards(catalog.PreviewSource, catalog.PreviewCloneOf);
-        }
-        Publish("item.confirm", NativeTemplates.Original("item.confirm"));
-        Publish("enhance.confirm", NativeTemplates.Original("enhance.confirm"));
-        if (TownServicePresentation.Tray != null) Publish("tray", TownServicePresentation.Tray.Root);
-        UITooltip? tooltip = NativeTemplates.Tooltip;
-        if (tooltip != null && catalog != null && catalog.HintContent != null && catalog.HintSource == tooltip.transform)
-        {
-            PriorityRoots.Add(catalog.HintContent);
-            Publish(NativeTemplates.TooltipKey(tooltip), catalog.HintContent, catalog.HintSource, catalog.HintCloneOf);
-            PublishCopiedCards(tooltip.transform, catalog.HintCloneOf);
-        }
-        else if (tooltip != null && tooltip.gameObject.activeInHierarchy && OwnsAnchor(tooltip.m_AnchorToTarget))
-            Publish(NativeTemplates.TooltipKey(tooltip), tooltip.transform);
-        // Original pooled branches are separate modules: adding/removing a row must never change
-        // the native static template or replace the inventory container behind another visitor.
-        for (int i = 0; i < Dynamic.Count; i++)
-        {
-            Transform source = Dynamic[i]; if (source == null) continue;
-            string? key = DynamicKey(source);
-            if (key != null) Publish(key, source);
-        }
-        foreach (TownServiceToken sample in TownServicePresentation.Samples)
-        {
-            if (sample.IsPhysical) continue; // The same native face and body already publish their held pose.
-            Transform? held = sample.HeldContent;
-            if (held == null) continue;
-            PublishHeld(sample, sample.Source);
+            if (catalog == null && ritual == null)
+                Publish(prefix + ".tooltip", NativeTemplates.Original(prefix + ".tooltip"));
+            else if (catalog != null && catalog.PreviewContent != null && catalog.PreviewSource != null)
+            {
+                PriorityRoots.Add(catalog.PreviewContent);
+                Publish("merchant.tooltip", catalog.PreviewContent, catalog.PreviewSource, catalog.PreviewCloneOf);
+                PublishCopiedCards(catalog.PreviewSource, catalog.PreviewCloneOf);
+            }
+            Publish("item.confirm", NativeTemplates.Original("item.confirm"));
+            Publish("enhance.confirm", NativeTemplates.Original("enhance.confirm"));
+            if (TownServicePresentation.Tray != null) Publish("tray", TownServicePresentation.Tray.Root);
+            UITooltip? tooltip = NativeTemplates.Tooltip;
+            if (tooltip != null && catalog != null && catalog.HintContent != null && catalog.HintSource == tooltip.transform)
+            {
+                PriorityRoots.Add(catalog.HintContent);
+                Publish(NativeTemplates.TooltipKey(tooltip), catalog.HintContent, catalog.HintSource, catalog.HintCloneOf);
+                PublishCopiedCards(tooltip.transform, catalog.HintCloneOf);
+            }
+            else if (tooltip != null && tooltip.gameObject.activeInHierarchy && OwnsAnchor(tooltip.m_AnchorToTarget))
+                Publish(NativeTemplates.TooltipKey(tooltip), tooltip.transform);
+            // Original pooled branches are separate modules: adding/removing a row must never change
+            // the native static template or replace the inventory container behind another visitor.
+            for (int i = 0; i < Dynamic.Count; i++)
+            {
+                Transform source = Dynamic[i]; if (source == null) continue;
+                string? key = DynamicKey(source);
+                if (key != null) Publish(key, source);
+            }
+            foreach (TownServiceToken sample in TownServicePresentation.Samples)
+            {
+                if (sample.IsPhysical) continue; // The same native face and body already publish their held pose.
+                Transform? held = sample.HeldContent;
+                if (held == null) continue;
+                PublishHeld(sample, sample.Source);
+            }
         }
         Removed.Clear();
         foreach (var pair in Modules) if (!pair.Value.Seen) Removed.Add(pair.Key);

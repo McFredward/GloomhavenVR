@@ -77,7 +77,8 @@ internal static class TownServicePopulation
     {
         bool enabled = WorldUIConfig.ImmersiveTownServices.Value;
         if (!MapRoomDriver.Active) { Reset(); return; }
-        if (_frame == null && !enabled && !HasRemoteVisitors) return;
+        if (_frame == null && !enabled && !HasRemoteVisitors
+            && TownServiceEnhancementHandoff.Returning.Count == 0) return;
         if (!Prepare()) { Reset(); return; }
         float now = Time.unscaledTime;
         bool follows = RemoteTownResidents.TryAuthor(out TownResidentsState authored, out float elapsed);

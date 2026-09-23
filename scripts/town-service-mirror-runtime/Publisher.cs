@@ -53,6 +53,8 @@ namespace GloomhavenVR.WorldUI
     internal sealed partial class TownServiceMerchantDrawer { internal Transform Root = null!, HousingRoot = null!; }
     internal sealed class TownServiceMerchantCounter { internal Transform Root = null!; }
     internal sealed class TownServiceEnhancementHandoff {
+        internal sealed class ReturnPresentation { internal Transform? Face, Body, StationRoot; internal int CardId; internal uint Session; internal float SessionAge; }
+        internal static readonly List<ReturnPresentation> Returning = new();
         internal Transform? Card, Face, Zone; internal AbilityCardUI? NativeSource;
         internal Transform? CloneOf(Transform original) => NativeSource != null && original == NativeSource.fullAbilityCard ? Face : null;
     }

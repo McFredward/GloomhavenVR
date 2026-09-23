@@ -352,3 +352,6 @@ namespace GloomhavenVR.WorldUI
 }
 
 namespace GloomhavenVR.WorldUI { internal static class MaskClock { internal static float Now; } }
+
+// The handoff itself is exercised by the separate actual-card Unity suite.
+namespace GloomhavenVR.WorldUI { internal static class TownServiceEnhancementHandoff { internal static void TickApproach() { } } }

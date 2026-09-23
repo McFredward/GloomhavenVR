@@ -194,3 +194,9 @@ namespace GloomhavenVR.WorldUI
         internal static void Clear() => Clears++;
     }
 }
+
+// Geometry mutation and actual return lifetime have their own production-bound Unity suites.
+namespace GloomhavenVR.WorldUI {
+ internal static class TownServiceRoomClearance { internal static void Tick(bool enabled) { } internal static void Reset() { } }
+ internal static class TownServiceEnhancementHandoff { internal static readonly System.Collections.Generic.List<object> Returning = new(); }
+}
