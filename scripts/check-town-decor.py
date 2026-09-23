@@ -23,6 +23,9 @@ def main():
     sources = {name: (base / name).read_text().replace('Time.unscaledTime', 'DecorClock.Now') for name in (
         'TownServiceDecor.cs', 'TownServiceDecorMaterial.cs', 'TownServiceArcaneEffect.cs', 'TownServiceWorkspacePractical.cs')}
     variants = [('production', None, '', '', ''),
+        ('stale-coin-guid', 'TownServiceDecor.cs', '? NativeCoinMaterialAddress : key;', '? key : key;', 'merchant original work coin survives stale native material GUID'),
+        ('coin-alias-scope', 'TownServiceDecor.cs', 'piece.Entry == "Treasure.Clutter.Shelf.Individual#1"', 'piece.Entry.Length > 0', 'coin catalog alias cannot rewrite another native prop'),
+        ('wrong-coin-identity', 'TownServiceDecor.cs', 'load.Handle.Result.name != "GoldCoinMat"', 'false', 'unexpected coin subasset is never rendered as native coin art'),
         ('global-material-gate', 'TownServiceDecor.cs', 'foreach (MaterialLoad load in piece.Materials)', 'foreach (MaterialLoad load in _loads.Values)', 'unrelated book builds while lantern material fails'),
         ('no-retry', 'TownServiceDecor.cs', 'Attempts >= 3', 'Attempts >= 1', 'independent material retry restores both practicals'),
         ('wrong-atlas-quadrant', 'TownServiceDecorMaterial.cs', 'Vector2.one * tiling', 'Vector2.one * .5f', 'native atlas UVs do not sample stale Standard quadrant'),
@@ -67,6 +70,6 @@ def main():
     evidence = Path(manifest['result'])
     if evidence.exists(): print(evidence.read_text())
     if result.returncode or not evidence.exists(): raise SystemExit('FAIL: ' + str(run / 'unity.log'))
-    print('PASS: native decor loading/material tests and seven compiled negative controls; evidence: ' + str(run))
+    print('PASS: native decor loading/material tests and ten compiled negative controls; evidence: ' + str(run))
 
 if __name__ == '__main__': main()

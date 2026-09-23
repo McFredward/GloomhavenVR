@@ -29,10 +29,12 @@ namespace UnityEngine.AddressableAssets
         public static AsyncOperationHandle<T> LoadAssetAsync<T>(object key)
         {
             Requests.TryGetValue(key,out int count);Requests[key]=count+1;Held++;
-            bool fail=Failures.TryGetValue(key,out int remaining)&&remaining>0;
-            if(fail)Failures[key]=remaining-1;
+            bool configuredFailure=Failures.TryGetValue(key,out int remaining)&&remaining>0;
+            if(configuredFailure)Failures[key]=remaining-1;
+            bool missing=!Assets.TryGetValue(key,out object asset);
+            bool fail=configuredFailure||missing;
             return new AsyncOperationHandle<T>{State=new State<T>{Done=!Pending.Contains(key),Status=fail?AsyncOperationStatus.Failed:AsyncOperationStatus.Succeeded,
-                Result=fail?default!:(T)Assets[key],Error=fail?new Exception("fixture material failure"):null}};
+                Result=fail?default!:(T)asset,Error=fail?new Exception(missing?"fixture catalog has no material location":"fixture material failure"):null}};
         }
         public static void Release<T>(AsyncOperationHandle<T> handle){if(!handle.IsValid())throw new Exception("double release");handle.State!.Valid=false;Held--;}
     }

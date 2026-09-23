@@ -27,6 +27,8 @@ internal sealed class TownServiceDecor : IDisposable
         internal bool Inspected, Built;
         internal readonly List<MaterialLoad> Materials = new();
     }
+    private const string LegacyCoinMaterialGuid = "2c309731defe50f4d84721fd7f50c5c4";
+    private const string NativeCoinMaterialAddress = "coinpile";
     private readonly List<Piece> _pieces = new();
     private static readonly Dictionary<byte, TownServiceDecor> Owners = new();
     private readonly byte _service;
@@ -193,9 +195,10 @@ internal sealed class TownServiceDecor : IDisposable
                             foreach (AssetReferenceT<Material> reference in data.MaterialReferences)
                                 if (reference != null && reference.RuntimeKeyIsValid())
                                 {
-                                    if (!_loads.TryGetValue(reference.RuntimeKey, out MaterialLoad load))
+                                    object key = MaterialKey(piece, data, reference.RuntimeKey);
+                                    if (!_loads.TryGetValue(key, out MaterialLoad load))
                                     {
-                                        load = new MaterialLoad { Key = reference.RuntimeKey };
+                                        load = new MaterialLoad { Key = key };
                                         _loads.Add(load.Key, load);
                                         Advance(load, now);
                                     }
@@ -220,6 +223,20 @@ internal sealed class TownServiceDecor : IDisposable
                 Report(piece.Entry, e.Message);
             }
         }
+    }
+
+    private static object MaterialKey(Piece piece, MaterialLoaderData data, object key)
+    {
+        // The shipped PCG_coin_heads prefab's coinsingle renderer references an
+        // obsolete standalone GUID absent from the game's catalog (build 547 logs).
+        // Its own native coinpile.fbx dependency still exports GoldCoinMat, and the
+        // catalog explicitly registers the "coinpile" key for Material as well as
+        // GameObject/Mesh. Resolve that exact original asset, never a made-up gold
+        // shader or a different coin atlas. Do not rewrite unrelated loader keys.
+        return piece.Entry == "Treasure.Clutter.Shelf.Individual#1"
+            && data.Renderer != null && data.Renderer.name == "coinsingle"
+            && key is string guid && guid == LegacyCoinMaterialGuid
+            ? NativeCoinMaterialAddress : key;
     }
 
     private void Advance(MaterialLoad load, float now)
@@ -247,6 +264,8 @@ internal sealed class TownServiceDecor : IDisposable
         }
         if (load.Handle.Status != AsyncOperationStatus.Succeeded || load.Handle.Result == null)
         { Failed(load, now, load.Handle.OperationException?.Message ?? "original material unavailable"); return; }
+        if (load.Key is string key && key == NativeCoinMaterialAddress && load.Handle.Result.name != "GoldCoinMat")
+        { Failed(load, now, "native coin material identity does not match GoldCoinMat"); return; }
         load.Ready = true;
     }
 
@@ -286,7 +305,7 @@ internal sealed class TownServiceDecor : IDisposable
                     if (data.Renderer == null) continue;
                     var materials = new List<Material>();
                     foreach (AssetReferenceT<Material> reference in data.MaterialReferences)
-                        if (reference != null && _loads.TryGetValue(reference.RuntimeKey, out MaterialLoad load) && load.Ready) materials.Add(load.Handle.Result);
+                        if (reference != null && _loads.TryGetValue(MaterialKey(piece, data, reference.RuntimeKey), out MaterialLoad load) && load.Ready) materials.Add(load.Handle.Result);
                     if (data.IsSaveExistedMaterials)
                         foreach (Material material in data.Renderer.sharedMaterials) if (material != null) materials.Add(material);
                     overrides[data.Renderer] = materials.ToArray();

@@ -8,6 +8,7 @@ using GloomhavenVR.WorldUI;
 public static class InteractionProgram
 {
     private static int _checks;
+    private const string BrokenCoin = "2c309731defe50f4d84721fd7f50c5c4";
     private static void Check(bool pass,string text){_checks++;if(!pass)throw new Exception(text);}
     private static void Tick(TownServiceDecor decor,float time){DecorClock.Now=time;decor.Tick();}
     private static GameObject Source(string name,string material)
@@ -31,7 +32,8 @@ public static class InteractionProgram
         List("Gaslight",("Gaslight.Lighting.Torch.Wall#1","lantern","bad"));
         List("Tone_Candlelight",("Candlelight.Lighting.Torch.Wall#1","flame","good"));
         List("Library",("Library.Clutter.Shelf.Individual#7","book","good"));
-        List("Treasure",("Treasure.Clutter.FloorSmall#3","coins","good"),("Treasure.Clutter.Shelf.Individual#1","coin","good"));
+        List("Treasure",("Treasure.Clutter.FloorSmall#3","coins","good"),("Treasure.Clutter.Shelf.Individual#1","coinsingle",BrokenCoin));
+        Addressables.Assets["coinpile"]=new Material((Material)Addressables.Assets["good"]){name="GoldCoinMat",mainTexture=Texture2D.blackTexture};
         List("AlchemyLab",("AlchemyLab.Clutter.Shelf.Individual#7","balance","good"),("AlchemyLab.Clutter.Shelf.Individual#3","jugs","good"),("AlchemyLab.Clutter.Shelf.Individual#11","oiler","good"));
         List("Chapel",("Chapel.Clutter.Shelf.Individual#7","bowl","good"),("Chapel.Clutter.Shelf.Individual#2","scrolls","good"));
     }
@@ -41,6 +43,11 @@ public static class InteractionProgram
         Tick(decor,0);Tick(decor,.11f);
         Check(root.transform.Find("Original.Library.Clutter.Shelf.Individual#7")!=null,"unrelated book builds while lantern material fails");
         Check(light.Flames.Count==0,"failed lamp cannot light unsupported source");
+        var workingCoin=root.transform.Find("Original.Treasure.Clutter.Shelf.Individual#1");
+        Check(workingCoin!=null&&workingCoin.GetComponentInChildren<MeshRenderer>()!=null,"merchant original work coin survives stale native material GUID");
+        Check(Addressables.Requests["coinpile"]==1&&!Addressables.Requests.ContainsKey(BrokenCoin),"known coin catalog alias loads once without retrying absent GUID");
+        var copiedCoin=workingCoin!.GetComponentInChildren<MeshRenderer>().sharedMaterial;
+        Check(copiedCoin.mainTexture==((Material)Addressables.Assets["coinpile"]).mainTexture,"coin retains the original GoldCoinMat atlas");
         Tick(decor,1.2f);Tick(decor,1.31f);
         Check(light.Flames.Count==2&&decor.Ready,"independent material retry restores both practicals");
         Check(Addressables.Requests["bad"]==2,"shared dependency requested once per attempt");
@@ -119,6 +126,19 @@ public static class InteractionProgram
         Check(Math.Abs(glow.GetFloat("_TownVisibility")-.08f)<.0001f,"interrupting magic fades continuously before shutdown");
         visual.Cast=0f;decor.SampleActivity(in visual);Check(!effect.gameObject.activeSelf,"finished cast has no orphan glow");
         decor.Dispose();Check(Addressables.Held==0,"effect teardown releases native dependency handles");UnityEngine.Object.DestroyImmediate(root);
+        Setup(0);List("Library",("Library.Clutter.Shelf.Individual#7","coinsingle",BrokenCoin));
+        root=new GameObject("unrelated stale asset");decor=new TownServiceDecor(root.transform,1,light);
+        foreach(float time in new[]{0f,.11f,1.2f,1.31f,5.4f,5.51f,100f})Tick(decor,time);
+        Check(root.transform.Find("Original.Library.Clutter.Shelf.Individual#7")==null,"coin catalog alias cannot rewrite another native prop");
+        Check(root.transform.Find("Original.Treasure.Clutter.Shelf.Individual#1")!=null,"unrelated stale key cannot suppress valid original work coin");
+        Check(Addressables.Requests["coinpile"]==1&&Addressables.Requests[BrokenCoin]==3,"native coin alias and unrelated failed dependency remain independent");
+        decor.Dispose();Check(Addressables.Held==0,"missing catalog locations release failed handles");UnityEngine.Object.DestroyImmediate(root);
+        Setup(0);((Material)Addressables.Assets["coinpile"]).name="WrongMaterial";
+        root=new GameObject("changed native coin catalog");decor=new TownServiceDecor(root.transform,1,light);
+        foreach(float time in new[]{0f,.11f,1.2f,1.31f,5.4f,5.51f,100f})Tick(decor,time);
+        Check(root.transform.Find("Original.Treasure.Clutter.Shelf.Individual#1")==null,"unexpected coin subasset is never rendered as native coin art");
+        Check(Addressables.Requests["coinpile"]==3&&decor.Ready,"changed catalog identity fails bounded without gating station");
+        decor.Dispose();Check(Addressables.Held==0,"rejected native coin identity releases all handles");UnityEngine.Object.DestroyImmediate(root);
         Shader amp=Shader.Find("Amp_TownDecorFixture");Check(amp!=null,"native shader input fixture imported");
         var original=new Material(amp);original.mainTextureScale=new Vector2(.5f,.5f);original.SetFloat("_UVTiling",1f);original.SetColor("_Tint",new Color(.8f,.7f,.6f,0));
         var adapted=TownServiceDecorMaterial.Copy(original,Shader.Find("Unlit/Texture"));
