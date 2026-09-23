@@ -73,6 +73,8 @@ internal static class NativeTemplates
         TMP_Text? physicalFont = merchant.GetComponentInChildren<TMP_Text>(true);
         Add("merchant.return", TownServiceMerchantCounter.Template);
         AddPhysical("merchant.zone", TownServiceMerchantZone.CreateTemplate(physicalFont));
+        AddPhysical("merchant.crank", TownServiceMerchantDrawer.CreateTemplate(physicalFont));
+        AddPhysical("merchant.rack", TownServiceMerchantDrawer.CreateHousingTemplate());
         Add("merchant.counter", TownServiceWorkspace.FurnitureTemplate(1));
         Add("temple.counter", TownServiceWorkspace.FurnitureTemplate(2));
         Add("enchant.counter", TownServiceWorkspace.FurnitureTemplate(3));
@@ -136,7 +138,8 @@ internal static class NativeTemplates
         TownServiceBackdropAssets.Register(TownServiceMirror.Assets, Original);
         _assetGeneration = TownServiceMirror.Assets.Generation;
     }
-    internal static bool IsBoundary(Transform node) => Roots.ContainsKey(node) || IsDynamic(node);
+    internal static bool IsBoundary(Transform node) => Roots.ContainsKey(node) || IsDynamic(node)
+        || TownServiceMerchantDrawer.IsContentRoot(node);
     internal static bool IsDynamic(Transform node) => node.GetComponent<UIShopItemSlot>() != null
         || node.GetComponent<UITempleShopSlot>() != null || node.GetComponent<UINewEnhancementShopSlot>() != null
         || node.GetComponent<UIEnhanceCardSlot>() != null || node.GetComponent<UIEnhanceCardPoint>() != null

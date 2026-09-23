@@ -81,10 +81,15 @@ internal sealed class TownServiceMerchantDrawer : IGrabbable, IGrabbableHandFilt
     private static Material OriginalWood()
     {
         GameObject? prefab=TownServiceAssets.Prefab("townmerchant");
-        Transform? plank=prefab!=null?prefab.transform.Find("Counter/SurfacePlank0"):null;
-        Material? material=plank!=null?plank.GetComponent<MeshRenderer>().sharedMaterial:null;
-        if(material==null)throw new InvalidOperationException("Merchant revolving cabinet requires original counter wood material");
-        return material;
+        Transform? counter = prefab != null ? prefab.transform.Find("Counter") : null;
+        // Authored furniture joins its curved wooden pieces into material meshes; it has
+        // no procedural SurfacePlank0 child. Resolve the actual material rather than an
+        // obsolete primitive name (otherwise creating the first crank hides the service).
+        if (counter != null)
+            foreach (MeshRenderer renderer in counter.GetComponentsInChildren<MeshRenderer>(true))
+                foreach (Material material in renderer.sharedMaterials)
+                    if (material != null && material.name == "DarkWood") return material;
+        throw new InvalidOperationException("Merchant revolving cabinet requires original counter wood material");
     }
     internal static GameObject CreateTemplate(TMP_Text? font)
     {

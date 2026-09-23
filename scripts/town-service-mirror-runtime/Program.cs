@@ -497,26 +497,24 @@ public static partial class MirrorProgram
 
     private static void DrawerTemplates()
     {
-        // Only bundle material lookup is a fixture; the physical factory, inert template
-        // stripping and binding execute production code, catching unsupported text types.
-        var furniture = Go("drawer-material-source");
+        // Only bundle lookup is substituted; factories and captured geometry are production.
+        var furniture = Go("cabinet-material-source");
         var counter = Go("Counter", furniture.transform);
-        var plank = Go("SurfacePlank0", counter.transform).AddComponent<MeshRenderer>();
-        var material = new Material(Shader.Find("GloomhavenVR/TownNpc")); Assets.Add(material);
-        plank.sharedMaterial = material;
+        var wood = Go("Furniture_DarkWood", counter.transform).AddComponent<MeshRenderer>();
+        var material = new Material(Shader.Find("GloomhavenVR/TownNpc")) { name = "DarkWood" }; Assets.Add(material);
+        wood.sharedMaterial = material;
         GloomhavenVR.WorldUI.TownServiceAssets.Furniture = furniture;
-        var drawer = GloomhavenVR.WorldUI.TownServiceMerchantDrawer.CreateTemplate(_text); Objects.Add(drawer);
-        var housing = GloomhavenVR.WorldUI.TownServiceMerchantDrawer.CreateHousingTemplate(); Objects.Add(housing);
-        var label = drawer.transform.Find("Label").GetComponent<TMP_Text>(); label.text = "Boots / Schuhe";
-        Check(label is TextMeshProUGUI, "drawer label uses supported original canvas text");
-        TownServiceMirror.RegisterTemplate(1, 610, drawer.transform, address: "merchant.drawer|");
-        TownServiceMirror.RegisterTemplate(1, 611, housing.transform, address: "merchant.drawerhousing|");
-        using var binding = new TownServiceBinding(drawer.transform);
+        var crank = GloomhavenVR.WorldUI.TownServiceMerchantDrawer.CreateTemplate(_text); Objects.Add(crank);
+        var rack = GloomhavenVR.WorldUI.TownServiceMerchantDrawer.CreateHousingTemplate(); Objects.Add(rack);
+        Check(crank.transform.Find("Handle") != null, "compact cabinet exposes physical crank grip");
+        Check(crank.GetComponentsInChildren<TMP_Text>().Length == 0 && rack.GetComponentsInChildren<TMP_Text>().Length == 0,
+            "cabinet navigation has physical geometry without UI labels");
+        TownServiceMirror.RegisterTemplate(1, 610, crank.transform, address: "merchant.crank|");
+        TownServiceMirror.RegisterTemplate(1, 611, rack.transform, address: "merchant.rack|");
+        using var binding = new TownServiceBinding(rack.transform);
+        rack.transform.localRotation = Quaternion.Euler(0, 113, 0);
         var nodes = binding.Read(TownServiceMirror.Assets);
-        bool captured = false;
-        foreach (var node in nodes)
-            if (node.Values.TryGetValue(TownServiceProperty.TmpText, out var text) && text.Text[0] == "Boots / Schuhe") captured = true;
-        Check(captured, "physical drawer label survives native mirror binding");
+        Check(nodes.Length > 4, "revolving rack captures opaque back and retaining rails");
         GloomhavenVR.WorldUI.TownServiceAssets.Furniture = null;
     }
 
@@ -532,6 +530,9 @@ public static partial class MirrorProgram
         var extension = new GloomhavenVR.WorldUI.TownServiceMerchantCounter
         { Root = Go("open-counter-return").transform };
         catalog.Extensions.Add(extension);
+        var rack = new GloomhavenVR.WorldUI.TownServiceMerchantDrawer
+        { Root = Go("moving-crank").transform, HousingRoot = Go("moving-rack").transform, Moving = true };
+        catalog.Drawers.Add(rack);
         var zone = new GloomhavenVR.WorldUI.TownServiceMerchantZone { Root = Go("deliberate-buy-zone").transform };
         catalog.Zones.Add(zone);
         for (int i = 0; i < 7; i++) catalog.Entries.Add(new GloomhavenVR.WorldUI.TownServiceCatalog.Entry
@@ -562,6 +563,9 @@ public static partial class MirrorProgram
         Check(calls.Exists(c => c.Key == "merchant.return" && c.Source == extension.Root)
             && !calls.Exists(c => c.Key == "merchant.drawer" || c.Key == "merchant.drawerhousing"),
             "open counter extension retains its actual pose without drawers");
+        Check(calls.Exists(c => c.Key == "merchant.crank" && c.Source == rack.Root)
+            && calls.Exists(c => c.Key == "merchant.rack" && c.Source == rack.HousingRoot),
+            "crank and revolving rack publish their actual moving roots");
         Check(calls.Exists(c => c.Key == "merchant.zone" && c.Source == zone.Root),
             "deliberate purchase zone is published");
         catalog.Entries[5].Exposed = false;
@@ -571,7 +575,7 @@ public static partial class MirrorProgram
         catalog.Entries.RemoveRange(2, 5);
         GloomhavenVR.WorldUI.TownServiceSync.Calls.Clear();
         GloomhavenVR.WorldUI.TownServiceSync.Tick(shared, shared);
-        Check(GloomhavenVR.WorldUI.TownServiceSync.ModuleCount == 8 && GloomhavenVR.WorldUI.TownServiceSync.SourceCount == 8,
+        Check(GloomhavenVR.WorldUI.TownServiceSync.ModuleCount == 10 && GloomhavenVR.WorldUI.TownServiceSync.SourceCount == 10,
             "publisher stock shrink retires old cards and price modules");
         var physical = new GloomhavenVR.WorldUI.TownServiceToken { IsPhysical = true,
             Source = Go("duplicate-physical-source").AddComponent<GloomhavenVR.WorldUI.ItemCardUI>().transform,

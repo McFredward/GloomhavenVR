@@ -38,7 +38,7 @@ def sources(root):
         + method(publisher, "internal static void Reset()") + "\n"
         + publisher[publisher.index("    internal static void ResetNetwork()"):publisher.index("\n", publisher.index("    internal static void ResetNetwork()"))] + "\n")
     drawer = (base / "WorldUI/TownServices/TownServiceMerchantDrawer.cs").read_text()
-    bound["DrawerTemplates.cs"] = "using System;\nusing UnityEngine;\nusing TMPro;\nnamespace GloomhavenVR.WorldUI;\ninternal sealed partial class TownServiceMerchantDrawer {\n" + "\n".join(method(drawer, signature) for signature in ("internal static GameObject CreateTemplate(TMP_Text? font)", "internal static GameObject CreateHousingTemplate()", "private static Material OriginalWood()", "private static void Part(Transform parent,string name,Vector3 position,Vector3 scale)")) + "\n}\n"
+    bound["DrawerTemplates.cs"] = "using System;\nusing UnityEngine;\nusing TMPro;\nnamespace GloomhavenVR.WorldUI;\ninternal sealed partial class TownServiceMerchantDrawer {\n" + "\n".join(method(drawer, signature) for signature in ("internal static GameObject CreateTemplate(TMP_Text? font)", "internal static GameObject CreateHousingTemplate()", "private static Material OriginalWood()", "private static void Rod(Transform parent, string name, Vector3 start, Vector3 end, float radius)", "private static void Part(Transform parent,string name,Vector3 position,Vector3 scale)")) + "\n}\n"
     town_neutralizer = base / "Net/TownServices/TownServiceNeutralize.cs"
     if town_neutralizer.exists():
         bound[town_neutralizer.name] = town_neutralizer.read_text()
@@ -87,6 +87,7 @@ def main():
         ]
         if args.suite == "full":
             variants += [
+                ("publisher-rack", "PublisherTick.cs", 'Publish("merchant.rack", rack.HousingRoot);', '// rack omitted', "crank and revolving rack publish their actual moving roots"),
                 ("publisher-old-window", "PublisherTick.cs", 'if (catalog == null && TownServicePresentation.Ritual == null)', 'if (true)', "physical counter does not publish suppressed flat merchant window"),
                 ("publisher-stale-entry", "PublisherTick.cs", "if (!entry.Current || !entry.Exposed) continue;", "// publish stale entry", "physical counter publishes only six current item cards"),
                 ("publisher-cardbody", "PublisherTick.cs", 'Publish("merchant.cardbody", entry.BodyRoot);', '// body omitted', "every original face retains its physical body remotely"),

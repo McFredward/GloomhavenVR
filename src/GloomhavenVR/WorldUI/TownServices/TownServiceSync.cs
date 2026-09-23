@@ -121,6 +121,14 @@ internal static class TownServiceSync
             if (catalog != null)
             {
                 Publish(prefix + ".counter", TownServicePresentation.CounterFurniture);
+                foreach (TownServiceMerchantDrawer rack in catalog.Drawers)
+                {
+                    // Cranks and racks are owner-authored moving geometry. Cards are separate
+                    // native modules; exclude the rack's Content root to avoid duplicate faces.
+                    if (rack.Moving) { PriorityRoots.Add(rack.Root); PriorityRoots.Add(rack.HousingRoot); }
+                    Publish("merchant.crank", rack.Root);
+                    Publish("merchant.rack", rack.HousingRoot);
+                }
                 foreach (TownServiceMerchantCounter extension in catalog.Extensions)
                     Publish("merchant.return", extension.Root);
                 foreach (TownServiceMerchantZone zone in catalog.Zones) Publish("merchant.zone", zone.Root);

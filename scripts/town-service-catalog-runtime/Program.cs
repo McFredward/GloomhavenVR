@@ -91,7 +91,8 @@ public static class InteractionProgram
     {
         assertions=0;var root=new GameObject("MerchantFixture");var events=new GameObject("Events",typeof(EventSystem));
         var prefab=new GameObject("MerchantPrefab");var counter=new GameObject("Counter");counter.transform.SetParent(prefab.transform,false);
-        var plank=GameObject.CreatePrimitive(PrimitiveType.Cube);plank.name="SurfacePlank0";plank.transform.SetParent(counter.transform,false);
+        var plank=GameObject.CreatePrimitive(PrimitiveType.Cube);plank.name="Furniture_DarkWood";plank.transform.SetParent(counter.transform,false);
+        plank.GetComponent<MeshRenderer>().sharedMaterial=new Material(Shader.Find("Standard")){name="DarkWood"};
         var returnTemplate=new GameObject("CounterReturn");returnTemplate.transform.SetParent(counter.transform,false);
         var returnTop=GameObject.CreatePrimitive(PrimitiveType.Cube);returnTop.transform.SetParent(returnTemplate.transform,false);
         returnTop.transform.localPosition=new Vector3(0f,.96f,0f);returnTop.transform.localScale=new Vector3(1.30f,.02f,1.15f);returnTemplate.SetActive(false);

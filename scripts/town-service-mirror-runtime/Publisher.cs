@@ -47,10 +47,11 @@ namespace GloomhavenVR.WorldUI
         internal List<Control> Controls = new();
         internal Transform NavigationRoot = null!;
         internal List<Entry> Entries = new();
+        internal List<TownServiceMerchantDrawer> Drawers = new();
         internal List<TownServiceMerchantCounter> Extensions = new();
         internal List<TownServiceMerchantZone> Zones = new();
     }
-    internal sealed partial class TownServiceMerchantDrawer { internal Transform Root = null!, HousingRoot = null!; }
+    internal sealed partial class TownServiceMerchantDrawer { internal Transform Root = null!, HousingRoot = null!; internal bool Moving; }
     internal sealed class TownServiceMerchantCounter { internal Transform Root = null!; }
     internal sealed class TownServiceEnhancementHandoff {
         internal sealed class ReturnPresentation { internal Transform? Face, Body, StationRoot; internal int CardId; internal uint Session; internal float SessionAge; }
