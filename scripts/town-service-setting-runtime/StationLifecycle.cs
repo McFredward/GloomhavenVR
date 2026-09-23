@@ -64,6 +64,18 @@ internal static class StationLifecycle
             TownServiceFace.Throw=false;
             station.Dispose();Check(TownServiceLighting.Last.Disposed&&TownServiceDecor.Last.Disposed,"owned decoration and lighting released");
         }
+        // Legacy bundles must never switch geometry while approaching an NPC.
+        var high=new Renderer();var low=new Renderer();var eyes=new Renderer();
+        var group=new LODGroup{Levels=new[]{new LOD{renderers=new[]{high,eyes}},new LOD{renderers=new[]{low,eyes}}}};
+        var actor=new Transform{Lod=group};
+        var method=typeof(TownServiceStation).GetMethod("PreserveActorDetail",System.Reflection.BindingFlags.Static|System.Reflection.BindingFlags.NonPublic)!;
+        method.Invoke(null,new object?[]{actor});
+        Check(!group.enabled && group.Forced==0,"legacy NPC never performs distance LOD switching");
+        Check(high.enabled && eyes.enabled && !low.enabled,"legacy NPC retains full skin and shared eyes only");
+        method.Invoke(null,new object?[]{actor});
+        Check(high.enabled && eyes.enabled && !low.enabled,"fixed detail is idempotent");
+        method.Invoke(null,new object?[]{null});
+        method.Invoke(null,new object?[]{new Transform()});
         int created=TownServiceLighting.Creates;
         TownServiceAssets.HasAnchor=false;
         bool rejected=false;
@@ -138,8 +150,18 @@ namespace UnityEngine
     public class AnimationState {public bool enabled;public float weight,time,length;}
     public class Collider {public bool enabled;}
     public class MaterialPropertyBlock {public void SetFloat(int id,float value){}}
+    public struct LOD { public Renderer[] renderers; }
+    public class LODGroup
+    {
+        public bool enabled=true;
+        public int Forced=-1;
+        public LOD[] Levels=Array.Empty<LOD>();
+        public LOD[] GetLODs()=>Levels;
+        public void ForceLOD(int level)=>Forced=level;
+    }
     public class Renderer
     {
+        public bool enabled = true;
         public int PropertyWrites;
         public void GetPropertyBlock(MaterialPropertyBlock block){}
         public void SetPropertyBlock(MaterialPropertyBlock block)=>PropertyWrites++;

@@ -25,6 +25,8 @@ def main():
     anchor = '        InteractionAnchor = root.transform.Find("InteractionAnchor")\n            ?? throw new InvalidOperationException("Town station has no InteractionAnchor");\n'
     variants = [
         ("baseline", {}),
+        ("legacy NPC still changes detail", {"Station.cs": sources["Station.cs"].replace('group.enabled = false;', 'group.enabled = true;')}),
+        ("legacy NPC lower surface overlaps skin", {"Station.cs": sources["Station.cs"].replace('renderer.enabled = Array.IndexOf(levels[0].renderers, renderer) >= 0;', 'renderer.enabled = true;')}),
         ("facial failure blocks native station", {"Station.cs": sources["Station.cs"].replace('catch (Exception error) { FaceFailure(error); return remote; }', 'catch (Exception error) { throw new InvalidOperationException("facial failure escaped", error); }')}),
         ("unchanged followers dirty geometry every frame", {"Grounding.cs": sources["Grounding.cs"].replace('if (_applied && actorOffset == _actorOffset && furnitureBottom == _furnitureBottom) return;', 'if (_applied && actorOffset == _actorOffset && furnitureBottom == _furnitureBottom && false) return;')}),
         ("handover leaves old ground geometry", {"Station.cs": sources["Station.cs"].replace('SetGrounding(actorFloor, furnitureBottom);', '// SetGrounding intentionally omitted by negative control')}),

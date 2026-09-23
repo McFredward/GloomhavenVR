@@ -45,6 +45,7 @@ internal sealed class TownServiceStation : IDisposable
         _scale = scale;
         InteractionAnchor = root.transform.Find("InteractionAnchor")
             ?? throw new InvalidOperationException("Town station has no InteractionAnchor");
+        PreserveActorDetail(root.transform.Find("Actor"));
         _animation = root.GetComponentInChildren<Animation>(true);
         _renderers = root.GetComponentsInChildren<Renderer>(true);
         _grounding = new TownServiceGrounding(root.transform);
@@ -53,6 +54,29 @@ internal sealed class TownServiceStation : IDisposable
         _lighting = new TownServiceLighting(root.transform, service);
         try { _decor = new TownServiceDecor(root.transform, service, _lighting); }
         catch { _lighting.Dispose(); _grounding.Dispose(); throw; }
+    }
+
+    private static void PreserveActorDetail(Transform? actor)
+    {
+        if (actor == null) return;
+        // Build 547 switched between three independently simplified skin surfaces.
+        // Close VR inspection exposed a hard silhouette/normal change, amplified by
+        // vertex-lit practicals. New bundles contain only the full-detail actor;
+        // this one-time compatibility path also fixes previously installed bundles.
+        // Never change scenery, native figures, global LOD bias or light policy.
+        foreach (LODGroup group in actor.GetComponentsInChildren<LODGroup>(true))
+        {
+            LOD[] levels = group.GetLODs();
+            if (levels.Length == 0) continue;
+            group.ForceLOD(0);
+            group.enabled = false;
+            foreach (LOD level in levels)
+                foreach (Renderer renderer in level.renderers)
+                {
+                    if (renderer == null) continue;
+                    renderer.enabled = Array.IndexOf(levels[0].renderers, renderer) >= 0;
+                }
+        }
     }
 
     internal static TownServiceStation? Create(byte service, Vector3 center, float scale)

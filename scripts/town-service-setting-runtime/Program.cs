@@ -136,6 +136,7 @@ namespace UnityEngine
     public class Transform
     {
         internal GameObject? Owner;
+        internal LODGroup? Lod;
         public string name="";
         public Vector3 up=>TransformDirection(Vector3.up).normalized;
         public Matrix4x4 worldToLocalMatrix=>new(InverseTransformPoint);
@@ -144,6 +145,7 @@ namespace UnityEngine
         public T[] GetComponentsInChildren<T>(bool inactive) where T:class
         {
             var result=new System.Collections.Generic.List<T>();
+            if(typeof(T)==typeof(LODGroup) && Lod!=null)result.Add((T)(object)Lod);
             if(typeof(T)==typeof(MeshFilter) && mesh!=null)result.Add((T)(object)new MeshFilter{sharedMesh=mesh,transform=this});
             foreach(var child in children.Values)result.AddRange(child.GetComponentsInChildren<T>(inactive));
             return result.ToArray();

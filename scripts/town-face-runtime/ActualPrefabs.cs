@@ -216,15 +216,15 @@ internal static class ActualPrefabs
                     Check(Vector3.Distance(head.position, rig.EyePosition) / root.lossyScale.x < .35f, npc + " eyes attach near head pivot");
                     var faces = root.GetComponentsInChildren<SkinnedMeshRenderer>(true)
                         .Where(r => r.sharedMesh != null && r.sharedMesh.GetBlendShapeIndex("BlinkLeft") >= 0).ToArray();
-                    Check(faces.Length == 3, npc + " three imported facial LOD renderers");
+                    Check(faces.Length == 1 && faces[0].name.StartsWith("LOD0_"), npc + " one full-detail facial renderer at every viewing distance");
                     int bindings = 0;
                     foreach (SkinnedMeshRenderer renderer in faces)
                         foreach (string shape in TownServiceFaceRig.ShapeNames)
                         { Check(renderer.sharedMesh.GetBlendShapeIndex(shape) >= 0, npc + " " + renderer.name + " binds " + shape); bindings++; }
-                    LODGroup lod = actor!.GetComponent<LODGroup>() ?? throw new Exception(npc + " LOD group missing");
-                    Check(lod != null && lod.GetLODs().Length == 3, npc + " retains three body LOD levels");
-                    foreach (LOD level in lod!.GetLODs())
-                        Check(level.renderers.OfType<SkinnedMeshRenderer>().Any(r => faces.Contains(r)), npc + " each visible LOD includes its facial renderer");
+                    Check(actor!.GetComponentsInChildren<LODGroup>(true).Length == 0,
+                        npc + " no distance-dependent mesh or lighting switches");
+                    Check(actor.GetComponentsInChildren<MeshRenderer>(true).Length == 4,
+                        npc + " both real eyes and corneas retained with fixed-detail skin");
                     ResidentAnatomy[] residentContracts = anatomy!.residents.Where(r => r.npc == npc).ToArray();
                     Check(residentContracts.Length == 1, npc + " independent anatomical contract is unambiguous");
                     AnatomyResult anatomical = CheckAnatomy(npc, residentContracts[0], root, animation, rig, faces);
@@ -285,8 +285,8 @@ internal static class ActualPrefabs
                                     npc + " native body clip never overwrites cached facial weight");
                             rig.BeforeBodySample(); SampleBody(animation!, clip, time);
                             rig.Apply(in pose);
-                            var bodyParts = lod.GetLODs()[0].renderers.OfType<SkinnedMeshRenderer>().ToArray();
-                            Check(bodyParts.Length > 0, npc + " first body LOD contains skinned geometry");
+                            var bodyParts = faces;
+                            Check(bodyParts.Length > 0, npc + " fixed-detail actor contains skinned geometry");
                             Bounds sample = SkinBounds(bodyParts[0], root);
                             foreach (SkinnedMeshRenderer part in bodyParts.Skip(1))
                             { Bounds partBounds = SkinBounds(part, root); sample.Encapsulate(partBounds.min); sample.Encapsulate(partBounds.max); }
