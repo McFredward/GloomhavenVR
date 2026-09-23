@@ -883,6 +883,87 @@
         "local"
       ],
       "weight": 35
+    },
+    {
+      "id": "aoe-control",
+      "command": [
+        "python3",
+        "tests/GloomhavenVR.AoeControlTests/run.py"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 50
+    },
+    {
+      "id": "map-tooltip-transport",
+      "command": [
+        "python3",
+        "tests/GloomhavenVR.MapTooltipTransportTests/run.py"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 50
+    },
+    {
+      "id": "map-tooltip",
+      "command": [
+        "python3",
+        "tests/GloomhavenVR.MapTooltipTests/run.py"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 50
+    },
+    {
+      "id": "city-event-button",
+      "command": [
+        "python3",
+        "tests/GloomhavenVR.CityEventButtonTests/run.py"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 50
+    },
+    {
+      "id": "town-enhancement-handoff",
+      "command": [
+        "python3",
+        "scripts/check-town-enhancement-handoff.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 80
+    },
+    {
+      "id": "town-facial-landmarks",
+      "command": [
+        "python3",
+        "scripts/check-town-facial-landmarks.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 5
+    },
+    {
+      "id": "town-service-clearance",
+      "command": [
+        "python3",
+        "scripts/check-town-service-clearance.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 80
     }
   ]
 }

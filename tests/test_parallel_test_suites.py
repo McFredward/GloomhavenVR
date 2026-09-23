@@ -197,12 +197,14 @@ class ParallelSuitesTests(unittest.TestCase):
         ci = {s['id'] for s in runner.selected_suites(suites, 'ci', (0, 1))}
         physical_town = {'town-service-catalog', 'town-service-mirror', 'town-service-interaction',
                          'town-service-decor', 'town-ritual-transactions', 'town-flame',
-                         'town-service-workspace', 'town-ritual-layout'}
-        self.assertEqual(local, LOCAL_INVENTORY | {"town-service-setting", "town-residents", "town-service-lighting", "town-face", "town-activity"} | physical_town)
-        self.assertEqual(ci, CI_INVENTORY | {"town-service-setting", "town-residents", "town-service-lighting", "town-activity-portable"})
+                         'town-service-workspace', 'town-ritual-layout', 'town-enhancement-handoff',
+                         'town-facial-landmarks', 'town-service-clearance'}
+        map_hotfix = {'aoe-control', 'city-event-button', 'map-tooltip', 'map-tooltip-transport'}
+        self.assertEqual(local, LOCAL_INVENTORY | map_hotfix | {"town-service-setting", "town-residents", "town-service-lighting", "town-face", "town-activity"} | physical_town)
+        self.assertEqual(ci, CI_INVENTORY | map_hotfix | {"town-service-setting", "town-residents", "town-service-lighting", "town-activity-portable"})
         self.assertEqual({s['id'] for s in runner.selected_suites(suites, 'source', (0, 1))}, SOURCE_INVENTORY)
-        self.assertEqual(len(local), 59)
-        self.assertEqual(len(ci), 52)
+        self.assertEqual(len(local), 66)
+        self.assertEqual(len(ci), 56)
         self.assertEqual(local-ci, {'presentation-send', 'town-face', 'town-activity'} | physical_town)
         self.assertEqual(ci-local, {'self-update-dialog', 'banner-pose', 'quest-seat', 'town-activity-portable'})
         self.assertEqual(len(runner.selected_suites(suites, 'source', (0, 1))), 14)
