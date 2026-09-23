@@ -23,7 +23,7 @@ def main():
     # HM08's alar recess, independently identified on its anatomical topology.
     # Targets are pixel positions measured on the 718 px supplied reference.
     recess = np.array([[.139, 6.864, 1.55], [-.139, 6.864, 1.55]])
-    targets = {'merchant': ((393, 360), (331, 360)),
+    targets = {'merchant': ((415, 349), (319, 349)),
                'priestess': ((380, 392), (335, 392)),
                'enchantress': ((394, 416), (355, 416))}
     assertions = 0
@@ -46,10 +46,15 @@ def main():
     for name in ('priestess', 'enchantress'):
         assert not registered(source.portrait_coordinates(recess, source.PROFILES[name]), targets[name])
         assertions += 1
-    # Eye spacing must match the same narrower merchant geometry as the orbit.
+    # The original portrait has separated eyes above a compact full beard. These
+    # checks catch a return to the accumulated narrow-eye/long-goatee fitting.
     eyes = source.fit(np.array([[.30775, 7.28415, 1.24535], [-.30775, 7.28415, 1.24535]]), 'merchant', orbital=False)
-    assert .058 < abs(eyes[0, 0] - eyes[1, 0]) < .064
+    assert .070 < abs(eyes[0, 0] - eyes[1, 0]) < .075
     assertions += 1
+    axial = source.fit(np.array([[0, 8.4913, 0], [0, 6.16, .9], [0, 6.615, 1.5]]), 'merchant', orbital=False)
+    assert .27 < axial[0, 2] - axial[1, 2] < .29
+    assert .35 < (axial[2, 2] - axial[1, 2]) / (axial[0, 2] - axial[1, 2]) < .42
+    assertions += 2
     print(f'PASS: {assertions} facial landmark assertions; 8 registration negative controls')
 
 

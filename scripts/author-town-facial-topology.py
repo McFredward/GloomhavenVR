@@ -17,8 +17,8 @@ from mathutils import Vector
 RAW_HEIGHT = [5.80,6.16,6.527,6.615,6.696,6.91,7.28415,7.51,8.4913]
 PROFILES = {
  'merchant': dict(base=1.440, lo=(-.10915041,-.12370944,-.01239385), hi=(.10918231,.12368525,.30980915),
-                  bounds=(132,18,592,703), center=362, pixelsPerX=260, depthScale=.100, depthOffset=.056,
-                  pixelsY=[709,630,449,428,411,347,260,210,18]),
+                  bounds=(136,22,600,697), center=367, pixelsPerX=272, depthScale=.100, depthOffset=.056,
+                  pixelsY=[697,645,442,418,400,338,252,210,22]),
  'priestess': dict(base=1.445, lo=(-.085303247,-.108154021,-.00000448), hi=(.08529919,.10801458,.27995017),
                   bounds=(156,26,559,699), center=357.5, pixelsPerX=249, depthScale=.085, depthOffset=.012,
                   pixelsY=[709,565,482,464,451,397,294,249,26]),
@@ -69,16 +69,18 @@ def facial_texture_coordinates(raw, name):
     nose = np.exp(-((x / .30) ** 4 + ((y - 6.86) / .24) ** 4))
     nose *= np.clip((depth - 1.28) / .16, 0, 1)
     pixels[:, 1] -= {'merchant': 3., 'priestess': 18., 'enchantress': 4.}[name] * nose
-    pixels[:, 0] -= x * PROFILES[name]['pixelsPerX'] * {'merchant': .16, 'priestess': .34, 'enchantress': .42}[name] * nose
+    pixels[:, 0] -= x * PROFILES[name]['pixelsPerX'] * {'merchant': -.28, 'priestess': .34, 'enchantress': .42}[name] * nose
     return pixels
 
 
 def profile_x_scale(name):
+    if name == 'merchant': return .115
     p=PROFILES[name]
-    return (p['hi'][0]-p['lo'][0])*p['pixelsPerX']/(p['bounds'][2]-p['bounds'][0])*{'merchant':.86*1.04*.90,'priestess':1.0,'enchantress':1.22}[name]
+    return (p['hi'][0]-p['lo'][0])*p['pixelsPerX']/(p['bounds'][2]-p['bounds'][0])*{'priestess':1.0,'enchantress':1.22}[name]
 
 
 def eye_height(name):
+    if name == 'merchant': return 1.650
     p=PROFILES[name];py=p['pixelsY'][6]
     z=p['lo'][2]+(p['bounds'][3]-py)/(p['bounds'][3]-p['bounds'][1])*(p['hi'][2]-p['lo'][2])
     if name=='priestess':z=float(np.interp(z,[0,.055,.102,.141,.175,.200,.28],[0,.055,.094,.133,.164,.191,.28]))
@@ -103,43 +105,29 @@ def fit(raw,name,orbital=True):
     neck_top=p['base'] if name!='merchant' else p['base']+p['lo'][2]+(p['bounds'][3]-709)/(p['bounds'][3]-p['bounds'][1])*(p['hi'][2]-p['lo'][2])
     world_z=np.where(raw[:,1]<5.8,neck_top+(raw[:,1]-5.8)*.14,world_z)
     if name=='merchant':
-        # The portrait beard tip is not the anatomical chin. The 543 fit mapped
-        # them identically and elongated the whole mandible. Keep eye height but
-        # restore the original merchant's shorter, broader lower face and scalp.
-        world_z=np.interp(world_z,[1.30,1.42,1.475,1.565,1.636,1.750],[1.30,1.42,1.475,1.565,1.636,1.732])
-        # Hardware 545 showed a horizontally stretched merchant. Fit the cheek
-        # contour rather than compounding mouth, jaw and beard widening factors.
-        broad=np.interp(raw[:,1],[5.8,6.16,6.7,7.284,8.49],[1,1.02,.96,1.04,1.02]);x*=broad
-    if name=='merchant':
-        # The original trader has a broad, projecting nose rather than the
-        # template's narrow bridge. Fit its volume without moving lip landmarks.
-        nose=np.exp(-((raw[:,0]/.22)**2+((raw[:,1]-6.91)/.22)**2))*np.clip((raw[:,2]-1.35)/.15,0,1)
-        x*=1+.30*nose;y-=.005*nose
-        mouth=np.exp(-((raw[:,1]-6.66)/.22)**2)*np.clip((raw[:,2]-1.15)/.20,0,1)
-        x*=1+.025*mouth
-        corners=np.exp(-((np.abs(raw[:,0])-.34)/.14)**2)*mouth
-        world_z+=.004*corners
-    # Physical interocular distance comes from the source character, not the
-    # aspect ratio of a separately generated portrait crop. Keep projection UVs
-    # independent of this anatomical fitting transform.
-    x*= {'merchant':1.0,'priestess':1.0,'enchantress':1.22}[name]
-    if name=='merchant':
-        orbit=np.exp(-((np.abs(raw[:,0])-.30775)/.24)**2-((raw[:,1]-7.28415)/.36)**2)
-        x-=np.sign(x)*.0055*orbit
-        # A rounded crown is fitted by horizontal ellipsoid sections, avoiding
-        # the flat top and corner created by anisotropic template scaling.
-        dome=np.clip((world_z-1.655)/.045,0,1);dome=dome*dome*(3-2*dome)
+        # Refit from the original game's compact, expressive merchant silhouette.
+        # Earlier revisions accumulated width factors on a long neutral head;
+        # narrowing that result could never restore his eye spacing or full beard.
+        x=raw[:,0]*.115
+        world_z=np.interp(raw[:,1],RAW_HEIGHT,[1.435,1.490,1.569,1.577,1.589,1.612,1.650,1.670,1.750])
+        world_z=np.where(raw[:,1]<5.8,1.435+(raw[:,1]-5.8)*.14,world_z)
+        nose=np.exp(-((raw[:,0]/.25)**2+((raw[:,1]-6.91)/.24)**2))*np.clip((raw[:,2]-1.35)/.15,0,1)
+        x*=1+.16*nose; y-=.004*nose
+        # The beard remains a full rounded volume, with no elongated goatee tip.
+        beard=np.exp(-((raw[:,1]-6.22)/.38)**2)*np.clip((raw[:,2]-.50)/.30,0,1)
+        x*=1+.35*beard; y-=.006*beard
+        world_z-=.020*beard
+        # A friendly resting mouth follows the painted merchant's upturned corners.
+        mouth=np.exp(-((raw[:,1]-6.64)/.18)**2)*np.clip((raw[:,2]-1.20)/.15,0,1)
+        world_z+=.004*np.exp(-((np.abs(raw[:,0])-.32)/.14)**2)*mouth
+        x*=1+.10*mouth
+        dome=np.clip((world_z-1.682)/.040,0,1);dome=dome*dome*(3-2*dome)
         angle=np.arctan2(x,y+.002)
-        section=np.sqrt(np.maximum(0,1-((world_z-1.625)/.10685)**2))
+        section=np.sqrt(np.maximum(0,1-((world_z-1.643)/.107)**2))
         x=x*(1-dome)+.098*section*np.sin(angle)*dome
         y=y*(1-dome)+(-.002+.112*section*np.cos(angle))*dome
-        beard=np.exp(-((raw[:,1]-6.22)/.36)**2)*np.clip((raw[:,2]-.50)/.30,0,1)
-        x*=1+.12*beard;y-=.007*beard
-        tip=np.exp(-((raw[:,1]-6.15)/.23)**2)*np.clip((raw[:,2]-.45)/.40,0,1)
-        world_z-=.012*tip
-        brow=np.exp(-((raw[:,1]-7.51)/.13)**2)*np.clip((raw[:,2]-1.03)/.20,0,1)
-        world_z+=.003*brow*np.clip((np.abs(raw[:,0])-.15)/.25,-1,1)
-        x*=.90
+    elif name=='enchantress':
+        x*=1.22
     # A volumetric orbital surface follows the actual spherical eye. The previous
     # nonuniform portrait-height mapping flattened the globe vertically and left
     # a sharp elliptical cutout instead of an upper/lower lid against a sphere.
@@ -148,7 +136,7 @@ def fit(raw,name,orbital=True):
         cz=eye_height(name)
         cy=p['depthOffset']-1.24535*p['depthScale']
         aperture=np.clip((.34-np.abs(raw[:,1]-7.28415))/.20,0,1)*np.clip((.29-np.abs(raw[:,0]-side*.30775))/.08,0,1)*np.clip((raw[:,2]-1.12)/.10,0,1)
-        world_z+= (world_z-cz)*(.024 if name=='merchant' else .12)*aperture
+        world_z+= (world_z-cz)*(.20 if name=='merchant' else .12)*aperture
         dx=x-cx;dz=world_z-cz;radius=.014
         radial=(dx*dx+dz*dz)/(radius*radius)
         inner=np.clip((raw[:,2]-1.12)/.10,0,1)
@@ -205,10 +193,10 @@ def head_mesh(raw,faces,groups,face_uv,name,refs,data):
     obj=bpy.data.objects.new('Face',mesh);bpy.context.collection.objects.link(obj)
     for p in mesh.polygons:p.use_smooth=True
     pixels=facial_texture_coordinates(raw[ids],name);profile=PROFILES[name]
-    bounds_side={'merchant':(66,12,633,699),'priestess':(111,25,610,700),'enchantress':(34,6,638,717)}[name]
-    bounds_back={'merchant':(116,13,607,679),'priestess':(156,29,561,692),'enchantress':(77,13,649,710)}[name]
-    eye_y={'merchant':260,'priestess':294,'enchantress':313}[name]
-    eye_width={'merchant':43,'priestess':34,'enchantress':35}[name]
+    bounds_side={'merchant':(67,22,610,696),'priestess':(111,25,610,700),'enchantress':(34,6,638,717)}[name]
+    bounds_back={'merchant':(140,22,622,691),'priestess':(156,29,561,692),'enchantress':(77,13,649,710)}[name]
+    eye_y={'merchant':252,'priestess':294,'enchantress':313}[name]
+    eye_width={'merchant':31,'priestess':34,'enchantress':35}[name]
     closed=posed_source(posed_source(raw,'BlinkLeft',data),'BlinkRight',data)
     closed_pixels=portrait_coordinates(closed[ids],profile)
     skin_rows={}
@@ -247,11 +235,16 @@ def head_mesh(raw,faces,groups,face_uv,name,refs,data):
     for loop in mesh.loops:
         index=loop.vertex_index;x,y,z=raw[ids[index]];px,py=pixels[index]
         eye_x=profile['center']+(.30775 if x>0 else -.30775)*profile['pixelsPerX']
-        radius=math.sqrt(((px-eye_x)/eye_width)**2+((py-eye_y)/25)**2)
+        radius=math.sqrt(((px-eye_x)/eye_width)**2+((py-eye_y)/(18 if name=='merchant' else 25))**2)
         fade=max(0,min(1,(1.55-radius)/.55));fade=fade*fade*(3-2*fade)
         # A feathered real two-dimensional cheek-skin sample removes the original
         # photographic eye from eyelid skin without a hard UV edge or scanline smear.
         sample_y=eye_y+42+(closed_pixels[index,1]-eye_y)*.7
+        if name=='merchant':
+            # Upper lids must not borrow the under-eye bag texture. Preserve the
+            # new reference's true brow and use separate bare upper/lower skin.
+            upper=y>=7.28415
+            sample_y=eye_y+(-105 if upper else 68)+(closed_pixels[index,1]-eye_y)*.20
         lid_uv.data[loop.index].uv=(px/718,1-sample_y/718)
         lid_weight.data[loop.index].color=(fade,fade,fade,1)
     mesh.uv_layers.new(name='NeckSkin')
@@ -298,7 +291,7 @@ def head_mesh(raw,faces,groups,face_uv,name,refs,data):
     neckuv=nodes.new('ShaderNodeUVMap');neckuv.uv_map='NeckSkin';links.new(neckuv.outputs[0],neck.inputs[0])
     neckweight=nodes.new('ShaderNodeVertexColor');neckweight.layer_name='NeckWeight'
     blend=nodes.new('ShaderNodeMixRGB');links.new(neckweight.outputs[0],blend.inputs[0]);identity=nodes.new('ShaderNodeVertexColor');identity.layer_name='BeardIdentity'
-    tint=nodes.new('ShaderNodeMixRGB');tint.blend_type='MULTIPLY';links.new(identity.outputs[0],tint.inputs[0]);links.new(back.outputs[0],tint.inputs[1]);tint.inputs[2].default_value=(.56,.50,.44,1)
+    tint=nodes.new('ShaderNodeMixRGB');tint.blend_type='MULTIPLY';links.new(identity.outputs[0],tint.inputs[0]);links.new(back.outputs[0],tint.inputs[1]);tint.inputs[2].default_value=(.65,.59,.52,1)
     cosmetics=nodes.new('ShaderNodeVertexColor');cosmetics.layer_name='PortraitMakeup';channels=nodes.new('ShaderNodeSeparateColor');links.new(cosmetics.outputs[0],channels.inputs[0])
     eye_tint=nodes.new('ShaderNodeMixRGB');links.new(channels.outputs[0],eye_tint.inputs[0]);links.new(tint.outputs[0],eye_tint.inputs[1]);eye_tint.inputs[2].default_value=(.055,.043,.10,1)
     lip_tint=nodes.new('ShaderNodeMixRGB');links.new(channels.outputs[1],lip_tint.inputs[0]);links.new(eye_tint.outputs[0],lip_tint.inputs[1]);lip_tint.inputs[2].default_value=(.14,.046,.17,1)
@@ -323,7 +316,7 @@ def head_mesh(raw,faces,groups,face_uv,name,refs,data):
             if mesh.color_attributes['LidWeight'].data[loop.index].color[0]<.99:continue
             original=mesh.uv_layers['Reference_front'].data[loop.index].uv
             patched=mesh.uv_layers['LidSkin'].data[loop.index].uv
-            verified.append(original.y-patched.y>.02 and (1-patched.y)*718>eye_y+20)
+            verified.append(abs(original.y-patched.y)>.012 and abs((1-patched.y)*718-eye_y)>20 if name=='merchant' else original.y-patched.y>.02 and (1-patched.y)*718>eye_y+20)
         assert len(verified)>10 and all(verified),'Eyelid skin UV allocation lost or still samples the photographed eye'
     obj.shape_key_add(name='Basis')
     return obj,ids
