@@ -186,3 +186,13 @@ namespace GloomhavenVR.WorldUI
 namespace UnityEngine.UI { public class UIWindow : MonoBehaviour { } }
 namespace GloomhavenVR.WorldUI { internal static class TownServiceConfirmationMask
 { internal static void Begin(UnityEngine.UI.UIWindow? window, Func<object?> identity) { } } }
+
+// Catalogue tests exercise native stock and input. The workspace suite binds real terrain
+// sampling, support transforms and remote parity against the actual furniture bundle.
+namespace GloomhavenVR.Core { internal static class SkyAlternative { internal static UnityEngine.Transform? PlacedRoomRoot = null; } }
+namespace GloomhavenVR.WorldUI { internal sealed class TownServiceGrounding : System.IDisposable {
+ internal TownServiceGrounding(UnityEngine.Transform root, UnityEngine.Transform? furniture = null) { }
+ internal void Resolve(out float actor, out float bottom) { actor = bottom = 0f; }
+ internal void Apply(float actor, float bottom) { }
+ public void Dispose() { }
+} }

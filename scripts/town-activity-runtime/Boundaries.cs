@@ -24,7 +24,9 @@ namespace GloomhavenVR.Rig { internal static class VRRigDriver { internal static
 namespace GloomhavenVR.WorldUI
 {
     internal static class SkyAlternative {internal static Transform? PlacedRoomRoot=null;}
-    internal static class TownServicePlacement {internal static float GroundHeight(Transform room,Vector3 world)=>world.y;}
+    // Activity cases use no terrain; actual mesh sampling is covered by workspace/setting suites.
+    internal static class TownServicePlacement {internal static float GroundHeight(Transform room,Vector3 world)=>world.y;
+        internal static bool TryHeight(Vector3 point, Vector3 a, Vector3 b, Vector3 c, out float y) { y=0f; return false; }}
     internal static class TownServicePresentation { internal static bool Active=false;internal static byte Service=0; }
 }
 namespace GloomhavenVR.Net.TownServices
