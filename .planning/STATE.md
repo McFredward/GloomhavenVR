@@ -1,9 +1,10 @@
 # State — where the project stands
 
-**Updated 2026-09-22 for map hotfixes; dev 1.0.7 / ModBuild 546, without NPC services.**
-The complete NPC development is isolated on `feature/immersive-town-services` for a
-future release of at least 1.1.0. Builds 538–545 remain reserved for that branch.
-Current fixes and validation: [MAP-546.md](MAP-546.md).
+**Updated 2026-09-23: feature/immersive-town-services, version 1.1.0 / ModBuild 547 in development.**
+The feature is based on dev e63fb284, including released 1.0.7 / build 546. Dev remains
+the separate 1.0.8 hotfix line. The maintainer hardware-confirmed 546 before release.
+Current NPC revision: [research/TOWN-SERVICES-547.md](research/TOWN-SERVICES-547.md).
+NPC workers integrate and push exclusively to the feature branch during this work.
 
 The file this replaces had gone 168 builds
 stale while still saying "read this first"; it is kept as `STATE-ARCHIVE-through-2026-08.md` for
@@ -29,6 +30,121 @@ change per build) → this file (where things stand and what is owed) → the bu
   Supplied logs are older NPC build 544 / remote build 500, so this implementation has
   no matching headset confirmation yet. No release or NPC-branch changes are included.
 
+- **Town hardware corrections / build 545 (hardware candidate):** build 544's eleven
+  screenshots supersede earlier asset-quality assumptions. Physical complete merchant stock,
+  native coin offerings, physical enhancement choices, original decoration and owner-authored
+  multiplayer output are integrated. Final portrait-fitted faces, spherical eyes, closed
+  costume joins and anatomical hands ship in the matching 100,501,555-byte Windows town bundle
+  (`08ff8501…fe597e`). Actual asset validation passes 599 render assertions / six negatives; actual
+  activity/contact validation passes 125088 / eleven negatives. All map environments share
+  one scenery-checked station layout. Full local guard passes 14 source / 59 runtime suites and 260312 wire assertions; only
+  the expected historical compiled-baseline differences remain. Strict Release has zero
+  warnings/errors. The full matching ZIP is built and CRC/hash-verified. Dev CI status is
+  checked at handoff; private evidence is `debug/town545-package-verification.json`.
+  Close stereo appearance and hardware timing remain unverified; install the complete package
+  on all VR peers. See [research/TOWN-SERVICES-545.md](research/TOWN-SERVICES-545.md).
+
+- **Town hardware corrections / build 544 (new defects confirmed; superseded by 545 work):** the build-543 test exposed black eyes,
+  merchant identity drift and open costume joins. Corrected Windows eye lighting, fitted
+  heads, continuous neck/costume joins and shared work/attention animation are integrated.
+  Full local guard passes 14 source / 51 runtime suites and 260310 wire assertions;
+  strict Release has zero warnings/errors. Final assets pass 489 assertions / six visual
+  negative controls, actual prefab faces 9862 assertions / three compiled negatives /
+  nine anatomical corruption controls, and activities 92107 assertions / nine compiled
+  negatives. The source-only CI subset passes 24031 assertions / five negatives.
+  The full package contains the matching 98,325,951-byte Windows town bundle; the main
+  bundle is unchanged. Install the full package on all VR peers. Headset appearance,
+  close-range stereo and hardware frame timing remain unverified. See
+  [research/TOWN-SERVICES-544.md](research/TOWN-SERVICES-544.md).
+
+- **Town faces / build 543 (hardware defects confirmed; superseded by 544 work):** anatomical faces, separate eyes, shared
+  head/eye tracking, frame-by-frame blink and subtle expression playback are integrated.
+  Full local guard passes 50 runtime suites,
+  258091 wire assertions and the real Unity face suite (2076 assertions / 16 negative
+  controls); strict Release has zero warnings/errors. The voice audit finds original
+  narration but no matching recordings for the three residents; no generated voices ship.
+  Final asset rendering passes 469 assertions / six visual negative controls; production
+  binding to the actual final prefabs passes 9862 assertions / three compiled negative
+  controls plus nine deliberately corrupted jaw-weight cases. Root reviewed final neutral,
+  blink, mouth and gaze-limit renders. The matching 99,211,283-byte Windows town bundle
+  is required; install the full package. The main bundle is unchanged. Existing costume
+  cut-edge imperfections and Windows eye-lighting failures were subsequently confirmed
+  on hardware; the earlier automated checks did not establish a correct headset picture.
+  See [research/TOWN-SERVICES-543.md](research/TOWN-SERVICES-543.md).
+
+- **Town residents / build 542 hardware candidate:** all three NPCs remain on the map in immersive
+  mode; direct NPC visits replace service map caps. Actual-floor placement, native decoration,
+  practical lighting, held merchant inspection and additive shared resident authority are
+  integrated. No purchase occurs on grip/release. Full source/runtime guard passes
+  49 suites and 257025 wire assertions; expected old-baseline compiled differences remain.
+  New neutral heads, original-game decoration and the matching 81.6 MB town bundle pass
+  78 asset assertions and six visual negative controls. Fine facial mesh artifacts remain;
+  facial animation topology and headset quality are not claimed complete. Install both
+  bundles with the matching DLL. See [research/TOWN-SERVICES-542.md](research/TOWN-SERVICES-542.md).
+
+- **Validation infrastructure (runtime remains build 541):** independent source/runtime
+  suites now use bounded parallel execution with isolated logs and temporary outputs.
+  CI distributes its runtime suites across four required shards while preserving exact-tree
+  proof, main-only release publication and optional artifact limits. Measurement and coverage:
+  [TEST-PARALLELISM.md](TEST-PARALLELISM.md).
+
+- **Town services / build 541:** build-540 hardware logs reproduce merchant setup failure
+  immediately after the Buy/Sell/All control conversions. The catalog dereferenced the
+  gamepad-only Owned filter, absent from desktop merchant UI. Its handoff now follows the
+  actual native control set. Repeated catalog tests cover both prefab variants and rollback.
+  VR options expose an explicit immersive/original-window choice in a dedicated first town
+  services section under Boards, backed by the existing default-on setting. Both asset
+  bundles are unchanged from 540. This is a development correction, not a release; successful
+  headset opening remains unverified. Evidence: [research/TOWN-SERVICES-541.md](research/TOWN-SERVICES-541.md).
+
+- **Town services / build 540:** the first hardware test of 539 exposed invisible actors,
+  black furniture, a native error dialog and the unsuitable floating merchant inventory.
+  Corrected NPC LOD bounds and self-contained textured lighting ship in a new town bundle.
+  Mirror-template preparation validates item provenance before touching a pooled card;
+  the native item-ID-zero error path is avoided. The merchant now has six original item
+  cards per page, original prices and buy/sell/filter/exit controls on its counter. Physical
+  samples still select through native rows; purchases retain native confirmation.
+  Reversible wrappers hide the obsolete list without disabling gameplay, and orphan-frame
+  collection respects live service/error owners. Original item details/rule hints remain
+  visible on the counter; additional visitors have separate full-size workspaces with
+  owner-authored motion and materials. Temple/enchantress gain the asset and
+  lifecycle corrections; their existing reading-surface interaction is not replaced by
+  the merchant rack. Default-on settings and original-window rollback remain unchanged.
+  Evidence, validation and hardware checklist: [research/TOWN-SERVICES-540.md](research/TOWN-SERVICES-540.md).
+  Both bundles must be installed. This is an unreleased development build; corrected
+  headset output remains unverified.
+
+- **Town services / build 539:** VR options expose `WorldUI/ImmersiveTownServices`,
+  enabled by default (maintainer clarification, 2026-09-21). Turning it off restores the three original service windows through
+  the ordinary conversion path, including an already-open service, without changing native
+  selection or invoking close/confirmation callbacks. Held samples are cancelled, original
+  section parents and portraits restored. Enabled remote visitors remain visible regardless
+  of the observer's local preference. Unity validation passes 617 assertions and 22 compiled
+  negative controls. Hardware verification of live switching is pending.
+
+- **Town services / build 538:** first immersive merchant, temple and enchantress variant.
+  Three generated NPCs have body/finger rigs, authored greeting/idle animations, three mesh
+  LODs and 4K textures. A separate `prebuilt/ghvr-town.bundle` keeps the existing asset bank
+  unchanged. Native service sections become movable reading surfaces; gripping an original
+  entry and placing its sample on the work tray selects through the original button.
+  Native ownership, prices, restrictions, confirmations and continuations remain authoritative.
+  Concurrent visitors share one NPC per service. Original visible widget output is transported
+  to inert observer copies, including nested masks, card art and dynamic tooltip contents.
+  The complete package requires **both** asset bundles; installing only the DLL is insufficient.
+  Record and hardware checklist: [research/TOWN-SERVICES-FIRST-VARIANT.md](research/TOWN-SERVICES-FIRST-VARIANT.md).
+  Source, Unity render and archive validation are recorded there; headset presentation remains
+  unverified. This is a development handoff, not a release. Detailed facial animation and
+  transaction-specific NPC hand choreography remain later polish.
+  Original exports, generated sheets and paid mesh provenance remain separate in
+  `.planning/debug/npc-references/`, `npc-modeling/` and `npc-meshes/` respectively.
+  Seven FAL generation jobs were used, estimated USD 4.275; no additional paid generation
+  was needed for runtime integration. Actual account billing was not independently audited.
+
+- **Released 1.0.6 / ModBuild 537:** the maintainer confirmed the menu fix; the final
+  hardware log audit found no release blocker. Main commit `59a5d884`, tag `v1.0.6`,
+  release workflow `35525779327` succeeded. Published ZIP downloaded and verified.
+  Automatic bookkeeping advanced dev to 1.0.7 at `ff59a14e`; no runtime build increment.
+
 - **dev / 1.0.6 / ModBuild 537** removes VR-triggered native focus handoffs:
   opening settings must not shade otherwise usable menu entries. Native hidden callbacks
   are accepted in their actual order, and the row is silently cleared at closure rather
@@ -45,7 +161,8 @@ change per build) → this file (where things stand and what is owed) → the bu
   625 / 174 / 4,742; inventory 132 classes / 200 methods. Guard exit 1 is solely the
   expected old-baseline difference (101 changed, 78 added/removed, one order-only move).
   Direct compiled comparison with build 536 isolates the three intended menu types
-  plus embedded build-number changes. Build-537 headset confirmation remains pending.
+  plus embedded build-number changes. Subsequently confirmed on the maintainer's headset
+  and included in release 1.0.6, as recorded above.
 
 - **dev / 1.0.6 / ModBuild 536** addresses repeated VR-options access. The initial
   Sep-20 logs are released build 534: its fourth opening within 60 seconds triggers

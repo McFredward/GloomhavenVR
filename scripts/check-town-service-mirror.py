@@ -1,0 +1,170 @@
+#!/usr/bin/env python3
+"""Run production town-service capture/codec/playback and render comparisons in Unity 2021.3.5."""
+import argparse
+import hashlib
+import json
+import os
+from pathlib import Path
+import shutil
+import subprocess
+import tempfile
+
+
+def method(text, signature):
+    start = text.index("    " + signature)
+    end = text.index("\n    }", start) + 6
+    return text[start:end]
+
+
+def expression(text, signature):
+    start = text.index("    " + signature)
+    return text[start:text.index(";", start) + 1]
+
+
+def sources(root):
+    base = root / "src/GloomhavenVR"
+    names = ["TownServiceAssets", "TownServiceBinding", "TownServiceCodec", "TownServiceDelta",
+             "TownServiceFrame", "TownServiceMaterial", "TownServiceFlameClock", "TownServiceMirror"]
+    bound = {name + ".cs": (base / "Net/TownServices" / (name + ".cs")).read_text() for name in names}
+    backdrop = base / "WorldUI/TownServices/TownServiceBackdropAssets.cs"
+    if backdrop.exists(): bound[backdrop.name] = backdrop.read_text()
+    motion = base / "Net/TownServices/TownServiceMotion.cs"
+    if motion.exists(): bound[motion.name] = motion.read_text()
+    publisher = (base / "WorldUI/TownServices/TownServiceSync.cs").read_text()
+    bound["PublisherTick.cs"] = "using System;\nusing GloomhavenVR.Net.TownServices;\nusing UnityEngine;\nnamespace GloomhavenVR.WorldUI;\ninternal static partial class TownServiceSync {\n" + "\n".join(method(publisher, signature) for signature in ("internal static void Tick(Transform sharedFrame, Transform? stationRoot)", "private static void PublishHeld(TownServiceToken sample, Transform original)", "private static void PublishCopiedCards(Transform original, Func<Transform, Transform?> cloneOf)", "private static string? DynamicKey(Transform source)")) + "\n}\n"
+    bound["PublisherTick.cs"] = bound["PublisherTick.cs"].replace("internal static partial class TownServiceSync {\n",
+        "internal static partial class TownServiceSync {\n" + "\n".join(expression(publisher, declaration) for declaration in
+        ("private static uint _generation", "private static ulong _relocationRevision", "private static bool _generationExhausted")) + "\n"
+        + method(publisher, "internal static void Reset()") + "\n"
+        + publisher[publisher.index("    internal static void ResetNetwork()"):publisher.index("\n", publisher.index("    internal static void ResetNetwork()"))] + "\n")
+    drawer = (base / "WorldUI/TownServices/TownServiceMerchantDrawer.cs").read_text()
+    bound["DrawerTemplates.cs"] = "using System;\nusing UnityEngine;\nusing TMPro;\nnamespace GloomhavenVR.WorldUI;\ninternal sealed partial class TownServiceMerchantDrawer {\n" + "\n".join(method(drawer, signature) for signature in ("internal static GameObject CreateTemplate(TMP_Text? font)", "internal static GameObject CreateHousingTemplate()", "private static Material OriginalWood()", "private static void Part(Transform parent,string name,Vector3 position,Vector3 scale)")) + "\n}\n"
+    town_neutralizer = base / "Net/TownServices/TownServiceNeutralize.cs"
+    if town_neutralizer.exists():
+        bound[town_neutralizer.name] = town_neutralizer.read_text()
+        return bound, {name: hashlib.sha256(text.encode()).hexdigest() for name, text in bound.items()}
+    neutral = (base / "Net/Remote/RemoteWidgetMirror.cs").read_text()
+    scaffold = "using System;\nusing System.Collections.Generic;\nusing UnityEngine;\nusing UnityEngine.UI;\nusing Object = UnityEngine.Object;\nnamespace GloomhavenVR.Net;\ninternal static class RemoteWidgetMirror {\ninternal enum LayoutOwner { Source, CloneAtBoardOwnersWidth }\n"
+    scaffold += method(neutral, "internal static void Neutralize(") + "\n"
+    scaffold += expression(neutral, "private static bool IsPresentation(") + "\n"
+    scaffold += expression(neutral, "private static bool IsStockLayout(") + "\n"
+    scaffold += method(neutral, "private static bool InsideAny(") + "\n"
+    scaffold += method(neutral, "private static bool IsSelfOrDescendant(") + "\n}\n"
+    bound["Neutralize.cs"] = scaffold
+    hashes = {name: hashlib.sha256(text.encode()).hexdigest() for name, text in bound.items()}
+    hashes["RemoteWidgetMirror.cs (full source)"] = hashlib.sha256(neutral.encode()).hexdigest()
+    return bound, hashes
+
+
+def main():
+    repo = Path(__file__).resolve().parent.parent
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--source-root", type=Path, default=repo)
+    parser.add_argument("--output-dir", type=Path, default=repo / ".planning/debug/town-service-mirror")
+    parser.add_argument("--unity", type=Path, default=Path(os.environ.get("UNITY_PATH", "/home/claw/unity-2021.3.5/Editor/Unity")))
+    parser.add_argument("--suite", choices=("basic", "full", "lifecycle", "counter-final", "relocation", "asset-identity"), default="full")
+    parser.add_argument("--no-negative-controls", action="store_true")
+    args = parser.parse_args()
+    args.source_root = args.source_root.resolve()
+    args.output_dir.mkdir(parents=True, exist_ok=True)
+    run = Path(tempfile.mkdtemp(prefix="run-", dir=args.output_dir.resolve()))
+    fixture = Path(__file__).resolve().parent / "town-service-mirror-runtime"
+    dotnet = shutil.which("dotnet") or str(Path.home() / ".dotnet/dotnet")
+    managed = args.source_root / "ressources/GH_Data/Managed"
+    bound, hashes = sources(args.source_root)
+    (run / "source-hashes.json").write_text(json.dumps({"root": str(args.source_root.resolve()), "sha256": hashes}, indent=2) + "\n")
+    manifest = {"result": str(run / "results.txt"), "evidence": str(run), "suite": args.suite, "cases": []}
+    variants = [("production", None, None, None, "")]
+    if not args.no_negative_controls:
+        variants += [
+            ("text", "TownServiceBinding.cs", "tmp.text = text[0];", 'tmp.text = "CORRUPTED";', "owner TMP text survives codec and playback"),
+            ("mesh", "TownServiceBinding.cs", "mesh.enabled = n[0] != 0;", "mesh.enabled = true;", "handle mesh enabled state follows owner"),
+            ("group", "TownServiceBinding.cs", "cg.alpha = n[1];", "cg.alpha = .1f;", "root CanvasGroup alpha matches owner"),
+            ("raycast", "TownServiceBinding.cs", "g.raycastTarget = false;", "g.raycastTarget = true;", "clone graphic raycasts are disabled"),
+            ("color", "TownServiceBinding.cs", "g.color = ColorAt(n, 1);", "g.color = Color.red;", "owner and observer rendered UI match: baseline"),
+            ("rect-mask", "TownServiceBinding.cs", "clip.padding = new Vector4(n[1], n[2], n[3], n[4]);", "clip.padding = Vector4.zero;", "owner RectMask padding survives playback"),
+            ("early-awake", "TownServiceMirror.cs", "Object.Instantiate(original.gameObject, _templateHost.transform, false)", "Object.Instantiate(original.gameObject)", "inactive template never executes gameplay callbacks"),
+        ]
+        if args.suite == "full":
+            variants += [
+                ("publisher-old-window", "PublisherTick.cs", 'if (catalog == null && TownServicePresentation.Ritual == null)\n            Publish(prefix,', 'if (true)\n            Publish(prefix,', "physical counter does not publish suppressed flat merchant window"),
+                ("publisher-stale-entry", "PublisherTick.cs", "if (!entry.Current || !entry.Exposed) continue;", "// publish stale entry", "physical counter publishes only six current item cards"),
+                ("publisher-cardbody", "PublisherTick.cs", 'Publish("merchant.cardbody", entry.BodyRoot);', '// body omitted', "every original face retains its physical body remotely"),
+                ("publisher-held-duplicate", "PublisherTick.cs", 'if (sample.IsPhysical) continue;', '// physical guard omitted', "physical original is not duplicated by generic held publication"),
+                ("publisher-price-provenance", "PublisherTick.cs", "entry.RowSource.transform, entry.RowCloneOf", "null, null", "counter price clone retains original row provenance map"),
+                ("parent-alpha", "TownServiceMirror.cs", "alpha *= group.alpha;", "alpha *= Mathf.Abs(group.alpha - .37f) < .0001f ? 1f : group.alpha;", "counter opening transports inherited parent alpha"),
+                ("canvas", "TownServiceBinding.cs", "canvas.enabled = n[0] != 0;", "canvas.enabled = true;", "false Canvas remains disabled"),
+                ("sibling", "TownServiceMirror.cs", "if (reorder) OrderOriginalSiblings(standing);", "if (reorder && standing.Count == 1) OrderOriginalSiblings(standing);", "owner and observer rendered UI match: nested-row-module"),
+                ("mask", "TownServiceBinding.cs", "mask.showMaskGraphic = n[1] != 0;", "mask.showMaskGraphic = false;", "owner and observer rendered UI match: dynamic-order-component-mask"),
+            ]
+    if args.suite == "lifecycle":
+        variants = [("production", None, None, None, "")]
+        if not args.no_negative_controls:
+            variants.append(("cancel-target-restore", "TownServiceMotion.cs",
+                "if (_hasTarget)\n            for", "if (_hasTarget && _nodes.Length == 0)\n            for",
+                "reopen restores unchanged child target after interrupted tween"))
+    if args.suite == "counter-final":
+        variants = [("production", None, None, None, "")]
+        if not args.no_negative_controls:
+            variants += [
+                ("preview-nested-card", "PublisherTick.cs", "for (int i = 0; i < original.childCount; i++) PublishCopiedCards(original.GetChild(i), cloneOf);", "// omit nested card traversal", "native detail preview publishes its nested pooled item card"),
+                ("preview-provenance", "PublisherTick.cs", "Publish(key, clone, original, cloneOf);", "Publish(key, clone, null, null);", "nested preview retains original card provenance"),
+                ("furniture-visibility", "TownServiceMaterial.cs", "value.x = material.GetFloat(name);", "value.x = name == \"_TownVisibility\" ? 1f : material.GetFloat(name);", "remote furniture uses exact owned visibility material value"),
+            ]
+    if args.suite == "relocation":
+        variants = [("production", None, None, None, "")]
+        if not args.no_negative_controls:
+            variants += [
+                ("no-relocation-generation", "PublisherTick.cs", " || _relocationRevision != relocation", "", "dropped invisible frames cannot interpolate across relocation"),
+                ("invisible-baseline", "PublisherTick.cs", "if (TownServicePresentation.RelocationVisibility <= 0f) return;", "", "first visible relocation state is independently decodable"),
+                ("reused-generation", "PublisherTick.cs", "_generation++;", "_generation = session;", "dropped invisible frames cannot interpolate across relocation"),
+                ("generation-wrap", "PublisherTick.cs", "if (_generation == uint.MaxValue)", "if (false)", "Missing town-service session frame"),
+            ]
+    if args.suite == "asset-identity":
+        variants = [("production", None, None, None, "")]
+        if not args.no_negative_controls:
+            variants += [
+                ("no-original-identity", "TownServiceAssets.cs", "_originalKeys.Add(id, key); _keys[id] = key; _assets[key] = asset;", "return;", "explicit original sprite replaces its previously cached descriptor key"),
+                ("last-window-wins", "TownServiceAssets.cs", "if (_originalKeys.ContainsKey(id)) return;", "if (_originalKeys.ContainsKey(id)) { _keys[id] = key; return; }", "shared original keeps merchant provenance"),
+                ("same-backdrop-key", "TownServiceBackdropAssets.cs", '"native-town|backdrop|" + template + "|texture"', '"native-town|backdrop|same|texture"', "Conflicting original town-service provenance"),
+                ("retain-cleared-provenance", "TownServiceAssets.cs", "_originalKeys.Clear();", "", "Ambiguous native town-service texture"),
+            ]
+    print(f"Production binding: {args.source_root.resolve()}; evidence: {run}", flush=True)
+    for name, filename, before, after, expected in variants:
+        build = run / name; production = build / "production"; production.mkdir(parents=True)
+        for path, text in bound.items():
+            if path == filename:
+                if text.count(before) != 1: raise RuntimeError("Production mutation binding drift: " + name)
+                text = text.replace(before, after, 1)
+            (production / path).write_text(text)
+        project = build / "Mirror.csproj"; shutil.copyfile(fixture / "Mirror.csproj", project)
+        assembly = "TownMirror_" + name.replace("-", "_")
+        command = [dotnet, "build", str(project), "-c", "Release", "--nologo", "--verbosity", "quiet",
+                   f"-p:CaseName={assembly}", f"-p:FixtureDir={fixture}", f"-p:ProductionDir={production}",
+                   f"-p:UnityManaged={args.unity.parent / 'Data/Managed'}",
+                   f"-p:UnityUi={managed / 'UnityEngine.UI.dll'}", f"-p:UnityTmp={managed / 'Unity.TextMeshPro.dll'}"]
+        result = subprocess.run(command, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        (build / "build.log").write_text(result.stdout)
+        if result.returncode: print(result.stdout); raise SystemExit("FAIL compilation: " + name)
+        manifest["cases"].append({"name": name, "dll": str(build / "bin/Release/netstandard2.1" / (assembly + ".dll")), "expected": expected})
+        print("Compiled " + name, flush=True)
+    project = run / "unity"; (project / "Assets/Editor").mkdir(parents=True)
+    (project / "Packages").mkdir(); (project / "ProjectSettings").mkdir()
+    shutil.copyfile(fixture / "Editor/MirrorRunner.cs", project / "Assets/Editor/MirrorRunner.cs")
+    # Exercise the actual dissolve/material contract, with no replacement test shader.
+    shader = args.source_root / "unity/GloomhavenVR.Assets/Assets/Bundle/TownServices/Shaders/TownNpc.shader"
+    shutil.copyfile(shader, project / "Assets/TownNpc.shader")
+    (run / "town-shader.sha256").write_text(hashlib.sha256(shader.read_bytes()).hexdigest() + "\n")
+    (project / "Packages/manifest.json").write_text('{"dependencies":{"com.unity.ugui":"1.0.0","com.unity.textmeshpro":"3.0.6"}}\n')
+    (project / "ProjectSettings/ProjectVersion.txt").write_text("m_EditorVersion: 2021.3.5f1\n")
+    manifest_path = run / "manifest.json"; manifest_path.write_text(json.dumps(manifest, indent=2) + "\n")
+    command = ["xvfb-run", "-a", str(args.unity), "-batchmode", "-force-glcore", "-projectPath", str(project),
+               "-executeMethod", "MirrorRunner.Start", "-mirrorManifest", str(manifest_path), "-logFile", str(run / "unity.log")]
+    result = subprocess.run(command, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT, timeout=300)
+    evidence = Path(manifest["result"])
+    if evidence.exists(): print(evidence.read_text(), end="")
+    if result.returncode or not evidence.exists(): raise SystemExit(f"FAIL Unity exit {result.returncode}; see {run / 'unity.log'}")
+    print(f"PASS mirror {args.suite} suite; evidence: {run}")
+
+
+if __name__ == "__main__": main()

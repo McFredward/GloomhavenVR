@@ -32,7 +32,9 @@ internal sealed class ExtrasSendQueue
                         ? ItemAppearanceSnapshot.SameIdentity(e, f)
                     : a.Identity is MapButtonTooltipSnapshot s && b.Identity is MapButtonTooltipSnapshot t
                         ? MapButtonTooltipSnapshot.SameIdentity(s, t)
-                        : a.Identity is NativeBoardState m && b.Identity is NativeBoardState n && m.Generation == n.Generation;
+                        : a.Identity is NativeBoardState m && b.Identity is NativeBoardState n ? m.Generation == n.Generation
+                        : a.Identity is TownServices.TownServiceFrame v && b.Identity is TownServices.TownServiceFrame u
+                            && TownServices.TownServiceSendQueue.SameIdentity(v, u);
     }
     private double _next;
     private ulong _sequence;
@@ -41,6 +43,7 @@ internal sealed class ExtrasSendQueue
     private readonly bool _preserveFirst;
     private readonly int _snapshotLimit;
     private readonly ulong _sequenceStride;
+    internal ulong Sequence => _sequence;
 
     internal ExtrasSendQueue(ulong sequence, byte payloadType = NetProtocol.MsgExtras,
         byte envelopeType = NetProtocol.MsgExtrasFragments, bool preserveFirst = false,
@@ -113,6 +116,7 @@ internal sealed class ExtrasSendScheduler
     private readonly ExtrasSendQueue _prompt;
     private readonly ExtrasSendQueue _itemAppearance;
     private readonly ExtrasSendQueue _mapTooltip;
+    private readonly TownServices.TownServiceSendQueue _town;
     private byte[]? _heldPage;
     private readonly ExtrasSendQueue[] _native = new ExtrasSendQueue[32];
     private readonly byte _animationType;
@@ -122,6 +126,7 @@ internal sealed class ExtrasSendScheduler
     internal ExtrasSendScheduler(ulong sequence, byte animationType, byte animationEnvelope)
     {
         _presence = new ExtrasSendQueue(sequence);
+        _town = new TownServices.TownServiceSendQueue(sequence);
         _animation = new ExtrasSendQueue(sequence, animationType, animationEnvelope, preserveFirst: true);
         _plumes = new ExtrasSendQueue(sequence, NetProtocol.MsgCardPlume, NetProtocol.MsgCardPlumeFragments,
             preserveFirst: true, snapshotLimit: CardPlumeCodec.MaxSize);
@@ -147,7 +152,13 @@ internal sealed class ExtrasSendScheduler
         if (snapshot == null || length < 6 || length > snapshot.Length)
             throw new ArgumentException("Invalid presentation snapshot.", nameof(snapshot));
         int type = NetPacket.PeekType(snapshot, length);
-        if (type == _animationType)
+        if (type == TownServices.TownServiceCodec.MessageType)
+        {
+            if (identity is not TownServices.TownServiceFrame town)
+            { if (!TownServices.TownServiceCodec.TryRead(snapshot, length, out TownServices.TownServiceFrame? decoded)) return; town = decoded!; }
+            _town.Enqueue(snapshot, length, town);
+        }
+        else if (type == _animationType)
         {
             if (identity is not UseBarAnimationSnapshot && UseBarAnimationCodec.TryRead(snapshot, length, out UseBarAnimationSnapshot? animation))
                 identity = animation;
@@ -225,11 +236,11 @@ internal sealed class ExtrasSendScheduler
         // turns so even incompressible maximum frames finish within the unchanged 32 s assembly
         // lifetime under full contention. Original item output gets three turns, presence and
         // boards two each, and the native slot pool three. The 864-byte / 50 ms cap is unchanged.
-        for (int attempt = 0; result == null && attempt < 18; attempt++)
+        for (int attempt = 0; result == null && attempt < 21; attempt++)
         {
             int turn = _turn;
-            _turn = (_turn + 1) % 18;
-            result = turn < 2 ? _animation.Next(now)
+            _turn = (_turn + 1) % 21;
+            result = turn >= 18 ? _town.Next(now) : turn < 2 ? _animation.Next(now)
                 : turn == 2 || turn == 13 ? _presence.Next(now)
                 : turn == 3 ? _plumes.Next(now) : turn == 6 || turn == 15 ? _board.Next(now)
                 : turn == 7 || turn == 8 || turn == 10 ? _appearance.Next(now)
@@ -254,6 +265,7 @@ internal sealed class ExtrasSendScheduler
     internal void Clear()
     {
         _presence.Clear(); _animation.Clear(); _plumes.Clear(); _board.Clear(); _appearance.Clear(); _prompt.Clear(); _itemAppearance.Clear(); _mapTooltip.Clear(); _heldPage = null;
+        _town.Clear();
         for (int i = 8; i < _native.Length; i++) _native[i].Clear();
         _next = 0; _turn = 0; _nativeCursor = 8;
     }

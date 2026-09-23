@@ -68,7 +68,14 @@ internal static class NetProtocol
     public const byte MsgPresentationCompression = 16;
     public const byte MsgItemAppearance = 17;
     public const byte MsgItemAppearanceFragments = 18;
-    // 19–22 / 78–81 belong to feature/immersive-town-services; do not reuse across branches.
+    public const byte MsgTownService = 19;
+    public const byte MsgTownServiceFragments = 20;
+    public const byte ExtIdTownService = 78;
+    public const byte ExtIdTownResidents = 79;
+    public const byte ExtIdTownFace = 80;
+    public const byte MsgTownFace = 21;
+    public const byte ExtIdTownActivity = 81;
+    public const byte MsgTownActivity = 22;
     public const byte MsgMapButtonTooltip = 23;
     public const byte MsgMapButtonTooltipFragments = 24;
     public const byte ExtIdMapButtonTooltip = 82;
@@ -93,8 +100,7 @@ internal static class NetProtocol
     public const byte ExtIdCardBurnCompletion = 75;
     /// <summary>Explicit shared map-window ownership: held mask, then automatic-motion mask.
     /// Each byte uses bits 0/1/2 for story/quest/encounter. Zero explicitly clears ownership;
-    /// absence means the peer supplied no ownership statement. Additive TLV; 83 is next free
-    /// (78–81 are reserved by the isolated NPC branch, 82 carries map-button hints).</summary>
+    /// absence means the peer supplied no ownership statement. Additive TLV; 83 is next free.</summary>
     public const byte ExtIdSharedWindowMotion = 77;
     public const byte SharedWindowMotionRecordBytes = 2;
     public const byte SharedWindowMotionMapStoryBit = 1;
@@ -519,7 +525,14 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 546;
+    public const ushort ModBuild = 547;
+
+    // ModBuild 547 — resume immersive town services on the released 1.0.7 foundation.
+    // Restore feature-only resident, interaction and asset systems alongside map hints,
+    // campaign events, permanent map windows and configurable AoE controls. Version 1.1.0.
+    // User rejects drawers and mechanical occupation loops; this development iteration
+    // rebuilds counters, held-card handoffs, purposeful activities and portrait geometry.
+    // See .planning/research/TOWN-SERVICES-547.md for scope and validation status.
 
     // ModBuild 546 — 1.0.7 map hotfix line, without immersive town services.
     // Restore the separate native campaign city-event control and its original animation;
@@ -531,6 +544,134 @@ internal static class NetProtocol
     // both locomotion sticks free and defer to the recenter chord; an optional stick binding
     // and live tutorial text follow the configured input. Builds 538–545 remain NPC-only.
     // Automated verification and hardware checklist: .planning/MAP-546.md.
+
+    // ModBuild 545 — physical town stock, offerings and enhancement work surfaces.
+    // Hardware 544 exposed damaged hands/costume joins, unrecognizable/dark faces,
+    // floating decoration and non-grabbable merchandise. Restore portrait landmarks,
+    // anatomical hands/contact markers, fitted clothing and actual practical eye lighting.
+    // Physical merchant filing drawers retain every native stock/owned item without pages;
+    // only a deliberate eligible buy/sell drop dispatches native selection/confirmation.
+    // Temple uses original coin offerings and devotion inscriptions; enchantment retains
+    // original card hotspots, costs, legal rune choices and refund rules on physical objects.
+    // Exact original decoration, held details, drawer movement, drop marks and extra-owner
+    // furniture are mirrored; closed opaque stock is retained without per-frame widget scans.
+    // MaxModules grows to 2048 within unchanged bounded wire envelopes; presence does not grow.
+    // Shared map-relative station poses clear native Guildmaster furniture and custom rooms.
+    // Deferred native confirms revalidate selection after the hide fade; flames advance
+    // between packets without material churn. Original callbacks remain authoritative;
+    // opt-out restores classic windows. Native billboard shaders retain per-object origins
+    // instead of disappearing when Unity dynamically batches their small quads.
+    // See .planning/research/TOWN-SERVICES-545.md for visual/runtime evidence and hardware limits.
+    //
+    // ModBuild 544 — town eye lighting, fitted head/costume joins and resident work activities.
+    // Hardware 543: all six NPC screenshots show black eyes, identity drift (merchant),
+    // scalp texture patches and open/ragged clothing around moving heads. Actual D3D11
+    // shader inspection proves fwdbase omitted VERTEXLIGHT_ON from the eye fragment
+    // programs even though the isolated OpenGL light test passed. Carry the vertex-stage
+    // light selection into the fragment explicitly; retain real practical lighting.
+    // Facial authoring corrects beard-vs-chin landmark fitting, scalp projection and
+    // neck/garment closure. All-angle render evidence is required; a green source check
+    // does not certify headset appearance. Full updated town bundle installation required.
+    // Resident activities use shared work clocks and smooth attention transitions with
+    // real hand targets/native books and coins. Additive TLV81/msg22 preserves previous
+    // records and wire version3; no cosmetic activity owns native transaction continuation.
+    // Original game NPC speech remains unavailable; no generated voices are introduced.
+    // See .planning/research/TOWN-SERVICES-544.md for evidence and hardware limits.
+    //
+    // ModBuild 543 — anatomically fitted town faces with real eyes and shared facial motion.
+    // Head and binocular eye gaze follow one resident authority, preferring active visitors.
+    // Actual bounded angles use a 102-byte map-only packet at 15 Hz (all three residents together);
+    // deterministic blink/expression clocks render every intermediate frame, not just presence at 5 Hz.
+    // Speech is a presentation adapter keyed by exact voice/language cue and utterance generation;
+    // no adapter/cue means a closed silent mouth. Apply after the original body sample.
+    // Original game narration exists, but the audited 551 dialogue nodes for these three
+    // residents have no associated recordings. No generated voice ships; the adapter is unbound.
+    // Additive record 80 and message 21 retain Version 3; resident record 79 is unchanged.
+    // Presence recovery adds 96 bytes: worst 7082 < 7168 assembly capacity; allocation 7339
+    // retains the 257-byte largest-record margin.
+    // Fitted eyelid/lip loops, separate globe/cornea geometry and eleven shape channels per LOD
+    // replace the former static facial shell. Neutral and posed normals share one topology;
+    // anatomical Head/Neck weights preserve the complete jaw during gaze. Original body and
+    // costume channels remain unchanged. Requires the matching 99,211,283-byte town bundle.
+    // Actual bundled prefabs pass binding/anatomy checks; headset appearance remains unverified.
+
+
+    // ModBuild 542 — persistent immersive town residents and physical merchant inspection.
+    // The supplied build-541 run opens merchant/temple/merchant without fallback. Screenshots
+    // instead identify floating stands, damaged generated faces, fixed studio illumination
+    // and a flat merchant presentation. Place all three residents on the actual room floor,
+    // independently of an open service, while retaining original-window rollback when disabled.
+    // The uneven forest needs separate sole/support contact, published by the resident author;
+    // observers must not resample their own terrain. Existing support tops stay fixed.
+    // The NPC is the guarded visit target; hide only its replaced map cap, and include its
+    // collider in pointer arbitration before UI/map dispatch. Native locks and confirmation
+    // paths remain authoritative. Decoration reconstructs original game meshes/material data
+    // without native controllers. Original lantern/candle sources light each stand; entrance
+    // waits for cosmetic loading, never for gameplay continuation.
+    // Additive presence79 publishes canonical poses, scales, floor adjustments, visibility and animation clocks;
+    // the lowest fresh enabled peer authors all residents, including between visits. Disabled
+    // observers still retain actual remote visits. Wire v3 and all old records stay unchanged;
+    // worst presence6986 +257 margin=7243 allocation, within unchanged7168 assembly capacity.
+    // Merchant cards retain their original ItemCardUI face and physical item-card rim/reverse.
+    // Inspection moves that same card, including remotely, and release returns it to the rack
+    // without selecting or buying. Explicit native selection/purchase remains separate.
+    // Additional full-sized merchant workspaces use the free southern clearing; roster changes
+    // wait for held/returning cards, then relocate while invisible. A new presentation generation
+    // prevents remote interpolation across the clearing even if invisible packets are coalesced.
+    // Head/stand asset changes require the matching ghvr-town.bundle, not a DLL-only install.
+    // Source/runtime evidence and remaining headset checks: research/TOWN-SERVICES-542.md.
+
+    // ModBuild 541 — desktop merchant initialization and discoverable town presentation choice.
+    // Build-540 hardware logs show Buy/Sell/All converted, then catalog construction throwing
+    // before the next control. The desktop inventory has no gamepad-only Owned filter; native
+    // mouse-input paths already omit it. Only move that filter when its original exists,
+    // preserving the native control set instead of rolling the whole merchant back to flat UI.
+    // Catalog tests now exercise absent and present Owned controls through repeated opening,
+    // paging, native selection and rollback; the old unconditional access fails the control.
+    // VR options give town services their own first section under Boards, with an explicit
+    // immersive-NPC/original-window choice backed by the unchanged default-true config key.
+    // No asset or wire changes; corrected headset presentation remains a hardware check.
+
+    // ModBuild 540 — first town-service hardware corrections and physical merchant catalog.
+    // Build-539 logs show native item-ID-zero lookup opening GlobalErrorMessage from an
+    // inactive pooled card during mirror template preparation. Validate immutable item data
+    // before borrowing art and restore pooled input/model state; never invoke CItem.YMLData
+    // for a placeholder. Explicit renderer-space LOD bounds correct a 100x undersized NPC
+    // group; town materials retain textured illumination in map scenes without live lights.
+    // The merchant's original filtered inventory now drives six physical item cards with
+    // original prices, buy/sell/filter/exit controls and page navigation on the counter.
+    // Native row selection remains authoritative. Original window wrappers preserve native
+    // permissions and restore hierarchy on option changes, closure and partial setup failure.
+    // Mirrors publish counter cards/controls and their opening alpha, not the obsolete list.
+    // Original item details and paired native rules hints have dedicated visible counter copies;
+    // their hidden list ancestors cannot suppress them or duplicate them in a price strip.
+    // Additional visitors receive full-size furniture-only counter extensions. Only owners
+    // resolve the complete native roster and animate workspace changes; receivers use those
+    // actual poses/material values. Manual tray placement takes precedence over rearrangement.
+    // Modal orphan collection respects live town-service and error-window grip owners.
+    // Both bundles are required; head-mounted presentation still needs hardware verification.
+
+    // ModBuild 539 — optional immersive town visits, enabled by default (user ruling).
+    // VR options switch the local merchant, temple and enchantress between immersive
+    // presentation and the ordinary 1.0.6 window path. Live disable cancels held samples,
+    // restores original section parents and portraits, and preserves the native controller's
+    // selection and continuation. The release fence reads the setting before the next tick.
+    // An observer's local setting never changes an enabled visitor's shared presentation.
+    // No local immersive visitor and no remote session means no template preload or NPC.
+
+    // ModBuild 538 — first immersive town-service hardware variant (dev 1.0.7).
+    // Merchant, temple and enchantress retain native selection, prices, permissions and
+    // confirmations while original sections become movable reading surfaces. Original entries
+    // can be inspected in either hand and placed on a movable work tray to select; cancellation,
+    // pool reuse, character changes and native closure cannot dispatch a stale transaction.
+    // Three rigged NPCs/furniture use a separate ghvr-town.bundle with three mesh LODs and
+    // 4K actor textures. One NPC per service is shared by concurrent visitors. Original widget
+    // output is published through additive town-service messages 19/20 and extension 78;
+    // inert observer copies retain native graphics and receive no gameplay callbacks.
+    // Complete installation requires BOTH matching bundles. Original services remain usable
+    // if optional immersive presentation cannot initialize; animations never own continuation.
+    // Source, render and packaging evidence plus explicit first-headset checklist:
+    // .planning/research/TOWN-SERVICES-FIRST-VARIANT.md. No headset outcome claimed yet.
 
     // ModBuild 537 — independent VR options toggle and native close ordering.
     // Build-536 hardware confirms repeated opening, but host SetFocused(false) dims usable

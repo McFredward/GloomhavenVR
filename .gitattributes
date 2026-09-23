@@ -28,5 +28,15 @@
 *.ulf    binary
 *.tpk    binary
 
+# Keep vendored CC0 facial data byte-identical to its recorded upstream hashes.
+# The original proxy files include a final empty line; retain it without weakening
+# whitespace checks for authored code or documentation.
+scripts/npc-face-template/** -text
+scripts/npc-face-template/**/*.mhclo whitespace=-blank-at-eof
+
+# Unity writes empty YAML scalar values with a trailing space. Keep the reviewed
+# importer metadata byte-identical to the bundle build inputs.
+unity/GloomhavenVR.Assets/Assets/Bundle/TownServices/**/*.meta whitespace=-blank-at-eol
+
 # Unity YAML assets stay TEXT (diffable, and CRLF-safe for Unity): *.prefab, *.mat,
 # *.asset, *.meta, *.unity — left to default handling on purpose.

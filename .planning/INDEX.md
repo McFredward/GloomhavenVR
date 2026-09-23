@@ -1,6 +1,6 @@
 # Planning index
 
-Updated 2026-09-20 for dev 1.0.6 / build-537 independent menu toggling and native close ordering. This directory holds internal
+Updated 2026-09-22; dev 1.0.7 / build 545 hardware candidate, physical town services and portrait identity. This directory holds internal
 engineering evidence, historical decisions and current status; it is not the player manual.
 
 ## Current entry points
@@ -9,7 +9,26 @@ engineering evidence, historical decisions and current status; it is not the pla
 |---|---|
 | [../AGENTS.md](../AGENTS.md) | Agent workflow, integration ownership and current user rulings |
 | [../CLAUDE.md](../CLAUDE.md) | Technical contracts retained across agent tools |
+| [TEST-PARALLELISM.md](TEST-PARALLELISM.md) | Parallel local/CI execution, coverage and measured timing |
 | [STATE.md](STATE.md) | Current build, validation and outstanding hardware checks |
+| [research/TOWN-SERVICES-545.md](research/TOWN-SERVICES-545.md) | Current physical interactions, portrait corrections, native decoration and integration evidence |
+| [TOWN-545-MERCHANT.md](TOWN-545-MERCHANT.md) | Complete physical catalog, drawer lifecycle and native transaction ownership |
+| [research/TOWN-545-FACES.md](research/TOWN-545-FACES.md) | Final portrait fitting, anatomical hands, optical rendering and asset provenance |
+| [research/TOWN-545-STANDS.md](research/TOWN-545-STANDS.md) | Native decoration, practical lights and resident activities |
+| [research/TOWN-SERVICES-544.md](research/TOWN-SERVICES-544.md) | Previous NPC corrections; superseded by the build-544 hardware findings |
+| [research/TOWN-544-EYES.md](research/TOWN-544-EYES.md) | Actual Windows eye-shader defect and compiled/render regression evidence |
+| [research/TOWN-544-FACES.md](research/TOWN-544-FACES.md) | Anatomical fit, original costume repair and actual skinned-pose review |
+| [research/TOWN-544-BACKDROP-IDENTITY.md](research/TOWN-544-BACKDROP-IDENTITY.md) | Original backdrop identity collision and owner/observer correction |
+| [TOWN-544-ACTIVITY.md](TOWN-544-ACTIVITY.md) | Activity timeline, contact validation and atomic facial/body transport |
+| [research/TOWN-544-ANIMATION-SERVICES.md](research/TOWN-544-ANIMATION-SERVICES.md) | FAL and Meshy API capability/cost evaluation; no paid generation this round |
+| [research/TOWN-SERVICES-543.md](research/TOWN-SERVICES-543.md) | Anatomical face fitting, shared gaze and final asset-review status |
+| [research/TOWN-543-FACES.md](research/TOWN-543-FACES.md) | Final facial assets, authoring provenance, bundle hashes and rendering costs |
+| [research/TOWN-543-VOICE.md](research/TOWN-543-VOICE.md) | Original game voice inventory and unvoiced resident-dialogue evidence |
+| [research/TOWN-543-GAZE.md](research/TOWN-543-GAZE.md) | Facial runtime, additive transport and source-bound validation |
+| [research/TOWN-543-REVIEW.md](research/TOWN-543-REVIEW.md) | Independent multiplayer/lifecycle review and resolved defects |
+| [research/TOWN-SERVICES-541.md](research/TOWN-SERVICES-541.md) | Desktop merchant fallback and discoverable presentation mode |
+| [research/TOWN-SERVICES-542.md](research/TOWN-SERVICES-542.md) | Persistent residents, physical merchant inspection, native decoration and facial asset revision |
+| [research/TOWN-SERVICES-540.md](research/TOWN-SERVICES-540.md) | NPC visibility, native error, physical merchant catalog and first-test corrections |
 | [RELEASE-READINESS.md](RELEASE-READINESS.md) | Historical 1.0.0 repository audit and publication prerequisites |
 | [../docs/DEVELOPING.md](../docs/DEVELOPING.md) | Developer setup and required gates |
 | [../docs/CI-CD.md](../docs/CI-CD.md) | Actual release pipeline and main-branch provenance |
@@ -17,6 +36,21 @@ engineering evidence, historical decisions and current status; it is not the pla
 | [PROJECT.md](PROJECT.md), [ARCHITECTURE.md](ARCHITECTURE.md) | Product scope and architectural reasoning |
 
 ## Latest measured work
+
+- [research/TOWN-SERVICES-FIRST-VARIANT.md](research/TOWN-SERVICES-FIRST-VARIANT.md): integrated scope, evidence and first hardware checklist.
+- [research/TOWN-SERVICES-FINAL-AUDIT.md](research/TOWN-SERVICES-FINAL-AUDIT.md): compiled scope comparison with the pre-feature source and historical guard baseline.
+- [research/TOWN-SERVICES-RUNTIME-ASSETS.md](research/TOWN-SERVICES-RUNTIME-ASSETS.md): rig, LOD, animation, materials and separate bundle contract.
+- [research/TOWN-SERVICES-SYNC.md](research/TOWN-SERVICES-SYNC.md): original-widget publication, inert observers, delta transport and lifecycle.
+- [research/TOWN-NATIVE-ART.md](research/TOWN-NATIVE-ART.md): independently owned original sprite loads for inactive remote templates.
+- [research/TOWN-SERVICES-INTERACTION-VALIDATION.md](research/TOWN-SERVICES-INTERACTION-VALIDATION.md): real Unity interaction assertions and compiled negative controls.
+- [research/TOWN-SERVICES-MIRROR-VALIDATION.md](research/TOWN-SERVICES-MIRROR-VALIDATION.md): original/observer pixel comparisons, lifecycle tests and measured CPU workload.
+- [research/TOWN-SERVICES-MESH-GENERATION.md](research/TOWN-SERVICES-MESH-GENERATION.md): paid model comparison, settings, costs and chosen originals.
+- [research/TOWN-SERVICES-MESH-REPAIR.md](research/TOWN-SERVICES-MESH-REPAIR.md): source-preserving material and UV seam repairs.
+- [research/TOWN-SERVICES-CONCEPT.md](research/TOWN-SERVICES-CONCEPT.md): full concept and distinction from the first runtime variant.
+- [research/TOWN-SERVICES-ART.md](research/TOWN-SERVICES-ART.md): six verified original PNG exports from the supplied full GH_Data, with reproducible provenance.
+- [research/TOWN-SERVICES-GENERATED-REFERENCES.md](research/TOWN-SERVICES-GENERATED-REFERENCES.md): explicitly requested gpt-image-2 modelling sheets and exact per-NPC prompts, separate from original assets.
+- [research/TOWN-SERVICES-FUNCTIONS.md](research/TOWN-SERVICES-FUNCTIONS.md): source-grounded native feature coverage.
+- [research/TOWN-SERVICES-INTEGRATION.md](research/TOWN-SERVICES-INTEGRATION.md): environment placement, NPC assets, multiplayer and lifecycle design.
 
 - [OPTIONS-537.md](OPTIONS-537.md): preserve native menu focus and synchronize the VR toggle immediately.
 - [CLOSE-537.md](CLOSE-537.md): native close-event ordering and explicit reopen during pending modal release.

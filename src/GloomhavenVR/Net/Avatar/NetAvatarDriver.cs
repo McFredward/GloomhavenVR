@@ -797,6 +797,24 @@ internal sealed partial class NetAvatarDriver : MonoBehaviour
         return mm > 0f;
     }
 
+    internal static bool TryGetTownFaceHead(int player, out Vector3 head)
+    {
+        head = Vector3.zero;
+        NetAvatarDriver? driver = _instance;
+        return driver != null && driver._avatars.TryGetValue(player, out RemoteAvatar avatar)
+            && avatar != null && avatar.TimeSinceUpdate <= NetProtocol.StaleTimeoutSeconds
+            && avatar.TryGetHeadWorld(out head);
+    }
+
+    internal static void CollectTownFacePeers(List<int> into)
+    {
+        NetAvatarDriver? driver = _instance;
+        if (driver == null) return;
+        foreach (var pair in driver._avatars)
+            if (pair.Value != null && pair.Value.TimeSinceUpdate <= NetProtocol.StaleTimeoutSeconds
+                && pair.Value.TryGetHeadWorld(out _)) into.Add(pair.Key);
+    }
+
     /// <summary>
     /// Append every peer's last RECEIVED head world position to <paramref name="into"/> and return
     /// how many were added.
@@ -3772,6 +3790,7 @@ internal sealed partial class NetAvatarDriver : MonoBehaviour
         // and every player who has the 3D map switched off is byte-identical to build 221's. Full
         // contracts in RemoteMapRoom / RemoteMapStory and NetProtocol.ExtIdMapRoom /
         // NetProtocol.ExtIdSharedWindow.
+        RemoteTownResidents.Sample(ref extras);
         RemoteMapRoom.Sample(ref extras);
         RemoteMapStory.Sample(ref extras);
     }
@@ -3972,6 +3991,21 @@ internal sealed partial class NetAvatarDriver : MonoBehaviour
             case NetProtocol.MsgCardAppearance:
             case NetProtocol.MsgNativeDecisionPrompt:
                 parsed = QueueNativePresentation(senderId, buffer, length);
+                if (parsed) VersionGuard.NotePacket(senderId);
+                break;
+
+            case NetProtocol.MsgTownActivity:
+                parsed = TownActivityCodec.ReadPacket(buffer, length, out TownActivityState activity, out TownFaceState pairedFace);
+                if (parsed) { VersionGuard.NotePacket(senderId); RemoteTownPerformance.Observe(senderId, in activity, in pairedFace, false); }
+                break;
+
+            case NetProtocol.MsgTownFace:
+                parsed = TownFaceCodec.ReadPacket(buffer, length, out TownFaceState face);
+                if (parsed) { VersionGuard.NotePacket(senderId); RemoteTownPerformance.ObserveLegacyFace(senderId, in face); }
+                break;
+
+            case TownServices.TownServiceCodec.MessageType:
+                parsed = QueueTownService(senderId, buffer, length);
                 if (parsed) VersionGuard.NotePacket(senderId);
                 break;
 
@@ -4176,6 +4210,7 @@ internal sealed partial class NetAvatarDriver : MonoBehaviour
                     // peer's body. A packet WITHOUT either record forgets that peer's entry, which
                     // is what every player who is not in the 3D map room — and every pre-record
                     // build — transmits, and "forgotten" is exactly "not standing at this table".
+                    RemoteTownResidents.Observe(kv.Key, in p);
                     RemoteMapRoom.Observe(kv.Key, in p);
                     RemoteMapStory.Observe(kv.Key, in p);
                     RemoteVideoPlayback.Observe(kv.Key, in p);
@@ -4395,6 +4430,7 @@ internal sealed partial class NetAvatarDriver : MonoBehaviour
         {
             var avatar = new RemoteAvatar(playerId);
             _avatars[playerId] = avatar;
+            TownServices.TownServiceMirror.RequestFullRefresh();
             _createRetryAt.Remove(playerId);
             return avatar;
         }

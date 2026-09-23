@@ -2346,6 +2346,12 @@ internal static partial class Loc
                 + "ANFANG eines Szenarios, kein Hauptschalter: unabhängig davon holt die Zeile "
                 + "\"Kampflog jetzt einblenden\" die Tafel jederzeit hervor, und das X oben rechts an "
                 + "der Tafel schließt sie wieder. Aus = sie ist einfach nicht da, bis du sie holst.",
+            ["WorldUI/ImmersiveTownServices"] =
+                "Händler, Tempel und Verzauberin bleiben in der Kartenumgebung sichtbar. Zum Besuchen "
+                + "mit dem Laser anklicken oder den NPC berühren. Händlerkarten lassen sich ohne Kauf "
+                + "in die Hand nehmen. Aus stellt die bisherigen Fenster und ihre Bedienung "
+                + "wieder her, auch bei einem bereits geöffneten Besuch. Andere Spieler behalten ihre "
+                + "gewählte Darstellung.",
             ["WorldUI/Dialogs"] = "Bestätigungsdialoge als Welt-Modale vor dem HMD (Ja/Nein antippen).",
             ["WorldUI/DecisionDock"] =
                 "Entscheidungs-/Bestätigungsabfragen im Szenario (die Verbrennen-Wahl beim Schadennehmen, der "

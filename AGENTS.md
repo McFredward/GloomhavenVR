@@ -1,5 +1,14 @@
 # Working on GloomhavenVR
 
+## Active NPC feature workflow (2026-09-23)
+
+The maintainer resumed NPC development on `feature/immersive-town-services`.
+During this work, use that branch as the integration and push target, and create
+worker worktrees from its current integration commit. Do not push NPC changes to
+`dev` or `main`. This feature targets 1.1.0 or later. The branch includes the current
+dev/release ancestry plus the restored NPC changes that dev deliberately reverted.
+This explicit instruction supersedes the dev-specific workflow below for NPC work.
+
 Read `CLAUDE.md`, `.planning/STATE.md`, and the newest build notes beside
 `NetProtocol.ModBuild` before implementation. `CLAUDE.md` retains the project's
 technical contracts and historical reasoning; the rules below adapt its workflow

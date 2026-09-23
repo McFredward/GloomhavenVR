@@ -755,7 +755,8 @@ internal sealed class ProximityGrabber
         {
             try
             {
-                held.OnRelease(_hand, Vector3.zero);
+                if (held is IGrabCancellation cancellation) cancellation.OnGrabCancelled(_hand);
+                else held.OnRelease(_hand, Vector3.zero);
             }
             catch (Exception ex)
             {
@@ -963,7 +964,8 @@ internal sealed class ProximityGrabber
             IGrabbable released = Held;
             Held = null;
             _releaseOnTriggerUp = false;
-            released.OnRelease(_hand, Vector3.zero);
+            if (released is IGrabCancellation cancellation) cancellation.OnGrabCancelled(_hand);
+            else released.OnRelease(_hand, Vector3.zero);
             LogGrab($"{_hand.Side} cancel — {_grabLabel}.");
         }
         SetHighlighted(null);
