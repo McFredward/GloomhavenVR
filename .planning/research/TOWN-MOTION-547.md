@@ -124,3 +124,25 @@ An in-flight cold bundle does not own a grabbed card's dependency exclusively: i
 exact immutable initial baseline is copied to the urgent lane before the pose
 delta. Duplicate sequence reception remains idempotent. A focused regression
 requires both to arrive before the background bundle completes.
+
+## Final authored asset verification
+
+Re-ran the actual Unity activity and face suites against the newly generated
+Linux bundle, SHA256 `9ae804bf3d9e119b648003424b189f0252f7b8653f53c48163e7a53796c14ebb`
+(103,860,264 bytes), using integration runtime sources. Activity: 157,544 runtime
+assertions and 14 effective negative controls. Face: 11,941 assertions and 17
+negative controls. Rendered 174 frames per merchant/enchantress occupation at 8fps,
+including actual new NPC rigs, face meshes and counter furniture. Selected lift,
+contact, release, palms-up and recovery images were visually inspected. The held
+merchant pinch is 24mm across the 26mm coin, consistent through the contact phase.
+
+The fixture's coin is explicitly a diagnostic contact cylinder; it does not load
+the game's asynchronous Addressables dressing or candle-derived spell artwork.
+Those appearances, full station lighting and headset animation quality therefore
+remain hardware checks. The final runtime dressing positions place the merchant
+ledger at X=-.28/Z=.16, outside the positive-X coin work region; the prayer bowl
+and side lamps likewise sit outside the authored hand trajectories. The dark
+rings seen around cloth cuffs were reviewed with the face author: the new skin
+has a continuous 70mm forearm insertion and sealed hidden cap, so these are sleeve
+interiors rather than missing wrist geometry. Hardware contrast may still affect
+how clearly that continuity reads.
