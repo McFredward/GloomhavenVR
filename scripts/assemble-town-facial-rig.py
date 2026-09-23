@@ -13,6 +13,7 @@ from mathutils import Matrix, Vector
 sys.path.insert(0,str(Path(__file__).resolve().parent))
 from town_npc_necklines import repair as repair_neckline
 import town_npc_hand_integration as hand_assets
+from town_npc_eyelid_clearance import repair as repair_eyelids
 
 
 def subset(source, predicate, name):
@@ -198,6 +199,9 @@ def main():
                 limit=max(v.co.z for v in child.data.vertices)*.82
                 assert all(p.center.dot(p.normal)>0 for p in child.data.polygons if p.center.z<limit),'Sclera normals must face outwards'
             else:assert sum(v.normal.z for v in child.data.vertices)>0,'Cornea must face optical +Z'
+    if a.name == 'enchantress':
+        clearance = repair_eyelids()
+        (a.output/'eyelid-clearance.json').write_text(json.dumps(clearance,indent=2)+'\n')
     rig.data.pose_position='POSE';rig.animation_data.action=next((x for x in bpy.data.actions if x.name=='Idle'),None)
     bpy.context.scene.frame_set(1);bpy.ops.file.pack_all();bpy.ops.wm.save_as_mainfile(filepath=str(a.output/'rig-source.blend'))
     bpy.ops.object.select_all(action='DESELECT')

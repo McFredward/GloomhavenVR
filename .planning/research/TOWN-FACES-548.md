@@ -45,7 +45,7 @@ head-turn views to the original portrait; generated references and passing
 landmark checks alone do not establish likeness. Final Unity/D3D stereo appearance
 and runtime performance remain hardware outcomes.
 
-Facial landmark checks pass twenty assertions including eight registration negative
+Facial landmark checks pass twenty-two assertions including nine registration negative
 controls. These measure eye spacing, compact beard proportions and UV placement,
 not likeness. Focused runtime compatibility checks cover 1886 production assertions and sixteen
 compiled negative controls (two new controls restore LOD switching and overlapping
@@ -54,3 +54,43 @@ skin with all original expression channels and both real eyes/corneas, with no
 LOD group. The original three-skin synthetic binding case remains useful to test
 compatibility with an older bundle. Final bundle validation is recorded by the
 integrator after facial and motion authoring are combined.
+
+## Imported face review and serialization
+
+The first combined motion export omitted the unskinned optical meshes and their
+pivots. The corrected exporter selects the complete armature, meshes and empties.
+A second misleading preview imported the new FBX underneath old serialized
+prefabs: the skin updated, but the reparented eye transforms still held build-547
+positions. Rebuilding only the bundle cannot repair that mismatch. Every final
+face export must pass through `RefreshFacialRig` before presentation/fixed-detail
+finalization and the asset-bundle build. Do not move anatomically correct source
+eyes to compensate for stale prefab coordinates.
+
+Actual Unity inspection then identified a profile ear printed behind the actual
+helix, excessive lip volume, overly wide canthi and saturated red iris pigment.
+The final merchant registers the profile's ear landmarks independently of the
+front portrait, locally compresses the lips, and brings the canthi within the
+28 mm physical globe envelope. Only red pigment inside the measured iris receives
+the shader's brown correction; sclera, pupil, green iris and corneal optics retain
+their own data. Source portraits and provider textures remain unchanged.
+
+The render gate now tests each physical iris centre individually in neutral and
+fully closed-lid masks. A visible centre must also be covered by its actual lid.
+This rejects both empty sockets and misplaced eyes protruding through a cheek;
+a global visible-eye pixel count alone could accept those defects. A deliberately
+misplaced pair supplies the corresponding rendered negative control for each NPC.
+The retained global brightness and aperture checks have not been weakened.
+
+An additional unlit magenta-background collar probe at neutral, yaw +/-45 and
+pitch +/-22 found no background visible through the merchant's neck/collar.
+Dark angular patches in the earlier lit view were recessed garment surfaces,
+not open geometric seams. This does not establish final headset appearance.
+
+The closed-lid gate exposed an additional inherited enchantress defect: the
+corneal apex penetrated the fully closed lid. Offline clearance fitting changes
+only BlinkLeft/BlinkRight vertices in the physical corneal envelope (60 vertices
+per full-detail lid, maximum displacement 1.719 mm). Neutral geometry, all other
+shape keys and every skin weight are protected by a before/after binary digest.
+The standard assembler invokes the same repair for future enchantress rebuilds;
+a second repair changes zero vertices. Full optical objects and protected leg
+weights are retained in the final combined export.
