@@ -940,6 +940,7 @@ public static partial class MirrorProgram
             {
                 IEnumerator lanes = PublicCatalogLanes(); while (lanes.MoveNext()) yield return lanes.Current;
                 InspectionPublisher();
+                LazyInspectionTemplate();
                 File.WriteAllText(Path.Combine(_output,"assertions.txt"),_assertions+" assertions\n");yield break;
             }
             if (suite == "catalog-lifetime")

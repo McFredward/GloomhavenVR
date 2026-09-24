@@ -52,6 +52,7 @@ namespace GloomhavenVR.Cards
     }
     internal sealed partial class CardsDriver
     {
+        internal static GameObject? CardBackingPrefab;
         private VRHand? _transferHoverHand;
         private float _nextTransferLogAt;
         private bool _modalInputBlocked;

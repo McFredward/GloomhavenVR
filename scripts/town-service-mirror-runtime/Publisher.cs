@@ -212,5 +212,14 @@ namespace GloomhavenVR.WorldUI
         internal static readonly List<GloomhavenVR.Cards.ItemsPile.ItemChip> OwnedChips = new();
     }
     internal static class TownServiceInspectionBody
-    { internal static string Key(GloomhavenVR.Cards.ItemsPile.ItemChip chip) => "inspectionbody.fixture"; }
+    { internal static string Key(GloomhavenVR.Cards.ItemsPile.ItemChip chip) => "inspectionbody.fixture";
+      // Geometry construction is the boundary here; registration, freezing, neutralization,
+      // partitioning and resolution are bound from the real NativeTemplates implementation.
+      internal static GameObject Create(string key, Transform parent)
+      {
+          GameObject body = GameObject.CreatePrimitive(PrimitiveType.Cube); body.name = "OriginalInspectionBacking";
+          body.transform.SetParent(parent, false); body.transform.localScale = new Vector3(.14f,.14f,.0022f);
+          UnityEngine.Object.DestroyImmediate(body.GetComponent<Collider>());
+          return body;
+      } }
 }

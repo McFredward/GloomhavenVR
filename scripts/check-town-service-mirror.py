@@ -59,6 +59,14 @@ def sources(root):
     bound["TransferReach.cs"] = sweep[:end] + "}\n"
     hold = (base / "Cards/ItemCardHold.cs").read_text()
     bound["TransferCapability.cs"] = hold[:hold.index("/// <summary>The existing scenario")].replace("using GloomhavenVR.Rig;\n", "")
+    templates = (base / "WorldUI/TownServices/NativeTemplates.cs").read_text()
+    definitions = templates[templates.index("    internal sealed class Part"):templates.index("    private static readonly Dictionary<string, Entry>")]
+    template_methods = ("private static void EnsureNativeProp(string key)", "private static void Freeze(string key, Entry entry)",
+        "private static void Prune(Transform source, Transform copy)", "private static void Partition(Transform root, string path, List<Part> parts)",
+        "internal static string Append(string path, Transform child)", "internal static IReadOnlyList<Part> Parts(string key)",
+        "internal static bool Resolve(byte service, ushort template, string address)")
+    count = templates[templates.index("    private static int Count("):templates.index("    private static void Partition(")]
+    bound["LazyNativeTemplates.cs"] = "using System;\nusing System.IO;\nusing System.Collections.Generic;\nusing TMPro;\nusing UnityEngine;\nusing Object = UnityEngine.Object;\nusing GloomhavenVR.Net.TownServices;\nnamespace GloomhavenVR.WorldUI;\ninternal static partial class LazyTemplateProbe {\n" + definitions + count + "\n".join(method(templates, signature) for signature in template_methods) + "\n}\n"
     town_neutralizer = base / "Net/TownServices/TownServiceNeutralize.cs"
     if town_neutralizer.exists():
         bound[town_neutralizer.name] = town_neutralizer.read_text()
@@ -175,6 +183,7 @@ def main():
         if not args.no_negative_controls:
             variants += [
                 ("private-public-collision", "TownServiceMirror.cs", "if (frame!.PublicCatalog) { peer = -peer;", "if (frame!.PublicCatalog) { peer = Math.Abs(peer);", "one lowest live stock author is elected"),
+                ("unfrozen-inspection-backing", "LazyNativeTemplates.cs", "Freeze(key, bodyEntry); Entries.Add(key, bodyEntry);", "Entries.Add(key, bodyEntry);", "lazy inspection backing has publication partitions on its first request"),
                 ("inspection-native-gate", "PublisherTick.cs", "if (!active && !inspection && returns.Count == 0)", "if (!active && returns.Count == 0)", "closed native shop publishes all 512 owned faces and original backings exactly once"),
                 ("stale-author-clock", "TownServiceMirror.cs", "if (RemoteRacks.TryGetValue(peer, out var clocks))", "if (peer > 0 && RemoteRacks.TryGetValue(peer, out var clocks))", "authority handoff retains completed observer clock instead of rewinding stale owner sample"),
                 ("public-visitor", "TownServiceMirror.cs", "if (peer > 0) VisitorSessions[peer] = Sessions[peer];", "VisitorSessions[peer] = Sessions[peer];", "remote public stock is excluded from visitor census"),

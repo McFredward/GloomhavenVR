@@ -56,6 +56,11 @@ owned fan's publication lifetime.
 - Unity public-catalog suite: private/public coexistence, author promotion/removal,
   independent native lifetime, exact closed-shop publication of 512 owned item surfaces,
   late cassette replay and clock-preserving handoff, with fault-injected negatives.
+  The lazy backing regression binds the actual `EnsureNativeProp`, `Freeze`, partition
+  and `Resolve` paths: the first request must publish a renderer-bearing partition,
+  and twenty repeated requests must retain one original. Removing the Freeze call
+  reproduces the missing backing and fails the first-request partition assertion.
+  Geometry construction and unrelated native template families are explicit boundaries.
 - Unity shared transfer detector: 100 assertions across four rig scales and all three
   transferable card kinds; five negatives cover dropped stock support, contact semantics,
   repeated haptics, nearer UI and modal arbitration. Tracked inputs and final adoption
