@@ -49,7 +49,7 @@ def mutations():
         ("unpaired-sequences", "RemoteTownPerformance.cs", "if (!TownActivityCodec.Matches(in activity, in face)", "if (false", "mismatched sequence cannot partially advance pair"),
         ("stale-sequence", "RemoteTownActivities.cs", "!Newer(state.Sequence, peer.Latest.Sequence)", "false", "older occupation cannot replace current phase"),
         ("magnetic-coin", "TownServiceActivityMotion.cs", "coin == index && t >= .96f && t < 2.84f ? 1f : 0f", "coin == index ? grip : 0f", "coin is resting or rigidly gripped, never magnetically attracted"),
-        ("downward-offering", "TownServiceActivityMotion.cs", "service == 3 ? 180f : 0f", "0f", "offering palm faces upward"),
+        ("downward-offering", "TownServiceActivityMotion.cs", "service != 2 ? 180f : 0f", "0f", "offering palm faces upward"),
         ("coin-detached-from-grip", "TownServiceActivityProps.cs", "Vector3.Lerp(seat, pinch, grip)", "seat", "real coin follows actual pinch or resting seat"),
     ]
 
@@ -62,6 +62,7 @@ def main():
     parser.add_argument("--output-dir", type=Path, default=repo / ".planning/debug/town-activity")
     parser.add_argument("--unity", type=Path, default=Path(os.environ.get("UNITY_PATH", "/home/claw/unity-2021.3.5/Editor/Unity")))
     parser.add_argument("--render", type=Path, help="Optional output folder for actual rig/tool contact images")
+    parser.add_argument("--anatomy-export", type=Path, help="Export actual skinned arm/torso triangles over complete cycles and visits")
     parser.add_argument("--attention-sequence", action="store_true", help="Render a24fps visitor-interruption transition instead of work cycle")
     parser.add_argument("--render-service", type=int, choices=[1,2,3], help="Render only one resident; all contact checks still run")
     parser.add_argument("--sequence", action="store_true", help="Render complete resident performances at 8 fps")
@@ -166,6 +167,9 @@ def main():
                "-executeMethod", "InteractionRunner.Start", "-interactionManifest", str(manifest_path), "-logFile", str(log)]
     if args.bundle:
         command += ["-faceBundle", str(args.bundle.resolve()), "-faceEvidence", str(run / "actual-prefabs.json")]
+    if args.anatomy_export:
+        args.anatomy_export.mkdir(parents=True, exist_ok=True)
+        command += ["-anatomyExport", str(args.anatomy_export.resolve())]
     if args.render:
         args.render.mkdir(parents=True, exist_ok=True)
         command.remove("-nographics")

@@ -60,8 +60,9 @@ internal static class TownServiceActivityMotion
         // Interruption stops the shared work clock smoothly. A pinched coin stays in
         // the hand while greeting; it never slides through space back onto the table.
         if (service != 1) work.Left = Vector3.Lerp(work.Left, new Vector3(.21f, .959f, .337f), attention);
-        work.Right = Vector3.Lerp(work.Right, service == 3 ? new Vector3(-.18f, 1.14f, .23f) : new Vector3(-.23f, .959f, .33f), attention);
-        work.RightRoll = Mathf.Lerp(work.RightRoll, service == 3 ? 180f : 0f, attention);
+        work.Right = Vector3.Lerp(work.Right, service == 1 ? new Vector3(-.20f, 1.18f, .20f)
+            : service == 3 ? new Vector3(-.18f, 1.14f, .23f) : new Vector3(-.20f, .959f, .33f), attention);
+        work.RightRoll = Mathf.Lerp(work.RightRoll, service != 2 ? 180f : 0f, attention);
         work.LeftRoll = Mathf.Lerp(work.LeftRoll, 0f, attention);
         work.RightCurl = Mathf.Lerp(work.RightCurl, service == 3 ? .08f : 0f, attention);
         work.LeftCurl = service == 1 ? work.LeftCurl : Mathf.Lerp(work.LeftCurl, 0f, attention);
@@ -91,8 +92,8 @@ internal static class TownServiceActivityMotion
 
     private static float Ease(float time, float from, float to) => Mathf.SmoothStep(0f, 1f, (time - from) / (to - from));
     internal static Vector3 CoinSeat(int index, bool counted) => counted
-        ? new Vector3(.08f, .970f + index * .003f, .34f)
-        : new Vector3(.27f + index * .018f, .970f, .35f - index * .022f);
+        ? new Vector3(.055f, .970f + index * .003f, .23f)
+        : new Vector3(.19f + index * .025f, .970f, .23f - index * .018f);
 
     private static readonly float[] TransferEnd = { 4.8f, 8.9f, 14.6f, 19.1f, 24.3f, 28.6f };
     private static TownActivityVisual Merchant(float clock)
@@ -111,7 +112,9 @@ internal static class TownServiceActivityMotion
         var visual = TownServiceMotionClips.Sample(returning ? 1 : 0, t / 3.6f);
         // Generated wrists provide the full motion arc. Exact native coin seats are
         // corrected only through stationary grasp/release windows; never attract a coin.
-        Vector3 hand = visual.Left;
+        // Refit the recorded reach to the compact lectern. The entire path moves
+        // with the contact seats; stationary IK cannot drag a hand through the coat.
+        Vector3 hand = visual.Left + new Vector3(-.05f, 0f, -.11f);
         Vector3 sourceDelta = source - CoinSeat(0, returning);
         Vector3 targetDelta = destination - CoinSeat(0, !returning);
         hand += Vector3.Lerp(sourceDelta, targetDelta, Ease(t, 1.12f, 2.75f))
@@ -121,7 +124,7 @@ internal static class TownServiceActivityMotion
         contact = Ease(t, 2.22f, 2.75f) * (1f-Ease(t, 3.10f, 3.32f));
         hand = Vector3.Lerp(hand, destination, contact);
         float grip = Ease(t, .68f, .96f) * (1f - Ease(t, 2.84f, 3.08f));
-        visual.Left = hand; visual.Right = new Vector3(-.20f, .959f, .37f);
+        visual.Left = hand; visual.Right = new Vector3(-.20f, .959f, .23f);
         visual.LeftCurl = grip * .55f; visual.RightCurl = .025f;
         for (int coin = 0; coin < 3; coin++)
         {

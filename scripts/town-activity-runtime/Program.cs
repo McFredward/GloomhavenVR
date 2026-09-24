@@ -216,7 +216,7 @@ public static class InteractionProgram
                         // A smooth 180-degree offered-palm turn over .65s has a 4.62-degree
                         // peak at 90Hz; ordinary work and the 90-degree prayer turn stay below4.
                         float blend=TownServiceActivityMotion.Blend(in phase);
-                        float turnLimit=service==3&&blend>0f&&blend<1f?5f:4f;
+                        float turnLimit=service!=2&&blend>0f&&blend<1f?5f:4f;
                         if(n>0)Check(Quaternion.Angle(previousHand,hand.rotation)<turnLimit,"hand orientation remains smooth through prayer interruption: "+npc+" n="+n+" step="+Quaternion.Angle(previousHand,hand.rotation));
                         previousHand=hand.rotation;
                         if(TownServiceActivityMotion.Blend(in phase)<.001f && target.y>.99f)
@@ -232,7 +232,7 @@ public static class InteractionProgram
                             Transform[] supports=markers.Where(t=>t.name=="PalmContact.R"||t.name.EndsWith("Pad.R")).ToArray();
                             Check(supports.Length==6,"actual hand has five anatomical finger pads and palm support");
                             float lowest=supports.Min(t=>root.InverseTransformPoint(t.position).y);
-                            if(service==3)
+                            if(service!=2)
                             {
                                 Check(Vector3.Distance(palm.position,wanted)<.012f,"actual enchantress offered palm reaches handoff n="+n+" distance="+Vector3.Distance(palm.position,wanted)+" shoulder="+upper.position+" target="+wanted+" reach="+reach);
                                 Check(rig.OfferingPalm!=null&&Vector3.Dot(rig.OfferingPalm.up,root.up)>.99f,"actual offering normal points above palm");
@@ -244,7 +244,7 @@ public static class InteractionProgram
                     }
                     Console.WriteLine("Actual motion metrics "+npc+": foot drift="+maxFootDrift+"m palm error="+maxPalmError+"m hand step="+maxHandStep+" degrees/90Hz frame");
                     Check(maxFootDrift<.003f,"generated stance keeps actual imported feet planted: "+npc+" "+maxFootDrift);
-                    grounding.Apply(0f,0f);ActivityRender.Render(obj, service, rig);
+                    grounding.Apply(0f,0f);ArmGeometry.Export(root, service, rig, animation);ActivityRender.Render(obj, service, rig);
                 }
                 finally{UnityEngine.Object.DestroyImmediate(obj);}
             }

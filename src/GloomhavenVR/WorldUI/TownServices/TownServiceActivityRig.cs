@@ -23,6 +23,8 @@ internal sealed class TownServiceActivityRig
         internal readonly List<Quaternion> FingerRest = new();
         internal readonly List<Vector3> CurlAxes = new();
         internal readonly List<float> CurlFactors = new();
+        internal readonly List<Transform> Twist = new();
+        internal readonly List<Quaternion> TwistRest = new();
     }
     private readonly Transform _root;
     private readonly byte _service;
@@ -51,7 +53,7 @@ internal sealed class TownServiceActivityRig
             if (child.name == "Neck") _neck = child; else if (child.name == "Chest") _chest = child;
             for (int i=0;i<_body.Length;i++) if (child.name==TownServiceMotionClips.BodyBones[i]) _body[i]=child;
         }
-        if (service == 3 && _right != null)
+        if ((service == 1 || service == 3) && _right != null)
         {
             OfferingPalm = new GameObject("ActivityOfferingPalm").transform;
             OfferingPalm.SetParent(root, false);
@@ -85,6 +87,7 @@ internal sealed class TownServiceActivityRig
         if (arm == null || !arm.Applied) return;
         arm.Upper.localRotation = arm.SampledUpper; arm.Fore.localRotation = arm.SampledFore;
         arm.Hand.localRotation = arm.SampledHand; arm.Applied = false;
+        for (int n = 0; n < arm.Twist.Count; n++) arm.Twist[n].localRotation = arm.TwistRest[n];
     }
     private static Arm? Find(Transform root, string side)
     {
@@ -99,6 +102,10 @@ internal sealed class TownServiceActivityRig
             { arm.Fingers.Add(t); arm.FingerRest.Add(t.localRotation); }
         }
         if (arm.Upper == null || arm.Fore == null || arm.Hand == null) return null;
+        for (int n = 1; n <= 3; n++)
+            foreach (Transform child in arm.Fore.GetComponentsInChildren<Transform>(true))
+                if (child.name == "ForearmTwist" + n + "." + side)
+                { arm.Twist.Add(child); arm.TwistRest.Add(child.localRotation); }
         arm.RestHand = arm.Hand.localRotation;
         Transform? index = null, little = null;
         foreach (Transform finger in arm.Fingers)
@@ -267,6 +274,16 @@ internal sealed class TownServiceActivityRig
                 if (axis.sqrMagnitude > 1e-10f) arm.ThumbBase.rotation = Quaternion.AngleAxis(close, axis.normalized) * arm.ThumbBase.rotation;
             }
         }
+        // Retarget the entire forearm/palm frame, not just an unconstrained wrist
+        // position. The former world-axis half-turn disagreed with the angled
+        // forearm and wrung the cuff even though every contact marker was correct.
+        Vector3 wantedNormal = handRotation * arm.PalmNormal;
+        Vector3 foreDirection = Vector3.forward;
+        for (int pass = 0; pass < 10; pass++)
+        {
+        arm.Upper.localRotation = arm.SampledUpper;
+        arm.Fore.localRotation = arm.SampledFore;
+        arm.Hand.rotation = handRotation;
         Vector3 target = _root.TransformPoint(localTarget);
         if (pinchTarget && arm.IndexPinch != null && arm.ThumbPinch != null)
             target -= (arm.IndexPinch.position + arm.ThumbPinch.position) * .5f - arm.Hand.position;
@@ -291,19 +308,43 @@ internal sealed class TownServiceActivityRig
         Vector3 direction = delta.normalized;
         // Generated elbow motion preserves changing shoulder/elbow coordination.
         // A fixed pole was one reason the former hands moved like mechanical arms.
-        Vector3 pole = _root.TransformPoint(Vector3.Lerp(new Vector3(side * .34f, .98f, .56f), authoredElbow, motionWeight)) - shoulder;
+        Vector3 guide = authoredElbow.sqrMagnitude > .01f ? authoredElbow : new Vector3(side * .34f, .98f, .46f);
+        Vector3 greeting = new Vector3(side * (_service == 1 ? .43f : .35f), 1.04f, .45f);
+        guide = Vector3.Lerp(guide, greeting, attention);
+        // The generated human reference is narrower than the merchant's actual
+        // coat/belly. Keep the elbow's approach outside that measured silhouette.
+        float clearance = _service == 1 ? .39f : .29f;
+        guide.x = side * Mathf.Max(clearance, side * guide.x);
+        Vector3 pole = _root.TransformPoint(guide) - shoulder;
         Vector3 bend = Vector3.ProjectOnPlane(pole, direction).normalized;
         if (bend.sqrMagnitude < .5f) bend = _root.right * side;
         float along = (upper * upper - lower * lower + distance * distance) / (2f * distance);
         Vector3 wantedElbow = shoulder + direction * along + bend * Mathf.Sqrt(Mathf.Max(0f, upper * upper - along * along));
         arm.Upper.rotation = Quaternion.FromToRotation(elbow - shoulder, wantedElbow - shoulder) * arm.Upper.rotation;
-        // Palm-up gestures rotate the whole arm. Putting the entire half-turn into
-        // Hand alone used to wring the wrist/cuff while the forearm stayed palm-down.
-        arm.Upper.rotation = Quaternion.AngleAxis(roll * .20f, arm.Fore.position - arm.Upper.position) * arm.Upper.rotation;
         arm.Fore.rotation = Quaternion.FromToRotation(arm.Hand.position - arm.Fore.position,
             shoulder + direction * distance - arm.Fore.position) * arm.Fore.rotation;
-        arm.Fore.rotation = Quaternion.AngleAxis(roll * .65f, arm.Hand.position - arm.Fore.position) * arm.Fore.rotation;
-        arm.Hand.localRotation = arm.RestHand;
+        foreDirection = (arm.Hand.position - arm.Fore.position).normalized;
+        Vector3 fingerDirection = Vector3.ProjectOnPlane(foreDirection, wantedNormal);
+        if (fingerDirection.sqrMagnitude < .0025f)
+            fingerDirection = Vector3.ProjectOnPlane(-_root.forward, wantedNormal);
+        fingerDirection = Vector3.RotateTowards(foreDirection, fingerDirection.normalized, 55f * Mathf.Deg2Rad, 0f).normalized;
+        Vector3 normal = Vector3.ProjectOnPlane(wantedNormal, fingerDirection).normalized;
+        handRotation = Quaternion.LookRotation(fingerDirection, normal)
+            * Quaternion.Inverse(Quaternion.LookRotation(arm.PalmForward, arm.PalmNormal));
+        }
+        Vector3 relaxedNormal = arm.Fore.rotation * arm.RestHand * arm.PalmNormal;
+        float twist = Vector3.SignedAngle(Vector3.ProjectOnPlane(relaxedNormal, foreDirection),
+            Vector3.ProjectOnPlane(handRotation * arm.PalmNormal, foreDirection), foreDirection);
+        // Three longitudinal supports distribute pronation through real skin. The
+        // proximal elbow is left untwisted; sleeve and hidden skin share the distal
+        // support. Existing bundles retain a functional single-bone fallback.
+        if (arm.Twist.Count == 3)
+            for (int n = 0; n < 3; n++)
+            {
+                arm.Twist[n].localRotation = arm.TwistRest[n];
+                arm.Twist[n].rotation = Quaternion.AngleAxis(twist * (n + 1f) / 3f, foreDirection) * arm.Twist[n].rotation;
+            }
+        else arm.Fore.rotation = Quaternion.AngleAxis(twist, foreDirection) * arm.Fore.rotation;
         arm.Hand.rotation = handRotation;
         Vector3 pinch = arm.IndexPinch != null && arm.ThumbPinch != null
             ? (arm.IndexPinch.position + arm.ThumbPinch.position) * .5f : arm.Hand.position;

@@ -21,8 +21,8 @@ internal static class HandContacts
                 {
                     float sign=side=="L"?1f:-1f;
                     Transform upper=Child(root,"UpperArm."+side,new Vector3(sign*.22f,1.35f,.60f));
-                    Transform fore=Child(upper,"Forearm."+side,new Vector3(sign*.04f,-.20f,-.10f));
-                    Transform hand=Child(fore,"Hand."+side,new Vector3(0f,-.12f,-.20f));
+                    Transform fore=Child(upper,"Forearm."+side,new Vector3(sign*.07f,-.24f,-.13f));
+                    Transform hand=Child(fore,"Hand."+side,new Vector3(0f,-.14f,-.22f));
                     foreach(string digit in new[]{"Thumb","Index","Middle","Ring","Little"})
                     {
                         Transform finger=Child(hand,digit+"1."+side,new Vector3(.01f,-.002f,-.055f));
@@ -46,11 +46,11 @@ internal static class HandContacts
                     Transform contact=service==1&&side=="L"?root.Find("ActivityGripLeft"):root.GetComponentsInChildren<Transform>().Single(t=>t.name=="PalmContact."+side);
                     Vector3 expected=root.TransformPoint(side=="L"?visual.Left:visual.Right);
                     Vector3 horizontal=contact.position-expected;horizontal=Vector3.ProjectOnPlane(horizontal,root.up);
-                    if(horizontal.magnitude>.0001f)throw new Exception("anatomical palm contacts transformed counter surface");checks++;
+                    if(horizontal.magnitude>.0001f)throw new Exception("anatomical palm contacts transformed counter surface service="+service+" side="+side+" error="+horizontal.magnitude);checks++;
                     float lowest=root.GetComponentsInChildren<Transform>().Where(t=>t.name=="PalmContact."+side||t.name.EndsWith("Pad."+side)).Min(t=>root.InverseTransformPoint(t.position).y);
-                    if(!(service==1&&side=="L")&&!(service==3&&side=="R"))
+                    if(!(service==1&&side=="L")&&!(service!=2&&side=="R"))
                     {if(Mathf.Abs(lowest-.959f)>.0001f)throw new Exception("attentive palms rest at physical worktop height");checks++;}
-                    if(service==3&&side=="R")
+                    if(service!=2&&side=="R")
                     {if(rig.OfferingPalm==null||Vector3.Dot(rig.OfferingPalm.up,root.up)<.99f)throw new Exception("offering palm faces upward");checks++;}
                     foreach(Transform tip in root.GetComponentsInChildren<Transform>().Where(t=>t.name.EndsWith("Tip."+side)))
                     {if(Quaternion.Angle(tip.localRotation,Quaternion.identity)>.001f)throw new Exception("contact markers are not articulated finger joints");checks++;}
