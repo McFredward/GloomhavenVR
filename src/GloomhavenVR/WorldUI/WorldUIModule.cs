@@ -50,6 +50,21 @@ internal sealed class WorldUIModule : IVRModule
         // Own Harmony patch classes (ROADMAP conflict containment): all prefixes
         // gate on WorldUI state and are vanilla otherwise.
         VRSession.Harmony?.PatchAll(typeof(WorldspaceDisplayPanelBase_Patches));
+        // Capture successful native continuation edges before a synchronous successor replaces them.
+        VRSession.Harmony?.PatchAll(typeof(Net.MapStoryController_ShowImmediately_LifecyclePatch));
+        VRSession.Harmony?.PatchAll(typeof(Net.MapStoryController_OnFinishShow_LifecyclePatch));
+        VRSession.Harmony?.PatchAll(typeof(Net.StoryController_ShowImmediately_LifecyclePatch));
+        VRSession.Harmony?.PatchAll(typeof(Net.StoryController_OnFinishShow_LifecyclePatch));
+        VRSession.Harmony?.PatchAll(typeof(PostQuestRewardQueuePatch));
+        VRSession.Harmony?.PatchAll(typeof(PostQuestCampaignRewardManagerPatch));
+        VRSession.Harmony?.PatchAll(typeof(PostQuestCampaignRewardShowPatch));
+        VRSession.Harmony?.PatchAll(typeof(PostQuestCampaignRewardContinuePatch));
+        VRSession.Harmony?.PatchAll(typeof(PostQuestGuildmasterRewardShowPatch));
+        VRSession.Harmony?.PatchAll(typeof(PostQuestGuildmasterRewardContinuePatch));
+        VRSession.Harmony?.PatchAll(typeof(PostQuestRewardIntroductionScopePatch));
+        VRSession.Harmony?.PatchAll(typeof(PostQuestRewardIntroductionMessagePatch));
+        VRSession.Harmony?.PatchAll(typeof(PostQuestRewardIntroductionShowPatch));
+        VRSession.Harmony?.PatchAll(typeof(PostQuestRewardSceneEndPatch));
         VRSession.Harmony?.PatchAll(typeof(InputManager_SetGamepadInputDevice_Patch));
         VRSession.Harmony?.PatchAll(typeof(InputManager_AssignGamepadBindings_Patch));
         VRSession.Harmony?.PatchAll(typeof(UITextInfoPanel_Show_Patch)); // test #18 attribution diagnostic

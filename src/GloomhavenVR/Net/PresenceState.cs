@@ -16,6 +16,10 @@ internal struct PresenceState
     public bool HasSharedWindowMotion;
     public byte SharedWindowHeldMask;
     public byte SharedWindowReflowMask;
+    public bool HasMapStoryLifecycle;
+    public MapStoryOpening[]? MapStoryLifecycleEntries;
+    public bool HasRewardContinuation;
+    public MapStoryOpening[]? RewardContinuationEntries;
     public bool HasRewardWindow;
     public RewardWindowState RewardWindow;
     public bool HasRewardPoseHandshake;
@@ -1620,6 +1624,9 @@ internal static class PresenceSerializer
     /// + 56 (HELD PROPS: 2 + its two-slot form, 2 x <c>NetProtocol.HeldPropSlotBytes</c>)
     /// = 1726.
     ///
+    /// <para>Native opening histories83/84 add510 bytes: worst7379, buffer7636 retains
+    /// a257-byte margin; bounded7680 reassembly retains the existing chunk grammar.</para>
+    ///
     /// <para>Shared window motion77 adds four bytes: 6865 -> 6869 worst case; buffer 7126
     /// retains 257 spare bytes, within the unchanged 7168-byte reassembly bound.</para>
     ///
@@ -1871,7 +1878,9 @@ internal static class PresenceSerializer
     /// ITS OWN COMMIT, and keeps a margin of at least one record's worth. Record 27 (track order)
     /// took the worst case 859 → 887 on 2026-08-08; the margin is 393 bytes, i.e. still more than
     /// every optional record on the tail put together.</para></summary>
-    public const int MaxSize = 7126;
+    // Story83 and reward84 add at most 255 bytes each: 6869 + 510 = 7379.
+    // Keep the 257-byte largest-record margin; fragment envelope supports this bound.
+    public const int MaxSize = 7636;
 
     // ---- write --------------------------------------------------------------------------
 
@@ -1950,6 +1959,8 @@ internal static class PresenceSerializer
                           || state.HasVideoWindow
                           || state.HasRewardPoseHandshake
                           || state.HasRewardWindow
+                          || state.HasMapStoryLifecycle
+                          || state.HasRewardContinuation
                           || state.HasFanInsertionGap
                           || (state.HasFanArcOrder && state.FanArcOrderCount > 0
                               && state.FanArcOrder != null)
@@ -2721,6 +2732,10 @@ internal static class PresenceSerializer
             buffer[i++] = (byte)(state.SharedWindowReflowMask & NetProtocol.SharedWindowMotionDefinedMask);
             records++;
         }
+        if (state.HasMapStoryLifecycle && MapStoryLifecycleCodec.Write(buffer, ref i, state.MapStoryLifecycleEntries))
+            records++;
+        if (state.HasRewardContinuation && RewardContinuationCodec.Write(buffer, ref i, state.RewardContinuationEntries))
+            records++;
         if (state.HasRewardPoseHandshake && RewardPoseHandshakeCodec.Write(buffer, ref i, in state.RewardPoseHandshake))
             records++;
         if (state.HasRewardWindow && RewardWindowCodec.Write(buffer, ref i, in state.RewardWindow))
@@ -4053,6 +4068,16 @@ internal static class PresenceSerializer
                 state.SharedWindowHeldMask = (byte)(buffer[i] & NetProtocol.SharedWindowMotionDefinedMask);
                 state.SharedWindowReflowMask = (byte)(buffer[i + 1] & NetProtocol.SharedWindowMotionDefinedMask);
             }
+            return;
+        }
+        if (id == NetProtocol.ExtIdMapStoryLifecycle)
+        {
+            state.HasMapStoryLifecycle = MapStoryLifecycleCodec.TryRead(buffer, i, len, out state.MapStoryLifecycleEntries);
+            return;
+        }
+        if (id == NetProtocol.ExtIdRewardContinuation)
+        {
+            state.HasRewardContinuation = RewardContinuationCodec.TryRead(buffer, i, len, out state.RewardContinuationEntries);
             return;
         }
         if (id == NetProtocol.ExtIdRewardPoseHandshake)

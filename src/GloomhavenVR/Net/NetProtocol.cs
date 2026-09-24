@@ -72,6 +72,10 @@ internal static class NetProtocol
     public const byte MsgMapButtonTooltip = 23;
     public const byte MsgMapButtonTooltipFragments = 24;
     public const byte ExtIdMapButtonTooltip = 82;
+    /// <summary>Native map story opening history; pages/completion retain predecessor identity.</summary>
+    public const byte ExtIdMapStoryLifecycle = 83;
+    /// <summary>Native post-quest reward opening history and accepted continuation.</summary>
+    public const byte ExtIdRewardContinuation = 84;
     public const byte ExtIdItemAppearance = 76;
     public const byte ExtIdPresentationCompression = 64;
     public const byte ExtIdDamageAvoidance = 65;
@@ -93,7 +97,7 @@ internal static class NetProtocol
     public const byte ExtIdCardBurnCompletion = 75;
     /// <summary>Explicit shared map-window ownership: held mask, then automatic-motion mask.
     /// Each byte uses bits 0/1/2 for story/quest/encounter. Zero explicitly clears ownership;
-    /// absence means the peer supplied no ownership statement. Additive TLV; 83 is next free
+    /// absence means the peer supplied no ownership statement. Additive TLV; 85 is next free
     /// (78–81 are reserved by the isolated NPC branch, 82 carries map-button hints).</summary>
     public const byte ExtIdSharedWindowMotion = 77;
     public const byte SharedWindowMotionRecordBytes = 2;
@@ -521,14 +525,17 @@ internal static class NetProtocol
     /// 15 Hz board pose while moving).</summary>
     public const ushort ModBuild = 555;
 
-    // ModBuild 555 — completed native stories release their retained VR windows.
-    // Build 554 logs prove final-page callbacks and rewards completed, but map-room
-    // stickiness kept the disabled final page visible until shutdown. Identify both
-    // map and scenario story windows by their controller references; native close
-    // overrides stale poll membership and never reasserts visibility. Release uses
-    // the ordinary float cleanup, without Hide/Skip/callback replay or new wire data.
-    // Live/reopened story pages and parallel map destinations keep their ownership.
-
+    // ModBuild 555 — completed story lifetime and shared post-quest continuation.
+    // Build554 logs: native final story Hide, reward Continue and save completed, but the
+    // sticky VR float kept the disabled final page visible until shutdown. Exact map/scenario
+    // story identity now releases on native close and cannot be polled or converted back.
+    // The multiplayer audit also found synchronous message chains losing predecessor FINISHED
+    // and post-quest rewards lacking shared identity. Native opening histories83/84 retain
+    // page/completion provenance, repeated-opening/reconnect identity and bounded rotating
+    // snapshots; original window pose paths21/73/74 remain in use. Original controllers own
+    // reveal, accepted continuation, reward processing and saves. No NPC content or release.
+    // Source/log evidence and remaining headset checks: .planning/STORY-555.md.
+    //
     // ModBuild 554 — hidden Cheats page: explicitly win the current offline scenario.
     // Two presses arm/confirm for the same live scenario, then close options/pause and
     // call DebugMenu.WinNoToggle. Native safe shutdown, results, quest rewards and saves

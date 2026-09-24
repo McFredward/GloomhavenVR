@@ -62,7 +62,7 @@ static class Program
             "pooled policy change is rechecked before conversion release");
 
         foreach (object identity in new object[] { new UIEventPanel(), new UIRewardsManager(),
-            new UICampaignRewardWindow(), new ItemCardPicker(), new TakeDamagePanel(),
+            new UICampaignRewardWindow(), new UIGuildmasterAdventureRewardsManager(), new ItemCardPicker(), new TakeDamagePanel(),
             new UILevelUpWindow(), new UIUnlockLocationFlowManager(), new UICharacterCreatorWindow(),
             new ConfirmationBox() })
         {

@@ -275,6 +275,13 @@ internal static partial class ModalFallback
             reason = "campaign reward showcase — the native Continue callback must finish the reward process";
             return MandatoryDecisionTerm.RewardShowcase;
         }
+        if (window.GetComponent<UIGuildmasterAdventureRewardsManager>() != null)
+        {
+            // RequireComponent(UIWindow), cached in Awake. Its manager Hide drives unlock
+            // videos before invoking onClosed; a bare window Hide skips that continuation.
+            reason = "guildmaster adventure rewards — the native Continue owns unlock videos and completion";
+            return MandatoryDecisionTerm.RewardShowcase;
+        }
         if (window.GetComponent<UIRewardsManager>() != null)
         {
             // THE STRONGEST FINDING OF THE WHOLE AUDIT, AND THE MECHANISM IN FULL — because it is

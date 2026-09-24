@@ -10,9 +10,9 @@ namespace GloomhavenVR.Net;
 /// </summary>
 internal sealed class ExtrasFragments
 {
-    // Reward pose eligibility adds59 bytes to the previous4074-byte worst case.
-    // The envelope grammar/chunk size are unchanged; nine bounded datagrams cover the maximum durable burn history.
-    internal const int MaxSnapshotBytes = 7168;
+    // Story/reward opening histories raise the worst extras payload to7379 bytes.
+    // Grammar/chunk size remain unchanged; ten bounded datagrams cover this payload.
+    internal const int MaxSnapshotBytes = 7680;
     internal const int MaxDatagramBytes = 864;
     internal const int ChunkBytes = 200;
     private const int MetadataBytes = 12; // sequence:u64, snapshot length:u16, offset:u16

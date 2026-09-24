@@ -4,6 +4,7 @@ public enum UIWindowID { None, EventsPanel }
 public class UIEventPanel { }
 public class UICampaignRewardWindow { }
 public class UIRewardsManager { }
+public class UIGuildmasterAdventureRewardsManager { }
 public class ItemCardPicker { }
 public class TakeDamagePanel { }
 public class UILevelUpWindow { }

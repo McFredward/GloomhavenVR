@@ -45,10 +45,30 @@ messages stay open. Permanent character/quest windows, parallel destinations and
 composed loadout hosts are not classified as stories merely because they contain
 one. Native mandatory story continuation is also protected from generic close.
 
-The existing RemoteMapStory FINISHED/linger path already handles a null MapBox
-after release and retains the sampled content key for packet-loss recovery. Its
-protocol and native authority are unchanged. No remote hardware evidence exists
-for this run.
+## Multiplayer follow-up
+
+The user explicitly requires post-scenario dialogues to remain fully shared. The
+source audit found two additional defects beyond the local retained-window bug:
+
+- `MapStoryController.OnFinishShow` can synchronously open the next queued message.
+  The legacy frame poll then sees only its new content key and never publishes the
+  previous message's completion. A slower participant can remain on that predecessor.
+- Reward pose identity previously recognized scenario chest/goal-chest messages only.
+  Native campaign/Guildmaster post-quest rewards had no shared opening identity;
+  campaign Continue is a local callback, not the scenario reward network action.
+
+The correction records native opening/completion edges. Additive TLVs83/84 retain
+sender-scoped openings, public native run/content provenance, participants, page and
+completion. Rotating bounded snapshots preserve predecessor completion across packet
+loss and long native reveal sequences. Repeated identical content and a reconnect
+must not reuse a previous opening's completion. Legacy map-window poses remain on21;
+reward presentation reuses the original shared reward pose path73/74. The native
+controllers still perform continuation, unlocks, reward processing and saving.
+
+Native scenario reward authority and personal decisions must not be replaced by a
+second mod gameplay action. The new post-quest continuation path waits for the
+original reveal and eligible Continue; it does not skip native introduction stages.
+No remote hardware evidence exists for this run.
 
 ## Hardware check
 
@@ -57,6 +77,10 @@ Advance the final story page: its frame must leave, rewards must remain usable,
 and the map must be accessible. Repeat with another quest/prosperity dialogue,
 then a quest introduction that proceeds to loadout. In multiplayer, verify that
 both clients dismiss the finished story and continue their original shared flow.
+Test alternating which player advances pages, fast queued messages, moving the
+shared window, the reward reveal/Continue and a prosperity follow-up. Repeat after
+reconnecting and with delayed loading; previously completed dialogue must not close
+a later new opening. Verify both Campaign and Guildmaster post-quest rewards.
 
 Automated lifecycle checks do not establish headset animation or network delivery;
 they protect the exact retained-window failure path shown by these logs.
