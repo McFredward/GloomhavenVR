@@ -36,12 +36,13 @@ def sources(root):
 def mutations():
     return [
         ("frozen-generated-body", "TownServiceMotionClips.cs", "body.Set(i,Rotation(data,a+15+i*4,b+15+i*4,t));", "body.Set(i,Quaternion.identity);", "generated occupation contains real torso movement"),
+        ("wrapped-forearm-support", "TownServiceActivityRig.cs", "if (_service != 2) twist = Mathf.DeltaAngle(0f, twist + roll) - roll;", "twist = Mathf.Repeat(twist, 360f);", "actual forearm skin support stays continuous across pronation"),
         ("unplanted-feet", "TownServiceActivityRig.cs", "PlantFoot(6); PlantFoot(9);", "// negative control: uncorrected generated stance", "generated stance keeps actual imported feet planted"),
         ("phase-jump", "TownServiceActivityMotion.cs", "state.FromBlend = Blend(in state);", "state.FromBlend = state.Engaged ? 1f : 0f;", "interrupted transition keeps current pose"),
         ("work-runs-while-engaged", "TownServiceActivityMotion.cs", "dt - Integral(in state, state.TransitionAge + dt) + Integral(in state, state.TransitionAge)", "dt", "engaged occupation remains paused"),
         ("ignore-ik", "TownServiceActivityRig.cs", "if (!Ready) return;", "if (Ready) return;", "anatomical palm contacts transformed counter surface"),
         ("thumb-overcurl", "TownServiceActivityRig.cs", "arm.Anatomical ? 38f : 5f", "arm.Anatomical ? 150f : 5f", "anatomical thumb stays inside natural grasp range"),
-        ("prayer-snap", "TownServiceActivityRig.cs", "Quaternion.Slerp(Quaternion.LookRotation(_root.up, -side * _root.right), table, attention)", "(attention < .5f ? Quaternion.LookRotation(_root.up, -side * _root.right) : table)", "hand orientation remains smooth through prayer interruption"),
+        ("prayer-snap", "TownServiceActivityRig.cs", "Quaternion.Slerp(Quaternion.LookRotation(_root.up, -side * _root.right), table, attention)", "(attention < .5f ? Quaternion.LookRotation(_root.up, -side * _root.right) : table)", "actual left hand remains continuous"),
         ("excessive-work-bow", "TownServiceActivityRig.cs", "-6f - terrainLean", "-35f - terrainLean", "work posture does not stack an extreme torso and neck bow"),
         ("ignore-palm-offset", "TownServiceActivityRig.cs", "target -= palmOffset;", "target -= palmOffset * 0f;", "anatomical palm contacts transformed counter surface"),
         ("curl-contact-markers", "TownServiceActivityRig.cs", ' && !t.name.Contains("Tip")', "", "contact markers are not articulated finger joints"),

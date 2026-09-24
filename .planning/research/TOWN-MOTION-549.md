@@ -37,7 +37,7 @@ not the complete deformed skin.
   attached to the actual pinch; there is no inference or network service at runtime.
 
 No paid API was called. The original four Kimodo clips remain the motion source.
-The enchantress's fast final recovery is continuously retimed, producing a 12.2-second
+The enchantress's large gesture and fast final recovery are continuously retimed, producing a 12.7-second
 loop with matching source velocity at both ends. Her lowered hands clear the actual robe.
 The merchant's right resting palm is `(-.32, .959, .35)` and his offered palm is approximately
 `(-.20, 1.18, .20)`; the final actual palm transform remains authoritative. Working coins
@@ -72,7 +72,7 @@ furniture refresh, Windows bundle and package.
 ## Validation status
 
 - Strict Release build: zero warnings/errors.
-- Actual imported activity suite: 216,132 assertions and 16 mutation controls, including
+- Actual imported activity suite: 268,749 assertions and 17 mutation controls, including
   transformed palm/coin contacts, planted feet, pause/reversal/recovery, wrist flexion,
   longitudinal twist supports, and paired remote timelines.
 - Final imported actor asset gate: 2,044 assertions and nine visual negative controls.
@@ -83,7 +83,22 @@ furniture refresh, Windows bundle and package.
 - `check-town-arm-mesh.py` checks exact triangles for arm/torso and opposite-arm
   intersections, plus matched cuff/skin seam growth. It injects actual skin penetrations
   and a separated wrist as negative controls. This is not a marker or capsule proxy.
-- Final geometry counts and render review are being completed before integration.
+- Final exact-skin gate: zero arm/torso or opposite-arm intersections across 794 merchant,
+  546 priestess and 603 enchantress poses (1,943 total). All six injected body-penetration
+  and detached-wrist controls were detected. Maximum cuff/skin separation growth was
+  0.124 mm, 2.487 mm and 0.636 mm respectively. Reports:
+  `/tmp/town549-arm-final-proof.json` and `/tmp/town549-arm-final-fast.json`.
+  Conservative bounding-box/tree-reuse optimization produced identical complete reports.
+- Final matched source runtime: `/tmp/town549-motion-final-verified/run-8orpjnhf`.
+  A new wrapped-support mutation produces the intermediate-bone jump that a hand-only
+  velocity check misses. Signed pronation now retains its authored turn count.
+- Final desktop render review: `/tmp/town549-renders-final-proof`, showing actual imported
+  actors through work and offered-hand states. Body/head/face/optical/leg geometry remains
+  the approved source; the fixture still contains the previous furniture, which root
+  integration replaces separately. Hand and support velocity checks run at 90 Hz;
+  triangle/seam checks sample complete work cycles at 12 Hz and visits/reversals at 30 Hz.
+  The full-skin dataset uses nominal ground height; independent contact/foot tests also
+  vary resolved terrain height by +/-35 mm.
 
 Automated and desktop-render evidence cannot establish headset lighting or perceived
 naturalness. Hardware review should inspect wrist joins from both sides, coin pickup and

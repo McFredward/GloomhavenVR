@@ -188,6 +188,8 @@ public static class InteractionProgram
                     var rig=new TownServiceActivityRig(root,service);Check(rig.Ready,"actual imported arms found");
                     Animation animation=root.GetComponentInChildren<Animation>();
                     Transform hand=root.GetComponentsInChildren<Transform>(true).Single(t=>t.name=="Hand.R");
+                    Transform leftHand=root.GetComponentsInChildren<Transform>(true).Single(t=>t.name=="Hand.L");
+                    Quaternion previousLeft=Quaternion.identity;float maxLeftStep=0f;
                     Transform upper=root.GetComponentsInChildren<Transform>(true).Single(t=>t.name=="UpperArm.R");
                     Transform fore=root.GetComponentsInChildren<Transform>(true).Single(t=>t.name=="Forearm.R");
                     Transform[] thumbs=root.GetComponentsInChildren<Transform>(true).Where(t=>t.name.StartsWith("Thumb")).ToArray();
@@ -195,6 +197,8 @@ public static class InteractionProgram
                     var phase=new TownActivityPose{TransitionAge=.65f};Quaternion previousHand=Quaternion.identity;
                     Transform[] feet=root.GetComponentsInChildren<Transform>(true).Where(t=>t.name=="Foot.L"||t.name=="Foot.R").ToArray();
                     Check(feet.Length==2,"both planted feet exist");float maxFootDrift=0,maxPalmError=0,maxHandStep=0;
+                    var twistSupports=root.GetComponentsInChildren<Transform>(true).Where(t=>t.name.StartsWith("ForearmTwist")).ToArray();
+                    var previousSupports=new Quaternion[twistSupports.Length];float maxSupportStep=0f;
                     var sampledFeet=new Vector3[2];
                     for(int n=0;n<2500;n++)
                     {
@@ -221,6 +225,22 @@ public static class InteractionProgram
                         // only continuous work/attention frames have a velocity bound.
                         bool continuous = n>0&&n!=833&&n!=1666;
                         if(continuous)maxHandStep=Mathf.Max(maxHandStep,Quaternion.Angle(previousHand,hand.rotation));
+                        if(continuous)
+                        {
+                            float leftStep=Quaternion.Angle(previousLeft,leftHand.rotation);maxLeftStep=Mathf.Max(maxLeftStep,leftStep);
+                            Check(leftStep<5f,"actual left hand remains continuous: "+npc+" frame="+n+" step="+leftStep);
+                        }
+                        previousLeft=leftHand.rotation;
+                        for(int support=0;support<twistSupports.Length;support++)
+                        {
+                            if(continuous)
+                            {
+                                float step=Quaternion.Angle(previousSupports[support],twistSupports[support].rotation);
+                                maxSupportStep=Mathf.Max(maxSupportStep,step);
+                                Check(step<8f,"actual forearm skin support stays continuous across pronation: "+npc+" "+twistSupports[support].name+" frame="+n+" step="+step);
+                            }
+                            previousSupports[support]=twistSupports[support].rotation;
+                        }
                         for(int digit=0;digit<thumbs.Length;digit++)
                             Check(Quaternion.Angle(thumbs[digit].localRotation,thumbNeutral[digit])<55f,"anatomical thumb stays inside natural grasp range");
                         if(service==1&&TownServiceActivityMotion.Writing(phase.WorkClock)>.99f&&TownServiceActivityMotion.Blend(in phase)<.01f)
@@ -256,6 +276,7 @@ public static class InteractionProgram
                     }
                     Console.WriteLine("Actual motion metrics "+npc+": foot drift="+maxFootDrift+"m palm error="+maxPalmError+"m hand step="+maxHandStep+" degrees/90Hz frame");
                     Check(maxFootDrift<.003f,"generated stance keeps actual imported feet planted: "+npc+" "+maxFootDrift);
+                    Console.WriteLine("Actual additional continuity metrics "+npc+": left hand="+maxLeftStep+" support="+maxSupportStep+" degrees/90Hz frame");
                     grounding.Apply(0f,0f);ArmGeometry.Export(root, service, rig, animation);ActivityRender.Render(obj, service, rig);
                 }
                 finally{UnityEngine.Object.DestroyImmediate(obj);}

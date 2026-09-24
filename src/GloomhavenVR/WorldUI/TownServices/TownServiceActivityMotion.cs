@@ -149,8 +149,8 @@ internal static class TownServiceActivityMotion
         var visual=TownServiceMotionClips.Sample(3, (clock % 8f)/8f);
         // Keep loosely cupped prayer hands at chest height. Their actual skin clears
         // the opposite fingers; sampled breathing supplies the quiet weight change.
-        visual.Left = new Vector3(.035f,1.43f,.40f);
-        visual.Right = new Vector3(-.035f,1.43f,.40f);
+        visual.Left = new Vector3(.035f,1.43f,.25f);
+        visual.Right = new Vector3(-.035f,1.43f,.25f);
         visual.LeftCurl=0f; visual.RightCurl=0f;
         return visual;
     }
@@ -171,18 +171,20 @@ internal static class TownServiceActivityMotion
         new(7.1f,30f,180f,.12f), new(7.7f,95f,180f,.48f),
         new(8.5f,45f,165f,.34f), new(9.8f,0f,0f,0f), new(10.2f,0f,0f,0f)
     };
+    private static float Retimed(float time, float sourceLength, float shownLength)
+    {
+        // Preserve source velocity at both endpoints while giving the middle of a
+        // fast generated gesture enough time for the actual retargeted limb.
+        float phase = time / shownLength, slope = shownLength / sourceLength;
+        return sourceLength * (slope * phase + (3f - 3f * slope) * phase * phase
+            + (2f * slope - 2f) * phase * phase * phase);
+    }
     private static TownActivityVisual Enchantress(float clock)
     {
-        float cycle = clock % 12.2f;
-        if (cycle > 8.5f)
-        {
-            // Give the generated fast spell recovery its own settling time. Cubic
-            // Hermite retiming keeps velocity continuous at both ends of the loop.
-            float phase = (cycle - 8.5f) / 3.7f;
-            float slope = 3.7f / 1.7f;
-            cycle = 8.5f + 1.7f * (slope * phase + (3f - 3f * slope) * phase * phase
-                + (2f * slope - 2f) * phase * phase * phase);
-        }
+        float cycle = clock % 12.7f;
+        if (cycle > 9f) cycle = 8.5f + Retimed(cycle - 9f, 1.7f, 3.7f);
+        else if (cycle > 4.55f) cycle -= .5f;
+        else if (cycle > 2.7f) cycle = 2.7f + Retimed(cycle - 2.7f, 1.35f, 1.85f);
         int next = 1;
         while (next < Spell.Length - 1 && Spell[next].Time < cycle) next++;
         SpellKey a = Spell[next - 1], b = Spell[next];

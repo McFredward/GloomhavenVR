@@ -370,7 +370,7 @@ internal sealed class TownServiceActivityRig
                 // Pronation follows a signed angle about the forearm, including a full
                 // offered half turn. Slerping between opposing palm normals introduces
                 // an ambiguous 180-degree branch. Only flexion is corrected here.
-                Vector3 flatFingers = Vector3.ProjectOnPlane(foreDirection, _root.up);
+                Vector3 flatFingers = _service == 1 && side > 0f ? -_root.forward : Vector3.ProjectOnPlane(foreDirection, _root.up);
                 if (flatFingers.sqrMagnitude > .001f)
                 {
                     Vector3 bent = Vector3.RotateTowards(foreDirection, flatFingers.normalized, 55f * Mathf.Deg2Rad, 0f).normalized;
@@ -395,6 +395,9 @@ internal sealed class TownServiceActivityRig
         Vector3 relaxedNormal = arm.Fore.rotation * arm.RestHand * arm.PalmNormal;
         float twist = Vector3.SignedAngle(Vector3.ProjectOnPlane(relaxedNormal, foreDirection),
             Vector3.ProjectOnPlane(handRotation * arm.PalmNormal, foreDirection), foreDirection);
+        // Keep the authored turn count. A wrapped +/-180-degree angle is equivalent
+        // at the hand, but its one-third support rotation would jump by 120 degrees.
+        if (_service != 2) twist = Mathf.DeltaAngle(0f, twist + roll) - roll;
         // Three longitudinal supports distribute pronation through real skin. The
         // proximal elbow is left untwisted; sleeve and hidden skin share the distal
         // support. Existing bundles retain a functional single-bone fallback.

@@ -21,10 +21,12 @@ def intersections(positions, faces):
     low = torso_triangles.min(axis=1)
     high = torso_triangles.max(axis=1)
     pairs = []
+    bounds, trees = {}, {}
     for side in (1, 2):
         arm_indices = np.unique(faces[side])
         arm_low = positions[arm_indices].min(axis=0)
         arm_high = positions[arm_indices].max(axis=0)
+        bounds[side] = (arm_low, arm_high)
         candidates = np.flatnonzero(np.all(high >= arm_low, axis=1) & np.all(low <= arm_high, axis=1))
         if not len(candidates):
             continue
@@ -33,10 +35,14 @@ def intersections(positions, faces):
         arm_indices, arm_inverse = np.unique(faces[side], return_inverse=True)
         torso = BVHTree.FromPolygons(positions[torso_indices], torso_inverse.reshape((-1, 3)), all_triangles=True, epsilon=0)
         arm = BVHTree.FromPolygons(positions[arm_indices], arm_inverse.reshape((-1, 3)), all_triangles=True, epsilon=0)
+        trees[side] = arm
         pairs.extend((side, int(a), 3, int(candidates[b])) for a, b in arm.overlap(torso))
-    left = BVHTree.FromPolygons(positions, faces[1], all_triangles=True, epsilon=0)
-    right = BVHTree.FromPolygons(positions, faces[2], all_triangles=True, epsilon=0)
-    pairs.extend((1, int(a), 2, int(b)) for a, b in left.overlap(right))
+    if np.all(bounds[1][1] >= bounds[2][0]) and np.all(bounds[2][1] >= bounds[1][0]):
+        for side in (1, 2):
+            if side not in trees:
+                indices, inverse = np.unique(faces[side], return_inverse=True)
+                trees[side] = BVHTree.FromPolygons(positions[indices], inverse.reshape((-1, 3)), all_triangles=True, epsilon=0)
+        pairs.extend((1, int(a), 2, int(b)) for a, b in trees[1].overlap(trees[2]))
     return pairs
 
 
