@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Verify full native temple/enchantment stock against physical worktop bounds in Unity."""
+"""Verify original enhancement folio and native temple offerings against stand bounds in Unity."""
 import argparse
 import hashlib
 import json
@@ -77,11 +77,11 @@ def main():
     base = args.source_root / 'src/GloomhavenVR/WorldUI/TownServices'
     sources = {'TownServiceRitualLayout.cs': (base / 'TownServiceRitualLayout.cs').read_text()}
     variants = [('production', None, '', '', ''),
-        ('overflow-old-columns', 'TownServiceRitualLayout.cs', '-.65f + column * .14f', '-.58f - column * .16f', 'every complete projected face stays on the worktop'),
-        ('hovering-stock', 'TownServiceRitualLayout.cs', 'SupportedEdge + halfHeight,', 'SupportedEdge + halfHeight + row * .01f,', 'every file lower edge is physically supported rather than floating'),
-        ('native-rune-depth', 'TownServiceRitualLayout.cs', 'row * step', 'row * .18f', 'stock clears native rear lanterns and alchemy vessels'),
-        ('overlap-book', 'TownServiceRitualLayout.cs', '.255f + (index % 3) * .18f', '.20f + (index % 3) * .18f', 'stock clears selected card and original capacity book'),
-        ('tilted-coin', 'TownServiceRitualLayout.cs', 'Quaternion.Euler(90f, 0f, 0f)', 'Quaternion.Euler(65f, 0f, 0f)', 'native offering coin lies flat on the real worktop')]
+        ('folio-width', 'TownServiceRitualLayout.cs', '.60f, .55f', '1.40f, .55f', 'complete native folio sections stay within the stand width'),
+        ('folio-under-table', 'TownServiceRitualLayout.cs', '.32f, .33f, -.16f', '.32f, .05f, -.16f', 'native folio stays above tabletop and below resident face'),
+        ('folio-rear-decoration', 'TownServiceRitualLayout.cs', '.32f, .33f, -.16f', '.32f, .33f, .65f', 'native folio clears front edge and rear decoration'),
+        ('folio-controls-overlap', 'TownServiceRitualLayout.cs', '.43f, .036f, -.20f', '.19f, .036f, -.20f', 'native folio content and original controls never overlap'),
+        ('tilted-coin', 'TownServiceRitualLayout.cs', 'Quaternion.Euler(90f, 0f, 0f), Vector2.one * .075f', 'Quaternion.Euler(65f, 0f, 0f), Vector2.one * .075f', 'native offering coin lies flat on the real worktop')]
     manifest = {'result': str(run / 'results.txt'), 'cases': []}
     fixture = ROOT / 'scripts/town-ritual-layout-runtime'
     dotnet = shutil.which('dotnet') or str(Path.home() / '.dotnet/dotnet')

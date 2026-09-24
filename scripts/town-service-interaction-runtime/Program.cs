@@ -735,10 +735,72 @@ public static class InteractionProgram
         }
     }
 
+    private static void NativeFolioAndTeardown()
+    {
+        var parent=Probe.Go("NativeFolio").transform;
+        var list=Probe.Go("NativeScroll",parent);
+        var viewport=(RectTransform)list.transform;viewport.sizeDelta=new Vector2(600f,800f);
+        var content=(RectTransform)Probe.Go("NativeRows",viewport).transform;content.sizeDelta=new Vector2(600f,2000f);
+        content.anchorMin=content.anchorMax=new Vector2(.5f,1f);content.pivot=new Vector2(.5f,1f);
+        var scroll=list.AddComponent<ScrollRect>();scroll.viewport=viewport;scroll.content=content;scroll.horizontal=false;scroll.vertical=true;
+        list.AddComponent<RectMask2D>();
+        scroll.verticalNormalizedPosition=.45f;
+        var anchor=Probe.Go("FolioAnchor").transform;
+        var p=TownServiceRitualLayout.Folio(10);
+        using(var surface=new TownServiceSurface(10,viewport,p.Position,p.Size.x,anchor,p.Rotation,p.Size.y))
+        {
+            Vector2 before=content.anchoredPosition;
+            surface.Tick(Vector3.zero,Quaternion.identity,1f);
+            Check(surface.Panel.Target.GetComponent<ScrollRect>()==scroll && scroll.content==content && scroll.viewport==viewport,
+                "native enhancement folio preserves original scroll viewport and full row inventory");
+            Check(Vector2.Distance(content.anchoredPosition,before)<.001f,"folio fitting never resets native scrolling");
+            Probe.Go("FolioEvents").AddComponent<EventSystem>();
+            ExecuteEvents.Execute(list,new PointerEventData(EventSystem.current){scrollDelta=new Vector2(0f,-1f)},ExecuteEvents.scrollHandler);
+            Check(Vector2.Distance(content.anchoredPosition,before)>.001f,"original enhancement list consumes pointer scroll after anchoring");
+        }
+        Check(viewport.parent==parent,"folio disposal restores original native scroll hierarchy");
+        var inscriptionParent=Probe.Go("InscriptionParent").transform;
+        var source=Probe.Go("NativeInscription").AddComponent<TMPro.TMP_Text>();
+        var inscription=new TownServiceRitual.Inscription("native",source,inscriptionParent,Vector3.zero,.2f,.1f);
+        UnityEngine.Object.DestroyImmediate(inscriptionParent.gameObject);
+        try { inscription.Dispose(); }
+        catch(Exception ex){throw new Exception("destroyed inscription root can be disposed without blocking native teardown",ex);}
+        Check(true,"destroyed inscription root can be disposed without blocking native teardown");Clean();
+    }
+
+    private static void EnhancementDecisionLayout()
+    {
+        var native=Probe.Go("NativeRuneDecision");native.AddComponent<UIWindow>();
+        var box=native.AddComponent<UIEnhancementConfirmationBox>();
+        box.titleText=Probe.Go("Title",native.transform).AddComponent<TMPro.TMP_Text>();
+        box.informationText=Probe.Go("Information",native.transform).AddComponent<TMPro.TMP_Text>();
+        box.enhancementIcon=Probe.Go("Icon",native.transform).AddComponent<Image>();
+        box.enhancementName=Probe.Go("Name",native.transform).AddComponent<TMPro.TMP_Text>();
+        box.confirmButton=Probe.Go("Confirm",native.transform).AddComponent<Button>();
+        box.cancelButton=Probe.Go("Cancel",native.transform).AddComponent<Button>();
+        box._onConfirmCallback=()=>{};
+        foreach(Component c in new Component[]{box.titleText,box.informationText,box.enhancementIcon,box.enhancementName,box.confirmButton,box.cancelButton})
+            ((RectTransform)c.transform).sizeDelta=new Vector2(400f,80f);
+        var seat=Probe.Go("RunePalm").transform;
+        TownServicePalmConfirmation.Begin(box,seat);TownServicePalmConfirmation.Tick();
+        var entry=new List<TownServicePalmConfirmation.Entry>(TownServicePalmConfirmation.Active)[0];
+        Check(entry.Surfaces.Count==6,"enhancement decision retains all six original content groups");
+        foreach(var surface in entry.Surfaces)
+        {
+            Vector3 relative=seat.InverseTransformPoint(surface.Panel.HostGo.transform.position);
+            Check(Mathf.Abs(relative.x)<.24f && relative.z<-.6f && relative.y<-.25f,
+                "all original enhancement confirmation content stays together below the palm");
+        }
+        TownServicePalmConfirmation.CancelOwned(box.GetComponent<UIWindow>());
+        TownServicePalmConfirmation.CancelOwned(box.GetComponent<UIWindow>());
+        Check(box.Cancels==1,"enhancement withdrawal cancels only the live decision once");
+        Clean();
+    }
+
     public static int Run()
     {
         _assertions = 0;
-        try { PalmConfirmationLifecycle(); ParkedStockRegrab(); PhysicalCommitCases(); PhysicalMerchantSamples(); WindowMaskLifecycle(); MerchantContextLifecycle(); ConfirmationFadeLifecycle(); IdentityChanges(); HoverAndRelease(); CancellationCompatibility(); Handoff(); RollbackAndContinuation(); OptionalPresentation(); ManualTrayPlacement(); MapHandFallback(); return _assertions; }
+        try { NativeFolioAndTeardown(); EnhancementDecisionLayout(); PalmConfirmationLifecycle(); ParkedStockRegrab(); PhysicalCommitCases(); PhysicalMerchantSamples(); WindowMaskLifecycle(); MerchantContextLifecycle(); ConfirmationFadeLifecycle(); IdentityChanges(); HoverAndRelease(); CancellationCompatibility(); Handoff(); RollbackAndContinuation(); OptionalPresentation(); ManualTrayPlacement(); MapHandFallback(); return _assertions; }
         finally { Clean(); }
     }
 }

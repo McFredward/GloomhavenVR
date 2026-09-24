@@ -16,7 +16,7 @@ public static class InteractionProgram
         count = 0;
         Approach();
         foreach (float scale in new[] { .05f, 1f, 2f, 198.12f })
-        for (int scenario = 0; scenario < 20; scenario++) RunCase(scale, scenario);
+        for (int scenario = 0; scenario < 21; scenario++) RunCase(scale, scenario);
         return count;
     }
     private static void RunCase(float scale, int scenario)
@@ -53,6 +53,7 @@ public static class InteractionProgram
         };
         CardsDriver.Returned = CardsDriver.Rebuilds = 0; CardsDriver.LastReturned = null;
         VRRigDriver.HeadCamera = null; VRHands.Left = VRHands.Right = null;
+        VRHands.Primary = scenario == 20 ? new VRHand { WorldScale = 3f * scale } : null;
         MapRoomDriver.Active = true;
         CardsDriver.OffScenarioFanCards = new[] { card };
         using (var handoff = new TownServiceEnhancementHandoff(shop, station, () => alive, () => input))
@@ -87,10 +88,12 @@ public static class InteractionProgram
                 Check(card.FullCollider && card.Grabbable && TownServiceEnhancementHandoff.CanReclaim(card), "offering remains reclaimable");
                 Check(!TownServiceEnhancementHandoff.TryOffer(card), "duplicate release cannot select twice");
                 palm.localPosition += new Vector3(.1f, .04f, -.02f); handoff.Tick();
-                Check(Mathf.Abs((card.transform.position.y - palm.position.y) / scale - .17f) < .007f
+                Check(Mathf.Abs((card.transform.position.y - palm.position.y) / scale - (scenario == 20 ? .405f : .17f)) < .007f
                     && (new Vector2(card.transform.position.x - palm.position.x, card.transform.position.z - palm.position.z)).magnitude < .001f * scale,
                     "physical offering floats upright above actual palm at every scale");
                 Check(Vector3.Dot(card.transform.up, Vector3.up) > .999f, "offered ability card is upright over the palm");
+                if (scenario == 20)
+                    Check(Mathf.Abs(card.transform.lossyScale.x / scale - 3f) < .001f,"offered mage card preserves tracked reading size across independent resident scale");
                 if (scenario == 10)
                 {
                     var hand = new VRHand();

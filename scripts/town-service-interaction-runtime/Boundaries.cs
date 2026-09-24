@@ -137,8 +137,9 @@ namespace GloomhavenVR.Net
 {
     internal sealed class RemoteWidgetMirror
     {
-        internal RemoteWidgetMirror(string name, Transform parent, float a, float b, Vector2 offset) { }
-        internal bool Refresh(RectTransform source) => true;
+        internal RemoteWidgetMirror(string name, Transform parent, float a, float b, Vector2 offset,bool mrBacking=true) { }
+        internal bool Refresh(Transform source) => true;
+        internal void SetShown(bool shown){}
         internal Transform? CloneOf(Transform source) => null;
         internal void TickLive() { }
         internal void Destroy() { }
@@ -258,7 +259,7 @@ namespace GloomhavenVR.WorldUI
     }
     // Ritual artwork/geometry have a separate fixture. This boundary feeds genuine
     // production tokens and the presentation-supplied lifetime/context delegates.
-    internal sealed class TownServiceRitual : IDisposable
+    internal sealed partial class TownServiceRitual : IDisposable
     {
         internal OfferingLate? Handoff => null;
         internal sealed class OfferingLate { internal void LateTick() {} }

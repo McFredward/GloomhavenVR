@@ -43,7 +43,7 @@ internal static class TownServicePalmConfirmation
                     if (i == 0) { offset = new Vector3(0f, -.34f, -.80f); width = .46f; height = .045f; }
                     else if (i == 1) { offset = new Vector3(0f, -.405f, -.80f); width = .46f; height = .085f; }
                     else if (i <= 3) { offset = new Vector3(i == 2 ? -.125f : .125f, -.50f, -.80f); width = .22f; height = .065f; }
-                    else { offset = new Vector3(i == 4 ? -.80f : .075f, -.285f, -.80f); width = i == 4 ? .04f : .31f; height = .04f; }
+                    else { offset = new Vector3(i == 4 ? -.14f : .075f, -.285f, -.80f); width = i == 4 ? .04f : .31f; height = .04f; }
                     Surfaces.Add(new TownServiceSurface((ushort)(60 + i), (RectTransform)part.transform,
                         offset, width, Seat, Quaternion.identity, height));
                 }

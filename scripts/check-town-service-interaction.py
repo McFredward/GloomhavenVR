@@ -67,6 +67,12 @@ def sources(root):
     sweep = (base / "Cards/FanSweep.cs").read_text()
     interface = sweep[sweep.index('internal interface IFanSweepTarget'):sweep.index('\n}', sweep.index('internal interface IFanSweepTarget')) + 2]
     bound["ItemContracts.cs"] = 'using UnityEngine; namespace GloomhavenVR.Cards { internal static class VRCard { ' + constant + ' }\n' + interface + '\n}'
+    ritual = (base / "WorldUI/TownServices/TownServiceRitual.cs").read_text()
+    inscription = method(ritual, "internal sealed class Inscription : IDisposable")
+    bound["Inscription.cs"] = "using System; using GloomhavenVR.Net; using UnityEngine; namespace GloomhavenVR.WorldUI { internal sealed partial class TownServiceRitual { " + inscription + " } }"
+    hashes["WorldUI/TownServices/TownServiceRitual.cs"] = hashlib.sha256(ritual.encode()).hexdigest()
+    bound["RitualLayout.cs"] = (base / "WorldUI/TownServices/TownServiceRitualLayout.cs").read_text()
+    hashes["WorldUI/TownServices/TownServiceRitualLayout.cs"] = hashlib.sha256(bound["RitualLayout.cs"].encode()).hexdigest()
     return bound, hashes
 
 
@@ -74,9 +80,11 @@ def mutations():
     # Every mutant compiles and must reach the specified runtime assertion. A compile error,
     # unrelated exception or changed source binding cannot count as a rejected negative control.
     return [
+        ("dead-inscription-root", "Inscription.cs", "if (_root != null) UnityEngine.Object.Destroy(_root.gameObject);", "UnityEngine.Object.Destroy(_root.gameObject);", "destroyed inscription root can be disposed without blocking native teardown"),
+        ("enhancement-icon-outside", "PalmConfirmation.cs", "i == 4 ? -.14f : .075f", "i == 4 ? -.80f : .075f", "all original enhancement confirmation content stays together below the palm"),
         ("parked-reclaim", "Token.cs", "(_offering != null && TownServiceMerchantHandoff.CanReclaim(this))", "false", "actual routed grab reclaims parked stock through owned modal gate"),
-        ("palm-front", "PalmConfirmation.cs", "i == 2 ? -.125f : .125f, -.50f, -.80f", "i == 2 ? -.125f : .125f, -.50f, -.14f", "confirmation controls float below palm and ahead of table fascia"),
-        ("palm-cancel-scope", "PalmConfirmation.cs", "internal void Cancel() { if (Open) _cancel(); }", "internal void Cancel() { _cancel(); }", "reused unrelated confirmation is never cancelled"),
+        ("palm-front", "PalmConfirmation.cs", "i == 2 ? -.125f : .125f, -.50f, -.80f", "i == 2 ? -.125f : .125f, -.50f, -.14f", "all original enhancement confirmation content stays together below the palm"),
+        ("palm-cancel-scope", "PalmConfirmation.cs", "internal void Cancel() { if (Open) _cancel(); }", "internal void Cancel() { _cancel(); }", "enhancement withdrawal cancels only the live decision once"),
         ("palm-flat", "Surface.cs", "_counterAnchor.rotation * _anchorRotation", "_counterAnchor.rotation * Quaternion.Euler(90f, 0f, 0f)", "native confirmation is upright independently of palm pitch"),
         ("palm-backing", "Surface.cs", "Panel.MrBackingSuppressed = counterAnchor != null;", "Panel.MrBackingSuppressed = false;", "freestanding original controls have no mixed reality backing"),
         ("confirm-early-unmask", "ConfirmationMask.cs", "!window.IsOpen && !window.IsVisible", "!window.IsOpen", "native onHidden starts fade without exposing confirmation popup"),

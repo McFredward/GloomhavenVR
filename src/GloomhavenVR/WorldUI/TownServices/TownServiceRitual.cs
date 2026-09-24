@@ -304,19 +304,12 @@ internal sealed class TownServiceRitual : IDisposable
                 // hover/selection controllers together. Build 550's manually stacked rune
                 // cards let child anchors escape their faces and obscured later options.
                 // This open folio is attached to the stand, not a separate movable window.
-                _surfaces.Add(new TownServiceSurface(10, (RectTransform)shop.enhancementShop.transform,
-                    new Vector3(.32f, .33f, -.16f), .60f, Root, anchorRotation: Quaternion.identity,
-                    maxHeight: .55f));
-                _surfaces.Add(new TownServiceSurface(11, (RectTransform)shop.cardHolder.transform,
-                    new Vector3(-.32f, .018f, -.03f), .29f, Root));
-                _surfaces.Add(new TownServiceSurface(13, (RectTransform)shop.CardsDisplay.enhancementPointsText.transform.parent,
-                    new Vector3(0f, .032f, .35f), .28f, Root, maxHeight: .065f));
-                _surfaces.Add(new TownServiceSurface(14, (RectTransform)shop.cardInformationText.transform,
-                    new Vector3(0f, .033f, .25f), .28f, Root, maxHeight: .085f));
-                _surfaces.Add(new TownServiceSurface(15, (RectTransform)shop.buyButton.transform,
-                    new Vector3(.19f, .036f, -.20f), .18f, Root, maxHeight: .055f));
-                _surfaces.Add(new TownServiceSurface(16, (RectTransform)shop.sellButton.transform,
-                    new Vector3(.43f, .036f, -.20f), .18f, Root, maxHeight: .055f));
+                AddFolio(10, shop.enhancementShop);
+                AddFolio(11, shop.cardHolder);
+                AddFolio(13, shop.CardsDisplay.enhancementPointsText.transform.parent);
+                AddFolio(14, shop.cardInformationText);
+                AddFolio(15, shop.buyButton);
+                AddFolio(16, shop.sellButton);
             }
             RefreshPieces();
         }
@@ -384,12 +377,11 @@ internal sealed class TownServiceRitual : IDisposable
         // container. Do not create a second independently laid out or clickable stock.
     }
 
-    private void AddMode(Selectable button, string key, TownServiceRitualLayout.Placement placement)
+    private void AddFolio(ushort id, Component source)
     {
-        if (!button.gameObject.activeInHierarchy || ArrangeExisting(button, placement)) return;
-        TMP_Text? label = button.GetComponentInChildren<TMP_Text>(true);
-        Add(button, key, button, () => button, () => button.IsInteractable(),
-            () => Click(button), placement, false, label!);
+        TownServiceRitualLayout.Placement placement = TownServiceRitualLayout.Folio(id);
+        _surfaces.Add(new TownServiceSurface(id, (RectTransform)source.transform, placement.Position,
+            placement.Size.x, Root, placement.Rotation, placement.Size.y));
     }
 
     private void Add(Component source, string key, Selectable button, Func<object?> identity,
@@ -413,17 +405,6 @@ internal sealed class TownServiceRitual : IDisposable
         && temple.service.IsAvailable(temple.character.CharacterID, slot.Blessing)
         && temple.service.CanAfford(temple.character.CharacterID, slot.Blessing)
         && temple.service.CanBuy(temple.character.CharacterID, slot.Blessing);
-
-    private static bool RuneEligible(UINewEnhancementWindow shop, UINewEnhancementShopSlot slot)
-    {
-        if (shop.character == null || slot.enhancement == null || !slot.button.IsInteractable()
-            || !shop.enhancementShop.enhancementsCanvasGroup.interactable) return false;
-        EnhancementSlot enhancement = slot.enhancement;
-        if (!enhancement.BuyMode) return shop.shopService.IsSellAvailable && enhancement.AvailableToSell;
-        return enhancement.AvailableToBuy && enhancement.priceCalculator != null
-            && shop.character.Gold >= enhancement.priceCalculator.CalculateTotalPrice(enhancement)
-            && EnhancementBuyPriceCalculator.CanAffordPoints(enhancement, shop.character);
-    }
 
     private bool Confirm(Selectable button, Func<object?> identity, Component controller, Func<bool> eligible)
     {

@@ -20,13 +20,25 @@ public static class InteractionProgram
     public static int Run()
     {
         checks = 0;
-        foreach (int count in new[] { 1, 13, 21, 31, 32, 40, TownServiceRitualLayout.MaxCards }) Stock(count, true);
-        foreach (int count in new[] { 1, 14, 28, 30, 40, TownServiceRitualLayout.MaxRunes }) Stock(count, false);
-        foreach (bool sell in new[] { false, true })
+        var sections = new ushort[] {10,11,13,14,15,16};
+        var occupied = new List<Bounds>();
+        foreach (ushort id in sections)
         {
-            Bounds bounds = Bounds(TownServiceRitualLayout.Mode(sell));
-            Check(bounds.max.y < .925f && bounds.min.y > .82f && bounds.max.z < -.36f && bounds.min.z > -.37f,
-                "mode medallions mount on the real front apron below stock");
+            var placement = TownServiceRitualLayout.Folio(id);
+            Bounds bounds = Bounds(placement);
+            Check(bounds.min.x >= -.75f && bounds.max.x <= .75f,
+                "complete native folio sections stay within the stand width");
+            Check(bounds.min.y >= .985f && bounds.max.y <= 1.59f,
+                "native folio stays above tabletop and below resident face");
+            Check(bounds.min.z >= -.338f && bounds.max.z <= .338f,
+                "native folio clears front edge and rear decoration");
+            foreach(Bounds previous in occupied)
+                Check(!previous.Intersects(bounds),"native folio content and original controls never overlap");
+            occupied.Add(bounds);
+            if(id==10) Check(Vector3.Dot(placement.Rotation*Vector3.up,Vector3.up)>.999f,
+                "native enhancement options face the visitor upright");
+            if(id==11) Check(placement.Size.y<=.43f && placement.Position.x<-.3f,
+                "selected native card hotspots stay readable beside the options");
         }
         for (int i = 0; i < TownServiceRitualLayout.MaxOfferings; i++)
         {
@@ -39,33 +51,13 @@ public static class InteractionProgram
             Check(Vector2.Distance(new Vector2(center.x, center.z), new Vector2(0f, .18f)) > .16f + .0375f, "offering does not overlap native bowl");
         }
         bool rejected = false;
-        try { TownServiceRitualLayout.Card(0, TownServiceRitualLayout.MaxCards + 1); } catch (InvalidOperationException) { rejected = true; }
-        Check(rejected, "overflow restores the complete native service instead of hiding entries");
+        try { TownServiceRitualLayout.Offering(0, TownServiceRitualLayout.MaxOfferings + 1); } catch (InvalidOperationException) { rejected = true; }
+        Check(rejected, "temple overflow restores complete native service instead of hiding entries");
         rejected = false;
-        try { TownServiceRitualLayout.Rune(0, TownServiceRitualLayout.MaxRunes + 1); } catch (InvalidOperationException) { rejected = true; }
-        Check(rejected, "rune overflow restores the complete native service instead of hiding entries");
+        try { TownServiceRitualLayout.Folio(99); } catch (ArgumentOutOfRangeException) { rejected = true; }
+        Check(rejected, "unknown native section cannot silently overlap another control");
         Render();
         return checks;
-    }
-    private static void Stock(int count, bool cards)
-    {
-        var poses = new List<TownServiceRitualLayout.Placement>();
-        for (int i = 0; i < count; i++)
-        {
-            var p = cards ? TownServiceRitualLayout.Card(i, count) : TownServiceRitualLayout.Rune(i, count); poses.Add(p);
-            Bounds b = Bounds(p);
-            Check(b.min.x >= -.75f && b.max.x <= .75f && b.min.z >= -.338f && b.max.z <= .338f, "every complete projected face stays on the worktop");
-            Check(Mathf.Abs(b.min.y - .959f) < .00001f, "every file lower edge is physically supported rather than floating");
-            Check(b.max.x <= -.164f || b.min.x >= .169f, "stock clears selected card and original capacity book");
-            Check(b.max.z <= .101f, "stock clears native rear lanterns and alchemy vessels");
-            for (int j = 0; j < i; j++)
-            {
-                var previous = poses[j]; Vector3 d = p.Position - previous.Position;
-                bool sideGap = Mathf.Abs(d.x) > (p.Size.x + previous.Size.x) * .5f + .004f;
-                float separation = Mathf.Abs(Vector3.Dot(d, p.Rotation * Vector3.forward));
-                Check(sideGap || separation >= .006f, "parallel stock faces and millimetre rims cannot intersect");
-            }
-        }
     }
     private static void Render()
     {
@@ -79,20 +71,12 @@ public static class InteractionProgram
         }
         Box("existing worktop", new Vector3(0f, .925f, 0f), new Vector3(1.5f, .06f, .676f), Quaternion.identity, new Color(.17f, .11f, .07f));
         Box("native capacity book reserved", new Vector3(0f, .972f, .22f), new Vector3(.32f, .03f, .32f), Quaternion.identity, new Color(.65f, .53f, .32f));
-        Box("selected original card", new Vector3(0f, .995f, -.08f), new Vector3(.25f, .003f, .38f), Quaternion.identity, new Color(.37f, .35f, .30f));
-        foreach (bool cards in new[] { true, false }) for (int i = 0; i < (cards ? 31 : 28); i++)
+        foreach (ushort id in new ushort[] {10,11,13,14,15,16})
         {
-            var p = cards ? TownServiceRitualLayout.Card(i, 31) : TownServiceRitualLayout.Rune(i, 28);
-            Color c = cards ? new Color(.28f, .44f, .61f) : new Color(.49f, .31f, .64f);
-            c *= i % 2 == 0 ? 1f : .75f; c.a = 1f;
-            Box((cards ? "card " : "rune ") + i, p.Position + TownServiceRitualLayout.Origin,
-                new Vector3(p.Size.x, p.Size.y, .003f), p.Rotation, c);
-        }
-        foreach (bool sell in new[] { false, true })
-        {
-            var p = TownServiceRitualLayout.Mode(sell);
-            Box(sell ? "remove" : "buy", p.Position + TownServiceRitualLayout.Origin,
-                new Vector3(p.Size.x, p.Size.y, .003f), p.Rotation, new Color(.75f, .58f, .2f));
+            var p=TownServiceRitualLayout.Folio(id);
+            Color color=id==10?new Color(.28f,.44f,.61f):id==11?new Color(.49f,.31f,.64f):new Color(.75f,.58f,.2f);
+            Box("original native section "+id,p.Position+TownServiceRitualLayout.Origin,
+                new Vector3(p.Size.x,p.Size.y,.003f),p.Rotation,color);
         }
         var cameraObject = new GameObject("layout camera"); var camera = cameraObject.AddComponent<Camera>();
         camera.transform.position = new Vector3(.20f, 1.95f, -1.05f); camera.transform.LookAt(new Vector3(0f, .96f, 0f));
@@ -101,7 +85,7 @@ public static class InteractionProgram
         try
         {
             camera.targetTexture = rt; camera.Render(); RenderTexture.active = rt; image.ReadPixels(new Rect(0, 0, 1000, 750), 0, 0); image.Apply();
-            File.WriteAllBytes(Path.Combine(path, "native-full-stock-layout.png"), image.EncodeToPNG());
+            File.WriteAllBytes(Path.Combine(path, "native-folio-layout.png"), image.EncodeToPNG());
         }
         finally
         {
