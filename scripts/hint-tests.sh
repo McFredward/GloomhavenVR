@@ -13,7 +13,7 @@ mutation_dir="$(mktemp -d)"
 trap 'rm -rf "$mutation_dir"' EXIT
 cp "$repo_root/tests/GloomhavenVR.HintTests/"*.cs "$mutation_dir/"
 cp "$project" "$mutation_dir/"
-for mutation in lost-queued-origin missing-standalone-release pending-dissolve no-word-wrap no-layout-restore untouched-sibling-border stale-desktop-offsets; do
+for mutation in lost-queued-origin missing-standalone-release pending-dissolve no-word-wrap no-layout-restore untouched-sibling-border stale-desktop-offsets guild-reward-owner; do
     python3 - "$origins_source" "$transfer_source" "$mutation_dir" "$mutation" "$reflow_source" <<'PY'
 import pathlib
 import sys
@@ -23,7 +23,11 @@ transfer = pathlib.Path(sys.argv[2]).read_text()
 output = pathlib.Path(sys.argv[3])
 mutation = sys.argv[4]
 reflow = pathlib.Path(sys.argv[5]).read_text()
-if mutation == 'lost-queued-origin':
+if mutation == 'guild-reward-owner':
+    needle = 'guild.rewardIntroduction == rewards'
+    assert origins.count(needle) == 1
+    origins = origins.replace(needle, 'false')
+elif mutation == 'lost-queued-origin':
     needle = 'message != null && _messages.TryGetValue(message, out Origin? origin) ? origin : null;'
     assert origins.count(needle) == 1, 'production queued-origin seam changed'
     origins = origins.replace(needle, 'CurrentScope;')
@@ -64,6 +68,7 @@ PY
         exit 1
     fi
     case "$mutation" in
+        guild-reward-owner) expected='Guildmaster reward hint must use its exact original adventure reward window' ;;
         lost-queued-origin) expected='Enqueuing another producer must not retarget an earlier message' ;;
         missing-standalone-release) expected='Retire capture owner and grab before composite records its home' ;;
         pending-dissolve) expected='Pending dissolve must release before the composite records native home' ;;
