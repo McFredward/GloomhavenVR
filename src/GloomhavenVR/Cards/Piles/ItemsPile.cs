@@ -1245,7 +1245,7 @@ internal sealed partial class ItemsPile
             // (SetCards stamping AllowsGateHand onto a HELD card): while a card is HELD — or, here,
             // while it is CLIPPED — write nothing its hold depends on. Belt at the far end too:
             // SetHome itself refuses to move a PendingUse chip.
-            if (chip == null || chip.Holder != null || chip.PendingUse)
+            if (chip == null || chip.Holder != null || chip.PendingUse || chip.TownOffering)
                 continue;
 
             float angle = start + step * i;
@@ -6234,6 +6234,13 @@ internal sealed partial class ItemsPile
             Quaternion worldRot = transform.rotation;
             Vector3 worldScale = transform.localScale;
             base.OnGrab(hand); // snaps to the reading pose at GetHeldPose
+            if (TownOffering)
+            {
+                TownOffering = false;
+                System.Action? reclaimed = TownOfferingReclaimed;
+                TownOfferingReclaimed = null;
+                reclaimed?.Invoke();
+            }
             _heldPos = transform.localPosition;
             _heldScale = transform.localScale.x;
             transform.position = worldPos;
@@ -6725,6 +6732,9 @@ internal sealed partial class ItemsPile
             return halfWidth > 1e-5f && halfHeight > 1e-5f;
         }
 
+        internal bool TownOffering { get; set; }
+        internal System.Action? TownOfferingReclaimed;
+
         private void Update()
         {
             if (_collapsing)
@@ -6773,6 +6783,9 @@ internal sealed partial class ItemsPile
                 TickHeldPose(); // FIX 1 — track the wrist + billboard the face every frame while held
                 return;
             }
+
+            // The town handoff owns the visible pose until confirmation or physical take-back.
+            if (TownOffering) return;
 
             // Req #6 — clipped into the use slot, waiting for the decision: nothing to do ONCE the
             // settle has landed. The chip is a child of the slot at an exact zero local pose, so it

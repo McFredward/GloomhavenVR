@@ -658,6 +658,13 @@ internal sealed partial class CardsDriver
     /// Allocation-free: the zone strings are literals and the card's name is read only on the
     /// stand-down edge.
     /// </summary>
+    internal static void StandDownForItemFanContact(VRHand? hand, IReadOnlyList<ItemsPile.ItemChip> chips)
+    {
+        if (hand == null || !hand.HasPose || hand.Grabber.Held != null) return;
+        if (TryContactInChips(hand, chips, null, out ItemsPile.ItemChip? chip, out ContactGeometry geometry))
+            hand.Ray.StandDownForCardContact("merchant owned-item fan", chip!, geometry.ToLog());
+    }
+
     private void UpdateLaserContactStandDown()
     {
         for (int h = 0; h < 2; h++)

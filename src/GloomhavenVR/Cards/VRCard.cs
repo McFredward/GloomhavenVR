@@ -1462,64 +1462,9 @@ internal sealed class VRCard : GrabbableBehaviour, IGrabHighlight, IPokeable, IG
     /// </summary>
     private void TickHeldPose()
     {
-        float t = 1f - Mathf.Exp(-CardsConfig.CardLerpSpeed.Value * 1.5f * Time.deltaTime);
-        float cardW = CardsConfig.CardWidth.Value * _heldScale;
-        float cardH = CardsConfig.CardHeight * _heldScale;
-        // THE GRASP, blended — the card travels between the two poses on the SAME eased progress
-        // the fingers travel on, so it arrives in the hand exactly as the hand closes on it. At
-        // blend 0 this branch does not run at all and the original billboard path below is
-        // byte-for-byte what it always was.
-        //
-        // WORKED IN THE PARENT'S FRAME (the hand's grab socket), which is why the billboard target
-        // is converted INTO it rather than the grip target out of it: the billboard is a world
-        // rotation and the grip pose is hand-local, and interpolating a hand-local pair while the
-        // wrist moves is the thing that tracks the wrist. Converting the other way would blend two
-        // world poses and the card would lag the hand for the length of the animation.
-        float grasp = HeldCardGrip.Blend(Holder);
-        Transform? socket = transform.parent;
-        if (grasp > 0f && socket != null
-            && HeldCardGrip.TryPose(Holder, cardW, cardH, out Vector3 gripPos, out Quaternion gripRot))
-        {
-            Vector3 wantPos = gripPos;
-            Quaternion wantRot = gripRot;
-            if (grasp < 1f)
-            {
-                Quaternion readRot = LocalBillboard(socket);
-                wantPos = Vector3.Lerp(_heldPos, gripPos, grasp);
-                wantRot = Quaternion.Slerp(readRot, gripRot, grasp);
-            }
-            transform.localPosition = Vector3.Lerp(transform.localPosition, wantPos, t);
-            transform.localRotation = Quaternion.Slerp(transform.localRotation, wantRot, t);
-            transform.localScale = Vector3.Lerp(transform.localScale, Vector3.one * _heldScale, t);
-            return;
-        }
-        transform.localPosition = Vector3.Lerp(transform.localPosition, _heldPos, t);
-        Camera? head = VRRigDriver.HeadCamera != null ? VRRigDriver.HeadCamera : Camera.main;
-        if (head != null)
-        {
-            Vector3 away = transform.position - head.transform.position; // cards' +Z away from viewer (uGUI reads from -Z)
-            if (away.sqrMagnitude > 1e-6f)
-                transform.rotation = Quaternion.Slerp(transform.rotation,
-                    Quaternion.LookRotation(away.normalized, head.transform.up), t);
-        }
-        transform.localScale = Vector3.Lerp(transform.localScale, Vector3.one * _heldScale, t);
-    }
-
-
-    /// <summary>The READING pose's rotation expressed in the hand socket's frame — the billboard
-    /// this card would be at if the grasp were not running, converted so it can be interpolated
-    /// against the hand-local grip pose. Falls back to the card's current local rotation when
-    /// there is no head this frame, which makes the blend a no-op rather than a lurch.</summary>
-    private Quaternion LocalBillboard(Transform socket)
-    {
-        Camera? head = VRRigDriver.HeadCamera != null ? VRRigDriver.HeadCamera : Camera.main;
-        if (head == null)
-            return transform.localRotation;
-        Vector3 away = transform.position - head.transform.position;
-        if (away.sqrMagnitude <= 1e-6f)
-            return transform.localRotation;
-        return Quaternion.Inverse(socket.rotation)
-               * Quaternion.LookRotation(away.normalized, head.transform.up);
+        if (Holder == null || transform.parent == null) return;
+        ItemCardHold.Tick(transform, Holder, transform.parent, _heldPos, _heldScale,
+            CardsConfig.CardWidth.Value * _heldScale, CardsConfig.CardHeight * _heldScale);
     }
 
     /// <summary>How long (unscaled seconds) the post-release home flight runs on unscaled
