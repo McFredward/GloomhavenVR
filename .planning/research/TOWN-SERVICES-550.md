@@ -45,3 +45,15 @@ an old-depth tabletop and must detect the resulting penetration. Source, native
 callback, input arbitration and remote presentation tests accompany the changes.
 Final integrated results and package evidence are recorded at handoff. Automated
 checks and desktop renders cannot confirm headset appearance or perceived realism.
+
+## Additional log observation
+
+The first native template preload logs an ambiguous `BattleOverlayCanvas` atlas.
+This was a local session with zero peers at that point; no associated capture/apply
+failure establishes a visible defect. Preloading scans inactive children before
+partitioning, so this warning cannot identify the affected actual widget. The
+registry correctly rejects ambiguous descriptors instead of substituting artwork.
+Build 550 adds at most four Debug-only failed image paths per lifecycle, guarded
+before building the paths, to identify the exact original reference on the next
+hardware run. No ambiguity rule or original asset identity was weakened. A remedy
+requires that concrete provenance; the warning is not claimed resolved.

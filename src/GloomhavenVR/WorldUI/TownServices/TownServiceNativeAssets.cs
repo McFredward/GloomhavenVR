@@ -35,6 +35,7 @@ internal static class TownServiceNativeAssets
     private static readonly HashSet<string> Reported = new(StringComparer.Ordinal);
     private static readonly HashSet<string> ReportedUnavailable = new(StringComparer.Ordinal);
     private static float _nextTick;
+    private static readonly HashSet<int> ReportedImages = new();
     private const int MaxAttempts = 3;
 
     internal static void PrepareCard(CAbilityCard? card, ItemCardUI? item = null)
@@ -126,7 +127,24 @@ internal static class TownServiceNativeAssets
         foreach (Image image in root.GetComponentsInChildren<Image>(true))
         {
             try { Register(image.sprite); Register(image.overrideSprite); }
-            catch (Exception e) { Report("resident image", e); }
+            catch (Exception e)
+            {
+                Report("resident image", e);
+                // Build-549 evidence named only an atlas, which cannot tell an inactive
+                // preload collision from a drawn widget. Bound this extra provenance to
+                // four failed images per lifecycle, and build paths only in Debug.
+                if (VRLog.Wants(VRLogLevel.Debug) && ReportedImages.Count < 4 && ReportedImages.Add(image.GetInstanceID()))
+                {
+                    var path = new List<string>();
+                    for (Transform? node = image.transform; node != null; node = node.parent)
+                    { path.Add(node.name); if (node == root) break; }
+                    path.Reverse();
+                    VRLog.Debug("WorldUI", "TOWN NATIVE ART PATH: root=" + root.name + "; path=" + string.Join("/", path)
+                        + "; sprite=" + (image.sprite != null ? image.sprite.name : "<none>")
+                        + "; override=" + (image.overrideSprite != null ? image.overrideSprite.name : "<none>")
+                        + "; active=" + image.gameObject.activeInHierarchy + "; enabled=" + image.enabled);
+                }
+            }
         }
         foreach (RawImage image in root.GetComponentsInChildren<RawImage>(true))
         {
@@ -259,7 +277,7 @@ internal static class TownServiceNativeAssets
 
     private static void ReportReset()
     {
-        Reported.Clear(); ReportedUnavailable.Clear();
+        Reported.Clear(); ReportedUnavailable.Clear(); ReportedImages.Clear();
     }
 
     private static void Release(Load load)
