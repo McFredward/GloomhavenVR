@@ -215,11 +215,19 @@ internal static class NativeTemplates
     private static void PrepareInertGeometry(string key, GameObject clone)
     {
         TownServiceCardBody.RebindClone(key, clone);
+        TownServiceInspectionBody.RebindClone(key, clone);
         TownServiceWorkspacePractical.RebindClone(key, clone);
     }
     private static void EnsureNativeProp(string key)
     {
         Transform? source;
+        if (key.StartsWith("inspectionbody.", StringComparison.Ordinal))
+        {
+            if (Entries.ContainsKey(key)) return;
+            if (_bank == null) throw new InvalidDataException("Original item inspection bank is not ready.");
+            GameObject body = TownServiceInspectionBody.Create(key, _bank.transform);
+            AddPhysical(key, body); return;
+        }
         if (key == "ritual.coin") source = TownServiceDecor.CoinTemplate;
         else if (key == "map.cardbody") source = GloomhavenVR.Cards.CardsDriver.CardBackingPrefab?.transform;
         else if (key.StartsWith("decor.", StringComparison.Ordinal))

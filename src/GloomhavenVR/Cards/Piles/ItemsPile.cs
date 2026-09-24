@@ -5156,14 +5156,16 @@ internal sealed partial class ItemsPile
         /// card's near-square <paramref name="cw"/>×<paramref name="ch"/> shape (the same back, just
         /// cropped). Returns null only if neither path can build (caller draws the legacy cube slab).
         /// </summary>
-        internal static GameObject? CreateInspectionBodyTemplate(Transform parent, float cw, float ch)
-            => BuildCardBacking(parent, cw, ch);
+        internal static GameObject? CreateInspectionBodyTemplate(Transform parent, float cw, float ch, bool? prefabTemplate = null)
+            => BuildCardBacking(parent, cw, ch, prefabTemplate);
 
-        private static GameObject? BuildCardBacking(Transform parent, float cw, float ch)
+        private static GameObject? BuildCardBacking(Transform parent, float cw, float ch, bool? prefabTemplate = null)
         {
             try
             {
-                GameObject? prefab = PlayTray.Current?.CardBackingPrefab;
+                GameObject? prefab = prefabTemplate == false ? null : PlayTray.Current?.CardBackingPrefab;
+                if (prefabTemplate == true && prefab == null) prefab = CardsDriver.CardBackingPrefab;
+                if (prefabTemplate == true && prefab == null) return null;
                 GameObject backing;
                 string source;
                 if (prefab != null)

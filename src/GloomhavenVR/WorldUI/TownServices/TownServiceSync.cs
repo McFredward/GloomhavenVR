@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using GloomhavenVR.Core;
+using GloomhavenVR.Cards;
 using GloomhavenVR.Net.TownServices;
 using GloomhavenVR.WorldUI.MapRoom;
 using UnityEngine;
@@ -78,12 +79,16 @@ internal sealed class TownServiceSync
         PrepareCore();
         IReadOnlyList<TownServiceEnhancementHandoff.ReturnPresentation> returns = TownServiceEnhancementHandoff.Returning;
         bool active = TownServicePresentation.Active && stationRoot != null;
-        if (!active && returns.Count == 0) { ResetCore(); return; }
+        bool inspection = TownServiceMerchantHandoff.Active;
+        if (!active && !inspection && returns.Count == 0) { ResetCore(); return; }
         if (!NativeTemplates.Ready) return;
-        byte service = active ? TownServicePresentation.Service : (byte)3;
-        uint session = active ? TownServicePresentation.Session : returns[0].Session;
+        bool inspectionIdentity = inspection && (!active || TownServicePresentation.Service == 1);
+        byte service = active ? TownServicePresentation.Service : inspection ? (byte)1 : (byte)3;
+        uint session = inspectionIdentity ? TownServiceMerchantHandoff.Session
+            : active ? TownServicePresentation.Session : returns[0].Session;
         ulong relocation = active ? TownServicePresentation.RelocationRevision : _relocationRevision;
-        if (!active) stationRoot = returns[0].StationRoot != null ? returns[0].StationRoot : sharedFrame;
+        if (!active) stationRoot = inspection ? TownServiceMerchantHandoff.StationRoot ?? sharedFrame
+            : returns[0].StationRoot != null ? returns[0].StationRoot : sharedFrame;
         if (_generationExhausted) return;
         if (_session != session || _service != service || _relocationRevision != relocation)
         {
@@ -102,7 +107,7 @@ internal sealed class TownServiceSync
         // transport coalescing drops every invisible relocation sample. Ordinary native fades
         // and hand movement retain this generation and therefore their normal interpolation.
         TownServiceMirror.BeginSession(service, _generation, sharedFrame, stationRoot!,
-            active ? TownServicePresentation.SessionAge : returns[0].SessionAge);
+            inspectionIdentity ? TownServiceMerchantHandoff.SessionAge : active ? TownServicePresentation.SessionAge : returns[0].SessionAge);
         // Do not establish invisible module baselines at the relocation boundary: losing those
         // samples must not make the first visible state depend on a discarded zero-alpha packet.
         if (active && TownServicePresentation.RelocationVisibility <= 0f) return;
@@ -118,6 +123,21 @@ internal sealed class TownServiceSync
             // flying face and captured identity are the only lifetime-safe provenance here.
             Publish("face." + returning.CardId.ToString(System.Globalization.CultureInfo.InvariantCulture), face);
             Publish("map.cardbody", body);
+        }
+        if (inspection)
+        {
+            Publish("merchant.zone", TownServiceMerchantHandoff.Zone);
+            foreach (ItemsPile.ItemChip chip in TownServiceMerchantHandoff.OwnedChips)
+            {
+                if (chip == null || chip.NativeItemCard == null || chip.Item == null) continue;
+                Transform mount = chip.InspectionMount;
+                Transform face = chip.NativeItemCard.transform;
+                Transform? body = chip.InspectionBody;
+                if (chip.Holder != null)
+                { PriorityRoots.Add(mount); PriorityRoots.Add(face); if (body != null) PriorityRoots.Add(body); }
+                Publish("item." + chip.Item.ID.ToString(System.Globalization.CultureInfo.InvariantCulture), face);
+                Publish(TownServiceInspectionBody.Key(chip), body);
+            }
         }
         if (active)
         {

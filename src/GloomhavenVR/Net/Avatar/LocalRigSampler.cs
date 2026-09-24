@@ -215,7 +215,7 @@ internal static class LocalRigSampler
     /// describing the wrong card.</para></summary>
     private static bool HoldsCardShape(VRHand? hand)
         => hand != null && hand.Grabber != null
-           && (hand.Grabber.Held is Cards.ItemsPile.ItemChip chip && chip != null
+           && (hand.Grabber.Held is Cards.ItemsPile.ItemChip chip && chip != null && !chip.IsTownInspection
                || hand.Grabber.Held is Cards.VRCard card && card != null);
 
     /// <summary>
@@ -1169,6 +1169,7 @@ internal static class LocalRigSampler
         // board-laser pluck (ItemChip.OnPoke → ProximityGrabber.ForceGrab) BOTH set Grabber.Held to
         // the chip itself, so one pattern match covers every way an item card gets into a hand.
         Cards.ItemsPile.ItemChip? chip = hand.Grabber.Held as Cards.ItemsPile.ItemChip;
+        if (chip != null && chip.IsTownInspection) return false; // Town service stream owns this original face and body.
         Transform? t = chip != null
             ? chip.transform
             : hand.Grabber.Held is Cards.VRCard card && card != null ? card.transform : null;
