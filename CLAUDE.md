@@ -111,12 +111,13 @@ two wire vectors from being reached; the suite stayed green while the assertion 
 and only the count caught it. Print counts in commit messages.
 
 The workflow definitions and [CI/CD guide](docs/CI-CD.md) describe hosted validation. Full CI
-on `dev` runs the source checks and production presentation harnesses. Per the user's
-2026-09-17 instruction, a PR may reuse successful trusted validation of the identical Git tree;
-otherwise it runs the full checks. Releases require that evidence before building and packaging
-the actual `main` commit, without repeating the full suite. Missing or invalid evidence blocks
-publication. Full golden wire vectors still require the game's real Unity runtime and must run
-locally; hosted runners compile them against metadata references. A hosted green run does not
+on source-changing `dev` commits runs the source checks and production presentation harnesses.
+Internal PRs and strictly Markdown-only descendants may reuse successful trusted validation of
+their source tree; all other changes run the full checks. Releases require that evidence before
+building and packaging the actual `main` commit, without repeating the full suite. Missing or
+invalid evidence blocks publication. Full golden wire vectors still require the game's real
+Unity runtime and must run locally; hosted runners compile them against metadata references.
+A hosted green run does not
 replace that local gate.
 
 **Bundles are built ONLY with `/home/claw/unity-2021.3.5`**, never `unity-2021.3`. The wrong
