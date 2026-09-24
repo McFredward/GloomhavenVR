@@ -211,6 +211,10 @@ internal sealed class TownServiceSync
         Removed.Clear();
         foreach (var pair in Modules) if (!pair.Value.Seen) Removed.Add(pair.Key);
         foreach (string key in Removed) { TownServiceMirror.UnregisterModule(Modules[key].Id); Modules.Remove(key); }
+        PruneSources();
+    }
+    private void PruneSources()
+    {
         RemovedSources.Clear();
         foreach (var pair in Sources)
             if (pair.Key == null || !pair.Value.Seen && (pair.Value.CatalogOwner == null
@@ -271,6 +275,7 @@ internal sealed class TownServiceSync
         Removed.Clear();
         foreach (var pair in Modules) if (!pair.Value.Seen) Removed.Add(pair.Key);
         foreach (string key in Removed) { TownServiceMirror.UnregisterModule(Modules[key].Id); Modules.Remove(key); }
+        PruneSources();
     }
     private bool OwnsAnchor(Transform? target)
     {

@@ -13,8 +13,8 @@ using UnityEngine.UI;
 
 namespace GloomhavenVR.WorldUI;
 
-/// <summary>Complete native merchant stock and owned inventory in two revolving cabinet racks.
-/// Physical cranks cycle bounded trays without expanding the room. Only an explicit eligible zone drop
+/// <summary>Original native merchant stock in one indexed cabinet cassette.
+/// Physical category buttons and a crank select bounded trays. Only an explicit eligible palm drop
 /// enters the original native transaction; picking up a card is always inspection.</summary>
 internal sealed class TownServiceCatalog : IDisposable
 {
@@ -191,6 +191,15 @@ internal sealed class TownServiceCatalog : IDisposable
     internal static int CategoryOf(CItem item) => item.YMLData.Slot switch
     { CItem.EItemSlot.Head => 0, CItem.EItemSlot.Body => 1, CItem.EItemSlot.Legs => 2,
       CItem.EItemSlot.OneHand => 3, CItem.EItemSlot.TwoHand => 4, _ => 5 };
+    internal static bool HeldOfferAvailable
+    {
+        get
+        {
+            foreach (Entry entry in CardMounts.Values)
+                if (entry.Sample.IsHeld && entry.Current && (CanOffer?.Invoke(entry.Item, entry.Selling) ?? false)) return true;
+            return false;
+        }
+    }
     internal static Func<CItem, bool, bool>? CanOffer = null;
     internal static Func<CItem, bool, Vector3, bool>? Offer = null;
     internal static Func<Vector3, bool>? InOfferingZone = null;

@@ -10,6 +10,7 @@ internal static class TownServiceTransportVectors
     internal static void Run(Harness t)
     {
         RackClocks(t);
+        PublicCatalogLanes(t);
         t.Case("Town service original widgets use the real wire header and loss-safe module lanes");
         var frame = Frame(62000, 1);
         byte[] raw = TownServiceCodec.Write(frame);
@@ -311,6 +312,70 @@ internal static class TownServiceTransportVectors
         for(int i=fragments.Length-1;i>=0;i--)complete=assembler.Accept(2,fragments[i],fragments[i].Length,.1)??complete;
         t.True(complete!=null&&TownServiceCodec.TryRead(complete,complete.Length,out var reassembled)&&reassembled!.Rack!=null,"existing unchanged fragment lane carries85 atomically");
         t.True(TownRackState.Progress(0)==0&&Math.Abs(TownRackState.Progress(.425f)-.5f)<.00001f&&TownRackState.Progress(.85f)==1,"unwrapped owner curve retains an entire revolution");
+    }
+    private static void PublicCatalogLanes(Harness t)
+    {
+        t.Case("Indexed cabinet86 and independent public/private fragmented presentations");
+        var catalog = Frame(10, 1, 1); catalog.TemplateAddress = "merchant.rack|";
+        catalog.Rack = new TownRackState { Page = 0, From = 0, To = 1, Turn = 1, Elapsed = .425f };
+        byte[] legacy = TownServiceCodec.Write(catalog);
+        catalog.PublicCatalog = true; catalog.PublicClaim = 0x01020304; catalog.Rack.Cassette = true;
+        byte[] current = TownServiceCodec.Write(catalog);
+        var old = new List<byte>(); old.AddRange(new ArraySegment<byte>(current, 0, 6));
+        var additive = new List<byte>();
+        for (int at = 6; at < current.Length;)
+        {
+            int start = at, id = current[at++], count = current[at++];
+            (id == 86 ? additive : old).AddRange(new ArraySegment<byte>(current, start, count + 2));
+            at += count;
+        }
+        t.Wire(legacy, old.ToArray(), old.Count, "86 leaves complete historical78/85 payload unchanged");
+        t.Wire(Hex.Bytes("56 06 01 03 04 03 02 01"), additive.ToArray(), additive.Count, "independent86 little endian golden vector");
+        t.True(TownServiceCodec.TryRead(current, current.Length, out var decoded)
+            && decoded!.PublicCatalog && decoded.PublicClaim == 0x01020304 && decoded.Rack!.Cassette,
+            "public lane, authority claim and cassette mechanism survive decoder");
+        var duplicate = new byte[current.Length + additive.Count];
+        current.CopyTo(duplicate, 0); additive.ToArray().CopyTo(duplicate, current.Length);
+        t.True(!TownServiceCodec.TryRead(duplicate, duplicate.Length, out _), "duplicate lane metadata rejected");
+        var privateFrame = Frame(10, 2, 64); var publicFrame = Frame(10, 2, 64);
+        publicFrame.PublicCatalog = true; publicFrame.PublicClaim = 3;
+        publicFrame.Pose[0] = 9f;
+        byte[] privateRaw = TownServiceCodec.Write(privateFrame), publicRaw = TownServiceCodec.Write(publicFrame);
+        foreach (bool compressed in new[] { false, true })
+        {
+            var receiver = new TownServiceFragments(); var arrived = new HashSet<bool>();
+            byte[][] a = ExtrasFragments.Encode(privateRaw, privateRaw.Length, 131072 + 10,
+                TownServiceCodec.MessageType, TownServiceCodec.FragmentType, TownServiceFrame.MaxBytes, compress: compressed);
+            byte[][] b = ExtrasFragments.Encode(publicRaw, publicRaw.Length, 196608 + 10,
+                TownServiceCodec.MessageType, TownServiceCodec.FragmentType, TownServiceFrame.MaxBytes, compress: compressed);
+            for (int i = Math.Max(a.Length, b.Length) - 1; i >= 0; i--)
+                foreach (byte[][] lane in new[] { a, b }) if (i < lane.Length)
+                {
+                    byte[]? complete = receiver.Accept(2, lane[i], lane[i].Length, .1);
+                    if (complete != null && TownServiceCodec.TryRead(complete, complete.Length, out var frame)) arrived.Add(frame!.PublicCatalog);
+                }
+            t.Equal(2, arrived.Count, "same peer/module public and private fragments coexist under reverse interleaving");
+        }
+        var queue = new TownServiceSendQueue(65536); var assembly = new TownServiceFragments();
+        queue.Enqueue(privateRaw, privateRaw.Length, privateFrame); queue.Enqueue(publicRaw, publicRaw.Length, publicFrame);
+        var received = new HashSet<bool>();
+        for (int i = 0; i < 300; i++)
+        {
+            byte[]? page = queue.Next(i * .05); if (page == null) continue;
+            byte[]? complete = assembly.Accept(2, page, page.Length, i * .05); if (complete == null) continue;
+            byte[][] frames = TownServiceCodec.TryReadBundle(complete, complete.Length, out var bundle) ? bundle! : new[] { complete };
+            foreach (byte[] raw in frames) if (TownServiceCodec.TryRead(raw, raw.Length, out var frame)) received.Add(frame!.PublicCatalog);
+        }
+        t.Equal(2, received.Count, "shared global scheduler budget delivers both presentation lanes");
+        foreach (float phase in new[] { .45f, .49f, .5f, .51f, .55f })
+        {
+            TownCassetteMotion.Sample(phase, out float depth, out float openness);
+            t.True(depth >= .319f && openness <= .001f, "card identity changes only fully withdrawn behind closed opaque shutter");
+        }
+        TownCassetteMotion.Sample(0, out float firstDepth, out float firstOpen);
+        TownCassetteMotion.Sample(1, out float lastDepth, out float lastOpen);
+        t.True(firstDepth == 0 && lastDepth == 0 && firstOpen == 1 && lastOpen == 1,
+            "owner and observer cassette clocks share both visible endpoint poses");
     }
     private static TownServiceFrame Frame(ushort module, ulong sequence, int count = 64)
     {

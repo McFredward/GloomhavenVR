@@ -79,7 +79,6 @@ internal sealed partial class CardsDriver
     /// </summary>
     private void UpdateHeldCardTransfer()
     {
-        if (ItemCardHold.TryTransfer()) return;
         VRHand? left = VRHands.Left;
         VRHand? right = VRHands.Right;
         // The transferable shapes: an ability card or an item chip, in EITHER hand. Both are
@@ -147,6 +146,8 @@ internal sealed partial class CardsDriver
             TransferHeldCard(card, holder, free);
         else if (held is ItemsPile.ItemChip chip)
             chip.Owner?.TransferHeldChip(chip, holder, free);
+        else if (held is IItemCardHold sample)
+            sample.Transfer(holder, free);
     }
 
     /// <summary>The held object of <paramref name="hand"/> when it is a card the player may hand to
@@ -156,7 +157,7 @@ internal sealed partial class CardsDriver
     private static IFanSweepTarget? HeldTransferable(VRHand? hand)
     {
         IGrabbable? held = hand != null ? hand.Grabber.Held : null;
-        return held is VRCard or ItemsPile.ItemChip ? held as IFanSweepTarget : null;
+        return held is VRCard or ItemsPile.ItemChip or IItemCardHold { IsItemCard: true } ? held as IFanSweepTarget : null;
     }
 
     /// <summary>

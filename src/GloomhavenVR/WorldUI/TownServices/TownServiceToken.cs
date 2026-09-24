@@ -14,7 +14,7 @@ namespace GloomhavenVR.WorldUI;
 /// only inspects it; an eligible deliberate drop invokes its original transaction callback.
 /// Every other release returns the sample without changing native gameplay state.</summary>
 internal sealed class TownServiceToken : IGrabbable, ITriggerOnlyGrabbable, IGrabbableHandFilter,
-    IGrabCancellation, IGrabHighlight, IItemCardHold, IDisposable
+    IGrabCancellation, IGrabHighlight, IItemCardHold, IFanSweepTarget, IDisposable
 {
     private readonly RectTransform _source;
     public bool IsItemCard { get; }
@@ -222,7 +222,13 @@ internal sealed class TownServiceToken : IGrabbable, ITriggerOnlyGrabbable, IGra
         {
             VRHand recipient = _transferTo; _transferTo = null; _hand = null; _held = null;
             _adopting = true; _shape.enabled = true;
-            try { if (recipient.Grabber.ForceGrab(this, releaseOnTriggerUp: true)) return; }
+            try
+            {
+                if (recipient.Grabber.ForceGrab(this, releaseOnTriggerUp: true)) return;
+                // Preserve the original hold if the recipient refuses; never transact or
+                // teleport a sample merely because hand-to-hand adoption was declined.
+                if (hand.Grabber.ForceGrab(this, releaseOnTriggerUp: true)) return;
+            }
             finally { _adopting = false; }
             _hand = hand; _held = _physical.gameObject;
         }
@@ -272,6 +278,12 @@ internal sealed class TownServiceToken : IGrabbable, ITriggerOnlyGrabbable, IGra
     }
 
     internal void CancelInspection() { if (_hand != null) _hand.Grabber.CancelAll(); }
+
+    bool IFanSweepTarget.SweepEligible => CanGrab && IsItemCard;
+    float IFanSweepTarget.SweepFaceWidthWorld => _source != null
+        ? Mathf.Abs(_source.rect.width * _source.lossyScale.x) : 0f;
+    string IFanSweepTarget.SweepName => _source != null ? _source.name : "Merchant item";
+    bool IFanSweepTarget.TrySweepDistance(Vector3 point, out float distance) => TryTouch(point, out distance);
 
     public bool TryTouch(Vector3 point, out float distance)
     {

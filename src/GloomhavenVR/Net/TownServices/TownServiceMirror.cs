@@ -73,7 +73,8 @@ internal static partial class TownServiceMirror
     {
         get
         {
-            int author = LocalPeer; uint claim = _publicClaim;
+            int author = PublicLane.Active ? LocalPeer : int.MaxValue;
+            uint claim = PublicLane.Active ? _publicClaim : 0;
             foreach (var pair in Sessions)
             {
                 var session = pair.Value;

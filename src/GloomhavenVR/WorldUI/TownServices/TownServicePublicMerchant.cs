@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using GloomhavenVR.Core;
 using GloomhavenVR.Net.TownServices;
 using GloomhavenVR.WorldUI.MapRoom;
@@ -16,6 +17,8 @@ internal static class TownServicePublicMerchant
     private static uint _session;
     private static float _opened, _retryAt;
     private static object? _character, _context;
+    private static readonly HashSet<string> Failures = new(StringComparer.Ordinal);
+    private static bool _failed;
     internal static TownServiceCatalog? Catalog => _catalog;
     internal static bool CanClaim
     {
@@ -44,7 +47,7 @@ internal static class TownServicePublicMerchant
     internal static void Tick()
     {
         if (!MapRoomDriver.Active || !WorldUIConfig.ImmersiveTownServices.Value)
-        { Reset(); return; }
+        { Reset(); Failures.Clear(); _failed = false; _retryAt = 0; return; }
         if (Time.unscaledTime < _retryAt) return;
         try
         {
@@ -75,11 +78,15 @@ internal static class TownServicePublicMerchant
             if (observer) foreach (TownServiceToken sample in _catalog.Samples) if (sample.IsHeld) sample.CancelInspection();
             _catalog.SetObserver(observer);
             TownServiceCatalogCategory.TickLaser();
+            if (_failed) { VRLog.Note("TownServices", "Persistent merchant stock presentation recovered."); _failed = false; }
         }
         catch (Exception error)
         {
             Reset(); _retryAt = Time.unscaledTime + 5f;
-            VRLog.Note("TownServices", "Persistent merchant stock unavailable; native merchant remains usable: " + error.Message);
+            _failed = true;
+            string failure = error.GetType().FullName + ": " + error.Message;
+            if (Failures.Count < 8 && Failures.Add(failure))
+                VRLog.Note("TownServices", "Persistent merchant stock unavailable; native merchant remains usable: " + failure);
         }
     }
     internal static void LateTick()

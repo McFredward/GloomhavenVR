@@ -58,21 +58,4 @@ internal static class ItemCardHold
         card.localScale = Vector3.Lerp(card.localScale, Vector3.one * targetScale, t);
     }
 
-    /// <summary>Uses the same receiving-hand contact/trigger gesture as scenario item transfer.
-    /// Transaction release is suppressed by the host during the synchronous adoption.</summary>
-    internal static bool TryTransfer()
-    {
-        VRHand? left = VRHands.Left, right = VRHands.Right;
-        VRHand? owner = left?.Grabber.Held is IItemCardHold { IsItemCard: true } ? left : right?.Grabber.Held is IItemCardHold { IsItemCard: true } ? right : null;
-        if (owner == null) return false;
-        VRHand? free = owner == left ? right : left;
-        if (free == null || !free.HasPose || free.Grabber.Held != null) return true;
-        var card = (IItemCardHold)owner.Grabber.Held!;
-        if (!card.TryTouch(free.Rig.IndexTip.position, out float tip)
-            || !card.TryTouch(free.Rig.PalmCenter.position, out float palm)) return true;
-        if (tip > .035f * free.WorldScale || palm > .07f * free.WorldScale) return true;
-        if (free.Ray.Enabled) free.Ray.SuppressFarClick();
-        if (!free.RayUgui.HasHit && free.TriggerDown) card.Transfer(owner, free);
-        return true;
-    }
 }

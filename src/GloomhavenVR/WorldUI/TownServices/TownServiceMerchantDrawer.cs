@@ -60,7 +60,12 @@ internal sealed class TownServiceMerchantDrawer : IGrabbable, IGrabbableHandFilt
         CopyMaterials(_root); CopyMaterials(_housing);
         Transform handle = Root.Find("Handle") ?? Root;
         _pick = handle.gameObject.AddComponent<BoxCollider>(); _pick.isTrigger = true;
-        _pick.size = new Vector3(.08f, .08f, .12f);
+        MeshFilter? handleMesh = handle.GetComponent<MeshFilter>();
+        if (handleMesh == null || handleMesh.sharedMesh == null)
+            throw new InvalidOperationException("The authored merchant crank handle has no mesh bounds.");
+        Bounds gripBounds = handleMesh.sharedMesh.bounds;
+        _pick.center = gripBounds.center;
+        _pick.size = gripBounds.size + Vector3.one * .025f;
         VRInteractables.RegisterGrabbable(this, _pick); VRLayers.Apply(_root); VRLayers.Apply(_housing);
         TownCassetteMotion.Apply(HousingRoot, 1f);
     }

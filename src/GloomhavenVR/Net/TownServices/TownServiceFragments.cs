@@ -25,10 +25,12 @@ internal sealed class TownServiceFragments
             foreach (long expired in _expired)
             { _streams[expired].Clear(); _streams.Remove(expired); _lastActivity.Remove(expired); }
         }
-        long key = ((long)sender << 16) | (ushort)stream;
+        int lane = Lane(packet, length);
+        if (lane < 0) return null;
+        long key = ((long)sender << 17) | (uint)(stream | lane << 16);
         if (!_streams.TryGetValue(key, out ExtrasFragments? assembler))
         {
-            if (_streams.Count >= 8 * (TownServiceFrame.MaxModules + 2)) return null;
+            if (_streams.Count >= 16 * (TownServiceFrame.MaxModules + 2)) return null;
             assembler = new ExtrasFragments(TownServiceCodec.MessageType, TownServiceCodec.FragmentType,
                 TownServiceFrame.MaxBytes, AssemblyLifetime);
             _streams.Add(key, assembler);
@@ -46,10 +48,32 @@ internal sealed class TownServiceFragments
     internal void Forget(int sender)
     {
         var keys = new List<long>();
-        foreach (long key in _streams.Keys) if (key >> 16 == sender) keys.Add(key);
+        foreach (long key in _streams.Keys) if (key >> 17 == sender) keys.Add(key);
         foreach (long key in keys) { _streams[key].Clear(); _streams.Remove(key); _lastActivity.Remove(key); }
     }
     internal void Clear() { foreach (ExtrasFragments assembler in _streams.Values) assembler.Clear(); _streams.Clear(); _lastActivity.Clear(); _expired.Clear(); _nextSweep = 0; }
+    // Bit 16 of the fragment sequence namespaces public stock independently from
+    // the same peer's private hand/service stream. The low module bits stay unchanged.
+    private static int Lane(byte[] packet, int length)
+    {
+        bool compressed = NetPacket.PeekType(packet, length) == NetProtocol.MsgPresentationCompression;
+        int lane = -1;
+        for (int at = 6; at < length;)
+        {
+            if (at + 2 > length) return -1;
+            int id = packet[at++], count = packet[at++];
+            if (at + count > length) return -1;
+            if (id == (compressed ? NetProtocol.ExtIdPresentationCompression : NetProtocol.ExtIdExtrasFragment))
+            {
+                if (count <= (compressed ? 15 : 12)) return -1;
+                int next = packet[at + 2] & 1;
+                if (lane >= 0 && lane != next) return -1;
+                lane = next;
+            }
+            at += count;
+        }
+        return lane;
+    }
     internal static int Stream(byte[] packet, int length)
     {
         if (packet == null || length < 20 || length > packet.Length || length > ExtrasFragments.MaxDatagramBytes) return -1;
