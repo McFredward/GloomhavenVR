@@ -1,9 +1,9 @@
 # State — where the project stands
 
-**Updated 2026-09-24: feature/immersive-town-services, version 1.1.0 / ModBuild 548 hardware candidate.**
+**Updated 2026-09-24: feature/immersive-town-services, version 1.1.0 / ModBuild 549 integration.**
 The feature is based on dev e63fb284, including released 1.0.7 / build 546. Dev remains
 the separate 1.0.8 hotfix line. The maintainer hardware-confirmed 546 before release.
-Current NPC revision: [research/TOWN-SERVICES-548.md](research/TOWN-SERVICES-548.md).
+Current NPC revision: [research/TOWN-SERVICES-549.md](research/TOWN-SERVICES-549.md).
 NPC workers integrate and push exclusively to the feature branch during this work.
 
 The file this replaces had gone 168 builds
@@ -18,6 +18,16 @@ change per build) → this file (where things stand and what is owed) → the bu
 ---
 
 ## 1. Position
+
+- **NPC feature / 1.1.0 / ModBuild 549 (integration):** approved upright merchant
+  cabinet with physical categories/crank and occluded animated page changes; original
+  scenario item holding; complete owned-item fan near the merchant; palm-based buy/sell
+  requests with explicit native confirmation. Public cabinet and private inspection
+  lifetimes are independent, including late join and authority handoff. Stable owned
+  practical lighting replaces renderer-dependent nearest-light changes. Revised arm
+  skin/contact motion and front-semicircle placement preserve original room geometry.
+  Final validation/package status: [research/TOWN-SERVICES-549.md](research/TOWN-SERVICES-549.md).
+
 
 - **NPC feature / 1.1.0 / ModBuild 548 (hardware candidate):** restores original cellar
   and forest proportions, removes NPC distance LOD, replaces the oversized merchant

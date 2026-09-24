@@ -964,6 +964,43 @@
         "local"
       ],
       "weight": 80
+    },
+    {
+      "id": "town-merchant-handoff",
+      "command": [
+        "python3",
+        "scripts/check-town-merchant-handoff.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 80
+    },
+    {
+      "id": "town-public-catalog",
+      "command": [
+        "python3",
+        "scripts/check-town-service-mirror.py",
+        "--suite",
+        "public-catalog"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 90
+    },
+    {
+      "id": "town-item-transfer",
+      "command": [
+        "python3",
+        "scripts/check-town-service-mirror.py",
+        "--suite",
+        "item-transfer"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 90
     }
   ]
 }
