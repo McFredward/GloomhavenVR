@@ -86,6 +86,12 @@ intermediate forearm-support wrap regression. Exact triangle/seam audits found z
 arm/torso or opposite-arm intersections in 1,943 sampled poses; all six injected surface
 faults were detected. Details and sampling limits are in the motion report above.
 
+The hosted-CI portable motion variant initially included the new forearm-skin mutation
+although that mode intentionally does not compile a Unity rig. The mutation remains in
+the full Unity suite and is now explicitly assigned there; a missing mutation target
+also fails immediately. The corrected portable phase/network suite passes all eight
+production/negative variants (`/tmp/town549-final-portable/run-6s_28j9n`).
+
 Strict Release has zero warnings/errors. Bundle-format and surface gates pass; the
 compiled historical baseline comparison reports implementation changes, not program
 equivalence. The complete test ZIP and its DLL/bundle CRC/hash evidence are recorded in

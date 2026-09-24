@@ -99,8 +99,14 @@ def main():
     manifest = {"result": str(run / "results.txt"), "cases": []}
     variants = [("production", None, None, None, "")]
     if not args.no_negative_controls:
-        rig_only = ("unplanted-feet", "ignore-ik", "thumb-overcurl", "prayer-snap", "excessive-work-bow", "ignore-palm-offset", "curl-contact-markers", "downward-offering", "coin-detached-from-grip")
+        rig_only = ("wrapped-forearm-support", "unplanted-feet", "ignore-ik", "thumb-overcurl", "prayer-snap", "excessive-work-bow", "ignore-palm-offset", "curl-contact-markers", "downward-offering", "coin-detached-from-grip")
         variants += [v for v in mutations() if (not args.portable or v[0] not in rig_only) and (args.bundle or v[0] not in ("prayer-snap", "unplanted-feet"))]
+    # A mutation of an absent production file is not an executable negative control.
+    # The full Unity suite retains every rig mutation; portable mode only claims its
+    # compiled phase/network sources and must fail loudly if this partition drifts.
+    for label, filename, *_ in variants:
+        if filename is not None and filename not in bound:
+            raise SystemExit(f"Negative control {label} targets an unbound production file: {filename}")
     print(f"Binding production from {args.source_root.resolve()}; evidence: {run}", flush=True)
     for name, filename, before, after, expected in variants:
         build = run / name
