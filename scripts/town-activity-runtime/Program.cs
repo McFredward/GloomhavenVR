@@ -212,6 +212,9 @@ public static class InteractionProgram
                         float reach=Vector3.Distance(upper.position,fore.position)+Vector3.Distance(fore.position,hand.position);
                         Vector3 wanted=root.TransformPoint(target);float excess=Mathf.Max(0,Vector3.Distance(wanted,upper.position)-reach+.001f);
                         rig.Apply(in phase);
+                        var actualVisual=TownServiceActivityMotion.Visual(service,in phase);
+                        if(service==3&&actualVisual.Cast>.25f&&actualVisual.RightRoll>=165f)
+                            Check(rig.OfferingPalm!=null&&Vector3.Dot(rig.OfferingPalm.up,root.up)>.85f,"actual casting palm supports the spell from below frame="+n+" clock="+phase.WorkClock+" dot="+(rig.OfferingPalm==null?0f:Vector3.Dot(rig.OfferingPalm.up,root.up)));
                         foreach(string side in new[]{"L","R"})
                         {
                             Transform[] joints=root.GetComponentsInChildren<Transform>(true);

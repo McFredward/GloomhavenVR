@@ -367,7 +367,7 @@ internal sealed class TownServiceActivityRig
             guide.y = Mathf.Max(1.10f, guide.y);
             guide.z = .28f + Mathf.Clamp(guide.z - .50f, 0f, .20f) * .4f;
             if (_service == 2)
-                guide = Vector3.Lerp(new Vector3(side * .35f, .70f, .30f), guide, attention);
+                guide = Vector3.Lerp(new Vector3(side * .42f, .70f, .20f), guide, attention);
             Vector3 pole = _root.TransformPoint(guide) - shoulder;
             Vector3 bend = Vector3.ProjectOnPlane(pole, direction).normalized;
             if (bend.sqrMagnitude < .5f) bend = _root.right * side;
@@ -383,7 +383,10 @@ internal sealed class TownServiceActivityRig
             if (lateral.sqrMagnitude < .001f)
                 lateral = Vector3.Cross(arm.Fore.rotation * arm.RestHand * arm.PalmNormal, foreDirection);
             Vector3 freeNormal = Vector3.Cross(foreDirection, lateral.normalized).normalized;
-            float contactFrame = _service == 1 ? 1f
+            // The spell-supporting palm keeps the same level reference while raised.
+            // Fading that reference with hand height left it vertical even at an
+            // authored half-turn, so a correct roll value did not mean palm-up.
+            float contactFrame = _service == 1 || (_service == 3 && side < 0f) ? 1f
                 : 1f - Mathf.SmoothStep(0f, 1f, (localTarget.y - .970f) / .22f);
             Quaternion palmFrame;
             if (_service == 2)

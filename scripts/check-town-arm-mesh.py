@@ -51,9 +51,10 @@ def main():
     parser.add_argument('--input', type=Path, required=True)
     parser.add_argument('--report', type=Path, required=True)
     parser.add_argument('--report-only', action='store_true')
+    parser.add_argument('--service', type=int, choices=[1, 2, 3], help='Check one resident during contact fitting; default covers all three')
     args = parser.parse_args(sys.argv[sys.argv.index('--') + 1:])
     reports = []
-    for path in sorted(args.input.glob('service*-skin.bin')):
+    for path in sorted(args.input.glob(f'service{args.service}-skin.bin' if args.service else 'service*-skin.bin')):
         with path.open('rb') as file:
             vertex_count, face_count, frame_count = struct.unpack('<iii', file.read(12))
             records = np.frombuffer(file.read(face_count * 13), dtype=[('label', 'u1'), ('face', '<i4', (3,))])
@@ -96,7 +97,7 @@ def main():
             assert not file.read(1), 'Unexpected trailing geometry data'
             reports.append(report)
             print('TOWN_ARM_MESH', json.dumps(report), flush=True)
-    assert len(reports) == 3, 'Every resident must be sampled'
+    assert len(reports) == (1 if args.service else 3), 'Every requested resident must be sampled'
     args.report.write_text(json.dumps(reports, indent=2) + '\n')
     if not args.report_only and any(row['intersecting_frames'] or row['maximum_seam_growth'] > .012 for row in reports):
         raise SystemExit('Actual skin has an arm/torso or opposite-arm intersection, or separated wrist seam')

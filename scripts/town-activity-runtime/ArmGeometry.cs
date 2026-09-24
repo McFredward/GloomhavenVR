@@ -13,6 +13,7 @@ internal static class ArmGeometry
     internal static void Export(Transform root, byte service, TownServiceActivityRig rig, Animation animation)
     {
         string[] args=Environment.GetCommandLineArgs();int arg=Array.IndexOf(args,"-anatomyExport");if(arg<0)return;
+        int selected=Array.IndexOf(args,"-anatomyService");if(selected>=0&&int.Parse(args[selected+1])!=service)return;
         rig.BeforeBodySample();root.SetPositionAndRotation(Vector3.zero,Quaternion.identity);root.localScale=Vector3.one;
         var skin=root.GetComponentsInChildren<SkinnedMeshRenderer>(true).First(r=>r.sharedMesh.subMeshCount==3&&r.enabled);
         Mesh mesh=skin.sharedMesh;var vertices=mesh.vertices;var weights=mesh.boneWeights;var bind=mesh.bindposes;

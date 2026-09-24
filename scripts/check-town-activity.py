@@ -38,10 +38,11 @@ def mutations():
         ("separated-prayer", "TownServiceActivityMotion.cs", "new Vector3(.012f,1.34f,.20f)", "new Vector3(.035f,1.34f,.20f)", "prayer joins cupped hands at the sternum"),
         ("animated-knee-pole", "TownServiceActivityRig.cs", "Vector3.ProjectOnPlane(_root.TransformDirection(_kneePoles[upperIndex == 6 ? 0 : 1]),direction)", "Vector3.ProjectOnPlane(knee-hip,direction)", "planted knee keeps anatomical forward bend plane"),
         ("zero-weight-stance-snap", "TownServiceActivityRig.cs", "_bodyApplied=true;", "_bodyApplied=true; if(body.Weight<=0f)return;", "planted knee keeps anatomical forward bend plane"),
+        ("vertical-casting-palm", "TownServiceActivityRig.cs", "_service == 1 || (_service == 3 && side < 0f) ? 1f", "_service == 1 ? 1f", "actual casting palm supports the spell from below"),
         ("raised-stage-gesture", "TownServiceActivityMotion.cs", "1.04f + (generated.Left.y - 1.04f) * .48f", "generated.Left.y", "spell shaping palm stays below its shoulder"),
         ("frozen-generated-body", "TownServiceMotionClips.cs", "body.Set(i,Rotation(data,a+15+i*4,b+15+i*4,t));", "body.Set(i,Quaternion.identity);", "generated occupation contains real torso movement"),
         ("wrapped-forearm-support", "TownServiceActivityRig.cs", "if (_service != 2) twist = Mathf.DeltaAngle(0f, twist + roll) - roll;", "twist = Mathf.Repeat(twist, 360f);", "actual forearm skin support stays continuous across pronation"),
-        ("unplanted-feet", "TownServiceActivityRig.cs", "PlantFoot(6); PlantFoot(9);", "// negative control: uncorrected generated stance", "generated stance keeps actual imported feet planted"),
+        ("unplanted-feet", "TownServiceActivityRig.cs", "PlantFoot(6); PlantFoot(9);", "// negative control: uncorrected generated stance", "planted knee keeps anatomical forward bend plane"),
         ("phase-jump", "TownServiceActivityMotion.cs", "state.FromBlend = Blend(in state);", "state.FromBlend = state.Engaged ? 1f : 0f;", "interrupted transition keeps current pose"),
         ("work-runs-while-engaged", "TownServiceActivityMotion.cs", "dt - Integral(in state, state.TransitionAge + dt) + Integral(in state, state.TransitionAge)", "dt", "engaged occupation remains paused"),
         ("ignore-ik", "TownServiceActivityRig.cs", "if (!Ready) return;", "if (Ready) return;", "anatomical palm contacts transformed counter surface"),
@@ -68,6 +69,7 @@ def main():
     parser.add_argument("--unity", type=Path, default=Path(os.environ.get("UNITY_PATH", "/home/claw/unity-2021.3.5/Editor/Unity")))
     parser.add_argument("--render", type=Path, help="Optional output folder for actual rig/tool contact images")
     parser.add_argument("--anatomy-export", type=Path, help="Export actual skinned arm/torso triangles over complete cycles and visits")
+    parser.add_argument("--anatomy-service", type=int, choices=[1, 2, 3], help="Export geometry for one resident; contact checks still cover all three")
     parser.add_argument("--attention-sequence", action="store_true", help="Render a24fps visitor-interruption transition instead of work cycle")
     parser.add_argument("--render-service", type=int, choices=[1,2,3], help="Render only one resident; all contact checks still run")
     parser.add_argument("--sequence", action="store_true", help="Render complete resident performances at 8 fps")
@@ -103,8 +105,8 @@ def main():
     manifest = {"result": str(run / "results.txt"), "cases": []}
     variants = [("production", None, None, None, "")]
     if not args.no_negative_controls:
-        rig_only = ("separated-prayer", "animated-knee-pole", "zero-weight-stance-snap", "raised-stage-gesture", "wrapped-forearm-support", "unplanted-feet", "ignore-ik", "thumb-overcurl", "prayer-snap", "excessive-work-bow", "ignore-palm-offset", "curl-contact-markers", "downward-offering", "coin-detached-from-grip")
-        variants += [v for v in mutations() if (not args.portable or v[0] not in rig_only) and (args.bundle or v[0] not in ("prayer-snap", "unplanted-feet", "wrapped-forearm-support", "separated-prayer", "animated-knee-pole", "zero-weight-stance-snap", "raised-stage-gesture"))]
+        rig_only = ("separated-prayer", "animated-knee-pole", "zero-weight-stance-snap", "raised-stage-gesture", "vertical-casting-palm", "wrapped-forearm-support", "unplanted-feet", "ignore-ik", "thumb-overcurl", "prayer-snap", "excessive-work-bow", "ignore-palm-offset", "curl-contact-markers", "downward-offering", "coin-detached-from-grip")
+        variants += [v for v in mutations() if (not args.portable or v[0] not in rig_only) and (args.bundle or v[0] not in ("prayer-snap", "unplanted-feet", "wrapped-forearm-support", "separated-prayer", "animated-knee-pole", "zero-weight-stance-snap", "raised-stage-gesture", "vertical-casting-palm"))]
     # A mutation of an absent production file is not an executable negative control.
     # The full Unity suite retains every rig mutation; portable mode only claims its
     # compiled phase/network sources and must fail loudly if this partition drifts.
@@ -181,6 +183,7 @@ def main():
     if args.anatomy_export:
         args.anatomy_export.mkdir(parents=True, exist_ok=True)
         command += ["-anatomyExport", str(args.anatomy_export.resolve())]
+        if args.anatomy_service: command += ["-anatomyService", str(args.anatomy_service)]
     if args.render:
         args.render.mkdir(parents=True, exist_ok=True)
         command.remove("-nographics")
