@@ -32,6 +32,9 @@ internal static class TownServiceMerchantHandoff
     private static Action? _ourConfirmation;
     private static CMapParty? _party;
     private static ShopService? _shop;
+    private static CItem? _eligibilityItem;
+    private static bool _eligibilitySelling, _eligibilityResult;
+    private static float _eligibilityUntil;
     internal static bool Active => _fan != null && _character != null && !_resetting;
     internal static uint Session { get; private set; }
     internal static float SessionAge => Mathf.Max(0f, Time.unscaledTime - _started);
@@ -52,13 +55,18 @@ internal static class TownServiceMerchantHandoff
             && selected != null && TownServicePopulation.Available(1)
             && (mode == EGuildmasterMode.None || mode == EGuildmasterMode.Merchant);
         if (!context) { Reset(); return; }
-        _station ??= TownServicePopulation.Acquire(1);
+        TownServiceStation? station = TownServicePopulation.Acquire(1);
+        if (!ReferenceEquals(station, _station))
+        {
+            ResetSession(); _station = station; _palm = null; _near = false;
+        }
         bool near = _station != null && _station.IsLocalVisitorNear(_near);
         if (!near) { Reset(); return; }
         _near = true;
         if (!ReferenceEquals(_character, selected))
         {
-            ResetSession(); _character = selected;
+            if (VRHands.Left?.Grabber.Held is VRCard || VRHands.Right?.Grabber.Held is VRCard) return;
+            ResetSession(restoreFan: false); _character = selected;
             unchecked { Session++; if (Session == 0) Session++; }
             _started = Time.unscaledTime;
             _fan = ItemsPile.CreateInspection(OnOwnedRelease);
@@ -119,16 +127,22 @@ internal static class TownServiceMerchantHandoff
         if (!ReferenceEquals(_party, party)) { _party = party; _shop = new ShopService(party, _ => { }); }
         return _shop;
     }
-    internal static bool CanOffer(CItem item, bool selling)
+    internal static bool CanOffer(CItem item, bool selling) => Eligible(item, selling, cached: true);
+    private static bool Eligible(CItem item, bool selling, bool cached)
     {
         if (!Active || item == null || !item.Tradeable || _pending != null
             || !ReferenceEquals(MapRoomHand.OwnedMerchantCharacter(), _character)) return false;
         UIItemConfirmationBox? confirmation = Singleton<UIItemConfirmationBox>.Instance;
         if (confirmation != null && confirmation.IsActive) return false;
+        if (cached && ReferenceEquals(_eligibilityItem, item) && _eligibilitySelling == selling
+            && Time.unscaledTime < _eligibilityUntil) return _eligibilityResult;
         ShopService? shop = Shop();
         if (shop == null) return false;
-        return selling ? shop.GetItemsToSell(_character).Contains(item)
+        _eligibilityItem = item; _eligibilitySelling = selling;
+        _eligibilityUntil = Time.unscaledTime + .12f;
+        _eligibilityResult = selling ? shop.GetItemsToSell(_character).Contains(item)
             : shop.IsAffordable(item, _character) && shop.GetItemsToBuy(_character).Exists(candidate => candidate.ID == item.ID);
+        return _eligibilityResult;
     }
     private static void OnOwnedRelease(ItemsPile.ItemChip chip, Vector3 world)
     {
@@ -136,7 +150,7 @@ internal static class TownServiceMerchantHandoff
     }
     internal static bool Offer(CItem item, bool selling, Vector3 world)
     {
-        if (!CanOffer(item, selling) || !InOfferingZone(world)) return false;
+        if (!Eligible(item, selling, cached: false) || !InOfferingZone(world)) return false;
         EGuildmasterMode mode = GuildmasterDestinations.CurrentDestinationMode();
         if (mode != EGuildmasterMode.Merchant)
         {
@@ -171,15 +185,15 @@ internal static class TownServiceMerchantHandoff
         foreach (Transform child in root) { Transform? found = Find(child, name); if (found != null) return found; }
         return null;
     }
-    private static void ResetSession()
+    private static void ResetSession(bool restoreFan = true)
     {
-        _resetting = true; _pending = null;
+        _resetting = true; _pending = null; _eligibilityItem = null;
         UIItemConfirmationBox? confirmation = Singleton<UIItemConfirmationBox>.Instance;
         if (_ourConfirmation != null && confirmation != null && confirmation.IsActive
             && ReferenceEquals(confirmation._onConfirmedCallback, _ourConfirmation)) confirmation.OnCancel();
         _ourConfirmation = null;
         _fan?.DestroyInspection(); _fan = null; Items.Clear(); _character = null;
-        MapRoomHand.SetMerchantInspection(false);
+        if (restoreFan) MapRoomHand.SetMerchantInspection(false);
         if (_seat != null) UnityEngine.Object.Destroy(_seat.gameObject);
         _seat = _zone = null; _zoneGate = null; _caption = null;
         _resetting = false;

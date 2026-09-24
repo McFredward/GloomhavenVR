@@ -15,6 +15,7 @@ internal sealed partial class ItemsPile
     private VRHand? _inspectionGateHand;
     private readonly List<ItemChip> _inspectionRetiring = new();
     private readonly List<ItemChip> _inspectionPublished = new();
+    private readonly HashSet<CItem> _inspectionPresent = new();
     internal static ItemsPile? InspectionCurrent { get; private set; }
     internal IReadOnlyList<ItemChip> InspectionChips => _inspectionPublished;
     internal static ItemsPile CreateInspection(Action<ItemChip, Vector3> release)
@@ -36,6 +37,7 @@ internal sealed partial class ItemsPile
             && (CardsConfig.RevealAlways || gate.PalmGate.IsOpen || HighlightedIndex >= 0);
         if (gate != null)
         {
+            gate.PalmGate.Enabled = true;
             gate.PalmGate.EnterDegrees = CardsConfig.RevealEnterDegrees.Value;
             gate.PalmGate.ExitDegrees = CardsConfig.RevealExitDegrees.Value;
             gate.PalmGate.IgnoreWhenHandBusy = CardsConfig.RevealIgnoreWhenGrabbing.Value;
@@ -69,17 +71,19 @@ internal sealed partial class ItemsPile
         }
         if (show)
         {
+            _inspectionPresent.Clear();
+            foreach (ItemChip chip in _chips)
+                if (chip != null && chip.Item != null) _inspectionPresent.Add(chip.Item);
+            foreach (ItemChip chip in _inspectionRetiring)
+                if (chip != null && chip.Item != null) _inspectionPresent.Add(chip.Item);
             foreach (CItem item in items)
             {
-                bool exists = false;
-                foreach (ItemChip chip in _chips) if (ReferenceEquals(chip.Item, item)) { exists = true; break; }
                 // Finish a previous closing wave before generating a second face for that item.
-                foreach (ItemChip chip in _inspectionRetiring)
-                    if (chip != null && ReferenceEquals(chip.Item, item)) { exists = true; break; }
+                bool exists = _inspectionPresent.Contains(item);
                 if (!exists)
                 {
                     ItemChip chip = ItemChip.Create(this, _root, item);
-                    _chips.Add(chip); Relayout();
+                    _chips.Add(chip); _inspectionPresent.Add(item); Relayout();
                     chip.BeginEmerge(Vector3.zero, 0f, _chips.Count % 2 == 0 ? -1f : 1f);
                 }
             }

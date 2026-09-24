@@ -1578,7 +1578,8 @@ internal sealed partial class ItemsPile
     {
         worldScale = 1f;
         FanSweepPick<ItemChip> pick = FanSweepPick<ItemChip>.Empty;
-        if (hand == null || !hand.HasPose || hand.Grabber.Held != null)
+        if (hand == null || !hand.HasPose || hand.Grabber.Held != null
+            || _inspectionRelease != null && ReferenceEquals(hand, _inspectionGateHand))
             return pick;
 
         Vector3 tip = hand.Rig.IndexTip.position;
@@ -5079,7 +5080,7 @@ internal sealed partial class ItemsPile
             // CardMesh fallback) so the item card's back matches the others instead of a plain black
             // slab — cropped to the item card's near-square shape. The legacy colored cube slab is kept
             // ONLY for the fallback (pool-unavailable) face so its icon/name still read on a tinted body.
-            GameObject? backing = realCard ? chip.BuildCardBacking(go.transform, cw, ch) : null;
+            GameObject? backing = realCard ? BuildCardBacking(go.transform, cw, ch) : null;
             if (backing == null)
             {
                 // Thin cube slab, sized to the ACTUAL card (item aspect): dark for a real card whose
@@ -5154,7 +5155,10 @@ internal sealed partial class ItemsPile
         /// card's near-square <paramref name="cw"/>×<paramref name="ch"/> shape (the same back, just
         /// cropped). Returns null only if neither path can build (caller draws the legacy cube slab).
         /// </summary>
-        private GameObject? BuildCardBacking(Transform parent, float cw, float ch)
+        internal static GameObject? CreateInspectionBodyTemplate(Transform parent, float width, float height)
+            => BuildCardBacking(parent, width, height);
+
+        private static GameObject? BuildCardBacking(Transform parent, float cw, float ch)
         {
             try
             {
