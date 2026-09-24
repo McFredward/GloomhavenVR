@@ -27,8 +27,14 @@ log remains each player's private window.
 
 ## Verification
 
-The focused owner builds passed with zero errors and warnings. Full integrated
-checks and a headset check remain to be recorded.
+The focused owner builds and the integrated strict Release build passed with
+zero errors and warnings. `refactor-guard.sh check --summary` passed every
+source and production runtime gate, including 254,965 golden wire assertions,
+1,322 window-reflow assertions, 84 shared-reflow assertions, 1,216 board-refresh
+assertions, 433 retry-start assertions and 245 pick-tray assertions. Its expected
+status is 1 because compiled form differs from baseline `080c505e9`: 114 changed
+types and 115 added/removed entries across intervening builds. The EN/DE docs
+check, workflow lint and whitespace check passed. No headset result exists yet.
 
 In hardware, laser-grab and release each object at a visible angle in both Follow
 and Fixed modes. The turn should have the same quick feel as an ordinary window,
