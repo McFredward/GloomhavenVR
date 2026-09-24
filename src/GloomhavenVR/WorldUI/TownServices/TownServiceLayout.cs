@@ -26,17 +26,20 @@ internal static class TownServiceLayout
         // but published residents and independently resolved visitor counters share one town.
         if (visitor != 0)
         {
-            radius = visitor == 3 ? 2.7f : 2.55f;
-            bearing = visitor == 1 ? -140f : visitor == 2 ? 150f : -40f;
+            radius = visitor == 3 ? 2.6f : 2.5f;
+            bearing = visitor == 1 ? -140f : visitor == 2 ? -90f : -45f;
             // The outer reservations turn slightly into the central aisle to clear
             // original cellar props and forest trunks without changing either room.
-            yaw = visitor == 1 ? -140f : visitor == 2 ? 180f : 5f;
+            yaw = visitor == 1 ? -140f : visitor == 2 ? -90f : -75f;
         }
         else
         {
             if (service < 1 || service > 3) throw new ArgumentOutOfRangeException(nameof(service));
-            radius = service == 2 ? 2.2f : ResidentRadius;
-            bearing = service == 1 ? 15f : service == 2 ? -85f : 90f;
+            radius = ResidentRadius;
+            // The authored map reading side is -X (campaign hardware seat yaw90).
+            // Positive-X semicircle puts residents left/front/right instead of placing
+            // the priestess behind the player. This never depends on a viewer's head.
+            bearing = service == 1 ? 15f : service == 2 ? 160f : 90f;
             yaw = bearing;
         }
         position = Quaternion.Euler(0f, bearing, 0f) * new Vector3(0f, 0f, radius);

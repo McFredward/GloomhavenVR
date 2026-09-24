@@ -78,6 +78,7 @@ public static class InteractionProgram
             {
                 TownServiceLayout.Resolve(environment,service,0,out Vector3 p,out float yaw);
                 Check(p.magnitude>=2f&&p.magnitude<=2.41f,"residents fit the original room radius");
+                Check(p.x >= 0f, "residents stay in the front semicircle of the authored map reading side");
                 TownServiceLayout.Resolve(TownServiceLayout.Environment.Open,service,0,out Vector3 other,out float otherYaw);
                 Check(Vector3.Distance(p,other)<.00001f&&yaw==otherYaw,"environment choice preserves shared layout");
                 rows.Add(FormattableString.Invariant($"{label},resident,{service},{p.x},{p.z},{yaw}"));

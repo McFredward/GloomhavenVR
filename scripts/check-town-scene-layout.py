@@ -70,12 +70,12 @@ def part(origin, yaw, limits, padding):
 
 
 def parts(origin, yaw, role, service, padding):
-    merchant = role == 'visitor' or service == 1
-    spans = [('top', (-.81, .81, -.92, .53) if merchant else (-.87, .87, -.43, .50))]
+    merchant = role == 'resident' and service == 1
+    spans = [('cabinet', (-1.64, -.44, -.09, .72)), ('lectern', (-.36, .36, -.08, .52))] if merchant else [('top', (-.87, .87, -.43, .50))]
     if role == 'resident':
         spans.append(('actor', (-.60, .60, .30, 1.20)))
-    if role == 'visitor':
-        spans.append(('other-service', (-.87, .87, -.43, .50)))
+    # Merchant stock now has one persistent shared cabinet. Visitor reservations only
+    # host church/enhancement counters, including the enchantress rear lantern.
     if role == 'visitor' or service == 3:
         spans.append(('lantern', (.49, .87, .28, .86)))
     result = [(name, part(origin, yaw, limits, padding)) for name, limits in spans]
@@ -196,9 +196,9 @@ def main():
     parser.add_argument('--native-geometry', type=Path, help='Original native renderer bounds/ancestor export')
     parser.add_argument('--native-data-root', type=Path, help='Read-only original GH_Data to verify native scene hashes')
     args = parser.parse_args()
-    # Runtime stock is bounded by two revolving trays; inventory cannot expand scenery.
+    # Runtime stock is bounded by one retracting cassette; inventory cannot expand scenery.
     merchant_source = args.merchant_layout_source.read_text()
-    if "StockColumns = 4, StockRows = 4" not in merchant_source:
+    if "StockColumns = 4, StockRows = 3" not in merchant_source:
         parser.error('Merchant tray geometry changed; remeasure the compact cabinet envelope')
     merchant_source_hash = hashlib.sha256(merchant_source.encode()).hexdigest()
     payload = args.environment_bundle.read_bytes()
@@ -234,7 +234,7 @@ def main():
             identity = role + identifier.__str__()
             for name, polygon in parts(origin, float(yaw), role, identifier, .05):
                 for mesh_name, height, triangles, low, high in meshes:
-                    if height != (2.1 if name == 'actor' else 1.55):
+                    if height != (2.1 if name in ('actor', 'cabinet') else 1.55):
                         continue
                     count = intersects(polygon, triangles, low, high)
                     if count:

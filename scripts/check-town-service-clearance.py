@@ -29,10 +29,11 @@ def sources(root):
 
 def mutations():
     return [
+        ("priest-behind-player", "TownServiceLayout.cs", "service == 2 ? 160f : 90f", "service == 2 ? -85f : 90f", "residents stay in the front semicircle of the authored map reading side"),
         ("room-scale", "TownServiceLayout.cs", "Quaternion.Euler(0f, room.eulerAngles.y, 0f)", "Quaternion.Euler(0f, (room.localScale = Vector3.one * 3.5f).y, 0f)", "layout preserves every original scenery transform"),
         ("oversized-resident", "TownServiceLayout.cs", "ResidentRadius = 2.3f", "ResidentRadius = 4.8f", "residents fit the original room radius"),
-        ("oversized-visitor", "TownServiceLayout.cs", "radius = visitor == 3 ? 2.7f : 2.55f;", "radius = 5.8f;", "visitor workspaces fit the original room radius"),
-        ("environment-divergence", "TownServiceLayout.cs", "radius = service == 2 ? 2.2f : ResidentRadius;", "radius = service == 2 ? 2.2f : ResidentRadius + (environment == Environment.Forest ? .05f : 0f);", "environment choice preserves shared layout"),
+        ("oversized-visitor", "TownServiceLayout.cs", "radius = visitor == 3 ? 2.6f : 2.5f;", "radius = 5.8f;", "visitor workspaces fit the original room radius"),
+        ("environment-divergence", "TownServiceLayout.cs", "radius = ResidentRadius;", "radius = ResidentRadius + (environment == Environment.Forest ? .05f : 0f);", "environment choice preserves shared layout"),
         ("invalid-reservation", "TownServiceLayout.cs", "visitor < 0 || visitor > 3", "visitor < 0 || visitor > 4", "invalid station identities cannot silently claim an existing reservation"),
     ]
 
