@@ -61,6 +61,7 @@ def sources(root):
 
 def mutations():
     return [
+        ("inspection-tapped-item", "ActualItemLifecycle.cs", "chip.State == ItemChip.Visual.Spent && _inspectionRelease == null", "chip.State == ItemChip.Visual.Spent", "merchant inspection keeps a native spent item upright on first reveal"),
         ("offering-flat", "TownServiceOfferingPose.cs", "facing * Quaternion.Euler(0f, 1.5f * Mathf.Sin(age * .9f), 0f)", "palm.rotation * Quaternion.Euler(90f, 0f, 0f)", "offering overlay is upright over the palm"),
         ("offering-static", "TownServiceOfferingPose.cs", ".006f * Mathf.Sin(age * 1.8f)", "0f", "offering suspension has visible gentle continuous motion"),
         ("offering-retirement", "ItemsPile.Merchant.cs", "!chip.TownOffering &&", "", "closed wrist fan retains actual pending offering"),

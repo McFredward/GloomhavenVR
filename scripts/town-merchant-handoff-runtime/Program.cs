@@ -173,7 +173,12 @@ public static class InteractionProgram
   float previousStep=CardsConfig.FanStepDegrees(PileKind.Items).Value;
   CardsConfig.FanStepDegrees(PileKind.Items).Value=previousStep+1f; fan.TickInspection(items,1);
   Check(fan.LayoutCalls==layouts+1,"live layout setting changes update exactly once without a model revision");
+  var inspectionCard=fan.InspectionChips[0];Quaternion upright=inspectionCard.transform.localRotation;
+  inspectionCard.State=ItemsPile.ItemChip.Visual.Spent;
   CardsConfig.FanStepDegrees(PileKind.Items).Value=previousStep;
+  fan.TickInspection(items,1);
+  Check(Quaternion.Angle(inspectionCard.transform.localRotation,upright)<.1f,
+   "merchant inspection keeps a native spent item upright on first reveal");
   items.Values.RemoveAt(0); fan.TickInspection(items,2);
   Check(fan.InspectionChips.Count==count,"removed item retains its closing surface");
   fan.DestroyInspection(); UnityEngine.Object.DestroyImmediate(root);

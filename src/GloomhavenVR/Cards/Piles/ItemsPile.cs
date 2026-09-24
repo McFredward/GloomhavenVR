@@ -1254,8 +1254,11 @@ internal sealed partial class ItemsPile
                                   (Mathf.Cos(rad) - 1f) * radius * PileFanShape.ArchFactor,
                                   -ZStagger * i);
             Quaternion rot = Quaternion.Euler(0f, 0f, -angle * PileFanShape.TiltFactor);
-            // SPENT items lie "tapped": roll the chip 90° in its slot (requirement 3).
-            if (chip.State == ItemChip.Visual.Spent)
+            // Scenario spent items lie tapped. The merchant's owned-item fan is an
+            // inspection surface: a native Spent state can survive the map handover,
+            // but it must not turn one sale card sideways on the first reveal.
+            // Keep the native spent face/effect; only its reading pose stays upright.
+            if (chip.State == ItemChip.Visual.Spent && _inspectionRelease == null)
                 rot *= Quaternion.Euler(0f, 0f, 90f);
             // Split the arc around the highlighted chip (hand-fan parity): the pivot holds still,
             // its neighbours slide along their OWN local right so the winner reads unmistakably.
@@ -6642,7 +6645,7 @@ internal sealed partial class ItemsPile
                 return;
             float fullW = FaceWidth + ColliderMargin;
             float fullH = FaceHeight + ColliderMargin;
-            bool tapped = State == Visual.Spent; // rolled 90°: the arc runs along local Y
+            bool tapped = State == Visual.Spent && !IsTownInspection; // only the scenario arc rolls 90°
             float along = tapped ? fullH : fullW;
             float strip = Mathf.Clamp(stripFanLocal, along * 0.25f, along);
             float offset = -(along - strip) * 0.5f;
