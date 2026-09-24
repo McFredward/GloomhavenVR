@@ -75,7 +75,7 @@ internal sealed class TownServiceToken : IGrabbable, ITriggerOnlyGrabbable, IGra
     public bool AllowsHand(VRHand hand) => !_disposed && _sessionAlive()
         && (!ReferenceEquals(hand.Grabber.Held, this) || _hand == hand);
     public bool CanGrab => !_disposed && _hand == null && !_returning && _sessionAlive()
-        && (_inspect?.Invoke() ?? true) && _source != null && _source.gameObject.activeInHierarchy
+        && ((_offering != null && TownServiceMerchantHandoff.CanReclaim(this)) || (_inspect?.Invoke() ?? true)) && _source != null && _source.gameObject.activeInHierarchy
         && (IsPhysical || (_button != null && _button.IsActive() && _button.IsInteractable())) && _shape.enabled;
 
     internal TownServiceToken(RectTransform source, Selectable button, Func<object?> identity,

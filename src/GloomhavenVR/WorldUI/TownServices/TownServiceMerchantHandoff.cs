@@ -40,6 +40,15 @@ internal static class TownServiceMerchantHandoff
     private static CItem? _eligibilityItem;
     private static bool _eligibilitySelling, _eligibilityResult;
     private static float _eligibilityUntil;
+    internal static bool WantsOffering => Active && _near && (_offeredChip != null || _offeredStock != null
+        || HeldOwned(VRHands.Left) || HeldOwned(VRHands.Right) || TownServiceCatalog.HeldOfferAvailable);
+    internal static bool CanReclaim(TownServiceToken token) => Active && _near && ReferenceEquals(token, _offeredStock)
+        && OwnsPendingDecision;
+    internal static bool CanReclaim(ItemsPile.ItemChip chip) => Active && _near && ReferenceEquals(chip, _offeredChip)
+        && OwnsPendingDecision;
+    private static bool OwnsPendingDecision => _pending != null || _ourConfirmation != null
+        && Singleton<UIItemConfirmationBox>.Instance is UIItemConfirmationBox box && box.IsActive
+        && ReferenceEquals(box._onConfirmedCallback, _ourConfirmation);
     internal static bool Active => _fan != null && _character != null && !_resetting;
     internal static uint Session { get; private set; }
     internal static float SessionAge => Mathf.Max(0f, Time.unscaledTime - _started);
@@ -67,7 +76,8 @@ internal static class TownServiceMerchantHandoff
         {
             ResetSession(); _station = station; _palm = null; _near = false;
         }
-        bool near = _station != null && _station.IsLocalVisitorNear(_near);
+        bool near = _station != null && _station.IsLocalVisitorNear(_near)
+            && TownServiceOfferingPose.VisitorWithin(_station.Root, _near ? 1.65f : 1.4f);
         if (!near) { Reset(); return; }
         _near = true;
         if (!ReferenceEquals(_character, selected))
@@ -161,6 +171,7 @@ internal static class TownServiceMerchantHandoff
         _offeredChip = chip; _ownedHome = chip.transform.parent;
         chip.TownOffering = true; chip.TownOfferingReclaimed = Reclaim;
         chip.CancelReleaseGlide();
+        chip.SetGrabStrip(float.MaxValue); chip.ClearHandSuppressed();
         float scale = chip.transform.lossyScale.x / Mathf.Max(.0001f, _seat.lossyScale.x);
         _offering = new TownServiceOfferingCard(chip.transform, _seat, scale);
     }
@@ -189,7 +200,12 @@ internal static class TownServiceMerchantHandoff
         CItem item = _pending;
         bool opened = TownServiceMerchantTransaction.Commit(inventory, item, _selling, PendingCurrent);
         _pending = null;
-        if (opened) _ourConfirmation = Singleton<UIItemConfirmationBox>.Instance?._onConfirmedCallback;
+        if (opened)
+        {
+            UIItemConfirmationBox? box = Singleton<UIItemConfirmationBox>.Instance;
+            _ourConfirmation = box?._onConfirmedCallback;
+            if (box != null && _seat != null) TownServicePalmConfirmation.Begin(box, _seat);
+        }
         else ReleaseOffering();
     }
     private static void RetainStock(TownServiceToken token)

@@ -12,6 +12,8 @@ internal sealed class TownServiceSurface : IDisposable
     internal readonly ConvertedPanel Panel;
     private readonly Vector3 _offset;
     private readonly float _width;
+    private readonly float _maxHeight;
+    private readonly Quaternion _anchorRotation;
     private readonly GrabbableModal _grab = new();
     private readonly List<CanvasGroup> _nativeGroups = new();
     private readonly List<Transform> _nativeAncestors = new();
@@ -20,11 +22,13 @@ internal sealed class TownServiceSurface : IDisposable
     private readonly Transform? _counterAnchor;
     private float _visibility = 1f, _inheritedAlpha = 1f;
 
-    internal TownServiceSurface(ushort id, RectTransform source, Vector3 offset, float width, Transform? counterAnchor = null)
+    internal TownServiceSurface(ushort id, RectTransform source, Vector3 offset, float width, Transform? counterAnchor = null,
+        Quaternion? anchorRotation = null, float maxHeight = 0f)
     {
         Id = id;
         _offset = offset;
-        _width = width;
+        _width = width; _maxHeight = maxHeight;
+        _anchorRotation = anchorRotation ?? Quaternion.Euler(90f, 0f, 0f);
         _counterAnchor = counterAnchor;
         CanvasGroup? ownGroup = source.GetComponent<CanvasGroup>();
         bool inheritGroups = ownGroup == null || !ownGroup.ignoreParentGroups;
@@ -69,9 +73,11 @@ internal sealed class TownServiceSurface : IDisposable
         {
             // Physical countertop controls are horizontal objects, not pitched floating windows.
             float pixels = Mathf.Max(1f, Panel.HostRect.rect.width);
-            float factor = _width * _counterAnchor.lossyScale.x / pixels / (WorldUIConfig.CanvasScaleMm.Value * .001f);
+            float width = _width;
+            if (_maxHeight > 0f) width = Mathf.Min(width, _maxHeight * pixels / Mathf.Max(1f, Panel.HostRect.rect.height));
+            float factor = width * _counterAnchor.lossyScale.x / pixels / (WorldUIConfig.CanvasScaleMm.Value * .001f);
             CanvasConversion.PlaceHost(Panel, _counterAnchor.TransformPoint(_offset),
-                _counterAnchor.rotation * Quaternion.Euler(90f, 0f, 0f), factor);
+                _counterAnchor.rotation * _anchorRotation, factor);
             return;
         }
         if (!_placed)

@@ -7,6 +7,15 @@ namespace GloomhavenVR.WorldUI;
 /// they never aim it at their own camera or run a second animation clock.</summary>
 internal static class TownServiceOfferingPose
 {
+    internal static bool VisitorWithin(Transform station, float reach)
+    {
+        Camera? head = VRRigDriver.HeadCamera;
+        if (head == null) return false;
+        Vector3 local = station.InverseTransformPoint(head.transform.position);
+        local.y = 0f;
+        return local.sqrMagnitude <= reach * reach;
+    }
+
     internal static void Place(Transform seat, Transform palm, Transform station, float age)
     {
         float scale = Mathf.Max(.0001f, Mathf.Abs(station.lossyScale.x));

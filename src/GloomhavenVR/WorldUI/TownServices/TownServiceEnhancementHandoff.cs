@@ -78,6 +78,7 @@ internal sealed class TownServiceEnhancementHandoff : IDisposable
     internal VRCard? Card { get; private set; }
     internal AbilityCardUI? NativeSource { get; private set; }
     internal Transform Zone { get; }
+    internal Transform Seat => _seat;
     internal Transform? Face => Card != null ? Card.GetComponentInChildren<FullAbilityCard>(true)?.transform : null;
 
     internal TownServiceEnhancementHandoff(UINewEnhancementWindow shop, Transform station,
@@ -107,7 +108,7 @@ internal sealed class TownServiceEnhancementHandoff : IDisposable
         foreach (ReturnPresentation entry in Returns) if (ReferenceEquals(entry.Card, card)) return true;
         return false;
     }
-    internal static bool CanReclaim(VRCard card) => _current != null && ReferenceEquals(_current.Card, card) && _current.Ready
+    internal static bool CanReclaim(VRCard card) => _current != null && ReferenceEquals(_current.Card, card) && _current.ReclaimReady
         && MapRoomHand.TryOwnedTownCard(card, out _, out _);
     internal static bool ReturnReclaimed(VRCard card)
     {
@@ -116,6 +117,9 @@ internal sealed class TownServiceEnhancementHandoff : IDisposable
         BeginReturn(presentation);
         return true;
     }
+    private bool ReclaimReady => !_disposed && _shop != null && _window != null && _window.IsOpen && _alive()
+        && (!_shop._isConfirmationBoxOpened || TownServicePalmConfirmation.OwnsCurrent(
+            Singleton<UIEnhancementConfirmationBox>.Instance?.GetComponent<UIWindow>()));
     private bool Ready => !_disposed && _shop != null && _window != null && _window.IsOpen
         && !_shop._isConfirmationBoxOpened && _alive() && _input();
 
@@ -197,7 +201,13 @@ internal sealed class TownServiceEnhancementHandoff : IDisposable
             || _shop.selectedCard == null || _shop.selectedCard.AbilityCard != _model
             || VRRigDriver.HeadCamera != null && !Near(_seat, VRRigDriver.HeadCamera.transform.position, 2.25f))
             Return();
-        else NativeSource = _shop.selectedCard;
+        else
+        {
+            NativeSource = _shop.selectedCard;
+            UIEnhancementConfirmationBox? box = Singleton<UIEnhancementConfirmationBox>.Instance;
+            if (_shop._isConfirmationBoxOpened && box != null && box.GetComponent<UIWindow>().IsOpen)
+                TownServicePalmConfirmation.Begin(box, _seat);
+        }
     }
 
     internal void LateTick()
@@ -264,7 +274,12 @@ internal sealed class TownServiceEnhancementHandoff : IDisposable
         Card = card; NativeSource = _shop.selectedCard; _model = model;
         CardFan.Current?.Remove(card);
         card.Grabbed += OnGrabbed;
-        card.SetHome(_seat, Vector3.zero, Quaternion.identity, .90f);
+        // Preserve the physical reading size instead of inheriting the resident's model scale.
+        // A 0.9 local scale made the ability card a postage stamp on scaled map residents.
+        float handScale = VRHands.Primary?.WorldScale ?? Mathf.Abs(card.transform.lossyScale.x);
+        float size = CardsConfig.InspectScale.Value * handScale / Mathf.Max(.0001f, Mathf.Abs(_seat.lossyScale.x));
+        card.SetHome(_seat, Vector3.zero, Quaternion.identity, size);
+        card.SetHandPopSuppressed(false);
         card.Grabbable = true; card.InspectOnly = true; card.AllowsGateHand = true;
         VRLog.Debug("WorldUI", "TOWN ENHANCEMENT: actual owned hand card offered to resident palm.");
         return true;
@@ -276,7 +291,7 @@ internal sealed class TownServiceEnhancementHandoff : IDisposable
         Reclaimed.Remove(card);
         if (_model != null)
         { Reclaimed.Add(card, new ReturnPresentation(card, _model.ID, _station)); _hasReclaimed = true; }
-        Detach(); ClearNativeSelection();
+        CancelConfirmation(); Detach(); ClearNativeSelection();
         CardsDriver.RequestRebuild();
     }
 
@@ -295,8 +310,15 @@ internal sealed class TownServiceEnhancementHandoff : IDisposable
         _shop.OnSelectedCardToEnhance(null);
     }
 
+    private void CancelConfirmation()
+    {
+        UIEnhancementConfirmationBox? box = Singleton<UIEnhancementConfirmationBox>.Instance;
+        if (box != null) TownServicePalmConfirmation.CancelOwned(box.GetComponent<UIWindow>());
+    }
+
     private void Return()
     {
+        CancelConfirmation();
         ReturnPresentation? presentation = Card != null && _model != null
             ? new ReturnPresentation(Card, _model.ID, _station) : null;
         VRCard? card = Detach();
