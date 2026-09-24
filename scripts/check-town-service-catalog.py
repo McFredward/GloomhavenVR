@@ -61,7 +61,7 @@ def sources(root):
 def mutations():
     return [
         ("late-first-hover", "UiScrollFocus.cs", "PhysicalHoverProbe?.Invoke(hand);", "", "first consumer observes cabinet focus before the presentation tick"),
-        ("leaked-hover-probe", "CabinetProbe.cs", "UiScrollFocus.PhysicalHoverProbe = null;", ";", "disposed public stock unregisters its hover probe"),
+        ("leaked-hover-probe", "CabinetProbe.cs", "UiScrollFocus.PhysicalHoverProbe = null;", "{ /* deliberately retain the old probe */ }", "disposed public stock unregisters its hover probe"),
         ("parked-takeback-disabled", "TownServiceToken.cs", "&& (_inspect?.Invoke() ?? true)", "&& _offering == null && (_inspect?.Invoke() ?? true)", "parked original stock card retains take-back input while native confirmation is open"),
         ("parked-authority-keeps-prompt", "TownServiceToken.cs", "reclaim?.Invoke();", "", "authority loss cancels a parked stock confirmation through its callback"),
         ("contact-from-a-distance", "ItemContact.cs", "ContactSlabHalfDepthMeters = 0.015f", "ContactSlabHalfDepthMeters = 0.15f", "owned fan uses the normal physical contact slab at every scale"),
