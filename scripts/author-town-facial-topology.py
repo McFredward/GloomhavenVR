@@ -90,7 +90,28 @@ def side_texture_coordinates(raw, name):
         ear = np.clip((.85 - raw[:, 2]) / .20, 0, 1)
         ear_y = np.interp(raw[:, 1], [5.8, 6.6, 7.02, 7.40, 7.51, 8.4913], [696, 480, 395, 227, 210, 22])
         py = py * (1 - ear) + ear_y * ear
+    elif name == 'priestess':
+        # The source profile includes a complete ear. A linear whole-head
+        # projection also paints its lower half on the intact jaw below the
+        # modelled helix, so register the ear on the actual ear loops only.
+        px = np.interp(raw[:, 2], [-.391, .30, .65, 1.6807], [111, 250, 370, 610])
+        ear = np.clip((.85 - raw[:, 2]) / .20, 0, 1)
+        ear_y = np.interp(raw[:, 1], [5.8, 6.6, 7.02, 7.40, 7.51, 8.4913], [700, 500, 430, 218, 185, 25])
+        py = py * (1 - ear) + ear_y * ear
     return np.column_stack((px, py))
+
+
+def projection_weights(raw, name):
+    x, y, z = raw
+    angle = abs(math.atan2(x, z - .65))
+    front = max(0, min(1, (math.radians(80) - angle) / math.radians(30)))
+    if name == 'priestess':
+        # Her front portrait includes a complete ear. Use the profile reference
+        # across the entire lateral cheek and jaw so no part of the photographed
+        # ear can appear below the physical ear during a head turn.
+        front *= 1 - np.clip((abs(x) - .32) / .20, 0, 1)
+    back = max(0, min(1, (angle - math.radians(115)) / math.radians(35)))
+    return front, back
 
 
 def profile_x_scale(name):
@@ -302,9 +323,7 @@ def head_mesh(raw,faces,groups,face_uv,name,refs,data):
         makeup.data[loop.index].color=(orbital*.80 if name=='enchantress' else 0,lips*.52 if name=='enchantress' else 0,hair if name=='enchantress' else 0,1)
     weights=mesh.color_attributes.new(name='ProjectionWeights' ,type='FLOAT_COLOR',domain='CORNER')
     for loop in mesh.loops:
-        x,y,z=raw[ids[loop.vertex_index]];angle=abs(math.atan2(x,z-.65))
-        front=max(0,min(1,(math.radians(80)-angle)/math.radians(30)))
-        back=max(0,min(1,(angle-math.radians(115))/math.radians(35)))
+        front,back=projection_weights(raw[ids[loop.vertex_index]],name)
         weights.data[loop.index].color=(front,back,0,1)
     m=material('TownFace',(.65,.4,.3));nodes=m.node_tree.nodes;links=m.node_tree.links;textures={}
     for label in ('front','left','back'):
@@ -479,7 +498,7 @@ def render(output,obj):
         if pose=='jaw':obj.data.shape_keys.key_blocks['JawOpen'].value=1
         if pose=='clay':
             obj.data.materials[0]=material('Clay',(.4,.4,.4),.7)
-        for view,pos in [('front',(0,-2,1.6)),('oblique',(.8,-1.7,1.6))]:
+        for view,pos in [('front',(0,-2,1.6)),('oblique',(.8,-1.7,1.6)),('profile',(2,0,1.6))]:
             camera.location=pos;camera.rotation_euler=(Vector((0,-.015,1.6))-camera.location).to_track_quat('-Z','Y').to_euler();scene.render.filepath=str(output/(pose+'-'+view+'.png'));bpy.ops.render.render(write_still=True)
 
 

@@ -66,7 +66,25 @@ def main():
                            source.portrait_coordinates(ear, source.PROFILES['merchant'])[:, 1]))
     assert not registered(old, expected)
     assertions += 1
-    print(f'PASS: {assertions} facial landmark assertions; 9 registration negative controls')
+    priestess_ear = np.array([[.86, 7.40, .35], [.78, 7.02, .63]])
+    priestess_expected = np.array([[267.14, 218], [363.14, 430]])
+    priestess_actual = source.side_texture_coordinates(priestess_ear, 'priestess')
+    assert registered(priestess_actual, priestess_expected)
+    assertions += 1
+    old_priestess = np.column_stack((111 + (priestess_ear[:, 2] + .391) / 2.0717 * 499,
+                                     source.portrait_coordinates(priestess_ear, source.PROFILES['priestess'])[:, 1]))
+    assert not registered(old_priestess, priestess_expected)
+    assertions += 1
+    lateral_cheek = np.array([.72, 7.20, 1.0])
+    assert source.projection_weights(lateral_cheek, 'priestess')[0] == 0
+    assertions += 1
+    assert source.projection_weights(np.array([.20, 7.20, 1.0]), 'priestess')[0] == 1
+    assertions += 1
+    assert source.projection_weights(np.array([.72, 6.50, 1.0]), 'priestess')[0] == 0
+    assertions += 1
+    assert source.projection_weights(lateral_cheek, 'merchant')[0] > .4
+    assertions += 1
+    print(f'PASS: {assertions} facial landmark assertions; 11 registration negative controls')
 
 
 if __name__ == '__main__':

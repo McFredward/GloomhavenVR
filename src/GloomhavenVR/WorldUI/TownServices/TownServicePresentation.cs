@@ -49,8 +49,8 @@ internal static class TownServicePresentation
     internal static IReadOnlyList<TownServiceSurface> LocalSurfaces => Surfaces;
     internal static Transform? ContextRoot => _context?.Target;
     internal static Transform? StationRoot => _station?.Root;
-    internal static bool UsesImmersiveEnhancement => MapRoomDriver.Active && WorldUIConfig.ImmersiveTownServices.Value
-        && TownServiceEnhancementHandoff.Enabled
+    internal static bool UsesImmersiveEnhancement => MapRoomDriver.Active && Service == 3 && Active
+        && _enhancementListMask != null
         && GuildmasterDestinations.CurrentDestinationMode() == EGuildmasterMode.Enchantress;
     internal static bool Active => WorldUIConfig.ImmersiveTownServices.Value
         && ((Service != 1 && Service != 3) || TownServiceEnhancementHandoff.Enabled)
@@ -98,6 +98,8 @@ internal static class TownServicePresentation
             return;
         }
         TownServiceEnhancementHandoff.TickApproach();
+        // The temple needs its own approach tick to open the native offering and purse.
+        TownServiceTempleOffering.TickApproach();
         EGuildmasterMode mode = GuildmasterDestinations.CurrentDestinationMode();
         byte service = mode == EGuildmasterMode.Merchant ? (byte)1 : mode == EGuildmasterMode.Temple ? (byte)2
             : mode == EGuildmasterMode.Enchantress ? (byte)3 : (byte)0;
