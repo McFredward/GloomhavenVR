@@ -51,7 +51,10 @@ internal sealed class TownServiceActivityAudio : IDisposable
             voice.transform.position = _root.TransformPoint(sound == TownActivitySound.Coin ? shown.Left
                 : sound == TownActivitySound.Spell ? shown.Right : new Vector3(0f, 1.25f, .35f));
             voice.pitch = 1f;
-            _gains[slot] = sound == TownActivitySound.Coin ? .09f : sound == TownActivitySound.Spell ? .045f : .065f;
+            // The previous foley gain was multiplied by the game's two volume sliders
+            // and then attenuated again at the visitor's normal standing distance.
+            // These remain quieter than native transactions but are audible nearby.
+            _gains[slot] = sound == TownActivitySound.Coin ? .28f : sound == TownActivitySound.Spell ? .16f : .18f;
             voice.volume = master * _gains[slot];
             // Native effects can contain long gameplay tails. Foley uses a bounded
             // excerpt with a short end fade; the original shared clip is untouched.
@@ -73,8 +76,8 @@ internal sealed class TownServiceActivityAudio : IDisposable
         obj.transform.SetParent(_root, false);
         AudioSource source = obj.AddComponent<AudioSource>();
         source.playOnAwake = false; source.loop = false; source.spatialBlend = 1f;
-        source.rolloffMode = AudioRolloffMode.Linear; source.minDistance = .35f; source.maxDistance = 4.5f;
-        source.dopplerLevel = 0f; source.priority = 180;
+        source.rolloffMode = AudioRolloffMode.Linear; source.minDistance = .75f; source.maxDistance = 4.5f;
+        source.dopplerLevel = 0f; source.priority = 110;
         _voices[slot] = source; return source;
     }
 

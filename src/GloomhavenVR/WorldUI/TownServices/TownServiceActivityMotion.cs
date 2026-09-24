@@ -59,11 +59,12 @@ internal static class TownServiceActivityMotion
         work.Attention = attention;
         // Interruption stops the shared work clock smoothly. A pinched coin stays in
         // the hand while greeting; it never slides through space back onto the table.
-        if (service != 1) work.Left = Vector3.Lerp(work.Left, service == 2
-            ? new Vector3(.012f, 1.23f, .20f) : new Vector3(.22f, 1.13f, .23f), attention);
-        work.Right = Vector3.Lerp(work.Right, service == 1 ? new Vector3(-.20f, 1.18f, .20f)
+        // Looking at a visitor is separate from offering an item hand to that visitor.
+        work.Left = Vector3.Lerp(work.Left, service == 1 ? new Vector3(.24f, 1.13f, .21f)
+            : service == 2 ? new Vector3(.012f, 1.23f, .20f) : new Vector3(.22f, 1.13f, .23f), attention);
+        work.Right = Vector3.Lerp(work.Right, service == 1 ? new Vector3(-.27f, 1.13f, .23f)
             : service == 3 ? new Vector3(-.18f, 1.17f, .23f) : new Vector3(-.012f, 1.23f, .20f), attention);
-        work.RightRoll = Mathf.Lerp(work.RightRoll, service != 2 ? 180f : 0f, attention);
+        work.RightRoll = Mathf.Lerp(work.RightRoll, service == 1 ? 45f : service == 3 ? 180f : 0f, attention);
         work.LeftRoll = Mathf.Lerp(work.LeftRoll, service == 3 ? -65f : 0f, attention);
         work.RightCurl = Mathf.Lerp(work.RightCurl, service == 3 ? .08f : 0f, attention);
         work.LeftCurl = service == 1 ? work.LeftCurl : Mathf.Lerp(work.LeftCurl, service == 3 ? .26f : 0f, attention);
@@ -72,6 +73,14 @@ internal static class TownServiceActivityMotion
         work.Cast *= 1f - attention;
         work.Curl = Mathf.Max(work.LeftCurl, work.RightCurl);
         return work;
+    }
+    internal static void ApplyMerchantOffering(ref TownActivityVisual visual, float blend)
+    {
+        float t = Mathf.SmoothStep(0f, 1f, Mathf.Clamp01(blend)) * visual.Attention;
+        visual.Right = Vector3.Lerp(visual.Right, new Vector3(-.20f, 1.18f, .20f), t);
+        visual.RightRoll = Mathf.Lerp(visual.RightRoll, 180f, t);
+        visual.RightCurl = Mathf.Lerp(visual.RightCurl, 0f, t);
+        visual.Curl = Mathf.Max(visual.LeftCurl, visual.RightCurl);
     }
     internal static TownActivityVisual Lerp(in TownActivityVisual from, in TownActivityVisual to, float t) => new TownActivityVisual {
         Left = Vector3.Lerp(from.Left, to.Left, t), Right = Vector3.Lerp(from.Right, to.Right, t),
@@ -96,7 +105,8 @@ internal static class TownServiceActivityMotion
         ? new Vector3(.24f, .970f + index * .003f, .29f)
         : new Vector3(.24f, .970f, .38f - index * .026f);
 
-    private static readonly float[] TransferEnd = { 4.8f, 8.9f, 14.6f, 19.1f, 24.3f, 28.6f };
+    internal const float MerchantCycleSeconds = 28.6f;
+    private static readonly float[] TransferEnd = { 4.8f, 8.9f, 14.6f, 19.1f, 24.3f, MerchantCycleSeconds };
     private static readonly float[] CoinPhase = { 0f, .65f, 1.12f, 1.70f, 2f, 2.75f, 3.10f, 3.6f };
     private static readonly float[] CoinDuration = { .70f, .43f, .65f, .35f, .80f, .38f, .70f };
     private static float MerchantTime(float segment, float length, uint phrase)
@@ -107,7 +117,7 @@ internal static class TownServiceActivityMotion
         float sum = 0f;
         for (int i = 0; i < CoinDuration.Length; i++)
             sum += CoinDuration[i] * (.78f + .44f * Variation(phrase, (uint)(47 + i * 13)));
-        float scale = Mathf.Min(length - .4f, 4.5f) / sum, start = 0f;
+        float scale = length / sum, start = 0f;
         for (int i = 0; i < CoinDuration.Length; i++)
         {
             float duration = CoinDuration[i] * (.78f + .44f * Variation(phrase, (uint)(47 + i * 13))) * scale;
@@ -119,15 +129,12 @@ internal static class TownServiceActivityMotion
     }
     private static TownActivityVisual Merchant(float clock)
     {
-        // Unequal observation/settling intervals keep an occupation from becoming a
-        // metronome. This schedule is authored once and shared, never random per peer.
-        // A full set of coins returns to its original seats before the resident
-        // pauses to inspect the ledger. The pause changes each shared clock block;
-        // neither observer frame rate nor a local random generator selects it.
-        float block = Mathf.Floor(clock / 48f), phase = clock - block * 48f;
-        float delay = block == 0f ? 0f : Variation((uint)block, 17u) * 10f;
-        float cycle = Mathf.Clamp(phase - delay, 0f, 28.6f);
-        if (cycle >= 28.6f) cycle = 0f;
+        // The old 48-second block held the last pose for 19-29 seconds, and every
+        // transfer held its endpoint after the generated motion finished. Both looked
+        // like broken animation. Six transfers now fill the entire continuous cycle;
+        // the varied timings still keep the individual reaches from being metronomic.
+        float block = Mathf.Floor(clock / MerchantCycleSeconds);
+        float cycle = clock - block * MerchantCycleSeconds;
         int transfer=0;
         while(transfer<5 && cycle>=TransferEnd[transfer]) transfer++;
         float start=transfer==0?0f:TransferEnd[transfer-1];
@@ -151,9 +158,17 @@ internal static class TownServiceActivityMotion
         hand = Vector3.Lerp(hand, destination, Soft(t, 2.00f, 2.75f));
         hand = Vector3.Lerp(hand, rest, Soft(t, 3.10f, 3.6f));
         float grip = Ease(t, .68f, .96f) * (1f - Ease(t, 2.84f, 3.08f));
-        visual.Left = hand; visual.Right = new Vector3(-.32f, 1.13f, .29f);
-        visual.RightRoll = 65f;
-        visual.LeftCurl = grip * .55f; visual.RightCurl = .26f;
+        float support = Soft(t, .75f, 1.50f) * (1f - Soft(t, 2.45f, 3.45f));
+        visual.Left = hand;
+        visual.Right = Vector3.Lerp(new Vector3(-.29f, 1.13f, .27f),
+            new Vector3(-.23f, 1.10f, .31f), support);
+        visual.RightRoll = 42f + 16f * support;
+        visual.LeftCurl = grip * .55f;
+        visual.RightCurl = .18f + .11f * support;
+        // The imported Count and Return clips have different boundary body poses.
+        // Feather their whole-body contribution to the same neutral stance at each
+        // transfer edge while keeping the measured hand contact path authoritative.
+        visual.Body.Weight *= Soft(t, 0f, .24f) * (1f - Soft(t, 3.30f, 3.6f));
         for (int coin = 0; coin < 3; coin++)
         {
             bool counted = returning ? coin <= index : coin < index;

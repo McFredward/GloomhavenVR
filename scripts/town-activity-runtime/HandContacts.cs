@@ -40,6 +40,11 @@ internal static class HandContacts
                 var rig=new TownServiceActivityRig(root,service);
                 var state=new TownActivityPose{Engaged=true,FromBlend=1f,TransitionAge=.65f};
                 var visual=TownServiceActivityMotion.Visual(service,in state);
+                if(service==1)
+                {
+                    if(visual.RightRoll>90f)throw new Exception("gaze alone does not open merchant offering palm");checks++;
+                    TownServiceActivityMotion.ApplyMerchantOffering(ref visual,1f);
+                }
                 rig.Apply(in visual);
                 foreach(string side in new[]{"L","R"})
                 {

@@ -16,6 +16,7 @@ internal static class TownServicePopulation
         internal float Visibility, Age;
         internal byte Clip;
         internal TownActivityPose Activity = new TownActivityPose { TransitionAge = TownServiceActivityMotion.TransitionSeconds };
+        internal float MerchantOfferingBlend;
         internal bool ObservedActivity;
         internal readonly TownServiceActivityHandover Handover = new();
         internal TownServiceVisitTarget Visit = null!;
@@ -163,9 +164,9 @@ internal static class TownServicePopulation
                 if (IsFaceAuthor)
                 {
                     bool engaged = resident.Station.PrepareActivityAttention(resident.Activity.Engaged);
-                    // Gaze still follows nearby visitors. The shared merchant arm opens
-                    // only for an owner-authored held/parked offer, never mere proximity.
-                    if (service == 1) engaged = TownServiceMerchantHandoff.WantsOffering
+                    // The merchant stops counting when looking at a visitor. Offering
+                    // the palm remains a separate intent, never implied by proximity.
+                    if (service == 1) engaged |= TownServiceMerchantHandoff.WantsOffering
                         || TownServiceMirror.RemoteMerchantOffering;
                     TownServiceActivityMotion.Engage(ref resident.Activity, engaged);
                 }
@@ -178,6 +179,13 @@ internal static class TownServicePopulation
             uint sourceEpoch = hasActivity ? remoteActivity.Epoch : IsFaceAuthor ? _faceEpoch : 0;
             resident.Handover.Sample(faceAuthor, sourceEpoch, Time.unscaledDeltaTime, in visual, in remotePose,
                 out TownActivityVisual displayedActivity, out TownFacePose displayedFace);
+            if (service == 1)
+            {
+                bool offering = TownServiceMerchantHandoff.WantsOffering || TownServiceMirror.RemoteMerchantOffering;
+                resident.MerchantOfferingBlend = Mathf.MoveTowards(resident.MerchantOfferingBlend,
+                    offering ? 1f : 0f, Time.unscaledDeltaTime / TownServiceActivityMotion.TransitionSeconds);
+                TownServiceActivityMotion.ApplyMerchantOffering(ref displayedActivity, resident.MerchantOfferingBlend);
+            }
             resident.Station.SampleActivity(in displayedActivity);
             resident.Station.SampleActivityAudio(faceAuthor, sourceEpoch, resident.Activity.WorkClock,
                 enabled && used && ready && resident.Visibility >= .99f, in displayedActivity);

@@ -15,7 +15,8 @@ internal static class AudioClockChecks
             for (byte service = 1; service <= 3; service += 2)
             {
                 clock.Reset();
-                for (int frame = 0; frame < 48 * 4 * rate; frame++)
+                int frames = (int)((service == 1 ? TownServiceActivityMotion.MerchantCycleSeconds : 48f) * 4f * rate);
+                for (int frame = 0; frame < frames; frame++)
                 {
                     var state = new TownActivityPose { WorkClock = (float)frame / rate, TransitionAge = .65f };
                     var shown = TownServiceActivityMotion.Visual(service, in state);

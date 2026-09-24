@@ -64,7 +64,7 @@ def mutations():
         ("unpaired-sequences", "RemoteTownPerformance.cs", "if (!TownActivityCodec.Matches(in activity, in face)", "if (false", "mismatched sequence cannot partially advance pair"),
         ("stale-sequence", "RemoteTownActivities.cs", "!Newer(state.Sequence, peer.Latest.Sequence)", "false", "older occupation cannot replace current phase"),
         ("magnetic-coin", "TownServiceActivityMotion.cs", "coin == index && t >= .96f && t < 2.84f ? 1f : 0f", "coin == index ? grip : 0f", "coin is resting or rigidly gripped, never magnetically attracted"),
-        ("downward-offering", "TownServiceActivityMotion.cs", "service != 2 ? 180f : 0f", "0f", "offering palm faces upward"),
+        ("downward-offering", "TownServiceActivityMotion.cs", "Mathf.Lerp(visual.RightRoll, 180f, t)", "Mathf.Lerp(visual.RightRoll, 0f, t)", "offering palm faces upward"),
         ("coin-detached-from-grip", "TownServiceActivityProps.cs", "Vector3.Lerp(seat, pinch, grip)", "seat", "real coin follows actual pinch or resting seat"),
     ]
 

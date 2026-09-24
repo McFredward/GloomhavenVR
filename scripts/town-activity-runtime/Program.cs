@@ -154,6 +154,17 @@ public static class InteractionProgram
         TownServiceActivityMotion.Engage(ref pause,true);pause=TownServiceActivityMotion.Advance(pause,1f);
         var held=TownServiceActivityMotion.Visual(1,in pause);
         Check(held.CoinGrip.x==1f,"visitor interruption preserves held coin contact");
+        Check(held.RightRoll<90f&&held.Left.y>1.10f,
+            "visitor attention settles merchant into a neutral pose without an unsolicited offering");
+        TownServiceActivityMotion.ApplyMerchantOffering(ref held,1f);
+        Check(held.RightRoll>170f&&held.Right.y>1.17f,
+            "a held or parked card independently opens the merchant offering palm");
+        var early=new TownActivityPose{WorkClock=1.4f,TransitionAge=.65f};
+        var late=new TownActivityPose{WorkClock=2.4f,TransitionAge=.65f};
+        var firstReach=TownServiceActivityMotion.Visual(1,in early);
+        var secondReach=TownServiceActivityMotion.Visual(1,in late);
+        Check(Vector3.Distance(firstReach.Right,secondReach.Right)>.005f,
+            "merchant support hand participates in each transfer");
     }
     private static void GeneratedMotion()
     {
