@@ -13,14 +13,17 @@ run_fixture() {
     dotnet run --project "$project" --configuration Release \
         --property:StorySource="$test_dir/NativeStoryWindow.fixture" \
         --property:LifecycleSource="$test_dir/Lifecycle.fixture" \
-        --property:TermSource="$test_dir/MandatoryDecisionTerm.fixture"
+        --property:TermSource="$test_dir/MandatoryDecisionTerm.fixture" \
+        --property:AnchorSource="$test_dir/StorySpawnAnchor.fixture"
 }
 run_fixture
 cp "$test_dir/NativeStoryWindow.fixture" "$test_dir/NativeStoryWindow.original"
 cp "$test_dir/Lifecycle.fixture" "$test_dir/Lifecycle.original"
-for mutation in stale-membership resurrect-alpha visual-completion wrong-identity scenario-omitted reopen-lost poll-resurrection reconversion; do
+cp "$test_dir/StorySpawnAnchor.fixture" "$test_dir/StorySpawnAnchor.original"
+for mutation in stale-membership resurrect-alpha visual-completion wrong-identity scenario-omitted reopen-lost poll-resurrection reconversion stale-anchor live-anchor unrelated-anchor; do
     cp "$test_dir/NativeStoryWindow.original" "$test_dir/NativeStoryWindow.fixture"
     cp "$test_dir/Lifecycle.original" "$test_dir/Lifecycle.fixture"
+    cp "$test_dir/StorySpawnAnchor.original" "$test_dir/StorySpawnAnchor.fixture"
     python3 - "$test_dir" "$mutation" <<'PY'
 from pathlib import Path
 import sys
@@ -34,6 +37,9 @@ pairs = {
     'reopen-lost': ('NativeStoryWindow', '&& !window.IsOpen', ''),
     'poll-resurrection': ('Lifecycle', 'if (NativeStoryWindow.IsCompleted(window))\n            return;', ''),
     'reconversion': ('Lifecycle', 'if (NativeStoryWindow.IsCompleted(window))\n                return false;', ''),
+    'stale-anchor': ('StorySpawnAnchor', 'SharedAnchorSpent.Remove(kind);', ''),
+    'live-anchor': ('StorySpawnAnchor', 'existing.Panel.IsAlive', '!existing.Panel.IsAlive'),
+    'unrelated-anchor': ('StorySpawnAnchor', 'SharedAnchorSpent.Remove(kind);', 'SharedAnchorSpent.Clear();'),
 }
 name, before, after = pairs[sys.argv[2]]
 path = root / (name + '.fixture')
@@ -55,6 +61,9 @@ PY
         reopen-lost) expected='live pages are never completed' ;;
         poll-resurrection) expected='closed story alpha cannot reenter polling' ;;
         reconversion) expected='stale sampled story cannot reconvert after release' ;;
+        stale-anchor) expected='fresh story reclaims its shared spawn seat after prior movement' ;;
+        live-anchor) expected='live story frame retains its spent anchor and manual pose' ;;
+        unrelated-anchor) expected='new story never rearms other shared windows' ;;
     esac
     if ! rg -qF "$expected" "$test_dir/mutant.log"; then cat "$test_dir/mutant.log"; exit 1; fi
     echo "Story completion negative control: $mutation rejected."

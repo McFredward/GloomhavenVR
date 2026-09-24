@@ -9,5 +9,6 @@
     <Compile Include="$(StorySource)" Link="Production/NativeStoryWindow.cs" />
     <Compile Include="$(LifecycleSource)" Link="Production/StoryLifecycle.cs" />
     <Compile Include="$(TermSource)" Link="Production/MandatoryDecisionTerm.cs" />
+    <Compile Include="$(AnchorSource)" Link="Production/StorySpawnAnchor.cs" />
   </ItemGroup>
 </Project>

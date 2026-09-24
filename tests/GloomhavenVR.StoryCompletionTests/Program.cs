@@ -77,7 +77,69 @@ internal static class Program
             "native story classification spends completed stickiness");
         Check(!MandatoryDecisionTerms.IdentifiesTheWindow(MandatoryDecisionTerm.GameRefusesEscape),
             "escape refusal alone never spends destination stickiness");
+        CheckFreshStoryAnchors(map, scenario);
         Console.WriteLine($"Story completion: {_assertions} runtime assertions passed.");
+    }
+
+    private static void CheckFreshStoryAnchors(UIWindow map, UIWindow scenario)
+    {
+        foreach (UIWindow story in new[] { map, scenario })
+        {
+            SharedWindowKind kind = ReferenceEquals(story, map)
+                ? SharedWindowKind.MapStory : SharedWindowKind.ScenarioStory;
+            ModalFallback.Converted.Clear();
+            SharedWindows.Online = true;
+            SharedWindows.CompositeHost = null;
+            story.IsOpen = true;
+            ModalFallback.SharedAnchorSpent.Add(kind);
+            ModalFallback.SharedAnchorSpentWhy[kind] = "old story was dragged";
+            ModalFallback.SharedAnchorSpent.Add(SharedWindowKind.RewardShowcase);
+            ModalFallback.SharedAnchorSpentWhy[SharedWindowKind.RewardShowcase] = "reward is still held";
+            // This method runs only on initial conversion, after the old frame was released.
+            ModalFallback.FreshStoryAnchor(story);
+            Check(!ModalFallback.SharedAnchorSpent.Contains(kind)
+                && !ModalFallback.SharedAnchorSpentWhy.ContainsKey(kind),
+                "fresh story reclaims its shared spawn seat after prior movement");
+            Check(ModalFallback.SharedAnchorSpent.Contains(SharedWindowKind.RewardShowcase)
+                && ModalFallback.SharedAnchorSpentWhy.ContainsKey(SharedWindowKind.RewardShowcase),
+                "new story never rearms other shared windows");
+
+            ModalFallback.SharedAnchorSpent.Add(kind);
+            ModalFallback.SharedAnchorSpentWhy[kind] = "live story is held or peer-placed";
+            var existing = new WindowPanel { Window = story };
+            ModalFallback.Converted.Add(existing);
+            ModalFallback.FreshStoryAnchor(story);
+            Check(ModalFallback.SharedAnchorSpent.Contains(kind),
+                "live story frame retains its spent anchor and manual pose");
+            existing.Panel.IsAlive = false;
+            ModalFallback.FreshStoryAnchor(story);
+            Check(!ModalFallback.SharedAnchorSpent.Contains(kind),
+                "destroyed predecessor cannot suppress new story shared placement");
+            ModalFallback.Converted.Clear();
+
+            foreach (bool online in new[] { false, true })
+            {
+                ModalFallback.SharedAnchorSpent.Add(kind);
+                story.IsOpen = online ? false : true;
+                SharedWindows.Online = online;
+                ModalFallback.FreshStoryAnchor(story);
+                Check(ModalFallback.SharedAnchorSpent.Contains(kind),
+                    "private or completed story cannot rearm shared placement");
+            }
+        }
+
+        map.IsOpen = true;
+        SharedWindows.Online = true;
+        SharedWindows.CompositeHost = new UIWindow { IsOpen = true };
+        ModalFallback.SharedAnchorSpent.Add(SharedWindowKind.MapStory);
+        ModalFallback.FreshStoryAnchor(map);
+        ModalFallback.FreshStoryAnchor(SharedWindows.CompositeHost);
+        Check(ModalFallback.SharedAnchorSpent.Contains(SharedWindowKind.MapStory),
+            "composite handoff preserves its existing shared pose");
+        SharedWindows.CompositeHost = null;
+        ModalFallback.FreshStoryAnchor(new UIWindow { IsOpen = true });
+        Check(ModalFallback.SharedAnchorSpent.Contains(SharedWindowKind.MapStory),
+            "unrelated window cannot rearm native story placement");
     }
 }
 
@@ -105,8 +167,25 @@ namespace GloomhavenVR.WorldUI
     internal sealed class WindowPanel
     {
         internal UIWindow Window = null!;
+        internal readonly ConvertedPanel Panel = new();
         internal bool Sticky;
         internal bool UserClosing { get; set; }
         internal bool EmptyReleasePending { get; set; }
+    }
+    internal sealed class ConvertedPanel { internal bool IsAlive = true; }
+    internal enum SharedWindowKind { None, MapStory, ScenarioStory, RewardShowcase }
+    internal static class SharedWindows
+    {
+        internal static bool Online;
+        internal static UIWindow? CompositeHost;
+        internal static bool ParticipatesHere(SharedWindowKind kind) => Online && kind != SharedWindowKind.None;
+        internal static SharedWindowKind KindOf(UIWindow window)
+        {
+            if (ReferenceEquals(Singleton<StoryController>.Instance?.window, window)) return SharedWindowKind.ScenarioStory;
+            if (CompositeHost != null)
+                return ReferenceEquals(CompositeHost, window) ? SharedWindowKind.MapStory : SharedWindowKind.None;
+            return ReferenceEquals(Singleton<MapStoryController>.Instance?.window, window)
+                ? SharedWindowKind.MapStory : SharedWindowKind.None;
+        }
     }
 }

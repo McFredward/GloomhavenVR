@@ -8,6 +8,12 @@ modal = root / 'src/GloomhavenVR/WorldUI/Modal'
 tick = (modal / 'ModalFallback.4.Tick.cs').read_text()
 close = (modal / 'ModalFallback.7.Close.cs').read_text()
 classification = (modal / 'MandatoryDecision.cs').read_text()
+conversion = (modal / 'ModalFallback.8.Convert.cs').read_text()
+assert conversion.count('RearmFreshStoryAnchor(window);') == 1
+assert re.search(r'RearmFreshStoryAnchor\(window\);\s*if \(PlaceAtHmd\(', conversion), \
+    'fresh-story anchor rearm must precede initial placement'
+assert 'RearmFreshStoryAnchor' not in (modal / 'ModalFallback.9.Spawn.cs').read_text(), \
+    'final-fit replay must not rearm a held or peer-placed story'
 
 # Keep the full boolean expression, including the precedence of stale membership
 # and the terminal-story exclusion. Reimplementing that expression missed this bug.
@@ -39,9 +45,13 @@ assert 'MandatoryDecisionTerms.IdentifiesTheWindow(' in spent and 'ClassifyManda
 fixture = '''using System.Collections.Generic;
 using UnityEngine.UI;
 namespace GloomhavenVR.WorldUI;
-internal static class ModalFallback
+internal static partial class ModalFallback
 {
     private static readonly List<UIWindow> OpenWindows = new();
+    internal static readonly List<WindowPanel> Converted = new();
+    internal static readonly HashSet<SharedWindowKind> SharedAnchorSpent = new();
+    internal static readonly Dictionary<SharedWindowKind, string> SharedAnchorSpentWhy = new();
+    internal static void FreshStoryAnchor(UIWindow window) => RearmFreshStoryAnchor(window);
     private static bool ContainsWindow(List<UIWindow> windows, UIWindow window) => windows.Contains(window);
     private static bool ScriptedLevelMessageActive(UIWindow window) => false;
     private static class FloatRefusalTable
@@ -80,4 +90,5 @@ fixture = fixture.replace('POLL', poll).replace('CONVERT', convert.replace('cont
 (output / 'Lifecycle.fixture').write_text(fixture)
 (output / 'NativeStoryWindow.fixture').write_text((modal / 'NativeStoryWindow.cs').read_text())
 (output / 'MandatoryDecisionTerm.fixture').write_text((modal / 'MandatoryDecisionTerm.cs').read_text())
+(output / 'StorySpawnAnchor.fixture').write_text((modal / 'ModalFallback.StorySpawnAnchor.cs').read_text())
 print('Story completion: native helper, release expression, visibility guard, poll, conversion guard and mandatory classification bound to production.')
