@@ -83,7 +83,7 @@ def mutations():
         ("dead-inscription-root", "Inscription.cs", "if (_root != null) UnityEngine.Object.Destroy(_root.gameObject);", "UnityEngine.Object.Destroy(_root.gameObject);", "destroyed inscription root can be disposed without blocking native teardown"),
         ("enhancement-icon-outside", "PalmConfirmation.cs", "i == 4 ? -.14f : .075f", "i == 4 ? -.80f : .075f", "all original enhancement confirmation content stays together below the palm"),
         ("parked-reclaim", "Token.cs", "(_offering != null && TownServiceMerchantHandoff.CanReclaim(this))", "false", "actual routed grab reclaims parked stock through owned modal gate"),
-        ("palm-front", "PalmConfirmation.cs", "i == 2 ? -.125f : .125f, -.50f, -.80f", "i == 2 ? -.125f : .125f, -.50f, -.14f", "all original enhancement confirmation content stays together below the palm"),
+        ("palm-front", "PalmConfirmation.cs", "i == 2 ? -.125f : .125f, -.1775f, -.12f", "i == 2 ? -.125f : .125f, -.1775f, -.80f", "all original enhancement confirmation content stays together below the palm"),
         ("palm-cancel-scope", "PalmConfirmation.cs", "internal void Cancel() { if (Open) _cancel(); }", "internal void Cancel() { _cancel(); }", "enhancement withdrawal cancels only the live decision once"),
         ("palm-flat", "Surface.cs", "_counterAnchor.rotation * _anchorRotation", "_counterAnchor.rotation * Quaternion.Euler(90f, 0f, 0f)", "native confirmation is upright independently of palm pitch"),
         ("palm-backing", "Surface.cs", "Panel.MrBackingSuppressed = counterAnchor != null;", "Panel.MrBackingSuppressed = false;", "freestanding original controls have no mixed reality backing"),

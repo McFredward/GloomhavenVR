@@ -709,13 +709,16 @@ public static class InteractionProgram
             foreach(var surface in entry.Surfaces)
             {
                 Vector3 relative=seat.InverseTransformPoint(surface.Panel.HostGo.transform.position);
-                Check(relative.y<-.25f && relative.z<-.6f,"confirmation controls float below palm and ahead of table fascia");
+                float height=surface.Panel.HostRect.rect.height*surface.Panel.HostGo.transform.lossyScale.y/scale;
+                float bottom=station.InverseTransformPoint(surface.Panel.HostGo.transform.position).y-height*.5f;
+                Check(relative.y<-.17f && relative.z<-.10f && relative.z>-.15f && bottom>=.9699f,
+                    "confirmation controls remain directly below palm with actual tabletop clearance");
                 Check(Vector3.Dot(surface.Panel.HostGo.transform.up,Vector3.up)>.999f,"native confirmation is upright independently of palm pitch");
                 Check(surface.Panel.MrBackingSuppressed,"freestanding original controls have no mixed reality backing");
             }
             var confirm=entry.Surfaces[2].Panel;
             Check(confirm.Target==box.confirmButton.transform && box.confirmButton.IsInteractable(),"original interactive confirm button is moved intact");
-            Check(confirm.HostRect.rect.height*confirm.HostGo.transform.lossyScale.y<=.0651f*scale,"native button fit obeys height limit at every map scale");
+            Check(confirm.HostRect.rect.height*confirm.HostGo.transform.lossyScale.y<=.0451f*scale,"native button fit obeys height limit at every map scale");
             group.alpha=.35f;TownServicePalmConfirmation.LateTick();
             Check(Mathf.Abs(confirm.HostGo.GetComponent<CanvasGroup>().alpha-.35f)<.001f,"native decision fade is retained under anchored controls");
             group.alpha=1f;TownServicePalmConfirmation.LateTick();
@@ -770,7 +773,7 @@ public static class InteractionProgram
 
     private static void EnhancementDecisionLayout()
     {
-        var native=Probe.Go("NativeRuneDecision");native.AddComponent<UIWindow>();
+        var native=Probe.Go("NativeRuneDecision");native.AddComponent<UIWindow>();native.AddComponent<CanvasGroup>();
         var box=native.AddComponent<UIEnhancementConfirmationBox>();
         box.titleText=Probe.Go("Title",native.transform).AddComponent<TMPro.TMP_Text>();
         box.informationText=Probe.Go("Information",native.transform).AddComponent<TMPro.TMP_Text>();
@@ -781,14 +784,16 @@ public static class InteractionProgram
         box._onConfirmCallback=()=>{};
         foreach(Component c in new Component[]{box.titleText,box.informationText,box.enhancementIcon,box.enhancementName,box.confirmButton,box.cancelButton})
             ((RectTransform)c.transform).sizeDelta=new Vector2(400f,80f);
-        var seat=Probe.Go("RunePalm").transform;
+        var station=Probe.Go("RuneResident").transform;
+        var palm=Probe.Go("ActivityOfferingPalm",station).transform;palm.localPosition=new Vector3(-.18f,1.17f,.23f);
+        var seat=Probe.Go("RunePalm",station).transform;seat.localPosition=palm.localPosition+Vector3.up*.17f;
         TownServicePalmConfirmation.Begin(box,seat);TownServicePalmConfirmation.Tick();
         var entry=new List<TownServicePalmConfirmation.Entry>(TownServicePalmConfirmation.Active)[0];
         Check(entry.Surfaces.Count==6,"enhancement decision retains all six original content groups");
         foreach(var surface in entry.Surfaces)
         {
             Vector3 relative=seat.InverseTransformPoint(surface.Panel.HostGo.transform.position);
-            Check(Mathf.Abs(relative.x)<.24f && relative.z<-.6f && relative.y<-.25f,
+            Check(Mathf.Abs(relative.x)<.24f && relative.z<-.10f && relative.z>-.15f && relative.y<-.17f,
                 "all original enhancement confirmation content stays together below the palm");
         }
         TownServicePalmConfirmation.CancelOwned(box.GetComponent<UIWindow>());

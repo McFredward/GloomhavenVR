@@ -22,10 +22,30 @@ internal static class TownServicePalmConfirmation
         private readonly Component[] _parts;
         private TownServiceWindowMask? _mask;
         private bool _prepared;
+        private Transform? _frame, _palm;
         internal bool Current => Window != null && ReferenceEquals(_callback, _identity());
         internal bool Open => Current && Window.IsOpen;
         internal Entry(UIWindow window, Transform seat, byte service, Func<object?> identity, Action cancel, Component[] parts)
         { Window = window; Seat = seat; Service = service; _identity = identity; _callback = identity(); _cancel = cancel; _parts = parts; }
+        private void Place()
+        {
+            if (_frame == null) return;
+            Transform? station = Seat.parent;
+            float scale = Mathf.Max(.0001f, Mathf.Abs(Seat.lossyScale.x));
+            Vector3 position = _palm != null ? _palm.position : Seat.position - Vector3.up * (.17f * scale);
+            // Both authored counters top out at .955 m. The lowest button edge is .20 m
+            // below this frame, so 1.17 m leaves at least 15 mm of visible table clearance.
+            // This keeps controls directly under the palm, rather than pushing a deep stack
+            // 80 cm toward the visitor merely to escape the furniture's front face.
+            if (station != null)
+            {
+                Vector3 local = station.InverseTransformPoint(position);
+                local.y = Mathf.Max(local.y, 1.17f);
+                position = station.TransformPoint(local);
+            }
+            _frame.SetPositionAndRotation(position, Seat.rotation);
+            _frame.localScale = Vector3.one;
+        }
         internal bool Tick()
         {
             if (!Current || !Window.IsOpen && !Window.IsVisible) return false;
@@ -35,24 +55,30 @@ internal static class TownServicePalmConfirmation
                 // A prior classic conversion must restore its descendants before their new
                 // owner records rollback state. Pending releases are retried, never destroyed.
                 if (!ModalFallback.ReleaseForComposite(Window)) return true;
+                _frame = new GameObject("GloomhavenVR.TownService.PalmDecision").transform;
+                _frame.SetParent(Seat.parent, false);
+                _palm = Seat.parent != null ? Seat.parent.Find("ActivityOfferingPalm") : null;
+                Place();
                 for (int i = 0; i < _parts.Length; i++)
                 {
                     Component part = _parts[i];
                     if (part == null) continue;
                     Vector3 offset; float width, height;
-                    if (i == 0) { offset = new Vector3(0f, -.34f, -.80f); width = .46f; height = .045f; }
-                    else if (i == 1) { offset = new Vector3(0f, -.405f, -.80f); width = .46f; height = .085f; }
-                    else if (i <= 3) { offset = new Vector3(i == 2 ? -.125f : .125f, -.50f, -.80f); width = .22f; height = .065f; }
-                    else { offset = new Vector3(i == 4 ? -.14f : .075f, -.285f, -.80f); width = i == 4 ? .04f : .31f; height = .04f; }
+                    if (i == 0) { offset = new Vector3(0f, -.025f, -.12f); width = .46f; height = .03f; }
+                    else if (i == 1) { offset = new Vector3(0f, Service == 3 ? -.11f : -.095f, -.12f); width = .46f; height = Service == 3 ? .05f : .085f; }
+                    else if (i <= 3) { offset = new Vector3(i == 2 ? -.125f : .125f, -.1775f, -.12f); width = .22f; height = .045f; }
+                    else { offset = new Vector3(i == 4 ? -.14f : .075f, -.065f, -.12f); width = i == 4 ? .03f : .31f; height = .03f; }
                     Surfaces.Add(new TownServiceSurface((ushort)(60 + i), (RectTransform)part.transform,
-                        offset, width, Seat, Quaternion.identity, height));
+                        offset, width, _frame, Quaternion.identity, height));
                 }
                 _mask = new TownServiceWindowMask((RectTransform)Window.transform);
                 _prepared = true;
             }
+            Place();
             foreach (TownServiceSurface surface in Surfaces) surface.Tick(Vector3.zero, Quaternion.identity, 1f);
             return true;
         }
+        internal void LateTick() { Place(); foreach (TownServiceSurface surface in Surfaces) surface.Tick(Vector3.zero, Quaternion.identity, 1f); }
         internal void Cancel() { if (Open) _cancel(); }
         internal void Dispose()
         {
@@ -60,6 +86,8 @@ internal static class TownServicePalmConfirmation
             // screen-space button. Releasing a surface never skips the game's hide continuation.
             for (int i = Surfaces.Count - 1; i >= 0; i--) Surfaces[i].Dispose();
             Surfaces.Clear(); _mask?.Dispose(); _mask = null;
+            if (_frame != null) UnityEngine.Object.Destroy(_frame.gameObject);
+            _frame = null;
         }
     }
     private static readonly Dictionary<UIWindow, Entry> Entries = new();
@@ -117,7 +145,7 @@ internal static class TownServicePalmConfirmation
         }
     }
     internal static void LateTick()
-    { foreach (Entry entry in Entries.Values) foreach (TownServiceSurface surface in entry.Surfaces) surface.Tick(Vector3.zero, Quaternion.identity, 1f); }
+    { foreach (Entry entry in Entries.Values) entry.LateTick(); }
     internal static void Clear()
     {
         var closing = new List<Entry>(Entries.Values);
