@@ -1,6 +1,6 @@
 # Planning index
 
-Updated 2026-09-24 for dev 1.0.8 / build-553 native window continuation. This directory holds internal
+Updated 2026-09-24 for dev 1.0.8 / build-554 scenario victory test action. This directory holds internal
 engineering evidence, historical decisions and current status; it is not the player manual.
 
 ## Current entry points
@@ -18,6 +18,8 @@ engineering evidence, historical decisions and current status; it is not the pla
 
 ## Latest measured work
 
+- [CHEAT-554.md](CHEAT-554.md): hidden scenario-win test action using native results
+  and rewards, to reproduce post-quest continuation windows.
 - [WINDOWS-553.md](WINDOWS-553.md): level-up reveal input, map confirmations,
   semantic message continuation, full window-family audit and hardware checklist.
 

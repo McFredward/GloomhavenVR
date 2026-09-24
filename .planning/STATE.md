@@ -1,6 +1,6 @@
 # State — where the project stands
 
-**Updated 2026-09-24: dev 1.0.8 / ModBuild 553, window-continuation hardware candidate.**
+**Updated 2026-09-24: dev 1.0.8 / ModBuild 554, window-continuation hardware candidate.**
 The complete NPC development is isolated on `feature/immersive-town-services` for a
 future release of at least 1.1.0. Builds 538–545 and 547–552 remain reserved for that branch.
 Current review and validation: [WINDOWS-553.md](WINDOWS-553.md). Released 1.0.7 / build 546
@@ -18,6 +18,11 @@ change per build) → this file (where things stand and what is owed) → the bu
 ---
 
 ## 1. Position
+
+- **dev / 1.0.8 / ModBuild 554:** hidden offline Cheats page gains a confirmed
+  current-scenario victory action through the native result/reward flow, to test
+  build 553's continuation fixes. Cheats remain disabled by default. No NPC content
+  or release. Usage and limits: [CHEAT-554.md](CHEAT-554.md).
 
 - **dev / 1.0.8 / ModBuild 553:** native level-up Continue, 3D-map confirmation
   ownership and missed-event/failure recovery, complete message queue callbacks,

@@ -52,10 +52,8 @@
 //       then run `scripts/patch-inventory.sh generate` so docs/PATCH-INVENTORY.md forgets them.
 //
 //  THAT IS THE WHOLE FOOTPRINT. Deliberately:
-//    * NO Loc entries. Every user-facing string on this page lives in `Text()` at the bottom of
-//      this file, so removing the feature cannot leave orphaned translation keys behind in
-//      Core/Loc.cs (which is where they would normally go, and where nobody would think to look
-//      for them a month from now).
+//    * Legacy captions use Text() below. The scenario-win addition uses Core/Loc cheat_win*
+//      entries; remove those and Cheats.Win.cs / ScenarioWinCheat.cs when retiring this page.
 //    * ONE config entry, ON ITS OWN FILE. `[Cheats] Enabled` in `dev.gloomhavenvr.cheats.cfg` is
 //      the gate the user asked for, and it is a whole file rather than a line on a shared one for
 //      exactly the reason this block exists: removing the feature must not leave a dead key in a
@@ -67,7 +65,7 @@
 //      the game, on a press, and then stop existing again. The toggle needs a hook because the
 //      gate it lifts — the party-requirement check — is re-evaluated by the map on every refresh
 //      and is never written to the save, so there is nothing a one-shot press could write.
-//    * NO wire fields, no NetProtocol change, no ModBuild implication.
+//    * NO wire fields. New runtime changes still require a ModBuild increment.
 //
 //  ARCHITECTURAL RULE HONOURED: ScenarioRuleLibrary and Bolt are NOT patched. Both buttons go
 //  through the game's OWN debug seams — `DebugMenu.RevealAllRooms()` (the very method the game's
@@ -94,7 +92,7 @@ using UnityEngine;
 namespace GloomhavenVR.WorldUI;
 
 /// <summary>
-/// Erweitert ▸ <b>Cheats</b> — a temporary test aid with exactly two buttons. See the block
+/// Erweitert ▸ <b>Cheats</b> — a temporary test aid. See the block
 /// comment at the top of this file for the request and for how to remove the whole thing.
 ///
 /// <para><b>IT IS A PAGE UNDER "ERWEITERT", NOT A SIXTH SUB-TAB IN THE COLUMN</b>, and that is
@@ -178,10 +176,10 @@ internal static partial class VROptionsTab
         _cheatsFile = ModuleConfig.Create("cheats");
         _cheatsEnabled = _cheatsFile.Bind("Cheats", "Enabled", Defaults.CheatsEnabled,
             "OFF BY DEFAULT. Turns on the temporary 'Cheats' page under Erweitert in the VR "
-            + "options menu — two test buttons that unlock every scenario in the savegame and "
-            + "open every door in the current one. With this false the page does not exist: its "
+            + "options menu — actions to unlock scenarios, reveal rooms and win the current "
+            + "scenario through the native results flow. With this false the page does not exist: its "
             + "link is not drawn on the Erweitert index and the page itself cannot be reached. "
-            + "Single-player only either way; both buttons refuse while a multiplayer session is "
+            + "Single-player only; all actions refuse while a multiplayer session is "
             + "live. Read at the moment the menu is drawn, so a change applies the next time the "
             + "options window is opened - no restart. Since 2026-09-03 the page also carries a "
             + "third row, a TOGGLE ('every scenario loadable') that lifts the party-requirement "
@@ -249,9 +247,7 @@ internal static partial class VROptionsTab
     }
 
     /// <summary>
-    /// THE PAGE. Two buttons, and four lines of German saying what they are before either can be
-    /// pressed — the same safety-rail pattern the test-trigger page uses, and for a stronger
-    /// reason: one of these buttons writes the player's savegame.
+    /// The offline test actions, with explicit confirmation for save-changing shortcuts.
     /// </summary>
     private static int BuildCheatsPage()
     {
@@ -277,6 +273,7 @@ internal static partial class VROptionsTab
         // A page that is re-entered starts DISARMED. An arm that survived leaving and coming back
         // would mean a single press on a fresh page could write the save.
         _cheatArmedAt = float.NegativeInfinity;
+        _winArmedScenario = null;
 
         BuildLinkRow(ContentRoot, "‹ " + Loc.Mod("cat_debug"), () =>
         {
@@ -289,17 +286,15 @@ internal static partial class VROptionsTab
             "A temporary testing aid. It will be removed again once the walkthrough is done.",
             "Eine vorübergehende Testhilfe. Sie wird nach dem Durchtesten wieder entfernt."));
         BuildNote(ContentRoot, Text(
-            "All three rows are SINGLE-PLAYER ONLY. In a multiplayer session they refuse, because "
-            + "none of the changes can be sent to the other players and each would desynchronise the game.",
-            "Alle drei Zeilen funktionieren NUR IM EINZELSPIELER. In einer Mehrspieler-Sitzung "
-            + "verweigern sie, weil sich keine der Änderungen an die Mitspieler senden lässt "
-            + "und jede das Spiel auseinanderlaufen ließe."));
+            "All cheats here are SINGLE-PLAYER ONLY. They are unavailable during a multiplayer session.",
+            "Alle Cheats hier funktionieren NUR IM EINZELSPIELER. Während einer Mehrspieler-Sitzung sind sie gesperrt."));
 
         bool online = SessionOnline();
         int rows = 0;
         rows += BuildUnlockAllLevelsRow(online);
         rows += BuildScenarioGateRow(online);
         rows += BuildOpenAllDoorsRow(online);
+        rows += BuildWinScenarioRow();
         return rows;
     }
 

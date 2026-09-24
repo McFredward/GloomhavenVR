@@ -519,7 +519,13 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 553;
+    public const ushort ModBuild = 554;
+
+    // ModBuild 554 — hidden Cheats page: explicitly win the current offline scenario.
+    // Two presses arm/confirm for the same live scenario, then close options/pause and
+    // call DebugMenu.WinNoToggle. Native safe shutdown, results, quest rewards and saves
+    // remain authoritative. Refuse loading, story/damage choices, restart/result states,
+    // multiplayer and repeat requests. Cheats remain disabled by default; no NPC changes.
 
     // ModBuild 553 — dev 1.0.8 window continuation audit (no NPC feature content).
     // Level-up card reveals gain an explicit VR Continue through the original native
