@@ -723,6 +723,7 @@ public static partial class MirrorProgram
                 var backing = Go("Backing").transform; backing.SetParent(visual, false);
                 var native = Go("native-offering").AddComponent<GloomhavenVR.WorldUI.AbilityCardUI>();
                 native.CardID = 123; native.fullAbilityCard = Go("native-full-face").transform;
+                GloomhavenVR.WorldUI.NativeTemplates.Originals["enchant.tooltip"] = Go("native-folio-price-tooltip").transform;
                 ritual.Handoff = new GloomhavenVR.WorldUI.TownServiceEnhancementHandoff
                 { Card = offeringCard, NativeSource = native, Face = Go("offered-full-face").transform, Zone = Go("palm-zone").transform };
             }
@@ -731,6 +732,8 @@ public static partial class MirrorProgram
             Check(!calls.Exists(c => c.Source == window.transform), "ritual never republishes suppressed service window");
             if (service == 3)
             {
+                Check(calls.Exists(c => c.Key == "enchant.tooltip" && c.Source == GloomhavenVR.WorldUI.NativeTemplates.Originals["enchant.tooltip"]),
+                    "native enhancement folio publishes its original price explanation boundary");
                 var offered = ritual.Handoff!;
                 Check(calls.Exists(c => c.Key == "face.123" && c.Source == offered.Face
                     && c.Provenance == offered.NativeSource!.fullAbilityCard
@@ -749,6 +752,7 @@ public static partial class MirrorProgram
                 : calls.Exists(c => c.Key == "enchant.holder" && c.Source == holder.Panel.Target),
                 "ritual preserves devotion ledger or original ability hotspots");
         }
+        GloomhavenVR.WorldUI.NativeTemplates.Originals.Remove("enchant.tooltip");
         GloomhavenVR.WorldUI.TownServicePresentation.Ritual = null;
         GloomhavenVR.WorldUI.TownServicePresentation.Active = false;
         var returning = new GloomhavenVR.WorldUI.TownServiceEnhancementHandoff.ReturnPresentation

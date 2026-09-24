@@ -185,6 +185,9 @@ internal sealed class TownServiceSync
                     if (piece.DetailContent != null && piece.DetailSource != null)
                         Publish(piece.DetailKey, piece.DetailContent, piece.DetailSource, piece.DetailCloneOf);
                 }
+                // This is a registered native boundary, excluded from the folio inventory
+                // clone. The original hover-price explanation needs its own module.
+                if (service == 3) Publish("enchant.tooltip", NativeTemplates.Original("enchant.tooltip"));
                 foreach (TownServiceSurface surface in ritual.Surfaces)
                     Publish(surface.Id switch { 10 => "enchant.inventory", 13 => "enchant.capacity",
                         14 => "enchant.information", 15 => "enchant.buy", 16 => "enchant.sell",
@@ -204,13 +207,6 @@ internal sealed class TownServiceSync
                 Publish("merchant.tooltip", catalog.PreviewContent, catalog.PreviewSource, catalog.PreviewCloneOf);
                 PublishCopiedCards(catalog.PreviewSource, catalog.PreviewCloneOf);
             }
-            foreach (TownServicePalmConfirmation.Entry confirmation in TownServicePalmConfirmation.Active)
-                foreach (TownServiceSurface surface in confirmation.Surfaces)
-                {
-                    PriorityRoots.Add(surface.Panel.Target);
-                    Publish((confirmation.Service == 1 ? "item.confirm.part." : "enhance.confirm.part.")
-                        + (surface.Id - 60), surface.Panel.Target);
-                }
             Publish("item.confirm", NativeTemplates.Original("item.confirm"));
             Publish("enhance.confirm", NativeTemplates.Original("enhance.confirm"));
             if (TownServicePresentation.Tray != null) Publish("tray", TownServicePresentation.Tray.Root);
@@ -238,6 +234,18 @@ internal sealed class TownServiceSync
                 if (held == null) continue;
                 PublishHeld(sample, sample.Source);
             }
+        }
+        // A palm decision belongs to the inspection session too; the native merchant
+        // window can already be closed while its original confirmation remains visible.
+        if (active || inspection)
+        {
+            foreach (TownServicePalmConfirmation.Entry confirmation in TownServicePalmConfirmation.Active)
+                foreach (TownServiceSurface surface in confirmation.Surfaces)
+                {
+                    PriorityRoots.Add(surface.Panel.Target);
+                    Publish((confirmation.Service == 1 ? "item.confirm.part." : "enhance.confirm.part.")
+                        + (surface.Id - 60), surface.Panel.Target);
+                }
         }
         Removed.Clear();
         foreach (var pair in Modules) if (!pair.Value.Seen) Removed.Add(pair.Key);

@@ -160,6 +160,22 @@ public static partial class MirrorProgram
         var generation=typeof(GloomhavenVR.WorldUI.TownServiceSync).GetField("_generation",System.Reflection.BindingFlags.Instance|System.Reflection.BindingFlags.NonPublic)!;
         var priority = (List<Transform>)typeof(GloomhavenVR.WorldUI.TownServiceSync).GetField("PriorityRoots",BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(instance)!;
         Check(priority.Contains(offered.NativeItemCard!.transform), "floating owned offering has animation publication priority");
+        var prompt = new GloomhavenVR.WorldUI.TownServicePalmConfirmation.Entry { Service = 1, Seat = offeringSeat };
+        for (int part = 0; part < 4; part++)
+        {
+            var surface = new GloomhavenVR.WorldUI.TownServiceSurface { Id = (ushort)(60 + part) };
+            surface.Panel.Target = Go("original merchant decision " + part, offeringSeat).transform;
+            prompt.Surfaces.Add(surface);
+        }
+        GloomhavenVR.WorldUI.TownServicePalmConfirmation.Active.Add(prompt);
+        calls.Clear();GloomhavenVR.WorldUI.TownServiceSync.Tick(owner,null);
+        foreach (var surface in prompt.Surfaces)
+        {
+            Check(calls.Count(c => c.Key == "item.confirm.part." + (surface.Id - 60) && c.Source == surface.Panel.Target) == 1,
+                "inspection-only merchant retains each original palm confirmation part exactly once");
+            Check(priority.Contains(surface.Panel.Target), "inspection-only palm confirmation receives motion priority");
+        }
+        GloomhavenVR.WorldUI.TownServicePalmConfirmation.Active.Clear();
         object before=generation.GetValue(instance)!;
         GloomhavenVR.WorldUI.TownServicePresentation.Active=true;
         GloomhavenVR.WorldUI.TownServicePresentation.Service=1;
