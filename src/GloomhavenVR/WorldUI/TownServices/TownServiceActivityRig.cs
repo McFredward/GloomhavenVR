@@ -38,6 +38,7 @@ internal sealed class TownServiceActivityRig
     private Vector3 _hipsPosition;
     private readonly Vector3[] _bodyPositions = new Vector3[12];
     private bool _bodyApplied;
+    private readonly Vector3[] _kneePoles = new Vector3[2];
     internal Transform? OfferingPalm { get; }
     private Quaternion _sampledNeck, _sampledChest;
     private bool _applied;
@@ -53,6 +54,20 @@ internal sealed class TownServiceActivityRig
         {
             if (child.name == "Neck") _neck = child; else if (child.name == "Chest") _chest = child;
             for (int i=0;i<_body.Length;i++) if (child.name==TownServiceMotionClips.BodyBones[i]) _body[i]=child;
+        }
+        // The generated reference and the imported actor have different leg axes.
+        // A nearly straight animated knee cannot define a stable IK bend plane.
+        // Keep the anatomical forward plane in station space; weight shifting is
+        // supplied by the hips, never by a pole flipping around a planted ankle.
+        for (int leg = 0; leg < 2; leg++)
+        {
+            int i = leg == 0 ? 6 : 9;
+            if (_body[i] != null && _body[i + 1] != null && _body[i + 2] != null)
+            {
+                Vector3 direction = (_body[i + 2]!.position - _body[i]!.position).normalized;
+                Vector3 bend = Vector3.ProjectOnPlane(-root.forward, direction).normalized;
+                _kneePoles[leg] = root.InverseTransformDirection(bend);
+            }
         }
         if ((service == 1 || service == 3) && _right != null)
         {
@@ -203,7 +218,8 @@ internal sealed class TownServiceActivityRig
             if (_body[i]!=null) { _bodyLocal[i]=_body[i]!.localRotation; _bodyWorld[i]=_body[i]!.rotation; _bodyPositions[i]=_body[i]!.position; }
         if (_body[0]!=null) _hipsPosition=_body[0]!.localPosition;
         _bodyApplied=true;
-        if (body.Weight<=0f) return;
+        // Keep the same stance solver at zero work weight. Returning early here
+        // snapped both knees to the base clip on the last greeting frame.
         if (_body[0]!=null) _body[0]!.position += _root.TransformVector(body.Offset)*body.Weight;
         Quaternion inverse=Quaternion.Inverse(_root.rotation);
         for (int i=0;i<_body.Length;i++)
@@ -219,7 +235,7 @@ internal sealed class TownServiceActivityRig
         Transform? upper=_body[upperIndex],lower=_body[upperIndex+1],foot=_body[upperIndex+2];
         if(upper==null||lower==null||foot==null)return 0f;
         Vector3 delta=upper.position-_bodyPositions[upperIndex+2];
-        float length=Vector3.Distance(upper.position,lower.position)+Vector3.Distance(lower.position,foot.position)-.0002f;
+        float length=Vector3.Distance(upper.position,lower.position)+Vector3.Distance(lower.position,foot.position)-.012f*Mathf.Abs(_root.lossyScale.x);
         float horizontal=Vector3.ProjectOnPlane(delta,_root.up).sqrMagnitude;
         float available=Mathf.Sqrt(Mathf.Max(0f,length*length-horizontal));
         return Mathf.Max(0f,Vector3.Dot(delta,_root.up)-available);
@@ -233,7 +249,7 @@ internal sealed class TownServiceActivityRig
         float a=Vector3.Distance(hip,knee),b=Vector3.Distance(knee,ankle);
         if(a<.001f||b<.001f||delta.sqrMagnitude<1e-8f)return;
         float distance=Mathf.Clamp(delta.magnitude,Mathf.Abs(a-b)+.001f,a+b-.0001f);
-        Vector3 direction=delta.normalized,bend=Vector3.ProjectOnPlane(knee-hip,direction).normalized;
+        Vector3 direction=delta.normalized,bend=Vector3.ProjectOnPlane(_root.TransformDirection(_kneePoles[upperIndex == 6 ? 0 : 1]),direction).normalized;
         if(bend.sqrMagnitude<.5f)bend=-_root.forward;
         float along=(a*a-b*b+distance*distance)/(2f*distance);
         Vector3 targetKnee=hip+direction*along+bend*Mathf.Sqrt(Mathf.Max(0f,a*a-along*along));
@@ -274,6 +290,18 @@ internal sealed class TownServiceActivityRig
                 Quaternion together = Quaternion.FromToRotation(arm.ClosingTips[n].position - finger.position, handRotation * arm.PalmForward);
                 finger.rotation = Quaternion.Slerp(Quaternion.identity, together, 1f - attention) * finger.rotation;
             }
+        }
+        if (_service == 2 && arm.ThumbBase != null && arm.ThumbPinch != null)
+        {
+            // The imported relaxed thumb points out of the palm plane. Keeping that
+            // spread while joining two palms drives the thumbs through each other.
+            // Adduct both toward the common finger direction before solving contact.
+            Vector3 thumb = arm.ThumbPinch.position - arm.ThumbBase.position;
+            Vector3 upright = handRotation * arm.PalmForward;
+            Vector3 axis = Vector3.Cross(thumb, upright);
+            if (axis.sqrMagnitude > 1e-10f)
+                arm.ThumbBase.rotation = Quaternion.AngleAxis(Mathf.Min(40f, Vector3.Angle(thumb, upright))
+                    * (1f - attention), axis.normalized) * arm.ThumbBase.rotation;
         }
         if (arm.Anatomical && pinchTarget && arm.ThumbBase != null && arm.ThumbPinch != null && arm.IndexPinch != null)
         {
@@ -332,9 +360,12 @@ internal sealed class TownServiceActivityRig
             // The generated human reference is narrower than the merchant's actual
             // coat/belly. Keep the elbow's approach outside that measured silhouette.
             float clearance = _service == 1 ? .85f : .40f;
-            guide.x = side * Mathf.Max(clearance, side * guide.x);
+            // Preserve the recorded lateral and forward elbow excursion outside the
+            // silhouette. Hard-clamping every source x/z to the same minimum used
+            // to erase that coordination and made the hands pivot on fixed poles.
+            guide.x = side * (clearance + Mathf.Max(0f, side * guide.x - .14f) * .25f);
             guide.y = Mathf.Max(1.10f, guide.y);
-            guide.z = Mathf.Min(.36f, guide.z);
+            guide.z = .28f + Mathf.Clamp(guide.z - .50f, 0f, .20f) * .4f;
             if (_service == 2)
                 guide = Vector3.Lerp(new Vector3(side * .35f, .70f, .30f), guide, attention);
             Vector3 pole = _root.TransformPoint(guide) - shoulder;
@@ -359,7 +390,7 @@ internal sealed class TownServiceActivityRig
             {
                 Vector3 fingerDirection = Vector3.ProjectOnPlane(foreDirection, wantedNormal).normalized;
                 fingerDirection = Vector3.Lerp(fingerDirection,
-                    Vector3.ProjectOnPlane(_root.up, wantedNormal).normalized, 1f - attention);
+                    Vector3.ProjectOnPlane(_root.up - _root.forward * .8f, wantedNormal).normalized, 1f - attention);
                 fingerDirection = Vector3.RotateTowards(foreDirection, fingerDirection, 55f * Mathf.Deg2Rad, 0f).normalized;
                 palmFrame = Quaternion.LookRotation(fingerDirection,
                     Vector3.ProjectOnPlane(wantedNormal, fingerDirection).normalized);

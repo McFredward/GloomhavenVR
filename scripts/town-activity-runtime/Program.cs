@@ -200,6 +200,7 @@ public static class InteractionProgram
                     var twistSupports=root.GetComponentsInChildren<Transform>(true).Where(t=>t.name.StartsWith("ForearmTwist")).ToArray();
                     var previousSupports=new Quaternion[twistSupports.Length];float maxSupportStep=0f;
                     var sampledFeet=new Vector3[2];
+                    var previousKnees=new Vector3[2]; float maximumKneeStep=0;
                     for(int n=0;n<2500;n++)
                     {
                         if(n==833)grounding.Apply(.035f,-.02f);if(n==1666)grounding.Apply(-.035f,-.02f);
@@ -216,8 +217,32 @@ public static class InteractionProgram
                             Transform[] joints=root.GetComponentsInChildren<Transform>(true);
                             Transform wrist=joints.Single(t=>t.name=="Hand."+side), elbow=joints.Single(t=>t.name=="Forearm."+side);
                             Transform palmAxis=joints.Single(t=>t.name=="PalmContact."+side);
-                            Check(Vector3.Angle(wrist.position-elbow.position,palmAxis.up)<55.1f,"actual wrist flexion remains anatomical: "+npc+" "+side+" frame="+n);
+                            if(service==3&&TownServiceActivityMotion.Blend(in phase)<.001f)
+                            {
+                                Transform shoulderJoint=joints.Single(t=>t.name=="UpperArm."+side);
+                                Check(Vector3.Dot(palmAxis.position-shoulderJoint.position,root.up)/root.lossyScale.x<-.005f,"spell shaping palm stays below its shoulder");
+                            }
+                            Check(Vector3.Angle(wrist.position-elbow.position,palmAxis.up)<55.1f,"actual wrist flexion remains anatomical: "+npc+" "+side+" frame="+n+" angle="+Vector3.Angle(wrist.position-elbow.position,palmAxis.up)+" wrist="+root.InverseTransformPoint(wrist.position)+" elbow="+root.InverseTransformPoint(elbow.position));
                             Check(joints.Count(t=>t.name.StartsWith("ForearmTwist")&&t.name.EndsWith("."+side))==3,"imported pronation has three longitudinal skin supports");
+                        }
+                        for (int leg=0;leg<2;leg++)
+                        {
+                            string side=leg==0?"L":"R";
+                            Transform thigh=root.GetComponentsInChildren<Transform>(true).Single(t=>t.name=="Thigh."+side);
+                            Transform shin=root.GetComponentsInChildren<Transform>(true).Single(t=>t.name=="Shin."+side);
+                            Vector3 axis=(feet[leg].position-thigh.position).normalized;
+                            Vector3 bend=Vector3.ProjectOnPlane(shin.position-thigh.position,axis).normalized;
+                            Vector3 forward=Vector3.ProjectOnPlane(-root.forward,axis).normalized;
+                            Check(Vector3.Dot(bend,forward)>.999f,"planted knee keeps anatomical forward bend plane: "+npc+" frame="+n);
+                            if(n>0&&n!=833&&n!=1666)maximumKneeStep=Mathf.Max(maximumKneeStep,Vector3.Distance(previousKnees[leg],shin.position));
+                            previousKnees[leg]=shin.position;
+                        }
+                        if(service==2&&TownServiceActivityMotion.Blend(in phase)<.001f)
+                        {
+                            var contacts=root.GetComponentsInChildren<Transform>(true);
+                            Transform lp=contacts.Single(t=>t.name=="PalmContact.L"),rp=contacts.Single(t=>t.name=="PalmContact.R");
+                            Check(Vector3.Distance(lp.position,rp.position)/root.lossyScale.x<.03f,"prayer joins cupped hands at the sternum");
+                            Check(Mathf.Abs(root.InverseTransformPoint(lp.position).y-1.34f)<.01f,"prayer hands stay below the face");
                         }
                         for(int foot=0;foot<2;foot++)maxFootDrift=Mathf.Max(maxFootDrift,Vector3.Distance(feet[foot].position,sampledFeet[foot]));
                         // These two fixture frames teleport the actor to another ground
@@ -275,6 +300,8 @@ public static class InteractionProgram
                         rig.BeforeBodySample();Check(Quaternion.Angle(upper.localRotation,before)<.05f,"original arm base restores without accumulation");
                     }
                     Console.WriteLine("Actual motion metrics "+npc+": foot drift="+maxFootDrift+"m palm error="+maxPalmError+"m hand step="+maxHandStep+" degrees/90Hz frame");
+                    Console.WriteLine("Maximum knee step "+npc+": "+maximumKneeStep+"m/90Hz frame");
+                    Check(maximumKneeStep<.006f,"planted knees do not twitch while the body changes weight: "+npc+" "+maximumKneeStep);
                     Check(maxFootDrift<.003f,"generated stance keeps actual imported feet planted: "+npc+" "+maxFootDrift);
                     Console.WriteLine("Actual additional continuity metrics "+npc+": left hand="+maxLeftStep+" support="+maxSupportStep+" degrees/90Hz frame");
                     grounding.Apply(0f,0f);ArmGeometry.Export(root, service, rig, animation);ActivityRender.Render(obj, service, rig);

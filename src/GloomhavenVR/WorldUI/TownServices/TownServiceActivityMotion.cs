@@ -147,10 +147,11 @@ internal static class TownServiceActivityMotion
     private static TownActivityVisual Prayer(float clock)
     {
         var visual=TownServiceMotionClips.Sample(3, (clock % 8f)/8f);
-        // Keep loosely cupped prayer hands at chest height. Their actual skin clears
-        // the opposite fingers; sampled breathing supplies the quiet weight change.
-        visual.Left = new Vector3(.035f,1.43f,.25f);
-        visual.Right = new Vector3(-.035f,1.43f,.25f);
+        // Palm targets are actual skin surfaces, not wrist centres. The old +/-35 mm
+        // targets left a visible 70 mm gap. Join the cupped hands at the sternum while
+        // retaining a small skin allowance and the recorded breathing motion.
+        visual.Left = new Vector3(.012f,1.34f,.20f);
+        visual.Right = new Vector3(-.012f,1.34f,.20f);
         visual.LeftCurl=0f; visual.RightCurl=0f;
         return visual;
     }
@@ -164,11 +165,11 @@ internal static class TownServiceActivityMotion
     // Palm orientation and effects follow the source performance. Its final
     // recovery is retimed continuously below; hands and body keep one clock.
     private static readonly SpellKey[] Spell = {
-        new(0f,0f,0f,0f), new(.6f,0f,0f,0f), new(1.2f,35f,45f,0f), new(1.65f,80f,100f,0f),
-        new(2.2f,110f,180f,.30f), new(2.7f,150f,170f,1f),
-        new(3.45f,125f,195f,.92f), new(4.05f,110f,180f,.45f),
+        new(0f,0f,0f,0f), new(.6f,0f,0f,0f), new(1.2f,15f,45f,0f), new(1.65f,25f,100f,0f),
+        new(2.2f,45f,180f,.30f), new(2.7f,65f,180f,1f),
+        new(3.45f,50f,180f,.92f), new(4.05f,45f,180f,.45f),
         new(4.9f,35f,50f,0f), new(5.3f,0f,0f,0f), new(6.1f,0f,0f,0f),
-        new(7.1f,30f,180f,.12f), new(7.7f,95f,180f,.48f),
+        new(7.1f,30f,180f,.12f), new(7.7f,55f,180f,.48f),
         new(8.5f,45f,165f,.34f), new(9.8f,0f,0f,0f), new(10.2f,0f,0f,0f)
     };
     private static float Retimed(float time, float sourceLength, float shownLength)
@@ -190,6 +191,18 @@ internal static class TownServiceActivityMotion
         SpellKey a = Spell[next - 1], b = Spell[next];
         float t = Ease(cycle, a.Time, b.Time);
         var generated=TownServiceMotionClips.Sample(2, cycle / 10.2f);
+        // The generated performance was a broad stage gesture: its left palm reached
+        // above the shoulder while both forearms rolled nearly a half-turn. Retarget
+        // the same performance into the working volume above the book: one palm
+        // supports the spell, the other shapes it. Body and hands retain one clock.
+        generated.Left = new Vector3(.24f + (generated.Left.x - .24f) * .48f,
+            1.04f + (generated.Left.y - 1.04f) * .48f, generated.Left.z - .025f);
+        generated.Right = new Vector3(-.22f + (generated.Right.x + .22f) * .72f,
+            1.04f + (generated.Right.y - 1.04f) * .65f, generated.Right.z - .025f);
+        generated.LeftElbow = new Vector3(generated.LeftElbow.x,
+            1.12f + (generated.LeftElbow.y - 1.12f) * .48f, generated.LeftElbow.z);
+        generated.RightElbow = new Vector3(generated.RightElbow.x,
+            1.12f + (generated.RightElbow.y - 1.12f) * .65f, generated.RightElbow.z);
         float leftRest = 1f - Mathf.SmoothStep(0f, 1f, (generated.Left.y - 1.04f) / .14f);
         float rightRest = 1f - Mathf.SmoothStep(0f, 1f, (generated.Right.y - 1.04f) / .14f);
         generated.Left = Vector3.Lerp(generated.Left, new Vector3(Mathf.Max(.19f, generated.Left.x), Mathf.Max(1.02f, generated.Left.y), Mathf.Min(.32f, generated.Left.z)), leftRest);

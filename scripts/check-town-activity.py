@@ -23,7 +23,7 @@ def replace_once(source, before, after):
 def sources(root):
     base = root / "src/GloomhavenVR/WorldUI/TownServices"
     names = ["TownServiceActivityHandover.cs", "TownServiceActivityMotion.cs", "TownServiceActivityRig.cs", "TownServiceActivityProps.cs", "TownServiceGrounding.cs", "TownServiceFaceAttention.cs", "TownServiceFaceMotion.cs", "TownServiceFaceRig.cs"]
-    names += ["TownServiceMotionClips.cs", "TownServiceMotionClips.Data.cs"]
+    names += ["TownServiceMotionClips.cs", "TownServiceMotionClips.Data.cs", "TownServiceLightList.cs"]
     bound = {name: (base / name).read_text() for name in names}
     bound["RemoteTownActivities.cs"] = (root / "src/GloomhavenVR/Net/Remote/RemoteTownActivities.cs").read_text()
     bound["TownActivityTypes.cs"] = (root / "src/GloomhavenVR/Net/TownActivityState.cs").read_text().split("/// <summary>Additive81:")[0]
@@ -35,6 +35,10 @@ def sources(root):
 
 def mutations():
     return [
+        ("separated-prayer", "TownServiceActivityMotion.cs", "new Vector3(.012f,1.34f,.20f)", "new Vector3(.035f,1.34f,.20f)", "prayer joins cupped hands at the sternum"),
+        ("animated-knee-pole", "TownServiceActivityRig.cs", "Vector3.ProjectOnPlane(_root.TransformDirection(_kneePoles[upperIndex == 6 ? 0 : 1]),direction)", "Vector3.ProjectOnPlane(knee-hip,direction)", "planted knee keeps anatomical forward bend plane"),
+        ("zero-weight-stance-snap", "TownServiceActivityRig.cs", "_bodyApplied=true;", "_bodyApplied=true; if(body.Weight<=0f)return;", "planted knee keeps anatomical forward bend plane"),
+        ("raised-stage-gesture", "TownServiceActivityMotion.cs", "1.04f + (generated.Left.y - 1.04f) * .48f", "generated.Left.y", "spell shaping palm stays below its shoulder"),
         ("frozen-generated-body", "TownServiceMotionClips.cs", "body.Set(i,Rotation(data,a+15+i*4,b+15+i*4,t));", "body.Set(i,Quaternion.identity);", "generated occupation contains real torso movement"),
         ("wrapped-forearm-support", "TownServiceActivityRig.cs", "if (_service != 2) twist = Mathf.DeltaAngle(0f, twist + roll) - roll;", "twist = Mathf.Repeat(twist, 360f);", "actual forearm skin support stays continuous across pronation"),
         ("unplanted-feet", "TownServiceActivityRig.cs", "PlantFoot(6); PlantFoot(9);", "// negative control: uncorrected generated stance", "generated stance keeps actual imported feet planted"),
@@ -99,8 +103,8 @@ def main():
     manifest = {"result": str(run / "results.txt"), "cases": []}
     variants = [("production", None, None, None, "")]
     if not args.no_negative_controls:
-        rig_only = ("wrapped-forearm-support", "unplanted-feet", "ignore-ik", "thumb-overcurl", "prayer-snap", "excessive-work-bow", "ignore-palm-offset", "curl-contact-markers", "downward-offering", "coin-detached-from-grip")
-        variants += [v for v in mutations() if (not args.portable or v[0] not in rig_only) and (args.bundle or v[0] not in ("prayer-snap", "unplanted-feet"))]
+        rig_only = ("separated-prayer", "animated-knee-pole", "zero-weight-stance-snap", "raised-stage-gesture", "wrapped-forearm-support", "unplanted-feet", "ignore-ik", "thumb-overcurl", "prayer-snap", "excessive-work-bow", "ignore-palm-offset", "curl-contact-markers", "downward-offering", "coin-detached-from-grip")
+        variants += [v for v in mutations() if (not args.portable or v[0] not in rig_only) and (args.bundle or v[0] not in ("prayer-snap", "unplanted-feet", "wrapped-forearm-support", "separated-prayer", "animated-knee-pole", "zero-weight-stance-snap", "raised-stage-gesture"))]
     # A mutation of an absent production file is not an executable negative control.
     # The full Unity suite retains every rig mutation; portable mode only claims its
     # compiled phase/network sources and must fail loudly if this partition drifts.

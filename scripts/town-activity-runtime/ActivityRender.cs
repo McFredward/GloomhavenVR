@@ -24,6 +24,7 @@ internal static class ActivityRender
         var camera=new GameObject("Activity diagnostic camera").AddComponent<Camera>();camera.clearFlags=CameraClearFlags.SolidColor;camera.backgroundColor=new Color(.12f,.14f,.17f);camera.fieldOfView=48;camera.nearClipPlane=.02f;
         var rt=new RenderTexture(sequence?640:1000,sequence?576:900,24);camera.targetTexture=rt;
         var light=new GameObject("Diagnostic stand light").AddComponent<Light>();light.type=LightType.Point;light.transform.position=new Vector3(-.4f,2.2f,-.7f);light.intensity=3;light.range=6;light.color=new Color(1,.89f,.72f);
+        TownServiceLightList.Claim(light); TownServiceLightList.Bind();
         RenderSettings.ambientLight=new Color(.25f,.28f,.32f);RenderSettings.ambientIntensity=1;
         var block=new MaterialPropertyBlock();block.SetFloat("_TownVisibility",1);foreach(Renderer r in obj.GetComponentsInChildren<Renderer>(true))r.SetPropertyBlock(block);
         Animation animation=root.GetComponentInChildren<Animation>();
@@ -90,7 +91,7 @@ internal static class ActivityRender
             for(int i=0;i<originalSkins.Length;i++)originalSkins[i].enabled=enabledSkins[i];
         }
         Console.WriteLine("Actual skinned work envelope service="+service+" min="+envelope.min.ToString("F5")+" max="+envelope.max.ToString("F5"));
-        RenderTexture.active=null;camera.targetTexture=null;rt.Release();UnityEngine.Object.DestroyImmediate(rt);UnityEngine.Object.DestroyImmediate(camera.gameObject);UnityEngine.Object.DestroyImmediate(light.gameObject);
+        RenderTexture.active=null;camera.targetTexture=null;rt.Release();UnityEngine.Object.DestroyImmediate(rt);UnityEngine.Object.DestroyImmediate(camera.gameObject);TownServiceLightList.Forget(light);UnityEngine.Object.DestroyImmediate(light.gameObject);
     }
     // Camera.Render calls in one Editor tick can reuse the previous GPU skinning upload.
     // Freeze the current bone matrices into a diagnostic static LOD0 snapshot so tool
