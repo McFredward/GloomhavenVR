@@ -523,7 +523,16 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 555;
+    public const ushort ModBuild = 556;
+
+    // ModBuild 556 — animated laser-release facing for combat log and control board.
+    // Build555 hardware logs show the combat-log policy did request re-facing, but its
+    // owner set the final rotation immediately; the control board only persisted its
+    // release pose and did not re-face at all. Both local owners now use the existing
+    // WindowFacing decision and grab-bar-duration turn. Their follow/pin anchors keep
+    // ownership through the tween, final layouts persist, and the board's existing
+    // atomic rig pose carries intermediate rotation to remote observers. No wire or
+    // asset change. Source/log evidence and headset check: .planning/REFACE-556.md.
 
     // ModBuild 555 — completed story lifetime and shared post-quest continuation.
     // Build554 logs: native final story Hide, reward Continue and save completed, but the
