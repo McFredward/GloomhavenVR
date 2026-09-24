@@ -170,7 +170,7 @@ public static class InteractionProgram
         foreach (var pair in session.NativeParents) Check(pair.Key.parent == pair.Value,
             "map hand disable restores original enhancement widget parents");
         Clean(); TownServiceEnhancementHandoff.Enabled = false; session = Open(1);
-        Check(TownServicePresentation.Active, "map hand preference cannot disable physical merchant");
+        Check(!TownServicePresentation.Active && CanvasConversion.ActivePanels.Count == 1, "disabled map hand retains the complete usable native merchant window");
         Clean(); TownServiceEnhancementHandoff.Enabled = false; session = Open(3);
         Check(!TownServicePresentation.Active && CanvasConversion.ActivePanels.Count == 1,
             "manual enhancement visit without map hand keeps complete native window");
@@ -179,7 +179,7 @@ public static class InteractionProgram
 
     private static void IdentityChanges()
     {
-        for (byte service = 1; service <= 3; service++)
+        for (byte service = 2; service <= 3; service++)
         {
             var s = Open(service); s.Grab();
             if (service == 1) ((UIShopItemWindow)s.Window).ItemInventory.character = new object();
@@ -197,10 +197,12 @@ public static class InteractionProgram
             else ((UINewEnhancementWindow)s.Window).mode++;
             s.Token.Tick(1); Check(s.Token.HeldRoot == null, "mode switch cancels held selection"); Clean();
         }
-        var merchantMode = Open(1); merchantMode.Grab();
+        var merchantMode = Open(1);
+        Check(TownServicePresentation.Catalog==null && TownServicePresentation.WorkspaceProps==null,
+            "native merchant context never duplicates persistent public cabinet");
         ((UIShopItemWindow)merchantMode.Window).ItemInventory.mode++;
-        merchantMode.Token.Tick(1);
-        Check(merchantMode.Token.HeldRoot != null, "native merchant tab switch preserves physical catalog selection"); Clean();
+        TownServicePresentation.Tick();
+        Check(TownServicePresentation.Active,"native merchant tab switch retains confirmation context");Clean();
         var enhancement = Open(3); enhancement.Grab();
         ((UINewEnhancementWindow)enhancement.Window).selectedCard = new AbilityCardUI();
         enhancement.Token.Tick(1); Check(enhancement.Token.HeldRoot == null, "committed card switch cancels held selection"); Clean();
@@ -210,21 +212,21 @@ public static class InteractionProgram
         ((UIEnhanceCardSlot)recycled.Slot).AbilityCard!.AbilityCard = new object();
         recycled.Token.Tick(1); Check(recycled.Token.HeldRoot == null, "pooled underlying card switch cancels held selection"); Clean();
 
-        var immediate = Open(1); immediate.Grab();
-        ((UIShopItemWindow)immediate.Window).ItemInventory.character = new object();
+        var immediate = Open(2); immediate.Grab();
+        ((UITempleWindow)immediate.Window).character = new object();
         immediate.Release(); Check(immediate.Clicks == 0, "release rechecks context before next tick"); Clean();
 
         var sourceChanged = Open(3); sourceChanged.Grab();
         ((UIEnhanceCardSlot)sourceChanged.Slot).AbilityCard!.AbilityCard = new object();
         sourceChanged.Release(); Check(sourceChanged.Clicks == 0, "release rechecks pooled identity before next tick"); Clean();
 
-        var expired = Open(1); expired.Grab();
+        var expired = Open(2); expired.Grab();
         var sessionField = typeof(TownServicePresentation).GetField("_session", Static)!;
         sessionField.SetValue(null, (uint)sessionField.GetValue(null)! + 1);
         expired.Token.Tick(1);
         Check(expired.Token.HeldRoot == null && !expired.Token.CanGrab, "captured session mismatch cancels held selection"); Clean();
 
-        var closed = Open(1); closed.Grab(); TownServiceToken old = closed.Token;
+        var closed = Open(2); closed.Grab(); TownServiceToken old = closed.Token;
         uint session = TownServicePresentation.Session;
         closed.Window.Hide(); closed.Window.IsOpen = true;
         ModalFallback.TryConvertWindow(closed.Window); TownServicePresentation.Tick(); Refresh();
@@ -249,15 +251,15 @@ public static class InteractionProgram
 
         foreach (bool triggerUp in new[] { false, true })
         {
-            s = Open(1); s.Grab(); s.Hand.TriggerUp = triggerUp;
+            s = Open(2); s.Grab(); s.Hand.TriggerUp = triggerUp;
             s.Hand.Grabber.CancelAll();
             Check(s.Clicks == 0, "synthetic cancel never clicks even on trigger-up frame"); Clean();
         }
-        s = Open(1); s.Grab(); s.Hand.HasPose = false; s.Release();
+        s = Open(2); s.Grab(); s.Hand.HasPose = false; s.Release();
         Check(s.Clicks == 0, "tracking loss never clicks native selection"); Clean();
-        s = Open(1); s.Grab(); s.Token.HeldRoot!.position += new Vector3(3, 0, 0); s.Release();
+        s = Open(2); s.Grab(); s.Token.HeldRoot!.position += new Vector3(3, 0, 0); s.Release();
         Check(s.Clicks == 0, "drop outside mat never clicks"); Clean();
-        s = Open(1); s.Grab(); s.Button.interactable = false; s.Release();
+        s = Open(2); s.Grab(); s.Button.interactable = false; s.Release();
         Check(s.Clicks == 0, "native disabled button never clicks"); Clean();
     }
 
@@ -370,7 +372,7 @@ public static class InteractionProgram
 
     private static void OptionalPresentation()
     {
-        for (byte service = 1; service <= 3; service++)
+        for (byte service = 2; service <= 3; service++)
         {
             var s = Open(service, false);
             Check(ModalFallback.Converted.Count == 1 && ReferenceEquals(s.OriginalPanel, ModalFallback.Converted[0])
@@ -398,7 +400,7 @@ public static class InteractionProgram
                 WorldUIConfig.ImmersiveTownServices.Value = false;
                 // This release runs before the normal presentation update can tear down its
                 // objects: the live config fence itself must revoke selection immediately.
-                if (service == 1) Check(TownServicePresentation.OwnsWindow(s.Window),
+                if (service == 2) Check(TownServicePresentation.OwnsWindow(s.Window),
                     "suppression ownership persists until rollback despite disabled option");
                 s.Release();
                 Check(s.Clicks == 0, "disabled option immediately fences a held release before next tick");
@@ -515,10 +517,28 @@ public static class InteractionProgram
         Clean();
     }
 
+    private static void MerchantContextLifecycle()
+    {
+        var session=Open(1,false);
+        for(int cycle=0;cycle<20;cycle++)
+        {
+            WorldUIConfig.ImmersiveTownServices.Value=true;TownServicePresentation.Tick();
+            Check(TownServicePresentation.Active&&TownServicePresentation.OwnsWindow(session.Window),
+                "merchant native context remains owned behind persistent cabinet");
+            Check(TownServicePresentation.Catalog==null&&TownServicePresentation.WorkspaceProps==null&&TownServicePresentation.Samples.Count==0,
+                "merchant context cannot duplicate catalog or register hidden native row grabs");
+            WorldUIConfig.ImmersiveTownServices.Value=false;
+            Check(TownServicePresentation.OwnsWindow(session.Window),
+                "merchant context suppression survives until explicit rollback");
+            TownServicePresentation.Tick();CheckClassic(session);
+        }
+        Clean();
+    }
+
     private static void ManualTrayPlacement()
     {
-        var session = Open(1);
-        Check(TownServicePresentation.Tray == null, "physical merchant has no transaction drop tray");
+        var session = Open(2);
+        Check(TownServicePresentation.Tray == null, "physical ritual has no legacy transaction drop tray");
         session.Grab();
         Vector3 waiting = TownServicePresentation.WorkMat!.parent.position;
         TownServicePresentation.Tick();
@@ -531,7 +551,7 @@ public static class InteractionProgram
         var tray = new TownServiceTray(null, Vector3.zero, Quaternion.identity, 1f);
         tray.Root.SetParent(TownServicePresentation.WorkMat!.parent, false);
         typeof(TownServicePresentation).GetField("_tray", Static)!.SetValue(null, tray);
-        Check(tray.Root.parent != null, "unmoved merchant tray belongs to its workspace");
+        Check(tray.Root.parent != null, "unmoved generic tray belongs to its workspace");
         Vector3 before = tray.Root.position;
         TownServicePresentation.Tick();
         Check(Vector3.Distance(tray.Root.position, before) > .001f, "unmoved tray follows owner workspace rearrangement");
@@ -573,8 +593,10 @@ public static class InteractionProgram
             hand.Grabber.Grab(token);
             Check(token.HeldRoot == physical && original.IsChildOf(physical), "inspection lifts the original physical card without a duplicate");
             Check(token.HeldContent == null && selections == 0, "physical inspection has no duplicate mirror or selection");
+            token.Tick(1f);
+            Vector3 readingOffset=hand.Rig.GrabAnchor.InverseTransformPoint(physical.position);
             hand.Rig.GrabAnchor.position = new Vector3(2f, 2f, 2f); token.Tick(1f);
-            Check(Vector3.Distance(physical.position, hand.Rig.GrabAnchor.position) < .001f,
+            Check(readingOffset.magnitude < .12f && Vector3.Distance(hand.Rig.GrabAnchor.InverseTransformPoint(physical.position),readingOffset) < .001f,
                 "physical original follows either tracked hand");
             // Deliberately release over the historic purchase tray, with a valid enabled row.
             native.interactable = true; physical.position = counter.transform.TransformPoint(new Vector3(0f, .05f, 0f));
@@ -585,7 +607,7 @@ public static class InteractionProgram
             token.Tick(1f);
             Check(token.IsMoving && Vector3.Distance(physical.localPosition, home) > .001f,
                 "physical card return has an observable intermediate pose");
-            typeof(TownServiceToken).GetField("_returnStarted", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(token, Time.unscaledTime - .3f);
+            typeof(TownServiceToken).GetField("_returnStarted", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(token, Time.unscaledTime - .5f);
             token.Tick(1f);
             Check(!token.IsMoving && token.CanGrab && Vector3.Distance(physical.localPosition, home) < .001f
                 && Quaternion.Angle(physical.localRotation, rotation) < .01f,
@@ -631,7 +653,7 @@ public static class InteractionProgram
     public static int Run()
     {
         _assertions = 0;
-        try { PhysicalCommitCases(); PhysicalMerchantSamples(); WindowMaskLifecycle(); ConfirmationFadeLifecycle(); IdentityChanges(); HoverAndRelease(); CancellationCompatibility(); Handoff(); RollbackAndContinuation(); OptionalPresentation(); ManualTrayPlacement(); MapHandFallback(); return _assertions; }
+        try { PhysicalCommitCases(); PhysicalMerchantSamples(); WindowMaskLifecycle(); MerchantContextLifecycle(); ConfirmationFadeLifecycle(); IdentityChanges(); HoverAndRelease(); CancellationCompatibility(); Handoff(); RollbackAndContinuation(); OptionalPresentation(); ManualTrayPlacement(); MapHandFallback(); return _assertions; }
         finally { Clean(); }
     }
 }

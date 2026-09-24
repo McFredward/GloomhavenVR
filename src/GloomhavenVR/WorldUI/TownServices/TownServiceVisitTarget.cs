@@ -25,7 +25,9 @@ internal sealed class TownServiceVisitTarget : IPokeable, IDisposable
     internal static bool Replaces(EGuildmasterMode mode)
     {
         byte service = ServiceOf(mode);
-        return service != 0 && WorldUIConfig.ImmersiveTownServices.Value && TownServicePopulation.Available(service);
+        return service != 0 && WorldUIConfig.ImmersiveTownServices.Value
+            && ((service != 1 && service != 3) || TownServiceEnhancementHandoff.Enabled)
+            && TownServicePopulation.Available(service);
     }
 
     internal TownServiceVisitTarget(byte service, Transform station)

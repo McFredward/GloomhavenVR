@@ -80,3 +80,8 @@ namespace GloomhavenVR.WorldUI.MapRoom
         { Presses++; Mode = mode; Context = context; return Accept; }
     }
 }
+
+namespace GloomhavenVR.WorldUI {internal static class TownServiceEnhancementHandoff {internal static bool Enabled=true;} }
+
+// Physical cabinet occlusion is tested by its dedicated interaction fixture.
+namespace GloomhavenVR.WorldUI { internal static class TownServicePhysicalRay { internal static float OccludingDistance(Vector3 origin, Vector3 direction, float maximum) => float.PositiveInfinity; } }

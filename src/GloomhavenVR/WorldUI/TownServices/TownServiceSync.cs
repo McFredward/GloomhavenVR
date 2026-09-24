@@ -501,7 +501,7 @@ internal sealed class TownServiceSync
     }
     internal static void ResetNetwork() { Private.ResetCore(); ResetPublic(); TownServiceMirror.ResetNetwork(); }
     internal static void Shutdown()
-    { TownServicePublicMerchant.Reset(); Private.ResetCore(); ResetPublic(); TownServiceMirror.Shutdown(); NativeTemplates.Shutdown(); TownServiceNativeAssets.Shutdown(); Private._sharedFrame = Public._sharedFrame = null; Private.ReportReset(); Public.ReportReset(); }
+    { TownServiceMerchantHandoff.Reset(); TownServicePublicMerchant.Reset(); Private.ResetCore(); ResetPublic(); TownServiceMirror.Shutdown(); NativeTemplates.Shutdown(); TownServiceNativeAssets.Shutdown(); Private._sharedFrame = Public._sharedFrame = null; Private.ReportReset(); Public.ReportReset(); }
     private void ReportReset()
     {
         Failures.Clear(); _reportWindow = 0; _reportCount = 0;

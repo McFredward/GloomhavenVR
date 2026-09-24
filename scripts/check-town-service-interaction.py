@@ -57,6 +57,13 @@ def sources(root):
         end = raw["Interfaces.cs"].index("\n}", start) + 2
         interfaces.append(raw["Interfaces.cs"][start:end])
     bound["Interfaces.cs"] = "using UnityEngine;\nnamespace GloomhavenVR.Hands.Interact;\n" + "\n".join(interfaces)
+    for name, path in (("ItemCardHold.cs", "Cards/ItemCardHold.cs"), ("CardGripPose.cs", "Cards/CardGripPose.cs")):
+        bound[name] = (base / path).read_text(); hashes[path] = hashlib.sha256(bound[name].encode()).hexdigest()
+    vr = (base / "Cards/VRCard.cs").read_text()
+    constant = next(line.strip() for line in vr.splitlines() if 'internal const float PinchGripFraction =' in line)
+    sweep = (base / "Cards/FanSweep.cs").read_text()
+    interface = sweep[sweep.index('internal interface IFanSweepTarget'):sweep.index('\n}', sweep.index('internal interface IFanSweepTarget')) + 2]
+    bound["ItemContracts.cs"] = 'using UnityEngine; namespace GloomhavenVR.Cards { internal static class VRCard { ' + constant + ' }\n' + interface + '\n}'
     return bound, hashes
 
 
@@ -77,9 +84,9 @@ def mutations():
         ("mask-sibling", "WindowMask.cs", "            _source.SetSiblingIndex(_sibling);", "", "mask disposal restores original parent and sibling exactly"),
         ("mask-native-state", "WindowMask.cs", "            _source.SetSiblingIndex(_sibling);", "            _source.SetSiblingIndex(_sibling);\n            _source.GetComponent<CanvasGroup>().alpha = 1f;", "mask disposal preserves current native animation and permissions"),
         ("mask-reparent-owner", "WindowMask.cs", "_source != null && _source.parent == _wrapper", "_source != null", "native reparent is never overwritten during mask disposal"),
-        ("window-suppression-fence", "Presentation.cs", "|| (_catalog != null || _ritual != null) && _window != null", "|| Active && (_catalog != null || _ritual != null) && _window != null", "suppression ownership persists until rollback despite disabled option"),
+        ("window-suppression-fence", "Presentation.cs", "|| (_catalog != null || _ritual != null || _contextMask != null) && _window != null", "|| Active && (_catalog != null || _ritual != null || _contextMask != null) && _window != null", "merchant context suppression survives until explicit rollback"),
         ("manual-tray", "Presentation.cs", "_tray.Root.SetParent(null, true);", "{ }", "manual tray grab detaches before workspace movement"),
-        ("option-open", "Presentation.cs", "        if (!WorldUIConfig.ImmersiveTownServices.Value)", "        if (_session == uint.MaxValue)", "disabled opening never takes ownership of original window"),
+        ("option-open", "Presentation.cs", "        if (!WorldUIConfig.ImmersiveTownServices.Value)", "        if (_session == uint.MaxValue)", "rollback releases native window suppression claim"),
         ("option-release", "Presentation.cs", "internal static bool Active => WorldUIConfig.ImmersiveTownServices.Value\n        &&", "internal static bool Active =>", "disabled option immediately fences a held release before next tick"),
         ("option-classic-lifecycle", "Handoff.cs", "        if (window != null && window.IsOpen) TryConvertWindow(window);", "        if (window != null && window.IsOpen) RestoreTownServiceContext(window, Vector3.zero, Quaternion.identity);", "disabled window retains ordinary placement and fitting lifecycle"),
         ("owner", "Presentation.cs", "!ReferenceEquals(owner, _selectionOwner)", "false", "owner switch cancels held selection"),
@@ -89,7 +96,7 @@ def mutations():
         ("pool-card", "Token.cs", "if (!ReferenceEquals(_pickedIdentity, _identity()) || !ReferenceEquals(_pickedContext, _contextIdentity())", "if (!ReferenceEquals(_pickedContext, _contextIdentity())", "pooled underlying card switch cancels held selection"),
         ("release-context", "Token.cs", "&& ReferenceEquals(_pickedIdentity, _identity()) && ReferenceEquals(_pickedContext, _contextIdentity())\n            && _source", "&& ReferenceEquals(_pickedIdentity, _identity())\n            && _source", "release rechecks context before next tick"),
         ("release-identity", "Token.cs", "&& ReferenceEquals(_pickedIdentity, _identity()) && ReferenceEquals(_pickedContext, _contextIdentity())\n            && _source", "&& ReferenceEquals(_pickedContext, _contextIdentity())\n            && _source", "release rechecks pooled identity before next tick"),
-        ("session-fence", "Presentation.cs", "() => Active && _session == session, _mat.transform);", "() => Active, _mat.transform);", "captured session mismatch cancels held selection"),
+        ("session-fence", "Presentation.cs", "() => Active && _session == session, SelectionContext);", "() => Active, SelectionContext);", "captured session mismatch cancels held selection"),
         ("cancel-origin", "Grabber.cs", "if (released is IGrabCancellation cancellation) cancellation.OnGrabCancelled(_hand);\n            else released.OnRelease(_hand, Vector3.zero);", "released.OnRelease(_hand, Vector3.zero);", "synthetic cancel never clicks even on trigger-up frame"),
         ("heal-origin", "Grabber.cs", "if (held is IGrabCancellation cancellation) cancellation.OnGrabCancelled(_hand);\n                else held.OnRelease(_hand, Vector3.zero);", "held.OnRelease(_hand, Vector3.zero);", "hand healing uses explicit cancellation even on trigger-up frame"),
         ("hand-filter", "Token.cs", "(!ReferenceEquals(hand.Grabber.Held, this) || _hand == hand)", "true", "cancelled token releases grabber hand ownership"),

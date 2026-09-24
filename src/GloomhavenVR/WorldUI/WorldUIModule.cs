@@ -357,6 +357,7 @@ internal sealed class WorldUIModule : IVRModule
                 ("ModalFallback", ModalFallback.Tick),      // before the flat screen reads ScreenWanted
                 ("TownServicePresentation", TownServicePresentation.Tick),
                 ("TownServicePopulation", TownServicePopulation.Tick),
+                ("TownServiceMerchantHandoff", TownServiceMerchantHandoff.Tick), // resident attention/IK is final before palm interactions
                 ("OptionsToggle", _optionsToggle.Tick),     // reads the settled short-tap edge (after the hold arbiters)
                 ("VROptionsTab", VROptionsTab.Tick),        // after OptionsToggle: the pause menu it opens is where the tab is reached
                 ("VRMenuEntry", VRMenuEntry.Tick),          // after the tab: the pause-menu row opens the window and then SELECTS that tab

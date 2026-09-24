@@ -16,6 +16,7 @@ public static class InteractionProgram
     {
         VRHands.Primary = new VRHand(); RayGrabDriver.Distance = float.PositiveInfinity;
         WorldUIConfig.ImmersiveTownServices.Value = true; StoryComposite.PointOfNoReturn = false;
+        TownServiceEnhancementHandoff.Enabled = true;
         TownServicePopulation.Ready = true; MapRoomDriver.CanVisit = MapRoomDriver.Accept = true;
         MapRoomDriver.Presses = 0; MapRoomDriver.Context = null;
     }
@@ -131,6 +132,11 @@ public static class InteractionProgram
         Reset();
         Check(!TownServiceVisitTarget.Replaces(EGuildmasterMode.None), "unrelated map buttons remain native");
         Check(TownServiceVisitTarget.Replaces(EGuildmasterMode.Merchant), "available resident replaces corresponding map button");
+        TownServiceEnhancementHandoff.Enabled = false;
+        Check(!TownServiceVisitTarget.Replaces(EGuildmasterMode.Merchant), "disabled physical hands retain merchant entry");
+        Check(!TownServiceVisitTarget.Replaces(EGuildmasterMode.Enchantress), "disabled physical hands retain enchantress entry");
+        Check(TownServiceVisitTarget.Replaces(EGuildmasterMode.Temple), "church does not require card hands");
+        TownServiceEnhancementHandoff.Enabled = true;
         TownServicePopulation.Ready = false; Check(!TownServiceVisitTarget.Replaces(EGuildmasterMode.Merchant), "missing resident assets retain native entry");
         TownServicePopulation.Ready = true; WorldUIConfig.ImmersiveTownServices.Value = false;
         Check(!TownServiceVisitTarget.Replaces(EGuildmasterMode.Merchant), "disabled immersion retains native entry");

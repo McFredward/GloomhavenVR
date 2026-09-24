@@ -122,7 +122,7 @@ internal sealed class TownServiceDecor : IDisposable
         }
         if (service == 1)
         {
-            Add("Treasure", "Treasure.Clutter.FloorSmall#3", new Vector3(.26f, .957f, .26f), .11f);
+            Add("Treasure", "Treasure.Clutter.FloorSmall#3", new Vector3(-.18f, .957f, .12f), .11f);
             Add("AlchemyLab", "AlchemyLab.Clutter.Shelf.Individual#7", new Vector3(-.265f, .957f, .415f), .12f);
             Add("Library", "Library.Clutter.Shelf.Individual#7", new Vector3(-.055f, .957f, .18f), .24f);
             _workCoin = Add("Treasure", "Treasure.Clutter.Shelf.Individual#1", TownServiceActivityMotion.CoinSeat(0, false), .026f);

@@ -108,3 +108,7 @@ namespace GloomhavenVR.Rig
         internal static void Reset()=>Lights.Clear();
     }
 }
+
+// This portable fixture measures registry ownership only. Actual shader binding and
+// rendering run in check-town-lighting.py against real Unity/NPCs.
+namespace GloomhavenVR.WorldUI { internal static class TownServiceLightList {internal static void Claim(UnityEngine.Light light){}internal static void Forget(UnityEngine.Light light){} } }

@@ -35,9 +35,9 @@ def main():
         ("baseline", {}),
         ("stabilizer adopts town lights", {"Adoption.cs": adoption.replace("WorldUI.TownServiceLighting.Owns(l) || ", "")}),
         ("broad layer exclusion", {"Adoption.cs": adoption.replace("WorldUI.TownServiceLighting.Owns(l)", "l.gameObject.layer == 27")}),
-        ("practical never registered", {"Owner.cs": owner.replace("Owned.Add(_stand);", "")}),
-        ("destroyed practical leaks registry", {"Owner.cs": owner.replace("Owned.Remove(_stand);", "if (_stand != null) Owned.Remove(_stand);")}),
-        ("ownership released after deferred destroy", {"Owner.cs": owner.replace("Owned.Remove(_stand);", "UnityEngine.Object.Destroy(_stand.gameObject); Owned.Remove(_stand);")}),
+        ("practical never registered", {"Owner.cs": owner.replace("ClaimPractical(_stand);", "")}),
+        ("destroyed practical leaks registry", {"Owner.cs": owner.replace("ForgetPractical(_stand);", "if (_stand != null) ForgetPractical(_stand);")}),
+        ("ownership released after deferred destroy", {"Owner.cs": owner.replace("ForgetPractical(_stand);", "UnityEngine.Object.Destroy(_stand.gameObject); ForgetPractical(_stand);")}),
     ]
     dotnet = shutil.which("dotnet") or str(Path.home() / ".dotnet/dotnet")
     env = dict(os.environ, DOTNET_ROOT=str(Path(dotnet).resolve().parent))

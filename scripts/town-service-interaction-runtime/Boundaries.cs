@@ -76,18 +76,19 @@ namespace GloomhavenVR.Cards
 {
     internal sealed class ConfigFloat { internal float Value; }
     internal static class CardsConfig
-    { internal static ConfigFloat HeldOffPalm = new(), HeldForward = new(), HeldFaceBias = new(); }
-    internal static class CardGripPose
-    {
-        internal static void ReadingPose(float bias, float side, Vector3 pinch, float a, float b,
-            out Vector3 position, out Quaternion rotation) { position = Vector3.zero; rotation = Quaternion.identity; }
-    }
+    { internal static ConfigFloat HeldOffPalm = new(), HeldForward = new(), HeldFaceBias = new(),InspectScale=new(){Value=1f},CardWidth=new(){Value=.18f},CardLerpSpeed=new(){Value=20f},CardGrabSound=new();internal static ConfigVector HeldPinchOffset=new(); }
+    internal sealed class ConfigVector {internal Vector3 Value=Vector3.zero;}
+    internal static class CardsDriver {internal static void PlayCardSound(float s,Transform t){} }
+    internal static class HeldCardGrip {internal static float Blend(GloomhavenVR.Hands.VRHand h)=>0f;internal static bool TryPose(GloomhavenVR.Hands.VRHand h,float w,float ht,out Vector3 p,out Quaternion q){p=default;q=Quaternion.identity;return false;}}
 }
+public class ItemCardUI:MonoBehaviour {}
+namespace GloomhavenVR.Rig {internal static class VRRigDriver {internal static Camera? HeadCamera;}}
+
 namespace GloomhavenVR.Hands
 {
     internal enum HandSide { Left, Right }
     internal enum Finger { Thumb, Index }
-    internal enum HapticPreset { GrabPulse }
+    internal enum HapticPreset { GrabPulse,ClickPulse,HoverTick }
     internal struct FingerJoints { internal bool IsValid; internal Transform Tip; }
     internal sealed class RigFixture
     { internal Transform GrabAnchor = Probe.Go("hand").transform; internal FingerJoints GetFinger(Finger f) => default; }
@@ -119,6 +120,7 @@ namespace GloomhavenVR.Hands.Interact
         internal IGrabbable? Highlighted;
         internal ProximityGrabber(VRHand hand) { _hand = hand; }
         internal void Grab(IGrabbable target) => BeginGrab(target, true, "trigger", "fixture");
+        internal bool ForceGrab(IGrabbable target,bool releaseOnTriggerUp){BeginGrab(target,releaseOnTriggerUp,"fixture","fixture");return Held==target;}
         internal bool Heal() => HealDeadHeld();
         private void SetHighlighted(IGrabbable? next)
         {
@@ -355,3 +357,7 @@ namespace GloomhavenVR.WorldUI { internal static class MaskClock { internal stat
 
 // The handoff itself is exercised by the separate actual-card Unity suite.
 namespace GloomhavenVR.WorldUI { internal static class TownServiceEnhancementHandoff { internal static bool Enabled = true; internal static void TickApproach() { } } }
+
+namespace GloomhavenVR.WorldUI {internal static class TownServicePublicMerchant {internal static void Tick(){}internal static void LateTick(){}internal static void Reset(){} }}
+
+namespace GloomhavenVR.WorldUI { internal static class TownServiceMerchantHandoff {internal static void LateTick(){} } }

@@ -73,6 +73,7 @@ internal static class NetProtocol
     public const byte ExtIdTownService = 78;
     public const byte ExtIdTownServiceBundle = 84;
     public const byte ExtIdTownRack = 85;
+    public const byte ExtIdTownCassette = 86;
     public const byte ExtIdTownResidents = 79;
     public const byte ExtIdTownFace = 80;
     public const byte MsgTownFace = 21;
@@ -529,7 +530,25 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 548;
+    public const ushort ModBuild = 549;
+
+    // ModBuild 549 — approved side cabinet and explicit merchant palm transactions.
+    // Persistent original stock lives in one detailed upright cabinet: six native category
+    // pictograms, a physical crank and a retracting cassette behind folding opaque shutters.
+    // Stock inspection shares the scenario item hold/grasp/transfer code. Near the merchant,
+    // the selected controlled character's owned items replace the normal map fan; dropping
+    // an owned/stock item into the offered palm requests sale/purchase. Only the original
+    // final confirmation commits. Leaving, ownership changes and teardown cancel stale offers.
+    // Public cabinet and private service/inspection presentation have independent lifetimes,
+    // fragment assembly and authority. Additive TLV86 identifies cassette motion/public lane;
+    // version3 and previous record layouts remain unchanged. Generic held-card publishing
+    // must not duplicate the town inspection surface. Disabled map hands keep native services.
+    // Actual stationary-lamp slot binding replaces Unity renderer-dependent light ranking:
+    // real 548 NPCs could change lit side after a0.1mm movement. No native lights are changed.
+    // Resident positions use the front semicircle of the authored map reading side; the
+    // original forest/cellar and native map geometry remain unchanged. Shared body motion
+    // and sleeve/skin transitions are validated on imported meshes and continuous hand poses.
+    // Evidence and hardware limits: .planning/research/TOWN-SERVICES-549.md.
 
     // ModBuild 548 — restore authored room proportions and compact immersive town services.
     // Hardware rejects build 547's 3.5x horizontal room expansion and oversized counter.
