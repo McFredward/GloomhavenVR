@@ -15,9 +15,10 @@ internal sealed class TownServiceTempleOffering : IDisposable
     private static float _approachAt;
     private readonly TownServiceRitual _ritual;
     private readonly UITempleWindow _temple;
+    private readonly UIWindow _window;
     private readonly Transform _station;
     private readonly CanvasGroup _gate;
-    private bool _near, _disposed;
+    private bool _near, _disposed, _visited;
     private float _visibility;
     internal Transform Root { get; }
     internal Transform DropFrame { get; }
@@ -50,6 +51,8 @@ internal sealed class TownServiceTempleOffering : IDisposable
     internal TownServiceTempleOffering(TownServiceRitual ritual, UITempleWindow temple, Transform station)
     {
         _ritual = ritual; _temple = temple; _station = station;
+        _window = temple.GetComponent<UIWindow>();
+        _visited = TownServiceOfferingPose.VisitorWithin(station, 1.65f);
         DropFrame = TownServiceTempleBowl.Create(station);
         Root = new GameObject("GloomhavenVR.Temple.OfferingPurses").transform;
         Root.SetParent(ritual.Root, false);
@@ -59,7 +62,7 @@ internal sealed class TownServiceTempleOffering : IDisposable
 
     internal void Tick(bool input)
     {
-        if (_disposed) return;
+        if (_disposed || ExitIfAway()) return;
         var selected = MapRoomHand.OwnedMerchantCharacter();
         TownServiceStation? priest = TownServicePopulation.Acquire(2);
         _near = input && selected != null && _temple.character != null
@@ -67,6 +70,7 @@ internal sealed class TownServiceTempleOffering : IDisposable
             && selected.CharacterID == _temple.character.CharacterID && priest != null
             && priest.IsLocalVisitorNear(_near)
             && TownServiceOfferingPose.VisitorWithin(_station, _near ? 1.65f : 1.4f);
+        if (_near) _visited = true;
         MapRoomHand.SetTempleInspection(_near);
         VRHand? hand = VRHands.Primary == VRHands.Left ? VRHands.Right : VRHands.Left;
         bool held = false;
@@ -84,7 +88,7 @@ internal sealed class TownServiceTempleOffering : IDisposable
             hand.PalmGate.EnterDegrees = CardsConfig.RevealEnterDegrees.Value;
             hand.PalmGate.ExitDegrees = CardsConfig.RevealExitDegrees.Value;
             hand.PalmGate.IgnoreWhenHandBusy = CardsConfig.RevealIgnoreWhenGrabbing.Value;
-            Root.position = hand.Rig.PalmCenter.position + hand.Rig.PalmCenter.up * (.045f * hand.WorldScale);
+            Root.position = hand.Rig.PalmCenter.position + hand.Rig.PalmCenter.up * (.075f * hand.WorldScale);
             // A purse is an upright object resting above the palm, not a card billboard.
             Vector3 forward = VRRigDriver.HeadCamera != null
                 ? Root.position - VRRigDriver.HeadCamera.transform.position : _station.forward;
@@ -98,6 +102,19 @@ internal sealed class TownServiceTempleOffering : IDisposable
         _gate.interactable = shown && _visibility >= .99f;
         foreach (TownServiceRitual.Piece piece in _ritual.Pieces)
             piece.SetVisibility(piece.Token.IsHeld ? 1f : _visibility);
+    }
+
+    private bool ExitIfAway()
+    {
+        if (!_visited || _window == null || !_window.IsOpen || VRRigDriver.HeadCamera == null
+            || TownServiceOfferingPose.VisitorWithin(_station, 1.65f)) return false;
+        // Physical departure, not temporary input disablement, is the native destination
+        // exit. Cancel before the close callback can dispose this ritual reentrantly.
+        Available = _near = false;
+        MapRoomHand.SetTempleInspection(false);
+        foreach (TownServiceRitual.Piece piece in _ritual.Pieces) piece.Token.CancelInspection();
+        ModalFallback.CloseFloatedWindow(_window);
+        return true;
     }
 
     public void Dispose()

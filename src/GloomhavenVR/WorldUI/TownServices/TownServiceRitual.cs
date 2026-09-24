@@ -73,6 +73,8 @@ internal sealed class TownServiceRitual : IDisposable
         private readonly List<Graphic> _inscriptions;
         private readonly RectTransform _reach;
         private readonly bool _card;
+        private readonly CanvasGroup? _purseGate;
+        private float _requestedVisibility = 1f;
         private Transform? _graphicRoot;
         private readonly List<Graphic> _graphics = new();
         private readonly List<Material> _coinMaterials = new();
@@ -107,6 +109,7 @@ internal sealed class TownServiceRitual : IDisposable
                 _reach.sizeDelta = placement.Size;
                 if (offering)
                 {
+                    _purseGate = Root.gameObject.AddComponent<CanvasGroup>();
                     Transform template = TownServiceDecor.MoneyBagTemplate
                         ?? throw new InvalidOperationException("Original offering purse is still loading");
                     Body = UnityEngine.Object.Instantiate(template.gameObject, Root, false).transform;
@@ -150,6 +153,9 @@ internal sealed class TownServiceRitual : IDisposable
 
         internal void SetVisibility(float visibility)
         {
+            _requestedVisibility = visibility;
+            visibility *= Token?.PhysicalVisibility ?? 1f;
+            if (_purseGate != null) _purseGate.alpha = visibility;
             if (BodyKey == "merchant.cardbody") TownServiceCardBody.SetVisibility(Body.gameObject, visibility);
             foreach (Material material in _coinMaterials) material.SetFloat("_TownVisibility", visibility);
         }
@@ -166,6 +172,7 @@ internal sealed class TownServiceRitual : IDisposable
             if (Time.unscaledTime >= _refreshAt)
             { _refreshAt = Time.unscaledTime + .2f; _mirror.Refresh(Source.transform); }
             _mirror.TickLive(); ApplyInscriptions(); Token.Tick(scale);
+            SetVisibility(_requestedVisibility);
             TickDetails();
         }
 
@@ -384,7 +391,8 @@ internal sealed class TownServiceRitual : IDisposable
                 if (ArrangeExisting(slot, placement)) continue;
                 Add(slot, "temple.row", slot.button, () => slot.Blessing,
                         () => OfferingEligible(temple, slot),
-                        () => Donate(temple, slot),
+                        () => Donate(temple, slot, accepted =>
+                        { if (_pieces.TryGetValue(slot, out Piece? piece)) piece.Token.CompletePhysicalOffering(accepted); }),
                         placement, false,
                         slot.blessIcon, slot.blessName, slot.priceText);
             }
@@ -414,17 +422,17 @@ internal sealed class TownServiceRitual : IDisposable
         return true;
     }
 
-    private bool OfferingEligible(UITempleWindow temple, UITempleShopSlot slot) => _templeOffering?.Available == true && temple.character != null
+    private bool OfferingEligible(UITempleWindow temple, UITempleShopSlot slot) => _templeOffering?.Available == true && temple.character != null && slot.Blessing != null
         && !_submittedOfferings.Contains((temple.character.CharacterID, slot.Blessing)) && TempleEligible(temple, slot);
 
-    private bool Donate(UITempleWindow temple, UITempleShopSlot slot)
+    private bool Donate(UITempleWindow temple, UITempleShopSlot slot, Action<bool>? settled = null)
     {
         if (!OfferingEligible(temple, slot)) return false;
         var offering = (temple.character.CharacterID, (object)slot.Blessing);
         _submittedOfferings.Add(offering);
         bool submitted = Confirm(slot.button, () => slot.Blessing, temple,
             () => _templeOffering?.Available == true && TempleEligible(temple, slot),
-            committed => { if (!committed) _submittedOfferings.Remove(offering); });
+            committed => { if (!committed) _submittedOfferings.Remove(offering); settled?.Invoke(committed); });
         // Online clients wait for the original host action before stock refreshes. A second
         // release during that interval must never send the same donation twice.
         if (!submitted) _submittedOfferings.Remove(offering);

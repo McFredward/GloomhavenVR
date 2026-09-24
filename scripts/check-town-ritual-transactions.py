@@ -42,11 +42,19 @@ def sources(root):
         guard_path = Path(__file__).resolve().parent.parent / "src/GloomhavenVR/WorldUI/TownServices/TownServiceRitualConfirmationGuard.cs"
     guard_raw = guard_path.read_text()
     guard = guard_raw[:guard_raw.index("\n[HarmonyPatch")].replace("using HarmonyLib;\n", "")
-    return {"RitualTransactions.cs": text, "RitualGuard.cs": guard}, {"TownServiceRitual.cs": hashlib.sha256(raw.encode()).hexdigest(), "TownServiceRitualConfirmationGuard.cs": hashlib.sha256(guard_raw.encode()).hexdigest()}
+    offering_raw = (root / "src/GloomhavenVR/WorldUI/TownServices/TownServiceTempleOffering.cs").read_text()
+    exit_method = method(offering_raw, "private bool ExitIfAway(").replace("private bool ExitIfAway(", "internal bool ExitIfAway(")
+    exit_source = "using UnityEngine;using GloomhavenVR.WorldUI;internal sealed class BoundTempleExit {" + \
+        "internal bool _visited=true,_near=true,Available=true;internal UIWindow _window;internal Transform _station;internal TownServiceRitual _ritual=new();" + \
+        "internal BoundTempleExit(UIWindow window,Transform station){_window=window;_station=station;}" + exit_method + "}"
+    pose_raw = (root / "src/GloomhavenVR/WorldUI/TownServices/TownServiceOfferingPose.cs").read_text()
+    exit_source += "internal static class TownServiceOfferingPose {" + method(pose_raw, "internal static bool VisitorWithin(") + "}"
+    return {"RitualTransactions.cs": text, "RitualGuard.cs": guard, "TempleExit.cs": exit_source}, {"TownServiceRitual.cs": hashlib.sha256(raw.encode()).hexdigest(), "TownServiceRitualConfirmationGuard.cs": hashlib.sha256(guard_raw.encode()).hexdigest()}
 
 
 def mutations():
     return [
+        ("temple-close-missing", "TempleExit.cs", "ModalFallback.CloseFloatedWindow(_window);", "", "physical departure closes native temple before visiting another resident"),
         ("repeat-donation", "RitualTransactions.cs", "_submittedOfferings.Add(offering);", "", "a delayed online stock refresh never permits a duplicate donation"),
         ("delayed-validation", "RitualGuard.cs", "_box != null && _valid()", "_box != null", "delayed owner change cancels original transaction"),
         ("delayed-cancel", "RitualGuard.cs", "else cancel?.Invoke();", "else if (!requested) cancel?.Invoke();", "delayed owner change cancels original transaction"),

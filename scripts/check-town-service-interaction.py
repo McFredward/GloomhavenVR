@@ -80,6 +80,8 @@ def mutations():
     # Every mutant compiles and must reach the specified runtime assertion. A compile error,
     # unrelated exception or changed source binding cannot count as a rejected negative control.
     return [
+        ("purse-return-before-payment", "Token.cs", "_physical.SetParent(_mat, true);", "_physical.SetParent(_homeParent, true);", "accepted purse waits at actual bowl instead of returning to moving hand before native payment"),
+        ("purse-restart-completion", "Token.cs", "if (_settlementDecided) return;", "", "confirmed purse sinks and fades once at bowl without restarting on duplicate completion"),
         ("purse-own-hand", "Token.cs", "(_handAllowed?.Invoke(hand) ?? true)", "true", "unowned or unavailable purse cannot be grabbed or donated"),
         ("flat-purse", "Token.cs", "if (_uprightProp)", "if (false)", "purse pickup preserves upright physical orientation"),
         ("purse-depth", "Token.cs", "_reachDepth * scale", ".009f * scale", "purse collider encloses its physical depth at each map scale"),

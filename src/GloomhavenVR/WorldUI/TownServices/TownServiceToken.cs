@@ -44,8 +44,14 @@ internal sealed class TownServiceToken : IGrabbable, ITriggerOnlyGrabbable, IGra
     private float _returnStarted;
     private Vector3 _returnScale;
     private bool _returning, _heldTracked;
+    private bool _settling, _settlementDecided;
+    private object? _settledIdentity, _settledContext;
+    private Vector3 _settledPosition;
+    private Quaternion _settledRotation;
+    private float _settledAt;
+    internal float PhysicalVisibility { get; private set; } = 1f;
     internal bool IsPhysical => _physical != null;
-    internal bool IsMoving => _hand != null || _returning || _offering != null;
+    internal bool IsMoving => _hand != null || _returning || _offering != null || _settling && PhysicalVisibility > 0f;
     private readonly GameObject _pick;
     private readonly BoxCollider _shape;
     private readonly Vector3[] _corners = new Vector3[4];
@@ -78,7 +84,7 @@ internal sealed class TownServiceToken : IGrabbable, ITriggerOnlyGrabbable, IGra
     public bool AllowsHand(VRHand hand) => !_disposed && _sessionAlive()
         && (_handAllowed?.Invoke(hand) ?? true)
         && (!ReferenceEquals(hand.Grabber.Held, this) || _hand == hand);
-    public bool CanGrab => !_disposed && _hand == null && !_returning && _sessionAlive()
+    public bool CanGrab => !_disposed && _hand == null && !_returning && !_settling && _sessionAlive()
         && ((_offering != null && TownServiceMerchantHandoff.CanReclaim(this)) || (_inspect?.Invoke() ?? true)) && _source != null && _source.gameObject.activeInHierarchy
         && (IsPhysical || (_button != null && _button.IsActive() && _button.IsInteractable())) && _shape.enabled;
 
@@ -125,6 +131,20 @@ internal sealed class TownServiceToken : IGrabbable, ITriggerOnlyGrabbable, IGra
             }
             _mirror?.TickLive();
             return;
+        }
+        if (_settling && _physical != null)
+        {
+            if (!ReferenceEquals(_settledIdentity, _identity()) || !ReferenceEquals(_settledContext, _contextIdentity()))
+                CompletePhysicalOffering(false);
+            else if (_settlementDecided)
+            {
+                float t = Mathf.Clamp01((Time.unscaledTime - _settledAt) / .28f);
+                float ease = t * t * (3f - 2f * t);
+                _physical.localPosition = _settledPosition - Vector3.up * (.04f * ease);
+                _physical.localRotation = Quaternion.Slerp(_settledRotation, Quaternion.identity, ease);
+                PhysicalVisibility = 1f - ease;
+            }
+            if (_settling) { _shape.enabled = false; return; }
         }
         _offering?.Tick();
         if (_returning && _physical != null)
@@ -268,7 +288,22 @@ internal sealed class TownServiceToken : IGrabbable, ITriggerOnlyGrabbable, IGra
             _returnPosition = _physical.localPosition; _returnRotation = _physical.localRotation; _returnScale = _physical.localScale;
             _returnStarted = Time.unscaledTime; _returning = true;
             _held = null; _hand = null; _pickedIdentity = null; _pickedContext = null;
-            if (commit) _drop!();
+            if (commit)
+            {
+                if (_uprightProp && _physical != null)
+                {
+                    // Await the original native confirmation in the physical bowl. This
+                    // is visual ownership only; successful payment still runs exclusively
+                    // through the native service callback, including its host validation.
+                    _returning = false; _settling = true; _settlementDecided = false;
+                    _settledIdentity = _identity(); _settledContext = _contextIdentity();
+                    _physical.SetParent(_mat, true);
+                    _settledPosition = _physical.localPosition; _settledRotation = _physical.localRotation;
+                    _shape.enabled = false;
+                }
+                bool accepted = _drop!();
+                if (_uprightProp && !accepted) CompletePhysicalOffering(false);
+            }
             return;
         }
         bool select = hand.HasPose && hand.TriggerUp && !_disposed && _sessionAlive() && _button != null && _button.IsInteractable()
@@ -286,6 +321,22 @@ internal sealed class TownServiceToken : IGrabbable, ITriggerOnlyGrabbable, IGra
         // confirmation, including ownership, affordability, stock and native multiplayer rules.
         var pointer = new PointerEventData(EventSystem.current) { button = PointerEventData.InputButton.Left };
         ExecuteEvents.Execute(_button!.gameObject, pointer, ExecuteEvents.pointerClickHandler);
+    }
+
+    internal void CompletePhysicalOffering(bool accepted)
+    {
+        if (!_settling || _physical == null || _disposed) return;
+        if (accepted)
+        {
+            if (_settlementDecided) return;
+            _settlementDecided = true; _settledAt = Time.unscaledTime;
+            return;
+        }
+        _settling = _settlementDecided = false; _settledIdentity = _settledContext = null;
+        PhysicalVisibility = 1f;
+        _physical.SetParent(_homeParent, true);
+        _returnPosition = _physical.localPosition; _returnRotation = _physical.localRotation;
+        _returnScale = _physical.localScale; _returnStarted = Time.unscaledTime; _returning = true;
     }
 
     internal void ParkOffering(Transform seat, Action reclaimed)
@@ -323,6 +374,7 @@ internal sealed class TownServiceToken : IGrabbable, ITriggerOnlyGrabbable, IGra
     internal void CancelInspection()
     {
         if (_hand != null) _hand.Grabber.CancelAll();
+        else if (_settling && !_settlementDecided) CompletePhysicalOffering(false);
         else if (_offering != null)
         {
             Action? reclaim = _offeringReclaimed;
@@ -369,7 +421,7 @@ internal sealed class TownServiceToken : IGrabbable, ITriggerOnlyGrabbable, IGra
     {
         Hover(false);
         _mirror?.Destroy(); _mirror = null;
-        if (_physical != null && (_held != null || _returning || _offering != null))
+        if (_physical != null && (_held != null || _returning || _offering != null || _settling))
         {
             _physical.SetParent(_homeParent, true);
             _physical.localPosition = _homePosition; _physical.localRotation = _homeRotation;
@@ -377,6 +429,7 @@ internal sealed class TownServiceToken : IGrabbable, ITriggerOnlyGrabbable, IGra
         }
         else if (_held != null) UnityEngine.Object.Destroy(_held);
         _returning = false; _offering = null; _offeringReclaimed = null;
+        _settling = _settlementDecided = false; PhysicalVisibility = 1f; _settledIdentity = _settledContext = null;
         _held = null; _hand = null; _pickedIdentity = null; _pickedContext = null;
     }
 

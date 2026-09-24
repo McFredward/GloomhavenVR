@@ -91,6 +91,6 @@ public static class InteractionProgram
         TownServiceRitualConfirmationGuard.Capture(a.GetComponent<UIEnhancementConfirmationBox>(),ref cb,ref cancelCb);
         Check(ReferenceEquals(cb,original)&&ReferenceEquals(cancelCb,originalCancel),"scope exits without intercepting future flat prompts");
         UnityEngine.Object.DestroyImmediate(a);UnityEngine.Object.DestroyImmediate(b);
-        return count + DonationProof.Run();
+        return count + DonationProof.Run() + TempleExitProof.Run();
     }
 }

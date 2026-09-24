@@ -5,7 +5,7 @@ using UnityEngine.EventSystems;
 using UnityEngine.UI;
 
 public sealed class FakeCharacter { public string CharacterID="owned"; }
-public static class MapRoomHand { public static FakeCharacter? Selected; public static FakeCharacter? OwnedMerchantCharacter()=>Selected; }
+public static class MapRoomHand { public static FakeCharacter? Selected; public static FakeCharacter? OwnedMerchantCharacter()=>Selected;public static bool TempleInspection;public static void SetTempleInspection(bool value)=>TempleInspection=value; }
 public sealed class FakeTempleInventory { public CanvasGroup slotsCanvasGroup=null!; }
 public sealed class FakeTempleOffering { public bool Available=true; }
 public sealed class FakeTempleService

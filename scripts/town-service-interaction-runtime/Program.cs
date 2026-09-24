@@ -688,6 +688,52 @@ public static class InteractionProgram
         }
     }
 
+    private static void PurseSettlement()
+    {
+        for(int scenario=0;scenario<3;scenario++)
+        {
+            var home=Probe.Go("Owned purse home").transform;
+            var bowl=Probe.Go("Shared physical bowl").transform;bowl.position=new Vector3(2f,1f,0f);
+            var physical=Probe.Go("Offering purse",home).transform;
+            var source=(RectTransform)Probe.Go("Purse reach",physical).transform;source.sizeDelta=new Vector2(.1f,.13f);
+            var button=Probe.Go("Native donation").AddComponent<Button>();
+            object item=new object(),context=new object();int requests=0;
+            using var token=new TownServiceToken(source,button,()=>item,()=>context,()=>true,bowl,physical,
+                drop:()=>{requests++;return true;},eligible:()=>true,uprightProp:true);
+            var hand=new VRHand{TriggerUp=true};token.Tick(1f);
+            Check(hand.Grabber.ForceGrab(token,true),"purse settlement uses the actual routed physical grab");token.Tick(1f);
+            physical.position=bowl.TransformPoint(new Vector3(0f,.05f,0f));hand.Grabber.ReleaseTick();
+            Vector3 released=physical.position;home.position+=Vector3.right*7f;token.Tick(1f);
+            Check(physical.parent==bowl&&Vector3.Distance(released,physical.position)<.0001f&&requests==1,
+                "accepted purse waits at actual bowl instead of returning to moving hand before native payment");
+            Check(!token.CanGrab&&token.PhysicalVisibility==1f,"pending native payment keeps one visible unreachable offering");
+            if(scenario==0)
+            {
+                token.CompletePhysicalOffering(false);
+                typeof(TownServiceToken).GetField("_returnStarted",BindingFlags.Instance|BindingFlags.NonPublic)!.SetValue(token,Time.unscaledTime-1f);
+                token.Tick(1f);
+                Check(physical.parent==home&&token.PhysicalVisibility==1f&&token.CanGrab,"native rejection returns the purse without losing its pickup");
+            }
+            else
+            {
+                token.CompletePhysicalOffering(true);
+                typeof(TownServiceToken).GetField("_settledAt",BindingFlags.Instance|BindingFlags.NonPublic)!.SetValue(token,Time.unscaledTime-.14f);
+                token.CompletePhysicalOffering(true);token.Tick(1f);
+                Check(token.PhysicalVisibility>.1f&&token.PhysicalVisibility<.9f&&physical.position.y<released.y,
+                    "confirmed purse sinks and fades once at bowl without restarting on duplicate completion");
+                typeof(TownServiceToken).GetField("_settledAt",BindingFlags.Instance|BindingFlags.NonPublic)!.SetValue(token,Time.unscaledTime-1f);token.Tick(1f);
+                Check(token.PhysicalVisibility==0f&&!token.CanGrab&&!token.IsMoving&&requests==1,
+                    "paid purse stays consumed and creates neither another callback nor invisible pickup");
+                if(scenario==2)
+                {
+                    context=new object();token.Tick(1f);
+                    Check(physical.parent==home&&token.PhysicalVisibility==1f,"new owned character restores its independent physical purse");
+                }
+            }
+            Clean();
+        }
+    }
+
     private static void PhysicalCommitCases()
     {
         for(int scenario=0;scenario<9;scenario++)
@@ -865,7 +911,7 @@ public static class InteractionProgram
     public static int Run()
     {
         _assertions = 0;
-        try { NativeFolioAndTeardown(); EnhancementDecisionLayout(); PalmConfirmationLifecycle(); ParkedStockRegrab(); PhysicalCommitCases(); PhysicalMerchantSamples(); WindowMaskLifecycle(); MerchantContextLifecycle(); ConfirmationFadeLifecycle(); IdentityChanges(); HoverAndRelease(); CancellationCompatibility(); Handoff(); RollbackAndContinuation(); OptionalPresentation(); ManualTrayPlacement(); MapHandFallback(); PhysicalPurse(); return _assertions; }
+        try { NativeFolioAndTeardown(); EnhancementDecisionLayout(); PalmConfirmationLifecycle(); ParkedStockRegrab(); PhysicalCommitCases(); PhysicalMerchantSamples(); WindowMaskLifecycle(); MerchantContextLifecycle(); ConfirmationFadeLifecycle(); IdentityChanges(); HoverAndRelease(); CancellationCompatibility(); Handoff(); RollbackAndContinuation(); OptionalPresentation(); ManualTrayPlacement(); MapHandFallback(); PhysicalPurse(); PurseSettlement(); return _assertions; }
         finally { Clean(); }
     }
 }
