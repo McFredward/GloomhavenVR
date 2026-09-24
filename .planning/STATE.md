@@ -23,7 +23,8 @@ change per build) → this file (where things stand and what is owed) → the bu
   ownership and missed-event/failure recovery, complete message queue callbacks,
   native popup cancellation and safe mandatory-window close admission. Source review
   covers reward/result chains and more than 30 window families. No matching third-party
-  logs are available; current local/remote files belong to builds 551/500. No NPC code,
+  logs are available; the maintainer confirms the report concerns release 1.0.7,
+  primarily Campaign. Current local/remote files belong to builds 551/500. No NPC code,
   asset bundle change or release is included. See [WINDOWS-553.md](WINDOWS-553.md).
 
 - **dev / 1.0.7 / ModBuild 546**, based on the 1.0.6 runtime without NPC services:

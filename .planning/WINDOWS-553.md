@@ -11,6 +11,8 @@ feature branch, so the new hotfix build is 553. This is not a release.
 No log or screenshot of that user's affected run is available. Existing local logs
 identify NPC build 551; remote logs identify historical build 500. The findings are
 source-proven failure paths, not a reconstruction of that specific run.
+The maintainer subsequently confirmed the affected release is 1.0.7, primarily in
+Campaign. This does not establish that other modes are unaffected; SP/MP is unknown.
 
 ## Implemented changes
 
@@ -79,8 +81,21 @@ passing tests do not establish headset layout or actual network delivery.
 | Final mandatory close admission | 116 | 4 |
 | Menu lifecycle / repeated interactive popup admission | 7,336 | 21 |
 
-Combined source, wire, production regression and strict Release verification is
-recorded below when complete. The three new suites are registered locally and in CI.
+The complete local guard passed all source gates and production regression suites,
+including 254,632 real-runtime wire assertions. The final repeated-popup change was
+also checked independently by the options suite above and a second source review;
+partial-order and instrumentation gates were rerun after it. The three new suites
+are registered locally and in CI.
+
+Strict Release builds with zero errors and zero warnings. Documentation parity,
+Actionlint, whitespace, and the additional self-update dialog, banner-pose and
+quest-seat CI suites pass. The patch inventory remains 132 classes / 200 methods;
+the compatibility surface is 626 config keys / 174 patch signatures / 4,745 log
+tokens, with no removals. No asset bundle changed.
+
+The guard's exit 1 is the expected compiled difference from historical baseline
+`080c505e9`: 111 changed and 92 added/removed entries, no order-only moves. This
+baseline predates the dev starting point; those totals are not this task's diff.
 
 ## Hardware check
 

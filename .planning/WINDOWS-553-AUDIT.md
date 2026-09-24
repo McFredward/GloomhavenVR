@@ -10,6 +10,7 @@ and this audit lane (message/dialog semantic close and focused regression fixtur
 
 The supplied third-party report describes post-quest story/reward, level-up card
 reveal, and a third unidentified window. It supplies no matching log or screenshot.
+The maintainer confirmed release 1.0.7, primarily Campaign; SP/MP remains unknown.
 The existing local banner is **551 / 1.1.0**, remote **500 / 1.0.0**. Neither is a
 capture of this report. Findings below are source-proven failure paths; they do not
 claim to identify which of them the reporting player encountered.
