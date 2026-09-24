@@ -31,13 +31,20 @@ def sources(root):
     source = path.read_text()
     pose = path.with_name("TownServiceOfferingPose.cs")
     bound = {path.name: source, pose.name: pose.read_text()}
+    card = (root / "src/GloomhavenVR/Cards/VRCard.cs").read_text()
+    start = card.index("    public override bool CanGrab =>")
+    gate = card[start:card.index(";", start) + 1]
+    grab = (root / "src/GloomhavenVR/Hands/Interact/ProximityGrabber.cs").read_text()
+    force = method(grab, "public bool ForceGrab(")
+    bound["ActualGrabRoute.cs"] = "using System; using GloomhavenVR.Hands; using GloomhavenVR.Hands.Interact; namespace GloomhavenVR.Cards { public partial class VRCard { " + gate + " } } namespace GloomhavenVR.Hands { public partial class Holder { " + force + " } }"
     return bound, {name: hashlib.sha256(text.encode()).hexdigest() for name, text in bound.items()}
 
 
 def mutations():
     name = "TownServiceEnhancementHandoff.cs"
     return [
-        ("flat-card", name, "card.SetHome(_seat, Vector3.zero, Quaternion.identity, .90f);", "card.SetHome(_seat, Vector3.zero, Quaternion.Euler(75f, 0f, 0f), .90f);", "offered ability card is upright over the palm"),
+        ("reclaim-modal", name, "&& _current.ReclaimReady", "&& _current.Ready", "actual routed grab reclaims mage card through owned native confirmation"),
+        ("flat-card", name, "card.SetHome(_seat, Vector3.zero, Quaternion.identity, size);", "card.SetHome(_seat, Vector3.zero, Quaternion.Euler(75f, 0f, 0f), size);", "offered ability card is upright over the palm"),
         ("owner", name, "|| !TownServiceOfferingPose.Contains(_seat, card.transform.position) || !ValidOwner(card)", "|| !TownServiceOfferingPose.Contains(_seat, card.transform.position)", "foreign native character refuses offering"),
         ("distance", name, "|| !TownServiceOfferingPose.Contains(_seat, card.transform.position)", "", "distant release refuses offering"),
         ("native-disabled", name, "&& slot.Selectable.IsActive() && slot.Selectable.IsInteractable()", "&& slot.Selectable.IsActive()", "foreign disabled or pending native selection never advertises a palm drop"),

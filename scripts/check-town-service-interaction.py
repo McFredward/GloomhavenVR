@@ -30,6 +30,8 @@ def sources(root):
     base = root / "src/GloomhavenVR"
     paths = {
         "Token.cs": "WorldUI/TownServices/TownServiceToken.cs",
+        "PalmConfirmation.cs": "WorldUI/TownServices/TownServicePalmConfirmation.cs",
+        "Surface.cs": "WorldUI/TownServices/TownServiceSurface.cs",
         "OfferingPose.cs": "WorldUI/TownServices/TownServiceOfferingPose.cs",
         "WindowMask.cs": "WorldUI/TownServices/TownServiceWindowMask.cs",
         "ConfirmationMask.cs": "WorldUI/TownServices/TownServiceConfirmationMask.cs",
@@ -41,11 +43,11 @@ def sources(root):
     }
     raw = {name: (base / path).read_text() for name, path in paths.items()}
     hashes = {paths[name]: hashlib.sha256(text.encode()).hexdigest() for name, text in raw.items()}
-    bound = {name: raw[name] for name in ("Token.cs", "OfferingPose.cs", "Presentation.cs", "Handoff.cs", "WindowMask.cs", "ConfirmationMask.cs")}
+    bound = {name: raw[name] for name in ("Token.cs", "OfferingPose.cs", "Presentation.cs", "Handoff.cs", "WindowMask.cs", "ConfirmationMask.cs", "PalmConfirmation.cs", "Surface.cs")}
     bound["ConfirmationMask.cs"] = bound["ConfirmationMask.cs"].replace("Time.unscaledTime", "MaskClock.Now")
-    bound["Composite.cs"] = "using System;\nnamespace GloomhavenVR.WorldUI;\ninternal static partial class ModalFallback {\n" + method(raw["Composite.cs"], "internal static bool ReleaseForComposite(UIWindow window)") + "\n}\n"
+    bound["Composite.cs"] = "using System;\nusing UnityEngine.UI;\nnamespace GloomhavenVR.WorldUI;\ninternal static partial class ModalFallback {\n" + method(raw["Composite.cs"], "internal static bool ReleaseForComposite(UIWindow window)") + "\n}\n"
     bound["Grabber.cs"] = "using System;\nusing UnityEngine;\nnamespace GloomhavenVR.Hands.Interact;\ninternal partial class ProximityGrabber {\n" + "\n".join(method(raw["Grabber.cs"], sig) for sig in (
-        "private void BeginGrab(", "private bool HealDeadHeld()", "internal void CancelAll()")) + "\n}\n"
+        "private void BeginGrab(", "public bool ForceGrab(", "private bool HealDeadHeld()", "internal void CancelAll()")) + "\n}\n"
     # Bind the held branch of the real Tick as well. Its surrounding election/physics and mode
     # policy are outside this fixture; no release-condition or callback logic is reimplemented.
     tick = method(raw["Grabber.cs"], "internal void Tick()")
@@ -72,6 +74,11 @@ def mutations():
     # Every mutant compiles and must reach the specified runtime assertion. A compile error,
     # unrelated exception or changed source binding cannot count as a rejected negative control.
     return [
+        ("parked-reclaim", "Token.cs", "(_offering != null && TownServiceMerchantHandoff.CanReclaim(this))", "false", "actual routed grab reclaims parked stock through owned modal gate"),
+        ("palm-front", "PalmConfirmation.cs", "i == 2 ? -.125f : .125f, -.50f, -.80f", "i == 2 ? -.125f : .125f, -.50f, -.14f", "confirmation controls float below palm and ahead of table fascia"),
+        ("palm-cancel-scope", "PalmConfirmation.cs", "internal void Cancel() { if (Open) _cancel(); }", "internal void Cancel() { _cancel(); }", "reused unrelated confirmation is never cancelled"),
+        ("palm-flat", "Surface.cs", "_counterAnchor.rotation * _anchorRotation", "_counterAnchor.rotation * Quaternion.Euler(90f, 0f, 0f)", "native confirmation is upright independently of palm pitch"),
+        ("palm-backing", "Surface.cs", "Panel.MrBackingSuppressed = counterAnchor != null;", "Panel.MrBackingSuppressed = false;", "freestanding original controls have no mixed reality backing"),
         ("confirm-early-unmask", "ConfirmationMask.cs", "!window.IsOpen && !window.IsVisible", "!window.IsOpen", "native onHidden starts fade without exposing confirmation popup"),
         ("confirm-reuse", "ConfirmationMask.cs", "|| !ReferenceEquals(entry.Callback, entry.Identity())", "", "reused prompt with unrelated callback is restored"),
         ("physical-eligible-drop", "Token.cs", "&& _drop != null && DropEligible", "&& _drop != null", "physical drop eligibility identity pose zone and cancellation fence 1"),

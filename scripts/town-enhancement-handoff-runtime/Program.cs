@@ -84,7 +84,7 @@ public static class InteractionProgram
                 Check(TownServiceEnhancementHandoff.IsParked(card), "parked card excluded from fan adoption");
                 Check(handoff.Face == face.transform && handoff.CloneOf(originalTop) == face.transform.Find("Top"), "actual printed face retains native provenance");
                 Check(handoff.CloneOf(secondOriginalTop) == secondFaceTop, "same-named printed nodes retain distinct native provenance");
-                Check(card.Grabbable && TownServiceEnhancementHandoff.CanReclaim(card), "offering remains reclaimable");
+                Check(card.FullCollider && card.Grabbable && TownServiceEnhancementHandoff.CanReclaim(card), "offering remains reclaimable");
                 Check(!TownServiceEnhancementHandoff.TryOffer(card), "duplicate release cannot select twice");
                 palm.localPosition += new Vector3(.1f, .04f, -.02f); handoff.Tick();
                 Check(Mathf.Abs((card.transform.position.y - palm.position.y) / scale - .17f) < .007f
@@ -93,7 +93,18 @@ public static class InteractionProgram
                 Check(Vector3.Dot(card.transform.up, Vector3.up) > .999f, "offered ability card is upright over the palm");
                 if (scenario == 10)
                 {
-                    var hand = new VRHand(); card.Grab(hand);
+                    var hand = new VRHand();
+                    input=false; shop._isConfirmationBoxOpened=true;
+                    var confirm=new GameObject("NativeRuneConfirmation",typeof(UIWindow),typeof(UIEnhancementConfirmationBox));
+                    confirm.transform.SetParent(root.transform,false);
+                    Singleton<UIEnhancementConfirmationBox>.Instance=confirm.GetComponent<UIEnhancementConfirmationBox>();
+                    GloomhavenVR.Core.Events.VRModeStateMachine.CurrentMode=GloomhavenVR.Core.Events.VRMode.ModalUI;
+                    TownServicePalmConfirmation.Owned=false;
+                    Check(!hand.Grabber.ForceGrab(card,true),"unowned rune prompt retains ordinary modal grab block");
+                    TownServicePalmConfirmation.Owned=true;
+                    Check(hand.Grabber.ForceGrab(card,true),"actual routed grab reclaims mage card through owned native confirmation");
+                    TownServicePalmConfirmation.Owned=false;
+                    GloomhavenVR.Core.Events.VRModeStateMachine.CurrentMode=GloomhavenVR.Core.Events.VRMode.TableIdle;
                     Check(handoff.Card == null && shop.selectedCard == null, "manual reclaim clears native options");
                     Check(CardsDriver.Returned == 0, "manual reclaim preserves held card");
                     card.transform.SetParent(fan, true); card.IsHeld = false;

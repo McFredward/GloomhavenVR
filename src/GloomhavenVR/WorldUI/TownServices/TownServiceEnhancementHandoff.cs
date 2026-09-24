@@ -74,7 +74,8 @@ internal sealed class TownServiceEnhancementHandoff : IDisposable
     private Transform? _palm;
     private float _palmSearchAt;
     private CAbilityCard? _model;
-    private bool _disposed;
+    private bool _disposed, _confirmationSeen;
+    private float _offeredHeight;
     internal VRCard? Card { get; private set; }
     internal AbilityCardUI? NativeSource { get; private set; }
     internal Transform Zone { get; }
@@ -185,7 +186,7 @@ internal sealed class TownServiceEnhancementHandoff : IDisposable
         { _palmSearchAt = Time.unscaledTime + .5f; _palm = FindPalm(_station); }
         if (_palm != null && _station != null)
         {
-            TownServiceOfferingPose.Place(_seat, _palm, _station, TownServicePresentation.SessionAge);
+            TownServiceOfferingPose.Place(_seat, _palm, _station, TownServicePresentation.SessionAge, _offeredHeight * .5f);
             // Authored activity markers carry station units, not imported bone scale.
             _seat.localScale = Vector3.one;
         }
@@ -205,15 +206,19 @@ internal sealed class TownServiceEnhancementHandoff : IDisposable
         {
             NativeSource = _shop.selectedCard;
             UIEnhancementConfirmationBox? box = Singleton<UIEnhancementConfirmationBox>.Instance;
-            if (_shop._isConfirmationBoxOpened && box != null && box.GetComponent<UIWindow>().IsOpen)
+            if (!_shop._isConfirmationBoxOpened) _confirmationSeen = false;
+            if (!_confirmationSeen && _shop._isConfirmationBoxOpened && box != null && box.GetComponent<UIWindow>().IsOpen)
+            {
+                _confirmationSeen = true;
                 TownServicePalmConfirmation.Begin(box, _seat);
+            }
         }
     }
 
     internal void LateTick()
     {
         if (!_disposed && _palm != null)
-            TownServiceOfferingPose.Place(_seat, _palm, _station, TownServicePresentation.SessionAge);
+            TownServiceOfferingPose.Place(_seat, _palm, _station, TownServicePresentation.SessionAge, _offeredHeight * .5f);
     }
 
     private bool ValidOwner(VRCard card) => MapRoomHand.TryOwnedTownCard(card, out var owner, out _)
@@ -278,8 +283,10 @@ internal sealed class TownServiceEnhancementHandoff : IDisposable
         // A 0.9 local scale made the ability card a postage stamp on scaled map residents.
         float handScale = VRHands.Primary?.WorldScale ?? Mathf.Abs(card.transform.lossyScale.x);
         float size = CardsConfig.InspectScale.Value * handScale / Mathf.Max(.0001f, Mathf.Abs(_seat.lossyScale.x));
+        _offeredHeight = CardsConfig.CardHeight * CardsConfig.InspectScale.Value * handScale;
         card.SetHome(_seat, Vector3.zero, Quaternion.identity, size);
         card.SetHandPopSuppressed(false);
+        card.ResetColliderRegion();
         card.Grabbable = true; card.InspectOnly = true; card.AllowsGateHand = true;
         VRLog.Debug("WorldUI", "TOWN ENHANCEMENT: actual owned hand card offered to resident palm.");
         return true;
@@ -298,7 +305,7 @@ internal sealed class TownServiceEnhancementHandoff : IDisposable
     private VRCard? Detach()
     {
         VRCard? card = Card;
-        Card = null; NativeSource = null; _model = null;
+        Card = null; NativeSource = null; _model = null; _confirmationSeen = false;
         if (card != null) card.Grabbed -= OnGrabbed;
         return card;
     }

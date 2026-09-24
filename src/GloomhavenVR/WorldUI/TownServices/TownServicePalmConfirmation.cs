@@ -40,10 +40,10 @@ internal static class TownServicePalmConfirmation
                     Component part = _parts[i];
                     if (part == null) continue;
                     Vector3 offset; float width, height;
-                    if (i == 0) { offset = new Vector3(0f, -.34f, -.14f); width = .46f; height = .045f; }
-                    else if (i == 1) { offset = new Vector3(0f, -.405f, -.14f); width = .46f; height = .085f; }
-                    else if (i <= 3) { offset = new Vector3(i == 2 ? -.125f : .125f, -.50f, -.14f); width = .22f; height = .065f; }
-                    else { offset = new Vector3(i == 4 ? -.14f : .075f, -.285f, -.14f); width = i == 4 ? .04f : .31f; height = .04f; }
+                    if (i == 0) { offset = new Vector3(0f, -.34f, -.80f); width = .46f; height = .045f; }
+                    else if (i == 1) { offset = new Vector3(0f, -.405f, -.80f); width = .46f; height = .085f; }
+                    else if (i <= 3) { offset = new Vector3(i == 2 ? -.125f : .125f, -.50f, -.80f); width = .22f; height = .065f; }
+                    else { offset = new Vector3(i == 4 ? -.80f : .075f, -.285f, -.80f); width = i == 4 ? .04f : .31f; height = .04f; }
                     Surfaces.Add(new TownServiceSurface((ushort)(60 + i), (RectTransform)part.transform,
                         offset, width, Seat, Quaternion.identity, height));
                 }
@@ -67,12 +67,22 @@ internal static class TownServicePalmConfirmation
     internal static IEnumerable<Entry> Active => Entries.Values;
     internal static bool Owns(UIWindow window) => Entries.ContainsKey(window);
     internal static bool OwnsCurrent(UIWindow? window) => window != null && Entries.TryGetValue(window, out Entry? entry) && entry.Open;
-    internal static void Begin(UIItemConfirmationBox box, Transform seat) => Begin(new Entry(box.GetComponent<UIWindow>(), seat, 1,
-        () => box._onConfirmedCallback, box.OnCancel,
-        new Component[] { box.titleText, box.informationText, box.confirmButton, box.cancelButton }));
-    internal static void Begin(UIEnhancementConfirmationBox box, Transform seat) => Begin(new Entry(box.GetComponent<UIWindow>(), seat, 3,
-        () => box._onConfirmCallback, box.Hide,
-        new Component[] { box.titleText, box.informationText, box.confirmButton, box.cancelButton, box.enhancementIcon, box.enhancementName }));
+    internal static void Begin(UIItemConfirmationBox box, Transform seat)
+    {
+        UIWindow window = box.GetComponent<UIWindow>();
+        if (Retains(window, seat)) return;
+        Begin(new Entry(window, seat, 1, () => box._onConfirmedCallback, box.OnCancel,
+            new Component[] { box.titleText, box.informationText, box.confirmButton, box.cancelButton }));
+    }
+    internal static void Begin(UIEnhancementConfirmationBox box, Transform seat)
+    {
+        UIWindow window = box.GetComponent<UIWindow>();
+        if (Retains(window, seat)) return;
+        Begin(new Entry(window, seat, 3, () => box._onConfirmCallback, box.Hide,
+            new Component[] { box.titleText, box.informationText, box.confirmButton, box.cancelButton, box.enhancementIcon, box.enhancementName }));
+    }
+    private static bool Retains(UIWindow window, Transform seat) => Entries.TryGetValue(window, out Entry? current)
+        && current.Current && current.Seat == seat;
     private static void Begin(Entry entry)
     {
         if (!entry.Open) return;

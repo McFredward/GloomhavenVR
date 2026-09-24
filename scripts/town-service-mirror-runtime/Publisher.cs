@@ -224,3 +224,20 @@ namespace GloomhavenVR.WorldUI
           return body;
       } }
 }
+
+namespace GloomhavenVR.WorldUI
+{
+    // Original control conversion and lifecycle run in town-service-interaction-runtime.
+    // The publisher fixture binds only routing of those already-owned native surfaces.
+    internal static class TownServicePalmConfirmation
+    {
+        internal sealed class Entry
+        {
+            internal byte Service;
+            internal PublisherWindow Window = null!;
+            internal Transform Seat = null!;
+            internal readonly List<TownServiceSurface> Surfaces = new();
+        }
+        internal static readonly List<Entry> Active = new();
+    }
+}

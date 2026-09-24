@@ -16,7 +16,7 @@ internal static class TownServiceOfferingPose
         return local.sqrMagnitude <= reach * reach;
     }
 
-    internal static void Place(Transform seat, Transform palm, Transform station, float age)
+    internal static void Place(Transform seat, Transform palm, Transform station, float age, float halfHeightWorld = 0f)
     {
         float scale = Mathf.Max(.0001f, Mathf.Abs(station.lossyScale.x));
         Vector3 forward = station.forward;
@@ -26,7 +26,7 @@ internal static class TownServiceOfferingPose
         Quaternion facing = Quaternion.LookRotation(forward.normalized, Vector3.up);
         // Keep the full portrait above the palm, irrespective of wrist roll/pitch. Small
         // continuous motion conveys suspension without making the drop target hard to hit.
-        seat.SetPositionAndRotation(palm.position + Vector3.up * ((.17f + .006f * Mathf.Sin(age * 1.8f)) * scale),
+        seat.SetPositionAndRotation(palm.position + Vector3.up * (Mathf.Max(.17f * scale, halfHeightWorld + .045f * scale) + .006f * Mathf.Sin(age * 1.8f) * scale),
             facing * Quaternion.Euler(0f, 1.5f * Mathf.Sin(age * .9f), 0f));
         seat.localScale = Vector3.one;
     }

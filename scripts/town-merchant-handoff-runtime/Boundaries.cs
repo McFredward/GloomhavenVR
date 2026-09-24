@@ -77,6 +77,7 @@ namespace GloomhavenVR.Cards {
   private ItemsPile(Action<ItemChip,Vector3> release) { _inspectionRelease = release; }
   private void EnsureRoot() { _root = new GameObject("Fan").transform; }
   private void ClearHandSweep() { }
+  private bool PlacedCardIsLocked(ItemChip chip)=>false;
   private void UpdateHandSweep() { }
   private void Relayout() { LayoutCalls++; ProductionRelayout(); }
   private void ClearChips() { foreach(var c in _chips) UnityEngine.Object.DestroyImmediate(c.gameObject); _chips.Clear(); }
@@ -95,9 +96,11 @@ namespace GloomhavenVR.Cards {
    private static float SeedScale()=>Mathf.Clamp(CardsConfig.ItemFanSeedScale.Value,.02f,1f);
    private static float Overshoot()=>Mathf.Clamp(CardsConfig.ItemFanSettleOvershoot.Value,0f,3f);
    public void SetGrabStrip(float width) { }
+   public void ClearHandSuppressed() { }
    public void AdvanceEmerge(float dt) { TickEmerge(dt,_homePos,_homeScale); }
 
-   public ScenarioRuleLibrary.CItem? Item; public ItemsPile? Owner; public Hands.VRHand? Holder; public bool IsCollapsing=>_collapsing;
+   private Hands.VRHand? _suppressedForHand=null,_suppressedForHand2=null;
+   private ItemsPile? _owner; public ScenarioRuleLibrary.CItem? Item; public ItemsPile? Owner { get=>_owner; set=>_owner=value; } public Hands.VRHand? Holder; public bool IsCollapsing=>_collapsing;
    public ItemCardUI? NativeItemCard; public Transform InspectionMount => transform; public Transform? InspectionBody;
    public static ItemChip Create(ItemsPile owner, Transform parent, ScenarioRuleLibrary.CItem item) {
     var c = new GameObject("ActualInspectionCard",typeof(ItemChip)).GetComponent<ItemChip>(); c.transform.SetParent(parent,false); c.Owner = owner; c.Item = item; return c;
@@ -128,6 +131,7 @@ namespace GloomhavenVR.WorldUI {
  internal static class TownServicePopulation { public static TownServiceStation? Station; public static bool Available(byte s)=>Station!=null; public static TownServiceStation? Acquire(byte s)=>Station; }
  internal static class TownServiceCatalog { public static Func<ScenarioRuleLibrary.CItem,bool,bool>? CanOffer; public static Func<ScenarioRuleLibrary.CItem,bool,Vector3,bool>? Offer; public static Func<Vector3,bool>? InOfferingZone; public static bool HeldOfferAvailable; public static Action<TownServiceToken>? RetainOffer; }
  internal sealed class TownServiceToken { public void ParkOffering(Transform seat,Action reclaim) {} public void ReturnOffering() {} }
+ internal static class TownServicePalmConfirmation { internal static void Begin(UIItemConfirmationBox box, Transform seat) {} }
  internal static class TownServiceMerchantTransaction {
   public static int Requests; public static ScenarioRuleLibrary.CItem? LastItem; public static bool LastSelling;
   public static bool Commit(UIShopItemInventory inventory, ScenarioRuleLibrary.CItem item, bool selling, Func<bool> current) {

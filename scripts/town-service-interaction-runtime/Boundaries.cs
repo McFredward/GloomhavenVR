@@ -8,12 +8,13 @@ using UnityEngine.UI;
 using GloomhavenVR.Hands;
 using GloomhavenVR.Hands.Interact;
 
-public class UIWindow : MonoBehaviour
+namespace UnityEngine.UI { public class UIWindow : MonoBehaviour
 {
     public bool IsOpen = true, IsVisible = true;
     public UnityEvent onHidden = new UnityEvent();
     // Native onHidden fires while IsOpen still reports true.
     public void Hide() { onHidden.Invoke(); IsOpen = false; Probe.Events.Add("native-continuation"); }
+}
 }
 public enum EGuildmasterMode { Merchant, Temple, Enchantress }
 public class UIShopItemWindow : UIWindow { public UIShopItemInventory ItemInventory = null!; public Button exitShopButton = null!; }
@@ -49,7 +50,7 @@ public static class Probe
         return go;
     }
 }
-namespace GloomhavenVR.Core { internal static class VRLog { public static void Note(string a, string b) { } } }
+namespace GloomhavenVR.Core { internal static class VRLog { public static void Note(string a, string b) { } public static void Warn(string a,string b) {} } }
 namespace GloomhavenVR.Core
 { internal static class Loc { internal static event Action? OnChanged { add { } remove { } } internal static string Mod(string key) => key; } }
 namespace TMPro
@@ -113,14 +114,15 @@ namespace GloomhavenVR.Hands.Interact
     }
     internal partial class ProximityGrabber
     {
-        private VRHand _hand;
+        private VRHand _hand; private bool _enabled=true;
+        private void LogRefusal(string text) {}
         private bool _releaseOnTriggerUp;
         private string _grabLabel = "fixture";
         internal IGrabbable? Held;
         internal IGrabbable? Highlighted;
         internal ProximityGrabber(VRHand hand) { _hand = hand; }
         internal void Grab(IGrabbable target) => BeginGrab(target, true, "trigger", "fixture");
-        internal bool ForceGrab(IGrabbable target,bool releaseOnTriggerUp){BeginGrab(target,releaseOnTriggerUp,"fixture","fixture");return Held==target;}
+        
         internal bool Heal() => HealDeadHeld();
         private void SetHighlighted(IGrabbable? next)
         {
@@ -156,7 +158,7 @@ namespace GloomhavenVR.WorldUI
     internal static class TownServicePhysicalRay { internal static void Claim(GloomhavenVR.Hands.VRHand hand) { } }
     internal sealed class ConfigBool { internal bool Value = true; }
     internal static class WorldUIConfig
-    { internal static ConfigBool ImmersiveTownServices = new(); }
+    { internal static ConfigBool ImmersiveTownServices = new(); internal static Cards.ConfigFloat CanvasScaleMm=new(){Value=1f}; }
     internal static class GuildmasterDestinations
     {
         internal static UIWindow? Window;
@@ -174,9 +176,9 @@ namespace GloomhavenVR.WorldUI
         internal Transform? OriginalParent;
         internal GameObject HostGo = null!;
         internal bool IsAlive = true;
-        internal int FitAppliedGeneration;
+        internal int FitAppliedGeneration; internal bool MrBackingSuppressed; internal RectTransform HostRect => (RectTransform)HostGo.transform;
     }
-    internal class GrabbableModal { }
+    internal class GrabbableModal { internal static int Builds; internal void Build(ConvertedPanel p,float s,string name){Builds++;} internal void SetExtraScale(float v){} internal void SnapFrameTo(Vector3 p,Quaternion q){} internal void Tick(){} internal void LateSyncHost(){} internal void Destroy(){} }
     internal sealed class GrabFixture
     {
         internal Vector3 Position; internal Quaternion Rotation;
@@ -193,11 +195,13 @@ namespace GloomhavenVR.WorldUI
     {
         internal static List<ConvertedPanel> ActivePanels = new();
         internal static bool DeferParent, KeepActive;
-        internal static ConvertedPanel Convert(Transform target)
+        internal static ConvertedPanel Convert(Transform target,string name="",bool fitContent=false,bool useModLayer=true,bool transparentBackground=false)
         {
             var panel = new ConvertedPanel { Target = target, OriginalParent = target.parent, HostGo = Probe.Go("host:" + target.name) };
+            panel.HostRect.sizeDelta=((RectTransform)target).rect.size;
             target.SetParent(panel.HostGo.transform, false); ActivePanels.Add(panel); return panel;
         }
+        internal static void PlaceHost(ConvertedPanel p,Vector3 position,Quaternion rotation,float scale){p.HostGo.transform.SetPositionAndRotation(position,rotation);p.HostGo.transform.localScale=Vector3.one*scale*.001f;}
         internal static void Release(ConvertedPanel panel)
         {
             Probe.Events.Add("release:" + panel.Target.name);
@@ -222,22 +226,6 @@ namespace GloomhavenVR.WorldUI
         }
         private static void ReleasePreConvertHide(UIWindow window, string reason) { }
         private static void ReleaseScreenBind(UIWindow window, string reason) { }
-    }
-    internal sealed class TownServiceSurface : IDisposable
-    {
-        private ConvertedPanel _panel;
-        internal static int FailAt;
-        internal TownServiceSurface(ushort id, RectTransform source, Vector3 offset, float width, Transform? counterAnchor = null)
-        {
-            Probe.Events.Add("section:" + id);
-            if (FailAt == id) throw new InvalidOperationException("section fixture failure");
-            _panel = CanvasConversion.Convert(source);
-        }
-        internal bool OwnsGrab(GrabbableModal holder) => false;
-        internal void SetVisibility(float value, bool allowInput = true) { }
-        internal void Tick(Vector3 origin, Quaternion yaw, float scale) { }
-        internal void LateTick() { }
-        public void Dispose() => CanvasConversion.Release(_panel);
     }
     // Catalog composition has a separate real-Unity harness. Here it owns original rows
     // outside the masked context and REAL production tokens; no token fence is stubbed.
@@ -362,4 +350,16 @@ namespace GloomhavenVR.WorldUI { internal static class TownServiceEnhancementHan
 
 namespace GloomhavenVR.WorldUI {internal static class TownServicePublicMerchant {internal static void Tick(){}internal static void LateTick(){}internal static void Reset(){} }}
 
-namespace GloomhavenVR.WorldUI { internal static class TownServiceMerchantHandoff {internal static void LateTick(){} } }
+namespace GloomhavenVR.WorldUI { internal static class TownServiceMerchantHandoff {internal static bool Reclaim; internal static bool CanReclaim(TownServiceToken token)=>Reclaim; internal static void LateTick(){} } }
+
+public class UIItemConfirmationBox : MonoBehaviour {
+ public Component titleText=null!,informationText=null!; public Button confirmButton=null!,cancelButton=null!;
+ public Action? _onConfirmedCallback; public int Cancels;
+ public void OnCancel(){Cancels++;GetComponent<UIWindow>().Hide();}
+}
+public class UIEnhancementConfirmationBox : MonoBehaviour {
+ public Component titleText=null!,informationText=null!,enhancementIcon=null!,enhancementName=null!; public Button confirmButton=null!,cancelButton=null!;
+ public Action? _onConfirmCallback; public int Cancels;
+ public void Hide(){Cancels++;GetComponent<UIWindow>().Hide();}
+}
+namespace GloomhavenVR.Core.Events { internal static class VRModeStateMachine { internal static string CurrentMode="ModalUI"; } }

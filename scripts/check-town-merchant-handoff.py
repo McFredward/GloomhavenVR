@@ -42,6 +42,9 @@ def sources(root):
     attention = method(face, "internal bool IsLocalVisitorNear(bool wasNear)")
     bound["ActualAttention.cs"] = "using UnityEngine; namespace GloomhavenVR.WorldUI { internal class ActualAttention { public Transform _root = null!; public Eye _rig = new(); public class Eye { public Vector3 EyePosition; public Quaternion OpticalRotation = Quaternion.identity; } " + attention + " } }"
     pile = (root / "src/GloomhavenVR/Cards/Piles/ItemsPile.cs").read_text()
+    start = pile.index("        public bool AllowsHand(VRHand hand) =>")
+    gate = pile[start:pile.index(";", start) + 1]
+    bound["ActualItemGate.cs"] = "using System; using GloomhavenVR.Hands; namespace GloomhavenVR.Cards { internal sealed partial class ItemsPile { internal partial class ItemChip { " + gate + " } } }"
     layout = method(pile, "private void Relayout()")
     # Rename only the symbol so the boundary wrapper can count actual production layout calls.
     layout = layout.replace("private void Relayout()", "private void ProductionRelayout()", 1)

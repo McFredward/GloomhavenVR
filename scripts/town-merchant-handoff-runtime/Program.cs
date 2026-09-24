@@ -42,6 +42,7 @@ public static class InteractionProgram
   Physics.SyncTransforms();
   Check(!attention.IsLocalVisitorNear(true),"occluded player never opens merchant fan");
   UnityEngine.Object.DestroyImmediate(wall);
+  camera.transform.position = Vector3.forward * (1.2f * scale);
   var station=new GameObject("Station").transform; station.SetParent(root.transform,false);
   var palm=new GameObject("ActivityOfferingPalm").transform; palm.SetParent(station,false);
   palm.localPosition=new Vector3(-.2f,1.18f,.2f); palm.localRotation=Quaternion.Euler(15,70,30);
@@ -72,6 +73,7 @@ public static class InteractionProgram
 
   Check(TownServiceMerchantHandoff.OwnedChips.Count==31,"all equipped and bound copies become actual inspection cards");
   Check(TownServiceMerchantHandoff.Active,"local owned fan opens near resident");
+  Check(!TownServiceMerchantHandoff.WantsOffering,"nearby empty hands never request merchant palm");
   Check(!TownServiceMerchantHandoff.CanOffer(character.AllCharacterItems[4],true),"nontradeable items remain readable but cannot be sold");
   var first=TownServiceMerchantHandoff.OwnedChips[0];
   Check(Mathf.Abs(first.transform.parent.lossyScale.x-scale)<.01f,"glove armature scale cannot enlarge item fan");
@@ -79,6 +81,7 @@ public static class InteractionProgram
   Check(MapRoomDriver.Visits==0,"outside release leaves map state unchanged");
   // The same card object remains in hand through a wrist-close; its return is network-visible.
   first.Holder=VRHands.Right; VRHands.Right.Grabber.Held=first;
+  Check(TownServiceMerchantHandoff.WantsOffering,"eligible held owned item requests merchant palm");
   VRHands.Left.PalmGate.IsOpen=false; TownServiceMerchantHandoff.Tick();
   Check(TownServiceMerchantHandoff.OwnedChips.Count==31,"closing animation remains published until completion");
   Check(first.Holder==VRHands.Right,"closing fan never tears a held card away");
@@ -96,6 +99,12 @@ public static class InteractionProgram
   Check(TownServiceMerchantTransaction.Requests==1 && TownServiceMerchantTransaction.LastSelling,"owned release dispatches exact sell confirmation");
   Check(ReferenceEquals(TownServiceMerchantTransaction.LastItem,first.Item),"sale preserves item copy identity");
   Check(Singleton<UIItemConfirmationBox>.Instance!.IsActive,"final native confirmation remains visibly pending");
+  Check(TownServiceMerchantHandoff.WantsOffering && TownServiceMerchantHandoff.CanReclaim(first),"exact pending card keeps palm and can be reclaimed");
+  Check(first.AllowsHand(VRHands.Left)&&first.AllowsHand(VRHands.Right),"parked owned item bypasses wrist fan election for both hands");
+  first.Holder=VRHands.Left; first.TownOffering=false;
+  Check(first.AllowsHand(VRHands.Left),"reclaimed item remains valid for its fan-owning holder");
+  first.Holder=null; first.TownOffering=true;
+  Check(!TownServiceMerchantHandoff.CanReclaim(TownServiceMerchantHandoff.OwnedChips[1]),"unrelated item never receives pending decision exception");
   Check(!TownServiceMerchantHandoff.Offer(duplicate,true,palm.position),"pending native confirmation excludes another offer");
   character.AllCharacterItems.Remove(first.Item!);
   typeof(TownServiceMerchantHandoff).GetField("_nextItems", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)!.SetValue(null,0f);

@@ -12,6 +12,8 @@ namespace TMPro
 }
 namespace ScenarioRuleLibrary { public sealed class CAbilityCard { public int ID; } }
 public sealed class Owner { public string CharacterID = "owner"; }
+public class Singleton<T> { public static T? Instance; }
+public class UIEnhancementConfirmationBox : MonoBehaviour {}
 public class UIWindow : MonoBehaviour { public bool IsOpen = true; }
 public class AbilityCardUI : MonoBehaviour { public ScenarioRuleLibrary.CAbilityCard AbilityCard = null!; public FullAbilityCard fullAbilityCard = null!; }
 public class FullAbilityCard : MonoBehaviour { }
@@ -43,20 +45,30 @@ namespace GloomhavenVR.Core
 }
 namespace GloomhavenVR.Hands
 {
-    public class VRHand { public bool HasPose = true; public Holder Grabber = new(); }
-    public class Holder { public object? Held; }
-    public static class VRHands { public static VRHand? Left, Right; }
+    public class VRHand { public string Side="Right"; public float WorldScale=1f; public bool HasPose = true; public Holder Grabber; public VRHand(){Grabber=new Holder(this);} }
+    public partial class Holder {
+        public object? Held; private bool _enabled=true; private VRHand _hand; private string _grabLabel="fixture";
+        public Holder(VRHand hand){_hand=hand;} private void LogRefusal(string text){}
+        private static string DescribeGrabbable(object obj)=>"card";
+        private void BeginGrab(Interact.IGrabbable target,bool releaseOnTriggerUp,string button,string source){Held=target;target.OnGrab(_hand);}
+    }
+    public static class VRHands { public static VRHand? Left, Right, Primary; }
 }
 namespace GloomhavenVR.Rig { public static class VRRigDriver { public static Camera? HeadCamera; } }
 namespace GloomhavenVR.Cards
 {
-    public class VRCard : MonoBehaviour
+    public static class CardsConfig { public static float CardHeight=.24f; public static Config InspectScale=new(); public class Config { public float Value=1f; } }
+    public class CardBase : MonoBehaviour { public virtual bool CanGrab=>true; }
+    public partial class VRCard : CardBase, Hands.Interact.IGrabbable
     {
         public Owner Owner = new(); public ScenarioRuleLibrary.CAbilityCard Model = new();
         public bool Owned = true, InLoadout = true, CurrentCharacter = true, IsHeld, IsFlying, IsVanishing, Grabbable, InspectOnly, AllowsGateHand;
         public event Action<VRCard, Hands.VRHand>? Grabbed;
         public void SetHome(Transform home, Vector3 p, Quaternion q, float scale)
         { transform.SetParent(home, false); transform.localPosition = p; transform.localRotation = q; transform.localScale = Vector3.one * scale; }
+        public bool FullCollider; public void ResetColliderRegion(){FullCollider=true;}
+        public void SetHandPopSuppressed(bool value) {}
+        public void OnGrab(Hands.VRHand hand)=>Grab(hand);
         public void Grab(Hands.VRHand hand) { IsHeld = true; hand.Grabber.Held = this; Grabbed?.Invoke(this, hand); }
     }
     public sealed class CardFan { public static CardFan? Current = new(); public int Removed; public void Remove(VRCard card) => Removed++; }
@@ -88,6 +100,7 @@ namespace GloomhavenVR.WorldUI.MapRoom
 }
 namespace GloomhavenVR.WorldUI
 {
+    public static class TownServicePalmConfirmation { public static bool Owned; public static bool OwnsCurrent(UIWindow? window)=>Owned && window!=null; public static void Begin(UIEnhancementConfirmationBox box,Transform seat){} public static void CancelOwned(UIWindow window){} }
     public static class TownServicePresentation { public static uint Session = 22; public static float SessionAge = 3f; }
     public static class WorldUIConfig
     {
@@ -112,4 +125,9 @@ namespace GloomhavenVR.WorldUI
             return go;
         }
     }
+}
+
+namespace GloomhavenVR.Hands.Interact {
+ public interface IGrabbable {bool CanGrab{get;} void OnGrab(VRHand hand);}
+ public interface IGrabbableHandFilter {bool AllowsHand(VRHand hand);}
 }

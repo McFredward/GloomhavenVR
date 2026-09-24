@@ -6619,6 +6619,7 @@ internal sealed partial class ItemsPile
         /// <see cref="ItemsPile.RefuseLockedBonusRemoval"/>, which is where the player is TOLD why.
         /// It stops refusing on its own the moment the game resolves the bonus.</para></summary>
         public bool AllowsHand(VRHand hand) =>
+            ReferenceEquals(Holder, hand) ||
             (TownOffering && WorldUI.TownServiceMerchantHandoff.CanReclaim(this)) ||
             (!TownOffering && (_owner == null || (!_owner.PlacedCardIsLocked(this)
                 && (_owner._inspectionRelease == null || !ReferenceEquals(hand, _owner._inspectionGateHand))))

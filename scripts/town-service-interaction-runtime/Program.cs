@@ -16,6 +16,12 @@ public sealed class HoverFixture : MonoBehaviour, IPointerEnterHandler, IPointer
     public void OnPointerExit(PointerEventData data) { Window.SowingCard = Window.selectedCard; Window.cardHolder.Card = Window.selectedCard; }
 }
 
+public sealed class DecisionHoverProbe : MonoBehaviour, IPointerEnterHandler
+{
+    public int Entries;
+    public void OnPointerEnter(PointerEventData data) { Entries++; }
+}
+
 public static class InteractionProgram
 {
     private class LegacyGrab : IGrabbable, IGrabbableHandFilter
@@ -146,7 +152,7 @@ public static class InteractionProgram
     private static void Clean()
     {
         CanvasConversion.DeferParent = false; CanvasConversion.KeepActive = false;
-        TownServiceSurface.FailAt = 0; TownServiceRitual.Fail = false; ModalFallback.FailConvert = false;
+        TownServicePalmConfirmation.Clear(); TownServiceRitual.Fail = false; ModalFallback.FailConvert = false;
         TownServicePresentation.Reset();
         typeof(TownServicePresentation).GetField("_failedWindow", Static)!.SetValue(null, null);
         Tokens.Clear(); ModalFallback.Converted.Clear(); CanvasConversion.ActivePanels.Clear();
@@ -650,10 +656,89 @@ public static class InteractionProgram
         }
     }
 
+
+    private static void ParkedStockRegrab()
+    {
+        var counter=Probe.Go("Counter").transform;
+        var physical=Probe.Go("OfferedItem",counter).transform;
+        var source=(RectTransform)Probe.Go("Original",physical).transform;
+        source.sizeDelta=new Vector2(.18f,.15f);
+        var native=Probe.Go("NativeRow").AddComponent<Button>();
+        var seat=Probe.Go("PalmSeat").transform;
+        bool inspect=false; int reclaimed=0;
+        using var token=new TownServiceToken(source,native,()=>source,()=>counter,()=>true,counter,physical,inspect:()=>inspect);
+        token.ParkOffering(seat,()=>reclaimed++);
+        token.Tick(1f);
+        var hand=new VRHand();
+        TownServiceMerchantHandoff.Reclaim=false;
+        Check(!hand.Grabber.ForceGrab(token,true),"unowned modal card never bypasses inspection gate");
+        TownServiceMerchantHandoff.Reclaim=true;
+        Check(hand.Grabber.ForceGrab(token,true) && ReferenceEquals(hand.Grabber.Held,token),"actual routed grab reclaims parked stock through owned modal gate");
+        Check(reclaimed==1 && token.HeldRoot==physical,"routed reclaim cancels once and adopts actual card");
+        hand.Grabber.CancelAll(); TownServiceMerchantHandoff.Reclaim=false; Clean();
+    }
+
+    private static void PalmConfirmationLifecycle()
+    {
+        foreach(float scale in new[]{.05f,1f,198.12f})
+        {
+            var native=Probe.Go("NativeConfirmation"); var window=native.AddComponent<UIWindow>();
+            var box=native.AddComponent<UIItemConfirmationBox>();
+            var group=native.AddComponent<CanvasGroup>();
+            box.titleText=Probe.Go("NativeTitle",native.transform).AddComponent<TMPro.TMP_Text>();
+            box.informationText=Probe.Go("NativeInformation",native.transform).AddComponent<TMPro.TMP_Text>();
+            box.confirmButton=Probe.Go("NativeConfirm",native.transform).AddComponent<Button>();
+            box.cancelButton=Probe.Go("NativeCancel",native.transform).AddComponent<Button>();
+            foreach(Component part in new Component[]{box.titleText,box.informationText,box.confirmButton,box.cancelButton})
+                ((RectTransform)part.transform).sizeDelta=new Vector2(400f,80f);
+            ((TMPro.TMP_Text)box.informationText).text="Native exact price and consequences";
+            Probe.Go("DecisionEvents").AddComponent<EventSystem>();
+            var hover=box.confirmButton.gameObject.AddComponent<DecisionHoverProbe>();
+            int commits=0;box._onConfirmedCallback=()=>commits++;
+            box.confirmButton.onClick.AddListener(()=>{box._onConfirmedCallback();window.Hide();});
+            box.cancelButton.onClick.AddListener(box.OnCancel);
+            var station=Probe.Go("Resident").transform;station.localScale=Vector3.one*scale;
+            var seat=Probe.Go("Palm",station).transform;seat.localPosition=new Vector3(-.2f,1.35f,.2f);
+            seat.localRotation=Quaternion.Euler(0f,12f,0f);
+            int bars=GrabbableModal.Builds;
+            TownServicePalmConfirmation.Begin(box,seat);TownServicePalmConfirmation.Tick();
+            Check(TownServicePalmConfirmation.OwnsCurrent(window),"palm confirmation owns exact still-open callback");
+            Check(GrabbableModal.Builds==bars,"palm confirmation never creates a window grab bar");
+            var entry=new List<TownServicePalmConfirmation.Entry>(TownServicePalmConfirmation.Active)[0];
+            Check(entry.Surfaces.Count==4 && commits==0,"four original decision controls remain pending without automatic confirmation");
+            foreach(var surface in entry.Surfaces)
+            {
+                Vector3 relative=seat.InverseTransformPoint(surface.Panel.HostGo.transform.position);
+                Check(relative.y<-.25f && relative.z<-.6f,"confirmation controls float below palm and ahead of table fascia");
+                Check(Vector3.Dot(surface.Panel.HostGo.transform.up,Vector3.up)>.999f,"native confirmation is upright independently of palm pitch");
+                Check(surface.Panel.MrBackingSuppressed,"freestanding original controls have no mixed reality backing");
+            }
+            var confirm=entry.Surfaces[2].Panel;
+            Check(confirm.Target==box.confirmButton.transform && box.confirmButton.IsInteractable(),"original interactive confirm button is moved intact");
+            Check(confirm.HostRect.rect.height*confirm.HostGo.transform.lossyScale.y<=.0651f*scale,"native button fit obeys height limit at every map scale");
+            group.alpha=.35f;TownServicePalmConfirmation.LateTick();
+            Check(Mathf.Abs(confirm.HostGo.GetComponent<CanvasGroup>().alpha-.35f)<.001f,"native decision fade is retained under anchored controls");
+            group.alpha=1f;TownServicePalmConfirmation.LateTick();
+            ExecuteEvents.Execute(box.confirmButton.gameObject,new PointerEventData(EventSystem.current),ExecuteEvents.pointerEnterHandler);
+            Check(hover.Entries==1,"native confirmation still receives pointer hover feedback");
+            ExecuteEvents.Execute(box.confirmButton.gameObject,new PointerEventData(EventSystem.current){button=PointerEventData.InputButton.Left},ExecuteEvents.pointerClickHandler);
+            TownServicePalmConfirmation.Tick();
+            Check(commits==1 && TownServicePalmConfirmation.Owns(window),"native confirm runs once while its hide transition remains owned");
+            window.IsVisible=false;TownServicePalmConfirmation.Tick();
+            Check(!TownServicePalmConfirmation.Owns(window)&&box.confirmButton.transform.parent==native.transform,"completed hide restores original hierarchy without losing continuation");
+            window.IsOpen=window.IsVisible=true;box._onConfirmedCallback=()=>commits+=100;
+            TownServicePalmConfirmation.Begin(box,seat);TownServicePalmConfirmation.Tick();
+            box._onConfirmedCallback=()=>commits+=1000;
+            TownServicePalmConfirmation.CancelOwned(window);
+            Check(box.Cancels==0,"reused unrelated confirmation is never cancelled");
+            TownServicePalmConfirmation.Tick();Clean();
+        }
+    }
+
     public static int Run()
     {
         _assertions = 0;
-        try { PhysicalCommitCases(); PhysicalMerchantSamples(); WindowMaskLifecycle(); MerchantContextLifecycle(); ConfirmationFadeLifecycle(); IdentityChanges(); HoverAndRelease(); CancellationCompatibility(); Handoff(); RollbackAndContinuation(); OptionalPresentation(); ManualTrayPlacement(); MapHandFallback(); return _assertions; }
+        try { PalmConfirmationLifecycle(); ParkedStockRegrab(); PhysicalCommitCases(); PhysicalMerchantSamples(); WindowMaskLifecycle(); MerchantContextLifecycle(); ConfirmationFadeLifecycle(); IdentityChanges(); HoverAndRelease(); CancellationCompatibility(); Handoff(); RollbackAndContinuation(); OptionalPresentation(); ManualTrayPlacement(); MapHandFallback(); return _assertions; }
         finally { Clean(); }
     }
 }
