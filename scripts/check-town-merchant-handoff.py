@@ -39,7 +39,7 @@ def sources(root):
     bound = {Path(p).name: (root / p).read_text() for p in paths}
     face = (root / "src/GloomhavenVR/WorldUI/TownServices/TownServiceFace.cs").read_text()
     attention = method(face, "internal bool IsLocalVisitorNear(bool wasNear)")
-    bound["ActualAttention.cs"] = "using UnityEngine; namespace GloomhavenVR.WorldUI { internal class ActualAttention { public Transform _root; public Eye _rig = new(); public class Eye { public Vector3 EyePosition; public Quaternion OpticalRotation = Quaternion.identity; } " + attention + " } }"
+    bound["ActualAttention.cs"] = "using UnityEngine; namespace GloomhavenVR.WorldUI { internal class ActualAttention { public Transform _root = null!; public Eye _rig = new(); public class Eye { public Vector3 EyePosition; public Quaternion OpticalRotation = Quaternion.identity; } " + attention + " } }"
     pile = (root / "src/GloomhavenVR/Cards/Piles/ItemsPile.cs").read_text()
     layout = method(pile, "private void Relayout()")
     # Rename only the symbol so the boundary wrapper can count actual production layout calls.
