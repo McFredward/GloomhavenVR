@@ -530,7 +530,21 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 549;
+    public const ushort ModBuild = 550;
+
+    // ModBuild 550 — direct town interactions and coherent resident contact motion.
+    // Merchant ray/poke hits are inert; the cabinet and offered palm are the entry points.
+    // Cabinet hover owns vertical stick scrolling through the existing locomotion arbitration;
+    // every page still uses the shared mechanical cassette/crank transition. Owned-item fan
+    // contact suppresses the laser, and all held ability/item cards share the wrist-local pose.
+    // Merchant/enchantress handoffs settle the actual card upright above the final IK palm,
+    // gently float, remain visible through native confirmation/options, and return on cancellation.
+    // Only original native callbacks commit a purchase/sale; remote geometry follows the owner.
+    // Resident arm/body retargeting, prayer contact and planted stance address build-549 motion
+    // reports. The merchant worktop clears the actual coat; native candles replace misidentified,
+    // height-scaled scrolls. Matching town bundle required; original environments stay unchanged.
+    // Evidence and hardware limits: .planning/research/TOWN-SERVICES-550.md.
+
 
     // ModBuild 549 — approved side cabinet and explicit merchant palm transactions.
     // Persistent original stock lives in one detailed upright cabinet: six native category
