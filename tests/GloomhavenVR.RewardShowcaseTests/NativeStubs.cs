@@ -22,6 +22,8 @@ namespace UnityEngine
         public T? GetComponent<T>() where T : Component => gameObject.GetComponent<T>();
         public T? GetComponentInChildren<T>(bool includeInactive = false) where T : Component =>
             gameObject.GetComponentInChildren<T>(includeInactive);
+        public void GetComponentsInChildren<T>(bool includeInactive, List<T> results) where T : Component =>
+            gameObject.GetComponentsInChildren(includeInactive, results);
     }
     public class Behaviour : Component
     {
@@ -67,6 +69,13 @@ namespace UnityEngine
             return GetComponent<T>() ?? transform.Children.Select(child => child.gameObject.GetComponentInChildren<T>(includeInactive)).FirstOrDefault(value => value != null);
         }
         public void SetActive(bool value) => activeSelf = value;
+        public void GetComponentsInChildren<T>(bool includeInactive, List<T> results) where T : Component
+        {
+            if (!includeInactive && !activeInHierarchy) return;
+            results.AddRange(Components.OfType<T>());
+            foreach (Transform child in transform.Children)
+                child.gameObject.GetComponentsInChildren(includeInactive, results);
+        }
     }
     public static class Time { public static int frameCount; public static float unscaledTime; }
     public readonly record struct Vector3(float x, float y, float z)
@@ -76,7 +85,22 @@ namespace UnityEngine
     }
     public readonly record struct Quaternion(float x, float y, float z, float w);
 }
-namespace UnityEngine.EventSystems { public sealed class PointerEventData { } }
+namespace UnityEngine.EventSystems
+{
+    public sealed class PointerEventData
+    {
+        public enum InputButton { Left }
+        public InputButton button;
+        public PointerEventData(object? system = null) { }
+    }
+    public static class EventSystem { public static object? current; }
+    public static class ExecuteEvents
+    {
+        public static object pointerClickHandler = new();
+        public static void Execute(UnityEngine.GameObject target, PointerEventData data, object handler) =>
+            target.GetComponent<UnityEngine.UI.Button>()!.OnPointerClick();
+    }
+}
 namespace UnityEngine.Events
 {
     public delegate void UnityAction();
@@ -95,7 +119,14 @@ namespace UnityEngine.UI
     {
         public bool IsOpen = true;
         public bool IsVisible = true;
-        public void Hide() => throw new Exception("Presentation must not hide the native reward window");
+        public int ID;
+        public Action? NativeHide;
+        public void Hide()
+        {
+            if (NativeHide == null) throw new Exception("Presentation must not hide the native reward window");
+            IsOpen = IsVisible = false;
+            NativeHide();
+        }
     }
     public class Selectable : UnityEngine.MonoBehaviour
     {
@@ -272,6 +303,7 @@ namespace GloomhavenVR.WorldUI
         }
         internal static void NoteSharedAnchorSpent(SharedWindowKind kind, string reason) => SpentAnchors++;
         internal static void PollRewardsForTest(bool inScenario) { PolledWindow = null; AddRewardShowcaseWindow(inScenario); }
+        internal static void DismissForTest(UnityEngine.UI.UIWindow window) => DismissTransient(window);
         private static void AddPollWindow(UnityEngine.UI.UIWindow? window) => PolledWindow = window;
         private static void LogPollTransition(ref bool previous, bool current, string description) => previous = current;
     }

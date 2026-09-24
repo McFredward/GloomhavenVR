@@ -91,6 +91,7 @@ internal static partial class RewardShowcase
         }
         if (!enabled) _pendingNativeInput = null;
         _enabled = enabled;
+        TickMapRewardButtons(enabled);
         UIWindow? window = enabled ? Window : null;
         if (window == null)
         {
