@@ -34,13 +34,13 @@ rotation is introduced. The matching articulated `Row0/Row1/Row2` town bundle is
 
 ## Validation
 
-- Actual Unity catalog/input suite: 22,830 assertions and 27 detected negative controls.
-  Evidence: `/tmp/town551-cabinet-finalcatalog2/run-bn8jc9fi`.
-- Complete original-widget mirror suite: 230,588 assertions and 17 detected controls,
-  unchanged visual tolerances. Evidence: `/tmp/town551-cabinet-fullmirror/run-00jfudho`.
-- Public cabinet suite: 1,326 assertions and nine detected controls, including both
+- Actual Unity catalog/input suite: 22,836 assertions and 27 detected negative controls.
+  Evidence: `/tmp/town551-cabinet-importcatalog/run-iglnmbd1`.
+- Complete original-widget mirror suite: 230,589 assertions and 17 detected controls,
+  unchanged visual tolerances. Evidence: `/tmp/town551-import-fullmirror/run-95o634ts`.
+- Public cabinet suite: 1,334 assertions and nine detected controls, including both
   directions at 12%, 50%, and 82% elapsed, each original card corner and delayed-clock
-  page labels. Evidence: `/tmp/town551-cabinet-labeledmirror/run-5l_30icu`.
+  page labels. Evidence: `/tmp/town551-import-publicmirror/run-7h96bsoe`.
 - Golden wire executable: 286,120 assertions, including independent TLV 87 byte vectors,
   duplicate/malformed direction/count rejection, and unchanged historical payloads.
 - Strict Release build: zero warnings/errors.
@@ -53,7 +53,31 @@ This audit found backing/side and original guide-rail intersections. The final s
 are .678 m wide and .138 m high; original guide rails moved from ±.347 m to ±.370 m.
 Final regenerated FBXs pass all 1,206 sampled row poses with zero cabinet, stationary-side,
 or row-to-row surface intersections; the uncleared-path negative is detected.
-Evidence: `/tmp/town551-cabinet-clearance-final.json` and its adjacent log.
+Evidence: `/tmp/town551-cabinet-normalized-clearance.json` and its adjacent log.
+
+### Actual Unity import correction
+
+The combined source-asset review caught a real factory defect that the Blender world-geometry
+audit could not reveal: Unity preserves FBX empty nodes with a -90-degree X rotation and
+100x scale. Directly animating those nodes erased their import rotation, and parenting native
+cards under them would have magnified the cards. The production factory now creates fresh
+metre-space `Row0/Row1/Row2` pivots, preserves the imported nodes and geometry beneath
+`ImportedHolder`, and attaches cards to the normalized pivots. No support assertion was weakened.
+The catalog fixture now injects the actual importer transform conventions and checks both
+unit-space parenting and unchanged imported geometry.
+
+The original failed Unity project was resumed with only the compiled production factory fix,
+using `ValidateTownAssets.ReviewSources`. All original corner-support assertions and nine
+visual negative controls pass: **951,242 assertions**. Evidence is
+`/tmp/town551-assets-fixed/town-assets-likhscsh/evidence-normalized/`; its
+`resume-evidence.json` records exact compiled source hashes, original failure, fix commit and
+scope. The original manifest remains historical; this resumed source review did not rebuild
+a Linux bundle. The Windows asset bundle needs no change for this runtime factory correction.
+
+The publication review also repaired two independently verified omissions: original palm
+confirmation parts now publish while only merchant inspection is active, and the native
+enhancement price tooltip publishes as its own registered boundary in the new folio layout.
+The final mirror assertion totals above include these routing checks.
 
 These checks establish code, wire and geometric behavior. They do not establish perceived
 motion quality, typography in a headset, or real multiplayer transport timing.
