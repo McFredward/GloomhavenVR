@@ -38,8 +38,9 @@ rotation is introduced. The matching articulated `Row0/Row1/Row2` town bundle is
   Evidence: `/tmp/town551-cabinet-finalcatalog2/run-bn8jc9fi`.
 - Complete original-widget mirror suite: 230,588 assertions and 17 detected controls,
   unchanged visual tolerances. Evidence: `/tmp/town551-cabinet-fullmirror/run-00jfudho`.
-- Public cabinet suite additionally checks both directions at 12%, 50%, and 82% elapsed,
-  each original card corner, delayed-clock page labels and nine negative controls.
+- Public cabinet suite: 1,326 assertions and nine detected controls, including both
+  directions at 12%, 50%, and 82% elapsed, each original card corner and delayed-clock
+  page labels. Evidence: `/tmp/town551-cabinet-labeledmirror/run-5l_30icu`.
 - Golden wire executable: 286,120 assertions, including independent TLV 87 byte vectors,
   duplicate/malformed direction/count rejection, and unchanged historical payloads.
 - Strict Release build: zero warnings/errors.
@@ -48,8 +49,11 @@ rotation is introduced. The matching articulated `Row0/Row1/Row2` town bundle is
 `roller-geometry.csv`. `check-town-cabinet-roll.py` imports the real furniture and articulated
 FBXs in Blender and checks 1,206 row poses against the cabinet, stationary cassette sides,
 and each other. An injected uncleared trajectory must intersect the original fascia.
-This audit found backing/side and original guide-rail intersections which required fitted
-asset changes; final geometry evidence is recorded by the integrator after asset regeneration.
+This audit found backing/side and original guide-rail intersections. The final shelves
+are .678 m wide and .138 m high; original guide rails moved from ±.347 m to ±.370 m.
+Final regenerated FBXs pass all 1,206 sampled row poses with zero cabinet, stationary-side,
+or row-to-row surface intersections; the uncleared-path negative is detected.
+Evidence: `/tmp/town551-cabinet-clearance-final.json` and its adjacent log.
 
 These checks establish code, wire and geometric behavior. They do not establish perceived
 motion quality, typography in a headset, or real multiplayer transport timing.
