@@ -226,7 +226,19 @@ internal static class NativeTemplates
             if (Entries.ContainsKey(key)) return;
             if (_bank == null) throw new InvalidDataException("Original item inspection bank is not ready.");
             GameObject body = TownServiceInspectionBody.Create(key, _bank.transform);
-            AddPhysical(key, body); return;
+            var bodyEntry = new Entry { Original = body.transform };
+            try
+            {
+                // Startup AddPhysical is frozen by Initialize's final pass. Lazy inspection
+                // geometry is requested after that pass and must partition/register now.
+                Freeze(key, bodyEntry); Entries.Add(key, bodyEntry);
+                Roots[body.transform] = key; PhysicalTemplates.Add(body); return;
+            }
+            catch
+            {
+                if (bodyEntry.Copy != null) Object.Destroy(bodyEntry.Copy);
+                Object.Destroy(body); throw;
+            }
         }
         if (key == "ritual.coin") source = TownServiceDecor.CoinTemplate;
         else if (key == "map.cardbody") source = GloomhavenVR.Cards.CardsDriver.CardBackingPrefab?.transform;
