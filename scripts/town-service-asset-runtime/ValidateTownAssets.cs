@@ -47,6 +47,21 @@ public static class ValidateTownAssets
     }
     static Color32[] Picture(string name)
     {
+        // The production lamp registry is separately rendered by check-town-lighting.py.
+        // This isolated asset fixture has no runtime station lifecycle; register its actual
+        // authored point lights in the same shader units, including the 198x-scale pass.
+        var positions = new Vector4[32]; var colours = new Vector4[32]; int lampCount = 0;
+        foreach (var lamp in UnityEngine.Object.FindObjectsOfType<Light>())
+        {
+            if (!lamp.isActiveAndEnabled || lamp.type != LightType.Point || lamp.range <= 0) continue;
+            var p = lamp.transform.position;
+            positions[lampCount] = new Vector4(p.x, p.y, p.z, 1f / (lamp.range * lamp.range));
+            Color c = QualitySettings.activeColorSpace == ColorSpace.Linear ? lamp.color.linear : lamp.color;
+            colours[lampCount++] = c * lamp.intensity;
+        }
+        Shader.SetGlobalVectorArray("_TownPracticalPositions", positions);
+        Shader.SetGlobalVectorArray("_TownPracticalColours", colours);
+        Shader.SetGlobalInt("_TownPracticalCount", lampCount);
         camera.Render(); RenderTexture.active = camera.targetTexture;
         var texture = new Texture2D(800, 800, TextureFormat.RGB24, false);
         texture.ReadPixels(new Rect(0, 0, 800, 800), 0, 0); texture.Apply();
@@ -330,8 +345,8 @@ public static class ValidateTownAssets
         var crank = GloomhavenVR.WorldUI.TownServiceMerchantDrawer.CreateTemplate(null);
         Check(crank.transform.Find("Handle") != null, "Actual cabinet materials support a physical crank factory");
         rack.transform.SetParent(root.transform, false);
-        rack.transform.localPosition = new Vector3(-.35f, .770f, -.57f);
-        var colliders = FurnitureColliders(rack.transform);
+        rack.transform.localPosition = new Vector3(-.95f, 1.22f, .035f);
+        var colliders = FurnitureColliders(rack.transform.Find("Cassette"));
         var furniture = FurnitureColliders(root.transform.Find("Counter"));
         for (int i = 0; i < TownServiceMerchantLayout.StockCapacity; i++)
         {
@@ -344,18 +359,39 @@ public static class ValidateTownAssets
                 Check(colliders.Any(c => c.Raycast(ray, out RaycastHit hit, .06f)), "Every vertical card corner has an actual opaque rack behind it");
             }
         }
-        // Sample real rack vertices throughout the complete mechanical revolution.
-        foreach (float angle in new[] { 0f, 45f, 90f, 135f, 180f, 225f, 270f, 315f, 360f })
+        // Both folded leaves and the card cassette use the production motion, evaluated
+        // against the imported mesh. A state-only clock assertion cannot catch mirrored FBX.
+        for (int frame = 0; frame <= 40; frame++)
         {
-            rack.transform.localRotation = Quaternion.Euler(0, angle, 0);
+            float progress = frame / 40f;
+            GloomhavenVR.Net.TownServices.TownCassetteMotion.Apply(rack.transform, progress);
             foreach (var mesh in rack.GetComponentsInChildren<MeshFilter>())
             foreach (var vertex in mesh.sharedMesh.vertices)
             {
                 Vector3 point = root.transform.InverseTransformPoint(mesh.transform.TransformPoint(vertex));
-                Check(point.x >= -.81f && point.x <= .81f && point.z >= -.92f && point.z <= .53f,
-                    "Actual moving rack stays within the compact placement envelope");
+                Check(point.x >= -1.39f && point.x <= -.51f && point.z >= -.06f && point.z <= .61f,
+                    "Actual cassette and folding leaves stay within the authored cabinet envelope");
             }
         }
+        GloomhavenVR.Net.TownServices.TownCassetteMotion.Apply(rack.transform, .5f);
+        var shutter = FurnitureColliders(rack.transform.Find("Shutter"));
+        Physics.SyncTransforms();
+        for (int i = 0; i < TownServiceMerchantLayout.StockCapacity; i++)
+        {
+            var p = TownServiceMerchantLayout.StockPosition(i);
+            foreach (float dx in new[] { -.5f, .5f }) foreach (float dy in new[] { -.5f, .5f })
+            {
+                var corner = p + new Vector3(dx * TownServiceMerchantLayout.CardWidth,
+                    dy * TownServiceMerchantLayout.CardHeight, -.10f);
+                Check(shutter.Any(c => c.Raycast(new Ray(rack.transform.TransformPoint(corner), rack.transform.forward),
+                    out RaycastHit hit, .15f)), "Closed opaque shutter covers every card corner before page replacement");
+            }
+        }
+        foreach (var collider in shutter) UnityEngine.Object.DestroyImmediate(collider);
+        GloomhavenVR.Net.TownServices.TownCassetteMotion.Apply(rack.transform, 1f);
+        // The static cabinet must be on the same side as its runtime cassette anchors.
+        Check(SupportHeight(furniture, root.transform, new Vector3(-.95f, 0f, .30f)) > 1.5f,
+            "Asymmetric cabinet FBX imports on the agreed left side of the merchant");
         foreach (var collider in colliders) UnityEngine.Object.DestroyImmediate(collider);
         foreach (var collider in furniture) UnityEngine.Object.DestroyImmediate(collider);
         UnityEngine.Object.DestroyImmediate(rack); UnityEngine.Object.DestroyImmediate(crank);
@@ -382,7 +418,7 @@ public static class ValidateTownAssets
         ValidateSlots(root);
         var template = furniture.Find("CounterReturn");
         Check(template != null && !template.gameObject.activeSelf, "Open return template exists without drawing unused stock wings");
-        Check(TownServiceMerchantLayout.StockCapacity == 16, "Visible stock is bounded per mechanical rack");
+        Check(TownServiceMerchantLayout.StockCapacity == 12, "Visible stock is bounded per mechanical cassette");
         var surfaces = FurnitureColliders(furniture);
         foreach (float x in new[] { -.20f, 0f, .20f })
             Check(Mathf.Abs(SupportHeight(surfaces, furniture, new Vector3(x, 0, .18f)) - .958f) < .012f,

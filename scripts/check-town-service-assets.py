@@ -43,14 +43,17 @@ def method(signature):
     end = drawer.index('\n    }', start) + 6
     return drawer[start:end].replace('TMP_Text?', 'object')
 methods = [method(signature) for signature in (
-    'internal static GameObject CreateTemplate(TMP_Text? font)',
-    'internal static GameObject CreateHousingTemplate()', 'private static Material OriginalWood()',
-    'private static void Rod(Transform parent, string name, Vector3 start, Vector3 end, float radius)',
-    'private static void Part(Transform parent,string name,Vector3 position,Vector3 scale)')]
+    'internal static GameObject Authored(string name)',
+    'internal static GameObject CreateHousingTemplate()')]
+methods.append('    ' + next(line.strip() for line in drawer.splitlines()
+    if line.strip().startswith('internal static GameObject CreateTemplate(')).replace('TMP_Text?', 'object'))
 (assets / 'Editor/TownServiceRackFactories.cs').write_text(
-    'using System; using UnityEngine; namespace GloomhavenVR.WorldUI { '
+    'using System; using UnityEngine; using GloomhavenVR.Net.TownServices; namespace GloomhavenVR.WorldUI { '
     'internal static class TownServiceAssets { internal static GameObject Current; internal static GameObject Prefab(string name) => Current; } '
     'internal static class TownServiceMerchantDrawer {\n' + '\n'.join(methods) + '\n} }')
+motion = (root / 'src/GloomhavenVR/Net/TownServices/TownCassetteMotion.cs').read_text()
+(assets / 'Editor/TownCassetteMotion.cs').write_text(motion.replace(
+    'namespace GloomhavenVR.Net.TownServices;', 'namespace GloomhavenVR.Net.TownServices {') + '\n}\n')
 (project / 'Packages').mkdir()
 (project / 'Packages/manifest.json').write_text(json.dumps({'dependencies': {
     'com.unity.modules.' + name: '1.0.0' for name in ['animation', 'assetbundle', 'imageconversion', 'physics', 'audio']}}))

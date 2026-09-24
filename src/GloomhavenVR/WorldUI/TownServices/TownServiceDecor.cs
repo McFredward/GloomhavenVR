@@ -59,7 +59,7 @@ internal sealed class TownServiceDecor : IDisposable
         TownServiceDecor owner = Owners[service];
         Piece piece = owner._pieces[index];
         if (!piece.Candle) return false;
-        localPoint = source.InverseTransformPoint(owner._root.TransformPoint(piece.Position + Vector3.up * .18f));
+        localPoint = source.InverseTransformPoint(owner._root.TransformPoint(piece.Position + Vector3.up * (piece.Select.Length != 0 ? .18f : piece.Size)));
         rangeScale = Mathf.Abs(owner._root.lossyScale.x) / Mathf.Max(.0001f, Mathf.Abs(source.lossyScale.x));
         return true;
     }
@@ -107,16 +107,25 @@ internal sealed class TownServiceDecor : IDisposable
     {
         // These are the freestanding bodies inside the native wall-lantern prefab.
         // Its separate wall bracket is deliberately not copied onto the counter.
-        Lantern(new Vector3(-.68f, .957f, .20f), 0);
-        Lantern(new Vector3(.68f, .957f, service == 3 ? .70f : .20f), 1);
         if (service == 1)
         {
-            Add("Treasure", "Treasure.Clutter.FloorSmall#3", new Vector3(.49f, .957f, .16f), .17f);
-            Add("AlchemyLab", "AlchemyLab.Clutter.Shelf.Individual#7", new Vector3(-.53f, .957f, -.06f), .16f);
-            Add("Library", "Library.Clutter.Shelf.Individual#7", new Vector3(-.28f, .957f, .16f), .28f);
-            _workCoin = Add("Treasure", "Treasure.Clutter.Shelf.Individual#1", new Vector3(-.20f, .96f, .22f), .026f);
-            Add("Treasure", "Treasure.Clutter.FloorSmall#3", new Vector3(.67f, .957f, -.035f), .12f);
-            Add("AlchemyLab", "AlchemyLab.Clutter.Shelf.Individual#7", new Vector3(-.68f, .957f, -.045f), .13f);
+            Lantern(new Vector3(-1.51f, 1.23f, .08f), 0);
+            // A small native candle lights the ledger without placing a second oversized
+            // lantern in the offered hand's path. The hanging cabinet lantern is the key.
+            Add("Chapel", "Chapel.Clutter.Shelf.Individual#2",
+                new Vector3(.285f, .957f, .435f), .14f, true, 1);
+        }
+        else
+        {
+            Lantern(new Vector3(-.68f, .957f, .20f), 0);
+            Lantern(new Vector3(.68f, .957f, service == 3 ? .70f : .20f), 1);
+        }
+        if (service == 1)
+        {
+            Add("Treasure", "Treasure.Clutter.FloorSmall#3", new Vector3(.26f, .957f, .26f), .11f);
+            Add("AlchemyLab", "AlchemyLab.Clutter.Shelf.Individual#7", new Vector3(-.265f, .957f, .415f), .12f);
+            Add("Library", "Library.Clutter.Shelf.Individual#7", new Vector3(-.055f, .957f, .18f), .24f);
+            _workCoin = Add("Treasure", "Treasure.Clutter.Shelf.Individual#1", TownServiceActivityMotion.CoinSeat(0, false), .026f);
         }
         else if (service == 2)
         {
@@ -360,7 +369,7 @@ internal sealed class TownServiceDecor : IDisposable
             holder.transform.localScale = Vector3.one * factor;
             holder.transform.localPosition = piece.Position - new Vector3(bounds.center.x, bounds.min.y, bounds.center.z) * factor;
             if (piece.Candle)
-                _lighting.SetFlame(_root.TransformPoint(piece.Position + Vector3.up * .18f), piece.LightSlot);
+                _lighting.SetFlame(_root.TransformPoint(piece.Position + Vector3.up * (piece.Select.Length != 0 ? .18f : piece.Size)), piece.LightSlot);
             piece.Holder = holder;
             piece.Home = holder.transform.localPosition;
             if (piece == _workCoin) _work.BindCoin(holder.transform, piece.Home - piece.Position);

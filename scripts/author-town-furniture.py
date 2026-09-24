@@ -39,7 +39,9 @@ for name, color, metal in [('DarkWood', (.20, .09, .035, 1), 0),
 
 
 def xyz(p):
-    return (p[0], -p[2], p[1])
+    # Unity imports Blender FBX with the X handedness conversion. Compensate
+    # here so asymmetric furniture and runtime anchors share the same metre frame.
+    return (-p[0], -p[2], p[1])
 
 
 def mesh(name, vertices, faces, material, bevel=0):
