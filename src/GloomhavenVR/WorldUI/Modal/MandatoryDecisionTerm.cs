@@ -85,6 +85,10 @@ internal enum MandatoryDecisionTerm
     /// <summary>IDENTITY — generic native confirmation, including map level-up card
     /// selection; its action/cancel callbacks may not be replaced by UIWindow.Hide.</summary>
     NativeConfirmation = 8,
+
+    /// <summary>IDENTITY — map/scenario narrative, whose final Skip runs its callbacks
+    /// and closes the native window. A retained final page has no remaining action.</summary>
+    NativeStory = 9,
 }
 
 /// <summary>
@@ -118,6 +122,7 @@ internal static class MandatoryDecisionTerms
             case MandatoryDecisionTerm.NativeReveal:
             case MandatoryDecisionTerm.CharacterCreation:
             case MandatoryDecisionTerm.NativeConfirmation:
+            case MandatoryDecisionTerm.NativeStory:
                 return true;
             case MandatoryDecisionTerm.None:
             case MandatoryDecisionTerm.GameRefusesEscape:

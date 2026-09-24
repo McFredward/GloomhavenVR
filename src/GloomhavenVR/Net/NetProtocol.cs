@@ -519,7 +519,15 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 554;
+    public const ushort ModBuild = 555;
+
+    // ModBuild 555 — completed native stories release their retained VR windows.
+    // Build 554 logs prove final-page callbacks and rewards completed, but map-room
+    // stickiness kept the disabled final page visible until shutdown. Identify both
+    // map and scenario story windows by their controller references; native close
+    // overrides stale poll membership and never reasserts visibility. Release uses
+    // the ordinary float cleanup, without Hide/Skip/callback replay or new wire data.
+    // Live/reopened story pages and parallel map destinations keep their ownership.
 
     // ModBuild 554 — hidden Cheats page: explicitly win the current offline scenario.
     // Two presses arm/confirm for the same live scenario, then close options/pause and

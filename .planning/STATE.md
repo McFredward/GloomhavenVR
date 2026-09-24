@@ -1,6 +1,6 @@
 # State — where the project stands
 
-**Updated 2026-09-24: dev 1.0.8 / ModBuild 554, window-continuation hardware candidate.**
+**Updated 2026-09-24: dev 1.0.8 / ModBuild 555, completed-story lifetime correction.**
 The complete NPC development is isolated on `feature/immersive-town-services` for a
 future release of at least 1.1.0. Builds 538–545 and 547–552 remain reserved for that branch.
 Current review and validation: [WINDOWS-553.md](WINDOWS-553.md). Released 1.0.7 / build 546
@@ -18,6 +18,12 @@ change per build) → this file (where things stand and what is owed) → the bu
 ---
 
 ## 1. Position
+
+- **dev / 1.0.8 / ModBuild 555:** matching build 554 hardware logs show native story
+  and reward completion succeeded, but the mod kept the disabled final page visible.
+  Exact map/scenario story identity now ends retention on native close and prevents
+  poll/conversion/visibility resurrection. No gameplay callback replay, NPC changes
+  or release. Evidence and test sequence: [STORY-555.md](STORY-555.md).
 
 - **dev / 1.0.8 / ModBuild 554:** hidden offline Cheats page gains a confirmed
   current-scenario victory action through the native result/reward flow, to test

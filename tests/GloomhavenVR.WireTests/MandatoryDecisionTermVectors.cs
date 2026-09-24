@@ -79,6 +79,7 @@ internal static class MandatoryDecisionTermVectors
         ("ItemCardPicker", true),    // ItemCardPicker — hide fires neither callback
         ("TakeDamagePanel", true),   // TakeDamagePanel — the wire action is never sent
         ("NativeReveal", true),      // level-up/location Continue owns the remaining sequence
+        ("NativeStory", true),       // final page owns continuation and ends sticky presentation
         ("CharacterCreation", true), // native Confirm/Cancel clears the party creation guard
         ("NativeConfirmation", true), // Confirm/Cancel invokes the pending action
 

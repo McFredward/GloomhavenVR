@@ -10,6 +10,13 @@ public class UILevelUpWindow { }
 public class UIUnlockLocationFlowManager { }
 public class UICharacterCreatorWindow { }
 public class ConfirmationBox { }
+public static class Singleton<T> where T : class
+{
+    public static T Instance = null!;
+    public static bool IsInitialized => Instance != null;
+}
+public class StoryController { public UnityEngine.UI.UIWindow window = null!; }
+public class MapStoryController { public UnityEngine.UI.UIWindow window = null!; }
 namespace UnityEngine.UI
 {
     public sealed class UIWindow

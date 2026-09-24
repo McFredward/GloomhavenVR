@@ -1,6 +1,6 @@
 # Planning index
 
-Updated 2026-09-24 for dev 1.0.8 / build-554 scenario victory test action. This directory holds internal
+Updated 2026-09-24 for dev 1.0.8 / build-555 completed-story lifetime. This directory holds internal
 engineering evidence, historical decisions and current status; it is not the player manual.
 
 ## Current entry points
@@ -18,6 +18,8 @@ engineering evidence, historical decisions and current status; it is not the pla
 
 ## Latest measured work
 
+- [STORY-555.md](STORY-555.md): build 554 evidence of a completed story retained
+  by map-window stickiness; shared native close/lifetime correction.
 - [CHEAT-554.md](CHEAT-554.md): hidden scenario-win test action using native results
   and rewards, to reproduce post-quest continuation windows.
 - [WINDOWS-553.md](WINDOWS-553.md): level-up reveal input, map confirmations,

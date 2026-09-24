@@ -356,6 +356,8 @@ internal static partial class ModalFallback
     /// </summary>
     private static void ReassertStickyVisible(WindowPanel wp)
     {
+        // Never resurrect the final page after the game ran its completion callbacks.
+        if (NativeStoryWindow.IsCompleted(wp.Window)) return;
         bool fought = false;
         CanvasGroup? cg = wp.WindowCanvasGroup;
         if (cg != null)
@@ -483,6 +485,8 @@ internal static partial class ModalFallback
     private static void AddPollWindow(UIWindow? window)
     {
         if (window == null || ContainsWindow(OpenWindows, window))
+            return;
+        if (NativeStoryWindow.IsCompleted(window))
             return;
         if (FloatRefusalTable.Refuses(window))
             return;

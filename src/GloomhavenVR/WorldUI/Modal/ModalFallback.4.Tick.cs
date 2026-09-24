@@ -2566,7 +2566,11 @@ internal static partial class ModalFallback
             // its own boolean and its own log line so neither can quietly start answering for the
             // other — which is exactly how the first one went wrong.
             bool selectionGone = StickinessSpentByClearedQuestSelection(wp, out string selectionWhy);
+            // Build 554 hardware: the native story finished, rewards resumed and saved,
+            // but map stickiness kept its disabled last page drawn for another 39 seconds.
+            // A stale poll entry/positive alpha must not overrule that native close.
             bool stillOpen = alive && !wp.UserClosing && !wp.EmptyReleasePending && !refused
+                             && !NativeStoryWindow.IsCompleted(wp.Window)
                              && (ContainsWindow(OpenWindows, wp.Window!)
                                  || (wp.Sticky && !answeredMandatory && !selectionGone)
                                  || ScriptedLevelMessageActive(wp.Window));
@@ -2831,6 +2835,10 @@ internal static partial class ModalFallback
         for (int i = 0; i < OpenWindows.Count; i++)
         {
             UIWindow window = OpenWindows[i];
+            // A native callback can finish the story after the poll was sampled.
+            // Do not re-float it in the same pass that released its closed last page.
+            if (NativeStoryWindow.IsCompleted(window))
+                continue;
             // Composite adoption runs after OpenWindows was sampled. Recheck the live
             // hierarchy here: a newly parked hint must not be converted again this tick.
             if (RendersInsideFloatedAncestor(window))

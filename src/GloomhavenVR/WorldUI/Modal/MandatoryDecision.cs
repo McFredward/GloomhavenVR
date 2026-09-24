@@ -182,6 +182,12 @@ internal static partial class ModalFallback
         if (window == null)
             return MandatoryDecisionTerm.None;
 
+        if (NativeStoryWindow.IsStory(window))
+        {
+            reason = "native story — its last page owns continuation; a closed story must release its VR presentation";
+            return MandatoryDecisionTerm.NativeStory;
+        }
+
         // The level-up window's IEscapable consumes Escape without closing: revealing
         // the cards must finish before the player chooses one. Unlock-location Hide
         // likewise does not resolve its pending Continue promise or restore map input.

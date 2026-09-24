@@ -22,6 +22,8 @@ static class Program
         GuildmasterDestinations.Exits = GuildmasterDestinations.LeaveCalls = 0;
         MapRoomDriver.Active = true;
         VRLog.Lines.Clear();
+        Singleton<MapStoryController>.Instance = null!;
+        Singleton<StoryController>.Instance = null!;
     }
     private static void Refused(UIWindow window, string reason)
     {
@@ -69,6 +71,14 @@ static class Program
         }
         Reset();
         Refused(new UIWindow { Introduction = true }, "introduction callback cannot be bypassed by direct close");
+        Reset();
+        var mapStory = new UIWindow();
+        Singleton<MapStoryController>.Instance = new MapStoryController { window = mapStory };
+        Refused(mapStory, "map story must finish through its own page callback");
+        Reset();
+        var scenarioStory = new UIWindow();
+        Singleton<StoryController>.Instance = new StoryController { window = scenarioStory };
+        Refused(scenarioStory, "scenario story must finish through its own page callback");
         Reset();
         Refused(new UIWindow { LevelMessage = true }, "tutorial callback cannot be bypassed by direct close or chord");
         Reset();
