@@ -41,6 +41,8 @@ internal static partial class TownServiceMirror
     // Presentation-only clone preparation: native gameplay controllers remain neutralized.
     // Generated physical bodies need their clone registered for later original silhouette updates.
     internal static Action<string, GameObject>? PrepareInertGeometry { get; set; }
+    // Renderer-only finishing after native text, pose and bounds have been replayed.
+    internal static Action<string, Transform, Transform>? FinishInertPresentation { get; set; }
     private static Dictionary<ushort, LocalModule> Local => _local.Modules;
     private static readonly Dictionary<int, Dictionary<ushort, RemoteModule>> Remote = new();
     private static readonly Dictionary<int, Dictionary<ushort, TownServiceFrame>> Pending = new();
@@ -503,6 +505,7 @@ internal static partial class TownServiceMirror
                         module.Motion.AfterApply(now, frame.SampleTime - module.LastFrame.SampleTime);
                     RemoteRetry.Remove(retryKey); module.Sequence = frame.Sequence; module.LastFrame = frame; reorder = true;
                     module.Host.SetActive(true); root.gameObject.SetActive(true);
+                    FinishInertPresentation?.Invoke(frame.TemplateAddress, root, parent);
                 }
                 catch (Exception e)
                 {

@@ -79,7 +79,11 @@ Shader "GloomhavenVR/TownFlame"
             {
                 UNITY_SETUP_STEREO_EYE_INDEX_POST_VERTEX(i);
                 fixed4 c = tex2D(_MainTex, i.uv) * _Color;
-                half coverage = saturate(c.a * 4.0h) * _TownVisibility;
+                // Native additive atlases store opaque black padding (alpha is one).
+                // Derive coverage from emitted light as well as alpha, or that padding
+                // becomes an opaque rectangle on the station and in observer copies.
+                half emission = saturate(max(c.r, max(c.g, c.b)) * 4.0h);
+                half coverage = saturate(c.a * 4.0h) * emission * _TownVisibility;
                 // Glow/glass retain the original additive energy. Only a verified flame
                 // mesh covers its background; soft texture edges still fade continuously.
                 return _FlameCore > .5h

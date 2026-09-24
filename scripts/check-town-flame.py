@@ -19,6 +19,19 @@ def main():
     args = parser.parse_args()
     args.output_dir.mkdir(parents=True, exist_ok=True)
     run = Path(tempfile.mkdtemp(prefix='run-', dir=args.output_dir.resolve()))
+    # Extract the actual shipped additive atlases without committing game artwork.
+    python = Path.home() / 'unitypy-venv/bin/python'
+    extractor = """import UnityPy,sys
+from pathlib import Path
+base=Path(sys.argv[1])/'ressources/GH_Data/StreamingAssets/aa/StandaloneWindows64'
+for bundle,name in [('pcg_materials_assets_cr_st_candleflame.bundle','CandleAnim'),('pcg_materials_assets_cr_st_candleflame_01_mat.bundle','CR_CandleFlame_01')]:
+ e=UnityPy.load(str(base/bundle))
+ for o in e.objects:
+  if o.type.name=='Texture2D':
+   d=o.read()
+   if d.m_Name==name:d.image.save(Path(sys.argv[2])/(name+'.png'))
+"""
+    subprocess.run([str(python), '-c', extractor, str(args.source_root), str(run)], check=True)
     base = args.source_root / 'src/GloomhavenVR/Net/TownServices'
     sources = {name: (base / name).read_text().replace('Time.unscaledTime', 'FlameTestClock.Now') for name in (
         'TownServiceAssets.cs', 'TownServiceFrame.cs', 'TownRackState.cs', 'TownServiceDelta.cs', 'TownServiceMaterial.cs', 'TownServiceBinding.cs', 'TownServiceFlameClock.cs')}
@@ -68,6 +81,8 @@ def main():
         .replace('Shader "GloomhavenVR/TownFlame"', 'Shader "GloomhavenVR/TownFlameBatchingNegative"'))
     (project / 'Assets/TownFlameTransparentNegative.shader').write_text(shader_text.replace('_FlameCore > .5h', 'false')
         .replace('Shader "GloomhavenVR/TownFlame"', 'Shader "GloomhavenVR/TownFlameTransparentNegative"'))
+    (project / 'Assets/TownFlameOpaquePaddingNegative.shader').write_text(shader_text.replace(' * emission * _TownVisibility', ' * _TownVisibility')
+        .replace('Shader "GloomhavenVR/TownFlame"', 'Shader "GloomhavenVR/TownFlameOpaquePaddingNegative"'))
     (run / 'shader-sha256.txt').write_text(hashlib.sha256(shader_text.encode()).hexdigest() + '\n')
     (project / 'Packages/manifest.json').write_text('{"dependencies":{"com.unity.modules.physics":"1.0.0","com.unity.ugui":"1.0.0","com.unity.textmeshpro":"3.0.6"}}')
     (project / 'ProjectSettings/ProjectVersion.txt').write_text('m_EditorVersion: 2021.3.5f1\n')

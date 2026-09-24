@@ -705,7 +705,7 @@ public static partial class MirrorProgram
             GloomhavenVR.WorldUI.TownServicePresentation.Service = service;
             var ritual = new GloomhavenVR.WorldUI.TownServiceRitual { Zone = Go("offering-zone").transform };
             var piece = new GloomhavenVR.WorldUI.TownServiceRitual.Piece {
-                Key = service == 2 ? "temple.row" : "enchant.row", BodyKey = service == 2 ? "ritual.coin" : "merchant.cardbody",
+                Key = service == 2 ? "temple.row" : "enchant.row", BodyKey = service == 2 ? "ritual.purse" : "merchant.cardbody",
                 Source = Go("original-ritual-row").transform, Content = Go("physical-inscriptions").transform,
                 Body = Go("original-physical-body").transform, DetailKey = service == 2 ? "temple.tooltip" : "enchant.tooltip",
                 DetailSource = Go("original-ritual-description").transform, DetailContent = Go("held-description").transform };
@@ -718,6 +718,8 @@ public static partial class MirrorProgram
             if (service == 3) ritual.Surfaces.Add(holder);
             if (service == 3)
             {
+                ritual.CardSlots.Points.Add(new GloomhavenVR.WorldUI.TownServiceCardSlots.Point
+                { Source = Go("original-free-enhancement-slot").transform, Content = Go("palm-enhancement-slot").transform });
                 var offeringCard = Go("owned-offering-card").transform;
                 var visual = Go("Visual").transform; visual.SetParent(offeringCard, false);
                 var backing = Go("Backing").transform; backing.SetParent(visual, false);
@@ -734,6 +736,10 @@ public static partial class MirrorProgram
             {
                 Check(calls.Exists(c => c.Key == "enchant.tooltip" && c.Source == GloomhavenVR.WorldUI.NativeTemplates.Originals["enchant.tooltip"]),
                     "native enhancement folio publishes its original price explanation boundary");
+                var point = ritual.CardSlots.Points[0];
+                Check(calls.Exists(c => c.Key == "enchant.point" && c.Source == point.Content
+                    && c.Provenance == point.Source && c.CloneOf!(point.Source) == point.Content),
+                    "offered card capacity mirrors the actual native point provenance");
                 var offered = ritual.Handoff!;
                 Check(calls.Exists(c => c.Key == "face.123" && c.Source == offered.Face
                     && c.Provenance == offered.NativeSource!.fullAbilityCard

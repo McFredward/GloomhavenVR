@@ -18,6 +18,7 @@ public static class InteractionProgram
         Check(shader != null, "production flame shader is available");
         checks += BillboardRender.Run(shader);
         checks += CoreCoverage.Run(shader);
+        checks += NativeCoverage.Run(shader);
         var atlas = new Texture2D(8, 1, TextureFormat.RGBA32, false) { name = "flame-test-atlas", filterMode = FilterMode.Point };
         atlas.SetPixels(new[] { Color.red, Color.green, Color.blue, Color.yellow, Color.cyan, Color.magenta, Color.white, Color.gray }); atlas.Apply();
         var sourceMaterial = new Material(shader);

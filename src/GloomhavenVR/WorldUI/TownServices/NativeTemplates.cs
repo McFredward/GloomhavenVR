@@ -129,7 +129,8 @@ internal static class NativeTemplates
         BindOriginalBackdrops();
         foreach (var entry in Entries) Freeze(entry.Key, entry.Value);
         TownServiceMirror.ResolveTemplate = Resolve;
-        TownServiceMirror.PrepareInertGeometry = PrepareInertGeometry; _ready = true;
+        TownServiceMirror.PrepareInertGeometry = PrepareInertGeometry;
+        TownServiceMirror.FinishInertPresentation = TownServiceBookInk.ApplyRemote; _ready = true;
         return true;
     }
 
@@ -253,6 +254,7 @@ internal static class NativeTemplates
             }
         }
         if (key == "ritual.coin") source = TownServiceDecor.CoinTemplate;
+        else if (key == "ritual.purse") source = TownServiceDecor.MoneyBagTemplate;
         else if (key == "map.cardbody") source = GloomhavenVR.Cards.CardsDriver.CardBackingPrefab?.transform;
         else if (key.StartsWith("decor.", StringComparison.Ordinal))
         {
@@ -377,7 +379,7 @@ internal static class NativeTemplates
         string prefix = "decor." + service + ".";
         var removed = new List<string>();
         foreach (string key in Entries.Keys)
-            if (key.StartsWith(prefix, StringComparison.Ordinal) || service == 2 && key == "ritual.coin") removed.Add(key);
+            if (key.StartsWith(prefix, StringComparison.Ordinal) || service == 2 && (key == "ritual.coin" || key == "ritual.purse")) removed.Add(key);
         foreach (string key in removed)
         {
             Entry entry = Entries[key]; Roots.Remove(entry.Original);
@@ -390,6 +392,7 @@ internal static class NativeTemplates
     {
         TownServiceMirror.ResolveTemplate = null;
         TownServiceMirror.PrepareInertGeometry = null;
+        TownServiceMirror.FinishInertPresentation = null;
         if (_cardBody != null) TownServiceCardBody.Dispose(_cardBody);
         Entries.Clear(); Roots.Clear(); _hud = null; _ready = false;
         _tray?.Dispose(); _tray = null; Tooltip = null;

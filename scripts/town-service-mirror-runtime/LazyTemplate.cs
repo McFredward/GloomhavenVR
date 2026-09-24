@@ -27,6 +27,7 @@ namespace GloomhavenVR.WorldUI
     internal static class TownServiceDecor
     {
         internal static Transform? CoinTemplate=>null;
+        internal static Transform? MoneyBagTemplate=>null;
         internal static int StaticPropCount(byte service)=>0;
         internal static bool TryStaticProp(byte service,int index,out Transform? source,out string key)
         {source=null;key=string.Empty;return false;}

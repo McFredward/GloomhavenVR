@@ -173,6 +173,8 @@ internal sealed class TownServiceSync
                         Publish("map.cardbody", body);
                     }
                 }
+                foreach (TownServiceCardSlots.Point point in ritual.CardSlots.Points)
+                    Publish("enchant.point", point.Content, point.Source, point.CloneOf);
                 foreach (TownServiceRitual.Piece piece in ritual.Pieces)
                 {
                     if (piece.Token.IsMoving)

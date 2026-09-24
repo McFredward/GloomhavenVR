@@ -16,6 +16,7 @@ public static class InteractionProgram
         var root=new GameObject(name);
         var child=GameObject.CreatePrimitive(PrimitiveType.Cube);child.name=name;child.transform.SetParent(root.transform,false);
         if(name=="lantern")child.name="CR_INT_Lantern_01_b";
+        if(name=="purse")child.name="CR_ST_Shelf_KitchenItems_Bag_01 (3)";
         if(name=="stand-candle") child.name="CR_GE_Candle_V1";
         if(name=="flame") {child.name="CandlePivot";var glow=GameObject.CreatePrimitive(PrimitiveType.Quad);glow.name="Glow";glow.transform.SetParent(child.transform,false);glow.GetComponent<MeshRenderer>().sharedMaterial=(Material)Addressables.Assets["good"];}
         var renderer=child.GetComponent<MeshRenderer>();renderer.sharedMaterials=Array.Empty<Material>();
@@ -34,7 +35,7 @@ public static class InteractionProgram
         List("Tone_Candlelight",("Candlelight.Lighting.Torch.Wall#1","flame","good"));
         List("RockTemple",("RockTemple.Feature.Small#3","stand-candle","good"));
         List("Library",("Library.Clutter.Shelf.Individual#7","book","good"));
-        List("Treasure",("Treasure.Clutter.FloorSmall#3","coins","good"),("Treasure.Clutter.Shelf.Individual#1","coinsingle",BrokenCoin));
+        List("Treasure",("Treasure.Clutter.FloorSmall#3","coins","good"),("Treasure.Clutter.Shelf.Individual#1","coinsingle",BrokenCoin),("Treasure.Bay.Variant#2","purse","good"));
         Addressables.Assets["coinpile"]=new Material((Material)Addressables.Assets["good"]){name="GoldCoinMat",mainTexture=Texture2D.blackTexture};
         List("AlchemyLab",("AlchemyLab.Clutter.Shelf.Individual#7","balance","good"),("AlchemyLab.Clutter.Shelf.Individual#3","jugs","good"),("AlchemyLab.Clutter.Shelf.Individual#11","oiler","good"));
         List("Chapel",("Chapel.Clutter.Shelf.Individual#7","bowl","good"),("Chapel.Clutter.Shelf.Individual#2","scrolls","good"));
@@ -106,6 +107,13 @@ public static class InteractionProgram
         UnityEngine.Object.DestroyImmediate(lamp);Check(TownServiceLighting.Owned.Count==0,"clone destruction releases practical ownership");
         var partition=new GameObject("partition");TownServiceWorkspacePractical.RebindClone("decor.2.0|0",partition);
         Check(partition.GetComponent<TownServiceWorkspacePractical>()==null,"partition modules cannot duplicate root lighting");UnityEngine.Object.DestroyImmediate(partition);
+        Transform? purse=TownServiceDecor.MoneyBagTemplate;
+        Check(purse!=null&&!purse.gameObject.activeSelf,"original purse template stays hidden until a real offering");
+        var purseRenderer=purse!.GetComponentInChildren<MeshRenderer>(true);
+        Check(purseRenderer!=null&&purse.GetComponentsInChildren<Collider>(true).Length==0,"original purse copies rendering only without native colliders");
+        Check(Math.Abs(purseRenderer!.bounds.size.x-.125f)<.0001f,"purse normalized to hand size independently of bay dimensions");
+        Check(Math.Abs(purseRenderer.bounds.min.y-root.transform.position.y)<.0001f,"purse template origin lies at its bottom");
+        Check(TownServiceDecor.TempleBookRoot!=null,"book surface available for native ink fitting");
         Transform? coin=TownServiceDecor.CoinTemplate;
         Check(coin!=null&&!coin.gameObject.activeSelf,"native coin template is inert and hidden");
         Check(coin!.GetComponentsInChildren<MeshRenderer>(true).Length==1,"native coin rendering retained");
@@ -115,7 +123,7 @@ public static class InteractionProgram
         GloomhavenVR.Net.TownServices.TownServiceMirror.Assets.Generation++;
         Tick(decor,.22f);
         Check(GloomhavenVR.Net.TownServices.TownServiceMirror.Assets.Items.Count>0,"network asset reset rebinds living native coin textures");
-        decor.Dispose();Check(TownServiceDecor.StaticPropSource(2)==null&&TownServiceDecor.StaticPropCount(2)==0,"disposed station invalidates static prop lookup");Check(TownServiceDecor.CoinTemplate==null&&Addressables.Held==0,"coin template cannot outlive owner materials");UnityEngine.Object.DestroyImmediate(root);
+        decor.Dispose();Check(TownServiceDecor.MoneyBagTemplate==null&&TownServiceDecor.TempleBookRoot==null,"purse and book do not outlive original material ownership");Check(TownServiceDecor.StaticPropSource(2)==null&&TownServiceDecor.StaticPropCount(2)==0,"disposed station invalidates static prop lookup");Check(TownServiceDecor.CoinTemplate==null&&Addressables.Held==0,"coin template cannot outlive owner materials");UnityEngine.Object.DestroyImmediate(root);
         Setup(0);root=new GameObject("enchantress");
         var grip=new GameObject("ActivityOfferingPalm");grip.transform.SetParent(root.transform,false);grip.transform.localPosition=new Vector3(.2f,1.1f,.3f);
         decor=new TownServiceDecor(root.transform,3,light);Tick(decor,0);Tick(decor,.11f);decor.SetVisibility(.8f);decor.SetClock(100f);

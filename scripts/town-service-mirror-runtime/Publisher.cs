@@ -64,9 +64,21 @@ namespace GloomhavenVR.WorldUI
         internal Transform? CloneOf(Transform original) => NativeSource != null && original == NativeSource.fullAbilityCard ? Face : null;
     }
     internal sealed class TownServiceMerchantZone { internal Transform Root = null!; }
+    // Card-slot construction has its own production-helper fixture; this boundary
+    // exercises the actual publisher's provenance and lifecycle for each point.
+    internal sealed class TownServiceCardSlots
+    {
+        internal sealed class Point
+        {
+            internal Transform Source = null!, Content = null!;
+            internal Transform? CloneOf(Transform source) => source == Source ? Content : null;
+        }
+        internal readonly List<Point> Points = new();
+    }
     internal sealed class TownServiceRitual
     {
         internal TownServiceEnhancementHandoff? Handoff;
+        internal readonly TownServiceCardSlots CardSlots = new();
         internal sealed class Piece
         {
             internal TownServiceToken Token = new();

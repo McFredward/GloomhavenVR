@@ -530,7 +530,20 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 551;
+    public const ushort ModBuild = 552;
+
+    // ModBuild 552 — physical town offerings, visible input and native surface fidelity.
+    // Empty canvas frames and passive resident boxes cannot intercept the laser. Mage
+    // approach/distance owns its native service without expanding Character UI; original
+    // per-card enhancement points follow the offered card. Physical reclaim uses the same
+    // actual item/ability card and native cancellation. The priestess receives an original
+    // game purse from the hand into her bowl with original guarded donation authority.
+    // Book ink wraps and conforms to native pages locally and on inert observer copies.
+    // Mirrored mage pronation and varied merchant contact timing retain actual prop contact;
+    // bounded native spatial foley follows shared activity edges and existing volume controls.
+    // Candle core coverage rejects opaque black padding in original additive atlases.
+    // Wire layouts and the environment bundle are unchanged; the new town bundle is required.
+    // Evidence and hardware limits: .planning/research/TOWN-SERVICES-552.md.
 
     // ModBuild 551 — reclaimable palm transactions, native enchantment folio and quiet residents.
     // Original confirm/cancel controls float beneath the merchant/enchantress palm; only the

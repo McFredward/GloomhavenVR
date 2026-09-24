@@ -80,9 +80,12 @@ internal sealed class TownServiceDecor : IDisposable
     private readonly Transform _root;
     private readonly TownServiceLighting _lighting;
     private readonly TownServiceActivityProps _work;
-    private Piece? _workCoin, _arcane, _coinTemplate;
+    private Piece? _workCoin, _arcane, _coinTemplate, _moneyBagTemplate, _templeBook;
     private TownServiceArcaneEffect? _magic;
     internal static Transform? CoinTemplate { get; private set; }
+    internal static Transform? MoneyBagTemplate { get; private set; }
+    internal static Transform? TempleBookRoot => Owners.TryGetValue(2, out TownServiceDecor owner)
+        ? owner._templeBook?.Holder?.transform : null;
     private Transform? _castGrip;
     private bool _castGripBound;
     private float _visibility;
@@ -138,12 +141,15 @@ internal sealed class TownServiceDecor : IDisposable
         else if (service == 2)
         {
             Add("Chapel", "Chapel.Clutter.Shelf.Individual#7", new Vector3(0f, .957f, .18f), .18f);
-            Add("Library", "Library.Clutter.Shelf.Individual#7", new Vector3(-.33f, .957f, -.12f), .30f);
+            _templeBook = Add("Library", "Library.Clutter.Shelf.Individual#7", new Vector3(-.33f, .957f, -.12f), .30f);
             Candle(new Vector3(.40f, .957f, .23f), .20f);
             Candle(new Vector3(.55f, .957f, .08f), .14f);
             Candle(new Vector3(-.54f, .957f, .19f), .16f);
             _coinTemplate = Add("Treasure", "Treasure.Clutter.Shelf.Individual#1", Vector3.zero, .05f);
             _coinTemplate.Template = true;
+            _moneyBagTemplate = Add("Treasure", "Treasure.Bay.Variant#2", Vector3.zero, .125f);
+            _moneyBagTemplate.Select = "CR_ST_Shelf_KitchenItems_Bag_01 (3)";
+            _moneyBagTemplate.Template = true;
         }
         else
         {
@@ -191,7 +197,9 @@ internal sealed class TownServiceDecor : IDisposable
         if (_coinTemplate?.Holder != null
             && _coinGeneration != GloomhavenVR.Net.TownServices.TownServiceMirror.Assets.Generation)
         {
-            RegisterCoinTextures(_coinTemplate.Holder.transform);
+            RegisterPropTextures(_coinTemplate.Holder.transform, _coinTemplate.Entry);
+            if (_moneyBagTemplate?.Holder != null)
+                RegisterPropTextures(_moneyBagTemplate.Holder.transform, _moneyBagTemplate.Entry);
             _coinGeneration = GloomhavenVR.Net.TownServices.TownServiceMirror.Assets.Generation;
         }
         foreach (MaterialLoad load in _loads.Values) Advance(load, now);
@@ -409,17 +417,24 @@ internal sealed class TownServiceDecor : IDisposable
             }
             if (piece.Template)
             {
-                holder.name = "Town.OriginalCoinTemplate";
-                RegisterCoinTextures(holder.transform);
+                if (piece == _moneyBagTemplate)
+                {
+                    // Normalize around its bottom centre without inheriting the PCG bay offset.
+                    var normalized = new GameObject("Town.OriginalMoneyBagTemplate");
+                    normalized.SetActive(false); normalized.transform.SetParent(_root, false);
+                    holder.transform.SetParent(normalized.transform, false); holder.SetActive(true);
+                    piece.Holder = normalized; MoneyBagTemplate = normalized.transform;
+                }
+                else { holder.name = "Town.OriginalCoinTemplate"; CoinTemplate = holder.transform; }
+                RegisterPropTextures(piece.Holder.transform, piece.Entry);
                 _coinGeneration = GloomhavenVR.Net.TownServices.TownServiceMirror.Assets.Generation;
-                CoinTemplate = holder.transform;
             }
             else holder.SetActive(!piece.Arcane);
         }
         catch { UnityEngine.Object.Destroy(holder); throw; }
     }
 
-    private static void RegisterCoinTextures(Transform root)
+    private static void RegisterPropTextures(Transform root, string entry)
     {
         int rendererIndex = 0;
         foreach (MeshRenderer renderer in root.GetComponentsInChildren<MeshRenderer>(true))
@@ -432,7 +447,7 @@ internal sealed class TownServiceDecor : IDisposable
                     Texture texture = material.GetTexture(property);
                     if (texture != null)
                         GloomhavenVR.Net.TownServices.TownServiceMirror.Assets.RegisterOriginal(
-                            "town-prop|Treasure.Clutter.Shelf.Individual#1|" + rendererIndex + "|" + materialIndex + "|" + property, texture);
+                            "town-prop|" + entry + "|" + rendererIndex + "|" + materialIndex + "|" + property, texture);
                 }
                 materialIndex++;
             }
@@ -540,6 +555,7 @@ internal sealed class TownServiceDecor : IDisposable
     {
         if (Owners.TryGetValue(_service, out TownServiceDecor owner) && ReferenceEquals(owner, this)) Owners.Remove(_service);
         if (_coinTemplate?.Holder != null && CoinTemplate == _coinTemplate.Holder.transform) CoinTemplate = null;
+        if (_moneyBagTemplate?.Holder != null && MoneyBagTemplate == _moneyBagTemplate.Holder.transform) MoneyBagTemplate = null;
         _work.Dispose();
         _magic?.Dispose();
         foreach (Material material in _materials) UnityEngine.Object.Destroy(material);

@@ -200,7 +200,7 @@ internal static partial class Loc
         ["town_merchant_sell"] = Pair("Sell", "Verkaufen"),
         ["town_merchant_stock"] = Pair("Shop stock", "Warenbestand"),
         ["town_merchant_inventory"] = Pair("Owned items", "Eigene Gegenstände"),
-        ["town_offering"] = Pair("Offer the coins here", "Münzen hier opfern"),
+        ["town_offering"] = Pair("Place the purse in the bowl to donate", "Geldbeutel zum Spenden in die Schale legen"),
         ["town_inscribe"] = Pair("Place a rune here", "Rune hier ablegen"),
         ["town_enchant_card"] = Pair("Place a card here", "Karte hier ablegen"),
         ["town_enchant_seal"] = Pair("Seal the purchase", "Kauf besiegeln"),

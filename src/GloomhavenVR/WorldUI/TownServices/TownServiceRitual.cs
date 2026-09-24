@@ -252,6 +252,7 @@ internal sealed class TownServiceRitual : IDisposable
     private TownServiceTempleOffering? _templeOffering;
     private readonly HashSet<(string Character, object Blessing)> _submittedOfferings = new();
     internal TownServiceEnhancementHandoff? Handoff { get; private set; }
+    internal TownServiceCardSlots CardSlots { get; } = new();
     internal Transform Root { get; }
     internal IEnumerable<Piece> Pieces => _pieces.Values;
     internal IReadOnlyCollection<TownServiceToken> Samples => _samples;
@@ -338,6 +339,7 @@ internal sealed class TownServiceRitual : IDisposable
     internal void Tick(float scale)
     {
         Handoff?.Tick();
+        if (Handoff != null) CardSlots.Tick(Handoff);
         _templeOffering?.Tick(!_disposed && _alive());
         if (_disposed || !_alive()) return;
         if (_service == 2 && TownServiceDecor.MoneyBagTemplate == null && Time.unscaledTime - _started > 15f)
@@ -476,6 +478,7 @@ internal sealed class TownServiceRitual : IDisposable
     public void Dispose()
     {
         if (_disposed) return; _disposed = true;
+        CardSlots.Dispose();
         Handoff?.Dispose(); Handoff = null;
         foreach (Piece piece in _pieces.Values) piece.Dispose(); _pieces.Clear(); _samples.Clear();
         _templeOffering?.Dispose(); _templeOffering = null;
