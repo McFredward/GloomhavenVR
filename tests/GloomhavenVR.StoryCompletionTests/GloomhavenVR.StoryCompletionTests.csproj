@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="$(StorySource)" Link="Production/NativeStoryWindow.cs" />
+    <Compile Include="$(LifecycleSource)" Link="Production/StoryLifecycle.cs" />
+    <Compile Include="$(TermSource)" Link="Production/MandatoryDecisionTerm.cs" />
+  </ItemGroup>
+</Project>
