@@ -1,6 +1,6 @@
 # Planning index
 
-Updated 2026-09-24; feature/immersive-town-services build 550 integration in progress. Dev remains the separate hotfix branch. This directory holds internal
+Updated 2026-09-24; feature/immersive-town-services build 550 hardware candidate. Dev remains the separate hotfix branch. This directory holds internal
 engineering evidence, historical decisions and current status; it is not the player manual.
 
 ## Current entry points

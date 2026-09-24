@@ -1,6 +1,6 @@
 # State — where the project stands
 
-**Updated 2026-09-24: feature/immersive-town-services, version 1.1.0 / ModBuild 550 integration.**
+**Updated 2026-09-24: feature/immersive-town-services, version 1.1.0 / ModBuild 550 hardware candidate.**
 The feature is based on dev e63fb284, including released 1.0.7 / build 546. Dev remains
 the separate 1.0.8 hotfix line. The maintainer hardware-confirmed 546 before release.
 Current NPC revision: [research/TOWN-SERVICES-550.md](research/TOWN-SERVICES-550.md).
@@ -19,7 +19,7 @@ change per build) → this file (where things stand and what is owed) → the bu
 
 ## 1. Position
 
-- **NPC feature / 1.1.0 / ModBuild 550 (integration):** inert merchant laser/poke;
+- **NPC feature / 1.1.0 / ModBuild 550 (hardware candidate):** inert merchant laser/poke;
   shared ability/item hand-local tracking and owned-fan laser contact suppression;
   aimed vertical-stick cabinet paging with locomotion arbitration; upright animated
   actual-card palm handoffs retained through native confirmation, reclaimable and
@@ -27,7 +27,10 @@ change per build) → this file (where things stand and what is owed) → the bu
   549 hardware report. Fitted merchant worktop and actual native candles remove
   the reported torso/scroll intersections. Original environment bundle unchanged.
   See [research/TOWN-SERVICES-550.md](research/TOWN-SERVICES-550.md) for evidence,
-  final validation and remaining hardware checks.
+  final validation and remaining hardware checks. All 69 local suites are covered
+  with targeted complete repeats after two fixture repairs; 14 source gates, 286,103
+  wire assertions, strict Release and final imported asset/motion checks pass.
+  Full installation required: town bundle 96,187,501 bytes (`91dedb57…642492`).
 
 
 - **NPC feature / 1.1.0 / ModBuild 549 (hardware candidate):** approved upright merchant
