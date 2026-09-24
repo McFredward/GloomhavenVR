@@ -18,6 +18,9 @@ internal static class TownCassetteMotion
     // page membership change. Owner and delayed/late-joining observers sample one curve.
     internal static void RowPose(int row, float progress, int direction, out Vector3 position, out Quaternion rotation)
     {
+        // The short lead-in clears the real cabinet fascia before any holder rotates.
+        // It remains open and visible; category changes alone close the shutter.
+        progress = Mathf.Clamp01((progress - .10f) / .80f);
         float home = (row - 1) * RowPitch;
         if (direction == 0 || progress <= 0f || progress >= 1f)
         { position = new Vector3(0f, home, 0f); rotation = Quaternion.identity; return; }
@@ -44,6 +47,9 @@ internal static class TownCassetteMotion
     internal static void Apply(Transform housing, float progress, int direction)
     {
         Apply(housing, direction == 0 ? progress : 1f);
+        Transform? cassette = housing.Find("Cassette");
+        if (direction != 0 && cassette != null)
+            cassette.localPosition = new Vector3(0f, 0f, .10f * Mathf.Min(Ease(progress / .10f), Ease((1f - progress) / .10f)));
         for (int row = 0; row < 3; row++)
         {
             Transform? holder = housing.Find(row == 0 ? "Cassette/Row0" : row == 1 ? "Cassette/Row1" : "Cassette/Row2");

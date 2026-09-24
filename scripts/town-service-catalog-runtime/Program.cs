@@ -50,8 +50,8 @@ public static class InteractionProgram
         Check(!crank.RequestTurn(),"a running mechanical turn cannot restart");
         Set(crank,"_clock",.20f);crank.Tick(1f);
         Check(crank.Page==previous,"card identity is retained while outgoing front is visible");
-        Check(crank.HousingRoot.Find("Cassette/Row0").localPosition.z > .05f,"scrolling folds the outgoing lower holder behind the cabinet lip");
-        Check(crank.HousingRoot.Find("Cassette").localPosition == Vector3.zero,"scrolling leaves the cassette open instead of replaying category withdrawal");
+        Check(crank.HousingRoot.Find("Cassette/Row0").localPosition.z > .025f,"scrolling folds the outgoing lower holder behind the cabinet lip");
+        Check(crank.HousingRoot.Find("Cassette").localPosition.z < .101f && Quaternion.Angle(crank.HousingRoot.Find("Shutter/Upper").localRotation,Quaternion.Euler(-90,0,0))<.01f,"scrolling clears the fascia while keeping the shutter open");
         Check(crank.HousingRoot.Find("PageIndicator").GetComponent<CanvasGroup>().alpha > .99f
             && crank.HousingRoot.Find("PageIndicator/Caption").GetComponent<TMPro.TMP_Text>().text.Contains(" / " + crank.PageCount),
             "additional stock pages are discoverable without hover");
@@ -66,6 +66,8 @@ public static class InteractionProgram
     }
     private static void RollerGeometry()
     {
+        var trajectory = new System.Text.StringBuilder("direction,phase,row,x,y,z,qx,qy,qz,qw,depth\n");
+        var mechanism=new GameObject("sampled roller");var cassette=new GameObject("Cassette");cassette.transform.SetParent(mechanism.transform,false);
         foreach (int direction in new[] {-1, 1})
         {
             var previous = new Vector3[3];
@@ -73,15 +75,18 @@ public static class InteractionProgram
             for (int sample = 0; sample <= 1000; sample++)
             {
                 float progress = sample / 1000f;
+                TownCassetteMotion.Apply(mechanism.transform,progress,direction);
                 for (int row = 0; row < 3; row++)
                 {
                     TownCassetteMotion.RowPose(row, progress, direction, out Vector3 position, out Quaternion rotation);
+                    trajectory.AppendLine(string.Join(",",new object[]{direction,progress,row,position.x,position.y,position.z,
+                        rotation.x,rotation.y,rotation.z,rotation.w,cassette.transform.localPosition.z}));
                     if (sample > 0)
                     {
-                        Check(Vector3.Distance(position, previous[row]) < .002f,"roller holder trajectory is continuous without a midpoint teleport");
-                        Check(Quaternion.Angle(rotation, previousRot[row]) < 1.4f,"holder hinge unfolds continuously without a rotation snap");
+                        Check(Vector3.Distance(position, previous[row]) < .0025f,"roller holder trajectory is continuous without a midpoint teleport");
+                        Check(Quaternion.Angle(rotation, previousRot[row]) < 1.7f,"holder hinge unfolds continuously without a rotation snap");
                     }
-                    if (sample == 10 && row == 1)
+                    if (sample == 150 && row == 1)
                         Check(Math.Sign(position.y) == -direction,"scroll direction moves visible rows vertically in the requested direction");
                     if (sample == 500)
                     {
@@ -101,6 +106,12 @@ public static class InteractionProgram
                 for(int row=1;row<3;row++)
                     Check(Vector3.Distance(previous[row],previous[row-1])>.14f,"adjacent articulated card holders remain separated around the roller");
             }
+        }
+        UnityEngine.Object.DestroyImmediate(mechanism);
+        if(typeof(InteractionProgram).Assembly.GetName().Name=="TownInteraction_production")
+        {
+            string[] args=Environment.GetCommandLineArgs();int at=Array.IndexOf(args,"-interactionManifest");
+            if(at>=0&&at+1<args.Length)System.IO.File.WriteAllText(System.IO.Path.Combine(System.IO.Path.GetDirectoryName(args[at+1])!,"roller-geometry.csv"),trajectory.ToString());
         }
     }
     private static void HeldScale(TownServiceCatalog catalog,Transform anchor)
