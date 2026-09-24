@@ -79,6 +79,7 @@ internal sealed partial class CardsDriver
     /// </summary>
     private void UpdateHeldCardTransfer()
     {
+        if (ItemCardHold.TryTransfer()) return;
         VRHand? left = VRHands.Left;
         VRHand? right = VRHands.Right;
         // The transferable shapes: an ability card or an item chip, in EITHER hand. Both are

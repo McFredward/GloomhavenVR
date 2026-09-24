@@ -96,7 +96,8 @@ internal sealed class TownServiceMerchantRows : IDisposable
     private static void IgnoreHover(UIShopItemSlot row, bool hovered) { }
     private void Clear()
     {
-        foreach (Row row in Rows) { row.Source.gameObject.SetActive(false); UnityEngine.Object.Destroy(row.Source.gameObject); }
+        foreach (Row row in Rows)
+            if (row.Source != null) { row.Source.gameObject.SetActive(false); UnityEngine.Object.Destroy(row.Source.gameObject); }
         Rows.Clear();
     }
     public void Dispose() { Clear(); UnityEngine.Object.Destroy(_root); }

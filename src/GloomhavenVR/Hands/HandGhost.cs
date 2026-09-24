@@ -1089,7 +1089,7 @@ internal static class HandGhosts
     /// grabbable (figures, tokens) can never start ghosting hands by accident.
     /// </summary>
     private static bool IsHeldCard(Interact.IGrabbable? held) =>
-        held is VRCard or ItemsPile.ItemChip;
+        held is VRCard or ItemsPile.ItemChip or IItemCardHold { IsItemCard: true };
 
     /// <summary>Module shutdown / hot reload: restore both hands unconditionally.</summary>
     internal static void Shutdown()

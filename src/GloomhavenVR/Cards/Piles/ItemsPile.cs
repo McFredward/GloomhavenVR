@@ -6166,54 +6166,10 @@ internal sealed class ItemsPile
         protected override HeldPose GetHeldPose(VRHand hand)
         {
             float scale = CardsConfig.InspectScale.Value;
-            // Item cards are near-square — use the chip's OWN measured held height (not the tall ability
-            // CardHeight) so the grip offset lifts the card the right amount out of the pinch.
-            float cardH = (_faceHeight > 0.001f ? _faceHeight : CardsConfig.CardHeight) * scale;
-
-            Vector3 pinchLocal;
-            FingerJoints thumb = hand.Rig.GetFinger(Finger.Thumb);
-            FingerJoints index = hand.Rig.GetFinger(Finger.Index);
-            if (thumb.IsValid && index.IsValid)
-            {
-                Vector3 pinchWorld = (thumb.Tip.position + index.Tip.position) * 0.5f;
-                pinchLocal = hand.Rig.GrabAnchor.InverseTransformPoint(pinchWorld);
-            }
-            else
-            {
-                pinchLocal = new Vector3(0f, CardsConfig.HeldOffPalm.Value, CardsConfig.HeldForward.Value);
-            }
-            // LEFT-HAND MIRROR (user report 2026-08-09: "Die Position der Item-Karte in der linken
-            // Hand ist falsch — das selbe Problem hattest du auch schonmal bei der linken Hand mit den
-            // anderen Karten und dort behoben, wende bei den Item Karten den selben Fix an").
-            //
-            // ROOT CAUSE, and it is literally the ability cards' bug a second time: this method was
-            // copied from VRCard.GetHeldPose BEFORE ba70e43 fixed it there, and it kept adding the
-            // tuned [Cards] HeldPinchOffset RAW on both hands. That offset is authored on the RIGHT
-            // hand (default X = −5.5 cm), but the two GrabAnchor frames are ANATOMICAL MIRRORS — +Y
-            // out of the palm and +Z along the fingers on BOTH hands — so the lateral ±X axis
-            // necessarily points to the THUMB side on the right hand and to the PINKY side on the
-            // left (which is exactly why `thumbSide` above already flips sign per hand). Added raw,
-            // the same X therefore shifted the card toward the thumb on one hand and toward the
-            // pinky on the other: the left-hand item card missed the thumb/index pinch spot by
-            // TWICE the tuned lateral offset, i.e. ~11 cm at the shipped value.
-            //
-            // Flip ONLY the X term for the left hand (Y and Z are anatomically symmetric): one tuned
-            // value set, mirrored by construction — the same authored-right-mirrored-left convention
-            // as VRCard.GetHeldPose, FigureGrabConfig.HeldFaceYawFor and VRHand's grip roll/yaw.
-            //
-            // THE SIGN IS THE PROJECT'S ONE DEFINITION OF IT — Board.FigureGrab.HeldPoseMirror.
-            // OffsetSign, the same call the figure and prop grabs make and the same one VRCard now
-            // makes, rather than a third hand-spelled `if (left) x = -x`. Every one of the three
-            // times this rule has been broken in this codebase, it was broken in a COPY of the
-            // ternary.
-            float thumbSide = Board.FigureGrab.HeldPoseMirror.OffsetSign(hand.Side == HandSide.Left);
-            Vector3 pinchOffset = CardsConfig.HeldPinchOffset.Value;
-            pinchOffset.x *= thumbSide;
-            pinchLocal += pinchOffset;
-
-            CardGripPose.ReadingPose(CardsConfig.HeldFaceBias.Value, thumbSide, pinchLocal,
-                                     cardH, PinchGripFraction, out Vector3 pos, out Quaternion rot);
-            return new HeldPose(pos, rot, scale);
+            ItemCardHold.ReadingPose(hand,
+                (_faceHeight > .001f ? _faceHeight : CardsConfig.CardHeight) * scale,
+                PinchGripFraction, out Vector3 position, out Quaternion rotation);
+            return new HeldPose(position, rotation, scale);
         }
 
         public override void OnGrab(VRHand hand)
@@ -6888,47 +6844,10 @@ internal sealed class ItemsPile
         /// </summary>
         private void TickHeldPose()
         {
-            float t = 1f - Mathf.Exp(-CardsConfig.CardLerpSpeed.Value * 1.5f * Time.deltaTime);
-            float cardW = (_faceWidth > 0.001f ? _faceWidth : CardsConfig.CardWidth.Value) * _heldScale;
-            float cardH = (_faceHeight > 0.001f ? _faceHeight : CardsConfig.CardHeight) * _heldScale;
-            // THE GRASP, blended — the card travels between the two poses on the SAME eased progress
-            // the fingers travel on, so it arrives in the hand exactly as the hand closes on it. At
-            // blend 0 this branch does not run at all and the original billboard path below is
-            // byte-for-byte what it always was.
-            //
-            // WORKED IN THE PARENT'S FRAME (the hand's grab socket), which is why the billboard target
-            // is converted INTO it rather than the grip target out of it: the billboard is a world
-            // rotation and the grip pose is hand-local, and interpolating a hand-local pair while the
-            // wrist moves is the thing that tracks the wrist. Converting the other way would blend two
-            // world poses and the card would lag the hand for the length of the animation.
-            float grasp = HeldCardGrip.Blend(Holder);
-            Transform? socket = transform.parent;
-            if (grasp > 0f && socket != null
-                && HeldCardGrip.TryPose(Holder, cardW, cardH, out Vector3 gripPos, out Quaternion gripRot))
-            {
-                Vector3 wantPos = gripPos;
-                Quaternion wantRot = gripRot;
-                if (grasp < 1f)
-                {
-                    Quaternion readRot = LocalBillboard(socket);
-                    wantPos = Vector3.Lerp(_heldPos, gripPos, grasp);
-                    wantRot = Quaternion.Slerp(readRot, gripRot, grasp);
-                }
-                transform.localPosition = Vector3.Lerp(transform.localPosition, wantPos, t);
-                transform.localRotation = Quaternion.Slerp(transform.localRotation, wantRot, t);
-                transform.localScale = Vector3.Lerp(transform.localScale, Vector3.one * _heldScale, t);
-                return;
-            }
-            transform.localPosition = Vector3.Lerp(transform.localPosition, _heldPos, t);
-            Camera? head = VRRigDriver.HeadCamera != null ? VRRigDriver.HeadCamera : Camera.main;
-            if (head != null)
-            {
-                Vector3 away = transform.position - head.transform.position; // card +Z away from viewer
-                if (away.sqrMagnitude > 1e-6f)
-                    transform.rotation = Quaternion.Slerp(transform.rotation,
-                        Quaternion.LookRotation(away.normalized, head.transform.up), t);
-            }
-            transform.localScale = Vector3.Lerp(transform.localScale, Vector3.one * _heldScale, t);
+            if (Holder == null || transform.parent == null) return;
+            ItemCardHold.Tick(transform, Holder, transform.parent, _heldPos, _heldScale,
+                (_faceWidth > .001f ? _faceWidth : CardsConfig.CardWidth.Value) * _heldScale,
+                (_faceHeight > .001f ? _faceHeight : CardsConfig.CardHeight) * _heldScale);
         }
 
         // ---- IPokeable (laser hover + pluck; the board laser drives these) ----------

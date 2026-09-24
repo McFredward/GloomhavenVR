@@ -14,9 +14,10 @@ namespace GloomhavenVR.WorldUI;
 /// only inspects it; an eligible deliberate drop invokes its original transaction callback.
 /// Every other release returns the sample without changing native gameplay state.</summary>
 internal sealed class TownServiceToken : IGrabbable, ITriggerOnlyGrabbable, IGrabbableHandFilter,
-    IGrabCancellation, IGrabHighlight, IDisposable
+    IGrabCancellation, IGrabHighlight, IItemCardHold, IDisposable
 {
     private readonly RectTransform _source;
+    public bool IsItemCard { get; }
     private readonly Selectable _button;
     private readonly Func<object?> _identity;
     private readonly Func<bool> _sessionAlive;
@@ -51,6 +52,10 @@ internal sealed class TownServiceToken : IGrabbable, ITriggerOnlyGrabbable, IGra
     private object? _pickedIdentity;
     private object? _pickedContext;
     private Vector3 _heldPosition;
+    private float _heldScale = 1f, _heldWidth, _heldHeight;
+    private VRHand? _transferTo;
+    private bool _adopting;
+    Transform? IItemCardHold.HeldRoot => HeldRoot;
     private Quaternion _heldRotation;
     private bool _disposed;
     private bool _hover;
@@ -71,6 +76,7 @@ internal sealed class TownServiceToken : IGrabbable, ITriggerOnlyGrabbable, IGra
         Func<object?> contextIdentity, Func<bool> sessionAlive, Transform mat, Transform? physical = null,
         Func<bool>? drop = null, Func<bool>? eligible = null, Vector3 zoneCenter = default, Func<bool>? inspect = null, float zoneHalfWidth = .20f)
     {
+        IsItemCard = physical != null && source.GetComponent<ItemCardUI>() != null;
         _source = source; _button = button; _identity = identity; _contextIdentity = contextIdentity;
         _sessionAlive = sessionAlive; _mat = mat; _physical = physical;
         _drop = drop; _eligible = eligible; _zoneCenter = zoneCenter; _inspect = inspect; _zoneHalfWidth = zoneHalfWidth;
@@ -93,7 +99,9 @@ internal sealed class TownServiceToken : IGrabbable, ITriggerOnlyGrabbable, IGra
             if (_held != null)
             {
                 _heldTracked = true;
-                _held.transform.SetPositionAndRotation(_hand.Rig.GrabAnchor.TransformPoint(_heldPosition),
+                if (IsItemCard) ItemCardHold.Tick(_held.transform, _hand, _hand.Rig.GrabAnchor,
+                    _heldPosition, _heldScale, _heldWidth, _heldHeight);
+                else _held.transform.SetPositionAndRotation(_hand.Rig.GrabAnchor.TransformPoint(_heldPosition),
                     _hand.Rig.GrabAnchor.rotation * _heldRotation);
                 if (!IsPhysical) _held.transform.localScale = Vector3.one * scale;
             }
@@ -107,10 +115,11 @@ internal sealed class TownServiceToken : IGrabbable, ITriggerOnlyGrabbable, IGra
         }
         if (_returning && _physical != null)
         {
-            float t = Mathf.Clamp01((Time.unscaledTime - _returnStarted) / .22f);
+            float t = Mathf.Clamp01((Time.unscaledTime - _returnStarted) / .35f);
             float ease = t * t * (3f - 2f * t);
             _physical.localPosition = Vector3.Lerp(_returnPosition, _homePosition, ease);
             _physical.localRotation = Quaternion.Slerp(_returnRotation, _homeRotation, ease);
+            _physical.localScale = Vector3.Lerp(_physical.localScale, _homeScale, ease);
             if (t >= 1f) _returning = false;
         }
         _shape.enabled = !_returning && Visible();
@@ -174,8 +183,19 @@ internal sealed class TownServiceToken : IGrabbable, ITriggerOnlyGrabbable, IGra
         {
             // Lift the actual displayed card, including its rigid body. Never keep a second
             // card on the counter, invoke selection, or depend on affordability to inspect it.
-            _homePosition = _physical.localPosition; _homeRotation = _physical.localRotation;
-            _homeScale = _physical.localScale;
+            if (!_adopting)
+            { _homePosition = _physical.localPosition; _homeRotation = _physical.localRotation;
+              _homeScale = _physical.localScale; }
+            if (IsItemCard)
+            {
+            float width = Vector3.Distance(_corners[0], _corners[3]) / Mathf.Max(.0001f, _physical.lossyScale.x);
+            float height = Vector3.Distance(_corners[0], _corners[1]) / Mathf.Max(.0001f, _physical.lossyScale.y);
+            _heldScale = CardsConfig.CardWidth.Value / Mathf.Max(width, height) * CardsConfig.InspectScale.Value;
+            _heldWidth = width * _heldScale; _heldHeight = height * _heldScale;
+            ItemCardHold.ReadingPose(hand, _heldHeight, .15f, out _heldPosition, out _heldRotation);
+            hand.SendHaptic(HapticPreset.ClickPulse);
+            CardsDriver.PlayCardSound(CardsConfig.CardGrabSound.Value, _physical);
+            }
             _held = _physical.gameObject;
             Hover(true);
             return;
@@ -192,6 +212,14 @@ internal sealed class TownServiceToken : IGrabbable, ITriggerOnlyGrabbable, IGra
     {
         if (_hand != hand) return;
         TownServicePhysicalRay.Claim(hand);
+        if (_transferTo != null && _physical != null)
+        {
+            VRHand recipient = _transferTo; _transferTo = null; _hand = null; _held = null;
+            _adopting = true; _shape.enabled = true;
+            try { if (recipient.Grabber.ForceGrab(this, releaseOnTriggerUp: true)) return; }
+            finally { _adopting = false; }
+            _hand = hand; _held = _physical.gameObject;
+        }
         if (_physical != null)
         {
             // A deliberate trigger release in the matching zone is the sole transaction
@@ -227,6 +255,25 @@ internal sealed class TownServiceToken : IGrabbable, ITriggerOnlyGrabbable, IGra
 
     internal static bool InDropZone(Vector3 point) => Mathf.Abs(point.x) < .20f
         && Mathf.Abs(point.z) < .14f && point.y > -.045f && point.y < .15f;
+
+    public bool Transfer(VRHand from, VRHand to)
+    {
+        if (_hand != from || !IsItemCard || to.Grabber.Held != null) return false;
+        _transferTo = to;
+        try { from.Grabber.CancelAll(); return ReferenceEquals(to.Grabber.Held, this); }
+        finally { _transferTo = null; }
+    }
+
+    public bool TryTouch(Vector3 point, out float distance)
+    {
+        distance = float.MaxValue;
+        if (_held == null || _source == null) return false;
+        Vector3 local = _source.InverseTransformPoint(point);
+        Rect rect = _source.rect;
+        Vector3 closest = new Vector3(Mathf.Clamp(local.x, rect.xMin, rect.xMax),
+            Mathf.Clamp(local.y, rect.yMin, rect.yMax), 0f);
+        distance = Vector3.Distance(point, _source.TransformPoint(closest)); return true;
+    }
 
     public void OnGrabHighlight(VRHand hand, bool highlighted) => Hover(highlighted);
 
