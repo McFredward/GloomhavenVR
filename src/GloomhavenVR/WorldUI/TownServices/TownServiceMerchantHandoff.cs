@@ -129,6 +129,9 @@ internal static class TownServiceMerchantHandoff
         // Cabinet card eligibility is supplied by the same predicate through its release host.
         bool heldStock = TownServiceCatalog.HeldOfferAvailable;
         _caption!.text = Loc.Mod(heldOwned ? "town_merchant_sell" : "town_merchant_buy");
+        // Active membership also carries the owner's near/offer intent to the shared resident
+        // author. A parked card keeps that membership with alpha zero: no second overlay.
+        _zone!.gameObject.SetActive(WantsOffering);
         _zoneGate!.alpha = _offering == null && _offeredStock == null && (heldOwned || heldStock) ? 1f : 0f;
     }
 

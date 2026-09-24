@@ -73,7 +73,7 @@ public static class InteractionProgram
 
   Check(TownServiceMerchantHandoff.OwnedChips.Count==31,"all equipped and bound copies become actual inspection cards");
   Check(TownServiceMerchantHandoff.Active,"local owned fan opens near resident");
-  Check(!TownServiceMerchantHandoff.WantsOffering,"nearby empty hands never request merchant palm");
+  Check(!TownServiceMerchantHandoff.WantsOffering && !zone.gameObject.activeSelf,"nearby empty hands never request merchant palm");
   Check(!TownServiceMerchantHandoff.CanOffer(character.AllCharacterItems[4],true),"nontradeable items remain readable but cannot be sold");
   var first=TownServiceMerchantHandoff.OwnedChips[0];
   Check(Mathf.Abs(first.transform.parent.lossyScale.x-scale)<.01f,"glove armature scale cannot enlarge item fan");
@@ -81,7 +81,8 @@ public static class InteractionProgram
   Check(MapRoomDriver.Visits==0,"outside release leaves map state unchanged");
   // The same card object remains in hand through a wrist-close; its return is network-visible.
   first.Holder=VRHands.Right; VRHands.Right.Grabber.Held=first;
-  Check(TownServiceMerchantHandoff.WantsOffering,"eligible held owned item requests merchant palm");
+  TownServiceMerchantHandoff.LateTick();
+  Check(TownServiceMerchantHandoff.WantsOffering && zone.gameObject.activeSelf,"eligible held owned item requests merchant palm");
   VRHands.Left.PalmGate.IsOpen=false; TownServiceMerchantHandoff.Tick();
   Check(TownServiceMerchantHandoff.OwnedChips.Count==31,"closing animation remains published until completion");
   Check(first.Holder==VRHands.Right,"closing fan never tears a held card away");
