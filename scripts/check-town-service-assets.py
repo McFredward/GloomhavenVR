@@ -48,15 +48,16 @@ methods = [method(signature) for signature in (
 methods.append('    ' + next(line.strip() for line in drawer.splitlines()
     if line.strip().startswith('internal static GameObject CreateTemplate(')).replace('TMP_Text?', 'object'))
 (assets / 'Editor/TownServiceRackFactories.cs').write_text(
-    'using System; using UnityEngine; using GloomhavenVR.Net.TownServices; namespace GloomhavenVR.WorldUI { '
+    'using System; using UnityEngine; using TMPro; using GloomhavenVR.Net.TownServices; namespace GloomhavenVR.WorldUI { '
     'internal static class TownServiceAssets { internal static GameObject Current; internal static GameObject Prefab(string name) => Current; } '
     'internal static class TownServiceMerchantDrawer {\n' + '\n'.join(methods) + '\n} }')
 motion = (root / 'src/GloomhavenVR/Net/TownServices/TownCassetteMotion.cs').read_text()
 (assets / 'Editor/TownCassetteMotion.cs').write_text(motion.replace(
     'namespace GloomhavenVR.Net.TownServices;', 'namespace GloomhavenVR.Net.TownServices {') + '\n}\n')
 (project / 'Packages').mkdir()
-(project / 'Packages/manifest.json').write_text(json.dumps({'dependencies': {
-    'com.unity.modules.' + name: '1.0.0' for name in ['animation', 'assetbundle', 'imageconversion', 'physics', 'audio']}}))
+dependencies = {'com.unity.modules.' + name: '1.0.0' for name in ['animation', 'assetbundle', 'imageconversion', 'physics', 'audio']}
+dependencies.update({'com.unity.ugui': '1.0.0', 'com.unity.textmeshpro': '3.0.6'})
+(project / 'Packages/manifest.json').write_text(json.dumps({'dependencies': dependencies}))
 (project / 'ProjectSettings').mkdir()
 (project / 'ProjectSettings/ProjectVersion.txt').write_text('m_EditorVersion: 2021.3.5f1\n')
 control = (root / 'scripts/town-service-asset-runtime/TownNpc539.shader').read_bytes()
