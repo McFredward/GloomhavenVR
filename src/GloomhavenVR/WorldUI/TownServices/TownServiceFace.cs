@@ -30,6 +30,20 @@ internal sealed class TownServiceFace
                 + "; install the matching town bundle. Native service interaction remains available.");
         }
     }
+    /// <summary>Each local owner may inspect stock inside the same attention volume even
+    /// while the resident's shared gaze is attending to another nearby player.</summary>
+    internal bool IsLocalVisitorNear(bool wasNear)
+    {
+        Camera? camera = GloomhavenVR.Rig.VRRigDriver.HeadCamera;
+        if (camera == null || !camera.gameObject.activeInHierarchy) return false;
+        Vector3 delta = camera.transform.position - _rig.EyePosition;
+        float scale = Mathf.Max(.01f, _root.lossyScale.x);
+        float reach = (wasNear ? 2.9f : 2.4f) * scale;
+        if (delta.sqrMagnitude < .01f * scale * scale || delta.sqrMagnitude > reach * reach
+            || (Quaternion.Inverse(_rig.OpticalRotation) * delta).z < -.1f * scale) return false;
+        return !Physics.Raycast(_rig.EyePosition, delta.normalized, Mathf.Max(0f, delta.magnitude - .08f * scale),
+            Physics.DefaultRaycastLayers & ~(1 << GloomhavenVR.Core.VRLayers.ModLayer), QueryTriggerInteraction.Ignore);
+    }
     internal bool PrepareActivityAttention(bool wasEngaged)
     {
         Vector3? target = _attention.Select(_service, _root, _rig.OpticalRotation, _rig.EyePosition);

@@ -169,6 +169,8 @@ internal sealed class TownServiceStation : IDisposable
         state.enabled = false;
     }
 
+    internal bool IsLocalVisitorNear(bool wasNear) => _face.IsLocalVisitorNear(wasNear);
+
     internal bool PrepareActivityAttention(bool wasEngaged)
     {
         if (_faceFailed) return false;

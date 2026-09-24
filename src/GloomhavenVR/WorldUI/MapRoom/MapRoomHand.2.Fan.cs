@@ -507,6 +507,7 @@ internal sealed partial class MapRoomHand
     /// </summary>
     private void RebuildFan()
     {
+        if (_merchantInspection) return;
         // THE SWAP EDGE. Same three conditions the scenario derives from
         // CharacterFocus.PresentedActorId (CardsDriver.4.Rebuild.cs:257-260): a character was
         // already being shown, a different one is being shown now, and there is something to move.
@@ -586,6 +587,7 @@ internal sealed partial class MapRoomHand
     /// </summary>
     private void UpdateFanCards()
     {
+        if (_merchantInspection) return;
         _deferredLeave = false;
 
         // THE LOCKSTEP THE WHOLE PASS ASSUMES, checked BEFORE anything has a side effect. Every

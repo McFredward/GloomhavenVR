@@ -86,7 +86,7 @@ namespace GloomhavenVR.Cards;
 /// throttled cue naming the items stack. Any future "this flow needs the fan up" requirement must
 /// raise a CUE on the stack, never call Open.
 /// </summary>
-internal sealed class ItemsPile
+internal sealed partial class ItemsPile
 {
     // Arc geometry — same family as PileBrowser (reading, not picking).
     private const float RadiusFactor = 1.7f;
@@ -514,6 +514,9 @@ internal sealed class ItemsPile
     internal static ItemsPile? RecessOwner { get; private set; }
 
     internal ItemsPile() => RecessOwner = this;
+
+    private ItemsPile(System.Action<ItemChip, Vector3> inspectionRelease)
+    { _inspectionRelease = inspectionRelease; }
 
     /// <summary>The chips the fan currently holds (read-only view — mirrored / counted, never mutated).</summary>
     internal IReadOnlyList<ItemChip> Chips => _chips;
@@ -2478,6 +2481,12 @@ internal sealed class ItemsPile
     /// </summary>
     internal void OnChipReleased(ItemChip chip, Vector3 dropWorldPos, VRHand vrHand)
     {
+        if (_inspectionRelease != null)
+        {
+            _inspectionRelease(chip, dropWorldPos);
+            if (!IsOpen) chip.BeginCollapse(_root != null ? _root.position : dropWorldPos);
+            return;
+        }
         Transform? slot = PlayTray.Current?.ItemUseSlotTransform;
         if (chip == null)
             return;
@@ -5021,6 +5030,8 @@ internal sealed class ItemsPile
         private bool _useFxActive;
         private bool _useFxConsumed;
         internal ItemCardUI? NativeItemCard => _cardUI;
+        internal Transform InspectionMount => transform;
+        internal Transform? InspectionBody => transform.Find("Backing");
         internal bool BurnPresentationPending => _useFxActive && _useFxConsumed;
         private System.Action? _useFxCompleted;
         private float _useFxTime;
@@ -6592,7 +6603,8 @@ internal sealed class ItemsPile
         /// <see cref="ItemsPile.RefuseLockedBonusRemoval"/>, which is where the player is TOLD why.
         /// It stops refusing on its own the moment the game resolves the bonus.</para></summary>
         public bool AllowsHand(VRHand hand) =>
-            (_owner == null || !_owner.PlacedCardIsLocked(this))
+            (_owner == null || (!_owner.PlacedCardIsLocked(this)
+                && (_owner._inspectionRelease == null || !ReferenceEquals(hand, _owner._inspectionGateHand))))
             && (PendingUse
                 || (!ReferenceEquals(hand, _suppressedForHand)
                     && !ReferenceEquals(hand, _suppressedForHand2)));
