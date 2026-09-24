@@ -139,7 +139,8 @@ internal sealed class TownServiceRitual : IDisposable
                     () => owner._alive() && Current, owner.Root, Root, drop, eligible,
                     owner._service == 2 ? new Vector3(0f, .16f, .26f) : Vector3.zero,
                     inspect: () => owner._templeOffering?.Available ?? true,
-                    zoneHalfWidth: owner._service == 2 ? .095f : .20f, reachDepth: offering ? .10f : .009f, uprightProp: offering);
+                    zoneHalfWidth: owner._service == 2 ? .095f : .20f, reachDepth: offering ? .10f : .009f, uprightProp: offering,
+                    handAllowed: hand => owner._templeOffering?.AllowsHand(hand) ?? true);
                 VRLayers.Apply(root);
                 ApplyInscriptions(); SetVisibility(owner._visibility);
             }

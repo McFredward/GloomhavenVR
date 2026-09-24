@@ -22,6 +22,9 @@ internal sealed class TownServiceTempleOffering : IDisposable
     internal Transform Root { get; }
     internal bool Available { get; private set; }
 
+    internal bool AllowsHand(VRHand hand) => Available
+        && hand != (VRHands.Primary == VRHands.Left ? VRHands.Right : VRHands.Left);
+
     internal static void TickApproach()
     {
         if (!MapRoomDriver.Active || !WorldUIConfig.ImmersiveTownServices.Value
