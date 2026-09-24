@@ -6,6 +6,10 @@ public class UICampaignRewardWindow { }
 public class UIRewardsManager { }
 public class ItemCardPicker { }
 public class TakeDamagePanel { }
+public class UILevelUpWindow { }
+public class UIUnlockLocationFlowManager { }
+public class UICharacterCreatorWindow { }
+public class ConfirmationBox { }
 namespace UnityEngine.UI
 {
     public sealed class UIWindow

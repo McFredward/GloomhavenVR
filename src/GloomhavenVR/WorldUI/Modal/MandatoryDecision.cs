@@ -174,6 +174,28 @@ internal static partial class ModalFallback
         if (window == null)
             return MandatoryDecisionTerm.None;
 
+        // The level-up window's IEscapable consumes Escape without closing: revealing
+        // the cards must finish before the player chooses one. Unlock-location Hide
+        // likewise does not resolve its pending Continue promise or restore map input.
+        // Neither flow may fall through to the generic Escape()+Hide() rescue path,
+        // regardless of the prefab's serialized escape policy.
+        if (window.GetComponent<UILevelUpWindow>() != null
+            || window.GetComponent<UIUnlockLocationFlowManager>() != null)
+        {
+            reason = "native card/location reveal — Continue must finish the reveal; level-up then requires a card choice";
+            return MandatoryDecisionTerm.NativeReveal;
+        }
+        if (window.GetComponent<UICharacterCreatorWindow>() != null)
+        {
+            reason = "character creation — its native Confirm/Cancel releases the party creation guard";
+            return MandatoryDecisionTerm.CharacterCreation;
+        }
+        if (window.GetComponent<ConfirmationBox>() != null)
+        {
+            reason = "native confirmation — its Confirm/Cancel buttons own the pending callback";
+            return MandatoryDecisionTerm.NativeConfirmation;
+        }
+
         // TERM 1 — IDENTITY, and IS-A rather than containment. UIEventPanel is
         // [RequireComponent(typeof(UIWindow))] (UIEventPanel.cs:26) and caches the window off its
         // OWN GameObject in Awake (:137), so a GetComponent on the window IS the panel test — the

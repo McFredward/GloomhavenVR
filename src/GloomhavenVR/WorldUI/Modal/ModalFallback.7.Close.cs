@@ -1035,10 +1035,15 @@ internal static partial class ModalFallback
         Button? dismiss = null;
         TransientButtonScratch.Clear();
         window.GetComponentsInChildren(includeInactive: false, TransientButtonScratch);
+        // Only this controller is admitted by IsTransientAnnouncement. Never guess
+        // the first active Button: a nested popup/navigation button can precede the
+        // real Continue, especially while camera focus disables that Continue.
+        Button? expected = window.GetComponent<UIUnlockLocationFlowManager>()?.continueButton;
         for (int i = 0; i < TransientButtonScratch.Count; i++)
         {
             Button b = TransientButtonScratch[i];
-            if (b == null || !b.isActiveAndEnabled || !b.IsInteractable())
+            if (b == null || !ReferenceEquals(b, expected)
+                || !b.isActiveAndEnabled || !b.IsInteractable())
                 continue;
             if (b.gameObject.name.StartsWith("GloomhavenVR.", System.StringComparison.Ordinal))
                 continue; // our own catcher — forwarding to it would be a loop

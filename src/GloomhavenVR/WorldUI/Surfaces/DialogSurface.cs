@@ -1,5 +1,8 @@
+using System;
 using GloomhavenVR.Core;
+using GloomhavenVR.Core.Events;
 using UnityEngine;
+using UnityEngine.UI;
 
 namespace GloomhavenVR.WorldUI.Surfaces;
 
@@ -26,6 +29,11 @@ internal sealed class DialogSurface
     private UIConfirmationBoxManager? _attached;
     private ConvertedPanel? _panel;
     private bool _pendingShow;
+    private string? _conversionFailure;
+
+    // A dedicated conversion failure must not leave ConfirmationBox excluded by
+    // the generic modal owner. This is polled there, including missed Show edges.
+    internal static UIWindow? FallbackWindow { get; private set; }
 
     public string Name => "Dialog";
 
@@ -48,10 +56,51 @@ internal sealed class DialogSurface
             }
         }
 
-        if (_pendingShow)
+        ConfirmationBox? box = _attached != null ? _attached.CurrentBox : null;
+        if (box == null || !box.IsOpen)
+        {
+            OnHidden();
+            return;
+        }
+
+        if (_conversionFailure != null)
+        {
+            RecoverConversion(box);
+            return;
+        }
+
+        // MapChoreographer is NOT a Choreographer. The old scenario-only gate
+        // excluded map card-choice confirmations while catch-all also refused them.
+        // Read current native state as well as events: a dialog may predate attachment
+        // or be opened while the player temporarily uses the desktop/map view.
+        bool inRoom = VRModeStateMachine.TableInFrontOfPlayer && WorldUIConfig.ConversionActive;
+        if (!inRoom || !WorldUIConfig.Dialogs.Value || FlatScreen.ManualScreenActive)
+        {
+            ReleasePanel();
+            if (!inRoom) FallbackWindow = null;
+            else if (!WorldUIConfig.Dialogs.Value) FallbackWindow = box.GetComponent<UIWindow>();
+            return;
+        }
+
+        if (FallbackWindow != null)
+            return; // generic conversion/screen recovery owns this native opening
+
+        if (_pendingShow || _panel == null)
         {
             _pendingShow = false;
-            ConvertNow();
+            try
+            {
+                ConvertNow();
+                if (_panel == null)
+                    UseFallback(box, "conversion returned no panel");
+            }
+            catch (Exception ex)
+            {
+                // Keep the original subtree intact. Release can itself require a
+                // later retry; retaining _panel until success preserves that owner.
+                _conversionFailure = ex.GetType().Name + ": " + ex.Message;
+                RecoverConversion(box);
+            }
         }
 
         // Keep the modal usable: the UI lock legitimately disables all host
@@ -64,7 +113,7 @@ internal sealed class DialogSurface
     private void OnShown()
     {
         if (!WorldUIConfig.Dialogs.Value || !WorldUIConfig.ConversionActive
-            || Choreographer.s_Choreographer == null)
+            || !VRModeStateMachine.TableInFrontOfPlayer)
             return;
         // Convert on the next tick: the box finishes its own layout/show first.
         _pendingShow = true;
@@ -111,6 +160,27 @@ internal sealed class DialogSurface
     private void OnHidden()
     {
         _pendingShow = false;
+        FallbackWindow = null;
+        ReleasePanel();
+        _conversionFailure = null;
+    }
+
+    private void RecoverConversion(ConfirmationBox box)
+    {
+        ReleasePanel();
+        UseFallback(box, _conversionFailure!);
+        _conversionFailure = null;
+    }
+
+    private void UseFallback(ConfirmationBox box, string reason)
+    {
+        FallbackWindow = box.GetComponent<UIWindow>();
+        VRLog.Warn("WorldUI", "CONFIRMATION FALLBACK: native dialog could not be floated ("
+            + reason + "); generic modal conversion and desktop recovery retain its original buttons.");
+    }
+
+    private void ReleasePanel()
+    {
         if (_panel != null)
         {
             CanvasConversion.Release(_panel);

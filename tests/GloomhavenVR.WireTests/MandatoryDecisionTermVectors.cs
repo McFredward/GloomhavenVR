@@ -78,6 +78,9 @@ internal static class MandatoryDecisionTermVectors
         ("RewardShowcase", true),    // UIRewardsManager — the unconditional while() spin
         ("ItemCardPicker", true),    // ItemCardPicker — hide fires neither callback
         ("TakeDamagePanel", true),   // TakeDamagePanel — the wire action is never sent
+        ("NativeReveal", true),      // level-up/location Continue owns the remaining sequence
+        ("CharacterCreation", true), // native Confirm/Cancel clears the party creation guard
+        ("NativeConfirmation", true), // Confirm/Cancel invokes the pending action
 
         // The DERIVED NET. It is a fact about the ESC key, and it is carried by every ordinary
         // map-room destination. Reading it as an identity is the 2026-09-03 defect.

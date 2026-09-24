@@ -167,6 +167,10 @@ internal static partial class ModalFallback
     {
         // Part 2 enrollment #2 — mid-scenario reward showcase (see AddRewardShowcaseWindow).
         AddRewardShowcaseWindow(inScenario);
+        // DialogSurface normally owns this exact source. Failed dedicated conversion
+        // (or disabled dedicated dialogs) must still have a native continuation path.
+        if (inScenario)
+            AddPollWindow(Surfaces.DialogSurface.FallbackWindow);
 
         // ModBuild 234 — the double-hosting audit, ABOVE the early return and above every gate in
         // this method on purpose: it reports on the state the CONVERT loop produced last tick, so a
