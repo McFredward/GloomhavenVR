@@ -308,7 +308,16 @@ internal sealed class TownServiceToken : IGrabbable, ITriggerOnlyGrabbable, IGra
         finally { _transferTo = null; }
     }
 
-    internal void CancelInspection() { if (_hand != null) _hand.Grabber.CancelAll(); }
+    internal void CancelInspection()
+    {
+        if (_hand != null) _hand.Grabber.CancelAll();
+        else if (_offering != null)
+        {
+            Action? reclaim = _offeringReclaimed;
+            ReturnOffering();
+            reclaim?.Invoke();
+        }
+    }
 
     bool IFanSweepTarget.SweepEligible => CanGrab && IsItemCard;
     float IFanSweepTarget.SweepFaceWidthWorld => _source != null
