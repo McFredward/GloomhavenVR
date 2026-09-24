@@ -1,10 +1,11 @@
 # State — where the project stands
 
 **Updated 2026-09-24: feature/immersive-town-services, version 1.1.0 hardware candidate.**
-The feature now includes released 1.0.8 / ModBuild 556 from `main` and the subsequent
-1.0.9 version bookkeeping on `dev`. The NPC feature's latest hardware candidate is
-ModBuild 552; integration with the newer shared runtime requires a new build and validation.
-Current NPC revision: [research/TOWN-SERVICES-552.md](research/TOWN-SERVICES-552.md).
+The feature includes released 1.0.8 / ModBuild 556 and the subsequent 1.0.9
+version bookkeeping on `dev`. ModBuild 558 integrates that runtime and addresses
+the latest merchant, enhancement, temple and priestess-face hardware findings.
+Headset verification of the resulting presentation remains open. Historical NPC
+design: [research/TOWN-SERVICES-552.md](research/TOWN-SERVICES-552.md).
 The feature remains isolated from `dev`, and NPC work belongs on this branch.
 
 The file this replaces had gone 168 builds
@@ -19,6 +20,18 @@ change per build) → this file (where things stand and what is owed) → the bu
 ---
 
 ## 1. Position
+
+- **NPC feature / 1.1.0 / ModBuild 558 (hardware candidate):** the merchant stops
+  coin work while attending to a player and uses coordinated, continuous hand/body
+  movement; spatial foley has a practical interaction range. The oversized crank
+  collider and the generic spent-item rotation no longer interfere with the
+  cabinet or first inspection fan. Owned enhancement cards remain associated with
+  native enhancement rows across refreshes, and the immersive enhancement screen
+  is not considered active before its mask exists. The temple approach update now
+  starts the purse path. The priestess's front/profile atlas no longer projects a
+  photographed second ear or eye onto her lateral face; the fixed-detail rig and
+  Windows town bundle were rebuilt. Automated checks cover source contracts and
+  asset format, but the reported hardware interactions still require a headset test.
 
 - **Released 1.0.8 / ModBuild 556:** `main` at tag `v1.0.8`; `dev` has advanced its
   project version to 1.0.9. The NPC branch incorporates that ancestry while keeping

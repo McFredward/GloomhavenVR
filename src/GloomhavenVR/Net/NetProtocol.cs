@@ -535,7 +535,15 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 557;
+    public const ushort ModBuild = 558;
+
+    // ModBuild 558 — hardware follow-up for immersive town residents. Merchant
+    // gaze settles coin work, its crank collider fits the visible grip, and
+    // inspected merchandise stays upright. Native mage-card ownership and the
+    // temple approach tick restore the offering and purse paths. Priestess face
+    // projection and its bundled rig remove duplicate lateral eye/ear marks.
+    // Town foley remains spatial but is audible at normal interaction range.
+    // No wire grammar or release version change; headset appearance pending.
 
     // ModBuild 557 — integrate immersive town services with the shipped 1.0.8 fixes.
     // Keep original map story/reward records83/84 and move the feature-only public

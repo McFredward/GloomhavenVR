@@ -1,6 +1,6 @@
 # Planning index
 
-Updated 2026-09-24 for the NPC feature's build-552 hardware candidate and the
+Updated 2026-09-24 for the NPC feature's build-558 hardware candidate and the
 released 1.0.8 / build-556 integration. This directory holds internal
 engineering evidence, historical decisions and current status; it is not the player manual.
 

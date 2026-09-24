@@ -98,6 +98,13 @@ def side_texture_coordinates(raw, name):
         ear = np.clip((.85 - raw[:, 2]) / .20, 0, 1)
         ear_y = np.interp(raw[:, 1], [5.8, 6.6, 7.02, 7.40, 7.51, 8.4913], [700, 500, 430, 218, 185, 25])
         py = py * (1 - ear) + ear_y * ear
+        # The profile's photographed eye extends across the side of the temple
+        # although that surface has no eye opening. Sample adjacent temple skin
+        # there; preserve the actual eye loops closer to the face centre.
+        temple = np.clip((np.abs(raw[:, 0]) - .38) / .16, 0, 1)
+        temple *= np.clip((raw[:, 1] - 7.13) / .08, 0, 1)
+        temple *= np.clip((7.55 - raw[:, 1]) / .08, 0, 1)
+        px = px * (1 - temple) + np.minimum(px, 455) * temple
     return np.column_stack((px, py))
 
 
@@ -109,7 +116,9 @@ def projection_weights(raw, name):
         # Her front portrait includes a complete ear. Use the profile reference
         # across the entire lateral cheek and jaw so no part of the photographed
         # ear can appear below the physical ear during a head turn.
-        front *= 1 - np.clip((abs(x) - .32) / .20, 0, 1)
+        orbital = np.clip((y - 7.08) / .16, 0, 1)
+        lateral_start = .32 + .23 * orbital
+        front *= 1 - np.clip((abs(x) - lateral_start) / .18, 0, 1)
     back = max(0, min(1, (angle - math.radians(115)) / math.radians(35)))
     return front, back
 

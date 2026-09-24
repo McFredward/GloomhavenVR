@@ -84,6 +84,14 @@ def main():
     assertions += 1
     assert source.projection_weights(lateral_cheek, 'merchant')[0] > .4
     assertions += 1
+    # The side photograph's eye must stay on the actual orbital loops, not
+    # print a second eye on the priestess's temple during a head turn.
+    temple = np.array([[.60, 7.30, 1.20], [.30, 7.30, 1.20]])
+    temple_uv = source.side_texture_coordinates(temple, 'priestess')
+    assert temple_uv[0, 0] <= 455 and temple_uv[1, 0] > 455
+    assertions += 1
+    assert source.projection_weights(np.array([.50, 7.30, 1.20]), 'priestess')[0] > .8
+    assertions += 1
     print(f'PASS: {assertions} facial landmark assertions; 11 registration negative controls')
 
 
