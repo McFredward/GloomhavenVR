@@ -52,7 +52,7 @@ source audit found two additional defects beyond the local retained-window bug:
 
 - `MapStoryController.OnFinishShow` can synchronously open the next queued message.
   The legacy frame poll then sees only its new content key and never publishes the
-  previous message's completion. A slower participant can remain on that predecessor.
+  previous message's completion. The scenario StoryController has the same queue edge. A slower participant can remain on that predecessor.
 - Reward pose identity previously recognized scenario chest/goal-chest messages only.
   Native campaign/Guildmaster post-quest rewards had no shared opening identity;
   campaign Continue is a local callback, not the scenario reward network action.
@@ -61,14 +61,46 @@ The correction records native opening/completion edges. Additive TLVs83/84 retai
 sender-scoped openings, public native run/content provenance, participants, page and
 completion. Rotating bounded snapshots preserve predecessor completion across packet
 loss and long native reveal sequences. Repeated identical content and a reconnect
-must not reuse a previous opening's completion. Legacy map-window poses remain on21;
-reward presentation reuses the original shared reward pose path73/74. The native
+must not reuse a previous opening's completion. Legacy story poses remain on19/21;
+reward presentation reuses the original shared reward pose path73/74. Pose, grip
+and room-making ownership are tied to the opening from the same presence snapshot,
+so a prior identical message cannot move a newly opened window. A genuinely fresh
+story float rearms its common spawn seat; live/composed/manual windows keep their pose. The native
 controllers still perform continuation, unlocks, reward processing and saving.
 
 Native scenario reward authority and personal decisions must not be replaced by a
 second mod gameplay action. The new post-quest continuation path waits for the
 original reveal and eligible Continue; it does not skip native introduction stages.
-No remote hardware evidence exists for this run.
+Native reward introductions reuse their original reward host, including Guildmaster;
+their forward/backward pages synchronize with explicit revision ordering. Local page
+changes are sampled before applying peer state, avoiding a backwards-click bounce.
+Accepted continuation stays single-use and retries only if a failed call left that
+exact native opening open. Informational hint scopes survive asynchronous successors.
+Guildmaster adventure rewards have mandatory identity, so a bare X cannot bypass
+unlock videos and the native completion callback.
+
+Observation patches isolate optional metadata failures from native network dispatch.
+Completion diagnostics are one normal-level event per successful native story;
+page details remain Debug. No remote hardware evidence exists for this run.
+
+## Validation
+
+The strict Release build completed with zero errors and zero warnings. The EN/DE
+documentation check and workflow lint passed. No Unity bundle or player-facing
+settings changed.
+
+Focused production suites pass: story completion 325 assertions / 11 negative
+controls; opening lifecycle 293 / 10; post-quest rewards 395 / 24; reward poses
+110 / 8; shared reflow 84 / 7; hint ownership 48 / 8. These exercise native close
+admission, queued predecessors, recipient slicing, fresh opening identity,
+exactly-once native continuation, intro pagination, and stale pose/grip rejection.
+
+The final complete `refactor-guard.sh check --summary` passed every source and
+production runtime gate, including 254,965 wire assertions. Patch registration
+contains 146 classes / 222 methods. No config keys, patch names or log tokens were
+removed from the guard's baseline. The expected exit status is 1 for compiled
+differences against `080c505e9`: 0 order-only moves, 112 changed types and 115
+added/removed entries. That comparison includes intervening builds, not only 555.
 
 ## Hardware check
 

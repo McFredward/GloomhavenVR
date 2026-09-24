@@ -160,11 +160,11 @@ runtime, which is why a runtime audit could never do this job (see
 | `UIEventPanel_CompleteEvent_Patch`<br/><sub>src/GloomhavenVR/Net/EncounterChoice.cs:728</sub> | `UIEventPanel.CompleteEvent()` *(private)* | prefix | `NetModule`:251 |
 | `UIEventPanel_ClientContinueRoadEvent_Patch`<br/><sub>src/GloomhavenVR/Net/EncounterChoice.cs:763</sub> | `UIEventPanel.ClientContinueRoadEvent()` | prefix | `NetModule`:252 |
 | &nbsp; | `UIEventPanel.ClientContinueRoadEvent()` | finalizer | &nbsp; |
-| `StoryController_ShowImmediately_LifecyclePatch`<br/><sub>src/GloomhavenVR/Net/Remote/MapStoryLifecycle.cs:170</sub> | `StoryController.ShowImmediately()` *(private)* | postfix | `WorldUIModule`:56 |
-| `StoryController_OnFinishShow_LifecyclePatch`<br/><sub>src/GloomhavenVR/Net/Remote/MapStoryLifecycle.cs:177</sub> | `StoryController.OnFinishShow()` *(private)* | prefix | `WorldUIModule`:57 |
+| `StoryController_ShowImmediately_LifecyclePatch`<br/><sub>src/GloomhavenVR/Net/Remote/MapStoryLifecycle.cs:190</sub> | `StoryController.ShowImmediately()` *(private)* | postfix | `WorldUIModule`:56 |
+| `StoryController_OnFinishShow_LifecyclePatch`<br/><sub>src/GloomhavenVR/Net/Remote/MapStoryLifecycle.cs:197</sub> | `StoryController.OnFinishShow()` *(private)* | prefix | `WorldUIModule`:57 |
 | &nbsp; | `StoryController.OnFinishShow()` *(private)* | postfix | &nbsp; |
-| `MapStoryController_ShowImmediately_LifecyclePatch`<br/><sub>src/GloomhavenVR/Net/Remote/MapStoryLifecycle.cs:186</sub> | `MapStoryController.ShowImmediately()` *(private)* | postfix | `WorldUIModule`:54 |
-| `MapStoryController_OnFinishShow_LifecyclePatch`<br/><sub>src/GloomhavenVR/Net/Remote/MapStoryLifecycle.cs:193</sub> | `MapStoryController.OnFinishShow()` *(private)* | prefix | `WorldUIModule`:55 |
+| `MapStoryController_ShowImmediately_LifecyclePatch`<br/><sub>src/GloomhavenVR/Net/Remote/MapStoryLifecycle.cs:206</sub> | `MapStoryController.ShowImmediately()` *(private)* | postfix | `WorldUIModule`:54 |
+| `MapStoryController_OnFinishShow_LifecyclePatch`<br/><sub>src/GloomhavenVR/Net/Remote/MapStoryLifecycle.cs:213</sub> | `MapStoryController.OnFinishShow()` *(private)* | prefix | `WorldUIModule`:55 |
 | &nbsp; | `MapStoryController.OnFinishShow()` *(private)* | postfix | &nbsp; |
 
 ## Rig
@@ -203,22 +203,22 @@ runtime, which is why a runtime audit could never do this job (see
 | &nbsp; | `global::MapTimedMovementFlow.TeleportPartyToWayPoint()` *(private)* | prefix | &nbsp; |
 | &nbsp; | `global::PartyToken.PartyInstantMove()` | prefix | &nbsp; |
 | &nbsp; | `global::MapTimedMovementFlow.MovePartyToEncounter()` | prefix | &nbsp; |
-| `PostQuestRewardQueuePatch`<br/><sub>src/GloomhavenVR/WorldUI/Modal/PostQuestRewardPatches.cs:12</sub> | `MapChoreographer.ShowQueuedQuestRewards()` | prefix | `WorldUIModule`:58 |
+| `PostQuestRewardQueuePatch`<br/><sub>src/GloomhavenVR/WorldUI/Modal/PostQuestRewardPatches.cs:13</sub> | `MapChoreographer.ShowQueuedQuestRewards()` | prefix | `WorldUIModule`:58 |
 | &nbsp; | `MapChoreographer.ShowQueuedQuestRewards()` | finalizer | &nbsp; |
-| `PostQuestCampaignRewardManagerPatch`<br/><sub>src/GloomhavenVR/WorldUI/Modal/PostQuestRewardPatches.cs:23</sub> | `CampaignRewardsManager.ShowRewards()` | prefix | `WorldUIModule`:59 |
-| `PostQuestCampaignRewardShowPatch`<br/><sub>src/GloomhavenVR/WorldUI/Modal/PostQuestRewardPatches.cs:29</sub> | `UICampaignRewardWindow.Show()` | prefix | `WorldUIModule`:60 |
-| `PostQuestCampaignRewardContinuePatch`<br/><sub>src/GloomhavenVR/WorldUI/Modal/PostQuestRewardPatches.cs:36</sub> | `UICampaignRewardWindow.OnContinueButtonClick()` *(private)* | prefix | `WorldUIModule`:61 |
+| `PostQuestCampaignRewardManagerPatch`<br/><sub>src/GloomhavenVR/WorldUI/Modal/PostQuestRewardPatches.cs:24</sub> | `CampaignRewardsManager.ShowRewards()` | prefix | `WorldUIModule`:59 |
+| `PostQuestCampaignRewardShowPatch`<br/><sub>src/GloomhavenVR/WorldUI/Modal/PostQuestRewardPatches.cs:31</sub> | `UICampaignRewardWindow.Show()` | prefix | `WorldUIModule`:60 |
+| `PostQuestCampaignRewardContinuePatch`<br/><sub>src/GloomhavenVR/WorldUI/Modal/PostQuestRewardPatches.cs:38</sub> | `UICampaignRewardWindow.OnContinueButtonClick()` *(private)* | prefix | `WorldUIModule`:61 |
 | &nbsp; | `UICampaignRewardWindow.OnContinueButtonClick()` *(private)* | postfix | &nbsp; |
 | &nbsp; | `UICampaignRewardWindow.OnContinueButtonClick()` *(private)* | finalizer | &nbsp; |
-| `PostQuestGuildmasterRewardShowPatch`<br/><sub>src/GloomhavenVR/WorldUI/Modal/PostQuestRewardPatches.cs:49</sub> | `UIGuildmasterAdventureRewardsManager.ShowRewards()` | prefix | `WorldUIModule`:62 |
-| `PostQuestGuildmasterRewardContinuePatch`<br/><sub>src/GloomhavenVR/WorldUI/Modal/PostQuestRewardPatches.cs:56</sub> | `UIGuildmasterAdventureRewardsManager.Hide()` | prefix | `WorldUIModule`:63 |
+| `PostQuestGuildmasterRewardShowPatch`<br/><sub>src/GloomhavenVR/WorldUI/Modal/PostQuestRewardPatches.cs:57</sub> | `UIGuildmasterAdventureRewardsManager.ShowRewards()` | prefix | `WorldUIModule`:62 |
+| `PostQuestGuildmasterRewardContinuePatch`<br/><sub>src/GloomhavenVR/WorldUI/Modal/PostQuestRewardPatches.cs:64</sub> | `UIGuildmasterAdventureRewardsManager.Hide()` | prefix | `WorldUIModule`:63 |
 | &nbsp; | `UIGuildmasterAdventureRewardsManager.Hide()` | postfix | &nbsp; |
 | &nbsp; | `UIGuildmasterAdventureRewardsManager.Hide()` | finalizer | &nbsp; |
-| `PostQuestRewardIntroductionScopePatch`<br/><sub>src/GloomhavenVR/WorldUI/Modal/PostQuestRewardPatches.cs:69</sub> | `UIIntroductionRewardsProcess.Process(EIntroductionConcept)` *(private)* | prefix | `WorldUIModule`:64 |
+| `PostQuestRewardIntroductionScopePatch`<br/><sub>src/GloomhavenVR/WorldUI/Modal/PostQuestRewardPatches.cs:82</sub> | `UIIntroductionRewardsProcess.Process(EIntroductionConcept)` *(private)* | prefix | `WorldUIModule`:64 |
 | &nbsp; | `UIIntroductionRewardsProcess.Process(EIntroductionConcept)` *(private)* | finalizer | &nbsp; |
-| `PostQuestRewardIntroductionMessagePatch`<br/><sub>src/GloomhavenVR/WorldUI/Modal/PostQuestRewardPatches.cs:80</sub> | `UIIntroductionManager.AddMessage()` *(private)* | prefix | `WorldUIModule`:65 |
-| `PostQuestRewardIntroductionShowPatch`<br/><sub>src/GloomhavenVR/WorldUI/Modal/PostQuestRewardPatches.cs:85</sub> | `UIIntroductionManager.ShowMessageImmediately()` *(private)* | prefix | `WorldUIModule`:66 |
-| `PostQuestRewardSceneEndPatch`<br/><sub>src/GloomhavenVR/WorldUI/Modal/PostQuestRewardPatches.cs:91</sub> | `MapChoreographer.OnDestroy()` *(private)* | postfix | `WorldUIModule`:67 |
+| `PostQuestRewardIntroductionMessagePatch`<br/><sub>src/GloomhavenVR/WorldUI/Modal/PostQuestRewardPatches.cs:98</sub> | `UIIntroductionManager.AddMessage()` *(private)* | prefix | `WorldUIModule`:65 |
+| `PostQuestRewardIntroductionShowPatch`<br/><sub>src/GloomhavenVR/WorldUI/Modal/PostQuestRewardPatches.cs:104</sub> | `UIIntroductionManager.ShowMessageImmediately()` *(private)* | prefix | `WorldUIModule`:66 |
+| `PostQuestRewardSceneEndPatch`<br/><sub>src/GloomhavenVR/WorldUI/Modal/PostQuestRewardPatches.cs:111</sub> | `MapChoreographer.OnDestroy()` *(private)* | postfix | `WorldUIModule`:67 |
 | `Character3DDisplayRefcount`<br/><sub>src/GloomhavenVR/WorldUI/Patches/Character3DDisplayRefcount.cs:115</sub> | `Character3DDisplayManager.Display(Component, ECharacter, string, string)` *(private)* | prefix | `WorldUIModule`:107 |
 | &nbsp; | `Character3DDisplayManager.Hide()` | prefix | &nbsp; |
 | &nbsp; | `Character3DDisplayManager.HideAll()` | prefix | &nbsp; |

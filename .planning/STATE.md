@@ -3,7 +3,8 @@
 **Updated 2026-09-24: dev 1.0.8 / ModBuild 555, completed-story lifetime and shared post-quest continuation.**
 The complete NPC development is isolated on `feature/immersive-town-services` for a
 future release of at least 1.1.0. Builds 538–545 and 547–552 remain reserved for that branch.
-Current review and validation: [WINDOWS-553.md](WINDOWS-553.md). Released 1.0.7 / build 546
+Current review and validation: [STORY-555.md](STORY-555.md), building on
+[WINDOWS-553.md](WINDOWS-553.md). Released 1.0.7 / build 546
 was hardware-confirmed before publication; this new continuation review is not yet hardware-confirmed.
 
 The file this replaces had gone 168 builds

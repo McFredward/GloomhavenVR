@@ -51,5 +51,23 @@ internal static class RewardPoseHandshakeVectors
         t.True(!RewardPoseHandshakeCodec.Write(new byte[59], ref cursor, in state) && cursor == 1, "too-small buffer remains unchanged");
         t.True(4074 + 59 <= ExtrasFragments.MaxSnapshotBytes && PresenceSerializer.MaxSize - (4074 + 59) >= 257,
             "new full record retains bounded transport and one-record spare sender margin");
+
+        t.Case("reward pose handshake: repeated native opening keeps a fresh request generation");
+        var handshake = new RewardPoseHandshake();
+        handshake.SetLocalKey(17);
+        uint oldGeneration = handshake.Sample().Generation;
+        handshake.RestartOpening(17);
+        uint freshGeneration = handshake.Sample().Generation;
+        t.True(freshGeneration != 0 && freshGeneration != oldGeneration,
+            "same-content native opening cannot reuse old pose eligibility responses");
+        var peers = new System.Collections.Generic.List<int> { 2 };
+        handshake.Refresh(1, peers, 0, 3);
+        var decline = new RewardPoseHandshakeState { Count = 1,
+            First = new RewardPoseDecline { Requester = 1, Key = 17, Generation = oldGeneration } };
+        handshake.Observe(2, in decline, 0);
+        t.True(!handshake.PeerDeclined(2, 17), "previous-opening decline cannot exclude the current pose participant");
+        decline.First.Generation = freshGeneration;
+        handshake.Observe(2, in decline, 0);
+        t.True(handshake.PeerDeclined(2, 17), "current explicit decline remains usable without a peer window");
     }
 }
