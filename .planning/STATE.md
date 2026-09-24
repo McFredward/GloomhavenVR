@@ -1,10 +1,11 @@
 # State — where the project stands
 
-**Updated 2026-09-24: feature/immersive-town-services, version 1.1.0 / ModBuild 552 hardware candidate.**
-The feature is based on dev e63fb284, including released 1.0.7 / build 546. Dev remains
-the separate 1.0.8 hotfix line. The maintainer hardware-confirmed 546 before release.
+**Updated 2026-09-24: feature/immersive-town-services, version 1.1.0 hardware candidate.**
+The feature now includes released 1.0.8 / ModBuild 556 from `main` and the subsequent
+1.0.9 version bookkeeping on `dev`. The NPC feature's latest hardware candidate is
+ModBuild 552; integration with the newer shared runtime requires a new build and validation.
 Current NPC revision: [research/TOWN-SERVICES-552.md](research/TOWN-SERVICES-552.md).
-NPC workers integrate and push exclusively to the feature branch during this work.
+The feature remains isolated from `dev`, and NPC work belongs on this branch.
 
 The file this replaces had gone 168 builds
 stale while still saying "read this first"; it is kept as `STATE-ARCHIVE-through-2026-08.md` for
@@ -18,6 +19,37 @@ change per build) → this file (where things stand and what is owed) → the bu
 ---
 
 ## 1. Position
+
+- **Released 1.0.8 / ModBuild 556:** `main` at tag `v1.0.8`; `dev` has advanced its
+  project version to 1.0.9. The NPC branch incorporates that ancestry while keeping
+  its own 1.1.0 feature version. Release validation and publication are complete;
+  NPC hardware acceptance remains separate.
+
+- **dev / 1.0.8 / ModBuild 556:** combat-log and control-board laser releases
+  turn toward the owner using the same short animation as other local windows.
+  The board's existing rig pose stream carries its intermediate turn to peers.
+  No wire, asset or NPC change; headset motion still needs verification.
+  See [REFACE-556.md](REFACE-556.md).
+
+- **dev / 1.0.8 / ModBuild 555:** matching build 554 hardware logs show native story
+  and reward completion succeeded, but the mod kept the disabled final page visible.
+  Exact map/scenario story identity now ends retention on native close and prevents
+  poll/conversion/visibility resurrection. Shared native opening histories also address
+  queued story completion and post-quest reward synchronization. No NPC changes
+  or release. Evidence and test sequence: [STORY-555.md](STORY-555.md).
+
+- **dev / 1.0.8 / ModBuild 554:** hidden offline Cheats page gains a confirmed
+  current-scenario victory action through the native result/reward flow, to test
+  build 553's continuation fixes. Cheats remain disabled by default. No NPC content
+  or release. Usage and limits: [CHEAT-554.md](CHEAT-554.md).
+
+- **dev / 1.0.8 / ModBuild 553:** native level-up Continue, 3D-map confirmation
+  ownership and missed-event/failure recovery, complete message queue callbacks,
+  native popup cancellation and safe mandatory-window close admission. Source review
+  covers reward/result chains and more than 30 window families. No matching third-party
+  logs are available; the maintainer confirms the report concerns release 1.0.7,
+  primarily Campaign. Current local/remote files belong to builds 551/500. No NPC code,
+  asset bundle change or release is included. See [WINDOWS-553.md](WINDOWS-553.md).
 
 - **NPC feature / 1.1.0 / ModBuild 552 (hardware candidate):** visible-surface laser
   targeting without resident proxy boxes; mage departure cleanup and independent
@@ -91,7 +123,7 @@ change per build) → this file (where things stand and what is owed) → the bu
   Headset quality and multiplayer frame timing require hardware confirmation.
   Evidence and checklist: [research/TOWN-SERVICES-548.md](research/TOWN-SERVICES-548.md).
 
-- **dev / 1.0.8 hotfix line / ModBuild 546**, based on released 1.0.7 without NPC services:
+- **dev / 1.0.7 / ModBuild 546**, based on the 1.0.6 runtime without NPC services:
   campaign city-event cap and native animation, original permanent map windows across
   2D/3D switches, and native map-button hints beside physical caps with synchronized
   multiplayer presentation. AoE uses short B/Y releases by default; both locomotion

@@ -71,7 +71,7 @@ internal static class NetProtocol
     public const byte MsgTownService = 19;
     public const byte MsgTownServiceFragments = 20;
     public const byte ExtIdTownService = 78;
-    public const byte ExtIdTownServiceBundle = 84;
+    public const byte ExtIdTownServiceBundle = 89;
     public const byte ExtIdTownRack = 85;
     public const byte ExtIdTownCassette = 86;
     public const byte ExtIdTownResidents = 79;
@@ -82,7 +82,12 @@ internal static class NetProtocol
     public const byte MsgMapButtonTooltip = 23;
     public const byte MsgMapButtonTooltipFragments = 24;
     public const byte ExtIdMapButtonTooltip = 82;
-    public const byte ExtIdMapLoadoutCount = 83;
+    /// <summary>Native map story opening history; pages/completion retain predecessor identity.</summary>
+    public const byte ExtIdMapStoryLifecycle = 83;
+    /// <summary>Native post-quest reward opening history and accepted continuation.</summary>
+    public const byte ExtIdRewardContinuation = 84;
+    /// <summary>Public source count of the selected map character's hand-card loadout.</summary>
+    public const byte ExtIdMapLoadoutCount = 88;
     public const byte MaxMapLoadoutCount = 64;
     public const byte ExtIdItemAppearance = 76;
     public const byte ExtIdPresentationCompression = 64;
@@ -105,7 +110,7 @@ internal static class NetProtocol
     public const byte ExtIdCardBurnCompletion = 75;
     /// <summary>Explicit shared map-window ownership: held mask, then automatic-motion mask.
     /// Each byte uses bits 0/1/2 for story/quest/encounter. Zero explicitly clears ownership;
-    /// absence means the peer supplied no ownership statement. Additive TLV; 83 is next free.</summary>
+    /// absence means the peer supplied no ownership statement. Additive TLV77.</summary>
     public const byte ExtIdSharedWindowMotion = 77;
     public const byte SharedWindowMotionRecordBytes = 2;
     public const byte SharedWindowMotionMapStoryBit = 1;
@@ -530,8 +535,54 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 552;
+    public const ushort ModBuild = 557;
 
+    // ModBuild 557 — integrate immersive town services with the shipped 1.0.8 fixes.
+    // Keep original map story/reward records83/84 and move the feature-only public
+    // map-loadout count to88 and town service bundle to89. Records78–82 and85–87
+    // retain their feature grammar. The bounded extras payload and wire vectors cover
+    // the combined presence records and unchanged v3 fragmentation envelope.
+
+    // ModBuild 556 — animated laser-release facing for combat log and control board.
+    // Build555 hardware logs show the combat-log policy did request re-facing, but its
+    // owner set the final rotation immediately; the control board only persisted its
+    // release pose and did not re-face at all. Both local owners now use the existing
+    // WindowFacing decision and grab-bar-duration turn. Their follow/pin anchors keep
+    // ownership through the tween, final layouts persist, and the board's existing
+    // atomic rig pose carries intermediate rotation to remote observers. No wire or
+    // asset change. Source/log evidence and headset check: .planning/REFACE-556.md.
+
+    // ModBuild 555 — completed story lifetime and shared post-quest continuation.
+    // Build554 logs: native final story Hide, reward Continue and save completed, but the
+    // sticky VR float kept the disabled final page visible until shutdown. Exact map/scenario
+    // story identity now releases on native close and cannot be polled or converted back.
+    // The multiplayer audit also found synchronous message chains losing predecessor FINISHED
+    // and post-quest rewards lacking shared identity. Native opening histories83/84 retain
+    // page/completion provenance, repeated-opening/reconnect identity and bounded rotating
+    // snapshots; original window pose paths21/73/74 remain in use. Original controllers own
+    // reveal, accepted continuation, reward processing and saves. No NPC content or release.
+    // Source/log evidence and remaining headset checks: .planning/STORY-555.md.
+    //
+    // ModBuild 554 — hidden Cheats page: explicitly win the current offline scenario.
+    // Two presses arm/confirm for the same live scenario, then close options/pause and
+    // call DebugMenu.WinNoToggle. Native safe shutdown, results, quest rewards and saves
+    // remain authoritative. Refuse loading, story/damage choices, restart/result states,
+    // multiplayer and repeat requests. Cheats remain disabled by default; no NPC changes.
+
+    // ModBuild 553 — dev 1.0.8 window continuation audit (no NPC feature content).
+    // Level-up card reveals gain an explicit VR Continue through the original native
+    // click tracker; the following card choice remains mandatory. Generic confirmations
+    // also float on the 3D map, recover missed manager events, and enter the existing
+    // generic modal/screen fallback if dedicated conversion fails. Native message close
+    // events retain both their callbacks and queued successors; dismissible popups use
+    // controller cancellation/cleanup. Raw Hide cannot bypass level-up, location reveal,
+    // character creation, confirmation or tutorial continuation. Unlock body clicks target
+    // only the controller's actual ready Continue; map reward buttons also recover bindings
+    // when their native instances predate VR activation. The catch-all churn fuse cannot
+    // suppress a waiting decision or a window with native input controls, even while its
+    // animation keeps those controls inactive. No wire grammar changes.
+    // Builds 547–552 belong to the isolated NPC branch and are not reused here.
+    // Source findings, coverage and hardware limits: .planning/WINDOWS-553.md.
     // ModBuild 552 — physical town offerings, visible input and native surface fidelity.
     // Empty canvas frames and passive resident boxes cannot intercept the laser. Mage
     // approach/distance owns its native service without expanding Character UI; original
@@ -618,7 +669,7 @@ internal static class NetProtocol
     // and portrait-fitted face geometry. Authored furniture supports conform through mirrored
     // transforms; shared semicircle poses retain scenery clearance and restore on opt-out.
     // Returning offered cards survive native window teardown without a duplicate static fan.
-    // Additive public map-loadout83 and bounded town-bundle84 retain complete native output;
+    // Additive public map-loadout88 and bounded town-bundle89 retain complete native output;
     // larger manifests, urgent dependencies and separate liveness/age handle heavy catalogues.
     // See .planning/research/TOWN-SERVICES-547.md for validation and hardware boundaries.
 

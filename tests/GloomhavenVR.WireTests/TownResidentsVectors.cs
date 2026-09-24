@@ -212,9 +212,9 @@ internal static class TownResidentsVectors
         offset = 6869;
         t.True(TownResidentsCodec.Write(bytes, ref offset, in state) && offset == 6986,
             "the complete maximum resident record adds117 to the established6869-byte worst case");
-        t.True(PresenceSerializer.MaxSize == 7396 && PresenceSerializer.MaxSize - (offset + 96 + 54 + 3) == 257
-            && offset <= ExtrasFragments.MaxSnapshotBytes && ExtrasFragments.MaxSnapshotBytes == 7168,
-            "largest-record spare capacity and unchanged fragment reassembly ceiling both hold");
+        t.True(PresenceSerializer.MaxSize == 7906 && PresenceSerializer.MaxSize - (offset + 96 + 54 + 3 + 510) == 257
+            && offset <= ExtrasFragments.MaxSnapshotBytes && ExtrasFragments.MaxSnapshotBytes == 7680,
+            "combined town and native opening records retain the largest-record spare capacity");
         t.True(NetProtocol.Version == 3 && NetProtocol.ExtIdTownResidents == 79 && TownResidentsCodec.MaxPayload == 115,
             "new residents retain wirev3 and never reuse a historical record identifier");
     }

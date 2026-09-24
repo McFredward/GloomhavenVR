@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Reuse successful, full dev CI for an identical Git tree; never trust a reused check.
+"""Reuse successful full dev CI for an exact tree or a docs-only descendant.
 
 Only GitHub run/job metadata is consulted; no Actions artifacts or executable logs are
-loaded. A missing, stale, partial or superseded proof means full PR checks or no release.
+loaded. A missing, stale, partial or superseded proof means full checks or no release.
 """
 from __future__ import annotations
 
@@ -26,6 +26,7 @@ RUNTIME_SHARDS = 4
 MAX_AGE_DAYS = 30
 MAX_RUN_PAGES = 5
 SHA = re.compile(r'^[0-9a-f]{40}$')
+RELEASE_HIGHLIGHT = re.compile(r'^packaging/release-highlights/[0-9]+\.[0-9]+\.[0-9]+\.md$')
 
 
 class NoProof(RuntimeError):
@@ -78,12 +79,72 @@ def candidate(root, event, mode, repository, expected_sha, event_name=None, even
         if project.findtext('.//Version') != tag[1:]:
             raise NoProof('Tagged source version does not match the requested release.')
         return source, tree(root, source)
+    elif mode == 'dev-docs':
+        if event_name != 'push' or event_ref != 'refs/heads/dev' or event.get('ref') != event_ref or event.get('after') != head:
+            raise NoProof('Documentation reuse requires the exact pushed dev commit.')
     elif mode == 'release':
         if event.get('ref') != 'refs/heads/main' or event.get('after') != head:
             raise NoProof('Release proof is only valid for the exact pushed main commit.')
     else:
         raise NoProof('Unsupported proof request.')
     return head, tree(root, head)
+
+
+def documentation_path(path):
+    """Only text documentation may inherit source checks; packaging inputs are excluded."""
+    return (path in ('README.md', 'README.de.md')
+            or path == '.planning/STATE.md'
+            or (path.startswith('docs/') and path.endswith('.md')
+                and path not in ('docs/PATCH-INVENTORY.md', 'docs/NET-ACTION-SURFACE.md'))
+            or RELEASE_HIGHLIGHT.fullmatch(path) is not None)
+
+
+def documentation_delta(root, parent, child):
+    """Inspect modes as well as paths, so symlinks/submodules cannot enter the shortcut."""
+    raw = subprocess.check_output(['git', '-C', str(root), 'diff', '--raw', '-z',
+                                   '--no-renames', parent, child])
+    records = raw.split(b'\0')
+    if records[-1] != b'':
+        raise NoProof('Cannot parse the documentation change list.')
+    records.pop()
+    if not records or len(records) % 2:
+        return False
+    for header, encoded_path in zip(records[::2], records[1::2]):
+        fields = header.decode('ascii').split()
+        if len(fields) != 5 or fields[4] not in ('A', 'M', 'D'):
+            return False
+        old_mode, new_mode = fields[0][1:], fields[1]
+        if (old_mode, new_mode) != {'A': ('000000', '100644'),
+                                    'M': ('100644', '100644'),
+                                    'D': ('100644', '000000')}[fields[4]]:
+            return False
+        try:
+            path = encoded_path.decode('utf-8')
+        except UnicodeDecodeError:
+            return False
+        if not documentation_path(path):
+            return False
+    return True
+
+
+def proof_tree(root, wanted_tree):
+    """Find the nearest first-parent source tree before trailing documentation commits.
+
+    The checked-out release/PR tree must first occur on trusted dev. Each intervening
+    commit is checked independently; a source change followed by a documentation edit
+    cannot borrow an older green build. Merges are compared against their first parent.
+    """
+    history = [line.split() for line in git(root, 'log', '--first-parent', '--format=%H %T',
+                                           'refs/remotes/origin/dev').splitlines()]
+    source = next((sha for sha, tree_id in history if tree_id == wanted_tree), None)
+    if source is None:
+        return wanted_tree
+    current = source
+    while True:
+        parents = git(root, 'show', '-s', '--format=%P', current).split()
+        if not parents or not documentation_delta(root, parents[0], current):
+            return tree(root, current)
+        current = parents[0]
 
 
 class GitHub:
@@ -169,12 +230,13 @@ def find_proof(root, repository, wanted_tree, api, now=None):
     if workflow.get('path') != WORKFLOW or workflow.get('state') != 'active':
         raise NoProof('The registered CI workflow is missing, inactive or has changed identity.')
     workflow_id = workflow['id']
+    tested_tree = proof_tree(root, wanted_tree)
     # A commit with equal files on an orphan branch is not dev validation. Fetching full
     # history in the workflow makes this comparison independent of GitHub branch labels.
     reachable = {}
     for line in git(root, 'log', '--format=%H %T', 'refs/remotes/origin/dev').splitlines():
         sha, tree_id = line.split()
-        if tree_id == wanted_tree:
+        if tree_id == tested_tree:
             reachable[sha] = tree_id
     # The executing workflow and proof verifier must be the version on trusted dev.
     # This also prevents a PR changing its own skip policy and reusing older evidence.
@@ -184,7 +246,7 @@ def find_proof(root, repository, wanted_tree, api, now=None):
     candidates = [run for run in api.runs(workflow_id)
                   if trusted_run(run, repository, workflow_id) and run.get('head_sha') in reachable]
     if not candidates:
-        raise NoProof('No full dev CI run exists for this exact source tree.')
+        raise NoProof('No full dev CI run exists for this source tree.')
     # Never search backwards past a newer failed/cancelled/in-progress run for green.
     latest = max(candidates, key=lambda run: (run['run_number'], run['id']))
     run = api.get(f"/actions/runs/{latest['id']}")  # latest attempt, not a cached list verdict
@@ -201,7 +263,7 @@ def find_proof(root, repository, wanted_tree, api, now=None):
     # the current main/dev workflow may have adopted parallelism after that release.
     proof_workflow = git(root, 'show', run['head_sha'] + ':' + WORKFLOW)
     parallel = f'      - name: {PARALLEL_GATE}' in proof_workflow
-    verify_job(run, jobs, wanted_tree, parallel=parallel)
+    verify_job(run, jobs, tested_tree, parallel=parallel)
     # A rerun starting while jobs were read must invalidate the older result immediately.
     confirmed = api.get(f"/actions/runs/{run['id']}")
     if (confirmed.get('run_attempt'), confirmed.get('status'), confirmed.get('conclusion')) != (
@@ -212,7 +274,7 @@ def find_proof(root, repository, wanted_tree, api, now=None):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--mode', required=True, choices=('pr', 'release', 'release-resume'))
+    parser.add_argument('--mode', required=True, choices=('pr', 'dev-docs', 'release', 'release-resume'))
     args = parser.parse_args()
     root = Path.cwd()
     reused, proof_url, reason = False, '', ''
@@ -223,9 +285,13 @@ def main():
         event = json.loads(Path(os.environ['GITHUB_EVENT_PATH']).read_text())
         source_sha, wanted_tree = candidate(root, event, args.mode, repository, os.environ['GITHUB_SHA'],
                                            os.environ.get('GITHUB_EVENT_NAME'), os.environ.get('GITHUB_REF'))
+        tested_tree = proof_tree(root, wanted_tree)
+        if args.mode == 'dev-docs' and tested_tree == wanted_tree:
+            raise NoProof('Dev push is not a documentation-only descendant; run full checks.')
         proof_url = find_proof(root, repository, wanted_tree, GitHub(repository, os.environ['GH_TOKEN']))
         reused = True
-        reason = 'Successful full dev CI verified for the exact source tree.'
+        reason = ('Successful full dev CI verified for the exact source tree.' if tested_tree == wanted_tree
+                  else 'Successful full dev CI verified for the source tree; intervening commits change only allowed Markdown documentation.')
     except (NoProof, KeyError, ValueError, OSError, subprocess.CalledProcessError) as error:
         reason = str(error)
     output = os.environ.get('GITHUB_OUTPUT')
@@ -240,9 +306,9 @@ def main():
             if reused:
                 stream.write(f'[Full-check run]({proof_url}).\n')
             else:
-                stream.write('Run full CI on dev for this exact tree, then retry the PR or release.\n')
+                stream.write('Run full CI on dev for this source tree, then retry the PR or release.\n')
     if args.mode in ('release', 'release-resume') and not reused:
-        print('::error::Release blocked: run successful full CI on dev for this exact source tree, then rerun Release. Nothing was published.')
+        print('::error::Release blocked: run successful full CI on dev for this source tree, then rerun Release. Nothing was published.')
         return 1
     return 0
 

@@ -113,6 +113,7 @@ public sealed class InputManager : Singleton<InputManager>
 {
     public static bool GamePadInUse;
     public readonly NativePlayerControl PlayerControl = new();
+    public static void RequestEnableInput(object owner, EKeyActionTag tag) { }
 }
 public sealed class NativePlayerControl { public readonly NativeMouseClick MouseClickLeft = new(); }
 public sealed class NativeMouseClick { public bool WasPressed; }

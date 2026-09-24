@@ -20,11 +20,12 @@ internal static partial class RemoteMapStory
     // remote grip which cannot be inferred from unchanged record-21 coordinates.
     private readonly struct ReflowPeer
     {
-        internal ReflowPeer(bool host, byte held, byte automatic, float at)
-        { Host = host; Held = held; Automatic = automatic; At = at; }
+        internal ReflowPeer(bool host, byte held, byte automatic, float at, uint storyEpoch, uint storyToken)
+        { Host = host; Held = held; Automatic = automatic; At = at; StoryEpoch = storyEpoch; StoryToken = storyToken; }
         internal readonly bool Host;
         internal readonly byte Held, Automatic;
         internal readonly float At;
+        internal readonly uint StoryEpoch, StoryToken;
     }
 
     private static readonly Dictionary<int, ReflowPeer> ReflowPeers = new();
@@ -95,13 +96,21 @@ internal static partial class RemoteMapStory
         // builds are normally refused by the handshake; withholding layout also covers a gap.
         byte held = presence.HasSharedWindowMotion ? presence.SharedWindowHeldMask : (byte)7;
         byte automatic = presence.HasSharedWindowMotion ? presence.SharedWindowReflowMask : (byte)0;
-        ReflowPeers[sender] = new ReflowPeer(
+        MapStoryLifecycle.PoseOpening(in presence, StoryLocal.Key, out uint storyEpoch, out uint storyToken);
+        var peer = new ReflowPeer(
             (presence.MapRoomFlags & NetProtocol.MapRoomHostBit) != 0, held, automatic,
-            Time.unscaledTime);
-        if ((held & 1) != 0) CancelReflow(StoryLocal);
+            Time.unscaledTime, storyEpoch, storyToken);
+        ReflowPeers[sender] = peer;
+        if ((CurrentHeldMask(sender, in peer) & 1) != 0) CancelReflow(StoryLocal);
         if ((held & 2) != 0) CancelReflow(QuestLocal);
         if ((held & 4) != 0) CancelReflow(EncounterLocal);
     }
+
+    // Record 77 has kind bits only. Its story bit belongs to the opening captured from
+    // record 83 in that same packet, including after the local native queue advances.
+    private static byte CurrentHeldMask(int sender, in ReflowPeer peer)
+        => MapStoryLifecycle.MatchesPose(true, sender, peer.StoryEpoch, peer.StoryToken)
+            ? peer.Held : (byte)(peer.Held & ~NetProtocol.SharedWindowMotionMapStoryBit);
 
     private static void ObserveReflowPose(int sender, SharedWindowKind kind,
         in SharedWindowEntry entry, Dictionary<int, byte> stamps)
@@ -131,7 +140,8 @@ internal static partial class RemoteMapStory
         foreach (KeyValuePair<int, ReflowPeer> pair in ReflowPeers)
         {
             if (now - pair.Value.At > PeerStaleSeconds) continue;
-            held |= pair.Value.Held != 0;
+            ReflowPeer peer = pair.Value;
+            held |= CurrentHeldMask(pair.Key, in peer) != 0;
             if ((pair.Value.Host && !host) || (pair.Value.Host == host && pair.Key < elected))
             { elected = pair.Key; host = pair.Value.Host; }
         }

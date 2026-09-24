@@ -22,6 +22,8 @@ static class Program
         GuildmasterDestinations.Exits = GuildmasterDestinations.LeaveCalls = 0;
         MapRoomDriver.Active = true;
         VRLog.Lines.Clear();
+        Singleton<MapStoryController>.Instance = null!;
+        Singleton<StoryController>.Instance = null!;
     }
     private static void Refused(UIWindow window, string reason)
     {
@@ -60,13 +62,25 @@ static class Program
             "pooled policy change is rechecked before conversion release");
 
         foreach (object identity in new object[] { new UIEventPanel(), new UIRewardsManager(),
-            new UICampaignRewardWindow(), new ItemCardPicker(), new TakeDamagePanel() })
+            new UICampaignRewardWindow(), new UIGuildmasterAdventureRewardsManager(), new ItemCardPicker(), new TakeDamagePanel(),
+            new UILevelUpWindow(), new UIUnlockLocationFlowManager(), new UICharacterCreatorWindow(),
+            new ConfirmationBox() })
         {
             Reset();
             Refused(new UIWindow { Identity = identity }, "known mandatory identity cannot be force-hidden");
         }
         Reset();
         Refused(new UIWindow { Introduction = true }, "introduction callback cannot be bypassed by direct close");
+        Reset();
+        var mapStory = new UIWindow();
+        Singleton<MapStoryController>.Instance = new MapStoryController { window = mapStory };
+        Refused(mapStory, "map story must finish through its own page callback");
+        Reset();
+        var scenarioStory = new UIWindow();
+        Singleton<StoryController>.Instance = new StoryController { window = scenarioStory };
+        Refused(scenarioStory, "scenario story must finish through its own page callback");
+        Reset();
+        Refused(new UIWindow { LevelMessage = true }, "tutorial callback cannot be bypassed by direct close or chord");
         Reset();
         Refused(new UIWindow { escapeKeyAction = UIWindow.EscapeKeyAction.None }, "native escape refusal cannot be bypassed");
 

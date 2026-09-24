@@ -80,6 +80,32 @@ internal static class Program
         HintMessageOrigins.CurrentScope = previous;
         Check(ReferenceEquals(HintMessageOrigins.For(rewardHint)?.Anchor, rewardWindow.transform), "Reward hints bypassing UIIntroduceBase must use the serialized reward window");
 
+        var guildProducer = new UIIntroductionRewardsProcess();
+        var guildWindow = new UnityEngine.UI.UIWindow();
+        Singleton<UIAdventureRewardsManager>.IsInitialized = true;
+        Singleton<UIAdventureRewardsManager>.Instance = new UIGuildmasterAdventureRewardsManager
+            { rewardIntroduction = guildProducer, window = guildWindow };
+        previous = HintMessageOrigins.Begin(guildProducer);
+        var guildHint = new object();
+        HintMessageOrigins.Record(guildHint);
+        HintMessageOrigins.CurrentScope = previous;
+        Check(ReferenceEquals(HintMessageOrigins.For(guildHint)?.Anchor, guildWindow.transform),
+            "Guildmaster reward hint must use its exact original adventure reward window");
+        previous = HintMessageOrigins.Begin(guildProducer.process);
+        var laterGuildHint = new object();
+        HintMessageOrigins.Record(laterGuildHint);
+        HintMessageOrigins.CurrentScope = previous;
+        Check(ReferenceEquals(HintMessageOrigins.For(laterGuildHint)?.Anchor, guildWindow.transform),
+            "Asynchronous Guildmaster hint step keeps its serialized native reward owner");
+        var unrelatedProducer = new UIIntroductionRewardsProcess();
+        previous = HintMessageOrigins.Begin(unrelatedProducer);
+        var unrelatedRewardHint = new object();
+        HintMessageOrigins.Record(unrelatedRewardHint);
+        HintMessageOrigins.CurrentScope = previous;
+        Check(ReferenceEquals(HintMessageOrigins.For(unrelatedRewardHint)?.Anchor, unrelatedProducer.transform),
+            "An unrelated reward producer cannot inherit Guildmaster reward ownership");
+        Singleton<UIAdventureRewardsManager>.IsInitialized = false;
+
         var group = new LevelMessageUILayoutGroup();
         Singleton<UIIntroductionManager>.IsInitialized = true;
         Singleton<UIIntroductionManager>.Instance.LayoutGroup = group;

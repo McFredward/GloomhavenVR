@@ -203,7 +203,7 @@ internal static class TownServiceCodec
     // The bundle is only a lossless transport container. Every child remains a complete
     // independently sequenced original module packet; no observer-template defaults apply.
     internal const int MaxBundleFrames = 32;
-    internal const byte BundleRecordId = 84; // NetProtocol.ExtIdTownServiceBundle.
+    internal const byte BundleRecordId = 89; // NetProtocol.ExtIdTownServiceBundle
     internal static byte[] WriteBundle(IReadOnlyList<byte[]> packets)
     {
         if (packets.Count < 1 || packets.Count > MaxBundleFrames) throw new InvalidDataException("Invalid town bundle count.");

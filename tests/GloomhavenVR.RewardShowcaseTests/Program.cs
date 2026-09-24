@@ -3,7 +3,7 @@ using GloomhavenVR.WorldUI;
 using UnityEngine;
 using UnityEngine.UI;
 
-static class Program
+static partial class Program
 {
     private static int _assertions;
 
@@ -18,12 +18,16 @@ static class Program
     private static void Reset()
     {
         RewardShowcase.Tick(false);
+        PostQuestRewardSync.Reset();
         Singleton<InputManager>.Instance = Component<InputManager>("Input");
         Singleton<KeyActionHandlerController>.Instance = Component<KeyActionHandlerController>("Key actions");
         Synchronizer.Sent = ActionProcessor.HaltRequests = 0;
         Singleton<ScenarioRewardManager>.Instance = null!;
         Singleton<CampaignRewardsManager>.Instance = null!;
         Singleton<UIRewardsManager>.Instance = null!;
+        Singleton<UIAdventureRewardsManager>.Instance = null!;
+        Singleton<UIUnlockLocationFlowManager>.Instance = null!;
+        VideoCamera.s_This = new VideoCamera();
         Singleton<ESCMenu>.Instance = Component<ESCMenu>("Escape menu");
         WorldUIConfig.ConversionActive = true;
         WorldUIConfig.ModalWindowStyle = true;
@@ -169,6 +173,104 @@ static class Program
         duplicate.Button.onClick.Invoke();
         Check(duplicate.Rewards.NativeCalls == 2 && duplicate.Completions == 1,
             "two campaign native clicks preserve native completion idempotence without extra listeners");
+    }
+
+    private static void MapRewardButtons()
+    {
+        foreach (bool mouseWired in new[] { false, true })
+        {
+            Reset();
+            var rewards = Component<UIGuildmasterAdventureRewardsManager>("Map adventure rewards");
+            rewards.closeButton = Component<ExtendedButton>("Native map reward Continue");
+            rewards.window = Component<UIWindow>("Map reward popup");
+            int closed = 0, unrelated = 0;
+            rewards.window.NativeHide = () => closed++;
+            if (mouseWired) rewards.closeButton.onClick.AddListener(rewards.Hide);
+            rewards.closeButton.onClick.AddListener(() => unrelated++);
+            Singleton<UIAdventureRewardsManager>.Instance = rewards;
+            var locations = Component<UIUnlockLocationFlowManager>("Unlock locations");
+            locations.continueButton = Component<Button>("Native unlock Continue");
+            int locationFinished = 0;
+            locations.continueAction = () => locationFinished++;
+            if (mouseWired) locations.continueButton.onClick.AddListener(locations.Continue);
+            Singleton<UIUnlockLocationFlowManager>.Instance = locations;
+            RewardShowcase.Tick(true);
+            Check(RewardShowcase.Window == null, "map-only repair does not invent a scenario reward window");
+            Check(rewards.closeButton.onClick.ListenerCount == 2, "map reward gets exactly one native listener plus unrelated callback");
+            Check(locations.continueButton.onClick.ListenerCount == 1, "unlock location gets exactly one native listener");
+            Check(closed == 0 && locationFinished == 0, "repair cannot consume map reward or pending location promise");
+            for (int i = 0; i < 20; i++) RewardShowcase.Tick(true);
+            rewards.closeButton.interactable = locations.continueButton.interactable = false;
+            rewards.closeButton.OnPointerClick();
+            locations.continueButton.OnPointerClick();
+            Check(closed == 0 && locationFinished == 0, "map native animation interactability gates survive binding repair");
+            rewards.closeButton.interactable = locations.continueButton.interactable = true;
+            rewards.m_CharacterIDsUnlocked.Add("Brute");
+            rewards.m_CharacterIDsUnlocked.Add("Spellweaver");
+            rewards.closeButton.OnPointerClick();
+            Check(closed == 0 && VideoCamera.s_This.Played.Count == 1 && unrelated == 1,
+                "map reward native Hide starts first unlock video without premature window closure");
+            VideoCamera.s_This.Finish();
+            Check(closed == 0 && VideoCamera.s_This.Played.Count == 2,
+                "native video callback continues second character unlock");
+            VideoCamera.s_This.Finish();
+            Check(closed == 1 && !rewards.window.IsOpen,
+                "native final unlock video closes reward once");
+            locations.continueButton.OnPointerClick();
+            Check(locationFinished == 1, "native location Continue resolves the actual pending promise");
+            locations.continueAction = null;
+            locations.continueButton.OnPointerClick();
+            Check(locationFinished == 1, "cleared native location callback cannot be replayed");
+            RewardShowcase.Tick(false);
+            RewardShowcase.Tick(true);
+            Check(rewards.closeButton.onClick.ListenerCount == 2 && locations.continueButton.onClick.ListenerCount == 1,
+                "conversion reactivation neither loses nor duplicates original map callbacks");
+            rewards.window.IsOpen = true;
+            rewards.closeButton.OnPointerClick();
+            Check(closed == 2 && unrelated == 2,
+                "reopened native map rewards remain closable with unrelated listeners intact");
+        }
+    }
+
+    private static void UnlockBodyDispatch()
+    {
+        Reset();
+        var window = Component<UIWindow>("Unlock announcement");
+        var native = window.gameObject.AddComponent<UIUnlockLocationFlowManager>();
+        var unrelated = Component<Button>("Location popup navigation");
+        unrelated.transform.SetParent(window.transform);
+        int wrongClicks = 0, continued = 0;
+        unrelated.onClick.AddListener(() => wrongClicks++);
+        native.continueButton = Component<Button>("Continue");
+        native.continueButton.transform.SetParent(window.transform);
+        native.continueAction = () => continued++;
+        Singleton<UIUnlockLocationFlowManager>.Instance = native;
+        RewardShowcase.Tick(true);
+        native.continueButton.interactable = false;
+        ModalFallback.DismissForTest(window);
+        Check(wrongClicks == 0 && continued == 0,
+            "transient body click cannot choose an unrelated active button while native Continue is disabled");
+        native.continueButton.interactable = true;
+        native.continueButton.AncestorsInteractable = false;
+        ModalFallback.DismissForTest(window);
+        Check(continued == 0 && wrongClicks == 0, "transient body click respects Continue ancestor gating");
+        native.continueButton.AncestorsInteractable = true;
+        native.continueButton.enabled = false;
+        ModalFallback.DismissForTest(window);
+        Check(continued == 0, "transient body click respects disabled native Continue component");
+        native.continueButton.enabled = true;
+        native.continueButton.gameObject.SetActive(false);
+        ModalFallback.DismissForTest(window);
+        Check(continued == 0, "transient body click respects hidden native Continue");
+        native.continueButton.gameObject.SetActive(true);
+        native.continueButton.transform.SetParent(null);
+        ModalFallback.DismissForTest(window);
+        Check(continued == 0, "transient body click refuses button outside this window subtree");
+        native.continueButton.transform.SetParent(window.transform);
+        ModalFallback.DismissForTest(window);
+        Check(continued == 1 && wrongClicks == 0, "transient body click invokes only current native Continue callback");
+        ModalFallback.DismissForTest(Component<UIWindow>("Unrelated information"));
+        Check(continued == 1, "unrelated information window cannot continue unlock flow");
     }
 
     private static void CampaignGates()
@@ -594,6 +696,8 @@ static class Program
     static void Main()
     {
         CampaignButtonRepair();
+        MapRewardButtons();
+        UnlockBodyDispatch();
         CampaignGates();
         GuildInputAndLifecycle();
         NativeRewardCompletion();
@@ -603,6 +707,7 @@ static class Program
         IdentityAndInitialPlacement();
         SharedRevealHandoff();
         NativeConversionAvailability();
+        PostQuestContinuations();
         Reset();
         Check(RewardShowcase.Window == null && !RewardShowcase.TryConfirm(), "clean shutdown leaves no actionable reward surface");
         Console.WriteLine($"Reward showcase: {_assertions} assertions passed.");

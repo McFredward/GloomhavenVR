@@ -123,7 +123,7 @@ namespace GloomhavenVR.Hands.Interact
         internal IGrabbable? Highlighted;
         internal ProximityGrabber(VRHand hand) { _hand = hand; }
         internal void Grab(IGrabbable target) => BeginGrab(target, true, "trigger", "fixture");
-        
+
         internal bool Heal() => HealDeadHeld();
         private void SetHighlighted(IGrabbable? next)
         {

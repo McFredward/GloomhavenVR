@@ -1,6 +1,7 @@
 # Planning index
 
-Updated 2026-09-24; feature/immersive-town-services build 552 hardware candidate. Dev remains the separate hotfix branch. This directory holds internal
+Updated 2026-09-24 for the NPC feature's build-552 hardware candidate and the
+released 1.0.8 / build-556 integration. This directory holds internal
 engineering evidence, historical decisions and current status; it is not the player manual.
 
 ## Current entry points
@@ -42,6 +43,14 @@ engineering evidence, historical decisions and current status; it is not the pla
 
 ## Latest measured work
 
+- [REFACE-556.md](REFACE-556.md): combat-log and control-board laser-release
+  turns with the existing short window animation and board pose stream.
+- [STORY-555.md](STORY-555.md): build 554 evidence of a completed story retained
+  by map-window stickiness; shared native close/lifetime correction.
+- [CHEAT-554.md](CHEAT-554.md): hidden scenario-win test action using native results
+  and rewards, to reproduce post-quest continuation windows.
+- [WINDOWS-553.md](WINDOWS-553.md): level-up reveal input, map confirmations,
+  semantic message continuation, full window-family audit and hardware checklist.
 - [research/TOWN-SERVICES-FIRST-VARIANT.md](research/TOWN-SERVICES-FIRST-VARIANT.md): integrated scope, evidence and first hardware checklist.
 - [research/TOWN-SERVICES-FINAL-AUDIT.md](research/TOWN-SERVICES-FINAL-AUDIT.md): compiled scope comparison with the pre-feature source and historical guard baseline.
 - [research/TOWN-SERVICES-RUNTIME-ASSETS.md](research/TOWN-SERVICES-RUNTIME-ASSETS.md): rig, LOD, animation, materials and separate bundle contract.

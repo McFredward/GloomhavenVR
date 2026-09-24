@@ -126,6 +126,12 @@ internal static partial class ModalFallback
             return;
         string name = window.name;
 
+        // Informational queues and dismissible dialogs own more than visibility:
+        // dispatch their real close/cancel event before touching float lifetime.
+        // A queued message may reopen this same UIWindow synchronously.
+        if (MessageWindowContinuation.TryClose(window))
+            return;
+
         // ModBuild 185: the map room's character screen is not closable — see IsMapRoomPermanent
         // for why closing it SPLIT it rather than closing it. This covers the X, the escape chord
         // and CloseStickyFloatsExceptEscMenu in one place, because they all route through here.
@@ -350,6 +356,8 @@ internal static partial class ModalFallback
     /// </summary>
     private static void ReassertStickyVisible(WindowPanel wp)
     {
+        // Never resurrect the final page after the game ran its completion callbacks.
+        if (NativeStoryWindow.IsCompleted(wp.Window)) return;
         bool fought = false;
         CanvasGroup? cg = wp.WindowCanvasGroup;
         if (cg != null)
@@ -477,6 +485,8 @@ internal static partial class ModalFallback
     private static void AddPollWindow(UIWindow? window)
     {
         if (window == null || ContainsWindow(OpenWindows, window))
+            return;
+        if (NativeStoryWindow.IsCompleted(window))
             return;
         if (FloatRefusalTable.Refuses(window))
             return;
@@ -1035,10 +1045,15 @@ internal static partial class ModalFallback
         Button? dismiss = null;
         TransientButtonScratch.Clear();
         window.GetComponentsInChildren(includeInactive: false, TransientButtonScratch);
+        // Only this controller is admitted by IsTransientAnnouncement. Never guess
+        // the first active Button: a nested popup/navigation button can precede the
+        // real Continue, especially while camera focus disables that Continue.
+        Button? expected = window.GetComponent<UIUnlockLocationFlowManager>()?.continueButton;
         for (int i = 0; i < TransientButtonScratch.Count; i++)
         {
             Button b = TransientButtonScratch[i];
-            if (b == null || !b.isActiveAndEnabled || !b.IsInteractable())
+            if (b == null || !ReferenceEquals(b, expected)
+                || !b.isActiveAndEnabled || !b.IsInteractable())
                 continue;
             if (b.gameObject.name.StartsWith("GloomhavenVR.", System.StringComparison.Ordinal))
                 continue; // our own catcher — forwarding to it would be a loop

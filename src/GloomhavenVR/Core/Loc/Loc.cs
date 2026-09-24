@@ -227,6 +227,15 @@ internal static partial class Loc
         // as sealed. Accusative-safe in German so it drops into "Verbrennen …" unchanged.
         ["mp_sealed_card"] = Pair("a sealed card", "eine versiegelte Karte"),
         ["reward_continue"] = Pair("Continue", "Weiter"),
+        ["cheat_win"] = Pair("Win current scenario", "Aktuelles Szenario gewinnen"),
+        ["cheat_win_confirm"] = Pair("Win scenario — PRESS AGAIN TO CONFIRM", "Szenario gewinnen — ZUM BESTÄTIGEN ERNEUT DRÜCKEN"),
+        ["cheat_win_no_scenario"] = Pair("Win scenario — no active scenario", "Szenario gewinnen — kein aktives Szenario"),
+        ["cheat_win_online"] = Pair("Win scenario — BLOCKED (multiplayer)", "Szenario gewinnen — GESPERRT (Mehrspieler)"),
+        ["cheat_win_ending"] = Pair("Win scenario — scenario is ending or already ended", "Szenario gewinnen — Abschluss läuft oder bereits beendet"),
+        ["cheat_win_busy"] = Pair("Win scenario — finish loading, story or damage choice first", "Szenario gewinnen — erst Laden, Story oder Schadenswahl abschließen"),
+        ["cheat_win_hint"] = Pair(
+            "Triggers the game's normal victory, results and quest rewards. This counts as a real win and changes the savegame. Press twice within 8 seconds. Single-player only.",
+            "Startet den normalen Sieg-Ablauf mit Ergebnissen und Questbelohnungen. Das zählt als echter Sieg und verändert den Spielstand. Innerhalb von 8 Sekunden zweimal drücken. Nur Einzelspieler."),
         ["ctl_next"] = Pair("NEXT", "WEITER"),
         ["ctl_skip"] = Pair("SKIP", "ÜBERSPRINGEN"),
         // ---- the multiplayer quest card ----

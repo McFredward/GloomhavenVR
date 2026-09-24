@@ -54,7 +54,7 @@ was simply wrong, so treat every claim in a comment as a hypothesis and check it
    Health57, native card appearance58, atomic rig actor59, character decisions60, flight source61,
    flight history62, native decision prompts63, lossless presentation compression64 and damage avoidance65 are additive.
    Second held actor66, held map provenance67 and native appearance provenance68 retain positional
-   source addressing. The 38/40/42 holes may never be reused; 69 carries supplemental native card groups; 70 carries rig board pose and 71 fan insertion; 72 carries shared native video presentation; 73 carries shared native reward presentation; 74 carries key/opening-scoped reward pose participation; 75 carries owner burn progress and durable completion with or without a flight; 76 carries original item appearance; 77 carries shared map-window grip and automatic-motion masks; 78 carries original town-service presentation; 79 carries persistent town resident poses and animation clocks; 80 carries shared facial pose, expression clock and speech-adapter state, also in message type 21; 81 carries resident occupation clocks and attention transitions, paired atomically with unchanged80 in message type22; 82 carries native map-button hints; 83 carries the complete public map loadout count; 84 carries bounded town presentation bundles; 85 carries owner-authored merchant rack clocks and causal card membership; 86 identifies cassette mechanics and the independent public merchant lane; 87 carries rolling-holder direction and total page count; 88 is next free.** No id
+   source addressing. The 38/40/42 holes may never be reused; 69 carries supplemental native card groups; 70 carries rig board pose and 71 fan insertion; 72 carries shared native video presentation; 73 carries shared native reward presentation; 74 carries key/opening-scoped reward pose participation; 75 carries owner burn progress and durable completion with or without a flight; 76 carries original item appearance; 77 carries shared map-window grip and automatic-motion masks; 78 carries original town-service presentation; 79 carries persistent town resident poses and animation clocks; 80 carries shared facial pose, expression clock and speech-adapter state, also in message type 21; 81 carries resident occupation clocks and attention transitions, paired atomically with unchanged 80 in message type 22; 82 carries native map-button hints; 83 carries native map-story opening history; 84 carries native post-quest reward continuation; 85 carries owner-authored merchant rack clocks and causal card membership; 86 identifies cassette mechanics and the independent public merchant lane; 87 carries rolling-holder direction and total page count; 88 carries the complete public map loadout count; 89 carries bounded town presentation bundles; 90 is next free.** No id
    has ever been retired or renumbered and none ever may be.
    **Card identity never goes on the wire** — reveals go only through `Net/RevealGate.cs`.
    `scripts/wire-tests.sh` (final assertion count in STATE.md at ModBuild 497) is the proof; a `Write`+`TryRead` change
@@ -111,12 +111,13 @@ two wire vectors from being reached; the suite stayed green while the assertion 
 and only the count caught it. Print counts in commit messages.
 
 The workflow definitions and [CI/CD guide](docs/CI-CD.md) describe hosted validation. Full CI
-on `dev` runs the source checks and production presentation harnesses. Per the user's
-2026-09-17 instruction, a PR may reuse successful trusted validation of the identical Git tree;
-otherwise it runs the full checks. Releases require that evidence before building and packaging
-the actual `main` commit, without repeating the full suite. Missing or invalid evidence blocks
-publication. Full golden wire vectors still require the game's real Unity runtime and must run
-locally; hosted runners compile them against metadata references. A hosted green run does not
+on source-changing `dev` commits runs the source checks and production presentation harnesses.
+Internal PRs and strictly Markdown-only descendants may reuse successful trusted validation of
+their source tree; all other changes run the full checks. Releases require that evidence before
+building and packaging the actual `main` commit, without repeating the full suite. Missing or
+invalid evidence blocks publication. Full golden wire vectors still require the game's real
+Unity runtime and must run locally; hosted runners compile them against metadata references.
+A hosted green run does not
 replace that local gate.
 
 **Bundles are built ONLY with `/home/claw/unity-2021.3.5`**, never `unity-2021.3`. The wrong
@@ -129,9 +130,11 @@ it is a full install.
 
 ## Working practice
 
-- **`main` is the release branch; work goes to `dev`.** Push every change to `origin/dev`
-  unasked. Never push a worktree branch to the remote — only `main` and `dev` exist on GitHub.
-  Do not rewrite published history or change repository visibility without explicit authorization.
+- **`main` is the release branch; hotfix work goes to `dev`.** Push authorized hotfixes to
+  `origin/dev` without another confirmation. NPC feature work belongs exclusively on
+  `feature/immersive-town-services` until integration is explicitly requested. Never push
+  temporary worker branches or rewrite published history. Do not change repository
+  visibility without explicit authorization.
 - **Delegate independent implementation tasks** with explicit, disjoint file ownership. Create
   separate Git worktrees before dispatch; a tool call does not imply filesystem isolation. Respect
   the current session's concurrency limit and avoid nested workers when no slot is available.

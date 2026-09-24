@@ -128,6 +128,20 @@ internal static class VersionGuard
     internal static int PeerBuild(int playerId) =>
         Peers.TryGetValue(playerId, out PeerInfo info) ? info.Build : 0;
 
+    /// <summary>Connected compatible participants, independent of transient avatar loading.
+    /// The native roster is refreshed by the ordinary session census. A slow scene load must
+    /// not make an existing participant ineligible for a completed story or reward.</summary>
+    internal static void CollectContinuationPeers(List<int> into, int localPlayerId)
+    {
+        into.Clear();
+        for (int i = 0; i < CensusRoster.Count; i++)
+        {
+            int id = CensusRoster[i].Id;
+            if (id > 0 && id != localPlayerId && PeerBuild(id) == NetProtocol.ModBuild)
+                into.Add(id);
+        }
+    }
+
     /// <summary>
     /// WHICH MULTIPLAYER SESSION THIS IS, as a number that changes when one ends.
     ///
@@ -191,6 +205,7 @@ internal static class VersionGuard
     internal static void Reset()
     {
         Peers.Clear();
+        CensusRoster.Clear();
         Handled.Clear();
         Dialog.Close();
         NetSession.Reset();
@@ -218,8 +233,9 @@ internal static class VersionGuard
     ///
     /// <para><b>IT DECIDES NOTHING.</b> The verdicts printed here are read off
     /// <see cref="IsModdedPeer"/> and <see cref="EncounterChoice.HostCanHonourRequests"/>, the same
-    /// terms the features themselves ask; nothing is cached for them and no behaviour depends on
-    /// this method having run. A peer is MODDED from the first valid GVR1 packet
+    /// terms the features themselves ask; those verdicts do not depend on
+    /// the log emission. The refreshed roster also scopes native continuation recipients.
+    /// A peer is MODDED from the first valid GVR1 packet
     /// (<see cref="NotePacket"/>), so a peer named FLAT here is one nothing has ever arrived
     /// from.</para>
     ///

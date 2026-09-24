@@ -205,8 +205,10 @@ internal static class TownServiceTransportVectors
         var frames=new List<byte[]>();
         for(ushort id=1;id<=16;id++)frames.Add(TownServiceCodec.Write(Frame(id,1,16)));
         byte[] packet=TownServiceCodec.WriteBundle(frames);
+        t.Equal(NetProtocol.ExtIdTownServiceBundle, TownServiceCodec.BundleRecordId,
+            "town bundle codec and presence protocol share the assigned extension id");
         t.True(TownServiceCodec.TryReadBundle(packet,packet.Length,out byte[][]? children),"bounded bundle parses");
-        for(int at=6;at<packet.Length;){t.Equal(84,(int)packet[at++],"additive bundle record84");int length=packet[at++];t.True(length>0&&at+length<=packet.Length,"ordinary bounded TLV framing");at+=length;}
+        for(int at=6;at<packet.Length;){t.Equal(89,(int)packet[at++],"independent additive town bundle record89");int length=packet[at++];t.True(length>0&&at+length<=packet.Length,"ordinary bounded TLV framing");at+=length;}
         for(int i=0;i<frames.Count;i++)t.Wire(frames[i],children![i],frames[i].Length,"every original node/property/string survives byte for byte");
         for(int n=0;n<packet.Length;n+=97)t.True(!TownServiceCodec.TryReadBundle(packet,n,out _),"truncated bundle rejected");
         var tail=new byte[packet.Length+1];Buffer.BlockCopy(packet,0,tail,0,packet.Length);

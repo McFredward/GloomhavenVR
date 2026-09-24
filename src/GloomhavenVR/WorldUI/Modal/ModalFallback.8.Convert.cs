@@ -481,6 +481,7 @@ internal static partial class ModalFallback
             }
             else
             {
+                RearmFreshStoryAnchor(window);
                 if (PlaceAtHmd(panel, extraScale, staggerIndex, isLevelMsg))
                     spawnAnchor = s_lastSpawnAnchor;
                 // ONE-SHOT FACING (task #1): the host was just yawed to face the head (ComputeHmdPose,

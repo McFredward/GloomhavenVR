@@ -151,6 +151,14 @@ internal static partial class ModalFallback
     /// </summary>
     internal static bool IsMandatoryDecision(UIWindow? window, out string reason)
     {
+        // Conversion already withholds the X from these hints, but the escape chord
+        // uses this live admission too. UIWindow.Hide does not call the layout's
+        // onCloseButtonPressed and can stop an action-dismissed tutorial's waiter.
+        if (window != null && IsLevelMessageWindow(window))
+        {
+            reason = "level/tutorial message — its native Continue or requested action owns continuation";
+            return true;
+        }
         // IntroductionManager queues the next hint from its native continue callback.
         // A generic modal X/Hide bypasses that callback and leaves the queue unresolved.
         // Its layout group is distinct from LevelMessagesUIHandler's scenario tutorial.
@@ -173,6 +181,34 @@ internal static partial class ModalFallback
         reason = string.Empty;
         if (window == null)
             return MandatoryDecisionTerm.None;
+
+        if (NativeStoryWindow.IsStory(window))
+        {
+            reason = "native story — its last page owns continuation; a closed story must release its VR presentation";
+            return MandatoryDecisionTerm.NativeStory;
+        }
+
+        // The level-up window's IEscapable consumes Escape without closing: revealing
+        // the cards must finish before the player chooses one. Unlock-location Hide
+        // likewise does not resolve its pending Continue promise or restore map input.
+        // Neither flow may fall through to the generic Escape()+Hide() rescue path,
+        // regardless of the prefab's serialized escape policy.
+        if (window.GetComponent<UILevelUpWindow>() != null
+            || window.GetComponent<UIUnlockLocationFlowManager>() != null)
+        {
+            reason = "native card/location reveal — Continue must finish the reveal; level-up then requires a card choice";
+            return MandatoryDecisionTerm.NativeReveal;
+        }
+        if (window.GetComponent<UICharacterCreatorWindow>() != null)
+        {
+            reason = "character creation — its native Confirm/Cancel releases the party creation guard";
+            return MandatoryDecisionTerm.CharacterCreation;
+        }
+        if (window.GetComponent<ConfirmationBox>() != null)
+        {
+            reason = "native confirmation — its Confirm/Cancel buttons own the pending callback";
+            return MandatoryDecisionTerm.NativeConfirmation;
+        }
 
         // TERM 1 — IDENTITY, and IS-A rather than containment. UIEventPanel is
         // [RequireComponent(typeof(UIWindow))] (UIEventPanel.cs:26) and caches the window off its
@@ -237,6 +273,13 @@ internal static partial class ModalFallback
         if (window.GetComponent<UICampaignRewardWindow>() != null)
         {
             reason = "campaign reward showcase — the native Continue callback must finish the reward process";
+            return MandatoryDecisionTerm.RewardShowcase;
+        }
+        if (window.GetComponent<UIGuildmasterAdventureRewardsManager>() != null)
+        {
+            // RequireComponent(UIWindow), cached in Awake. Its manager Hide drives unlock
+            // videos before invoking onClosed; a bare window Hide skips that continuation.
+            reason = "guildmaster adventure rewards — the native Continue owns unlock videos and completion";
             return MandatoryDecisionTerm.RewardShowcase;
         }
         if (window.GetComponent<UIRewardsManager>() != null)

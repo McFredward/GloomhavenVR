@@ -142,7 +142,7 @@ internal static partial class RemoteMapStory
 
     private readonly struct PeerEntry
     {
-        public PeerEntry(in SharedWindowEntry e, float at)
+        public PeerEntry(in SharedWindowEntry e, float at, uint openingEpoch = 0, uint openingToken = 0)
         {
             Flags = e.Flags;
             Page = e.Page;
@@ -153,6 +153,8 @@ internal static partial class RemoteMapStory
             Frame = e.Frame;
             Pose = e.Pose;
             At = at;
+            OpeningEpoch = openingEpoch;
+            OpeningToken = openingToken;
         }
 
         public readonly byte Flags;
@@ -164,6 +166,7 @@ internal static partial class RemoteMapStory
         public readonly byte Frame;
         public readonly RigPose Pose;
         public readonly float At;
+        public readonly uint OpeningEpoch, OpeningToken;
 
         public bool Open => (Flags & NetProtocol.SharedOpenBit) != 0;
         public bool Finished => (Flags & NetProtocol.SharedFinishedBit) != 0;
@@ -1410,8 +1413,10 @@ internal static partial class RemoteMapStory
                 {
                     case NetProtocol.SharedWindowKindMapStory:
                         sawStory = true;
-                        StoryPeers[senderId] = new PeerEntry(in e, now);
-                        ObserveReflowPose(senderId, SharedWindowKind.MapStory, in e, StoryStamp);
+                        MapStoryLifecycle.PoseOpening(in p, e.ContentKey, out uint openingEpoch, out uint openingToken);
+                        StoryPeers[senderId] = new PeerEntry(in e, now, openingEpoch, openingToken);
+                        if (MapStoryLifecycle.MatchesPose(true, senderId, openingEpoch, openingToken))
+                            ObserveReflowPose(senderId, SharedWindowKind.MapStory, in e, StoryStamp);
                         NoteStamp(senderId, in e, StoryStamp, StoryStampAt, now);
                         break;
                     case NetProtocol.SharedWindowKindQuestConfirm:
@@ -1507,7 +1512,11 @@ internal static partial class RemoteMapStory
             uint key = RemoteStorySync.HashDialog(box.dialogs);
             if (key != 0u)
             {
-                ResolveStoryPage(box, key);
+                // Build 555: the native queue can replace a completed message synchronously,
+                // so legacy content-only pages/FINISHED cannot prove which opening they name.
+                // The lifecycle record owns page application; record 21 still owns the pose.
+                if (!MapStoryLifecycle.OwnsCurrent)
+                    Note("map story awaits native opening provenance before accepting peer continuation");
                 ResolvePose(SharedWindowKind.MapStory, StoryLocal, key, StoryPeers, StoryStampAt);
             }
         }
@@ -1952,6 +1961,9 @@ internal static partial class RemoteMapStory
         {
             PeerEntry s = kv.Value;
             if (s.ContentKey != key || !s.HasPose)
+                continue;
+            if (kind == SharedWindowKind.MapStory
+                && !MapStoryLifecycle.MatchesPose(true, kv.Key, s.OpeningEpoch, s.OpeningToken))
                 continue;
             if (!at.TryGetValue(kv.Key, out float when))
                 continue;

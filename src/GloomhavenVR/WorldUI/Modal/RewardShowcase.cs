@@ -31,6 +31,7 @@ internal static partial class RewardShowcase
             // the VR input there forever, before DistributeRewards could run. Resolve
             // the live original process/window, while retaining the scenario's exact
             // campaign manager when one owns the current reward.
+            if (PostQuestRewardSync.Window != null) return PostQuestRewardSync.Window;
             UIWindow? campaignWindow = CampaignWindow?.window;
             if (IsLiveWindow(campaignWindow)) return campaignWindow;
             UIRewardsManager? guild = Guildmaster;
@@ -66,6 +67,7 @@ internal static partial class RewardShowcase
         {
             if (!_enabled || !WorldUIConfig.ConversionActive || FlatScreen.ManualScreenActive || Window == null
                 || (Singleton<ESCMenu>.IsInitialized && Singleton<ESCMenu>.Instance.IsOpen)) return false;
+            if (PostQuestRewardSync.Owns(Window)) return PostQuestRewardSync.CanConfirm;
             UICampaignRewardWindow? rewards = CampaignWindow;
             if (rewards != null && ReferenceEquals(Window, rewards.window))
             {
@@ -91,6 +93,8 @@ internal static partial class RewardShowcase
         }
         if (!enabled) _pendingNativeInput = null;
         _enabled = enabled;
+        TickMapRewardButtons(enabled);
+        PostQuestRewardSync.Tick(enabled);
         UIWindow? window = enabled ? Window : null;
         if (window == null)
         {
@@ -114,6 +118,8 @@ internal static partial class RewardShowcase
                 VRLog.Info("WorldUI", "REWARD SHOWCASE INPUT: original Campaign Continue callback bound exactly once.");
             }
         }
+        else if (PostQuestRewardSync.Owns(window))
+            GuildButton.Dispose(); // Adventure rewards retain their original close button.
         else if (Guildmaster != null)
             GuildButton.Tick(Guildmaster, CanConfirm);
         bool permission = CanConfirm;
@@ -131,6 +137,7 @@ internal static partial class RewardShowcase
     {
         if (!CanConfirm || _lastConfirmFrame == Time.frameCount) return false;
         _lastConfirmFrame = Time.frameCount;
+        if (PostQuestRewardSync.Owns(Window)) return PostQuestRewardSync.TryConfirm();
         UICampaignRewardWindow? rewards = CampaignWindow;
         if (rewards != null && ReferenceEquals(Window, rewards.window))
             rewards.OnContinueButtonClick();

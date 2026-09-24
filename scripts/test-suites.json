@@ -62,6 +62,78 @@
       "weight": 56
     },
     {
+      "id": "story-completion",
+      "command": [
+        "bash",
+        "scripts/story-completion-tests.sh"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 90
+    },
+    {
+      "id": "map-story-lifecycle",
+      "command": [
+        "bash",
+        "scripts/map-story-lifecycle-tests.sh"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 60
+    },
+    {
+      "id": "message-continuation",
+      "command": [
+        "bash",
+        "scripts/message-continuation-tests.sh"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 70
+    },
+    {
+      "id": "announcement",
+      "command": [
+        "bash",
+        "scripts/announcement-tests.sh"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 60
+    },
+    {
+      "id": "dialog-surface",
+      "command": [
+        "bash",
+        "scripts/dialog-surface-tests.sh"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 45
+    },
+    {
+      "id": "scenario-win-cheat",
+      "command": [
+        "bash",
+        "scripts/scenario-win-cheat-tests.sh"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 30
+    },
+    {
       "id": "vr-options",
       "command": [
         "bash",

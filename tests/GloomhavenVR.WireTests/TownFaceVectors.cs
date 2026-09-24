@@ -58,7 +58,7 @@ internal static class TownFaceVectors
         {var bad=(byte[])Golden.Clone();int at=15+which*27+field*2;bad[at]=0xFF;bad[at+1]=0x7F;t.True(!TownFaceCodec.TryRead(bad,2,94,out read),"malformed boundedangle"+which+"/"+field);}
         state.Active=false;offset=0;t.True(TownFaceCodec.Write(bytes,ref offset,in state)&&offset==3&&bytes[0]==80&&bytes[1]==1&&bytes[2]==0,"inactive face is exact3bytes");
         state=Example();offset=6986;t.True(TownFaceCodec.Write(bytes,ref offset,in state)&&offset==7082,"worst snapshot adds96bytes");
-        t.True(offset<=ExtrasFragments.MaxSnapshotBytes&&PresenceSerializer.MaxSize-offset>=257&&ExtrasFragments.MaxSnapshotBytes==7168,"full worst snapshot remains inside unchanged reassembly ceiling");
+        t.True(offset<=ExtrasFragments.MaxSnapshotBytes&&PresenceSerializer.MaxSize-offset>=257&&ExtrasFragments.MaxSnapshotBytes==7680,"town face remains inside the combined reassembly ceiling");
         t.True(NetProtocol.Version==3&&NetProtocol.ExtIdTownResidents==79&&TownResidentsCodec.MaxPayload==115&&NetProtocol.ExtIdTownFace==80,"old resident contract unchanged, face additive80");
     }
 }

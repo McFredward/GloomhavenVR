@@ -43,6 +43,7 @@ PY
     if dotnet run --project "$mutation_dir/GloomhavenVR.ModalCloseTests.csproj" --configuration Release \
         --property:CloseSource="$mutation_dir/Close.mutant" \
         --property:DecisionSource="$repo_root/src/GloomhavenVR/WorldUI/Modal/MandatoryDecision.cs" \
+        --property:StorySource="$repo_root/src/GloomhavenVR/WorldUI/Modal/NativeStoryWindow.cs" \
         --property:TermsSource="$repo_root/src/GloomhavenVR/WorldUI/Modal/MandatoryDecisionTerm.cs" > "$mutation_dir/mutant.log" 2>&1; then
         cat "$mutation_dir/mutant.log"
         echo "FAIL: $mutation escaped modal close regression test." >&2

@@ -31,10 +31,10 @@ both packaging paths. Validate the update path when changing the package.
 
 | Event | Workflow | Result |
 |---|---|---|
-| Push to `dev` | `.github/workflows/ci.yml` | Build and gates; no artifact, release, tag or version bump |
-| Pull request to `dev` or `main` | `ci.yml` | Reuse full dev CI for an identical merged tree, otherwise full checks; always compare surfaces against the PR base |
+| Push to `dev` | `.github/workflows/ci.yml` | Full build and gates for source/policy changes; allowed Markdown-only descendants reuse a trusted full dev run; no artifact, release, tag or version bump |
+| Pull request to `dev` or `main` | `ci.yml` | Reuse full dev CI for an identical merged tree or allowed Markdown-only descendant, otherwise full checks; always compare surfaces against the PR base |
 | Manual CI on `dev`, `upload_dev_build=true` | `ci.yml` | Full build and gates, then an optional temporary DLL download |
-| Push to `main` | `.github/workflows/release.yml` | Require exact-tree full CI evidence, then build, package, tag and publish; advance the next version on `dev` |
+| Push to `main` | `.github/workflows/release.yml` | Require full CI evidence for the source tree and verify any trailing Markdown-only changes, then build, package, tag and publish; advance the next version on `dev` |
 | Manual Release on `main` with `resume_tag` | `release.yml` | Rebuild an unpublished tagged main commit using its existing full CI proof, retry upload and finish publication without moving the tag |
 
 **Every release comes from `main`.** Integrate work into `dev`, then merge a reviewed
@@ -160,13 +160,14 @@ checks and a successful build do not prove that the public endpoint is reachable
 ## 3. Verification coverage
 
 Full CI runs the source checks, strict build, reference-assembly validation, bundle-format
-check, bilingual-docs check and standalone native presentation harnesses. Every dev push
-and manual CI run executes them. Internal PRs may reuse that evidence only for an identical
-merged Git tree; fork PRs always execute full checks with read-only permissions and no secrets.
+check, bilingual-docs check and standalone native presentation harnesses. Source and CI-policy
+changes on dev, manual runs and fork PRs execute the full suite. Trusted dev documentation-only
+pushes and internal PRs may reuse the source checks under the narrow rule below. Every CI event
+runs the fast bilingual-docs check; fork PRs have read-only permissions and no secrets.
 The PR surface diff still runs when evidence is reused. Locally, `refactor-guard.sh` compares
 against the stored baseline even without a PR.
-Dev planning checks out only the current commit; PR planning loads history for merge ancestry
-and proof lookup. Normal dev pushes do not download historical asset versions just to name a tree.
+Planning fetches Git history to verify first-parent ancestry. It never downloads historical
+asset versions or CI artifacts to make this decision.
 
 Release verifies existing full CI evidence before rebuilding the exact main commit with
 release flags. It does not duplicate source checks or regression harnesses. The fresh build,
@@ -211,7 +212,7 @@ native item iterators, including paused game time, cancellation and overlapping 
 `scripts/item-appearance-tests.sh` executes original item capture, codec, native writes and
 clip release against controlled Unity APIs, and verifies the actual transport registration.
 Each runs in full CI and the local wire driver, with runtime negative controls. Release
-requires that exact-tree CI evidence instead of executing them again.
+requires verified full CI for the source tree instead of executing them again.
 These controlled tests cannot establish headset rendering quality.
 
 `scripts/flight-timing-tests.sh` checks transfer of card presentation between a board seat
@@ -293,14 +294,20 @@ DLL downloads originate from the build job and can appear while tests are still 
 check the final gate before using one. Release publication remains on main and requires full
 exact-tree evidence; it does not repeat these tests.
 
-### Exact-tree CI evidence
+### Exact-tree CI evidence and documentation-only descendants
 
 `scripts/ci-proof-reuse.py` uses GitHub's [workflow-run metadata](https://docs.github.com/en/rest/actions/workflow-runs)
 and [attempt-specific job metadata](https://docs.github.com/en/rest/actions/workflow-jobs).
 It downloads no artifacts, binaries or executable logs. Proof is restricted to this repository's
 active `ci.yml`, triggered by a dev push or manual dev run, with a source commit still reachable
-from current dev. Its entire tree must match the candidate, including documentation, build
-scripts and workflow files. The workflow and verifier must also match current dev's policy.
+from current dev. The candidate must match that tested tree, or be its first-parent descendant
+with only approved Markdown paths changed in every intervening commit. Approved paths are
+`README.md`, `README.de.md`, ordinary Markdown under `docs/`, `.planning/STATE.md`, and
+version-numbered `packaging/release-highlights/<version>.md`. The generated
+`docs/PATCH-INVENTORY.md` and checked `docs/NET-ACTION-SURFACE.md` are excluded because
+source gates consume them. Other planning files, scripts, workflows, configuration, binaries,
+and symlinks require full CI. The workflow and verifier must also
+match current dev's policy. A change to this reuse policy itself therefore runs full CI first.
 
 For PRs, the checked-out synthetic merge must have the event's exact base and head as its two
 parents. The workflow-run `head_sha` alone never establishes which PR merge was tested.
@@ -313,11 +320,11 @@ Historical serial runs are judged by the workflow at their own tested commit, pr
 recovery of old release uploads without treating an incomplete parallel run as serial proof.
 A reused PR success cannot be reused recursively as if it had executed tests.
 
-The newest matching dev run and its latest attempt must succeed. A later failed, cancelled,
+The newest matching **source-tree** dev run and its latest attempt must succeed. A later failed, cancelled,
 queued or running attempt supersedes an older green result. Evidence expires after 30 days;
 lookup is bounded to the latest 500 dev workflow runs. Missing/inaccessible/stale metadata means
-full PR validation. Release fails before building or publishing: run full CI on dev for that
-exact tree, then rerun Release. If the workflow/verifier policy changed, integrate current dev
+full validation. Release fails before building or publishing: run full CI on dev for the
+candidate source tree, then rerun Release. If the workflow/verifier policy changed, integrate current dev
 through the normal reviewed main merge first. Existing runs from before this completion marker
 was introduced do not qualify; the first new dev push creates the initial proof.
 
@@ -333,7 +340,8 @@ python3 -m unittest discover -s tests -p 'test_ci_proof_reuse.py'
 
 ## Temporary development downloads
 
-Normal dev pushes run every check; an internal PR may reuse identical-tree evidence.
+Normal source-changing dev pushes run every check; an approved documentation-only push or
+internal PR may reuse trusted source-tree evidence.
 Both retain workflow logs without uploading binaries. Local installation through `scripts/install.ps1` is unchanged.
 For a hardware-test download, request the existing CI workflow explicitly on `dev`:
 
@@ -421,7 +429,7 @@ including its race cases. It does not simulate the hosted build, GitHub API or u
 | Existing version tag | Check whether the release already completed and whether the next-version bump landed. Do not overwrite or delete a published tag. The sole documented exception is the build-503 refresh of the existing `v1.0.0` ZIP: it retains the original tag and replaces only the release asset/body from the final `main` commit. |
 | Candidate fails release provenance | Use a normal merge of reviewed `dev` into `main`; its tree must match the dev source parent. Integrate content/conflict resolutions into `dev` first. |
 | Tag exists but release creation failed | Inspect the failed run; recover the release using the already-tested tag and matching archive. Do not retag a different commit. |
-| Release reports missing CI proof | Run full CI on dev for the exact candidate tree, wait for success, then rerun Release. Reused PR checks and old workflow runs without the completion marker do not qualify. |
+| Release reports missing CI proof | Run full CI on dev for the candidate source tree, wait for success, then rerun Release. Reused PR checks and old workflow runs without the completion marker do not qualify. |
 | Optional dev download missing | Read the CI summary and cleanup/upload step. Check artifact quota; deletion may take 6–12 hours to become visible. Checks remain strict. |
 | Release published, dev bookkeeping failed | Merge the release commit into current `dev`, preserve concurrent work, and advance the version if still needed. `scripts/release-provenance.sh prepare REPO RELEASE_SHA DEV_SHA MAIN_SHA RELEASE_VERSION` prepares this locally; review and push `dev` normally. Do not rerun publication. |
 | Hundreds of missing game members at compile time | Check game/reference-assembly versions; regenerate stubs as in §2.4. |

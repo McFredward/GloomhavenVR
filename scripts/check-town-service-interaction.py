@@ -83,7 +83,7 @@ def mutations():
         ("purse-return-before-payment", "Token.cs", "_physical.SetParent(_mat, true);", "_physical.SetParent(_homeParent, true);", "accepted purse waits at actual bowl instead of returning to moving hand before native payment"),
         ("purse-restart-completion", "Token.cs", "if (_settlementDecided) return;", "", "confirmed purse sinks and fades once at bowl without restarting on duplicate completion"),
         ("purse-own-hand", "Token.cs", "(_handAllowed?.Invoke(hand) ?? true)", "true", "unowned or unavailable purse cannot be grabbed or donated"),
-        ("flat-purse", "Token.cs", "if (_uprightProp)", "if (false)", "purse pickup preserves upright physical orientation"),
+        ("flat-purse", "Token.cs", "if (_uprightProp)", "if (!_uprightProp)", "purse pickup preserves upright physical orientation"),
         ("purse-depth", "Token.cs", "_reachDepth * scale", ".009f * scale", "purse collider encloses its physical depth at each map scale"),
         ("purse-double-scale", "Token.cs", "InverseTransformVector(Vector3.down * (.055f * hand.WorldScale))", "InverseTransformDirection(Vector3.down * (.055f * hand.WorldScale))", "purse hangs below pinch without applying map scale twice"),
         ("dead-inscription-root", "Inscription.cs", "if (_root != null) UnityEngine.Object.Destroy(_root.gameObject);", "UnityEngine.Object.Destroy(_root.gameObject);", "destroyed inscription root can be disposed without blocking native teardown"),
