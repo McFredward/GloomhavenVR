@@ -118,8 +118,9 @@ public static class InteractionProgram
     private static void Choreography()
     {
         Vector3[] previous=new Vector3[3];
-        bool large=false,small=false;
-        for(int frame=0;frame<3889;frame++)
+        bool large=false,small=false; float quietSeconds=0f; int experiments=0; bool casting=false;
+        float[] strengths=new float[3]; float lastExperiment=-100f; Vector3 previousSpell=Vector3.zero;
+        for(int frame=0;frame<12960;frame++)
         {
             var state=new TownActivityPose{WorkClock=frame/90f,TransitionAge=.65f};
             var merchant=TownServiceActivityMotion.Visual(1,in state);
@@ -134,11 +135,20 @@ public static class InteractionProgram
                 previous[coin]=displayed;
             }
             var spell=TownServiceActivityMotion.Visual(3,in state);
-            if(spell.Cast>.95f)large=true;
-            if(state.WorkClock>7.25f&&state.WorkClock<8.5f&&spell.Cast>.25f&&spell.Cast<.6f)small=true;
+            if(spell.Cast>.75f)large=true;
+            if(spell.Cast>.45f&&spell.Cast<.7f)small=true;
+            if(spell.Cast<.001f)quietSeconds+=1f/90f;
+            if(spell.Cast>.25f&&!casting)
+            { Check(state.WorkClock-lastExperiment>35f,"spell phrases have long varied quiet intervals");lastExperiment=state.WorkClock;experiments++; }
+            int block=frame/(48*90); strengths[block]=Mathf.Max(strengths[block],spell.Cast);
+            if(frame>0)Check(Vector3.Distance(previousSpell,spell.Right)<.006f,"spell reach and recovery remain smooth at block boundaries");
+            previousSpell=spell.Right;
+            casting=spell.Cast>.25f;
             if(spell.Cast>.25f)Check(spell.RightRoll>110f,"visible spell uses an upward-facing palm");
         }
-        Check(large&&small,"distinct large two-arm and small palm spell phrases exist");
+        Check(large&&small,"varied restrained spell strengths exist");
+        Check(experiments==3&&quietSeconds>110f,"shared schedule leaves long quiet reading intervals between experiments");
+        Check(Mathf.Abs(strengths[0]-strengths[1])>.05f&&Mathf.Abs(strengths[1]-strengths[2])>.10f,"spell experiment strength varies between shared clock blocks");
         var pause=new TownActivityPose{WorkClock=1.8f,TransitionAge=.65f};
         TownServiceActivityMotion.Engage(ref pause,true);pause=TownServiceActivityMotion.Advance(pause,1f);
         var held=TownServiceActivityMotion.Visual(1,in pause);
@@ -201,7 +211,7 @@ public static class InteractionProgram
                     var previousSupports=new Quaternion[twistSupports.Length];float maxSupportStep=0f;
                     var sampledFeet=new Vector3[2];
                     var previousKnees=new Vector3[2]; float maximumKneeStep=0;
-                    for(int n=0;n<2500;n++)
+                    for(int n=0;n<5600;n++)
                     {
                         if(n==833)grounding.Apply(.035f,-.02f);if(n==1666)grounding.Apply(-.035f,-.02f);
                         rig.BeforeBodySample();animation.Stop();var body=animation["Idle"];body.enabled=true;body.weight=1;body.time=n/90f;animation.Sample();body.enabled=false;
@@ -224,6 +234,7 @@ public static class InteractionProgram
                             {
                                 Transform shoulderJoint=joints.Single(t=>t.name=="UpperArm."+side);
                                 Check(Vector3.Dot(palmAxis.position-shoulderJoint.position,root.up)/root.lossyScale.x<-.005f,"spell shaping palm stays below its shoulder");
+                                Check(Vector3.Dot(elbow.position-shoulderJoint.position,root.up)/root.lossyScale.x<-.07f,"spell elbow remains relaxed below the shoulder");
                             }
                             Check(Vector3.Angle(wrist.position-elbow.position,palmAxis.up)<55.1f,"actual wrist flexion remains anatomical: "+npc+" "+side+" frame="+n+" angle="+Vector3.Angle(wrist.position-elbow.position,palmAxis.up)+" wrist="+root.InverseTransformPoint(wrist.position)+" elbow="+root.InverseTransformPoint(elbow.position));
                             Check(joints.Count(t=>t.name.StartsWith("ForearmTwist")&&t.name.EndsWith("."+side))==3,"imported pronation has three longitudinal skin supports");
@@ -245,7 +256,7 @@ public static class InteractionProgram
                             var contacts=root.GetComponentsInChildren<Transform>(true);
                             Transform lp=contacts.Single(t=>t.name=="PalmContact.L"),rp=contacts.Single(t=>t.name=="PalmContact.R");
                             Check(Vector3.Distance(lp.position,rp.position)/root.lossyScale.x<.03f,"prayer joins cupped hands at the sternum");
-                            Check(Mathf.Abs(root.InverseTransformPoint(lp.position).y-1.34f)<.01f,"prayer hands stay below the face");
+                            Check(Mathf.Abs(root.InverseTransformPoint(lp.position).y-actualVisual.Left.y)<.01f && actualVisual.Left.y>=1.23f && actualVisual.Left.y<=1.34f,"prayer hands stay below the face");
                         }
                         for(int foot=0;foot<2;foot++)maxFootDrift=Mathf.Max(maxFootDrift,Vector3.Distance(feet[foot].position,sampledFeet[foot]));
                         // These two fixture frames teleport the actor to another ground
@@ -297,7 +308,7 @@ public static class InteractionProgram
                                 Check(Vector3.Distance(palm.position,wanted)<.012f,"actual enchantress offered palm reaches handoff n="+n+" distance="+Vector3.Distance(palm.position,wanted)+" shoulder="+upper.position+" target="+wanted+" reach="+reach);
                                 Check(rig.OfferingPalm!=null&&Vector3.Dot(rig.OfferingPalm.up,root.up)>.99f,"actual offering normal points above palm");
                             }
-                            else Check(Mathf.Abs(lowest-target.y)<.005f,"actual relaxed hand support rests on counter: "+npc+" n="+n+" lowest="+lowest+" target="+target.y);
+                            else Check(Vector3.Distance(palm.position,wanted)<.012f&&lowest>1.13f,"attentive priest keeps joined hands off the counter");
                             Check(supports.All(t=>root.InverseTransformPoint(t.position).y>=.954f),"actual palmar skin stays above wood");
                         }
                         rig.BeforeBodySample();Check(Quaternion.Angle(upper.localRotation,before)<.05f,"original arm base restores without accumulation");

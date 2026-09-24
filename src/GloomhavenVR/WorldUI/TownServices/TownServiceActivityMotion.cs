@@ -59,13 +59,14 @@ internal static class TownServiceActivityMotion
         work.Attention = attention;
         // Interruption stops the shared work clock smoothly. A pinched coin stays in
         // the hand while greeting; it never slides through space back onto the table.
-        if (service != 1) work.Left = Vector3.Lerp(work.Left, new Vector3(.21f, .959f, .337f), attention);
+        if (service != 1) work.Left = Vector3.Lerp(work.Left, service == 2
+            ? new Vector3(.012f, 1.23f, .20f) : new Vector3(.22f, 1.13f, .23f), attention);
         work.Right = Vector3.Lerp(work.Right, service == 1 ? new Vector3(-.20f, 1.18f, .20f)
-            : service == 3 ? new Vector3(-.18f, 1.14f, .23f) : new Vector3(-.20f, .959f, .33f), attention);
+            : service == 3 ? new Vector3(-.18f, 1.17f, .23f) : new Vector3(-.012f, 1.23f, .20f), attention);
         work.RightRoll = Mathf.Lerp(work.RightRoll, service != 2 ? 180f : 0f, attention);
-        work.LeftRoll = Mathf.Lerp(work.LeftRoll, 0f, attention);
+        work.LeftRoll = Mathf.Lerp(work.LeftRoll, service == 3 ? 65f : 0f, attention);
         work.RightCurl = Mathf.Lerp(work.RightCurl, service == 3 ? .08f : 0f, attention);
-        work.LeftCurl = service == 1 ? work.LeftCurl : Mathf.Lerp(work.LeftCurl, 0f, attention);
+        work.LeftCurl = service == 1 ? work.LeftCurl : Mathf.Lerp(work.LeftCurl, service == 3 ? .26f : 0f, attention);
         work.Chest = Vector3.Lerp(work.Chest, Vector3.zero, attention);
         work.Body.Weight *= 1f - attention;
         work.Cast *= 1f - attention;
@@ -100,7 +101,13 @@ internal static class TownServiceActivityMotion
     {
         // Unequal observation/settling intervals keep an occupation from becoming a
         // metronome. This schedule is authored once and shared, never random per peer.
-        float cycle = clock % 28.6f;
+        // A full set of coins returns to its original seats before the resident
+        // pauses to inspect the ledger. The pause changes each shared clock block;
+        // neither observer frame rate nor a local random generator selects it.
+        float block = Mathf.Floor(clock / 48f), phase = clock - block * 48f;
+        float delay = block == 0f ? 0f : Variation((uint)block, 17u) * 10f;
+        float cycle = Mathf.Clamp(phase - delay, 0f, 28.6f);
+        if (cycle >= 28.6f) cycle = 0f;
         int transfer=0;
         while(transfer<5 && cycle>=TransferEnd[transfer]) transfer++;
         float start=transfer==0?0f:TransferEnd[transfer-1];
@@ -126,8 +133,9 @@ internal static class TownServiceActivityMotion
         contact = Ease(t, 2.22f, 2.75f) * (1f-Ease(t, 3.10f, 3.32f));
         hand = Vector3.Lerp(hand, destination, contact);
         float grip = Ease(t, .68f, .96f) * (1f - Ease(t, 2.84f, 3.08f));
-        visual.Left = hand; visual.Right = new Vector3(-.32f, .959f, .35f);
-        visual.LeftCurl = grip * .55f; visual.RightCurl = .025f;
+        visual.Left = hand; visual.Right = new Vector3(-.32f, 1.13f, .29f);
+        visual.RightRoll = 65f;
+        visual.LeftCurl = grip * .55f; visual.RightCurl = .26f;
         for (int coin = 0; coin < 3; coin++)
         {
             bool counted = returning ? coin <= index : coin < index;
@@ -146,71 +154,70 @@ internal static class TownServiceActivityMotion
 
     private static TownActivityVisual Prayer(float clock)
     {
-        var visual=TownServiceMotionClips.Sample(3, (clock % 8f)/8f);
+        var visual=TownServiceMotionClips.Sample(3, (clock % 13f)/13f);
+        uint block = (uint)Mathf.Floor(clock / 64f);
+        float phase = clock - block * 64f, pause = 20f + Variation(block, 29u) * 20f;
+        float rest = Soft(phase, pause, pause + 2.2f)
+            * (1f - Soft(phase, pause + 7f, pause + 10f));
+        float height = Mathf.Lerp(1.34f, 1.23f, rest);
+        visual.Body.Weight = .55f;
         // Palm targets are actual skin surfaces, not wrist centres. The old +/-35 mm
         // targets left a visible 70 mm gap. Join the cupped hands at the sternum while
         // retaining a small skin allowance and the recorded breathing motion.
-        visual.Left = new Vector3(.012f,1.34f,.20f);
-        visual.Right = new Vector3(-.012f,1.34f,.20f);
+        visual.Left = new Vector3(.012f,height,.20f);
+        visual.Right = new Vector3(-.012f,height,.20f);
         visual.LeftCurl=0f; visual.RightCurl=0f;
         return visual;
     }
 
-    private readonly struct SpellKey
+    // Stateless variation is a pure function of the replicated occupation clock.
+    // Every phrase starts and ends in the same reading pose, with zero velocity;
+    // a late observer or ownership handover therefore sees the same performance.
+    private static float Variation(uint block, uint salt)
     {
-        internal readonly float Time, LeftRoll, RightRoll, Strength;
-        internal SpellKey(float time, float leftRoll, float rightRoll, float strength)
-        { Time=time; LeftRoll=leftRoll; RightRoll=rightRoll; Strength=strength; }
+        uint value = unchecked(block * 747796405u + salt * 2891336453u + 277803737u);
+        value = unchecked((value ^ (value >> 16)) * 2246822519u);
+        return (value & 65535u) / 65535f;
     }
-    // Palm orientation and effects follow the source performance. Its final
-    // recovery is retimed continuously below; hands and body keep one clock.
-    private static readonly SpellKey[] Spell = {
-        new(0f,0f,0f,0f), new(.6f,0f,0f,0f), new(1.2f,15f,45f,0f), new(1.65f,25f,100f,0f),
-        new(2.2f,45f,180f,.30f), new(2.7f,65f,180f,1f),
-        new(3.45f,50f,180f,.92f), new(4.05f,45f,180f,.45f),
-        new(4.9f,35f,50f,0f), new(5.3f,0f,0f,0f), new(6.1f,0f,0f,0f),
-        new(7.1f,30f,180f,.12f), new(7.7f,55f,180f,.48f),
-        new(8.5f,45f,165f,.34f), new(9.8f,0f,0f,0f), new(10.2f,0f,0f,0f)
-    };
-    private static float Retimed(float time, float sourceLength, float shownLength)
+    private static float Soft(float time, float from, float to)
     {
-        // Preserve source velocity at both endpoints while giving the middle of a
-        // fast generated gesture enough time for the actual retargeted limb.
-        float phase = time / shownLength, slope = shownLength / sourceLength;
-        return sourceLength * (slope * phase + (3f - 3f * slope) * phase * phase
-            + (2f * slope - 2f) * phase * phase * phase);
+        float t = Mathf.Clamp01((time - from) / (to - from));
+        return t * t * t * (t * (t * 6f - 15f) + 10f);
     }
     private static TownActivityVisual Enchantress(float clock)
     {
-        float cycle = clock % 12.7f;
-        if (cycle > 9f) cycle = 8.5f + Retimed(cycle - 9f, 1.7f, 3.7f);
-        else if (cycle > 4.55f) cycle -= .5f;
-        else if (cycle > 2.7f) cycle = 2.7f + Retimed(cycle - 2.7f, 1.35f, 1.85f);
-        int next = 1;
-        while (next < Spell.Length - 1 && Spell[next].Time < cycle) next++;
-        SpellKey a = Spell[next - 1], b = Spell[next];
-        float t = Ease(cycle, a.Time, b.Time);
-        var generated=TownServiceMotionClips.Sample(2, cycle / 10.2f);
-        // The generated performance was a broad stage gesture: its left palm reached
-        // above the shoulder while both forearms rolled nearly a half-turn. Retarget
-        // the same performance into the working volume above the book: one palm
-        // supports the spell, the other shapes it. Body and hands retain one clock.
-        generated.Left = new Vector3(.24f + (generated.Left.x - .24f) * .48f,
-            1.04f + (generated.Left.y - 1.04f) * .48f, generated.Left.z - .025f);
-        generated.Right = new Vector3(-.22f + (generated.Right.x + .22f) * .72f,
-            1.04f + (generated.Right.y - 1.04f) * .65f, generated.Right.z - .025f);
-        generated.LeftElbow = new Vector3(generated.LeftElbow.x,
-            1.12f + (generated.LeftElbow.y - 1.12f) * .48f, generated.LeftElbow.z);
-        generated.RightElbow = new Vector3(generated.RightElbow.x,
-            1.12f + (generated.RightElbow.y - 1.12f) * .65f, generated.RightElbow.z);
-        float leftRest = 1f - Mathf.SmoothStep(0f, 1f, (generated.Left.y - 1.04f) / .14f);
-        float rightRest = 1f - Mathf.SmoothStep(0f, 1f, (generated.Right.y - 1.04f) / .14f);
-        generated.Left = Vector3.Lerp(generated.Left, new Vector3(Mathf.Max(.19f, generated.Left.x), Mathf.Max(1.02f, generated.Left.y), Mathf.Min(.32f, generated.Left.z)), leftRest);
-        generated.Right = Vector3.Lerp(generated.Right, new Vector3(Mathf.Min(-.19f, generated.Right.x), Mathf.Max(1.02f, generated.Right.y), Mathf.Min(.32f, generated.Right.z)), rightRest);
-        return new TownActivityVisual { Left = generated.Left, Right = generated.Right,
-            LeftElbow=generated.LeftElbow, RightElbow=generated.RightElbow, Body=generated.Body,
-            LeftRoll = Mathf.Lerp(a.LeftRoll,b.LeftRoll,t), RightRoll = Mathf.Lerp(a.RightRoll,b.RightRoll,t),
-            Chest = Vector3.zero, Cast = Mathf.Lerp(a.Strength,b.Strength,t),
-            LeftCurl = .13f, RightCurl = .08f, EffectClock = clock };
+        // Hardware550 showed high elbows with hanging wrists, followed by the same
+        // second flourish a few seconds later. Do not retime that unsuitable stage
+        // performance again. One quiet, palm-supported experiment is surrounded by
+        // long reading intervals, with distinct reach/observation/recovery timing.
+        uint block = (uint)Mathf.Floor(clock / 48f);
+        float phase = clock - block * 48f;
+        float start = 12f + 10f * Variation(block, 3u);
+        float length = 8f + 3f * Variation(block, 7u);
+        float t = (phase - start) / length;
+        float lift = Soft(t, 0f, .25f) * (1f - Soft(t, .68f, 1f));
+        float shape = Soft(t, .18f, .4f) * (1f - Soft(t, .55f, .8f));
+        float turn = Soft(t, 0f, .17f) * (1f - Soft(t, .78f, 1f));
+        float strength = .55f + .45f * Variation(block, 11u);
+        float cast = Soft(t, .28f, .42f) * (1f - Soft(t, .56f, .69f)) * strength;
+        var quiet = TownServiceMotionClips.Sample(3, (clock % 13f) / 13f);
+        var gesture = TownServiceMotionClips.Sample(2, Mathf.Clamp01(t));
+        // The complete torso performance shares the hand envelope. Its restrained
+        // contribution starts with the reach and subsides with the recovery; no
+        // isolated arm cycle or high-frequency knee wobble is added afterwards.
+        quiet.Body.Weight = .22f;
+        gesture.Body.Weight = .42f;
+        var body = TownMotionBody.Lerp(in quiet.Body, in gesture.Body, lift);
+        return new TownActivityVisual {
+            Left = Vector3.Lerp(new Vector3(.22f, 1.11f, .23f),
+                new Vector3(.18f, 1.27f, .17f), shape),
+            Right = Vector3.Lerp(new Vector3(-.22f, 1.11f, .23f),
+                new Vector3(-.20f, 1.26f, .17f), lift),
+            LeftElbow = new Vector3(.40f, .84f, .26f),
+            RightElbow = new Vector3(-.40f, .84f, .26f), Body = body,
+            LeftRoll = 65f - 30f * shape, RightRoll = 65f + 115f * turn,
+            Cast = cast, LeftCurl = Mathf.Lerp(.26f, .10f, shape),
+            RightCurl = Mathf.Lerp(.26f, .08f, lift), EffectClock = clock
+        };
     }
 }

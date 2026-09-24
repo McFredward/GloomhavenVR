@@ -268,7 +268,7 @@ internal sealed class TownServiceActivityRig
         if (upper < .001f || lower < .001f) return;
         Quaternion table = Quaternion.LookRotation(-_root.forward, -_root.up);
         Quaternion orientation = _service == 2
-            ? Quaternion.Slerp(Quaternion.LookRotation(_root.up, -side * _root.right), table, attention) : table;
+            ? Quaternion.LookRotation(_root.up, -side * _root.right) : table;
         orientation = Quaternion.AngleAxis(roll, _root.forward) * orientation;
         Quaternion handRotation = orientation * Quaternion.Inverse(Quaternion.LookRotation(arm.PalmForward, arm.PalmNormal));
         // Evaluate relaxed finger surfaces before IK. Their offsets from the wrist do
@@ -280,7 +280,7 @@ internal sealed class TownServiceActivityRig
             float amount = pinchTarget && !finger.name.StartsWith("Index") && !finger.name.StartsWith("Thumb") ? curl * .3f : curl;
             finger.localRotation = arm.FingerRest[n] * Quaternion.AngleAxis(amount * arm.CurlFactors[n], arm.CurlAxes[n]);
         }
-        if (_service == 2 && attention < 1f)
+        if (_service == 2)
         {
             // A prayer joins relaxed fingers; the neutral imported open-hand splay
             // otherwise makes the two hands look interlaced or spread apart.
@@ -288,7 +288,7 @@ internal sealed class TownServiceActivityRig
             {
                 Transform finger = arm.ClosingBases[n];
                 Quaternion together = Quaternion.FromToRotation(arm.ClosingTips[n].position - finger.position, handRotation * arm.PalmForward);
-                finger.rotation = Quaternion.Slerp(Quaternion.identity, together, 1f - attention) * finger.rotation;
+                finger.rotation = together * finger.rotation;
             }
         }
         if (_service == 2 && arm.ThumbBase != null && arm.ThumbPinch != null)
@@ -300,8 +300,7 @@ internal sealed class TownServiceActivityRig
             Vector3 upright = handRotation * arm.PalmForward;
             Vector3 axis = Vector3.Cross(thumb, upright);
             if (axis.sqrMagnitude > 1e-10f)
-                arm.ThumbBase.rotation = Quaternion.AngleAxis(Mathf.Min(40f, Vector3.Angle(thumb, upright))
-                    * (1f - attention), axis.normalized) * arm.ThumbBase.rotation;
+                arm.ThumbBase.rotation = Quaternion.AngleAxis(Mathf.Min(40f, Vector3.Angle(thumb, upright)), axis.normalized) * arm.ThumbBase.rotation;
         }
         if (arm.Anatomical && pinchTarget && arm.ThumbBase != null && arm.ThumbPinch != null && arm.IndexPinch != null)
         {
@@ -364,10 +363,10 @@ internal sealed class TownServiceActivityRig
             // silhouette. Hard-clamping every source x/z to the same minimum used
             // to erase that coordination and made the hands pivot on fixed poles.
             guide.x = side * (clearance + Mathf.Max(0f, side * guide.x - .14f) * .25f);
-            guide.y = Mathf.Max(1.10f, guide.y);
+            guide.y = _service == 3 ? .84f : Mathf.Max(1.10f, guide.y);
             guide.z = .28f + Mathf.Clamp(guide.z - .50f, 0f, .20f) * .4f;
             if (_service == 2)
-                guide = Vector3.Lerp(new Vector3(side * .42f, .70f, .20f), guide, attention);
+                guide = new Vector3(side * .42f, .70f, .20f);
             Vector3 pole = _root.TransformPoint(guide) - shoulder;
             Vector3 bend = Vector3.ProjectOnPlane(pole, direction).normalized;
             if (bend.sqrMagnitude < .5f) bend = _root.right * side;
@@ -391,9 +390,7 @@ internal sealed class TownServiceActivityRig
             Quaternion palmFrame;
             if (_service == 2)
             {
-                Vector3 fingerDirection = Vector3.ProjectOnPlane(foreDirection, wantedNormal).normalized;
-                fingerDirection = Vector3.Lerp(fingerDirection,
-                    Vector3.ProjectOnPlane(_root.up - _root.forward * .8f, wantedNormal).normalized, 1f - attention);
+                Vector3 fingerDirection = Vector3.ProjectOnPlane(_root.up - _root.forward * .8f, wantedNormal).normalized;
                 fingerDirection = Vector3.RotateTowards(foreDirection, fingerDirection, 55f * Mathf.Deg2Rad, 0f).normalized;
                 palmFrame = Quaternion.LookRotation(fingerDirection,
                     Vector3.ProjectOnPlane(wantedNormal, fingerDirection).normalized);

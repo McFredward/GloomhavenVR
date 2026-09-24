@@ -49,7 +49,7 @@ internal static class HandContacts
                     if(horizontal.magnitude>.0001f)throw new Exception("anatomical palm contacts transformed counter surface service="+service+" side="+side+" error="+horizontal.magnitude);checks++;
                     float lowest=root.GetComponentsInChildren<Transform>().Where(t=>t.name=="PalmContact."+side||t.name.EndsWith("Pad."+side)).Min(t=>root.InverseTransformPoint(t.position).y);
                     if(!(service==1&&side=="L")&&!(service!=2&&side=="R"))
-                    {if(Mathf.Abs(lowest-.959f)>.0001f)throw new Exception("attentive palms rest at physical worktop height");checks++;}
+                    {if(lowest<1.02f)throw new Exception("attentive palms remain clear of the worktop");checks++;}
                     if(service!=2&&side=="R")
                     {if(rig.OfferingPalm==null||Vector3.Dot(rig.OfferingPalm.up,root.up)<.99f)throw new Exception("offering palm faces upward");checks++;}
                     foreach(Transform tip in root.GetComponentsInChildren<Transform>().Where(t=>t.name.EndsWith("Tip."+side)))
