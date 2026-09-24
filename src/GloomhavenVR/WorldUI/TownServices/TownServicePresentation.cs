@@ -62,7 +62,8 @@ internal static class TownServicePresentation
 
     // Ownership lasts until rollback, even if the option changed earlier in this frame.
     // ModalFallback runs before our Tick and must not adopt a half-restored controller.
-    internal static bool OwnsWindow(UIWindow window) => TownServiceConfirmationMask.Owns(window)
+    internal static bool OwnsWindow(UIWindow window) => TownServicePalmConfirmation.Owns(window)
+        || TownServiceConfirmationMask.Owns(window)
         || (_catalog != null || _ritual != null || _contextMask != null) && _window != null
         && (window == _window || window.transform.IsChildOf(_window.transform));
 
@@ -327,6 +328,8 @@ internal static class TownServicePresentation
     {
         TownServiceMerchantHandoff.LateTick(); // Final palm pose before either publication lane.
         _ritual?.Handoff?.LateTick();
+        TownServicePalmConfirmation.Tick();
+        TownServicePalmConfirmation.LateTick();
         TownServicePublicMerchant.LateTick();
         foreach (TownServiceSurface surface in Surfaces) surface.LateTick();
         _catalog?.LateTick();
@@ -338,6 +341,7 @@ internal static class TownServicePresentation
     internal static void Reset()
     {
         if (_window == null && Surfaces.Count == 0 && Tokens.Count == 0 && _mat == null) return;
+        TownServicePalmConfirmation.Clear();
         TownServiceSync.Reset();
         if (_window != null) _window.onHidden.RemoveListener(OnNativeHidden);
         foreach (TownServiceToken token in Tokens.Values) token.Dispose();

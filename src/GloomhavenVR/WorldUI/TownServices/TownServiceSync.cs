@@ -127,7 +127,7 @@ internal sealed class TownServiceSync
         if (inspection)
         {
             if (TownServiceMerchantHandoff.Zone != null) PriorityRoots.Add(TownServiceMerchantHandoff.Zone);
-            Publish("merchant.zone", TownServiceMerchantHandoff.Zone);
+            Publish("merchant.offering", TownServiceMerchantHandoff.Zone, prewarm: true);
             foreach (ItemsPile.ItemChip chip in TownServiceMerchantHandoff.OwnedChips)
             {
                 if (chip == null || chip.NativeItemCard == null || chip.Item == null) continue;
@@ -186,7 +186,9 @@ internal sealed class TownServiceSync
                         Publish(piece.DetailKey, piece.DetailContent, piece.DetailSource, piece.DetailCloneOf);
                 }
                 foreach (TownServiceSurface surface in ritual.Surfaces)
-                    Publish("enchant.holder", surface.Panel.Target);
+                    Publish(surface.Id switch { 10 => "enchant.inventory", 13 => "enchant.capacity",
+                        14 => "enchant.information", 15 => "enchant.buy", 16 => "enchant.sell",
+                        _ => "enchant.holder" }, surface.Panel.Target);
                 foreach (TownServiceRitual.Inscription inscription in ritual.Inscriptions)
                     Publish(inscription.Key, inscription.Content, inscription.Source, inscription.CloneOf);
             }
@@ -202,6 +204,13 @@ internal sealed class TownServiceSync
                 Publish("merchant.tooltip", catalog.PreviewContent, catalog.PreviewSource, catalog.PreviewCloneOf);
                 PublishCopiedCards(catalog.PreviewSource, catalog.PreviewCloneOf);
             }
+            foreach (TownServicePalmConfirmation.Entry confirmation in TownServicePalmConfirmation.Active)
+                foreach (TownServiceSurface surface in confirmation.Surfaces)
+                {
+                    PriorityRoots.Add(surface.Panel.Target);
+                    Publish((confirmation.Service == 1 ? "item.confirm.part." : "enhance.confirm.part.")
+                        + (surface.Id - 60), surface.Panel.Target);
+                }
             Publish("item.confirm", NativeTemplates.Original("item.confirm"));
             Publish("enhance.confirm", NativeTemplates.Original("enhance.confirm"));
             if (TownServicePresentation.Tray != null) Publish("tray", TownServicePresentation.Tray.Root);
@@ -417,9 +426,10 @@ internal sealed class TownServiceSync
         bool sameMembers = previous != null && previous.Members.Length == RackMembers.Count;
         if (sameMembers) for (int i=0;i<RackMembers.Count;i++) if (!RackMembers[i].Same(previous!.Members[i])) {sameMembers=false;break;}
         if (sameMembers && previous!.Turn == rack.TurnEpoch && previous.Elapsed == rack.TurnElapsed
+            && previous.ScrollDirection == rack.ScrollDirection && previous.PageCount == rack.PageCount
             && previous.LeadAngle == rack.LeadAngle && previous.Crank == crank.Parts[0].Id
             && previous.Page == rack.Page && previous.From == rack.FromPage && previous.To == rack.ToPage) return;
-        var state = new TownRackState { Cassette = true, Turn = rack.TurnEpoch, Elapsed = rack.TurnElapsed, LeadAngle = rack.LeadAngle,
+        var state = new TownRackState { Cassette = true, ScrollDirection = rack.ScrollDirection, PageCount = (ushort)rack.PageCount, Turn = rack.TurnEpoch, Elapsed = rack.TurnElapsed, LeadAngle = rack.LeadAngle,
             Crank = crank.Parts[0].Id, Page = (ushort)rack.Page, From = (ushort)rack.FromPage, To = (ushort)rack.ToPage,
             Members = sameMembers ? previous!.Members : RackMembers.ToArray() };
         housing.RackClock = state; TownServiceMirror.SetRack(rackId, state);

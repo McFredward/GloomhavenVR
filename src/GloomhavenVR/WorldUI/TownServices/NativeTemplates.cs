@@ -73,6 +73,7 @@ internal static class NativeTemplates
         TMP_Text? physicalFont = merchant.GetComponentInChildren<TMP_Text>(true);
         Add("merchant.return", TownServiceMerchantCounter.Template);
         AddPhysical("merchant.zone", TownServiceMerchantZone.CreateTemplate(physicalFont));
+        AddPhysical("merchant.offering", TownServiceMerchantZone.CreateTemplate(physicalFont));
         AddPhysical("merchant.crank", TownServiceMerchantDrawer.CreateTemplate(physicalFont));
         AddPhysical("merchant.cardmount", new GameObject("PhysicalCardMount"));
         AddPhysical("merchant.rack", TownServiceMerchantDrawer.CreateHousingTemplate());
@@ -112,6 +113,13 @@ internal static class NativeTemplates
         Add("banner", hud.banner);
         Add("item.confirm", Singleton<UIItemConfirmationBox>.Instance);
         Add("enhance.confirm", Singleton<UIEnhancementConfirmationBox>.Instance);
+        UIItemConfirmationBox? itemConfirm = Singleton<UIItemConfirmationBox>.Instance;
+        if (itemConfirm != null) AddConfirmationParts("item.confirm", itemConfirm.titleText,
+            itemConfirm.informationText, itemConfirm.confirmButton, itemConfirm.cancelButton);
+        UIEnhancementConfirmationBox? enhancementConfirm = Singleton<UIEnhancementConfirmationBox>.Instance;
+        if (enhancementConfirm != null) AddConfirmationParts("enhance.confirm", enhancementConfirm.titleText,
+            enhancementConfirm.informationText, enhancementConfirm.confirmButton, enhancementConfirm.cancelButton,
+            enhancementConfirm.enhancementIcon, enhancementConfirm.enhancementName);
         CanvasManager? canvases = Object.FindObjectOfType<CanvasManager>();
         if (canvases != null && canvases.tooltipCanvas != null) Tooltip = canvases.tooltipCanvas.GetComponentInChildren<UITooltip>(true);
         _tray = TownServiceTray.CreateTemplate(hud.shopWindow.GetComponentInChildren<TMP_Text>(true));
@@ -129,6 +137,10 @@ internal static class NativeTemplates
     {
         if (source == null) return;
         Entries.Add(key, new Entry { Original = source.transform }); Roots[source.transform] = key;
+    }
+    private static void AddConfirmationParts(string prefix, params Component[] parts)
+    {
+        for (int i = 0; i < parts.Length; i++) Add(prefix + ".part." + i, parts[i]);
     }
     private static void AddPhysical(string key, GameObject source)
     {

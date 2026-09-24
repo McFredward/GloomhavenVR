@@ -206,6 +206,7 @@ internal sealed class WorldUIModule : IVRModule
     {
         VREvents.UiLockChanged -= OnUiLock;
         VREvents.SessionResumed -= OnSessionResumed;
+        TownServicePalmConfirmation.Clear();
         TownServicePresentation.Reset();
         TownServicePopulation.Reset();
         TownServiceSync.Shutdown();
@@ -354,6 +355,7 @@ internal sealed class WorldUIModule : IVRModule
                 // poll in the same tick, exactly like a scripted message would be.
                 ("Compat.TutorialGrabStep", Compat.TutorialGrabStep.Tick),
                 ("TownServiceSync.Prepare", TownServiceSync.Prepare), // preserve original template roots before handoff
+                ("TownPalmConfirmation", TownServicePalmConfirmation.Tick), // restore/position owned native controls before fallback scans
                 ("ModalFallback", ModalFallback.Tick),      // before the flat screen reads ScreenWanted
                 ("TownServicePresentation", TownServicePresentation.Tick),
                 ("TownServicePopulation", TownServicePopulation.Tick),

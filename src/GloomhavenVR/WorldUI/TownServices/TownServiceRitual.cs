@@ -42,7 +42,12 @@ internal sealed class TownServiceRitual : IDisposable
             _mirror.SetShown(Source != null && Source.gameObject.activeInHierarchy);
             _mirror.TickLive();
         }
-        public void Dispose() { _mirror.Destroy(); UnityEngine.Object.Destroy(_root.gameObject); }
+        public void Dispose()
+        {
+            _mirror?.Destroy();
+            // Unity may already have destroyed the station during scene teardown.
+            if (_root != null) UnityEngine.Object.Destroy(_root.gameObject);
+        }
     }
 
     internal sealed class Piece : IDisposable
@@ -218,7 +223,7 @@ internal sealed class TownServiceRitual : IDisposable
             _details?.Destroy(); _mirror?.Destroy();
             foreach (Material material in _coinMaterials) UnityEngine.Object.Destroy(material); _coinMaterials.Clear();
             if (Body != null && BodyKey == "merchant.cardbody") TownServiceCardBody.Dispose(Body.gameObject);
-            UnityEngine.Object.Destroy(Root.gameObject);
+            if (Root != null) UnityEngine.Object.Destroy(Root.gameObject);
         }
     }
 
@@ -295,14 +300,23 @@ internal sealed class TownServiceRitual : IDisposable
                 Handoff = new TownServiceEnhancementHandoff(shop,
                     TownServicePresentation.StationRoot ?? throw new InvalidOperationException("Resident is unavailable"),
                     alive, _alive);
+                // Keep the original scroll viewport, rows, price breakdown and native
+                // hover/selection controllers together. Build 550's manually stacked rune
+                // cards let child anchors escape their faces and obscured later options.
+                // This open folio is attached to the stand, not a separate movable window.
+                _surfaces.Add(new TownServiceSurface(10, (RectTransform)shop.enhancementShop.transform,
+                    new Vector3(.32f, .33f, -.16f), .60f, Root, anchorRotation: Quaternion.identity,
+                    maxHeight: .55f));
                 _surfaces.Add(new TownServiceSurface(11, (RectTransform)shop.cardHolder.transform,
-                    new Vector3(0f, .008f, 0f), .25f, Root));
-                // The original capacity group includes its label, icon and mutually exclusive
-                // normal/warning count. Preserve it as print on the open native spellbook.
-                _inscriptions.Add(new Inscription("enchant.capacity", shop.CardsDisplay.enhancementPointsText.transform.parent,
-                    Root, new Vector3(0f, .022f, .35f), .28f, .065f));
-                _inscriptions.Add(new Inscription("enchant.information", shop.cardInformationText,
-                    Root, new Vector3(0f, .022f, .27f), .28f, .075f));
+                    new Vector3(-.32f, .018f, -.03f), .29f, Root));
+                _surfaces.Add(new TownServiceSurface(13, (RectTransform)shop.CardsDisplay.enhancementPointsText.transform.parent,
+                    new Vector3(0f, .032f, .35f), .28f, Root, maxHeight: .065f));
+                _surfaces.Add(new TownServiceSurface(14, (RectTransform)shop.cardInformationText.transform,
+                    new Vector3(0f, .033f, .25f), .28f, Root, maxHeight: .085f));
+                _surfaces.Add(new TownServiceSurface(15, (RectTransform)shop.buyButton.transform,
+                    new Vector3(.19f, .036f, -.20f), .18f, Root, maxHeight: .055f));
+                _surfaces.Add(new TownServiceSurface(16, (RectTransform)shop.sellButton.transform,
+                    new Vector3(.43f, .036f, -.20f), .18f, Root, maxHeight: .055f));
             }
             RefreshPieces();
         }
@@ -366,29 +380,8 @@ internal sealed class TownServiceRitual : IDisposable
                         slot.blessIcon, slot.blessName, slot.priceText);
             }
         }
-        else
-        {
-            UINewEnhancementWindow shop = _window.GetComponent<UINewEnhancementWindow>();
-            if (shop.shopService.IsSellAvailable)
-            {
-                AddMode(shop.buyButton, "enchant.buy", TownServiceRitualLayout.Mode(false));
-                AddMode(shop.sellButton, "enchant.sell", TownServiceRitualLayout.Mode(true));
-            }
-            int index = 0, count = 0;
-            foreach (UINewEnhancementShopSlot slot in shop.enhancementShop.slotsPool)
-                if (slot != null && slot.gameObject.activeInHierarchy && slot.enhancement != null) count++;
-            foreach (UINewEnhancementShopSlot slot in shop.enhancementShop.slotsPool)
-            {
-                if (slot == null || !slot.gameObject.activeInHierarchy || slot.enhancement == null) continue;
-                var placement = TownServiceRitualLayout.Rune(index++, count);
-                if (ArrangeExisting(slot, placement)) continue;
-                Add(slot, "enchant.row", slot.button, () => slot.enhancement,
-                        () => RuneEligible(shop, slot),
-                        () => Confirm(slot.button, () => slot.enhancement, shop, () => RuneEligible(shop, slot)),
-                        placement, false,
-                        slot.itemIcon, slot.itemName, slot.itemPrice, slot.enhancementPoints);
-            }
-        }
+        // Enchantment uses the original native inventory above, including its scroll
+        // container. Do not create a second independently laid out or clickable stock.
     }
 
     private void AddMode(Selectable button, string key, TownServiceRitualLayout.Placement placement)
@@ -478,6 +471,6 @@ internal sealed class TownServiceRitual : IDisposable
         foreach (Piece piece in _pieces.Values) piece.Dispose(); _pieces.Clear(); _samples.Clear();
         foreach (Inscription inscription in _inscriptions) inscription.Dispose(); _inscriptions.Clear();
         for (int i = _surfaces.Count - 1; i >= 0; i--) _surfaces[i].Dispose(); _surfaces.Clear();
-        UnityEngine.Object.Destroy(Root.gameObject);
+        if (Root != null) UnityEngine.Object.Destroy(Root.gameObject);
     }
 }
