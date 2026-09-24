@@ -9,6 +9,7 @@ internal static class RewardShowcaseIdentity
     internal static uint ContentKey(UIWindow? window)
     {
         if (window == null || (!window.IsOpen && !window.IsVisible)) return 0;
+        if (PostQuestRewardSync.Owns(window)) return PostQuestRewardSync.CurrentKey;
         Choreographer choreographer = Choreographer.s_Choreographer;
         // ProcessMessage records this exact message before entering WaitingForRewardsProcess.
         // The queue stays blocked until the reward continuation runs. Reading a latest event-log

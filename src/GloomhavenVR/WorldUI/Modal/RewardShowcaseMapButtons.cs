@@ -17,6 +17,13 @@ internal static partial class RewardShowcase
     /// binding, including when no campaign/scenario reward window exists. Native button
     /// availability, reveal animations, callbacks and multiplayer rules remain in charge.
     /// </summary>
+    private static void ConfirmAdventureRewards()
+    {
+        if (_wiredAdventureRewards == null) return;
+        if (PostQuestRewardSync.Owns(_wiredAdventureRewards.window)) PostQuestRewardSync.TryConfirm();
+        else _wiredAdventureRewards.Hide();
+    }
+
     private static void TickMapRewardButtons(bool enabled)
     {
         if (!enabled)
@@ -31,7 +38,8 @@ internal static partial class RewardShowcase
         if (adventure != null && adventure != _wiredAdventureRewards && adventure.closeButton != null)
         {
             adventure.closeButton.onClick.RemoveListener(adventure.Hide);
-            adventure.closeButton.onClick.AddListener(adventure.Hide);
+            adventure.closeButton.onClick.RemoveListener(ConfirmAdventureRewards);
+            adventure.closeButton.onClick.AddListener(ConfirmAdventureRewards);
             _wiredAdventureRewards = adventure;
         }
 

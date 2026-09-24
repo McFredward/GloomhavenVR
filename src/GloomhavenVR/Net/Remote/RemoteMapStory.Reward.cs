@@ -6,6 +6,17 @@ namespace GloomhavenVR.Net;
 
 internal static partial class RemoteMapStory
 {
+    internal static bool RewardContinuationSendDue => PostQuestRewardSync.SendDue;
+    internal static void SampleRewardCompletions(ref PresenceState presence, int localPlayerId)
+    {
+        presence.RewardContinuationEntries = PostQuestRewardSync.SampleCompletions();
+        presence.HasRewardContinuation = presence.RewardContinuationEntries.Length != 0;
+    }
+    internal static void ObserveRewardCompletions(int sender, in PresenceState presence, int localPlayerId)
+    {
+        if (sender > 0 && presence.HasRewardContinuation && presence.RewardContinuationEntries != null)
+            PostQuestRewardSync.ObserveCompletions(sender, presence.RewardContinuationEntries);
+    }
     private static readonly Local RewardLocal = new();
     private static readonly RewardPoseHandshake RewardHandshake = new();
     private static readonly RewardPoseHandoff RewardHandoff = new();
@@ -41,6 +52,7 @@ internal static partial class RemoteMapStory
 
     private static void ResetRewardPose()
     {
+        PostQuestRewardSync.Reset();
         RewardHandshake.Reset();
         RewardLocal.Reset(); RewardHandoff.Reset(); RewardPeers.Clear(); RewardCandidates.Clear(); RewardStamp.Clear();
         RewardStampAt.Clear(); RewardMoved.Clear(); RewardUnavailable.Clear(); RewardReady.Clear(); RewardParticipants.Clear();
