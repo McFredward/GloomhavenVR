@@ -15,8 +15,14 @@ import tempfile
 
 
 def method(source, signature):
-    start = source.index("    " + signature)
-    end = source.index("\n    }", start) + len("\n    }")
+    start = source.index(signature)
+    opening = source.index("{", start)
+    depth = 1
+    end = opening + 1
+    while depth:
+        if source[end] == "{": depth += 1
+        if source[end] == "}": depth -= 1
+        end += 1
     return source[start:end]
 
 
@@ -34,6 +40,17 @@ def sources(root):
     face = (root / "src/GloomhavenVR/WorldUI/TownServices/TownServiceFace.cs").read_text()
     attention = method(face, "internal bool IsLocalVisitorNear(bool wasNear)")
     bound["ActualAttention.cs"] = "using UnityEngine; namespace GloomhavenVR.WorldUI { internal class ActualAttention { public Transform _root; public Eye _rig = new(); public class Eye { public Vector3 EyePosition; public Quaternion OpticalRotation = Quaternion.identity; } " + attention + " } }"
+    pile = (root / "src/GloomhavenVR/Cards/Piles/ItemsPile.cs").read_text()
+    layout = method(pile, "private void Relayout()")
+    # Rename only the symbol so the boundary wrapper can count actual production layout calls.
+    layout = layout.replace("private void Relayout()", "private void ProductionRelayout()", 1)
+    lifecycle = "\n".join(method(pile, signature) for signature in [
+        "internal void SetHome(Vector3 pos, Quaternion rot, float scale)",
+        "internal void BeginEmerge(Vector3 localConverge, float delay, float spinSign)",
+        "internal void BeginCollapse(Vector3 worldConverge, float delay = 0f, float spinSign = 1f)",
+        "private void TickEmerge(float dt, Vector3 posTarget, float scaleTarget)",
+        "private static float EaseOutBack(float t, float s)"])
+    bound["ActualItemLifecycle.cs"] = "using UnityEngine; namespace GloomhavenVR.Cards { internal sealed partial class ItemsPile { " + layout + " internal partial class ItemChip { " + lifecycle + " } } }"
     hashes = {p: hashlib.sha256(s.encode()).hexdigest() for p, s in bound.items()}
     return bound, hashes
 
@@ -42,7 +59,7 @@ def mutations():
     return [
         ("remote-owner", "MapRoomHand.5.Merchant.cs", "(!FFSNetwork.IsOnline || character.IsUnderMyControl)", "true", "remote character cannot open an owned-item fan"),
         ("palm-bypass", "TownServiceMerchantHandoff.cs", "!Eligible(item, selling, cached: false) || !InOfferingZone(world)", "!Eligible(item, selling, cached: false)", "release outside palm cannot open merchant"),
-        ("inventory-cap", "TownServiceMerchantHandoff.cs", "Items.AddRange(selected!.AllCharacterItems);", "Items.AddRange(selected!.AllCharacterItems.GetRange(0, 1));", "all equipped and bound copies become actual inspection cards"),
+        ("inventory-cap", "TownServiceMerchantHandoff.cs", "Items.AddRange(current);", "Items.AddRange(current.GetRange(0, 1));", "all equipped and bound copies become actual inspection cards"),
         ("stale-native", "TownServiceMerchantHandoff.cs", "!ReferenceEquals(inventory.character, _character)", "false", "native inventory for another character cannot receive offer"),
         ("auto-approach", "TownServiceMerchantHandoff.cs", "_nextItems = 0f;", "_nextItems = 0f; MapRoomDriver.PressGuildmasterMode(EGuildmasterMode.Merchant, \"mutant\");", "approach never opens a native service"),
         ("return-dropped", "ItemsPile.Merchant.cs", "_inspectionPublished.AddRange(_inspectionRetiring);", "", "closing animation remains published until completion"),
@@ -74,6 +91,8 @@ def main():
     manifest = {"result": str(run / "results.txt"), "cases": []}
     variants = [("production", None, None, None, "")]
     if not args.no_negative_controls:
+        variants += [("historical-census", "ItemsPile.Merchant.cs", None, None, "stable membership never rereads the inventory census")]
+    if not args.no_negative_controls:
         variants += mutations()
     print(f"Binding production from {args.source_root.resolve()}; evidence: {run}", flush=True)
     for name, filename, before, after, expected in variants:
@@ -82,7 +101,13 @@ def main():
         production.mkdir(parents=True)
         for path, text in bound.items():
             if path == filename:
-                text = replace_once(text, before, after)
+                if name == "historical-census":
+                    text = (fixture / "ItemsPile.Merchant.pre-optimization.fixture").read_text()
+                    text = text.replace("TickInspection(IReadOnlyList<CItem> items)", "TickInspection(IReadOnlyList<CItem> items, uint revision)")
+                    # Compatibility-only field consumed by the unchanged release boundary.
+                    text = text.replace("private VRHand? _inspectionGateHand;", "private VRHand? _inspectionGateHand; private bool _inspectionCensusDirty;")
+                else:
+                    text = replace_once(text, before, after)
             (production / path).write_text(text)
         project = build / "Interaction.csproj"
         shutil.copyfile(fixture / "Interaction.csproj", project)
@@ -113,6 +138,9 @@ def main():
     result = Path(manifest["result"])
     if result.exists():
         print(result.read_text(), end="")
+    if log.exists():
+        for line in log.read_text(errors="replace").splitlines():
+            if line.startswith("MERCHANT_HOST "): print(line)
     if completed.returncode or not result.exists():
         print(f"FAIL: Unity exit {completed.returncode}; log: {log}")
         raise SystemExit(1)

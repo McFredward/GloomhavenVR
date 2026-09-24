@@ -16,12 +16,6 @@ internal sealed partial class ItemsPile
     private readonly List<ItemChip> _inspectionRetiring = new();
     private readonly List<ItemChip> _inspectionPublished = new();
     private readonly HashSet<CItem> _inspectionPresent = new();
-    private readonly HashSet<CItem> _inspectionDesired = new();
-    private readonly List<ItemChip> _inspectionNew = new();
-    private uint _inspectionRevision = uint.MaxValue;
-    private bool _inspectionCensusDirty = true;
-    private int _inspectionLayoutPivot = int.MinValue;
-    private (float Radius, float Step, float Split, float Falloff, float Scale) _inspectionLayout;
     internal static ItemsPile? InspectionCurrent { get; private set; }
     internal IReadOnlyList<ItemChip> InspectionChips => _inspectionPublished;
     internal static ItemsPile CreateInspection(Action<ItemChip, Vector3> release)
@@ -34,7 +28,7 @@ internal sealed partial class ItemsPile
         return pile;
     }
 
-    internal void TickInspection(IReadOnlyList<CItem> items, uint revision)
+    internal void TickInspection(IReadOnlyList<CItem> items)
     {
         if (_inspectionRelease == null || _root == null) return;
         VRHand? gate = VRHands.Primary == VRHands.Left ? VRHands.Right : VRHands.Left;
@@ -58,77 +52,54 @@ internal sealed partial class ItemsPile
             _root.localScale = Vector3.one * (gate.WorldScale / Mathf.Max(.0001f, parentScale));
             PileFanShape.FaceHead(_root);
         }
-        bool changed = false;
-        if (_inspectionRevision != revision)
-        {
-            _inspectionRevision = revision;
-            _inspectionDesired.Clear();
-            foreach (CItem item in items) _inspectionDesired.Add(item);
-            _inspectionCensusDirty = true;
-        }
         for (int i = _inspectionRetiring.Count - 1; i >= 0; i--)
-            if (_inspectionRetiring[i] == null)
-            { _inspectionRetiring.RemoveAt(i); _inspectionCensusDirty = changed = true; }
-        if (show != IsOpen)
+            if (_inspectionRetiring[i] == null) _inspectionRetiring.RemoveAt(i);
+        if (!show && IsOpen)
         {
-            _inspectionCensusDirty = true;
-            if (!show) ClearHandSweep();
+            IsOpen = false; ClearHandSweep();
+            for (int i = _chips.Count - 1; i >= 0; i--)
+                if (_chips[i].Holder == null) RetireInspectionAt(i);
         }
         IsOpen = show;
-        if (show) UpdateHandSweep();
-        // Membership is resolved only on a model revision, reveal edge, returned held card or
-        // completed closing animation. Native inventory reads and set construction are not a
-        // per-frame operation. Two copies retain their separate reference identities.
-        if (_inspectionCensusDirty)
+        // Polls are supplied by the map model owner. Diff by object identity, never item ID:
+        // two copies are two cards and a sale must remove precisely the selected copy.
+        for (int i = _chips.Count - 1; i >= 0; i--)
         {
-            _inspectionCensusDirty = false;
-            for (int i = _chips.Count - 1; i >= 0; i--)
-            {
-                ItemChip chip = _chips[i];
-                if (chip == null) { _chips.RemoveAt(i); changed = true; continue; }
-                if (chip.Holder == null && (!show || chip.Item == null || !_inspectionDesired.Contains(chip.Item)))
-                { RetireInspectionAt(i); changed = true; }
-            }
-            if (show)
-            {
-                _inspectionPresent.Clear();
-                foreach (ItemChip chip in _chips)
-                    if (chip != null && chip.Item != null) _inspectionPresent.Add(chip.Item);
-                foreach (ItemChip chip in _inspectionRetiring)
-                    if (chip != null && chip.Item != null) _inspectionPresent.Add(chip.Item);
-                foreach (CItem item in items)
-                {
-                    // Finish the closing wave before generating a second face for that copy.
-                    if (!_inspectionPresent.Add(item)) continue;
-                    ItemChip chip = ItemChip.Create(this, _root, item);
-                    _chips.Add(chip); _inspectionNew.Add(chip); changed = true;
-                }
-            }
+            ItemChip chip = _chips[i];
+            if (chip == null) { _chips.RemoveAt(i); continue; }
+            if (chip.Holder == null && (!Contains(items, chip.Item) || !show)) RetireInspectionAt(i);
         }
         if (show)
         {
-            var layout = (CardsConfig.FanRadius.Value * CardsConfig.FanRadiusFactor(PileKind.Items).Value,
-                CardsConfig.FanStepDegrees(PileKind.Items).Value, CardsConfig.FanSplitMultiplier.Value,
-                CardsConfig.FanSplitFalloff.Value, CardsConfig.FanHoverSplitScale.Value);
-            int pivot = SplitPivotIndex;
-            if (changed || pivot != _inspectionLayoutPivot || !_inspectionLayout.Equals(layout))
+            _inspectionPresent.Clear();
+            foreach (ItemChip chip in _chips)
+                if (chip != null && chip.Item != null) _inspectionPresent.Add(chip.Item);
+            foreach (ItemChip chip in _inspectionRetiring)
+                if (chip != null && chip.Item != null) _inspectionPresent.Add(chip.Item);
+            foreach (CItem item in items)
             {
-                _inspectionLayout = layout; _inspectionLayoutPivot = pivot;
-                Relayout(); // one complete layout after the batch has its final membership
+                // Finish a previous closing wave before generating a second face for that item.
+                bool exists = _inspectionPresent.Contains(item);
+                if (!exists)
+                {
+                    ItemChip chip = ItemChip.Create(this, _root, item);
+                    _chips.Add(chip); _inspectionPresent.Add(item); Relayout();
+                    chip.BeginEmerge(Vector3.zero, 0f, _chips.Count % 2 == 0 ? -1f : 1f);
+                }
             }
-            foreach (ItemChip chip in _inspectionNew)
-                chip.BeginEmerge(Vector3.zero, 0f, chip.transform.localPosition.x >= 0f ? 1f : -1f);
-            _inspectionNew.Clear();
+            UpdateHandSweep(); Relayout();
         }
         InspectionCurrent = show ? this : null;
-        if (changed)
-        {
-            _inspectionPublished.Clear();
-            _inspectionPublished.AddRange(_chips);
-            _inspectionPublished.AddRange(_inspectionRetiring);
-        }
+        _inspectionPublished.Clear();
+        _inspectionPublished.AddRange(_chips);
+        _inspectionPublished.AddRange(_inspectionRetiring);
     }
 
+    private static bool Contains(IReadOnlyList<CItem> items, CItem? item)
+    {
+        foreach (CItem candidate in items) if (ReferenceEquals(candidate, item)) return true;
+        return false;
+    }
     private void RetireInspectionAt(int index)
     {
         ItemChip chip = _chips[index]; _chips.RemoveAt(index);
@@ -146,8 +117,7 @@ internal sealed partial class ItemsPile
         ClearChips();
         foreach (ItemChip chip in _inspectionRetiring)
             if (chip != null) UnityEngine.Object.DestroyImmediate(chip.gameObject);
-        _inspectionRetiring.Clear(); _inspectionPublished.Clear(); _inspectionNew.Clear();
-        _inspectionDesired.Clear(); _inspectionPresent.Clear();
+        _inspectionRetiring.Clear(); _inspectionPublished.Clear();
         if (_root != null) UnityEngine.Object.Destroy(_root.gameObject);
         _root = null; _title = null;
     }

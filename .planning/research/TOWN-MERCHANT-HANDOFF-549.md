@@ -56,3 +56,49 @@ its caller must use the source item's measured face width/height to preserve geo
   multiplayer callbacks. Cards lane validates the original confirmation adapter and wire.
 - Ordinary logging adds no per-frame or per-card stream. Inventory snapshots poll at 5 Hz;
   overlay eligibility caches for 120 ms, with uncached checks at the actual release.
+
+## Follow-up: bounded census, real layout/lifecycle and teardown
+
+The first implementation still scanned every owned item for every chip and rebuilt the
+layout once per new card, plus once every frame. Membership now has an explicit revision
+from the 5 Hz model poll; reference order comparisons advance it only on actual changes.
+A reusable desired-membership set and dirty census run on revisions, reveal edges,
+actual releases, and completed closing waves. All new cards receive their final batch
+homes in one layout before their original emergence starts. Steady layout changes are
+limited to membership, hover split or live geometry settings. Publication lists change
+only with membership; original chip transforms/effects continue to update normally.
+
+Reset withdraws its fan, zone and confirmation ownership before invoking native `OnCancel`.
+Nested `onHidden`/reset/tick calls cannot recreate or destroy the inspection twice. Cleanup
+and normal-fan restoration run in `finally`, including a native callback failure.
+
+The expanded Unity test compiles the original production `Relayout`, `ItemChip.SetHome`,
+`BeginEmerge`, `TickEmerge`, and `BeginCollapse` methods against real transforms. Native
+ItemCardUI pooling, physical sweep/input and per-card renderer upkeep remain boundaries.
+The benchmark therefore measures host census/layout overhead, not total renderer/GPU cost.
+It exercises the actual emergence to its final batch home for all 31 and 512 item copies.
+The retained historical host fixture (from f12602bf) must fail the census invariant; it
+needs no worker-branch commit object at CI runtime.
+
+Measured in Unity Editor 2021.3.5, 1000 warm ticks:
+
+| Owned copies | Previous host ms/tick | Revised host ms/tick | Initial layouts before/after | Revised managed allocations |
+| --- | ---: | ---: | ---: | ---: |
+| 31 | 0.032583 | 0.000613 | 32 / 1 | 0 bytes |
+| 512 | 1.795890 | 0.000635 | 513 / 1 | 0 bytes |
+
+Evidence: `/tmp/town549-handoff-benchmark/run-c6wg78x9`; 1184 assertions plus seven
+negative controls. Subsequent verification adds a live-settings layout invalidation case.
+These timings are not hardware frame-rate predictions. In particular, hand sweep, native
+pooled artwork construction and real per-card frame updates still have their existing costs.
+
+With the map hand preference disabled, merchant inspection remains disabled as requested.
+The integration must retain the classic merchant (as for enchantment), including its
+normal destination control and original window: masking a native merchant without an
+available physical owned-card input would remove the buying/selling path. Root owns that
+Presentation/VisitTarget fallback, independently of this host.
+
+Final run: `/tmp/town549-handoff-final-perf/run-ovaq3z9a`, 1186 assertions and seven
+negative controls. Live geometry tuning invalidates layout exactly once. Final repeated
+measurements were 0.030266 -> 0.000693 ms/tick (31 cards) and 2.171280 -> 0.000719
+ms/tick (512); unchanged new-host ticks still allocate zero managed bytes.

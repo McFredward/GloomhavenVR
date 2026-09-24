@@ -30,8 +30,8 @@ public class UIShopItemInventory { public ShopService? service; public MapRuleLi
 public class UIShopItemWindow : MonoBehaviour { public UIShopItemInventory ItemInventory = new(); }
 public class UIGuildmasterHUD { public UIShopItemWindow shopWindow = null!; }
 public class UIItemConfirmationBox {
- public bool IsActive; public Action? _onConfirmedCallback; public int Cancels;
- public void OnCancel() { IsActive = false; Cancels++; _onConfirmedCallback = null; }
+ public bool IsActive; public Action? _onConfirmedCallback; public Action? OnCancelled; public int Cancels;
+ public void OnCancel() { Cancels++; OnCancelled?.Invoke(); IsActive = false; _onConfirmedCallback = null; }
 }
 namespace GloomhavenVR.Core {
  public static class Loc { public static string Mod(string s) => s; }
@@ -52,31 +52,54 @@ namespace GloomhavenVR.Cards {
  public sealed class Dial<T> { public T Value; public Dial(T v) { Value = v; } }
  public static class CardsConfig {
   public static bool RevealAlways;
+  public static readonly Dial<float> ItemFanSeedScale = new(.12f), ItemFanSettleOvershoot = new(1.7f), ItemFanOpenSpinDegrees = new(20f), ItemFanOpenDuration = new(.25f), ItemFanCloseDuration = new(.2f), ItemFanOpenArc = new(.015f);
+  public static readonly Dial<float> FanRadius = new(.3f), FanSplitMultiplier = new(1f), FanSplitFalloff = new(1f), FanHoverSplitScale = new(1f);
+  private static readonly Dial<float> RadiusFactor = new(1f), Step = new(10f);
+  public static Dial<float> FanRadiusFactor(PileKind kind)=>RadiusFactor;
+  public static Dial<float> FanStepDegrees(PileKind kind)=>Step;
   public static readonly Dial<float> FanPalmOffset = new(.09f), FanFollowSmoothing = new(16f), FanFollowDeadzone = new(.001f), RevealEnterDegrees = new(60f), RevealExitDegrees = new(45f);
   public static readonly Dial<bool> RevealIgnoreWhenGrabbing = new(true);
  }
+ public enum PileKind { Items }
  public class VRCard { }
- public static class PileFanShape { public static void FaceHead(Transform root) { } }
+ public static class FanSweep { public static float ArcChord(float radius,float step)=>2f*radius*Mathf.Sin(step*Mathf.Deg2Rad*.5f); public static float SplitOffset(int i)=>i*.01f; }
+ public static class PileFanShape { public const float ArchFactor=.55f,TiltFactor=.85f; public static void FaceHead(Transform root) { } }
  internal sealed partial class ItemsPile {
   private Transform? _root; private TMPro.TMP_Text? _title;
   private readonly List<ItemChip> _chips = new();
   private int HighlightedIndex => -1;
+  private int SplitPivotIndex => -1;
+  public int LayoutCalls;
+  private const float MaxArcDegrees=110f,ChipScale=1.25f,ZStagger=.004f;
+  private bool UseAnimationPending=>false; private int _splitPivotIndex;
   public bool IsOpen;
   private ItemsPile(Action<ItemChip,Vector3> release) { _inspectionRelease = release; }
   private void EnsureRoot() { _root = new GameObject("Fan").transform; }
   private void ClearHandSweep() { }
   private void UpdateHandSweep() { }
-  private void Relayout() { }
+  private void Relayout() { LayoutCalls++; ProductionRelayout(); }
   private void ClearChips() { foreach(var c in _chips) UnityEngine.Object.DestroyImmediate(c.gameObject); _chips.Clear(); }
-  internal class ItemChip : MonoBehaviour {
-   public ScenarioRuleLibrary.CItem? Item; public ItemsPile? Owner; public Hands.VRHand? Holder; public bool IsCollapsing;
+  internal partial class ItemChip : MonoBehaviour {
+   public enum Visual { Normal, Spent } public Visual State;
+   public bool PendingUse;
+   private Vector3 _homePos,_emergeFrom,_collapseWorld,_collapseFrom;
+   private Quaternion _homeRot=Quaternion.identity,_emergeSpin,_collapseFromRot,_collapseSpin;
+   private float _homeScale=1f,_releaseGlide,_emergeTime,_emergeDelay,_collapseFromScale,_collapseTime,_collapseDelay;
+   private bool _emerging,_collapsing,_fingerPopped,_laserPopped,_recessPopped;
+   private BoxCollider? _box;
+   public Vector3 Home=>_homePos;
+   public float CollapseTime=>_collapseTime;
+   private static float SeedScale()=>Mathf.Clamp(CardsConfig.ItemFanSeedScale.Value,.02f,1f);
+   private static float Overshoot()=>Mathf.Clamp(CardsConfig.ItemFanSettleOvershoot.Value,0f,3f);
+   public void SetGrabStrip(float width) { }
+   public void AdvanceEmerge(float dt) { TickEmerge(dt,_homePos,_homeScale); }
+
+   public ScenarioRuleLibrary.CItem? Item; public ItemsPile? Owner; public Hands.VRHand? Holder; public bool IsCollapsing=>_collapsing;
    public ItemCardUI? NativeItemCard; public Transform InspectionMount => transform; public Transform? InspectionBody;
    public static ItemChip Create(ItemsPile owner, Transform parent, ScenarioRuleLibrary.CItem item) {
     var c = new GameObject("ActualInspectionCard",typeof(ItemChip)).GetComponent<ItemChip>(); c.transform.SetParent(parent,false); c.Owner = owner; c.Item = item; return c;
    }
-   public void BeginEmerge(Vector3 p,float delay,float sign) { }
-   public void BeginCollapse(Vector3 p) { IsCollapsing = true; }
-   public void Release(Vector3 p) { Holder = null; Owner!._inspectionRelease!(this,p); }
+   public void Release(Vector3 p) { Holder = null; Owner!._inspectionCensusDirty = true; Owner._inspectionRelease!(this,p); }
   }
  }
 }

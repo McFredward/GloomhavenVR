@@ -1,4 +1,7 @@
 using System;
+using System.Collections;
+using System.Collections.Generic;
+using System.Diagnostics;
 using GloomhavenVR.Cards;
 using GloomhavenVR.Hands;
 using GloomhavenVR.Rig;
@@ -15,6 +18,9 @@ public static class InteractionProgram
  public static int Run() {
   _count=0;
   foreach(float scale in new[]{.05f,1f,198.12f}) RunScale(scale);
+  Exception? benchmarkFailure=null;
+  foreach(int size in new[]{31,512}) try { Benchmark(size); } catch(Exception error) { benchmarkFailure ??= error; }
+  if(benchmarkFailure!=null) throw benchmarkFailure;
   return _count;
  }
  private static void RunScale(float scale) {
@@ -77,7 +83,11 @@ public static class InteractionProgram
   Check(Singleton<UIItemConfirmationBox>.Instance!.IsActive,"final native confirmation remains visibly pending");
   Check(!TownServiceMerchantHandoff.Offer(duplicate,true,palm.position),"pending native confirmation excludes another offer");
   // Leaving cancels only our own confirmation and restores the original hand.
-  int restore=MapRoomHand.NormalRebuilds; TownServicePopulation.Station.Near=false; TownServiceMerchantHandoff.Tick();
+  int restore=MapRoomHand.NormalRebuilds;
+  Singleton<UIItemConfirmationBox>.Instance.OnCancelled=()=> {
+   Check(!TownServiceMerchantHandoff.Active,"reentrant native cancellation observes withdrawn handoff");
+   TownServiceMerchantHandoff.Tick(); TownServiceMerchantHandoff.Reset();
+  }; TownServicePopulation.Station.Near=false; TownServiceMerchantHandoff.Tick();
   Check(!TownServiceMerchantHandoff.Active && MapRoomHand.NormalRebuilds==restore+1,"leaving restores normal fan exactly once");
   Check(Singleton<UIItemConfirmationBox>.Instance.Cancels==1,"leaving cancels own unconfirmed sale");
   Check(ItemsPile.InspectionCurrent==null,"leaving clears laser owner");
@@ -98,4 +108,46 @@ public static class InteractionProgram
   Check(TownServiceCatalog.Offer==null && TownServiceCatalog.CanOffer==null && TownServiceCatalog.InOfferingZone==null,"reset clears callback lifetime");
   UnityEngine.Object.DestroyImmediate(root);
  }
+ private sealed class InventoryProbe : IReadOnlyList<CItem> {
+  public readonly List<CItem> Values = new(); public int Reads;
+  public int Count { get { Reads++; return Values.Count; } }
+  public CItem this[int i] { get { Reads++; return Values[i]; } }
+  public IEnumerator<CItem> GetEnumerator() { Reads++; return Values.GetEnumerator(); }
+  IEnumerator IEnumerable.GetEnumerator()=>GetEnumerator();
+ }
+ private static void Benchmark(int count) {
+  TownServiceMerchantHandoff.Reset();
+  var root=new GameObject("Benchmark"); VRRigDriver.RigRoot=root.transform;
+  VRHands.Left=new VRHand(); VRHands.Right=new VRHand(); VRHands.Primary=VRHands.Right;
+  VRHands.Left.Rig.PalmCenter=root.transform; VRHands.Right.Rig.PalmCenter=root.transform;
+  var items=new InventoryProbe(); for(int i=0;i<count;i++) items.Values.Add(new CItem{ID=i});
+  var fan=ItemsPile.CreateInspection((c,p)=>{});
+  var watch=Stopwatch.StartNew(); fan.TickInspection(items,1); watch.Stop();
+  double creation=watch.Elapsed.TotalMilliseconds;
+  int firstLayouts=fan.LayoutCalls;
+  foreach(var chip in fan.InspectionChips) {
+   Vector3 seed=chip.transform.localPosition;
+   chip.AdvanceEmerge(.125f);
+   Check((chip.transform.localPosition-seed).sqrMagnitude>0f,"original item emergence advances from its seed");
+   chip.AdvanceEmerge(.25f);
+   Check((chip.transform.localPosition-chip.Home).sqrMagnitude<.000001f,"original item emergence lands on final batch home");
+  }
+  for(int i=0;i<20;i++) fan.TickInspection(items,1);
+  int reads=items.Reads, layouts=fan.LayoutCalls;
+  long allocated=GC.GetAllocatedBytesForCurrentThread();
+  watch.Restart(); for(int i=0;i<1000;i++) fan.TickInspection(items,1); watch.Stop();
+  allocated=GC.GetAllocatedBytesForCurrentThread()-allocated;
+  UnityEngine.Debug.Log($"MERCHANT_HOST count={count} creation_ms={creation:F4} steady_ms={watch.Elapsed.TotalMilliseconds/1000:F6} bytes_1000={allocated} first_layouts={firstLayouts} steady_layouts={fan.LayoutCalls-layouts} inventory_reads={items.Reads-reads}");
+  Check(items.Reads==reads,"stable membership never rereads the inventory census");
+  Check(firstLayouts==1 && fan.LayoutCalls==layouts,"one initial layout and no unchanged-frame relayouts");
+  Check(allocated==0,"steady inspection host performs no managed allocations");
+  float previousStep=CardsConfig.FanStepDegrees(PileKind.Items).Value;
+  CardsConfig.FanStepDegrees(PileKind.Items).Value=previousStep+1f; fan.TickInspection(items,1);
+  Check(fan.LayoutCalls==layouts+1,"live layout setting changes update exactly once without a model revision");
+  CardsConfig.FanStepDegrees(PileKind.Items).Value=previousStep;
+  items.Values.RemoveAt(0); fan.TickInspection(items,2);
+  Check(fan.InspectionChips.Count==count,"removed item retains its closing surface");
+  fan.DestroyInspection(); UnityEngine.Object.DestroyImmediate(root);
+ }
+
 }

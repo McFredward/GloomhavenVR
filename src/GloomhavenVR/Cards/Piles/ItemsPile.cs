@@ -2484,6 +2484,7 @@ internal sealed partial class ItemsPile
     {
         if (_inspectionRelease != null)
         {
+            _inspectionCensusDirty = true;
             _inspectionRelease(chip, dropWorldPos);
             if (!IsOpen) chip.BeginCollapse(_root != null ? _root.position : dropWorldPos);
             return;

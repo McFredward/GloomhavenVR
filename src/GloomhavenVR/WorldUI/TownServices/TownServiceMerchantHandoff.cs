@@ -24,6 +24,7 @@ internal static class TownServiceMerchantHandoff
     private static CMapCharacter? _character;
     private static ItemsPile? _fan;
     private static readonly List<CItem> Items = new();
+    private static uint _itemRevision;
     private static float _nextItems, _started, _pendingUntil;
     private static bool _near, _resetting;
     private static CItem? _pending;
@@ -45,6 +46,7 @@ internal static class TownServiceMerchantHandoff
 
     internal static void Tick()
     {
+        if (_resetting) return;
         TownServiceCatalog.CanOffer = CanOffer;
         TownServiceCatalog.Offer = Offer;
         TownServiceCatalog.InOfferingZone = InOfferingZone;
@@ -76,9 +78,13 @@ internal static class TownServiceMerchantHandoff
         if (Time.unscaledTime >= _nextItems)
         {
             _nextItems = Time.unscaledTime + .2f;
-            Items.Clear(); Items.AddRange(selected!.AllCharacterItems);
+            List<CItem> current = selected!.AllCharacterItems;
+            bool changed = current.Count != Items.Count;
+            for (int i = 0; !changed && i < current.Count; i++) changed = !ReferenceEquals(current[i], Items[i]);
+            if (changed)
+            { Items.Clear(); Items.AddRange(current); unchecked { _itemRevision++; } }
         }
-        _fan!.TickInspection(Items);
+        _fan!.TickInspection(Items, _itemRevision);
         TickPending();
     }
 
@@ -187,19 +193,34 @@ internal static class TownServiceMerchantHandoff
     }
     private static void ResetSession(bool restoreFan = true)
     {
-        _resetting = true; _pending = null; _eligibilityItem = null;
-        UIItemConfirmationBox? confirmation = Singleton<UIItemConfirmationBox>.Instance;
-        if (_ourConfirmation != null && confirmation != null && confirmation.IsActive
-            && ReferenceEquals(confirmation._onConfirmedCallback, _ourConfirmation)) confirmation.OnCancel();
-        _ourConfirmation = null;
-        _fan?.DestroyInspection(); _fan = null; Items.Clear(); _character = null;
-        if (restoreFan) MapRoomHand.SetMerchantInspection(false);
-        if (_seat != null) UnityEngine.Object.Destroy(_seat.gameObject);
-        _seat = _zone = null; _zoneGate = null; _caption = null;
-        _resetting = false;
+        if (_resetting) return;
+        _resetting = true;
+        // Withdraw ownership before native callbacks. OnCancel may synchronously raise onHidden,
+        // which can reenter teardown; it must not cancel twice or destroy the same fan again.
+        Action? ownedConfirmation = _ourConfirmation; _ourConfirmation = null;
+        ItemsPile? fan = _fan; _fan = null;
+        Transform? seat = _seat; _seat = _zone = null; _zoneGate = null; _caption = null;
+        _pending = null; _eligibilityItem = null; Items.Clear(); _character = null;
+        try
+        {
+            UIItemConfirmationBox? confirmation = Singleton<UIItemConfirmationBox>.Instance;
+            if (ownedConfirmation != null && confirmation != null && confirmation.IsActive
+                && ReferenceEquals(confirmation._onConfirmedCallback, ownedConfirmation)) confirmation.OnCancel();
+        }
+        finally
+        {
+            try { fan?.DestroyInspection(); }
+            finally
+            {
+                if (seat != null) UnityEngine.Object.Destroy(seat.gameObject);
+                try { if (restoreFan) MapRoomHand.SetMerchantInspection(false); }
+                finally { _resetting = false; }
+            }
+        }
     }
     internal static void Reset()
     {
+        if (_resetting) return;
         ResetSession(); _station = null; _palm = null; _near = false;
         _party = null; _shop = null;
         TownServiceCatalog.CanOffer = null; TownServiceCatalog.Offer = null; TownServiceCatalog.InOfferingZone = null;
