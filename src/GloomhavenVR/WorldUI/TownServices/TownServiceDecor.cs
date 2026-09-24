@@ -194,10 +194,11 @@ internal sealed class TownServiceDecor : IDisposable
         float now = Time.unscaledTime;
         if (now < _nextLoadTick) return;
         _nextLoadTick = now + .1f;
-        if (_coinTemplate?.Holder != null
+        if ((_coinTemplate?.Holder != null || _moneyBagTemplate?.Holder != null)
             && _coinGeneration != GloomhavenVR.Net.TownServices.TownServiceMirror.Assets.Generation)
         {
-            RegisterPropTextures(_coinTemplate.Holder.transform, _coinTemplate.Entry);
+            if (_coinTemplate?.Holder != null)
+                RegisterPropTextures(_coinTemplate.Holder.transform, _coinTemplate.Entry);
             if (_moneyBagTemplate?.Holder != null)
                 RegisterPropTextures(_moneyBagTemplate.Holder.transform, _moneyBagTemplate.Entry);
             _coinGeneration = GloomhavenVR.Net.TownServices.TownServiceMirror.Assets.Generation;

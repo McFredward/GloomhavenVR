@@ -1,9 +1,9 @@
 # State — where the project stands
 
-**Updated 2026-09-24: feature/immersive-town-services, version 1.1.0 / ModBuild 551 hardware candidate.**
+**Updated 2026-09-24: feature/immersive-town-services, version 1.1.0 / ModBuild 552 hardware candidate.**
 The feature is based on dev e63fb284, including released 1.0.7 / build 546. Dev remains
 the separate 1.0.8 hotfix line. The maintainer hardware-confirmed 546 before release.
-Current NPC revision: [research/TOWN-SERVICES-551.md](research/TOWN-SERVICES-551.md).
+Current NPC revision: [research/TOWN-SERVICES-552.md](research/TOWN-SERVICES-552.md).
 NPC workers integrate and push exclusively to the feature branch during this work.
 
 The file this replaces had gone 168 builds
@@ -18,6 +18,17 @@ change per build) → this file (where things stand and what is owed) → the bu
 ---
 
 ## 1. Position
+
+- **NPC feature / 1.1.0 / ModBuild 552 (hardware candidate):** visible-surface laser
+  targeting without resident proxy boxes; mage departure cleanup and independent
+  Character UI; native per-card enhancement points beside the offered card; physical
+  ability/item reclaim. Native priestess purse donations use the actual shared bowl,
+  original authority and guarded confirmation. Original localized ink conforms to the
+  book pages locally and remotely. Revised mirrored wrist motion, varied merchant
+  contact timing and subtle original positional foley. Native black flame padding
+  stays transparent. Full package required; environment bundle unchanged. See
+  [research/TOWN-SERVICES-552.md](research/TOWN-SERVICES-552.md) for integration gates
+  and hardware limits; automated success is not headset acceptance.
 
 - **NPC feature / 1.1.0 / ModBuild 551 (hardware candidate):** callback-scoped
   palm regrabs and freestanding native confirmation; nearby held-card offer intent;

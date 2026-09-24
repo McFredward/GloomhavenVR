@@ -1001,6 +1001,17 @@
         "local"
       ],
       "weight": 90
+    },
+    {
+      "id": "town-card-slots",
+      "command": [
+        "python3",
+        "scripts/check-town-card-slots.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 20
     }
   ]
 }

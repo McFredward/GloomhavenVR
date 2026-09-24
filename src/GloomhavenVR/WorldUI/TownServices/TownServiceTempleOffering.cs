@@ -4,6 +4,7 @@ using GloomhavenVR.Hands;
 using GloomhavenVR.Rig;
 using GloomhavenVR.WorldUI.MapRoom;
 using UnityEngine;
+using UnityEngine.UI;
 
 namespace GloomhavenVR.WorldUI;
 
