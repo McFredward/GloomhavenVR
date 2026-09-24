@@ -326,6 +326,7 @@ internal static class TownServicePresentation
     internal static void LateTick()
     {
         TownServiceMerchantHandoff.LateTick(); // Final palm pose before either publication lane.
+        _ritual?.Handoff?.LateTick();
         TownServicePublicMerchant.LateTick();
         foreach (TownServiceSurface surface in Surfaces) surface.LateTick();
         _catalog?.LateTick();

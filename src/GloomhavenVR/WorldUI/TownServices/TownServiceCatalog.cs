@@ -203,10 +203,15 @@ internal sealed class TownServiceCatalog : IDisposable
     internal static Func<CItem, bool, bool>? CanOffer = null;
     internal static Func<CItem, bool, Vector3, bool>? Offer = null;
     internal static Func<Vector3, bool>? InOfferingZone = null;
+    internal static Action<TownServiceToken>? RetainOffer = null;
     internal bool Eligible(Entry entry) => _allowInput && entry.Current
         && (CanOffer?.Invoke(entry.Item, entry.Selling) ?? false);
-    internal bool Drop(Entry entry) => Eligible(entry)
-        && (Offer?.Invoke(entry.Item, entry.Selling, entry.MountRoot.position) ?? false);
+    internal bool Drop(Entry entry)
+    {
+        if (!Eligible(entry) || !(Offer?.Invoke(entry.Item, entry.Selling, entry.MountRoot.position) ?? false)) return false;
+        RetainOffer?.Invoke(entry.Sample);
+        return true;
+    }
     internal void SetObserver(bool observer)
     {
         if (_observerDirty)

@@ -2486,7 +2486,7 @@ internal sealed partial class ItemsPile
         {
             _inspectionCensusDirty = true;
             _inspectionRelease(chip, dropWorldPos);
-            if (!IsOpen) chip.BeginCollapse(_root != null ? _root.position : dropWorldPos);
+            if (!IsOpen && !chip.TownOffering) chip.BeginCollapse(_root != null ? _root.position : dropWorldPos);
             return;
         }
         Transform? slot = PlayTray.Current?.ItemUseSlotTransform;
@@ -6052,6 +6052,7 @@ internal sealed partial class ItemsPile
         /// <summary>Requirement 6 — cancel the post-release glide-home (used when a drop CLIPS into the
         /// use slot instead of returning to the fan).</summary>
         internal void CancelReleaseGlide() => _releaseGlide = 0f;
+        internal void ResumeInspectionGlide() => _releaseGlide = ReleaseGlideSeconds;
 
         /// <summary>Requirement 6 — return the chip to its fan home (the "return to deck" path on cancel):
         /// clear the clip state and start the same glide the post-release home uses.</summary>

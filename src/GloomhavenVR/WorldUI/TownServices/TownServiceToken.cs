@@ -37,12 +37,15 @@ internal sealed class TownServiceToken : IGrabbable, ITriggerOnlyGrabbable, IGra
     internal Transform ZoneFrame => _mat;
     internal Vector3 ZoneCenter => _zoneCenter;
     private Vector3 _homePosition, _homeScale, _returnPosition;
+    private Transform? _homeParent;
+    private TownServiceOfferingCard? _offering;
+    private Action? _offeringReclaimed;
     private Quaternion _homeRotation, _returnRotation;
     private float _returnStarted;
     private Vector3 _returnScale;
     private bool _returning, _heldTracked;
     internal bool IsPhysical => _physical != null;
-    internal bool IsMoving => _hand != null || _returning;
+    internal bool IsMoving => _hand != null || _returning || _offering != null;
     private readonly GameObject _pick;
     private readonly BoxCollider _shape;
     private readonly Vector3[] _corners = new Vector3[4];
@@ -117,6 +120,7 @@ internal sealed class TownServiceToken : IGrabbable, ITriggerOnlyGrabbable, IGra
             _mirror?.TickLive();
             return;
         }
+        _offering?.Tick();
         if (_returning && _physical != null)
         {
             float t = Mathf.Clamp01((Time.unscaledTime - _returnStarted) / .35f);
@@ -188,8 +192,9 @@ internal sealed class TownServiceToken : IGrabbable, ITriggerOnlyGrabbable, IGra
         {
             // Lift the actual displayed card, including its rigid body. Never keep a second
             // card on the counter, invoke selection, or depend on affordability to inspect it.
-            if (!_adopting)
-            { _homePosition = _physical.localPosition; _homeRotation = _physical.localRotation;
+            bool reclaiming = _offering != null;
+            if (!_adopting && !reclaiming)
+            { _homeParent = _physical.parent; _homePosition = _physical.localPosition; _homeRotation = _physical.localRotation;
               _homeScale = _physical.localScale; }
             if (IsItemCard)
             {
@@ -197,12 +202,18 @@ internal sealed class TownServiceToken : IGrabbable, ITriggerOnlyGrabbable, IGra
             float height = Vector3.Distance(_corners[0], _corners[1]) / Mathf.Max(.0001f, _physical.lossyScale.y);
             _heldScale = CardsConfig.CardWidth.Value / Mathf.Max(width, height) * CardsConfig.InspectScale.Value;
             _heldWidth = width * _heldScale; _heldHeight = height * _heldScale;
-            _heldScale *= hand.Rig.GrabAnchor.lossyScale.x / Mathf.Max(.0001f, _physical.parent.lossyScale.x);
             ItemCardHold.ReadingPose(hand, _heldHeight, VRCard.PinchGripFraction, out _heldPosition, out _heldRotation);
             hand.SendHaptic(HapticPreset.ClickPulse);
             CardsDriver.PlayCardSound(CardsConfig.CardGrabSound.Value, _physical);
             }
+            _physical.SetParent(hand.Rig.GrabAnchor, true);
             _held = _physical.gameObject;
+            if (reclaiming)
+            {
+                _offering = null;
+                Action? reclaimed = _offeringReclaimed; _offeringReclaimed = null;
+                reclaimed?.Invoke();
+            }
             Hover(true);
             return;
         }
@@ -241,6 +252,7 @@ internal sealed class TownServiceToken : IGrabbable, ITriggerOnlyGrabbable, IGra
                 && _held != null && (_dropLocation?.Invoke(_held.transform.position)
                     ?? WithinDropZone(_mat.InverseTransformPoint(_held.transform.position) - _zoneCenter));
             Hover(false);
+            _physical.SetParent(_homeParent, true);
             _returnPosition = _physical.localPosition; _returnRotation = _physical.localRotation; _returnScale = _physical.localScale;
             _returnStarted = Time.unscaledTime; _returning = true;
             _held = null; _hand = null; _pickedIdentity = null; _pickedContext = null;
@@ -262,6 +274,25 @@ internal sealed class TownServiceToken : IGrabbable, ITriggerOnlyGrabbable, IGra
         // confirmation, including ownership, affordability, stock and native multiplayer rules.
         var pointer = new PointerEventData(EventSystem.current) { button = PointerEventData.InputButton.Left };
         ExecuteEvents.Execute(_button!.gameObject, pointer, ExecuteEvents.pointerClickHandler);
+    }
+
+    internal void ParkOffering(Transform seat, Action reclaimed)
+    {
+        if (_physical == null || _disposed || _hand != null) return;
+        _returning = false; _offeringReclaimed = reclaimed;
+        float nativeScale = _homeParent != null ? Mathf.Abs(_homeParent.lossyScale.x) : 1f;
+        // Cabinet cards are small samples; the hand presentation is comfortably readable.
+        float scale = _homeScale.x * nativeScale / Mathf.Max(.0001f, seat.lossyScale.x) * 1.5f;
+        _offering = new TownServiceOfferingCard(_physical, seat, scale);
+    }
+
+    internal void ReturnOffering()
+    {
+        _offering = null; _offeringReclaimed = null;
+        if (_disposed || _physical == null || _hand != null) return;
+        _physical.SetParent(_homeParent, true);
+        _returnPosition = _physical.localPosition; _returnRotation = _physical.localRotation;
+        _returnScale = _physical.localScale; _returnStarted = Time.unscaledTime; _returning = true;
     }
 
     private bool WithinDropZone(Vector3 point) => InDropZone(point) && Mathf.Abs(point.x) < _zoneHalfWidth;
@@ -317,13 +348,14 @@ internal sealed class TownServiceToken : IGrabbable, ITriggerOnlyGrabbable, IGra
     {
         Hover(false);
         _mirror?.Destroy(); _mirror = null;
-        if (_physical != null && (_held != null || _returning))
+        if (_physical != null && (_held != null || _returning || _offering != null))
         {
+            _physical.SetParent(_homeParent, true);
             _physical.localPosition = _homePosition; _physical.localRotation = _homeRotation;
             _physical.localScale = _homeScale;
         }
         else if (_held != null) UnityEngine.Object.Destroy(_held);
-        _returning = false;
+        _returning = false; _offering = null; _offeringReclaimed = null;
         _held = null; _hand = null; _pickedIdentity = null; _pickedContext = null;
     }
 

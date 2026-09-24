@@ -86,7 +86,7 @@ internal sealed partial class ItemsPile
             {
                 ItemChip chip = _chips[i];
                 if (chip == null) { _chips.RemoveAt(i); changed = true; continue; }
-                if (chip.Holder == null && (!show || chip.Item == null || !_inspectionDesired.Contains(chip.Item)))
+                if (chip.Holder == null && !chip.TownOffering && (!show || chip.Item == null || !_inspectionDesired.Contains(chip.Item)))
                 { RetireInspectionAt(i); changed = true; }
             }
             if (show)
@@ -127,6 +127,15 @@ internal sealed partial class ItemsPile
             _inspectionPublished.AddRange(_chips);
             _inspectionPublished.AddRange(_inspectionRetiring);
         }
+        if (show) CardsDriver.StandDownForItemFanContact(VRHands.Primary, _inspectionPublished);
+    }
+
+    internal void ResumeInspection(ItemChip chip)
+    {
+        _inspectionCensusDirty = true;
+        if (chip.Holder != null) return;
+        if (!IsOpen && _root != null) chip.BeginCollapse(_root.position);
+        else { chip.ResumeInspectionGlide(); Relayout(); }
     }
 
     private void RetireInspectionAt(int index)

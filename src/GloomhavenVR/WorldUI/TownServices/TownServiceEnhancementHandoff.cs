@@ -88,12 +88,12 @@ internal sealed class TownServiceEnhancementHandoff : IDisposable
         _seat = new GameObject("GloomhavenVR.TownService.OfferingPalm").transform;
         _seat.SetParent(station, false);
         Zone = TownServiceMerchantZone.CreateTemplate(shop.GetComponentInChildren<TMP_Text>(true)).transform;
-        Zone.SetParent(_seat, false); Zone.localPosition = new Vector3(0f, .014f, 0f);
-        ((RectTransform)Zone).sizeDelta = new Vector2(240f, 170f);
-        ((RectTransform)Zone.Find("Border")).sizeDelta = new Vector2(240f, 170f);
+        Zone.SetParent(_seat, false); Zone.localPosition = Vector3.zero; Zone.localRotation = Quaternion.identity;
+        ((RectTransform)Zone).sizeDelta = new Vector2(170f, 240f);
+        ((RectTransform)Zone.Find("Border")).sizeDelta = new Vector2(170f, 240f);
         TMP_Text label = Zone.Find("Caption").GetComponent<TMP_Text>();
         label.text = Loc.Mod("town_enchant_card"); label.fontSize = 26f;
-        label.rectTransform.sizeDelta = new Vector2(220f, 70f);
+        label.rectTransform.sizeDelta = new Vector2(150f, 100f);
         _zoneGate = Zone.GetComponent<CanvasGroup>(); _zoneGate.alpha = 0f;
         VRLayers.Apply(_seat.gameObject);
         _current = this;
@@ -179,9 +179,9 @@ internal sealed class TownServiceEnhancementHandoff : IDisposable
         if (_disposed) return;
         if (_palm == null && _station != null && Time.unscaledTime >= _palmSearchAt)
         { _palmSearchAt = Time.unscaledTime + .5f; _palm = FindPalm(_station); }
-        if (_palm != null)
+        if (_palm != null && _station != null)
         {
-            _seat.SetPositionAndRotation(_palm.position, _palm.rotation);
+            TownServiceOfferingPose.Place(_seat, _palm, _station, TownServicePresentation.SessionAge);
             // Authored activity markers carry station units, not imported bone scale.
             _seat.localScale = Vector3.one;
         }
@@ -198,6 +198,12 @@ internal sealed class TownServiceEnhancementHandoff : IDisposable
             || VRRigDriver.HeadCamera != null && !Near(_seat, VRRigDriver.HeadCamera.transform.position, 2.25f))
             Return();
         else NativeSource = _shop.selectedCard;
+    }
+
+    internal void LateTick()
+    {
+        if (!_disposed && _palm != null)
+            TownServiceOfferingPose.Place(_seat, _palm, _station, TownServicePresentation.SessionAge);
     }
 
     private bool ValidOwner(VRCard card) => MapRoomHand.TryOwnedTownCard(card, out var owner, out _)
@@ -245,7 +251,7 @@ internal sealed class TownServiceEnhancementHandoff : IDisposable
     private bool Offer(VRCard card)
     {
         if (!Ready || Card != null || _palm == null || card == null || card.IsHeld
-            || !Near(_seat, card.transform.position, .28f) || !ValidOwner(card)
+            || !TownServiceOfferingPose.Contains(_seat, card.transform.position) || !ValidOwner(card)
             || !MapRoomHand.TryOwnedTownCard(card, out _, out var model)) return false;
         UIEnhanceCardSlot? found = FindAvailableSlot(model);
         if (found == null) return false;
@@ -258,7 +264,7 @@ internal sealed class TownServiceEnhancementHandoff : IDisposable
         Card = card; NativeSource = _shop.selectedCard; _model = model;
         CardFan.Current?.Remove(card);
         card.Grabbed += OnGrabbed;
-        card.SetHome(_seat, new Vector3(0f, .035f, 0f), Quaternion.Euler(75f, 0f, 0f), .90f);
+        card.SetHome(_seat, Vector3.zero, Quaternion.identity, .90f);
         card.Grabbable = true; card.InspectOnly = true; card.AllowsGateHand = true;
         VRLog.Debug("WorldUI", "TOWN ENHANCEMENT: actual owned hand card offered to resident palm.");
         return true;
