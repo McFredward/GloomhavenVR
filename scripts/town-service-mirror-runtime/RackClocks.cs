@@ -107,7 +107,18 @@ public static partial class MirrorProgram
             for(float wait=Time.unscaledTime+.12f;Time.unscaledTime<wait;)yield return null;TownServiceMirror.TickRemote(_=>observer);
             Check(Quaternion.Angle(Quaternion.Inverse(observer.rotation)*Remote(2,2)!.Root.rotation,crank.localRotation)<.1f,"idle manual lead pull is not overwritten by the previous clock: got "+(Quaternion.Inverse(observer.rotation)*Remote(2,2)!.Root.rotation).eulerAngles+" expected "+crank.localEulerAngles);
             var fade=content.gameObject.AddComponent<CanvasGroup>();fade.alpha=.37f;
-            Receive(2,Capture());TownServiceMirror.TickRemote(_=>observer);
+            // The mirror publishes unchanged modules on a bounded cadence. A
+            // newly added native ancestor fade can be captured on the next
+            // cadence, so observe that publication instead of asserting in
+            // the same frame that the source CanvasGroup changes.
+            float fadeDeadline=Time.unscaledTime+1.5f;
+            do
+            {
+                Receive(2,Capture());TownServiceMirror.TickRemote(_=>observer);
+                if(Mathf.Abs(RemoteGate(2,51).alpha-.37f)<.001f)break;
+                yield return null;
+            }
+            while(Time.unscaledTime<fadeDeadline);
             Check(Mathf.Abs(RemoteGate(2,51).alpha-.37f)<.001f,"page gate preserves independent native ancestor fades");
             cards[51].gameObject.SetActive(false);Receive(2,Capture());TownServiceMirror.TickRemote(_=>observer);
             Check(!Remote(2,51)!.Root.gameObject.activeInHierarchy,"page playback cannot revive a native-hidden card");

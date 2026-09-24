@@ -30,7 +30,10 @@ change per build) → this file (where things stand and what is owed) → the bu
   is not considered active before its mask exists. The temple approach update now
   starts the purse path. The priestess's front/profile atlas no longer projects a
   photographed second ear or eye onto her lateral face; the fixed-detail rig and
-  Windows town bundle were rebuilt. Automated checks cover source contracts and
+  Windows town bundle were rebuilt. The rack mirror's ancestor-fade test now
+  waits for its bounded publication cadence before asserting visibility, and
+  offering mutations are checked before unrelated rack assertions.
+  Automated checks cover source contracts and
   asset format, but the reported hardware interactions still require a headset test.
 
 - **Released 1.0.8 / ModBuild 556:** `main` at tag `v1.0.8`; `dev` has advanced its

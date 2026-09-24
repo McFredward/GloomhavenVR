@@ -1092,10 +1092,13 @@ public static partial class MirrorProgram
                 while (counter.MoveNext()) yield return counter.Current;
                 DrawerTemplates();
                 PublisherRouting();
+                // Offering mutations must fail at their own intent assertions
+                // before a stale offer can spill into independent rack checks.
+                MerchantOfferingIntent();
                 IEnumerator racks = RackClocks(); while (racks.MoveNext()) yield return racks.Current;
                 CatalogLifetime();
             }
-            MerchantOfferingIntent();
+            else MerchantOfferingIntent();
             File.WriteAllText(Path.Combine(_output, "assertions.txt"), _assertions + " assertions\n");
         }
         finally
