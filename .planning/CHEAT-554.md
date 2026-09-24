@@ -44,3 +44,14 @@ production helper against explicit native boundaries. 65 assertions cover refusa
 states, a stale scenario confirmation, close callback races, sticky-menu release
 order, and repeat requests. Removing either the online guard or duplicate latch
 makes a named runtime assertion fail. The fixture runs locally and in dev CI.
+
+Full local validation passed: all source gates, production regression suites and
+254,632 real-runtime wire assertions; strict Release zero warnings/errors; docs
+parity, Actionlint and whitespace. Compatibility surface remains 626 config keys /
+174 patch signatures / 4,745 log tokens. No bundle changed. The guard exits 1 only
+for the expected historical compiled diff against `080c505e9` (111 changed and
+93 added/removed entries, no order-only moves), not a failed source/runtime gate.
+
+The preceding window review's GitHub CI also passed at exact commit `e0360b49`:
+https://github.com/McFredward/GloomhavenVR/actions/runs/36024622990.
+This is evidence for build 553; the build 554 push triggers its own CI.
