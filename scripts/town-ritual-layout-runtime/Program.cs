@@ -64,6 +64,7 @@ public static class InteractionProgram
         Check(rejected, "unknown native section cannot silently overlap another control");
         checks += BookInkProof.Run();
         checks += NativeBookProof.Run();
+        checks += SharedBowlProof.Run();
         Render();
         return checks;
     }

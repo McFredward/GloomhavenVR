@@ -136,10 +136,11 @@ internal sealed class TownServiceRitual : IDisposable
                 _mirror.SetOwnerFrame(frame, rect.parent is RectTransform parent ? parent.rect.size : rect.rect.size);
                 if (!_mirror.Refresh(source.transform)) throw new InvalidOperationException("Original ritual artwork is unavailable");
                 Token = new TownServiceToken(_reach, button, identity, owner._context,
-                    () => owner._alive() && Current, owner.Root, Root, drop, eligible,
-                    owner._service == 2 ? new Vector3(0f, .16f, .26f) : Vector3.zero,
+                    () => owner._alive() && Current, owner._templeOffering?.DropFrame ?? owner.Root, Root, drop, eligible,
+                    owner._service == 2 ? TownServiceTempleBowl.Center : Vector3.zero,
                     inspect: () => owner._templeOffering?.Available ?? true,
-                    zoneHalfWidth: owner._service == 2 ? .095f : .20f, reachDepth: offering ? .10f : .009f, uprightProp: offering,
+                    zoneHalfWidth: owner._service == 2 ? .095f : .20f,
+                    dropLocation: owner._service == 2 ? world => owner._templeOffering?.InBowl(world) ?? false : null, reachDepth: offering ? .10f : .009f, uprightProp: offering,
                     handAllowed: hand => owner._templeOffering?.AllowsHand(hand) ?? true);
                 VRLayers.Apply(root);
                 ApplyInscriptions(); SetVisibility(owner._visibility);
@@ -272,9 +273,12 @@ internal sealed class TownServiceRitual : IDisposable
         {
             _opening = Root.gameObject.AddComponent<CanvasGroup>(); _opening.alpha = 0f;
             Root.SetParent(station, false); Root.localPosition = TownServiceRitualLayout.Origin;
+            if (service == 2)
+                _templeOffering = new TownServiceTempleOffering(this, window.GetComponent<UITempleWindow>(),
+                    TownServicePresentation.StationRoot ?? station);
             _zone = TownServiceMerchantZone.CreateTemplate(window.GetComponentInChildren<TMP_Text>(true));
-            _zone.transform.SetParent(Root, false);
-            _zone.transform.localPosition = service == 2 ? new Vector3(0f, .16f, .26f) : new Vector3(0f, .014f, 0f);
+            _zone.transform.SetParent(_templeOffering?.DropFrame ?? Root, false);
+            _zone.transform.localPosition = service == 2 ? TownServiceTempleBowl.Center : new Vector3(0f, .014f, 0f);
             _zoneGate = _zone.GetComponent<CanvasGroup>(); _zoneGate.alpha = 0f;
             _zoneLabel = _zone.transform.Find("Caption").GetComponent<TMP_Text>();
             // Ritual placement uses the full central mat. Merchant marks are narrower
@@ -291,8 +295,6 @@ internal sealed class TownServiceRitual : IDisposable
             if (service == 2)
             {
                 UITempleWindow temple = window.GetComponent<UITempleWindow>();
-                _templeOffering = new TownServiceTempleOffering(this, temple,
-                    TownServicePresentation.StationRoot ?? station);
                 _inscriptions.Add(new Inscription("temple.level", temple.devotionLevel, Root,
                     new Vector3(-.33f, .022f, .025f), .26f, .025f));
                 _inscriptions.Add(new Inscription("temple.gold", temple.totalDonatedGold.text, Root,
@@ -330,6 +332,7 @@ internal sealed class TownServiceRitual : IDisposable
     internal void SetVisibility(float visibility, bool allowInput)
     {
         _allowInput = allowInput;
+        if (!allowInput || visibility < .99f) _zoneGate.alpha = 0f;
         _opening.interactable = allowInput; _opening.blocksRaycasts = allowInput;
         foreach (TownServiceSurface surface in _surfaces) surface.SetVisibility(visibility, allowInput);
         if (_visibility == visibility) return;

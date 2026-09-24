@@ -78,12 +78,13 @@ def main():
     subprocess.run([str(native_python), str(ROOT / 'scripts/town-ritual-layout-runtime/export-native-book.py'),
         str(args.source_root), str(run / 'native-book.obj')], check=True)
     base = args.source_root / 'src/GloomhavenVR/WorldUI/TownServices'
-    sources = {name: (base / name).read_text() for name in ('TownServiceRitualLayout.cs', 'TownServiceBookInk.cs')}
+    sources = {name: (base / name).read_text() for name in ('TownServiceRitualLayout.cs', 'TownServiceBookInk.cs', 'TownServiceTempleBowl.cs')}
     variants = [('production', None, '', '', ''),
         ('folio-width', 'TownServiceRitualLayout.cs', '.60f, .55f', '1.40f, .55f', 'complete native folio sections stay within the stand width'),
         ('folio-under-table', 'TownServiceRitualLayout.cs', '.32f, .33f, -.16f', '.32f, .05f, -.16f', 'native folio stays above tabletop and below resident face'),
         ('folio-rear-decoration', 'TownServiceRitualLayout.cs', '.32f, .33f, -.16f', '.32f, .33f, .65f', 'native folio clears front edge and rear decoration'),
         ('folio-controls-overlap', 'TownServiceRitualLayout.cs', '.43f, .036f, -.20f', '.19f, .036f, -.20f', 'native folio content and original controls never overlap'),
+        ('detached-bowl', 'TownServiceTempleBowl.cs', 'frame.SetParent(priest, false);', 'frame.SetParent(null, false);', 'both owners donate into the actual shared priest bowl, never a relocated workspace'),
         ('flat-purse', 'TownServiceRitualLayout.cs', 'Quaternion.identity, new Vector2(.125f, .15f)', 'Quaternion.Euler(90f, 0f, 0f), new Vector2(.125f, .15f)', 'purse rests upright above the hand rather than lying like a card'),
         ('floating-ink', 'TownServiceBookInk.cs', '_position = surface + normal * .00065f;', '_position = surface + normal * .020f;', 'ink is attached within one millimetre of the actual original page'),
         ('white-ui-ink', 'TownServiceBookInk.cs', 'new Color(.12f, .065f, .027f, 1f)', 'Color.white', 'book text is printed dark ink rather than white floating UI'),

@@ -122,3 +122,29 @@ internal static class NativeBookProof
         return checks;
     }
 }
+
+internal static class SharedBowlProof
+{
+    internal static int Run()
+    {
+        int checks=0;void Check(bool ok,string why){checks++;if(!ok)throw new Exception(why);}
+        var priest=new GameObject("Actual shared priest");
+        priest.transform.SetPositionAndRotation(new Vector3(2f,.4f,-3f),Quaternion.Euler(0,72,0));
+        priest.transform.localScale=Vector3.one*.7f;
+        var workspace1=new GameObject("Owner one workspace");var workspace2=new GameObject("Relocated owner two workspace");
+        workspace1.transform.position=new Vector3(-8f,0,1f);workspace2.transform.position=new Vector3(7f,0,4f);
+        Transform bowl1=TownServiceTempleBowl.Create(priest.transform),bowl2=TownServiceTempleBowl.Create(priest.transform);
+        Vector3 actual=priest.transform.TransformPoint(TownServiceRitualLayout.Origin+TownServiceTempleBowl.Center);
+        Check(Vector3.Distance(bowl1.TransformPoint(TownServiceTempleBowl.Center),actual)<.0001f&&Vector3.Distance(bowl2.TransformPoint(TownServiceTempleBowl.Center),actual)<.0001f,
+            "both owners donate into the actual shared priest bowl, never a relocated workspace");
+        foreach(Transform bowl in new[]{bowl1,bowl2})
+        {
+            Check(TownServiceTempleBowl.Contains(bowl,actual+priest.transform.up*.02f),"deliberate drop above actual bowl is accepted for both owners");
+            Check(!TownServiceTempleBowl.Contains(bowl,workspace1.transform.TransformPoint(TownServiceRitualLayout.Origin+TownServiceTempleBowl.Center))
+                &&!TownServiceTempleBowl.Contains(bowl,workspace2.transform.TransformPoint(TownServiceRitualLayout.Origin+TownServiceTempleBowl.Center)),"empty browsing workspace cannot receive a donation");
+            Check(!TownServiceTempleBowl.Contains(bowl,bowl.TransformPoint(TownServiceTempleBowl.Center+new Vector3(.085f,0,.085f))),"outside circular bowl is not an offering");
+            Check(!TownServiceTempleBowl.Contains(bowl,bowl.TransformPoint(TownServiceTempleBowl.Center+Vector3.down*.1f)),"dropping through the tabletop cannot donate");
+        }
+        Object.DestroyImmediate(priest);Object.DestroyImmediate(workspace1);Object.DestroyImmediate(workspace2);return checks;
+    }
+}

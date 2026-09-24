@@ -20,6 +20,8 @@ internal sealed class TownServiceTempleOffering : IDisposable
     private bool _near, _disposed;
     private float _visibility;
     internal Transform Root { get; }
+    internal Transform DropFrame { get; }
+    internal bool InBowl(Vector3 world) => Available && TownServiceTempleBowl.Contains(DropFrame, world);
     internal bool Available { get; private set; }
 
     internal bool AllowsHand(VRHand hand) => Available
@@ -48,6 +50,7 @@ internal sealed class TownServiceTempleOffering : IDisposable
     internal TownServiceTempleOffering(TownServiceRitual ritual, UITempleWindow temple, Transform station)
     {
         _ritual = ritual; _temple = temple; _station = station;
+        DropFrame = TownServiceTempleBowl.Create(station);
         Root = new GameObject("GloomhavenVR.Temple.OfferingPurses").transform;
         Root.SetParent(ritual.Root, false);
         _gate = Root.gameObject.AddComponent<CanvasGroup>();
@@ -102,5 +105,6 @@ internal sealed class TownServiceTempleOffering : IDisposable
         if (_disposed) return;
         _disposed = true; MapRoomHand.SetTempleInspection(false);
         if (Root != null) UnityEngine.Object.Destroy(Root.gameObject);
+        if (DropFrame != null) UnityEngine.Object.Destroy(DropFrame.gameObject);
     }
 }
