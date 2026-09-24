@@ -35,10 +35,10 @@ internal static partial class PostQuestRewardSync
         return Ledger.Sample(ActiveIntroductionSubject ?? _opening);
     }
     internal static void ObserveCompletions(int sender, MapStoryOpening[] entries) => Ledger.Observe(sender, entries);
-    private static int[] Participants()
+    private static IReadOnlyList<int> Participants()
     {
         VersionGuard.CollectContinuationPeers(Peers, NetPlayerActors.LocalPlayerId());
-        return Peers.ToArray();
+        return Peers;
     }
     private static void Open(uint context, List<Reward> rewards, string flow)
     {
@@ -143,7 +143,11 @@ internal static partial class PostQuestRewardSync
     }
     internal static void NativeFailed(object? opening)
     {
-        if (opening != null && ReferenceEquals(_opening, opening)) _consumed = false;
+        if (opening != null && ReferenceEquals(_opening, opening) && _window != null && _window.IsOpen)
+        {
+            _consumed = false;
+            Ledger.RetryTerminal(opening);
+        }
     }
     internal static bool TryConfirm()
     {

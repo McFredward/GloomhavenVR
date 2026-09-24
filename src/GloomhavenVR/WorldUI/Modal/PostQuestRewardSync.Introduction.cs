@@ -53,7 +53,14 @@ internal static partial class PostQuestRewardSync
             uint previous = _introductionScope;
             _introductionScope = entry.Scope;
             try { original(); } // Highlight-process promises can enqueue their next step here.
-            catch { entry.Consumed = false; throw; }
+            catch
+            {
+                if (Singleton<UIIntroductionManager>.IsInitialized
+                    && ReferenceEquals(Singleton<UIIntroductionManager>.Instance.m_CurrentlyDisplayedMessageInfo, message)
+                    && Singleton<UIIntroductionManager>.Instance.LayoutGroup?.window?.IsOpen == true)
+                { entry.Consumed = false; Ledger.RetryTerminal(message); }
+                throw;
+            }
             finally { _introductionScope = previous; }
             Ledger.Finish(message); // A failed native callback never becomes peer completion.
         };
@@ -64,7 +71,7 @@ internal static partial class PostQuestRewardSync
         if (entry == null) return;
         int count = Math.Max(1, message.Message.Pages.Count);
         if (count > byte.MaxValue) return;
-        Ledger.Open(message, entry.Key, entry.Key, (byte)count, Participants());
+        Ledger.Open(message, entry.Key, entry.Key, (byte)count, Participants(), bidirectional: true);
     }
     private static LevelMessageUILayout? IntroductionLayout => IntroductionOpen
         ? Singleton<UIIntroductionManager>.Instance.LayoutGroup?._currentMessage : null;

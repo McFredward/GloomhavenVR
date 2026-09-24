@@ -28,6 +28,14 @@ internal static partial class RewardShowcase
     {
         if (!enabled)
         {
+            // Conversion can turn off while the original window remains open. Return
+            // its native listener before dropping our wrapper's owner reference.
+            if (_wiredAdventureRewards != null && _wiredAdventureRewards.closeButton != null)
+            {
+                _wiredAdventureRewards.closeButton.onClick.RemoveListener(ConfirmAdventureRewards);
+                _wiredAdventureRewards.closeButton.onClick.RemoveListener(_wiredAdventureRewards.Hide);
+                _wiredAdventureRewards.closeButton.onClick.AddListener(_wiredAdventureRewards.Hide);
+            }
             _wiredAdventureRewards = null;
             _wiredUnlockLocations = null;
             return;

@@ -12,10 +12,7 @@ internal static class RewardContinuationCodec
     internal const int MaxPayload = MapStoryLifecycleCodec.MaxPayload;
     internal static bool Write(byte[] buffer, ref int offset, MapStoryOpening[]? entries)
     {
-        int start = offset;
-        if (!MapStoryLifecycleCodec.Write(buffer, ref offset, entries)) return false;
-        buffer[start] = RecordId;
-        return true;
+        return MapStoryLifecycleCodec.Write(buffer, ref offset, entries, RecordId);
     }
     internal static bool TryRead(byte[] buffer, int offset, int length, out MapStoryOpening[] entries)
     {
