@@ -248,6 +248,8 @@ public static partial class MirrorProgram
     private static IEnumerator OfferingMotion(Transform source, Transform shared, Transform observer, TownServiceBinding copy)
     {
         Transform oldParent = source.parent;
+        Vector3 oldPosition = source.localPosition, oldScale = source.localScale;
+        Quaternion oldRotation = source.localRotation;
         Transform palm = Go("offering palm", shared).transform;
         Transform seat = Go("offering seat", shared).transform;
         palm.localPosition = new Vector3(.4f, .5f, -.2f);
@@ -270,7 +272,19 @@ public static partial class MirrorProgram
             Check(Quaternion.Angle(copy.Root.rotation, observer.rotation * Quaternion.Inverse(shared.rotation) * source.rotation) < .025f,
                 "remote reparented offering preserves owner upright rotation");
         }
-        source.SetParent(oldParent, true);
+        // This probe borrows the common source. Restore its exact canonical pose before
+        // the independent four-owner pixel comparison; retaining the head-facing yaw here
+        // perturbs the camera relocation's floating-point rounding at the fourth station.
+        source.SetParent(oldParent, false);
+        source.localPosition = oldPosition; source.localRotation = oldRotation; source.localScale = oldScale;
+        Object.DestroyImmediate(seat.gameObject); Object.DestroyImmediate(palm.gameObject);
+        yield return null;
+        Receive(1, Capture()); TownServiceMirror.TickRemote(_ => observer);
+        for (float settle = Time.unscaledTime + .13f; Time.unscaledTime < settle;)
+        { TownServiceMirror.TickRemote(_ => observer); yield return null; }
+        Check(source.parent == oldParent && source.localPosition == oldPosition
+            && source.localRotation == oldRotation && source.localScale == oldScale,
+            "offering pose probe restores the independent image fixture exactly");
     }
 
     private static IEnumerator Lifecycle(Transform source, Transform shared, Transform observer, TownServiceBinding copy)
