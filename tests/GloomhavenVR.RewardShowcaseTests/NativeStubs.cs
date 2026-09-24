@@ -174,6 +174,7 @@ public sealed class CampaignScenarioRewardManager : ScenarioRewardManager
 public sealed class GuildmasterScenarioRewardManager : ScenarioRewardManager { }
 public sealed class CampaignRewardsManager : Singleton<CampaignRewardsManager>
 {
+    public UIIntroductionRewardsProcess introductionProcess = new();
     public UICampaignRewardWindow rewardsWindow = null!;
     public UICampaignRewardWindow RewardsWindow { get => rewardsWindow; set => rewardsWindow = value; }
 }
@@ -187,7 +188,12 @@ public sealed class UICampaignRewardWindow : UnityEngine.MonoBehaviour
     public Action? ContinueAction { get => continueAction; set => continueAction = value; }
     public UnityEngine.UI.UIWindow window = null!;
     public int NativeCalls;
-    public void OnContinueButtonClick() { NativeCalls++; continueAction?.Invoke(); }
+    public void OnContinueButtonClick()
+    {
+        if (!GloomhavenVR.WorldUI.PostQuestRewardSync.BeforeCampaignContinue(this, out object? opening)) return;
+        try { NativeCalls++; continueAction?.Invoke(); GloomhavenVR.WorldUI.PostQuestRewardSync.NativeSucceeded(opening); }
+        catch { GloomhavenVR.WorldUI.PostQuestRewardSync.NativeFailed(opening); throw; }
+    }
     public void WireNativeMouseListener() => continueButton.onClick.AddListener(OnContinueButtonClick);
     public void Hide() => throw new Exception("Presentation must not hide campaign rewards");
 }

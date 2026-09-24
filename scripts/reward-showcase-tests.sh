@@ -76,6 +76,7 @@ for name, start, end in (
 PYMAP
 fi
 dotnet run --project "$project" --configuration Release \
+    --property:RepositorySourceRoot="$repo_root/src/GloomhavenVR" \
     --property:ContinueButtonSource="$continue_button_source" \
     --property:RewardSource="$reward_source" \
     --property:IdentitySource="$identity_source" \
@@ -84,15 +85,22 @@ dotnet run --project "$project" --configuration Release \
     --property:CatchAllSource="$mutation_dir/RewardPoll.fixture"
 cp "$repo_root/tests/GloomhavenVR.RewardShowcaseTests/"*.cs "$mutation_dir/"
 cp "$project" "$mutation_dir/"
-for mutation in missing-listener duplicate-listener reveal authority native-input gamepad-adapter map-scenario-gate hover-state identity-block placement-key poll-binding premature-reveal pending-pose screen-unavailable map-reward-binding map-location-binding map-duplicate-binding unlock-target; do
+for mutation in missing-listener duplicate-listener reveal authority native-input gamepad-adapter map-scenario-gate hover-state identity-block placement-key poll-binding premature-reveal pending-pose screen-unavailable map-reward-binding map-location-binding map-duplicate-binding unlock-target postquest-reveal postquest-duplicate postquest-success intro-focus intro-block; do
     python3 - "$reward_source" "$identity_source" "$placement_source" "$mutation_dir" "$mutation" "$continue_button_source" "$map_buttons_source" <<'PY'
 import pathlib, sys
 reward, identity, placement, out = map(pathlib.Path, sys.argv[1:5])
 sources = {'Reward': reward.read_text(), 'Identity': identity.read_text(),
+           'PostQuest': (reward.parent / 'PostQuestRewardSync.cs').read_text(),
+           'Introduction': (reward.parent / 'PostQuestRewardSync.Introduction.cs').read_text(),
            'MapButtons': pathlib.Path(sys.argv[7]).read_text(), 'Placement': placement.read_text(), 'Continue': pathlib.Path(sys.argv[6]).read_text(), 'Poll': (out / 'RewardPoll.fixture').read_text()}
 mutations = {
+    'postquest-reveal': ('PostQuest', '!window.isRevealing', 'true'),
+    'postquest-duplicate': ('PostQuest', '_consumed = true;', '_consumed = false;'),
+    'postquest-success': ('PostQuest', 'else _campaign!.rewardsWindow.OnContinueButtonClick();', 'else { NativeSucceeded(opening); _campaign!.rewardsWindow.OnContinueButtonClick(); }'),
+    'intro-focus': ('Introduction', 'Time.frameCount - layout._focusedFrame < 2', 'false'),
+    'intro-block': ('PostQuest', '|| IntroductionOpen', '|| false'),
     'unlock-target': ('Poll', '!ReferenceEquals(b, expected)', 'false'),
-    'map-reward-binding': ('MapButtons', 'adventure.closeButton.onClick.AddListener(adventure.Hide);', '{}'),
+    'map-reward-binding': ('MapButtons', 'adventure.closeButton.onClick.AddListener(ConfirmAdventureRewards);', '{}'),
     'map-location-binding': ('MapButtons', 'locations.continueButton.onClick.AddListener(locations.Continue);', '{}'),
     'map-duplicate-binding': ('MapButtons', 'adventure.closeButton.onClick.RemoveListener(adventure.Hide);', '{}'),
     'missing-listener': ('Reward', 'rewards.continueButton.onClick.AddListener(rewards.OnContinueButtonClick);', '{}'),
@@ -117,6 +125,11 @@ for name, text in sources.items():
     (out / (name + '.mutant')).write_text(text)
 PY
     case "$mutation" in
+        postquest-reveal) expected='remote postquest completion waits for native reward reveal' ;;
+        postquest-duplicate) expected='repeated remote and local postquest input cannot double callback' ;;
+        postquest-success) expected='failed native callback never publishes completion' ;;
+        intro-focus) expected='remote hint uses native button callback before exposing reward continuation' ;;
+        intro-block) expected='original reward cannot close through its still-active introduction' ;;
         unlock-target) expected='transient body click cannot choose an unrelated active button while native Continue is disabled' ;;
         map-reward-binding) expected='map reward gets exactly one native listener plus unrelated callback' ;;
         map-duplicate-binding) expected='conversion reactivation neither loses nor duplicates original map callbacks' ;;
@@ -137,7 +150,10 @@ PY
         screen-unavailable) expected='manual desktop reward source is unavailable for shared floating placement' ;;
     esac
     if dotnet run --project "$mutation_dir/GloomhavenVR.RewardShowcaseTests.csproj" --configuration Release \
-        --property:ContinueButtonSource="$mutation_dir/Continue.mutant" \
+        --property:RepositorySourceRoot="$repo_root/src/GloomhavenVR" \
+    --property:ContinueButtonSource="$mutation_dir/Continue.mutant" \
+        --property:PostQuestSource="$mutation_dir/PostQuest.mutant" \
+        --property:IntroductionSource="$mutation_dir/Introduction.mutant" \
         --property:RewardSource="$mutation_dir/Reward.mutant" \
         --property:IdentitySource="$mutation_dir/Identity.mutant" \
         --property:PlacementSource="$mutation_dir/Placement.mutant" \

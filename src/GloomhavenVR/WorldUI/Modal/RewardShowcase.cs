@@ -118,6 +118,8 @@ internal static partial class RewardShowcase
                 VRLog.Info("WorldUI", "REWARD SHOWCASE INPUT: original Campaign Continue callback bound exactly once.");
             }
         }
+        else if (PostQuestRewardSync.Owns(window))
+            GuildButton.Dispose(); // Adventure rewards retain their original close button.
         else if (Guildmaster != null)
             GuildButton.Tick(Guildmaster, CanConfirm);
         bool permission = CanConfirm;

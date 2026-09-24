@@ -3,7 +3,7 @@ using GloomhavenVR.WorldUI;
 using UnityEngine;
 using UnityEngine.UI;
 
-static class Program
+static partial class Program
 {
     private static int _assertions;
 
@@ -18,6 +18,7 @@ static class Program
     private static void Reset()
     {
         RewardShowcase.Tick(false);
+        PostQuestRewardSync.Reset();
         Singleton<InputManager>.Instance = Component<InputManager>("Input");
         Singleton<KeyActionHandlerController>.Instance = Component<KeyActionHandlerController>("Key actions");
         Synchronizer.Sent = ActionProcessor.HaltRequests = 0;
@@ -706,6 +707,7 @@ static class Program
         IdentityAndInitialPlacement();
         SharedRevealHandoff();
         NativeConversionAvailability();
+        PostQuestContinuations();
         Reset();
         Check(RewardShowcase.Window == null && !RewardShowcase.TryConfirm(), "clean shutdown leaves no actionable reward surface");
         Console.WriteLine($"Reward showcase: {_assertions} assertions passed.");

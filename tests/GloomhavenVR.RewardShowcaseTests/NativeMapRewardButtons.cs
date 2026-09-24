@@ -9,6 +9,8 @@ public sealed class UIGuildmasterAdventureRewardsManager : UIAdventureRewardsMan
 {
     public ExtendedButton closeButton = null!;
     public UIWindow window = null!;
+    public UnityEngine.CanvasGroup rewardsPopupCanvasGroup = new() { interactable = true };
+    public UIIntroductionRewardsProcess rewardIntroduction = new();
     public readonly List<string> m_CharacterIDsUnlocked = new();
 	public void Hide()
 	{
