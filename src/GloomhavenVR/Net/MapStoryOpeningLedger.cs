@@ -55,6 +55,17 @@ internal sealed class MapStoryOpeningLedger
 
     internal bool Owns(object? subject) => subject != null && Find(subject) != null;
 
+    internal bool MatchesPose(object subject, int sender, int localId, uint epoch, uint token)
+    {
+        Local? local = Find(subject);
+        if (local == null || local.State.Finished || epoch == 0 || token == 0) return false;
+        Bind(localId);
+        return _peerEpoch.TryGetValue(sender, out uint knownEpoch) && knownEpoch == epoch
+            && local.Bindings.TryGetValue(sender, out uint knownToken) && knownToken == token
+            && _peers.TryGetValue(sender, out SortedDictionary<uint, MapStoryOpening>? history)
+            && history.TryGetValue(token, out MapStoryOpening? remote) && !remote.Finished;
+    }
+
     /// <summary>Caller must prove the exact native opening remains open after a failed dispatch.</summary>
     internal void RetryTerminal(object subject)
     {
@@ -86,25 +97,28 @@ internal sealed class MapStoryOpeningLedger
         }
     }
 
-    internal void Finish(object? subject)
+    internal bool Finish(object? subject)
     {
         Local? entry = subject != null ? Find(subject) : null;
-        if (entry == null || entry.State.Finished) return;
+        if (entry == null || entry.State.Finished) return false;
         entry.State.Finished = true;
         Changed = true;
+        return true;
     }
 
-    internal MapStoryOpening[] Sample(object? current)
+    internal MapStoryOpening[] Sample(object? current, object? secondary = null)
     {
         var result = new List<MapStoryOpening>();
         Local? active = current != null ? Find(current) : null;
         if (active != null) result.Add(Snapshot(active));
+        Local? second = secondary != null ? Find(secondary) : null;
+        if (second != null && second != active) result.Add(Snapshot(second));
         int visited = 0;
         while (visited++ < _local.Count && result.Count < MapStoryLifecycleCodec.MaxEntries)
         {
             if (_cursor >= _local.Count) _cursor = 0;
             Local next = _local[_cursor++];
-            if (next != active) result.Add(Snapshot(next));
+            if (next != active && next != second) result.Add(Snapshot(next));
         }
         Changed = false;
         return result.ToArray();

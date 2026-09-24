@@ -10,7 +10,7 @@ ledger="$repo_root/src/GloomhavenVR/Net/MapStoryOpeningLedger.cs"
 codec="$repo_root/src/GloomhavenVR/Net/MapStoryLifecycleState.cs"
 project="$test_dir/GloomhavenVR.MapStoryLifecycleTests.csproj"
 dotnet run --project "$project" --configuration Release --property:LedgerSource="$ledger" --property:CodecSource="$codec"
-for mutation in no-terminal-latch no-recipient-check no-predecessor-check no-one-to-one no-run-match no-epoch-retirement no-page-revision no-recipient-total no-final-predecessor; do
+for mutation in no-terminal-latch no-recipient-check no-predecessor-check no-one-to-one no-run-match no-epoch-retirement no-page-revision no-recipient-total no-final-predecessor no-pose-token; do
     python3 - "$ledger" "$test_dir/mutant.fixture" "$mutation" <<'PY'
 from pathlib import Path
 import sys
@@ -25,6 +25,7 @@ pairs = {
  'no-page-revision': ('if (entry.State.Bidirectional) ++entry.State.PageRevision;', ''),
  'no-recipient-total': ('|| predecessor.Participants.Length < predecessor.TotalParticipants', ''),
  'no-final-predecessor': ('|| !predecessor.Finished', ''),
+ 'no-pose-token': ('knownToken == token', 'true'),
 }
 before, after = pairs[sys.argv[3]]
 assert before in source
@@ -45,7 +46,21 @@ PY
         no-page-revision) expected='native previous-page action synchronizes backwards' ;;
         no-recipient-total) expected='partial recipient history cannot close the live successor' ;;
         no-final-predecessor) expected='live predecessor cannot prove final absence before future recipient enrollment' ;;
+        no-pose-token) expected='unbound live token cannot move same-content story' ;;
     esac
     if ! rg -qF "$expected" "$test_dir/mutant.log"; then cat "$test_dir/mutant.log"; exit 1; fi
     echo "Map story lifecycle negative control: $mutation rejected."
 done
+
+python3 - "$repo_root" <<'PYBIND'
+from pathlib import Path
+import sys
+root = Path(sys.argv[1]) / 'src/GloomhavenVR/Net/Remote'
+for name, family in [('RemoteMapStory.cs', 'true'), ('RemoteStorySync.cs', 'false')]:
+    source = (root / name).read_text()
+    assert 'MapStoryLifecycle.PoseOpening(in p,' in source, name + ': pose must capture same-packet opening provenance'
+    pose = source[source.index('private static void ResolvePose('):]
+    gate = f'MapStoryLifecycle.MatchesPose({family}, kv.Key, s.OpeningEpoch, s.OpeningToken)'
+    assert gate in pose and pose.index(gate) < pose.index('bestPeer = kv.Key'), name + ': opening gate must precede ownership election'
+print('Story pose binding source checks passed.')
+PYBIND

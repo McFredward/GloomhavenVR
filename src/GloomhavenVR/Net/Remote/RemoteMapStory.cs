@@ -142,7 +142,7 @@ internal static partial class RemoteMapStory
 
     private readonly struct PeerEntry
     {
-        public PeerEntry(in SharedWindowEntry e, float at)
+        public PeerEntry(in SharedWindowEntry e, float at, uint openingEpoch = 0, uint openingToken = 0)
         {
             Flags = e.Flags;
             Page = e.Page;
@@ -153,6 +153,8 @@ internal static partial class RemoteMapStory
             Frame = e.Frame;
             Pose = e.Pose;
             At = at;
+            OpeningEpoch = openingEpoch;
+            OpeningToken = openingToken;
         }
 
         public readonly byte Flags;
@@ -164,6 +166,7 @@ internal static partial class RemoteMapStory
         public readonly byte Frame;
         public readonly RigPose Pose;
         public readonly float At;
+        public readonly uint OpeningEpoch, OpeningToken;
 
         public bool Open => (Flags & NetProtocol.SharedOpenBit) != 0;
         public bool Finished => (Flags & NetProtocol.SharedFinishedBit) != 0;
@@ -1410,7 +1413,8 @@ internal static partial class RemoteMapStory
                 {
                     case NetProtocol.SharedWindowKindMapStory:
                         sawStory = true;
-                        StoryPeers[senderId] = new PeerEntry(in e, now);
+                        MapStoryLifecycle.PoseOpening(in p, e.ContentKey, out uint openingEpoch, out uint openingToken);
+                        StoryPeers[senderId] = new PeerEntry(in e, now, openingEpoch, openingToken);
                         ObserveReflowPose(senderId, SharedWindowKind.MapStory, in e, StoryStamp);
                         NoteStamp(senderId, in e, StoryStamp, StoryStampAt, now);
                         break;
@@ -1956,6 +1960,9 @@ internal static partial class RemoteMapStory
         {
             PeerEntry s = kv.Value;
             if (s.ContentKey != key || !s.HasPose)
+                continue;
+            if (kind == SharedWindowKind.MapStory
+                && !MapStoryLifecycle.MatchesPose(true, kv.Key, s.OpeningEpoch, s.OpeningToken))
                 continue;
             if (!at.TryGetValue(kv.Key, out float when))
                 continue;

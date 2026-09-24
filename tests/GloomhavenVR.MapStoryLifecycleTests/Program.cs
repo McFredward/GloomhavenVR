@@ -12,7 +12,7 @@ internal static class Program
     }
     private static void Main()
     {
-        Chain(); Repeated(); LateJoin(); Churn(); PartialRecipients(); Epoch(); Bidirectional(); FailedDispatch(); Codec();
+        Chain(); Repeated(); LateJoin(); Churn(); PartialRecipients(); Epoch(); Bidirectional(); FailedDispatch(); PoseProvenance(); PrioritySamples(); Codec();
         Console.WriteLine($"Map story lifecycle: {_assertions} assertions passed.");
     }
 
@@ -231,6 +231,48 @@ internal static class Program
         sender.Finish(live); sender.Update(live, 1, new[] { 2, 3, 4 });
         MapStoryOpening finished = sender.Sample(null).Single(x => x.PreviousToken != 0);
         Check(!finished.Participants.Contains(4), "finished opening never acquires new late recipients");
+    }
+
+    private static void PoseProvenance()
+    {
+        var sender = new MapStoryOpeningLedger(41); var receiver = new MapStoryOpeningLedger(42);
+        var first = new object(); var localFirst = new object();
+        sender.Open(first, 11, 22, 2, new[] { 2 });
+        receiver.Open(localFirst, 11, 22, 2, new[] { 1 });
+        MapStoryOpening state = sender.Sample(first)[0]; receiver.Observe(1, new[] { state });
+        Check(receiver.MatchesPose(localFirst, 1, 2, state.Epoch, state.Token), "matching live occurrence accepts pose");
+        Check(!receiver.MatchesPose(localFirst, 1, 2, 0, 0), "missing coherent lifecycle record rejects legacy pose");
+        Check(!receiver.MatchesPose(localFirst, 1, 2, state.Epoch + 1, state.Token), "foreign epoch cannot place live story");
+        Check(sender.Finish(first) && !sender.Finish(first), "completion diagnostic edge is emitted once");
+        receiver.Observe(1, sender.Sample(null));
+        Check(!receiver.MatchesPose(localFirst, 1, 2, state.Epoch, state.Token), "finished peer cannot retain final pose ownership");
+        receiver.Finish(localFirst);
+        var second = new object(); var localSecond = new object();
+        sender.Open(second, 11, 22, 2, new[] { 2 }); receiver.Open(localSecond, 11, 22, 2, new[] { 1 });
+        MapStoryOpening next = sender.Sample(second)[0]; receiver.Observe(1, new[] { next });
+        Check(receiver.MatchesPose(localSecond, 1, 2, next.Epoch, next.Token), "same-content reopened occurrence accepts its own pose");
+        Check(!receiver.MatchesPose(localSecond, 1, 2, state.Epoch, state.Token), "previous occurrence pose cannot move repeated story");
+        Check(!receiver.MatchesPose(localFirst, 1, 2, next.Epoch, next.Token), "finished local opening rejects successor pose");
+        var other = new object(); sender.Open(other, 99, 22, 2, new[] { 2 });
+        MapStoryOpening unrelated = sender.Sample(other)[0]; receiver.Observe(1, new[] { unrelated });
+        Check(!receiver.MatchesPose(localSecond, 1, 2, unrelated.Epoch, unrelated.Token), "unbound live token cannot move same-content story");
+    }
+
+    private static void PrioritySamples()
+    {
+        var sender = new MapStoryOpeningLedger();
+        for (int i = 0; i < 20; ++i) { var old = new object(); sender.Open(old, (uint)(100 + i), 22, 2, new[] { 2 }); sender.Finish(old); }
+        var reward = new object(); var intro = new object();
+        sender.Open(reward, 41, 22, 2, new[] { 2 }); sender.Open(intro, 42, 22, 2, new[] { 2 });
+        for (int i = 0; i < 12; ++i)
+        {
+            MapStoryOpening[] snapshot = sender.Sample(intro, reward);
+            Check(snapshot.Length <= MapStoryLifecycleCodec.MaxEntries && snapshot[0].SemanticKey == 42
+                && snapshot[1].SemanticKey == 41, "active intro and underlying reward have reserved sample positions");
+            Check(snapshot.Select(x => x.Token).Distinct().Count() == snapshot.Length, "reserved samples never duplicate rotated entries");
+        }
+        MapStoryOpening[] same = sender.Sample(reward, reward);
+        Check(same.Select(x => x.Token).Distinct().Count() == same.Length, "same priority subject is sampled once");
     }
 
     private static void Codec()

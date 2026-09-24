@@ -122,7 +122,7 @@ internal static class RemoteStorySync
     private readonly struct PeerStory
     {
         public PeerStory(byte flags, byte page, byte pageCount, uint key, byte poseStamp,
-                         byte sizeCode, RigPose pose, float at)
+                         byte sizeCode, RigPose pose, float at, uint openingEpoch, uint openingToken)
         {
             Flags = flags;
             Page = page;
@@ -132,6 +132,8 @@ internal static class RemoteStorySync
             SizeCode = sizeCode;
             Pose = pose;
             At = at;
+            OpeningEpoch = openingEpoch;
+            OpeningToken = openingToken;
         }
 
         public readonly byte Flags;
@@ -141,6 +143,7 @@ internal static class RemoteStorySync
         public readonly byte PoseStamp;
         public readonly byte SizeCode;
         public readonly RigPose Pose;
+        public readonly uint OpeningEpoch, OpeningToken;
 
         /// <summary>Local unscaled time this arrived — the staleness clock and, for the pose, the
         /// "last mover" clock. Deliberately a LOCAL time: peers share no clock and the record
@@ -587,8 +590,9 @@ internal static class RemoteStorySync
             return;
         }
 
+        MapStoryLifecycle.PoseOpening(in p, p.StoryKey, out uint openingEpoch, out uint openingToken);
         Peers[senderId] = new PeerStory(p.StoryFlags, p.StoryPage, p.StoryPageCount, p.StoryKey,
-                                        p.StoryPoseStamp, p.StorySizeCode, p.StoryPose, now);
+                                        p.StoryPoseStamp, p.StorySizeCode, p.StoryPose, now, openingEpoch, openingToken);
 
         if ((p.StoryFlags & NetProtocol.StoryPoseBit) == 0)
         {
@@ -822,6 +826,8 @@ internal static class RemoteStorySync
         {
             PeerStory s = kv.Value;
             if (s.Key != key || !s.HasPose)
+                continue;
+            if (!MapStoryLifecycle.MatchesPose(false, kv.Key, s.OpeningEpoch, s.OpeningToken))
                 continue;
             if (!PeerPoseChangedAt.TryGetValue(kv.Key, out float at))
                 continue;

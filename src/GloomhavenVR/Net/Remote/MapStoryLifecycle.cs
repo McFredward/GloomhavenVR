@@ -32,6 +32,24 @@ internal static class MapStoryLifecycle
     internal static bool OwnsCurrent => Controller?.m_CurrentMessage != null
         && _ledger.Owns(Controller.m_CurrentMessage);
 
+    internal static void PoseOpening(in PresenceState presence, uint contentKey, out uint epoch, out uint token)
+    {
+        epoch = token = 0;
+        MapStoryOpening[]? openings = presence.HasMapStoryLifecycle ? presence.MapStoryLifecycleEntries : null;
+        // Sample places the current native opening first, ahead of rotating history.
+        // Capture from the SAME presence as the legacy pose, never from a later packet.
+        if (openings == null || openings.Length == 0 || openings[0].Finished
+            || openings[0].ContentKey != contentKey) return;
+        epoch = openings[0].Epoch;
+        token = openings[0].Token;
+    }
+
+    internal static bool MatchesPose(bool map, int sender, uint epoch, uint token)
+    {
+        StoryController.DialogInfo? message = map ? Controller?.m_CurrentMessage : ScenarioController?.m_CurrentMessage;
+        return message != null && _ledger.MatchesPose(message, sender, _localPlayerId, epoch, token);
+    }
+
     private static IReadOnlyList<int> Participants()
     {
         VersionGuard.CollectContinuationPeers(Peers, _localPlayerId);
@@ -77,7 +95,9 @@ internal static class MapStoryLifecycle
         if (message != null && _ledger.Owns(message))
         {
             _ledger.Update(message, (message.DialogPages?.Count ?? 1) - 1, Participants());
-            _ledger.Finish(message);
+            if (_ledger.Finish(message))
+                VRLog.Note("Net", $"STORY CONTINUATION COMPLETED: content=0x{RemoteStorySync.HashDialog(message.DialogPages):X8}, " +
+                    $"pages={message.DialogPages?.Count ?? 0}; native finish callback returned successfully.");
         }
     }
 
@@ -169,7 +189,7 @@ internal static class MapStoryLifecycle
 internal static class StoryController_ShowImmediately_LifecyclePatch
 {
     private static void Postfix(StoryController __instance, StoryController.DialogInfo message)
-        => MapStoryLifecycle.NativeOpened(__instance, message);
+        => Desync.DispatchGuard.Run("StoryLifecycle.NativeOpened", () => MapStoryLifecycle.NativeOpened(__instance, message));
 }
 
 [HarmonyPatch(typeof(StoryController), "OnFinishShow")]
@@ -178,14 +198,14 @@ internal static class StoryController_OnFinishShow_LifecyclePatch
     private static void Prefix(StoryController __instance, out StoryController.DialogInfo? __state)
         => __state = __instance.m_CurrentMessage;
     private static void Postfix(StoryController.DialogInfo? __state)
-        => MapStoryLifecycle.NativeFinished(__state);
+        => Desync.DispatchGuard.Run("StoryLifecycle.NativeFinished", () => MapStoryLifecycle.NativeFinished(__state));
 }
 
 [HarmonyPatch(typeof(MapStoryController), "ShowImmediately")]
 internal static class MapStoryController_ShowImmediately_LifecyclePatch
 {
     private static void Postfix(MapStoryController __instance, MapStoryController.MapDialogInfo message)
-        => MapStoryLifecycle.NativeOpened(__instance, message);
+        => Desync.DispatchGuard.Run("StoryLifecycle.NativeOpened", () => MapStoryLifecycle.NativeOpened(__instance, message));
 }
 
 [HarmonyPatch(typeof(MapStoryController), "OnFinishShow")]
@@ -194,5 +214,5 @@ internal static class MapStoryController_OnFinishShow_LifecyclePatch
     private static void Prefix(MapStoryController __instance, out StoryController.DialogInfo? __state)
         => __state = __instance.m_CurrentMessage;
     private static void Postfix(StoryController.DialogInfo? __state)
-        => MapStoryLifecycle.NativeFinished(__state);
+        => Desync.DispatchGuard.Run("StoryLifecycle.NativeFinished", () => MapStoryLifecycle.NativeFinished(__state));
 }
