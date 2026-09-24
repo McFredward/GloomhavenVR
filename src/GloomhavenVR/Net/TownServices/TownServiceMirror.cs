@@ -370,6 +370,7 @@ internal static partial class TownServiceMirror
             }
             PrunePending(Pending, peer, frame);
             PrunePending(ReceivedBaselines, peer, frame);
+            ReconcileMerchantOffering(peer);
             return true;
         }
         if (!Pending.TryGetValue(peer, out Dictionary<ushort, TownServiceFrame>? pending))
@@ -391,7 +392,7 @@ internal static partial class TownServiceMirror
                 baselines[frame.Module] = frame;
         }
         if (!pending.TryGetValue(frame.Module, out TownServiceFrame? old) || frame.Sequence > old.Sequence)
-            pending[frame.Module] = frame;
+            { pending[frame.Module] = frame; ObserveMerchantOffering(peer, frame); }
         return true;
     }
 
@@ -589,7 +590,7 @@ internal static partial class TownServiceMirror
         canvas.sortingOrder = frame.CanvasSortingOrder; canvas.sortingLayerID = frame.CanvasSortingLayer;
     }
     internal static void RemovePeer(int peer)
-    { ClearRemoteModules(peer); Pending.Remove(peer); ReceivedBaselines.Remove(peer); Sessions.Remove(peer); VisitorSessions.Remove(peer);
+    { MerchantOfferings.Remove(peer); ClearRemoteModules(peer); Pending.Remove(peer); ReceivedBaselines.Remove(peer); Sessions.Remove(peer); VisitorSessions.Remove(peer);
       ClearRemoteModules(-peer); Pending.Remove(-peer); ReceivedBaselines.Remove(-peer); Sessions.Remove(-peer); }
     internal static void RequestFullRefresh()
     {
@@ -603,7 +604,7 @@ internal static partial class TownServiceMirror
     internal static void ResetNetwork()
     {
         foreach (int peer in new List<int>(Remote.Keys)) ClearRemoteModules(peer);
-        Pending.Clear(); ReceivedBaselines.Clear(); Sessions.Clear(); VisitorSessions.Clear(); RemoteRetry.Clear(); foreach (LocalModule module in AllLocalModules())
+        MerchantOfferings.Clear(); Pending.Clear(); ReceivedBaselines.Clear(); Sessions.Clear(); VisitorSessions.Clear(); RemoteRetry.Clear(); foreach (LocalModule module in AllLocalModules())
         { module.Last = null; module.Baseline = null; module.NextRefresh = module.NextBaseline = 0; }
         PrivateLane.NextManifest = PublicLane.NextManifest = 0;
     }

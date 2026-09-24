@@ -1089,6 +1089,7 @@ public static partial class MirrorProgram
                 IEnumerator racks = RackClocks(); while (racks.MoveNext()) yield return racks.Current;
                 CatalogLifetime();
             }
+            MerchantOfferingIntent();
             File.WriteAllText(Path.Combine(_output, "assertions.txt"), _assertions + " assertions\n");
         }
         finally

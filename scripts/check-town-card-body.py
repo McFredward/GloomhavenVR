@@ -28,7 +28,7 @@ internal static class NativeTemplates {
  internal static void Clean() { if (_bank != null) Object.DestroyImmediate(_bank); }
 """ + freeze + "\n}}\n"
 source = {name + ".cs": (base / "Net/TownServices" / (name + ".cs")).read_text() for name in
-          ("TownServiceAssets", "TownServiceBinding", "TownServiceCodec", "TownServiceDelta", "TownServiceFrame", "TownRackState", "TownServiceMirror.Racks", "TownServiceMaterial", "TownServiceMirror", "TownServiceMotion", "TownServiceNeutralize")}
+          ("TownServiceAssets", "TownServiceBinding", "TownServiceCodec", "TownServiceDelta", "TownServiceFrame", "TownRackState", "TownCassetteMotion", "TownServiceFlameClock", "TownServiceMirror.Racks", "TownServiceMirror.Offerings", "TownServiceMaterial", "TownServiceMirror", "TownServiceMotion", "TownServiceNeutralize")}
 source["TownServiceCardBody.cs"] = (base / "WorldUI/TownServices/TownServiceCardBody.cs").read_text()
 source["Freeze.cs"] = scaffold
 variants = [("production", None, None, None, ""),

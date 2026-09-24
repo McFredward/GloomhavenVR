@@ -14,6 +14,7 @@ internal static class Program
     private static void Reset()
     {
         TownServicePopulation.Reset();RemoteTownResidents.Reset();TownServiceMirror.RemoteSessions.Clear();
+        TownServiceMerchantHandoff.WantsOffering=false;TownServiceMirror.RemoteMerchantOffering=false;TownServiceStation.NearVisitor=false;
         WorldUIConfig.ImmersiveTownServices.Value=true;MapRoomDriver.Active=true;MapRoomDriver.FrameReady=true;
         MapRoomDriver.Center=new(10,20,30);MapRoomDriver.Scale=2;NetPlayerActors.Local=10;
         TownServicePresentation.Active=false;TownServicePresentation.Service=0;TownServicePresentation.SessionAge=0;
@@ -34,8 +35,22 @@ internal static class Program
         for(byte s=1;s<=3;s++)
         {Check(TownServicePopulation.Available(s),"resident ready affordance");Near(TownServiceStation.Live[s].Visibility,1,"resident fully visible");Check(TownServiceVisitTarget.Live[s].Enabled,"ready resident input");}
     }
+    private static void MerchantOffering()
+    {
+        Reset();TownServiceStation.NearVisitor=true;Tick();
+        Check(!TownServicePopulation.PublishedActivities.Merchant.Engaged,"nearby empty hands do not request merchant palm");
+        Check(TownServiceStation.Live[1].AttentionQueries>0,"merchant gaze remains independent of offered cards");
+        Check(TownServicePopulation.PublishedActivities.Temple.Engaged,"other residents retain ordinary visitor attention");
+        TownServiceMerchantHandoff.WantsOffering=true;Tick();
+        Check(TownServicePopulation.PublishedActivities.Merchant.Engaged,"local eligible card requests authoritative palm");
+        TownServiceMerchantHandoff.WantsOffering=false;TownServiceMirror.RemoteMerchantOffering=true;Tick();
+        Check(TownServicePopulation.PublishedActivities.Merchant.Engaged,"remote owner offering requests the same authoritative palm");
+        TownServiceMirror.RemoteMerchantOffering=false;Tick();
+        Check(!TownServicePopulation.PublishedActivities.Merchant.Engaged,"last offer withdrawal releases merchant arm");
+    }
     private static void Main()
     {
+        MerchantOffering();
         Reset();Tick();AllVisible();Check(TownServicePopulation.Published.Active,"ready population advertised");
         for(int i=0;i<8;i++)Tick(1);AllVisible();Check(TownServiceStation.Creates==3,"no visitor-dependent respawn or repeated create");
         Check(TownServiceStation.Live.Values.All(s=>s.Clip=="Idle"),"no greeting without a visit");

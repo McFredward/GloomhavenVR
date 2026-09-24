@@ -41,6 +41,8 @@ namespace UnityEngine
         public const float PI=(float)Math.PI;
         public static float Sin(float v)=>(float)Math.Sin(v);
         public static float Cos(float v)=>(float)Math.Cos(v);
+        public static float Floor(float v)=>(float)Math.Floor(v);
+        public static float Clamp(float v,float a,float b)=>Math.Max(a,Math.Min(b,v));
         public static float Clamp01(float v)=>Math.Max(0,Math.Min(1,v));
         public static float Lerp(float a,float b,float t)=>a+(b-a)*Clamp01(t);
         public static float SmoothStep(float a,float b,float t){t=Clamp01(t);return a+(b-a)*t*t*(3-2*t);}
@@ -94,7 +96,8 @@ namespace GloomhavenVR.WorldUI
         }
         internal void RefreshEnvironment(bool author) { LastAuthor=author; if(author)Root.position=new Vector3(Root.position.x,Floor,Root.position.z); }
         internal void SetVisibility(float value)=>Visibility=value;
-        internal bool PrepareActivityAttention(bool previous)=>false;
+        internal static bool NearVisitor; internal int AttentionQueries;
+        internal bool PrepareActivityAttention(bool previous){AttentionQueries++;return NearVisitor;}
         internal void SampleActivity(in TownActivityVisual pose) { }
         internal int FaceSeeds;internal bool FaceAuthor,FaceReceived;internal GloomhavenVR.Net.TownFacePose FacePose;
         internal void SeedFace(GloomhavenVR.Net.TownFacePose pose,int author,float elapsed){FaceSeeds++;FacePose=pose;}
@@ -120,7 +123,7 @@ namespace GloomhavenVR.Net.TownServices
     internal sealed class TownServiceSessionInfo
     { internal bool Active;internal byte Service;internal float ReceivedTime,LastSeenTime,SessionAge;internal int Peer; }
     internal static class TownServiceMirror
-    { internal static readonly Dictionary<int,TownServiceSessionInfo> RemoteSessions=new();internal static Func<int,Transform?>? SharedFrameForRemote; }
+    { internal static bool RemoteMerchantOffering; internal static readonly Dictionary<int,TownServiceSessionInfo> RemoteSessions=new();internal static Func<int,Transform?>? SharedFrameForRemote; }
 }
 namespace GloomhavenVR.Net
 {
@@ -203,3 +206,5 @@ namespace GloomhavenVR.WorldUI
 namespace GloomhavenVR.WorldUI {
  internal static class TownServiceEnhancementHandoff { internal static readonly System.Collections.Generic.List<object> Returning = new(); }
 }
+
+namespace GloomhavenVR.WorldUI { internal static class TownServiceMerchantHandoff { internal static bool WantsOffering; } }

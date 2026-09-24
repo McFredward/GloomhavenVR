@@ -163,6 +163,10 @@ internal static class TownServicePopulation
                 if (IsFaceAuthor)
                 {
                     bool engaged = resident.Station.PrepareActivityAttention(resident.Activity.Engaged);
+                    // Gaze still follows nearby visitors. The shared merchant arm opens
+                    // only for an owner-authored held/parked offer, never mere proximity.
+                    if (service == 1) engaged = TownServiceMerchantHandoff.WantsOffering
+                        || TownServiceMirror.RemoteMerchantOffering;
                     TownServiceActivityMotion.Engage(ref resident.Activity, engaged);
                 }
                 // A follower never decides which player deserves attention, including when

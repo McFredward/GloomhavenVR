@@ -24,7 +24,7 @@ def expression(text, signature):
 def sources(root):
     base = root / "src/GloomhavenVR"
     names = ["TownServiceAssets", "TownServiceBinding", "TownServiceCodec", "TownServiceDelta",
-             "TownServiceFrame", "TownRackState", "TownCassetteMotion", "TownServiceMirror.Racks", "TownServiceMaterial", "TownServiceFlameClock", "TownServiceMirror"]
+             "TownServiceFrame", "TownRackState", "TownCassetteMotion", "TownServiceMirror.Racks", "TownServiceMirror.Offerings", "TownServiceMaterial", "TownServiceFlameClock", "TownServiceMirror"]
     bound = {name + ".cs": (base / "Net/TownServices" / (name + ".cs")).read_text() for name in names}
     offering = base / "WorldUI/TownServices/TownServiceOfferingPose.cs"
     bound[offering.name] = offering.read_text()
@@ -107,6 +107,8 @@ def main():
     variants = [("production", None, None, None, "")]
     if not args.no_negative_controls:
         variants += [
+            ("offering-inactive", "TownServiceMirror.Offerings.cs", "|| !intent.Visible ||", "|| false ||", "owner withdrawal closes the shared palm before any asset playback"),
+            ("offering-stale", "TownServiceMirror.Offerings.cs", "age <= OfferingFreshSeconds", "true", "other fresh modules cannot preserve stale offering intent"),
             ("text", "TownServiceBinding.cs", "tmp.text = text[0];", 'tmp.text = "CORRUPTED";', "owner TMP text survives codec and playback"),
             ("mesh", "TownServiceBinding.cs", "mesh.enabled = n[0] != 0;", "mesh.enabled = true;", "handle mesh enabled state follows owner"),
             ("group", "TownServiceBinding.cs", "cg.alpha = n[1];", "cg.alpha = .1f;", "root CanvasGroup alpha matches owner"),

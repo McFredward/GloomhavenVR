@@ -74,7 +74,32 @@ lighting in the complete game map. No hardware outcome is claimed.
   reach, peak and recovery frames were inspected; the encoded convenience video
   is `/tmp/town551-enchantress-motion.mp4`. This is diagnostic actual-skin output,
   not a hardware-performance measurement or a claim that the whole video was watched.
-- The portable phase/network run passes 165,876 assertions and eight controls;
-  `/tmp/town551-portable-full/run-rwfqdxkq` precedes the added strength-variation
-  control. Final portable coverage is rerun during integration. Strict Release
+- The final portable phase/network run passes **178,839 assertions and nine controls**;
+  `/tmp/town551-portable-final/run-caru58gx` includes the added strength-variation
+  control. Strict Release
   build passed with zero warnings/errors (`/tmp/town551-motion-build.log`).
+
+
+## Shared merchant palm demand
+
+Looking at a visitor remains independent of accepting an item. The population's
+single cosmetic author opens the merchant's palm only for a local eligible
+held/parked offer or a fresh remote owner's explicit overlay lifecycle. The unique
+original `merchant.offering|` root stays active during a pending offer even when
+its ghost alpha is zero because the real card occupies the seat. This uses the
+existing immutable presentation headers; no new wire field or card identity is
+introduced.
+
+The receiver caches at most one request per bounded peer session. It validates
+private merchant lane, exact original address, session, manifest membership and
+owner-clock freshness before using the root's active flag. Template loading and
+viewer-local geometry cannot change the request. A module may precede its
+manifest. Withdrawals, reordered headers, removed membership, closed sessions,
+peer departure and stale requests are covered; unrelated live inventory traffic
+cannot keep the palm requested. Only the shared activity author decides the arm
+transition, which observers already reproduce from record 81.
+
+The actual production population harness passes **153 assertions / 10 compiled
+negative controls** (`/tmp/town551-residents.log`), including independent gaze and
+remote-owner demand. The Unity mirror harness separately exercises the original
+encoded module/session lifecycle and its invisible-ghost case.

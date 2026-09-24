@@ -25,3 +25,9 @@ namespace GloomhavenVR.Cards
         }
     }
 }
+
+// This silhouette fixture has one local observer and does not exercise author election.
+namespace GloomhavenVR.Net
+{
+    internal static class NetPlayerActors { internal static int LocalPlayerId() => 1; }
+}
