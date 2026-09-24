@@ -1,9 +1,10 @@
 # State — where the project stands
 
-**Updated 2026-09-22 for map hotfixes; dev 1.0.7 / ModBuild 546, without NPC services.**
+**Updated 2026-09-24: dev 1.0.8 / ModBuild 553, window-continuation hardware candidate.**
 The complete NPC development is isolated on `feature/immersive-town-services` for a
-future release of at least 1.1.0. Builds 538–545 remain reserved for that branch.
-Current fixes and validation: [MAP-546.md](MAP-546.md).
+future release of at least 1.1.0. Builds 538–545 and 547–552 remain reserved for that branch.
+Current review and validation: [WINDOWS-553.md](WINDOWS-553.md). Released 1.0.7 / build 546
+was hardware-confirmed before publication; this new continuation review is not yet hardware-confirmed.
 
 The file this replaces had gone 168 builds
 stale while still saying "read this first"; it is kept as `STATE-ARCHIVE-through-2026-08.md` for
@@ -17,6 +18,13 @@ change per build) → this file (where things stand and what is owed) → the bu
 ---
 
 ## 1. Position
+
+- **dev / 1.0.8 / ModBuild 553:** native level-up Continue, 3D-map confirmation
+  ownership and missed-event/failure recovery, complete message queue callbacks,
+  native popup cancellation and safe mandatory-window close admission. Source review
+  covers reward/result chains and more than 30 window families. No matching third-party
+  logs are available; current local/remote files belong to builds 551/500. No NPC code,
+  asset bundle change or release is included. See [WINDOWS-553.md](WINDOWS-553.md).
 
 - **dev / 1.0.7 / ModBuild 546**, based on the 1.0.6 runtime without NPC services:
   campaign city-event cap and native animation, original permanent map windows across

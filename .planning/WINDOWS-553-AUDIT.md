@@ -79,7 +79,7 @@ serialized layout was exercised in a headset.
 |---|---|---|
 | Campaign chest / campaign reward showcase | UICampaignRewardWindow.OnContinueButtonClick; rewards may chain before Confirm completes manager waiter | Reward lane reviews source context, body click/Continue, both native managers; never bare Hide |
 | Guildmaster chest / event reward showcase | UIRewardsManager.Process polls processingRewards; EndProcess alone clears it and calls onProcessEnded | Keep scoped real input latch and native animation readiness; mandatory policy already identifies controller |
-| Campaign quest completion reward summary | CampaignRewardsManager → campaign reward window; outside ScenarioRewardManager | Reward lane extends owner resolution beyond scenario-only poll |
+| Campaign quest completion reward summary | CampaignRewardsManager → campaign reward window; outside ScenarioRewardManager | Existing map owner resolution and native continuation reviewed; no new controller bypass |
 | Guildmaster adventure completion reward summary | UIGuildmasterAdventureRewardsManager close button → Hide continuation | Reward lane reviews direct source and readiness |
 | Level-up received cards | UILevelUpWindow.nextCardTracker → OnCardShown → ShowCard / OnFinishedShowCards | New visible native Continue route; no early skip during reveal |
 | Level-up selected ability confirmation | UIConfirmationBoxManager callbacks call SelectCard or clear isOpenConfirmationBox | Fix map DialogSurface ownership; preserve genuine choice |

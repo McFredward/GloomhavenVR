@@ -8,6 +8,13 @@ trap 'rm -rf "$test_dir"' EXIT
 cp "$repo_root/tests/GloomhavenVR.DialogSurfaceTests/"*.cs "$test_dir/"
 cp "$repo_root/tests/GloomhavenVR.DialogSurfaceTests/"*.csproj "$test_dir/"
 project="$test_dir/GloomhavenVR.DialogSurfaceTests.csproj"
+python3 - "$repo_root" <<'PY'
+from pathlib import Path
+import sys
+source=(Path(sys.argv[1])/'src/GloomhavenVR/WorldUI/Modal/ModalFallback.10.CatchAll.cs').read_text()
+start=source.index('private static void TickCatchAll(')
+assert source.index('AddPollWindow(Surfaces.DialogSurface.FallbackWindow);',start) < source.index('if (UnknownShown.Count == 0)',start), 'Failed dedicated confirmation must reach modal fallback even without unknown windows'
+PY
 dotnet run --project "$project" --configuration Release --property:DialogSource="$source"
 for mutation in scenario-only edge-only no-fallback no-release native-hide no-retry; do
     python3 - "$source" "$test_dir/mutant.cs.txt" "$mutation" <<'PY'
