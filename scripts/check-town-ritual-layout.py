@@ -74,14 +74,22 @@ def main():
     args.output_dir.mkdir(parents=True, exist_ok=True)
     run = Path(tempfile.mkdtemp(prefix='run-', dir=args.output_dir.resolve()))
     native_counts(args.source_root, run)
+    native_python = Path(os.environ.get('UNITYPY_PYTHON', str(Path.home() / 'unitypy-venv/bin/python')))
+    subprocess.run([str(native_python), str(ROOT / 'scripts/town-ritual-layout-runtime/export-native-book.py'),
+        str(args.source_root), str(run / 'native-book.obj')], check=True)
     base = args.source_root / 'src/GloomhavenVR/WorldUI/TownServices'
-    sources = {'TownServiceRitualLayout.cs': (base / 'TownServiceRitualLayout.cs').read_text()}
+    sources = {name: (base / name).read_text() for name in ('TownServiceRitualLayout.cs', 'TownServiceBookInk.cs')}
     variants = [('production', None, '', '', ''),
         ('folio-width', 'TownServiceRitualLayout.cs', '.60f, .55f', '1.40f, .55f', 'complete native folio sections stay within the stand width'),
         ('folio-under-table', 'TownServiceRitualLayout.cs', '.32f, .33f, -.16f', '.32f, .05f, -.16f', 'native folio stays above tabletop and below resident face'),
         ('folio-rear-decoration', 'TownServiceRitualLayout.cs', '.32f, .33f, -.16f', '.32f, .33f, .65f', 'native folio clears front edge and rear decoration'),
         ('folio-controls-overlap', 'TownServiceRitualLayout.cs', '.43f, .036f, -.20f', '.19f, .036f, -.20f', 'native folio content and original controls never overlap'),
-        ('tilted-coin', 'TownServiceRitualLayout.cs', 'Quaternion.Euler(90f, 0f, 0f), Vector2.one * .075f', 'Quaternion.Euler(65f, 0f, 0f), Vector2.one * .075f', 'native offering coin lies flat on the real worktop')]
+        ('flat-purse', 'TownServiceRitualLayout.cs', 'Quaternion.identity, new Vector2(.125f, .15f)', 'Quaternion.Euler(90f, 0f, 0f), new Vector2(.125f, .15f)', 'purse rests upright above the hand rather than lying like a card'),
+        ('floating-ink', 'TownServiceBookInk.cs', '_position = surface + normal * .00065f;', '_position = surface + normal * .020f;', 'ink is attached within one millimetre of the actual original page'),
+        ('white-ui-ink', 'TownServiceBookInk.cs', 'new Color(.12f, .065f, .027f, 1f)', 'Color.white', 'book text is printed dark ink rather than white floating UI'),
+        ('unwarped-ink', 'TownServiceBookInk.cs', '_text.transform.InverseTransformPoint(_stationToWorld.MultiplyPoint3x4(surface + normal * .00065f))', 'vertices[index]', 'glyph vertices follow curved original pages within 1.5 millimetres'),
+        ('unwrapped-ink', 'TownServiceBookInk.cs', 'text.enableWordWrapping = true;', 'text.enableWordWrapping = false;', 'native description wraps on its own page'),
+        ('overlapping-purses', 'TownServiceRitualLayout.cs', ') * .145f,', ') * .04f,', 'all native blessing purses have separate reachable bodies')]
     manifest = {'result': str(run / 'results.txt'), 'cases': []}
     fixture = ROOT / 'scripts/town-ritual-layout-runtime'
     dotnet = shutil.which('dotnet') or str(Path.home() / '.dotnet/dotnet')
@@ -114,10 +122,10 @@ def main():
     shutil.copyfile(ROOT / 'scripts/town-activity-runtime/Editor/InteractionRunner.cs', project / 'Assets/Editor/InteractionRunner.cs')
     (project / 'Packages/manifest.json').write_text('{"dependencies":{"com.unity.modules.physics":"1.0.0","com.unity.ugui":"1.0.0","com.unity.textmeshpro":"3.0.6"}}')
     (project / 'ProjectSettings/ProjectVersion.txt').write_text('m_EditorVersion: 2021.3.5f1\n')
-    result = subprocess.run(['xvfb-run', '-a', str(args.unity), '-batchmode', '-projectPath', str(project), '-executeMethod', 'InteractionRunner.Start', '-interactionManifest', str(path), '-layoutEvidence', str(run), '-logFile', str(run / 'unity.log')], timeout=240, stdout=subprocess.DEVNULL)
+    result = subprocess.run(['xvfb-run', '-a', str(args.unity), '-batchmode', '-projectPath', str(project), '-executeMethod', 'InteractionRunner.Start', '-interactionManifest', str(path), '-layoutEvidence', str(run), '-nativeBookObj', str(run / 'native-book.obj'), '-logFile', str(run / 'unity.log')], timeout=240, stdout=subprocess.DEVNULL)
     evidence = Path(manifest['result'])
     if evidence.exists(): print(evidence.read_text())
     if result.returncode or not evidence.exists(): raise SystemExit('FAIL: ' + str(run / 'unity.log'))
-    print('PASS: native-count ritual layout proof and five compiled negative controls; evidence: ' + str(run))
+    print(f'PASS: native-count ritual layout proof and {len(variants)-1} compiled negative controls; evidence: {run}')
 
 if __name__ == '__main__': main()

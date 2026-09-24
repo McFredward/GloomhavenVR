@@ -13,14 +13,15 @@ internal sealed class TownServiceRitualConfirmationGuard : IDisposable
     private readonly TownServiceRitualConfirmationGuard? _previous;
     private readonly UIEnhancementConfirmationBox _box;
     private readonly Func<bool> _valid;
+    private readonly Action<bool>? _completion;
     private bool _captured, _completed, _disposed;
 
-    private TownServiceRitualConfirmationGuard(UIEnhancementConfirmationBox box, Func<bool> valid)
+    private TownServiceRitualConfirmationGuard(UIEnhancementConfirmationBox box, Func<bool> valid, Action<bool>? completion)
     {
-        _box = box; _valid = valid; _previous = _active; _active = this;
+        _box = box; _valid = valid; _completion = completion; _previous = _active; _active = this;
     }
 
-    internal static TownServiceRitualConfirmationGuard Begin(UIEnhancementConfirmationBox box, Func<bool> valid) => new(box, valid);
+    internal static TownServiceRitualConfirmationGuard Begin(UIEnhancementConfirmationBox box, Func<bool> valid, Action<bool>? completion = null) => new(box, valid, completion);
 
     internal static void Capture(UIEnhancementConfirmationBox box, ref Action onActionConfirmed, ref Action? onCancelled)
     {
@@ -47,6 +48,7 @@ internal sealed class TownServiceRitualConfirmationGuard : IDisposable
             catch (NullReferenceException) { }
         }
         if (valid) confirm(); else cancel?.Invoke();
+        _completion?.Invoke(valid);
     }
 
     public void Dispose()

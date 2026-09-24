@@ -30,8 +30,12 @@ def sources(root):
     raw = (root / "src/GloomhavenVR/WorldUI/TownServices/TownServiceRitual.cs").read_text()
     methods = method(raw, "private bool Confirm(") + "\n" + method(raw, "private static bool Click(")
     methods = methods.replace("private bool Confirm(", "internal bool Confirm(")
-    text = "using System;using UnityEngine;using UnityEngine.UI;using UnityEngine.EventSystems;using GloomhavenVR.WorldUI;\n" + \
+    start = raw.index("    private bool OfferingEligible(")
+    end = raw.index("    private bool Confirm(", start)
+    methods += raw[start:end].replace("private bool Donate(", "internal bool Donate(")
+    text = "using System;using System.Collections.Generic;using UnityEngine;using UnityEngine.UI;using UnityEngine.EventSystems;using GloomhavenVR.WorldUI;\n" + \
         "internal sealed class BoundRitual {private readonly Func<bool> _alive;private readonly Func<object?> _context;" + \
+        "private readonly HashSet<(string Character,object Blessing)> _submittedOfferings=new();internal FakeTempleOffering _templeOffering=new();" + \
         "internal BoundRitual(Func<bool> alive,Func<object?> context){_alive=alive;_context=context;}\n" + methods + "\n}"
     guard_path = root / "src/GloomhavenVR/WorldUI/TownServices/TownServiceRitualConfirmationGuard.cs"
     if not guard_path.exists():
@@ -43,6 +47,7 @@ def sources(root):
 
 def mutations():
     return [
+        ("repeat-donation", "RitualTransactions.cs", "_submittedOfferings.Add(offering);", "", "a delayed online stock refresh never permits a duplicate donation"),
         ("delayed-validation", "RitualGuard.cs", "_box != null && _valid()", "_box != null", "delayed owner change cancels original transaction"),
         ("delayed-cancel", "RitualGuard.cs", "else cancel?.Invoke();", "else if (!requested) cancel?.Invoke();", "delayed owner change cancels original transaction"),
         ("duplicate-completion", "RitualGuard.cs", "if (_completed) return;", "", "duplicate hidden completion is one shot"),

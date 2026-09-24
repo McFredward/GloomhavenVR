@@ -40,15 +40,21 @@ public static class InteractionProgram
             if(id==11) Check(placement.Size.y<=.43f && placement.Position.x<-.3f,
                 "selected native card hotspots stay readable beside the options");
         }
-        for (int i = 0; i < TownServiceRitualLayout.MaxOfferings; i++)
+        for (int count = 1; count <= TownServiceRitualLayout.MaxOfferings; count++)
         {
-            var pose = TownServiceRitualLayout.Offering(i, TownServiceRitualLayout.MaxOfferings);
-            Vector3 center = pose.Position + TownServiceRitualLayout.Origin;
-            Check(Mathf.Abs(center.y - .958f) < .00001f && Quaternion.Angle(pose.Rotation * Quaternion.Euler(-90f, 0f, 0f), Quaternion.identity) < .001f,
-                "native offering coin lies flat on the real worktop");
-            Check(Mathf.Abs(center.x) + .0375f < .75f && Mathf.Abs(center.z) + .0375f < .338f, "all offering faces stay on altar");
-            Check(center.x > .16f || center.z - .0375f > .03f, "offering does not cover the native devotion ledger");
-            Check(Vector2.Distance(new Vector2(center.x, center.z), new Vector2(0f, .18f)) > .16f + .0375f, "offering does not overlap native bowl");
+            var purseBounds = new List<Bounds>();
+            for (int i = 0; i < count; i++)
+            {
+                var pose = TownServiceRitualLayout.Offering(i, count);
+                Check(Quaternion.Angle(pose.Rotation, Quaternion.identity) < .001f,
+                    "purse rests upright above the hand rather than lying like a card");
+                var bounds = new Bounds(pose.Position, new Vector3(pose.Size.x, pose.Size.y, .1f));
+                foreach (Bounds previous in purseBounds)
+                    Check(!previous.Intersects(bounds), "all native blessing purses have separate reachable bodies");
+                purseBounds.Add(bounds);
+                Check(bounds.min.x > -.30f && bounds.max.x < .30f && bounds.min.y > -.01f,
+                    "complete native purse choice stays above the palm within comfortable reach");
+            }
         }
         bool rejected = false;
         try { TownServiceRitualLayout.Offering(0, TownServiceRitualLayout.MaxOfferings + 1); } catch (InvalidOperationException) { rejected = true; }
@@ -56,6 +62,8 @@ public static class InteractionProgram
         rejected = false;
         try { TownServiceRitualLayout.Folio(99); } catch (ArgumentOutOfRangeException) { rejected = true; }
         Check(rejected, "unknown native section cannot silently overlap another control");
+        checks += BookInkProof.Run();
+        checks += NativeBookProof.Run();
         Render();
         return checks;
     }

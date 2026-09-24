@@ -10,7 +10,7 @@ using UnityEngine.UI;
 using UnityEngine.EventSystems;
 public class Singleton<T>{public static T Instance=default!;}
 public class UIWindow:MonoBehaviour{public bool IsOpen;}
-public class UITempleWindow:MonoBehaviour{public bool _isConfirmationBoxOpened;}
+public class UITempleWindow:MonoBehaviour{public bool _isConfirmationBoxOpened;public FakeCharacter character=new();public FakeTempleInventory Shop=new();public FakeTempleService service=new();}
 public class UINewEnhancementWindow:MonoBehaviour{public bool _isConfirmationBoxOpened;}
 public static class TownServiceConfirmationMask{public static void Begin(UIWindow window,Func<Action?> callback){}}
 public class UIEnhancementConfirmationBox:MonoBehaviour
@@ -91,6 +91,6 @@ public static class InteractionProgram
         TownServiceRitualConfirmationGuard.Capture(a.GetComponent<UIEnhancementConfirmationBox>(),ref cb,ref cancelCb);
         Check(ReferenceEquals(cb,original)&&ReferenceEquals(cancelCb,originalCancel),"scope exits without intercepting future flat prompts");
         UnityEngine.Object.DestroyImmediate(a);UnityEngine.Object.DestroyImmediate(b);
-        return count;
+        return count + DonationProof.Run();
     }
 }

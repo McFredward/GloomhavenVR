@@ -34,11 +34,12 @@ internal static class TownServiceRitualLayout
     internal static Placement Offering(int index, int count)
     {
         Validate(index, count, MaxOfferings, "temple offerings");
-        Vector3 world = index == 0 ? new Vector3(-.42f, .958f, .08f)
-            : new Vector3(.25f + ((index - 1) % 3) * .14f, .958f, -.18f + ((index - 1) / 3) * .14f);
-        // Piece's native coin child is rotated -90 degrees. This makes the actual coin
-        // lie flat while its original inscription faces upwards; no hovering tilted disk.
-        return new Placement(world - Origin, Quaternion.Euler(90f, 0f, 0f), Vector2.one * .075f);
+        // Campaign has one native blessing; Guildmaster can expose several. Keep every
+        // native choice as a separate labelled purse over the same hand, never omit one.
+        int row = index / 4, column = index % 4;
+        int rowCount = Math.Min(4, count - row * 4);
+        return new Placement(new Vector3((column - (rowCount - 1) * .5f) * .145f,
+            .07f + row * .17f, .03f), Quaternion.identity, new Vector2(.125f, .15f));
     }
 
     private static void Validate(int index, int count, int maximum, string kind)

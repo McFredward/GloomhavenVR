@@ -21,11 +21,13 @@ internal sealed class TownServiceRitual : IDisposable
         internal readonly Transform Source;
         private readonly Transform _root;
         private readonly RemoteWidgetMirror _mirror = null!;
+        private readonly TownServiceBookInk _ink;
         internal Transform? Content => Source != null && Source.gameObject.activeInHierarchy ? _mirror.CloneOf(Source) : null;
         internal Transform? CloneOf(Transform source) => _mirror.CloneOf(source);
         internal Inscription(string key, Component source, Transform parent, Vector3 position, float width, float height)
         {
             Key = key; Source = source.transform;
+            _ink = new TownServiceBookInk(key, parent);
             _root = new GameObject("Town ledger inscription").transform;
             _root.SetParent(parent, false); _root.localPosition = position;
             _root.localRotation = Quaternion.Euler(90f, 0f, 0f);
@@ -41,6 +43,7 @@ internal sealed class TownServiceRitual : IDisposable
         {
             _mirror.SetShown(Source != null && Source.gameObject.activeInHierarchy);
             _mirror.TickLive();
+            _ink.Apply(Content);
         }
         public void Dispose()
         {
@@ -97,19 +100,19 @@ internal sealed class TownServiceRitual : IDisposable
             Root = root.transform;
             try
             {
-                Root.SetParent(owner.Root, false);
+                Root.SetParent(owner._templeOffering?.Root ?? owner.Root, false);
                 Root.localPosition = placement.Position; Root.localRotation = placement.Rotation;
                 _reach = (RectTransform)Root;
                 bool offering = source is UITempleShopSlot;
                 _reach.sizeDelta = placement.Size;
                 if (offering)
                 {
-                    Transform template = TownServiceDecor.CoinTemplate
-                        ?? throw new InvalidOperationException("Original offering coin is still loading");
+                    Transform template = TownServiceDecor.MoneyBagTemplate
+                        ?? throw new InvalidOperationException("Original offering purse is still loading");
                     Body = UnityEngine.Object.Instantiate(template.gameObject, Root, false).transform;
-                    Body.localPosition = Vector3.zero; Body.localRotation = Quaternion.Euler(-90f, 0f, 0f);
-                    Body.localScale = template.localScale * 1.4f; Body.gameObject.SetActive(true);
-                    BodyKey = "ritual.coin";
+                    Body.localPosition = new Vector3(0f, -.065f, 0f); Body.localRotation = Quaternion.identity;
+                    Body.localScale = template.localScale; Body.gameObject.SetActive(true);
+                    BodyKey = "ritual.purse";
                     foreach (MeshRenderer renderer in Body.GetComponentsInChildren<MeshRenderer>(true))
                     {
                         Material[] materials = renderer.sharedMaterials;
@@ -134,7 +137,9 @@ internal sealed class TownServiceRitual : IDisposable
                 if (!_mirror.Refresh(source.transform)) throw new InvalidOperationException("Original ritual artwork is unavailable");
                 Token = new TownServiceToken(_reach, button, identity, owner._context,
                     () => owner._alive() && Current, owner.Root, Root, drop, eligible,
-                    owner._service == 2 ? new Vector3(0f, .08f, .26f) : Vector3.zero);
+                    owner._service == 2 ? new Vector3(0f, .16f, .26f) : Vector3.zero,
+                    inspect: () => owner._templeOffering?.Available ?? true,
+                    zoneHalfWidth: owner._service == 2 ? .095f : .20f, reachDepth: offering ? .10f : .009f, uprightProp: offering);
                 VRLayers.Apply(root);
                 ApplyInscriptions(); SetVisibility(owner._visibility);
             }
@@ -244,6 +249,8 @@ internal sealed class TownServiceRitual : IDisposable
     private float _censusAt;
     private readonly float _started = Time.unscaledTime;
     private bool _disposed;
+    private TownServiceTempleOffering? _templeOffering;
+    private readonly HashSet<(string Character, object Blessing)> _submittedOfferings = new();
     internal TownServiceEnhancementHandoff? Handoff { get; private set; }
     internal Transform Root { get; }
     internal IEnumerable<Piece> Pieces => _pieces.Values;
@@ -282,6 +289,8 @@ internal sealed class TownServiceRitual : IDisposable
             if (service == 2)
             {
                 UITempleWindow temple = window.GetComponent<UITempleWindow>();
+                _templeOffering = new TownServiceTempleOffering(this, temple,
+                    TownServicePresentation.StationRoot ?? station);
                 _inscriptions.Add(new Inscription("temple.level", temple.devotionLevel, Root,
                     new Vector3(-.33f, .022f, .025f), .26f, .025f));
                 _inscriptions.Add(new Inscription("temple.gold", temple.totalDonatedGold.text, Root,
@@ -329,8 +338,9 @@ internal sealed class TownServiceRitual : IDisposable
     internal void Tick(float scale)
     {
         Handoff?.Tick();
+        _templeOffering?.Tick(!_disposed && _alive());
         if (_disposed || !_alive()) return;
-        if (_service == 2 && TownServiceDecor.CoinTemplate == null && Time.unscaledTime - _started > 15f)
+        if (_service == 2 && TownServiceDecor.MoneyBagTemplate == null && Time.unscaledTime - _started > 15f)
             throw new InvalidOperationException("Original offering geometry did not load; restoring the native temple window.");
         if (Time.unscaledTime >= _censusAt) { _censusAt = Time.unscaledTime + .2f; RefreshPieces(); }
         foreach (Piece piece in _pieces.Values) piece.Tick(scale);
@@ -355,8 +365,8 @@ internal sealed class TownServiceRitual : IDisposable
         if (_service == 2)
         {
             // Keep the interaction pending during the original asynchronous prop load.
-            // A featureless primitive or a card-shaped replacement is not a coin offering.
-            if (TownServiceDecor.CoinTemplate == null) return;
+            // A featureless primitive or a card-shaped replacement is not a cloth purse.
+            if (TownServiceDecor.MoneyBagTemplate == null) return;
             UITempleWindow temple = _window.GetComponent<UITempleWindow>();
             int index = 0, count = 0;
             foreach (UITempleShopSlot slot in temple.Shop.slots)
@@ -367,8 +377,8 @@ internal sealed class TownServiceRitual : IDisposable
                 var placement = TownServiceRitualLayout.Offering(index++, count);
                 if (ArrangeExisting(slot, placement)) continue;
                 Add(slot, "temple.row", slot.button, () => slot.Blessing,
-                        () => TempleEligible(temple, slot),
-                        () => Confirm(slot.button, () => slot.Blessing, temple, () => TempleEligible(temple, slot)),
+                        () => OfferingEligible(temple, slot),
+                        () => Donate(temple, slot),
                         placement, false,
                         slot.blessIcon, slot.blessName, slot.priceText);
             }
@@ -398,7 +408,25 @@ internal sealed class TownServiceRitual : IDisposable
         return true;
     }
 
+    private bool OfferingEligible(UITempleWindow temple, UITempleShopSlot slot) => _templeOffering?.Available == true && temple.character != null
+        && !_submittedOfferings.Contains((temple.character.CharacterID, slot.Blessing)) && TempleEligible(temple, slot);
+
+    private bool Donate(UITempleWindow temple, UITempleShopSlot slot)
+    {
+        if (!OfferingEligible(temple, slot)) return false;
+        var offering = (temple.character.CharacterID, (object)slot.Blessing);
+        _submittedOfferings.Add(offering);
+        bool submitted = Confirm(slot.button, () => slot.Blessing, temple,
+            () => _templeOffering?.Available == true && TempleEligible(temple, slot),
+            committed => { if (!committed) _submittedOfferings.Remove(offering); });
+        // Online clients wait for the original host action before stock refreshes. A second
+        // release during that interval must never send the same donation twice.
+        if (!submitted) _submittedOfferings.Remove(offering);
+        return submitted;
+    }
+
     private static bool TempleEligible(UITempleWindow temple, UITempleShopSlot slot) => temple.character != null
+        && MapRoomHand.OwnedMerchantCharacter()?.CharacterID == temple.character.CharacterID
         && temple.Shop.slotsCanvasGroup.interactable && slot.IsAvailable && slot.button.IsInteractable()
         // CanBuy opens native warnings on failure. Quiet live reads must precede its
         // multiplayer permission check so a held unaffordable offering cannot spam UI.
@@ -406,7 +434,7 @@ internal sealed class TownServiceRitual : IDisposable
         && temple.service.CanAfford(temple.character.CharacterID, slot.Blessing)
         && temple.service.CanBuy(temple.character.CharacterID, slot.Blessing);
 
-    private bool Confirm(Selectable button, Func<object?> identity, Component controller, Func<bool> eligible)
+    private bool Confirm(Selectable button, Func<object?> identity, Component controller, Func<bool> eligible, Action<bool>? completed = null)
     {
         UIEnhancementConfirmationBox? box = Singleton<UIEnhancementConfirmationBox>.Instance;
         if (!_alive() || box == null || box.GetComponent<UIWindow>().IsOpen || !button.IsInteractable() || !eligible()) return false;
@@ -414,7 +442,7 @@ internal sealed class TownServiceRitual : IDisposable
         Action? previous = box._onConfirmCallback;
         using var confirmation = TownServiceRitualConfirmationGuard.Begin(box,
             () => _alive() && eligible() && button != null && button.IsActive() && button.IsInteractable()
-                && ReferenceEquals(context, _context()) && ReferenceEquals(selected, identity()));
+                && ReferenceEquals(context, _context()) && ReferenceEquals(selected, identity()), completed);
         if (!Click(button)) return false;
         // The native selection synchronously installs its callback. Refusal or an unrelated
         // pre-existing prompt cannot become an implicit purchase. The callback still owns
@@ -450,6 +478,7 @@ internal sealed class TownServiceRitual : IDisposable
         if (_disposed) return; _disposed = true;
         Handoff?.Dispose(); Handoff = null;
         foreach (Piece piece in _pieces.Values) piece.Dispose(); _pieces.Clear(); _samples.Clear();
+        _templeOffering?.Dispose(); _templeOffering = null;
         foreach (Inscription inscription in _inscriptions) inscription.Dispose(); _inscriptions.Clear();
         for (int i = _surfaces.Count - 1; i >= 0; i--) _surfaces[i].Dispose(); _surfaces.Clear();
         if (Root != null) UnityEngine.Object.Destroy(Root.gameObject);
