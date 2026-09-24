@@ -151,6 +151,14 @@ internal static partial class ModalFallback
     /// </summary>
     internal static bool IsMandatoryDecision(UIWindow? window, out string reason)
     {
+        // Conversion already withholds the X from these hints, but the escape chord
+        // uses this live admission too. UIWindow.Hide does not call the layout's
+        // onCloseButtonPressed and can stop an action-dismissed tutorial's waiter.
+        if (window != null && IsLevelMessageWindow(window))
+        {
+            reason = "level/tutorial message — its native Continue or requested action owns continuation";
+            return true;
+        }
         // IntroductionManager queues the next hint from its native continue callback.
         // A generic modal X/Hide bypasses that callback and leaves the queue unresolved.
         // Its layout group is distinct from LevelMessagesUIHandler's scenario tutorial.

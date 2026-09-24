@@ -8,6 +8,15 @@ cp "$repo_root/tests/GloomhavenVR.MessageContinuationTests/"*.cs "$test_dir/"
 cp "$repo_root/tests/GloomhavenVR.MessageContinuationTests/"*.csproj "$test_dir/"
 source="$repo_root/src/GloomhavenVR/WorldUI/Modal/MessageWindowContinuation.cs"
 project="$test_dir/GloomhavenVR.MessageContinuationTests.csproj"
+python3 - "$repo_root" <<'PY'
+from pathlib import Path
+import sys
+source=(Path(sys.argv[1])/'src/GloomhavenVR/WorldUI/Modal/ModalFallback.7.Close.cs').read_text()
+start=source.index('internal static void CloseFloatedWindow(')
+body=source[start:source.index('private static void ResetEscMenuToggleGroup',start)]
+assert body.index('if (MessageWindowContinuation.TryClose(window))') < body.index('wp.UserClosing = true;'), 'Semantic close must precede float release'
+assert 'if (MessageWindowContinuation.TryClose(window))\n            return;' in body, 'Semantic close must not fall through to Hide'
+PY
 dotnet run --project "$project" --configuration Release --property:ContinuationSource="$source"
 for mutation in hide-only callback-only no-eligibility no-reentrancy dialog-bypass dialog-disabled dialog-mandatory; do
     python3 - "$source" "$test_dir/mutant.cs.txt" "$mutation" <<'PY'

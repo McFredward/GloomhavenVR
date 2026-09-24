@@ -175,7 +175,7 @@ internal sealed class DialogSurface
     private void UseFallback(ConfirmationBox box, string reason)
     {
         FallbackWindow = box.GetComponent<UIWindow>();
-        VRLog.Warn("WorldUI", "CONFIRMATION FALLBACK: native dialog could not be floated ("
+        VRLog.Alert("WorldUI", "CONFIRMATION FALLBACK: native dialog could not be floated ("
             + reason + "); generic modal conversion and desktop recovery retain its original buttons.");
     }
 

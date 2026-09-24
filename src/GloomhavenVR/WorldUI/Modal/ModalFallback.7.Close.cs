@@ -126,6 +126,12 @@ internal static partial class ModalFallback
             return;
         string name = window.name;
 
+        // Informational queues and dismissible dialogs own more than visibility:
+        // dispatch their real close/cancel event before touching float lifetime.
+        // A queued message may reopen this same UIWindow synchronously.
+        if (MessageWindowContinuation.TryClose(window))
+            return;
+
         // ModBuild 185: the map room's character screen is not closable — see IsMapRoomPermanent
         // for why closing it SPLIT it rather than closing it. This covers the X, the escape chord
         // and CloseStickyFloatsExceptEscMenu in one place, because they all route through here.

@@ -167,6 +167,7 @@ internal static partial class ModalFallback
     {
         // Part 2 enrollment #2 — mid-scenario reward showcase (see AddRewardShowcaseWindow).
         AddRewardShowcaseWindow(inScenario);
+        AnnouncementContinue.Tick(inScenario && WorldUIConfig.ConversionActive);
         // DialogSurface normally owns this exact source. Failed dedicated conversion
         // (or disabled dedicated dialogs) must still have a native continuation path.
         if (inScenario)
@@ -1439,6 +1440,7 @@ internal static partial class ModalFallback
     private static void CatchAllReset()
     {
         RewardShowcase.Tick(false);
+        AnnouncementContinue.Tick(false);
         UnknownShown.Clear();
         CatchAllWarned.Clear();
         FloatRefusalTable.Reset(); // ModBuild 232 — the refusal table's edge state and lapse counters

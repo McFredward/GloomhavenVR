@@ -18,7 +18,7 @@ namespace UnityEngine.UI
         public EscapeKeyAction escapeKeyAction = EscapeKeyAction.Hide;
         public string name = "Native window";
         public UIWindowID ID;
-        public bool IsOpen = true, Permanent, Introduction, Destination;
+        public bool IsOpen = true, Permanent, Introduction, Destination, LevelMessage;
         public int Hides, Escapes;
         public object? Identity;
         public T? GetComponent<T>() where T : class => Identity as T;
@@ -41,6 +41,12 @@ namespace GloomhavenVR.Core
 namespace GloomhavenVR.WorldUI
 {
     using UnityEngine.UI;
+    // Semantic message continuation is exercised with its production helper in the
+    // separate message-continuation suite. These subjects have no such controller.
+    internal static class MessageWindowContinuation
+    {
+        internal static bool TryClose(UIWindow window) => false;
+    }
     public static class FlatScreen
     {
         public static bool RescueScreenActive;
@@ -60,6 +66,7 @@ namespace GloomhavenVR.WorldUI
         private static bool IsMapRoomPermanent(UIWindow window) => window.Permanent;
         private static string MapRoomPermanentReason(UIWindow window) => "permanent map window";
         private static bool IsIntroductionWindow(UIWindow? window) => window?.Introduction == true;
+        private static bool IsLevelMessageWindow(UIWindow window) => window.LevelMessage;
         private static void ResetEscMenuToggleGroup(UIWindow window) { MenuResets++; }
         internal static void TickRescueForTest() => TickMandatoryRescue();
         internal static void ResetForTest() { _rescueWindow = null; Panel = new(); MenuResets = 0; }

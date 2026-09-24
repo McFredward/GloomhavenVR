@@ -519,7 +519,20 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 546;
+    public const ushort ModBuild = 553;
+
+    // ModBuild 553 — dev 1.0.8 window continuation audit (no NPC feature content).
+    // Level-up card reveals gain an explicit VR Continue through the original native
+    // click tracker; the following card choice remains mandatory. Generic confirmations
+    // also float on the 3D map, recover missed manager events, and enter the existing
+    // generic modal/screen fallback if dedicated conversion fails. Native message close
+    // events retain both their callbacks and queued successors; dismissible popups use
+    // controller cancellation/cleanup. Raw Hide cannot bypass level-up, location reveal,
+    // character creation, confirmation or tutorial continuation. Unlock body clicks target
+    // only the controller's actual ready Continue; map reward buttons also recover bindings
+    // when their native instances predate VR activation. No wire grammar changes.
+    // Builds 547–552 belong to the isolated NPC branch and are not reused here.
+    // Source findings, coverage and hardware limits: .planning/WINDOWS-553.md.
 
     // ModBuild 546 — 1.0.7 map hotfix line, without immersive town services.
     // Restore the separate native campaign city-event control and its original animation;

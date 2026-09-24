@@ -70,6 +70,8 @@ static class Program
         Reset();
         Refused(new UIWindow { Introduction = true }, "introduction callback cannot be bypassed by direct close");
         Reset();
+        Refused(new UIWindow { LevelMessage = true }, "tutorial callback cannot be bypassed by direct close or chord");
+        Reset();
         Refused(new UIWindow { escapeKeyAction = UIWindow.EscapeKeyAction.None }, "native escape refusal cannot be bypassed");
 
         foreach (var policy in new[] { UIWindow.EscapeKeyAction.Hide, UIWindow.EscapeKeyAction.Skip })

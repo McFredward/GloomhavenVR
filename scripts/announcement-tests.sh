@@ -8,6 +8,9 @@ python3 - "$repo_root" <<'PY'
 from pathlib import Path
 import sys
 root=Path(sys.argv[1]); native=root/'decompiled/GH.Runtime/UILevelUpWindow.cs'
+integration=(root/'src/GloomhavenVR/WorldUI/Modal/ModalFallback.10.CatchAll.cs').read_text()
+assert 'AnnouncementContinue.Tick(inScenario && WorldUIConfig.ConversionActive);' in integration
+assert 'AnnouncementContinue.Tick(false);' in integration
 if native.exists():
     source=native.read_text(); fixture=(root/'tests/GloomhavenVR.AnnouncementTests/NativeLevelUpProcess.cs').read_text()
     for name in ['\tprotected void ShowCard()', '\tprivate void OnCardShown()', '\tprivate void OnFinishedShowCards()']:

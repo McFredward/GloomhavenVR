@@ -385,6 +385,8 @@ jobs:
           bash scripts/native-video-tests.sh
           bash scripts/reward-showcase-tests.sh
           bash scripts/modal-close-tests.sh
+          bash scripts/message-continuation-tests.sh
+          bash scripts/announcement-tests.sh
           bash scripts/vr-options-tests.sh
           bash scripts/vr-options-close-tests.sh
           bash scripts/reward-pose-tests.sh
