@@ -1,6 +1,6 @@
 # Planning index
 
-Updated 2026-09-24; feature/immersive-town-services build 550 hardware candidate. Dev remains the separate hotfix branch. This directory holds internal
+Updated 2026-09-24; feature/immersive-town-services build 551 hardware candidate. Dev remains the separate hotfix branch. This directory holds internal
 engineering evidence, historical decisions and current status; it is not the player manual.
 
 ## Current entry points
@@ -11,7 +11,8 @@ engineering evidence, historical decisions and current status; it is not the pla
 | [../CLAUDE.md](../CLAUDE.md) | Technical contracts retained across agent tools |
 | [TEST-PARALLELISM.md](TEST-PARALLELISM.md) | Parallel local/CI execution, coverage and measured timing |
 | [STATE.md](STATE.md) | Current build, validation and outstanding hardware checks |
-| [research/TOWN-SERVICES-550.md](research/TOWN-SERVICES-550.md) | Current hardware corrections: merchant input, hand tracking, floating handoffs, coordinated motion and contact geometry |
+| [research/TOWN-SERVICES-551.md](research/TOWN-SERVICES-551.md) | Current palm decisions, native enchantment folio, restrained resident motion and rolling cabinet |
+| [research/TOWN-SERVICES-550.md](research/TOWN-SERVICES-550.md) | Previous hardware corrections: merchant input, hand tracking, floating handoffs, coordinated motion and contact geometry |
 | [research/TOWN-SERVICES-549.md](research/TOWN-SERVICES-549.md) | Previous approved merchant cabinet and first palm trading; motion/input findings superseded by build 550 |
 | [research/TOWN-SERVICES-548.md](research/TOWN-SERVICES-548.md) | Previous room restoration, compact merchant and fixed-detail actors |
 | [research/TOWN-SERVICES-545.md](research/TOWN-SERVICES-545.md) | Historical physical interaction and portrait revision; superseded by subsequent hardware reports |

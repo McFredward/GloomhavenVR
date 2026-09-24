@@ -1,9 +1,9 @@
 # State — where the project stands
 
-**Updated 2026-09-24: feature/immersive-town-services, version 1.1.0 / ModBuild 550 hardware candidate.**
+**Updated 2026-09-24: feature/immersive-town-services, version 1.1.0 / ModBuild 551 hardware candidate.**
 The feature is based on dev e63fb284, including released 1.0.7 / build 546. Dev remains
 the separate 1.0.8 hotfix line. The maintainer hardware-confirmed 546 before release.
-Current NPC revision: [research/TOWN-SERVICES-550.md](research/TOWN-SERVICES-550.md).
+Current NPC revision: [research/TOWN-SERVICES-551.md](research/TOWN-SERVICES-551.md).
 NPC workers integrate and push exclusively to the feature branch during this work.
 
 The file this replaces had gone 168 builds
@@ -18,6 +18,20 @@ change per build) → this file (where things stand and what is owed) → the bu
 ---
 
 ## 1. Position
+
+- **NPC feature / 1.1.0 / ModBuild 551 (hardware candidate):** callback-scoped
+  palm regrabs and freestanding native confirmation; nearby held-card offer intent;
+  complete original enchantment inventory on the stand and larger offered card;
+  longer varied resident phrases without table bracing; actual articulated rolling
+  shelves with a shared page indicator; original standing candles and opaque flame
+  cores. Fix a destroyed-inscription shutdown exception. Full package required;
+  source and hardware evidence are separated in
+  [research/TOWN-SERVICES-551.md](research/TOWN-SERVICES-551.md). All 69 required
+  suites are covered, including complete repeats of two repaired fixtures and final
+  targeted changes; 14 source gates, 286,120 wire assertions and zero-warning strict
+  Release pass. Actual asset review passes 951,242 assertions / nine controls;
+  4,423 full-skin and 1,206 holder poses have no tested intersections. Matching town
+  bundle: 96,164,115 bytes (`e56d6bd3…61da9`). Hardware results remain unverified.
 
 - **NPC feature / 1.1.0 / ModBuild 550 (hardware candidate):** inert merchant laser/poke;
   shared ability/item hand-local tracking and owned-fan laser contact suppression;
