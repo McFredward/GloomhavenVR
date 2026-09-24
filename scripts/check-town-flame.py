@@ -66,6 +66,8 @@ def main():
     if shader_text.count(batching_tag) != 1: raise SystemExit('Native billboard batching guard drift')
     (project / 'Assets/TownFlameBatchingNegative.shader').write_text(shader_text.replace(batching_tag, '')
         .replace('Shader "GloomhavenVR/TownFlame"', 'Shader "GloomhavenVR/TownFlameBatchingNegative"'))
+    (project / 'Assets/TownFlameTransparentNegative.shader').write_text(shader_text.replace('_FlameCore > .5h', 'false')
+        .replace('Shader "GloomhavenVR/TownFlame"', 'Shader "GloomhavenVR/TownFlameTransparentNegative"'))
     (run / 'shader-sha256.txt').write_text(hashlib.sha256(shader_text.encode()).hexdigest() + '\n')
     (project / 'Packages/manifest.json').write_text('{"dependencies":{"com.unity.modules.physics":"1.0.0","com.unity.ugui":"1.0.0","com.unity.textmeshpro":"3.0.6"}}')
     (project / 'ProjectSettings/ProjectVersion.txt').write_text('m_EditorVersion: 2021.3.5f1\n')

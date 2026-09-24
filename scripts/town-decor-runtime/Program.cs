@@ -16,6 +16,7 @@ public static class InteractionProgram
         var root=new GameObject(name);
         var child=GameObject.CreatePrimitive(PrimitiveType.Cube);child.name=name;child.transform.SetParent(root.transform,false);
         if(name=="lantern")child.name="CR_INT_Lantern_01_b";
+        if(name=="stand-candle") child.name="CR_GE_Candle_V1";
         if(name=="flame") {child.name="CandlePivot";var glow=GameObject.CreatePrimitive(PrimitiveType.Quad);glow.name="Glow";glow.transform.SetParent(child.transform,false);glow.GetComponent<MeshRenderer>().sharedMaterial=(Material)Addressables.Assets["good"];}
         var renderer=child.GetComponent<MeshRenderer>();renderer.sharedMaterials=Array.Empty<Material>();
         root.AddComponent<MaterialLoader>().LoadersData=new[]{new MaterialLoaderData{Renderer=renderer,MaterialReferences=new[]{new AssetReferenceT<Material>{RuntimeKey=material}}}};
@@ -31,6 +32,7 @@ public static class InteractionProgram
         Addressables.Assets["good"]=material;Addressables.Assets["bad"]=material;Addressables.Failures["bad"]=failures;
         List("Gaslight",("Gaslight.Lighting.Torch.Wall#1","lantern","bad"));
         List("Tone_Candlelight",("Candlelight.Lighting.Torch.Wall#1","flame","good"));
+        List("RockTemple",("RockTemple.Feature.Small#3","stand-candle","good"));
         List("Library",("Library.Clutter.Shelf.Individual#7","book","good"));
         List("Treasure",("Treasure.Clutter.FloorSmall#3","coins","good"),("Treasure.Clutter.Shelf.Individual#1","coinsingle",BrokenCoin));
         Addressables.Assets["coinpile"]=new Material((Material)Addressables.Assets["good"]){name="GoldCoinMat",mainTexture=Texture2D.blackTexture};
@@ -43,7 +45,7 @@ public static class InteractionProgram
         Tick(decor,0);Tick(decor,.11f);
         Check(root.transform.Find("Original.Library.Clutter.Shelf.Individual#7")!=null,"unrelated book builds while lantern material fails");
         Check(root.transform.Find("Original.Chapel.Clutter.Shelf.Individual#2")==null, "merchant practical uses an actual candle, never height-scaled scrolls");
-        Check(root.transform.Find("Original.Candlelight.Lighting.Torch.Wall#1")!=null, "merchant ledger candle is a native candle body");
+        Check(root.transform.Find("Original.RockTemple.Feature.Small#3")!=null, "merchant ledger candle is a native candle body");
         Check(!light.Flames.ContainsKey(0) && light.Flames.ContainsKey(1),"failed lantern stays dark while independent candle remains lit");
         var workingCoin=root.transform.Find("Original.Treasure.Clutter.Shelf.Individual#1");
         Check(workingCoin!=null&&workingCoin.GetComponentInChildren<MeshRenderer>()!=null,"merchant original work coin survives stale native material GUID");
@@ -74,7 +76,8 @@ public static class InteractionProgram
                 Check(address=="decor.2."+index,"static prop address remains service/index stable");staticCount++;
             }
         Check(staticCount==9,"all priestess static lamps ledger bowl and scrolls exposed");
-        Check(root.GetComponentsInChildren<Transform>(true).Count(t => t.name == "Original.Candlelight.Lighting.Torch.Wall#1") == 5,
+        Check(root.GetComponentsInChildren<Transform>(true).Count(t => t.name == "Original.RockTemple.Feature.Small#3") == 3
+            && root.GetComponentsInChildren<Transform>(true).Count(t => t.name == "Original.Candlelight.Lighting.Torch.Wall#1") == 2,
             "three actual candles and two lantern flames retain independent stand poses");
         Check(TownServiceDecor.TryStaticProp(2,0,out var lampSource,out _),"priestess static lamp ready");
         Check(TownServiceDecor.TryPractical(2,0,out var lampPoint,out var rangeScale),"original lamp has exact flame calibration");

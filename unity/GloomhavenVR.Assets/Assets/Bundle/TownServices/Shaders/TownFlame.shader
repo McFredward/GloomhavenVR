@@ -1,4 +1,5 @@
-// The game's original candle flame/glow meshes and textures use additive alpha.
+// Preserve additive halos; actual candle cores use coverage so lit surfaces cannot
+// show straight through the flame. Native textures and shared timing remain intact.
 // This material supplies stereo routing and station visibility without native scripts.
 Shader "GloomhavenVR/TownFlame"
 {
@@ -7,6 +8,7 @@ Shader "GloomhavenVR/TownFlame"
         _MainTex ("Original flame", 2D) = "white" {}
         _Color ("Tint", Color) = (1,1,1,1)
         _TownVisibility ("Town visibility", Range(0,1)) = 1
+        _FlameCore ("Candle core coverage", Float) = 0
         _Billboard ("Verified native XY quad", Float) = 0
         _Toggle_Flipbook ("Original flipbook", Float) = 0
         _FlipbookTileX ("Columns", Float) = 1
@@ -21,7 +23,7 @@ Shader "GloomhavenVR/TownFlame"
         // pretransforms vertices and removes that per-quad origin, collapsing native
         // candle/glow groups at world zero instead of their physical flame/hand pose.
         Tags { "Queue"="Transparent" "RenderType"="Transparent" "DisableBatching"="True" }
-        Blend SrcAlpha One
+        Blend One OneMinusSrcAlpha
         ZWrite Off
         Cull Off
         Pass
@@ -34,7 +36,7 @@ Shader "GloomhavenVR/TownFlame"
             sampler2D _MainTex;
             float4 _MainTex_ST;
             fixed4 _Color;
-            half _TownVisibility, _Billboard;
+            half _TownVisibility, _Billboard, _FlameCore;
             float _Toggle_Flipbook, _FlipbookTileX, _FlipbookTileY, _FlipbookSpeed, _FlipbookStart, _TownAnimationTime;
             struct AppData { float4 vertex : POSITION; float2 uv : TEXCOORD0; UNITY_VERTEX_INPUT_INSTANCE_ID };
             struct Interpolated { float4 vertex : SV_POSITION; float2 uv : TEXCOORD0; UNITY_VERTEX_OUTPUT_STEREO };
@@ -77,8 +79,12 @@ Shader "GloomhavenVR/TownFlame"
             {
                 UNITY_SETUP_STEREO_EYE_INDEX_POST_VERTEX(i);
                 fixed4 c = tex2D(_MainTex, i.uv) * _Color;
-                c.a *= _TownVisibility;
-                return c;
+                half coverage = saturate(c.a * 4.0h) * _TownVisibility;
+                // Glow/glass retain the original additive energy. Only a verified flame
+                // mesh covers its background; soft texture edges still fade continuously.
+                return _FlameCore > .5h
+                    ? fixed4(c.rgb * 2.0h * coverage, coverage)
+                    : fixed4(c.rgb * c.a * _TownVisibility, 0);
             }
             ENDCG
         }
