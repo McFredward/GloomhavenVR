@@ -18,7 +18,7 @@ assert body.index('if (MessageWindowContinuation.TryClose(window))') < body.inde
 assert 'if (MessageWindowContinuation.TryClose(window))\n            return;' in body, 'Semantic close must not fall through to Hide'
 PY
 dotnet run --project "$project" --configuration Release --property:ContinuationSource="$source"
-for mutation in hide-only callback-only no-eligibility no-reentrancy dialog-bypass dialog-disabled dialog-mandatory; do
+for mutation in hide-only callback-only no-eligibility no-reentrancy dialog-bypass dialog-disabled dialog-mandatory dialog-stale; do
     python3 - "$source" "$test_dir/mutant.cs.txt" "$mutation" <<'PY'
 from pathlib import Path
 import sys
@@ -31,6 +31,7 @@ pairs={
  'dialog-bypass': ('popup.Cancel();','window.Hide();'),
  'dialog-disabled': ('cancel.IsActive() && cancel.IsInteractable()', 'cancel.IsActive()'),
  'dialog-mandatory': (' || !popup.allowHide',''),
+ 'dialog-stale': (' && popup.contentText != null\n            && !popup.contentText.gameObject.activeSelf',''),
 }
 a,b=pairs[sys.argv[3]]; assert a in s
 Path(sys.argv[2]).write_text(s.replace(a,b))
@@ -47,6 +48,7 @@ PY
         dialog-bypass) expected='native dialog cancellation restores content' ;;
         dialog-disabled) expected='disabled native cancel cannot become a forced hide' ;;
         dialog-mandatory) expected='mandatory dialog stays with native choice' ;;
+        dialog-stale) expected='text popup never dispatches the previous content transaction cancellation' ;;
     esac
     if ! rg -qF "$expected" "$test_dir/mutant.log"; then cat "$test_dir/mutant.log"; exit 1; fi
     echo "Message continuation negative control: $mutation rejected."

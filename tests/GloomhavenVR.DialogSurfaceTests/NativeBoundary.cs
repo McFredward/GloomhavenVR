@@ -58,6 +58,7 @@ namespace GloomhavenVR.Core
         internal static int Warnings;
         internal static void Info(string scope, string value) { }
         internal static void Warn(string scope, string value) { ++Warnings; }
+        internal static void Alert(string scope, string value) { ++Warnings; }
     }
 }
 namespace GloomhavenVR.Core.Events

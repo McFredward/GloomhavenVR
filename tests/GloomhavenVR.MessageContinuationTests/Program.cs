@@ -116,6 +116,14 @@ internal static class Program
         mandatory.allowHide = true;
         Check(MessageWindowContinuation.TryClose(mandatoryWindow) && mandatory.ContentRestored,
             "plain dismissible dialog uses native TryHide cleanup");
+        var reusedWindow = new UIWindow { IsOpen = true };
+        var reused = new DialogPopup(reusedWindow) { allowHide = true };
+        reusedWindow.Popup = reused;
+        int oldTransaction = 0;
+        reused.cancelAction = () => ++oldTransaction;
+        reused.contentText.gameObject.activeSelf = true;
+        Check(MessageWindowContinuation.TryClose(reusedWindow) && oldTransaction == 0 && reused.ContentRestored,
+            "text popup never dispatches the previous content transaction cancellation");
     }
 }
 
@@ -140,6 +148,8 @@ internal sealed class UIManager
     internal DialogPopup? dialogPopup;
 }
 internal sealed class InputButton { internal Button ExtendedButton = new(); }
+internal sealed class ContentText { internal readonly ActiveObject gameObject = new(); }
+internal sealed class ActiveObject { internal bool activeSelf; }
 internal sealed class DialogPopup
 {
     internal readonly UIWindow Window;
@@ -147,6 +157,7 @@ internal sealed class DialogPopup
     internal bool isActiveAndEnabled = true, ControllerActive = true;
     internal int cancelOption = -1;
     internal readonly List<InputButton> optionButtons = new();
+    internal readonly ContentText contentText = new();
     internal Action? cancelAction;
     internal DialogPopup(UIWindow window) { Window = window; }
     internal void Cancel()

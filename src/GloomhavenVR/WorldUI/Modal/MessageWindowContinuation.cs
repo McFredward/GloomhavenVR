@@ -49,7 +49,11 @@ internal static class MessageWindowContinuation
             Button? cancel = popup.optionButtons[popup.cancelOption].ExtendedButton;
             if (cancel != null && cancel.IsActive() && cancel.IsInteractable()) popup.Cancel();
         }
-        else if (popup.cancelAction != null) popup.Cancel();
+        // Show(string, ...) does not clear a prior content overload's cancelAction.
+        // Its visible contentText is the native per-Show discriminator; never invoke
+        // an earlier borrowed-content transaction from a later textual notice.
+        else if (popup.cancelAction != null && popup.contentText != null
+            && !popup.contentText.gameObject.activeSelf) popup.Cancel();
         else popup.TryHide();
         return true;
     }

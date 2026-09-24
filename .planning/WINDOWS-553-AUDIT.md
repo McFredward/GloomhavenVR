@@ -54,7 +54,9 @@ not just whether an `onHidden` subscription exists.
    The new helper resolves the exact serialized Window, prefers an eligible native
    cancellation, and otherwise uses TryHide for a genuinely dismissible popup.
    `allowHide=false` remains under mandatory-decision policy; a disabled cancel is
-   never permission to hide forcibly.
+   never permission to hide forcibly. The text overload does not clear an earlier
+   content overload's cancelAction: the current contentText visibility prevents
+   invoking that stale callback when the pooled dialog becomes a textual notice.
 5. **Character creation must not be generically hidden.**
    `UICharacterCreatorWindow.Build` sets MapParty.IsCreatingCharacter. OnHidden
    resolves/cancels its promise but does not clear that map flag. Native Cancel and
@@ -128,7 +130,7 @@ The level-up raw tracker defect is independent of this distinction.
 ## Validation and limits
 
 - `message-continuation-tests.sh`: production helper compiled directly;
-  **354 assertions / seven runtime negative controls**. Covers one through twelve
+  **355 assertions / eight runtime negative controls**. Covers one through twelve
   queued messages, both native callback layers, pagination non-mutation, repeated
   close, unavailable native controls, recursion/throw cleanup, separate popup/window
   objects, disabled cancel, and mandatory popup refusal.
