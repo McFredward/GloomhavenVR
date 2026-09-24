@@ -24,25 +24,41 @@ def expression(text, signature):
 def sources(root):
     base = root / "src/GloomhavenVR"
     names = ["TownServiceAssets", "TownServiceBinding", "TownServiceCodec", "TownServiceDelta",
-             "TownServiceFrame", "TownRackState", "TownServiceMirror.Racks", "TownServiceMaterial", "TownServiceFlameClock", "TownServiceMirror"]
+             "TownServiceFrame", "TownRackState", "TownCassetteMotion", "TownServiceMirror.Racks", "TownServiceMaterial", "TownServiceFlameClock", "TownServiceMirror"]
     bound = {name + ".cs": (base / "Net/TownServices" / (name + ".cs")).read_text() for name in names}
     backdrop = base / "WorldUI/TownServices/TownServiceBackdropAssets.cs"
     if backdrop.exists(): bound[backdrop.name] = backdrop.read_text()
     motion = base / "Net/TownServices/TownServiceMotion.cs"
     if motion.exists(): bound[motion.name] = motion.read_text()
     publisher = (base / "WorldUI/TownServices/TownServiceSync.cs").read_text()
-    bound["PublisherTick.cs"] = "using System;\nusing System.IO;\nusing System.Collections.Generic;\nusing GloomhavenVR.Net.TownServices;\nusing UnityEngine;\nnamespace GloomhavenVR.WorldUI;\ninternal static partial class TownServiceSync {\n" + "\n".join(method(publisher, signature) for signature in ("internal static void Tick(Transform sharedFrame, Transform? stationRoot)", "private static void PublishHeld(TownServiceToken sample, Transform original)", "private static void PublishCopiedCards(Transform original, Func<Transform, Transform?> cloneOf)", "private static string? DynamicKey(Transform source)", "private static void PublishRackClock(TownServiceCatalog catalog, TownServiceMerchantDrawer rack)", "private static void AddRackMembers(Transform? root,TownServiceCatalog.Entry entry,TownServiceMerchantDrawer rack,ushort rackId)", "private static int CompareRackMembers(TownRackMember a,TownRackMember b)")) + "\n}\n"
-    bound["PublisherTick.cs"] = bound["PublisherTick.cs"].replace("internal static partial class TownServiceSync {\n",
-        "internal static partial class TownServiceSync {\n" + "\n".join(expression(publisher, declaration) for declaration in
-        ("private static uint _generation", "private static ulong _relocationRevision", "private static bool _generationExhausted")) + "\n"
-        + method(publisher, "internal static void Reset()") + "\n"
-        + publisher[publisher.index("    internal static void ResetNetwork()"):publisher.index("\n", publisher.index("    internal static void ResetNetwork()"))] + "\n")
-    publish = method(publisher, "private static void Publish(string key, Transform? source, Transform? provenance = null, Func<Transform, Transform?>? cloneOf = null, bool prewarm = false)").replace("private static void Publish(", "private static void PublishNative(", 1)
-    bound["PublisherNative.cs"] = "using System;\nusing System.IO;\nusing System.Collections.Generic;\nusing UnityEngine;\nusing GloomhavenVR.Net.TownServices;\nnamespace GloomhavenVR.WorldUI;\ninternal static partial class TownServiceSync {\n" + publish + "\n}\n"
+    signatures = ("private void TickCore(Transform sharedFrame, Transform? stationRoot)",
+        "private void PublishHeld(TownServiceToken sample, Transform original)",
+        "private void PublishCopiedCards(Transform original, Func<Transform, Transform?> cloneOf)",
+        "private string? DynamicKey(Transform source)",
+        "private void PublishRackClock(TownServiceCatalog catalog, TownServiceMerchantDrawer rack)",
+        "private void AddRackMembers(Transform? root,TownServiceCatalog.Entry entry,TownServiceMerchantDrawer rack,ushort rackId)",
+        "private int CompareRackMembers(TownRackMember a,TownRackMember b)",
+        "private void PublishCatalog(TownServiceCatalog catalog, Transform? furniture)",
+        "private void TickCatalog(Transform frame, Transform station, TownServiceCatalog catalog, uint session, float age)",
+        "private void PruneSources()", "private void ResetCore()")
+    declarations = ("private uint _generation", "private ulong _relocationRevision", "private bool _generationExhausted")
+    wrappers = publisher[publisher.index("    private static readonly TownServiceSync Private"):publisher.index("    private sealed class Published")]
+    wrappers = wrappers.replace("internal static void Prepare() => Private.PrepareCore();", "")
+    network = next(line for line in publisher.splitlines() if "internal static void ResetNetwork()" in line)
+    bound["PublisherTick.cs"] = "using System;\nusing System.IO;\nusing System.Collections.Generic;\nusing GloomhavenVR.Net.TownServices;\nusing GloomhavenVR.Cards;\nusing UnityEngine;\nnamespace GloomhavenVR.WorldUI;\ninternal sealed partial class TownServiceSync {\n" + wrappers + "\n" + network + "\n" + "\n".join(expression(publisher, declaration) for declaration in declarations) + "\n" + "\n".join(method(publisher, signature) for signature in signatures) + "\n}\n"
+    publish = method(publisher, "private void Publish(string key, Transform? source, Transform? provenance = null, Func<Transform, Transform?>? cloneOf = null, bool prewarm = false)").replace("private void Publish(", "private void PublishNative(", 1)
+    bound["PublisherNative.cs"] = "using System;\nusing System.IO;\nusing System.Collections.Generic;\nusing UnityEngine;\nusing GloomhavenVR.Net.TownServices;\nnamespace GloomhavenVR.WorldUI;\ninternal sealed partial class TownServiceSync {\n" + publish + "\n}\n"
     catalog = (base / "WorldUI/TownServices/TownServiceCatalog.cs").read_text()
     bound["CatalogOwnership.cs"] = "using UnityEngine;\nnamespace GloomhavenVR.WorldUI;\ninternal sealed partial class TownServiceCatalog {\n" + method(catalog, "internal static Transform? PresentationOwner(Transform source)") + "\n}\n"
     drawer = (base / "WorldUI/TownServices/TownServiceMerchantDrawer.cs").read_text()
-    bound["DrawerTemplates.cs"] = "using System;\nusing UnityEngine;\nusing TMPro;\nnamespace GloomhavenVR.WorldUI;\ninternal sealed partial class TownServiceMerchantDrawer {\n" + "\n".join(method(drawer, signature) for signature in ("internal static GameObject CreateTemplate(TMP_Text? font)", "internal static GameObject CreateHousingTemplate()", "private static Material OriginalWood()", "private static void Rod(Transform parent, string name, Vector3 start, Vector3 end, float radius)", "private static void Part(Transform parent,string name,Vector3 position,Vector3 scale)")) + "\n}\n"
+    bound["DrawerTemplates.cs"] = "using System;\nusing UnityEngine;\nusing TMPro;\nusing GloomhavenVR.Net.TownServices;\nnamespace GloomhavenVR.WorldUI;\ninternal sealed partial class TownServiceMerchantDrawer {\n" + "\n".join(method(drawer, signature) for signature in ("internal static GameObject Authored(string name)", "internal static GameObject CreateHousingTemplate()")) + "\n" + expression(drawer, "internal static GameObject CreateTemplate(TMP_Text? font)") + "\n}\n"
+    transfer = (base / "Cards/Driver/CardsDriver.5.Interactions.cs").read_text()
+    bound["TransferDetector.cs"] = "using System;\nusing UnityEngine;\nusing GloomhavenVR.Core;\nusing GloomhavenVR.Hands;\nusing GloomhavenVR.Hands.Interact;\nnamespace GloomhavenVR.Cards;\ninternal sealed partial class CardsDriver {\n" + "\n".join(method(transfer, signature) for signature in ("private void UpdateHeldCardTransfer()", "private static IFanSweepTarget? HeldTransferable(VRHand? hand)")) + "\n" + expression(transfer, "private const float TransferHoverExitScale") + "\n}\n"
+    sweep = (base / "Cards/FanSweep.cs").read_text()
+    end = sweep.index("    // ---- election")
+    bound["TransferReach.cs"] = sweep[:end] + "}\n"
+    hold = (base / "Cards/ItemCardHold.cs").read_text()
+    bound["TransferCapability.cs"] = hold[:hold.index("/// <summary>The existing scenario")].replace("using GloomhavenVR.Rig;\n", "")
     town_neutralizer = base / "Net/TownServices/TownServiceNeutralize.cs"
     if town_neutralizer.exists():
         bound[town_neutralizer.name] = town_neutralizer.read_text()
@@ -66,7 +82,7 @@ def main():
     parser.add_argument("--source-root", type=Path, default=repo)
     parser.add_argument("--output-dir", type=Path, default=repo / ".planning/debug/town-service-mirror")
     parser.add_argument("--unity", type=Path, default=Path(os.environ.get("UNITY_PATH", "/home/claw/unity-2021.3.5/Editor/Unity")))
-    parser.add_argument("--suite", choices=("basic", "full", "lifecycle", "counter-final", "relocation", "asset-identity", "rack-clock", "catalog-lifetime"), default="full")
+    parser.add_argument("--suite", choices=("basic", "full", "lifecycle", "counter-final", "relocation", "asset-identity", "rack-clock", "catalog-lifetime", "public-catalog", "item-transfer"), default="full")
     parser.add_argument("--no-negative-controls", action="store_true")
     args = parser.parse_args()
     args.source_root = args.source_root.resolve()
@@ -92,7 +108,7 @@ def main():
         if args.suite == "full":
             variants += [
                 ("publisher-rack", "PublisherTick.cs", 'Publish("merchant.rack", rack.HousingRoot);', '// rack omitted', "crank and revolving rack publish their actual moving roots"),
-                ("publisher-old-window", "PublisherTick.cs", 'if (catalog == null && TownServicePresentation.Ritual == null)', 'if (true)', "physical counter does not publish suppressed flat merchant window"),
+                ("publisher-old-window", "PublisherTick.cs", 'if (service != 1 && catalog == null && TownServicePresentation.Ritual == null)', 'if (true)', "physical counter does not publish suppressed flat merchant window"),
                 ("publisher-stale-entry", "PublisherTick.cs", "if (!entry.Current || !entry.Warm) continue;", "// publish stale entry", "physical counter publishes only six current item cards"),
                 ("publisher-cardbody", "PublisherTick.cs", 'Publish("merchant.cardbody", entry.BodyRoot, prewarm: true);', '// body omitted', "every original face retains its physical body remotely"),
                 ("publisher-held-duplicate", "PublisherTick.cs", 'if (sample.IsPhysical) continue;', '// physical guard omitted', "physical original is not duplicated by generic held publication"),
@@ -121,9 +137,9 @@ def main():
         if not args.no_negative_controls:
             variants += [
                 ("no-relocation-generation", "PublisherTick.cs", " || _relocationRevision != relocation", "", "dropped invisible frames cannot interpolate across relocation"),
-                ("invisible-baseline", "PublisherTick.cs", "if (TownServicePresentation.RelocationVisibility <= 0f) return;", "", "first visible relocation state is independently decodable"),
+                ("invisible-baseline", "PublisherTick.cs", "if (active && TownServicePresentation.RelocationVisibility <= 0f) return;", "", "first visible relocation state is independently decodable"),
                 ("reused-generation", "PublisherTick.cs", "_generation++;", "_generation = session;", "dropped invisible frames cannot interpolate across relocation"),
-                ("generation-wrap", "PublisherTick.cs", "if (_generation == uint.MaxValue)", "if (false)", "Missing town-service session frame"),
+                ("generation-wrap", "PublisherTick.cs", "if (_generation == uint.MaxValue)", "if (_generation == uint.MaxValue && _generation == 0)", "Missing town-service session frame"),
             ]
     if args.suite == "asset-identity":
         variants = [("production", None, None, None, "")]
@@ -152,7 +168,28 @@ def main():
                 ("rack-hidden-body", "TownServiceMirror.Racks.cs", "renderer.forceRenderingOff=!shown;", "renderer.forceRenderingOff=true;", "incoming physical body appears with its face"),
                 ("rack-idle-crank", "TownServiceMirror.Racks.cs", "out var crank)&&replaying)", "out var crank)&&state.Turn!=0)", "idle manual lead pull is not overwritten by the previous clock"),
                 ("rack-skipped-epochs", "TownServiceMirror.Racks.cs", "FromPage=joining?state.From:DisplayPage;", "FromPage=state.From;", "skipped owner epochs preserve the actual outgoing front until the opaque midpoint"),
-                ("rack-turn-queue", "TownServiceMirror.Racks.cs", "if(!Turning&&Queue.Count==0)", "if(true)", "newer queued turn and reordered old packet do not reset an in-flight rack"),
+                ("rack-turn-queue", "TownServiceMirror.Racks.cs", "if(!Turning&&Queue.Count==0)", "if(Queue.Count>=0)", "newer queued turn and reordered old packet do not reset an in-flight rack"),
+            ]
+    if args.suite == "public-catalog":
+        variants = [("production", None, None, None, "")]
+        if not args.no_negative_controls:
+            variants += [
+                ("private-public-collision", "TownServiceMirror.cs", "if (frame!.PublicCatalog) { peer = -peer;", "if (frame!.PublicCatalog) { peer = Math.Abs(peer);", "one lowest live stock author is elected"),
+                ("inspection-native-gate", "PublisherTick.cs", "if (!active && !inspection && returns.Count == 0)", "if (!active && returns.Count == 0)", "closed native shop publishes all 512 owned faces and original backings exactly once"),
+                ("stale-author-clock", "TownServiceMirror.cs", "if (RemoteRacks.TryGetValue(peer, out var clocks))", "if (peer > 0 && RemoteRacks.TryGetValue(peer, out var clocks))", "authority handoff retains completed observer clock instead of rewinding stale owner sample"),
+                ("public-visitor", "TownServiceMirror.cs", "if (peer > 0) VisitorSessions[peer] = Sessions[peer];", "VisitorSessions[peer] = Sessions[peer];", "remote public stock is excluded from visitor census"),
+                ("inactive-author", "TownServiceMirror.cs", "int author = PublicLane.Active ? LocalPeer : int.MaxValue;", "int author = LocalPeer;", "departed public owner leaves no stale invisible authority"),
+                ("cassette-skip-motion", "TownServiceMirror.Racks.cs", "TownCassetteMotion.Apply(rack.Binding.Root, clock.Turning ? clock.Elapsed / TownRackState.TurnDuration : 1f);", "TownCassetteMotion.Apply(rack.Binding.Root, 1f);", "late public observer reconstructs cassette withdrawal from explicit clock"),
+            ]
+    if args.suite == "item-transfer":
+        variants = [("production", None, None, None, "")]
+        if not args.no_negative_controls:
+            variants += [
+                ("drop-merchant-shape", "TransferDetector.cs", "or IItemCardHold { IsItemCard: true }", "", "either fingertip or palm contact admits transfer"),
+                ("require-both-contacts", "TransferDetector.cs", "tipDist > reach.Tip * exit && palmDist > reach.Palm * exit", "tipDist > reach.Tip * exit || palmDist > reach.Palm * exit", "either fingertip or palm contact admits transfer"),
+                ("haptic-repeat", "TransferDetector.cs", "if (!wasHovering)", "if (true)", "continued shared hover emits no repeated haptic"),
+                ("ignore-closer-ui", "TransferDetector.cs", "if (free.RayUgui.HasHit)", "if (free.RayUgui.HasHit && free.WorldScale < 0)", "nearer native UI retains the trigger"),
+                ("ignore-modal", "TransferDetector.cs", " || _modalInputBlocked", "", "modal decision keeps transfer input blocked"),
             ]
     print(f"Production binding: {args.source_root.resolve()}; evidence: {run}", flush=True)
     for name, filename, before, after, expected in variants:

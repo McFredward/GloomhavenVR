@@ -49,10 +49,12 @@ namespace GloomhavenVR.WorldUI
         internal Transform NavigationRoot = null!;
         internal List<Entry> Entries = new();
         internal List<TownServiceMerchantDrawer> Drawers = new();
+        internal List<TownServiceCatalogCategory> Categories = new();
         internal List<TownServiceMerchantCounter> Extensions = new();
         internal List<TownServiceMerchantZone> Zones = new();
     }
     internal sealed partial class TownServiceMerchantDrawer { internal Transform Root = null!, HousingRoot = null!; internal bool Moving,Selling; internal uint TurnEpoch; internal float TurnElapsed,LeadAngle; internal int Page,FromPage,ToPage; }
+    internal sealed class TownServiceCatalogCategory { internal string Key = ""; internal Transform Root = null!; }
     internal sealed class TownServiceMerchantCounter { internal Transform Root = null!; }
     internal sealed class TownServiceEnhancementHandoff {
         internal sealed class ReturnPresentation { internal Transform? Face, Body, StationRoot; internal int CardId; internal uint Session; internal float SessionAge; }
@@ -129,7 +131,7 @@ namespace GloomhavenVR.WorldUI
         internal static TownServiceTray? Tray;
         internal static Transform? CounterFurniture;
     }
-    internal static partial class TownServiceSync
+    internal sealed partial class TownServiceSync
     {
         internal sealed class Recorded
         { internal string Key = ""; internal Transform Source = null!; internal Transform? Provenance; internal Func<Transform, Transform?>? CloneOf; }
@@ -137,34 +139,34 @@ namespace GloomhavenVR.WorldUI
         { internal ushort Id; internal bool Seen; internal string Address = "", Identity = ""; internal Transform Source = null!; internal Func<Transform,bool> Exclude = null!; }
         private sealed class SourceEntry
         { internal TownRackState? RackClock; internal bool Seen,Complete; internal string Key=""; internal Transform Root=null!; internal Transform? CatalogOwner; internal List<Published> Parts = new(); }
-        private static readonly Dictionary<string, Published> Modules = new();
-        private static readonly List<TownRackMember> RackMembers = new();
-        private static readonly Dictionary<Transform, SourceEntry> Sources = new();
-        private static readonly HashSet<Transform> Visited = new();
-        private static readonly List<Transform> Dynamic = new(), RemovedSources = new(), PriorityRoots = new();
-        private static readonly List<string> Removed = new();
-        private static uint _session;
-        private static byte _service;
-        private static ushort _nextId;
-        private static Transform? _sharedFrame;
+        private readonly Dictionary<string, Published> Modules = new();
+        private readonly List<TownRackMember> RackMembers = new();
+        private readonly Dictionary<Transform, SourceEntry> Sources = new();
+        private readonly HashSet<Transform> Visited = new();
+        private readonly List<Transform> Dynamic = new(), RemovedSources = new(), PriorityRoots = new();
+        private readonly List<string> Removed = new();
+        private uint _session;
+        private byte _service;
+        private ushort _nextId;
+        private Transform? _sharedFrame;
         internal static readonly List<Recorded> Calls = new();
         internal static bool UseProductionPublish;
-        internal static int AllocatedIds => _nextId;
-        internal static ushort ModuleId(Transform source) => Sources[source].Parts[0].Id;
-        internal static int ModuleCount => Modules.Count;
-        private static bool Visible(SourceEntry source) => true;
-        private static void CollectDynamic(Transform source) { }
-        private static void CollectHeldBoundaries(Transform source,Func<Transform,Transform?> clone,HashSet<Transform> excluded) { }
-        private static bool IsPriority(Transform source) => false;
-        internal static int SourceCount => Sources.Count;
-        private static void Prepare() { }
-        private static Transform? ResolveFrame(int peer) => _sharedFrame;
+        internal static int AllocatedIds => Private._nextId;
+        internal static ushort ModuleId(Transform source) => Private.Sources[source].Parts[0].Id;
+        internal static int ModuleCount => Private.Modules.Count;
+        private bool Visible(SourceEntry source) => true;
+        private void CollectDynamic(Transform source) { }
+        private void CollectHeldBoundaries(Transform source,Func<Transform,Transform?> clone,HashSet<Transform> excluded) { }
+        private bool IsPriority(Transform source) => false;
+        internal static int SourceCount => Private.Sources.Count;
+        private void PrepareCore() { }
+        private Transform? ResolveFrame(int peer) => _sharedFrame;
         internal static bool BindModules;
         internal static int GenerationReports;
-        private static readonly HashSet<string> Registered = new();
-        private static void Report(string scope, Exception error) { if (scope == "generation") GenerationReports++; else if (UseProductionPublish) throw error; }
-        private static bool OwnsAnchor(Transform? anchor) => anchor != null;
-        private static void Publish(string key, Transform? source, Transform? provenance = null, Func<Transform, Transform?>? cloneOf = null, bool prewarm = false)
+        private readonly HashSet<string> Registered = new();
+        private void Report(string scope, Exception error) { if (scope == "generation") GenerationReports++; else if (UseProductionPublish) throw error; }
+        private bool OwnsAnchor(Transform? anchor) => anchor != null;
+        private void Publish(string key, Transform? source, Transform? provenance = null, Func<Transform, Transform?>? cloneOf = null, bool prewarm = false)
         {
             if (source == null) return;
             Calls.Add(new() { Key = key, Source = source, Provenance = provenance, CloneOf = cloneOf });
@@ -181,4 +183,34 @@ namespace GloomhavenVR.WorldUI
             }
         }
     }
+}
+
+namespace GloomhavenVR.Net { internal static class NetPlayerActors { internal static int Peer = 1; internal static int LocalPlayerId() => Peer; } }
+
+namespace GloomhavenVR.Cards
+{
+    internal sealed partial class ItemsPile
+    {
+        internal sealed partial class ItemChip : TransferProbe
+        {
+            internal GloomhavenVR.WorldUI.ItemCardUI? NativeItemCard;
+            internal Transform InspectionMount => transform;
+            internal Transform? InspectionBody, Holder;
+            internal Item? Item;
+        }
+        internal sealed class Item { internal int ID; }
+    }
+}
+namespace GloomhavenVR.WorldUI
+{
+    internal static class TownServiceMerchantHandoff
+    {
+        internal static bool Active;
+        internal static uint Session;
+        internal static float SessionAge;
+        internal static Transform? StationRoot, Zone;
+        internal static readonly List<GloomhavenVR.Cards.ItemsPile.ItemChip> OwnedChips = new();
+    }
+    internal static class TownServiceInspectionBody
+    { internal static string Key(GloomhavenVR.Cards.ItemsPile.ItemChip chip) => "inspectionbody.fixture"; }
 }

@@ -101,6 +101,20 @@ internal static partial class TownServiceMirror
         get
         {
             int peer = -PublicAuthor;
+            // Authority handoff adopts what observers are displaying, including elapsed
+            // analytic motion since the last packet. A stale owner sample must not rewind
+            // a cassette which already completed while that owner disconnected.
+            if (RemoteRacks.TryGetValue(peer, out var clocks))
+                foreach (RackPlayback clock in clocks.Values)
+                    if (clock.State != null)
+                    {
+                        if (!ReferenceEquals(clock.HandoffSource, clock.State))
+                        { clock.HandoffSource = clock.State; clock.Handoff = clock.State.Copy(); }
+                        TownRackState displayed = clock.Handoff!;
+                        displayed.Page = clock.DisplayPage; displayed.From = clock.FromPage;
+                        displayed.Elapsed = clock.Turning ? clock.Elapsed : TownRackState.TurnDuration;
+                        return displayed;
+                    }
             if (Pending.TryGetValue(peer, out var modules))
                 foreach (TownServiceFrame frame in modules.Values) if (frame.Rack != null) return frame.Rack;
             return null;

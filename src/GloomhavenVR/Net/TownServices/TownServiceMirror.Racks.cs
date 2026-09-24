@@ -40,7 +40,7 @@ internal static partial class TownServiceMirror
     private sealed class RackPlayback
     {
         internal TownRackState State = null!, Latest = null!;
-        internal TownRackState? Outgoing;
+        internal TownRackState? Outgoing, Handoff, HandoffSource;
         internal ushort FromPage;
         internal readonly List<TownRackState> Queue = new();
         internal ulong Sequence;

@@ -503,6 +503,13 @@ public static partial class MirrorProgram
         var wood = Go("Furniture_DarkWood", counter.transform).AddComponent<MeshRenderer>();
         var material = new Material(Shader.Find("GloomhavenVR/TownNpc")) { name = "DarkWood" }; Assets.Add(material);
         wood.sharedMaterial = material;
+        var authoredCrank = Go("MerchantCrankTemplate", counter.transform);
+        Go("Handle", authoredCrank.transform);
+        var cassette = Go("MerchantCassetteTemplate", counter.transform);
+        Go("Rail", cassette.transform);
+        var shutter = Go("MerchantShutterTemplate", counter.transform);
+        var upper = Go("Upper", shutter.transform); upper.transform.localPosition = new Vector3(0,.265f,0);
+        var lower = Go("Lower", upper.transform); lower.transform.localPosition = new Vector3(0,-.265f,-.020f);
         GloomhavenVR.WorldUI.TownServiceAssets.Furniture = furniture;
         var crank = GloomhavenVR.WorldUI.TownServiceMerchantDrawer.CreateTemplate(_text); Objects.Add(crank);
         var rack = GloomhavenVR.WorldUI.TownServiceMerchantDrawer.CreateHousingTemplate(); Objects.Add(rack);
@@ -514,7 +521,7 @@ public static partial class MirrorProgram
         using var binding = new TownServiceBinding(rack.transform);
         rack.transform.localRotation = Quaternion.Euler(0, 113, 0);
         var nodes = binding.Read(TownServiceMirror.Assets);
-        Check(nodes.Length > 4, "revolving rack captures opaque back and retaining rails");
+        Check(nodes.Length > 4, "indexed cassette captures opaque shutter hinges and retaining rails");
         GloomhavenVR.WorldUI.TownServiceAssets.Furniture = null;
     }
 
@@ -647,7 +654,7 @@ public static partial class MirrorProgram
         GloomhavenVR.WorldUI.TownServicePresentation.Catalog = null;
         GloomhavenVR.WorldUI.TownServiceSync.Calls.Clear();
         GloomhavenVR.WorldUI.TownServiceSync.Tick(shared, shared);
-        Check(calls.Exists(c => c.Key == "merchant" && c.Source == window.transform), "ordinary merchant route still publishes native window");
+        Check(!calls.Exists(c => c.Key == "merchant" && c.Source == window.transform), "native merchant permission context never publishes hidden stock window");
         GloomhavenVR.WorldUI.TownServicePresentation.LocalSurfaces.Clear();
         foreach (byte service in new byte[] { 2, 3 })
         {
@@ -902,7 +909,8 @@ public static partial class MirrorProgram
         GloomhavenVR.WorldUI.TownServiceSync.Tick(shared, shared);
         Receive(7, Capture()); TownServiceMirror.TickRemote(_ => observer);
         Check(TownServiceMirror.RemoteSessions[7].Session > reopened, "network reset never rewinds wire generation counter");
-        typeof(GloomhavenVR.WorldUI.TownServiceSync).GetField("_generation", BindingFlags.Static | BindingFlags.NonPublic)!.SetValue(null, uint.MaxValue);
+        typeof(GloomhavenVR.WorldUI.TownServiceSync).GetField("_generation", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(
+            typeof(GloomhavenVR.WorldUI.TownServiceSync).GetField("Private", BindingFlags.Static | BindingFlags.NonPublic)!.GetValue(null), uint.MaxValue);
         GloomhavenVR.WorldUI.TownServicePresentation.RelocationRevision++;
         GloomhavenVR.WorldUI.TownServiceSync.Tick(shared, shared);
         Check(GloomhavenVR.WorldUI.TownServiceSync.GenerationReports == 1
@@ -923,6 +931,17 @@ public static partial class MirrorProgram
             _camera.orthographic = true; _camera.nearClipPlane = .01f; _camera.farClipPlane = 100;
             _camera.clearFlags = CameraClearFlags.SolidColor; _camera.backgroundColor = new Color(.025f, .03f, .04f, 1);
             GloomhavenVR.Rig.VRRigDriver.HeadCamera = _camera;
+            if (suite == "item-transfer")
+            {
+                ItemTransferDetector();
+                File.WriteAllText(Path.Combine(_output,"assertions.txt"),_assertions+" assertions\n");yield break;
+            }
+            if (suite == "public-catalog")
+            {
+                IEnumerator lanes = PublicCatalogLanes(); while (lanes.MoveNext()) yield return lanes.Current;
+                InspectionPublisher();
+                File.WriteAllText(Path.Combine(_output,"assertions.txt"),_assertions+" assertions\n");yield break;
+            }
             if (suite == "catalog-lifetime")
             {
                 CatalogLifetime();
