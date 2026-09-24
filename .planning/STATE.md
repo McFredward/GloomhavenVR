@@ -1,6 +1,6 @@
 # State — where the project stands
 
-**Updated 2026-09-24: feature/immersive-town-services, version 1.1.0 / ModBuild 549 integration.**
+**Updated 2026-09-24: feature/immersive-town-services, version 1.1.0 / ModBuild 549 hardware candidate.**
 The feature is based on dev e63fb284, including released 1.0.7 / build 546. Dev remains
 the separate 1.0.8 hotfix line. The maintainer hardware-confirmed 546 before release.
 Current NPC revision: [research/TOWN-SERVICES-549.md](research/TOWN-SERVICES-549.md).
@@ -19,14 +19,20 @@ change per build) → this file (where things stand and what is owed) → the bu
 
 ## 1. Position
 
-- **NPC feature / 1.1.0 / ModBuild 549 (integration):** approved upright merchant
+- **NPC feature / 1.1.0 / ModBuild 549 (hardware candidate):** approved upright merchant
   cabinet with physical categories/crank and occluded animated page changes; original
   scenario item holding; complete owned-item fan near the merchant; palm-based buy/sell
   requests with explicit native confirmation. Public cabinet and private inspection
   lifetimes are independent, including late join and authority handoff. Stable owned
   practical lighting replaces renderer-dependent nearest-light changes. Revised arm
   skin/contact motion and front-semicircle placement preserve original room geometry.
-  Final validation/package status: [research/TOWN-SERVICES-549.md](research/TOWN-SERVICES-549.md).
+  Final Windows town bundle: 96,167,323 bytes (`d5f413b9…675e5`); the environment
+  bundle is unchanged. Fourteen source gates, all 69 local suites (four stale fixtures
+  corrected with targeted negative-control repeats), 286,103 wire assertions and strict
+  Release zero warnings/errors are covered. Combined assets pass 888,814 assertions /
+  nine rendered controls; motion passes 268,749 / seventeen controls and 1,943 sampled
+  full-skin poses without arm/torso or opposite-arm intersections. Exact package evidence
+  and hardware limits: [research/TOWN-SERVICES-549.md](research/TOWN-SERVICES-549.md).
 
 
 - **NPC feature / 1.1.0 / ModBuild 548 (hardware candidate):** restores original cellar

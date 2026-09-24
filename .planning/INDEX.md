@@ -11,7 +11,8 @@ engineering evidence, historical decisions and current status; it is not the pla
 | [../CLAUDE.md](../CLAUDE.md) | Technical contracts retained across agent tools |
 | [TEST-PARALLELISM.md](TEST-PARALLELISM.md) | Parallel local/CI execution, coverage and measured timing |
 | [STATE.md](STATE.md) | Current build, validation and outstanding hardware checks |
-| [research/TOWN-SERVICES-548.md](research/TOWN-SERVICES-548.md) | Current room restoration, compact merchant, fixed-detail actors and motion integration |
+| [research/TOWN-SERVICES-549.md](research/TOWN-SERVICES-549.md) | Current approved merchant cabinet, owned-item palm trading, stable lights, anatomical motion and integration evidence |
+| [research/TOWN-SERVICES-548.md](research/TOWN-SERVICES-548.md) | Previous room restoration, compact merchant and fixed-detail actors |
 | [research/TOWN-SERVICES-545.md](research/TOWN-SERVICES-545.md) | Historical physical interaction and portrait revision; superseded by subsequent hardware reports |
 | [TOWN-545-MERCHANT.md](TOWN-545-MERCHANT.md) | Complete physical catalog, drawer lifecycle and native transaction ownership |
 | [research/TOWN-545-FACES.md](research/TOWN-545-FACES.md) | Final portrait fitting, anatomical hands, optical rendering and asset provenance |

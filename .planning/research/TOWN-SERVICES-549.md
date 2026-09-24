@@ -33,6 +33,11 @@ public lane and cassette mechanics; existing record layouts and wire version 3 r
 The ordinary generic held-map representation excludes these inspection cards so peers
 cannot see a duplicate or differently sized card over the original output.
 
+The revised wrist solver distributes forearm pronation through six support bones per
+actor. It retains the approved face geometry and original lower-body data. Prop-contact
+paths, prayer interruption and both offered hands are checked on the imported deformed
+surfaces. See [motion evidence and limits](TOWN-MOTION-549.md).
+
 The original custom-room bundle is unchanged. All three residents occupy the front
 semicircle in the canonical map frame, with separate church/enchantment visitor spaces.
 The layout clears actual original room/native furniture geometry rather than enlarging
@@ -44,9 +49,48 @@ See [lighting reproduction, rendered controls and limits](TOWN-LIGHTING-549.md).
 
 ## Validation status
 
-Integration is in progress. Final imported-motion tests, matching Windows town bundle,
-complete required checks, package hashes and CI result will be recorded before handoff.
-No paid generation API was used for this revision.
+The final Windows town bundle is 96,167,323 bytes, SHA256
+`d5f413b9159c18dd0651ce68e302923c1ac9d72bc2c00ae8d06c79866e9675e5`.
+The original environment bundle is byte-identical, SHA256
+`fe1a659c17b4151e929691aa070d402b8cd299a462315b1d6691d2622d491693`.
+Combined source assets pass 888,814 assertions and nine rendered negative controls
+(`/tmp/town549-final-combined-assets/town-assets-kyov0s8q`). Real imported lighting passes
+56 assertions and three historical rendered controls on that exact source-review bundle
+(`/tmp/town549-final-integrated-lighting/lighting-4p_i_9oo`). The full-capacity light binder
+allocates zero managed bytes over 1,000 calls; its measured Editor CPU average is
+0.02502 ms, not headset GPU time.
+
+All fourteen source gates passed. The complete local run recorded all 69 suites:
+65 passed immediately, four failed on stale fixture dependencies/assumptions, and each
+was corrected and repeated with its compiled negative controls. The original failed
+report remains `.planning/debug/test-runs/20260924-094239-2b469c4c/results.json`;
+it is not relabelled as a successful whole-run report. Targeted final evidence:
+
+- Merchant handoff: 1,186 assertions / seven negatives,
+  `debug/town-merchant-handoff/run-o3d7dc35`.
+- Station setting/lifecycle/grounding: 1,886 assertions / sixteen negatives,
+  `/tmp/town549-root-setting-final.log`.
+- Native decoration: 76 assertions / ten negatives,
+  `debug/town-decor/run-1wfrqtb3`.
+- Actual workspaces: 278,277 assertions / fourteen negatives,
+  `/tmp/town549-workspace-final/run-5ffrxzmx`.
+- New lazy original-backing partition regression: public-catalog 1,102 assertions /
+  seven negatives, `debug/town-service-mirror/run-x49ddlsj`.
+- Final measured placement: 454 assertions / six negatives,
+  `/tmp/town549-final-clearance-repeat/run-x9lez63l`, and zero original-room/native
+  furniture contacts in `/tmp/town549-accepted-scene-audit.json`.
+- Compiled wire vectors: 286,103 assertions, `/tmp/town549-compiled-wire-final.log`.
+
+Final imported motion passes 268,749 assertions and seventeen negatives, including the
+intermediate forearm-support wrap regression. Exact triangle/seam audits found zero
+arm/torso or opposite-arm intersections in 1,943 sampled poses; all six injected surface
+faults were detected. Details and sampling limits are in the motion report above.
+
+Strict Release has zero warnings/errors. Bundle-format and surface gates pass; the
+compiled historical baseline comparison reports implementation changes, not program
+equivalence. The complete test ZIP and its DLL/bundle CRC/hash evidence are recorded in
+`debug/town549-package-verification.json`; the exact pushed head's CI outcome is checked
+at handoff. No paid generation API was used for this revision.
 
 ## Hardware checks
 
