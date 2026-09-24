@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <ScenarioWinSource Condition="'$(ScenarioWinSource)' == ''">../../src/GloomhavenVR/WorldUI/Options/ScenarioWinCheat.cs</ScenarioWinSource>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="$(ScenarioWinSource)" Link="Production/ScenarioWinCheat.cs" />
+  </ItemGroup>
+</Project>
