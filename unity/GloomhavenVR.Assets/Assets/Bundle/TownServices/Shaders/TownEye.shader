@@ -12,7 +12,7 @@ Shader "GloomhavenVR/TownEye"
         Cull Back
         Pass
         {
-            Tags { "LightMode"="ForwardBase" }
+            Tags { "LightMode"="ForwardBase" "PassFlags"="OnlyDirectional" }
             CGPROGRAM
             #pragma target 3.0
             #pragma vertex EyeVertex
@@ -28,7 +28,7 @@ Shader "GloomhavenVR/TownEye"
                 UNITY_SETUP_STEREO_EYE_INDEX_POST_VERTEX(input);
                 EyeDissolve(input.objectPosition);
                 half3 diffuse, specular;
-                EyeLighting(input.worldPosition, normalize(input.normal), normalize(UnityWorldSpaceViewDir(input.worldPosition)), 64, input.vertexLights, diffuse, specular);
+                EyeLighting(input.worldPosition, normalize(input.normal), normalize(UnityWorldSpaceViewDir(input.worldPosition)), 64, diffuse, specular);
                 half3 albedo = tex2D(_MainTex, input.uv).rgb;
                 // The brown atlas has strongly red pigment. Correct only that
                 // pigment inside its measured iris; retain the sclera, pupil

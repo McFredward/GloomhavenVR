@@ -1,6 +1,6 @@
-// Environment-lit town surface with stable, physically placed town practicals.
-// No camera-relative studio light or unlit ambient floor; the global pixel budget is unchanged.
-Shader "GloomhavenVR/TownNpc"
+// Environment-lit town surface. Vertex lights remain active with the VR pixel-light cap at zero.
+// No camera-relative studio light or unlit ambient floor: stand lighting is authored in the scene.
+Shader "GloomhavenVR/TownNpc548"
 {
     Properties
     {
@@ -21,7 +21,7 @@ Shader "GloomhavenVR/TownNpc"
         Cull Off
         Pass
         {
-            Tags { "LightMode"="ForwardBase" "PassFlags"="OnlyDirectional" }
+            Tags { "LightMode"="ForwardBase" }
             CGPROGRAM
             #pragma vertex vert
             #pragma fragment frag
@@ -35,7 +35,6 @@ Shader "GloomhavenVR/TownNpc"
             #include "UnityCG.cginc"
             #include "UnityStandardUtils.cginc"
             #include "Lighting.cginc"
-            #include "TownPracticalLighting.cginc"
             sampler2D _MainTex, _BumpMap, _MetallicGlossMap;
             float4 _MainTex_ST;
             fixed4 _Color, _EmissionColor;
@@ -74,9 +73,12 @@ Shader "GloomhavenVR/TownNpc"
                 output.normal = UnityObjectToWorldNormal(input.normal);
                 output.tangent = UnityObjectToWorldDir(input.tangent.xyz);
                 output.bitangent = cross(output.normal, output.tangent) * input.tangent.w * unity_WorldTransformParams.w;
-                half3 unusedSpecular;
-                TownPracticals(output.worldPosition, normalize(output.normal), 0, 0,
-                    output.vertexLight, unusedSpecular);
+                #ifdef VERTEXLIGHT_ON
+                    output.vertexLight = Shade4PointLights(unity_4LightPosX0, unity_4LightPosY0,
+                        unity_4LightPosZ0, unity_LightColor[0].rgb, unity_LightColor[1].rgb,
+                        unity_LightColor[2].rgb, unity_LightColor[3].rgb, unity_4LightAtten0,
+                        output.worldPosition, normalize(output.normal));
+                #endif
                 UNITY_TRANSFER_FOG(output, output.position);
                 return output;
             }

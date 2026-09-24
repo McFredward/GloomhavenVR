@@ -1,11 +1,8 @@
-// Shared bounded eye lighting: the game's pixel-light cap is zero, therefore
-// the same four ForceVertex practicals also supply fragment corneal highlights.
-// fwdbase declares VERTEXLIGHT_ON only for vertices on D3D, whereas GL applies
-// it to both stages. Pass its enabled state to the fragment explicitly; a fragment
-// #ifdef silently removed every practical from the build-543 Windows eye shaders.
-// Do not read the four-light arrays when that draw has no vertex lights.
+// Eyes and skin share the same actual town lamps. No Unity per-renderer light
+// ranking or stage-specific VERTEXLIGHT_ON branch may remove a corneal highlight.
 #include "UnityCG.cginc"
 #include "Lighting.cginc"
+#include "TownPracticalLighting.cginc"
 struct EyeInput
 {
     float4 vertex : POSITION;
@@ -20,7 +17,6 @@ struct EyeVarying
     half3 normal : TEXCOORD1;
     float2 uv : TEXCOORD2;
     float3 objectPosition : TEXCOORD3;
-    half vertexLights : TEXCOORD5;
     UNITY_FOG_COORDS(4)
     UNITY_VERTEX_OUTPUT_STEREO
 };
@@ -37,9 +33,6 @@ EyeVarying EyeVertex(EyeInput input)
     output.objectPosition = input.vertex.xyz;
     output.normal = UnityObjectToWorldNormal(input.normal);
     output.uv = TRANSFORM_TEX(input.uv, _MainTex);
-    #ifdef VERTEXLIGHT_ON
-        output.vertexLights = 1;
-    #endif
     UNITY_TRANSFER_FOG(output, output.position);
     return output;
 }
@@ -52,7 +45,7 @@ void EyeDissolve(float3 position)
         clip(_TownVisibility - max(noise, 0.0001));
     }
 }
-void EyeLighting(float3 position, half3 normal, half3 view, half exponent, half vertexLights,
+void EyeLighting(float3 position, half3 normal, half3 view, half exponent,
                  out half3 diffuse, out half3 specular)
 {
     diffuse = max(0, ShadeSH9(half4(normal, 1)));
@@ -61,18 +54,8 @@ void EyeLighting(float3 position, half3 normal, half3 view, half exponent, half 
     half ndl = saturate(dot(normal, light));
     diffuse += _LightColor0.rgb * ndl;
     specular += _LightColor0.rgb * ndl * pow(saturate(dot(normal, normalize(light + view))), exponent);
-    UNITY_BRANCH if (vertexLights > 0.5h)
-    {
-        [unroll] for (int i = 0; i < 4; ++i)
-        {
-            float3 offset = float3(unity_4LightPosX0[i], unity_4LightPosY0[i], unity_4LightPosZ0[i]) - position;
-            float squareDistance = max(dot(offset, offset), 0.000001);
-            half3 direction = offset * rsqrt(squareDistance);
-            half attenuation = 1.0 / (1.0 + squareDistance * unity_4LightAtten0[i]);
-            half incidence = saturate(dot(normal, direction));
-            half3 color = unity_LightColor[i].rgb * attenuation * incidence;
-            diffuse += color;
-            specular += color * pow(saturate(dot(normal, normalize(direction + view))), exponent);
-        }
-    }
+    half3 practicalDiffuse, practicalSpecular;
+    TownPracticals(position, normal, view, exponent, practicalDiffuse, practicalSpecular);
+    diffuse += practicalDiffuse;
+    specular += practicalSpecular;
 }
