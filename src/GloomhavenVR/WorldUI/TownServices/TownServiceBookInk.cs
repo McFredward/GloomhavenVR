@@ -15,6 +15,7 @@ internal sealed class TownServiceBookInk
     private readonly bool _remote;
     private Matrix4x4 _stationToWorld, _worldToStation;
     private TMP_Text? _text;
+    private Transform? _content;
     private PageGeometry? _geometry;
     private static readonly ConditionalWeakTable<Transform, TownServiceBookInk> Remote = new();
     private static readonly ConditionalWeakTable<Transform, PageGeometry> Geometry = new();
@@ -39,6 +40,7 @@ internal sealed class TownServiceBookInk
     internal void Apply(Transform? content)
     {
         if (content == null) return;
+        _content = content;
         Transform? book = TownServiceDecor.TempleBookRoot;
         if (book == null) { content.gameObject.SetActive(false); return; }
         if (_book != book)
@@ -50,19 +52,11 @@ internal sealed class TownServiceBookInk
         content.gameObject.SetActive(true);
         if (_remote)
         {
-            // The network root is already at the owner's actual ink pose. Recover its
-            // workspace frame from that pose rather than consulting this viewer's NPC
-            // position, head, or shared map origin. Additional visitors may stand elsewhere.
-            Quaternion rotation = content.rotation * Quaternion.Inverse(_rotation);
-            float scale = Mathf.Abs(content.lossyScale.x) * 600f / _size.x;
-            Vector3 position = content.position - rotation * (_position * scale);
-            _stationToWorld = Matrix4x4.TRS(position, rotation, Vector3.one * scale);
-            _worldToStation = _stationToWorld.inverse;
+            RefreshFrame(content);
             BindText(content);
             return;
         }
-        _stationToWorld = _station.localToWorldMatrix;
-        _worldToStation = _station.worldToLocalMatrix;
+        RefreshFrame(content);
         content.SetPositionAndRotation(_station.TransformPoint(_position), _station.rotation * _rotation);
         float worldScale = Mathf.Abs(_station.lossyScale.x) * _size.x / 600f;
         float parentScale = content.parent != null ? Mathf.Abs(content.parent.lossyScale.x) : 1f;
@@ -121,9 +115,26 @@ internal sealed class TownServiceBookInk
         return true;
     }
 
+    private void RefreshFrame(Transform content)
+    {
+        if (!_remote)
+        { _stationToWorld = _station.localToWorldMatrix; _worldToStation = _station.worldToLocalMatrix; return; }
+            // The network root is already at the owner's actual ink pose. Recover its
+            // workspace frame from that pose rather than consulting this viewer's NPC
+            // position, head, or shared map origin. Additional visitors may stand elsewhere.
+            Quaternion rotation = content.rotation * Quaternion.Inverse(_rotation);
+            float scale = Mathf.Abs(content.lossyScale.x) * 600f / _size.x;
+            Vector3 position = content.position - rotation * (_position * scale);
+            _stationToWorld = Matrix4x4.TRS(position, rotation, Vector3.one * scale);
+            _worldToStation = _stationToWorld.inverse;
+    }
+
     private void ProjectVertices(TMP_TextInfo info)
     {
-        if (_text == null || _geometry == null || _station == null) return;
+        if (_text == null || _geometry == null || _station == null || _content == null) return;
+        // A remote module may interpolate after snapshot playback; derive the frame at
+        // render time so the ink moves with its actual owner rather than the last packet.
+        RefreshFrame(_content);
         for (int i = 0; i < info.characterCount; i++)
         {
             TMP_CharacterInfo glyph = info.characterInfo[i];
