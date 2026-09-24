@@ -389,6 +389,7 @@ jobs:
           bash scripts/announcement-tests.sh
           bash scripts/dialog-surface-tests.sh
           bash scripts/vr-options-tests.sh
+          bash scripts/scenario-win-cheat-tests.sh
           bash scripts/vr-options-close-tests.sh
           bash scripts/reward-pose-tests.sh
           bash scripts/conversion-rollback-tests.sh

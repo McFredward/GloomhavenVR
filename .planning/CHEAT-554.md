@@ -38,3 +38,9 @@ Hardware check: in a disposable test save, open a running campaign scenario, use
 the two-press cheat, continue its result screen and verify the map's rewards/new
 quest windows. Repeat in another scenario and verify one reward sequence per win.
 The native flow and automated boundary tests cannot establish headset acceptance.
+
+Focused regression fixture: `scripts/scenario-win-cheat-tests.sh` compiles the actual
+production helper against explicit native boundaries. 65 assertions cover refusal
+states, a stale scenario confirmation, close callback races, sticky-menu release
+order, and repeat requests. Removing either the online guard or duplicate latch
+makes a named runtime assertion fail. The fixture runs locally and in dev CI.
