@@ -22,8 +22,9 @@ namespace GloomhavenVR.WorldUI;
 /// turns about the INK UNION's centre (ModBuild 240 — a window whose ink sat 859 mm off its frame
 /// origin travelled two thirds of a metre on a 44° re-face), <c>SurfaceGrabBar</c> turns about the
 /// frame origin, which for a pivot-centred decision host IS the drawn centre, and
-/// <c>PlayTray</c> correctly turns nothing at all. Merging those four bodies would have flattened a
-/// real difference; merging the question they all have to ask first does not.</para>
+/// <c>PlayTray</c> turns around its visible board centre while preserving its authored tilt.
+/// Merging those four bodies would flatten a real difference; merging the question they all
+/// have to ask first does not.</para>
 ///
 /// <para><b>THE TWO GATES, IN ORDER.</b> Both are user rulings and the first outranks the second.
 /// <list type="number">
@@ -114,7 +115,7 @@ internal static class WindowReFacePolicy
         {
             // LaserOnly (default). A laser carry translates only — PanelGrabHandle's laser branch
             // writes position and returns — so the window arrives still facing the way it used to
-            // and would be read edge-on; that is the case the snap exists for. A HAND carry has
+            // and would be read edge-on; that is the case the release turn exists for. A HAND carry has
             // already yawed the window with the wrist for the whole drag.
             wants = laserGrab;
             why = laserGrab
@@ -125,7 +126,7 @@ internal static class WindowReFacePolicy
                                       "re-faced — [WorldUI] WindowFacing is LaserOnly (the default): a " +
                                       "hand carry yaws the window with your wrist for the whole drag, so " +
                                       "the orientation you let go at is the one you aimed. A LASER drag " +
-                                      "on the same window still snaps round, because that carry never " +
+                                      "on the same window still turns toward you, because that carry never " +
                                       "rotates it at all.");
         }
 
