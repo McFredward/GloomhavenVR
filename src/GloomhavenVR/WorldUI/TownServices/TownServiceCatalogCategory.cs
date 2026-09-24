@@ -21,6 +21,7 @@ internal sealed class TownServiceCatalogCategory : IPokeable, IDisposable
     private readonly BoxCollider _shape;
     private readonly Vector3 _home;
     private readonly int _category;
+    private readonly List<Material> _materials = new();
     private float _pressed, _lastPressed = float.NegativeInfinity;
     internal Transform Root => _root.transform;
     internal string Key => "merchant.category." + _category;
@@ -30,6 +31,19 @@ internal sealed class TownServiceCatalogCategory : IPokeable, IDisposable
         _root = CreateTemplate(category); Root.SetParent(parent, false);
         _home = new Vector3(-1.25f + category * .12f, -.13f, .0f); Root.localPosition = _home;
         _shape = _root.AddComponent<BoxCollider>(); _shape.isTrigger = true; _shape.size = new Vector3(.095f,.09f,.04f);
+        var copies = new Dictionary<Material, Material>();
+        foreach (Renderer renderer in _root.GetComponentsInChildren<Renderer>(true))
+        {
+            Material[] materials = renderer.sharedMaterials;
+            for (int i = 0; i < materials.Length; i++)
+            {
+                Material original = materials[i]; if (original == null) continue;
+                if (!copies.TryGetValue(original, out Material copy))
+                { copy = new Material(original); copies.Add(original, copy); _materials.Add(copy); }
+                materials[i] = copy;
+            }
+            renderer.sharedMaterials = materials;
+        }
         All.Add(this); VRInteractables.RegisterPokeable(this, _shape); VRLayers.Apply(_root);
     }
     internal static GameObject CreateTemplate(int category)
@@ -46,9 +60,10 @@ internal sealed class TownServiceCatalogCategory : IPokeable, IDisposable
         image.sprite = UIInfoTools.Instance.GetItemSlotIcon(slot.ToString());
         image.color = new Color(.21f,.12f,.035f,1f); return root;
     }
-    internal void Tick()
+    internal void Tick(float opacity)
     {
-        _shape.enabled = _available();
+        _shape.enabled = opacity > .99f && _available();
+        foreach (Material material in _materials) if (material.HasProperty("_TownVisibility")) material.SetFloat("_TownVisibility", opacity);
         _pressed = Mathf.MoveTowards(_pressed, _rack.Category == _category ? 1f : 0f, Time.unscaledDeltaTime * 12f);
         Root.localPosition = _home + Vector3.forward * (.012f * _pressed);
     }
@@ -80,5 +95,5 @@ internal sealed class TownServiceCatalogCategory : IPokeable, IDisposable
         if(target==null)return;hand.Ray.UiHitOverride=point;
         if(hand.TriggerDown){TownServicePhysicalRay.Claim(hand);target.OnPoke(hand);}
     }
-    public void Dispose() { All.Remove(this); if(_hover==this)_hover=null; VRInteractables.UnregisterPokeable(this); UnityEngine.Object.Destroy(_root); }
+    public void Dispose() { All.Remove(this); if(_hover==this)_hover=null; VRInteractables.UnregisterPokeable(this); foreach (Material material in _materials) UnityEngine.Object.Destroy(material); _materials.Clear(); UnityEngine.Object.Destroy(_root); }
 }

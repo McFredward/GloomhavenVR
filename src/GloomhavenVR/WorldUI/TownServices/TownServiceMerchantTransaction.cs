@@ -7,8 +7,8 @@ using UnityEngine.EventSystems;
 
 namespace GloomhavenVR.WorldUI;
 
-/// <summary>The physical release replaces the native confirmation gesture, never its
-/// transaction. Rebind the original inventory immediately before selecting and confirming.</summary>
+/// <summary>The physical release requests the original native confirmation. Rebind the
+/// inventory before selecting; only the player's final confirmation authorizes the transaction.</summary>
 internal static class TownServiceMerchantTransaction
 {
     private static readonly PropertyInfo? Participant = AccessTools.Property(typeof(PlayerRegistry).Assembly.GetType("FFSNet.NetworkPlayer"), "IsParticipant");

@@ -63,7 +63,7 @@ internal static class TownServicePresentation
     // Ownership lasts until rollback, even if the option changed earlier in this frame.
     // ModalFallback runs before our Tick and must not adopt a half-restored controller.
     internal static bool OwnsWindow(UIWindow window) => TownServiceConfirmationMask.Owns(window)
-        || (_catalog != null || _ritual != null) && _window != null
+        || (_catalog != null || _ritual != null || _contextMask != null) && _window != null
         && (window == _window || window.transform.IsChildOf(_window.transform));
 
     internal static void Tick()
@@ -184,7 +184,7 @@ internal static class TownServicePresentation
         if (Time.unscaledTime >= _nextCensus)
         {
             _nextCensus = Time.unscaledTime + .25f;
-            if (_catalog == null && _ritual == null) RefreshTokens();
+            if (Service != 1 && _catalog == null && _ritual == null) RefreshTokens();
         }
         _tray?.Tick();
         _tray?.SetVisibility(visibility);

@@ -147,7 +147,7 @@ internal sealed class TownServiceCatalog : IDisposable
             drawer.SetPageCount(maximum/TownServiceMerchantDrawer.Capacity+1); drawer.Tick(_opening.alpha);
         }
         foreach(var entry in _entries)entry.Tick(scale);
-        foreach(var category in _categories)category.Tick();
+        foreach(var category in _categories)category.Tick(_opening.alpha);
         foreach(var zone in _zones)
         {
             bool shown=false;

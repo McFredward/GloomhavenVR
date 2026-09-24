@@ -360,7 +360,7 @@ internal static partial class TownServiceMirror
         }
         if (!Pending.TryGetValue(peer, out Dictionary<ushort, TownServiceFrame>? pending))
         {
-            if (Pending.Count >= 8) return true;
+            if (Pending.Count >= 16) return true;
             pending = new Dictionary<ushort, TownServiceFrame>(); Pending.Add(peer, pending);
         }
         if (Sessions.TryGetValue(peer, out TownServiceSessionInfo? live) && live.Active
@@ -579,9 +579,9 @@ internal static partial class TownServiceMirror
       ClearRemoteModules(-peer); Pending.Remove(-peer); ReceivedBaselines.Remove(-peer); Sessions.Remove(-peer); }
     internal static void RequestFullRefresh()
     {
-        foreach (LocalModule module in Local.Values)
+        foreach (LocalModule module in AllLocalModules())
         { module.Last = null; module.Baseline = null; module.NextRefresh = module.NextBaseline = 0; }
-        _nextManifest = 0;
+        PrivateLane.NextManifest = PublicLane.NextManifest = 0;
     }
     private static IEnumerable<LocalModule> AllLocalModules()
     { foreach (LocalModule module in PrivateLane.Modules.Values) yield return module;
@@ -591,7 +591,7 @@ internal static partial class TownServiceMirror
         foreach (int peer in new List<int>(Remote.Keys)) ClearRemoteModules(peer);
         Pending.Clear(); ReceivedBaselines.Clear(); Sessions.Clear(); VisitorSessions.Clear(); RemoteRetry.Clear(); foreach (LocalModule module in AllLocalModules())
         { module.Last = null; module.Baseline = null; module.NextRefresh = module.NextBaseline = 0; }
-        _nextManifest = 0;
+        PrivateLane.NextManifest = PublicLane.NextManifest = 0;
     }
     internal static void Shutdown()
     {

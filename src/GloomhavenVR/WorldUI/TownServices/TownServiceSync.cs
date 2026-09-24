@@ -123,7 +123,7 @@ internal sealed class TownServiceSync
         {
             string prefix = service == 1 ? "merchant" : service == 2 ? "temple" : "enchant";
             TownServiceCatalog? catalog = TownServicePresentation.Catalog;
-            if (catalog == null && TownServicePresentation.Ritual == null)
+            if (service != 1 && catalog == null && TownServicePresentation.Ritual == null)
                 Publish(prefix, TownServicePresentation.Window != null ? TownServicePresentation.Window.transform : null);
             foreach (TownServiceSurface surface in TownServicePresentation.LocalSurfaces)
                 Publish(surface.Id == 40 ? "merchant.exit" : surface.Id == 10 ? prefix + ".inventory"
@@ -172,7 +172,7 @@ internal sealed class TownServiceSync
             if (TownServicePresentation.WorkspaceProps != null)
                 foreach (TownServiceWorkspace.Prop prop in TownServicePresentation.WorkspaceProps) Publish(prop.Key, prop.Root);
 
-            if (catalog == null && ritual == null)
+            if (service != 1 && catalog == null && ritual == null)
                 Publish(prefix + ".tooltip", NativeTemplates.Original(prefix + ".tooltip"));
             else if (catalog != null && catalog.PreviewContent != null && catalog.PreviewSource != null)
             {
