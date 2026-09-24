@@ -68,6 +68,7 @@ internal sealed class TownServiceToken : IGrabbable, ITriggerOnlyGrabbable, IGra
     private float _nextRefresh;
     private readonly float _reachDepth;
     private readonly bool _uprightProp;
+    private readonly Func<VRHand, bool>? _handAllowed;
 
     internal Transform Source => _source;
     internal Transform? HeldRoot => _held != null ? _held.transform : null;
@@ -75,6 +76,7 @@ internal sealed class TownServiceToken : IGrabbable, ITriggerOnlyGrabbable, IGra
     internal Transform? HeldCloneOf(Transform original) => _mirror?.CloneOf(original);
     public bool GrabWithGrip => false;
     public bool AllowsHand(VRHand hand) => !_disposed && _sessionAlive()
+        && (_handAllowed?.Invoke(hand) ?? true)
         && (!ReferenceEquals(hand.Grabber.Held, this) || _hand == hand);
     public bool CanGrab => !_disposed && _hand == null && !_returning && _sessionAlive()
         && ((_offering != null && TownServiceMerchantHandoff.CanReclaim(this)) || (_inspect?.Invoke() ?? true)) && _source != null && _source.gameObject.activeInHierarchy
@@ -82,10 +84,10 @@ internal sealed class TownServiceToken : IGrabbable, ITriggerOnlyGrabbable, IGra
 
     internal TownServiceToken(RectTransform source, Selectable button, Func<object?> identity,
         Func<object?> contextIdentity, Func<bool> sessionAlive, Transform mat, Transform? physical = null,
-        Func<bool>? drop = null, Func<bool>? eligible = null, Vector3 zoneCenter = default, Func<bool>? inspect = null, float zoneHalfWidth = .20f, Func<Vector3, bool>? dropLocation = null, Action? grabbing = null, float reachDepth = .009f, bool uprightProp = false)
+        Func<bool>? drop = null, Func<bool>? eligible = null, Vector3 zoneCenter = default, Func<bool>? inspect = null, float zoneHalfWidth = .20f, Func<Vector3, bool>? dropLocation = null, Action? grabbing = null, float reachDepth = .009f, bool uprightProp = false, Func<VRHand, bool>? handAllowed = null)
     {
         _reachDepth = Mathf.Max(.001f, reachDepth);
-        _uprightProp = uprightProp;
+        _uprightProp = uprightProp; _handAllowed = handAllowed;
         IsItemCard = physical != null && source.GetComponent<ItemCardUI>() != null;
         _source = source; _button = button; _identity = identity; _contextIdentity = contextIdentity;
         _sessionAlive = sessionAlive; _mat = mat; _physical = physical;
@@ -214,7 +216,7 @@ internal sealed class TownServiceToken : IGrabbable, ITriggerOnlyGrabbable, IGra
             {
                 // A purse hangs below the pinch; it does not adopt a flat card reading pose.
                 _heldRotation = Quaternion.Inverse(hand.Rig.GrabAnchor.rotation) * _physical.rotation;
-                _heldPosition = pinch + hand.Rig.GrabAnchor.InverseTransformDirection(Vector3.down * (.055f * hand.WorldScale));
+                _heldPosition = pinch + hand.Rig.GrabAnchor.InverseTransformVector(Vector3.down * (.055f * hand.WorldScale));
             }
             _physical.SetParent(hand.Rig.GrabAnchor, true);
             _held = _physical.gameObject;

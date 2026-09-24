@@ -80,6 +80,10 @@ def mutations():
     # Every mutant compiles and must reach the specified runtime assertion. A compile error,
     # unrelated exception or changed source binding cannot count as a rejected negative control.
     return [
+        ("purse-own-hand", "Token.cs", "(_handAllowed?.Invoke(hand) ?? true)", "true", "unowned or unavailable purse cannot be grabbed or donated"),
+        ("flat-purse", "Token.cs", "if (_uprightProp)", "if (false)", "purse pickup preserves upright physical orientation"),
+        ("purse-depth", "Token.cs", "_reachDepth * scale", ".009f * scale", "purse collider encloses its physical depth at each map scale"),
+        ("purse-double-scale", "Token.cs", "InverseTransformVector(Vector3.down * (.055f * hand.WorldScale))", "InverseTransformDirection(Vector3.down * (.055f * hand.WorldScale))", "purse hangs below pinch without applying map scale twice"),
         ("dead-inscription-root", "Inscription.cs", "if (_root != null) UnityEngine.Object.Destroy(_root.gameObject);", "UnityEngine.Object.Destroy(_root.gameObject);", "destroyed inscription root can be disposed without blocking native teardown"),
         ("enhancement-icon-outside", "PalmConfirmation.cs", "i == 4 ? -.14f : .075f", "i == 4 ? -.80f : .075f", "all original enhancement confirmation content stays together below the palm"),
         ("parked-reclaim", "Token.cs", "(_offering != null && TownServiceMerchantHandoff.CanReclaim(this))", "false", "actual routed grab reclaims parked stock through owned modal gate"),

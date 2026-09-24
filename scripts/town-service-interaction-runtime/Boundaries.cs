@@ -96,6 +96,7 @@ namespace GloomhavenVR.Hands
     internal sealed class VRHand
     {
         internal bool HasPose = true, TriggerUp;
+        internal float WorldScale = 1f;
         internal bool TriggerPressed, GripPressed;
         internal Vector3 PalmVelocity;
         internal HandSide Side;
@@ -366,3 +367,14 @@ public class UIEnhancementConfirmationBox : MonoBehaviour {
 namespace GloomhavenVR.Core.Events { internal static class VRModeStateMachine { internal static string CurrentMode="ModalUI"; } }
 
 namespace GloomhavenVR.WorldUI { internal static class EnchantressComposite { internal static void Reset(){} } }
+
+namespace GloomhavenVR.WorldUI
+{
+    // Visual-only boundary: this fixture exercises native inscription lifecycle/rollback.
+    // Actual book mesh fitting and local/remote ink geometry run in ritual-layout validation.
+    internal sealed class TownServiceBookInk
+    {
+        internal TownServiceBookInk(string key, Transform parent) { }
+        internal void Apply(Transform? content) { }
+    }
+}

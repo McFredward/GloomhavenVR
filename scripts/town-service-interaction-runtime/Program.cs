@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Reflection;
+using GloomhavenVR.Cards;
 using GloomhavenVR.Hands;
 using GloomhavenVR.Hands.Interact;
 using GloomhavenVR.WorldUI;
@@ -637,6 +638,56 @@ public static class InteractionProgram
         }
     }
 
+    private static void PhysicalPurse()
+    {
+        foreach (float scale in new[] { 1f, 2f })
+        for (int scenario = 0; scenario < 6; scenario++)
+        {
+            var counter = Probe.Go("PurseCounter").transform;
+            counter.localScale = Vector3.one * scale;
+            var physical = Probe.Go("Purse", counter).transform;
+            physical.localRotation = Quaternion.Euler(0f, 37f, 0f);
+            var source = (RectTransform)Probe.Go("PurseReach", physical).transform;
+            source.sizeDelta = new Vector2(.1f, .13f);
+            var button = Probe.Go("NativeDonate").AddComponent<Button>();
+            object identity = new object(); bool inspect = scenario != 4; int commits = 0;
+            var hand = new VRHand { WorldScale = scale, TriggerUp = true };
+            hand.Rig.GrabAnchor.localScale = Vector3.one * scale;
+            hand.Rig.GrabAnchor.rotation = Quaternion.Euler(32f, 70f, 10f);
+            using var token = new TownServiceToken(source, button, () => identity, () => identity, () => true,
+                counter, physical, drop: () => { commits++; return true; }, eligible: () => true,
+                inspect: () => inspect, reachDepth: .10f, uprightProp: true, handAllowed: candidate => scenario != 5);
+            token.Tick(scale);
+            var shape = (BoxCollider)typeof(TownServiceToken).GetField("_shape", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(token)!;
+            Check(Mathf.Abs(shape.size.z - .1f * scale) < .0001f, "purse collider encloses its physical depth at each map scale");
+            if (scenario == 4 || scenario == 5)
+            {
+                Check(!hand.Grabber.ForceGrab(token, true) && commits == 0,
+                    "unowned or unavailable purse cannot be grabbed or donated");
+                Clean(); continue;
+            }
+            Quaternion initial = physical.rotation;
+            Check(hand.Grabber.ForceGrab(token, true), "available purse uses actual routed grab");
+            token.Tick(scale);
+            Check(Quaternion.Angle(initial, physical.rotation) < .05f, "purse pickup preserves upright physical orientation");
+            Vector3 pinch = new Vector3(0f, CardsConfig.HeldOffPalm.Value, CardsConfig.HeldForward.Value);
+            Vector3 below = physical.position - hand.Rig.GrabAnchor.TransformPoint(pinch);
+            Check(Vector3.Distance(below, Vector3.down * (.055f * scale)) < .0001f,
+                "purse hangs below pinch without applying map scale twice");
+            Quaternion delta = Quaternion.Euler(10f, -20f, 15f);
+            hand.Rig.GrabAnchor.rotation = delta * hand.Rig.GrabAnchor.rotation;
+            token.Tick(scale);
+            Check(Quaternion.Angle(delta * initial, physical.rotation) < .05f,
+                "held purse follows hand rotation without an independent card pose");
+            physical.position = counter.TransformPoint(new Vector3(scenario == 3 ? .6f : 0f, .05f, 0f));
+            if (scenario == 1) hand.Grabber.CancelAll();
+            if (scenario == 2) hand.HasPose = false;
+            hand.Grabber.ReleaseTick(); token.OnRelease(hand, Vector3.zero);
+            Check(commits == (scenario == 0 ? 1 : 0), "purse drop uses tracked deliberate bowl release once " + scenario);
+            Clean();
+        }
+    }
+
     private static void PhysicalCommitCases()
     {
         for(int scenario=0;scenario<9;scenario++)
@@ -814,7 +865,7 @@ public static class InteractionProgram
     public static int Run()
     {
         _assertions = 0;
-        try { NativeFolioAndTeardown(); EnhancementDecisionLayout(); PalmConfirmationLifecycle(); ParkedStockRegrab(); PhysicalCommitCases(); PhysicalMerchantSamples(); WindowMaskLifecycle(); MerchantContextLifecycle(); ConfirmationFadeLifecycle(); IdentityChanges(); HoverAndRelease(); CancellationCompatibility(); Handoff(); RollbackAndContinuation(); OptionalPresentation(); ManualTrayPlacement(); MapHandFallback(); return _assertions; }
+        try { NativeFolioAndTeardown(); EnhancementDecisionLayout(); PalmConfirmationLifecycle(); ParkedStockRegrab(); PhysicalCommitCases(); PhysicalMerchantSamples(); WindowMaskLifecycle(); MerchantContextLifecycle(); ConfirmationFadeLifecycle(); IdentityChanges(); HoverAndRelease(); CancellationCompatibility(); Handoff(); RollbackAndContinuation(); OptionalPresentation(); ManualTrayPlacement(); MapHandFallback(); PhysicalPurse(); return _assertions; }
         finally { Clean(); }
     }
 }
