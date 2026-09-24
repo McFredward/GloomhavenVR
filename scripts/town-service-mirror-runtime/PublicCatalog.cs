@@ -81,6 +81,9 @@ public static partial class MirrorProgram
                     face.localPosition=new Vector3((card-1.5f)*.18f,0,-.025f);
                 }
             }
+            Transform indicator=Go("PageIndicator",cabinet).transform;
+            var caption=Rect("Caption",indicator,Vector2.zero,new Vector2(145,110)).gameObject.AddComponent<TMPro.TextMeshProUGUI>();
+            caption.text="wrong later page";
             TownServiceMirror.RegisterTemplate(1,1,cabinet,address:"merchant.rack|");
             using(TownServiceMirror.UsePublicLane())
             {
@@ -106,6 +109,8 @@ public static partial class MirrorProgram
                         "remote original card corners follow owner roller at intermediate poses without viewer-facing changes");
                 }
             }
+            Check(mirrored.Find("PageIndicator/Caption").GetComponent<TMPro.TMP_Text>().text=="↑\n"+(phase<.5f?1:2)+" / 2\n↓",
+                "page counter follows displayed clock instead of an unrelated late native text sample");
             Check(TownServiceMirror.PublicRack?.ScrollDirection==direction&&TownServiceMirror.PublicRack?.PageCount==2,
                 "public authority handoff retains scroll direction and complete page count");
         }

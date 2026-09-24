@@ -549,6 +549,7 @@ public static partial class MirrorProgram
         Go("Handle", authoredCrank.transform);
         var cassette = Go("MerchantCassetteTemplate", counter.transform);
         Go("Rail", cassette.transform);
+        for (int row=0;row<3;row++) Go("Row"+row,cassette.transform).transform.localPosition=new Vector3(0,(row-1)*.17f,0);
         var shutter = Go("MerchantShutterTemplate", counter.transform);
         var upper = Go("Upper", shutter.transform); upper.transform.localPosition = new Vector3(0,.265f,0);
         var lower = Go("Lower", upper.transform); lower.transform.localPosition = new Vector3(0,-.265f,-.020f);
@@ -556,8 +557,9 @@ public static partial class MirrorProgram
         var crank = GloomhavenVR.WorldUI.TownServiceMerchantDrawer.CreateTemplate(_text); Objects.Add(crank);
         var rack = GloomhavenVR.WorldUI.TownServiceMerchantDrawer.CreateHousingTemplate(); Objects.Add(rack);
         Check(crank.transform.Find("Handle") != null, "compact cabinet exposes physical crank grip");
-        Check(crank.GetComponentsInChildren<TMP_Text>().Length == 0 && rack.GetComponentsInChildren<TMP_Text>().Length == 0,
-            "cabinet navigation has physical geometry without UI labels");
+        Check(crank.GetComponentsInChildren<TMP_Text>().Length == 0 && rack.GetComponentsInChildren<TMP_Text>().Length == 1
+            && !rack.transform.Find("PageIndicator/Caption").GetComponent<TMP_Text>().raycastTarget,
+            "physical cabinet has one noninteractive numeric page indicator without extra UI buttons");
         TownServiceMirror.RegisterTemplate(1, 610, crank.transform, address: "merchant.crank|");
         TownServiceMirror.RegisterTemplate(1, 611, rack.transform, address: "merchant.rack|");
         using var binding = new TownServiceBinding(rack.transform);

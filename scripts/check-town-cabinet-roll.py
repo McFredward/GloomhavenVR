@@ -49,8 +49,9 @@ def main():
     side_vertices, side_faces = geometry(static_parts)
     rows = [geometry(group) for group in row_groups]
     report = {'poses': str(args.poses), 'furniture': str(args.furniture), 'cassette': str(args.cassette),
-              'sampled_rows': 0, 'intersections': 0, 'side_intersections': 0, 'negative_detected': False, 'examples': []}
+              'sampled_rows': 0, 'intersections': 0, 'side_intersections': 0, 'row_intersections': 0, 'negative_detected': False, 'examples': []}
     side_depth = None
+    row_trees = []
     with args.poses.open() as stream:
         for record in csv.DictReader(stream):
             phase = float(record['phase'])
@@ -63,6 +64,9 @@ def main():
             vertices, faces = rows[row]
             transformed = [rotation @ (v-home) + position + offset + Vector((0,0,depth)) for v in vertices]
             holder = BVHTree.FromPolygons(transformed, faces, all_triangles=True)
+            if row == 0: row_trees.clear()
+            row_pairs = sum(len(other.overlap(holder)) for other in row_trees)
+            row_trees.append(holder)
             pairs = fixed.overlap(holder)
             if depth != side_depth:
                 side_depth = depth
@@ -71,9 +75,10 @@ def main():
             report['sampled_rows'] += 1
             report['intersections'] += bool(pairs)
             report['side_intersections'] += bool(side_pairs)
-            if (pairs or side_pairs) and len(report['examples']) < 12:
+            report['row_intersections'] += bool(row_pairs)
+            if (pairs or side_pairs or row_pairs) and len(report['examples']) < 12:
                 report['examples'].append({'phase': phase, 'direction': int(record['direction']), 'row': row,
-                                           'cabinet_pairs': len(pairs), 'side_pairs': len(side_pairs)})
+                                           'cabinet_pairs': len(pairs), 'side_pairs': len(side_pairs), 'row_pairs': row_pairs})
             if not report['negative_detected'] and .12 < phase < .4:
                 # The original un-cleared roller path must hit the real fascia/header.
                 old = BVHTree.FromPolygons([v-Vector((0,0,depth)) for v in transformed],faces,all_triangles=True)
@@ -81,7 +86,7 @@ def main():
     args.report.write_text(json.dumps(report, indent=2) + '\n')
     print('TOWN_CABINET_ROLL', json.dumps(report))
     assert report['negative_detected'], 'Uncleared roller corruption escaped the imported geometry check'
-    assert not report['intersections'] and not report['side_intersections'], 'Actual holder geometry intersects cabinet or fixed rails'
+    assert not report['intersections'] and not report['side_intersections'] and not report['row_intersections'], 'Actual holder geometry intersects cabinet or fixed rails'
 
 
 if __name__ == '__main__':
