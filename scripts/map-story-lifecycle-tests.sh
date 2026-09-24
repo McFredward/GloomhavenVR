@@ -62,5 +62,15 @@ for name, family in [('RemoteMapStory.cs', 'true'), ('RemoteStorySync.cs', 'fals
     pose = source[source.index('private static void ResolvePose('):]
     gate = f'MapStoryLifecycle.MatchesPose({family}, kv.Key, s.OpeningEpoch, s.OpeningToken)'
     assert gate in pose and pose.index(gate) < pose.index('bestPeer = kv.Key'), name + ': opening gate must precede ownership election'
+source = (root / 'RemoteMapStory.cs').read_text()
+case = source[source.index('case NetProtocol.SharedWindowKindMapStory:'):source.index('case NetProtocol.SharedWindowKindQuestConfirm:')]
+assert 'if (MapStoryLifecycle.MatchesPose(true, senderId, openingEpoch, openingToken))\n                            ObserveReflowPose' in case
+reflow = (root / 'RemoteMapStory.Reflow.cs').read_text()
+assert 'MapStoryLifecycle.PoseOpening(in presence, StoryLocal.Key,' in reflow
+assert 'CurrentHeldMask(sender, in peer) & 1' in reflow
+assert 'held |= CurrentHeldMask(pair.Key, in peer) != 0;' in reflow
+assert 'peer.Held & ~NetProtocol.SharedWindowMotionMapStoryBit' in reflow
+assert 'if ((held & 2) != 0) CancelReflow(QuestLocal);' in reflow
+assert 'if ((held & 4) != 0) CancelReflow(EncounterLocal);' in reflow
 print('Story pose binding source checks passed.')
 PYBIND

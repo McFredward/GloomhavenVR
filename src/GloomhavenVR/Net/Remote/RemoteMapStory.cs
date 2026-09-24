@@ -1415,7 +1415,8 @@ internal static partial class RemoteMapStory
                         sawStory = true;
                         MapStoryLifecycle.PoseOpening(in p, e.ContentKey, out uint openingEpoch, out uint openingToken);
                         StoryPeers[senderId] = new PeerEntry(in e, now, openingEpoch, openingToken);
-                        ObserveReflowPose(senderId, SharedWindowKind.MapStory, in e, StoryStamp);
+                        if (MapStoryLifecycle.MatchesPose(true, senderId, openingEpoch, openingToken))
+                            ObserveReflowPose(senderId, SharedWindowKind.MapStory, in e, StoryStamp);
                         NoteStamp(senderId, in e, StoryStamp, StoryStampAt, now);
                         break;
                     case NetProtocol.SharedWindowKindQuestConfirm:
