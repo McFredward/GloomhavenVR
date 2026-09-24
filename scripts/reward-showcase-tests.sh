@@ -85,7 +85,7 @@ dotnet run --project "$project" --configuration Release \
     --property:CatchAllSource="$mutation_dir/RewardPoll.fixture"
 cp "$repo_root/tests/GloomhavenVR.RewardShowcaseTests/"*.cs "$mutation_dir/"
 cp "$project" "$mutation_dir/"
-for mutation in missing-listener duplicate-listener reveal authority native-input gamepad-adapter map-scenario-gate hover-state identity-block placement-key poll-binding premature-reveal pending-pose screen-unavailable map-reward-binding map-location-binding map-duplicate-binding unlock-target postquest-reveal postquest-duplicate postquest-success intro-focus intro-block; do
+for mutation in missing-listener duplicate-listener reveal authority native-input gamepad-adapter map-scenario-gate hover-state identity-block placement-key poll-binding premature-reveal pending-pose screen-unavailable map-reward-binding map-location-binding map-duplicate-binding unlock-target postquest-reveal postquest-duplicate postquest-success intro-focus intro-block postquest-pose; do
     python3 - "$reward_source" "$identity_source" "$placement_source" "$mutation_dir" "$mutation" "$continue_button_source" "$map_buttons_source" <<'PY'
 import pathlib, sys
 reward, identity, placement, out = map(pathlib.Path, sys.argv[1:5])
@@ -94,6 +94,7 @@ sources = {'Reward': reward.read_text(), 'Identity': identity.read_text(),
            'Introduction': (reward.parent / 'PostQuestRewardSync.Introduction.cs').read_text(),
            'MapButtons': pathlib.Path(sys.argv[7]).read_text(), 'Placement': placement.read_text(), 'Continue': pathlib.Path(sys.argv[6]).read_text(), 'Poll': (out / 'RewardPoll.fixture').read_text()}
 mutations = {
+    'postquest-pose': ('PostQuest', 'Ledger.MatchesPose(_opening, sender, localPlayerId, entry.Epoch, entry.Token)', 'true'),
     'postquest-reveal': ('PostQuest', '!window.isRevealing', 'true'),
     'postquest-duplicate': ('PostQuest', '_consumed = true;', '_consumed = false;'),
     'postquest-success': ('PostQuest', 'else _campaign!.rewardsWindow.OnContinueButtonClick();', 'else { NativeSucceeded(opening); _campaign!.rewardsWindow.OnContinueButtonClick(); }'),
@@ -125,6 +126,7 @@ for name, text in sources.items():
     (out / (name + '.mutant')).write_text(text)
 PY
     case "$mutation" in
+        postquest-pose) expected='stale pose cannot bind repeated native reward group' ;;
         postquest-reveal) expected='remote postquest completion waits for native reward reveal' ;;
         postquest-duplicate) expected='repeated remote and local postquest input cannot double callback' ;;
         postquest-success) expected='failed native callback never publishes completion' ;;

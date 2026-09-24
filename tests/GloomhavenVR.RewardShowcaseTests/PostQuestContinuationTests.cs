@@ -111,6 +111,15 @@ static partial class Program
         PostQuestRewardSync.Tick(true);
         Check(campaign.Completions == 1, "same native opening retries a failed peer terminal request");
 
+        var nativeMap = AdventureState.MapState;
+        AdventureState.MapState = new MapState { AllQuestStates = null! };
+        uint failedScope = PostQuestRewardSync.BeginQueuedRewards();
+        PostQuestRewardSync.CampaignStarting(campaign.Manager);
+        PostQuestRewardSync.CampaignShowing(campaign.Rewards, PublicRewards);
+        PostQuestRewardSync.EndQueuedRewards(failedScope);
+        Check(PostQuestRewardSync.CurrentKey == 0, "failed provenance capture falls back to native rewards without an invented identity");
+        AdventureState.MapState = nativeMap;
+        PostQuestPoseBinding();
         PostQuestIntroduction();
         PostQuestIntroductionPagesAndChain();
         var bytes = new byte[256]; int offset = 0;
@@ -119,6 +128,31 @@ static partial class Program
         Check(RewardContinuationCodec.TryRead(bytes, 2, offset - 2, out var decoded)
             && decoded.Length == finished.Length && decoded[0].Finished, "reward opening codec roundtrips durable completion");
         Check(!RewardContinuationCodec.TryRead(bytes, 2, offset - 3, out _), "reward opening codec rejects truncated payload");
+    }
+    private static void PostQuestPoseBinding()
+    {
+        var campaign = new Campaign();
+        OpenPostQuest(campaign);
+        uint key = PostQuestRewardSync.CurrentKey;
+        var peer = new MapStoryOpeningLedger();
+        var peerOpening = new object();
+        peer.Open(peerOpening, key, key, 1, new[] { 1 });
+        var original = peer.Sample(peerOpening);
+        PostQuestRewardSync.ObserveCompletions(2, original);
+        Check(PostQuestRewardSync.MatchesPose(2, 1, key, original), "coherent reward snapshot binds the exact live native opening pose");
+        Check(!PostQuestRewardSync.MatchesPose(2, 1, key, null), "reward pose needs its opening in the same snapshot");
+        peer.Finish(peerOpening);
+        var completed = peer.Sample(peerOpening);
+        PostQuestRewardSync.ObserveCompletions(2, completed);
+        Check(!PostQuestRewardSync.MatchesPose(2, 1, key, completed), "finished remote reward cannot publish a new pose claim");
+        PostQuestRewardSync.Tick(true);
+        OpenPostQuest(campaign);
+        Check(!PostQuestRewardSync.MatchesPose(2, 1, key, original), "stale pose cannot bind repeated native reward group");
+        peerOpening = new object();
+        peer.Open(peerOpening, key, key, 1, new[] { 1 });
+        var successor = peer.Sample(peerOpening);
+        PostQuestRewardSync.ObserveCompletions(2, successor);
+        Check(PostQuestRewardSync.MatchesPose(2, 1, key, successor), "new peer occurrence binds repeated native reward group pose");
     }
     private static void PostQuestIntroduction()
     {
@@ -195,6 +229,9 @@ static partial class Program
         PostQuestRewardSync.ObserveCompletions(2, peer.Sample(peerHint));
         PostQuestRewardSync.Tick(true);
         Check(layout.pagination.currentPage == 2, "native reward introduction next page mirrors through pagination");
+        layout.pagination.OpenPage(1); // Local previous-page click before the next 5 Hz snapshot.
+        PostQuestRewardSync.Tick(true);
+        Check(layout.pagination.currentPage == 1, "local reward hint previous page survives Tick before Sample");
         PostQuestRewardSync.SampleCompletions();
         peer.Update(peerHint, 0, new[] { 1 });
         PostQuestRewardSync.ObserveCompletions(2, peer.Sample(peerHint));

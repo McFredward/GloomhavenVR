@@ -26,6 +26,7 @@ internal static partial class RemoteMapStory
     private static readonly Dictionary<int, bool> RewardMoved = new(), RewardUnavailable = new(), RewardReady = new();
     private static readonly List<int> RewardParticipants = new();
     private static uint _rewardSentKey;
+    private static object? _rewardOpening;
     private static bool _rewardSentPose, _rewardMoved, _rewardSentUnavailable, _rewardSentReady, _rewardWasPending;
     private static int _rewardPlayerId;
 
@@ -53,6 +54,7 @@ internal static partial class RemoteMapStory
     private static void ResetRewardPose()
     {
         PostQuestRewardSync.Reset();
+        _rewardOpening = null;
         RewardHandshake.Reset();
         RewardLocal.Reset(); RewardHandoff.Reset(); RewardPeers.Clear(); RewardCandidates.Clear(); RewardStamp.Clear();
         RewardStampAt.Clear(); RewardMoved.Clear(); RewardUnavailable.Clear(); RewardReady.Clear(); RewardParticipants.Clear();
@@ -61,6 +63,18 @@ internal static partial class RemoteMapStory
     }
     private static void SetRewardIdentity(uint key)
     {
+        object? opening = PostQuestRewardSync.Opening;
+        if (!ReferenceEquals(opening, _rewardOpening))
+        {
+            // The original window and public reward group can both be reused. A new native
+            // Show must not inherit an earlier occurrence's pose, claim or placement handshake.
+            _rewardOpening = opening;
+            RewardHandshake.RestartOpening(key); RewardLocal.Reset(); RewardHandoff.Reset();
+            RewardPeers.Clear(); RewardCandidates.Clear(); RewardStamp.Clear(); RewardStampAt.Clear();
+            RewardMoved.Clear(); RewardUnavailable.Clear(); RewardReady.Clear();
+            _rewardMoved = _rewardSentPose = _rewardSentReady = _rewardWasPending = false;
+            RewardShowcasePlacement.ClearInitialPose(); RewardShowcasePlacement.ClearInitialAuthority();
+        }
         RewardHandshake.SetLocalKey(key);
         if (RewardLocal.Key == key) return;
         RewardLocal.Reset(); RewardHandoff.Reset(); RewardLocal.Key = key; _rewardMoved = false; _rewardSentPose = false;
@@ -101,9 +115,26 @@ internal static partial class RemoteMapStory
     internal static void ObserveReward(int sender, in PresenceState presence)
     {
         if (sender <= 0) return;
-        if (presence.HasRewardPoseHandshake)
+        SetRewardIdentity(RewardKey);
+        bool postQuest = PostQuestRewardSync.Opening != null;
+        if (presence.HasRewardWindow && presence.HasRewardContinuation && presence.RewardContinuationEntries != null)
+            foreach (MapStoryOpening opening in presence.RewardContinuationEntries)
+                postQuest |= opening.ContentKey == presence.RewardWindow.Window.ContentKey;
+        // An absent peer must still answer the current generation's placement request.
+        // Declines do not publish geometry; live requesters additionally prove their opening.
+        if (presence.HasRewardPoseHandshake && (presence.RewardPoseHandshake.Key == 0
+            || !postQuest || PostQuestRewardSync.Opening == null
+            || (presence.HasRewardContinuation && PostQuestRewardSync.MatchesPose(sender,
+                NetPlayerActors.LocalPlayerId(), presence.RewardPoseHandshake.Key, presence.RewardContinuationEntries))))
             RewardHandshake.Observe(sender, in presence.RewardPoseHandshake, Time.unscaledTime);
         else RewardHandshake.Forget(sender);
+        if (postQuest && (!presence.HasRewardWindow || !presence.HasRewardContinuation
+            || !PostQuestRewardSync.MatchesPose(sender, NetPlayerActors.LocalPlayerId(),
+                presence.RewardWindow.Window.ContentKey, presence.RewardContinuationEntries)))
+        {
+            ForgetReward(sender);
+            return;
+        }
         if (!presence.HasRewardWindow || !RewardWindowCodec.Valid(in presence.RewardWindow))
         { ForgetReward(sender); return; }
         SharedWindowEntry entry = presence.RewardWindow.Window;

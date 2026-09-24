@@ -259,12 +259,16 @@ namespace ScenarioRuleLibrary
 }
 namespace GloomhavenVR.Core
 {
+    internal static class TickGuard { }
+    internal static class PerfMonitor { }
     internal interface IPanelGrabOwner { UnityEngine.Transform? GrabRoot { get; } }
     internal static class VRLog
     {
         internal static void Note(string category, string message) { }
         internal static void Info(string category, string message) { }
         internal static void Warn(string category, string message) { }
+        internal static void Error(string category, string message) { }
+        internal static void Alert(string category, string message) { }
     }
 }
 namespace GloomhavenVR.WorldUI

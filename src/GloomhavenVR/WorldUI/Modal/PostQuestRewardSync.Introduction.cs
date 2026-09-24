@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using GLOO.Introduction;
 using GloomhavenVR.Net;
+using GloomhavenVR.Net.Desync;
 using UnityEngine;
 using UnityEngine.UI;
 
@@ -55,14 +56,17 @@ internal static partial class PostQuestRewardSync
             try { original(); } // Highlight-process promises can enqueue their next step here.
             catch
             {
-                if (Singleton<UIIntroductionManager>.IsInitialized
-                    && ReferenceEquals(Singleton<UIIntroductionManager>.Instance.m_CurrentlyDisplayedMessageInfo, message)
-                    && Singleton<UIIntroductionManager>.Instance.LayoutGroup?.window?.IsOpen == true)
-                { entry.Consumed = false; Ledger.RetryTerminal(message); }
+                DispatchGuard.Run("PostQuestReward.IntroductionFailed", () =>
+                {
+                    if (Singleton<UIIntroductionManager>.IsInitialized
+                        && ReferenceEquals(Singleton<UIIntroductionManager>.Instance.m_CurrentlyDisplayedMessageInfo, message)
+                        && Singleton<UIIntroductionManager>.Instance.LayoutGroup?.window?.IsOpen == true)
+                    { entry.Consumed = false; Ledger.RetryTerminal(message); }
+                });
                 throw;
             }
             finally { _introductionScope = previous; }
-            Ledger.Finish(message); // A failed native callback never becomes peer completion.
+            NativeSucceeded(message); // A failed native callback never becomes peer completion.
         };
     }
     internal static void ShowIntroduction(UIIntroductionManager.MessageInfo message)

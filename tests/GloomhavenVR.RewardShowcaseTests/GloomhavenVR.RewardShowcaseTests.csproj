@@ -20,6 +20,7 @@
     <Compile Include="$(PlacementSource)" Link="Production/RewardShowcasePlacement.cs" />
     <Compile Include="$(MapButtonsSource)" Link="Production/RewardShowcaseMapButtons.cs" />
     <Compile Include="$(CatchAllSource)" Link="Production/RewardPoll.cs" />
+    <Compile Include="$(RepositorySourceRoot)/Net/Desync/DispatchGuard.cs" Link="Production/DispatchGuard.cs" />
     <Compile Include="$(PostQuestSource)" Link="Production/PostQuestRewardSync.cs" />
     <Compile Include="$(IntroductionSource)" Link="Production/PostQuestRewardSync.Introduction.cs" />
     <Compile Include="$(RepositorySourceRoot)/Net/MapStoryOpeningLedger.cs" Link="Production/MapStoryOpeningLedger.cs" />

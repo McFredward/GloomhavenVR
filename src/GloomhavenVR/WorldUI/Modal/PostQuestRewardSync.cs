@@ -1,7 +1,9 @@
+using System;
 using System.Globalization;
 using System.Collections.Generic;
 using GloomhavenVR.Core;
 using GloomhavenVR.Net;
+using GloomhavenVR.Net.Desync;
 using ScenarioRuleLibrary.YML;
 using UnityEngine.UI;
 
@@ -22,19 +24,28 @@ internal static partial class PostQuestRewardSync
     private static CampaignRewardsManager? _campaign;
     private static UIGuildmasterAdventureRewardsManager? _guild;
     private static UIWindow? _window;
-    private static bool _applying, _enabled;
+    private static bool _applying, _enabled, _captureFaultReported, _resetFaultReported;
 
     internal static UIWindow? Window => _window != null && _window.isActiveAndEnabled
         && (_window.IsOpen || _window.IsVisible) ? _window : null;
+    internal static object? Opening => Window != null ? _opening : null;
     internal static uint CurrentKey => Window != null ? _key : 0;
     internal static bool SendDue => Ledger.Changed;
     internal static MapStoryOpening[] SampleCompletions()
     {
         if (_opening != null && !_consumed && Window != null) Ledger.Update(_opening, 0, Participants());
         UpdateIntroduction();
-        return Ledger.Sample(ActiveIntroductionSubject ?? _opening);
+        return Ledger.Sample(ActiveIntroductionSubject ?? _opening, _opening);
     }
     internal static void ObserveCompletions(int sender, MapStoryOpening[] entries) => Ledger.Observe(sender, entries);
+    internal static bool MatchesPose(int sender, int localPlayerId, uint key, MapStoryOpening[]? entries)
+    {
+        if (_opening == null || CurrentKey != key || _consumed || entries == null) return false;
+        foreach (MapStoryOpening entry in entries)
+            if (entry.ContentKey == key && !entry.Finished
+                && Ledger.MatchesPose(_opening, sender, localPlayerId, entry.Epoch, entry.Token)) return true;
+        return false;
+    }
     private static IReadOnlyList<int> Participants()
     {
         VersionGuard.CollectContinuationPeers(Peers, NetPlayerActors.LocalPlayerId());
@@ -53,7 +64,17 @@ internal static partial class PostQuestRewardSync
     internal static uint BeginQueuedRewards()
     {
         uint previous = _captureContext;
-        _captureContext = SharedMapRunIdentity.Key;
+        _captureContext = 0;
+        try { _captureContext = SharedMapRunIdentity.Key; }
+        catch (Exception exception)
+        {
+            if (!_captureFaultReported)
+            {
+                _captureFaultReported = true;
+                VRLog.Warn("WorldUI", "POSTQUEST REWARD IDENTITY: native rewards continue without sharing after provenance capture failed: "
+                    + exception.GetType().Name);
+            }
+        }
         return previous;
     }
     internal static void EndQueuedRewards(uint previous) => _captureContext = previous;
@@ -139,7 +160,7 @@ internal static partial class PostQuestRewardSync
     }
     internal static void NativeSucceeded(object? opening)
     {
-        if (opening != null) Ledger.Finish(opening);
+        if (opening != null) DispatchGuard.Run("PostQuestReward.NativeSucceeded", () => Ledger.Finish(opening));
     }
     internal static void NativeFailed(object? opening)
     {
@@ -174,16 +195,29 @@ internal static partial class PostQuestRewardSync
     {
         _enabled = enabled;
         bool shared = enabled && SharedWindows.ParticipatesHere(SharedWindowKind.RewardShowcase);
-        if (shared) TickIntroduction();
+        if (shared) { UpdateIntroduction(); TickIntroduction(); }
         if (shared && _opening != null && CanConfirm
             && Ledger.Resolve(_opening, NetPlayerActors.LocalPlayerId(), 0, nativeOpen: true) == 1)
             TryConfirm();
     }
     private static void ClearWindow() { _window = null; _guild = null; _key = 0; _opening = null; _consumed = false; }
+    internal static void ResetAfterNativeSceneEnd()
+    {
+        try { Reset(); }
+        catch (Exception exception)
+        {
+            if (!_resetFaultReported)
+            {
+                _resetFaultReported = true;
+                VRLog.Warn("WorldUI", "POSTQUEST REWARD RESET: optional sharing cleanup failed: " + exception.GetType().Name);
+            }
+        }
+    }
     internal static void Reset()
     {
-        Ledger = new MapStoryOpeningLedger(); ClearWindow(); _campaign = null; _captureContext = _campaignContext = 0;
+        ClearWindow(); _campaign = null; _captureContext = _campaignContext = 0;
         _applying = _enabled = false;
         ResetIntroductions();
+        Ledger = new MapStoryOpeningLedger();
     }
 }

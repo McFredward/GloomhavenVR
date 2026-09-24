@@ -102,6 +102,15 @@ internal sealed class RewardPoseHandshake
         _peers.Clear(); _declines.Clear(); _remove.Clear(); _declinedKeys.Clear(); _removeKeys.Clear();
         _key = _generation = 0; _localId = 0; _changed = false;
     }
+    internal void RestartOpening(uint key)
+    {
+        // Reused reward groups need fresh requests even when the public content key is equal.
+        // Preserve the generation across cleared pose state so old declines cannot match.
+        uint generation = _generation;
+        Reset();
+        _generation = generation;
+        SetLocalKey(key);
+    }
     internal void SetLocalKey(uint key)
     {
         if (_key == key) return;
