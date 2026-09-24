@@ -16,6 +16,7 @@ from mathutils import Vector
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--output', required=True)
+parser.add_argument('--only', nargs='*', help='Rebuild only named furniture assets; preserve unrelated source FBXs.')
 args = parser.parse_args(sys.argv[sys.argv.index('--') + 1:])
 out = Path(args.output).resolve()
 out.mkdir(parents=True, exist_ok=True)
@@ -24,6 +25,7 @@ materials = {}
 for name, color, metal in [('DarkWood', (.20, .09, .035, 1), 0),
                            ('PaleStone', (.38, .34, .27, 1), 0),
                            ('Brass', (.35, .21, .07, 1), .7),
+                           ('ForgedIron', (.065, .060, .050, 1), .85),
                            ('Leather', (.07, .025, .01, 1), 0),
                            ('AltarCloth', (.16, .035, .07, 1), 0)]:
     mat = bpy.data.materials.new(name)
@@ -199,35 +201,117 @@ def terrace(name, columns=24, origin=-1.32, curved=True):
 
 
 def merchant():
-    # A portable folding campaign cabinet, not a dining hall. Its two revolving
-    # front trays are runtime parts; fixed furniture never grows with inventory.
-    for x in (-.65,.65):
-        turned_leg(x,.16)
-        # Fold-out front legs have visible brass hinge pivots and curved braces.
-        tube('Folding front leg',[(x,0,-.69),(x,.38,-.61),(x,.72,-.49)],[.036,.029,.04])
-        ring('Front leg hinge',(x,.71,-.49),.049,.009)
-        tube('Folding diagonal brace',[(x,.24,-.62),(x,.50,-.34),(x,.83,.02)],[.014]*3,'Brass',8)
-    # Clear native coin/ledger contact patch remains at the original height.
-    for i in range(6): rect('Ledger worktop plank',(i-2.5)*.232,.16,.230,.64,.955,.055)
-    rect('Ledger leather',0,.15,.72,.40,.958,.004,'Leather',.002)
-    for x in (-.70,.70):
-        rect('Rounded cabinet cheek',x,-.14,.055,.69,.91,.47,bevel=.020)
-        tube('Forged carry handle',[(x,.56,-.28),(x*1.04,.54,-.23),(x*1.04,.54,-.08),(x,.56,-.03)],[.009]*4,'Brass',10)
-    # Lower travelling trunk; revolving racks occupy x ±.35,z -.57,y .77.
-    rect('Travel trunk floor',0,-.40,1.36,.58,.43,.06,bevel=.017)
-    rect('Travel trunk apron',0,-.686,1.36,.035,.44,.19,bevel=.014)
-    for x in (-.64,0,.64):
-        rect('Forged travel strap',x,-.708,.027,.008,.44,.19,'Brass',.004)
+    # Approved build-549 concept: a chest-height travelling cabinet BESIDE the actor,
+    # with a separate folding ledger stand. Metre-space contract is shared with runtime.
+    cx = -.95
+    for side in (-1, 1):
+        x = cx + side*.405
+        rect('Cabinet solid cheek',x,.30,.04,.45,1.64,.88,bevel=.011)
+        rect('Front worn stile',x,.049,.070,.060,1.65,.88,bevel=.011)
+        rect('Rear corner post',x,.525,.055,.042,1.65,.89,bevel=.009)
+        # Fold-out legs and positive stops explain how a portable cabinet stands up.
+        for z, foot in ((.15,-.025),(.45,.64)):
+            tube('Cabinet folding trestle',[(cx+side*.46,.006,foot),
+                 (cx+side*.42,.34,(z+foot)*.5),(cx+side*.35,.86,z)],
+                 [.031,.030,.035],sides=12)
+            tube('Trestle iron stay',[(cx+side*.415,.30,(z+foot)*.5),
+                 (cx+side*.375,.65,z+.015)],[.009,.009],'ForgedIron',8)
+            tube('Iron foot shoe',[(cx+side*.46,.007,foot),
+                 (cx+side*.455,.078,foot+.008)],[.037,.035],'ForgedIron',12)
+        ring('Folding pivot washer',(x,.825,.090),.030,.006,'ForgedIron',True)
+        for y in (.80,1.605):
+            rect('Corner band vertical',x,.010,.070,.010,y+.025,.12,'ForgedIron',.004)
+            rect('Corner band horizontal',x-side*.050,.010,.14,.010,y+.025,.026,'ForgedIron',.004)
+            for dx,dy in ((0,0),(0,-.066),(-side*.095,.01)):
+                tube('Hammered corner rivet',[(x+dx,y+dy,.002),(x+dx,y+dy,-.009)],
+                     [.009,.006],'Brass',10)
+        # Thick stitched leather side handles, visibly bolted to the transport chest.
+        outer=x+side*.025
+        for y in (1.06,1.31):
+            tube('Carry handle eye',[(outer,y,.27),(outer+side*.035,y,.27)],
+                 [.012,.012],'ForgedIron',12)
+        tube('Leather carrying grip',[(outer,1.06,.27),(outer+side*.055,1.10,.27),
+             (outer+side*.055,1.27,.27),(outer,1.31,.27)], [.012,.019,.019,.012],'Leather',14)
+        # The cassette moves along actual bounded rails inside the box.
+        for y in (1.02,1.42):
+            tube('Cassette guide rail',[(cx+side*.347,y,.072),(cx+side*.347,y,.485)],
+                 [.007,.007],'ForgedIron',8)
+    for i in range(6):
+        rect('Rear vertical timber',cx+(i-2.5)*.133,.508,.131,.026,1.63,.86,bevel=.004)
+    rect('Cabinet crown',cx,.29,.87,.49,1.665,.07,bevel=.015)
+    rect('Cabinet sill',cx,.30,.85,.45,.785,.046,bevel=.012)
+    rect('Control fascia',cx,.064,.83,.066,.968,.196,bevel=.012)
+    # Header leaves enough hidden roof depth for the bifold opaque changeover shutter.
+    rect('Front header',cx,.052,.85,.060,1.613,.102,bevel=.010)
+    for y in (.792,.954,1.535):
+        tube('Beaded front moulding',[(cx-.377,y,.012),(cx,y-.003,.009),(cx+.377,y,.012)],
+             [.009,.009,.009],sides=12)
+    # Top carrying handle and a forged bracket for the original game's lantern.
+    for x in (cx-.10,cx+.10):
+        tube('Top handle mount',[(x,1.665,.31),(x,1.716,.31)],[.009,.009],'ForgedIron',10)
+    tube('Top leather carry bar',[(cx-.10,1.716,.31),(cx+.10,1.716,.31)], [.016,.016],'Leather',14)
+    tube('Lantern bracket',[(cx-.39,1.60,.30),(cx-.39,1.72,.30),
+         (cx-.46,1.74,.19),(cx-.56,1.71,.08),(cx-.56,1.65,.08)],
+         [.010,.010,.010,.009,.008],'ForgedIron',12)
+    ring('Lantern hanging link',(cx-.56,1.62,.08),.026,.004,'Brass',True)
+    # Small folding writing stand, with dovetail-like board ends and iron X braces.
+    for i in range(5):
+        rect('Ledger worktop board',(i-2)*.144,.23,.142,.56,.955,.046,bevel=.009)
+    rect('Ledger leather writing pad',0,.23,.60,.42,.958,.004,'Leather',.002)
+    for side in (-1,1):
+        for a,b in ((-.05,.46),(.46,-.05)):
+            tube('Ledger folding support',[(side*.33,.006,a),(side*.27,.48,.205),(side*.30,.921,b)],
+                 [.027,.024,.028],sides=12)
+        tube('Ledger pivot bolt',[(side*.255,.48,.205),(side*.295,.48,.205)], [.017,.017],'Brass',12)
+        tube('Ledger cross stay',[(side*.285,.30,.13),(side*.285,.76,.30)], [.008,.008],'ForgedIron',8)
+    tube('Ledger rear stretcher',[(-.29,.13,.40),(.29,.13,.40)],[.019,.019],sides=12)
+    for x in (-.325,.325):
+        for z in (-.035,.49):
+            tube('Ledger countersunk pin',[(x,.955,z),(x,.958,z)],[.006,.006],'Brass',10)
+
+
+def merchant_cassette():
+    # Template origin is the runtime cassette centre. Keep artwork clear and individually grabbable.
+    rect('Cassette backing',0,.026,.71,.022,.257,.52,bevel=.006)
     for x in (-.35,.35):
-        # Top/bottom bearings support each visible turning card tray.
-        tube('Rack bearing upright',[(x,.43,-.57),(x,.455,-.57)],[.018]*2,'Brass',10)
-        tube('Rack upper pin',[(x,1.115,-.57),(x,1.15,-.57)],[.014]*2,'Brass',10)
-    for x in (-.685,.685):
-        tube('Rack folding frame',[(x,.43,-.57),(x,1.12,-.57)],[.020]*2)
-    tube('Folding cabinet crown',[(-.685,1.12,-.57),(0,1.15,-.57),(.685,1.12,-.57)],[.022]*3)
-    for x in (-.35,.35):
-        for z in (-.70,-.13):
-            tube('Leather securing belt',[(x,.443,z),(x,.451,z+.10)],[.012]*2,'Leather',6)
+        rect('Cassette timber side',x,.006,.015,.035,.25,.51,bevel=.003)
+    for row in range(3):
+        y=(1-row)*.17
+        for col in range(4):
+            x=(col-1.5)*.18
+            for dx in (-.063,.063):
+                tube('Card brass retaining clip',[(x+dx,y-.059,.012),(x+dx,y-.061,-.011),
+                     (x+dx,y-.040,-.014)], [.0035]*3,'Brass',8)
+                tube('Card clip rivet',[(x+dx,y-.060,.013),(x+dx,y-.060,-.012)],[.005,.005],'ForgedIron',8)
+            rect('Individual card leather seat',x,.010,.144,.006,y+.057,.114,'Leather',.002)
+
+
+def merchant_crank():
+    # Rotation axis +X. Named Handle geometry remains separate for the grip collider.
+    tube('Crank axle',[(-.055,0,0),(.022,0,0)],[.017,.017],'ForgedIron',16)
+    tube('Crank ornamental flange',[(-.015,0,0),(.004,0,0)],[.057,.053],'Brass',24)
+    tube('Bent forged crank arm',[(.025,0,0),(.036,-.035,-.012),(.036,-.12,-.030)],
+         [.018,.014,.016],'ForgedIron',14)
+    tube('Handle_DarkWood',[(.04,-.12,-.030),(.115,-.12,-.030),(.15,-.12,-.030)],
+         [.021,.027,.018],'DarkWood',20)
+    for x in (.048,.133):
+        tube('Crank grip ferrule',[(x,-.12,-.030),(x+.009,-.12,-.030)],[.023,.023],'Brass',16)
+
+
+def merchant_button():
+    tube('Button turned wood',[(0,0,.006),(0,0,-.011)],[.046,.043],'DarkWood',32)
+    tube('Button brass inset',[(0,0,-.012),(0,0,-.017)],[.037,.036],'Brass',32)
+    ring('Button milled rim',(0,0,-.011),.043,.003,'Brass',True)
+    # Original native category pictogram is runtime artwork on the front, never invented card art.
+
+
+def merchant_shutter_leaf():
+    for i in range(3):
+        rect('Shutter tongue and groove',0,.006,.72,.016,-i*.088,.087,bevel=.003)
+    for x in (-.30,.30):
+        rect('Shutter iron hinge strap',x,-.004,.022,.007,-.004,.253,'ForgedIron',.002)
+        for y in (-.015,-.245):
+            tube('Shutter hinge pin',[(x,y,-.003),(x,y,-.009)],[.005,.004],'Brass',8)
 
 
 def merchant_return():
@@ -289,12 +373,13 @@ def export(name, build):
     supports=[]
     for obj in parts:
         heights=[(obj.matrix_world @ vertex.co).z for vertex in obj.data.vertices]
-        if heights and min(heights) <= .03 and max(heights)-min(heights) >= .06:
+        if name in ('merchant','enchantress','priestess') and heights and min(heights) <= .03 and max(heights)-min(heights) >= .06:
             obj.name=f'GroundSupport{len(supports):02d}_{obj.name}_{obj.data.materials[0].name}'
             supports.append(obj)
     # The remaining decor stays one renderer per material, not one per rivet or leaf.
     for material in materials.values():
-        objects=[o for o in bpy.context.scene.objects if o.type == 'MESH' and o not in supports and o.data.materials[0] == material]
+        objects=[o for o in bpy.context.scene.objects if o.type == 'MESH' and o not in supports
+                 and not o.name.startswith('Handle_') and o.data.materials[0] == material]
         if not objects: continue
         bpy.ops.object.select_all(action='DESELECT')
         for obj in objects: obj.select_set(True)
@@ -309,7 +394,9 @@ def export(name, build):
     print('TOWN_FURNITURE',name,sum(len(o.data.polygons) for o in bpy.context.scene.objects if o.type=='MESH'))
 
 
-export('merchant',merchant)
-export('enchantress',enchantress)
-export('priestess',priestess)
-export('merchant_return',merchant_return)
+for name, build in [('merchant',merchant),('enchantress',enchantress),('priestess',priestess),
+                    ('merchant_return',merchant_return),('merchant_cassette',merchant_cassette),
+                    ('merchant_crank',merchant_crank),('merchant_button',merchant_button),
+                    ('merchant_shutter_leaf',merchant_shutter_leaf)]:
+    if not args.only or name in args.only:
+        export(name,build)

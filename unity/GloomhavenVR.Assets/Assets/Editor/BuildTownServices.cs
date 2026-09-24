@@ -221,12 +221,15 @@ namespace GloomhavenVR
                 var material = Mat(materialName);
                 if (material == null) throw new InvalidDataException("Unknown furniture material: " + renderer.name);
                 renderer.sharedMaterial = material;
+                if (renderer.name == "Handle_DarkWood") renderer.gameObject.name = "Handle";
             }
             return furniture;
         }
 
         static void BuildStation(GameObject root, string npc)
         {
+            if (Mat("ForgedIron") == null)
+                Material("ForgedIron", new Color(.065f, .060f, .050f), .85f, .24f);
             Mat("DarkWood").color = new Color(.49f, .31f, .17f);
             Mat("PaleStone").color = new Color(.79f, .74f, .65f);
             Mat("AltarCloth").color = new Color(.27f, .055f, .065f);
@@ -243,12 +246,45 @@ namespace GloomhavenVR
                 extension.name = "CounterReturn";
                 extension.transform.SetParent(furniture.transform, false);
                 extension.SetActive(false); // Catalogue creates only the open wings it actually needs.
+                MerchantTemplates(furniture.transform);
             }
+        }
+
+        static void MerchantTemplates(Transform counter)
+        {
+            foreach (var pair in new[] {
+                new[] { "merchant_cassette", "MerchantCassetteTemplate" },
+                new[] { "merchant_crank", "MerchantCrankTemplate" },
+                new[] { "merchant_button", "MerchantButtonTemplate" } })
+            {
+                var template = AuthoredFurniture(pair[0]); template.name = pair[1];
+                template.transform.SetParent(counter, false); template.SetActive(false);
+            }
+            // The two leaves fold inward under the roof. A solid panel lifted vertically
+            // would rise above the portable cabinet and contradict the approved silhouette.
+            var shutter = new GameObject("MerchantShutterTemplate");
+            shutter.transform.SetParent(counter, false);
+            var upper = new GameObject("Upper").transform;
+            upper.SetParent(shutter.transform, false); upper.localPosition = new Vector3(0, .265f, 0);
+            var lower = new GameObject("Lower").transform;
+            lower.SetParent(upper, false); lower.localPosition = new Vector3(0, -.265f, -.020f);
+            foreach (var hinge in new[] { upper, lower })
+            {
+                var leaf = AuthoredFurniture("merchant_shutter_leaf"); leaf.name = "Leaf";
+                leaf.transform.SetParent(hinge, false);
+            }
+            shutter.SetActive(false);
+            foreach (var pair in new[] {
+                ("CabinetAnchor", new Vector3(-.95f, 0, .30f)),
+                ("CabinetCassetteAnchor", new Vector3(-.95f, 1.22f, .035f)),
+                ("CabinetCrankAnchor", new Vector3(-.47f, 1.05f, .11f)),
+                ("CabinetShutterAnchor", new Vector3(-.95f, 1.22f, .015f)) })
+                Anchor(counter.gameObject, pair.Item1, pair.Item2);
         }
 
         static void ExpandMerchantCounter(GameObject root)
         {
-            // Width and the eight open terraces are authored in Furniture/merchant.fbx.
+            // The side cabinet and folding lectern are authored in Furniture/merchant.fbx.
         }
         public static void RefreshMerchantCounter()
         {
