@@ -205,6 +205,8 @@ namespace GloomhavenVR.Net
 }
 namespace GloomhavenVR.WorldUI
 {
+    internal static class TownServiceMerchantHandoff { internal static bool CanReclaim(TownServiceToken token) => false; }
+
     internal static class TownServiceCardBody{internal static GameObject Create(Transform p){var g=new GameObject("Body");g.transform.SetParent(p,false);return g;}internal static void SetVisibility(GameObject g,float v){}internal static void Dispose(GameObject g){}}
     internal static class NativeTemplates{internal static UnityEngine.UI.UITooltip? Tooltip;}
     internal static class TownServiceNativeAssets{internal static void PrepareItem(ItemCardUI i){}}

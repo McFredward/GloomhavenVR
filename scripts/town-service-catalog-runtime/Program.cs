@@ -296,12 +296,26 @@ public static class InteractionProgram
         {
             var t=GameObject.CreatePrimitive(PrimitiveType.Cube);t.name=template;t.transform.SetParent(counter.transform,false);
             if(template=="MerchantCassetteTemplate") for(int row=0;row<3;row++)
-            {var rowHolder=new GameObject("Row"+row);rowHolder.transform.SetParent(t.transform,false);rowHolder.transform.localPosition=new Vector3(0,(row-1)*.17f,0);}
+            {var rowHolder=new GameObject("Row"+row);rowHolder.transform.SetParent(t.transform,false);rowHolder.transform.localPosition=new Vector3(0,(row-1)*.17f,0);
+             rowHolder.transform.localRotation=Quaternion.Euler(-90,0,0);rowHolder.transform.localScale=Vector3.one*100f;
+             var geometry=new GameObject("OriginalGeometry");geometry.transform.SetParent(rowHolder.transform,false);geometry.transform.localPosition=new Vector3(.002f,-.001f,.003f);}
             if(template=="MerchantCrankTemplate") {var h=GameObject.CreatePrimitive(PrimitiveType.Cube);h.name="Handle";h.transform.SetParent(t.transform,false);h.transform.localPosition=new Vector3(.08f,-.09f,0f);}
             if(template=="MerchantShutterTemplate") {var u=new GameObject("Upper");u.transform.SetParent(t.transform,false);var l=new GameObject("Lower");l.transform.SetParent(u.transform,false);}
             t.SetActive(false);
         }
         TownServiceAssets.Merchant=prefab;
+        var normalizedRack=TownServiceMerchantDrawer.CreateHousingTemplate();
+        for(int row=0;row<3;row++)
+        {
+            Transform pivot=normalizedRack.transform.Find("Cassette/Row"+row);
+            Transform original=counter.transform.Find("MerchantCassetteTemplate/Row"+row);
+            Check(pivot.localScale==Vector3.one&&Quaternion.Angle(pivot.localRotation,Quaternion.identity)<.001f,
+                "native cards parent to metre-space pivots rather than FBX centimetre-scaled empties");
+            Check(Vector3.Distance(pivot.Find("ImportedHolder/OriginalGeometry").position,original.Find("OriginalGeometry").position)<.00001f,
+                "normalizing roller pivots preserves exact imported geometry before animation");
+        }
+        UnityEngine.Object.DestroyImmediate(normalizedRack);
+
         var inventory=Rect("Inventory",root.transform).gameObject.AddComponent<UIShopItemInventory>();
         inventory.itemsCanvasGroup=inventory.gameObject.AddComponent<CanvasGroup>();
         inventory.itemTooltip=Rect("OriginalDetail",inventory.transform).gameObject.AddComponent<UIPartyItemInventoryTooltip>();

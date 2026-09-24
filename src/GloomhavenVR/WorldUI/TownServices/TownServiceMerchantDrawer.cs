@@ -188,6 +188,17 @@ internal sealed class TownServiceMerchantDrawer : IGrabbable, IGrabbableHandFilt
     {
         var root = new GameObject("MerchantIndexedCassette");
         GameObject cassette = Authored("MerchantCassetteTemplate"); cassette.name = "Cassette"; cassette.transform.SetParent(root.transform, false);
+        // FBX empty nodes retain the importer's -90 degree rotation and 100x unit scale.
+        // Animate metre-space pivots around them, preserving imported geometry underneath;
+        // resetting an imported node itself rotates the holders and magnifies native cards.
+        for (int row = 0; row < 3; row++)
+        {
+            Transform? imported = cassette.transform.Find("Row" + row);
+            if (imported == null) throw new InvalidOperationException("The merchant cabinet is missing an articulated holder row.");
+            Transform pivot = new GameObject("Row" + row).transform;
+            pivot.SetParent(cassette.transform, false); pivot.localPosition = imported.localPosition;
+            imported.name = "ImportedHolder"; imported.SetParent(pivot, true);
+        }
         GameObject shutter = Authored("MerchantShutterTemplate"); shutter.name = "Shutter"; shutter.transform.SetParent(root.transform, false);
         shutter.transform.localPosition = new Vector3(0f, 0f, -.020f);
         var indicator = new GameObject("PageIndicator", typeof(RectTransform), typeof(Canvas), typeof(CanvasGroup));
