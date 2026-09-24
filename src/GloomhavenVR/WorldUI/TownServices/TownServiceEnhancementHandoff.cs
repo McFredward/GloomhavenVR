@@ -208,7 +208,7 @@ internal sealed class TownServiceEnhancementHandoff : IDisposable
             return;
         }
         if (!ValidOwner(Card) || !_alive() || _palm == null || _shop == null || !_window.IsOpen
-            || _shop.selectedCard == null || _shop.selectedCard.AbilityCard != _model
+            || _shop.selectedCard == null || !SameCard(_shop.selectedCard.AbilityCard, _model)
             || VRRigDriver.HeadCamera != null && !Near(_seat, VRRigDriver.HeadCamera.transform.position, 2.25f))
             Return();
         else
@@ -240,6 +240,13 @@ internal sealed class TownServiceEnhancementHandoff : IDisposable
         && _shop != null && _shop.character != null && owner != null
         && _shop.character.CharacterID == owner.CharacterID;
 
+    // The map fan resolves its model from CharacterClassManager while the native enhancement
+    // list obtains the character's owned cards through its service. They normally share the
+    // class pool, but a native list refresh can replace its card wrapper/model instance.
+    // Owner + card ID is the stable address; reference equality would silently remove every
+    // palm offer in that case even though the displayed owned card is still the same card.
+    private static bool SameCard(CAbilityCard? a, CAbilityCard? b) => a != null && b != null && a.ID == b.ID;
+
     private bool HasAvailableOwnedCard()
     {
         var cards = CardsDriver.OffScenarioFanCards;
@@ -258,7 +265,7 @@ internal sealed class TownServiceEnhancementHandoff : IDisposable
         if (model == null) return null;
         foreach (UIEnhanceCardSlot slot in _shop.CardsDisplay.slotsPool)
             if (slot != null && slot.gameObject.activeInHierarchy && slot.AbilityCard != null
-                && slot.AbilityCard.AbilityCard == model && slot.Selectable != null
+                && SameCard(slot.AbilityCard.AbilityCard, model) && slot.Selectable != null
                 && slot.Selectable.IsActive() && slot.Selectable.IsInteractable()) return slot;
         return null;
     }
@@ -289,7 +296,7 @@ internal sealed class TownServiceEnhancementHandoff : IDisposable
         // the original rune confirmation path. Recheck after callbacks may rebuild the pool.
         found.Select();
         if (!Ready || !ValidOwner(card) || _shop.selectedCard == null
-            || _shop.selectedCard.AbilityCard != model) return false;
+            || !SameCard(_shop.selectedCard.AbilityCard, model)) return false;
         Reclaimed.Remove(card);
         Card = card; NativeSource = _shop.selectedCard; NativeSlot = found; _model = model;
         CardFan.Current?.Remove(card);

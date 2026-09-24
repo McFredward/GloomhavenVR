@@ -17,7 +17,7 @@ public static class InteractionProgram
         Approach();
         WalkAway();
         foreach (float scale in new[] { .05f, 1f, 2f, 198.12f })
-        for (int scenario = 0; scenario < 21; scenario++) RunCase(scale, scenario);
+        for (int scenario = 0; scenario < 22; scenario++) RunCase(scale, scenario);
         return count;
     }
     private static void RunCase(float scale, int scenario)
@@ -39,6 +39,7 @@ public static class InteractionProgram
         slot.transform.SetParent(native.transform, false); slot.Selectable = slot.GetComponent<Button>();
         slot.AbilityCard = new GameObject("OriginalCard", typeof(AbilityCardUI)).GetComponent<AbilityCardUI>();
         slot.AbilityCard.transform.SetParent(slot.transform, false); slot.AbilityCard.AbilityCard = card.Model;
+        if (scenario == 21) slot.AbilityCard.AbilityCard = new ScenarioRuleLibrary.CAbilityCard { ID = card.Model.ID };
         slot.AbilityCard.fullAbilityCard = new GameObject("Full", typeof(FullAbilityCard)).GetComponent<FullAbilityCard>();
         slot.AbilityCard.fullAbilityCard.transform.SetParent(slot.AbilityCard.transform, false);
         var originalTop = new GameObject("Top").transform; originalTop.SetParent(slot.AbilityCard.fullAbilityCard.transform, false);
@@ -61,7 +62,8 @@ public static class InteractionProgram
         {
             handoff.Tick();
             Check(handoff.Zone.GetComponent<CanvasGroup>().alpha == 1f && !card.IsHeld,
-                "empty ready palm advertises an owned offering without requiring a held card");
+                scenario == 21 ? "same owned card ID survives a native enhancement-list model refresh"
+                    : "empty ready palm advertises an owned offering without requiring a held card");
             if (scenario == 1) shop.character = new Owner { CharacterID = "foreign" };
             if (scenario == 2) card.transform.position = palm.TransformPoint(new Vector3(0f, 0f, 1f));
             if (scenario == 3) slot.Selectable.interactable = false;
@@ -82,6 +84,8 @@ public static class InteractionProgram
             Check(offered == (scenario == 0 || scenario >= 10), reason);
             if (offered)
             {
+                if (scenario == 21) Check(!ReferenceEquals(card.Model, shop.selectedCard!.AbilityCard),
+                    "same owned card ID survives a native enhancement-list model refresh");
                 Check(selected == 1 && ReferenceEquals(handoff.Card, card), "one native selection parks the original card");
                 Check(TownServiceEnhancementHandoff.IsParked(card), "parked card excluded from fan adoption");
                 Check(handoff.Face == face.transform && handoff.CloneOf(originalTop) == face.transform.Find("Top"), "actual printed face retains native provenance");

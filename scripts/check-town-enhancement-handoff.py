@@ -40,6 +40,33 @@ def sources(root):
     return bound, {name: hashlib.sha256(text.encode()).hexdigest() for name, text in bound.items()}
 
 
+def check_presentation_bridge(root):
+    """The resident must acquire both native windows before replacing their hand surfaces."""
+    source = (root / "src/GloomhavenVR/WorldUI/TownServices/TownServicePresentation.cs").read_text()
+    tick = source[source.index("    private static void TickCore()"):
+                  source.index("    private static ConvertedPanel? FindContext(")]
+    def has_temple_approach(body):
+        mage = body.find("TownServiceEnhancementHandoff.TickApproach();")
+        temple = body.find("TownServiceTempleOffering.TickApproach();")
+        return mage >= 0 and temple > mage
+
+    if not has_temple_approach(tick):
+        raise RuntimeError("Native temple approach is not polled beside enchantress approach")
+    property_body = source[source.index("internal static bool UsesImmersiveEnhancement =>"):
+                           source.index(";", source.index("internal static bool UsesImmersiveEnhancement =>"))]
+    def has_mage_ownership(body):
+        return "_enhancementListMask != null" in body and "Service == 3" in body
+
+    if not has_mage_ownership(property_body):
+        raise RuntimeError("Enchantress native card list is released before immersive ownership is established")
+    # Each checker must reject the defect it guards. An assertion that also accepts
+    # its own planted regression would provide no useful integration evidence.
+    if has_temple_approach(tick.replace("TownServiceTempleOffering.TickApproach();", "", 1)):
+        raise RuntimeError("Temple approach negative control was accepted")
+    if has_mage_ownership(property_body.replace("_enhancementListMask != null", "true", 1)):
+        raise RuntimeError("Mage ownership negative control was accepted")
+
+
 def mutations():
     name = "TownServiceEnhancementHandoff.cs"
     return [
@@ -61,6 +88,7 @@ def mutations():
         ("other-service", name, "GuildmasterDestinations.CurrentDestinationMode() != EGuildmasterMode.None", "GuildmasterDestinations.CurrentDestinationMode() == EGuildmasterMode.Enchantress", "proximity never takes over another open service"),
         ("modal", name, "|| Core.Events.VRModeStateMachine.CurrentMode == Core.Events.VRMode.ModalUI", "", "modal confirmation prevents proximity opening"),
         ("empty-palm", name, "&& Card == null && HasAvailableOwnedCard()", "&& Card == null && HeldOwnedCard(VRHands.Left) != null && HasAvailableOwnedCard()", "empty ready palm advertises an owned offering without requiring a held card"),
+        ("model-refresh", name, "a.ID == b.ID", "ReferenceEquals(a, b)", "same owned card ID survives a native enhancement-list model refresh"),
     ]
 
 
@@ -73,6 +101,7 @@ def main():
     parser.add_argument("--unity-ui", type=Path, help="Real UnityEngine.UI.dll (never metadata-only RefAsm)")
     parser.add_argument("--no-negative-controls", action="store_true", help="Quick positive run; not complete validation")
     args = parser.parse_args()
+    check_presentation_bridge(args.source_root)
     args.output_dir.mkdir(parents=True, exist_ok=True)
     run = Path(tempfile.mkdtemp(prefix="run-", dir=args.output_dir.resolve()))
     fixture = Path(__file__).resolve().parent / "town-enhancement-handoff-runtime"
