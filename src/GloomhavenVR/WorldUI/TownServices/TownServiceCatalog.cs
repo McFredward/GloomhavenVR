@@ -176,8 +176,9 @@ internal sealed class TownServiceCatalog : IDisposable
             int position=0;
             while(_entries.Exists(entry=>entry.Selling==row.Selling&&entry.Category==CategoryOf(row.Item)&&entry.Ordinal==position))position++;
             TownServiceMerchantDrawer rack = _drawers[0];
-            Transform parent = rack.Content;
+            Transform parent = rack.CardParent(position);
             Vector3 local = TownServiceMerchantLayout.StockPosition(position % TownServiceMerchantDrawer.Capacity);
+            local.y = 0f; // The articulated holder row carries the original vertical slot.
             var added=new Entry(this,row.Source,position,row.Selling,parent,local);
             _entries.Add(added);_samples.Add(added.Sample);
         }

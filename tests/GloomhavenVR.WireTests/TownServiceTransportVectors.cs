@@ -322,11 +322,11 @@ internal static class TownServiceTransportVectors
         catalog.PublicCatalog = true; catalog.PublicClaim = 0x01020304; catalog.Rack.Cassette = true;
         byte[] current = TownServiceCodec.Write(catalog);
         var old = new List<byte>(); old.AddRange(new ArraySegment<byte>(current, 0, 6));
-        var additive = new List<byte>();
+        var additive = new List<byte>(); var roller = new List<byte>();
         for (int at = 6; at < current.Length;)
         {
             int start = at, id = current[at++], count = current[at++];
-            (id == 86 ? additive : old).AddRange(new ArraySegment<byte>(current, start, count + 2));
+            (id == 87 ? roller : id == 86 ? additive : old).AddRange(new ArraySegment<byte>(current, start, count + 2));
             at += count;
         }
         t.Wire(legacy, old.ToArray(), old.Count, "86 leaves complete historical78/85 payload unchanged");
@@ -334,6 +334,24 @@ internal static class TownServiceTransportVectors
         t.True(TownServiceCodec.TryRead(current, current.Length, out var decoded)
             && decoded!.PublicCatalog && decoded.PublicClaim == 0x01020304 && decoded.Rack!.Cassette,
             "public lane, authority claim and cassette mechanism survive decoder");
+        t.Wire(Hex.Bytes("57 04 01 00 01 00"), roller.ToArray(), roller.Count, "independent87 idle roller golden vector");
+        foreach (sbyte direction in new sbyte[] { -1, 1 })
+        {
+            catalog.Rack.ScrollDirection = direction; catalog.Rack.PageCount = 256;
+            byte[] turn = TownServiceCodec.Write(catalog);
+            t.Wire(Hex.Bytes(direction < 0 ? "57 04 01 FF 00 01" : "57 04 01 01 00 01"),
+                Slice(turn, turn.Length - 6, 6), 6, "87 preserves signed scrolling direction and 256-page bound");
+            t.True(TownServiceCodec.TryRead(turn, turn.Length, out var rolled) && rolled!.Rack!.ScrollDirection == direction
+                && rolled.Rack.PageCount == 256, "reverse and forward wraparound preserve exact owner direction");
+            var repeated = new byte[turn.Length + 6]; turn.CopyTo(repeated,0); Array.Copy(turn,turn.Length-6,repeated,turn.Length,6);
+            t.True(!TownServiceCodec.TryRead(repeated,repeated.Length,out _),"duplicate roller clock rejected");
+            foreach(byte bad in new byte[] {2,127,128,254})
+            {byte[] corrupt=(byte[])turn.Clone();corrupt[corrupt.Length-3]=bad;
+             t.True(!TownServiceCodec.TryRead(corrupt,corrupt.Length,out _),"invalid signed roller direction rejected");}
+            byte[] zero=(byte[])turn.Clone();zero[zero.Length-2]=zero[zero.Length-1]=0;
+            t.True(!TownServiceCodec.TryRead(zero,zero.Length,out _),"empty roller inventory count rejected");
+        }
+        catalog.Rack.ScrollDirection = 0; catalog.Rack.PageCount = 1;
         var duplicate = new byte[current.Length + additive.Count];
         current.CopyTo(duplicate, 0); additive.ToArray().CopyTo(duplicate, current.Length);
         t.True(!TownServiceCodec.TryRead(duplicate, duplicate.Length, out _), "duplicate lane metadata rejected");
@@ -377,6 +395,8 @@ internal static class TownServiceTransportVectors
         t.True(firstDepth == 0 && lastDepth == 0 && firstOpen == 1 && lastOpen == 1,
             "owner and observer cassette clocks share both visible endpoint poses");
     }
+    private static byte[] Slice(byte[] bytes,int at,int count)
+    {var result=new byte[count];Array.Copy(bytes,at,result,0,count);return result;}
     private static TownServiceFrame Frame(ushort module, ulong sequence, int count = 64)
     {
         var frame = new TownServiceFrame { Service = 1, Session = 99, Module = module, Template = 3,

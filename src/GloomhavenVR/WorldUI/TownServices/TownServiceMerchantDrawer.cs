@@ -28,9 +28,15 @@ internal sealed class TownServiceMerchantDrawer : IGrabbable, IGrabbableHandFilt
     private float _pull, _leadAngle, _clock;
     private float _nextStickTurn;
     private int _stickDirection;
+    private int _indicatorPage = -1, _indicatorCount;
     private bool _laser, _disposed, _turning, _swapped;
     internal Transform Root => _root.transform;
     internal Transform Content { get; }
+    private readonly Transform[] _rowContents = new Transform[3];
+    private readonly TMP_Text _pageLabel;
+    private readonly CanvasGroup _pageLabelGate;
+    internal Transform CardParent(int index) => _rowContents[index / TownServiceMerchantLayout.StockColumns % 3];
+    internal sbyte ScrollDirection { get; private set; }
     internal bool Selling => Page >= 2048;
     internal int Category => Page % 2048 / 256;
     internal Transform HousingRoot => _housing.transform;
@@ -57,6 +63,16 @@ internal sealed class TownServiceMerchantDrawer : IGrabbable, IGrabbableHandFilt
         HousingRoot.localPosition = new Vector3(-.95f, .25f, .035f);
         Content = new GameObject("PersistentCards").transform;
         Content.SetParent(HousingRoot.Find("Cassette"), false); ContentRoots.Add(Content);
+        for (int row = 0; row < 3; row++)
+        {
+            Transform? holder = HousingRoot.Find("Cassette/Row" + row);
+            if (holder == null) throw new InvalidOperationException("The merchant cabinet requires the matching articulated holder rows.");
+            Transform cards = new GameObject("PersistentCards").transform;
+            cards.SetParent(holder, false); _rowContents[row] = cards; ContentRoots.Add(cards);
+        }
+        _pageLabel = HousingRoot.Find("PageIndicator/Caption").GetComponent<TMP_Text>();
+        _pageLabelGate = HousingRoot.Find("PageIndicator").GetComponent<CanvasGroup>();
+        if (font != null) { _pageLabel.font = font.font; _pageLabel.fontSharedMaterial = font.fontSharedMaterial; }
         _root = CreateTemplate(font); Root.SetParent(parent, false);
         Root.localPosition = new Vector3(-.47f, .08f, .11f);
         CopyMaterials(_root); CopyMaterials(_housing);
@@ -91,10 +107,11 @@ internal sealed class TownServiceMerchantDrawer : IGrabbable, IGrabbableHandFilt
     {
         if (_hand != null || !_mayClose()) return;
         TurnEpoch = state.Turn; Page = state.Page; FromPage = state.From; ToPage = state.To;
-        _clock = state.Elapsed; _leadAngle = state.LeadAngle;
+        _clock = state.Elapsed; _leadAngle = state.LeadAngle; ScrollDirection = state.ScrollDirection;
+        PageCount = state.PageCount;
         _turning = state.Turn != 0 && state.Elapsed < TownRackState.TurnDuration;
         _swapped = state.Elapsed >= TownRackState.TurnDuration * .5f;
-        TownCassetteMotion.Apply(HousingRoot, _turning ? state.Elapsed / TownRackState.TurnDuration : 1f);
+        TownCassetteMotion.Apply(HousingRoot, _turning ? state.Elapsed / TownRackState.TurnDuration : 1f, ScrollDirection);
     }
     internal void SetPageCount(int count) { _availablePages = Math.Max(1, count); PageCount = Math.Max(_availablePages, Page % 256 + 1); }
     internal bool RetainsPage(int page) => page == Page || (_turning && (page == FromPage || page == ToPage))
@@ -105,14 +122,14 @@ internal sealed class TownServiceMerchantDrawer : IGrabbable, IGrabbableHandFilt
         int target = category * 256 + (selling ? 2048 : 0);
         return target != Page && Begin(target);
     }
-    private bool Begin(int page)
+    private bool Begin(int page, int direction = 0)
     {
-        TurnEpoch++; FromPage = Page; ToPage = page; _turning = true;
+        ScrollDirection = (sbyte)Math.Sign(direction); TurnEpoch++; FromPage = Page; ToPage = page; _turning = true;
         _leadAngle = _pull * 35f; _clock = 0f; _swapped = false; _opening(this); return true;
     }
     internal bool RequestTurn() => RequestTurn(1);
     internal bool RequestTurn(int direction) => direction != 0 && CanGrab
-        && Begin(Page / 256 * 256 + (Page % 256 + (direction > 0 ? 1 : _availablePages - 1)) % _availablePages);
+        && Begin(Page / 256 * 256 + (Page % 256 + (direction > 0 ? 1 : _availablePages - 1)) % _availablePages, direction);
 
     // The stock display is a physical scroll surface. Reuse the UI/flight arbitration so
     // aiming here never scrolls the cabinet and moves the player vertically at the same time.
@@ -173,7 +190,20 @@ internal sealed class TownServiceMerchantDrawer : IGrabbable, IGrabbableHandFilt
         GameObject cassette = Authored("MerchantCassetteTemplate"); cassette.name = "Cassette"; cassette.transform.SetParent(root.transform, false);
         GameObject shutter = Authored("MerchantShutterTemplate"); shutter.name = "Shutter"; shutter.transform.SetParent(root.transform, false);
         shutter.transform.localPosition = new Vector3(0f, 0f, -.020f);
-        TownCassetteMotion.Apply(root.transform, 1f); return root;
+        var indicator = new GameObject("PageIndicator", typeof(RectTransform), typeof(Canvas), typeof(CanvasGroup));
+        indicator.transform.SetParent(root.transform, false);
+        indicator.transform.localPosition = new Vector3(.465f, -.005f, -.055f);
+        indicator.transform.localScale = Vector3.one * .001f;
+        ((RectTransform)indicator.transform).sizeDelta = new Vector2(145f, 110f);
+        indicator.GetComponent<Canvas>().renderMode = RenderMode.WorldSpace;
+        var caption = new GameObject("Caption", typeof(RectTransform), typeof(TextMeshProUGUI));
+        caption.transform.SetParent(indicator.transform, false);
+        TMP_Text label = caption.GetComponent<TMP_Text>(); label.rectTransform.sizeDelta = new Vector2(145f, 110f);
+        label.fontSize = 25f; label.alignment = TextAlignmentOptions.Center;
+        label.color = new Color(.98f, .88f, .65f); label.raycastTarget = false;
+        label.text = "↑\n1 / 1\n↓";
+        indicator.GetComponent<CanvasGroup>().blocksRaycasts = false;
+        TownCassetteMotion.Apply(root.transform, 1f, 0); return root;
     }
     internal static GameObject CreateTemplate(TMP_Text? font) => Authored("MerchantCrankTemplate");
     internal static Vector3 CardPosition(int index) => TownServiceMerchantLayout.StockPosition(index);
@@ -193,10 +223,13 @@ internal sealed class TownServiceMerchantDrawer : IGrabbable, IGrabbableHandFilt
             _clock += Time.unscaledDeltaTime;
             float progress = Mathf.Clamp01(_clock / TownRackState.TurnDuration);
             if (!_swapped && progress >= .5f) { Page = ToPage; _swapped = true; }
-            TownCassetteMotion.Apply(HousingRoot, progress);
-            Root.localRotation = Quaternion.Euler(-(_leadAngle + (360f - _leadAngle) * TownRackState.Progress(_clock)), 0f, 0f);
+            TownCassetteMotion.Apply(HousingRoot, progress, ScrollDirection);
+            Root.localRotation = Quaternion.Euler(-(ScrollDirection < 0 ? -1f : 1f) * (_leadAngle + (360f - _leadAngle) * TownRackState.Progress(_clock)), 0f, 0f);
             if (progress >= 1f) { _turning = false; Root.localRotation = Quaternion.identity; }
         }
+        if (_indicatorPage != Page || _indicatorCount != PageCount)
+        { _indicatorPage = Page; _indicatorCount = PageCount; _pageLabel.text = "↑\n" + (Page % 256 + 1) + " / " + PageCount + "\n↓"; }
+        _pageLabelGate.alpha = PageCount > 1 ? opacity : 0f;
         _pick.enabled = opacity > .99f && _alive() && !_turning && PageCount > 1 && _mayClose();
         foreach (Material material in _materials) if (material.HasProperty("_TownVisibility")) material.SetFloat("_TownVisibility", opacity);
     }
@@ -207,7 +240,7 @@ internal sealed class TownServiceMerchantDrawer : IGrabbable, IGrabbableHandFilt
     { if (_hand == hand) { _hand = null; _laser = false; _pull = 0f; Root.localRotation = Quaternion.identity; } }
     public void Dispose()
     {
-        if (_disposed) return; _disposed = true; ContentRoots.Remove(Content); VRInteractables.UnregisterGrabbable(this);
+        if (_disposed) return; _disposed = true; ContentRoots.Remove(Content); foreach (Transform cards in _rowContents) ContentRoots.Remove(cards); VRInteractables.UnregisterGrabbable(this);
         foreach (Material material in _materials) UnityEngine.Object.Destroy(material);
         UnityEngine.Object.Destroy(_root); UnityEngine.Object.Destroy(_housing);
     }

@@ -5,6 +5,7 @@ using UnityEngine;
 using UnityEngine.UI;
 using UnityEngine.EventSystems;
 using GloomhavenVR.WorldUI;
+using GloomhavenVR.Net.TownServices;
 using GloomhavenVR.Hands;
 using GloomhavenVR.Hands.Interact;
 using ScenarioRuleLibrary;
@@ -49,15 +50,58 @@ public static class InteractionProgram
         Check(!crank.RequestTurn(),"a running mechanical turn cannot restart");
         Set(crank,"_clock",.20f);crank.Tick(1f);
         Check(crank.Page==previous,"card identity is retained while outgoing front is visible");
-        Check(crank.HousingRoot.Find("Cassette").localPosition.z > .1f,"cassette retracts actual card parent before replacing the page");
+        Check(crank.HousingRoot.Find("Cassette/Row0").localPosition.z > .05f,"scrolling folds the outgoing lower holder behind the cabinet lip");
+        Check(crank.HousingRoot.Find("Cassette").localPosition == Vector3.zero,"scrolling leaves the cassette open instead of replaying category withdrawal");
+        Check(crank.HousingRoot.Find("PageIndicator").GetComponent<CanvasGroup>().alpha > .99f
+            && crank.HousingRoot.Find("PageIndicator/Caption").GetComponent<TMPro.TMP_Text>().text.Contains(" / " + crank.PageCount),
+            "additional stock pages are discoverable without hover");
         Set(crank,"_clock",.45f);crank.Tick(1f);
-        Check(crank.Page==previous/256*256+(previous%256+1)%crank.PageCount,"replacement happens behind the opaque folding shutter");
+        Check(crank.Page==previous/256*256+(previous%256+1)%crank.PageCount,"replacement happens while holder rows face into the cabinet");
         foreach(var entry in catalog.Entries)entry.Tick(1f);
         foreach(var entry in catalog.Entries)if(entry.Selling==crank.Selling)
             Check(!entry.Sample.CanGrab,"moving rack prevents a grab during mechanical turnover");
         Set(crank,"_clock",.85f);crank.Tick(1f);
         foreach(var entry in catalog.Entries)entry.Tick(1f);
         Check(!crank.Moving&&Quaternion.Angle(crank.HousingRoot.localRotation,Quaternion.identity)<.001f,"rack settles at original front pose");
+    }
+    private static void RollerGeometry()
+    {
+        foreach (int direction in new[] {-1, 1})
+        {
+            var previous = new Vector3[3];
+            var previousRot = new Quaternion[3];
+            for (int sample = 0; sample <= 1000; sample++)
+            {
+                float progress = sample / 1000f;
+                for (int row = 0; row < 3; row++)
+                {
+                    TownCassetteMotion.RowPose(row, progress, direction, out Vector3 position, out Quaternion rotation);
+                    if (sample > 0)
+                    {
+                        Check(Vector3.Distance(position, previous[row]) < .002f,"roller holder trajectory is continuous without a midpoint teleport");
+                        Check(Quaternion.Angle(rotation, previousRot[row]) < 1.4f,"holder hinge unfolds continuously without a rotation snap");
+                    }
+                    if (sample == 10 && row == 1)
+                        Check(Math.Sign(position.y) == -direction,"scroll direction moves visible rows vertically in the requested direction");
+                    if (sample == 500)
+                    {
+                        Check(position.z > .179f && Vector3.Dot(rotation * Vector3.forward, Vector3.forward) < -.999f,
+                            "every original card face is folded behind its opaque holder at page replacement");
+                        // Original face is in front of its opaque backing at rest, behind
+                        // it when folded. This checks actual point ordering, not just angle.
+                        Vector3 face = position + rotation * new Vector3(0,0,-.025f);
+                        Vector3 back = position + rotation * new Vector3(0,0,.02f);
+                        Check(face.z > back.z,"opaque seat masks incoming artwork at midpoint");
+                    }
+                    if (sample == 0 || sample == 1000)
+                        Check(Vector3.Distance(position,new Vector3(0,(row-1)*.17f,0)) < .00001f && Quaternion.Angle(rotation,Quaternion.identity)<.001f,
+                            "both scroll endpoints restore exact original holder/card seats");
+                    previous[row]=position;previousRot[row]=rotation;
+                }
+                for(int row=1;row<3;row++)
+                    Check(Vector3.Distance(previous[row],previous[row-1])>.14f,"adjacent articulated card holders remain separated around the roller");
+            }
+        }
     }
     private static void HeldScale(TownServiceCatalog catalog,Transform anchor)
     {
@@ -230,7 +274,7 @@ public static class InteractionProgram
     }
     public static int Run()
     {
-        assertions=0;WristTracking();FanContact();var root=new GameObject("MerchantFixture");var events=new GameObject("Events",typeof(EventSystem));
+        assertions=0;RollerGeometry();WristTracking();FanContact();var root=new GameObject("MerchantFixture");var events=new GameObject("Events",typeof(EventSystem));
         var prefab=new GameObject("MerchantPrefab");var counter=new GameObject("Counter");counter.transform.SetParent(prefab.transform,false);
         var plank=GameObject.CreatePrimitive(PrimitiveType.Cube);plank.name="Furniture_DarkWood";plank.transform.SetParent(counter.transform,false);
         plank.GetComponent<MeshRenderer>().sharedMaterial=new Material(Shader.Find("Standard")){name="DarkWood"};
@@ -240,6 +284,8 @@ public static class InteractionProgram
         foreach(string template in new[]{"MerchantCassetteTemplate","MerchantCrankTemplate","MerchantButtonTemplate","MerchantShutterTemplate"})
         {
             var t=GameObject.CreatePrimitive(PrimitiveType.Cube);t.name=template;t.transform.SetParent(counter.transform,false);
+            if(template=="MerchantCassetteTemplate") for(int row=0;row<3;row++)
+            {var rowHolder=new GameObject("Row"+row);rowHolder.transform.SetParent(t.transform,false);rowHolder.transform.localPosition=new Vector3(0,(row-1)*.17f,0);}
             if(template=="MerchantCrankTemplate") {var h=GameObject.CreatePrimitive(PrimitiveType.Cube);h.name="Handle";h.transform.SetParent(t.transform,false);h.transform.localPosition=new Vector3(.08f,-.09f,0f);}
             if(template=="MerchantShutterTemplate") {var u=new GameObject("Upper");u.transform.SetParent(t.transform,false);var l=new GameObject("Lower");l.transform.SetParent(u.transform,false);}
             t.SetActive(false);

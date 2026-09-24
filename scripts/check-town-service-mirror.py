@@ -191,7 +191,8 @@ def main():
                 ("stale-author-clock", "TownServiceMirror.cs", "if (RemoteRacks.TryGetValue(peer, out var clocks))", "if (peer > 0 && RemoteRacks.TryGetValue(peer, out var clocks))", "authority handoff retains completed observer clock instead of rewinding stale owner sample"),
                 ("public-visitor", "TownServiceMirror.cs", "if (peer > 0) VisitorSessions[peer] = Sessions[peer];", "VisitorSessions[peer] = Sessions[peer];", "remote public stock is excluded from visitor census"),
                 ("inactive-author", "TownServiceMirror.cs", "int author = PublicLane.Active ? LocalPeer : int.MaxValue;", "int author = LocalPeer;", "departed public owner leaves no stale invisible authority"),
-                ("cassette-skip-motion", "TownServiceMirror.Racks.cs", "TownCassetteMotion.Apply(rack.Binding.Root, clock.Turning ? clock.Elapsed / TownRackState.TurnDuration : 1f);", "TownCassetteMotion.Apply(rack.Binding.Root, 1f);", "late public observer reconstructs cassette withdrawal from explicit clock"),
+                ("roller-missing-direction", "TownServiceMirror.Racks.cs", "TownCassetteMotion.Apply(rack.Binding.Root, clock.Turning ? clock.Elapsed / TownRackState.TurnDuration : 1f, state.ScrollDirection);", "TownCassetteMotion.Apply(rack.Binding.Root, clock.Turning ? clock.Elapsed / TownRackState.TurnDuration : 1f, 0);", "late observer reconstructs exact owner holder translation and hinge angle in either scroll direction"),
+                ("cassette-skip-motion", "TownServiceMirror.Racks.cs", "TownCassetteMotion.Apply(rack.Binding.Root, clock.Turning ? clock.Elapsed / TownRackState.TurnDuration : 1f, state.ScrollDirection);", "TownCassetteMotion.Apply(rack.Binding.Root, 1f, 0);", "late public observer reconstructs cassette withdrawal from explicit clock"),
             ]
     if args.suite == "item-transfer":
         variants = [("production", None, None, None, "")]

@@ -61,7 +61,57 @@ public static partial class MirrorProgram
         TownServiceMirror.RemovePeer(2);
         Check(TownServiceMirror.PublicAuthor==int.MaxValue,"departed public owner leaves no stale invisible authority");
         TownServiceMirror.Shutdown();NetPlayerActors.Peer=1;
+        RollerLateJoin();
     }
+    private static void RollerLateJoin()
+    {
+        foreach (int direction in new[] {-1, 1}) foreach (float phase in new[] {.12f, .5f, .82f})
+        {
+            TownServiceMirror.Shutdown(); Baselines.Clear(); NetPlayerActors.Peer=1;
+            Transform owner=Go("roller owner").transform, observer=Go("roller observer").transform;
+            owner.localScale=Vector3.one*1.4f; observer.localScale=owner.localScale;
+            observer.rotation=Quaternion.Euler(0,71,0);
+            Transform cabinet=Go("roller cabinet",owner).transform, cassette=Go("Cassette",cabinet).transform;
+            for(int row=0;row<3;row++)
+            {
+                Transform holder=Go("Row"+row,cassette).transform;
+                for(int card=0;card<4;card++)
+                {
+                    Transform face=Go("OriginalCard"+card,holder).transform;
+                    face.localPosition=new Vector3((card-1.5f)*.18f,0,-.025f);
+                }
+            }
+            TownServiceMirror.RegisterTemplate(1,1,cabinet,address:"merchant.rack|");
+            using(TownServiceMirror.UsePublicLane())
+            {
+                TownServiceMirror.BeginSession(1,950,owner,cabinet);
+                TownServiceMirror.RegisterModule(10,1,cabinet,address:"merchant.rack|");
+                TownServiceMirror.SetRack(10,new TownRackState{Cassette=true,ScrollDirection=(sbyte)direction,
+                    PageCount=2,Turn=1,From=0,To=1,Page=(ushort)(phase<.5f?0:1),Elapsed=phase*TownRackState.TurnDuration});
+                TownCassetteMotion.Apply(cabinet,phase,direction);
+            }
+            var captured=Capture();NetPlayerActors.Peer=3;Receive(2,captured);TownServiceMirror.TickRemote(_=>observer);
+            Transform mirrored=Remote(-2,10)!.Root;
+            for(int row=0;row<3;row++)
+            {
+                Transform original=cabinet.Find("Cassette/Row"+row), copy=mirrored.Find("Cassette/Row"+row);
+                Check(Vector3.Distance(original.localPosition,copy.localPosition)<.0001f
+                    &&Quaternion.Angle(original.localRotation,copy.localRotation)<.01f,
+                    "late observer reconstructs exact owner holder translation and hinge angle in either scroll direction");
+                for(int card=0;card<4;card++) foreach(Vector3 corner in new[]{new Vector3(-.07f,-.056f,0),new Vector3(.07f,.056f,0)})
+                {
+                    Vector3 expected=owner.InverseTransformPoint(original.Find("OriginalCard"+card).TransformPoint(corner));
+                    Vector3 actual=observer.InverseTransformPoint(copy.Find("OriginalCard"+card).TransformPoint(corner));
+                    Check(Vector3.Distance(expected,actual)<.0002f,
+                        "remote original card corners follow owner roller at intermediate poses without viewer-facing changes");
+                }
+            }
+            Check(TownServiceMirror.PublicRack?.ScrollDirection==direction&&TownServiceMirror.PublicRack?.PageCount==2,
+                "public authority handoff retains scroll direction and complete page count");
+        }
+        TownServiceMirror.Shutdown();NetPlayerActors.Peer=1;
+    }
+
 }
 
 public static partial class MirrorProgram

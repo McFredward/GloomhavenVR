@@ -60,6 +60,10 @@ def sources(root):
 
 def mutations():
     return [
+        ("roller-static-holders", "TownCassetteMotion.cs", "direction == 0 || progress <= 0f", "direction != 0 || progress <= 0f", "scroll direction moves visible rows vertically in the requested direction"),
+        ("roller-wrong-direction", "TownCassetteMotion.cs", "row * RowPitch - direction * RollerLength", "row * RowPitch + direction * RollerLength", "scroll direction moves visible rows vertically in the requested direction"),
+        ("roller-no-fold", "TownCassetteMotion.cs", "Quaternion.Euler(angle * Mathf.Rad2Deg, 0f, 0f)", "Quaternion.identity", "every original card face is folded behind its opaque holder at page replacement"),
+        ("hidden-page-count", "TownServiceMerchantDrawer.cs", "PageCount > 1 ? opacity : 0f", "0f", "additional stock pages are discoverable without hover"),
         ("late-first-hover", "UiScrollFocus.cs", "PhysicalHoverProbe?.Invoke(hand);", "", "first consumer observes cabinet focus before the presentation tick"),
         ("leaked-hover-probe", "CabinetProbe.cs", "UiScrollFocus.PhysicalHoverProbe = null;", "{ /* deliberately retain the old probe */ }", "disposed public stock unregisters its hover probe"),
         ("parked-takeback-disabled", "TownServiceToken.cs", "&& (_inspect?.Invoke() ?? true)", "&& _offering == null && (_inspect?.Invoke() ?? true)", "parked original stock card retains take-back input while native confirmation is open"),

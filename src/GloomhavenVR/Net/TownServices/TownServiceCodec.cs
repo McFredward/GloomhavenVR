@@ -61,7 +61,8 @@ internal static class TownServiceCodec
         byte[] raw = body.ToArray();
         byte[] rack = frame.Rack != null ? frame.Rack.Write(frame.Module) : frame.RackMember?.Write(frame.Module) ?? Array.Empty<byte>();
         int mechanismBytes = frame.Rack?.Cassette == true || frame.PublicCatalog ? 8 : 0;
-        int size = mechanismBytes + 6 + raw.Length + 2 * ((raw.Length + 254) / 255) + rack.Length + 2 * ((rack.Length + 254) / 255);
+        int rollerBytes = frame.Rack?.Cassette == true ? 6 : 0;
+        int size = rollerBytes + mechanismBytes + 6 + raw.Length + 2 * ((raw.Length + 254) / 255) + rack.Length + 2 * ((rack.Length + 254) / 255);
         if (size > TownServiceFrame.MaxBytes) throw new InvalidDataException("Town-service module exceeds the bounded snapshot size.");
         var packet = new byte[size];
         // NetProtocol.Magic (0x47565231) is written little endian by every existing lane.
@@ -79,8 +80,12 @@ internal static class TownServiceCodec
             Buffer.BlockCopy(rack, offset, packet, at, count); at += count; offset += count;
         }
         if (mechanismBytes != 0)
-        { packet[size - 8] = TownCassetteMotion.RecordId; packet[size - 7] = 6; packet[size - 6] = 1; packet[size - 5] = (byte)((frame.Rack?.Cassette == true ? 1 : 0) | (frame.PublicCatalog ? 2 : 0));
-          for (int i = 0; i < 4; i++) packet[size - 4 + i] = (byte)(frame.PublicClaim >> (8 * i)); }
+        { packet[size - rollerBytes - 8] = TownCassetteMotion.RecordId; packet[size - rollerBytes - 7] = 6; packet[size - rollerBytes - 6] = 1; packet[size - rollerBytes - 5] = (byte)((frame.Rack?.Cassette == true ? 1 : 0) | (frame.PublicCatalog ? 2 : 0));
+          for (int i = 0; i < 4; i++) packet[size - rollerBytes - 4 + i] = (byte)(frame.PublicClaim >> (8 * i)); }
+        if (rollerBytes != 0)
+        { packet[size - 6] = TownCassetteMotion.RollerRecordId; packet[size - 5] = 4; packet[size - 4] = 1;
+          packet[size - 3] = unchecked((byte)frame.Rack!.ScrollDirection);
+          packet[size - 2] = (byte)frame.Rack.PageCount; packet[size - 1] = (byte)(frame.Rack.PageCount >> 8); }
         return packet;
     }
 
@@ -94,6 +99,7 @@ internal static class TownServiceCodec
         {
             using var body = new MemoryStream();
             using var rack = new MemoryStream();
+            bool rollerSeen = false; sbyte scrollDirection = 0; ushort pageCount = 1;
             bool cassette = false, publicCatalog = false, mechanismSeen = false; uint publicClaim = 0;
             for (int at = 6; at < length;)
             {
@@ -108,6 +114,12 @@ internal static class TownServiceCodec
                     if (mechanismSeen || count != 6 || packet[at] != 1 || (packet[at + 1] == 0 || packet[at + 1] > 3)) return false;
                     mechanismSeen = true; cassette = (packet[at + 1] & 1) != 0; publicCatalog = (packet[at + 1] & 2) != 0;
                     for (int i = 0; i < 4; i++) publicClaim |= (uint)packet[at + 2 + i] << (8 * i);
+                }
+                if (record == TownCassetteMotion.RollerRecordId)
+                {
+                    if (rollerSeen || count != 4 || packet[at] != 1) return false;
+                    rollerSeen = true; scrollDirection = unchecked((sbyte)packet[at + 1]);
+                    pageCount = (ushort)(packet[at + 2] | packet[at + 3] << 8);
                 }
                 at += count;
             }
@@ -174,6 +186,11 @@ internal static class TownServiceCodec
                 else return false;
             }
             if (cassette) { if (result.Rack == null) return false; result.Rack.Cassette = true; }
+            if (rollerSeen)
+            {
+                if (!cassette || result.Rack == null) return false;
+                result.Rack.ScrollDirection = scrollDirection; result.Rack.PageCount = pageCount;
+            }
             result.PublicCatalog = publicCatalog; result.PublicClaim = publicClaim;
             Validate(result); frame = result; return true;
         }

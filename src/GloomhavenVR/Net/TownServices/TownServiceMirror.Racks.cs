@@ -47,6 +47,8 @@ internal static partial class TownServiceMirror
         internal float LastTick, WaitingSince, Elapsed;
         internal ushort DisplayPage;
         internal bool Turning, Waiting;
+        internal int IndicatorPage = -1, IndicatorCount;
+        internal string IndicatorText = "";
         internal void Start(TownRackState state,float now,bool joining=false)
         {
             // Keep what the observer actually sees until the opaque midpoint, including
@@ -181,13 +183,25 @@ internal static partial class TownServiceMirror
             rack.Motion.Reset();
             Transform rackPose = rack.AddedCanvas != null && !authored.HasCanvasFrame ? rack.Host.transform : rack.Binding.Root;
             if (authored.Rack.Cassette)
-                TownCassetteMotion.Apply(rack.Binding.Root, clock.Turning ? clock.Elapsed / TownRackState.TurnDuration : 1f);
+                TownCassetteMotion.Apply(rack.Binding.Root, clock.Turning ? clock.Elapsed / TownRackState.TurnDuration : 1f, state.ScrollDirection);
             else rackPose.localRotation=rest*Quaternion.Euler(0f,displayed*360f,0f);
+            Transform? indicator = rack.Binding.Root.Find("PageIndicator/Caption");
+            if (indicator != null && indicator.GetComponent<TMPro.TMP_Text>() is TMPro.TMP_Text label)
+            {
+                if (clock.IndicatorPage != clock.DisplayPage || clock.IndicatorCount != state.PageCount)
+                {
+                    clock.IndicatorPage = clock.DisplayPage; clock.IndicatorCount = state.PageCount;
+                    clock.IndicatorText = "↑\n" + (clock.DisplayPage % 256 + 1) + " / " + state.PageCount + "\n↓";
+                }
+                // A later owner's captured caption must not jump ahead of the displayed
+                // physical revolution while its incoming card dependencies are still loading.
+                if (label.text != clock.IndicatorText) label.text = clock.IndicatorText;
+            }
             if(modules.TryGetValue(state.Crank,out var crank)&&replaying)
             {
                 crank.Motion.Reset();
                 Transform crankPose = crank.AddedCanvas != null && crank.LastFrame?.HasCanvasFrame != true ? crank.Host.transform : crank.Binding.Root;
-                float angle = -(state.LeadAngle+(360f-state.LeadAngle)*displayed);
+                float angle = -(state.ScrollDirection < 0 ? -1f : 1f) * (state.LeadAngle+(360f-state.LeadAngle)*displayed);
                 crankPose.localRotation=rest*(authored.Rack.Cassette ? Quaternion.Euler(angle,0f,0f) : Quaternion.Euler(0f,0f,angle));
             }
             if(!clock.Turning&&!handSupersedes&&clock.Queue.Count>0)
