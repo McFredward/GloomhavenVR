@@ -54,7 +54,7 @@ internal static class Program
         Check(!owner.PeerDeclined(1, 10), "session reset forgets old handshake");
         Deliver(owner, 2, absent); Refresh(absent, 1); Deliver(absent, 1, owner); Refresh(owner, 2);
         Check(owner.PeerDeclined(1, 10), "rejoined healthy nonparticipant responds again");
-        Codec(); Integration();
+        Codec(); Integration(); PostQuestIntegration();
         Console.WriteLine($"Reward pose production tests: {_assertions} assertions passed.");
     }
     private static void Codec()
@@ -114,4 +114,36 @@ internal static class Program
         Check((outgoing.RewardWindow.Window.Flags & NetProtocol.SharedPoseBit) != 0,
             "last surviving native copy becomes a real pose publisher after source departure");
     }
+    private static void PostQuestIntegration()
+    {
+        RemoteMapStory.TestReset(); NetPlayerActors.LocalId = 2;
+        NetAvatarDriver.LivePeers.Clear(); NetAvatarDriver.LivePeers.Add(1);
+        RewardShowcase.ContentKey = 42; RewardShowcase.Window = new object();
+        RewardShowcasePlacement.LocalRevealPending = true;
+        PostQuestRewardSync.TestOpen(42); RemoteMapStory.ResolveReward(2);
+        PresenceState request = default; RemoteMapStory.SampleReward(ref request, 2);
+        var otherWindow = new RewardPoseHandshake(); otherWindow.SetLocalKey(99);
+        otherWindow.Observe(2, in request.RewardPoseHandshake, 0); Refresh(otherWindow, 1);
+        PresenceState decline = new() { HasRewardPoseHandshake = true, RewardPoseHandshake = otherWindow.Sample() };
+        RemoteMapStory.ObserveReward(1, in decline); RemoteMapStory.ResolveReward(2);
+        Check(RewardShowcasePlacement.MayReveal, "another native window still declines the exact map reward request");
+        var peer = new MapStoryOpeningLedger(); object opening = new();
+        peer.Open(opening, 42, 42, 1, new[] { 2 });
+        PresenceState pose = new() { HasRewardContinuation = true, RewardContinuationEntries = peer.Sample(opening),
+            HasRewardWindow = true, RewardWindow = new() { Ready = true, Window = new() { ContentKey = 42, Flags = 3 } },
+            HasRewardPoseHandshake = true, RewardPoseHandshake = new() { Key = 42, Generation = 1 } };
+        RemoteMapStory.ObserveRewardCompletions(1, in pose, 2); RemoteMapStory.ObserveReward(1, in pose);
+        Check(RemoteMapStory.TestPeerCount == 1, "matching native map occurrence admits peer pose");
+        PostQuestRewardSync.TestOpen(42); RemoteMapStory.ResolveReward(2);
+        Check(RemoteMapStory.TestPeerCount == 0, "new native map opening clears prior same-key pose");
+        RemoteMapStory.ObserveReward(1, in pose);
+        Check(RemoteMapStory.TestPeerCount == 0, "old peer pose cannot bind repeated map reward opening");
+        RemoteMapStory.ObserveReward(1, in decline); RemoteMapStory.ResolveReward(2);
+        Check(!RewardShowcasePlacement.MayReveal, "old map decline cannot release a fresh same-key generation");
+        peer.Finish(opening); opening = new(); peer.Open(opening, 42, 42, 1, new[] { 2 });
+        pose.RewardContinuationEntries = peer.Sample(opening);
+        RemoteMapStory.ObserveRewardCompletions(1, in pose, 2); RemoteMapStory.ObserveReward(1, in pose);
+        Check(RemoteMapStory.TestPeerCount == 1, "fresh repeated map occurrence admits its own pose");
+    }
+
 }

@@ -120,13 +120,17 @@ internal static partial class RemoteMapStory
         if (presence.HasRewardWindow && presence.HasRewardContinuation && presence.RewardContinuationEntries != null)
             foreach (MapStoryOpening opening in presence.RewardContinuationEntries)
                 postQuest |= opening.ContentKey == presence.RewardWindow.Window.ContentKey;
-        // An absent peer must still answer the current generation's placement request.
-        // Declines do not publish geometry; live requesters additionally prove their opening.
-        if (presence.HasRewardPoseHandshake && (presence.RewardPoseHandshake.Key == 0
-            || !postQuest || PostQuestRewardSync.Opening == null
-            || (presence.HasRewardContinuation && PostQuestRewardSync.MatchesPose(sender,
-                NetPlayerActors.LocalPlayerId(), presence.RewardPoseHandshake.Key, presence.RewardContinuationEntries))))
-            RewardHandshake.Observe(sender, in presence.RewardPoseHandshake, Time.unscaledTime);
+        // An absent peer (or one showing another reward) still answers our current
+        // placement request. Declines carry its requester's exact generation, not geometry.
+        if (presence.HasRewardPoseHandshake)
+        {
+            RewardPoseHandshakeState handshake = presence.RewardPoseHandshake;
+            if (handshake.Key != 0 && postQuest && PostQuestRewardSync.Opening != null
+                && (!presence.HasRewardContinuation || !PostQuestRewardSync.MatchesPose(sender,
+                    NetPlayerActors.LocalPlayerId(), handshake.Key, presence.RewardContinuationEntries)))
+            { handshake.Key = 0; handshake.Generation = 0; }
+            RewardHandshake.Observe(sender, in handshake, Time.unscaledTime);
+        }
         else RewardHandshake.Forget(sender);
         if (postQuest && (!presence.HasRewardWindow || !presence.HasRewardContinuation
             || !PostQuestRewardSync.MatchesPose(sender, NetPlayerActors.LocalPlayerId(),

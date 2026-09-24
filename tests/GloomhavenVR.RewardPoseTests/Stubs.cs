@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using GloomhavenVR.Net;
 namespace UnityEngine
 {
     internal struct Vector3 { internal static Vector3 zero => default; }
@@ -7,6 +8,20 @@ namespace UnityEngine
 }
 namespace GloomhavenVR.WorldUI
 {
+    internal static partial class PostQuestRewardSync
+    {
+        private static MapStoryOpeningLedger Ledger = new();
+        private static object? _opening;
+        private static bool _consumed;
+        internal static uint CurrentKey;
+        internal static object? Opening => _opening;
+        internal static bool SendDue => Ledger.Changed;
+        internal static void Reset() { Ledger = new(); _opening = null; CurrentKey = 0; _consumed = false; }
+        internal static void TestOpen(uint key)
+        { if (_opening != null) Ledger.Finish(_opening); CurrentKey = key; _opening = new(); Ledger.Open(_opening, key, key, 1, new[] { 1 }); }
+        internal static MapStoryOpening[] SampleCompletions() => Ledger.Sample(_opening);
+        internal static void ObserveCompletions(int sender, MapStoryOpening[] entries) => Ledger.Observe(sender, entries);
+    }
     internal enum SharedWindowKind { RewardShowcase }
     internal sealed class GrabbableModal { internal bool IsGrabbed => false; }
     internal static class RewardShowcase { internal static object? Window; internal static uint ContentKey; }
@@ -40,7 +55,7 @@ namespace GloomhavenVR.Net
     internal struct RigPose { internal UnityEngine.Vector3 Position; internal UnityEngine.Quaternion Rotation; }
     internal struct SharedWindowEntry { internal uint ContentKey; internal byte Flags, Page, SizeCode, Frame, PoseStamp; internal RigPose Pose; }
     internal struct RewardWindowState { internal bool Unavailable, Moved, Ready; internal SharedWindowEntry Window; }
-    internal struct PresenceState { internal bool HasRewardWindow, HasRewardPoseHandshake; internal RewardWindowState RewardWindow; internal RewardPoseHandshakeState RewardPoseHandshake; }
+    internal struct PresenceState { internal bool HasRewardWindow, HasRewardPoseHandshake, HasRewardContinuation; internal MapStoryOpening[]? RewardContinuationEntries; internal RewardWindowState RewardWindow; internal RewardPoseHandshakeState RewardPoseHandshake; }
     internal static class RewardWindowCodec { internal static bool Valid(in RewardWindowState state) => state.Window.ContentKey != 0; }
     internal sealed class RewardPoseHandoff { internal void Reset() { } internal void LocalMove() { } }
     internal static class RewardPosePolicy
@@ -49,6 +64,7 @@ namespace GloomhavenVR.Net
         internal static int ConsiderInitialOwner(int current, int peer, bool unavailable) => peer > 0 && !unavailable && peer < current ? peer : current;
         internal static bool Eligible(bool localMoved, bool anyMoved, bool moved, int initialOwner, int peer) => moved || (!localMoved && !anyMoved && initialOwner == peer);
     }
+    internal static class NetPlayerActors { internal static int LocalId = 2; internal static int LocalPlayerId() => LocalId; }
     internal static class NetAvatarDriver
     {
         internal static readonly List<int> LivePeers = new();
@@ -92,6 +108,7 @@ namespace GloomhavenVR.Net
         private static void ResolvePose(GloomhavenVR.WorldUI.SharedWindowKind kind, Local local, uint key, Dictionary<int, PeerEntry> peers, Dictionary<int, float> stamps) { }
         private static bool ToWorld(byte frame, UnityEngine.Vector3 p, UnityEngine.Quaternion r, out UnityEngine.Vector3 pos, out UnityEngine.Quaternion rot, bool scenarioFrame) { pos = p; rot = r; return true; }
         internal static void TestReset() => ResetRewardPose();
+        internal static int TestPeerCount => RewardPeers.Count;
         internal static int TestOwner(uint key, int id) => RewardInitialOwner(key, id);
     }
 }
