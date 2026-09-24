@@ -124,6 +124,15 @@ internal sealed partial class PlayTray : WorldUI.IPanelGrabOwner, WorldUI.IFurni
     internal GameObject? CardBackingPrefab { get; private set; }
 
     private Transform? _root;
+    // The local board has one pose author after a grab: its root. The atomic rig packet reads
+    // this same transform, so peers see the intermediate turn without another wire field.
+    private readonly WorldUI.WindowReFaceTween _reFaceTween = new();
+    private bool _reFacePending;
+    private float _reFaceDeadline;
+    private Quaternion _reFaceTarget;
+    private Transform? _reFaceParent;
+    private Quaternion _reFaceParentRotation;
+    private Vector3 _reFaceLocalPosition;
     private Transform? _anchorParent;
     private Transform? _initiativeMount;
     private Transform? _objectivesMount;
@@ -657,6 +666,7 @@ internal sealed partial class PlayTray : WorldUI.IPanelGrabOwner, WorldUI.IFurni
             // "TrayPin" holder (test #15) and must not be dragged back under the rig.
             if (CardsConfig.TrayFollow.Value && _root.parent != anchorParent)
             {
+                FinishBoardReFaceForLifecycle();
                 _root.SetParent(anchorParent, worldPositionStays: false);
                 _placed = false;
             }
@@ -669,6 +679,7 @@ internal sealed partial class PlayTray : WorldUI.IPanelGrabOwner, WorldUI.IFurni
 
         _root = new GameObject("GloomhavenVR.PlayTray").transform;
         _root.SetParent(anchorParent, worldPositionStays: false);
+        _root.gameObject.AddComponent<BoardReFaceLateTick>().Owner = this;
         Current = this;
         // Capture the shared card backing prefab so the item chips can wear the SAME card back the
         // ability cards do (ItemsPile.ItemChip reads PlayTray.Current.CardBackingPrefab). Null-safe:
@@ -1152,7 +1163,128 @@ internal sealed partial class PlayTray : WorldUI.IPanelGrabOwner, WorldUI.IFurni
         }
     }
 
-    void WorldUI.IPanelGrabOwner.OnGrabFinished() => PersistPoseToConfig();
+    void WorldUI.IPanelGrabOwner.OnGrabFinished()
+    {
+        CancelBoardReFace();
+        if (_root == null)
+            return;
+        // WindowFacing is the same three-way release policy used by ordinary local windows.
+        // A laser drag translates the board without turning it; a hand drag has already aimed
+        // it. The board is private furniture even though its actual pose is shared with peers.
+        if (!WorldUI.WindowReFacePolicy.WantsReFaceOnRelease(
+                shared: false, laserGrab: _handle != null && _handle.LastGrabWasLaser,
+                kind: "CONTROL BOARD", logName: "Control board"))
+        {
+            PersistPoseToConfig();
+            return;
+        }
+
+        Camera? head = VRRigDriver.HeadCamera != null ? VRRigDriver.HeadCamera : Camera.main;
+        if (head == null)
+        {
+            PersistPoseToConfig();
+            return;
+        }
+        // Correct only the world-up twist. Free-mode palm carries may have authored a pitch
+        // and roll; rebuilding from BoardTilt here would erase both at the release edge.
+        Vector3 heading = BoardPlacementPose.Heading(head.transform.position, _root.position,
+                                                      head.transform.forward);
+        float targetHeading = Mathf.Atan2(heading.x, heading.z) * Mathf.Rad2Deg;
+        float currentHeading = WorldUI.LevelPose.TwistDegrees(_root.rotation, Vector3.up);
+        float yawDelta = Mathf.DeltaAngle(currentHeading, targetHeading);
+        if (Mathf.Abs(yawDelta) < WorldUI.WindowReFacePolicy.ReFaceEpsilonDeg)
+        {
+            PersistPoseToConfig();
+            return;
+        }
+        _reFaceTarget = Quaternion.AngleAxis(yawDelta, Vector3.up) * _root.rotation;
+        _reFaceParent = _root.parent;
+        _reFaceParentRotation = _reFaceParent != null
+            ? _reFaceParent.rotation : Quaternion.identity;
+        _reFaceLocalPosition = _root.localPosition;
+        _reFaceDeadline = Time.unscaledTime + WorldUI.GrabBarTween.DurationSeconds;
+        _reFacePending = true;
+        _reFaceTween.Begin(_root, _root.position, _reFaceTarget);
+        VRLog.Info("Cards", $"Control board released — re-facing the player by {Mathf.Abs(yawDelta):F1}° " +
+                            $"over {WorldUI.GrabBarTween.DurationSeconds * 1000f:F0} ms at its own centre; " +
+                            "its grabbed pitch and roll remain unchanged.");
+    }
+
+    private void CancelBoardReFace()
+    {
+        _reFaceTween.Cancel();
+        _reFacePending = false;
+    }
+
+    private void TickBoardReFace()
+    {
+        if (!_reFacePending || _root == null)
+            return;
+        if (_handle != null && _handle.IsGrabbed)
+        {
+            // A new grab takes ownership at the currently drawn angle. Its eventual release
+            // persists that pose; the previous target must never keep steering under the hand.
+            CancelBoardReFace();
+            return;
+        }
+        if (_root.parent != _reFaceParent)
+        {
+            // A parent swap outside ApplyFollowMode has already supplied a new world pose.
+            // It wins; do not replay a target expressed in the former parent frame.
+            CancelBoardReFace();
+            PersistPoseToConfig();
+            return;
+        }
+        NotePinnedWrite("animated release facing (control board)");
+        // CardsDriver's independent pose watch runs in the next Update: this LateUpdate
+        // changes localRotation after its current-frame watch has finished. Name the write
+        // for that next pass as well as for PlayTray's pinned-world freeze sentinel.
+        CardsDriver.NoteExpectedPoseChange("animated release facing (control board)");
+        _reFaceTween.Advance(_root);
+        if (_reFaceParent != null)
+        {
+            // WindowReFaceTween captures a fixed WORLD pivot. Following boards hang off the
+            // moving rig; a raw Advance would hold the board at its release position and then
+            // jump it back after 150 ms. Carry its eased rotation through the parent's delta
+            // and restore its original parent-local centre each frame. The board keeps following
+            // the mask even during the turn, and the remote stream reads this final root pose.
+            Quaternion parentDelta = _reFaceParent.rotation * Quaternion.Inverse(_reFaceParentRotation);
+            _root.SetPositionAndRotation(
+                _reFaceParent.TransformPoint(_reFaceLocalPosition), parentDelta * _root.rotation);
+        }
+        if (Time.unscaledTime < _reFaceDeadline)
+            return;
+        CancelBoardReFace();
+        PersistPoseToConfig(); // store the FINAL face, never an intermediate yaw
+    }
+
+    private void FinishBoardReFaceForLifecycle(bool persist = true)
+    {
+        if (!_reFacePending || _root == null)
+            return;
+        // A visibility loss or synchronous pose replacement can interrupt these 150 ms.
+        // Complete before the next saved/restore pose is captured, so it cannot replay an
+        // intermediate, unsaved angle on the next board.
+        _reFaceTween.Cancel();
+        _reFacePending = false;
+        NotePinnedWrite("release facing lifecycle completion (control board)");
+        if (_root.gameObject.activeInHierarchy && _wantVisible)
+            CardsDriver.NoteExpectedPoseChange("release facing lifecycle completion (control board)");
+        Quaternion parentDelta = _reFaceParent != null && _root.parent == _reFaceParent
+            ? _reFaceParent.rotation * Quaternion.Inverse(_reFaceParentRotation)
+            : Quaternion.identity;
+        _root.rotation = parentDelta * _reFaceTarget;
+        if (persist)
+            PersistPoseToConfig();
+    }
+
+    private sealed class BoardReFaceLateTick : MonoBehaviour
+    {
+        internal PlayTray? Owner;
+
+        private void LateUpdate() => Owner?.TickBoardReFace();
+        private void OnDisable() => Owner?.FinishBoardReFaceForLifecycle();
+    }
 
 
     /// <summary>
@@ -1461,6 +1593,8 @@ internal sealed partial class PlayTray : WorldUI.IPanelGrabOwner, WorldUI.IFurni
     {
         if (_root == null)
             return;
+        bool finishingReFace = _reFacePending;
+        FinishBoardReFaceForLifecycle(persist: false); // finish before changing parent frame
         // THE RE-PARENT IS THE SHARED MECHANISM (FollowPinAnchor.Apply) — the same call the combat
         // log's pin makes, statement for statement: FOLGEN re-homes under the rig anchor and drops
         // the holder, FIXIERT bakes the live rig scale into the holder and re-homes under it, both
@@ -1470,6 +1604,8 @@ internal sealed partial class PlayTray : WorldUI.IPanelGrabOwner, WorldUI.IFurni
         // re-establishes the holder from the CAPTURED scale first (TryRestoreCapturedPinFrame),
         // which leaves the parent guard inside Apply already satisfied so it writes nothing.
         bool pinned = _anchor.Apply(_root, CardsConfig.TrayFollow.Value, _anchorParent);
+        if (finishingReFace)
+            PersistPoseToConfig(); // once, in the NEW parent scale and follow mode
         if (CardsConfig.TrayFollow.Value)
         {
             // Item 4: toggling INTO follow must NOT zap the tray to the head-relative
@@ -1507,6 +1643,7 @@ internal sealed partial class PlayTray : WorldUI.IPanelGrabOwner, WorldUI.IFurni
 
     internal void Destroy()
     {
+        CancelBoardReFace();
         if (ReferenceEquals(Current, this))
             Current = null; // WorldUI mount consumers fall back to the floating layout
         _occupants[0] = _occupants[1] = null;
@@ -1644,6 +1781,7 @@ internal sealed partial class PlayTray : WorldUI.IPanelGrabOwner, WorldUI.IFurni
             return;
         }
         _placementDeferLogged = false;
+        CancelBoardReFace(); // explicit recenter/placement owns the next visible pose
         if (TryRestoreRetryStart())
             return;
 
