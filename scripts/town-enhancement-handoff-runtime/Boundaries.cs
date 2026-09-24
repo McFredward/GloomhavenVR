@@ -131,3 +131,5 @@ namespace GloomhavenVR.Hands.Interact {
  public interface IGrabbable {bool CanGrab{get;} void OnGrab(VRHand hand);}
  public interface IGrabbableHandFilter {bool AllowsHand(VRHand hand);}
 }
+
+namespace GloomhavenVR.WorldUI { internal static class ModalFallback { internal static int Closed; internal static void CloseFloatedWindow(UIWindow window) { Closed++; window.IsOpen=false; } } }

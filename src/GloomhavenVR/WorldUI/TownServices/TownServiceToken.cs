@@ -66,6 +66,8 @@ internal sealed class TownServiceToken : IGrabbable, ITriggerOnlyGrabbable, IGra
     private bool _disposed;
     private bool _hover;
     private float _nextRefresh;
+    private readonly float _reachDepth;
+    private readonly bool _uprightProp;
 
     internal Transform Source => _source;
     internal Transform? HeldRoot => _held != null ? _held.transform : null;
@@ -80,8 +82,10 @@ internal sealed class TownServiceToken : IGrabbable, ITriggerOnlyGrabbable, IGra
 
     internal TownServiceToken(RectTransform source, Selectable button, Func<object?> identity,
         Func<object?> contextIdentity, Func<bool> sessionAlive, Transform mat, Transform? physical = null,
-        Func<bool>? drop = null, Func<bool>? eligible = null, Vector3 zoneCenter = default, Func<bool>? inspect = null, float zoneHalfWidth = .20f, Func<Vector3, bool>? dropLocation = null, Action? grabbing = null)
+        Func<bool>? drop = null, Func<bool>? eligible = null, Vector3 zoneCenter = default, Func<bool>? inspect = null, float zoneHalfWidth = .20f, Func<Vector3, bool>? dropLocation = null, Action? grabbing = null, float reachDepth = .009f, bool uprightProp = false)
     {
+        _reachDepth = Mathf.Max(.001f, reachDepth);
+        _uprightProp = uprightProp;
         IsItemCard = physical != null && source.GetComponent<ItemCardUI>() != null;
         _source = source; _button = button; _identity = identity; _contextIdentity = contextIdentity;
         _sessionAlive = sessionAlive; _mat = mat; _physical = physical;
@@ -135,7 +139,7 @@ internal sealed class TownServiceToken : IGrabbable, ITriggerOnlyGrabbable, IGra
         _source.GetWorldCorners(_corners);
         _pick.transform.SetPositionAndRotation((_corners[0] + _corners[2]) * .5f, _source.rotation);
         _shape.size = new Vector3(Vector3.Distance(_corners[0], _corners[3]),
-            Vector3.Distance(_corners[0], _corners[1]), .009f * scale);
+            Vector3.Distance(_corners[0], _corners[1]), _reachDepth * scale);
     }
 
     private bool Visible()
@@ -205,6 +209,12 @@ internal sealed class TownServiceToken : IGrabbable, ITriggerOnlyGrabbable, IGra
             ItemCardHold.ReadingPose(hand, _heldHeight, VRCard.PinchGripFraction, out _heldPosition, out _heldRotation);
             hand.SendHaptic(HapticPreset.ClickPulse);
             CardsDriver.PlayCardSound(CardsConfig.CardGrabSound.Value, _physical);
+            }
+            if (_uprightProp)
+            {
+                // A purse hangs below the pinch; it does not adopt a flat card reading pose.
+                _heldRotation = Quaternion.Inverse(hand.Rig.GrabAnchor.rotation) * _physical.rotation;
+                _heldPosition = pinch + hand.Rig.GrabAnchor.InverseTransformDirection(Vector3.down * (.055f * hand.WorldScale));
             }
             _physical.SetParent(hand.Rig.GrabAnchor, true);
             _held = _physical.gameObject;

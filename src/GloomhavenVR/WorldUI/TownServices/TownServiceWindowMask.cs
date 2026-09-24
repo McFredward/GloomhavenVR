@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using UnityEngine;
 
 namespace GloomhavenVR.WorldUI;
@@ -11,6 +12,7 @@ internal sealed class TownServiceWindowMask : IDisposable
     private readonly Transform? _parent;
     private readonly int _sibling;
     private bool _disposed;
+    private readonly List<CanvasGroup> _independentGroups = new();
 
     internal TownServiceWindowMask(RectTransform source)
     {
@@ -28,7 +30,21 @@ internal sealed class TownServiceWindowMask : IDisposable
         // same-frame close/reopen finding a component scheduled for deferred destruction.
         CanvasGroup mask = host.AddComponent<CanvasGroup>();
         mask.alpha = 0f; mask.blocksRaycasts = false;
+        // Nested confirmation canvases can ignore parent groups. Their native alpha remains
+        // authoritative, but they must not escape the presentation mask around this old screen.
+        foreach (CanvasGroup group in source.GetComponentsInChildren<CanvasGroup>(true))
+            if (group.ignoreParentGroups) { _independentGroups.Add(group); group.ignoreParentGroups = false; }
         ReparentPreservingLocalRect(source, _wrapper);
+    }
+
+    // A native list may belong to another converted panel. Detaching its hidden wrapper
+    // removes its layout footprint without disabling its gameplay controller or original pool.
+    internal void DetachFromPanel(Transform frame)
+    {
+        Vector2 size = _wrapper.rect.size;
+        _wrapper.SetParent(frame, false);
+        _wrapper.anchorMin = _wrapper.anchorMax = new Vector2(.5f, .5f);
+        _wrapper.sizeDelta = size;
     }
 
     private static void ReparentPreservingLocalRect(RectTransform source, Transform? parent)
@@ -45,6 +61,9 @@ internal sealed class TownServiceWindowMask : IDisposable
     {
         if (_disposed) return;
         _disposed = true;
+        foreach (CanvasGroup group in _independentGroups)
+            if (group != null) group.ignoreParentGroups = true;
+        _independentGroups.Clear();
         if (_source != null && _source.parent == _wrapper)
         {
             ReparentPreservingLocalRect(_source, _parent);

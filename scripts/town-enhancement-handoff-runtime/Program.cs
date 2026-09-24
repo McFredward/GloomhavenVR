@@ -15,6 +15,7 @@ public static class InteractionProgram
     {
         count = 0;
         Approach();
+        WalkAway();
         foreach (float scale in new[] { .05f, 1f, 2f, 198.12f })
         for (int scenario = 0; scenario < 21; scenario++) RunCase(scale, scenario);
         return count;
@@ -169,6 +170,28 @@ public static class InteractionProgram
         Check(card != null, "disposing station never destroys actual map card");
         UnityEngine.Object.DestroyImmediate(root);
         TownServicePopulation.Station = null; VRRigDriver.HeadCamera = null;
+    }
+
+    private static void WalkAway()
+    {
+        var root=new GameObject("Empty visit",typeof(UIWindow),typeof(UINewEnhancementWindow));
+        var palm=new GameObject("ActivityOfferingPalm").transform;palm.SetParent(root.transform,false);
+        TownServicePopulation.Station=new TownServiceStation{Root=root.transform};
+        var head=new GameObject("Head",typeof(Camera)).GetComponent<Camera>();
+        VRRigDriver.HeadCamera=head; MapRoomDriver.Active=true;
+        WorldUIConfig.ImmersiveTownServices.Value=true; CardsDriver.OffScenarioFanCards=null;
+        using(var handoff=new TownServiceEnhancementHandoff(root.GetComponent<UINewEnhancementWindow>(),root.transform,()=>true,()=>true))
+        {
+            handoff.Tick();head.transform.position=Vector3.forward*3f;
+            int closed=ModalFallback.Closed;
+            TownServiceEnhancementHandoff.TickApproach();
+            Check(ModalFallback.Closed==closed+1 && !root.GetComponent<UIWindow>().IsOpen,
+                "walking away closes empty native service through its existing exit path");
+            TownServiceEnhancementHandoff.TickApproach();
+            Check(ModalFallback.Closed==closed+1,"closed service is not repeatedly exited");
+        }
+        UnityEngine.Object.DestroyImmediate(root);UnityEngine.Object.DestroyImmediate(head.gameObject);
+        TownServicePopulation.Station=null;VRRigDriver.HeadCamera=null;
     }
 
     private static void Approach()

@@ -78,6 +78,7 @@ internal sealed class TownServiceEnhancementHandoff : IDisposable
     private float _offeredHeight;
     internal VRCard? Card { get; private set; }
     internal AbilityCardUI? NativeSource { get; private set; }
+    internal UIEnhanceCardSlot? NativeSlot { get; private set; }
     internal Transform Zone { get; }
     internal Transform Seat => _seat;
     internal Transform? Face => Card != null ? Card.GetComponentInChildren<FullAbilityCard>(true)?.transform : null;
@@ -135,9 +136,17 @@ internal sealed class TownServiceEnhancementHandoff : IDisposable
             TownServiceStation? station = TownServicePopulation.Acquire(3);
             _approachPalm = station != null ? FindPalm(station.Root) : null;
         }
-        Transform? palm = _approachPalm;
+        Transform? palm = _current?._palm ?? _approachPalm;
         if (palm == null) return;
         Camera? head = VRRigDriver.HeadCamera;
+        // Leaving is the same native destination exit as its former X, including selection
+        // and confirmation cleanup. Returning a card alone left an empty service open forever.
+        if (_current != null && _current._window.IsOpen && head != null && !Near(palm, head.transform.position, 1.8f))
+        {
+            TownServiceEnhancementHandoff current = _current;
+            current.Return();
+            ModalFallback.CloseFloatedWindow(current._window);
+        }
         if (head == null || !Near(palm, head.transform.position, 1.8f)) _headInside = false;
         bool headEntered = head != null && !_headInside && Near(palm, head.transform.position, 1.4f);
         if (headEntered) _headInside = true;
@@ -204,7 +213,13 @@ internal sealed class TownServiceEnhancementHandoff : IDisposable
             Return();
         else
         {
-            NativeSource = _shop.selectedCard;
+            if (NativeSource != _shop.selectedCard || NativeSlot == null)
+            {
+                NativeSource = _shop.selectedCard;
+                NativeSlot = null;
+                foreach (UIEnhanceCardSlot slot in _shop.CardsDisplay.slotsPool)
+                    if (slot != null && slot.AbilityCard == NativeSource) { NativeSlot = slot; break; }
+            }
             UIEnhancementConfirmationBox? box = Singleton<UIEnhancementConfirmationBox>.Instance;
             if (!_shop._isConfirmationBoxOpened) _confirmationSeen = false;
             if (!_confirmationSeen && _shop._isConfirmationBoxOpened && box != null && box.GetComponent<UIWindow>().IsOpen)
@@ -276,7 +291,7 @@ internal sealed class TownServiceEnhancementHandoff : IDisposable
         if (!Ready || !ValidOwner(card) || _shop.selectedCard == null
             || _shop.selectedCard.AbilityCard != model) return false;
         Reclaimed.Remove(card);
-        Card = card; NativeSource = _shop.selectedCard; _model = model;
+        Card = card; NativeSource = _shop.selectedCard; NativeSlot = found; _model = model;
         CardFan.Current?.Remove(card);
         card.Grabbed += OnGrabbed;
         // Preserve the physical reading size instead of inheriting the resident's model scale.
@@ -305,7 +320,7 @@ internal sealed class TownServiceEnhancementHandoff : IDisposable
     private VRCard? Detach()
     {
         VRCard? card = Card;
-        Card = null; NativeSource = null; _model = null; _confirmationSeen = false;
+        Card = null; NativeSource = null; NativeSlot = null; _model = null; _confirmationSeen = false;
         if (card != null) card.Grabbed -= OnGrabbed;
         return card;
     }

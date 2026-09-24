@@ -364,3 +364,5 @@ public class UIEnhancementConfirmationBox : MonoBehaviour {
  public void Hide(){Cancels++;GetComponent<UIWindow>().Hide();}
 }
 namespace GloomhavenVR.Core.Events { internal static class VRModeStateMachine { internal static string CurrentMode="ModalUI"; } }
+
+namespace GloomhavenVR.WorldUI { internal static class EnchantressComposite { internal static void Reset(){} } }

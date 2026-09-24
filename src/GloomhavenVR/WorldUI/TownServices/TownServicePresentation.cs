@@ -25,7 +25,7 @@ internal static class TownServicePresentation
     private static TownServiceRitual? _ritual;
     private static TownServiceWorkspace? _workspace;
     private static Transform? _counter;
-    private static TownServiceWindowMask? _contextMask;
+    private static TownServiceWindowMask? _contextMask, _enhancementListMask;
     private static Vector3 _origin;
     private static Quaternion _yaw;
     private static float _scale, _opened, _nextCensus;
@@ -49,6 +49,9 @@ internal static class TownServicePresentation
     internal static IReadOnlyList<TownServiceSurface> LocalSurfaces => Surfaces;
     internal static Transform? ContextRoot => _context?.Target;
     internal static Transform? StationRoot => _station?.Root;
+    internal static bool UsesImmersiveEnhancement => MapRoomDriver.Active && WorldUIConfig.ImmersiveTownServices.Value
+        && TownServiceEnhancementHandoff.Enabled
+        && GuildmasterDestinations.CurrentDestinationMode() == EGuildmasterMode.Enchantress;
     internal static bool Active => WorldUIConfig.ImmersiveTownServices.Value
         && ((Service != 1 && Service != 3) || TownServiceEnhancementHandoff.Enabled)
         && _window != null && _window.IsOpen && _station != null;
@@ -148,6 +151,16 @@ internal static class TownServicePresentation
                     uint session = _session;
                     _ritual = new TownServiceRitual(window, service, _workspace!.Root,
                         () => Active && _session == session, SelectionContext);
+                    if (service == 3)
+                    {
+                        // The flat card chooser is a sibling of the character column. Keep its
+                        // native pool/controllers alive for selection, but remove its presentation
+                        // from that panel. Capacity has already moved to the station folio.
+                        EnchantressComposite.Reset();
+                        _enhancementListMask = new TownServiceWindowMask(
+                            (RectTransform)window.GetComponent<UINewEnhancementWindow>().CardsDisplay.transform);
+                        _enhancementListMask.DetachFromPanel(_station.Root);
+                    }
                     _contextMask = new TownServiceWindowMask((RectTransform)window.transform);
                     _context = null;
                 }
@@ -354,6 +367,7 @@ internal static class TownServicePresentation
         _ritual?.Dispose(); _ritual = null;
         for (int i = Surfaces.Count - 1; i >= 0; i--) Surfaces[i].Dispose();
         Surfaces.Clear();
+        _enhancementListMask?.Dispose(); _enhancementListMask = null;
         _contextMask?.Dispose(); _contextMask = null;
         if (_counter != null) UnityEngine.Object.Destroy(_counter.gameObject);
         _counter = null;

@@ -43,6 +43,7 @@ def sources(root):
 def mutations():
     name = "TownServiceEnhancementHandoff.cs"
     return [
+        ("walkaway-window", name, "ModalFallback.CloseFloatedWindow(current._window);", "", "walking away closes empty native service through its existing exit path"),
         ("tiny-offer", name, "card.SetHome(_seat, Vector3.zero, Quaternion.identity, size);", "card.SetHome(_seat, Vector3.zero, Quaternion.identity, .90f);", "offered mage card preserves tracked reading size across independent resident scale"),
         ("reclaim-modal", name, "&& _current.ReclaimReady", "&& _current.Ready", "actual routed grab reclaims mage card through owned native confirmation"),
         ("flat-card", name, "card.SetHome(_seat, Vector3.zero, Quaternion.identity, size);", "card.SetHome(_seat, Vector3.zero, Quaternion.Euler(75f, 0f, 0f), size);", "offered ability card is upright over the palm"),

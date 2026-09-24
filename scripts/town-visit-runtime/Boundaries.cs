@@ -10,10 +10,12 @@ namespace GloomhavenVR.Core
 }
 namespace GloomhavenVR.Hands
 {
+    internal enum HandSide { Left, Right }
     internal enum HapticPreset { HoverTick, ClickPulse }
     internal sealed class VRHand
     {
         internal bool HasPose = true, TriggerDown;
+        internal HandSide Side=HandSide.Right;
         internal float WorldScale = 1f;
         internal Vector3 Origin = new(0, 1.3f, -2), Direction = Vector3.forward;
         internal readonly Interact.RayInteractor Ray = new();
@@ -24,9 +26,12 @@ namespace GloomhavenVR.Hands
         internal void GetAimRay(out Vector3 origin, out Vector3 direction) { origin = Origin; direction = Direction; }
         internal void SendHaptic(HapticPreset preset) { if (preset == HapticPreset.HoverTick) Hover++; else Click++; }
     }
-    internal sealed class GrabberBoundary { internal object? Held; }
+    internal sealed class GrabberBoundary {
+ internal object? Held; internal bool Enabled=true,TriggerGrabOffered;
+ internal bool ForceGrab(Interact.IGrabbable target,bool releaseOnTriggerUp=false){ if(!target.CanGrab)return false;Held=target;target.OnGrab();return true;}
+}
     internal sealed class CarryBoundary { internal bool OwnsPointerFrame; }
-    internal sealed class UiBoundary { internal bool HasHit; internal float HitDistance; }
+    internal sealed class UiBoundary { internal bool IsPressing, HasHit; internal float HitDistance; }
     internal static class VRHands { internal static VRHand? Primary; }
 }
 namespace GloomhavenVR.Hands.Interact
@@ -34,18 +39,25 @@ namespace GloomhavenVR.Hands.Interact
     internal interface IPokeable { void OnPokeEnter(VRHand hand); void OnPokeExit(VRHand hand); void OnPoke(VRHand hand); }
     internal static class VRInteractables
     {
+        internal sealed class Entry { internal IGrabbable Target=null!;internal Collider Collider=null!; }
+        internal static readonly List<Entry> Grabbables=new();
+        internal static bool IsUsablePickShape(Collider c)=>c!=null&&c.enabled&&c.gameObject.activeInHierarchy;
         internal static readonly Dictionary<IPokeable, Collider> Pokes = new();
         internal static void RegisterPokeable(IPokeable target, Collider collider) => Pokes.Add(target, collider);
         internal static void UnregisterPokeable(IPokeable target) => Pokes.Remove(target);
     }
     internal static class RayGrabDriver
     {
+        internal const float MaxDistanceMeters=20f;
         internal static float Distance = float.PositiveInfinity;
         internal static float OccludingBarDistance(Vector3 origin, Vector3 direction, float maximum) => Distance;
     }
     internal sealed partial class RayInteractor
     {
         internal bool Active = true;
+        internal PickPose Current;
+        internal void SetPanelUiHit(Vector3 point,string source){UiHitOverride=point;}
+
         internal float FanOccluderDistance = float.PositiveInfinity, SolidOccluderDistance = float.PositiveInfinity;
         internal bool SolidOccluderIsBoard;
         internal Vector3? UiHitOverride;
@@ -81,7 +93,27 @@ namespace GloomhavenVR.WorldUI.MapRoom
     }
 }
 
-namespace GloomhavenVR.WorldUI {internal static class TownServiceEnhancementHandoff {internal static bool Enabled=true;} }
+namespace GloomhavenVR.WorldUI {internal static class TownServiceEnhancementHandoff {internal static bool Enabled=true;internal static bool CanReclaim(Cards.VRCard card)=>card.Owned;} }
 
 // Physical cabinet occlusion is tested by its dedicated interaction fixture.
-namespace GloomhavenVR.WorldUI { internal static class TownServicePhysicalRay { internal static float OccludingDistance(Vector3 origin, Vector3 direction, float maximum) => float.PositiveInfinity; } }
+namespace GloomhavenVR.Hands.Interact {
+ internal interface IGrabbable { bool CanGrab{get;} void OnGrab(); }
+ internal interface IGrabbableHandFilter { bool AllowsHand(GloomhavenVR.Hands.VRHand hand); }
+ internal struct PickPose {internal bool HasHit;internal float HitDistance;}
+ internal class FixtureCard : MonoBehaviour,IGrabbable { internal bool Owned=true,Grabbed;public bool CanGrab=>!Grabbed;public void OnGrab(){Grabbed=true;} }
+}
+namespace GloomhavenVR.Cards {
+ internal class VRCard : GloomhavenVR.Hands.Interact.FixtureCard {}
+ internal class ItemsPile {internal class ItemChip : GloomhavenVR.Hands.Interact.FixtureCard {}}
+}
+namespace GloomhavenVR.WorldUI {
+ internal class TownServiceToken : GloomhavenVR.Hands.Interact.FixtureCard { internal bool IsPhysical=true; }
+ internal class TownServiceMerchantDrawer : GloomhavenVR.Hands.Interact.FixtureCard { internal void BeginLaser(){} }
+ internal static class TownServiceMerchantHandoff {internal static bool CanReclaim(Cards.ItemsPile.ItemChip chip)=>chip.Owned;}
+ internal static class TownServiceCatalogCategory {internal static float OccludingDistance(Vector3 o,Vector3 d,float max)=>float.PositiveInfinity;}
+}
+namespace TMPro { public class TMP_Text : UnityEngine.UI.MaskableGraphic { public string text=""; } }
+namespace GloomhavenVR.Hands.Interact { internal static class UguiPokeSurfaces {
+ internal static List<Canvas>? Children;
+ internal static List<Canvas>? NestedOf(Canvas canvas)=>Children;
+} }

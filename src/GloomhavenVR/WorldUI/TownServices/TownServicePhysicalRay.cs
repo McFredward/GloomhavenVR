@@ -1,3 +1,4 @@
+using GloomhavenVR.Cards;
 using GloomhavenVR.Hands;
 using GloomhavenVR.Hands.Interact;
 using UnityEngine;
@@ -19,6 +20,11 @@ internal static class TownServicePhysicalRay
     internal static bool OwnsPointerFrame(VRHand hand)=>
         hand.Grabber.Held is TownServiceToken or TownServiceMerchantDrawer
         ||(hand==_leftStamp&&_leftFrame==Time.frameCount)||(hand==_rightStamp&&_rightFrame==Time.frameCount);
+    private static bool PhysicalTarget(IGrabbable candidate) => candidate is TownServiceToken { IsPhysical: true }
+        or TownServiceMerchantDrawer
+        || candidate is VRCard card && TownServiceEnhancementHandoff.CanReclaim(card)
+        || candidate is ItemsPile.ItemChip chip && TownServiceMerchantHandoff.CanReclaim(chip);
+
     internal static float OccludingDistance(Vector3 origin,Vector3 direction,float maxDistance)
     {
         float nearest=TownServiceCatalogCategory.OccludingDistance(origin,direction,maxDistance);var ray=new Ray(origin,direction);
@@ -26,7 +32,7 @@ internal static class TownServicePhysicalRay
         for(int i=0;i<entries.Count;i++)
         {
             IGrabbable candidate=entries[i].Target;
-            if(!(candidate is TownServiceToken token&&token.IsPhysical)&&candidate is not TownServiceMerchantDrawer)continue;
+            if (!PhysicalTarget(candidate)) continue;
             if(!candidate.CanGrab||!VRInteractables.IsUsablePickShape(entries[i].Collider))continue;
             if(entries[i].Collider.Raycast(ray,out RaycastHit hit,maxDistance)&&hit.distance<nearest)nearest=hit.distance;
         }
@@ -43,7 +49,7 @@ internal static class TownServicePhysicalRay
         for (int i = 0; i < entries.Count; i++)
         {
             IGrabbable candidate=entries[i].Target;
-            if (!(candidate is TownServiceToken token && token.IsPhysical) && candidate is not TownServiceMerchantDrawer) continue;
+            if (!PhysicalTarget(candidate)) continue;
             if (!candidate.CanGrab || (candidate is IGrabbableHandFilter filter && !filter.AllowsHand(hand))
                 || !VRInteractables.IsUsablePickShape(entries[i].Collider)) continue;
             if (entries[i].Collider.Raycast(ray, out RaycastHit hit, limit) && hit.distance < distance)

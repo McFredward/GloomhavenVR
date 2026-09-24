@@ -30,6 +30,8 @@ def main():
     paths = {
         "TownServiceVisitTarget.cs": base / "WorldUI/TownServices/TownServiceVisitTarget.cs",
         "LaserPointerPolicy.cs": base / "Hands/Interact/LaserPointerPolicy.cs",
+        "TownServicePhysicalRay.cs": base / "WorldUI/TownServices/TownServicePhysicalRay.cs",
+        "VisibleUiSurface.cs": base / "Hands/Interact/VisibleUiSurface.cs",
         "RayInteractor.cs": base / "Hands/Interact/RayInteractor.cs",
         "RayUguiDriver.cs": base / "Hands/Interact/RayUguiDriver.cs",
     }
@@ -40,7 +42,7 @@ def main():
     epsilon = re.search(r"private const float OcclusionEpsilonMeters = .*?;", originals["RayUguiDriver.cs"])
     if ray is None or ui is None or epsilon is None:
         raise RuntimeError("Early ray/uGUI integration changed: review the explicit source bindings")
-    source = {name: originals[name] for name in ("TownServiceVisitTarget.cs", "LaserPointerPolicy.cs")}
+    source = {name: originals[name] for name in ("TownServiceVisitTarget.cs", "LaserPointerPolicy.cs", "VisibleUiSurface.cs", "TownServicePhysicalRay.cs")}
     source["EarlyPointer.cs"] = """using UnityEngine;
 namespace GloomhavenVR.Hands.Interact {
 internal sealed partial class RayInteractor {
@@ -60,11 +62,12 @@ internal static class BoundUiArbitration {
 """
     variants = [
         ("production", None, None, None, ""),
-        ("merchant-button-restored", "TownServiceVisitTarget.cs", "&& _mode != EGuildmasterMode.Merchant", "", "merchant never opens a native destination or plays button feedback"),
-        ("no-native-commit-gate", "TownServiceVisitTarget.cs", "&& !StoryComposite.PointOfNoReturn", "", "commit resident cannot invoke native destination"),
-        ("no-touch-ray-cooldown", "TownServiceVisitTarget.cs", "Time.unscaledTime - _pressedAt < ButtonTuning.PokePressCooldownSeconds", "false", "touch and ray open guarded destination only once within cooldown"),
-        ("disabled-resident-opens", "TownServiceVisitTarget.cs", "private bool Available => _visible && WorldUIConfig.ImmersiveTownServices.Value", "private bool Available => _visible", "disabled resident cannot invoke native destination"),
-        ("no-early-resident-occlusion", "EarlyPointer.cs", "SolidOccluderDistance = Mathf.Min(Mathf.Min(FanOccluderDistance, liveBoard), resident);", "SolidOccluderDistance = Mathf.Min(FanOccluderDistance, liveBoard);", "resident participates in early ray arbitration"),
+        ("missing-mage-pickup", "TownServicePhysicalRay.cs", "candidate is VRCard card && TownServiceEnhancementHandoff.CanReclaim(card)", "false", "offered mage card is physically taken by the same trigger ray route"),
+        ("missing-sell-pickup", "TownServicePhysicalRay.cs", "candidate is ItemsPile.ItemChip chip && TownServiceMerchantHandoff.CanReclaim(chip)", "false", "offered merchant card is physically taken by the same trigger ray route"),
+        ("phantom-resident", "TownServiceVisitTarget.cs", "=> float.PositiveInfinity;", "=> 2.45f;", "empty space beside resident never clamps the laser"),
+        ("phantom-canvas", "VisibleUiSurface.cs", "if (ContainsOwn(canvas, screen, camera)) return true;", "if (canvas != null) return true;", "transparent character frame does not clamp beam"),
+        ("hidden-alpha", "VisibleUiSurface.cs", "graphic.color.a * graphic.canvasRenderer.GetAlpha() * graphic.canvasRenderer.GetInheritedAlpha() < .01f", "false", "transparent native hit image does not invent a surface"),
+        ("decorative-ignored", "VisibleUiSurface.cs", "if (graphic.Raycast(screen, camera)) return true;", "if (graphic.raycastTarget && graphic.Raycast(screen, camera)) return true;", "visible decorative paper still occludes background UI"),
     ]
     manifest = {"result": str(out / "results.txt"), "cases": []}
     unity = Path(os.environ.get("UNITY_EDITOR", "/home/claw/unity-2021.3.5/Editor/Unity"))

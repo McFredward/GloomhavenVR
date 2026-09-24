@@ -483,6 +483,8 @@ public static class InteractionProgram
         Probe.Go("newer-sibling", parent);
         var native = source.gameObject.AddComponent<CanvasGroup>();
         native.alpha = .63f; native.interactable = false; native.blocksRaycasts = true;
+        var independent=Probe.Go("native independent confirmation",source).AddComponent<CanvasGroup>();
+        independent.ignoreParentGroups=true;
         int sibling = source.GetSiblingIndex();
         var corners = new Vector3[4]; source.GetWorldCorners(corners);
         Vector2 anchorMin = source.anchorMin, anchorMax = source.anchorMax, pivot = source.pivot, size = source.sizeDelta;
@@ -495,6 +497,7 @@ public static class InteractionProgram
             Check(source.gameObject.activeInHierarchy && source.GetComponents<CanvasGroup>().Length == 1
                 && source.GetComponent<CanvasGroup>() == native,
                 "same-frame reopen never duplicates or replaces native CanvasGroup");
+            Check(!independent.ignoreParentGroups,"nested native confirmation cannot escape the presentation mask");
             var suppression = source.parent.GetComponent<CanvasGroup>();
             Check(suppression != null && suppression.alpha == 0 && !suppression.blocksRaycasts,
                 "mask suppresses rendering and raycasts on its own wrapper");
@@ -505,7 +508,13 @@ public static class InteractionProgram
             native.alpha = .41f + cycle * .01f; native.interactable = cycle % 2 == 0;
             native.blocksRaycasts = cycle % 3 == 0;
             float currentAlpha = native.alpha; bool currentInteractable = native.interactable, currentRaycasts = native.blocksRaycasts;
+            Vector2 maskSize = ((RectTransform)source.parent).rect.size;
+            mask.DetachFromPanel(Probe.Go("resident mask mount").transform);
+            Check(((RectTransform)source.parent).rect.size == maskSize,
+                "detached native selection pool retains its original layout dimensions");
+            Check(!source.IsChildOf(parent),"hidden enchantment list does not occupy the character UI layout");
             mask.Dispose(); mask.Dispose();
+            Check(independent.ignoreParentGroups,"native independent canvas policy is restored on mask disposal");
             Check(source.parent == parent && source.GetSiblingIndex() == sibling,
                 "mask disposal restores original parent and sibling exactly");
             Check(source.anchorMin == anchorMin && source.anchorMax == anchorMax && source.pivot == pivot

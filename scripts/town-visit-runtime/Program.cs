@@ -4,152 +4,111 @@ using GloomhavenVR.Hands.Interact;
 using GloomhavenVR.WorldUI;
 using GloomhavenVR.WorldUI.MapRoom;
 using UnityEngine;
+using UnityEngine.UI;
 using Object = UnityEngine.Object;
 
 public static class InteractionProgram
 {
     private static int _assertions;
-    private static void Check(bool value, string message)
-    { _assertions++; if (!value) throw new Exception(message); }
-    private static void Near(float expected, float actual, string message) => Check(Mathf.Abs(expected - actual) < .001f, message);
-    private static void Reset()
-    {
-        VRHands.Primary = new VRHand(); RayGrabDriver.Distance = float.PositiveInfinity;
-        WorldUIConfig.ImmersiveTownServices.Value = true; StoryComposite.PointOfNoReturn = false;
-        TownServiceEnhancementHandoff.Enabled = true;
-        TownServicePopulation.Ready = true; MapRoomDriver.CanVisit = MapRoomDriver.Accept = true;
-        MapRoomDriver.Presses = 0; MapRoomDriver.Context = null;
-    }
-    private static void WithTarget(byte service, Action<TownServiceVisitTarget, GameObject, VRHand> action)
-    {
-        Reset(); var station = new GameObject("visit fixture station");
-        var target = new TownServiceVisitTarget(service, station.transform);
-        try { target.Tick(true); Physics.SyncTransforms(); action(target, station, VRHands.Primary!); }
-        finally { target.Dispose(); Object.DestroyImmediate(station); VRHands.Primary = null; }
-        Check(VRInteractables.Pokes.Count == 0, "touch registry cleans up after every resident");
-    }
-    private static float Distance(VRHand hand, float maximum = 20) => TownServiceVisitTarget.OccludingDistance(hand.Origin, hand.Direction, maximum);
+    private static void Check(bool value, string message) { _assertions++; if (!value) throw new Exception(message); }
     public static int Run()
     {
         _assertions = 0;
-        for (byte service = 2; service <= 3; service++) WithTarget(service, (target, station, hand) =>
+        for (byte service = 1; service <= 3; service++)
         {
-            Check(VRInteractables.Pokes.ContainsKey(target), "resident registers physical touch collider");
-            Check(VRInteractables.Pokes[target] is BoxCollider collider && collider.isTrigger, "real trigger BoxCollider");
-            Near(2.45f, Distance(hand), "ray intersects original resident bounds");
-            target.OnPokeEnter(hand); Check(hand.Hover == 1 && MapRoomDriver.Presses == 0, "touch hover cannot open destination");
-            target.OnPoke(hand); target.OnPoke(hand); hand.TriggerDown = true; TownServiceVisitTarget.TickLaser();
-            Check(MapRoomDriver.Presses == 1, "touch and ray open guarded destination only once within cooldown");
-            Check((byte)MapRoomDriver.Mode == service && MapRoomDriver.Context == "town resident", "all three residents retain native destination");
-            Check(hand.Click == 1, "one accepted destination produces one click haptic");
-        });
-        WithTarget(2, (target, station, hand) =>
-        {
-            TownServiceVisitTarget.TickLaser(); TownServiceVisitTarget.TickLaser();
-            Check(hand.Hover == 1 && MapRoomDriver.Presses == 0, "stable laser hover is edge-triggered and cannot visit");
-            Check(hand.Ray.UiHitOverride.HasValue, "resident clamps visible pointer endpoint");
-            Near(.45f, hand.Ray.UiHitOverride!.Value.z, "pointer endpoint is real collider surface");
-            hand.TriggerDown = true; TownServiceVisitTarget.TickLaser();
-            Check(MapRoomDriver.Presses == 1 && hand.Click == 1 && hand.Ray.Suppressions == 1, "laser invokes native guarded path and consumes far click");
-        });
-        foreach (string gate in new[] { "commit", "permission", "hidden", "disabled" }) WithTarget(2, (target, station, hand) =>
-        {
-            if (gate == "commit") StoryComposite.PointOfNoReturn = true;
-            if (gate == "permission") MapRoomDriver.CanVisit = false;
-            if (gate == "hidden") { target.Tick(false); Physics.SyncTransforms(); }
-            if (gate == "disabled") WorldUIConfig.ImmersiveTownServices.Value = false;
-            target.OnPokeEnter(hand); target.OnPoke(hand); hand.TriggerDown = true; TownServiceVisitTarget.TickLaser();
-            Check(MapRoomDriver.Presses == 0, gate + " resident cannot invoke native destination");
-            Check(hand.Click == 0 && hand.Hover == 0, gate + " resident cannot signal availability");
-            if (gate == "hidden") Check(float.IsPositiveInfinity(Distance(hand)), "hidden assets leave no occluder");
-            else Near(2.45f, Distance(hand), gate + " visible resident still blocks background interaction");
-        });
-        WithTarget(2, (target, station, hand) =>
-        {
-            MapRoomDriver.Accept = false; target.OnPoke(hand);
-            Check(MapRoomDriver.Presses == 1 && hand.Click == 0, "native rejection does not claim successful opening");
-        });
-        foreach (string blocker in new[] { "bar", "ui", "solid", "held", "carry", "tracking", "beam" }) WithTarget(2, (target, station, hand) =>
-        {
-            hand.TriggerDown = true;
-            if (blocker == "bar") RayGrabDriver.Distance = 1f;
-            if (blocker == "ui") { hand.RayUgui.HasHit = true; hand.RayUgui.HitDistance = 1f; }
-            if (blocker == "solid") hand.Ray.SolidOccluderDistance = 1f;
-            if (blocker == "held") hand.Grabber.Held = new object();
-            if (blocker == "carry") hand.RayGrab.OwnsPointerFrame = true;
-            if (blocker == "tracking") hand.HasPose = false;
-            if (blocker == "beam") hand.Ray.Active = false;
-            TownServiceVisitTarget.TickLaser();
-            Check(MapRoomDriver.Presses == 0 && hand.Hover == 0 && hand.Ray.Suppressions == 0, blocker + " wins before resident input");
-            Check(!hand.Ray.UiHitOverride.HasValue, blocker + " retains pointer ownership");
-        });
-        WithTarget(2, (target, station, hand) =>
-        {
-            hand.RayUgui.HasHit = true; hand.RayUgui.HitDistance = 8; RayGrabDriver.Distance = 9;
-            hand.Ray.ComputeResidentOcclusion(hand.Origin, hand.Direction, 20, float.PositiveInfinity);
-            Near(2.45f, hand.Ray.SolidOccluderDistance, "resident participates in early ray arbitration");
-            Check(!hand.Ray.SolidOccluderIsBoard, "resident is not misclassified as board surface");
-            var panel = new GameObject("background native panel").AddComponent<Canvas>();
-            try
+            var station = new GameObject("resident");
+            var hand = VRHands.Primary = new VRHand();
+            using (var target = new TownServiceVisitTarget(service, station.transform))
             {
-                Check(BoundUiArbitration.Pick(hand, panel, 8f) == null, "foreground resident blocks background uGUI before hover and click");
-                Check(BoundUiArbitration.Pick(hand, panel, 1f) == panel, "foreground uGUI remains interactive");
-                float limit = LaserPointerPolicy.PickLimit(20, hand.Ray.SolidOccluderDistance, 9, 8, false);
-                Check(!LaserPointerPolicy.TargetBeforeBlocker(8f, limit), "foreground resident blocks background map target");
+                foreach (bool visible in new[] { false, true })
+                {
+                    target.Tick(visible); Physics.SyncTransforms();
+                    Check(station.GetComponentsInChildren<Collider>().Length == 0 && VRInteractables.Pokes.Count == 0,
+                        "approach residents have no invisible torso pick geometry");
+                    Check(float.IsPositiveInfinity(TownServiceVisitTarget.OccludingDistance(hand.Origin, hand.Direction, 20)),
+                        "empty space beside resident never clamps the laser");
+                    target.OnPokeEnter(hand); target.OnPoke(hand); hand.TriggerDown = true; TownServiceVisitTarget.TickLaser();
+                    Check(MapRoomDriver.Presses == 0 && hand.Hover == 0 && hand.Click == 0 && !hand.Ray.UiHitOverride.HasValue,
+                        "approach residents never become invisible buttons");
+                    hand.Ray.ComputeResidentOcclusion(hand.Origin, hand.Direction, 20, 3f);
+                    Check(hand.Ray.SolidOccluderDistance == 3f && hand.Ray.SolidOccluderIsBoard,
+                        "visible board geometry still blocks after proxy removal");
+                }
             }
-            finally { Object.DestroyImmediate(panel.gameObject); }
-            hand.TriggerDown = true; TownServiceVisitTarget.TickLaser();
-            Check(MapRoomDriver.Presses == 1, "resident in front of other UI remains visitable with own solid bound");
-        });
-        WithTarget(3, (target, station, hand) =>
+            Object.DestroyImmediate(station);
+        }
+        Check(!TownServiceVisitTarget.Replaces(EGuildmasterMode.None), "other destination retains native button");
+        foreach (EGuildmasterMode mode in new[] { EGuildmasterMode.Merchant, EGuildmasterMode.Temple, EGuildmasterMode.Enchantress })
         {
-            station.transform.position = new Vector3(4, -2, 7); station.transform.rotation = Quaternion.Euler(0, 37, 0);
-            station.transform.localScale = Vector3.one * 2;
-            hand.Origin = station.transform.TransformPoint(new Vector3(0, 1.3f, -2));
-            hand.Direction = station.transform.TransformDirection(Vector3.forward); hand.WorldScale = 2;
-            Physics.SyncTransforms(); Near(4.9f, Distance(hand), "scaled rotated resident uses world-space collider distance");
-            Check(float.IsPositiveInfinity(Distance(hand, 4)), "resident beyond beam reach does not occlude");
-            hand.TriggerDown = true; TownServiceVisitTarget.TickLaser();
-            Check(MapRoomDriver.Presses == 1, "rotated scaled resident remains visitable");
-        });
-        WithTarget(2, (target, station, hand) =>
-        {
-            var fartherStation = new GameObject("farther resident"); fartherStation.transform.position = Vector3.forward * 3;
-            var farther = new TownServiceVisitTarget(3, fartherStation.transform);
-            try
-            {
-                farther.Tick(true); Physics.SyncTransforms(); hand.TriggerDown = true; TownServiceVisitTarget.TickLaser();
-                Check(MapRoomDriver.Mode == EGuildmasterMode.Temple && MapRoomDriver.Presses == 1, "nearest visible resident wins among multiple residents");
-                target.Dispose(); Physics.SyncTransforms(); Near(5.45f, Distance(hand), "disposed resident no longer blocks other residents immediately");
-                hand.Ray.UiHitOverride = null; TownServiceVisitTarget.TickLaser();
-                Check(MapRoomDriver.Mode == EGuildmasterMode.Enchantress && MapRoomDriver.Presses == 2, "dispose releases ray hover to remaining resident");
-                farther.Dispose(); Physics.SyncTransforms(); Check(float.IsPositiveInfinity(Distance(hand)), "disposing final resident removes every ray target");
-                hand.Ray.UiHitOverride = null; TownServiceVisitTarget.TickLaser();
-                Check(MapRoomDriver.Presses == 2 && !hand.Ray.UiHitOverride.HasValue, "destroy deferred until frame end cannot leave ghost input");
-            }
-            finally { farther.Dispose(); Object.DestroyImmediate(fartherStation); }
-        });
-        WithTarget(1, (target, station, hand) =>
-        {
-            target.OnPokeEnter(hand); target.OnPoke(hand); hand.TriggerDown = true;
-            TownServiceVisitTarget.TickLaser(); TownServiceVisitTarget.TickLaser();
-            Check(MapRoomDriver.Presses == 0 && hand.Hover == 0 && hand.Click == 0,
-                "merchant never opens a native destination or plays button feedback");
-            Check(hand.Ray.UiHitOverride.HasValue && hand.Ray.Suppressions > 0,
-                "inert merchant still blocks the pointer and click behind his body");
-        });
-        Reset();
-        Check(!TownServiceVisitTarget.Replaces(EGuildmasterMode.None), "unrelated map buttons remain native");
-        Check(TownServiceVisitTarget.Replaces(EGuildmasterMode.Merchant), "available resident replaces corresponding map button");
-        TownServiceEnhancementHandoff.Enabled = false;
-        Check(!TownServiceVisitTarget.Replaces(EGuildmasterMode.Merchant), "disabled physical hands retain merchant entry");
-        Check(!TownServiceVisitTarget.Replaces(EGuildmasterMode.Enchantress), "disabled physical hands retain enchantress entry");
-        Check(TownServiceVisitTarget.Replaces(EGuildmasterMode.Temple), "church does not require card hands");
-        TownServiceEnhancementHandoff.Enabled = true;
-        TownServicePopulation.Ready = false; Check(!TownServiceVisitTarget.Replaces(EGuildmasterMode.Merchant), "missing resident assets retain native entry");
-        TownServicePopulation.Ready = true; WorldUIConfig.ImmersiveTownServices.Value = false;
-        Check(!TownServiceVisitTarget.Replaces(EGuildmasterMode.Merchant), "disabled immersion retains native entry");
-        VRHands.Primary = null; TownServiceVisitTarget.TickLaser();
+            Check(TownServiceVisitTarget.Replaces(mode), "available resident replaces its obsolete button");
+            WorldUIConfig.ImmersiveTownServices.Value = false;
+            Check(!TownServiceVisitTarget.Replaces(mode), "disabled immersion keeps native destination");
+            WorldUIConfig.ImmersiveTownServices.Value = true;
+        }
+        VisibleCanvas();
+        OfferingPickup();
         return _assertions;
+    }
+    private static void OfferingPickup()
+    {
+        foreach(bool mage in new[]{true,false}) foreach(float scale in new[]{.05f,1f,198.12f})
+        foreach(float reach in new[]{.1f,2f})
+        {
+            var hand=VRHands.Primary=new VRHand{WorldScale=scale,Origin=Vector3.back*reach*scale,Direction=Vector3.forward};
+            var go=new GameObject("actual offered physical card");
+            FixtureCard card=mage?go.AddComponent<GloomhavenVR.Cards.VRCard>():go.AddComponent<GloomhavenVR.Cards.ItemsPile.ItemChip>();
+            var collider=go.AddComponent<BoxCollider>();collider.size=new Vector3(.18f,.24f,.009f)*scale;
+            VRInteractables.Grabbables.Add(new VRInteractables.Entry{Target=card,Collider=collider});Physics.SyncTransforms();
+            try
+            {
+                Check(TownServicePhysicalRay.TryPick(hand,out var target,out _,out _) && ReferenceEquals(target,card),
+                    mage?"offered mage card is physically taken by the same trigger ray route":"offered merchant card is physically taken by the same trigger ray route");
+                card.Owned=false;
+                Check(!TownServicePhysicalRay.TryPick(hand,out _,out _,out _),"foreign offering never bypasses native ownership");
+                card.Owned=true;hand.RayUgui.HasHit=true;hand.RayUgui.HitDistance=.01f*scale;hand.TriggerDown=true;
+                TownServicePhysicalRay.Tick(hand);
+                Check(hand.Grabber.Held==null,"nearer visible native UI keeps its own trigger");
+                hand.RayUgui.HasHit=false;TownServicePhysicalRay.Tick(hand);
+                Check(ReferenceEquals(hand.Grabber.Held,card)&&card.Grabbed,"pickup retains physical offered identity in the hand");
+            }
+            finally {VRInteractables.Grabbables.Clear();Object.DestroyImmediate(go);}
+        }
+    }
+
+    private static void VisibleCanvas()
+    {
+        var root = new GameObject("transparent party layout", typeof(RectTransform), typeof(Canvas));
+        var canvas = root.GetComponent<Canvas>(); canvas.renderMode = RenderMode.ScreenSpaceOverlay;
+        var imageGo = new GameObject("visible character column", typeof(RectTransform), typeof(Image));
+        imageGo.transform.SetParent(root.transform, false);
+        var image = imageGo.GetComponent<Image>(); var rect = image.rectTransform;
+        rect.anchorMin = rect.anchorMax = new Vector2(.5f,.5f); rect.sizeDelta = new Vector2(100,200);
+        try
+        {
+            Canvas.ForceUpdateCanvases();
+            Vector2 center = RectTransformUtility.WorldToScreenPoint(null, rect.position);
+            Check(VisibleUiSurface.Contains(canvas, center, null), "painted original widget is a laser surface");
+            Check(!VisibleUiSurface.Contains(canvas, center + Vector2.right * 200, null), "transparent character frame does not clamp beam");
+            image.raycastTarget = false;
+            Check(VisibleUiSurface.Contains(canvas, center, null), "visible decorative paper still occludes background UI");
+            image.color = Color.clear; Canvas.ForceUpdateCanvases();
+            Check(!VisibleUiSurface.Contains(canvas, center, null), "transparent native hit image does not invent a surface");
+            image.color = Color.white;
+            var group = imageGo.AddComponent<CanvasGroup>(); group.alpha=0f; Canvas.ForceUpdateCanvases();
+            Check(!VisibleUiSurface.Contains(canvas, center, null), "hidden CanvasGroup cannot retain an invisible laser surface");
+            group.alpha=1f; group.interactable=false; Canvas.ForceUpdateCanvases();
+            Check(VisibleUiSurface.Contains(canvas, center, null), "disabled but visible control still blocks UI behind it");
+            image.enabled=false; Canvas.ForceUpdateCanvases();
+            Check(!VisibleUiSurface.Contains(canvas, center, null), "disabled graphic is no laser surface");
+            image.enabled=true;
+            var childGo = new GameObject("nested original canvas", typeof(RectTransform),typeof(Canvas));
+            childGo.transform.SetParent(root.transform,false); var nested=childGo.GetComponent<Canvas>();
+            imageGo.transform.SetParent(childGo.transform,false); UguiPokeSurfaces.Children=new(){nested}; Canvas.ForceUpdateCanvases();
+            center=RectTransformUtility.WorldToScreenPoint(null,rect.position);
+            Check(VisibleUiSurface.Contains(canvas,center,null),"nested original canvas remains part of visible surface");
+            nested.enabled=false; Canvas.ForceUpdateCanvases();
+            Check(!VisibleUiSurface.Contains(canvas,center,null),"disabled nested canvas does not leave a ghost surface");
+        }
+        finally { UguiPokeSurfaces.Children=null; Object.DestroyImmediate(root); }
     }
 }
