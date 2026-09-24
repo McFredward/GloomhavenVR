@@ -176,6 +176,8 @@ namespace GloomhavenVR.WorldUI
     {
         internal static bool Throw;internal static int Ticks;
         internal TownServiceFace(UnityEngine.Transform root,byte service) { }
+        // Attention geometry is exercised by the merchant handoff Unity fixture.
+        internal bool IsLocalVisitorNear(bool wasNear) => false;
         internal bool PrepareActivityAttention(bool previous)=>false;
         internal void BeforeBodySample() { }
         internal void Seed(in GloomhavenVR.Net.TownFacePose pose,int author,float elapsed){}

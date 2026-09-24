@@ -42,7 +42,7 @@ public static class InteractionProgram
         Setup(1);var root=new GameObject("station");var light=new TownServiceLighting();var decor=new TownServiceDecor(root.transform,1,light);
         Tick(decor,0);Tick(decor,.11f);
         Check(root.transform.Find("Original.Library.Clutter.Shelf.Individual#7")!=null,"unrelated book builds while lantern material fails");
-        Check(light.Flames.Count==0,"failed lamp cannot light unsupported source");
+        Check(!light.Flames.ContainsKey(0) && light.Flames.ContainsKey(1),"failed lantern stays dark while independent candle remains lit");
         var workingCoin=root.transform.Find("Original.Treasure.Clutter.Shelf.Individual#1");
         Check(workingCoin!=null&&workingCoin.GetComponentInChildren<MeshRenderer>()!=null,"merchant original work coin survives stale native material GUID");
         Check(Addressables.Requests["coinpile"]==1&&!Addressables.Requests.ContainsKey(BrokenCoin),"known coin catalog alias loads once without retrying absent GUID");

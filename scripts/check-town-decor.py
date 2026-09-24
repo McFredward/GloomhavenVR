@@ -22,6 +22,12 @@ def main():
     base = args.source_root / 'src/GloomhavenVR/WorldUI/TownServices'
     sources = {name: (base / name).read_text().replace('Time.unscaledTime', 'DecorClock.Now') for name in (
         'TownServiceDecor.cs', 'TownServiceDecorMaterial.cs', 'TownServiceArcaneEffect.cs', 'TownServiceWorkspacePractical.cs')}
+    # The work prop starts at the same production contact seat as its activity rig.
+    motion = (base / 'TownServiceActivityMotion.cs').read_text()
+    start = motion.index('    internal static Vector3 CoinSeat(')
+    end = motion.index(';', start) + 1
+    sources['CoinSeat.cs'] = ('using UnityEngine; namespace GloomhavenVR.WorldUI { '
+        'internal static class TownServiceActivityMotion { ' + motion[start:end] + ' } }')
     variants = [('production', None, '', '', ''),
         ('stale-coin-guid', 'TownServiceDecor.cs', '? NativeCoinMaterialAddress : key;', '? key : key;', 'merchant original work coin survives stale native material GUID'),
         ('coin-alias-scope', 'TownServiceDecor.cs', 'piece.Entry == "Treasure.Clutter.Shelf.Individual#1"', 'piece.Entry.Length > 0', 'coin catalog alias cannot rewrite another native prop'),
