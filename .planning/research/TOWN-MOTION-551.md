@@ -103,3 +103,23 @@ The actual production population harness passes **153 assertions / 10 compiled
 negative controls** (`/tmp/town551-residents.log`), including independent gaze and
 remote-owner demand. The Unity mirror harness separately exercises the original
 encoded module/session lifecycle and its invisible-ghost case.
+
+### Completed delivery refresh correction
+
+Final review caught an independent expiry defect: `SnapshotSent` postponed ordinary
+unchanged modules for 5–5.18 seconds, exceeding the offering query's three-second
+freshness limit. The first allocated session module was refreshed at .75 seconds,
+but the offering overlay is not guaranteed to have that ID. The exact private
+`merchant.offering|` module now also receives a .75-second completion refresh and
+urgent queue priority. Its next capture retains a new sequence and owner sample
+clock even when the parked overlay stays alpha zero. Other unchanged stock keeps
+its five-second cadence. Delivery congestion and packet loss can still delay
+frames; this fixes the deterministic cadence mismatch without claiming a hard
+network deadline. Four visitors send through independent per-owner schedulers,
+not four copies of one owner's catalog in that owner's queue.
+
+The production Unity mirror fixture allocates ordinary module 1 before offering
+module 10, completes actual delivery, checks the subsecond deadline, then drives a
+due capture and verifies a new sample time, sequence, and urgent flag. Reverting
+the completion deadline must fail this fixture. Positive evidence:
+`/tmp/town551-offering-heartbeat/run-ba_5s5b0`.

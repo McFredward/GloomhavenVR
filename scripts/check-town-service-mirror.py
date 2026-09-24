@@ -107,6 +107,7 @@ def main():
     variants = [("production", None, None, None, "")]
     if not args.no_negative_controls:
         variants += [
+            ("offering-heartbeat", "TownServiceMirror.cs", "module.NextRefresh = now + (NeedsHeartbeat(module) ? .75f", "module.NextRefresh = now + (module.Id == _heartbeatModule ? .75f", "completed unchanged offering renews within its three-second lifetime independently of module allocation"),
             ("offering-inactive", "TownServiceMirror.Offerings.cs", "|| !intent.Visible ||", "|| false ||", "owner withdrawal closes the shared palm before any asset playback"),
             ("offering-stale", "TownServiceMirror.Offerings.cs", "age <= OfferingFreshSeconds", "true", "other fresh modules cannot preserve stale offering intent"),
             ("text", "TownServiceBinding.cs", "tmp.text = text[0];", 'tmp.text = "CORRUPTED";', "owner TMP text survives codec and playback"),

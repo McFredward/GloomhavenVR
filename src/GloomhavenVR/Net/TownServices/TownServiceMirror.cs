@@ -259,8 +259,15 @@ internal static partial class TownServiceMirror
             module.NextBaseline = now + 5f + module.Id % 13 * .07f;
         // A single small ordinary module maintains session liveness; unchanged stock
         // does not need 2,000 separate subsecond heartbeat packets behind it.
-        module.NextRefresh = now + (module.Id == _heartbeatModule ? .75f : 5f + module.Id % 7 * .03f);
+        module.NextRefresh = now + (NeedsHeartbeat(module) ? .75f : 5f + module.Id % 7 * .03f);
     }
+
+    // Offering membership expires independently of other traffic. Its exact owner
+    // sample must stay fresh even when an earlier allocated module owns the generic
+    // session heartbeat. This adds one small urgent packet per .75 s, not a stream
+    // of unchanged catalog cards or per-frame intent packets.
+    private static bool NeedsHeartbeat(LocalModule module) => module.Id == _heartbeatModule
+        || ReferenceEquals(_local, PrivateLane) && _service == 1 && module.Address == MerchantOfferingAddress;
 
     internal static void EndSession()
     { _active = false; _closedUntil = Time.unscaledTime + 5; _nextManifest = 0; ClearLocalModules(); }
@@ -323,7 +330,7 @@ internal static partial class TownServiceMirror
                     if (module.Baseline == null || now >= module.NextBaseline || !TownServiceDelta.Compatible(module.Baseline, frame))
                     { emitted = TownServiceDelta.Retain(frame); module.Baseline = emitted; module.NextBaseline = float.PositiveInfinity; }
                     else emitted = TownServiceDelta.Create(module.Baseline, frame);
-                    emitted.HighPriority = module.HighPriority || module.WasPriority || module.Id == _heartbeatModule;
+                    emitted.HighPriority = module.HighPriority || module.WasPriority || NeedsHeartbeat(module);
                     module.WasPriority = module.HighPriority;
                     byte[] packet = TownServiceCodec.Write(emitted);
                     send(packet, packet.Length, emitted); module.Last = TownServiceDelta.Retain(frame); module.NextRefresh = now + .75f + module.Id % 7 * .03f;
