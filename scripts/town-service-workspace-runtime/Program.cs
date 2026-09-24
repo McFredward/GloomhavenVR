@@ -27,9 +27,9 @@ public static class InteractionProgram
         TownServiceLayout.Resolve(TownServiceLayout.ForRoom(room),0,slot,out var offset,out var heading);
         return MapRoomDriver.Center+TownServiceLayout.Frame(room,MapRoomDriver.ParchmentRenderer?.transform)*offset*MapRoomDriver.Scale;
     }
-    private static void PlaceStation(Transform station)
+    private static void PlaceStation(Transform station, byte service = 3)
     {
-        Check(TownServicePlacement.TryResolve(1, MapRoomDriver.Center, MapRoomDriver.Scale, out var p, out var q), "actual merchant placement resolves");
+        Check(TownServicePlacement.TryResolve(service, MapRoomDriver.Center, MapRoomDriver.Scale, out var p, out var q), "actual workspace resident placement resolves");
         station.SetPositionAndRotation(p, q); station.localScale = Vector3.one * MapRoomDriver.Scale;
     }
     private static Vector2[] Rectangle(Vector3 p, Quaternion q, float x, float zmin, float zmax)
@@ -47,13 +47,29 @@ public static class InteractionProgram
         }
         return false;
     }
+    // Measured room-audit envelopes, not the obsolete visitor merchant cabinet. Five
+    // centimetres of clearance surround each real component in the reservation SAT test.
+    private static readonly Vector4 Cabinet = new(-1.64f, -.44f, -.09f, .72f);
+    private static readonly Vector4 Lectern = new(-.36f, .36f, -.08f, .52f);
+    private static readonly Vector4 Worktop = new(-.88f, .88f, -.44f, .50f);
+    private static readonly Vector4 Lantern = new(-.88f, -.48f, .28f, .96f);
+    private static readonly Vector4 Actor = new(-.60f, .60f, .30f, 1.20f);
+    private static Vector2[] Envelope(Vector3 p, Quaternion q, Vector4 bounds, float padding = .05f)
+    {
+        return new[] { new Vector3(bounds.x-padding,0,bounds.z-padding), new Vector3(bounds.y+padding,0,bounds.z-padding),
+            new Vector3(bounds.y+padding,0,bounds.w+padding), new Vector3(bounds.x-padding,0,bounds.w+padding) }
+            .Select(v => p + q * v).Select(v => new Vector2(v.x,v.z)).ToArray();
+    }
+    private static bool Contains(Vector4 bounds, Vector3 point) => point.x >= bounds.x-.001f
+        && point.x <= bounds.y+.001f && point.z >= bounds.z-.001f && point.z <= bounds.w+.001f;
     private static List<Vector2[]> Parts(Vector3 p,Quaternion q,byte service,bool actor)
     {
         var parts=new List<Vector2[]>();
-        bool merchant=service==1;
-        parts.Add(Rectangle(p,q,merchant?.81f:.87f,merchant?-.92f:-.45f,merchant?.53f:.50f));
-        if(actor)parts.Add(Rectangle(p,q,.60f,.3f,1.2f));
-        if(service==3)parts.Add(Rectangle(p+q*new Vector3(.68f,0,0),q,.19f,.28f,.86f));
+        bool merchant=actor && service==1;
+        if(merchant) { parts.Add(Envelope(p,q,Cabinet)); parts.Add(Envelope(p,q,Lectern)); }
+        else parts.Add(Envelope(p,q,Worktop));
+        if(actor) parts.Add(Envelope(p,q,Actor));
+        if(!actor || service==3) parts.Add(Envelope(p,q,Lantern));
         return parts;
     }
     private static void CheckGeometry(List<TownServiceWorkspace> workspaces)
@@ -73,7 +89,7 @@ public static class InteractionProgram
         for(int i=1;i<workspaces.Count;i++)
         {
             var root=workspaces[i].Root;
-            var parts=Parts((root.position-MapRoomDriver.Center)/MapRoomDriver.Scale,root.rotation,1,false);
+            var parts=Parts((root.position-MapRoomDriver.Center)/MapRoomDriver.Scale,root.rotation,3,false);
             Vector3 inward=-root.forward;
             var map = Rectangle(Vector3.zero,TownServiceLayout.Frame(SkyAlternative.PlacedRoomRoot,MapRoomDriver.ParchmentRenderer?.transform),.80f,-1.16f,1.16f);
             Check(parts.All(part => Separated(part,map)),"open counter stays outside complete native map table diagonal");
@@ -89,12 +105,12 @@ public static class InteractionProgram
             foreach(var filter in workspaces[i].FurnitureRoot.GetComponentsInChildren<MeshFilter>(true))
             {
                 if (returnTemplate != null && filter.transform.IsChildOf(returnTemplate)) continue;
-                Bounds bounds=filter.sharedMesh.bounds;
-                for(int c=0;c<8;c++)
+                // Material batches can join the worktop and a rear lantern into one mesh.
+                // Empty corners of that combined AABB are not occupied furniture.
+                foreach(Vector3 v in filter.sharedMesh.vertices)
                 {
-                    var v=bounds.center+Vector3.Scale(bounds.extents,new Vector3((c&1)==0?-1:1,(c&2)==0?-1:1,(c&4)==0?-1:1));
                     var local=root.InverseTransformPoint(filter.transform.TransformPoint(v));
-                    Check(Mathf.Abs(local.x)<=.811f&&local.z>=-.921f&&local.z<=.531f,"shipping furniture fits reserved physical counter envelope");
+                    Check(Contains(Worktop,local)||Contains(Lantern,local),"shipping furniture fits reserved physical counter envelope: " + filter.name + " " + local.ToString("F5"));
                 }
             }
         }
@@ -167,7 +183,7 @@ public static class InteractionProgram
             try
             {
                 foreach(int id in new[]{1,7,19,53})
-                {NetPlayerActors.Local=id;visitors.Add(new TownServiceWorkspace(station.transform));}
+                {NetPlayerActors.Local=id;visitors.Add(new TownServiceWorkspace(station.transform, id==7? (byte)2 : (byte)3));}
                 CheckGeometry(visitors);
                 for(int reading=0;reading<360;reading+=45)
                 {
@@ -236,9 +252,16 @@ public static class InteractionProgram
     }
     public static int Run()
     {
-        count = 0;PoseEvidence.Clear(); WorkspaceClock.Now = 0; SkyAlternative.PlacedRoomRoot = null; ReadingIndependentRooms(); WorkspaceClock.Now = 0; BakedActorEnvelope();
-        var station = new GameObject("Shared station"); PlaceStation(station.transform);
-        var template = TownServiceWorkspace.CounterTemplate!;
+        count=0; PoseEvidence.Clear(); WorkspaceClock.Now=0; SkyAlternative.PlacedRoomRoot=null;
+        ReadingIndependentRooms(); BakedActorEnvelope();
+        foreach(byte service in new byte[]{2,3}) { WorkspaceClock.Now=0; ServiceWorkspace(service); }
+        count += WorkspacePropsProgram.Run();
+        return count;
+    }
+    private static void ServiceWorkspace(byte service)
+    {
+        var station = new GameObject("Shared station"); PlaceStation(station.transform,service);
+        var template = TownServiceWorkspace.FurnitureTemplate(service)!;
         var originals = template.GetComponentsInChildren<MeshRenderer>().SelectMany(r => r.sharedMaterials).Distinct().ToArray();
         var originalVisibility = originals.Select(m => m.GetFloat("_TownVisibility")).ToArray();
         var workspaces = new List<TownServiceWorkspace>();
@@ -248,7 +271,7 @@ public static class InteractionProgram
             for (int slot = 0; slot < 4; slot++)
             {
                 NetPlayerActors.Local = new[] { 1, 7, 19, 53 }[slot];
-                var workspace = new TownServiceWorkspace(station.transform); workspaces.Add(workspace); workspace.SetVisibility(1);
+                var workspace = new TownServiceWorkspace(station.transform,service); workspaces.Add(workspace); workspace.SetVisibility(1);
                 Check(workspace.RelocationRevision == 0, "initial placement does not advance relocation revision");
                 // Geometry first also proves the old outward layout fails the regression check.
                 if (slot > 0) CheckGeometry(workspaces);
@@ -281,7 +304,7 @@ public static class InteractionProgram
             WorkspaceClock.Now = 2.18f; moving.Tick(); Check(moving.RelocationVisibility > 0 && moving.RelocationVisibility < 1, "new pose fades in rather than popping");
             WorkspaceClock.Now = 2.23f; moving.Tick(); Check(moving.RelocationVisibility == 1 && Close(moving.Root.position, Expected(2)), "membership transition reaches full-opacity current ordinal");
             WorkspaceClock.Now = 4; moving.Tick(); Check(moving.RelocationRevision == 1, "ordinary fade and stable roster retain relocation revision"); Check(moving.RelocationVisibility == 1f && moving.InputAvailable, "unchanged roster cannot restart transition");
-            using (var lateJoin = new TownServiceWorkspace(station.transform)) Check(Close(lateJoin.Root.position, moving.Root.position), "late join and survivor converge from native roster");
+            using (var lateJoin = new TownServiceWorkspace(station.transform,service)) Check(Close(lateJoin.Root.position, moving.Root.position), "late join and survivor converge from native roster");
             // Ground sampling and canonical frame changes are actual production placement code.
             var room = new GameObject("sloped room"); room.transform.position = MapRoomDriver.Center; room.transform.localScale = Vector3.one * MapRoomDriver.Scale;
             var geometry = new GameObject("RoomGeo"); geometry.transform.SetParent(room.transform, false);
@@ -319,18 +342,17 @@ public static class InteractionProgram
             }
             finally { SkyAlternative.PlacedRoomRoot = null; UnityEngine.Object.DestroyImmediate(room); UnityEngine.Object.DestroyImmediate(mesh); }
             Roster(1, 19, 53, 88); NetPlayerActors.Local = 88;
-            using (var reconnect = new TownServiceWorkspace(station.transform)) Check(Close(reconnect.Root.position, Expected(3)), "new connection ID resolves next distinct seat");
+            using (var reconnect = new TownServiceWorkspace(station.transform,service)) Check(Close(reconnect.Root.position, Expected(3)), "new connection ID resolves next distinct seat");
             moving.SetVisibility(.4f); Check(moving.Materials.All(m => Math.Abs(m.GetFloat("_TownVisibility") - .4f) < .0001f), "owner service dissolve remains independent of relocation");
             moving.Dispose(); moving.Dispose(); Check(!moving.Root.gameObject.activeSelf && moving.Materials.Count == 0, "disposal hides furniture immediately and releases owned materials");
             Roster(1, 19, 53, 88, 104); NetPlayerActors.Local = 104; bool rejected = false;
-            try { using var excess = new TownServiceWorkspace(station.transform); }
+            try { using var excess = new TownServiceWorkspace(station.transform,service); }
             catch (InvalidOperationException error) { rejected = error.Message.Contains("exceeds four users"); }
             Check(rejected, "unexpected fifth user is rejected instead of overlapping a valid seat");
             Roster(); NetPlayerActors.Local = 0;
-            using (var solo = new TownServiceWorkspace(station.transform)) { solo.SetVisibility(1); Check(Close(solo.Root.position, station.transform.position), "offline keeps original front counter"); }
+            using (var solo = new TownServiceWorkspace(station.transform,service)) { solo.SetVisibility(1); Check(Close(solo.Root.position, station.transform.position), "offline keeps original service workspace"); }
             System.IO.File.WriteAllLines(System.IO.Path.ChangeExtension(typeof(InteractionProgram).Assembly.Location,"poses.csv"),PoseEvidence);
-            count += WorkspacePropsProgram.Run();
-            return count;
+            return;
         }
         finally { foreach (var workspace in workspaces) workspace.Dispose(); UnityEngine.Object.DestroyImmediate(station); }
     }

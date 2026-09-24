@@ -1,39 +1,53 @@
-# Merchant visitor workspace checks
+# Church and enchantress visitor workspace checks
 
-Run `python3 scripts/check-town-service-workspace.py`. This compiles production
-`TownServiceWorkspace` and `TownServicePlacement` into separate test assemblies and
-runs them in real Unity 2021.3.5 with the shipping town bundle. Native roster, clock,
-canonical map-frame/seat state and bundle location are explicit boundaries. Floor
-sampling, original mesh bounds, transforms and materials execute actual production.
+Run `python3 scripts/check-town-service-workspace.py`. Production allocation, placement,
+layout, original-mesh ground sampling, material ownership and lifecycle execute inside
+Unity 2021.3.5 against the shipping bundle. Native roster, clock, canonical map/seat state,
+asynchronous decoration acquisition and practical-light ownership are explicit boundaries.
+The bundle hash is recorded and must remain unchanged throughout validation.
 
-Ordinal zero retains the original merchant counter. Its duplicate furniture remains
-inactive. Three full-size extra counters occupy the free southern clearing ring at
-radius 2.35 m and map-frame yaws -124°, 180°, +124°, facing inward. The conservative
-footprint |x| <= 0.9 m, |z| <= 0.422 m has outer radius 2.915 m, inside the nearest
-solid scenery radius 3.033 m, and inner radius 1.928 m, outside the map/seat radius
-1.05 m. SAT tests compare each counter against every original station pose produced
-by the actual placement source, and against other counters. Shipping furniture
-mesh bounds must fit this footprint. These checks do not certify hanging foliage
-or headset readability.
+The merchant uses one persistent resident cabinet; private merchant visitor cabinets are
+no longer created. This fixture exercises the actual church and enchantress workspaces,
+including both services' complete relocation/material/disposal cycles. Ordinal zero uses
+the shared resident; duplicate furniture stays inactive. Three visitors reserve radius
+2.40 / 2.50 / 2.65 m at bearings -140 / -90 / -45 degrees, with furniture headings
+-155 / -90 / -75 degrees in the common room frame.
 
-Native connection IDs are sparse and can exceed four after reconnects. Full native
-roster ordinals include flat/unassigned users and avoid divergent arrival-history
-caches. No network allocation protocol or purchase serialization is introduced.
-Only the owner resolves each pose; observers consume the actual published widget,
-card, furniture, material and transform state.
+Geometry follows the measured envelopes documented in `.planning/research/TOWN-ROOMS-549.md`
+and the original-mesh scene audit (`scripts/check-town-scene-layout.py`):
 
-Roster, environment and canonical frame changes are checked on the existing 250 ms
-cadence. Floor geometry is sampled only when one changes. Relocation waits for held
-original cards and return flights to finish. The entire owner's workspace then fades
-out, changes pose in a guaranteed fully invisible frame, and fades in over 220 ms.
-It never sweeps a counter through the map or another permanent NPC. Original card
-sizes, native selection and transactions stay unchanged. Mod-owned CanvasGroups
-block new input during relocation without changing native Selectable availability.
+- Merchant resident: cabinet X -1.64..-.44, Z -.09...72 m, and separate ledger lectern
+  X -.36...36, Z -.08...52 m.
+- Church/enchantress furniture: X -.88...88, Z -.44...50 m.
+- Enchantress rear lantern: X -.88..-.48, Z .28...96 m. Each visitor reserves this larger
+  union so changing between church and enhancement never invalidates another reservation.
+- Every resident also reserves the actor X -.60...60, Z .30..1.20 m.
 
-Checks cover actual geometry, rotated/scaled map coordinates, sloped original ground,
-sparse rosters, full opacity synchronization, delayed relocation, native assets,
-private materials, no cloned NPC or active furniture colliders, late joins, reconnects,
-offline placement, fifth-user rejection and immediate idempotent disposal. Eight
-compiled negative controls must fail their corresponding behavioral assertions.
-The catalog suite additionally binds the actual visibility/input gate and moving-card
-condition; the interaction suite checks the production presentation handoff.
+SAT clearance adds five centimetres around each component and retains the existing
+one-centimetre separating gap. The enchantress remains at bearing 90 degrees but
+her furniture faces 95 degrees to clear original forest scenery. Resident reservations must
+clear one another and the complete native map table. Each visitor must clear all residents,
+other visitors and the table. Actual shipping furniture vertices must fit the corresponding
+worktop/lantern union. These are conservative geometric checks, not headset readability,
+animated-arm clearance or an alpha-tested foliage claim. The original baked actor gate and
+sloped-floor/ground-support parity gates remain active for all three resident prefabs.
+
+Sparse connection IDs, flat/unassigned players, late join, reconnect and a rejected fifth
+visitor exercise the actual roster allocator. Reading-side changes cannot alter canonical
+room geometry or restart fades. A required relocation waits for held/returning cards,
+dissolves for 220 ms, changes pose in a fully invisible published frame and fades in.
+The tests retain intermediate visibility, input availability, owner-only material clones,
+resident-prop animation clocks, no duplicate NPC/collider activation, native-template
+immutability, ground support restoration and immediate idempotent disposal checks.
+
+The full run includes fourteen compiled behavioral negative controls. A negative must
+compile successfully and then fail the intended invariant; stale source bindings are
+reported as test failures, never counted as successful negatives.
+
+Build-549 validation against the final `d5f413b9159c18dd0651ce68e302923c1ac9d72bc2c00ae8d06c79866e9675e5`
+bundle and the integrated room-layout source passed 278,277 production assertions and all
+14 negative controls. Evidence: `/tmp/town549-workspace-final/run-5ffrxzmx`.
+The mesh audit identified the older enchantress export's negative-X rear support; its
+measured footprint and the supported native lantern are reserved together. Material-batched
+meshes are checked by their actual vertices, because a combined AABB contains empty corners
+between a counter and its separate rear perch.

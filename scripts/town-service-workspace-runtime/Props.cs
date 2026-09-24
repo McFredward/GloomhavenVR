@@ -23,7 +23,7 @@ internal static class WorkspacePropsProgram
         var material = new Material(shader); original.GetComponent<MeshRenderer>().sharedMaterial = material;
         try
         {
-            foreach (byte service in new byte[] { 1, 2, 3 })
+            foreach (byte service in new byte[] { 2, 3 })
             {
                 TownServiceDecor.Props.Clear(); TownServiceDecor.Props[service] = new() { original.transform };
                 using var workspace = new TownServiceWorkspace(station.transform, service);
