@@ -276,12 +276,14 @@ def merchant():
 
 
 def merchant_cassette():
-    # Template origin is the runtime cassette centre. Keep artwork clear and individually grabbable.
-    rect('Cassette backing',0,.026,.71,.022,.257,.52,bevel=.006)
+    # Three articulated shelves retain their original four seats and brass clips.
+    # The runtime rolls these real holders around the cabinet lips with their cards.
     for x in (-.35,.35):
         rect('Cassette timber side',x,.006,.015,.035,.25,.51,bevel=.003)
     for row in range(3):
-        y=(1-row)*.17
+        y=(row-1)*.17
+        start=len(parts)
+        rect('Articulated shelf backing',0,.026,.69,.022,y+.082,.164,bevel=.004)
         for col in range(4):
             x=(col-1.5)*.18
             for dx in (-.063,.063):
@@ -289,6 +291,12 @@ def merchant_cassette():
                      (x+dx,y-.040,-.014)], [.0035]*3,'Brass',8)
                 tube('Card clip rivet',[(x+dx,y-.060,.013),(x+dx,y-.060,-.012)],[.005,.005],'ForgedIron',8)
             rect('Individual card leather seat',x,.010,.144,.006,y+.057,.114,'Leather',.002)
+        hinge=bpy.data.objects.new(f'Row{row}',None)
+        bpy.context.collection.objects.link(hinge)
+        hinge.location=xyz((0,y,0))
+        for obj in parts[start:]:
+            obj.parent=hinge
+            obj.location=xyz((0,-y,0))
 
 
 def merchant_crank():
@@ -382,17 +390,19 @@ def export(name, build):
             obj.name=f'GroundSupport{len(supports):02d}_{obj.name}_{obj.data.materials[0].name}'
             supports.append(obj)
     # The remaining decor stays one renderer per material, not one per rivet or leaf.
-    for material in materials.values():
-        objects=[o for o in bpy.context.scene.objects if o.type == 'MESH' and o not in supports
-                 and not o.name.startswith('Handle_') and o.data.materials[0] == material]
-        if not objects: continue
-        bpy.ops.object.select_all(action='DESELECT')
-        for obj in objects: obj.select_set(True)
-        bpy.context.view_layer.objects.active=objects[0]
-        bpy.ops.object.join()
-        objects[0].name=name+'_'+material.name
+    parents={obj.parent for obj in parts}
+    for parent in parents:
+        for material in materials.values():
+            objects=[o for o in bpy.context.scene.objects if o.type == 'MESH' and o not in supports
+                     and o.parent == parent and not o.name.startswith('Handle_') and o.data.materials[0] == material]
+            if not objects: continue
+            bpy.ops.object.select_all(action='DESELECT')
+            for obj in objects: obj.select_set(True)
+            bpy.context.view_layer.objects.active=objects[0]
+            bpy.ops.object.join()
+            objects[0].name=name+('_'+parent.name if parent else '')+'_'+material.name
     bpy.ops.object.select_all(action='SELECT')
-    bpy.ops.export_scene.fbx(filepath=str(out/(name+'.fbx')),use_selection=True,object_types={'MESH'},
+    bpy.ops.export_scene.fbx(filepath=str(out/(name+'.fbx')),use_selection=True,object_types={'MESH','EMPTY'},
         apply_unit_scale=True,axis_forward='-Z',axis_up='Y',bake_anim=False,add_leaf_bones=False,
         use_mesh_modifiers=True,mesh_smooth_type='FACE')
     bpy.ops.wm.save_as_mainfile(filepath=str(out/(name+'.blend')))
