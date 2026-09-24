@@ -22,25 +22,28 @@ internal sealed class TownServiceMerchantRows : IDisposable
         internal Row(UIShopItemSlot source, bool selling) { Source = source; Selling = selling; }
     }
     private readonly UIShopItemInventory _inventory;
+    private readonly IShopItemService? _publicService;
     private readonly GameObject _root;
     internal readonly List<Row> Rows = new();
-    internal TownServiceMerchantRows(UIShopItemInventory inventory)
+    internal TownServiceMerchantRows(UIShopItemInventory inventory, Transform? publicParent = null)
     {
         _inventory = inventory;
+        if (publicParent != null) _publicService = new ShopService(AdventureState.MapState.MapParty, _ => { });
         _root = new GameObject("GloomhavenVR.Merchant.PresentationRows", typeof(RectTransform), typeof(CanvasGroup));
-        _root.transform.SetParent(inventory.transform, false);
+        _root.transform.SetParent(publicParent != null ? publicParent : inventory.transform, false);
         CanvasGroup gate = _root.GetComponent<CanvasGroup>(); gate.alpha = 0f; gate.blocksRaycasts = false;
     }
     internal bool Refresh()
     {
-        var service = _inventory.service;
-        var character = _inventory.character;
-        bool empty = character == null && AdventureState.MapState.GoldMode == EGoldMode.CharacterGold;
-        var buy = empty ? new List<CItem>() : service.GetItemsToBuy(character);
-        var sell = empty ? new List<CItem>() : service.GetItemsToSell(character);
+        var service = _publicService ?? _inventory.service;
+        var character = _publicService != null ? NewPartyDisplayUI.PartyDisplay?.SelectedUISlot?.Data : _inventory.character;
+        bool empty = _publicService == null && character == null && AdventureState.MapState.GoldMode == EGoldMode.CharacterGold;
+        var buy = empty ? new List<CItem>() : service.GetItemsToBuy(_publicService != null ? null : character);
+        var sell = empty || _publicService != null ? new List<CItem>() : service.GetItemsToSell(character);
         var all = empty ? buy : buy.Concat(service.GetItemsToSell()).ToList();
-        if (character != null) all = all.FindAll(item => item.CanEquipItem(character.CharacterID));
+        if (_publicService == null && character != null) all = all.FindAll(item => item.CanEquipItem(character.CharacterID));
         var groups = all.GroupBy(item => item.ID).OrderBy(g => SlotOrder(g.First()))
+            .ThenBy(g => _publicService != null ? g.Key : 0)
             .ThenBy(g => LocalizationManager.GetTranslation(g.First().Name)).ToList();
         var owned = sell.OrderBy(SlotOrder).ThenBy(item => LocalizationManager.GetTranslation(item.Name))
             .ThenBy(item => item.NetworkID).ToList();

@@ -60,7 +60,7 @@ internal static class TownServiceDelta
         }
         return true;
     }
-    private static bool HeaderMatches(TownServiceFrame a, TownServiceFrame b) => a.Service == b.Service
+    private static bool HeaderMatches(TownServiceFrame a, TownServiceFrame b) => a.PublicCatalog == b.PublicCatalog && a.PublicClaim == b.PublicClaim && a.Service == b.Service
         && a.Session == b.Session && a.Module == b.Module && a.Template == b.Template && a.TemplateAddress == b.TemplateAddress && a.Structure == b.Structure;
     internal static TownServiceFrame Copy(TownServiceFrame source)
     {
@@ -79,7 +79,7 @@ internal static class TownServiceDelta
     { TownServiceFrame result = Header(source); result.Nodes = (TownServiceNode[])source.Nodes.Clone(); return result; }
     private static TownServiceFrame Header(TownServiceFrame f) => new()
     {
-        Rack = f.Rack?.Copy(), RackMember = f.RackMember?.Copy(), Service = f.Service, Session = f.Session, Sequence = f.Sequence, BaseSequence = f.BaseSequence,
+        PublicCatalog = f.PublicCatalog, PublicClaim = f.PublicClaim, Rack = f.Rack?.Copy(), RackMember = f.RackMember?.Copy(), Service = f.Service, Session = f.Session, Sequence = f.Sequence, BaseSequence = f.BaseSequence,
         Module = f.Module, Template = f.Template, TemplateAddress = f.TemplateAddress, Structure = f.Structure, Visible = f.Visible,
         SampleTime = f.SampleTime, SessionAge = f.SessionAge, ParentModule = f.ParentModule, ParentBinding = f.ParentBinding,
         ParentAlpha = f.ParentAlpha, HasCanvasFrame = f.HasCanvasFrame, CanvasPose = (float[])f.CanvasPose.Clone(),

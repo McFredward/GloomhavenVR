@@ -68,7 +68,7 @@ internal static class TownServicePresentation
 
     internal static void Tick()
     {
-        try { TownServiceConfirmationMask.Tick(); TickCore(); }
+        try { TownServiceConfirmationMask.Tick(); TickCore(); TownServicePublicMerchant.Tick(); }
         catch (Exception e)
         {
             UIWindow? restore = _window;
@@ -130,7 +130,7 @@ internal static class TownServicePresentation
             window.onHidden.AddListener(OnNativeHidden);
             if (!ModalFallback.ReleaseForTownService(window, context))
                 throw new InvalidOperationException("Previous service conversion has not restored its native hierarchy");
-            _workspace = new TownServiceWorkspace(_station.Root, service);
+            _workspace = service == 1 ? null : new TownServiceWorkspace(_station.Root, service);
             BuildMat();
             try
             {
@@ -145,7 +145,7 @@ internal static class TownServicePresentation
                 else
                 {
                     uint session = _session;
-                    _ritual = new TownServiceRitual(window, service, _workspace.Root,
+                    _ritual = new TownServiceRitual(window, service, _workspace!.Root,
                         () => Active && _session == session, SelectionContext);
                     _contextMask = new TownServiceWindowMask((RectTransform)window.transform);
                     _context = null;
@@ -200,16 +200,8 @@ internal static class TownServicePresentation
 
     private static void BuildMerchant(UIShopItemWindow shop)
     {
-        if (_station == null || _mat == null) throw new InvalidOperationException("Merchant counter is unavailable");
-        var anchor = new GameObject("GloomhavenVR.TownService.CounterCards");
-        _counter = anchor.transform;
-        _counter.SetParent(_workspace != null ? _workspace.Root : _station.Root, false);
-        // Physical filing drawers and the eligible drop zones share the authored worktop.
-        _counter.localPosition = new Vector3(0f, .970f, 0f);
-        uint session = _session;
-        _catalog = new TownServiceCatalog(shop.ItemInventory, _counter, SelectionContext,
-            () => Active && _session == session, _mat.transform);
-
+        // Public stock has its own lifetime and publication lane. Opening the native shop
+        // only establishes permission/confirmation context; it never builds a second cabinet.
     }
 
     private static void BuildSections(UIWindow window, byte service)
@@ -333,6 +325,7 @@ internal static class TownServicePresentation
 
     internal static void LateTick()
     {
+        TownServicePublicMerchant.LateTick();
         foreach (TownServiceSurface surface in Surfaces) surface.LateTick();
         _catalog?.LateTick();
         _tray?.LateTick();

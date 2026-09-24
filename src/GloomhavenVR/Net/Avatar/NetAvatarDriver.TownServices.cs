@@ -39,9 +39,9 @@ internal sealed partial class NetAvatarDriver
         }
         // Preserve the complete baseline separately from the latest cumulative delta when
         // several completed fragments arrive before the main-thread presentation pass.
-        uint key = frame!.Module | (frame.BaseSequence != 0 ? 65536u : 0u);
+        uint key = frame!.Module | (frame.BaseSequence != 0 ? 65536u : 0u) | (frame.PublicCatalog ? 131072u : 0u);
         if (pending.TryGetValue(key, out TownPacket? previous) && frame.Sequence <= previous.Sequence) return true;
-        if (pending.Count >= 2 * TownServiceFrame.MaxModules + 1 && !pending.ContainsKey(key)) return true;
+        if (pending.Count >= 4 * TownServiceFrame.MaxModules + 2 && !pending.ContainsKey(key)) return true;
         byte[] copy = new byte[length]; Buffer.BlockCopy(bytes, 0, copy, 0, length); pending[key] = new TownPacket { Sequence = frame.Sequence, Bytes = copy };
         return true;
     }

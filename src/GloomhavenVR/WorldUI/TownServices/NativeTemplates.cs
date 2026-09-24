@@ -76,6 +76,8 @@ internal static class NativeTemplates
         AddPhysical("merchant.crank", TownServiceMerchantDrawer.CreateTemplate(physicalFont));
         AddPhysical("merchant.cardmount", new GameObject("PhysicalCardMount"));
         AddPhysical("merchant.rack", TownServiceMerchantDrawer.CreateHousingTemplate());
+        for (int category = 0; category < 6; category++)
+            AddPhysical("merchant.category." + category, TownServiceCatalogCategory.CreateTemplate(category));
         Add("merchant.counter", TownServiceWorkspace.FurnitureTemplate(1));
         Add("temple.counter", TownServiceWorkspace.FurnitureTemplate(2));
         Add("enchant.counter", TownServiceWorkspace.FurnitureTemplate(3));

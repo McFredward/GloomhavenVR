@@ -55,8 +55,7 @@ internal static class TownServiceMerchantTransaction
         bool created = confirmation.IsActive && confirmation.IsConfirmingItem(selectedItem)
             && confirmation._onConfirmedCallback != null
             && !ReferenceEquals(previous, confirmation._onConfirmedCallback);
-        if (created) TownServiceConfirmationMask.Begin(confirmation.GetComponent<UnityEngine.UI.UIWindow>(),
-            () => confirmation._onConfirmedCallback);
+
         if (!stillCurrent() || !Eligible(inventory, item, selling)
             || !created || !confirmation.confirmButton.IsActive() || !confirmation.confirmButton.IsInteractable())
         {
@@ -65,7 +64,8 @@ internal static class TownServiceMerchantTransaction
             if (created) confirmation.OnCancel();
             return false;
         }
-        ExecuteEvents.Execute(confirmation.confirmButton.gameObject, pointer, ExecuteEvents.pointerClickHandler);
+        // The player makes the final purchase/sale decision in the original native prompt.
+        // Offering a card must never silently confirm the transaction.
         return true;
     }
 }

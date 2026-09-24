@@ -11,8 +11,15 @@ namespace GloomhavenVR.WorldUI;
 
 /// <summary>Publishes owner-authored original native service widgets after their final VR layout.
 /// Gameplay controllers remain exclusively on their original local objects.</summary>
-internal static class TownServiceSync
+internal sealed class TownServiceSync
 {
+    private static readonly TownServiceSync Private = new(), Public = new();
+    internal static void Prepare() => Private.PrepareCore();
+    internal static void Tick(Transform sharedFrame, Transform? stationRoot) => Private.TickCore(sharedFrame, stationRoot);
+    internal static void Reset() => Private.ResetCore();
+    internal static void ResetPublic() { using (TownServiceMirror.UsePublicLane()) Public.ResetCore(); }
+    internal static void TickPublic(Transform frame, Transform station, TownServiceCatalog catalog, uint session, float age)
+    { using (TownServiceMirror.UsePublicLane()) Public.TickCatalog(frame, station, catalog, session, age); }
     private sealed class Published
     {
         internal ushort Id;
@@ -35,43 +42,43 @@ internal static class TownServiceSync
         internal bool Complete;
         internal TownRackState? RackClock;
     }
-    private static readonly Dictionary<Transform, SourceEntry> Sources = new();
-    private static readonly List<Transform> RemovedSources = new();
-    private static readonly List<TownRackMember> RackMembers = new();
-    private static readonly Vector3[] Corners = new Vector3[4];
-    private static float _prepareAfter;
-    private static readonly Dictionary<string, Published> Modules = new(StringComparer.Ordinal);
-    private static readonly List<string> Removed = new();
-    private static readonly HashSet<Transform> Visited = new();
-    private static readonly List<Transform> Dynamic = new();
-    private static readonly List<Transform> PriorityRoots = new();
-    private static readonly Dictionary<string, float> Failures = new(StringComparer.Ordinal);
-    private static float _reportWindow;
-    private static int _reportCount;
-    private static uint _session;
+    private readonly Dictionary<Transform, SourceEntry> Sources = new();
+    private readonly List<Transform> RemovedSources = new();
+    private readonly List<TownRackMember> RackMembers = new();
+    private readonly Vector3[] Corners = new Vector3[4];
+    private float _prepareAfter;
+    private readonly Dictionary<string, Published> Modules = new(StringComparer.Ordinal);
+    private readonly List<string> Removed = new();
+    private readonly HashSet<Transform> Visited = new();
+    private readonly List<Transform> Dynamic = new();
+    private readonly List<Transform> PriorityRoots = new();
+    private readonly Dictionary<string, float> Failures = new(StringComparer.Ordinal);
+    private float _reportWindow;
+    private int _reportCount;
+    private uint _session;
     // Wire lifetime is presentation-only. Never reuse an earlier generation after native
     // close/reopen, network reset or relocation; captured native session closures stay intact.
-    private static uint _generation;
-    private static ulong _relocationRevision;
-    private static bool _generationExhausted;
-    private static byte _service;
-    private static ushort _nextId;
-    private static Transform? _sharedFrame;
-    internal static void Prepare()
+    private uint _generation;
+    private ulong _relocationRevision;
+    private bool _generationExhausted;
+    private byte _service;
+    private ushort _nextId;
+    private Transform? _sharedFrame;
+    private void PrepareCore()
     {
         if (!MapRoomDriver.Active || Time.unscaledTime < _prepareAfter) return;
         if (!WorldUIConfig.ImmersiveTownServices.Value && !TownServicePopulation.HasRemoteVisitors) return;
         try { NativeTemplates.Initialize(); TownServiceNativeAssets.Tick(); }
         catch (Exception e) { _prepareAfter = Time.unscaledTime + 2f; Report("prepare", e); }
     }
-    internal static void Tick(Transform sharedFrame, Transform? stationRoot)
+    private void TickCore(Transform sharedFrame, Transform? stationRoot)
     {
         _sharedFrame = sharedFrame;
         TownServiceMirror.SharedFrameForRemote = ResolveFrame;
-        Prepare();
+        PrepareCore();
         IReadOnlyList<TownServiceEnhancementHandoff.ReturnPresentation> returns = TownServiceEnhancementHandoff.Returning;
         bool active = TownServicePresentation.Active && stationRoot != null;
-        if (!active && returns.Count == 0) { Reset(); return; }
+        if (!active && returns.Count == 0) { ResetCore(); return; }
         if (!NativeTemplates.Ready) return;
         byte service = active ? TownServicePresentation.Service : (byte)3;
         uint session = active ? TownServicePresentation.Session : returns[0].Session;
@@ -84,11 +91,11 @@ internal static class TownServiceSync
             {
                 // Do not wrap into a still-known presentation. This process has exhausted its
                 // finite wire namespace; native services continue without new mirror sessions.
-                Reset(); _generationExhausted = true;
+                ResetCore(); _generationExhausted = true;
                 Report("generation", new InvalidOperationException("Town presentation generation exhausted; restart the mod to resume publishing."));
                 return;
             }
-            Reset(); _session = session; _service = service; _relocationRevision = relocation; _nextId = 0;
+            ResetCore(); _session = session; _service = service; _relocationRevision = relocation; _nextId = 0;
             _generation++;
         }
         // A new existing wire session rebuilds observers at the actual new pose even when
@@ -123,40 +130,7 @@ internal static class TownServiceSync
                     : surface.Id == 11 ? "enchant.holder" : "enchant.scroll", surface.Panel.Target);
             if (catalog != null)
             {
-                Publish(prefix + ".counter", TownServicePresentation.CounterFurniture);
-                foreach (TownServiceMerchantDrawer rack in catalog.Drawers)
-                {
-                    // Cranks and racks are owner-authored moving geometry. Cards are separate
-                    // native modules; exclude the rack's Content root to avoid duplicate faces.
-                    if (rack.Moving) { PriorityRoots.Add(rack.Root); PriorityRoots.Add(rack.HousingRoot); }
-                    Publish("merchant.crank", rack.Root);
-                    Publish("merchant.rack", rack.HousingRoot);
-                }
-                foreach (TownServiceMerchantCounter extension in catalog.Extensions)
-                    Publish("merchant.return", extension.Root);
-                foreach (TownServiceMerchantZone zone in catalog.Zones) Publish("merchant.zone", zone.Root);
-                // Mirror the actual counter, not the suppressed flat inventory. These widgets
-                // retain native template provenance but have the owner's physical layout.
-                foreach (TownServiceCatalog.Control control in catalog.Controls)
-                    Publish(control.Key, control.Surface.Panel.Target);
-
-                foreach (TownServiceCatalog.Entry entry in catalog.Entries)
-                {
-                    if (!entry.Current || !entry.Warm) continue;
-                    if (entry.Sample.IsMoving)
-                    {
-                        PriorityRoots.Add(entry.MountRoot);
-                        PriorityRoots.Add(entry.CardRoot);
-                        if (entry.BodyRoot != null) PriorityRoots.Add(entry.BodyRoot);
-                        if (entry.RowContent != null) PriorityRoots.Add(entry.RowContent);
-                    }
-                    Publish("merchant.cardmount", entry.MountRoot, prewarm: true);
-                    Publish("item." + entry.ItemId.ToString(System.Globalization.CultureInfo.InvariantCulture), entry.CardRoot, prewarm: true);
-                    Publish("merchant.cardbody", entry.BodyRoot, prewarm: true);
-                    if (entry.RowContent != null)
-                        Publish("merchant.row", entry.RowContent, entry.RowSource.transform, entry.RowCloneOf, prewarm: true);
-                }
-                foreach (TownServiceMerchantDrawer rack in catalog.Drawers) PublishRackClock(catalog, rack);
+                PublishCatalog(catalog, TownServicePresentation.CounterFurniture);
             }
             TownServiceRitual? ritual = TownServicePresentation.Ritual;
             if (ritual != null)
@@ -244,7 +218,61 @@ internal static class TownServiceSync
                 RemovedSources.Add(pair.Key!);
         foreach (Transform source in RemovedSources) Sources.Remove(source);
     }
-    private static bool OwnsAnchor(Transform? target)
+    private void PublishCatalog(TownServiceCatalog catalog, Transform? furniture)
+    {
+        const string prefix = "merchant";
+                Publish(prefix + ".counter", furniture);
+                foreach (TownServiceMerchantDrawer rack in catalog.Drawers)
+                {
+                    // Cranks and racks are owner-authored moving geometry. Cards are separate
+                    // native modules; exclude the rack's Content root to avoid duplicate faces.
+                    if (rack.Moving) { PriorityRoots.Add(rack.Root); PriorityRoots.Add(rack.HousingRoot); }
+                    Publish("merchant.crank", rack.Root);
+                    Publish("merchant.rack", rack.HousingRoot);
+                }
+                foreach (TownServiceCatalogCategory category in catalog.Categories) Publish(category.Key, category.Root);
+                foreach (TownServiceMerchantCounter extension in catalog.Extensions)
+                    Publish("merchant.return", extension.Root);
+                foreach (TownServiceMerchantZone zone in catalog.Zones) Publish("merchant.zone", zone.Root);
+                // Mirror the actual counter, not the suppressed flat inventory. These widgets
+                // retain native template provenance but have the owner's physical layout.
+                foreach (TownServiceCatalog.Control control in catalog.Controls)
+                    Publish(control.Key, control.Surface.Panel.Target);
+
+                foreach (TownServiceCatalog.Entry entry in catalog.Entries)
+                {
+                    if (!entry.Current || !entry.Warm) continue;
+                    if (entry.Sample.IsMoving)
+                    {
+                        PriorityRoots.Add(entry.MountRoot);
+                        PriorityRoots.Add(entry.CardRoot);
+                        if (entry.BodyRoot != null) PriorityRoots.Add(entry.BodyRoot);
+                        if (entry.RowContent != null) PriorityRoots.Add(entry.RowContent);
+                    }
+                    Publish("merchant.cardmount", entry.MountRoot, prewarm: true);
+                    Publish("item." + entry.ItemId.ToString(System.Globalization.CultureInfo.InvariantCulture), entry.CardRoot, prewarm: true);
+                    Publish("merchant.cardbody", entry.BodyRoot, prewarm: true);
+                    if (entry.RowContent != null)
+                        Publish("merchant.row", entry.RowContent, entry.RowSource.transform, entry.RowCloneOf, prewarm: true);
+                }
+                foreach (TownServiceMerchantDrawer rack in catalog.Drawers) PublishRackClock(catalog, rack);
+    }
+    private void TickCatalog(Transform frame, Transform station, TownServiceCatalog catalog, uint session, float age)
+    {
+        _sharedFrame = frame; _service = 1;
+        PrepareCore();
+        if (!NativeTemplates.Ready) return;
+        if (_session != session) { ResetCore(); _session = session; _service = 1; _nextId = 0; }
+        TownServiceMirror.BeginSession(1, session, frame, station, age);
+        foreach (Published module in Modules.Values) module.Seen = false;
+        foreach (SourceEntry source in Sources.Values) source.Seen = false;
+        Visited.Clear(); Dynamic.Clear(); PriorityRoots.Clear();
+        if (TownServiceMirror.IsPublicAuthor) PublishCatalog(catalog, null);
+        Removed.Clear();
+        foreach (var pair in Modules) if (!pair.Value.Seen) Removed.Add(pair.Key);
+        foreach (string key in Removed) { TownServiceMirror.UnregisterModule(Modules[key].Id); Modules.Remove(key); }
+    }
+    private bool OwnsAnchor(Transform? target)
     {
         if (target == null) return false;
         if (TownServicePresentation.Window != null && target.IsChildOf(TownServicePresentation.Window.transform)) return true;
@@ -254,8 +282,8 @@ internal static class TownServiceSync
             if (source.Seen && source.Root != null && target.IsChildOf(source.Root)) return true;
         return false;
     }
-    private static Transform? ResolveFrame(int _) => _sharedFrame;
-    private static string? DynamicKey(Transform source)
+    private Transform? ResolveFrame(int _) => _sharedFrame;
+    private string? DynamicKey(Transform source)
     {
         if (source.GetComponent<UIShopItemSlot>() != null) return "merchant.row";
         if (source.GetComponent<UITempleShopSlot>() != null) return "temple.row";
@@ -267,11 +295,11 @@ internal static class TownServiceSync
         ItemCardUI? item = source.GetComponent<ItemCardUI>(); if (item != null) return "item." + item.CardID;
         return null;
     }
-    private static void PublishHeld(TownServiceToken sample, Transform original)
+    private void PublishHeld(TownServiceToken sample, Transform original)
     {
         PublishCopiedCards(original, sample.HeldCloneOf);
     }
-    private static void PublishCopiedCards(Transform original, Func<Transform, Transform?> cloneOf)
+    private void PublishCopiedCards(Transform original, Func<Transform, Transform?> cloneOf)
     {
         Transform? clone = cloneOf(original);
         string? key = DynamicKey(original);
@@ -280,7 +308,7 @@ internal static class TownServiceSync
         // preview neutralization; publishing only the outer tooltip would omit its item card.
         for (int i = 0; i < original.childCount; i++) PublishCopiedCards(original.GetChild(i), cloneOf);
     }
-    private static void Publish(string key, Transform? source, Transform? provenance = null, Func<Transform, Transform?>? cloneOf = null, bool prewarm = false)
+    private void Publish(string key, Transform? source, Transform? provenance = null, Func<Transform, Transform?>? cloneOf = null, bool prewarm = false)
     {
         if (source == null || !Visited.Add(source)) return;
         try
@@ -344,13 +372,13 @@ internal static class TownServiceSync
         }
         catch (Exception e) { Report(key, e); }
     }
-    private static void PublishRackClock(TownServiceCatalog catalog, TownServiceMerchantDrawer rack)
+    private void PublishRackClock(TownServiceCatalog catalog, TownServiceMerchantDrawer rack)
     {
         if (!Sources.TryGetValue(rack.HousingRoot, out SourceEntry? housing)
             || !Sources.TryGetValue(rack.Root, out SourceEntry? crank) || housing.Parts.Count != 1 || crank.Parts.Count != 1) return;
         RackMembers.Clear(); ushort rackId = housing.Parts[0].Id;
         foreach (TownServiceCatalog.Entry entry in catalog.Entries)
-            if (entry.Selling == rack.Selling && entry.Warm)
+            if (entry.Warm)
             {
                 AddRackMembers(entry.MountRoot, entry, rack, rackId);
                 AddRackMembers(entry.CardRoot, entry, rack, rackId);
@@ -364,16 +392,16 @@ internal static class TownServiceSync
         if (sameMembers && previous!.Turn == rack.TurnEpoch && previous.Elapsed == rack.TurnElapsed
             && previous.LeadAngle == rack.LeadAngle && previous.Crank == crank.Parts[0].Id
             && previous.Page == rack.Page && previous.From == rack.FromPage && previous.To == rack.ToPage) return;
-        var state = new TownRackState { Turn = rack.TurnEpoch, Elapsed = rack.TurnElapsed, LeadAngle = rack.LeadAngle,
+        var state = new TownRackState { Cassette = true, Turn = rack.TurnEpoch, Elapsed = rack.TurnElapsed, LeadAngle = rack.LeadAngle,
             Crank = crank.Parts[0].Id, Page = (ushort)rack.Page, From = (ushort)rack.FromPage, To = (ushort)rack.ToPage,
             Members = sameMembers ? previous!.Members : RackMembers.ToArray() };
         housing.RackClock = state; TownServiceMirror.SetRack(rackId, state);
     }
-    private static int CompareRackMembers(TownRackMember a,TownRackMember b)
+    private int CompareRackMembers(TownRackMember a,TownRackMember b)
     {
         return a.Id.CompareTo(b.Id);
     }
-    private static void AddRackMembers(Transform? root,TownServiceCatalog.Entry entry,TownServiceMerchantDrawer rack,ushort rackId)
+    private void AddRackMembers(Transform? root,TownServiceCatalog.Entry entry,TownServiceMerchantDrawer rack,ushort rackId)
     {
         if (root == null || !Sources.TryGetValue(root,out SourceEntry? source)) return;
         foreach (Published part in source.Parts) if (part.Seen)
@@ -382,13 +410,13 @@ internal static class TownServiceSync
             TownServiceMirror.SetRackMember(part.Id,rackId,(ushort)entry.Page,rack.TurnEpoch,entry.Sample.IsMoving,entry.PageGate);
         }
     }
-    private static bool IsPriority(Transform source)
+    private bool IsPriority(Transform source)
     {
         foreach (Transform root in PriorityRoots)
             if (root != null && (source == root || source.IsChildOf(root))) return true;
         return false;
     }
-    private static void CollectDynamic(Transform root)
+    private void CollectDynamic(Transform root)
     {
         // Native pool lists are the authoritative topology. Enumerating their references avoids
         // walking thousands of stable row descendants on every VR frame.
@@ -418,7 +446,7 @@ internal static class TownServiceSync
             CollectDynamic(child);
         }
     }
-    private static void CollectHeldBoundaries(Transform original, Func<Transform, Transform?> cloneOf, HashSet<Transform> excluded)
+    private void CollectHeldBoundaries(Transform original, Func<Transform, Transform?> cloneOf, HashSet<Transform> excluded)
     {
         for (int i = 0; i < original.childCount; i++)
         {
@@ -428,7 +456,7 @@ internal static class TownServiceSync
             else CollectHeldBoundaries(child, cloneOf, excluded);
         }
     }
-    private static bool Visible(SourceEntry entry)
+    private bool Visible(SourceEntry entry)
     {
         Transform source = entry.Root;
         if (!source.gameObject.activeInHierarchy) return false;
@@ -461,19 +489,19 @@ internal static class TownServiceSync
         }
         return true;
     }
-    internal static void Reset()
+    private void ResetCore()
     {
         if (_session != 0) TownServiceMirror.EndSession();
         Modules.Clear(); Sources.Clear(); RemovedSources.Clear(); Visited.Clear(); Dynamic.Clear(); PriorityRoots.Clear(); Removed.Clear(); _session = 0; _service = 0;
     }
-    internal static void ResetNetwork() { Reset(); TownServiceMirror.ResetNetwork(); }
+    internal static void ResetNetwork() { Private.ResetCore(); ResetPublic(); TownServiceMirror.ResetNetwork(); }
     internal static void Shutdown()
-    { Reset(); TownServiceMirror.Shutdown(); NativeTemplates.Shutdown(); TownServiceNativeAssets.Shutdown(); _sharedFrame = null; ReportReset(); }
-    private static void ReportReset()
+    { TownServicePublicMerchant.Reset(); Private.ResetCore(); ResetPublic(); TownServiceMirror.Shutdown(); NativeTemplates.Shutdown(); TownServiceNativeAssets.Shutdown(); Private._sharedFrame = Public._sharedFrame = null; Private.ReportReset(); Public.ReportReset(); }
+    private void ReportReset()
     {
         Failures.Clear(); _reportWindow = 0; _reportCount = 0;
     }
-    private static void Report(string scope, Exception e)
+    private void Report(string scope, Exception e)
     {
         float now = Time.unscaledTime;
         string key = scope + ": " + e.Message;

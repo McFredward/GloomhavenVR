@@ -4,7 +4,7 @@ using System.Collections.Generic;
 namespace GloomhavenVR.Net.TownServices;
 
 /// <summary>Independent bounded module queues inside the existing global event budget.</summary>
-internal sealed class TownServiceSendQueue
+internal sealed class TownServiceLaneSendQueue
 {
     private readonly Dictionary<ushort, ExtrasSendQueue> _queues = new();
     private readonly List<ushort> _order = new();
@@ -24,12 +24,12 @@ internal sealed class TownServiceSendQueue
     private readonly HashSet<ushort> _promotedBundle = new();
     private uint _session;
     private byte _service;
-    internal TownServiceSendQueue(ulong seed)
+    internal TownServiceLaneSendQueue(ulong seed)
     {
         _seed = seed;
         _bundle = new ExtrasSendQueue((seed & ~65535UL) | TownServiceFrame.BundleStream,
             TownServiceCodec.MessageType, TownServiceCodec.FragmentType,
-            snapshotLimit: TownServiceFrame.MaxBytes, sequenceStride: 65536);
+            snapshotLimit: TownServiceFrame.MaxBytes, sequenceStride: 131072);
     }
     internal void Enqueue(byte[] bytes, int length, TownServiceFrame frame)
     {
@@ -40,7 +40,7 @@ internal sealed class TownServiceSendQueue
             if (_queues.Count >= TownServiceFrame.MaxModules + 1) return;
             ulong sequence = _sequences.TryGetValue(frame.Module, out ulong previous) ? previous : (_seed & ~65535UL) | frame.Module;
             queue = new ExtrasSendQueue(sequence, TownServiceCodec.MessageType,
-                TownServiceCodec.FragmentType, preserveFirst: true, snapshotLimit: TownServiceFrame.MaxBytes, sequenceStride: 65536);
+                TownServiceCodec.FragmentType, preserveFirst: true, snapshotLimit: TownServiceFrame.MaxBytes, sequenceStride: 131072);
             _queues.Add(frame.Module, queue); _order.Add(frame.Module);
         }
         if (frame.Module == TownServiceFrame.ManifestModule)
@@ -163,7 +163,7 @@ internal sealed class TownServiceSendQueue
     }
     private static bool SameCensus(TownServiceFrame a, TownServiceFrame b)
     {
-        if (a.Session != b.Session || a.Service != b.Service || a.Visible != b.Visible || a.Modules.Length != b.Modules.Length) return false;
+        if (a.PublicCatalog != b.PublicCatalog || a.PublicClaim != b.PublicClaim || a.Session != b.Session || a.Service != b.Service || a.Visible != b.Visible || a.Modules.Length != b.Modules.Length) return false;
         for (int i = 0; i < a.Modules.Length; i++) if (a.Modules[i] != b.Modules[i]) return false;
         return true;
     }
@@ -171,7 +171,28 @@ internal sealed class TownServiceSendQueue
     { foreach (var pair in _queues) { _sequences[pair.Key] = pair.Value.Sequence; pair.Value.Clear(); }
         _bundle.Clear(); _bundleFrames.Clear(); _bundleBytes.Clear(); _promotedBundle.Clear(); _queues.Clear(); _order.Clear(); _priority.Clear(); _cursor = _priorityCursor = _priorityTurns = 0;
         _normalActive = _priorityActive = null; _manifestBytes = null; _manifestFrame = _sentManifest = null; _nextManifest = 0; }
-    internal static bool SameIdentity(TownServiceFrame a, TownServiceFrame b) => a.Session == b.Session
+    internal static bool SameIdentity(TownServiceFrame a, TownServiceFrame b) => a.PublicCatalog == b.PublicCatalog && a.PublicClaim == b.PublicClaim && a.Session == b.Session
         && a.Service == b.Service && a.Module == b.Module && a.Template == b.Template && a.TemplateAddress == b.TemplateAddress && a.Structure == b.Structure
         && a.Visible == b.Visible && (a.BaseSequence == 0 ? a.Sequence : a.BaseSequence) == (b.BaseSequence == 0 ? b.Sequence : b.BaseSequence);
+}
+
+/// <summary>Private service and public cabinet retain independent module queues. Both still
+/// consume the same bounded global presentation budget; fragment sequence namespaces cannot
+/// collide even when both lanes use the same module IDs and session number.</summary>
+internal sealed class TownServiceSendQueue
+{
+    private readonly TownServiceLaneSendQueue _private, _public;
+    private bool _publicTurn;
+    internal TownServiceSendQueue(ulong seed)
+    { _private = new TownServiceLaneSendQueue(seed & ~131071UL);
+      _public = new TownServiceLaneSendQueue((seed & ~131071UL) | 65536UL); }
+    internal void Enqueue(byte[] bytes, int length, TownServiceFrame frame)
+        => (frame.PublicCatalog ? _public : _private).Enqueue(bytes, length, frame);
+    internal byte[]? Next(double now)
+    {
+        _publicTurn = !_publicTurn;
+        return (_publicTurn ? _public : _private).Next(now) ?? (_publicTurn ? _private : _public).Next(now);
+    }
+    internal void Clear() { _private.Clear(); _public.Clear(); }
+    internal static bool SameIdentity(TownServiceFrame a, TownServiceFrame b) => TownServiceLaneSendQueue.SameIdentity(a,b);
 }

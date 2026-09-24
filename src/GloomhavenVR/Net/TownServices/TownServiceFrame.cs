@@ -9,6 +9,8 @@ internal sealed class TownServiceFrame
     // A complete late-game stock uses independent native card, price and physical-body
     // modules. Keep payloads bounded; only the manifest's ushort ID census grows (8 KiB).
     internal const int MaxBytes = 60000, MaxNodes = 256, MaxProperties = 128, MaxModules = 4096;
+    internal bool PublicCatalog;
+    internal uint PublicClaim;
     internal byte Service;
     internal const ushort ManifestModule = ushort.MaxValue, BundleStream = ushort.MaxValue - 1;
     internal uint Session;

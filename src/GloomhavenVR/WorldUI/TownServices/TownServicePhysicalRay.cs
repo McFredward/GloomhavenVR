@@ -21,7 +21,7 @@ internal static class TownServicePhysicalRay
         ||(hand==_leftStamp&&_leftFrame==Time.frameCount)||(hand==_rightStamp&&_rightFrame==Time.frameCount);
     internal static float OccludingDistance(Vector3 origin,Vector3 direction,float maxDistance)
     {
-        float nearest=float.PositiveInfinity;var ray=new Ray(origin,direction);
+        float nearest=TownServiceCatalogCategory.OccludingDistance(origin,direction,maxDistance);var ray=new Ray(origin,direction);
         var entries=VRInteractables.Grabbables;
         for(int i=0;i<entries.Count;i++)
         {

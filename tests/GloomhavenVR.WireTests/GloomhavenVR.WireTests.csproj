@@ -277,6 +277,7 @@
     <Compile Include="TownActivityVectors.cs" />
     <Compile Include="$(RepoRoot)src/GloomhavenVR/Net/TownServices/TownServiceFrame.cs" />
     <Compile Include="$(RepoRoot)src/GloomhavenVR/Net/TownServices/TownRackState.cs" />
+    <Compile Include="$(RepoRoot)src/GloomhavenVR/Net/TownServices/TownCassetteMotion.cs" />
     <Compile Include="$(RepoRoot)src/GloomhavenVR/Net/TownServices/TownServiceCodec.cs" />
     <Compile Include="$(RepoRoot)src/GloomhavenVR/Net/TownServices/TownServiceDelta.cs" />
     <Compile Include="$(RepoRoot)src/GloomhavenVR/Net/TownServices/TownServiceSendQueue.cs" />

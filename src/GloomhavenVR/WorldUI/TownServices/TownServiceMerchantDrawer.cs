@@ -9,30 +9,28 @@ using UnityEngine;
 
 namespace GloomhavenVR.WorldUI;
 
-/// <summary>A hand-cranked revolving card rack. The historical class/template address is
-/// retained for transport compatibility; no filing drawer or screen navigation remains.
-/// A complete turn exposes the next tray, swapping its cards only behind the opaque back.</summary>
+/// <summary>Physical indexed cassette inside the authored upright merchant cabinet.
+/// The historical class/template addresses remain valid, while additive TLV86 identifies
+/// the new withdraw/shutter/extend mechanism without changing any TLV85 byte.</summary>
 internal sealed class TownServiceMerchantDrawer : IGrabbable, IGrabbableHandFilter, IGrabCancellation, IDisposable
 {
     private static readonly HashSet<Transform> ContentRoots = new();
     internal static bool IsContentRoot(Transform node) => ContentRoots.Contains(node);
-    internal const int Capacity = 16;
-    internal const float Travel = .16f;
+    internal const int Capacity = 12;
+    internal const float Travel = .32f;
     private readonly GameObject _root, _housing;
     private readonly Func<bool> _alive, _mayClose;
     private readonly Action<TownServiceMerchantDrawer> _opening;
     private readonly BoxCollider _pick;
-    private readonly Material _material;
+    private readonly List<Material> _materials = new();
     private VRHand? _hand;
     private Vector3 _cursorStart;
-    private float _pull, _leadAngle;
-    private bool _laser;
-    private float _turn, _clock;
-    private bool _disposed, _turning, _swapped;
+    private float _pull, _leadAngle, _clock;
+    private bool _laser, _disposed, _turning, _swapped;
     internal Transform Root => _root.transform;
     internal Transform Content { get; }
-    internal readonly bool Selling;
-    internal readonly int Category;
+    internal bool Selling => Page >= 2048;
+    internal int Category => Page % 2048 / 256;
     internal Transform HousingRoot => _housing.transform;
     internal uint TurnEpoch { get; private set; }
     internal int FromPage { get; private set; }
@@ -51,115 +49,111 @@ internal sealed class TownServiceMerchantDrawer : IGrabbable, IGrabbableHandFilt
     internal TownServiceMerchantDrawer(Transform parent, int level, bool selling, int category, string label, TMP_Text? font,
         Func<bool> alive, Func<bool> mayClose, Action<TownServiceMerchantDrawer> opening)
     {
-        Selling = selling; Category = category; _alive = alive; _mayClose = mayClose; _opening = opening;
+        _alive = alive; _mayClose = mayClose; _opening = opening;
+        Page = category * 256 + (selling ? 2048 : 0);
         _housing = CreateHousingTemplate(); HousingRoot.SetParent(parent, false);
-        HousingRoot.localPosition = new Vector3(selling ? .35f : -.35f, -.20f, -.57f);
-        Content = new GameObject("PersistentCards").transform; Content.SetParent(HousingRoot, false); ContentRoots.Add(Content);
+        HousingRoot.localPosition = new Vector3(-.95f, .25f, .035f);
+        Content = new GameObject("PersistentCards").transform;
+        Content.SetParent(HousingRoot.Find("Cassette"), false); ContentRoots.Add(Content);
         _root = CreateTemplate(font); Root.SetParent(parent, false);
-        Root.localPosition = new Vector3(selling ? .725f : -.725f, -.15f, -.55f);
-        _material = new Material(OriginalWood());
-        foreach (Renderer renderer in _root.GetComponentsInChildren<Renderer>(true)) renderer.sharedMaterial = _material;
-        foreach (Renderer renderer in _housing.GetComponentsInChildren<Renderer>(true)) renderer.sharedMaterial = _material;
-        _pick = Root.Find("Handle").gameObject.AddComponent<BoxCollider>(); _pick.isTrigger = true;
+        Root.localPosition = new Vector3(-.47f, .08f, .11f);
+        CopyMaterials(_root); CopyMaterials(_housing);
+        Transform handle = Root.Find("Handle") ?? Root;
+        _pick = handle.gameObject.AddComponent<BoxCollider>(); _pick.isTrigger = true;
+        _pick.size = new Vector3(.08f, .08f, .12f);
         VRInteractables.RegisterGrabbable(this, _pick); VRLayers.Apply(_root); VRLayers.Apply(_housing);
+        TownCassetteMotion.Apply(HousingRoot, 1f);
     }
-    internal void SetPageCount(int count)
+    private void CopyMaterials(GameObject root)
     {
-        _availablePages = Math.Max(1, count);
-        if (_turning && !_swapped) ToPage %= _availablePages;
-        // A native sale/unlock census may arrive while a sample is still returning.
-        // Keep its physical tray fixed; an empty last tray remains crankable back home.
-        PageCount = Math.Max(_availablePages, Page + 1);
+        var copies = new Dictionary<Material, Material>();
+        foreach (Renderer renderer in root.GetComponentsInChildren<Renderer>(true))
+        {
+            Material[] materials = renderer.sharedMaterials;
+            for (int i = 0; i < materials.Length; i++)
+            {
+                if (materials[i] == null) continue;
+                if (!copies.TryGetValue(materials[i], out Material copy))
+                { copy = new Material(materials[i]); copies.Add(materials[i], copy); _materials.Add(copy); }
+                materials[i] = copy;
+            }
+            renderer.sharedMaterials = materials;
+        }
     }
-    internal bool RetainsPage(int page)
+    internal void Follow(TownRackState state)
     {
-        int count = Math.Max(PageCount, 1);
-        return page == Page || page == (Page + 1) % count || page == (Page + count - 1) % count;
+        if (_hand != null || !_mayClose()) return;
+        TurnEpoch = state.Turn; Page = state.Page; FromPage = state.From; ToPage = state.To;
+        _clock = state.Elapsed; _leadAngle = state.LeadAngle;
+        _turning = state.Turn != 0 && state.Elapsed < TownRackState.TurnDuration;
+        _swapped = state.Elapsed >= TownRackState.TurnDuration * .5f;
+        TownCassetteMotion.Apply(HousingRoot, _turning ? state.Elapsed / TownRackState.TurnDuration : 1f);
     }
-    internal bool RequestTurn()
+    internal void SetPageCount(int count) { _availablePages = Math.Max(1, count); PageCount = Math.Max(_availablePages, Page % 256 + 1); }
+    internal bool RetainsPage(int page) => page == Page || (_turning && (page == FromPage || page == ToPage))
+        || page == Page / 256 * 256 + (Page % 256 + 1) % Math.Max(1, PageCount);
+    internal bool Select(int category, bool selling)
     {
-        if (!CanGrab) return false;
-        TurnEpoch++; FromPage = Page; ToPage = (Page + 1) % _availablePages;
-        _turning = true; _leadAngle = _pull * 35f; _clock = 0f; _swapped = false; _opening(this); return true;
+        if (category < 0 || category >= 6 || _disposed || _hand != null || _turning || !_alive() || !_mayClose()) return false;
+        int target = category * 256 + (selling ? 2048 : 0);
+        return target != Page && Begin(target);
+    }
+    private bool Begin(int page)
+    {
+        TurnEpoch++; FromPage = Page; ToPage = page; _turning = true;
+        _leadAngle = _pull * 35f; _clock = 0f; _swapped = false; _opening(this); return true;
+    }
+    internal bool RequestTurn() => CanGrab && Begin(Page / 256 * 256 + (Page % 256 + 1) % _availablePages);
+    internal static GameObject Authored(string name)
+    {
+        Transform? source = TownServiceAssets.Prefab("townmerchant")?.transform.Find("Counter/" + name);
+        if (source == null) throw new InvalidOperationException("The matching merchant cabinet asset is missing: " + name);
+        GameObject clone = UnityEngine.Object.Instantiate(source.gameObject);
+        clone.transform.localPosition = Vector3.zero; clone.transform.localRotation = Quaternion.identity;
+        clone.transform.localScale = Vector3.one; clone.SetActive(true); return clone;
     }
     internal static GameObject CreateHousingTemplate()
     {
-        var root = new GameObject("MerchantRevolvingRack");
-        Part(root.transform, "Opaque tray back", new Vector3(0,.015f,.006f), new Vector3(.63f,.65f,.018f));
-        foreach (float x in new[]{-.312f,.312f}) Part(root.transform,"Forged side rail",new Vector3(x,.015f,-.013f),new Vector3(.016f,.65f,.022f));
-        for (int row=0;row<4;row++) Part(root.transform,"Card retaining lip",new Vector3(0,-.246f+row*.14f,-.04f),new Vector3(.63f,.008f,.025f));
-        Material wood = OriginalWood(); foreach(Renderer renderer in root.GetComponentsInChildren<Renderer>()) renderer.sharedMaterial=wood;
-        return root;
+        var root = new GameObject("MerchantIndexedCassette");
+        GameObject cassette = Authored("MerchantCassetteTemplate"); cassette.name = "Cassette"; cassette.transform.SetParent(root.transform, false);
+        GameObject shutter = Authored("MerchantShutterTemplate"); shutter.name = "Shutter"; shutter.transform.SetParent(root.transform, false);
+        shutter.transform.localPosition = new Vector3(0f, 0f, -.020f);
+        TownCassetteMotion.Apply(root.transform, 1f); return root;
     }
-    private static Material OriginalWood()
-    {
-        GameObject? prefab=TownServiceAssets.Prefab("townmerchant");
-        Transform? counter = prefab != null ? prefab.transform.Find("Counter") : null;
-        // Authored furniture joins its curved wooden pieces into material meshes; it has
-        // no procedural SurfacePlank0 child. Resolve the actual material rather than an
-        // obsolete primitive name (otherwise creating the first crank hides the service).
-        if (counter != null)
-            foreach (MeshRenderer renderer in counter.GetComponentsInChildren<MeshRenderer>(true))
-                foreach (Material material in renderer.sharedMaterials)
-                    if (material != null && material.name == "DarkWood") return material;
-        throw new InvalidOperationException("Merchant revolving cabinet requires original counter wood material");
-    }
-    internal static GameObject CreateTemplate(TMP_Text? font)
-    {
-        var root=new GameObject("MerchantRackCrank");
-        Rod(root.transform, "Crank spindle", new Vector3(0,0,.025f), new Vector3(0,0,-.025f), .021f);
-        Rod(root.transform, "Crank arm", Vector3.zero, new Vector3(0,-.13f,0), .014f);
-        Rod(root.transform, "Handle", new Vector3(0,-.13f,-.005f), new Vector3(0,-.13f,-.105f), .026f);
-        Material wood=OriginalWood();foreach(Renderer renderer in root.GetComponentsInChildren<Renderer>())renderer.sharedMaterial=wood;
-        return root;
-    }
-    private static void Rod(Transform parent, string name, Vector3 start, Vector3 end, float radius)
-    {
-        var part = GameObject.CreatePrimitive(PrimitiveType.Cylinder); part.name = name;
-        part.transform.SetParent(parent, false); part.transform.localPosition = (start + end) * .5f;
-        part.transform.localRotation = Quaternion.FromToRotation(Vector3.up, end - start);
-        part.transform.localScale = new Vector3(radius * 2f, Vector3.Distance(start, end) * .5f, radius * 2f);
-        Collider shape = part.GetComponent<Collider>(); shape.enabled = false; UnityEngine.Object.Destroy(shape);
-    }
-    private static void Part(Transform parent,string name,Vector3 position,Vector3 scale)
-    {
-        var part=GameObject.CreatePrimitive(PrimitiveType.Cube);part.name=name;part.transform.SetParent(parent,false);
-        part.transform.localPosition=position;part.transform.localScale=scale;
-        Collider shape=part.GetComponent<Collider>();shape.enabled=false;UnityEngine.Object.Destroy(shape);
-    }
-    internal static Vector3 CardPosition(int index)=>TownServiceMerchantLayout.StockPosition(index);
+    internal static GameObject CreateTemplate(TMP_Text? font) => Authored("MerchantCrankTemplate");
+    internal static Vector3 CardPosition(int index) => TownServiceMerchantLayout.StockPosition(index);
     internal void BeginLaser() => _laser = true;
     public void OnGrab(VRHand hand)
-    {
-        if(!CanGrab)return;TownServicePhysicalRay.Claim(hand);_hand=hand;_cursorStart=Root.parent.InverseTransformPoint(hand.Rig.GrabAnchor.position);_pull=0f;
-    }
+    { if (!CanGrab) return; TownServicePublicMerchant.Claim(); TownServicePhysicalRay.Claim(hand); _hand = hand; _cursorStart = Root.parent.InverseTransformPoint(hand.Rig.GrabAnchor.position); _pull = 0f; }
     internal void Tick(float opacity)
     {
-        if(_disposed)return;
+        if (_disposed) return;
         if (_hand != null && !_laser)
         {
-            float delta = _cursorStart.y - Root.parent.InverseTransformPoint(_hand.Rig.GrabAnchor.position).y;
-            _pull = Mathf.Clamp01(delta / .10f);
-            Root.localRotation = Quaternion.Euler(0f, 0f, -35f * _pull);
+            _pull = Mathf.Clamp01((_cursorStart.y - Root.parent.InverseTransformPoint(_hand.Rig.GrabAnchor.position).y) / .10f);
+            Root.localRotation = Quaternion.Euler(-35f * _pull, 0f, 0f);
         }
         if (_turning)
         {
             _clock += Time.unscaledDeltaTime;
-            float t=Mathf.Clamp01(_clock/TownRackState.TurnDuration); _turn=TownRackState.Progress(_clock);
-            // At half a revolution the complete opaque rack back faces the visitor.
-            if(!_swapped&&_turn>=.5f){Page=ToPage;PageCount=_availablePages;_swapped=true;}
-            HousingRoot.localRotation=Quaternion.Euler(0f,360f*_turn,0f);
-            Root.localRotation=Quaternion.Euler(0f,0f,-(_leadAngle+(360f-_leadAngle)*_turn));
-            if(t>=1f){_turning=false;HousingRoot.localRotation=Quaternion.identity;Root.localRotation=Quaternion.identity;}
+            float progress = Mathf.Clamp01(_clock / TownRackState.TurnDuration);
+            if (!_swapped && progress >= .5f) { Page = ToPage; _swapped = true; }
+            TownCassetteMotion.Apply(HousingRoot, progress);
+            Root.localRotation = Quaternion.Euler(-(_leadAngle + (360f - _leadAngle) * TownRackState.Progress(_clock)), 0f, 0f);
+            if (progress >= 1f) { _turning = false; Root.localRotation = Quaternion.identity; }
         }
-        _pick.enabled=opacity>.99f&&_alive()&&!_turning&&PageCount>1&&_mayClose();
-        if(_material.HasProperty("_TownVisibility"))_material.SetFloat("_TownVisibility",opacity);
+        _pick.enabled = opacity > .99f && _alive() && !_turning && PageCount > 1 && _mayClose();
+        foreach (Material material in _materials) if (material.HasProperty("_TownVisibility")) material.SetFloat("_TownVisibility", opacity);
     }
     internal void Close() { }
-    public void OnRelease(VRHand hand,Vector3 velocity)
+    public void OnRelease(VRHand hand, Vector3 velocity)
+    { if (_hand != hand) return; TownServicePhysicalRay.Claim(hand); _hand = null; RequestTurn(); _laser = false; }
+    public void OnGrabCancelled(VRHand hand)
+    { if (_hand == hand) { _hand = null; _laser = false; _pull = 0f; Root.localRotation = Quaternion.identity; } }
+    public void Dispose()
     {
-        if(_hand!=hand)return;TownServicePhysicalRay.Claim(hand);_hand=null;RequestTurn();_laser=false;
+        if (_disposed) return; _disposed = true; ContentRoots.Remove(Content); VRInteractables.UnregisterGrabbable(this);
+        foreach (Material material in _materials) UnityEngine.Object.Destroy(material);
+        UnityEngine.Object.Destroy(_root); UnityEngine.Object.Destroy(_housing);
     }
-    public void OnGrabCancelled(VRHand hand){if(_hand==hand){_hand=null;_laser=false;_pull=0f;Root.localRotation=Quaternion.identity;}}
-    public void Dispose(){if(_disposed)return;_disposed=true;ContentRoots.Remove(Content);VRInteractables.UnregisterGrabbable(this);UnityEngine.Object.Destroy(_material);UnityEngine.Object.Destroy(_root);UnityEngine.Object.Destroy(_housing);}
 }

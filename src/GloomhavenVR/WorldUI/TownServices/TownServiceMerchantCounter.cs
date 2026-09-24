@@ -9,16 +9,16 @@ namespace GloomhavenVR.WorldUI;
 /// Inventory size changes the number of mechanical turns, never the furniture footprint.</summary>
 internal static class TownServiceMerchantLayout
 {
-    internal const int StockColumns = 4, StockRows = 4;
+    internal const int StockColumns = 4, StockRows = 3;
     internal const int StockCapacity = StockColumns * StockRows;
-    internal const int ReturnColumns = 4, ReturnRows = 4;
+    internal const int ReturnColumns = 4, ReturnRows = 3;
     internal const int ReturnCapacity = ReturnColumns * ReturnRows;
     internal const float CardWidth = .14f, CardHeight = .112f, FacePitch = 0f;
-    internal const float WorktopHeight = .970f, ColumnPitch = .15f, RowPitch = .14f, TerraceRise = 0f;
+    internal const float WorktopHeight = .970f, ColumnPitch = .18f, RowPitch = .17f, TerraceRise = 0f;
     internal const float CardSeatLift = .034f;
     internal static Vector3 StockPosition(int ordinal) => new Vector3(
         (ordinal % StockColumns - 1.5f) * ColumnPitch,
-        -.245f + (ordinal / StockColumns % StockRows) * RowPitch, -.025f);
+        -.17f + (ordinal / StockColumns % StockRows) * RowPitch, -.025f);
     internal static Vector3 ReturnPosition(int ordinal) => StockPosition(ordinal);
     // Kept for old snapshot template construction; current catalogs never grow returns.
     internal static void ReturnPose(int ordinal, out Vector3 position, out Quaternion rotation)

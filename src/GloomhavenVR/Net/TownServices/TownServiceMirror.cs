@@ -10,6 +10,7 @@ namespace GloomhavenVR.Net.TownServices;
 internal sealed class TownServiceSessionInfo
 {
     internal int Peer;
+    internal uint PublicClaim;
     internal byte Service;
     internal uint Session;
     internal ulong Sequence;
@@ -30,7 +31,9 @@ internal static partial class TownServiceMirror
     static TownServiceMirror() { TownServiceDelivery.Completed = SnapshotSent; }
     internal static readonly TownServiceAssets Assets = new();
     private static readonly Dictionary<int, TownServiceSessionInfo> Sessions = new();
-    internal static IReadOnlyDictionary<int, TownServiceSessionInfo> RemoteSessions => Sessions;
+    private static readonly Dictionary<int, TownServiceSessionInfo> VisitorSessions = new();
+    internal static IReadOnlyDictionary<int, TownServiceSessionInfo> RemoteSessions => VisitorSessions;
+    internal static IReadOnlyDictionary<int, TownServiceSessionInfo> PublicSessions => Sessions;
     internal static event Action<string>? PresentationUnavailable;
     internal static Func<int, Transform?>? SharedFrameForRemote { get; set; }
     private static readonly Dictionary<string, GameObject> Templates = new(StringComparer.Ordinal);
@@ -38,7 +41,7 @@ internal static partial class TownServiceMirror
     // Presentation-only clone preparation: native gameplay controllers remain neutralized.
     // Generated physical bodies need their clone registered for later original silhouette updates.
     internal static Action<string, GameObject>? PrepareInertGeometry { get; set; }
-    private static readonly Dictionary<ushort, LocalModule> Local = new();
+    private static Dictionary<ushort, LocalModule> Local => _local.Modules;
     private static readonly Dictionary<int, Dictionary<ushort, RemoteModule>> Remote = new();
     private static readonly Dictionary<int, Dictionary<ushort, TownServiceFrame>> Pending = new();
     private static readonly Dictionary<int, Dictionary<ushort, TownServiceFrame>> ReceivedBaselines = new();
@@ -50,18 +53,77 @@ internal static partial class TownServiceMirror
     private static readonly List<CanvasGroup> ParentGroups = new(2);
     private static readonly List<Canvas> ParentCanvases = new(4);
     private static GameObject? _templateHost;
-    private static Transform? _sharedFrame, _station;
-    private static byte _service;
-    private static uint _session;
-    private static ulong _sequence;
-    private static bool _active;
-    private static float _nextManifest, _closedUntil;
-    private static float _sessionStarted;
-    private static ushort _heartbeatModule;
+    private static Transform? _sharedFrame { get => _local.SharedFrame; set => _local.SharedFrame = value; }
+    private static Transform? _station { get => _local.Station; set => _local.Station = value; }
+    private static byte _service { get => _local.Service; set => _local.Service = value; }
+    private static uint _session { get => _local.Session; set => _local.Session = value; }
+    private static ulong _sequence { get => _local.Sequence; set => _local.Sequence = value; }
+    private static bool _active { get => _local.Active; set => _local.Active = value; }
+    private static float _nextManifest { get => _local.NextManifest; set => _local.NextManifest = value; }
+    private static float _closedUntil { get => _local.ClosedUntil; set => _local.ClosedUntil = value; }
+    private static float _sessionStarted { get => _local.Started; set => _local.Started = value; }
+    private static ushort _heartbeatModule { get => _local.Heartbeat; set => _local.Heartbeat = value; }
     private static readonly Dictionary<string, float> Failures = new(StringComparer.Ordinal);
     private static float _reportWindow;
     private static int _reportCount;
 
+    private static uint _publicClaim, _observedPublicClaim;
+    private static int LocalPeer => Math.Max(1, NetPlayerActors.LocalPlayerId());
+    internal static int PublicAuthor
+    {
+        get
+        {
+            int author = LocalPeer; uint claim = _publicClaim;
+            foreach (var pair in Sessions)
+            {
+                var session = pair.Value;
+                if (pair.Key >= 0 || !session.Active || Time.unscaledTime - session.LastSeenTime > 10f) continue;
+                int peer = -pair.Key;
+                if (session.PublicClaim > claim || session.PublicClaim == claim && peer < author)
+                { author = peer; claim = session.PublicClaim; }
+            }
+            return author;
+        }
+    }
+    internal static bool IsPublicAuthor => PublicAuthor == LocalPeer;
+    internal static void ClaimPublicCatalog()
+    {
+        if (IsPublicAuthor) return;
+        if (_observedPublicClaim == uint.MaxValue) return;
+        _publicClaim = _observedPublicClaim + 1; _observedPublicClaim = _publicClaim;
+        PublicLane.NextManifest = 0;
+        foreach (LocalModule module in PublicLane.Modules.Values)
+        { module.Last = null; module.Baseline = null; module.NextBaseline = module.NextRefresh = 0; }
+    }
+    internal static TownRackState? PublicRack
+    {
+        get
+        {
+            int peer = -PublicAuthor;
+            if (Pending.TryGetValue(peer, out var modules))
+                foreach (TownServiceFrame frame in modules.Values) if (frame.Rack != null) return frame.Rack;
+            return null;
+        }
+    }
+    private sealed class LocalLane
+    {
+        internal readonly Dictionary<ushort, LocalModule> Modules = new();
+        internal readonly Dictionary<ushort, TownRackState> Racks = new();
+        internal readonly Dictionary<ushort, TownRackStamp> Members = new();
+        internal readonly Dictionary<ushort, CanvasGroup> Gates = new();
+        internal Transform? SharedFrame, Station;
+        internal byte Service; internal uint Session; internal ulong Sequence;
+        internal bool Active; internal float NextManifest, ClosedUntil, Started; internal ushort Heartbeat;
+    }
+    private static readonly LocalLane PrivateLane = new(), PublicLane = new();
+    private static LocalLane _local = PrivateLane;
+    internal static IDisposable UsePublicLane() => new LaneScope(PublicLane);
+    private sealed class LaneScope : IDisposable
+    {
+        private readonly LocalLane _previous;
+        internal LaneScope(LocalLane lane) { _previous = _local; _local = lane; }
+        public void Dispose() => _local = _previous;
+    }
     private sealed class LocalModule
     {
         internal ushort Id, Template;
@@ -174,6 +236,7 @@ internal static partial class TownServiceMirror
 
     private static void SnapshotSent(TownServiceFrame frame)
     {
+        using var lane = new LaneScope(frame.PublicCatalog ? PublicLane : PrivateLane);
         if (frame.Session != _session || frame.Service != _service || !Local.TryGetValue(frame.Module, out LocalModule? module)) return;
         module.LastSent = Math.Max(module.LastSent, frame.Sequence);
         float now = Time.unscaledTime;
@@ -190,6 +253,11 @@ internal static partial class TownServiceMirror
     /// <summary>Call in the owner's final presentation pass. Immutable packets go to the existing transport.</summary>
     internal static void Capture(Action<byte[], int> send) => Capture((bytes, length, _) => send(bytes, length));
     internal static void Capture(Action<byte[], int, object?> send)
+    {
+        using (new LaneScope(PrivateLane)) CaptureLane(send);
+        using (new LaneScope(PublicLane)) CaptureLane(send);
+    }
+    private static void CaptureLane(Action<byte[], int, object?> send)
     {
         float now = Time.unscaledTime;
         if (_session == 0 || _sharedFrame == null || (!_active && now > _closedUntil)) return;
@@ -218,6 +286,7 @@ internal static partial class TownServiceMirror
                     // Reuse only the unpublished probe. Emitted headers/node arrays are
                     // retained separately, so a later read cannot mutate queued artwork.
                     TownServiceFrame frame = module.Probe;
+                    frame.PublicCatalog = ReferenceEquals(_local, PublicLane); frame.PublicClaim = frame.PublicCatalog ? _publicClaim : 0;
                     frame.Service = _service; frame.Session = _session; frame.Module = module.Id;
                     frame.Template = module.Template; frame.TemplateAddress = module.Address; frame.Structure = module.Binding.Structure;
                     frame.Visible = source.gameObject.activeInHierarchy; frame.SampleTime = now;
@@ -252,7 +321,7 @@ internal static partial class TownServiceMirror
             try
             {
                 var ids = new List<ushort>(Local.Keys); ids.Sort();
-                var manifest = new TownServiceFrame { Service = _service, Session = _session,
+                var manifest = new TownServiceFrame { PublicCatalog = ReferenceEquals(_local, PublicLane), PublicClaim = ReferenceEquals(_local, PublicLane) ? _publicClaim : 0, Service = _service, Session = _session,
                     Module = TownServiceFrame.ManifestModule, Sequence = NextSequence(), SampleTime = now,
                     SessionAge = now - _sessionStarted,
                     Visible = _active, Modules = ids.ToArray(), Pose = _station != null ? ReadPose(_station, _sharedFrame) : IdentityPose() };
@@ -266,15 +335,17 @@ internal static partial class TownServiceMirror
     internal static bool Receive(int peer, byte[] packet, int length)
     {
         if (peer <= 0 || !TownServiceCodec.TryRead(packet, length, out TownServiceFrame? frame)) return false;
-        if (!Sessions.ContainsKey(peer) && Sessions.Count >= 8) return true;
+        if (frame!.PublicCatalog) { peer = -peer; _observedPublicClaim = Math.Max(_observedPublicClaim, frame.PublicClaim); }
+        if (!Sessions.ContainsKey(peer) && Sessions.Count >= 16) return true;
         if (frame!.Module == TownServiceFrame.ManifestModule)
         {
             if (Sessions.TryGetValue(peer, out TownServiceSessionInfo? previous) && frame.Sequence <= previous.Sequence) return true;
             if (previous != null && (previous.Session != frame.Session || previous.Service != frame.Service)) ClearRemoteModules(peer);
-            Sessions[peer] = new TownServiceSessionInfo { Peer = peer, Service = frame.Service, Session = frame.Session,
+            Sessions[peer] = new TownServiceSessionInfo { Peer = peer, PublicClaim = frame.PublicClaim, Service = frame.Service, Session = frame.Session,
                 Sequence = frame.Sequence, SampleTime = frame.SampleTime, ReceivedTime = Time.unscaledTime, LastSeenTime = Time.unscaledTime, Active = frame.Visible,
                 SessionAge = frame.SessionAge,
                 Modules = frame.Modules, Position = Position(frame.Pose), Rotation = Rotation(frame.Pose), Scale = Scale(frame.Pose) };
+            if (peer > 0) VisitorSessions[peer] = Sessions[peer];
             if (!frame.Visible) ClearRemoteModules(peer);
             else if (Remote.TryGetValue(peer, out Dictionary<ushort, RemoteModule>? standing))
             {
@@ -332,6 +403,8 @@ internal static partial class TownServiceMirror
             TownServiceSessionInfo session = entry.Value;
             if (!session.Active || now - session.LastSeenTime > 10)
             { ClearRemoteModules(entry.Key); session.Active = false; continue; }
+            if (entry.Key < 0 && -entry.Key != PublicAuthor)
+            { ClearRemoteModules(entry.Key); continue; }
             Transform? parent = sharedFrame(entry.Key);
             if (parent == null || !Pending.TryGetValue(entry.Key, out Dictionary<ushort, TownServiceFrame>? pending)) continue;
             if (!Remote.TryGetValue(entry.Key, out Dictionary<ushort, RemoteModule>? standing))
@@ -501,23 +574,28 @@ internal static partial class TownServiceMirror
         canvas.sortingOrder = frame.CanvasSortingOrder; canvas.sortingLayerID = frame.CanvasSortingLayer;
     }
     internal static void RemovePeer(int peer)
-    { ClearRemoteModules(peer); Pending.Remove(peer); ReceivedBaselines.Remove(peer); Sessions.Remove(peer); }
+    { ClearRemoteModules(peer); Pending.Remove(peer); ReceivedBaselines.Remove(peer); Sessions.Remove(peer); VisitorSessions.Remove(peer);
+      ClearRemoteModules(-peer); Pending.Remove(-peer); ReceivedBaselines.Remove(-peer); Sessions.Remove(-peer); }
     internal static void RequestFullRefresh()
     {
         foreach (LocalModule module in Local.Values)
         { module.Last = null; module.Baseline = null; module.NextRefresh = module.NextBaseline = 0; }
         _nextManifest = 0;
     }
+    private static IEnumerable<LocalModule> AllLocalModules()
+    { foreach (LocalModule module in PrivateLane.Modules.Values) yield return module;
+      foreach (LocalModule module in PublicLane.Modules.Values) yield return module; }
     internal static void ResetNetwork()
     {
         foreach (int peer in new List<int>(Remote.Keys)) ClearRemoteModules(peer);
-        Pending.Clear(); ReceivedBaselines.Clear(); Sessions.Clear(); RemoteRetry.Clear(); foreach (LocalModule module in Local.Values)
+        Pending.Clear(); ReceivedBaselines.Clear(); Sessions.Clear(); VisitorSessions.Clear(); RemoteRetry.Clear(); foreach (LocalModule module in AllLocalModules())
         { module.Last = null; module.Baseline = null; module.NextRefresh = module.NextBaseline = 0; }
         _nextManifest = 0;
     }
     internal static void Shutdown()
     {
-        ResetNetwork(); ClearLocalModules(); Templates.Clear();
+        ResetNetwork(); using (new LaneScope(PublicLane)) { ClearLocalModules(); _session = 0; _active = false; }
+        ClearLocalModules(); Templates.Clear();
         if (_templateHost != null) Object.Destroy(_templateHost);
         _templateHost = null; _session = 0; _service = 0; _active = false; _station = _sharedFrame = null;
         SourceParents.Clear(); ParentGroups.Clear(); TownServiceMaterial.Reset(); Assets.Clear();
@@ -548,6 +626,7 @@ internal static partial class TownServiceMirror
     private static bool SamePresentation(TownServiceFrame? a, TownServiceFrame b)
     {
         if ((a?.RackMember == null) != (b.RackMember == null) || a?.RackMember != null && !a.RackMember.Same(b.RackMember)) return false;
+        if (a != null && (a.PublicCatalog != b.PublicCatalog || a.PublicClaim != b.PublicClaim)) return false;
         if ((a?.Rack == null) != (b.Rack == null) || a?.Rack != null && !a.Rack.Same(b.Rack)) return false;
         if (a == null || a.Visible != b.Visible || a.Structure != b.Structure || a.Nodes.Length != b.Nodes.Length
             || a.ParentModule != b.ParentModule || a.ParentBinding != b.ParentBinding || a.ParentAlpha != b.ParentAlpha

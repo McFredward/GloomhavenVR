@@ -11,17 +11,18 @@ internal sealed class TownRackState
     internal const byte RecordId = 85;
     internal const int MaxMembers = 384;
     internal const float TurnDuration = .85f;
+    internal bool Cassette; // TLV86 only; never added to the historical TLV85 payload.
     internal uint Turn;
     internal float Elapsed, LeadAngle;
     internal ushort Crank, Page, From, To;
     internal TownRackMember[] Members = Array.Empty<TownRackMember>();
-    internal TownRackState Copy() => new() { Turn=Turn,Elapsed=Elapsed,LeadAngle=LeadAngle,Crank=Crank,
+    internal TownRackState Copy() => new() { Cassette=Cassette,Turn=Turn,Elapsed=Elapsed,LeadAngle=LeadAngle,Crank=Crank,
         Page=Page,From=From,To=To,Members=(TownRackMember[])Members.Clone() };
     internal static float Progress(float elapsed)
     { float t=Math.Max(0f,Math.Min(1f,elapsed/TurnDuration));return t*t*(3f-2f*t); }
     internal bool Same(TownRackState? other)
     {
-        if(other==null||Turn!=other.Turn||Elapsed!=other.Elapsed||LeadAngle!=other.LeadAngle||Crank!=other.Crank
+        if(other==null||Cassette!=other.Cassette||Turn!=other.Turn||Elapsed!=other.Elapsed||LeadAngle!=other.LeadAngle||Crank!=other.Crank
             ||Page!=other.Page||From!=other.From||To!=other.To||Members.Length!=other.Members.Length)return false;
         for(int i=0;i<Members.Length;i++)if(!Members[i].Same(other.Members[i]))return false;
         return true;

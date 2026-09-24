@@ -6,9 +6,9 @@ namespace GloomhavenVR.Net.TownServices;
 
 internal static partial class TownServiceMirror
 {
-    private static readonly Dictionary<ushort,TownRackState> LocalRacks = new();
-    private static readonly Dictionary<ushort,TownRackStamp> LocalRackMembers = new();
-    private static readonly Dictionary<ushort,CanvasGroup> LocalRackGates = new();
+    private static Dictionary<ushort,TownRackState> LocalRacks => _local.Racks;
+    private static Dictionary<ushort,TownRackStamp> LocalRackMembers => _local.Members;
+    private static Dictionary<ushort,CanvasGroup> LocalRackGates => _local.Gates;
     private static readonly Dictionary<int,Dictionary<ushort,RackPlayback>> RemoteRacks = new();
     private static readonly List<ushort> RetiredRacks = new();
     internal static void SetRack(ushort module,TownRackState state)
@@ -175,16 +175,20 @@ internal static partial class TownServiceMirror
             // when packets coalesce. The owner explicitly supplies its clock and curve.
             TownServiceFrame authored=rack.LastFrame;
             float ownerProgress=TownRackState.Progress(authored.Rack!.Elapsed);
-            Quaternion rest=Rotation(authored.Pose)*Quaternion.Inverse(Quaternion.Euler(0f,ownerProgress*360f,0f));
+            Quaternion rest = authored.Rack.Cassette ? Rotation(authored.Pose)
+                : Rotation(authored.Pose)*Quaternion.Inverse(Quaternion.Euler(0f,ownerProgress*360f,0f));
             float displayed=clock.Turning?TownRackState.Progress(clock.Elapsed):1f;
             rack.Motion.Reset();
             Transform rackPose = rack.AddedCanvas != null && !authored.HasCanvasFrame ? rack.Host.transform : rack.Binding.Root;
-            rackPose.localRotation=rest*Quaternion.Euler(0f,displayed*360f,0f);
+            if (authored.Rack.Cassette)
+                TownCassetteMotion.Apply(rack.Binding.Root, clock.Turning ? clock.Elapsed / TownRackState.TurnDuration : 1f);
+            else rackPose.localRotation=rest*Quaternion.Euler(0f,displayed*360f,0f);
             if(modules.TryGetValue(state.Crank,out var crank)&&replaying)
             {
                 crank.Motion.Reset();
                 Transform crankPose = crank.AddedCanvas != null && crank.LastFrame?.HasCanvasFrame != true ? crank.Host.transform : crank.Binding.Root;
-                crankPose.localRotation=rest*Quaternion.Euler(0f,0f,-(state.LeadAngle+(360f-state.LeadAngle)*displayed));
+                float angle = -(state.LeadAngle+(360f-state.LeadAngle)*displayed);
+                crankPose.localRotation=rest*(authored.Rack.Cassette ? Quaternion.Euler(angle,0f,0f) : Quaternion.Euler(0f,0f,angle));
             }
             if(!clock.Turning&&!handSupersedes&&clock.Queue.Count>0)
             {TownRackState queued=clock.Queue[0];clock.Queue.RemoveAt(0);clock.Start(queued,now);}

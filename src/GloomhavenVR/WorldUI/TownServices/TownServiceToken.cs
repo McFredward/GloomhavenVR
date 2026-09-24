@@ -25,6 +25,8 @@ internal sealed class TownServiceToken : IGrabbable, ITriggerOnlyGrabbable, IGra
     private readonly Transform _mat;
     private readonly Transform? _physical;
     private readonly Func<bool>? _drop, _eligible, _inspect;
+    private readonly Func<Vector3, bool>? _dropLocation;
+    private readonly Action? _grabbing;
     private readonly Vector3 _zoneCenter;
     private readonly float _zoneHalfWidth;
     private static ulong _nextPickup;
@@ -37,6 +39,7 @@ internal sealed class TownServiceToken : IGrabbable, ITriggerOnlyGrabbable, IGra
     private Vector3 _homePosition, _homeScale, _returnPosition;
     private Quaternion _homeRotation, _returnRotation;
     private float _returnStarted;
+    private Vector3 _returnScale;
     private bool _returning, _heldTracked;
     internal bool IsPhysical => _physical != null;
     internal bool IsMoving => _hand != null || _returning;
@@ -74,11 +77,12 @@ internal sealed class TownServiceToken : IGrabbable, ITriggerOnlyGrabbable, IGra
 
     internal TownServiceToken(RectTransform source, Selectable button, Func<object?> identity,
         Func<object?> contextIdentity, Func<bool> sessionAlive, Transform mat, Transform? physical = null,
-        Func<bool>? drop = null, Func<bool>? eligible = null, Vector3 zoneCenter = default, Func<bool>? inspect = null, float zoneHalfWidth = .20f)
+        Func<bool>? drop = null, Func<bool>? eligible = null, Vector3 zoneCenter = default, Func<bool>? inspect = null, float zoneHalfWidth = .20f, Func<Vector3, bool>? dropLocation = null, Action? grabbing = null)
     {
         IsItemCard = physical != null && source.GetComponent<ItemCardUI>() != null;
         _source = source; _button = button; _identity = identity; _contextIdentity = contextIdentity;
         _sessionAlive = sessionAlive; _mat = mat; _physical = physical;
+        _dropLocation = dropLocation; _grabbing = grabbing;
         _drop = drop; _eligible = eligible; _zoneCenter = zoneCenter; _inspect = inspect; _zoneHalfWidth = zoneHalfWidth;
         _pick = new GameObject("GloomhavenVR.TownService.SampleReach");
         _shape = _pick.AddComponent<BoxCollider>();
@@ -119,7 +123,7 @@ internal sealed class TownServiceToken : IGrabbable, ITriggerOnlyGrabbable, IGra
             float ease = t * t * (3f - 2f * t);
             _physical.localPosition = Vector3.Lerp(_returnPosition, _homePosition, ease);
             _physical.localRotation = Quaternion.Slerp(_returnRotation, _homeRotation, ease);
-            _physical.localScale = Vector3.Lerp(_physical.localScale, _homeScale, ease);
+            _physical.localScale = Vector3.Lerp(_returnScale, _homeScale, ease);
             if (t >= 1f) _returning = false;
         }
         _shape.enabled = !_returning && Visible();
@@ -161,6 +165,7 @@ internal sealed class TownServiceToken : IGrabbable, ITriggerOnlyGrabbable, IGra
     public void OnGrab(VRHand hand)
     {
         if (!CanGrab) return;
+        _grabbing?.Invoke();
         _pickedIdentity = _identity();
         _pickedContext = _contextIdentity();
         if (_pickedIdentity == null) return;
@@ -192,7 +197,8 @@ internal sealed class TownServiceToken : IGrabbable, ITriggerOnlyGrabbable, IGra
             float height = Vector3.Distance(_corners[0], _corners[1]) / Mathf.Max(.0001f, _physical.lossyScale.y);
             _heldScale = CardsConfig.CardWidth.Value / Mathf.Max(width, height) * CardsConfig.InspectScale.Value;
             _heldWidth = width * _heldScale; _heldHeight = height * _heldScale;
-            ItemCardHold.ReadingPose(hand, _heldHeight, .15f, out _heldPosition, out _heldRotation);
+            _heldScale *= hand.Rig.GrabAnchor.lossyScale.x / Mathf.Max(.0001f, _physical.parent.lossyScale.x);
+            ItemCardHold.ReadingPose(hand, _heldHeight, VRCard.PinchGripFraction, out _heldPosition, out _heldRotation);
             hand.SendHaptic(HapticPreset.ClickPulse);
             CardsDriver.PlayCardSound(CardsConfig.CardGrabSound.Value, _physical);
             }
@@ -226,9 +232,10 @@ internal sealed class TownServiceToken : IGrabbable, ITriggerOnlyGrabbable, IGra
             // gesture. Cancellation, stale context, pose loss and all other drops return.
             bool commit = _heldTracked && hand.HasPose && hand.TriggerUp && _drop != null && DropEligible
                 && ReferenceEquals(_pickedIdentity, _identity()) && ReferenceEquals(_pickedContext, _contextIdentity())
-                && _held != null && WithinDropZone(_mat.InverseTransformPoint(_held.transform.position) - _zoneCenter);
+                && _held != null && (_dropLocation?.Invoke(_held.transform.position)
+                    ?? WithinDropZone(_mat.InverseTransformPoint(_held.transform.position) - _zoneCenter));
             Hover(false);
-            _returnPosition = _physical.localPosition; _returnRotation = _physical.localRotation;
+            _returnPosition = _physical.localPosition; _returnRotation = _physical.localRotation; _returnScale = _physical.localScale;
             _returnStarted = Time.unscaledTime; _returning = true;
             _held = null; _hand = null; _pickedIdentity = null; _pickedContext = null;
             if (commit) _drop!();
@@ -264,6 +271,8 @@ internal sealed class TownServiceToken : IGrabbable, ITriggerOnlyGrabbable, IGra
         finally { _transferTo = null; }
     }
 
+    internal void CancelInspection() { if (_hand != null) _hand.Grabber.CancelAll(); }
+
     public bool TryTouch(Vector3 point, out float distance)
     {
         distance = float.MaxValue;
@@ -279,7 +288,8 @@ internal sealed class TownServiceToken : IGrabbable, ITriggerOnlyGrabbable, IGra
 
     public void OnGrabCancelled(VRHand hand)
     {
-        if (_hand == hand) CancelHold();
+        if (_hand == hand)
+        { if (_transferTo != null) OnRelease(hand, Vector3.zero); else CancelHold(); }
     }
 
     private void Hover(bool value)
