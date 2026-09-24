@@ -28,31 +28,37 @@ def replace_once(source, before, after):
 
 def sources(root):
     base = root / "src/GloomhavenVR/WorldUI/TownServices"
-    names = ["TownServiceCatalog.cs", "TownServiceMerchantRows.cs", "TownServiceMerchantTransaction.cs", "TownServiceMerchantDrawer.cs", "TownServiceMerchantCounter.cs", "TownServiceMerchantZone.cs", "TownServiceCatalogPreview.cs", "TownServiceWindowMask.cs", "TownServiceToken.cs"]
+    names = ["TownServiceCatalog.cs", "TownServiceCatalogCategory.cs", "TownServiceMerchantRows.cs", "TownServiceMerchantTransaction.cs", "TownServiceMerchantDrawer.cs", "TownServiceMerchantCounter.cs", "TownServiceMerchantZone.cs", "TownServiceCatalogPreview.cs", "TownServiceWindowMask.cs", "TownServiceToken.cs"]
     bound = {name: (base / name).read_text() for name in names}
     bound["TownRackState.cs"] = (root / "src/GloomhavenVR/Net/TownServices/TownRackState.cs").read_text()
+    bound["TownCassetteMotion.cs"] = (root / "src/GloomhavenVR/Net/TownServices/TownCassetteMotion.cs").read_text()
+    bound["ItemCardHold.cs"] = (root / "src/GloomhavenVR/Cards/ItemCardHold.cs").read_text()
     bound["CardGripPose.cs"] = (root / "src/GloomhavenVR/Cards/CardGripPose.cs").read_text()
+    vr = (root / "src/GloomhavenVR/Cards/VRCard.cs").read_text()
+    constant = next(line.strip() for line in vr.splitlines() if 'internal const float PinchGripFraction =' in line)
+    sweep = (root / "src/GloomhavenVR/Cards/FanSweep.cs").read_text()
+    interface = sweep[sweep.index('internal interface IFanSweepTarget'):sweep.index('\n}', sweep.index('internal interface IFanSweepTarget')) + 2]
+    bound["ItemContracts.cs"] = 'using UnityEngine; namespace GloomhavenVR.Cards { internal static class VRCard { ' + constant + ' }\n' + interface + '\n}'
     hashes = {name: hashlib.sha256(text.encode()).hexdigest() for name, text in bound.items()}
     return bound, hashes
 
 
 def mutations():
     return [
-        ("overlapping-stock", "TownServiceMerchantCounter.cs", "ColumnPitch = .15f", "ColumnPitch = .07f", "physical card faces never overlap their adjacent column"),
-        ("npc-workspace", "TownServiceMerchantDrawer.cs", "-.20f, -.57f", "-.20f, -.10f", "all stock cards clear the NPC ledger and transaction workspace"),
+        ("overlapping-stock", "TownServiceMerchantCounter.cs", "ColumnPitch = .18f", "ColumnPitch = .07f", "physical card faces never overlap their adjacent column"),
+        ("npc-workspace", "TownServiceMerchantDrawer.cs", "new Vector3(-.95f, .25f, .035f)", "new Vector3(0f, .25f, .035f)", "all stock cards clear the NPC ledger and transaction workspace"),
         ("constructor-rollback", "TownServiceCatalog.cs", "catch { Dispose(); throw; }\n    }\n    internal void SetVisibility", "catch { throw; }\n    }\n    internal void SetVisibility", "constructor failure restores native inventory ownership"),
-        ("hidden-stock", "TownServiceCatalog.cs", "internal bool Exposed => Current && (Sample.IsMoving || Ordinal / TownServiceMerchantDrawer.Capacity == Rack.Page);", "internal bool Exposed => Current;", "only active tray cards are exposed; source identity remains alive"),
+        ("hidden-stock", "TownServiceCatalog.cs", "internal bool Exposed => Current && (Sample.IsMoving || Page == Rack.Page);", "internal bool Exposed => Current;", "only active category and page are exposed; source identity remains alive"),
         ("stale-prompt", "TownServiceMerchantTransaction.cs", "if (created) confirmation.OnCancel();", "if (created) { }", "own stale item prompt cancelled through native lifecycle"),
-        ("cap", "TownServiceCatalog.cs", "foreach(var row in _backend.Rows)", "foreach(var row in _backend.Rows.GetRange(0, Math.Min(6,_backend.Rows.Count)))", "all 164 stock and 164 owned entries remain available across physical trays"),
+        ("cap", "TownServiceCatalog.cs", "foreach(var row in _backend.Rows)", "foreach(var row in _backend.Rows.GetRange(0, Math.Min(6,_backend.Rows.Count)))", "all 164 stock identities remain available in the persistent cabinet"),
         ("held-relocation", "TownServiceCatalog.cs", "if (sample.IsMoving) return false", "if (sample.IsMoving && _disposed) return false", "held or returning sample prevents station relocation"),
         ("held-return", "TownServiceToken.cs", "_physical.localPosition = _homePosition;", "_physical.localPosition = Vector3.zero;", "cancel restores the original counter pose"),
-        ("held-scale", "TownServiceToken.cs", "_hand.Rig.GrabAnchor.TransformPoint(_heldPosition)", "_hand.Rig.GrabAnchor.TransformPoint(_heldPosition * scale)", "held card stays inside one hand span at every rig scale"),
         ("context-race", "TownServiceMerchantTransaction.cs", "if (!stillCurrent() || !Eligible(inventory, item, selling)\n            || !created", "if (!Eligible(inventory, item, selling)\n            || !created", "context race never confirms native callback"),
         ("confirmation-owner", "TownServiceMerchantTransaction.cs", "if (confirmation == null || confirmation.IsActive) return false;", "if (confirmation == null) return false;", "unrelated pending confirmation retained"),
         ("sell-identity", "TownServiceMerchantTransaction.cs", "return inventory.service.GetItemsToSell(inventory.character).Contains(item)", "return true", "stale owned item is ineligible"),
-        ("held-rack", "TownServiceCatalog.cs", "() => !_entries.Exists(entry => entry.Selling == bank && entry.Sample.IsMoving)", "() => true", "held merchandise prevents rack motion"),
-        ("early-tray-swap", "TownServiceMerchantDrawer.cs", "_turn>=.5f", "_turn>=.01f", "card identity is retained while outgoing front is visible"),
-        ("restore", "TownServiceCatalog.cs", "_inventory.transform.SetParent(_nativeHome,false);", "_inventory.transform.SetParent(_nativeWrapper.transform,false);", "constructor failure restores native inventory ownership"),
+        ("held-rack", "TownServiceCatalog.cs", "() => !_entries.Exists(entry => entry.Sample.IsMoving)", "() => true", "held merchandise prevents rack motion"),
+        ("early-tray-swap", "TownServiceMerchantDrawer.cs", "progress >= .5f", "progress >= .01f", "card identity is retained while outgoing front is visible"),
+        ("automatic-confirm", "TownServiceMerchantTransaction.cs", "// The player makes the final purchase/sale decision", "ExecuteEvents.Execute(confirmation.confirmButton.gameObject, pointer, ExecuteEvents.pointerClickHandler);\n        // The player makes the final purchase/sale decision", "offering opens confirmation without spending"),
     ]
 
 

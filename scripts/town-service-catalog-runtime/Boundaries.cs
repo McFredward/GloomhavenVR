@@ -24,7 +24,7 @@ namespace ScenarioRuleLibrary
 namespace MapRuleLibrary.Party { public class CMapCharacter{public int CharacterID;} }
 namespace MapRuleLibrary.State { public enum EGoldMode{PartyGold,CharacterGold} }
 namespace MapRuleLibrary.Adventure
-{ public static class AdventureState{public static State MapState=new();public class State{public MapRuleLibrary.State.EGoldMode GoldMode;}} }
+{ public static class AdventureState{public static State MapState=new();public class State{public MapRuleLibrary.State.EGoldMode GoldMode; public object MapParty=new();}} }
 namespace GLOOM { public static class LocalizationManager{public static string GetTranslation(string key)=>key;} }
 namespace FFSNet
 {
@@ -34,7 +34,22 @@ namespace FFSNet
 }
 namespace HarmonyLib { public static class AccessTools { public static System.Reflection.PropertyInfo? Property(Type? type,string name)=>type?.GetProperty(name); } }
 public class Singleton<T> where T:class { public static T Instance=null!; }
-public sealed class Service
+public interface IShopItemService {
+ List<CItem> GetItemsToBuy(CMapCharacter? c=null); List<CItem> GetItemsToSell(CMapCharacter? c=null);
+ Dictionary<CItem,Tuple<CMapCharacter,bool>> GetBoundsItems(CMapCharacter? c); bool IsAffordable(CItem item,CMapCharacter? c);
+ int DiscountedCost(CItem item); int GetBuyDiscount();
+}
+public sealed class ShopService : IShopItemService {
+ public static Service Source=new(); public ShopService(object party,Action<object> callback){}
+ public List<CItem> GetItemsToBuy(CMapCharacter? c=null)=>Source.GetItemsToBuy(c);
+ public List<CItem> GetItemsToSell(CMapCharacter? c=null)=>Source.GetItemsToSell(c);
+ public Dictionary<CItem,Tuple<CMapCharacter,bool>> GetBoundsItems(CMapCharacter? c)=>Source.GetBoundsItems(c);
+ public bool IsAffordable(CItem item,CMapCharacter? c)=>Source.IsAffordable(item,c);
+ public int DiscountedCost(CItem item)=>Source.DiscountedCost(item);public int GetBuyDiscount()=>Source.GetBuyDiscount();
+}
+public class NewPartyDisplayUI { public static NewPartyDisplayUI PartyDisplay=new();public Slot SelectedUISlot=new();public class Slot {public CMapCharacter Data=new();} }
+public class UIInfoTools {public static UIInfoTools Instance=new(); public Sprite GetItemSlotIcon(string key)=>null!;}
+public class Service : IShopItemService
 {
     public readonly List<CItem> Buy=new(),Sell=new();public bool Affordable=true;public int Commits;
     public List<CItem> GetItemsToBuy(CMapCharacter? c=null)=>new(Buy);
@@ -126,7 +141,13 @@ namespace GloomhavenVR.Cards
     internal static class CardFaceMipBake{internal static void Rescan(ItemCardUI item){}}
     internal sealed class ConfigFloat { internal float Value; internal ConfigFloat(float value){Value=value;} }
     internal static class CardsConfig
-    { internal static ConfigFloat HeldOffPalm=new(.01f),HeldForward=new(.025f),HeldFaceBias=new(65f); }
+    { internal static ConfigFloat HeldOffPalm=new(.01f),HeldForward=new(.025f),HeldFaceBias=new(65f),InspectScale=new(1f),CardWidth=new(.18f),CardLerpSpeed=new(20f),CardGrabSound=new(0);
+      internal static ConfigVector HeldPinchOffset=new(); }
+    internal sealed class ConfigVector {internal Vector3 Value=Vector3.zero;}
+    internal static class CardsDriver {internal static void PlayCardSound(float sound,Transform t){} }
+    internal static class HeldCardGrip {internal static float Blend(GloomhavenVR.Hands.VRHand h)=>0f;
+      internal static bool TryPose(GloomhavenVR.Hands.VRHand h,float w,float height,out Vector3 p,out Quaternion q){p=default;q=Quaternion.identity;return false;}
+ }
 }
 namespace GloomhavenVR.Board.FigureGrab
 { internal static class HeldPoseMirror { internal static float OffsetSign(bool left)=>left?-1f:1f; } }
@@ -138,21 +159,29 @@ namespace GloomhavenVR.Hands
     public struct FingerJoints{public bool IsValid;public Transform Tip;}
     public class VRHand
     {
-        public HandRig Rig=new();public float WorldScale=1;public bool HasPose=true,TriggerUp;public HandSide Side;
-        internal GrabberFixture Grabber=new();
+        public HandRig Rig=new();public float WorldScale=1;public bool HasPose=true,TriggerUp,TriggerDown;public HandSide Side;
+        internal GrabberFixture Grabber=new();internal RayFixture Ray=new();internal RayUiFixture RayUgui=new();internal RayGrabFixture RayGrab=new();
+        public void SendHaptic(HapticPreset h){}
         public void GetAimRay(out Vector3 o,out Vector3 d){o=Rig.GrabAnchor.position;d=Rig.GrabAnchor.forward;}
     }
-    internal class GrabberFixture{internal GloomhavenVR.Hands.Interact.IGrabbable? Held;}
-    public class HandRig{public Transform GrabAnchor=new GameObject("Hand").transform;public FingerJoints GetFinger(Finger f)=>default;}
+    public enum HapticPreset {ClickPulse,HoverTick}
+    internal static class VRHands {internal static VRHand? Left,Right,Primary;}
+    internal class RayFixture { internal bool Enabled,Active;internal float SolidOccluderDistance=float.PositiveInfinity;internal Vector3 UiHitOverride;internal void SuppressFarClick(){} }
+    internal class RayUiFixture {internal bool HasHit;internal float HitDistance;}
+    internal class RayGrabFixture {internal bool OwnsPointerFrame;}
+    internal class GrabberFixture{internal GloomhavenVR.Hands.Interact.IGrabbable? Held;internal bool ForceGrab(GloomhavenVR.Hands.Interact.IGrabbable g,bool releaseOnTriggerUp){Held=g;return true;}internal void CancelAll(){Held=null;}}
+    public class HandRig{public Transform GrabAnchor=new GameObject("Hand").transform;public Transform IndexTip=>GrabAnchor;public Transform PalmCenter=>GrabAnchor;public FingerJoints GetFinger(Finger f)=>default;}
 }
 namespace GloomhavenVR.Hands.Interact
 {
+    internal static class RayGrabDriver {internal const float MaxDistanceMeters=10f;internal static float OccludingBarDistance(Vector3 p,Vector3 d,float max)=>float.PositiveInfinity;}
+    internal interface IPokeable {void OnPokeEnter(GloomhavenVR.Hands.VRHand h);void OnPokeExit(GloomhavenVR.Hands.VRHand h);void OnPoke(GloomhavenVR.Hands.VRHand h);}
     internal interface IGrabbable{bool CanGrab{get;}bool GrabWithGrip{get;}void OnGrab(GloomhavenVR.Hands.VRHand h);void OnRelease(GloomhavenVR.Hands.VRHand h,Vector3 v);}
     internal interface IGrabbableHandFilter{bool AllowsHand(GloomhavenVR.Hands.VRHand h);}
     internal interface IGrabCancellation{void OnGrabCancelled(GloomhavenVR.Hands.VRHand h);}
     internal interface ITriggerOnlyGrabbable{}
     internal interface IGrabHighlight{void OnGrabHighlight(GloomhavenVR.Hands.VRHand h,bool value);}
-    internal static class VRInteractables{internal static readonly List<IGrabbable> Registered=new();internal static void RegisterGrabbable(IGrabbable g,Collider c)=>Registered.Add(g);internal static void UnregisterGrabbable(IGrabbable g)=>Registered.Remove(g);}
+    internal static class VRInteractables{internal static readonly List<IGrabbable> Registered=new(); internal static void RegisterPokeable(IPokeable p,Collider c){}internal static void UnregisterPokeable(IPokeable p){}internal static void RegisterGrabbable(IGrabbable g,Collider c)=>Registered.Add(g);internal static void UnregisterGrabbable(IGrabbable g)=>Registered.Remove(g);}
     internal static class UguiPokeSurfaces{internal static void Unregister(Canvas c){}}
 }
 namespace GloomhavenVR.Net
@@ -198,3 +227,5 @@ namespace GloomhavenVR.WorldUI { internal sealed class TownServiceGrounding : Sy
 } }
 
 namespace GloomhavenVR.Net.TownServices { internal static class TownServiceFrame { internal const ushort BundleStream=65534; } }
+
+namespace GloomhavenVR.WorldUI {internal static class TownServicePublicMerchant {internal static bool CanClaim=>true;internal static void Claim(){} }}
