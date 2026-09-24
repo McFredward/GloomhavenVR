@@ -32,7 +32,7 @@ internal static class ActivityRender
         var gaze=default(TownFacePose);
         using var metrics=new StreamWriter(Path.Combine(folder,"service"+service+"-contacts.csv"));metrics.WriteLine("phase,handX,handY,handZ,gripX,gripY,gripZ,tipX,tipY,tipZ");
         float[] phases={.8f,1.8f,1.8f,22f,24f,26f,28f,32f};
-        if(sequence)phases=Enumerable.Range(0,attentionSequence?192:768).Select(n=>n*frameSeconds).ToArray();
+        if(sequence)phases=Enumerable.Range(0,attentionSequence?192:384).Select(n=>n*frameSeconds).ToArray();
         var transition=new TownActivityPose{WorkClock=5.3f,TransitionAge=.65f};
         var envelope=new Bounds();bool envelopeStarted=false;
         for(int phase=0;phase<phases.Length;phase++)

@@ -40,7 +40,7 @@ def mutations():
         ("separated-prayer", "TownServiceActivityMotion.cs", "new Vector3(.012f,height,.20f)", "new Vector3(.035f,height,.20f)", "prayer joins cupped hands at the sternum"),
         ("animated-knee-pole", "TownServiceActivityRig.cs", "Vector3.ProjectOnPlane(_root.TransformDirection(_kneePoles[upperIndex == 6 ? 0 : 1]),direction)", "Vector3.ProjectOnPlane(knee-hip,direction)", "planted knee keeps anatomical forward bend plane"),
         ("zero-weight-stance-snap", "TownServiceActivityRig.cs", "_bodyApplied=true;", "_bodyApplied=true; if(body.Weight<=0f)return;", "planted knee keeps anatomical forward bend plane"),
-        ("vertical-casting-palm", "TownServiceActivityRig.cs", "_service == 1 || (_service == 3 && side < 0f) ? 1f", "_service == 1 ? 1f", "actual casting palm supports the spell from below"),
+        ("vertical-casting-palm", "TownServiceActivityRig.cs", "palmFrame = Quaternion.AngleAxis(-roll, fingers) * palmFrame;", "palmFrame = Quaternion.AngleAxis(-roll * (_service == 3 ? .7f + .3f * attention : 1f), fingers) * palmFrame;", "actual casting palm supports the spell from below"),
         ("raised-stage-gesture", "TownServiceActivityMotion.cs", "new Vector3(.18f, 1.27f, .17f)", "new Vector3(.18f, 1.70f, .17f)", "spell shaping palm stays below its shoulder"),
         ("frozen-generated-body", "TownServiceMotionClips.cs", "body.Set(i,Rotation(data,a+15+i*4,b+15+i*4,t));", "body.Set(i,Quaternion.identity);", "generated occupation contains real torso movement"),
         ("wrapped-forearm-support", "TownServiceActivityRig.cs", "if (_service != 2) twist = Mathf.DeltaAngle(0f, twist + roll) - roll;", "twist = Mathf.Repeat(twist, 360f);", "actual forearm skin support stays continuous across pronation"),

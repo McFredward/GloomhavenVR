@@ -365,8 +365,10 @@ internal sealed class TownServiceActivityRig
             guide.x = side * (clearance + Mathf.Max(0f, side * guide.x - .14f) * .25f);
             guide.y = _service == 3 ? .84f : Mathf.Max(1.10f, guide.y);
             guide.z = .28f + Mathf.Clamp(guide.z - .50f, 0f, .20f) * .4f;
+            // Keep the lowered joined hands clear of the actual robe as well as
+            // the original prayer. A rearward pole cut three sleeve/torso triangles.
             if (_service == 2)
-                guide = new Vector3(side * .42f, .70f, .20f);
+                guide = new Vector3(side * .42f, .70f, .10f);
             Vector3 pole = _root.TransformPoint(guide) - shoulder;
             Vector3 bend = Vector3.ProjectOnPlane(pole, direction).normalized;
             if (bend.sqrMagnitude < .5f) bend = _root.right * side;
