@@ -28,23 +28,39 @@ def replace_once(source, before, after):
 
 def sources(root):
     base = root / "src/GloomhavenVR/WorldUI/TownServices"
-    names = ["TownServiceCatalog.cs", "TownServiceCatalogCategory.cs", "TownServiceMerchantRows.cs", "TownServiceMerchantTransaction.cs", "TownServiceMerchantDrawer.cs", "TownServiceMerchantCounter.cs", "TownServiceMerchantZone.cs", "TownServiceCatalogPreview.cs", "TownServiceWindowMask.cs", "TownServiceToken.cs"]
+    names = ["TownServiceCatalog.cs", "TownServiceCatalogCategory.cs", "TownServiceMerchantRows.cs", "TownServiceMerchantTransaction.cs", "TownServiceMerchantDrawer.cs", "TownServiceMerchantCounter.cs", "TownServiceMerchantZone.cs", "TownServiceCatalogPreview.cs", "TownServiceWindowMask.cs", "TownServiceToken.cs", "TownServiceOfferingPose.cs"]
     bound = {name: (base / name).read_text() for name in names}
     bound["TownRackState.cs"] = (root / "src/GloomhavenVR/Net/TownServices/TownRackState.cs").read_text()
     bound["TownCassetteMotion.cs"] = (root / "src/GloomhavenVR/Net/TownServices/TownCassetteMotion.cs").read_text()
     bound["ItemCardHold.cs"] = (root / "src/GloomhavenVR/Cards/ItemCardHold.cs").read_text()
+    bound["UiScrollFocus.cs"] = (root / "src/GloomhavenVR/Hands/Interact/UiScrollFocus.cs").read_text()
     bound["CardGripPose.cs"] = (root / "src/GloomhavenVR/Cards/CardGripPose.cs").read_text()
     vr = (root / "src/GloomhavenVR/Cards/VRCard.cs").read_text()
     constant = next(line.strip() for line in vr.splitlines() if 'internal const float PinchGripFraction =' in line)
     sweep = (root / "src/GloomhavenVR/Cards/FanSweep.cs").read_text()
     interface = sweep[sweep.index('internal interface IFanSweepTarget'):sweep.index('\n}', sweep.index('internal interface IFanSweepTarget')) + 2]
     bound["ItemContracts.cs"] = 'using UnityEngine; namespace GloomhavenVR.Cards { internal static class VRCard { ' + constant + ' }\n' + interface + '\n}'
+    contact = (root / "src/GloomhavenVR/Cards/Driver/CardsDriver.3.Laser.cs").read_text()
+    signatures = ("internal static void StandDownForItemFanContact", "private static bool TryContactInChips",
+        "private struct ContactGeometry", "private static bool TryHandContact(VRHand hand, ItemsPile.ItemChip?",
+        "private static bool TryHandContactRect", "private static bool TryProbeRect")
+    constants = "\n".join(line for line in contact.splitlines() if "private const float Contact" in line)
+    bound["ItemContact.cs"] = "using System.Collections.Generic; using UnityEngine; using GloomhavenVR.Hands; using GloomhavenVR.Hands.Interact; namespace GloomhavenVR.Cards; internal static partial class CardsDriver {\n" + constants + "\n" + "\n".join(method(contact, signature) for signature in signatures) + "\n}"
+    chip = (root / "src/GloomhavenVR/Cards/Piles/ItemsPile.cs").read_text()
+    chip_start = chip.index("        internal bool TryGetFaceRect")
+    chip_end = chip.index("\n        }", chip_start) + len("\n        }")
+    bound["ChipContact.cs"] = "using UnityEngine; namespace GloomhavenVR.Cards; internal partial class ItemsPile { internal partial class ItemChip {\n" + chip[chip_start:chip_end] + "\n}}"
     hashes = {name: hashlib.sha256(text.encode()).hexdigest() for name, text in bound.items()}
     return bound, hashes
 
 
 def mutations():
     return [
+        ("contact-from-a-distance", "ItemContact.cs", "ContactSlabHalfDepthMeters = 0.015f", "ContactSlabHalfDepthMeters = 0.15f", "owned fan uses the normal physical contact slab at every scale"),
+        ("world-space-held-pose", "ItemCardHold.cs", "card.localPosition = Vector3.Lerp(card.localPosition, position, t);", "card.position = Vector3.Lerp(card.position, position, t);", "grip pose has no positional trailing while the wrist moves and rotates"),
+        ("scroll-without-flight-claim", "TownServiceMerchantDrawer.cs", "UiScrollFocus.NoteScrollHover(hand, _housing, nameof(TownServiceMerchantDrawer));", "", "aiming at a multipage cabinet owns vertical locomotion at every world scale"),
+        ("scroll-through-ui", "TownServiceMerchantDrawer.cs", "|| hand.RayUgui.HasHit && hand.RayUgui.HitDistance < distance - epsilon", "", "cabinet scroll respects ui before consuming locomotion"),
+        ("reverse-scroll-is-forward", "TownServiceMerchantDrawer.cs", "(direction > 0 ? 1 : _availablePages - 1)", "1", "stick up returns to the previous stock page"),
         ("overlapping-stock", "TownServiceMerchantCounter.cs", "ColumnPitch = .18f", "ColumnPitch = .07f", "physical card faces never overlap their adjacent column"),
         ("npc-workspace", "TownServiceMerchantDrawer.cs", "new Vector3(-.95f, .25f, .035f)", "new Vector3(0f, .25f, .035f)", "all stock cards clear the NPC ledger and transaction workspace"),
         ("constructor-rollback", "TownServiceCatalog.cs", "catch { Dispose(); throw; }\n    }\n    internal void SetVisibility", "catch { throw; }\n    }\n    internal void SetVisibility", "constructor failure restores native inventory ownership"),

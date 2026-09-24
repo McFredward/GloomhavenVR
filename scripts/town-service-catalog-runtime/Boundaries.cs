@@ -144,9 +144,9 @@ namespace GloomhavenVR.Cards
     { internal static ConfigFloat HeldOffPalm=new(.01f),HeldForward=new(.025f),HeldFaceBias=new(65f),InspectScale=new(1f),CardWidth=new(.18f),CardLerpSpeed=new(20f),CardGrabSound=new(0);
       internal static ConfigVector HeldPinchOffset=new(); }
     internal sealed class ConfigVector {internal Vector3 Value=Vector3.zero;}
-    internal static class CardsDriver {internal static void PlayCardSound(float sound,Transform t){} }
-    internal static class HeldCardGrip {internal static float Blend(GloomhavenVR.Hands.VRHand h)=>0f;
-      internal static bool TryPose(GloomhavenVR.Hands.VRHand h,float w,float height,out Vector3 p,out Quaternion q){p=default;q=Quaternion.identity;return false;}
+    internal static partial class CardsDriver {internal static void PlayCardSound(float sound,Transform t){} }
+    internal static class HeldCardGrip {internal static float Grasp; internal static float Blend(GloomhavenVR.Hands.VRHand h)=>Grasp;
+      internal static bool TryPose(GloomhavenVR.Hands.VRHand h,float w,float height,out Vector3 p,out Quaternion q){p=new Vector3(.02f,.03f,.04f);q=Quaternion.Euler(30f,20f,10f);return true;}
  }
 }
 namespace GloomhavenVR.Board.FigureGrab
@@ -159,22 +159,25 @@ namespace GloomhavenVR.Hands
     public struct FingerJoints{public bool IsValid;public Transform Tip;}
     public class VRHand
     {
-        public HandRig Rig=new();public float WorldScale=1;public bool HasPose=true,TriggerUp,TriggerDown;public HandSide Side;
+        public Vector2 Thumbstick; public HandRig Rig=new();public float WorldScale=1;public bool HasPose=true,TriggerUp,TriggerDown;public HandSide Side;
         internal GrabberFixture Grabber=new();internal RayFixture Ray=new();internal RayUiFixture RayUgui=new();internal RayGrabFixture RayGrab=new();
         public void SendHaptic(HapticPreset h){}
         public void GetAimRay(out Vector3 o,out Vector3 d){o=Rig.GrabAnchor.position;d=Rig.GrabAnchor.forward;}
     }
     public enum HapticPreset {ClickPulse,HoverTick}
     internal static class VRHands {internal static VRHand? Left,Right,Primary;}
-    internal class RayFixture { internal bool Enabled,Active;internal float SolidOccluderDistance=float.PositiveInfinity;internal Vector3 UiHitOverride;internal void SuppressFarClick(){} }
-    internal class RayUiFixture {internal bool HasHit;internal float HitDistance;}
+    internal class RayFixture {
+        internal int Contacts; internal GloomhavenVR.Hands.Interact.RayInteractor.CardContact Contact;
+        internal void StandDownForCardContact(string zone,UnityEngine.Object chip,GloomhavenVR.Hands.Interact.RayInteractor.CardContact contact){Contacts++;Contact=contact;}
+        internal bool Enabled,Active;internal float SolidOccluderDistance=float.PositiveInfinity;internal Vector3 UiHitOverride;internal void SuppressFarClick(){} }
+    internal class RayUiFixture {internal bool HasHit,IsPressing;internal float HitDistance;}
     internal class RayGrabFixture {internal bool OwnsPointerFrame;}
     internal class GrabberFixture{internal GloomhavenVR.Hands.Interact.IGrabbable? Held;internal bool ForceGrab(GloomhavenVR.Hands.Interact.IGrabbable g,bool releaseOnTriggerUp){Held=g;return true;}internal void CancelAll(){Held=null;}}
     public class HandRig{public Transform GrabAnchor=new GameObject("Hand").transform;public Transform IndexTip=>GrabAnchor;public Transform PalmCenter=>GrabAnchor;public FingerJoints GetFinger(Finger f)=>default;}
 }
 namespace GloomhavenVR.Hands.Interact
 {
-    internal static class RayGrabDriver {internal const float MaxDistanceMeters=10f;internal static float OccludingBarDistance(Vector3 p,Vector3 d,float max)=>float.PositiveInfinity;}
+    internal static class RayGrabDriver {internal const float MaxDistanceMeters=10f;internal static float Distance=float.PositiveInfinity; internal static float OccludingBarDistance(Vector3 p,Vector3 d,float max)=>Distance;}
     internal interface IPokeable {void OnPokeEnter(GloomhavenVR.Hands.VRHand h);void OnPokeExit(GloomhavenVR.Hands.VRHand h);void OnPoke(GloomhavenVR.Hands.VRHand h);}
     internal interface IGrabbable{bool CanGrab{get;}bool GrabWithGrip{get;}void OnGrab(GloomhavenVR.Hands.VRHand h);void OnRelease(GloomhavenVR.Hands.VRHand h,Vector3 v);}
     internal interface IGrabbableHandFilter{bool AllowsHand(GloomhavenVR.Hands.VRHand h);}
@@ -229,3 +232,12 @@ namespace GloomhavenVR.WorldUI { internal sealed class TownServiceGrounding : Sy
 namespace GloomhavenVR.Net.TownServices { internal static class TownServiceFrame { internal const ushort BundleStream=65534; } }
 
 namespace GloomhavenVR.WorldUI {internal static class TownServicePublicMerchant {internal static bool CanClaim=>true;internal static void Claim(){} }}
+
+namespace GloomhavenVR.Hands.Interact { internal class RayInteractor { internal struct CardContact {
+ internal readonly float Depth,Margin,Limit; internal CardContact(string probe,float depth,float margin,float limit){Depth=depth;Margin=margin;Limit=limit;}
+} } }
+namespace GloomhavenVR.Cards { internal partial class ItemsPile { internal partial class ItemChip : MonoBehaviour {
+ internal GloomhavenVR.Hands.VRHand? Holder;internal bool PendingUse,TownOffering;
+ private Vector3 _homePos;private Quaternion _homeRot=Quaternion.identity;private float _homeScale=1f;
+ private float FaceWidth=>.18f;private float FaceHeight=>.14f;
+} } }

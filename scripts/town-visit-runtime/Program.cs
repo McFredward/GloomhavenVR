@@ -32,7 +32,7 @@ public static class InteractionProgram
     public static int Run()
     {
         _assertions = 0;
-        for (byte service = 1; service <= 3; service++) WithTarget(service, (target, station, hand) =>
+        for (byte service = 2; service <= 3; service++) WithTarget(service, (target, station, hand) =>
         {
             Check(VRInteractables.Pokes.ContainsKey(target), "resident registers physical touch collider");
             Check(VRInteractables.Pokes[target] is BoxCollider collider && collider.isTrigger, "real trigger BoxCollider");
@@ -43,7 +43,7 @@ public static class InteractionProgram
             Check((byte)MapRoomDriver.Mode == service && MapRoomDriver.Context == "town resident", "all three residents retain native destination");
             Check(hand.Click == 1, "one accepted destination produces one click haptic");
         });
-        WithTarget(1, (target, station, hand) =>
+        WithTarget(2, (target, station, hand) =>
         {
             TownServiceVisitTarget.TickLaser(); TownServiceVisitTarget.TickLaser();
             Check(hand.Hover == 1 && MapRoomDriver.Presses == 0, "stable laser hover is edge-triggered and cannot visit");
@@ -52,7 +52,7 @@ public static class InteractionProgram
             hand.TriggerDown = true; TownServiceVisitTarget.TickLaser();
             Check(MapRoomDriver.Presses == 1 && hand.Click == 1 && hand.Ray.Suppressions == 1, "laser invokes native guarded path and consumes far click");
         });
-        foreach (string gate in new[] { "commit", "permission", "hidden", "disabled" }) WithTarget(1, (target, station, hand) =>
+        foreach (string gate in new[] { "commit", "permission", "hidden", "disabled" }) WithTarget(2, (target, station, hand) =>
         {
             if (gate == "commit") StoryComposite.PointOfNoReturn = true;
             if (gate == "permission") MapRoomDriver.CanVisit = false;
@@ -64,12 +64,12 @@ public static class InteractionProgram
             if (gate == "hidden") Check(float.IsPositiveInfinity(Distance(hand)), "hidden assets leave no occluder");
             else Near(2.45f, Distance(hand), gate + " visible resident still blocks background interaction");
         });
-        WithTarget(1, (target, station, hand) =>
+        WithTarget(2, (target, station, hand) =>
         {
             MapRoomDriver.Accept = false; target.OnPoke(hand);
             Check(MapRoomDriver.Presses == 1 && hand.Click == 0, "native rejection does not claim successful opening");
         });
-        foreach (string blocker in new[] { "bar", "ui", "solid", "held", "carry", "tracking", "beam" }) WithTarget(1, (target, station, hand) =>
+        foreach (string blocker in new[] { "bar", "ui", "solid", "held", "carry", "tracking", "beam" }) WithTarget(2, (target, station, hand) =>
         {
             hand.TriggerDown = true;
             if (blocker == "bar") RayGrabDriver.Distance = 1f;
@@ -112,22 +112,31 @@ public static class InteractionProgram
             hand.TriggerDown = true; TownServiceVisitTarget.TickLaser();
             Check(MapRoomDriver.Presses == 1, "rotated scaled resident remains visitable");
         });
-        WithTarget(1, (target, station, hand) =>
+        WithTarget(2, (target, station, hand) =>
         {
             var fartherStation = new GameObject("farther resident"); fartherStation.transform.position = Vector3.forward * 3;
-            var farther = new TownServiceVisitTarget(2, fartherStation.transform);
+            var farther = new TownServiceVisitTarget(3, fartherStation.transform);
             try
             {
                 farther.Tick(true); Physics.SyncTransforms(); hand.TriggerDown = true; TownServiceVisitTarget.TickLaser();
-                Check(MapRoomDriver.Mode == EGuildmasterMode.Merchant && MapRoomDriver.Presses == 1, "nearest visible resident wins among multiple residents");
+                Check(MapRoomDriver.Mode == EGuildmasterMode.Temple && MapRoomDriver.Presses == 1, "nearest visible resident wins among multiple residents");
                 target.Dispose(); Physics.SyncTransforms(); Near(5.45f, Distance(hand), "disposed resident no longer blocks other residents immediately");
                 hand.Ray.UiHitOverride = null; TownServiceVisitTarget.TickLaser();
-                Check(MapRoomDriver.Mode == EGuildmasterMode.Temple && MapRoomDriver.Presses == 2, "dispose releases ray hover to remaining resident");
+                Check(MapRoomDriver.Mode == EGuildmasterMode.Enchantress && MapRoomDriver.Presses == 2, "dispose releases ray hover to remaining resident");
                 farther.Dispose(); Physics.SyncTransforms(); Check(float.IsPositiveInfinity(Distance(hand)), "disposing final resident removes every ray target");
                 hand.Ray.UiHitOverride = null; TownServiceVisitTarget.TickLaser();
                 Check(MapRoomDriver.Presses == 2 && !hand.Ray.UiHitOverride.HasValue, "destroy deferred until frame end cannot leave ghost input");
             }
             finally { farther.Dispose(); Object.DestroyImmediate(fartherStation); }
+        });
+        WithTarget(1, (target, station, hand) =>
+        {
+            target.OnPokeEnter(hand); target.OnPoke(hand); hand.TriggerDown = true;
+            TownServiceVisitTarget.TickLaser(); TownServiceVisitTarget.TickLaser();
+            Check(MapRoomDriver.Presses == 0 && hand.Hover == 0 && hand.Click == 0,
+                "merchant never opens a native destination or plays button feedback");
+            Check(hand.Ray.UiHitOverride.HasValue && hand.Ray.Suppressions > 0,
+                "inert merchant still blocks the pointer and click behind his body");
         });
         Reset();
         Check(!TownServiceVisitTarget.Replaces(EGuildmasterMode.None), "unrelated map buttons remain native");

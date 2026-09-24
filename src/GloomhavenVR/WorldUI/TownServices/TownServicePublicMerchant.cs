@@ -75,9 +75,10 @@ internal static class TownServicePublicMerchant
                 allowInput: !StoryComposite.PointOfNoReturn);
             _catalog.Tick(_station.Root.lossyScale.x);
             bool observer = !TownServiceMirror.IsPublicAuthor;
-            if (observer) foreach (TownServiceToken sample in _catalog.Samples) if (sample.IsHeld) sample.CancelInspection();
+            if (observer) foreach (TownServiceToken sample in _catalog.Samples) if (sample.IsMoving) sample.CancelInspection();
             _catalog.SetObserver(observer);
             TownServiceCatalogCategory.TickLaser();
+            _catalog.Drawers[0].TickStickScroll();
             if (_failed) { VRLog.Note("TownServices", "Persistent merchant stock presentation recovered."); _failed = false; }
         }
         catch (Exception error)

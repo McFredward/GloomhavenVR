@@ -26,6 +26,8 @@ internal sealed class TownServiceMerchantDrawer : IGrabbable, IGrabbableHandFilt
     private VRHand? _hand;
     private Vector3 _cursorStart;
     private float _pull, _leadAngle, _clock;
+    private float _nextStickTurn;
+    private int _stickDirection;
     private bool _laser, _disposed, _turning, _swapped;
     internal Transform Root => _root.transform;
     internal Transform Content { get; }
@@ -108,7 +110,50 @@ internal sealed class TownServiceMerchantDrawer : IGrabbable, IGrabbableHandFilt
         TurnEpoch++; FromPage = Page; ToPage = page; _turning = true;
         _leadAngle = _pull * 35f; _clock = 0f; _swapped = false; _opening(this); return true;
     }
-    internal bool RequestTurn() => CanGrab && Begin(Page / 256 * 256 + (Page % 256 + 1) % _availablePages);
+    internal bool RequestTurn() => RequestTurn(1);
+    internal bool RequestTurn(int direction) => direction != 0 && CanGrab
+        && Begin(Page / 256 * 256 + (Page % 256 + (direction > 0 ? 1 : _availablePages - 1)) % _availablePages);
+
+    // The stock display is a physical scroll surface. Reuse the UI/flight arbitration so
+    // aiming here never scrolls the cabinet and moves the player vertically at the same time.
+    // A full mechanical change completes before a held stick can request the next page.
+    internal void TickStickScroll()
+    {
+        VRHand? hand = VRHands.Primary;
+        if (_disposed || _hand != null || PageCount <= 1 || !_alive() || !_mayClose() || !TownServicePublicMerchant.CanClaim
+            || hand == null || !hand.HasPose || !hand.Ray.Active || hand.Grabber.Held != null
+            || hand.RayGrab.OwnsPointerFrame || hand.RayUgui.IsPressing)
+        { _stickDirection = 0; return; }
+        hand.GetAimRay(out Vector3 origin, out Vector3 direction);
+        // Authored cabinet, including its category buttons and side crank. This is a query,
+        // not extra collision geometry that would hide the actual original item faces.
+        Vector3 localOrigin = HousingRoot.InverseTransformPoint(origin);
+        Vector3 localDirection = HousingRoot.InverseTransformVector(direction).normalized;
+        var bounds = new Bounds(new Vector3(.025f, -.08f, .14f), new Vector3(.98f, 1.04f, .43f));
+        if (!bounds.IntersectRay(new Ray(localOrigin, localDirection), out float localDistance))
+        { _stickDirection = 0; return; }
+        Vector3 point = HousingRoot.TransformPoint(localOrigin + localDirection * localDistance);
+        float distance = Vector3.Distance(origin, point), epsilon = .005f * hand.WorldScale;
+        if (distance > RayGrabDriver.MaxDistanceMeters * hand.WorldScale
+            || RayGrabDriver.OccludingBarDistance(origin, direction, distance) < distance - epsilon
+            || hand.Ray.SolidOccluderDistance < distance - epsilon
+            || hand.RayUgui.HasHit && hand.RayUgui.HitDistance < distance - epsilon)
+        { _stickDirection = 0; return; }
+        UiScrollFocus.NoteScrollHover(hand, _housing, nameof(TownServiceMerchantDrawer));
+        float axis = hand.Thumbstick.y;
+        int step = Mathf.Abs(axis) < .3f ? 0 : axis > 0f ? -1 : 1;
+        if (step == 0) { _stickDirection = 0; return; }
+        if (_stickDirection != step) _nextStickTurn = 0f;
+        _stickDirection = step;
+        if (_turning || Time.unscaledTime < _nextStickTurn) return;
+        TownServicePublicMerchant.Claim();
+        if (RequestTurn(step))
+        {
+            _nextStickTurn = Time.unscaledTime + TownRackState.TurnDuration + .15f;
+            UiScrollFocus.NoteScrollDelivered(hand, _housing, nameof(TownServiceMerchantDrawer));
+            hand.SendHaptic(HapticPreset.ClickPulse);
+        }
+    }
     internal static GameObject Authored(string name)
     {
         Transform? source = TownServiceAssets.Prefab("townmerchant")?.transform.Find("Counter/" + name);

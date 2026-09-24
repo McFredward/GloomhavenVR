@@ -86,9 +86,103 @@ public static class InteractionProgram
         }
         anchor.localScale=Vector3.one;
     }
+    private static void ResetScroll()
+    {
+        var type=typeof(UiScrollFocus);
+        var frames=(int[])type.GetField("HoverFrame",BindingFlags.Static|BindingFlags.NonPublic)!.GetValue(null)!;
+        var times=(float[])type.GetField("ScrollTime",BindingFlags.Static|BindingFlags.NonPublic)!.GetValue(null)!;
+        for(int n=0;n<2;n++){frames[n]=int.MinValue;times[n]=float.NegativeInfinity;}
+    }
+    private static void Scroll(TownServiceCatalog catalog, TownServiceMerchantDrawer crank)
+    {
+        int pages=crank.PageCount;crank.SetPageCount(3);
+        var hand=new VRHand();VRHands.Primary=hand;hand.Ray.Active=true;
+        var station=crank.HousingRoot.parent;
+        Vector3 position=station.position;Quaternion rotation=station.rotation;Vector3 scale=station.localScale;
+        foreach(float zoom in new[]{.05f,1f,2f,198.12f})
+        {
+            station.SetPositionAndRotation(new Vector3(4f,1f,-2f),Quaternion.Euler(0f,37f,0f));station.localScale=Vector3.one*zoom;
+            hand.WorldScale=zoom;
+            hand.Rig.GrabAnchor.SetPositionAndRotation(crank.HousingRoot.TransformPoint(new Vector3(0,0,-1f)),crank.HousingRoot.rotation);
+            ResetScroll();crank.TickStickScroll();
+            Check(UiScrollFocus.IsScrolling(hand),"aiming at a multipage cabinet owns vertical locomotion at every world scale");
+            Check(!UiScrollFocus.IsScrolling(new VRHand{Side=HandSide.Right}),"cabinet scrolling consumes only its pointing hand");
+            foreach(string blocker in new[]{"bar","ui","solid","carry","held","beam","tracking","away"})
+            {
+                ResetScroll();hand.RayUgui.HasHit=blocker=="ui";hand.RayUgui.HitDistance=.1f*zoom;
+                hand.Ray.SolidOccluderDistance=blocker=="solid"?.1f*zoom:float.PositiveInfinity;
+                RayGrabDriver.Distance=blocker=="bar"?.1f*zoom:float.PositiveInfinity;
+                hand.RayGrab.OwnsPointerFrame=blocker=="carry";hand.Grabber.Held=blocker=="held"?crank:null;
+                hand.Ray.Active=blocker!="beam";hand.HasPose=blocker!="tracking";
+                hand.Rig.GrabAnchor.rotation=crank.HousingRoot.rotation*Quaternion.Euler(0,blocker=="away"?180:0,0);
+                crank.TickStickScroll();Check(!UiScrollFocus.IsScrolling(hand),"cabinet scroll respects "+blocker+" before consuming locomotion");
+            }
+            hand.RayUgui.HasHit=false;hand.Ray.SolidOccluderDistance=float.PositiveInfinity;RayGrabDriver.Distance=float.PositiveInfinity;
+            hand.RayGrab.OwnsPointerFrame=false;hand.Grabber.Held=null;hand.Ray.Active=hand.HasPose=true;hand.Rig.GrabAnchor.rotation=crank.HousingRoot.rotation;
+            int original=crank.Page;hand.Thumbstick=Vector2.down;crank.TickStickScroll();
+            Check(crank.Moving&&crank.ToPage==original/256*256+(original%256+1)%crank.PageCount,"stick down uses the shared animated forward cassette transaction");
+            uint epoch=crank.TurnEpoch;crank.TickStickScroll();Check(crank.TurnEpoch==epoch,"held stick cannot restart a running cabinet turn");
+            Set(crank,"_clock",.85f);crank.Tick(1f);
+            hand.Thumbstick=Vector2.up;crank.TickStickScroll();
+            Check(crank.Moving&&crank.ToPage==original,"stick up returns to the previous stock page");
+            Set(crank,"_clock",.85f);crank.Tick(1f);hand.Thumbstick=Vector2.zero;crank.TickStickScroll();
+        }
+        ResetScroll();crank.SetPageCount(1);crank.TickStickScroll();
+        Check(!UiScrollFocus.IsScrolling(hand),"one-page cabinet leaves locomotion available");
+        crank.SetPageCount(pages);
+        station.SetPositionAndRotation(position,rotation);station.localScale=scale;
+        VRHands.Primary=null;UnityEngine.Object.DestroyImmediate(hand.Rig.GrabAnchor.gameObject);ResetScroll();
+    }
+    private static void FanContact()
+    {
+        var card=new GameObject("owned item fan",typeof(GloomhavenVR.Cards.ItemsPile.ItemChip));
+        var chip=card.GetComponent<GloomhavenVR.Cards.ItemsPile.ItemChip>();var cards=new[]{chip};var hand=new VRHand();
+        foreach(float scale in new[]{.05f,1f,198.12f})
+        {
+            hand.WorldScale=scale;card.transform.localScale=Vector3.one*scale;
+            card.transform.SetPositionAndRotation(new Vector3(4f,-2f,1f),Quaternion.Euler(21f,57f,-18f));
+            foreach(float depth in new[]{-.020f,-.014f,0f,.014f,.020f})
+            {
+                hand.Ray.Contacts=0;hand.Rig.GrabAnchor.position=card.transform.TransformPoint(Vector3.forward*depth);
+                GloomhavenVR.Cards.CardsDriver.StandDownForItemFanContact(hand,cards);
+                Check((hand.Ray.Contacts>0)==(Mathf.Abs(depth)<.015f),"owned fan uses the normal physical contact slab at every scale");
+            }
+            hand.Rig.GrabAnchor.position=card.transform.position;
+            foreach(string blocked in new[]{"tracking","held","hidden"})
+            {
+                hand.HasPose=blocked!="tracking";hand.Grabber.Held=blocked=="held"?new ContactHeld():null;
+                card.SetActive(blocked!="hidden");hand.Ray.Contacts=0;
+                GloomhavenVR.Cards.CardsDriver.StandDownForItemFanContact(hand,cards);
+                Check(hand.Ray.Contacts==0,"item contact respects "+blocked);
+            }
+            hand.HasPose=true;hand.Grabber.Held=null;card.SetActive(true);
+        }
+        UnityEngine.Object.DestroyImmediate(card);UnityEngine.Object.DestroyImmediate(hand.Rig.GrabAnchor.gameObject);
+    }
+    private sealed class ContactHeld : IGrabbable { public bool CanGrab=>true; public bool GrabWithGrip=>true; public void OnGrab(VRHand h){} public void OnRelease(VRHand h,Vector3 v){} }
+    private static void WristTracking()
+    {
+        var hand=new VRHand();var card=new GameObject("tracked grip card").transform;
+        card.SetParent(hand.Rig.GrabAnchor,false);
+        GloomhavenVR.Cards.HeldCardGrip.Grasp=1f;
+        var expected=new Vector3(.02f,.03f,.04f);var rotation=Quaternion.Euler(30,20,10);
+        card.localPosition=expected;card.localRotation=rotation;
+        foreach(float scale in new[]{.05f,1f,198.12f})for(int frame=0;frame<100;frame++)
+        {
+            hand.Rig.GrabAnchor.localScale=Vector3.one*scale;
+            hand.Rig.GrabAnchor.SetPositionAndRotation(new Vector3(frame*.027f,1.2f,-frame*.013f),Quaternion.Euler(frame*13,frame*19,frame*-9));
+            GloomhavenVR.Cards.ItemCardHold.Tick(card,hand,hand.Rig.GrabAnchor,Vector3.zero,1f,.18f,.24f);
+            Check(Vector3.Distance(card.position,hand.Rig.GrabAnchor.TransformPoint(expected))<.0002f*scale,
+                "grip pose has no positional trailing while the wrist moves and rotates");
+            Check(Quaternion.Angle(card.rotation,hand.Rig.GrabAnchor.rotation*rotation)<.05f,
+                "grip pose has no rotational trailing while the wrist moves and rotates");
+        }
+        GloomhavenVR.Cards.HeldCardGrip.Grasp=0;
+        UnityEngine.Object.DestroyImmediate(hand.Rig.GrabAnchor.gameObject);
+    }
     public static int Run()
     {
-        assertions=0;var root=new GameObject("MerchantFixture");var events=new GameObject("Events",typeof(EventSystem));
+        assertions=0;WristTracking();FanContact();var root=new GameObject("MerchantFixture");var events=new GameObject("Events",typeof(EventSystem));
         var prefab=new GameObject("MerchantPrefab");var counter=new GameObject("Counter");counter.transform.SetParent(prefab.transform,false);
         var plank=GameObject.CreatePrimitive(PrimitiveType.Cube);plank.name="Furniture_DarkWood";plank.transform.SetParent(counter.transform,false);
         plank.GetComponent<MeshRenderer>().sharedMaterial=new Material(Shader.Find("Standard")){name="DarkWood"};
@@ -178,6 +272,7 @@ public static class InteractionProgram
         Turn(catalog,crank);Check(crank.Page==1,"one completed physical turn advances exactly one tray");
         for(int n=1;n<crank.PageCount;n++)Turn(catalog,crank);
         Check(crank.Page==0,"stock rack completes its accessible cycle");
+        Scroll(catalog,crank);
         int fullPages=crank.PageCount;
         Check(crank.RequestTurn(),"native stock can shrink during a valid pending turn");
         crank.SetPageCount(1);

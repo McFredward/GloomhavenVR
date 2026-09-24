@@ -58,7 +58,7 @@ def sources(root):
     end = sweep.index("    // ---- election")
     bound["TransferReach.cs"] = sweep[:end] + "}\n"
     hold = (base / "Cards/ItemCardHold.cs").read_text()
-    bound["TransferCapability.cs"] = hold[:hold.index("/// <summary>The existing scenario")].replace("using GloomhavenVR.Rig;\n", "")
+    bound["TransferCapability.cs"] = hold[:hold.index("\n/// <summary>", hold.index("internal interface IItemCardHold"))].replace("using GloomhavenVR.Rig;\n", "")
     templates = (base / "WorldUI/TownServices/NativeTemplates.cs").read_text()
     definitions = templates[templates.index("    internal sealed class Part"):templates.index("    private static readonly Dictionary<string, Entry>")]
     template_methods = ("private static void EnsureNativeProp(string key)", "private static void Freeze(string key, Entry entry)",

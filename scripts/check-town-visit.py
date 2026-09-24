@@ -60,6 +60,7 @@ internal static class BoundUiArbitration {
 """
     variants = [
         ("production", None, None, None, ""),
+        ("merchant-button-restored", "TownServiceVisitTarget.cs", "&& _mode != EGuildmasterMode.Merchant", "", "merchant never opens a native destination or plays button feedback"),
         ("no-native-commit-gate", "TownServiceVisitTarget.cs", "&& !StoryComposite.PointOfNoReturn", "", "commit resident cannot invoke native destination"),
         ("no-touch-ray-cooldown", "TownServiceVisitTarget.cs", "Time.unscaledTime - _pressedAt < ButtonTuning.PokePressCooldownSeconds", "false", "touch and ray open guarded destination only once within cooldown"),
         ("disabled-resident-opens", "TownServiceVisitTarget.cs", "private bool Available => _visible && WorldUIConfig.ImmersiveTownServices.Value", "private bool Available => _visible", "disabled resident cannot invoke native destination"),

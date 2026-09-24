@@ -6164,7 +6164,7 @@ internal sealed partial class ItemsPile
             //     _homePos/_homeRot/_homeScale every frame precisely so this costs nothing.
             // In every case the animation keeps converging on the NEW home, which is what a
             // relayout mid-flight should mean anyway.
-            if (Holder != null || PendingUse || _releaseGlide > 0f || _emerging)
+            if (Holder != null || PendingUse || TownOffering || _releaseGlide > 0f || _emerging)
                 return;
             transform.localPosition = pos;
             transform.localRotation = rot;
@@ -6659,7 +6659,7 @@ internal sealed partial class ItemsPile
         /// <summary>A held chip rides a hand and a chip clipped into the use slot is awaiting a
         /// decision (#6) — neither may win the sweep, or a dead chip would suppress the lift of a
         /// live one beside it.</summary>
-        bool IFanSweepTarget.SweepEligible => Holder == null && !PendingUse;
+        bool IFanSweepTarget.SweepEligible => Holder == null && !PendingUse && !TownOffering;
 
         /// <summary>The chip's rendered face width in WORLD units. This is the number that makes
         /// the reach board-scale-invariant: an item fan on a 0,32× board reports ~2,5 real cm here
@@ -6711,7 +6711,7 @@ internal sealed partial class ItemsPile
             if (resting)
             {
                 Transform? parent = t.parent;
-                if (parent == null || Holder != null || PendingUse)
+                if (parent == null || Holder != null || PendingUse || TownOffering)
                     return false;
                 center = parent.TransformPoint(_homePos);
                 Quaternion rot = parent.rotation * _homeRot;

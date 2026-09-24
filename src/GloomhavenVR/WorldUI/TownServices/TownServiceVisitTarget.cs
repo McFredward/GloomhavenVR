@@ -44,7 +44,10 @@ internal sealed class TownServiceVisitTarget : IPokeable, IDisposable
         Targets.Add(this);
     }
 
+    // Stock and palm handoff are always available without opening the native shop. The
+    // merchant remains a solid ray occluder, but is not a button (including hover sounds).
     private bool Available => _visible && WorldUIConfig.ImmersiveTownServices.Value
+        && _mode != EGuildmasterMode.Merchant
         && !StoryComposite.PointOfNoReturn
         && MapRoomDriver.CanVisitTownService(_mode);
     internal void Tick(bool visible)
