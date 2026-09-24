@@ -115,10 +115,17 @@ internal sealed class TownServiceDecor : IDisposable
             Add("Chapel", "Chapel.Clutter.Shelf.Individual#2",
                 new Vector3(.285f, .957f, .435f), .14f, true, 1);
         }
+        else if (service == 3)
+        {
+            // This original furniture FBX places its rear lamp perch on negative X.
+            // Match the imported support, not the pre-export authoring handedness.
+            Lantern(new Vector3(.68f, .957f, .20f), 0);
+            Lantern(new Vector3(-.70f, .957f, .83f), 1);
+        }
         else
         {
             Lantern(new Vector3(-.68f, .957f, .20f), 0);
-            Lantern(new Vector3(.68f, .957f, service == 3 ? .70f : .20f), 1);
+            Lantern(new Vector3(.68f, .957f, .20f), 1);
         }
         if (service == 1)
         {

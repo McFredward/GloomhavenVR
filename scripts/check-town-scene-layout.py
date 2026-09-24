@@ -71,13 +71,13 @@ def part(origin, yaw, limits, padding):
 
 def parts(origin, yaw, role, service, padding):
     merchant = role == 'resident' and service == 1
-    spans = [('cabinet', (-1.64, -.44, -.09, .72)), ('lectern', (-.36, .36, -.08, .52))] if merchant else [('top', (-.87, .87, -.43, .50))]
+    spans = [('cabinet', (-1.64, -.44, -.09, .72)), ('lectern', (-.36, .36, -.08, .52))] if merchant else [('top', (-.88, .88, -.44, .50))]
     if role == 'resident':
         spans.append(('actor', (-.60, .60, .30, 1.20)))
     # Merchant stock now has one persistent shared cabinet. Visitor reservations only
     # host church/enhancement counters, including the enchantress rear lantern.
     if role == 'visitor' or service == 3:
-        spans.append(('lantern', (.49, .87, .28, .86)))
+        spans.append(('lantern', (-.88, -.48, .28, .96)))
     result = [(name, part(origin, yaw, limits, padding)) for name, limits in spans]
     return result
 
@@ -191,7 +191,7 @@ def main():
     parser.add_argument('--environment-bundle', type=Path, required=True)
     parser.add_argument('--poses', type=Path, required=True)
     parser.add_argument('--output', type=Path, required=True)
-    parser.add_argument('--visitor-count', type=int, choices=range(4), default=3, help='Additional simultaneous merchant workspaces')
+    parser.add_argument('--visitor-count', type=int, choices=range(4), default=3, help='Additional simultaneous church/enchantment workspaces')
     parser.add_argument('--merchant-layout-source', type=Path, default=Path(__file__).resolve().parents[1] / 'src/GloomhavenVR/WorldUI/TownServices/TownServiceMerchantCounter.cs')
     parser.add_argument('--native-geometry', type=Path, help='Original native renderer bounds/ancestor export')
     parser.add_argument('--native-data-root', type=Path, help='Read-only original GH_Data to verify native scene hashes')
