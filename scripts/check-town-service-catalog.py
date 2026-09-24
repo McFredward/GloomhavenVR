@@ -50,15 +50,23 @@ def sources(root):
     chip_start = chip.index("        internal bool TryGetFaceRect")
     chip_end = chip.index("\n        }", chip_start) + len("\n        }")
     bound["ChipContact.cs"] = "using UnityEngine; namespace GloomhavenVR.Cards; internal partial class ItemsPile { internal partial class ItemChip {\n" + chip[chip_start:chip_end] + "\n}}"
+    public = (base / "TownServicePublicMerchant.cs").read_text()
+    register = next(line for line in public.splitlines() if "UiScrollFocus.PhysicalHoverProbe = ProbeScrollHover;" in line)
+    unregister = next(line for line in public.splitlines() if "UiScrollFocus.PhysicalHoverProbe == ProbeScrollHover" in line)
+    bound["CabinetProbe.cs"] = "using GloomhavenVR.Hands; using GloomhavenVR.Hands.Interact; using GloomhavenVR.WorldUI.MapRoom; namespace GloomhavenVR.WorldUI; internal static partial class TownServicePublicMerchant { private static TownServiceCatalog? _catalog;\n" + method(public, "private static void ProbeScrollHover") + "\ninternal static void RegisterProbe(TownServiceCatalog catalog) { _catalog = catalog;\n" + register + "\n} internal static void DetachProbe() {\n" + unregister + "\n} }"
     hashes = {name: hashlib.sha256(text.encode()).hexdigest() for name, text in bound.items()}
     return bound, hashes
 
 
 def mutations():
     return [
+        ("late-first-hover", "UiScrollFocus.cs", "PhysicalHoverProbe?.Invoke(hand);", "", "first consumer observes cabinet focus before the presentation tick"),
+        ("leaked-hover-probe", "CabinetProbe.cs", "UiScrollFocus.PhysicalHoverProbe = null;", ";", "disposed public stock unregisters its hover probe"),
+        ("parked-takeback-disabled", "TownServiceToken.cs", "&& (_inspect?.Invoke() ?? true)", "&& _offering == null && (_inspect?.Invoke() ?? true)", "parked original stock card retains take-back input while native confirmation is open"),
+        ("parked-authority-keeps-prompt", "TownServiceToken.cs", "reclaim?.Invoke();", "", "authority loss cancels a parked stock confirmation through its callback"),
         ("contact-from-a-distance", "ItemContact.cs", "ContactSlabHalfDepthMeters = 0.015f", "ContactSlabHalfDepthMeters = 0.15f", "owned fan uses the normal physical contact slab at every scale"),
         ("world-space-held-pose", "ItemCardHold.cs", "card.localPosition = Vector3.Lerp(card.localPosition, position, t);", "card.position = Vector3.Lerp(card.position, position, t);", "grip pose has no positional trailing while the wrist moves and rotates"),
-        ("scroll-without-flight-claim", "TownServiceMerchantDrawer.cs", "UiScrollFocus.NoteScrollHover(hand, _housing, nameof(TownServiceMerchantDrawer));", "", "aiming at a multipage cabinet owns vertical locomotion at every world scale"),
+        ("scroll-without-flight-claim", "TownServiceMerchantDrawer.cs", "UiScrollFocus.NoteScrollHover(hand, _housing, nameof(TownServiceMerchantDrawer));", "", "first consumer observes cabinet focus before the presentation tick"),
         ("scroll-through-ui", "TownServiceMerchantDrawer.cs", "|| hand.RayUgui.HasHit && hand.RayUgui.HitDistance < distance - epsilon", "", "cabinet scroll respects ui before consuming locomotion"),
         ("reverse-scroll-is-forward", "TownServiceMerchantDrawer.cs", "(direction > 0 ? 1 : _availablePages - 1)", "1", "stick up returns to the previous stock page"),
         ("overlapping-stock", "TownServiceMerchantCounter.cs", "ColumnPitch = .18f", "ColumnPitch = .07f", "physical card faces never overlap their adjacent column"),

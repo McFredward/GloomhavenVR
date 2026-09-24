@@ -231,7 +231,7 @@ namespace GloomhavenVR.WorldUI { internal sealed class TownServiceGrounding : Sy
 
 namespace GloomhavenVR.Net.TownServices { internal static class TownServiceFrame { internal const ushort BundleStream=65534; } }
 
-namespace GloomhavenVR.WorldUI {internal static class TownServicePublicMerchant {internal static bool CanClaim=>true;internal static void Claim(){} }}
+namespace GloomhavenVR.WorldUI {internal static partial class TownServicePublicMerchant {internal static bool CanClaim=>true;internal static void Claim(){} }}
 
 namespace GloomhavenVR.Hands.Interact { internal class RayInteractor { internal struct CardContact {
  internal readonly float Depth,Margin,Limit; internal CardContact(string probe,float depth,float margin,float limit){Depth=depth;Margin=margin;Limit=limit;}
@@ -241,3 +241,6 @@ namespace GloomhavenVR.Cards { internal partial class ItemsPile { internal parti
  private Vector3 _homePos;private Quaternion _homeRot=Quaternion.identity;private float _homeScale=1f;
  private float FaceWidth=>.18f;private float FaceHeight=>.14f;
 } } }
+
+namespace GloomhavenVR.WorldUI { internal static class WorldUIConfig { internal static BoolSetting ImmersiveTownServices=new(); } internal class BoolSetting { internal bool Value=true; } internal static class StoryComposite { internal static bool PointOfNoReturn; } }
+namespace GloomhavenVR.WorldUI.MapRoom { internal static class MapRoomDriver { internal static bool Active=true; } }

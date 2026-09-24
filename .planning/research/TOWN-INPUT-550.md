@@ -22,9 +22,24 @@ source/runtime corrections; smoothness and controller feel still need headset ve
   including cards retained for a native confirmation.
 
 Validation in the input worker: strict Release zero warnings/errors; resident input
-87 assertions and five negative controls; original catalog/input 6,726 assertions
-and nineteen negative controls. The latter executes actual contact geometry,
+87 assertions and five negative controls; original catalog/input 6,766 assertions
+and twenty-three negative controls. The latter executes actual contact geometry,
 `ItemCardHold`, `UiScrollFocus` and drawer transitions inside Unity 2021.3.5, including
 rapid wrist rotation at scales 0.05/1/198.12, foreground blocker precedence and reverse
 turns with three pages. The first reverse-turn negative correctly revealed a weak
 two-page test (both directions coincide); three-page coverage now rejects it.
+
+The first-hover audit found an update-order race: locomotion could run before the
+cabinet's presentation driver had stamped its first hover. `UiScrollFocus` now polls
+the catalog's read-only physical-hover predicate synchronously. Public stock registers
+and unregisters this probe with its lifetime, checking live map/feature/commit gates.
+The query shares the exact same hit/occlusion code as paging but cannot request a turn
+or claim public authority. Tests cover both update orders, nearer handles, disabling
+the feature and disposing the producer; native window scrolling retains its existing
+stamps and grace. Current collider queries deliberately remain uncached within a frame:
+a foreground handle may move without changing the pointing ray.
+
+Actual stock tests also cover taking a parked original card back out of the offered
+palm, restoring grab-anchor parenting, and cancelling a pending offer on authority
+loss. Each original callback runs once; the original cabinet home remains intact.
+The shared item-transfer suite passes its five negative controls.

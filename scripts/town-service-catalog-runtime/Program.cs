@@ -86,6 +86,38 @@ public static class InteractionProgram
         }
         anchor.localScale=Vector3.one;
     }
+    private static void OfferedStock(TownServiceCatalog catalog)
+    {
+        var entry=catalog.Entries[0];entry.Tick(1f);var hand=new VRHand();
+        Transform physical=entry.CardRoot.parent.parent;Transform home=physical.parent;
+        Vector3 position=physical.localPosition;Quaternion rotation=physical.localRotation;
+        var seat=new GameObject("merchant offering seat");seat.transform.position=new Vector3(1f,1.4f,-2f);
+        int reclaimed=0;
+        for(int path=0;path<2;path++)
+        {
+            entry.Sample.OnGrab(hand);entry.Tick(1f);entry.Sample.OnRelease(hand,Vector3.zero);
+            entry.Sample.ParkOffering(seat.transform,()=>reclaimed++);entry.Tick(1f);
+            Check(physical.parent==seat.transform&&entry.Sample.IsMoving&&!entry.Sample.IsHeld,
+                "actual stock card remains parked and blocks cassette turnover through confirmation");
+            Check(entry.Sample.CanGrab,"parked original stock card retains take-back input while native confirmation is open");
+            if(path==0)
+            {
+                entry.Sample.OnGrab(hand);entry.Tick(1f);
+                Check(reclaimed==1&&entry.Sample.IsHeld&&physical.parent==hand.Rig.GrabAnchor,
+                    "taking stock from the offered palm cancels exactly one prompt and restores wrist ownership");
+                entry.Sample.OnGrabCancelled(hand);
+            }
+            else
+            {
+                entry.Sample.CancelInspection();
+                Check(reclaimed==2&&!entry.Sample.IsHeld,"authority loss cancels a parked stock confirmation through its callback");
+                Set(entry.Sample,"_returnStarted",Time.unscaledTime-1f);entry.Tick(1f);
+            }
+            Check(physical.parent==home&&Vector3.Distance(physical.localPosition,position)<.0001f&&Quaternion.Angle(physical.localRotation,rotation)<.01f,
+                "parked stock take-back and authority loss return to the original cabinet slot");
+        }
+        UnityEngine.Object.DestroyImmediate(seat);UnityEngine.Object.DestroyImmediate(hand.Rig.GrabAnchor.gameObject);
+    }
     private static void ResetScroll()
     {
         var type=typeof(UiScrollFocus);
@@ -104,6 +136,22 @@ public static class InteractionProgram
             station.SetPositionAndRotation(new Vector3(4f,1f,-2f),Quaternion.Euler(0f,37f,0f));station.localScale=Vector3.one*zoom;
             hand.WorldScale=zoom;
             hand.Rig.GrabAnchor.SetPositionAndRotation(crank.HousingRoot.TransformPoint(new Vector3(0,0,-1f)),crank.HousingRoot.rotation);
+            TownServicePublicMerchant.RegisterProbe(catalog);ResetScroll();hand.Thumbstick=Vector2.down;
+            Check(UiScrollFocus.IsScrolling(hand),"first consumer observes cabinet focus before the presentation tick");
+            Check(!crank.Moving,"locomotion hover query never turns pages or claims stock authority");
+            ResetScroll();hand.Thumbstick=Vector2.zero;crank.TickStickScroll();
+            Check(UiScrollFocus.IsScrolling(hand),"presentation-first ordering also suppresses vertical locomotion");
+            foreach(string gate in new[]{"disabled","map","commit","bar"})
+            {
+                ResetScroll();WorldUIConfig.ImmersiveTownServices.Value=gate!="disabled";
+                GloomhavenVR.WorldUI.MapRoom.MapRoomDriver.Active=gate!="map";StoryComposite.PointOfNoReturn=gate=="commit";
+                RayGrabDriver.Distance=gate=="bar"?.1f*zoom:float.PositiveInfinity;
+                Check(!UiScrollFocus.IsScrolling(hand),"first-hover probe respects live "+gate+" gate");
+            }
+            WorldUIConfig.ImmersiveTownServices.Value=true;GloomhavenVR.WorldUI.MapRoom.MapRoomDriver.Active=true;
+            StoryComposite.PointOfNoReturn=false;RayGrabDriver.Distance=float.PositiveInfinity;
+            TownServicePublicMerchant.DetachProbe();ResetScroll();
+            Check(!UiScrollFocus.IsScrolling(hand),"disposed public stock unregisters its hover probe");
             ResetScroll();crank.TickStickScroll();
             Check(UiScrollFocus.IsScrolling(hand),"aiming at a multipage cabinet owns vertical locomotion at every world scale");
             Check(!UiScrollFocus.IsScrolling(new VRHand{Side=HandSide.Right}),"cabinet scrolling consumes only its pointing hand");
@@ -264,6 +312,7 @@ public static class InteractionProgram
         Check(catalog.Entries.Count==165,"late unlock adds card without dropping old stock");
         Check(catalog.Entries[0].CardRoot==stableRoot,"late unlock preserves existing card transforms");
         HeldScale(catalog,anchor.transform);
+        OfferedStock(catalog);
         var crank=catalog.Drawers[0];
         stable.Tick(1f);var holder=new VRHand();stable.Sample.OnGrab(holder);stable.Tick(1f);
         Check(!crank.RequestTurn(),"held merchandise prevents rack motion");

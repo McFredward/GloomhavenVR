@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
 using GloomhavenVR.Core;
+using GloomhavenVR.Hands;
+using GloomhavenVR.Hands.Interact;
 using GloomhavenVR.Net.TownServices;
 using GloomhavenVR.WorldUI.MapRoom;
 using UnityEngine;
@@ -67,6 +69,7 @@ internal static class TownServicePublicMerchant
                 _catalog = new TownServiceCatalog(inventory, _mount.transform, Context,
                     () => MapRoomDriver.Active && WorldUIConfig.ImmersiveTownServices.Value && _session == session,
                     _mat.transform, persistent: true);
+                UiScrollFocus.PhysicalHoverProbe = ProbeScrollHover;
             }
             if (_station == null || _station.Root == null) { Reset(); return; }
             if (!TownServiceMirror.IsPublicAuthor && TownServiceMirror.PublicRack is TownRackState remote)
@@ -90,6 +93,13 @@ internal static class TownServicePublicMerchant
                 VRLog.Note("TownServices", "Persistent merchant stock unavailable; native merchant remains usable: " + failure);
         }
     }
+    private static void ProbeScrollHover(VRHand hand)
+    {
+        // A consumer may run before the presentation tick observes a mode/config edge.
+        if (MapRoomDriver.Active && WorldUIConfig.ImmersiveTownServices.Value && !StoryComposite.PointOfNoReturn)
+            _catalog?.Drawers[0].NoteScrollHover(hand);
+    }
+
     internal static void LateTick()
     {
         if (_catalog == null || _station == null || TownServicePopulation.Frame == null) return;
@@ -99,6 +109,7 @@ internal static class TownServicePublicMerchant
     }
     internal static void Reset()
     {
+        if (UiScrollFocus.PhysicalHoverProbe == ProbeScrollHover) UiScrollFocus.PhysicalHoverProbe = null;
         TownServiceSync.ResetPublic(); _catalog?.Dispose(); _catalog = null; _station = null;
         if (_mount != null) UnityEngine.Object.Destroy(_mount);
         if (_mat != null) UnityEngine.Object.Destroy(_mat);
