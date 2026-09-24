@@ -112,8 +112,10 @@ internal sealed class TownServiceDecor : IDisposable
             Lantern(new Vector3(-1.51f, 1.23f, .08f), 0);
             // A small native candle lights the ledger without placing a second oversized
             // lantern in the offered hand's path. The hanging cabinet lantern is the key.
-            Add("Chapel", "Chapel.Clutter.Shelf.Individual#2",
-                new Vector3(.285f, .957f, .435f), .14f, true, 1);
+            // Chapel.Clutter.Shelf.Individual#2 is a scroll, not a candle: height-fitting
+            // that horizontal asset created the large roll crossing his resting hand.
+            Add("Tone_Candlelight", "Candlelight.Lighting.Torch.Wall#1",
+                new Vector3(.30f, .957f, .025f), .14f, true, 1);
         }
         else if (service == 3)
         {
@@ -130,7 +132,7 @@ internal sealed class TownServiceDecor : IDisposable
         if (service == 1)
         {
             Add("Treasure", "Treasure.Clutter.FloorSmall#3", new Vector3(-.18f, .957f, .12f), .11f);
-            Add("AlchemyLab", "AlchemyLab.Clutter.Shelf.Individual#7", new Vector3(-.265f, .957f, .415f), .12f);
+            Add("AlchemyLab", "AlchemyLab.Clutter.Shelf.Individual#7", new Vector3(-.285f, .957f, .025f), .12f);
             Add("Library", "Library.Clutter.Shelf.Individual#7", new Vector3(-.055f, .957f, .18f), .24f);
             _workCoin = Add("Treasure", "Treasure.Clutter.Shelf.Individual#1", TownServiceActivityMotion.CoinSeat(0, false), .026f);
         }
@@ -138,9 +140,9 @@ internal sealed class TownServiceDecor : IDisposable
         {
             Add("Chapel", "Chapel.Clutter.Shelf.Individual#7", new Vector3(0f, .957f, .18f), .18f);
             Add("Library", "Library.Clutter.Shelf.Individual#7", new Vector3(-.33f, .957f, -.12f), .30f);
-            Add("Chapel", "Chapel.Clutter.Shelf.Individual#2", new Vector3(.40f, .957f, .23f), .20f);
-            Add("Chapel", "Chapel.Clutter.Shelf.Individual#2", new Vector3(.55f, .957f, .08f), .14f);
-            Add("Chapel", "Chapel.Clutter.Shelf.Individual#2", new Vector3(-.54f, .957f, .19f), .16f);
+            Add("Tone_Candlelight", "Candlelight.Lighting.Torch.Wall#1", new Vector3(.40f, .957f, .23f), .20f);
+            Add("Tone_Candlelight", "Candlelight.Lighting.Torch.Wall#1", new Vector3(.55f, .957f, .08f), .14f);
+            Add("Tone_Candlelight", "Candlelight.Lighting.Torch.Wall#1", new Vector3(-.54f, .957f, .19f), .16f);
             _coinTemplate = Add("Treasure", "Treasure.Clutter.Shelf.Individual#1", Vector3.zero, .05f);
             _coinTemplate.Template = true;
         }

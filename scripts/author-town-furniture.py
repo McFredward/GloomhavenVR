@@ -258,17 +258,20 @@ def merchant():
     ring('Lantern hanging link',(cx-.56,1.62,.08),.026,.004,'Brass',True)
     # Small folding writing stand, with dovetail-like board ends and iron X braces.
     for i in range(5):
-        rect('Ledger worktop board',(i-2)*.144,.23,.142,.56,.955,.046,bevel=.009)
-    rect('Ledger leather writing pad',0,.23,.60,.42,.958,.004,'Leather',.002)
+        # The merchant's coat reaches Z=.368 at table height across the work cycle.
+        # A stepped rear contour preserves both side contact ledges without cutting into it.
+        rear = .405 if i in (0,4) else .310
+        rect('Ledger worktop board',(i-2)*.144,(rear-.05)/2,.142,rear+.05,.955,.046,bevel=.009)
+    rect('Ledger leather writing pad',0,.125,.60,.35,.958,.004,'Leather',.002)
     for side in (-1,1):
-        for a,b in ((-.05,.46),(.46,-.05)):
+        for a,b in ((-.05,.39),(.39,-.05)):
             tube('Ledger folding support',[(side*.33,.006,a),(side*.27,.48,.205),(side*.30,.921,b)],
                  [.027,.024,.028],sides=12)
         tube('Ledger pivot bolt',[(side*.255,.48,.205),(side*.295,.48,.205)], [.017,.017],'Brass',12)
         tube('Ledger cross stay',[(side*.285,.30,.13),(side*.285,.76,.30)], [.008,.008],'ForgedIron',8)
-    tube('Ledger rear stretcher',[(-.29,.13,.40),(.29,.13,.40)],[.019,.019],sides=12)
+    tube('Ledger rear stretcher',[(-.29,.13,.35),(.29,.13,.35)],[.019,.019],sides=12)
     for x in (-.325,.325):
-        for z in (-.035,.49):
+        for z in (-.035,.38):
             tube('Ledger countersunk pin',[(x,.955,z),(x,.958,z)],[.006,.006],'Brass',10)
 
 

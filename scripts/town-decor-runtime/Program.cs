@@ -42,6 +42,8 @@ public static class InteractionProgram
         Setup(1);var root=new GameObject("station");var light=new TownServiceLighting();var decor=new TownServiceDecor(root.transform,1,light);
         Tick(decor,0);Tick(decor,.11f);
         Check(root.transform.Find("Original.Library.Clutter.Shelf.Individual#7")!=null,"unrelated book builds while lantern material fails");
+        Check(root.transform.Find("Original.Chapel.Clutter.Shelf.Individual#2")==null, "merchant practical uses an actual candle, never height-scaled scrolls");
+        Check(root.transform.Find("Original.Candlelight.Lighting.Torch.Wall#1")!=null, "merchant ledger candle is a native candle body");
         Check(!light.Flames.ContainsKey(0) && light.Flames.ContainsKey(1),"failed lantern stays dark while independent candle remains lit");
         var workingCoin=root.transform.Find("Original.Treasure.Clutter.Shelf.Individual#1");
         Check(workingCoin!=null&&workingCoin.GetComponentInChildren<MeshRenderer>()!=null,"merchant original work coin survives stale native material GUID");
@@ -72,8 +74,8 @@ public static class InteractionProgram
                 Check(address=="decor.2."+index,"static prop address remains service/index stable");staticCount++;
             }
         Check(staticCount==9,"all priestess static lamps ledger bowl and scrolls exposed");
-        Check(root.GetComponentsInChildren<Transform>(true).Count(t => t.name == "Original.Chapel.Clutter.Shelf.Individual#2") == 3,
-            "three original chapel decorations retain independent stand poses");
+        Check(root.GetComponentsInChildren<Transform>(true).Count(t => t.name == "Original.Candlelight.Lighting.Torch.Wall#1") == 5,
+            "three actual candles and two lantern flames retain independent stand poses");
         Check(TownServiceDecor.TryStaticProp(2,0,out var lampSource,out _),"priestess static lamp ready");
         Check(TownServiceDecor.TryPractical(2,0,out var lampPoint,out var rangeScale),"original lamp has exact flame calibration");
         var lamp=UnityEngine.Object.Instantiate(lampSource!.gameObject);lamp.SetActive(false);
