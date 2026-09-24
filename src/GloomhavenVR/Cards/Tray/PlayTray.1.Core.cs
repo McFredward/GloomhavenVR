@@ -1780,8 +1780,8 @@ internal sealed partial class PlayTray : WorldUI.IPanelGrabOwner, WorldUI.IFurni
             }
             return;
         }
-        _placementDeferLogged = false;
         CancelBoardReFace(); // explicit recenter/placement owns the next visible pose
+        _placementDeferLogged = false;
         if (TryRestoreRetryStart())
             return;
 
