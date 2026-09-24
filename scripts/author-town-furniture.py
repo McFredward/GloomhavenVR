@@ -236,7 +236,7 @@ def merchant():
              (outer+side*.055,1.27,.27),(outer,1.31,.27)], [.012,.019,.019,.012],'Leather',14)
         # The cassette moves along actual bounded rails inside the box.
         for y in (1.02,1.42):
-            tube('Cassette guide rail',[(cx+side*.347,y,.072),(cx+side*.347,y,.485)],
+            tube('Cassette guide rail',[(cx+side*.370,y,.072),(cx+side*.370,y,.485)],
                  [.007,.007],'ForgedIron',8)
     for i in range(6):
         rect('Rear vertical timber',cx+(i-2.5)*.133,.508,.131,.026,1.63,.86,bevel=.004)
@@ -283,7 +283,7 @@ def merchant_cassette():
     for row in range(3):
         y=(row-1)*.17
         start=len(parts)
-        rect('Articulated shelf backing',0,.026,.69,.022,y+.082,.164,bevel=.004)
+        rect('Articulated shelf backing',0,.026,.678,.022,y+.069,.138,bevel=.004)
         for col in range(4):
             x=(col-1.5)*.18
             for dx in (-.063,.063):
