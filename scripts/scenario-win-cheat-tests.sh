@@ -16,7 +16,7 @@ import sys
 source = Path(sys.argv[1]).read_text()
 old, new = {
     'online': ('if (FFSNetwork.IsOnline) return "cheat_win_online";', ''),
-    'duplicate': ('ReferenceEquals(_requested, state) || ', ''),
+    'duplicate': ('(_requested != null && _requested.TryGetTarget(out var requested) && ReferenceEquals(requested, state))', 'false'),
 }[sys.argv[3]]
 assert source.count(old) == 1, 'Production mutation target changed'
 Path(sys.argv[2]).write_text(source.replace(old, new))
