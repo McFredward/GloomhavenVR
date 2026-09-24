@@ -5031,6 +5031,7 @@ internal sealed partial class ItemsPile
         private bool _useFxActive;
         private bool _useFxConsumed;
         internal ItemCardUI? NativeItemCard => _cardUI;
+        internal bool IsTownInspection => _owner?._inspectionRelease != null;
         internal Transform InspectionMount => transform;
         internal Transform? InspectionBody => transform.Find("Backing");
         internal bool BurnPresentationPending => _useFxActive && _useFxConsumed;
@@ -5155,8 +5156,8 @@ internal sealed partial class ItemsPile
         /// card's near-square <paramref name="cw"/>×<paramref name="ch"/> shape (the same back, just
         /// cropped). Returns null only if neither path can build (caller draws the legacy cube slab).
         /// </summary>
-        internal static GameObject? CreateInspectionBodyTemplate(Transform parent, float width, float height)
-            => BuildCardBacking(parent, width, height);
+        internal static GameObject? CreateInspectionBodyTemplate(Transform parent, float cw, float ch)
+            => BuildCardBacking(parent, cw, ch);
 
         private static GameObject? BuildCardBacking(Transform parent, float cw, float ch)
         {
