@@ -530,7 +530,24 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 550;
+    public const ushort ModBuild = 551;
+
+    // ModBuild 551 — reclaimable palm transactions, native enchantment folio and quiet residents.
+    // Original confirm/cancel controls float beneath the merchant/enchantress palm; only the
+    // offered card bypasses its own decision's grab gate. Callback-scoped cancellation preserves
+    // native completion when reclaiming, leaving, switching character or disabling town services.
+    // Merchant attention offers a palm only for a nearby eligible held/pending card, shared via
+    // the owner's original private offering-zone membership. Enchantment keeps the complete
+    // original scroll inventory, selected-card hotspots, information and buy/remove controls.
+    // Slower varied occupation phrases replace repeated casting and table bracing; full-skin
+    // contact checks cover attention and departure. Original standing candles use opaque flame
+    // cores while additive glows retain their original fade and timing. Destroyed inscriptions
+    // can be safely disposed during shutdown. Three articulated cabinet shelves roll vertically
+    // with rear clearance and folding holders; original category shutters remain unchanged.
+    // Additive TLV 87 carries version, signed scroll direction and page count. Existing 78/85/86
+    // payloads remain byte-identical. The new Windows town bundle is required on every VR peer.
+    // Evidence, remaining hardware checks: .planning/research/TOWN-SERVICES-551.md.
+
 
     // ModBuild 550 — direct town interactions and coherent resident contact motion.
     // Merchant ray/poke hits are inert; the cabinet and offered palm are the entry points.
