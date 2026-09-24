@@ -64,7 +64,7 @@ internal static class TownServiceActivityMotion
         work.Right = Vector3.Lerp(work.Right, service == 1 ? new Vector3(-.20f, 1.18f, .20f)
             : service == 3 ? new Vector3(-.18f, 1.17f, .23f) : new Vector3(-.012f, 1.23f, .20f), attention);
         work.RightRoll = Mathf.Lerp(work.RightRoll, service != 2 ? 180f : 0f, attention);
-        work.LeftRoll = Mathf.Lerp(work.LeftRoll, service == 3 ? 65f : 0f, attention);
+        work.LeftRoll = Mathf.Lerp(work.LeftRoll, service == 3 ? -65f : 0f, attention);
         work.RightCurl = Mathf.Lerp(work.RightCurl, service == 3 ? .08f : 0f, attention);
         work.LeftCurl = service == 1 ? work.LeftCurl : Mathf.Lerp(work.LeftCurl, service == 3 ? .26f : 0f, attention);
         work.Chest = Vector3.Lerp(work.Chest, Vector3.zero, attention);
@@ -97,6 +97,26 @@ internal static class TownServiceActivityMotion
         : new Vector3(.24f, .970f, .38f - index * .026f);
 
     private static readonly float[] TransferEnd = { 4.8f, 8.9f, 14.6f, 19.1f, 24.3f, 28.6f };
+    private static readonly float[] CoinPhase = { 0f, .65f, 1.12f, 1.70f, 2f, 2.75f, 3.10f, 3.6f };
+    private static readonly float[] CoinDuration = { .70f, .43f, .65f, .35f, .80f, .38f, .70f };
+    private static float MerchantTime(float segment, float length, uint phrase)
+    {
+        // Independently vary approach, grasp, inspection and release durations,
+        // rather than globally speeding up the same mechanical movement. All
+        // choices derive from the replicated work clock; no observer-local RNG.
+        float sum = 0f;
+        for (int i = 0; i < CoinDuration.Length; i++)
+            sum += CoinDuration[i] * (.78f + .44f * Variation(phrase, (uint)(47 + i * 13)));
+        float scale = Mathf.Min(length - .4f, 4.5f) / sum, start = 0f;
+        for (int i = 0; i < CoinDuration.Length; i++)
+        {
+            float duration = CoinDuration[i] * (.78f + .44f * Variation(phrase, (uint)(47 + i * 13))) * scale;
+            if (segment <= start + duration)
+                return Mathf.Lerp(CoinPhase[i], CoinPhase[i + 1], (segment - start) / duration);
+            start += duration;
+        }
+        return 3.6f;
+    }
     private static TownActivityVisual Merchant(float clock)
     {
         // Unequal observation/settling intervals keep an occupation from becoming a
@@ -114,24 +134,22 @@ internal static class TownServiceActivityMotion
         int index=transfer<3?transfer:5-transfer;
         bool returning=transfer>=3;
         float segment=cycle-start, length=TransferEnd[transfer]-start;
-        float t=segment<3.25f?segment:3.25f+(segment-3.25f)*.35f/(length-3.25f);
+        float t = MerchantTime(segment, length, (uint)block * 6u + (uint)transfer);
         Vector3 source = CoinSeat(index, returning), destination = CoinSeat(index, !returning);
         var visual = TownServiceMotionClips.Sample(returning ? 1 : 0, t / 3.6f);
-        // Generated wrists provide the full motion arc. Exact native coin seats are
-        // corrected only through stationary grasp/release windows; never attract a coin.
-        // Refit the recorded reach to the compact lectern. The entire path moves
-        // with the contact seats; stationary IK cannot drag a hand through the coat.
-        Vector3 hand = visual.Left + new Vector3(-.05f, 0f, -.11f);
-        hand.x = Mathf.Max(.24f, hand.x);
-        hand.z = Mathf.Min(.31f, hand.z);
-        Vector3 sourceDelta = source - CoinSeat(0, returning);
-        Vector3 targetDelta = destination - CoinSeat(0, !returning);
-        hand += Vector3.Lerp(sourceDelta, targetDelta, Ease(t, 1.12f, 2.75f))
-            * Ease(t, 0f, .65f) * (1f-Ease(t, 3.10f, 3.6f));
-        float contact = Ease(t, .43f, .65f) * (1f-Ease(t, 1.12f, 1.35f));
-        hand = Vector3.Lerp(hand, source, contact);
-        contact = Ease(t, 2.22f, 2.75f) * (1f-Ease(t, 3.10f, 3.32f));
-        hand = Vector3.Lerp(hand, destination, contact);
+        // Keep the generated shoulder/torso weight shift, but fit the hand to the
+        // actual compact counter. The former hard x/z clamps flattened the path
+        // into a piston. Separate minimum-jerk reaches include a short stationary
+        // pickup, curved inspection, deposit and unhurried release. Their exact
+        // contact windows retain physical ownership of the original coins.
+        float individuality = Variation((uint)block * 6u + (uint)transfer, 41u);
+        Vector3 rest = new Vector3(.27f, 1.08f, .29f);
+        Vector3 inspection = new Vector3(.27f + .018f * individuality,
+            1.08f + .025f * individuality, .23f + .018f * individuality);
+        Vector3 hand = Vector3.Lerp(rest, source, Soft(t, 0f, .65f));
+        hand = Vector3.Lerp(hand, inspection, Soft(t, 1.12f, 1.70f));
+        hand = Vector3.Lerp(hand, destination, Soft(t, 2.00f, 2.75f));
+        hand = Vector3.Lerp(hand, rest, Soft(t, 3.10f, 3.6f));
         float grip = Ease(t, .68f, .96f) * (1f - Ease(t, 2.84f, 3.08f));
         visual.Left = hand; visual.Right = new Vector3(-.32f, 1.13f, .29f);
         visual.RightRoll = 65f;
@@ -215,7 +233,7 @@ internal static class TownServiceActivityMotion
                 new Vector3(-.20f, 1.26f, .17f), lift),
             LeftElbow = new Vector3(.40f, .84f, .26f),
             RightElbow = new Vector3(-.40f, .84f, .26f), Body = body,
-            LeftRoll = 65f - 30f * shape, RightRoll = 65f + 115f * turn,
+            LeftRoll = -65f + 30f * shape, RightRoll = 65f + 115f * turn,
             Cast = cast, LeftCurl = Mathf.Lerp(.26f, .10f, shape),
             RightCurl = Mathf.Lerp(.26f, .08f, lift), EffectClock = clock
         };

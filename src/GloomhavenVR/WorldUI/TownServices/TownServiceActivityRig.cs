@@ -387,7 +387,7 @@ internal sealed class TownServiceActivityRig
             // The spell-supporting palm keeps the same level reference while raised.
             // Fading that reference with hand height left it vertical even at an
             // authored half-turn, so a correct roll value did not mean palm-up.
-            float contactFrame = _service == 1 || (_service == 3 && side < 0f) ? 1f
+            float contactFrame = _service == 1 || _service == 3 ? 1f
                 : 1f - Mathf.SmoothStep(0f, 1f, (localTarget.y - .970f) / .22f);
             Quaternion palmFrame;
             if (_service == 2)
