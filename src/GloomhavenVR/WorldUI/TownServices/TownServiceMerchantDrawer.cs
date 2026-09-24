@@ -76,6 +76,10 @@ internal sealed class TownServiceMerchantDrawer : IGrabbable, IGrabbableHandFilt
         _root = CreateTemplate(font); Root.SetParent(parent, false);
         Root.localPosition = new Vector3(-.47f, .08f, .11f);
         CopyMaterials(_root); CopyMaterials(_housing);
+        // Authored furniture is visual only. An imported collision shape must never turn
+        // an invisible part of the cabinet into another laser/poke target.
+        foreach (Collider collider in _root.GetComponentsInChildren<Collider>(true)) collider.enabled = false;
+        foreach (Collider collider in _housing.GetComponentsInChildren<Collider>(true)) collider.enabled = false;
         Transform handle = Root.Find("Handle") ?? Root;
         _pick = handle.gameObject.AddComponent<BoxCollider>(); _pick.isTrigger = true;
         MeshFilter? handleMesh = handle.GetComponent<MeshFilter>();
@@ -83,10 +87,17 @@ internal sealed class TownServiceMerchantDrawer : IGrabbable, IGrabbableHandFilt
             throw new InvalidOperationException("The authored merchant crank handle has no mesh bounds.");
         Bounds gripBounds = handleMesh.sharedMesh.bounds;
         _pick.center = gripBounds.center;
-        _pick.size = gripBounds.size + Vector3.one * .025f;
+        // Imported FBX children use a 100x local scale. Padding mesh-local bounds by
+        // .025 made a 2.5-metre invisible box to the merchant's left; releasing its
+        // laser grab advanced the cassette. Specify padding in cabinet metres instead.
+        _pick.size = gripBounds.size + GripPadding(handle.localScale, .025f);
         VRInteractables.RegisterGrabbable(this, _pick); VRLayers.Apply(_root); VRLayers.Apply(_housing);
         TownCassetteMotion.Apply(HousingRoot, 1f);
     }
+    internal static Vector3 GripPadding(Vector3 localScale, float cabinetMetres) => new(
+        cabinetMetres / Mathf.Max(.0001f, Mathf.Abs(localScale.x)),
+        cabinetMetres / Mathf.Max(.0001f, Mathf.Abs(localScale.y)),
+        cabinetMetres / Mathf.Max(.0001f, Mathf.Abs(localScale.z)));
     private void CopyMaterials(GameObject root)
     {
         var copies = new Dictionary<Material, Material>();

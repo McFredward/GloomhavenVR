@@ -299,7 +299,18 @@ public static class InteractionProgram
             {var rowHolder=new GameObject("Row"+row);rowHolder.transform.SetParent(t.transform,false);rowHolder.transform.localPosition=new Vector3(0,(row-1)*.17f,0);
              rowHolder.transform.localRotation=Quaternion.Euler(-90,0,0);rowHolder.transform.localScale=Vector3.one*100f;
              var geometry=new GameObject("OriginalGeometry");geometry.transform.SetParent(rowHolder.transform,false);geometry.transform.localPosition=new Vector3(.002f,-.001f,.003f);}
-            if(template=="MerchantCrankTemplate") {var h=GameObject.CreatePrimitive(PrimitiveType.Cube);h.name="Handle";h.transform.SetParent(t.transform,false);h.transform.localPosition=new Vector3(.08f,-.09f,0f);}
+            if(template=="MerchantCrankTemplate")
+            {
+                var h=GameObject.CreatePrimitive(PrimitiveType.Cube);h.name="Handle";h.transform.SetParent(t.transform,false);
+                h.transform.localPosition=new Vector3(.08f,-.09f,0f);
+                // FBX imports the grip in centimetre mesh coordinates under a 100x node.
+                // A constant collider padding in those coordinates was a multi-metre wall.
+                var mesh=UnityEngine.Object.Instantiate(h.GetComponent<MeshFilter>().sharedMesh);
+                var vertices=mesh.vertices;for(int i=0;i<vertices.Length;i++)vertices[i]*=.001f;
+                mesh.vertices=vertices;mesh.RecalculateBounds();h.GetComponent<MeshFilter>().sharedMesh=mesh;
+                h.transform.localScale=Vector3.one*100f;
+                UnityEngine.Object.DestroyImmediate(h.GetComponent<Collider>());
+            }
             if(template=="MerchantShutterTemplate") {var u=new GameObject("Upper");u.transform.SetParent(t.transform,false);var l=new GameObject("Lower");l.transform.SetParent(u.transform,false);}
             t.SetActive(false);
         }
@@ -351,6 +362,16 @@ public static class InteractionProgram
         Check(catalog.Controls.Count==0,"no flat filter or page buttons");
         Check(ObjectPool.Alive==164,"one physical original card per persistent entry");
         Check(catalog.Drawers.Count==1&&catalog.Categories.Count==6,"one crank and six physical category buttons share one cabinet");
+        var crankPick=catalog.Drawers[0].Root.Find("Handle").GetComponent<BoxCollider>();
+        Physics.SyncTransforms();
+        foreach(var imported in catalog.Drawers[0].HousingRoot.GetComponentsInChildren<Collider>(true))
+            Check(!imported.enabled,"imported cabinet decoration is never an invisible input wall");
+        foreach(var imported in catalog.Drawers[0].Root.GetComponentsInChildren<Collider>(true))
+            if(imported!=crankPick)Check(!imported.enabled,"only the visible crank grip accepts cabinet laser clicks");
+        Check(crankPick.bounds.size.x<.2f&&crankPick.bounds.size.y<.2f&&crankPick.bounds.size.z<.2f,
+            "FBX-scale crank grip has no invisible cabinet-sized laser wall");
+        Check(!crankPick.Raycast(new Ray(crankPick.bounds.center+Vector3.left*3f,Vector3.right),out _,2.5f),
+            "laser to empty space left of cabinet cannot turn the page crank");
         Check(catalog.Extensions.Count==0,"stock growth never adds giant side returns");
         foreach(var e in catalog.Entries)
         {

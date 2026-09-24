@@ -60,6 +60,8 @@ def sources(root):
 
 def mutations():
     return [
+        ("fbx-grip-wall", "TownServiceMerchantDrawer.cs", "GripPadding(handle.localScale, .025f)", "Vector3.one * .025f", "FBX-scale crank grip has no invisible cabinet-sized laser wall"),
+        ("imported-collider-wall", "TownServiceMerchantDrawer.cs", "foreach (Collider collider in _housing.GetComponentsInChildren<Collider>(true)) collider.enabled = false;", "", "imported cabinet decoration is never an invisible input wall"),
         ("roller-static-holders", "TownCassetteMotion.cs", "direction == 0 || progress <= 0f", "direction != 0 || progress <= 0f", "scroll direction moves visible rows vertically in the requested direction"),
         ("roller-wrong-direction", "TownCassetteMotion.cs", "row * RowPitch - direction * RollerLength", "row * RowPitch + direction * RollerLength", "scroll direction moves visible rows vertically in the requested direction"),
         ("roller-no-fold", "TownCassetteMotion.cs", "Quaternion.Euler(angle * Mathf.Rad2Deg, 0f, 0f)", "Quaternion.identity", "every original card face is folded behind its opaque holder at page replacement"),
