@@ -30,6 +30,7 @@ def sources(root):
     base = root / "src/GloomhavenVR"
     paths = {
         "Token.cs": "WorldUI/TownServices/TownServiceToken.cs",
+        "OfferingPose.cs": "WorldUI/TownServices/TownServiceOfferingPose.cs",
         "WindowMask.cs": "WorldUI/TownServices/TownServiceWindowMask.cs",
         "ConfirmationMask.cs": "WorldUI/TownServices/TownServiceConfirmationMask.cs",
         "Presentation.cs": "WorldUI/TownServices/TownServicePresentation.cs",
@@ -40,7 +41,7 @@ def sources(root):
     }
     raw = {name: (base / path).read_text() for name, path in paths.items()}
     hashes = {paths[name]: hashlib.sha256(text.encode()).hexdigest() for name, text in raw.items()}
-    bound = {name: raw[name] for name in ("Token.cs", "Presentation.cs", "Handoff.cs", "WindowMask.cs", "ConfirmationMask.cs")}
+    bound = {name: raw[name] for name in ("Token.cs", "OfferingPose.cs", "Presentation.cs", "Handoff.cs", "WindowMask.cs", "ConfirmationMask.cs")}
     bound["ConfirmationMask.cs"] = bound["ConfirmationMask.cs"].replace("Time.unscaledTime", "MaskClock.Now")
     bound["Composite.cs"] = "using System;\nnamespace GloomhavenVR.WorldUI;\ninternal static partial class ModalFallback {\n" + method(raw["Composite.cs"], "internal static bool ReleaseForComposite(UIWindow window)") + "\n}\n"
     bound["Grabber.cs"] = "using System;\nusing UnityEngine;\nnamespace GloomhavenVR.Hands.Interact;\ninternal partial class ProximityGrabber {\n" + "\n".join(method(raw["Grabber.cs"], sig) for sig in (

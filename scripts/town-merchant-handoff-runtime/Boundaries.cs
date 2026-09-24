@@ -62,6 +62,7 @@ namespace GloomhavenVR.Cards {
  }
  public enum PileKind { Items }
  public class VRCard { }
+ public static class CardsDriver { internal static void StandDownForItemFanContact(Hands.VRHand? hand, IReadOnlyList<ItemsPile.ItemChip> chips) { } }
  public static class FanSweep { public static float ArcChord(float radius,float step)=>2f*radius*Mathf.Sin(step*Mathf.Deg2Rad*.5f); public static float SplitOffset(int i)=>i*.01f; }
  public static class PileFanShape { public const float ArchFactor=.55f,TiltFactor=.85f; public static void FaceHead(Transform root) { } }
  internal sealed partial class ItemsPile {
@@ -81,7 +82,9 @@ namespace GloomhavenVR.Cards {
   private void ClearChips() { foreach(var c in _chips) UnityEngine.Object.DestroyImmediate(c.gameObject); _chips.Clear(); }
   internal partial class ItemChip : MonoBehaviour {
    public enum Visual { Normal, Spent } public Visual State;
-   public bool PendingUse;
+   public bool PendingUse, TownOffering; public Action? TownOfferingReclaimed;
+   public void CancelReleaseGlide() { _releaseGlide=0f; }
+   public void ResumeInspectionGlide() { _releaseGlide=.3f; }
    private Vector3 _homePos,_emergeFrom,_collapseWorld,_collapseFrom;
    private Quaternion _homeRot=Quaternion.identity,_emergeSpin,_collapseFromRot,_collapseSpin;
    private float _homeScale=1f,_releaseGlide,_emergeTime,_emergeDelay,_collapseFromScale,_collapseTime,_collapseDelay;
@@ -123,7 +126,8 @@ namespace GloomhavenVR.WorldUI {
  public static class StoryComposite { public static bool PointOfNoReturn; }
  internal sealed class TownServiceStation { public Transform Root = null!; public bool Near = true; public bool IsLocalVisitorNear(bool previous)=>Near; }
  internal static class TownServicePopulation { public static TownServiceStation? Station; public static bool Available(byte s)=>Station!=null; public static TownServiceStation? Acquire(byte s)=>Station; }
- internal static class TownServiceCatalog { public static Func<ScenarioRuleLibrary.CItem,bool,bool>? CanOffer; public static Func<ScenarioRuleLibrary.CItem,bool,Vector3,bool>? Offer; public static Func<Vector3,bool>? InOfferingZone; public static bool HeldOfferAvailable; }
+ internal static class TownServiceCatalog { public static Func<ScenarioRuleLibrary.CItem,bool,bool>? CanOffer; public static Func<ScenarioRuleLibrary.CItem,bool,Vector3,bool>? Offer; public static Func<Vector3,bool>? InOfferingZone; public static bool HeldOfferAvailable; public static Action<TownServiceToken>? RetainOffer; }
+ internal sealed class TownServiceToken { public void ParkOffering(Transform seat,Action reclaim) {} public void ReturnOffering() {} }
  internal static class TownServiceMerchantTransaction {
   public static int Requests; public static ScenarioRuleLibrary.CItem? LastItem; public static bool LastSelling;
   public static bool Commit(UIShopItemInventory inventory, ScenarioRuleLibrary.CItem item, bool selling, Func<bool> current) {

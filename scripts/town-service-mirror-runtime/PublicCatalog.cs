@@ -1,5 +1,7 @@
 using System;
 using System.Collections;
+using System.Collections.Generic;
+using System.Reflection;
 using System.Linq;
 using GloomhavenVR.Net;
 using GloomhavenVR.Net.TownServices;
@@ -82,10 +84,17 @@ public static partial class MirrorProgram
             chip.InspectionBody=Go("original item backing",chip.transform).transform;
             GloomhavenVR.WorldUI.TownServiceMerchantHandoff.OwnedChips.Add(chip);
         }
+        Transform offeringSeat = Go("offering outside fan", owner).transform;
+        offeringSeat.localPosition = new Vector3(.7f, .17f, -.5f);
+        var offered = GloomhavenVR.WorldUI.TownServiceMerchantHandoff.OwnedChips[0];
+        offered.transform.SetParent(offeringSeat, false); offered.TownOffering = true;
         GloomhavenVR.WorldUI.TownServiceSync.Calls.Clear();
         GloomhavenVR.WorldUI.TownServiceSync.Tick(owner,null);
         var calls=GloomhavenVR.WorldUI.TownServiceSync.Calls;
         Check(calls.Count==1024,"closed native shop publishes all 512 owned faces and original backings exactly once");
+        Check(calls.Count(c=>c.Source==offered.NativeItemCard!.transform)==1
+            && calls.Count(c=>c.Source==offered.InspectionBody)==1,
+            "original offered face and body publish after leaving the wrist fan hierarchy");
         foreach(var chip in GloomhavenVR.WorldUI.TownServiceMerchantHandoff.OwnedChips)
         {
             Check(calls.Count(c=>c.Source==chip.NativeItemCard!.transform)==1&&calls.Count(c=>c.Source==chip.InspectionBody)==1,
@@ -94,6 +103,8 @@ public static partial class MirrorProgram
         }
         object instance=typeof(GloomhavenVR.WorldUI.TownServiceSync).GetField("Private",PrivateStatic)!.GetValue(null)!;
         var generation=typeof(GloomhavenVR.WorldUI.TownServiceSync).GetField("_generation",System.Reflection.BindingFlags.Instance|System.Reflection.BindingFlags.NonPublic)!;
+        var priority = (List<Transform>)typeof(GloomhavenVR.WorldUI.TownServiceSync).GetField("PriorityRoots",BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(instance)!;
+        Check(priority.Contains(offered.NativeItemCard!.transform), "floating owned offering has animation publication priority");
         object before=generation.GetValue(instance)!;
         GloomhavenVR.WorldUI.TownServicePresentation.Active=true;
         GloomhavenVR.WorldUI.TownServicePresentation.Service=1;

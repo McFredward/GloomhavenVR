@@ -34,6 +34,7 @@ def replace_once(source, before, after):
 
 def sources(root):
     paths = ["src/GloomhavenVR/WorldUI/TownServices/TownServiceMerchantHandoff.cs",
+             "src/GloomhavenVR/WorldUI/TownServices/TownServiceOfferingPose.cs",
              "src/GloomhavenVR/Cards/Piles/ItemsPile.Merchant.cs",
              "src/GloomhavenVR/WorldUI/MapRoom/MapRoomHand.5.Merchant.cs"]
     bound = {Path(p).name: (root / p).read_text() for p in paths}
@@ -57,6 +58,9 @@ def sources(root):
 
 def mutations():
     return [
+        ("offering-flat", "TownServiceOfferingPose.cs", "facing * Quaternion.Euler(0f, 1.5f * Mathf.Sin(age * .9f), 0f)", "palm.rotation * Quaternion.Euler(90f, 0f, 0f)", "offering overlay is upright over the palm"),
+        ("offering-static", "TownServiceOfferingPose.cs", ".006f * Mathf.Sin(age * 1.8f)", "0f", "offering suspension has visible gentle continuous motion"),
+        ("offering-retirement", "ItemsPile.Merchant.cs", "!chip.TownOffering &&", "", "closed wrist fan retains actual pending offering"),
         ("remote-owner", "MapRoomHand.5.Merchant.cs", "(!FFSNetwork.IsOnline || character.IsUnderMyControl)", "true", "remote character cannot open an owned-item fan"),
         ("palm-bypass", "TownServiceMerchantHandoff.cs", "!Eligible(item, selling, cached: false) || !InOfferingZone(world)", "!Eligible(item, selling, cached: false)", "release outside palm cannot open merchant"),
         ("inventory-cap", "TownServiceMerchantHandoff.cs", "Items.AddRange(current);", "Items.AddRange(current.GetRange(0, 1));", "all equipped and bound copies become actual inspection cards"),
@@ -103,6 +107,9 @@ def main():
             if path == filename:
                 if name == "historical-census":
                     text = (fixture / "ItemsPile.Merchant.pre-optimization.fixture").read_text()
+                    # Preserve the historical quadratic census, adapting only its new parked-card API.
+                    text = text.replace("if (chip.Holder == null && (", "if (chip.Holder == null && !chip.TownOffering && (")
+                    text = text.replace("    private void RetireInspectionAt", method(bound["ItemsPile.Merchant.cs"], "internal void ResumeInspection(ItemChip chip)") + "\n    private void RetireInspectionAt")
                     text = text.replace("TickInspection(IReadOnlyList<CItem> items)", "TickInspection(IReadOnlyList<CItem> items, uint revision)")
                     # Compatibility-only field consumed by the unchanged release boundary.
                     text = text.replace("private VRHand? _inspectionGateHand;", "private VRHand? _inspectionGateHand; private bool _inspectionCensusDirty;")

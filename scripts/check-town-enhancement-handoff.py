@@ -29,14 +29,17 @@ def replace_once(source, before, after):
 def sources(root):
     path = root / "src/GloomhavenVR/WorldUI/TownServices/TownServiceEnhancementHandoff.cs"
     source = path.read_text()
-    return {path.name: source}, {path.name: hashlib.sha256(source.encode()).hexdigest()}
+    pose = path.with_name("TownServiceOfferingPose.cs")
+    bound = {path.name: source, pose.name: pose.read_text()}
+    return bound, {name: hashlib.sha256(text.encode()).hexdigest() for name, text in bound.items()}
 
 
 def mutations():
     name = "TownServiceEnhancementHandoff.cs"
     return [
-        ("owner", name, "|| !Near(_seat, card.transform.position, .28f) || !ValidOwner(card)", "|| !Near(_seat, card.transform.position, .28f)", "foreign native character refuses offering"),
-        ("distance", name, "|| !Near(_seat, card.transform.position, .28f)", "", "distant release refuses offering"),
+        ("flat-card", name, "card.SetHome(_seat, Vector3.zero, Quaternion.identity, .90f);", "card.SetHome(_seat, Vector3.zero, Quaternion.Euler(75f, 0f, 0f), .90f);", "offered ability card is upright over the palm"),
+        ("owner", name, "|| !TownServiceOfferingPose.Contains(_seat, card.transform.position) || !ValidOwner(card)", "|| !TownServiceOfferingPose.Contains(_seat, card.transform.position)", "foreign native character refuses offering"),
+        ("distance", name, "|| !TownServiceOfferingPose.Contains(_seat, card.transform.position)", "", "distant release refuses offering"),
         ("native-disabled", name, "&& slot.Selectable.IsActive() && slot.Selectable.IsInteractable()", "&& slot.Selectable.IsActive()", "foreign disabled or pending native selection never advertises a palm drop"),
         ("owner-race", name, "if (!Ready || !ValidOwner(card) || _shop.selectedCard == null", "if (!Ready || _shop.selectedCard == null", "native callback owner race refuses offering"),
         ("return", name, "if (card != null && !card.IsHeld && presentation != null) BeginReturn(presentation);", "if (card != null && !card.IsHeld && presentation != null) CardsDriver.RequestRebuild();", "walking away returns original card"),

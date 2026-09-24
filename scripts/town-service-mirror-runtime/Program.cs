@@ -245,6 +245,34 @@ public static partial class MirrorProgram
         }
     }
 
+    private static IEnumerator OfferingMotion(Transform source, Transform shared, Transform observer, TownServiceBinding copy)
+    {
+        Transform oldParent = source.parent;
+        Transform palm = Go("offering palm", shared).transform;
+        Transform seat = Go("offering seat", shared).transform;
+        palm.localPosition = new Vector3(.4f, .5f, -.2f);
+        palm.localRotation = Quaternion.Euler(65f, 12f, -33f);
+        source.SetParent(seat, true); source.localPosition = Vector3.zero; source.localRotation = Quaternion.identity;
+        foreach (float age in new[] { 0f, .4f, 1f, 1.7f, 2.4f })
+        {
+            GloomhavenVR.WorldUI.TownServiceOfferingPose.Place(seat, palm, shared, age);
+            yield return null;
+            Receive(1, Capture()); TownServiceMirror.TickRemote(_ => observer);
+            var owners = (IDictionary)typeof(TownServiceMirror).GetField("Remote", PrivateStatic)!.GetValue(null)!;
+            object module = ((IDictionary)owners[1]!)[(ushort)10]!;
+            object motion = module.GetType().GetField("Motion", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(module)!;
+            Type type = motion.GetType();
+            float began = (float)type.GetField("_started", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(motion)!;
+            float duration = (float)type.GetField("_duration", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(motion)!;
+            type.GetMethod("Tick", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(motion, new object[] { began + duration + .002f });
+            Check(Vector3.Distance(copy.Root.position, observer.TransformPoint(shared.InverseTransformPoint(source.position))) < .00003f,
+                "remote reparented offering preserves owner floating position");
+            Check(Quaternion.Angle(copy.Root.rotation, observer.rotation * Quaternion.Inverse(shared.rotation) * source.rotation) < .025f,
+                "remote reparented offering preserves owner upright rotation");
+        }
+        source.SetParent(oldParent, true);
+    }
+
     private static IEnumerator Lifecycle(Transform source, Transform shared, Transform observer, TownServiceBinding copy)
     {
         for (float wait = Time.unscaledTime + .11f; Time.unscaledTime < wait;) yield return null;
@@ -1028,6 +1056,8 @@ public static partial class MirrorProgram
             ComparePixels(source, copy.Root, "changed");
             IEnumerator motionCheck = Motion(source, shared, observer, copy);
             while (motionCheck.MoveNext()) yield return motionCheck.Current;
+            IEnumerator offeringCheck = OfferingMotion(source, shared, observer, copy);
+            while (offeringCheck.MoveNext()) yield return offeringCheck.Current;
             if (suite == "full")
             {
                 IEnumerator extended = Full(source, shared, observer, copy, baseline, awakes, enables);

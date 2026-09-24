@@ -58,6 +58,18 @@ public static class InteractionProgram
   window.ItemInventory.character=character; window.ItemInventory.service=new ShopService(AdventureState.MapState.MapParty,_=>{});
   TownServiceMerchantHandoff.Tick(); TownServiceMerchantHandoff.LateTick();
   Check(MapRoomDriver.Visits==0,"approach never opens a native service");
+  Transform zone = TownServiceMerchantHandoff.Zone!;
+  Check(Vector3.Dot(zone.up, Vector3.up) > .999f, "offering overlay is upright over the palm");
+  Check(Mathf.Abs((zone.position.y - palm.position.y) / scale - .17f) < .007f, "whole offering portrait clears the palm");
+  Check(((RectTransform)zone).sizeDelta.y > ((RectTransform)zone).sizeDelta.x, "offering overlay is portrait shaped");
+  var animated = new GameObject("PoseProbe").transform; animated.SetParent(root.transform, false);
+  palm.localRotation = Quaternion.Euler(70f, 31f, 43f);
+  TownServiceOfferingPose.Place(animated, palm, root.transform, 0f); Vector3 start = animated.position;
+  TownServiceOfferingPose.Place(animated, palm, root.transform, 1f);
+  Check((animated.position - start).magnitude / scale > .002f, "offering suspension has visible gentle continuous motion");
+  Check(Vector3.Dot(animated.up, Vector3.up) > .999f, "wrist roll cannot flatten the offering portrait");
+  palm.localRotation = Quaternion.identity;
+
   Check(TownServiceMerchantHandoff.OwnedChips.Count==31,"all equipped and bound copies become actual inspection cards");
   Check(TownServiceMerchantHandoff.Active,"local owned fan opens near resident");
   Check(!TownServiceMerchantHandoff.CanOffer(character.AllCharacterItems[4],true),"nontradeable items remain readable but cannot be sold");
@@ -72,16 +84,23 @@ public static class InteractionProgram
   Check(first.Holder==VRHands.Right,"closing fan never tears a held card away");
   VRHands.Right.Grabber.Held=null; first.Holder=null;
   // Native window opening may complete on a subsequent frame; no hidden purchase is allowed.
-  Check(TownServiceMerchantHandoff.Offer(first.Item!,true,palm.position),"actual owned release requests merchant");
+  first.Release(palm.position);
+  Check(first.TownOffering && MapRoomDriver.Visits==1,"actual owned release parks the original card and requests merchant");
+  Check(first.transform.parent == zone.parent,"actual owned item shares the floating offering frame");
   Check(TownServiceMerchantTransaction.Requests==0,"release waits for native inventory readiness");
   window.GetComponent<UIWindow>().IsOpen=true;
   window.ItemInventory.character=new CMapCharacter(); TownServiceMerchantHandoff.Tick();
   Check(TownServiceMerchantTransaction.Requests==0,"native inventory for another character cannot receive offer");
+  Check(first.TownOffering && !first.IsCollapsing,"closed wrist fan retains actual pending offering");
   window.ItemInventory.character=character; TownServiceMerchantHandoff.Tick();
   Check(TownServiceMerchantTransaction.Requests==1 && TownServiceMerchantTransaction.LastSelling,"owned release dispatches exact sell confirmation");
   Check(ReferenceEquals(TownServiceMerchantTransaction.LastItem,first.Item),"sale preserves item copy identity");
   Check(Singleton<UIItemConfirmationBox>.Instance!.IsActive,"final native confirmation remains visibly pending");
   Check(!TownServiceMerchantHandoff.Offer(duplicate,true,palm.position),"pending native confirmation excludes another offer");
+  character.AllCharacterItems.Remove(first.Item!);
+  typeof(TownServiceMerchantHandoff).GetField("_nextItems", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)!.SetValue(null,0f);
+  TownServiceMerchantHandoff.Tick();
+  Check(first.TownOffering && !first.IsCollapsing,"native inventory mutation cannot destroy a pending offered card");
   // Leaving cancels only our own confirmation and restores the original hand.
   int restore=MapRoomHand.NormalRebuilds;
   Singleton<UIItemConfirmationBox>.Instance.OnCancelled=()=> {

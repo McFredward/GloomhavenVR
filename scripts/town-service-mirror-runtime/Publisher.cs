@@ -196,6 +196,7 @@ namespace GloomhavenVR.Cards
             internal GloomhavenVR.WorldUI.ItemCardUI? NativeItemCard;
             internal Transform InspectionMount => transform;
             internal Transform? InspectionBody, Holder;
+            internal bool TownOffering;
             internal Item? Item;
         }
         internal sealed class Item { internal int ID; }

@@ -87,7 +87,10 @@ public static class InteractionProgram
                 Check(card.Grabbable && TownServiceEnhancementHandoff.CanReclaim(card), "offering remains reclaimable");
                 Check(!TownServiceEnhancementHandoff.TryOffer(card), "duplicate release cannot select twice");
                 palm.localPosition += new Vector3(.1f, .04f, -.02f); handoff.Tick();
-                Check((card.transform.position - palm.position).magnitude < .06f * scale, "physical offering follows actual palm at every scale");
+                Check(Mathf.Abs((card.transform.position.y - palm.position.y) / scale - .17f) < .007f
+                    && (new Vector2(card.transform.position.x - palm.position.x, card.transform.position.z - palm.position.z)).magnitude < .001f * scale,
+                    "physical offering floats upright above actual palm at every scale");
+                Check(Vector3.Dot(card.transform.up, Vector3.up) > .999f, "offered ability card is upright over the palm");
                 if (scenario == 10)
                 {
                     var hand = new VRHand(); card.Grab(hand);

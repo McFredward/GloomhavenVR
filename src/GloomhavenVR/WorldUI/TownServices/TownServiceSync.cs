@@ -126,6 +126,7 @@ internal sealed class TownServiceSync
         }
         if (inspection)
         {
+            if (TownServiceMerchantHandoff.Zone != null) PriorityRoots.Add(TownServiceMerchantHandoff.Zone);
             Publish("merchant.zone", TownServiceMerchantHandoff.Zone);
             foreach (ItemsPile.ItemChip chip in TownServiceMerchantHandoff.OwnedChips)
             {
@@ -133,7 +134,7 @@ internal sealed class TownServiceSync
                 Transform mount = chip.InspectionMount;
                 Transform face = chip.NativeItemCard.transform;
                 Transform? body = chip.InspectionBody;
-                if (chip.Holder != null)
+                if (chip.Holder != null || chip.TownOffering)
                 { PriorityRoots.Add(mount); PriorityRoots.Add(face); if (body != null) PriorityRoots.Add(body); }
                 Publish("item." + chip.Item.ID.ToString(System.Globalization.CultureInfo.InvariantCulture), face);
                 Publish(TownServiceInspectionBody.Key(chip), body);
@@ -160,6 +161,7 @@ internal sealed class TownServiceSync
                 TownServiceEnhancementHandoff? handoff = ritual.Handoff;
                 if (handoff != null)
                 {
+                    PriorityRoots.Add(handoff.Zone);
                     Publish("merchant.zone", handoff.Zone);
                     if (handoff.Card != null && handoff.NativeSource != null && handoff.Face != null)
                     {

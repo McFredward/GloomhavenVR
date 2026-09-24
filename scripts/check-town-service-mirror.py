@@ -26,6 +26,8 @@ def sources(root):
     names = ["TownServiceAssets", "TownServiceBinding", "TownServiceCodec", "TownServiceDelta",
              "TownServiceFrame", "TownRackState", "TownCassetteMotion", "TownServiceMirror.Racks", "TownServiceMaterial", "TownServiceFlameClock", "TownServiceMirror"]
     bound = {name + ".cs": (base / "Net/TownServices" / (name + ".cs")).read_text() for name in names}
+    offering = base / "WorldUI/TownServices/TownServiceOfferingPose.cs"
+    bound[offering.name] = offering.read_text()
     backdrop = base / "WorldUI/TownServices/TownServiceBackdropAssets.cs"
     if backdrop.exists(): bound[backdrop.name] = backdrop.read_text()
     motion = base / "Net/TownServices/TownServiceMotion.cs"
@@ -182,6 +184,7 @@ def main():
         variants = [("production", None, None, None, "")]
         if not args.no_negative_controls:
             variants += [
+                ("offering-priority", "PublisherTick.cs", "chip.Holder != null || chip.TownOffering", "chip.Holder != null", "floating owned offering has animation publication priority"),
                 ("private-public-collision", "TownServiceMirror.cs", "if (frame!.PublicCatalog) { peer = -peer;", "if (frame!.PublicCatalog) { peer = Math.Abs(peer);", "one lowest live stock author is elected"),
                 ("unfrozen-inspection-backing", "LazyNativeTemplates.cs", "Freeze(key, bodyEntry); Entries.Add(key, bodyEntry);", "Entries.Add(key, bodyEntry);", "lazy inspection backing has publication partitions on its first request"),
                 ("inspection-native-gate", "PublisherTick.cs", "if (!active && !inspection && returns.Count == 0)", "if (!active && returns.Count == 0)", "closed native shop publishes all 512 owned faces and original backings exactly once"),

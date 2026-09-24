@@ -156,8 +156,8 @@ internal static class TownServiceMerchantHandoff
     }
     private static void OnOwnedRelease(ItemsPile.ItemChip chip, Vector3 world)
     {
-        if (_resetting || chip.Item == null || !ReferenceEquals(chip.Owner, _fan)
-            || !Offer(chip.Item, true, world) || _seat == null) return;
+        if (_resetting || _seat == null || chip.Item == null || !ReferenceEquals(chip.Owner, _fan)
+            || !Offer(chip.Item, true, world)) return;
         _offeredChip = chip; _ownedHome = chip.transform.parent;
         chip.TownOffering = true; chip.TownOfferingReclaimed = Reclaim;
         chip.CancelReleaseGlide();

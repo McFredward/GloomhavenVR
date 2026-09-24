@@ -272,6 +272,8 @@ namespace GloomhavenVR.WorldUI
     // production tokens and the presentation-supplied lifetime/context delegates.
     internal sealed class TownServiceRitual : IDisposable
     {
+        internal OfferingLate? Handoff => null;
+        internal sealed class OfferingLate { internal void LateTick() {} }
         internal static bool Fail;
         private readonly List<TownServiceToken> _tokens = new();
         private readonly Dictionary<Transform, Transform> _parents = new();
