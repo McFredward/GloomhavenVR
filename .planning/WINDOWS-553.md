@@ -45,6 +45,11 @@ source-proven failure paths, not a reconstruction of that specific run.
   repaired for native windows that predate VR activation. Normal VR mouse-mode
   protection already covers ordinary creation; these bindings are defensive, not
   an identified cause of this report.
+- Repeated openings cannot classify an interactive unknown window as a cycling HUD
+  banner. Mandatory decisions and windows with native selectors/click trackers are
+  exempt from both churn counting and inherited name suppression, including controls
+  temporarily inactive during an animation. Already-known HUD is still excluded and
+  unknown content-only cycling banners retain their existing fuse.
 
 No automatic answers, forced gameplay unlocks, new network messages, native game
 asset edits or NPC branch changes are involved. Information windows use their
@@ -72,6 +77,7 @@ passing tests do not establish headset layout or actual network delivery.
 | Queued messages / semantic popup cancellation | 355 | 8 |
 | Complete confirmation surface lifecycle | 105 | 6 |
 | Final mandatory close admission | 116 | 4 |
+| Menu lifecycle / repeated interactive popup admission | 7,336 | 21 |
 
 Combined source, wire, production regression and strict Release verification is
 recorded below when complete. The three new suites are registered locally and in CI.

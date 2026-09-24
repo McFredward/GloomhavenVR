@@ -530,7 +530,9 @@ internal static class NetProtocol
     // controller cancellation/cleanup. Raw Hide cannot bypass level-up, location reveal,
     // character creation, confirmation or tutorial continuation. Unlock body clicks target
     // only the controller's actual ready Continue; map reward buttons also recover bindings
-    // when their native instances predate VR activation. No wire grammar changes.
+    // when their native instances predate VR activation. The catch-all churn fuse cannot
+    // suppress a waiting decision or a window with native input controls, even while its
+    // animation keeps those controls inactive. No wire grammar changes.
     // Builds 547–552 belong to the isolated NPC branch and are not reused here.
     // Source findings, coverage and hardware limits: .planning/WINDOWS-553.md.
 

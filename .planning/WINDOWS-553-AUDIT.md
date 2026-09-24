@@ -68,6 +68,15 @@ not just whether an `onHidden` subscription exists.
    HideWindow does not call onCloseButtonPressed, and bare Hide stops the autoclose
    coroutine. Integrator protects the LevelMessageUILayoutGroup identity; the
    original layout Continue/action callback remains authoritative.
+7. **Repeated interactive unknown windows can trip the HUD churn fuse.**
+   The catch-all counted every unknown opening, except hover cards and mod menus,
+   and could suppress its fourth opening within a minute for the whole session.
+   Opening frequency cannot establish that a window is a passive HUD banner.
+   Both fuse entry points now exempt mandatory decisions and native Selectable/
+   ClickTracker controls, including ones hidden until an animation finishes.
+   The hierarchy check runs at admission; ordinary known-HUD rejection and the
+   already-floated fast path retain their cheap behavior. Existing suppression
+   by name cannot hide a subsequent interactive use of that name.
 
 ## Coverage matrix
 

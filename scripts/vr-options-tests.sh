@@ -28,9 +28,12 @@ assert 'BindRow(clone, mainMenu: false);' in method(row, 'private static void In
 assert 'BindRow(clone, mainMenu: true);' in method(row, 'private static void InjectMain(UIMainOptionsMenu menu)')
 assert 'SetMainFocused(' not in row and 'SetFocused(host,' not in row
 print('VR options: seven production source bindings passed.')
-s = 'using System;\nusing UnityEngine;\nusing UnityEngine.SceneManagement;\nusing GloomhavenVR.Core;\nnamespace GloomhavenVR.WorldUI;\n'
+s = 'using System;\nusing UnityEngine;\nusing UnityEngine.UI;\nusing UnityEngine.SceneManagement;\nusing GloomhavenVR.Core;\nnamespace GloomhavenVR.WorldUI;\n'
 s += 'internal static partial class ModalFallback {\n'
 s += method(catch, 'private static bool AllowCatchAllRepeat(UIWindow window, bool hoverCard)')
+start=catch.index('    private static bool HasUserContinuation(UIWindow window) =>')
+end=catch.index(';',start)+1
+s += '\n' + catch[start:end] + '\n'
 s += '\nprivate static bool PassEarlySuppression(UIWindow window, bool hoverCard) {\n' + early + '\nreturn true;\n}\n}\n'
 s += 'internal static partial class MenuWindowFamily {\n' + method(family, 'internal static bool IsModOwned(UIWindow? window)') + '\n}\n'
 s += 'internal static partial class VRMenuEntry {\n'
@@ -46,13 +49,15 @@ cp "$repo_root/tests/GloomhavenVR.VROptionsTests/"*.cs "$test_dir/"
 cp "$repo_root/tests/GloomhavenVR.VROptionsTests/"*.csproj "$test_dir/"
 project="$test_dir/GloomhavenVR.VROptionsTests.csproj"
 dotnet run --project "$project" --configuration Release --property:OptionsSource="$test_dir/Options.fixture"
-for mutation in mod-count mod-early registered-identity row-visibility row-enabled row-focus entry-recovery seat-recovery injection-recovery injection-cleanup stale-clone stale-close discovery-budget known-host pause-retry native-focus recursive-close latch-immediate rival-close; do
+for mutation in mod-count mod-early continuation-count continuation-early registered-identity row-visibility row-enabled row-focus entry-recovery seat-recovery injection-recovery injection-cleanup stale-clone stale-close discovery-budget known-host pause-retry native-focus recursive-close latch-immediate rival-close; do
     python3 - "$test_dir" "$mutation" <<'PY'
 import pathlib, sys
 out = pathlib.Path(sys.argv[1]); s = (out / 'Options.fixture').read_text()
 mutations = {
     'mod-count': ('if (hoverCard || MenuWindowFamily.IsModOwned(window))', 'if (hoverCard)'),
     'mod-early': ('!hoverCard && !MenuWindowFamily.IsModOwned(window)', '!hoverCard'),
+    'continuation-count': ('if (HasUserContinuation(window))', 'if (HasUserContinuation(window) && window.name == "<mutant>")'),
+    'continuation-early': ('&& !HasUserContinuation(window)', ''),
     'registered-identity': ('if (ReferenceEquals(ModOwned[i], window))', 'if (ReferenceEquals(ModOwned[i], null))'),
     'row-visibility': ('row.gameObject.SetActive(true);', 'row.gameObject.SetActive(false);'),
     'row-enabled': ('row.IsInteractable = true;', 'row.IsInteractable = false;'),
@@ -86,6 +91,8 @@ PY
     fi
     case "$mutation" in
         mod-count|mod-early) expected='settings survive preexisting suppression' ;;
+        continuation-count) expected='interactive repeated openings never consume HUD churn budget' ;;
+        continuation-early) expected='interactive window survives prior name suppression' ;;
         registered-identity) expected='registered identity survives' ;;
         row-visibility) expected='both settings doors regain visibility' ;;
         row-enabled) expected='both settings doors remain enabled' ;;

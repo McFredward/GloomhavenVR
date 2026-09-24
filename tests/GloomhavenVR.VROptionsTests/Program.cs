@@ -75,6 +75,23 @@ internal static class Program
         Time.unscaledTime += 61f;
         for (int i = 0; i < 3; i++) Check(ModalFallback.Admit(hud), "unknown HUD interval resets");
 
+        // Pooled progress windows may open once for each character, or on repeated
+        // visits. A disabled/pending control is still an explicit continuation.
+        foreach (object? control in new object?[] { null, new UnityEngine.UI.Selectable(),
+            new ClickTracker(), new ClickTrackerExtended() })
+        {
+            ModalFallback.Reset();
+            var prompt = new UIWindow { name = "Pooled progression prompt", Control = control,
+                Mandatory = control == null };
+            for (int cycle = 0; cycle < 32; cycle++)
+            {
+                Check(ModalFallback.Admit(prompt), "interactive repeated openings stay available");
+                Check(!ModalFallback.Counted(prompt.name), "interactive repeated openings never consume HUD churn budget");
+            }
+            ModalFallback.Suppress(prompt.name);
+            Check(ModalFallback.Admit(prompt), "interactive window survives prior name suppression");
+        }
+
         Time.unscaledTime = 1000f;
         VRMenuEntry.Throw = true;
         VRMenuEntry.Tick();

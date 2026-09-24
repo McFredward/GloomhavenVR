@@ -356,7 +356,8 @@ internal static partial class ModalFallback
             }
 
             if (!hoverCard && !MenuWindowFamily.IsModOwned(window)
-                && ChurnSuppressed.Contains(window.name))
+                && ChurnSuppressed.Contains(window.name)
+                && !HasUserContinuation(window))
                 continue; // fuse blew for this window type — session-suppressed (see ChurnMaxFloats)
             if (!CatchAllEligible(window))
                 continue;
@@ -396,6 +397,8 @@ internal static partial class ModalFallback
     {
         if (hoverCard || MenuWindowFamily.IsModOwned(window))
             return true;
+        if (HasUserContinuation(window))
+            return true;
         if (ChurnSuppressed.Contains(window.name))
             return false;
 
@@ -415,6 +418,18 @@ internal static partial class ModalFallback
                               "(manual A/X screen chord still reaches it). Exclude it explicitly.");
         return false;
     }
+
+    /// <summary>Opening frequency is not evidence that an interactive window is HUD.
+    /// Four characters can receive the same pooled prompt in quick succession. Include
+    /// currently disabled/inactive controls: reveal animations often expose Continue
+    /// only later. This is checked at admission, not on every tick of an existing float.
+    /// Known passive HUD still follows its explicit exclusion; content-only unknown
+    /// cycling banners retain the bounded churn fuse.</summary>
+    private static bool HasUserContinuation(UIWindow window) =>
+        IsMandatoryDecision(window, out _)
+        || window.GetComponentInChildren<Selectable>(true) != null
+        || window.GetComponentInChildren<ClickTracker>(true) != null
+        || window.GetComponentInChildren<ClickTrackerExtended>(true) != null;
 
     /// <summary>
     /// Level-triggered exclusion check, re-evaluated EVERY tick the window would join
