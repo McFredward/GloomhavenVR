@@ -628,7 +628,8 @@ internal static class RemoteStorySync
         if (key == 0u)
             return;
 
-        ResolvePage(box, key);
+        // Native opening history owns page/finish provenance, including synchronous
+        // queued successors. Content-only legacy FINISHED must not close a later opening.
         ResolvePose(key);
     }
 

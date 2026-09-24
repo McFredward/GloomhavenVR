@@ -1507,7 +1507,11 @@ internal static partial class RemoteMapStory
             uint key = RemoteStorySync.HashDialog(box.dialogs);
             if (key != 0u)
             {
-                ResolveStoryPage(box, key);
+                // Build 555: the native queue can replace a completed message synchronously,
+                // so legacy content-only pages/FINISHED cannot prove which opening they name.
+                // The lifecycle record owns page application; record 21 still owns the pose.
+                if (!MapStoryLifecycle.OwnsCurrent)
+                    Note("map story awaits native opening provenance before accepting peer continuation");
                 ResolvePose(SharedWindowKind.MapStory, StoryLocal, key, StoryPeers, StoryStampAt);
             }
         }
