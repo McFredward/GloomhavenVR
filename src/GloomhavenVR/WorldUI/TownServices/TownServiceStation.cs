@@ -17,6 +17,7 @@ internal sealed class TownServiceStation : IDisposable
     private readonly TownServiceGrounding _grounding;
     private readonly TownServiceFace _face;
     private readonly TownServiceActivityRig _activity;
+    private readonly TownServiceActivityAudio _audio;
     private bool _faceFailed, _activityFailed;
     private static readonly bool[] ActivityFailureReported = new bool[4];
     private static readonly bool[] FaceFailureReported = new bool[4];
@@ -51,6 +52,7 @@ internal sealed class TownServiceStation : IDisposable
         _grounding = new TownServiceGrounding(root.transform);
         _face = new TownServiceFace(root.transform, service);
         _activity = new TownServiceActivityRig(root.transform, service);
+        _audio = new TownServiceActivityAudio(root.transform, service);
         _lighting = new TownServiceLighting(root.transform, service);
         try { _decor = new TownServiceDecor(root.transform, service, _lighting); }
         catch { _lighting.Dispose(); _grounding.Dispose(); throw; }
@@ -197,6 +199,9 @@ internal sealed class TownServiceStation : IDisposable
         }
     }
 
+    internal void SampleActivityAudio(int author, uint epoch, float clock, bool visible, in TownActivityVisual shown)
+        => _audio.Tick(author, epoch, clock, Time.unscaledDeltaTime, visible && !_activityFailed, in shown);
+
     internal void SeedFace(TownFacePose pose, int author, float elapsed)
     {
         if (_faceFailed) return;
@@ -219,6 +224,7 @@ internal sealed class TownServiceStation : IDisposable
 
     public void Dispose()
     {
+        _audio.Dispose();
         _grounding.Dispose();
         _decor.Dispose();
         _lighting.Dispose();

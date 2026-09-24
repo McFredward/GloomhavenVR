@@ -23,7 +23,7 @@ def replace_once(source, before, after):
 def sources(root):
     base = root / "src/GloomhavenVR/WorldUI/TownServices"
     names = ["TownServiceActivityHandover.cs", "TownServiceActivityMotion.cs", "TownServiceActivityRig.cs", "TownServiceActivityProps.cs", "TownServiceGrounding.cs", "TownServiceFaceAttention.cs", "TownServiceFaceMotion.cs", "TownServiceFaceRig.cs"]
-    names += ["TownServiceMotionClips.cs", "TownServiceMotionClips.Data.cs", "TownServiceLightList.cs"]
+    names += ["TownServiceMotionClips.cs", "TownServiceMotionClips.Data.cs", "TownServiceLightList.cs", "TownServiceActivitySoundClock.cs", "TownServiceActivityAudio.cs"]
     bound = {name: (base / name).read_text() for name in names}
     bound["RemoteTownActivities.cs"] = (root / "src/GloomhavenVR/Net/Remote/RemoteTownActivities.cs").read_text()
     bound["TownActivityTypes.cs"] = (root / "src/GloomhavenVR/Net/TownActivityState.cs").read_text().split("/// <summary>Additive81:")[0]
@@ -35,6 +35,13 @@ def sources(root):
 
 def mutations():
     return [
+        ("audio-ignores-master", "TownServiceActivityAudio.cs", "Mathf.Clamp01(global.MasterVolume / 100f)", "1f", "native master and effects settings both apply live"),
+        ("audio-not-spatial", "TownServiceActivityAudio.cs", "source.spatialBlend = 1f", "source.spatialBlend = 0f", "resident foley is spatial and has no moving-rig Doppler"),
+        ("audio-leaks-listener", "TownServiceActivityAudio.cs", "HeadEar.Release(_claim);", "// negative: leak shared listener", "hidden or disabled station stops sound and releases listener"),
+        ("audio-seek-replay", "TownServiceActivitySoundClock.cs", "delta >= -.001f && delta <= .25f", "true", "authority seek stall or hide cannot replay historical contact"),
+        ("audio-contact-repeat", "TownServiceActivitySoundClock.cs", "before > .99f && after < .01f", "after < .01f", "each visible coin deposit sounds once independent of frame rate"),
+        ("audio-author-replay", "TownServiceActivitySoundClock.cs", "author == _author && epoch == _epoch", "true", "authority seek stall or hide cannot replay historical contact"),
+        ("unmirrored-mage-pronation", "TownServiceActivityMotion.cs", "LeftRoll = -65f + 30f * shape", "LeftRoll = 65f - 30f * shape", "relaxed enchantress palms face inward symmetrically"),
         ("identical-spell-variation", "TownServiceActivityMotion.cs", ".55f + .45f * Variation(block, 11u)", ".80f", "spell experiment strength varies between shared clock blocks"),
         ("constant-spell", "TownServiceActivityMotion.cs", "Cast = cast, LeftCurl", "Cast = 1f, LeftCurl", "visible spell uses an upward-facing palm"),
         ("separated-prayer", "TownServiceActivityMotion.cs", "new Vector3(.012f,height,.20f)", "new Vector3(.035f,height,.20f)", "prayer joins cupped hands at the sternum"),
@@ -89,7 +96,7 @@ def main():
     dotnet = shutil.which("dotnet") or str(Path.home() / ".dotnet/dotnet")
     bound, hashes = sources(args.source_root)
     if args.portable:
-        wanted = {"TownServiceMotionClips.cs", "TownServiceMotionClips.Data.cs", "TownServiceActivityMotion.cs", "TownServiceActivityHandover.cs", "TownActivityTypes.cs",
+        wanted = {"TownServiceMotionClips.cs", "TownServiceMotionClips.Data.cs", "TownServiceActivitySoundClock.cs", "TownServiceActivityMotion.cs", "TownServiceActivityHandover.cs", "TownActivityTypes.cs",
                   "RemoteTownActivities.cs", "RemoteTownFaces.cs", "RemoteTownPerformance.cs", "FaceTypes.cs", "TownServiceFaceMotion.cs"}
         bound = {name: code for name, code in bound.items() if name in wanted}
         face = bound["TownServiceFaceMotion.cs"]
@@ -107,8 +114,8 @@ def main():
     manifest = {"result": str(run / "results.txt"), "cases": []}
     variants = [("production", None, None, None, "")]
     if not args.no_negative_controls:
-        rig_only = ("separated-prayer", "animated-knee-pole", "zero-weight-stance-snap", "raised-stage-gesture", "vertical-casting-palm", "wrapped-forearm-support", "unplanted-feet", "ignore-ik", "thumb-overcurl", "attentive-counter-bracing", "excessive-work-bow", "ignore-palm-offset", "curl-contact-markers", "downward-offering", "coin-detached-from-grip")
-        variants += [v for v in mutations() if (not args.portable or v[0] not in rig_only) and (args.bundle or v[0] not in ("attentive-counter-bracing", "unplanted-feet", "wrapped-forearm-support", "separated-prayer", "animated-knee-pole", "zero-weight-stance-snap", "raised-stage-gesture", "vertical-casting-palm"))]
+        rig_only = ("audio-ignores-master", "audio-not-spatial", "audio-leaks-listener", "unmirrored-mage-pronation", "separated-prayer", "animated-knee-pole", "zero-weight-stance-snap", "raised-stage-gesture", "vertical-casting-palm", "wrapped-forearm-support", "unplanted-feet", "ignore-ik", "thumb-overcurl", "attentive-counter-bracing", "excessive-work-bow", "ignore-palm-offset", "curl-contact-markers", "downward-offering", "coin-detached-from-grip")
+        variants += [v for v in mutations() if (not args.portable or v[0] not in rig_only) and (args.bundle or v[0] not in ("unmirrored-mage-pronation", "attentive-counter-bracing", "unplanted-feet", "wrapped-forearm-support", "separated-prayer", "animated-knee-pole", "zero-weight-stance-snap", "raised-stage-gesture", "vertical-casting-palm"))]
     # A mutation of an absent production file is not an executable negative control.
     # The full Unity suite retains every rig mutation; portable mode only claims its
     # compiled phase/network sources and must fail loudly if this partition drifts.
@@ -133,9 +140,10 @@ def main():
             portable = build / "portable"
             portable.mkdir()
             program = (fixture / "Program.cs").read_text().split("    private static void Actual(")[0] + "}\n"
-            program = program.replace('        count += HandContacts.Run();\n', '')
+            program = program.replace('        count += HandContacts.Run();\n', '').replace('        count += AudioSourceChecks.Run();\n', '')
             program = program.replace('        string[] args=Environment.GetCommandLineArgs();int at=Array.IndexOf(args,"-faceBundle");\n        if(at>=0)Actual(args[at+1]);\n', '')
             (portable / "Program.cs").write_text(program)
+            shutil.copyfile(fixture / "AudioClockChecks.cs", portable / "AudioClockChecks.cs")
             shutil.copyfile(fixture / "PortableBoundaries.cs.in", portable / "Boundaries.cs")
             project.write_text(project.read_text().replace("<TargetFramework>netstandard2.1</TargetFramework>",
                 "<TargetFramework>net8.0</TargetFramework><OutputType>Exe</OutputType>")
@@ -175,7 +183,7 @@ def main():
     (project / "Packages").mkdir()
     (project / "ProjectSettings").mkdir()
     shutil.copyfile(fixture / "Editor/InteractionRunner.cs", project / "Assets/Editor/InteractionRunner.cs")
-    (project / "Packages/manifest.json").write_text('{"dependencies":{"com.unity.modules.assetbundle":"1.0.0","com.unity.modules.animation":"1.0.0","com.unity.modules.physics":"1.0.0"}}\n')
+    (project / "Packages/manifest.json").write_text('{"dependencies":{"com.unity.modules.assetbundle":"1.0.0","com.unity.modules.animation":"1.0.0","com.unity.modules.audio":"1.0.0","com.unity.modules.physics":"1.0.0"}}\n')
     (project / "ProjectSettings/ProjectVersion.txt").write_text("m_EditorVersion: 2021.3.5f1\n")
     log = run / "unity.log"
     command = ["xvfb-run", "-a", str(args.unity), "-batchmode", "-nographics", "-projectPath", str(project),

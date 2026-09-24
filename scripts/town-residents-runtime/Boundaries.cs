@@ -99,6 +99,7 @@ namespace GloomhavenVR.WorldUI
         internal static bool NearVisitor; internal int AttentionQueries;
         internal bool PrepareActivityAttention(bool previous){AttentionQueries++;return NearVisitor;}
         internal void SampleActivity(in TownActivityVisual pose) { }
+        internal void SampleActivityAudio(int author,uint epoch,float clock,bool visible,in TownActivityVisual shown) { }
         internal int FaceSeeds;internal bool FaceAuthor,FaceReceived;internal GloomhavenVR.Net.TownFacePose FacePose;
         internal void SeedFace(GloomhavenVR.Net.TownFacePose pose,int author,float elapsed){FaceSeeds++;FacePose=pose;}
         internal GloomhavenVR.Net.TownFacePose SampleFace(bool author,bool received,int authorId,in GloomhavenVR.Net.TownFacePose remote,float elapsed,float clock){FaceAuthor=author;FaceReceived=received;if(received)FacePose=remote;return FacePose;}

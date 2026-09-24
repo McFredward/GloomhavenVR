@@ -36,3 +36,23 @@ namespace GloomhavenVR.Net.TownServices
 }
 
 namespace GloomhavenVR.Core { internal static class VRLayers {internal const int ModLayer=27;} internal static class VRLog { internal static int Warnings; internal static void Warn(string source,string text)=>Warnings++; } }
+
+internal sealed class GlobalData { public int MasterVolume=100,SFXVolume=100; }
+internal sealed class SaveData { public static SaveData Instance=new(); public GlobalData Global=new(); }
+internal sealed class FixtureAudioSubItem { public AudioClip? Clip; }
+internal sealed class FixtureAudioItem { public FixtureAudioSubItem[] subItems=Array.Empty<FixtureAudioSubItem>(); }
+internal static class AudioController
+{
+    internal static readonly Dictionary<string,FixtureAudioItem> Items=new();
+    internal static bool IsValidAudioID(string id)=>Items.ContainsKey(id);
+    internal static FixtureAudioItem GetAudioItem(string id)=>Items[id];
+}
+namespace GloomhavenVR.Core
+{
+    internal static class HeadEar
+    {
+        internal static readonly HashSet<string> Claims=new();
+        internal static bool Claim(string name){Claims.Add(name);return true;}
+        internal static void Release(string name)=>Claims.Remove(name);
+    }
+}

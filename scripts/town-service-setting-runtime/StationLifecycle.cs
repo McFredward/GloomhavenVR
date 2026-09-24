@@ -190,6 +190,12 @@ namespace GloomhavenVR.Core {internal static class VRLog {internal static void W
 namespace GloomhavenVR.WorldUI
 {
     internal struct TownActivityVisual { }
+    internal sealed class TownServiceActivityAudio
+    {
+        internal TownServiceActivityAudio(UnityEngine.Transform root,byte service){}
+        internal void Tick(int author,uint epoch,float clock,float elapsed,bool visible,in TownActivityVisual shown){}
+        internal void Dispose(){}
+    }
     internal sealed class TownServiceActivityRig
     {
         internal static bool Available=true,Throw;
@@ -198,3 +204,5 @@ namespace GloomhavenVR.WorldUI
         internal void Suspend(){} internal void BeforeBodySample(){} internal void Apply(in GloomhavenVR.WorldUI.TownActivityVisual pose){if(Throw)throw new InvalidOperationException("fixture arm failure");}
     }
 }
+
+namespace UnityEngine { internal static class Time { internal static float unscaledDeltaTime=>1f/90f; } }

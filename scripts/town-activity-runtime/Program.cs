@@ -13,6 +13,7 @@ public static class InteractionProgram
     public static int Run()
     {
         count += HandContacts.Run();
+        count += AudioSourceChecks.Run();
         var original=new TownActivityPose{WorkClock=2,TransitionAge=.65f};
         TownServiceActivityMotion.Engage(ref original,true);
         var direct=TownServiceActivityMotion.Advance(original,.45f);
@@ -52,7 +53,7 @@ public static class InteractionProgram
         RemoteTownActivities.ObservePresence(2,in state);Check(RemoteTownActivities.Sample(2,out _,out _),"same epoch recovers after networkstall");
         var changed=state;changed.Epoch=2;changed.Sequence=1;RemoteTownActivities.ObservePresence(2,in changed);
         state.Sequence=7;RemoteTownActivities.ObservePresence(2,in state);RemoteTownActivities.Sample(2,out observed,out _);Check(observed.Epoch==2,"retired activity epoch cannot return");
-        Paired();Handover();Choreography();GeneratedMotion();
+        Paired();Handover();Choreography();GeneratedMotion();count+=AudioClockChecks.Run();
         string[] args=Environment.GetCommandLineArgs();int at=Array.IndexOf(args,"-faceBundle");
         if(at>=0)Actual(args[at+1]);
         return count;
@@ -230,6 +231,10 @@ public static class InteractionProgram
                             Transform[] joints=root.GetComponentsInChildren<Transform>(true);
                             Transform wrist=joints.Single(t=>t.name=="Hand."+side), elbow=joints.Single(t=>t.name=="Forearm."+side);
                             Transform palmAxis=joints.Single(t=>t.name=="PalmContact."+side);
+                            if(service == 3 && phase.TransitionAge >= .65f && !phase.Engaged && actualVisual.Cast < .001f
+                                && Mathf.Abs(actualVisual.RightRoll - 65f) < .01f)
+                                Check(Vector3.Dot(palmAxis.forward, root.right) * (side == "L" ? -1f : 1f) > .60f,
+                                    "relaxed enchantress palms face inward symmetrically: " + side);
                             if(service==3&&TownServiceActivityMotion.Blend(in phase)<.001f)
                             {
                                 Transform shoulderJoint=joints.Single(t=>t.name=="UpperArm."+side);

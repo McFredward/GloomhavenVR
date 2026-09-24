@@ -179,6 +179,8 @@ internal static class TownServicePopulation
             resident.Handover.Sample(faceAuthor, sourceEpoch, Time.unscaledDeltaTime, in visual, in remotePose,
                 out TownActivityVisual displayedActivity, out TownFacePose displayedFace);
             resident.Station.SampleActivity(in displayedActivity);
+            resident.Station.SampleActivityAudio(faceAuthor, sourceEpoch, resident.Activity.WorkClock,
+                enabled && used && ready && resident.Visibility >= .99f, in displayedActivity);
             activities.Set(service - 1, resident.Activity);
             remotePose = displayedFace;
             if (seedAuthority) resident.Station.SeedFace(seed.At(service - 1), seedAuthor, seedElapsed);
