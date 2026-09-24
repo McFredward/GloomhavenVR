@@ -936,7 +936,8 @@ internal sealed partial class NetAvatarDriver : MonoBehaviour
         _lastSentItemUseLabel = null;
         RemoteStorySync.Reset();       // …and never carries a story page/pose into a new session
         RemoteMapRoom.Reset();         // …nor a peer's map-room placard (which owns a GameObject)
-        RemoteMapStory.Reset();        // …nor a map story page or a shared window pose
+        RemoteMapStory.Reset();
+        MapStoryLifecycle.Reset();        // …nor a map story page or a shared window pose
         RemoteVideoPlayback.Reset();  // …nor a cosmetic movie decoder or prior playback identity
         _lastSentCapPress = -1;        // …and never replays a stale keycap press into a new session
         Cards.BoardCapPress.Clear();   // …including the latch it is diffed against
@@ -1067,6 +1068,7 @@ internal sealed partial class NetAvatarDriver : MonoBehaviour
                 // teardown also destroys every placard GameObject it built.
                 RemoteMapRoom.Reset();
                 RemoteMapStory.Reset();
+                MapStoryLifecycle.Reset();
                 RemoteVideoPlayback.Reset();
                 VRLog.Info("Net", "FLAT-NET MODE ACTIVE: remote avatars/boards torn down; mod "
                                   + "send + receive gated for the rest of the session.");
@@ -2062,6 +2064,7 @@ internal sealed partial class NetAvatarDriver : MonoBehaviour
             // Both getters return false outright while MapRoomDriver.Active is off, so a client
             // with the 3D map switched off evaluates two bools and is otherwise untouched.
             && !RemoteMapRoom.SendDue && !RemoteMapStory.SendDue && !RemoteVideoPlayback.SendDue
+            && !MapStoryLifecycle.SendDue && !RemoteMapStory.RewardContinuationSendDue
             && !RemoteMapStory.RewardSendDue && !RemoteMapStory.SharedReflowSendDue
             // …and a shared window being CARRIED here raises the cadence to the rig rate for as long
             // as the hand is on it, exactly as a carried board does (see sharedWindowDue above).
@@ -2080,6 +2083,8 @@ internal sealed partial class NetAvatarDriver : MonoBehaviour
         FillEnvironmentRecords(ref extras);
         RemoteVideoPlayback.Sample(ref extras, _transport.LocalPlayerId);
         RemoteMapStory.SampleReward(ref extras, _transport.LocalPlayerId);
+        MapStoryLifecycle.Sample(ref extras, _transport.LocalPlayerId);
+        RemoteMapStory.SampleRewardCompletions(ref extras, _transport.LocalPlayerId);
 
         if (board != null)
         {
@@ -4168,6 +4173,10 @@ internal sealed partial class NetAvatarDriver : MonoBehaviour
                     // body. A packet WITHOUT the record forgets the peer's entry, which is what
                     // every player with no narrative on screen — and every pre-record build —
                     // transmits, and "forgotten" is exactly "has no story to sync".
+                    // Opening provenance must be available before accepting a pose from the
+                    // same snapshot; a repeated title does not identify the same native opening.
+                    MapStoryLifecycle.Observe(kv.Key, in p, _transport != null ? _transport.LocalPlayerId : 0);
+                    RemoteMapStory.ObserveRewardCompletions(kv.Key, in p, _transport != null ? _transport.LocalPlayerId : 0);
                     RemoteStorySync.Observe(kv.Key, in p);
 
                     // THE 3D MAP ROOM (record 20) and ITS SHARED WINDOWS (record 21). Kept in
@@ -4203,6 +4212,7 @@ internal sealed partial class NetAvatarDriver : MonoBehaviour
         RemoteTestTriggers.Resolve(_transport != null ? _transport.LocalPlayerId : 0);
         // The story advance is resolved once per frame, not once per packet: two peers publishing
         // page 3 in the same frame must drive the local box once.
+        MapStoryLifecycle.Resolve();
         RemoteStorySync.Resolve();
         // Same rule for the map room's two records — and both return after ONE comparison
         // (MapRoomDriver.Active) for every client that has the 3D map switched off, which is what

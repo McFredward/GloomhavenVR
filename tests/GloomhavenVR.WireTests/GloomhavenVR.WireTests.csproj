@@ -622,4 +622,9 @@
     <Compile Include="CardBurnCompletionVectors.cs" />
     <Compile Include="SharedWindowMotionVectors.cs" />
   </ItemGroup>
+  <ItemGroup>
+    <Compile Include="$(RepoRoot)src/GloomhavenVR/Net/MapStoryLifecycleState.cs" />
+    <Compile Include="$(RepoRoot)src/GloomhavenVR/Net/RewardContinuationState.cs" />
+    <Compile Include="MapContinuationVectors.cs" />
+  </ItemGroup>
 </Project>

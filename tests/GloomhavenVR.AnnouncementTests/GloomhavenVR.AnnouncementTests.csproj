@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <AnnouncementSource Condition="'$(AnnouncementSource)' == ''">../../src/GloomhavenVR/WorldUI/Modal/AnnouncementContinue.cs</AnnouncementSource>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="$(AnnouncementSource)" Link="Production/AnnouncementContinue.cs" />
+  </ItemGroup>
+</Project>

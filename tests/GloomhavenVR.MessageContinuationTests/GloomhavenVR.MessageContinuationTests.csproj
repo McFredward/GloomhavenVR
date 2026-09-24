@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <ContinuationSource Condition="'$(ContinuationSource)' == ''">../../src/GloomhavenVR/WorldUI/Modal/MessageWindowContinuation.cs</ContinuationSource>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="$(ContinuationSource)" Link="Production/MessageWindowContinuation.cs" />
+  </ItemGroup>
+</Project>

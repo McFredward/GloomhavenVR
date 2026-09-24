@@ -25,6 +25,10 @@ namespace UnityEngine.SceneManagement
     internal readonly struct Scene { internal int handle => 1; }
     internal static class SceneManager { internal static Scene GetActiveScene() => new(); }
 }
+namespace UnityEngine.UI
+{
+    internal class Selectable { }
+}
 namespace GloomhavenVR.Core
 {
     internal static class VRLog
@@ -39,7 +43,16 @@ namespace GloomhavenVR.Core
 }
 namespace GloomhavenVR.WorldUI
 {
-    internal class UIWindow { internal string name = ""; }
+    internal class UIWindow
+    {
+        internal string name = "";
+        internal bool Mandatory;
+        internal object? Control;
+        internal T? GetComponentInChildren<T>(bool includeInactive) where T : class =>
+            includeInactive ? Control as T : null;
+    }
+    internal sealed class ClickTracker { }
+    internal sealed class ClickTrackerExtended { }
     internal sealed class UIMainMenuOption
     {
         internal UnityEngine.GameObject gameObject = new();
@@ -128,6 +141,8 @@ namespace GloomhavenVR.WorldUI
     }
     internal static partial class ModalFallback
     {
+        private static bool IsMandatoryDecision(UIWindow window, out string reason)
+        { reason = "test native waiter"; return window.Mandatory; }
         private const int ChurnMaxFloats = 3;
         private const float ChurnWindowSeconds = 60f;
         private static readonly HashSet<string> ChurnSuppressed = new();

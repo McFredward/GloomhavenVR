@@ -1,6 +1,6 @@
 # Planning index
 
-Updated 2026-09-20 for dev 1.0.6 / build-537 independent menu toggling and native close ordering. This directory holds internal
+Updated 2026-09-24 for dev 1.0.8 / build-556 release-facing animation. This directory holds internal
 engineering evidence, historical decisions and current status; it is not the player manual.
 
 ## Current entry points
@@ -17,6 +17,15 @@ engineering evidence, historical decisions and current status; it is not the pla
 | [PROJECT.md](PROJECT.md), [ARCHITECTURE.md](ARCHITECTURE.md) | Product scope and architectural reasoning |
 
 ## Latest measured work
+
+- [REFACE-556.md](REFACE-556.md): combat-log and control-board laser-release
+  turns with the existing short window animation and board pose stream.
+- [STORY-555.md](STORY-555.md): build 554 evidence of a completed story retained
+  by map-window stickiness; shared native close/lifetime correction.
+- [CHEAT-554.md](CHEAT-554.md): hidden scenario-win test action using native results
+  and rewards, to reproduce post-quest continuation windows.
+- [WINDOWS-553.md](WINDOWS-553.md): level-up reveal input, map confirmations,
+  semantic message continuation, full window-family audit and hardware checklist.
 
 - [OPTIONS-537.md](OPTIONS-537.md): preserve native menu focus and synchronize the VR toggle immediately.
 - [CLOSE-537.md](CLOSE-537.md): native close-event ordering and explicit reopen during pending modal release.

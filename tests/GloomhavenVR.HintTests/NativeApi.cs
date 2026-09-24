@@ -122,6 +122,9 @@ public class UICharacterCreatorClassStep : UnityEngine.Component { public UIIntr
 public class UICampaignAdventurePartyAssemblyWindow : UnityEngine.Component { public UIIntroduceBase? ftueStep; }
 public class QuestManager : UnityEngine.Component { public UIIntroduceBase? questIntroduction; public UnityEngine.Component? questLog; }
 public class UIIntroductionRewardsProcess : UnityEngine.Component { public UIIntroduceProcess process = new(); }
+public class UIAdventureRewardsManager : UnityEngine.Component { }
+public class UIGuildmasterAdventureRewardsManager : UIAdventureRewardsManager
+{ public UIIntroductionRewardsProcess? rewardIntroduction; public UnityEngine.UI.UIWindow? window; }
 public class CampaignRewardsManager : UnityEngine.Component { public UIIntroductionRewardsProcess? introductionProcess; public UnityEngine.Component? rewardsWindow; }
 public static class Singleton<T> where T : new() { public static bool IsInitialized; public static T Instance = new(); }
 public class LevelMessageUILayoutGroup { public UnityEngine.UI.UIWindow window = new(); }

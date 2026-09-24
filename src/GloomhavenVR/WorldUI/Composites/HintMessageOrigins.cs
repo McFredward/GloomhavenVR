@@ -72,6 +72,10 @@ internal static class HintMessageOrigins
             if (manager != null && manager.introductionProcess == rewards && manager.rewardsWindow != null)
                 Match(manager.rewardsWindow.transform, ref owner, ref ambiguous);
         }
+        if (Singleton<UIAdventureRewardsManager>.IsInitialized
+            && Singleton<UIAdventureRewardsManager>.Instance is UIGuildmasterAdventureRewardsManager guild
+            && guild.rewardIntroduction == rewards && guild.window != null)
+            Match(guild.window.transform, ref owner, ref ambiguous);
         CurrentScope = new Origin(!ambiguous && owner != null ? owner : rewards.transform,
             $"native reward introduction '{rewards.name}'");
         if (rewards.process != null)

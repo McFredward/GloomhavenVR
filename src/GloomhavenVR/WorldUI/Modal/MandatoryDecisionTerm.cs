@@ -73,6 +73,22 @@ internal enum MandatoryDecisionTerm
     /// window on ESC. It names the ESC key's policy and NOT the window, so it must never be read as
     /// "this window carries a decision". Every ordinary map-room destination carries it.</summary>
     GameRefusesEscape = 5,
+
+    /// <summary>IDENTITY — level-up or location reveal. Native continuation owns the
+    /// reveal sequence, subsequent choice and map-input restoration.</summary>
+    NativeReveal = 6,
+
+    /// <summary>IDENTITY — native character creation owns the party creation guard
+    /// and personal-quest/creation callbacks; hiding its UIWindow is not cancellation.</summary>
+    CharacterCreation = 7,
+
+    /// <summary>IDENTITY — generic native confirmation, including map level-up card
+    /// selection; its action/cancel callbacks may not be replaced by UIWindow.Hide.</summary>
+    NativeConfirmation = 8,
+
+    /// <summary>IDENTITY — map/scenario narrative, whose final Skip runs its callbacks
+    /// and closes the native window. A retained final page has no remaining action.</summary>
+    NativeStory = 9,
 }
 
 /// <summary>
@@ -103,6 +119,10 @@ internal static class MandatoryDecisionTerms
             case MandatoryDecisionTerm.RewardShowcase:
             case MandatoryDecisionTerm.ItemCardPicker:
             case MandatoryDecisionTerm.TakeDamagePanel:
+            case MandatoryDecisionTerm.NativeReveal:
+            case MandatoryDecisionTerm.CharacterCreation:
+            case MandatoryDecisionTerm.NativeConfirmation:
+            case MandatoryDecisionTerm.NativeStory:
                 return true;
             case MandatoryDecisionTerm.None:
             case MandatoryDecisionTerm.GameRefusesEscape:

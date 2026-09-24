@@ -1,9 +1,12 @@
 # State — where the project stands
 
-**Updated 2026-09-22 for map hotfixes; dev 1.0.7 / ModBuild 546, without NPC services.**
+**Updated 2026-09-24: dev 1.0.8 / ModBuild 556, animated combat-log and control-board release facing.**
 The complete NPC development is isolated on `feature/immersive-town-services` for a
-future release of at least 1.1.0. Builds 538–545 remain reserved for that branch.
-Current fixes and validation: [MAP-546.md](MAP-546.md).
+future release of at least 1.1.0. Builds 538–545 and 547–552 remain reserved for that branch.
+Current review and validation: [REFACE-556.md](REFACE-556.md), building on
+[STORY-555.md](STORY-555.md) and
+[WINDOWS-553.md](WINDOWS-553.md). Released 1.0.7 / build 546
+was hardware-confirmed before publication; this new continuation review is not yet hardware-confirmed.
 
 The file this replaces had gone 168 builds
 stale while still saying "read this first"; it is kept as `STATE-ARCHIVE-through-2026-08.md` for
@@ -17,6 +20,32 @@ change per build) → this file (where things stand and what is owed) → the bu
 ---
 
 ## 1. Position
+
+- **dev / 1.0.8 / ModBuild 556:** combat-log and control-board laser releases
+  turn toward the owner using the same short animation as other local windows.
+  The board's existing rig pose stream carries its intermediate turn to peers.
+  No wire, asset or NPC change; headset motion still needs verification.
+  See [REFACE-556.md](REFACE-556.md).
+
+- **dev / 1.0.8 / ModBuild 555:** matching build 554 hardware logs show native story
+  and reward completion succeeded, but the mod kept the disabled final page visible.
+  Exact map/scenario story identity now ends retention on native close and prevents
+  poll/conversion/visibility resurrection. Shared native opening histories also address
+  queued story completion and post-quest reward synchronization. No NPC changes
+  or release. Evidence and test sequence: [STORY-555.md](STORY-555.md).
+
+- **dev / 1.0.8 / ModBuild 554:** hidden offline Cheats page gains a confirmed
+  current-scenario victory action through the native result/reward flow, to test
+  build 553's continuation fixes. Cheats remain disabled by default. No NPC content
+  or release. Usage and limits: [CHEAT-554.md](CHEAT-554.md).
+
+- **dev / 1.0.8 / ModBuild 553:** native level-up Continue, 3D-map confirmation
+  ownership and missed-event/failure recovery, complete message queue callbacks,
+  native popup cancellation and safe mandatory-window close admission. Source review
+  covers reward/result chains and more than 30 window families. No matching third-party
+  logs are available; the maintainer confirms the report concerns release 1.0.7,
+  primarily Campaign. Current local/remote files belong to builds 551/500. No NPC code,
+  asset bundle change or release is included. See [WINDOWS-553.md](WINDOWS-553.md).
 
 - **dev / 1.0.7 / ModBuild 546**, based on the 1.0.6 runtime without NPC services:
   campaign city-event cap and native animation, original permanent map windows across

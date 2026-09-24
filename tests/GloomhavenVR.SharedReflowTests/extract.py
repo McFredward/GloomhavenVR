@@ -19,3 +19,11 @@ avatar=(root/'src/GloomhavenVR/Net/Avatar/NetAvatarDriver.cs').read_text()
 assert 'WorldUI.SharedWindows.AnyGrabbedHere() || RemoteMapStory.SharedReflowMoving' in avatar
 assert '!RemoteMapStory.SharedReflowSendDue' in avatar
 print('Shared reflow production bindings: 6 passed.')
+
+for filename in ['MapStoryOpeningLedger.cs', 'MapStoryLifecycleState.cs']:
+    (out/filename).write_text((root/'src/GloomhavenVR/Net'/filename).read_text())
+pose_guard = 'if (MapStoryLifecycle.MatchesPose(true, senderId, openingEpoch, openingToken))\n                            ObserveReflowPose(senderId, SharedWindowKind.MapStory, in e, StoryStamp);'
+assert pose_guard in src
+(out/'PoseGate.cs').write_text('using System.Collections.Generic; using GloomhavenVR.WorldUI; namespace GloomhavenVR.Net; internal static partial class RemoteMapStory { private static void ReceiveStoryPose(int senderId, in PresenceState p, in SharedWindowEntry e, Dictionary<int, byte> StoryStamp) { MapStoryLifecycle.PoseOpening(in p, e.ContentKey, out uint openingEpoch, out uint openingToken); '+pose_guard+' } }')
+src=(root/'src/GloomhavenVR/Net/Remote/MapStoryLifecycle.cs').read_text()
+(out/'PoseOpening.cs').write_text('namespace GloomhavenVR.Net; internal static partial class MapStoryLifecycle {'+block('internal static void PoseOpening(')+'}')

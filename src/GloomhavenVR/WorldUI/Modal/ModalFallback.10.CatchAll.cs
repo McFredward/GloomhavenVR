@@ -167,6 +167,11 @@ internal static partial class ModalFallback
     {
         // Part 2 enrollment #2 — mid-scenario reward showcase (see AddRewardShowcaseWindow).
         AddRewardShowcaseWindow(inScenario);
+        AnnouncementContinue.Tick(inScenario && WorldUIConfig.ConversionActive);
+        // DialogSurface normally owns this exact source. Failed dedicated conversion
+        // (or disabled dedicated dialogs) must still have a native continuation path.
+        if (inScenario)
+            AddPollWindow(Surfaces.DialogSurface.FallbackWindow);
 
         // ModBuild 234 — the double-hosting audit, ABOVE the early return and above every gate in
         // this method on purpose: it reports on the state the CONVERT loop produced last tick, so a
@@ -351,7 +356,8 @@ internal static partial class ModalFallback
             }
 
             if (!hoverCard && !MenuWindowFamily.IsModOwned(window)
-                && ChurnSuppressed.Contains(window.name))
+                && ChurnSuppressed.Contains(window.name)
+                && !HasUserContinuation(window))
                 continue; // fuse blew for this window type — session-suppressed (see ChurnMaxFloats)
             if (!CatchAllEligible(window))
                 continue;
@@ -391,6 +397,8 @@ internal static partial class ModalFallback
     {
         if (hoverCard || MenuWindowFamily.IsModOwned(window))
             return true;
+        if (HasUserContinuation(window))
+            return true;
         if (ChurnSuppressed.Contains(window.name))
             return false;
 
@@ -410,6 +418,18 @@ internal static partial class ModalFallback
                               "(manual A/X screen chord still reaches it). Exclude it explicitly.");
         return false;
     }
+
+    /// <summary>Opening frequency is not evidence that an interactive window is HUD.
+    /// Four characters can receive the same pooled prompt in quick succession. Include
+    /// currently disabled/inactive controls: reveal animations often expose Continue
+    /// only later. This is checked at admission, not on every tick of an existing float.
+    /// Known passive HUD still follows its explicit exclusion; content-only unknown
+    /// cycling banners retain the bounded churn fuse.</summary>
+    private static bool HasUserContinuation(UIWindow window) =>
+        IsMandatoryDecision(window, out _)
+        || window.GetComponentInChildren<Selectable>(true) != null
+        || window.GetComponentInChildren<ClickTracker>(true) != null
+        || window.GetComponentInChildren<ClickTrackerExtended>(true) != null;
 
     /// <summary>
     /// Level-triggered exclusion check, re-evaluated EVERY tick the window would join
@@ -1435,6 +1455,7 @@ internal static partial class ModalFallback
     private static void CatchAllReset()
     {
         RewardShowcase.Tick(false);
+        AnnouncementContinue.Tick(false);
         UnknownShown.Clear();
         CatchAllWarned.Clear();
         FloatRefusalTable.Reset(); // ModBuild 232 — the refusal table's edge state and lapse counters

@@ -33,8 +33,8 @@ namespace GloomhavenVR.WorldUI.Surfaces;
 /// persists the layout as [WorldUI] CombatLog* (table-anchor offsets in real
 /// meters + the size factor), so it survives sessions and diorama scale. Yaw
 /// carry is ON like the tray (no billboard is fighting the carry anymore);
-/// release snaps the panel upright with its yaw toward the head, then it freezes
-/// again. Until 2026-09-05 this bar was a stretched <c>PrimitiveType.Cube</c> with
+/// laser release eases its yaw toward the head over the shared grab-bar duration,
+/// then it freezes again. Until 2026-09-05 this bar was a stretched <c>PrimitiveType.Cube</c> with
 /// four size constants of its own — the "alter Greifbalken" of the user's report.
 ///
 /// FOLLOW/PINNED: the CONTROL BOARD'S OWN dashboard keycap
@@ -391,9 +391,27 @@ internal sealed class CombatLogSurface : WorldSurface, IPanelGrabOwner
 
     /// <summary>THE ONE WRITER of the rod's presented pose, shared with <c>GrabbableModal</c> and
     /// <c>SurfaceGrabBar</c>: this class sets a TARGET and the LateUpdate step eases the drawn rod,
-    /// its laser capsule and the palm zone toward it. Without it this panel's handle would be the
-    /// only one in the mod that still snaps ("es ploppt", 2026-09-03).</summary>
+    /// its laser capsule and the palm zone toward it. This is the same handle transition the other
+    /// windows use ("es ploppt", 2026-09-03).</summary>
     private GrabBarTween? _barTween;
+
+    /// <summary>One release-time yaw turn, shared with ordinary floated windows. Its pivot is the
+    /// visible host centre above the grab bar, held still throughout the turn. Advanced before the
+    /// host's final LateUpdate pose copy.</summary>
+    private readonly WindowReFaceTween _reFaceTween = new();
+    private Transform? _reFaceParent;
+    private Matrix4x4 _reFaceParentWorldToLocal;
+    private Quaternion _reFaceParentRotation;
+    private bool _reFacePending;
+    private float _reFaceFinishAt;
+
+    private void CancelReFace()
+    {
+        _reFaceTween.Cancel();
+        if (_reFacePending)
+            PersistLayout(); // keep the last visible pose if a hide/recenter interrupts the turn
+        _reFacePending = false;
+    }
 
     private BoxCollider? _grabZone;
     private PanelGrabHandle? _handle;
@@ -551,12 +569,12 @@ internal sealed class CombatLogSurface : WorldSurface, IPanelGrabOwner
 
     void IPanelGrabOwner.OnGrabFinished()
     {
-        // Test #20: release snaps the panel upright — zero roll/pitch, yaw toward
-        // the head at THIS moment — then the pose stays frozen (no re-facing).
+        // Test #20: capture one upright, yaw-only target at release; after the short
+        // turn the pose stays frozen. Moving the head during the turn does not steer it.
         //
-        // WHETHER THAT SNAP HAPPENS AT ALL IS THE PLAYER'S DIAL (ModBuild 439, survey row R1).
+        // WHETHER THAT TURN HAPPENS AT ALL IS THE PLAYER'S DIAL (ModBuild 439, survey row R1).
         // [WorldUI] WindowFacing had exactly one reader — GrabbableModal — so a player who set it
-        // to "Nie" kept his modal windows at the angle he let go at and watched the combat log snap
+        // to "Nie" kept his modal windows at the angle he let go at and watched the combat log turn
         // round anyway, against a description that promises "das bisherige Verhalten aller Fenster".
         // WindowReFacePolicy is that one answer, asked by every owner that re-faces on release.
         //
@@ -568,14 +586,46 @@ internal sealed class CombatLogSurface : WorldSurface, IPanelGrabOwner
         //
         // PERSISTLAYOUT IS OUTSIDE THE GATE, deliberately: the panel MOVED, and where it now is has
         // to survive the session whichever way the facing question was answered.
+        CancelReFace();
         Camera? head = CanvasConversion.WorldCamera;
-        if (head != null
+        if (_frame != null && head != null
             && WindowReFacePolicy.WantsReFaceOnRelease(
                    shared: false,
                    laserGrab: _handle != null && _handle.LastGrabWasLaser,
                    kind: "COMBAT LOG WINDOW",
                    logName: "Combat log"))
-            FaceHead(head);
+        {
+            // The host is seated ABOVE the bar at the exact centre calculated by SyncHostPose.
+            // Derive it from the current grab frame, not the host's possibly previous-frame
+            // transform (the handle's Update order is unspecified).
+            Rect rect = Panel != null ? Panel.HostRect.rect : default;
+            float hostScale = _frame.lossyScale.x;
+            Vector3 pivot = rect.height >= 1f
+                ? HostCenter(_frame, rect.height,
+                    WorldUIConfig.CanvasScaleMm.Value * 0.001f, hostScale)
+                : _frame.position;
+            Quaternion facing = PanelPlacement.Facing(pivot, head.transform.position);
+            float turned = Quaternion.Angle(_frame.rotation, facing);
+            if (turned >= WindowReFacePolicy.ReFaceEpsilonDeg)
+            {
+                // The shared tween captures world coordinates. FOLLOW's rig parent may move
+                // during the turn, so convert EACH interpolated point from the release parent's
+                // frame to its current frame. This preserves the pivot's full rotation arc too.
+                _reFaceParent = _frame.parent;
+                _reFaceParentWorldToLocal = _reFaceParent != null
+                    ? _reFaceParent.worldToLocalMatrix : Matrix4x4.identity;
+                _reFaceParentRotation = _reFaceParent != null
+                    ? _reFaceParent.rotation : Quaternion.identity;
+                _reFaceFinishAt = Time.unscaledTime + GrabBarTween.DurationSeconds;
+                _reFacePending = true;
+                _reFaceTween.Begin(_frame, pivot, facing);
+                VRLog.Info("WorldUI", $"COMBAT LOG WINDOW: released after a move — re-facing "
+                                      + $"the player by {turned:F1}° over "
+                                      + $"{GrabBarTween.DurationSeconds * 1000f:F0} ms.");
+            }
+        }
+        // Save the release pose immediately, as before. The tween may be interrupted by scene
+        // teardown before LateTick can write its final pose; completion updates it once more.
         PersistLayout();
     }
 
@@ -591,6 +641,7 @@ internal sealed class CombatLogSurface : WorldSurface, IPanelGrabOwner
         // from the persisted offsets (pinned WORLD poses do not survive — tray rule).
         if (Panel == null)
         {
+            CancelReFace();
             _placedFromConfig = false;
             _scroll = null;
             _entryCount = -1;
@@ -608,6 +659,7 @@ internal sealed class CombatLogSurface : WorldSurface, IPanelGrabOwner
 
     public override void Shutdown()
     {
+        CancelReFace();
         base.Shutdown();
         if (_locHooked)
         {
@@ -685,6 +737,7 @@ internal sealed class CombatLogSurface : WorldSurface, IPanelGrabOwner
         // shared anchor (rig-parented while FOLGEN, world-pinned while FIXIERT), never this method.
         if (_respawnRequested && !grabbed)
         {
+            CancelReFace();
             // A SHOW (settings toggle / X-recover) always drops the panel in view in front of the
             // head and persists that pose — regardless of FOLLOW/PINNED and any stale offsets — so
             // the toggle can never appear to do nothing (item 1).
@@ -696,6 +749,7 @@ internal sealed class CombatLogSurface : WorldSurface, IPanelGrabOwner
         }
         else if (!grabbed && !_placedFromConfig)
         {
+            CancelReFace();
             // FIRST SEAT OF THIS CONVERSION, in BOTH modes: derive from the persisted offsets
             // (a pinned WORLD pose does not survive a session — the tray rule), heal it into the
             // forward FOV, face the head once. From here on the anchor owns the pose.
@@ -772,14 +826,67 @@ internal sealed class CombatLogSurface : WorldSurface, IPanelGrabOwner
         // the one SyncBar just solved, not a constant re-quoted here: on a short panel the shared
         // rule pulls the handle CLOSER to its window, and a fixed gap in this expression would leave
         // the panel where the full-size handle would have put it.
-        Vector3 center = _frame.position + _frame.rotation *
-            (Vector3.up * ((_barGap + rect.height * metersPerPixel * 0.5f) * hostScale));
-        CanvasConversion.PlaceHost(Panel, center, _frame.rotation, hostScale);
+        SyncHostPose(rect.height, metersPerPixel, hostScale);
 
         SyncCloseX(rect);
         TickEmptyNote(rect, metersPerPixel);
         TickCapLaser();
     }
+
+    /// <summary>The last pose write of the frame: PanelGrabHandle moves the frame in Update, whose
+    /// order against WorldUIModule.Update is undefined. Advance the release turn here, then copy
+    /// the resulting frame onto the converted host before either eye renders. A fresh grip, hide,
+    /// or lost frame cancels the old release instead of fighting its new owner.</summary>
+    public override void LateTick()
+    {
+        if (Panel == null || !Panel.IsAlive || Panel.HostGo == null || _frame == null
+            || !Panel.HostGo.activeInHierarchy || !_frame.gameObject.activeInHierarchy
+            || Panel.RenderHidden || Panel.OwnerRenderHidden)
+        {
+            CancelReFace();
+            return;
+        }
+        if ((_handle != null && _handle.IsGrabbed) || _frame.parent != _reFaceParent)
+            CancelReFace();
+        if (!_reFacePending)
+            return;
+        bool advanced = _reFaceTween.Advance(_frame);
+        if (!advanced)
+        {
+            _reFacePending = false;
+            return;
+        }
+        if (_reFaceParent != null)
+        {
+            // Restore the FULL frame pose relative to the moving parent. Restoring only the
+            // release position would erase the pivot-preserving arc that WindowReFaceTween made.
+            _frame.position = _reFaceParent.TransformPoint(
+                _reFaceParentWorldToLocal.MultiplyPoint3x4(_frame.position));
+            _frame.rotation = _reFaceParent.rotation
+                * Quaternion.Inverse(_reFaceParentRotation) * _frame.rotation;
+        }
+        Rect rect = Panel.HostRect.rect;
+        if (rect.width >= 1f && rect.height >= 1f)
+            SyncHostPose(rect.height, WorldUIConfig.CanvasScaleMm.Value * 0.001f,
+                         _frame.lossyScale.x);
+        if (Time.unscaledTime >= _reFaceFinishAt)
+        {
+            _reFacePending = false;
+            PersistLayout(); // final pivot-preserving position, exactly once
+        }
+    }
+
+    private void SyncHostPose(float heightPixels, float metersPerPixel, float hostScale)
+    {
+        if (Panel == null || _frame == null)
+            return;
+        Vector3 center = HostCenter(_frame, heightPixels, metersPerPixel, hostScale);
+        CanvasConversion.PlaceHost(Panel, center, _frame.rotation, hostScale);
+    }
+
+    private Vector3 HostCenter(Transform frame, float heightPixels, float metersPerPixel,
+        float hostScale) => frame.position + frame.rotation *
+            (Vector3.up * ((_barGap + heightPixels * metersPerPixel * 0.5f) * hostScale));
 
     // ---- empty state --------------------------------------------------------------------------
 
@@ -1040,6 +1147,8 @@ internal sealed class CombatLogSurface : WorldSurface, IPanelGrabOwner
     {
         if (_frame == null)
             return;
+        if (Rig.VRRigDriver.RigPoseVersion != _facedPoseVersion)
+            CancelReFace(); // a recenter/seat heal is a new pose author
         bool follow = WorldUIConfig.CombatLogFollow.Value;
 
         FollowPinAnchor.Carry carry = _anchor.TickCarry(_frame, follow);
@@ -1081,22 +1190,6 @@ internal sealed class CombatLogSurface : WorldSurface, IPanelGrabOwner
         }
     }
 
-    /// <summary>
-    /// Upright orientation: zero roll/pitch, yaw toward the head at THIS moment
-    /// (uGUI fronts render along -forward, so +Z points AWAY from the viewer).
-    /// Called at derive events and on grab release only — never per tick (test #20:
-    /// the per-tick re-facing read as the content shifting with head motion).
-    /// </summary>
-    private void FaceHead(Camera head)
-    {
-        if (_frame == null)
-            return;
-        Vector3 away = _frame.position - head.transform.position;
-        away.y = 0f;
-        if (away.sqrMagnitude > 1e-6f)
-            _frame.rotation = Quaternion.LookRotation(away.normalized, Vector3.up);
-    }
-
     // ---- frame (grab bar + pin) ---------------------------------------------------------------
 
     /// <summary>
@@ -1108,6 +1201,8 @@ internal sealed class CombatLogSurface : WorldSurface, IPanelGrabOwner
     {
         if (_frame != null)
             return;
+
+        CancelReFace();
 
         // A REBUILT FRAME HAS NO POSE, so the seat must run again. This matters more than it did:
         // while FOLGEN the frame hangs off the rig root, so a rig teardown takes it with it (the

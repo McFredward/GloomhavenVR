@@ -28,7 +28,24 @@ namespace GloomhavenVR.Net {
         internal const byte SharedWindowMotionMapStoryBit=1,SharedWindowMotionQuestConfirmBit=2,SharedWindowMotionEncounterBit=4;
         internal static byte EncodeStoryPage(int value)=>(byte)value;
     }
-    internal struct PresenceState { internal bool HasSharedWindowMotion,HasMapRoom; internal byte SharedWindowHeldMask,SharedWindowReflowMask,MapRoomFlags; }
+    internal struct PresenceState { internal bool HasMapStoryLifecycle; internal MapStoryOpening[]? MapStoryLifecycleEntries; internal bool HasSharedWindowMotion,HasMapRoom; internal byte SharedWindowHeldMask,SharedWindowReflowMask,MapRoomFlags; }
+    // Thin native-current adapter; matching and history use the production ledger.
+    internal static partial class MapStoryLifecycle {
+        internal static MapStoryOpeningLedger Ledger=new(42), Sender=new(41);
+        internal static object Current=new(), Remote=new();
+        internal static void Fresh() {
+            Ledger=new(42);Sender=new(41);Current=new();Remote=new();
+            Ledger.Open(Current,11,11,3,new[]{3});Sender.Open(Remote,11,11,3,new[]{2});
+            Ledger.Observe(3,Sender.Sample(Remote));
+        }
+        internal static void Reopen() {
+            Ledger.Finish(Current);Sender.Finish(Remote);Ledger.Observe(3,Sender.Sample(null));
+            Current=new();Remote=new();Ledger.Open(Current,11,11,3,new[]{3});Sender.Open(Remote,11,11,3,new[]{2});
+            Ledger.Observe(3,Sender.Sample(Remote));
+        }
+        internal static bool MatchesPose(bool map,int sender,uint epoch,uint token)
+            => Ledger.MatchesPose(Current,sender,2,epoch,token);
+    }
     internal struct SharedWindowEntry { internal byte Flags,PoseStamp,Kind,Page,PageCount; internal uint ContentKey; }
     internal sealed class SharedWindowPoseTrack { internal void Reset(){} }
     internal static class SharedWindowFrame {

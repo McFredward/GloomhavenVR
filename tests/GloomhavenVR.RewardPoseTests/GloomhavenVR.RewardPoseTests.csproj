@@ -7,5 +7,8 @@
   <ItemGroup>
     <Compile Include="$(HandshakeSource)" Link="Production/RewardPoseHandshake.cs" />
     <Compile Include="$(RewardSource)" Link="Production/RemoteMapStory.Reward.cs" />
+    <Compile Include="../../src/GloomhavenVR/Net/MapStoryOpeningLedger.cs" Link="Production/MapStoryOpeningLedger.cs" />
+    <Compile Include="../../src/GloomhavenVR/Net/MapStoryLifecycleState.cs" Link="Production/MapStoryLifecycleState.cs" />
+    <Compile Include="$(PostQuestIdentitySource)" Link="Production/PostQuestRewardIdentity.cs" />
   </ItemGroup>
 </Project>

@@ -9,16 +9,18 @@ continue_button_source="$repo_root/src/GloomhavenVR/WorldUI/Modal/RewardContinue
 reward_source="${REWARD_SHOWCASE_SOURCE:-$repo_root/src/GloomhavenVR/WorldUI/Modal/RewardShowcase.cs}"
 identity_source="${REWARD_IDENTITY_SOURCE:-$repo_root/src/GloomhavenVR/WorldUI/Modal/RewardShowcaseIdentity.cs}"
 placement_source="${REWARD_PLACEMENT_SOURCE:-$repo_root/src/GloomhavenVR/WorldUI/Modal/RewardShowcasePlacement.cs}"
+map_buttons_source="$repo_root/src/GloomhavenVR/WorldUI/Modal/RewardShowcaseMapButtons.cs"
 poll_source="${REWARD_POLL_SOURCE:-$repo_root/src/GloomhavenVR/WorldUI/Modal/ModalFallback.10.CatchAll.cs}"
 conversion_source="${REWARD_CONVERSION_SOURCE:-$repo_root/src/GloomhavenVR/WorldUI/Modal/ModalFallback.8.Convert.cs}"
 lifecycle_source="${REWARD_LIFECYCLE_SOURCE:-$repo_root/src/GloomhavenVR/WorldUI/Conversion/CanvasConversion.4.Lifecycle.cs}"
 window_panel_source="${REWARD_WINDOW_PANEL_SOURCE:-$repo_root/src/GloomhavenVR/WorldUI/Modal/ModalFallback.3.WindowPanel.cs}"
 screen_bind_source="${REWARD_SCREEN_BIND_SOURCE:-$repo_root/src/GloomhavenVR/WorldUI/Modal/ModalFallback.12.ScreenBind.cs}"
+close_source="${REWARD_CLOSE_SOURCE:-$repo_root/src/GloomhavenVR/WorldUI/Modal/ModalFallback.7.Close.cs}"
 mutation_dir="$(mktemp -d)"
 trap 'rm -rf "$mutation_dir"' EXIT
-python3 - "$poll_source" "$conversion_source" "$lifecycle_source" "$window_panel_source" "$screen_bind_source" "$mutation_dir" <<'PY'
+python3 - "$poll_source" "$conversion_source" "$lifecycle_source" "$window_panel_source" "$screen_bind_source" "$mutation_dir" "$close_source" <<'PY'
 import pathlib, re, sys
-poll, conversion, lifecycle, window_panel, screen_bind, out = map(pathlib.Path, sys.argv[1:])
+poll, conversion, lifecycle, window_panel, screen_bind, out, close = map(pathlib.Path, sys.argv[1:])
 source = poll.read_text()
 start = source.index('    private static void AddRewardShowcaseWindow(bool inScenario)')
 end = source.index('\n    // ===', start)
@@ -28,7 +30,11 @@ def expression(path, declaration):
     return matches[0]
 availability = expression(window_panel, 'internal static bool RewardPlacementFailed(UIWindow? window)')
 conversion_policy = expression(screen_bind, 'private static bool ConvertBaseActive')
-fixture = 'using UnityEngine.UI;\nnamespace GloomhavenVR.WorldUI;\ninternal static partial class ModalFallback\n{\n' + source[start:end] + '\n' + availability + '\n' + conversion_policy + '\n}\n'
+dismiss_source = close.read_text()
+dismiss_start = dismiss_source.index('    private static void DismissTransient(UIWindow window)')
+dismiss_end = dismiss_source.index('    /// <summary>Scratch for the dismiss-target', dismiss_start)
+dismiss = dismiss_source[dismiss_start:dismiss_end]
+fixture = 'using System;\nusing System.Collections.Generic;\nusing GloomhavenVR.Core;\nusing UnityEngine.EventSystems;\nusing UnityEngine.UI;\nnamespace GloomhavenVR.WorldUI;\ninternal static partial class ModalFallback\n{\n' + source[start:end] + '\n' + availability + '\n' + conversion_policy + '\n' + dismiss + '\nprivate static readonly List<Button> TransientButtonScratch = new();\n}\n'
 (out / 'RewardPoll.fixture').write_text(fixture)
 # The actual production enrollment is executed above, not reproduced in the harness.
 # Keep the surrounding teardown and before-reveal binding connected as well.
@@ -57,21 +63,47 @@ end = a.index('\n\tprivate void InstanceOnEscMenuStateChanged', start)
 assert a[start:end] in b, 'Native reward coroutine fixture diverged from the game reference'
 PYCOMPARE
 fi
+if [[ -f "$repo_root/decompiled/GH.Runtime/UIGuildmasterAdventureRewardsManager.cs" ]]; then
+    python3 - "$repo_root" <<'PYMAP'
+import pathlib, sys
+root = pathlib.Path(sys.argv[1])
+fixture = (root / 'tests/GloomhavenVR.RewardShowcaseTests/NativeMapRewardButtons.cs').read_text()
+for name, start, end in (
+    ('UIGuildmasterAdventureRewardsManager', '\tpublic void Hide()', '\n\tprivate void OnDisable()'),
+    ('UIUnlockLocationFlowManager', '\tpublic void Continue()', '\n\tprivate ICallbackPromise Focus(MapLocation')):
+    native = (root / 'decompiled/GH.Runtime' / (name + '.cs')).read_text()
+    assert native[native.index(start):native.index(end)] in fixture, name + ' native continuation fixture diverged'
+PYMAP
+fi
 dotnet run --project "$project" --configuration Release \
+    --property:RepositorySourceRoot="$repo_root/src/GloomhavenVR" \
     --property:ContinueButtonSource="$continue_button_source" \
     --property:RewardSource="$reward_source" \
     --property:IdentitySource="$identity_source" \
     --property:PlacementSource="$placement_source" \
+    --property:MapButtonsSource="$map_buttons_source" \
     --property:CatchAllSource="$mutation_dir/RewardPoll.fixture"
 cp "$repo_root/tests/GloomhavenVR.RewardShowcaseTests/"*.cs "$mutation_dir/"
 cp "$project" "$mutation_dir/"
-for mutation in missing-listener duplicate-listener reveal authority native-input gamepad-adapter map-scenario-gate hover-state identity-block placement-key poll-binding premature-reveal pending-pose screen-unavailable; do
-    python3 - "$reward_source" "$identity_source" "$placement_source" "$mutation_dir" "$mutation" "$continue_button_source" <<'PY'
+for mutation in missing-listener duplicate-listener reveal authority native-input gamepad-adapter map-scenario-gate hover-state identity-block placement-key poll-binding premature-reveal pending-pose screen-unavailable map-reward-binding map-location-binding map-duplicate-binding unlock-target postquest-reveal postquest-duplicate postquest-success intro-focus intro-block postquest-pose; do
+    python3 - "$reward_source" "$identity_source" "$placement_source" "$mutation_dir" "$mutation" "$continue_button_source" "$map_buttons_source" <<'PY'
 import pathlib, sys
 reward, identity, placement, out = map(pathlib.Path, sys.argv[1:5])
 sources = {'Reward': reward.read_text(), 'Identity': identity.read_text(),
-           'Placement': placement.read_text(), 'Continue': pathlib.Path(sys.argv[6]).read_text(), 'Poll': (out / 'RewardPoll.fixture').read_text()}
+           'PostQuest': (reward.parent / 'PostQuestRewardSync.cs').read_text(),
+           'Introduction': (reward.parent / 'PostQuestRewardSync.Introduction.cs').read_text(),
+           'MapButtons': pathlib.Path(sys.argv[7]).read_text(), 'Placement': placement.read_text(), 'Continue': pathlib.Path(sys.argv[6]).read_text(), 'Poll': (out / 'RewardPoll.fixture').read_text()}
 mutations = {
+    'postquest-pose': ('PostQuest', 'Ledger.MatchesPose(_opening, sender, localPlayerId, entry.Epoch, entry.Token)', 'true'),
+    'postquest-reveal': ('PostQuest', '!window.isRevealing', 'true'),
+    'postquest-duplicate': ('PostQuest', '_consumed = true;', '_consumed = false;'),
+    'postquest-success': ('PostQuest', 'else _campaign!.rewardsWindow.OnContinueButtonClick();', 'else { NativeSucceeded(opening); _campaign!.rewardsWindow.OnContinueButtonClick(); }'),
+    'intro-focus': ('Introduction', 'Time.frameCount - layout._focusedFrame < 2', 'false'),
+    'intro-block': ('PostQuest', '|| IntroductionOpen', '|| false'),
+    'unlock-target': ('Poll', '!ReferenceEquals(b, expected)', 'false'),
+    'map-reward-binding': ('MapButtons', 'adventure.closeButton.onClick.AddListener(ConfirmAdventureRewards);', '{}'),
+    'map-location-binding': ('MapButtons', 'locations.continueButton.onClick.AddListener(locations.Continue);', '{}'),
+    'map-duplicate-binding': ('MapButtons', 'adventure.closeButton.onClick.RemoveListener(adventure.Hide);', '{}'),
     'missing-listener': ('Reward', 'rewards.continueButton.onClick.AddListener(rewards.OnContinueButtonClick);', '{}'),
     'duplicate-listener': ('Reward', 'rewards.continueButton.onClick.RemoveListener(rewards.OnContinueButtonClick);', '{}'),
     'reveal': ('Reward', '!rewards.isRevealing', 'true'),
@@ -94,6 +126,16 @@ for name, text in sources.items():
     (out / (name + '.mutant')).write_text(text)
 PY
     case "$mutation" in
+        postquest-pose) expected='stale pose cannot bind repeated native reward group' ;;
+        postquest-reveal) expected='remote postquest completion waits for native reward reveal' ;;
+        postquest-duplicate) expected='repeated remote and local postquest input cannot double callback' ;;
+        postquest-success) expected='failed native callback never publishes completion' ;;
+        intro-focus) expected='remote hint uses native button callback before exposing reward continuation' ;;
+        intro-block) expected='original reward cannot close through its still-active introduction' ;;
+        unlock-target) expected='transient body click cannot choose an unrelated active button while native Continue is disabled' ;;
+        map-reward-binding) expected='map reward gets exactly one native listener plus unrelated callback' ;;
+        map-duplicate-binding) expected='conversion reactivation neither loses nor duplicates original map callbacks' ;;
+        map-location-binding) expected='unlock location gets exactly one native listener' ;;
         missing-listener) expected='gamepad-created campaign button receives one native listener' ;;
         duplicate-listener) expected='campaign close and reopen retain exactly one native binding' ;;
         reveal) expected='campaign reveal animation gates input' ;;
@@ -110,10 +152,14 @@ PY
         screen-unavailable) expected='manual desktop reward source is unavailable for shared floating placement' ;;
     esac
     if dotnet run --project "$mutation_dir/GloomhavenVR.RewardShowcaseTests.csproj" --configuration Release \
-        --property:ContinueButtonSource="$mutation_dir/Continue.mutant" \
+        --property:RepositorySourceRoot="$repo_root/src/GloomhavenVR" \
+    --property:ContinueButtonSource="$mutation_dir/Continue.mutant" \
+        --property:PostQuestSource="$mutation_dir/PostQuest.mutant" \
+        --property:IntroductionSource="$mutation_dir/Introduction.mutant" \
         --property:RewardSource="$mutation_dir/Reward.mutant" \
         --property:IdentitySource="$mutation_dir/Identity.mutant" \
         --property:PlacementSource="$mutation_dir/Placement.mutant" \
+        --property:MapButtonsSource="$mutation_dir/MapButtons.mutant" \
         --property:CatchAllSource="$mutation_dir/Poll.mutant" > "$mutation_dir/mutant.log" 2>&1; then
         cat "$mutation_dir/mutant.log"
         echo "FAIL: $mutation escaped reward showcase test." >&2

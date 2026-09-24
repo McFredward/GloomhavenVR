@@ -7,7 +7,7 @@ internal static partial class RemoteMapStory
     private static int _checks;
     private static void Check(bool condition,string why) { _checks++;if(!condition)throw new Exception(why); }
     private static void Fresh(int id=2,bool host=false) {
-        ResetReflow();StoryLocal.Reset();QuestLocal.Reset();EncounterLocal.Reset();SharedWindows.Grabs.Clear();
+        MapStoryLifecycle.Fresh();ResetReflow();StoryLocal.Reset();QuestLocal.Reset();EncounterLocal.Reset();SharedWindows.Grabs.Clear();
         FFSNetwork.IsOnline=true;FFSNetwork.IsHost=host;NetPlayerActors.Id=id;MapRoomDriver.Active=true;
         Time.unscaledTime=10;Time.frameCount=100;
         foreach(var kind in new[]{SharedWindowKind.MapStory,SharedWindowKind.QuestConfirm,SharedWindowKind.Encounter}) {
@@ -17,7 +17,8 @@ internal static partial class RemoteMapStory
     }
     private static PresenceState Peer(byte held=0,byte automatic=0,bool host=false,bool known=true)=>new() {
         HasMapRoom=true,MapRoomFlags=(byte)(1|(host?2:0)),HasSharedWindowMotion=known,
-        SharedWindowHeldMask=held,SharedWindowReflowMask=automatic
+        SharedWindowHeldMask=held,SharedWindowReflowMask=automatic,
+        HasMapStoryLifecycle=true,MapStoryLifecycleEntries=MapStoryLifecycle.Sender.Sample(MapStoryLifecycle.Remote)
     };
     private static bool Settled() {CanArrangeSharedWindows();Time.unscaledTime+=0.4f;return CanArrangeSharedWindows();}
     private static void Main() {
@@ -55,13 +56,13 @@ internal static partial class RemoteMapStory
         }
         Fresh();Check(Settled(),"Fresh election");Check(BeginSharedReflow(SharedWindowKind.MapStory),"Story starts");
         var stamps=new Dictionary<int,byte>{{3,1}};var entry=new SharedWindowEntry{ContentKey=11,Flags=2,PoseStamp=2};
-        peer=Peer(automatic:1);ObserveReflow(3,in peer);ObserveReflowPose(3,SharedWindowKind.MapStory,in entry,stamps);
+        peer=Peer(automatic:1);ObserveReflow(3,in peer);ReceiveStoryPose(3,in peer,in entry,stamps);
         Check(StoryLocal.Reflow,"Automatic samples must not impersonate a manual grab");
-        peer=Peer();ObserveReflow(3,in peer);ObserveReflowPose(3,SharedWindowKind.MapStory,in entry,stamps);
+        peer=Peer();ObserveReflow(3,in peer);ReceiveStoryPose(3,in peer,in entry,stamps);
         Check(!StoryLocal.Reflow,"New manual movement stamp must cancel animation");
         Fresh();Check(Settled(),"Fresh election");Check(BeginSharedReflow(SharedWindowKind.MapStory),"Story starts");
         stamps.Clear();peer=Peer();ObserveReflow(3,in peer);
-        ObserveReflowPose(3,SharedWindowKind.MapStory,in entry,stamps);
+        ReceiveStoryPose(3,in peer,in entry,stamps);
         Check(!StoryLocal.Reflow,"First remote drag between samples must interrupt automatic motion");
         Fresh();Check(Settled(),"Fresh election");var changed=new GrabbableModal();SharedWindows.Grabs[SharedWindowKind.MapStory]=changed;
         Check(!BeginSharedReflow(SharedWindowKind.MapStory),"Replacement identity must settle before claiming");Time.frameCount+=3;
@@ -74,6 +75,21 @@ internal static partial class RemoteMapStory
         Check(SampleFinished(true,new object(),100)==1&&SendBuffer[0].Flags==6,"Visible finished endpoint must survive linger expiry");
         SharedWindows.Grabs[SharedWindowKind.MapStory].Visible=false;
         Check(SampleFinished(true,new object(),100)==0,"Invisible story must fall silent after linger");
+        Fresh();Check(Settled(),"Fresh election");var staleGrip=Peer(held:1);var stalePose=Peer();
+        MapStoryLifecycle.Reopen();Check(BeginSharedReflow(SharedWindowKind.MapStory),"Repeated story starts");
+        ObserveReflow(3,in staleGrip);
+        Check(StoryLocal.Reflow,"Prior opening grip must not cancel repeated story animation");
+        Check(CanArrangeSharedWindows(),"Prior opening grip must not block current layout ownership");
+        ObserveReflow(3,in stalePose);stamps.Clear();ReceiveStoryPose(3,in stalePose,in entry,stamps);
+        Check(StoryLocal.Reflow,"Prior opening manual pose must not cancel repeated story animation");
+        peer=Peer();ObserveReflow(3,in peer);ReceiveStoryPose(3,in peer,in entry,stamps);
+        Check(!StoryLocal.Reflow,"Current opening manual pose must cancel repeated story animation");
+        Fresh();Check(Settled(),"Fresh election");peer=Peer(held:1);ObserveReflow(3,in peer);
+        Check(!CanArrangeSharedWindows(),"Current cached story grip blocks arrangement");
+        MapStoryLifecycle.Reopen();
+        Check(CanArrangeSharedWindows(),"Cached grip must expire when native opening changes before next packet");
+        peer=Peer(held:2);peer.HasMapStoryLifecycle=false;ObserveReflow(3,in peer);
+        Check(!CanArrangeSharedWindows(),"Quest grip remains authoritative without story provenance");
         Console.WriteLine($"Shared window reflow: {_checks} production assertions passed.");
     }
 }

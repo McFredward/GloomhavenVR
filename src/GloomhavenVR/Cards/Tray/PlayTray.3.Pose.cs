@@ -582,6 +582,7 @@ internal sealed partial class PlayTray
     {
         if (_root == null)
             return;
+        CancelBoardReFace(); // an explicit settings edit owns the pose from this point
         if (CardsConfig.TrayFollow.Value)
         {
             PlaceAtHead(); // re-derives position (incl. BoardPosOffset), rotation and scale
@@ -884,6 +885,10 @@ internal sealed partial class PlayTray
             DiscardCapturedPose();
             return false;
         }
+        // A board switch/rebuild snapshots one world pose and destroys the outgoing root in
+        // the same stack; tracking recovery also snapshots a pose to restore. Finish a release
+        // turn before either capture, or a half-turned pose could become the permanent facing.
+        FinishBoardReFaceForLifecycle();
         position = _root.position;
         rotation = _root.rotation;
         localScale = _root.localScale;
@@ -948,6 +953,7 @@ internal sealed partial class PlayTray
     {
         if (_root == null)
             return;
+        CancelBoardReFace();
 
         // 1. Put the frame back BEFORE the pose is written into it.
         bool holderRestored = TryRestoreCapturedPinFrame();

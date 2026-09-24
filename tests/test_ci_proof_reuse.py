@@ -196,6 +196,97 @@ class ProofTests(unittest.TestCase):
                 self.save('changed input')
                 self.reject()
 
+    def test_release_highlights_and_plain_markdown_reuse_tested_parent(self):
+        for path in ('packaging/release-highlights/1.0.8.md', 'README.md',
+                     'README.de.md', 'docs/PLAYING.md', '.planning/STATE.md'):
+            with self.subTest(path=path):
+                self.g('reset', '--hard', self.head)
+                self.write(path, 'updated text\n')
+                docs = self.save('documentation only')
+                self.g('update-ref', 'refs/remotes/origin/dev', docs)
+                self.assertNotEqual(M.tree(self.root, docs), self.tree)
+                self.assertEqual(M.proof_tree(self.root, M.tree(self.root, docs)), self.tree)
+                self.assertTrue(self.proof())
+
+    def test_multiple_docs_commits_reuse_only_nearest_tested_source(self):
+        self.write('packaging/release-highlights/1.0.8.md', 'release text\n')
+        self.save('release message')
+        self.write('README.md', 'player documentation\n')
+        docs = self.save('readme')
+        self.g('update-ref', 'refs/remotes/origin/dev', docs)
+        self.assertTrue(self.proof())
+        self.g('checkout', '-q', 'main')
+        self.g('merge', '--no-ff', '-qm', 'release merge', 'dev')
+        merged = self.g('rev-parse', 'HEAD')
+        self.assertEqual(M.candidate(self.root, {'ref': 'refs/heads/main', 'after': merged},
+                                     'release', REPO, merged)[1], M.tree(self.root, docs))
+        self.assertTrue(self.proof())
+
+    def test_internal_pr_merge_of_docs_only_dev_head_reuses_source(self):
+        self.write('packaging/release-highlights/1.0.8.md', 'release text\n')
+        docs = self.save('release message')
+        self.g('update-ref', 'refs/remotes/origin/dev', docs)
+        self.head = docs
+        merged = self.merge()
+        self.assertEqual(M.candidate(self.root, self.pr_event(), 'pr', REPO, merged)[1],
+                         M.tree(self.root, docs))
+        self.assertTrue(self.proof())
+
+    def test_docs_after_untested_code_or_policy_change_cannot_borrow_old_green(self):
+        for path in ('source', M.WORKFLOW, M.HELPER):
+            with self.subTest(path=path):
+                self.g('reset', '--hard', self.head)
+                self.write(path, 'untested change\n')
+                changed = self.save('untested source or policy')
+                self.write('packaging/release-highlights/1.0.8.md', 'release text\n')
+                docs = self.save('release message')
+                self.g('update-ref', 'refs/remotes/origin/dev', docs)
+                self.assertEqual(M.proof_tree(self.root, M.tree(self.root, docs)), M.tree(self.root, changed))
+                self.reject()
+
+    def test_other_packaging_files_and_nonmarkdown_docs_require_full_checks(self):
+        for path in ('packaging/gloomhavenvr.bundle.README.txt', 'docs/CI-CD.py',
+                     'docs/PATCH-INVENTORY.md', 'docs/NET-ACTION-SURFACE.md',
+                     '.planning/refactor/INVARIANTS-Net-Rig.md',
+                     'packaging/release-highlights/README.md', 'scripts/ci-build.sh'):
+            with self.subTest(path=path):
+                self.g('reset', '--hard', self.head)
+                self.write(path, 'changed\n')
+                changed = self.save('not allowable docs')
+                self.g('update-ref', 'refs/remotes/origin/dev', changed)
+                self.assertEqual(M.proof_tree(self.root, M.tree(self.root, changed)), M.tree(self.root, changed))
+                self.reject()
+
+    def test_markdown_symlink_requires_full_checks(self):
+        target = self.root / 'packaging/release-highlights/1.0.8.md'
+        target.parent.mkdir(parents=True)
+        target.symlink_to('../../source')
+        changed = self.save('symlink')
+        self.g('update-ref', 'refs/remotes/origin/dev', changed)
+        self.assertEqual(M.proof_tree(self.root, M.tree(self.root, changed)), M.tree(self.root, changed))
+        self.reject()
+
+    def test_failed_or_pending_source_run_is_not_bypassed_by_docs(self):
+        self.write('packaging/release-highlights/1.0.8.md', 'release text\n')
+        docs = self.save('release message')
+        self.g('update-ref', 'refs/remotes/origin/dev', docs)
+        for status, conclusion in [('completed', 'failure'), ('in_progress', None)]:
+            with self.subTest(status=status):
+                newer = dict(self.run, id=102, run_number=21, status=status, conclusion=conclusion)
+                self.api = API([self.run, newer], [self.job])
+                self.reject()
+
+    def test_docs_push_binds_exact_dev_event(self):
+        event = {'ref': 'refs/heads/dev', 'after': self.head}
+        self.assertEqual(M.candidate(self.root, event, 'dev-docs', REPO, self.head,
+                                     'push', 'refs/heads/dev'), (self.head, self.tree))
+        for name, ref, after in [('workflow_dispatch', 'refs/heads/dev', self.head),
+                                 ('push', 'refs/heads/main', self.head),
+                                 ('push', 'refs/heads/dev', 'a' * 40)]:
+            with self.subTest(name=name, ref=ref, after=after), self.assertRaises(M.NoProof):
+                M.candidate(self.root, {'ref': ref, 'after': after}, 'dev-docs', REPO,
+                            self.head, name, ref)
+
     def test_conflict_resolution_changes_require_full_checks(self):
         self.g('checkout', '-q', 'main')
         self.write('source', 'main edits\n')
@@ -319,7 +410,9 @@ class WorkflowBindings(unittest.TestCase):
         self.assertIn('pull_request.head.repo.full_name == github.repository', source)
         self.assertIn("needs.plan.outputs.reuse != 'true'", source)
         self.assertIn('persist-credentials: false', source)
-        self.assertIn("fetch-depth: ${{ github.event_name == 'pull_request' && '0' || '1' }}", source)
+        self.assertIn('fetch-depth: 0', source)
+        self.assertIn('python3 scripts/check-docs-i18n.py', source)
+        self.assertIn('scripts/ci-proof-reuse.py --mode dev-docs', source)
         self.assertNotIn('pull_request_target:', source)
         self.assertIn('"$FORK_PR" != true', source)
         self.assertIn('Record full-check completion', source)

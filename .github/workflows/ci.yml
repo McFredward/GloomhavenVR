@@ -1,8 +1,8 @@
 # GloomhavenVR — CI for the working branch.
 #
-# Builds the mod and runs the project's own gates on every push and pull request to
-# `dev`. It NEVER releases, NEVER tags and NEVER bumps a version — `dev` builds are
-# not shipped, by decision.
+# Runs the project's gates on source-changing pushes and pull requests to `dev`.
+# Approved documentation-only dev pushes may reuse a trusted full run. It NEVER
+# releases, tags or bumps a version — `dev` builds are not shipped, by decision.
 #
 # HOW IT BUILDS WITHOUT THE GAME
 # ------------------------------
@@ -48,7 +48,7 @@ concurrency:
 
 jobs:
   plan:
-    name: Select exact-tree CI evidence
+    name: Select trusted source-tree CI evidence
     runs-on: ubuntu-24.04
     outputs:
       reuse: ${{ steps.proof.outcome == 'success' && steps.proof.outputs.reuse || 'false' }}
@@ -58,23 +58,30 @@ jobs:
       - name: Checkout the event source
         uses: actions/checkout@v6.1.0
         with:
-          # Dev always validates fully and only needs its current tree. History is
-          # needed for PR merge ancestry/proof, not on every normal dev push.
-          fetch-depth: ${{ github.event_name == 'pull_request' && '0' || '1' }}
+          # Full history proves first-parent documentation ancestry. A code/workflow
+          # push still runs full checks; a docs-only push may reuse its tested parent.
+          fetch-depth: 0
           persist-credentials: false
       - name: Identify the checked-out tree
         id: source
         run: echo "tree=$(git rev-parse HEAD^{tree})" >> "$GITHUB_OUTPUT"
-      - name: Reuse trusted full dev CI only for an identical internal PR merge
+      - name: Check English/German documentation
+        run: python3 scripts/check-docs-i18n.py
+      - name: Reuse trusted full dev CI for an internal PR or docs-only dev push
         id: proof
-        continue-on-error: true  # API/tooling uncertainty falls back to full PR validation
-        if: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository }}
+        continue-on-error: true  # API/tooling uncertainty falls back to full validation
+        if: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) || (github.event_name == 'push' && github.ref == 'refs/heads/dev') }}
         env:
           GH_TOKEN: ${{ github.token }}
-        run: python3 scripts/ci-proof-reuse.py --mode pr
+        run: |
+          if [[ "$GITHUB_EVENT_NAME" == push ]]; then
+            python3 scripts/ci-proof-reuse.py --mode dev-docs
+          else
+            python3 scripts/ci-proof-reuse.py --mode pr
+          fi
       - name: Explain full validation
         if: ${{ steps.proof.outputs.reuse != 'true' }}
-        run: echo 'This event runs full checks. Fork PRs never reuse evidence; dev pushes and manual runs always validate.' >> "$GITHUB_STEP_SUMMARY"
+        run: echo 'This event runs full checks. Fork PRs and manual runs never reuse evidence; source or CI-policy changes on dev require full validation.' >> "$GITHUB_STEP_SUMMARY"
 
       - name: Config keys, patch registrations and log markers vs the PR base
         if: github.event_name == 'pull_request'
@@ -385,7 +392,13 @@ jobs:
           bash scripts/native-video-tests.sh
           bash scripts/reward-showcase-tests.sh
           bash scripts/modal-close-tests.sh
+          bash scripts/story-completion-tests.sh
+          bash scripts/map-story-lifecycle-tests.sh
+          bash scripts/message-continuation-tests.sh
+          bash scripts/announcement-tests.sh
+          bash scripts/dialog-surface-tests.sh
           bash scripts/vr-options-tests.sh
+          bash scripts/scenario-win-cheat-tests.sh
           bash scripts/vr-options-close-tests.sh
           bash scripts/reward-pose-tests.sh
           bash scripts/conversion-rollback-tests.sh
@@ -475,8 +488,8 @@ jobs:
           if [[ "$FULL_RESULT" == success ]]; then
             echo 'Full build and gates passed.' >> "$GITHUB_STEP_SUMMARY"
           elif [[ "$FORK_PR" != true && "$REUSED" == true && "$FULL_RESULT" == skipped && -n "$PROOF_URL" ]]; then
-            echo "Full checks reused from $PROOF_URL for the identical source tree." >> "$GITHUB_STEP_SUMMARY"
+            echo "Full checks reused from $PROOF_URL for the checked-out source tree or its documentation-only descendant." >> "$GITHUB_STEP_SUMMARY"
           else
-            echo '::error::Neither full checks nor verified exact-tree evidence succeeded.'
+            echo '::error::Neither full checks nor verified source-tree evidence succeeded.'
             exit 1
           fi
