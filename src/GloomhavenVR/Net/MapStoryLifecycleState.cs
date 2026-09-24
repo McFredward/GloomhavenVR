@@ -7,6 +7,7 @@ internal sealed class MapStoryOpening
 {
     internal uint Epoch, Token, PreviousToken, SemanticKey, ContentKey;
     internal uint PageRevision;
+    internal ushort TotalParticipants;
     internal byte Page = byte.MaxValue, PageCount;
     internal bool Finished, Bidirectional;
     internal int[] Participants = Array.Empty<int>();
@@ -17,14 +18,15 @@ internal static class MapStoryLifecycleCodec
 {
     internal const byte RecordId = 83;
     internal const int MaxEntries = 6, MaxParticipants = 3;
-    internal const int MaxPayload = 1 + MaxEntries * (28 + 4 * MaxParticipants);
+    internal const int MaxPayload = 1 + MaxEntries * (30 + 4 * MaxParticipants);
 
     internal static bool Valid(MapStoryOpening entry)
     {
         if (entry.Epoch == 0 || entry.Token == 0 || entry.PreviousToken >= entry.Token || entry.SemanticKey == 0
             || entry.ContentKey == 0 || entry.PageCount == 0
             || (entry.Page != byte.MaxValue && entry.Page >= entry.PageCount)
-            || entry.Participants == null || entry.Participants.Length > MaxParticipants) return false;
+            || entry.Participants == null || entry.Participants.Length > MaxParticipants
+            || entry.Participants.Length > entry.TotalParticipants) return false;
         for (int i = 0; i < entry.Participants.Length; ++i)
         {
             if (entry.Participants[i] <= 0) return false;
@@ -44,7 +46,7 @@ internal static class MapStoryLifecycleCodec
             if (entry == null || !Valid(entry)) return false;
             if (entry.Epoch != entries[0].Epoch) return false;
             for (int j = 0; j < i; ++j) if (entries[j].Token == entry.Token) return false;
-            length += 28 + 4 * entry.Participants.Length;
+            length += 30 + 4 * entry.Participants.Length;
         }
         if (offset < 0 || offset > buffer.Length - length - 2) return false;
         buffer[offset++] = recordId;
@@ -59,6 +61,8 @@ internal static class MapStoryLifecycleCodec
             buffer[offset++] = entry.Page; buffer[offset++] = entry.PageCount;
             buffer[offset++] = (byte)((entry.Finished ? 1 : 0) | (entry.Bidirectional ? 2 : 0));
             buffer[offset++] = (byte)entry.Participants.Length;
+            buffer[offset++] = (byte)entry.TotalParticipants;
+            buffer[offset++] = (byte)(entry.TotalParticipants >> 8);
             foreach (int peer in entry.Participants) Put(buffer, ref offset, (uint)peer);
         }
         return true;
@@ -67,14 +71,14 @@ internal static class MapStoryLifecycleCodec
     internal static bool TryRead(byte[] buffer, int offset, int length, out MapStoryOpening[] entries)
     {
         entries = Array.Empty<MapStoryOpening>();
-        if (offset < 0 || length < 29 || length > MaxPayload || offset > buffer.Length - length) return false;
+        if (offset < 0 || length < 31 || length > MaxPayload || offset > buffer.Length - length) return false;
         int end = offset + length;
         int count = buffer[offset++];
         if (count < 1 || count > MaxEntries) return false;
         var result = new MapStoryOpening[count];
         for (int i = 0; i < count; ++i)
         {
-            if (end - offset < 28) return false;
+            if (end - offset < 30) return false;
             var entry = new MapStoryOpening {
                 Epoch = Get(buffer, ref offset), Token = Get(buffer, ref offset), PreviousToken = Get(buffer, ref offset),
                 SemanticKey = Get(buffer, ref offset), ContentKey = Get(buffer, ref offset),
@@ -82,6 +86,7 @@ internal static class MapStoryLifecycleCodec
                 Page = buffer[offset++], PageCount = buffer[offset++] };
             byte flags = buffer[offset++];
             int peers = buffer[offset++];
+            entry.TotalParticipants = (ushort)(buffer[offset++] | (buffer[offset++] << 8));
             if (flags > 3 || peers > MaxParticipants || end - offset < peers * 4) return false;
             entry.Finished = (flags & 1) != 0;
             entry.Bidirectional = (flags & 2) != 0;

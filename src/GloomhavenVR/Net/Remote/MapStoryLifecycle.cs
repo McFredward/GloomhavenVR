@@ -43,7 +43,7 @@ internal static class MapStoryLifecycle
         if (!MapActive || message == null || !ReferenceEquals(controller, Controller)) return;
         uint content = RemoteStorySync.HashDialog(message.DialogPages);
         int count = message.DialogPages?.Count ?? 0;
-        if (content == 0 || count == 0 || count > NetProtocol.StoryPageMax) return;
+        if (content == 0 || count == 0 || count > byte.MaxValue) return;
         uint semantic = SharedMapRunIdentity.Add(SharedMapRunIdentity.Key, "map-story");
         // controller.messageTrigger is overwritten when a successor is merely queued.
         // It is not provenance of this message, especially when VR joins an existing box.
@@ -51,7 +51,7 @@ internal static class MapStoryLifecycle
         semantic = SharedMapRunIdentity.Add(semantic, content.ToString("X8", CultureInfo.InvariantCulture));
         // Wealth messages intentionally reuse the same text. Their public prosperity level
         // identifies which unlock this occurrence announces, without translated text or RNG.
-        if (message.DialogPages[0]?.text == "GUI_WEALTH_LEVEL_UNLOCKES_ITEMS" && AdventureState.MapState != null)
+        if (message.DialogPages![0]?.text == "GUI_WEALTH_LEVEL_UNLOCKES_ITEMS" && AdventureState.MapState != null)
             semantic = SharedMapRunIdentity.Add(semantic,
                 CMapParty.CalculateProsperityLevel(AdventureState.MapState.MapParty.ProsperityXP)
                     .ToString(CultureInfo.InvariantCulture));
@@ -63,7 +63,7 @@ internal static class MapStoryLifecycle
         if (!Active || message == null || !ReferenceEquals(controller, ScenarioController)) return;
         uint content = RemoteStorySync.HashDialog(message.DialogPages);
         int count = message.DialogPages?.Count ?? 0;
-        if (content == 0 || count == 0 || count > NetProtocol.StoryPageMax) return;
+        if (content == 0 || count == 0 || count > byte.MaxValue) return;
         uint semantic = SharedMapRunIdentity.Add(SharedMapRunIdentity.Key, "scenario-story");
         semantic = SharedMapRunIdentity.Add(semantic, message.LevelMsg?.MessageName);
         semantic = SharedMapRunIdentity.Add(semantic, content.ToString("X8", CultureInfo.InvariantCulture));

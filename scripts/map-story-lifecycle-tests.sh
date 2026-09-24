@@ -10,7 +10,7 @@ ledger="$repo_root/src/GloomhavenVR/Net/MapStoryOpeningLedger.cs"
 codec="$repo_root/src/GloomhavenVR/Net/MapStoryLifecycleState.cs"
 project="$test_dir/GloomhavenVR.MapStoryLifecycleTests.csproj"
 dotnet run --project "$project" --configuration Release --property:LedgerSource="$ledger" --property:CodecSource="$codec"
-for mutation in no-terminal-latch no-recipient-check no-predecessor-check no-one-to-one no-run-match no-epoch-retirement no-page-revision; do
+for mutation in no-terminal-latch no-recipient-check no-predecessor-check no-one-to-one no-run-match no-epoch-retirement no-page-revision no-recipient-total no-final-predecessor; do
     python3 - "$ledger" "$test_dir/mutant.fixture" "$mutation" <<'PY'
 from pathlib import Path
 import sys
@@ -23,6 +23,8 @@ pairs = {
  'no-run-match': ('remote.SemanticKey != local.State.SemanticKey || ', ''),
  'no-epoch-retirement': (' && retired.Contains(epoch)', ' && false'),
  'no-page-revision': ('if (entry.State.Bidirectional) ++entry.State.PageRevision;', ''),
+ 'no-recipient-total': ('|| predecessor.Participants.Length < predecessor.TotalParticipants', ''),
+ 'no-final-predecessor': ('|| !predecessor.Finished', ''),
 }
 before, after = pairs[sys.argv[3]]
 assert before in source
@@ -41,6 +43,8 @@ PY
         no-run-match) expected='prior public run cannot advance a new run with identical text' ;;
         no-epoch-retirement) expected='retired epoch replay cannot complete a new opening' ;;
         no-page-revision) expected='native previous-page action synchronizes backwards' ;;
+        no-recipient-total) expected='partial recipient history cannot close the live successor' ;;
+        no-final-predecessor) expected='live predecessor cannot prove final absence before future recipient enrollment' ;;
     esac
     if ! rg -qF "$expected" "$test_dir/mutant.log"; then cat "$test_dir/mutant.log"; exit 1; fi
     echo "Map story lifecycle negative control: $mutation rejected."

@@ -46,7 +46,8 @@ internal sealed class MapStoryOpeningLedger
             if (prior.State.SemanticKey == semanticKey) previous = prior.State.Token;
         var state = new MapStoryOpening { Epoch = _epoch, Token = ++_nextToken, PreviousToken = previous,
             SemanticKey = semanticKey, ContentKey = contentKey, PageCount = pageCount,
-            Participants = CopyPeers(peers), Bidirectional = bidirectional };
+            Participants = CopyPeers(peers), TotalParticipants = checked((ushort)peers.Count),
+            Bidirectional = bidirectional };
         _local.Add(new Local(subject, state));
         Changed = true;
         _bindingDirty = true;
@@ -129,7 +130,10 @@ internal sealed class MapStoryOpeningLedger
                 if (prior.SemanticKey != incoming.SemanticKey || prior.ContentKey != incoming.ContentKey
                     || prior.PageCount != incoming.PageCount || prior.PreviousToken != incoming.PreviousToken
                     || prior.Bidirectional != incoming.Bidirectional) continue;
+                if (!prior.Finished && incoming.Finished) _bindingDirty = true;
                 prior.Finished |= incoming.Finished;
+                ushort total = Math.Max(prior.TotalParticipants, incoming.TotalParticipants);
+                if (total != prior.TotalParticipants) _bindingDirty = true;
                 if (incoming.Page != byte.MaxValue && (prior.Bidirectional
                         ? incoming.PageRevision > prior.PageRevision
                             || (incoming.PageRevision == prior.PageRevision && incoming.Page > prior.Page)
@@ -137,6 +141,7 @@ internal sealed class MapStoryOpeningLedger
                 { prior.Page = incoming.Page; prior.PageRevision = incoming.PageRevision; }
                 foreach (int id in incoming.Participants)
                     if (!Has(prior.Participants, id)) { AddParticipant(prior, id); _bindingDirty = true; }
+                prior.TotalParticipants = Math.Max(total, prior.TotalParticipants);
             }
             else { history[incoming.Token] = Copy(incoming); _bindingDirty = true; }
         }
@@ -162,6 +167,7 @@ internal sealed class MapStoryOpeningLedger
             Array.Copy(local.State.Participants, 0, remaining, 0, index);
             Array.Copy(local.State.Participants, index + 1, remaining, index, remaining.Length - index);
             local.State.Participants = remaining;
+            local.State.TotalParticipants = checked((ushort)remaining.Length);
         }
         _bindingDirty = Changed = true;
     }
@@ -221,6 +227,8 @@ internal sealed class MapStoryOpeningLedger
                         || remote.Bidirectional != local.State.Bidirectional) continue;
                     if (remote.PreviousToken != 0 && !used.Contains(remote.PreviousToken)
                         && (!peer.Value.TryGetValue(remote.PreviousToken, out MapStoryOpening? predecessor)
+                            || !predecessor.Finished
+                            || predecessor.Participants.Length < predecessor.TotalParticipants
                             || Has(predecessor.Participants, localId))) continue;
                     local.Bindings.Add(peer.Key, remote.Token);
                     used.Add(remote.Token);
@@ -250,6 +258,7 @@ internal sealed class MapStoryOpeningLedger
         Array.Copy(entry.Participants, result, entry.Participants.Length);
         result[result.Length - 1] = peer;
         entry.Participants = result;
+        entry.TotalParticipants = checked((ushort)result.Length);
     }
     private static MapStoryOpening Snapshot(Local local)
     {
@@ -268,5 +277,6 @@ internal sealed class MapStoryOpeningLedger
         Epoch = entry.Epoch, Token = entry.Token, PreviousToken = entry.PreviousToken, SemanticKey = entry.SemanticKey,
         ContentKey = entry.ContentKey, Page = entry.Page, PageCount = entry.PageCount,
         PageRevision = entry.PageRevision, Bidirectional = entry.Bidirectional,
+        TotalParticipants = entry.TotalParticipants,
         Finished = entry.Finished, Participants = (int[])entry.Participants.Clone() };
 }

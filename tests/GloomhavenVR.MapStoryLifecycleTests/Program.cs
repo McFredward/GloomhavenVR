@@ -12,7 +12,7 @@ internal static class Program
     }
     private static void Main()
     {
-        Chain(); Repeated(); LateJoin(); Churn(); Epoch(); Bidirectional(); FailedDispatch(); Codec();
+        Chain(); Repeated(); LateJoin(); Churn(); PartialRecipients(); Epoch(); Bidirectional(); FailedDispatch(); Codec();
         Console.WriteLine($"Map story lifecycle: {_assertions} assertions passed.");
     }
 
@@ -143,6 +143,39 @@ internal static class Program
         }
     }
 
+    private static void PartialRecipients()
+    {
+        var receiver = new MapStoryOpeningLedger(); var old = new object(); var current = new object();
+        receiver.Open(old, 11, 22, 2, new[] { 1 }); receiver.Finish(old);
+        receiver.Open(current, 11, 22, 2, new[] { 1 });
+        var partial = new MapStoryOpening { Epoch = 1, Token = 1, SemanticKey = 11, ContentKey = 22,
+            PageCount = 2, Finished = true, TotalParticipants = 4, Participants = new[] { 3, 4, 5 } };
+        var successor = new MapStoryOpening { Epoch = 1, Token = 2, PreviousToken = 1, SemanticKey = 11,
+            ContentKey = 22, PageCount = 2, TotalParticipants = 1, Participants = new[] { 2 } };
+        receiver.Observe(1, new[] { partial, successor });
+        Check(receiver.Resolve(current, 2, 0, true) == -1,
+            "partial recipient slice cannot prove predecessor excluded this player");
+        partial.Participants = new[] { 2 };
+        receiver.Observe(1, new[] { partial });
+        Check(receiver.Resolve(current, 2, 0, true) == -1,
+            "partial recipient history cannot close the live successor");
+        successor.Finished = true;
+        receiver.Observe(1, new[] { successor });
+        Check(receiver.Resolve(current, 2, 0, true) == 2,
+            "complete recipient union binds old and new openings to the right objects");
+
+        var late = new MapStoryOpeningLedger(); var fresh = new object();
+        late.Open(fresh, 11, 22, 2, new[] { 1 });
+        partial.Finished = false; partial.TotalParticipants = 3; partial.Participants = new[] { 3, 4, 5 };
+        late.Observe(1, new[] { partial, successor });
+        Check(late.Resolve(fresh, 2, 0, true) == -1,
+            "live predecessor cannot prove final absence before future recipient enrollment");
+        partial.Finished = true;
+        late.Observe(1, new[] { partial });
+        Check(late.Resolve(fresh, 2, 0, true) == 2,
+            "completed full recipient list permits a genuine late joiner to bypass old occurrence");
+    }
+
     private static void Bidirectional()
     {
         var a = new MapStoryOpeningLedger(10); var b = new MapStoryOpeningLedger(20);
@@ -203,21 +236,21 @@ internal static class Program
     private static void Codec()
     {
         var entry = new MapStoryOpening { Epoch = 0xaabbccdd, Token = 0x01020304, PreviousToken = 1, SemanticKey = 0x11223344,
-            ContentKey = 0x55667788, Page = 1, PageCount = 2, Finished = true, Participants = new[] { 7 } };
-        byte[] golden = { 83, 33, 1, 0xdd, 0xcc, 0xbb, 0xaa, 4, 3, 2, 1, 1, 0, 0, 0, 0x44, 0x33, 0x22, 0x11,
-            0x88, 0x77, 0x66, 0x55, 0, 0, 0, 0, 1, 2, 1, 1, 7, 0, 0, 0 };
+            ContentKey = 0x55667788, Page = 1, PageCount = 2, Finished = true, TotalParticipants = 1, Participants = new[] { 7 } };
+        byte[] golden = { 83, 35, 1, 0xdd, 0xcc, 0xbb, 0xaa, 4, 3, 2, 1, 1, 0, 0, 0, 0x44, 0x33, 0x22, 0x11,
+            0x88, 0x77, 0x66, 0x55, 0, 0, 0, 0, 1, 2, 1, 1, 1, 0, 7, 0, 0, 0 };
         var buffer = new byte[MapStoryLifecycleCodec.MaxPayload + 2]; int offset = 0;
         Check(MapStoryLifecycleCodec.Write(buffer, ref offset, new[] { entry }), "golden writer accepts native opening");
         Check(offset == golden.Length && buffer.Take(offset).SequenceEqual(golden), "lifecycle golden bytes are append-only grammar proof");
-        Check(MapStoryLifecycleCodec.TryRead(golden, 2, 33, out MapStoryOpening[] decoded)
+        Check(MapStoryLifecycleCodec.TryRead(golden, 2, 35, out MapStoryOpening[] decoded)
             && decoded[0].Epoch == 0xaabbccdd && decoded[0].PreviousToken == 1 && decoded[0].Finished && decoded[0].Participants[0] == 7,
             "golden parser reads opening and participation provenance");
-        for (int length = 0; length < 33; ++length)
+        for (int length = 0; length < 35; ++length)
             Check(!MapStoryLifecycleCodec.TryRead(golden, 2, length, out _), "truncated payload rejected");
         byte[] malformed = (byte[])golden.Clone(); malformed[29] = 4;
-        Check(!MapStoryLifecycleCodec.TryRead(malformed, 2, 33, out _), "unknown completion flags rejected");
+        Check(!MapStoryLifecycleCodec.TryRead(malformed, 2, 35, out _), "unknown completion flags rejected");
         malformed = (byte[])golden.Clone(); malformed[27] = 2;
-        Check(!MapStoryLifecycleCodec.TryRead(malformed, 2, 33, out _), "out of range page rejected");
+        Check(!MapStoryLifecycleCodec.TryRead(malformed, 2, 35, out _), "out of range page rejected");
         offset = 0;
         Check(!MapStoryLifecycleCodec.Write(buffer, ref offset, new[] { entry, entry }) && offset == 0,
             "duplicate opening token rejected symmetrically before writing");
