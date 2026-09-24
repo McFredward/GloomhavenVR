@@ -2,7 +2,7 @@
 """Bind overlapping anatomical skin and original cuffs to one wrist transition.
 
 Run in Blender 4.2 against the approved source blend. Geometry, shape keys,
-materials, UVs, animation and every vertex outside the wrist interval are retained.
+materials, UVs and animation are retained. Only existing arm influences change.
 """
 import argparse
 import json
@@ -21,6 +21,7 @@ def main():
     args.output.mkdir(parents=True, exist_ok=True)
     bpy.ops.wm.open_mainfile(filepath=str(args.input))
     rig = next(obj for obj in bpy.data.objects if obj.type == 'ARMATURE')
+    assert not any(b.name.startswith('ForearmTwist') for b in rig.data.bones), 'Input must be the approved source before twist authoring'
     bpy.ops.object.select_all(action='DESELECT')
     rig.select_set(True)
     bpy.context.view_layer.objects.active = rig
@@ -43,6 +44,7 @@ def main():
             continue
         protected = {v.index: tuple((g.group, g.weight) for g in v.groups) for v in obj.data.vertices}
         changed = []
+        maximum_reduction = 0.
         for side in ('L', 'R'):
             bone = rig.data.bones['Hand.' + side]
             direction = (bone.tail_local - bone.head_local).normalized()
@@ -78,11 +80,10 @@ def main():
                       or obj.vertex_groups.new(name='ForearmTwist' + str(n) + '.' + side)
                       for n in range(1, 4)]
             supports = [fore] + twists
-            arm_names = {'UpperArm.' + side, 'Forearm.' + side, 'Hand.' + side}
             for vertex in obj.data.vertices:
                 weights = {obj.vertex_groups[g.group].name: g.weight for g in vertex.groups}
                 weight = weights.get(fore.name, 0)
-                if weight < 1e-7 or any(name not in arm_names and value > 1e-7 for name, value in weights.items()):
+                if weight < 1e-7:
                     continue
                 at = min(3., max(0., (vertex.co - fore_bone.head_local).dot(axis) / axis.length_squared * 3))
                 low = min(2, int(at))
@@ -94,12 +95,20 @@ def main():
                 if blend > 0:
                     group = supports[low + 1]
                     group.add([vertex.index], weight * blend, 'REPLACE')
-                assert len(vertex.groups) <= 4
+                current = sorted([(g.group, g.weight) for g in vertex.groups], key=lambda p: p[1], reverse=True)
+                removed = sum(weight for _, weight in current[4:])
+                maximum_reduction = max(maximum_reduction, removed)
+                assert removed < .05, ('Twist reduction would alter an unrelated joint', obj.name, vertex.index, removed)
+                for group, _ in current[4:]:
+                    obj.vertex_groups[group].remove([vertex.index])
+                total = sum(weight for _, weight in current[:4])
+                for group, value in current[:4]:
+                    obj.vertex_groups[group].add([vertex.index], value / total, 'REPLACE')
                 changed.append(vertex.index)
                 protected.pop(vertex.index, None)
         for index, weights in protected.items():
             assert tuple((g.group, g.weight) for g in obj.data.vertices[index].groups) == weights
-        report.append({'mesh': obj.name, 'changed_vertices': len(set(changed)),
+        report.append({'mesh': obj.name, 'changed_vertices': len(set(changed)), 'maximum_weight_reduction': maximum_reduction,
                        'protected_vertices': len(protected), 'other_weights_unchanged': True})
     bpy.ops.wm.save_as_mainfile(filepath=str(args.output / 'rig-source.blend'))
     bpy.ops.object.select_all(action='DESELECT')

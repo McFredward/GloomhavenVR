@@ -92,8 +92,8 @@ internal static class TownServiceActivityMotion
 
     private static float Ease(float time, float from, float to) => Mathf.SmoothStep(0f, 1f, (time - from) / (to - from));
     internal static Vector3 CoinSeat(int index, bool counted) => counted
-        ? new Vector3(.055f, .970f + index * .003f, .23f)
-        : new Vector3(.19f + index * .025f, .970f, .23f - index * .018f);
+        ? new Vector3(.24f, .970f + index * .003f, .29f)
+        : new Vector3(.24f, .970f, .38f - index * .026f);
 
     private static readonly float[] TransferEnd = { 4.8f, 8.9f, 14.6f, 19.1f, 24.3f, 28.6f };
     private static TownActivityVisual Merchant(float clock)
@@ -115,6 +115,8 @@ internal static class TownServiceActivityMotion
         // Refit the recorded reach to the compact lectern. The entire path moves
         // with the contact seats; stationary IK cannot drag a hand through the coat.
         Vector3 hand = visual.Left + new Vector3(-.05f, 0f, -.11f);
+        hand.x = Mathf.Max(.24f, hand.x);
+        hand.z = Mathf.Min(.31f, hand.z);
         Vector3 sourceDelta = source - CoinSeat(0, returning);
         Vector3 targetDelta = destination - CoinSeat(0, !returning);
         hand += Vector3.Lerp(sourceDelta, targetDelta, Ease(t, 1.12f, 2.75f))
@@ -124,7 +126,7 @@ internal static class TownServiceActivityMotion
         contact = Ease(t, 2.22f, 2.75f) * (1f-Ease(t, 3.10f, 3.32f));
         hand = Vector3.Lerp(hand, destination, contact);
         float grip = Ease(t, .68f, .96f) * (1f - Ease(t, 2.84f, 3.08f));
-        visual.Left = hand; visual.Right = new Vector3(-.20f, .959f, .23f);
+        visual.Left = hand; visual.Right = new Vector3(-.32f, .959f, .35f);
         visual.LeftCurl = grip * .55f; visual.RightCurl = .025f;
         for (int coin = 0; coin < 3; coin++)
         {
@@ -145,11 +147,11 @@ internal static class TownServiceActivityMotion
     private static TownActivityVisual Prayer(float clock)
     {
         var visual=TownServiceMotionClips.Sample(3, (clock % 8f)/8f);
-        // The two actual palm surfaces stay together; the sampled body provides the
-        // quiet asymmetric breathing/weight change, not a synthetic wrist oscillator.
-        visual.Left = new Vector3(.025f,1.21f,.39f);
-        visual.Right = new Vector3(-.025f,1.21f,.39f);
-        visual.LeftCurl=.10f; visual.RightCurl=.10f;
+        // Keep loosely cupped prayer hands at chest height. Their actual skin clears
+        // the opposite fingers; sampled breathing supplies the quiet weight change.
+        visual.Left = new Vector3(.035f,1.43f,.40f);
+        visual.Right = new Vector3(-.035f,1.43f,.40f);
+        visual.LeftCurl=0f; visual.RightCurl=0f;
         return visual;
     }
 
@@ -159,24 +161,37 @@ internal static class TownServiceActivityMotion
         internal SpellKey(float time, float leftRoll, float rightRoll, float strength)
         { Time=time; LeftRoll=leftRoll; RightRoll=rightRoll; Strength=strength; }
     }
-    // Palm orientation and effect envelopes follow the generated 10.2-second
-    // performance at its original speed. Hand/body trajectories come from the clip.
+    // Palm orientation and effects follow the source performance. Its final
+    // recovery is retimed continuously below; hands and body keep one clock.
     private static readonly SpellKey[] Spell = {
-        new(0f,0f,0f,0f), new(1.2f,0f,0f,0f), new(1.65f,80f,100f,0f),
+        new(0f,0f,0f,0f), new(.6f,0f,0f,0f), new(1.2f,35f,45f,0f), new(1.65f,80f,100f,0f),
         new(2.2f,110f,180f,.30f), new(2.7f,150f,170f,1f),
         new(3.45f,125f,195f,.92f), new(4.05f,110f,180f,.45f),
         new(4.9f,35f,50f,0f), new(5.3f,0f,0f,0f), new(6.1f,0f,0f,0f),
         new(7.1f,30f,180f,.12f), new(7.7f,95f,180f,.48f),
-        new(8.5f,45f,165f,.34f), new(9.4f,0f,0f,0f), new(10.2f,0f,0f,0f)
+        new(8.5f,45f,165f,.34f), new(9.8f,0f,0f,0f), new(10.2f,0f,0f,0f)
     };
     private static TownActivityVisual Enchantress(float clock)
     {
-        float cycle = clock % 10.2f;
+        float cycle = clock % 12.2f;
+        if (cycle > 8.5f)
+        {
+            // Give the generated fast spell recovery its own settling time. Cubic
+            // Hermite retiming keeps velocity continuous at both ends of the loop.
+            float phase = (cycle - 8.5f) / 3.7f;
+            float slope = 3.7f / 1.7f;
+            cycle = 8.5f + 1.7f * (slope * phase + (3f - 3f * slope) * phase * phase
+                + (2f * slope - 2f) * phase * phase * phase);
+        }
         int next = 1;
         while (next < Spell.Length - 1 && Spell[next].Time < cycle) next++;
         SpellKey a = Spell[next - 1], b = Spell[next];
         float t = Ease(cycle, a.Time, b.Time);
         var generated=TownServiceMotionClips.Sample(2, cycle / 10.2f);
+        float leftRest = 1f - Mathf.SmoothStep(0f, 1f, (generated.Left.y - 1.04f) / .14f);
+        float rightRest = 1f - Mathf.SmoothStep(0f, 1f, (generated.Right.y - 1.04f) / .14f);
+        generated.Left = Vector3.Lerp(generated.Left, new Vector3(Mathf.Max(.19f, generated.Left.x), Mathf.Max(1.02f, generated.Left.y), Mathf.Min(.32f, generated.Left.z)), leftRest);
+        generated.Right = Vector3.Lerp(generated.Right, new Vector3(Mathf.Min(-.19f, generated.Right.x), Mathf.Max(1.02f, generated.Right.y), Mathf.Min(.32f, generated.Right.z)), rightRest);
         return new TownActivityVisual { Left = generated.Left, Right = generated.Right,
             LeftElbow=generated.LeftElbow, RightElbow=generated.RightElbow, Body=generated.Body,
             LeftRoll = Mathf.Lerp(a.LeftRoll,b.LeftRoll,t), RightRoll = Mathf.Lerp(a.RightRoll,b.RightRoll,t),

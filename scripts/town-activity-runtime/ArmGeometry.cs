@@ -40,7 +40,30 @@ internal static class ArmGeometry
             triangles.Add(a);triangles.Add(b);triangles.Add(c);labels.Add(label);used.Add(a);used.Add(b);used.Add(c);
         }
         int[] indices=used.OrderBy(v=>v).ToArray();var lookup=indices.Select((v,i)=>(v,i)).ToDictionary(p=>p.v,p=>p.i);
-        var poses=new List<TownActivityPose>();float duration=service==1?28.6f:service==2?8f:10.2f;
+        var seams = new List<(int cloth, int skin, float gap)>();
+        int[] clothVertices=mesh.GetTriangles(0).Distinct().ToArray(), skinVertices=mesh.GetTriangles(2).Distinct().ToArray();
+        foreach(string side in new[]{"L","R"})
+        {
+            int handBone=Array.IndexOf(names,"Hand."+side), indexBone=Array.IndexOf(names,"Index1."+side);
+            Vector3 wrist=bind[handBone].inverse.MultiplyPoint3x4(Vector3.zero);
+            int foreBone=Array.IndexOf(names,"Forearm."+side);
+            float unit=Vector3.Distance(root.InverseTransformPoint(skin.bones[handBone].position),root.InverseTransformPoint(skin.bones[foreBone].position))
+                / Vector3.Distance(wrist,bind[foreBone].inverse.MultiplyPoint3x4(Vector3.zero));
+            Vector3 forward=(bind[indexBone].inverse.MultiplyPoint3x4(Vector3.zero)-wrist).normalized;
+            int[] candidates=skinVertices.Where(i=>lookup.ContainsKey(i)&&Vector3.Distance(vertices[i],wrist)*unit<.10f).ToArray();
+            Console.WriteLine("Seam import service="+service+" side="+side+" unit="+unit+" wrist="+wrist.ToString("F6")+" candidates="+candidates.Length+" bounds="+mesh.bounds);
+            foreach(int i in clothVertices)
+            {
+                Vector3 delta=vertices[i]-wrist;float along=Vector3.Dot(delta,forward)*unit;
+                if(!lookup.ContainsKey(i)||along<-.085f||along>.026f||delta.magnitude*unit>.12f)continue;
+                int nearest=-1;float gap=.04f;
+                foreach(int j in candidates){float distance=Vector3.Distance(vertices[i],vertices[j])*unit;if(distance<gap){gap=distance;nearest=j;}}
+                if(nearest>=0)seams.Add((lookup[i],lookup[nearest],gap));
+            }
+        }
+        if(seams.Count<20)throw new InvalidOperationException("Imported cuff/skin seam was not covered: "+service+" pairs="+seams.Count);
+        File.WriteAllLines(Path.Combine(args[arg+1],"service"+service+"-seams.csv"),seams.Select(p=>p.cloth+","+p.skin+","+p.gap.ToString("R",System.Globalization.CultureInfo.InvariantCulture)));
+        var poses=new List<TownActivityPose>();float duration=service==1?28.6f:service==2?8f:12.2f;
         // Twelve samples per second plus every phase's complete greeting and departure.
         for(float t=0;t<duration;t+=1f/12f)poses.Add(new TownActivityPose{WorkClock=t,TransitionAge=.65f});
         foreach(float start in new[]{0f,duration*.23f,duration*.51f,duration*.79f})
@@ -52,6 +75,13 @@ internal static class ArmGeometry
                 if(frame==45)TownServiceActivityMotion.Engage(ref pose,false);
                 pose=TownServiceActivityMotion.Advance(pose,1f/30f);poses.Add(pose);
             }
+        }
+        var interrupted=new TownActivityPose{WorkClock=duration*.51f,TransitionAge=.65f};
+        for(int frame=0;frame<90;frame++)
+        {
+            if(frame==0||frame==16)TownServiceActivityMotion.Engage(ref interrupted,true);
+            if(frame==8||frame==44)TownServiceActivityMotion.Engage(ref interrupted,false);
+            interrupted=TownServiceActivityMotion.Advance(interrupted,1f/30f);poses.Add(interrupted);
         }
         using var output=new BinaryWriter(File.Create(Path.Combine(args[arg+1],"service"+service+"-skin.bin")));
         output.Write(indices.Length);output.Write(labels.Count);output.Write(poses.Count);

@@ -207,8 +207,20 @@ public static class InteractionProgram
                         float reach=Vector3.Distance(upper.position,fore.position)+Vector3.Distance(fore.position,hand.position);
                         Vector3 wanted=root.TransformPoint(target);float excess=Mathf.Max(0,Vector3.Distance(wanted,upper.position)-reach+.001f);
                         rig.Apply(in phase);
+                        foreach(string side in new[]{"L","R"})
+                        {
+                            Transform[] joints=root.GetComponentsInChildren<Transform>(true);
+                            Transform wrist=joints.Single(t=>t.name=="Hand."+side), elbow=joints.Single(t=>t.name=="Forearm."+side);
+                            Transform palmAxis=joints.Single(t=>t.name=="PalmContact."+side);
+                            Check(Vector3.Angle(wrist.position-elbow.position,palmAxis.up)<55.1f,"actual wrist flexion remains anatomical: "+npc+" "+side+" frame="+n);
+                            Check(joints.Count(t=>t.name.StartsWith("ForearmTwist")&&t.name.EndsWith("."+side))==3,"imported pronation has three longitudinal skin supports");
+                        }
                         for(int foot=0;foot<2;foot++)maxFootDrift=Mathf.Max(maxFootDrift,Vector3.Distance(feet[foot].position,sampledFeet[foot]));
-                        if(n>0)maxHandStep=Mathf.Max(maxHandStep,Quaternion.Angle(previousHand,hand.rotation));
+                        // These two fixture frames teleport the actor to another ground
+                        // sample. Anatomical hand direction follows the changed forearm;
+                        // only continuous work/attention frames have a velocity bound.
+                        bool continuous = n>0&&n!=833&&n!=1666;
+                        if(continuous)maxHandStep=Mathf.Max(maxHandStep,Quaternion.Angle(previousHand,hand.rotation));
                         for(int digit=0;digit<thumbs.Length;digit++)
                             Check(Quaternion.Angle(thumbs[digit].localRotation,thumbNeutral[digit])<55f,"anatomical thumb stays inside natural grasp range");
                         if(service==1&&TownServiceActivityMotion.Writing(phase.WorkClock)>.99f&&TownServiceActivityMotion.Blend(in phase)<.01f)
@@ -217,7 +229,7 @@ public static class InteractionProgram
                         // peak at 90Hz; ordinary work and the 90-degree prayer turn stay below4.
                         float blend=TownServiceActivityMotion.Blend(in phase);
                         float turnLimit=service!=2&&blend>0f&&blend<1f?5f:4f;
-                        if(n>0)Check(Quaternion.Angle(previousHand,hand.rotation)<turnLimit,"hand orientation remains smooth through prayer interruption: "+npc+" n="+n+" step="+Quaternion.Angle(previousHand,hand.rotation));
+                        if(continuous)Check(Quaternion.Angle(previousHand,hand.rotation)<turnLimit,"hand orientation remains smooth through prayer interruption: "+npc+" n="+n+" step="+Quaternion.Angle(previousHand,hand.rotation));
                         previousHand=hand.rotation;
                         if(TownServiceActivityMotion.Blend(in phase)<.001f && target.y>.99f)
                         {

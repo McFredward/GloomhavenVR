@@ -21,6 +21,7 @@ internal sealed class TownServiceActivityRig
         internal Transform Grip = null!;
         internal readonly List<Transform> Fingers = new();
         internal readonly List<Quaternion> FingerRest = new();
+        internal readonly List<Transform> ClosingBases = new(), ClosingTips = new();
         internal readonly List<Vector3> CurlAxes = new();
         internal readonly List<float> CurlFactors = new();
         internal readonly List<Transform> Twist = new();
@@ -141,6 +142,12 @@ internal sealed class TownServiceActivityRig
         }
         foreach (Transform finger in arm.Fingers)
         {
+            if (finger.name.StartsWith("Index1.") || finger.name.StartsWith("Ring1.") || finger.name.StartsWith("Little1."))
+            {
+                string nextName = finger.name.Replace("1.", "2.");
+                foreach (Transform next in arm.Fingers)
+                    if (next.name == nextName) { arm.ClosingBases.Add(finger); arm.ClosingTips.Add(next); break; }
+            }
             arm.CurlAxes.Add(arm.Anatomical ? Vector3.right
                 : finger.InverseTransformDirection(arm.Hand.TransformDirection(Vector3.Cross(arm.PalmForward, arm.PalmNormal))));
             // The old generated hand remains a compatibility fallback. New joints have
@@ -173,8 +180,8 @@ internal sealed class TownServiceActivityRig
             _sampledNeck = _neck.localRotation; _applied = true;
             _neck.rotation = Quaternion.AngleAxis(4f * (1f - visual.Attention) * (1f - visual.Body.Weight), -_root.right) * _neck.rotation;
         }
-        Solve(_left!, visual.Left, 1f, visual.LeftCurl, visual.Attention, visual.LeftRoll, _service == 1, visual.LeftElbow, visual.Body.Weight);
-        Solve(_right!, visual.Right, -1f, visual.RightCurl, visual.Attention, visual.RightRoll, false, visual.RightElbow, visual.Body.Weight);
+        Solve(_left!, visual.Left, 1f, visual.LeftCurl, visual.Attention, visual.LeftRoll, _service == 1, visual.LeftElbow);
+        Solve(_right!, visual.Right, -1f, visual.RightCurl, visual.Attention, visual.RightRoll, false, visual.RightElbow);
         if (OfferingPalm != null)
         {
             Arm right = _right!;
@@ -236,7 +243,7 @@ internal sealed class TownServiceActivityRig
         foot.rotation=sole;
     }
     private void Solve(Arm arm, Vector3 localTarget, float side, float curl, float attention, float roll, bool pinchTarget,
-        Vector3 authoredElbow, float motionWeight)
+        Vector3 authoredElbow)
     {
         arm.SampledUpper = arm.Upper.localRotation; arm.SampledFore = arm.Fore.localRotation;
         arm.SampledHand = arm.Hand.localRotation; arm.Applied = true;
@@ -256,6 +263,17 @@ internal sealed class TownServiceActivityRig
             Transform finger = arm.Fingers[n];
             float amount = pinchTarget && !finger.name.StartsWith("Index") && !finger.name.StartsWith("Thumb") ? curl * .3f : curl;
             finger.localRotation = arm.FingerRest[n] * Quaternion.AngleAxis(amount * arm.CurlFactors[n], arm.CurlAxes[n]);
+        }
+        if (_service == 2 && attention < 1f)
+        {
+            // A prayer joins relaxed fingers; the neutral imported open-hand splay
+            // otherwise makes the two hands look interlaced or spread apart.
+            for (int n = 0; n < arm.ClosingBases.Count; n++)
+            {
+                Transform finger = arm.ClosingBases[n];
+                Quaternion together = Quaternion.FromToRotation(arm.ClosingTips[n].position - finger.position, handRotation * arm.PalmForward);
+                finger.rotation = Quaternion.Slerp(Quaternion.identity, together, 1f - attention) * finger.rotation;
+            }
         }
         if (arm.Anatomical && pinchTarget && arm.ThumbBase != null && arm.ThumbPinch != null && arm.IndexPinch != null)
         {
@@ -279,58 +297,100 @@ internal sealed class TownServiceActivityRig
         // forearm and wrung the cuff even though every contact marker was correct.
         Vector3 wantedNormal = handRotation * arm.PalmNormal;
         Vector3 foreDirection = Vector3.forward;
-        for (int pass = 0; pass < 10; pass++)
+        for (int pass = 0; pass < 20; pass++)
         {
-        arm.Upper.localRotation = arm.SampledUpper;
-        arm.Fore.localRotation = arm.SampledFore;
-        arm.Hand.rotation = handRotation;
-        Vector3 target = _root.TransformPoint(localTarget);
-        if (pinchTarget && arm.IndexPinch != null && arm.ThumbPinch != null)
-            target -= (arm.IndexPinch.position + arm.ThumbPinch.position) * .5f - arm.Hand.position;
-        else if (arm.Anatomical)
-        {
-            // Targets now describe actual palm surfaces throughout the entire animation,
-            // including the offered hand. A wrist-space target left spells hovering over
-            // the knuckles and made authored object contact impossible to maintain.
-            Vector3 palmOffset = handRotation * Vector3.Scale(arm.PalmOffset, arm.Hand.lossyScale);
-            target -= palmOffset;
-            float lowest = Vector3.Dot(palmOffset, _root.up);
-            foreach (Transform support in arm.Supports)
-                if (support != null) lowest = Mathf.Min(lowest, Vector3.Dot(support.position - arm.Hand.position, _root.up));
-            // A relaxed hand has an arched palm. Place its actual lowest palmar pad on
-            // the wood, rather than driving the whole central palm into the surface.
-            float tableContact = (1f - Mathf.SmoothStep(0f, 1f, (localTarget.y - .960f) / .025f))
-                * (1f - Mathf.SmoothStep(0f, 1f, Mathf.Abs(roll) / 25f));
-            target += _root.up * (Vector3.Dot(palmOffset, _root.up) - lowest) * tableContact;
-        }
-        Vector3 delta = target - shoulder;
-        float distance = Mathf.Clamp(delta.magnitude, Mathf.Abs(upper - lower) + .001f, upper + lower - .001f);
-        Vector3 direction = delta.normalized;
-        // Generated elbow motion preserves changing shoulder/elbow coordination.
-        // A fixed pole was one reason the former hands moved like mechanical arms.
-        Vector3 guide = authoredElbow.sqrMagnitude > .01f ? authoredElbow : new Vector3(side * .34f, .98f, .46f);
-        Vector3 greeting = new Vector3(side * (_service == 1 ? .43f : .35f), 1.04f, .45f);
-        guide = Vector3.Lerp(guide, greeting, attention);
-        // The generated human reference is narrower than the merchant's actual
-        // coat/belly. Keep the elbow's approach outside that measured silhouette.
-        float clearance = _service == 1 ? .39f : .29f;
-        guide.x = side * Mathf.Max(clearance, side * guide.x);
-        Vector3 pole = _root.TransformPoint(guide) - shoulder;
-        Vector3 bend = Vector3.ProjectOnPlane(pole, direction).normalized;
-        if (bend.sqrMagnitude < .5f) bend = _root.right * side;
-        float along = (upper * upper - lower * lower + distance * distance) / (2f * distance);
-        Vector3 wantedElbow = shoulder + direction * along + bend * Mathf.Sqrt(Mathf.Max(0f, upper * upper - along * along));
-        arm.Upper.rotation = Quaternion.FromToRotation(elbow - shoulder, wantedElbow - shoulder) * arm.Upper.rotation;
-        arm.Fore.rotation = Quaternion.FromToRotation(arm.Hand.position - arm.Fore.position,
-            shoulder + direction * distance - arm.Fore.position) * arm.Fore.rotation;
-        foreDirection = (arm.Hand.position - arm.Fore.position).normalized;
-        Vector3 fingerDirection = Vector3.ProjectOnPlane(foreDirection, wantedNormal);
-        if (fingerDirection.sqrMagnitude < .0025f)
-            fingerDirection = Vector3.ProjectOnPlane(-_root.forward, wantedNormal);
-        fingerDirection = Vector3.RotateTowards(foreDirection, fingerDirection.normalized, 55f * Mathf.Deg2Rad, 0f).normalized;
-        Vector3 normal = Vector3.ProjectOnPlane(wantedNormal, fingerDirection).normalized;
-        handRotation = Quaternion.LookRotation(fingerDirection, normal)
-            * Quaternion.Inverse(Quaternion.LookRotation(arm.PalmForward, arm.PalmNormal));
+            arm.Upper.localRotation = arm.SampledUpper;
+            arm.Fore.localRotation = arm.SampledFore;
+            arm.Hand.rotation = handRotation;
+            Vector3 target = _root.TransformPoint(localTarget);
+            if (pinchTarget && arm.IndexPinch != null && arm.ThumbPinch != null)
+                target -= (arm.IndexPinch.position + arm.ThumbPinch.position) * .5f - arm.Hand.position;
+            else if (arm.Anatomical)
+            {
+                // Targets now describe actual palm surfaces throughout the entire animation,
+                // including the offered hand. A wrist-space target left spells hovering over
+                // the knuckles and made authored object contact impossible to maintain.
+                Vector3 palmOffset = handRotation * Vector3.Scale(arm.PalmOffset, arm.Hand.lossyScale);
+                target -= palmOffset;
+                float lowest = Vector3.Dot(palmOffset, _root.up);
+                foreach (Transform support in arm.Supports)
+                    if (support != null) lowest = Mathf.Min(lowest, Vector3.Dot(support.position - arm.Hand.position, _root.up));
+                // A relaxed hand has an arched palm. Place its actual lowest palmar pad on
+                // the wood, rather than driving the whole central palm into the surface.
+                float tableContact = (1f - Mathf.SmoothStep(0f, 1f, (localTarget.y - .960f) / .025f))
+                    * (1f - Mathf.SmoothStep(0f, 1f, Mathf.Abs(roll) / 25f));
+                target += _root.up * (Vector3.Dot(palmOffset, _root.up) - lowest) * tableContact;
+            }
+            Vector3 delta = target - shoulder;
+            float distance = Mathf.Clamp(delta.magnitude, Mathf.Abs(upper - lower) + .001f, upper + lower - .001f);
+            Vector3 direction = delta.normalized;
+            // Generated elbow motion preserves changing shoulder/elbow coordination.
+            // A fixed pole was one reason the former hands moved like mechanical arms.
+            Vector3 guide = authoredElbow.sqrMagnitude > .01f ? authoredElbow : new Vector3(side * .34f, .98f, .46f);
+            Vector3 greeting = new Vector3(side * (_service == 1 ? .43f : .35f), 1.04f, .45f);
+            guide = Vector3.Lerp(guide, greeting, attention);
+            // The generated human reference is narrower than the merchant's actual
+            // coat/belly. Keep the elbow's approach outside that measured silhouette.
+            float clearance = _service == 1 ? .85f : .40f;
+            guide.x = side * Mathf.Max(clearance, side * guide.x);
+            guide.y = Mathf.Max(1.10f, guide.y);
+            guide.z = Mathf.Min(.36f, guide.z);
+            if (_service == 2)
+                guide = Vector3.Lerp(new Vector3(side * .35f, .70f, .30f), guide, attention);
+            Vector3 pole = _root.TransformPoint(guide) - shoulder;
+            Vector3 bend = Vector3.ProjectOnPlane(pole, direction).normalized;
+            if (bend.sqrMagnitude < .5f) bend = _root.right * side;
+            float along = (upper * upper - lower * lower + distance * distance) / (2f * distance);
+            Vector3 wantedElbow = shoulder + direction * along + bend * Mathf.Sqrt(Mathf.Max(0f, upper * upper - along * along));
+            arm.Upper.rotation = Quaternion.FromToRotation(elbow - shoulder, wantedElbow - shoulder) * arm.Upper.rotation;
+            arm.Fore.rotation = Quaternion.FromToRotation(arm.Hand.position - arm.Fore.position,
+                shoulder + direction * distance - arm.Fore.position) * arm.Fore.rotation;
+            foreDirection = (arm.Hand.position - arm.Fore.position).normalized;
+            // The lateral axis remains well conditioned for raised and lowered arms.
+            // Projecting world-down becomes singular as a casting forearm passes upright.
+            Vector3 lateral = Vector3.ProjectOnPlane(_root.right, foreDirection);
+            if (lateral.sqrMagnitude < .001f)
+                lateral = Vector3.Cross(arm.Fore.rotation * arm.RestHand * arm.PalmNormal, foreDirection);
+            Vector3 freeNormal = Vector3.Cross(foreDirection, lateral.normalized).normalized;
+            float contactFrame = _service == 1 ? 1f
+                : 1f - Mathf.SmoothStep(0f, 1f, (localTarget.y - .970f) / .22f);
+            Quaternion palmFrame;
+            if (_service == 2)
+            {
+                Vector3 fingerDirection = Vector3.ProjectOnPlane(foreDirection, wantedNormal).normalized;
+                fingerDirection = Vector3.Lerp(fingerDirection,
+                    Vector3.ProjectOnPlane(_root.up, wantedNormal).normalized, 1f - attention);
+                fingerDirection = Vector3.RotateTowards(foreDirection, fingerDirection, 55f * Mathf.Deg2Rad, 0f).normalized;
+                palmFrame = Quaternion.LookRotation(fingerDirection,
+                    Vector3.ProjectOnPlane(wantedNormal, fingerDirection).normalized);
+            }
+            else
+            {
+                palmFrame = Quaternion.LookRotation(foreDirection, freeNormal);
+                // Pronation follows a signed angle about the forearm, including a full
+                // offered half turn. Slerping between opposing palm normals introduces
+                // an ambiguous 180-degree branch. Only flexion is corrected here.
+                Vector3 flatFingers = Vector3.ProjectOnPlane(foreDirection, _root.up);
+                if (flatFingers.sqrMagnitude > .001f)
+                {
+                    Vector3 bent = Vector3.RotateTowards(foreDirection, flatFingers.normalized, 55f * Mathf.Deg2Rad, 0f).normalized;
+                    Quaternion flexion = Quaternion.FromToRotation(foreDirection, bent);
+                    palmFrame = Quaternion.Slerp(Quaternion.identity, flexion, Mathf.Max(contactFrame, attention)) * palmFrame;
+                }
+                Vector3 fingers = palmFrame * Vector3.forward;
+                Vector3 levelNormal = Vector3.ProjectOnPlane(-_root.up, fingers);
+                if (levelNormal.sqrMagnitude > .001f)
+                {
+                    float baselineRoll = Vector3.SignedAngle(palmFrame * Vector3.up, levelNormal, fingers);
+                    palmFrame = Quaternion.AngleAxis(baselineRoll * Mathf.Max(contactFrame, attention), fingers) * palmFrame;
+                }
+                palmFrame = Quaternion.AngleAxis(-roll, fingers) * palmFrame;
+            }
+            Quaternion corrected = palmFrame * Quaternion.Inverse(Quaternion.LookRotation(arm.PalmForward, arm.PalmNormal));
+            float correction = (handRotation * arm.PalmForward - corrected * arm.PalmForward).sqrMagnitude
+                + (handRotation * arm.PalmNormal - corrected * arm.PalmNormal).sqrMagnitude;
+            handRotation = corrected;
+            if (correction < 1e-9f) break;
         }
         Vector3 relaxedNormal = arm.Fore.rotation * arm.RestHand * arm.PalmNormal;
         float twist = Vector3.SignedAngle(Vector3.ProjectOnPlane(relaxedNormal, foreDirection),
