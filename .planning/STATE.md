@@ -2,12 +2,14 @@
 
 **Updated 2026-09-25: feature/immersive-town-services, version 1.1.0 hardware candidate.**
 The feature includes released 1.0.8 / ModBuild 556 and the subsequent 1.0.9
-version bookkeeping on `dev`. ModBuild 560 follows the build-559 NPC hardware
-report with resident voices, shared merchant confirmation presentation, a visible
-temple donation target, cloth contact, cabinet detail and varied idle motion.
+version bookkeeping on `dev`. ModBuild 561 follows the build-560 NPC hardware
+report with donation confirmation, visitor poses, book/sleeve geometry and
+shared merchant/voice transition corrections. ModBuild 560 introduced resident
+voices, shared merchant confirmation presentation, a visible temple donation
+target, cloth contact, cabinet detail and varied idle motion.
 Headset verification of the resulting presentation remains open. Historical NPC
 design: [research/TOWN-SERVICES-552.md](research/TOWN-SERVICES-552.md).
-Current evidence and implementation limits: [TOWN-560.md](TOWN-560.md).
+Current evidence and implementation limits: [TOWN-561.md](TOWN-561.md).
 The feature remains isolated from `dev`, and NPC work belongs on this branch.
 
 The file this replaces had gone 168 builds
@@ -22,6 +24,16 @@ change per build) → this file (where things stand and what is owed) → the bu
 ---
 
 ## 1. Position
+
+- **NPC feature / 1.1.0 / ModBuild 561 (hardware candidate):** the physical
+  temple purse retains its original confirmation through native modal focus;
+  page parchment, visitor hand poses and sleeve interiors address build-560
+  screenshots. Returned original item cards settle upright. The merchant's
+  offering pose comes from the elected resident author and speech age cannot
+  rewind within a cue. The enchantress invites a visitor as her hand opens;
+  new consistent merchant and priestess voices, bidirectional lip transitions
+  and quiet, paced coin contact revise the audible presentation. These remain subject to headset
+  verification; evidence and limits are in [TOWN-561.md](TOWN-561.md).
 
 - **NPC feature / 1.1.0 / ModBuild 560 (hardware candidate):** quieter coin foley,
   English spatial resident lines and mouth curves, varied enchantress activity,

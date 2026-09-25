@@ -258,8 +258,8 @@ internal static class TownResidentsVectors
         offset = 6869;
         t.True(TownResidentsCodec.Write(bytes, ref offset, in cloth) && offset == 7010,
             "extended resident record adds141 bytes including24 cloth controls");
-        t.True(PresenceSerializer.MaxSize == 7930 && PresenceSerializer.MaxSize - (offset + 96 + 54 + 3 + 510) == 257
-            && ExtrasFragments.MaxSnapshotBytes - (offset + 96 + 54 + 3 + 510) == 7,
+        t.True(PresenceSerializer.MaxSize == 7931 && PresenceSerializer.MaxSize - (offset + 96 + 55 + 3 + 510) == 257
+            && ExtrasFragments.MaxSnapshotBytes - (offset + 96 + 55 + 3 + 510) == 6,
             "cloth and opening records retain exact send and fragment margins");
         t.True(NetProtocol.Version == 3 && NetProtocol.ExtIdTownResidents == 79 && TownResidentsCodec.LegacyPayload == 115
             && TownResidentsCodec.MaxPayload == 139,

@@ -538,7 +538,14 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 560;
+    public const ushort ModBuild = 561;
+
+    // ModBuild 561 — NPC hardware follow-up on the feature branch. The temple
+    // donation keeps the original native confirmation alive while the source
+    // row is disabled by its modal; returned item cards settle at fan-home
+    // rotation. Resident visitor poses, sleeve hems, book parchment, foley and
+    // speech are revised. The merchant offer transition is authored in TLV81,
+    // and all resident utterances still use shared TLV80 cue timing.
 
     // ModBuild 560 — NPC hardware follow-up on the feature branch. Resident
     // activity, coin foley and speech have bounded shared presentation;
