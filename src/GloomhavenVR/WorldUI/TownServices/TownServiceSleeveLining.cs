@@ -111,9 +111,9 @@ internal sealed class TownServiceSleeveLining : IDisposable
             tangent.Normalize(); Vector3 bitangent = Vector3.Cross(axis, tangent).normalized;
             for (int row = 0; row < 4; row++)
             {
-                float depth = row == 0 ? -.050f : row == 1 ? -.057f : row == 2 ? -.095f : -.140f;
+                float depth = row == 0 ? -.050f : row == 1 ? -.057f : row == 2 ? -.105f : -.165f;
                 float radius = row == 0 ? _outer : row == 1 ? _outer * .72f
-                    : row == 2 ? _outer * .77f : _outer * .83f;
+                    : row == 2 ? _outer * .73f : _outer * .53f;
                 for (int i = 0; i < Segments; i++)
                 {
                     float angle = Mathf.PI * 2f * i / Segments;
@@ -124,7 +124,7 @@ internal sealed class TownServiceSleeveLining : IDisposable
                     side.Vertices[row * Segments + i] = side.Holder.InverseTransformPoint(world);
                 }
             }
-            side.Vertices[Segments * 4] = side.Holder.InverseTransformPoint(centre - axis * .154f);
+            side.Vertices[Segments * 4] = side.Holder.InverseTransformPoint(centre - axis * .205f);
             side.Mesh.vertices = side.Vertices;
             side.Mesh.RecalculateNormals(); side.Mesh.RecalculateBounds();
         }
