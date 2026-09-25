@@ -205,6 +205,17 @@
       "weight": 80
     },
     {
+      "id": "town-voice",
+      "command": [
+        "python3",
+        "scripts/check-town-voice.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 35
+    },
+    {
       "id": "town-activity-portable",
       "command": [
         "python3",

@@ -101,7 +101,7 @@ namespace GloomhavenVR.WorldUI.MapRoom
 namespace GloomhavenVR.WorldUI
 {
     public static class TownServicePalmConfirmation { public static bool Owned; public static bool OwnsCurrent(UIWindow? window)=>Owned && window!=null; public static void Begin(UIEnhancementConfirmationBox box,Transform seat){} public static void CancelOwned(UIWindow window){} }
-    public static class TownServicePresentation { public static uint Session = 22; public static float SessionAge = 3f; }
+    public static class TownServicePresentation { public static uint Session = 22; public static float SessionAge = 3f; public static bool Active = true; public static byte Service = 3; }
     public static class WorldUIConfig
     {
         public static readonly ToggleValue ImmersiveTownServices = new(); public static ToggleValue? MapRoomHand = new();

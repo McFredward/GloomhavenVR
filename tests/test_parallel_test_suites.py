@@ -203,12 +203,12 @@ class ParallelSuitesTests(unittest.TestCase):
         map_hotfix = {'aoe-control', 'city-event-button', 'map-tooltip', 'map-tooltip-transport'}
         story_continuation = {'story-completion', 'map-story-lifecycle', 'message-continuation',
                               'announcement', 'dialog-surface', 'scenario-win-cheat'}
-        self.assertEqual(local, LOCAL_INVENTORY | map_hotfix | story_continuation | {"town-service-setting", "town-residents", "town-service-lighting", "town-face", "town-activity"} | physical_town)
+        self.assertEqual(local, LOCAL_INVENTORY | map_hotfix | story_continuation | {"town-service-setting", "town-residents", "town-service-lighting", "town-face", "town-activity", "town-voice"} | physical_town)
         self.assertEqual(ci, CI_INVENTORY | map_hotfix | story_continuation | {"town-service-setting", "town-residents", "town-service-lighting", "town-activity-portable"})
         self.assertEqual({s['id'] for s in runner.selected_suites(suites, 'source', (0, 1))}, SOURCE_INVENTORY)
-        self.assertEqual(len(local), 76)
+        self.assertEqual(len(local), 77)
         self.assertEqual(len(ci), 62)
-        self.assertEqual(local-ci, {'presentation-send', 'town-face', 'town-activity'} | physical_town)
+        self.assertEqual(local-ci, {'presentation-send', 'town-face', 'town-activity', 'town-voice'} | physical_town)
         self.assertEqual(ci-local, {'self-update-dialog', 'banner-pose', 'quest-seat', 'town-activity-portable'})
         self.assertEqual(len(runner.selected_suites(suites, 'source', (0, 1))), 14)
         partition = [s['id'] for i in range(4) for s in runner.selected_suites(suites, 'ci', (i, 4))]

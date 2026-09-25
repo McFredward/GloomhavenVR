@@ -46,3 +46,16 @@ checks do not verify real headset sound level, eye/ear appearance, cloth touch
 or a completed online donation. A multiplayer hardware pass must verify the
 shared merchant cabinet under simultaneous visitors, a category/page change,
 and a buyer's confirmation viewed by another player.
+
+The rebuilt Windows bundle is `prebuilt/ghvr-town.bundle` (UnityFS format 7,
+Unity 2021.3.5f1, 96,867,229 bytes). Its SHA-256 is
+`ff4621544fd4bb0e5c3528d09fef765c5d7ca16a2073249deec5cd3c7351b8dd`.
+The native ear remains partly occluded by the priestess's original hood from
+some viewpoints; no headset evidence establishes its appearance at close range.
+
+The final local guard run passed all 14 source gates, 77/77 local suites and
+286,501 wire assertions. Strict Release compilation passed with zero warnings
+and errors. `refactor-guard.sh check --summary` exits 1 only for its historical
+compiled snapshot comparison: that inherited snapshot predates the NPC feature
+and contains none of its new types. This is a scoped baseline difference, not
+a failed test or a claim of headset parity.

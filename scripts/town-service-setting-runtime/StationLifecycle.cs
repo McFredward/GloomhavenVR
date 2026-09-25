@@ -214,6 +214,10 @@ namespace GloomhavenVR.WorldUI
         internal void Tick(int author,uint epoch,float clock,float elapsed,bool visible,in TownActivityVisual shown){}
         internal void Dispose(){}
     }
+    internal static class TownServiceVoice
+    {
+        internal static void Tick(byte service,float clock,bool visible,in TownActivityVisual shown){}
+    }
     internal sealed class TownServiceActivityRig
     {
         internal static bool Available=true,Throw;
