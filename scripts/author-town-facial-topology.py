@@ -183,13 +183,16 @@ def fit(raw,name,orbital=True):
         # Headset closeups exposed an undersized, nearly flat ear beneath the
         # hood. Expand only the source template's actual helix/lobe loops;
         # temple, eyelid and cheek vertices retain the reviewed portrait fit.
+        # Advance the helix slightly within the hood opening; a larger shift
+        # pushes the ear through the intact outer fabric during head turns.
         # Keep the same material UV registration so the original profile ear
         # follows the expanded anatomical surface without a painted duplicate.
         ear = np.clip((np.abs(raw[:,0])-.60)/.13,0,1)
         ear *= np.clip((.90-raw[:,2])/.22,0,1)
         ear *= np.clip((raw[:,1]-6.93)/.11,0,1)
         ear *= np.clip((7.54-raw[:,1])/.12,0,1)
-        x += np.sign(x)*.010*ear
+        x += np.sign(x)*.015*ear
+        y -= .012*ear
         world_z += (world_z-1.596)*.20*ear
     # A volumetric orbital surface follows the actual spherical eye. The previous
     # nonuniform portrait-height mapping flattened the globe vertically and left
