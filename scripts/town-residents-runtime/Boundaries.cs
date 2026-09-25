@@ -3,6 +3,11 @@ using System.Collections.Generic;
 namespace UnityEngine
 {
     public class Object { public static void Destroy(Object value) { } }
+    public struct Vector2
+    {
+        public float x, y;
+        public Vector2(float x, float y) { this.x = x; this.y = y; }
+    }
     public class GameObject : Object { public readonly Transform transform = new(); public GameObject(string name) { } }
     public class Transform
     {
@@ -100,6 +105,12 @@ namespace GloomhavenVR.WorldUI
         internal bool PrepareActivityAttention(bool previous){AttentionQueries++;return NearVisitor;}
         internal void SampleActivity(in TownActivityVisual pose) { }
         internal void SampleActivityAudio(int author,uint epoch,float clock,bool visible,in TownActivityVisual shown) { }
+        internal int ClothAuthorTicks, ClothObserverTicks;
+        internal GloomhavenVR.Net.TownClothRunnerState ClothFirst, ClothSecond;
+        internal void TickClothAuthor(float age,float dt) { ClothAuthorTicks++; }
+        internal void TickClothObserver(float age,float elapsed,
+            in GloomhavenVR.Net.TownClothRunnerState first,in GloomhavenVR.Net.TownClothRunnerState second)
+        { ClothObserverTicks++; ClothFirst=first; ClothSecond=second; }
         internal int FaceSeeds;internal bool FaceAuthor,FaceReceived;internal GloomhavenVR.Net.TownFacePose FacePose;
         internal void SeedFace(GloomhavenVR.Net.TownFacePose pose,int author,float elapsed){FaceSeeds++;FacePose=pose;}
         internal GloomhavenVR.Net.TownFacePose SampleFace(bool author,bool received,int authorId,in GloomhavenVR.Net.TownFacePose remote,float elapsed,float clock){FaceAuthor=author;FaceReceived=received;if(received)FacePose=remote;return FacePose;}

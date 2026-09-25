@@ -38,9 +38,13 @@ internal static class Program
     private static void MerchantOffering()
     {
         Reset();TownServiceStation.NearVisitor=true;Tick();
-        Check(!TownServicePopulation.PublishedActivities.Merchant.Engaged,"nearby empty hands do not request merchant palm");
+        Check(TownServicePopulation.PublishedActivities.Merchant.Engaged,
+            "nearby visitor may receive the merchant's gaze without offering a card");
         Check(TownServiceStation.Live[1].AttentionQueries>0,"merchant gaze remains independent of offered cards");
         Check(TownServicePopulation.PublishedActivities.Temple.Engaged,"other residents retain ordinary visitor attention");
+        TownServiceStation.NearVisitor=false;Tick();
+        Check(!TownServicePopulation.PublishedActivities.Merchant.Engaged,
+            "merchant gaze ends outside visitor range before offer tests");
         TownServiceMerchantHandoff.WantsOffering=true;Tick();
         Check(TownServicePopulation.PublishedActivities.Merchant.Engaged,"local eligible card requests authoritative palm");
         TownServiceMerchantHandoff.WantsOffering=false;TownServiceMirror.RemoteMerchantOffering=true;Tick();
@@ -52,6 +56,8 @@ internal static class Program
     {
         MerchantOffering();
         Reset();Tick();AllVisible();Check(TownServicePopulation.Published.Active,"ready population advertised");
+        Check(TownServicePopulation.Published.HasCloth && TownServiceStation.Live[2].ClothAuthorTicks > 0,
+            "elected owner advances and publishes priestess cloth contact");
         for(int i=0;i<8;i++)Tick(1);AllVisible();Check(TownServiceStation.Creates==3,"no visitor-dependent respawn or repeated create");
         Check(TownServiceStation.Live.Values.All(s=>s.Clip=="Idle"),"no greeting without a visit");
         TownServicePresentation.Active=true;TownServicePresentation.Service=2;TownServicePresentation.SessionAge=.4f;Tick(.1f);
@@ -69,8 +75,15 @@ internal static class Program
         Reset();TownServiceStation.Missing.Add(2);Tick();Check(!TownServicePopulation.Available(2),"missing bundle no fake resident");Check(!TownServicePopulation.Published.Active,"partial population cannot author");int attempts=TownServiceStation.Creates;Tick(.2f);Check(TownServiceStation.Creates==attempts,"asset retry bounded");TownServiceStation.Missing.Clear();Tick(2.1f);AllVisible();
         Reset();MapRoomDriver.FrameReady=false;Tick();Check(TownServiceStation.Live.Count==0,"unavailable map frame cannot spawn");MapRoomDriver.FrameReady=true;Tick();AllVisible();
 
-        Reset();Observe(5,State(5));Observe(2,State(2));Check(RemoteTownResidents.TryAuthor(out var chosen,out var elapsed),"remote author elected");Near(chosen.Merchant.Age,2,"lowest fresh player wins");Near(elapsed,0,"new packet elapsed zero");
+        Reset();Observe(5,State(5));
+        var clothOwner = State(2); clothOwner.HasCloth = true;
+        clothOwner.TempleLeft = new TownClothRunnerState { Left = new Vector2(.02f, -.01f) };
+        Observe(2,clothOwner);
+        Check(RemoteTownResidents.TryAuthor(out var chosen,out var elapsed),"remote author elected");Near(chosen.Merchant.Age,2,"lowest fresh player wins");Near(elapsed,0,"new packet elapsed zero");
         Tick(.5f);Near(TownServiceStation.Live[1].Root.position.y,24,"author pose mapped through shared frame");Near(TownServiceStation.Live[1].Age,2.5f,"author animation extrapolated");
+        Check(TownServiceStation.Live[2].ClothObserverTicks > 0 && TownServiceStation.Live[2].ClothAuthorTicks == 0,
+            "remote priestess cloth replays owner state without local contact sampling");
+        Near(TownServicePopulation.Published.TempleLeft.Left.x,.02f,"observer republishes the same cloth edge");
         for(byte s=1;s<=3;s++)
         {
             Near(TownServiceStation.Live[s].ActorFloorOffset,-.03f*s,"observer applies author's sole height");

@@ -169,7 +169,8 @@ namespace UnityEngine
     public class Shader {public static int PropertyToID(string name)=>name.GetHashCode();}
 }
 
-namespace GloomhavenVR.Net { internal struct TownFacePose { } internal struct TownActivityPose { } }
+namespace GloomhavenVR.Net
+{ internal struct TownFacePose { } internal struct TownActivityPose { } internal struct TownClothRunnerState { } }
 namespace GloomhavenVR.WorldUI
 {
     internal sealed class TownServiceFace
@@ -190,6 +191,17 @@ namespace GloomhavenVR.Core {internal static class VRLog {internal static void W
 namespace GloomhavenVR.WorldUI
 {
     internal struct TownActivityVisual { }
+    internal sealed class TownServiceCloth : IDisposable
+    {
+        internal TownServiceCloth(UnityEngine.Transform root, byte service) { }
+        internal void TickAuthor(float age, float dt, bool visible) { }
+        internal void TickObserver(float age, float elapsed, in GloomhavenVR.Net.TownClothRunnerState first,
+            in GloomhavenVR.Net.TownClothRunnerState second, bool visible) { }
+        internal GloomhavenVR.Net.TownClothRunnerState First => default;
+        internal GloomhavenVR.Net.TownClothRunnerState Second => default;
+        internal void SetVisible(bool visible) { }
+        public void Dispose() { }
+    }
     internal sealed class TownServiceActivityAudio
     {
         internal TownServiceActivityAudio(UnityEngine.Transform root,byte service){}

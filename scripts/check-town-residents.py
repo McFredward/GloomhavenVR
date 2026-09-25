@@ -36,7 +36,7 @@ def main():
             shutil.copyfile(file, folder / file.name)
         variants = [
             ("baseline", None, None, None),
-            ("empty-handed merchant offer", "Population.cs", "if (service == 1) engaged =", "if (service == 0) engaged ="),
+            ("merchant offer misses its resident", "Population.cs", "if (service == 1) engaged |=", "if (service == 0) engaged |="),
             ("remote owner offer ignored", "Population.cs", "|| TownServiceMirror.RemoteMerchantOffering", "|| false"),
             ("visitor-only regression", "Population.cs", "bool used = enabled || visiting;", "bool used = visiting;"),
             ("viewer floor overrides author", "Population.cs", "RefreshEnvironment(!follows)", "RefreshEnvironment(true)"),
