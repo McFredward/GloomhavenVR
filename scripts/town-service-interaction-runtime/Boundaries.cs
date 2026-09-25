@@ -171,8 +171,6 @@ namespace GloomhavenVR.WorldUI.MapRoom
 namespace GloomhavenVR.WorldUI
 {
     internal static class TownServiceNativeAudioSilence { internal static void EnsureInstalled() { } }
-    internal static class TownServiceSync
-    { internal static bool LocalOwnsInteraction(byte service, uint sourceSession) => TownServiceMirror.LocalOwnsInteraction(service, sourceSession); }
     internal static class TownServicePhysicalRay { internal static void Claim(GloomhavenVR.Hands.VRHand hand) { } }
     internal sealed class ConfigBool { internal bool Value = true; }
     internal static class WorldUIConfig
@@ -333,6 +331,8 @@ namespace GloomhavenVR.WorldUI
     {
         internal static void Reset() { }
         internal static void Tick(Transform frame, Transform? station) { }
+        internal static bool LocalOwnsInteraction(byte service, uint sourceSession) =>
+            GloomhavenVR.Net.TownServices.TownServiceMirror.LocalOwnsInteraction(service, sourceSession);
     }
     // Workspace geometry/roster interpolation has its own production-bound Unity suite.
     // Here only the presentation owner's child lifetime and manual-tray ownership matter.

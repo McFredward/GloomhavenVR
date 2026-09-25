@@ -541,7 +541,20 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 564;
+    public const ushort ModBuild = 565;
+
+    // ModBuild 565 — fifth NPC hardware follow-up on the feature branch (FULL
+    // INSTALL). Original temple input now resolves presentation sessions through
+    // their actual monotonic wire generation, so repeated visits after another NPC
+    // retain the purse, book and eligibility text. Merchant and priestess attention
+    // uses the imported anatomy's true body-facing axis; unavailable temple palms
+    // turn down and blend continuously over the bowl. Town runners reconstruct their
+    // authored 25x13 physical sheet independently of FBX vertex order and simulate at
+    // unit scale, with source-pose following, column-aligned table support and real
+    // local index-tip collision. Native town UIWindow show/hide cues are silenced
+    // before the first immersive open while flat mode retains them. Measured source
+    // gain aligns priestess speech with the other residents, and visible renderer
+    // bounds keep the enchantress lamp wholly supported by its real workbench.
 
     // ModBuild 564 — fourth NPC hardware follow-up on the feature branch (FULL
     // INSTALL). The priestess now uses fifteen consistent elderly Wise_Woman

@@ -46,7 +46,9 @@ def sources(root):
     bound = {name: raw[name] for name in ("Token.cs", "OfferingPose.cs", "Presentation.cs", "Handoff.cs", "WindowMask.cs", "ConfirmationMask.cs", "PalmConfirmation.cs", "Surface.cs")}
     # Native audio suppression has its own integration/build coverage. This fixture binds the
     # modal handoff methods and deliberately excludes the independent Harmony patch boundary.
-    bound["Handoff.cs"] = bound["Handoff.cs"].split("/// <summary>Suppress the hidden flat enchantment", 1)[0]
+    audio_class = bound["Handoff.cs"].index("internal static class TownServiceNativeAudioSilence")
+    audio_doc = bound["Handoff.cs"].rfind("\n/// <summary>", 0, audio_class)
+    bound["Handoff.cs"] = bound["Handoff.cs"][:audio_doc]
     bound["Handoff.cs"] = bound["Handoff.cs"].replace("using HarmonyLib;\n", "")
     bound["ConfirmationMask.cs"] = bound["ConfirmationMask.cs"].replace("Time.unscaledTime", "MaskClock.Now")
     bound["Composite.cs"] = "using System;\nusing UnityEngine.UI;\nnamespace GloomhavenVR.WorldUI;\ninternal static partial class ModalFallback {\n" + method(raw["Composite.cs"], "internal static bool ReleaseForComposite(UIWindow window)") + "\n}\n"
