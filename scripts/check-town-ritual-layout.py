@@ -90,6 +90,9 @@ def main():
         ('white-ui-ink', 'TownServiceBookInk.cs', 'new Color(.12f, .065f, .027f, 1f)', 'Color.white', 'book text is printed dark ink rather than white floating UI'),
         ('unwarped-ink', 'TownServiceBookInk.cs', '_text.transform.InverseTransformPoint(_stationToWorld.MultiplyPoint3x4(surface + normal * .00065f))', 'vertices[index]', 'glyph vertices follow curved original pages within 1.5 millimetres'),
         ('unwrapped-ink', 'TownServiceBookInk.cs', 'text.enableWordWrapping = true;', 'text.enableWordWrapping = false;', 'native description wraps on its own page'),
+        ('striped-parchment', 'TownServiceBookInk.cs', 'indices.Add(a); indices.Add(b); indices.Add(a + 1);',
+         'if (column != 3) { indices.Add(a); indices.Add(b); indices.Add(a + 1); }',
+         'blank parchment has no missing interior grid cells or visible dark strips'),
         ('overlapping-purses', 'TownServiceRitualLayout.cs', ') * .145f,', ') * .04f,', 'all native blessing purses have separate reachable bodies')]
     manifest = {'result': str(run / 'results.txt'), 'cases': []}
     fixture = ROOT / 'scripts/town-ritual-layout-runtime'

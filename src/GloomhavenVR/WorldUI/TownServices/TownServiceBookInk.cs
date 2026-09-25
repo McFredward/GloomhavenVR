@@ -188,7 +188,6 @@ internal sealed class TownServiceBookInk
             var vertices = new List<Vector3>();
             var uvs = new List<Vector2>();
             var indices = new List<int>();
-            var covered = new List<bool>();
             // The original book is normalized to its width, but its actual page depth
             // is much shorter than that width. Sampling the old fixed 32-cm depth
             // covered only narrow strips of the real 20-cm leaves. Derive the reading
@@ -206,24 +205,52 @@ internal sealed class TownServiceBookInk
             for (int page = 0; page < 2; page++)
             {
                 int start = vertices.Count;
+                var samples = new Vector3[(rows + 1) * (columns + 1)];
+                var normals = new Vector3[samples.Length];
+                var covered = new bool[samples.Length];
                 for (int row = 0; row <= rows; row++)
                     for (int column = 0; column <= columns; column++)
                     {
+                        int sample = row * (columns + 1) + column;
                         float u = column / (float)columns, v = row / (float)rows;
                         float x = Mathf.Lerp(edges[page * 2], edges[page * 2 + 1], u);
                         float z = Mathf.Lerp(minZ + inset, maxZ - inset, v);
                         bool onPage = Sample(x, z, out Vector3 surface, out Vector3 normal);
-                        covered.Add(onPage);
+                        covered[sample] = onPage;
+                        samples[sample] = surface;
+                        normals[sample] = normal;
                         vertices.Add(book.InverseTransformPoint(frame.TransformPoint(surface + normal * .0002f)));
                         uvs.Add(new Vector2(u, v));
                     }
+                // The original leaf is built from separate trimmed mesh islands. Its
+                // triangle sampler has narrow internal seams; dropping any grid cell
+                // with one unsampled corner produced the vertical dark stripes seen in
+                // the build-560 book screenshot. Lift only those missing page
+                // vertices to a nearby real surface sample, then cover the full inset
+                // rectangle. The centre binding remains an intentional separate gap.
+                for (int sample = 0; sample < samples.Length; sample++)
+                {
+                    if (covered[sample]) continue;
+                    int nearest = -1; float distance = float.PositiveInfinity;
+                    int row = sample / (columns + 1), column = sample % (columns + 1);
+                    for (int other = 0; other < samples.Length; other++)
+                    {
+                        if (!covered[other]) continue;
+                        int otherRow = other / (columns + 1), otherColumn = other % (columns + 1);
+                        float delta = (row - otherRow) * (row - otherRow) + (column - otherColumn) * (column - otherColumn);
+                        if (delta >= distance) continue;
+                        nearest = other; distance = delta;
+                    }
+                    if (nearest < 0) continue;
+                    float x = Mathf.Lerp(edges[page * 2], edges[page * 2 + 1], column / (float)columns);
+                    float z = Mathf.Lerp(minZ + inset, maxZ - inset, row / (float)rows);
+                    Vector3 surface = new Vector3(x, samples[nearest].y, z);
+                    vertices[start + sample] = book.InverseTransformPoint(frame.TransformPoint(surface + normals[nearest] * .0002f));
+                }
                 for (int row = 0; row < rows; row++)
                     for (int column = 0; column < columns; column++)
                     {
                         int a = start + row * (columns + 1) + column, b = a + columns + 1;
-                        // The native binding curves and trims the outer leaves. Skip
-                        // only cells outside its actual top surface, not the whole book.
-                        if (!covered[a] || !covered[a + 1] || !covered[b] || !covered[b + 1]) continue;
                         indices.Add(a); indices.Add(b); indices.Add(a + 1);
                         indices.Add(a + 1); indices.Add(b); indices.Add(b + 1);
                     }

@@ -41,6 +41,8 @@ internal static class BookInkProof
             var leaves=book.transform.Find("Town.BlankTemplePages");
             Check(leaves!=null&&leaves.GetComponent<MeshFilter>()?.sharedMesh.vertexCount>400
                 &&leaves.GetComponent<Collider>()==null,"native inscription sits over curved blank parchment without a hit blocker");
+            Check(leaves!.GetComponent<MeshFilter>().sharedMesh.triangles.Length==2592,
+                "blank parchment has no missing interior grid cells or visible dark strips");
             Vector3 p=visitor.transform.InverseTransformPoint(go.transform.position);
             float y=p.x<-.33f?.99f+(p.x+.49f)*(.035f/.16f):1.025f-(p.x+.33f)*(.03f/.16f);
             Check(Mathf.Abs(p.y-y)<.001f,"ink is attached within one millimetre of the actual original page");
@@ -98,8 +100,8 @@ internal static class NativeBookProof
             Check(go.activeSelf,"all ink blocks fit real shipped original book pages");
             var blankPages=book.transform.Find("Town.BlankTemplePages");
             Check(blankPages!=null,"actual original temple pages receive blank reading surface");
-            Check(blankPages!.GetComponent<MeshFilter>().sharedMesh.triangles.Length>=1700,
-                "blank parchment covers most of both actual original leaves, not two disconnected strips");
+            Check(blankPages!.GetComponent<MeshFilter>().sharedMesh.triangles.Length==2592,
+                "blank parchment covers both actual leaves without missing vertical mesh strips");
             // Exercise the actual TMP deformation callback with a glyph quad covering its block.
             TMP_TextInfo info=new TMP_TextInfo();info.characterCount=1;
             info.characterInfo=new[]{new TMP_CharacterInfo{isVisible=true,vertexIndex=0,materialReferenceIndex=0}};

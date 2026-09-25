@@ -26,26 +26,47 @@ def replace_once(source, before, after):
     return source.replace(before, after, 1)
 
 
+def inspect_fan_contract(source):
+    # Native confirmation focus can turn off input while the visitor still stands
+    # at the priestess. The ordinary ability fan must stay suppressed then.
+    tick = method(source, "internal void Tick(bool input)")
+    if "MapRoomHand.SetTempleInspection(_inspectionNear && !holdingCard);" not in tick \
+            or "_near = input && _inspectionNear && !holdingCard;" not in tick:
+        raise RuntimeError("Temple fan suppression is coupled to transient native input")
+
+
 def sources(root):
     raw = (root / "src/GloomhavenVR/WorldUI/TownServices/TownServiceRitual.cs").read_text()
-    methods = method(raw, "private bool Confirm(") + "\n" + method(raw, "private static bool Click(")
+    methods = method(raw, "private bool Confirm(") + "\n" + method(raw, "private void TickPendingConfirmation(") + "\n" + method(raw, "private static bool Click(")
     methods = methods.replace("private bool Confirm(", "internal bool Confirm(")
+    methods = methods.replace("private void TickPendingConfirmation(", "internal void TickPendingConfirmation(")
     start = raw.index("    private bool OfferingEligible(")
     end = raw.index("    private bool Confirm(", start)
     methods += raw[start:end].replace("private bool Donate(", "internal bool Donate(")
     text = "using System;using System.Collections.Generic;using UnityEngine;using UnityEngine.UI;using UnityEngine.EventSystems;using GloomhavenVR.WorldUI;using GloomhavenVR.Core;\n" + \
-        "internal sealed class BoundRitual {private readonly Func<bool> _alive;private readonly Func<object?> _context;" + \
+        "internal sealed class BoundRitual {private readonly Func<bool> _alive;private readonly Func<bool> _sessionAlive;private readonly Func<object?> _context;" + \
         "private readonly HashSet<(string Character,object Blessing)> _submittedOfferings=new();internal FakeTempleOffering _templeOffering=new();" + \
-        "internal BoundRitual(Func<bool> alive,Func<object?> context){_alive=alive;_context=context;}\n" + methods + "\n}"
+        "private UIEnhancementConfirmationBox? _pendingConfirmation;private Func<bool>? _pendingConfirmationValid;internal float _pendingConfirmationUntil;" + \
+        "internal BoundRitual(Func<bool> alive,Func<object?> context){_alive=alive;_sessionAlive=alive;_context=context;}" + \
+        "internal BoundRitual(Func<bool> alive,Func<bool> sessionAlive,Func<object?> context){_alive=alive;_sessionAlive=sessionAlive;_context=context;}\n" + methods + "\n}"
     guard_path = root / "src/GloomhavenVR/WorldUI/TownServices/TownServiceRitualConfirmationGuard.cs"
     if not guard_path.exists():
         guard_path = Path(__file__).resolve().parent.parent / "src/GloomhavenVR/WorldUI/TownServices/TownServiceRitualConfirmationGuard.cs"
     guard_raw = guard_path.read_text()
     guard = guard_raw[:guard_raw.index("\n[HarmonyPatch")].replace("using HarmonyLib;\n", "")
     offering_raw = (root / "src/GloomhavenVR/WorldUI/TownServices/TownServiceTempleOffering.cs").read_text()
+    inspect_fan_contract(offering_raw)
+    coupled = replace_once(offering_raw, "MapRoomHand.SetTempleInspection(_inspectionNear && !holdingCard);",
+                           "MapRoomHand.SetTempleInspection(input && _inspectionNear && !holdingCard);")
+    try:
+        inspect_fan_contract(coupled)
+    except RuntimeError:
+        pass
+    else:
+        raise RuntimeError("Temple fan suppression negative control did not fail")
     exit_method = method(offering_raw, "private bool ExitIfAway(").replace("private bool ExitIfAway(", "internal bool ExitIfAway(")
     exit_source = "using UnityEngine;using GloomhavenVR.WorldUI;internal sealed class BoundTempleExit {" + \
-        "internal bool _visited=true,_near=true,Available=true;internal UIWindow _window;internal Transform _station;internal TownServiceRitual _ritual=new();" + \
+        "internal bool _visited=true,_near=true,_inspectionNear=true,Available=true;internal UIWindow _window;internal Transform _station;internal TownServiceRitual _ritual=new();" + \
         "internal BoundTempleExit(UIWindow window,Transform station){_window=window;_station=station;}" + exit_method + "}"
     pose_raw = (root / "src/GloomhavenVR/WorldUI/TownServices/TownServiceOfferingPose.cs").read_text()
     exit_source += "internal static class TownServiceOfferingPose {" + method(pose_raw, "internal static bool VisitorWithin(") + "}"
@@ -59,16 +80,20 @@ def mutations():
         ("merchant-approach-latch", "TempleApproach.cs", "if (destination != EGuildmasterMode.None && destination != EGuildmasterMode.Temple)\n        { _approachInside = false; return; }", "if (destination != EGuildmasterMode.None && destination != EGuildmasterMode.Temple)\n        { _approachInside = true; return; }", "merchant departure reopens priestess without leaving her radius"),
         ("temple-close-missing", "TempleExit.cs", "ModalFallback.CloseFloatedWindow(_window);", "", "physical departure closes native temple before visiting another resident"),
         ("repeat-donation", "RitualTransactions.cs", "_submittedOfferings.Add(offering);", "", "a delayed online stock refresh never permits a duplicate donation"),
+        ("visitor-departure", "RitualTransactions.cs", "_templeOffering?.VisitorPresent == true && TemplePendingEligible(temple, slot)", "TemplePendingEligible(temple, slot)", "walking away before native completion cancels the donation"),
+        ("modal-input-gate", "RitualTransactions.cs", "_templeOffering?.VisitorPresent == true && TemplePendingEligible(temple, slot)", "_templeOffering?.Available == true && TemplePendingEligible(temple, slot)", "native modal input lock does not invalidate its own donation"),
         ("delayed-validation", "RitualGuard.cs", "_box != null && _valid()", "_box != null", "delayed owner change cancels original transaction"),
         ("delayed-cancel", "RitualGuard.cs", "else cancel?.Invoke();", "else if (!requested) cancel?.Invoke();", "delayed owner change cancels original transaction"),
         ("duplicate-completion", "RitualGuard.cs", "if (_completed) return;", "", "duplicate hidden completion is one shot"),
         ("scope-boundary", "RitualGuard.cs", " || !ReferenceEquals(scope._box, box)", "", "unrelated box retains its native callbacks"),
-        ("affordability-race", "RitualTransactions.cs", "if (!_alive() || !eligible() || !button.IsActive()", "if (!_alive() || !button.IsActive()", "post-selection affordability refused"),
-        ("owner-race", "RitualTransactions.cs", "!ReferenceEquals(context, _context()) || ", "", "post-selection owner change refused"),
-        ("item-race", "RitualTransactions.cs", " || !ReferenceEquals(selected, identity())", "", "post-selection selected item change refused"),
+        ("affordability-race", "RitualTransactions.cs", "Func<bool> stillValid = () => _sessionAlive() && pendingEligible()", "Func<bool> stillValid = () => _sessionAlive()", "post-selection affordability refused"),
+        ("owner-race", "RitualTransactions.cs", "&& ReferenceEquals(context, _context()) && ReferenceEquals(selected, identity());", "&& ReferenceEquals(selected, identity());", "post-selection owner change refused"),
+        ("item-race", "RitualTransactions.cs", "&& ReferenceEquals(context, _context()) && ReferenceEquals(selected, identity());", "&& ReferenceEquals(context, _context());", "post-selection selected item change refused"),
         ("existing-prompt", "RitualTransactions.cs", " || box.GetComponent<UIWindow>().IsOpen || !button.IsInteractable()", " || !button.IsInteractable()", "existing unrelated prompt untouched"),
         ("ownership", "RitualTransactions.cs", "bool created = owns &&", "bool created =", "unowned new callback not confirmed"),
         ("stale-prompt", "RitualTransactions.cs", "if (created) box.Hide();", "if (created) { }", "own stale prompt cancelled through native lifecycle"),
+        ("transient-row-lock", "RitualTransactions.cs", "if (!valid || !created)", "if (!valid || !button.IsInteractable() || !created)", "native row lock during confirmation is not a cancellation"),
+        ("deferred-confirm", "RitualTransactions.cs", "_pendingConfirmation = box;", "box.Hide();", "original confirmation becomes interactable after its entrance transition"),
     ]
 
 

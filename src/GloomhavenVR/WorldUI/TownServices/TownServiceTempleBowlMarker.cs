@@ -40,19 +40,19 @@ internal sealed class TownServiceTempleBowlMarker : IDisposable
                 {
                     if (copies[i] == null) continue;
                     Material copy = new(copies[i]);
-                    if (copy.HasProperty("_Color")) copy.SetColor("_Color", new Color(.44f, .88f, .79f));
-                    if (copy.HasProperty("_EmissionColor")) copy.SetColor("_EmissionColor", new Color(.18f, .45f, .38f));
+                    if (copy.HasProperty("_Color")) copy.SetColor("_Color", new Color(.62f, .96f, .85f));
+                    if (copy.HasProperty("_EmissionColor")) copy.SetColor("_EmissionColor", new Color(.25f, .52f, .44f));
                     _materials.Add(copy); copies[i] = copy;
                 }
                 renderer.sharedMaterials = copies;
             }
         }
         _visibility = Mathf.MoveTowards(_visibility, shown ? 1f : 0f, Time.unscaledDeltaTime / .12f);
-        float pulse = .86f + .07f * Mathf.Sin(Time.unscaledTime * 4f);
+        float pulse = .96f + .06f * Mathf.Sin(Time.unscaledTime * 4f);
         _root.transform.localScale = Vector3.one * pulse;
         foreach (Material material in _materials)
             if (material != null && material.HasProperty("_TownVisibility"))
-                material.SetFloat("_TownVisibility", _visibility * .55f);
+                material.SetFloat("_TownVisibility", _visibility * .78f);
         if (_bag != null) _bag.SetActive(_visibility > .01f);
     }
 

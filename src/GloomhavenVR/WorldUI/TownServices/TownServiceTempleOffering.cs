@@ -19,12 +19,13 @@ internal sealed class TownServiceTempleOffering : IDisposable
     private readonly UIWindow _window;
     private readonly Transform _station;
     private readonly CanvasGroup _gate;
-    private bool _near, _disposed, _visited;
+    private bool _near, _inspectionNear, _disposed, _visited;
     private float _visibility;
     internal Transform Root { get; }
     internal Transform DropFrame { get; }
     internal bool InBowl(Vector3 world) => Available && TownServiceTempleBowl.Contains(DropFrame, world);
     internal bool Available { get; private set; }
+    internal bool VisitorPresent => !_disposed && TownServiceOfferingPose.VisitorWithin(_station, 1.65f);
 
     internal bool AllowsHand(VRHand hand) => Available
         && hand != (VRHands.Primary == VRHands.Left ? VRHands.Right : VRHands.Left);
@@ -72,13 +73,17 @@ internal sealed class TownServiceTempleOffering : IDisposable
         if (_disposed || ExitIfAway()) return;
         var selected = MapRoomHand.OwnedMerchantCharacter();
         TownServiceStation? priest = TownServicePopulation.Acquire(2);
-        _near = input && selected != null && _temple.character != null
-            && VRHands.Left?.Grabber.Held is not VRCard && VRHands.Right?.Grabber.Held is not VRCard
+        bool holdingCard = VRHands.Left?.Grabber.Held is VRCard || VRHands.Right?.Grabber.Held is VRCard;
+        _inspectionNear = selected != null && _temple.character != null
             && selected.CharacterID == _temple.character.CharacterID && priest != null
-            && priest.IsLocalVisitorNear(_near)
-            && TownServiceOfferingPose.VisitorWithin(_station, _near ? 1.65f : 1.4f);
+            && priest.IsLocalVisitorNear(_inspectionNear)
+            && TownServiceOfferingPose.VisitorWithin(_station, _inspectionNear ? 1.65f : 1.4f);
+        // Native modal focus temporarily disables ritual input. That must not rebuild
+        // the ordinary ability-card fan over the physical purse and shared bowl.
+        // A card already held by a hand retains its normal return path first.
+        MapRoomHand.SetTempleInspection(_inspectionNear && !holdingCard);
+        _near = input && _inspectionNear && !holdingCard;
         if (_near) _visited = true;
-        MapRoomHand.SetTempleInspection(_near);
         VRHand? hand = VRHands.Primary == VRHands.Left ? VRHands.Right : VRHands.Left;
         bool held = false;
         foreach (TownServiceRitual.Piece piece in _ritual.Pieces)
@@ -120,7 +125,7 @@ internal sealed class TownServiceTempleOffering : IDisposable
             || TownServiceOfferingPose.VisitorWithin(_station, 1.65f)) return false;
         // Physical departure, not temporary input disablement, is the native destination
         // exit. Cancel before the close callback can dispose this ritual reentrantly.
-        Available = _near = false;
+        Available = _near = _inspectionNear = false;
         MapRoomHand.SetTempleInspection(false);
         foreach (TownServiceRitual.Piece piece in _ritual.Pieces) piece.Token.CancelInspection();
         ModalFallback.CloseFloatedWindow(_window);

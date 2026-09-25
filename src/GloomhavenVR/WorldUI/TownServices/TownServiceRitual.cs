@@ -244,6 +244,7 @@ internal sealed class TownServiceRitual : IDisposable
     private readonly UIWindow _window;
     private readonly byte _service;
     private readonly Func<bool> _alive;
+    private readonly Func<bool> _sessionAlive;
     private readonly Func<object?> _context;
     private readonly Dictionary<Component, Piece> _pieces = new();
     private readonly List<TownServiceToken> _samples = new();
@@ -261,6 +262,9 @@ internal sealed class TownServiceRitual : IDisposable
     private readonly float _started = Time.unscaledTime;
     private bool _disposed;
     private TownServiceTempleOffering? _templeOffering;
+    private UIEnhancementConfirmationBox? _pendingConfirmation;
+    private Func<bool>? _pendingConfirmationValid;
+    private float _pendingConfirmationUntil;
     private readonly HashSet<(string Character, object Blessing)> _submittedOfferings = new();
     internal TownServiceEnhancementHandoff? Handoff { get; private set; }
     internal TownServiceCardSlots CardSlots { get; } = new();
@@ -276,7 +280,8 @@ internal sealed class TownServiceRitual : IDisposable
     internal TownServiceRitual(UIWindow window, byte service, Transform station,
         Func<bool> alive, Func<object?> context)
     {
-        _window = window; _service = service; _alive = () => alive() && _allowInput && _visibility >= .99f; _context = context;
+        _window = window; _service = service; _sessionAlive = alive;
+        _alive = () => alive() && _allowInput && _visibility >= .99f; _context = context;
         Root = new GameObject("GloomhavenVR.TownService.Ritual").transform;
         try
         {
@@ -351,6 +356,7 @@ internal sealed class TownServiceRitual : IDisposable
 
     internal void Tick(float scale)
     {
+        TickPendingConfirmation();
         Handoff?.Tick();
         if (Handoff != null) CardSlots.Tick(Handoff);
         _templeOffering?.Tick(!_disposed && _alive());
@@ -372,7 +378,10 @@ internal sealed class TownServiceRitual : IDisposable
             }
             break;
         }
-        _bowlMarker?.Tick(offeringHeld);
+        // Show the noninteractive destination while the player can inspect a purse,
+        // not only after the purse has already been picked up. Otherwise the cue is
+        // missing when deciding where to carry it.
+        _bowlMarker?.Tick(offeringHeld || _templeOffering?.Available == true);
         foreach (Inscription inscription in _inscriptions) inscription.Tick();
         foreach (TownServiceSurface surface in _surfaces) surface.Tick(Vector3.zero, Quaternion.identity, scale);
     }
@@ -444,6 +453,7 @@ internal sealed class TownServiceRitual : IDisposable
         _submittedOfferings.Add(offering);
         bool submitted = Confirm(slot.button, () => slot.Blessing, temple,
             () => _templeOffering?.Available == true && TempleEligible(temple, slot),
+            () => _templeOffering?.VisitorPresent == true && TemplePendingEligible(temple, slot),
             committed =>
             {
                 if (!committed) _submittedOfferings.Remove(offering);
@@ -476,14 +486,25 @@ internal sealed class TownServiceRitual : IDisposable
         && temple.service.CanAfford(temple.character.CharacterID, slot.Blessing)
         && temple.service.CanBuy(temple.character.CharacterID, slot.Blessing);
 
-    private bool Confirm(Selectable button, Func<object?> identity, Component controller, Func<bool> eligible, Action<bool>? completed = null)
+    // The original selection disables its row and shop canvas while its modal is open.
+    // Those presentation/input flags are valid before the click, but cannot validate
+    // the pending original callback: doing so cancelled every physical donation in 560.
+    private static bool TemplePendingEligible(UITempleWindow temple, UITempleShopSlot slot) => temple.character != null
+        && slot != null && slot.Blessing != null
+        && MapRoomHand.OwnedMerchantCharacter()?.CharacterID == temple.character.CharacterID
+        && temple.service.IsAvailable(temple.character.CharacterID, slot.Blessing)
+        && temple.service.CanAfford(temple.character.CharacterID, slot.Blessing)
+        && temple.service.CanBuy(temple.character.CharacterID, slot.Blessing);
+
+    private bool Confirm(Selectable button, Func<object?> identity, Component controller,
+        Func<bool> eligible, Func<bool> pendingEligible, Action<bool>? completed = null)
     {
         UIEnhancementConfirmationBox? box = Singleton<UIEnhancementConfirmationBox>.Instance;
         if (!_alive() || box == null || box.GetComponent<UIWindow>().IsOpen || !button.IsInteractable() || !eligible()) return false;
         object? context = _context(), selected = identity();
         Action? previous = box._onConfirmCallback;
         using var confirmation = TownServiceRitualConfirmationGuard.Begin(box,
-            () => _alive() && eligible() && button != null && button.IsActive() && button.IsInteractable()
+            () => _sessionAlive() && pendingEligible() && button != null
                 && ReferenceEquals(context, _context()) && ReferenceEquals(selected, identity()), completed);
         if (!Click(button)) return false;
         // The native selection synchronously installs its callback. Refusal or an unrelated
@@ -494,17 +515,57 @@ internal sealed class TownServiceRitual : IDisposable
         bool created = owns && box.GetComponent<UIWindow>().IsOpen && box._onConfirmCallback != null
             && !ReferenceEquals(previous, box._onConfirmCallback);
         if (created) TownServiceConfirmationMask.Begin(box.GetComponent<UIWindow>(), () => box._onConfirmCallback);
-        if (!_alive() || !eligible() || !button.IsActive() || !button.IsInteractable()
-            || !ReferenceEquals(context, _context()) || !ReferenceEquals(selected, identity())
-            || !created)
+        Func<bool> stillValid = () => _sessionAlive() && pendingEligible()
+            && ReferenceEquals(context, _context()) && ReferenceEquals(selected, identity());
+        bool valid = stillValid();
+        if (!valid || !created)
         {
+            if (VRLog.WantsDebug) VRLog.Debug("TownServices", "Temple purse confirmation refused after native selection: "
+                + "owned=" + owns + " open=" + box.GetComponent<UIWindow>().IsOpen
+                + " callbackChanged=" + !ReferenceEquals(previous, box._onConfirmCallback)
+                + " pendingValid=" + valid + " sourceInteractable=" + button.IsInteractable()
+                + " confirmInteractable=" + (box.confirmButton != null && box.confirmButton.IsInteractable()));
             // Cancel only the prompt installed by this selection. Its original transition
             // clears the controller's pending flag; never leave a stale purchase clickable.
             if (created) box.Hide();
             return false;
         }
         if (Click(box.confirmButton)) return true;
-        box.Hide(); return false;
+        // The game's newly opened modal may keep its confirm button disabled until
+        // its entrance/focus transition completes. Build 560 hid the prompt within
+        // the same release; never turn a temporarily unavailable button into a
+        // cancellation after the native selection has already been accepted.
+        // Keep the physical purse in the bowl and press the ORIGINAL button once
+        // it becomes interactable; no donation is made by this presentation path.
+        _pendingConfirmation = box;
+        _pendingConfirmationValid = stillValid;
+        _pendingConfirmationUntil = Time.unscaledTime + 2f;
+        if (VRLog.WantsDebug) VRLog.Debug("TownServices", "Temple purse: waiting for the original confirmation button to become interactable.");
+        return true;
+    }
+
+    private void TickPendingConfirmation()
+    {
+        UIEnhancementConfirmationBox? box = _pendingConfirmation;
+        if (box == null) return;
+        if (!box.GetComponent<UIWindow>().IsOpen)
+        { _pendingConfirmation = null; _pendingConfirmationValid = null; return; }
+        bool valid = false;
+        try { valid = _pendingConfirmationValid != null && _pendingConfirmationValid(); }
+        catch (MissingReferenceException) { }
+        catch (NullReferenceException) { }
+        if (!valid)
+        {
+            _pendingConfirmation = null; _pendingConfirmationValid = null;
+            box.Hide();
+            return;
+        }
+        if (Click(box.confirmButton))
+        { _pendingConfirmation = null; _pendingConfirmationValid = null; return; }
+        if (Time.unscaledTime < _pendingConfirmationUntil) return;
+        _pendingConfirmation = null; _pendingConfirmationValid = null;
+        VRLog.Warn("TownServices", "Temple purse: original confirmation button stayed unavailable; cancelled the pending donation.");
+        box.Hide();
     }
 
     private static bool Click(Selectable button)
@@ -518,6 +579,9 @@ internal sealed class TownServiceRitual : IDisposable
     public void Dispose()
     {
         if (_disposed) return; _disposed = true;
+        UIEnhancementConfirmationBox? pending = _pendingConfirmation;
+        _pendingConfirmation = null; _pendingConfirmationValid = null;
+        if (pending != null && pending.GetComponent<UIWindow>().IsOpen) pending.Hide();
         CardSlots.Dispose();
         Handoff?.Dispose(); Handoff = null;
         foreach (Piece piece in _pieces.Values) piece.Dispose(); _pieces.Clear(); _samples.Clear();
