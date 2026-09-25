@@ -28,6 +28,8 @@ public static class InteractionProgram
   ItemsPile.ItemChip.NewArtReady=true;
   TownServiceVoice.Offers=TownServiceVoice.Buys=TownServiceVoice.Sells=0;
   TownServiceMerchantHandoff.Reset(); MapRoomDriver.Active=true; MapRoomDriver.CanVisit=true;
+  CardsDriver.OffScenarioFanIsOpen=true;
+  CardsDriver.SuppressedOpenEdges=CardsDriver.SuppressedCloseEdges=0;
   GuildmasterDestinations.Mode=EGuildmasterMode.None; MapRoomDriver.Visits=0;
   FFSNet.FFSNetwork.IsOnline=false; StoryComposite.PointOfNoReturn=false;
   TownServiceMerchantTransaction.Requests=0; ShopService.Affordable=true;
@@ -79,6 +81,8 @@ public static class InteractionProgram
 
   Check(TownServiceMerchantHandoff.OwnedChips.Count==31,"all equipped and bound copies become actual inspection cards");
   Check(TownServiceMerchantHandoff.Active,"local owned fan opens near resident");
+  Check(CardsDriver.SuppressedCloseEdges==1 && CardsDriver.SuppressedOpenEdges==0,
+      "merchant inspection silences exactly the automatic open fan close edge");
   Check(!TownServiceMerchantHandoff.WantsOffering && !zone.gameObject.activeSelf,"nearby empty hands never request merchant palm");
   Check(!TownServiceMerchantHandoff.CanOffer(character.AllCharacterItems[4],true),"nontradeable items remain readable but cannot be sold");
   var first=TownServiceMerchantHandoff.OwnedChips[0];
@@ -132,6 +136,8 @@ public static class InteractionProgram
    TownServiceMerchantHandoff.Tick(); TownServiceMerchantHandoff.Reset();
   }; TownServicePopulation.Station.Near=false; TownServiceMerchantHandoff.Tick();
   Check(!TownServiceMerchantHandoff.Active && MapRoomHand.NormalRebuilds==restore+1,"leaving restores normal fan exactly once");
+  Check(CardsDriver.SuppressedCloseEdges==1 && CardsDriver.SuppressedOpenEdges==1,
+      "merchant departure silences exactly the matching automatic fan reopen edge");
   Check(Singleton<UIItemConfirmationBox>.Instance.Cancels==1,"leaving cancels own unconfirmed sale");
   Check(ItemsPile.InspectionCurrent==null,"leaving clears laser owner");
   GuildmasterDestinations.Mode=EGuildmasterMode.None; TownServicePopulation.Station.Near=true;

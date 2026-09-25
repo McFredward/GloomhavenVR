@@ -63,7 +63,14 @@ namespace GloomhavenVR.Cards {
  }
  public enum PileKind { Items }
  public class VRCard { }
- public static class CardsDriver { internal static void StandDownForItemFanContact(Hands.VRHand? hand, IReadOnlyList<ItemsPile.ItemChip> chips) { } }
+ public static class CardsDriver {
+  internal static bool OffScenarioFanIsOpen;
+  internal static int SuppressedOpenEdges, SuppressedCloseEdges;
+  internal static void StandDownForItemFanContact(Hands.VRHand? hand, IReadOnlyList<ItemsPile.ItemChip> chips) { }
+  internal static void SuppressNextOffScenarioFanEdgeSound(bool open, float seconds = 2f) {
+   if(open) SuppressedOpenEdges++; else SuppressedCloseEdges++;
+  }
+ }
  public static class FanSweep { public static float ArcChord(float radius,float step)=>2f*radius*Mathf.Sin(step*Mathf.Deg2Rad*.5f); public static float SplitOffset(int i)=>i*.01f; }
  public static class PileFanShape { public const float ArchFactor=.55f,TiltFactor=.85f; public static void FaceHead(Transform root) { } }
  internal sealed partial class ItemsPile {
