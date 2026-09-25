@@ -73,4 +73,11 @@ the perceived strength of finger and mask contact, the priestess arm silhouette,
 arrival in the real game, completed native donation, four-player cloth convergence or headset
 frame-time/GC peaks. Those remain the build-563 hardware checklist.
 
-Final integration validation: pending.
+Final integration validation passed all 14 source groups, all 78 local suites and 286,560 wire
+assertions. `ci-build.sh Release` completed with zero warnings and zero errors; documentation
+localization and both bundle-format checks passed. The rebuilt `ghvr-town.bundle` is 96,813,959
+bytes with SHA-256 `fb7b22b7e3185c540ec03fc04067b0b93a4d5b5a42810ce166c6716993e66c5b`.
+The refactor guard completed those checks and then returned its expected nonzero result because
+the feature branch differs from the private `080c505e9` compiled-form baseline: no tracked
+configuration, Harmony-patch or log-token surface was removed; the current comparison contains
+129 changed and 211 added/removed compiled files.
