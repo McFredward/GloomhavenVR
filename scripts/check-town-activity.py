@@ -37,6 +37,7 @@ def mutations():
     return [
         ("audio-ignores-master", "TownServiceActivityAudio.cs", "Mathf.Clamp01(global.MasterVolume / 100f)", "1f", "native master and effects settings both apply live"),
         ("audio-not-spatial", "TownServiceActivityAudio.cs", "source.spatialBlend = 1f", "source.spatialBlend = 0f", "resident foley is spatial and has no moving-rig Doppler"),
+        ("audio-fixed-world-range", "TownServiceActivityAudio.cs", "source.maxDistance = 4.5f * worldUnitsPerMetre;", "source.maxDistance = 4.5f;", "resident range follows the map's world units per perceived metre"),
         ("audio-leaks-listener", "TownServiceActivityAudio.cs", "HeadEar.Release(_claim);", "// negative: leak shared listener", "hidden or disabled station stops sound and releases listener"),
         ("audio-seek-replay", "TownServiceActivitySoundClock.cs", "delta >= -.001f && delta <= .25f", "true", "authority seek stall or hide cannot replay historical contact"),
         ("audio-contact-repeat", "TownServiceActivitySoundClock.cs", "before > .99f && after < .01f", "after < .01f", "each visible coin deposit sounds once independent of frame rate"),
@@ -63,7 +64,8 @@ def mutations():
         ("returning-author-snap", "TownServiceActivityHandover.cs", "_age = 0f;", "_age = Duration;", "returning authority keeps displayed hands at first frame"),
         ("unpaired-sequences", "RemoteTownPerformance.cs", "if (!TownActivityCodec.Matches(in activity, in face)", "if (false", "mismatched sequence cannot partially advance pair"),
         ("stale-sequence", "RemoteTownActivities.cs", "!Newer(state.Sequence, peer.Latest.Sequence)", "false", "older occupation cannot replace current phase"),
-        ("magnetic-coin", "TownServiceActivityMotion.cs", "coin == index && t >= .96f && t < 2.84f ? 1f : 0f", "coin == index ? grip : 0f", "coin is resting or rigidly gripped, never magnetically attracted"),
+        ("magnetic-coin", "TownServiceActivityMotion.cs", "coin == index && t >= 1.04f && t < 2.86f ? 1f : 0f", "coin == index ? grip : 0f", "coin is resting or rigidly gripped, never magnetically attracted"),
+        ("paused-coin-in-air", "TownServiceActivityMotion.cs", "float transferProgress = Soft(t, 1.05f, 2.84f);", "float transferProgress = Soft(t < 1.70f ? t : t < 2f ? 1.70f : 1.70f + (t - 2f) * (2.84f - 1.70f) / .84f, 1.05f, 2.84f);", "merchant never parks a pinched coin in midair"),
         ("downward-offering", "TownServiceActivityMotion.cs", "Mathf.Lerp(visual.RightRoll, 180f, t)", "Mathf.Lerp(visual.RightRoll, 0f, t)", "offering palm faces upward"),
         ("coin-detached-from-grip", "TownServiceActivityProps.cs", "Vector3.Lerp(seat, pinch, grip)", "seat", "real coin follows actual pinch or resting seat"),
     ]
@@ -114,7 +116,7 @@ def main():
     manifest = {"result": str(run / "results.txt"), "cases": []}
     variants = [("production", None, None, None, "")]
     if not args.no_negative_controls:
-        rig_only = ("audio-ignores-master", "audio-not-spatial", "audio-leaks-listener", "unmirrored-mage-pronation", "separated-prayer", "animated-knee-pole", "zero-weight-stance-snap", "raised-stage-gesture", "vertical-casting-palm", "wrapped-forearm-support", "unplanted-feet", "ignore-ik", "thumb-overcurl", "attentive-counter-bracing", "excessive-work-bow", "ignore-palm-offset", "curl-contact-markers", "downward-offering", "coin-detached-from-grip")
+        rig_only = ("audio-ignores-master", "audio-not-spatial", "audio-fixed-world-range", "audio-leaks-listener", "unmirrored-mage-pronation", "separated-prayer", "animated-knee-pole", "zero-weight-stance-snap", "raised-stage-gesture", "vertical-casting-palm", "wrapped-forearm-support", "unplanted-feet", "ignore-ik", "thumb-overcurl", "attentive-counter-bracing", "excessive-work-bow", "ignore-palm-offset", "curl-contact-markers", "downward-offering", "coin-detached-from-grip")
         variants += [v for v in mutations() if (not args.portable or v[0] not in rig_only) and (args.bundle or v[0] not in ("unmirrored-mage-pronation", "attentive-counter-bracing", "unplanted-feet", "wrapped-forearm-support", "separated-prayer", "animated-knee-pole", "zero-weight-stance-snap", "raised-stage-gesture", "vertical-casting-palm"))]
     # A mutation of an absent production file is not an executable negative control.
     # The full Unity suite retains every rig mutation; portable mode only claims its

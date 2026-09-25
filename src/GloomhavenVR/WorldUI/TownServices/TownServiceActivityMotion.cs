@@ -145,24 +145,27 @@ internal static class TownServiceActivityMotion
         Vector3 source = CoinSeat(index, returning), destination = CoinSeat(index, !returning);
         var visual = TownServiceMotionClips.Sample(returning ? 1 : 0, t / 3.6f);
         // Keep the generated shoulder/torso weight shift, but fit the hand to the
-        // actual compact counter. The former hard x/z clamps flattened the path
-        // into a piston. Separate minimum-jerk reaches include a short stationary
-        // pickup, curved inspection, deposit and unhurried release. Their exact
-        // contact windows retain physical ownership of the original coins.
+        // actual compact counter. Build 558 still stopped the pinched hand in midair
+        // for t=1.70..2.00 and parked the support hand for almost a second. A single
+        // curved transfer now carries the coin continuously between the two brief
+        // tabletop contact windows. Its clock and variation remain shared by peers.
         float individuality = Variation((uint)block * 6u + (uint)transfer, 41u);
         Vector3 rest = new Vector3(.27f, 1.08f, .29f);
         Vector3 inspection = new Vector3(.27f + .018f * individuality,
-            1.08f + .025f * individuality, .23f + .018f * individuality);
-        Vector3 hand = Vector3.Lerp(rest, source, Soft(t, 0f, .65f));
-        hand = Vector3.Lerp(hand, inspection, Soft(t, 1.12f, 1.70f));
-        hand = Vector3.Lerp(hand, destination, Soft(t, 2.00f, 2.75f));
-        hand = Vector3.Lerp(hand, rest, Soft(t, 3.10f, 3.6f));
-        float grip = Ease(t, .68f, .96f) * (1f - Ease(t, 2.84f, 3.08f));
-        float support = Soft(t, .75f, 1.50f) * (1f - Soft(t, 2.45f, 3.45f));
+            1.21f + .025f * individuality, .23f + .018f * individuality);
+        float transferProgress = Soft(t, 1.05f, 2.84f);
+        Vector3 curved = Vector3.Lerp(Vector3.Lerp(source, inspection, transferProgress),
+            Vector3.Lerp(inspection, destination, transferProgress), transferProgress);
+        Vector3 hand = Vector3.Lerp(rest, source, Soft(t, 0f, .85f));
+        hand = Vector3.Lerp(hand, curved, Soft(t, 1.05f, 1.16f));
+        hand = Vector3.Lerp(hand, rest, Soft(t, 3.03f, 3.6f));
+        float grip = Ease(t, .86f, 1.04f) * (1f - Ease(t, 2.86f, 3.02f));
+        float support = Soft(t, .45f, 1.35f) * (1f - Soft(t, 2.65f, 3.55f));
         visual.Left = hand;
         visual.Right = Vector3.Lerp(new Vector3(-.29f, 1.13f, .27f),
-            new Vector3(-.23f, 1.10f, .31f), support);
-        visual.RightRoll = 42f + 16f * support;
+            new Vector3(-.23f + .012f * transferProgress, 1.10f + .012f * transferProgress,
+                .31f - .025f * transferProgress), support);
+        visual.RightRoll = 42f + 16f * support + 5f * transferProgress * support;
         visual.LeftCurl = grip * .55f;
         visual.RightCurl = .18f + .11f * support;
         // The imported Count and Return clips have different boundary body poses.
@@ -173,11 +176,11 @@ internal static class TownServiceActivityMotion
         {
             bool counted = returning ? coin <= index : coin < index;
             Vector3 seat = CoinSeat(coin, counted);
-            if (coin == index) seat = t < 2.75f ? source : destination;
+            if (coin == index) seat = t < 2.86f ? source : destination;
             // Ownership changes only while the pinch is stationary on its exact seat.
             // An interruption can freeze a half-closed grasp without moving the coin
             // through empty space; curling a finger does not attract objects to it.
-            float held = coin == index && t >= .96f && t < 2.84f ? 1f : 0f;
+            float held = coin == index && t >= 1.04f && t < 2.86f ? 1f : 0f;
             if (coin == 0) { visual.Coin0 = seat; visual.CoinGrip.x = held; }
             else if (coin == 1) { visual.Coin1 = seat; visual.CoinGrip.y = held; }
             else { visual.Coin2 = seat; visual.CoinGrip.z = held; }

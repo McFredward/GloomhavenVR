@@ -11,7 +11,7 @@ internal static class AudioSourceChecks
     internal static int Run()
     {
         count=0; var root=new GameObject("Resident audio test").transform;
-        root.position=new Vector3(4,2,-7);root.rotation=Quaternion.Euler(0,33,0);root.localScale=Vector3.one*.8f;
+        root.position=new Vector3(4,2,-7);root.rotation=Quaternion.Euler(0,33,0);root.localScale=Vector3.one*198.12f;
         AudioClip clip=AudioClip.Create("Native boundary coin",22050,1,22050,false);
         try
         {
@@ -25,7 +25,15 @@ internal static class AudioSourceChecks
             var source=root.GetComponentInChildren<AudioSource>();
             Check(source!=null&&source.clip==clip,"contact uses original native clip without copying it");
             Check(source!.spatialBlend==1f&&source.dopplerLevel==0f,"resident foley is spatial and has no moving-rig Doppler");
+            Check(Mathf.Abs(source.minDistance-148.59f)<.01f&&Mathf.Abs(source.maxDistance-891.54f)<.01f,
+                "resident range follows the map's world units per perceived metre");
+            Check(.8f*root.lossyScale.x<source.maxDistance,
+                "a visitor eight tenths of a metre from the source is inside audible range");
             Check(Vector3.Distance(source.transform.position,root.TransformPoint(released.Left))<.00001f,"coin foley originates at actual resident contact");
+            root.localScale=Vector3.one*100f;
+            FaceClock.Now=.015f;audio.Tick(1,1,2.015f,.005f,true,in released);
+            Check(Mathf.Abs(source.minDistance-75f)<.01f&&Mathf.Abs(source.maxDistance-450f)<.01f,
+                "range tracks a later map scale change without recreating the voice");
             float full=source.volume;SaveData.Instance.Global.MasterVolume=50;SaveData.Instance.Global.SFXVolume=20;
             FaceClock.Now=.02f;audio.Tick(1,1,2.02f,.01f,true,in released);
             Check(Mathf.Abs(source.volume-full*.1f)<.00001f,"native master and effects settings both apply live");

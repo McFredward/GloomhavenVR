@@ -17,6 +17,7 @@ internal sealed class TownServiceActivityAudio : IDisposable
     private readonly AudioClip?[] _clips = new AudioClip?[4];
     private readonly float[] _resolveAt = new float[4];
     private int _voice;
+    private float _voiceScale;
     private bool _failed;
     private static readonly bool[] Reported = new bool[4], MissingReported = new bool[4];
 
@@ -33,6 +34,17 @@ internal sealed class TownServiceActivityAudio : IDisposable
             if (!visible) { Stop(); return; }
             if (!HeadEar.Claim(_claim)) { _clock.Reset(); Stop(); return; }
             float now = Time.unscaledTime;
+            // Resident coordinates are authored in perceived metres, while Unity's
+            // AudioSource distances are world units. The map in the build 558 log
+            // was 198.12 world units per metre: a fixed 4.5-unit cutoff silenced
+            // every contact before it reached a visitor standing beside the counter.
+            float scale = Mathf.Max(.01f, _root.lossyScale.x);
+            if (scale != _voiceScale)
+            {
+                _voiceScale = scale;
+                foreach (AudioSource? existing in _voices)
+                    if (existing != null) SetHearingRange(existing, scale);
+            }
             GlobalData? global = SaveData.Instance?.Global;
             float master = global == null ? 1f : Mathf.Clamp01(global.MasterVolume / 100f) * Mathf.Clamp01(global.SFXVolume / 100f);
             for (int i = 0; i < _voices.Length; i++)
@@ -76,9 +88,16 @@ internal sealed class TownServiceActivityAudio : IDisposable
         obj.transform.SetParent(_root, false);
         AudioSource source = obj.AddComponent<AudioSource>();
         source.playOnAwake = false; source.loop = false; source.spatialBlend = 1f;
-        source.rolloffMode = AudioRolloffMode.Linear; source.minDistance = .75f; source.maxDistance = 4.5f;
+        source.rolloffMode = AudioRolloffMode.Linear;
+        SetHearingRange(source, Mathf.Max(.01f, _root.lossyScale.x));
         source.dopplerLevel = 0f; source.priority = 110;
         _voices[slot] = source; return source;
+    }
+
+    private static void SetHearingRange(AudioSource source, float worldUnitsPerMetre)
+    {
+        source.minDistance = .75f * worldUnitsPerMetre;
+        source.maxDistance = 4.5f * worldUnitsPerMetre;
     }
 
     private AudioClip? Resolve(TownActivitySound sound, float now)

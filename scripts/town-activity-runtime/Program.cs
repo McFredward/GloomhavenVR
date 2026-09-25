@@ -119,12 +119,20 @@ public static class InteractionProgram
     private static void Choreography()
     {
         Vector3[] previous=new Vector3[3];
+        Vector3 previousMerchantHand=Vector3.zero;
+        int motionlessAirFrames=0, longestMotionlessAir=0;
         bool large=false,small=false; float quietSeconds=0f; int experiments=0; bool casting=false;
         float[] strengths=new float[3]; float lastExperiment=-100f; Vector3 previousSpell=Vector3.zero;
         for(int frame=0;frame<12960;frame++)
         {
             var state=new TownActivityPose{WorkClock=frame/90f,TransitionAge=.65f};
             var merchant=TownServiceActivityMotion.Visual(1,in state);
+            if(frame>0&&merchant.Left.y>1.02f&&Vector3.Distance(merchant.CoinGrip,Vector3.zero)>.5f
+                &&Vector3.Distance(previousMerchantHand,merchant.Left)<.000001f)
+                motionlessAirFrames++;
+            else motionlessAirFrames=0;
+            longestMotionlessAir=Math.Max(longestMotionlessAir,motionlessAirFrames);
+            previousMerchantHand=merchant.Left;
             for(int coin=0;coin<3;coin++)
             {
                 float grip=coin==0?merchant.CoinGrip.x:coin==1?merchant.CoinGrip.y:merchant.CoinGrip.z;
@@ -148,6 +156,7 @@ public static class InteractionProgram
             if(spell.Cast>.25f)Check(spell.RightRoll>110f,"visible spell uses an upward-facing palm");
         }
         Check(large&&small,"varied restrained spell strengths exist");
+        Check(longestMotionlessAir<6,"merchant never parks a pinched coin in midair");
         Check(experiments==3&&quietSeconds>110f,"shared schedule leaves long quiet reading intervals between experiments");
         Check(Mathf.Abs(strengths[0]-strengths[1])>.05f&&Mathf.Abs(strengths[1]-strengths[2])>.10f,"spell experiment strength varies between shared clock blocks");
         var pause=new TownActivityPose{WorkClock=1.8f,TransitionAge=.65f};
