@@ -25,6 +25,7 @@ OUT = ROOT / ".planning/debug/town560-speech"
 REVISION_OUT = ROOT / ".planning/debug/town561-speech"
 VARIANT_OUT = ROOT / ".planning/debug/town562-speech"
 ROUND563_OUT = ROOT / ".planning/debug/town563-speech"
+ROUND564_OUT = ROOT / ".planning/debug/town564-speech"
 ASSETS = ROOT / "unity/GloomhavenVR.Assets/Assets/Bundle/TownServices/Audio"
 ENDPOINT = "fal-ai/elevenlabs/tts/eleven-v3"
 PRICE_PER_1000 = 0.10  # fal listing checked 2026-09-25; estimate, not receipt.
@@ -96,7 +97,7 @@ VOICE_EVENTS = {
         ("priestess-prayer-2", "Great Oak, shelter those who walk beyond these walls."),
         ("priestess-prayer-3", "Let root and branch guard every weary traveler."),
         ("priestess-prayer-4", "May the Great Oak lend us patience and strength."),
-        ("priestess-prayer-5", "Keep our companions safe beneath your ancient boughs.")),
+        ("priestess-prayer-5", "Keep our companions safe beneath your ancient branches.")),
     "priestess-donate": (
         ("priestess-donate", "May your offering bring you strength."),
         ("priestess-donate-2", "The Great Oak receives your generous offering."),
@@ -816,15 +817,144 @@ def round563_collect(stage: str, name: str) -> None:
     import_audio(target, mp3, replace=True, target_lufs=-34 if stage == "effect" else -27)
 
 
+# Build-564 listening revision. Hardware listening rejected every Qwen-designed
+# priestess take as too young despite text/audio classifiers describing them as
+# elderly. MiniMax's named Wise_Woman performance is therefore used directly;
+# this avoids cloning an identifiable person from an unverified web recording
+# and gives every line one stable, commercially licensed preset voice.
+ROUND564_ENDPOINT = "fal-ai/minimax/speech-2.8-hd"
+ROUND564_CANDIDATES = {
+    "natural": {"speed": .88, "pitch": 0, "modify": None},
+    "weathered": {"speed": .86, "pitch": -1,
+                  "modify": {"pitch": -4, "intensity": -10, "timbre": -12}},
+    "frail": {"speed": .82, "pitch": 0,
+               "modify": {"pitch": -2, "intensity": -18, "timbre": -18}},
+}
+# Keep the named performance unprocessed. The lower-timbre previews sounded
+# shorter/louder in provider output and risk replacing "young" with an equally
+# artificial effect; Wise_Woman itself is the age-specific source.
+ROUND564_SELECTED = "natural"
+
+
+def round564_steps() -> list[tuple[str, str, float]]:
+    preview = VOICE_EVENTS["priestess-greet"][0][1]
+    steps = [("preview", name, len(preview) * .10 / 1000)
+             for name in ROUND564_CANDIDATES]
+    steps.extend(("speak", name, len(text) * .10 / 1000)
+                 for name, text in ROUND563_PRIESTESS)
+    # The first take made "boughs" sound like another English word in local
+    # transcription. Keep that paid result immutable and create one explicit
+    # corrected take with the clearer authored wording above.
+    steps.append(("respeak", "priestess-prayer-5",
+                  len(dict(ROUND563_PRIESTESS)["priestess-prayer-5"]) * .10 / 1000))
+    return steps
+
+
+def round564_plan() -> None:
+    steps = round564_steps()
+    estimate = sum(cost for _, _, cost in steps)
+    if estimate > .16:
+        raise RuntimeError("Build 564 priestess batch exceeds USD 0.16 displayed-price ceiling")
+    for stage, name, cost in steps:
+        save_json(ROUND564_OUT / stage / name / "plan.json",
+                  {"stage": stage, "name": name, "estimated_usd": round(cost, 6)})
+    print(f"Planned {len(steps)} one-shot calls; listed-price estimate USD {estimate:.4f}.")
+
+
+def round564_payload(stage: str, name: str) -> dict:
+    if stage == "preview":
+        text = VOICE_EVENTS["priestess-greet"][0][1]
+        settings = ROUND564_CANDIDATES[name]
+    elif stage in ("speak", "respeak"):
+        text = dict(ROUND563_PRIESTESS)[name]
+        settings = ROUND564_CANDIDATES[ROUND564_SELECTED]
+    else:
+        raise ValueError(stage)
+    payload = {
+        "prompt": text,
+        "voice_setting": {
+            "voice_id": "Wise_Woman", "speed": settings["speed"],
+            "vol": 1.0, "pitch": settings["pitch"], "emotion": "neutral",
+            "english_normalization": True,
+        },
+        "audio_setting": {"sample_rate": 24000, "bitrate": 128000,
+                          "format": "mp3", "channel": 1},
+        "language_boost": "English", "output_format": "url",
+        "normalization_setting": {"enabled": True, "target_loudness": -22,
+                                  "target_range": 8, "target_peak": -3},
+    }
+    if settings["modify"]:
+        payload["voice_modify"] = settings["modify"]
+    return payload
+
+
+def round564_submit(stage: str, name: str) -> None:
+    folder = ROUND564_OUT / stage / name
+    planned = json.loads((folder / "plan.json").read_text())
+    if (folder / "receipt.json").exists():
+        print(stage, name, "already submitted"); return
+    if (folder / "intent.json").exists():
+        raise RuntimeError(f"Ambiguous paid intent for {stage}/{name}; reconcile provider history")
+    payload = round564_payload(stage, name)
+    if sum(cost for _, _, cost in round564_steps()) > .16:
+        raise RuntimeError("Build 564 priestess batch exceeds USD 0.16 displayed-price ceiling")
+    folder.mkdir(parents=True, exist_ok=True)
+    with (folder / "intent.json").open("x") as stream:
+        json.dump({"input_sha256": hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest(),
+                   "estimated_usd": planned["estimated_usd"], "endpoint": ROUND564_ENDPOINT}, stream)
+        stream.flush(); os.fsync(stream.fileno())
+    receipt = request("https://queue.fal.run/" + ROUND564_ENDPOINT, payload)
+    save_json(folder / "receipt.json", receipt)
+    print(stage, name, "submitted", receipt.get("request_id", "unknown"))
+
+
+def round564_collect(stage: str, name: str) -> None:
+    folder = ROUND564_OUT / stage / name
+    result_path = folder / "result.json"
+    if result_path.exists():
+        result = json.loads(result_path.read_text())
+        print(stage, name, "already collected")
+    else:
+        receipt = json.loads((folder / "receipt.json").read_text())
+        status = request(receipt["status_url"])
+        save_json(folder / "status.json", status)
+        if status.get("status") != "COMPLETED":
+            print(stage, name, status.get("status")); return
+        result = request(receipt["response_url"])
+        save_json(result_path, result)
+        print(stage, name, "collected")
+    url = result["audio"]["url"]
+    if urlparse(url).scheme != "https": raise ValueError("Provider audio URL must be HTTPS")
+    mp3 = folder / "audio.mp3"
+    if not mp3.exists():
+        with urllib.request.urlopen(url, timeout=120) as response:
+            data = response.read(2_000_001)
+        if len(data) > 2_000_000 or not (data.startswith(b"ID3") or data[:2] in (b"\xff\xfb", b"\xff\xf3")):
+            raise ValueError("Unexpected audio response")
+        mp3.write_bytes(data)
+    if stage in ("speak", "respeak"):
+        import_audio(name, mp3, replace=True, target_lufs=-27)
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("action", choices=("prepare", "submit", "collect", "import-greetings", "curves",
                                            "revision-plan", "revision-submit", "revision-collect",
                                            "variant-plan", "variant-submit", "variant-collect",
                                            "variant-curves", "compress-imports",
-                                           "round563-plan", "round563-submit", "round563-collect"))
+                                           "round563-plan", "round563-submit", "round563-collect",
+                                           "round564-plan", "round564-submit", "round564-collect"))
     parser.add_argument("names", nargs="*")
     args = parser.parse_args()
+    if args.action.startswith("round564-"):
+        if args.action == "round564-plan": round564_plan()
+        else:
+            if len(args.names) != 2: parser.error("round564 calls need STAGE NAME")
+            stage, name = args.names
+            if (stage, name) not in {(s, n) for s, n, _ in round564_steps()}:
+                parser.error("Unknown round564 stage/name")
+            (round564_submit if args.action == "round564-submit" else round564_collect)(stage, name)
+        raise SystemExit(0)
     if args.action.startswith("round563-"):
         if args.action == "round563-plan": round563_plan()
         else:
