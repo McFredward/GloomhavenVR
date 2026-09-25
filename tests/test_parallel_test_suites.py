@@ -199,14 +199,14 @@ class ParallelSuitesTests(unittest.TestCase):
                          'town-service-decor', 'town-ritual-transactions', 'town-flame',
                          'town-service-workspace', 'town-ritual-layout', 'town-enhancement-handoff',
                          'town-facial-landmarks', 'town-service-clearance', 'town-merchant-handoff',
-                         'town-public-catalog', 'town-item-transfer', 'town-card-slots'}
+                         'town-public-catalog', 'town-item-transfer', 'town-card-slots', 'town-cloth'}
         map_hotfix = {'aoe-control', 'city-event-button', 'map-tooltip', 'map-tooltip-transport'}
         story_continuation = {'story-completion', 'map-story-lifecycle', 'message-continuation',
                               'announcement', 'dialog-surface', 'scenario-win-cheat'}
         self.assertEqual(local, LOCAL_INVENTORY | map_hotfix | story_continuation | {"town-service-setting", "town-residents", "town-service-lighting", "town-face", "town-activity", "town-voice"} | physical_town)
         self.assertEqual(ci, CI_INVENTORY | map_hotfix | story_continuation | {"town-service-setting", "town-residents", "town-service-lighting", "town-activity-portable"})
         self.assertEqual({s['id'] for s in runner.selected_suites(suites, 'source', (0, 1))}, SOURCE_INVENTORY)
-        self.assertEqual(len(local), 77)
+        self.assertEqual(len(local), 78)
         self.assertEqual(len(ci), 62)
         self.assertEqual(local-ci, {'presentation-send', 'town-face', 'town-activity', 'town-voice'} | physical_town)
         self.assertEqual(ci-local, {'self-update-dialog', 'banner-pose', 'quest-seat', 'town-activity-portable'})
