@@ -132,6 +132,16 @@ public static class InteractionProgram
         Check(sight.Select(1,root,Quaternion.identity,head.position).HasValue,"mod UI does not falsely occlude player gaze");
         UnityEngine.Object.DestroyImmediate(blocker);camera.transform.position=head.position+Vector3.back*2;FaceClock.Now+=2;
         Check(!sight.Select(1,root,Quaternion.identity,head.position).HasValue,"player behind NPC never causes backward stare");
+        var attentionFace=new TownServiceFace(root,1);
+        TownServicePresentation.Active=true;TownServicePresentation.Service=1;
+        camera.transform.position=rig.EyePosition+Vector3.forward*2.3f;FaceClock.Now+=2;
+        Check(attentionFace.PrepareActivityAttention(false),"merchant looks at a visitor inside the fixed reach");
+        camera.transform.position=rig.EyePosition+Vector3.forward*2.7f;FaceClock.Now+=2;
+        Check(!attentionFace.PrepareActivityAttention(true),"open merchant visit never extends gaze reach");
+        Check(!attentionFace.IsLocalVisitorNear(true),"reclaimed item never extends local visitor reach");
+        camera.transform.position=rig.EyePosition+Vector3.forward*2.3f;FaceClock.Now+=2;
+        Check(attentionFace.IsLocalVisitorNear(false),"fixed reach still admits the returning visitor");
+        TownServicePresentation.Active=false;TownServicePresentation.Service=0;
         var face=new TownServiceFace(root,1);VRRigDriver.HeadCamera=camera;camera.transform.position=head.position+new Vector3(4,0,2);
         var remote=new TownFacePose{HeadYaw=-30,Cue=1,Generation=1,SpeechAge=.4f};
         TownServiceFaceSpeech.Curve=(service,cue,age)=>new Vector3(age,0,0);

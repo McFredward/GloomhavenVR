@@ -77,7 +77,7 @@ internal static class TownServiceMerchantHandoff
             ResetSession(); _station = station; _palm = null; _near = false;
         }
         bool near = _station != null && _station.IsLocalVisitorNear(_near)
-            && TownServiceOfferingPose.VisitorWithin(_station.Root, _near ? 1.65f : 1.4f);
+            && TownServiceOfferingPose.VisitorWithin(_station.Root, 1.4f);
         if (!near) { Reset(); return; }
         _near = true;
         if (!ReferenceEquals(_character, selected))

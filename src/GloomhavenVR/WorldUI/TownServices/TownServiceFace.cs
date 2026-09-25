@@ -7,6 +7,10 @@ namespace GloomhavenVR.WorldUI;
 /// supplies gaze, and the same expression clock/voice cue drives every observer.</summary>
 internal sealed class TownServiceFace
 {
+    // Activation is a spatial fact, not a latch set by opening a native service.
+    // A previous interaction must never enlarge the range at which a resident
+    // looks at or accepts a visitor.
+    private const float VisitorReachMetres = 2.4f;
     private readonly byte _service;
     private readonly Transform _root;
     private readonly TownServiceFaceRig _rig;
@@ -38,7 +42,7 @@ internal sealed class TownServiceFace
         if (camera == null || !camera.gameObject.activeInHierarchy) return false;
         Vector3 delta = camera.transform.position - _rig.EyePosition;
         float scale = Mathf.Max(.01f, _root.lossyScale.x);
-        float reach = (wasNear ? 2.9f : 2.4f) * scale;
+        float reach = VisitorReachMetres * scale;
         if (delta.sqrMagnitude < .01f * scale * scale || delta.sqrMagnitude > reach * reach
             || (Quaternion.Inverse(_rig.OpticalRotation) * delta).z < -.1f * scale) return false;
         return !Physics.Raycast(_rig.EyePosition, delta.normalized, Mathf.Max(0f, delta.magnitude - .08f * scale),
@@ -47,8 +51,10 @@ internal sealed class TownServiceFace
     internal bool PrepareActivityAttention(bool wasEngaged)
     {
         Vector3? target = _attention.Select(_service, _root, _rig.OpticalRotation, _rig.EyePosition);
-        float reach = (wasEngaged ? 2.9f : 2.4f) * _root.lossyScale.x;
-        bool engaged = target.HasValue && (_attention.Visitor || (target.Value - _rig.EyePosition).sqrMagnitude <= reach * reach);
+        float reach = VisitorReachMetres * _root.lossyScale.x;
+        // Visiting only prioritizes which nearby head receives attention. It
+        // cannot bypass reach while a merchant or temple window remains open.
+        bool engaged = target.HasValue && (target.Value - _rig.EyePosition).sqrMagnitude <= reach * reach;
         _preparedEngaged = engaged;
         _preparedTarget = engaged ? target : null;
         _prepared = true; return engaged;
