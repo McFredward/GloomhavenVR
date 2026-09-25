@@ -171,6 +171,8 @@ namespace GloomhavenVR.WorldUI.MapRoom
 namespace GloomhavenVR.WorldUI
 {
     internal static class TownServiceNativeAudioSilence { internal static void EnsureInstalled() { } }
+    internal static class TownServiceSync
+    { internal static bool LocalOwnsInteraction(byte service, uint sourceSession) => TownServiceMirror.LocalOwnsInteraction(service, sourceSession); }
     internal static class TownServicePhysicalRay { internal static void Claim(GloomhavenVR.Hands.VRHand hand) { } }
     internal sealed class ConfigBool { internal bool Value = true; }
     internal static class WorldUIConfig

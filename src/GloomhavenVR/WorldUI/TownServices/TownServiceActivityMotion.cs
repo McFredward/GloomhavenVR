@@ -75,30 +75,27 @@ internal static class TownServiceActivityMotion
         // Interruption stops the shared work clock smoothly. A pinched coin stays in
         // the hand while greeting; it never slides through space back onto the table.
         // Looking at a visitor is separate from offering an item hand to that visitor.
-        // Keep the merchant's and priestess's hands on their OWN hips, behind the front
-        // edge of the worktops. Build 563's "lowered" targets still put both wrists on
-        // the table in the headset screenshots because they were authored forward of the
-        // torso. Hands on hips need a rearward wrist, an outward elbow and a relaxed shoulder.
-        // These points are inside the measured reach of the imported arms. Pushing a
-        // target farther rearward made the IK clamp at full extension and left the palm
-        // visibly in front of the torso despite the nominal "hip" coordinates.
-        work.Left = Vector3.Lerp(work.Left, service == 1 ? new Vector3(.32f, 1.10f, .18f)
-            : service == 2 ? new Vector3(.31f, 1.08f, .20f) : new Vector3(.22f, 1.13f, .23f), attention);
-        work.Right = Vector3.Lerp(work.Right, service == 1 ? new Vector3(-.32f, 1.10f, .18f)
-            : service == 3 ? new Vector3(-.18f, 1.17f, .23f) : new Vector3(-.31f, 1.08f, .20f), attention);
+        // Keep the merchant's and priestess's hands against their own waist, behind the
+        // worktops. Station forward points from the visitor toward the actor: a larger Z
+        // is therefore closer to the body. Earlier targets used the opposite assumption;
+        // their unreachable forward position clamped the imported arms over the counter.
+        work.Left = Vector3.Lerp(work.Left, service == 1 ? new Vector3(.30f, .98f, .48f)
+            : service == 2 ? new Vector3(.27f, .92f, .50f) : new Vector3(.22f, 1.13f, .23f), attention);
+        work.Right = Vector3.Lerp(work.Right, service == 1 ? new Vector3(-.30f, .98f, .48f)
+            : service == 3 ? new Vector3(-.18f, 1.17f, .23f) : new Vector3(-.27f, .92f, .50f), attention);
         // Hand targets alone cannot lower an arm naturally. Author the matching elbow path as
         // part of the same blend so the upper arm leaves the shoulder downward instead of staying
         // abducted while the forearm reaches for a low hand target.
         if (service is 1 or 2)
         {
-            float side = service == 1 ? .38f : .37f;
+            float side = service == 1 ? .41f : .36f;
             work.LeftElbow = Vector3.Lerp(work.LeftElbow,
-                new Vector3(side, service == 1 ? 1.14f : 1.15f, .20f), attention);
+                new Vector3(side, service == 1 ? 1.13f : 1.10f, service == 1 ? .50f : .53f), attention);
             work.RightElbow = Vector3.Lerp(work.RightElbow,
-                new Vector3(-side, service == 1 ? 1.14f : 1.15f, .20f), attention);
+                new Vector3(-side, service == 1 ? 1.13f : 1.10f, service == 1 ? .50f : .53f), attention);
         }
-        work.RightRoll = Mathf.Lerp(work.RightRoll, service == 1 ? 65f : service == 3 ? 180f : 38f, attention);
-        work.LeftRoll = Mathf.Lerp(work.LeftRoll, service == 1 ? -65f : service == 3 ? -65f : -38f, attention);
+        work.RightRoll = Mathf.Lerp(work.RightRoll, service == 1 ? 65f : service == 3 ? 180f : 0f, attention);
+        work.LeftRoll = Mathf.Lerp(work.LeftRoll, service == 1 ? -65f : service == 3 ? -65f : 0f, attention);
         work.RightCurl = Mathf.Lerp(work.RightCurl, service == 1 ? .22f : service == 3 ? .08f : .06f, attention);
         work.LeftCurl = Mathf.Lerp(work.LeftCurl, service == 1 ? .22f : service == 3 ? .26f : .06f, attention);
         work.Chest = Vector3.Lerp(work.Chest, Vector3.zero, attention);
@@ -120,8 +117,10 @@ internal static class TownServiceActivityMotion
         visual.Right = Vector3.Lerp(visual.Right, new Vector3(-.085f, 1.205f, .18f), t);
         visual.LeftElbow = Vector3.Lerp(visual.LeftElbow, new Vector3(.31f, 1.10f, .12f), t);
         visual.RightElbow = Vector3.Lerp(visual.RightElbow, new Vector3(-.31f, 1.10f, .12f), t);
-        visual.LeftRoll = Mathf.Lerp(visual.LeftRoll, -82f, t);
-        visual.RightRoll = Mathf.Lerp(visual.RightRoll, 82f, t);
+        // The temple solver starts with inward-facing palms. Opposite quarter turns
+        // place both palmar surfaces down over the bowl; the former signs faced them up.
+        visual.LeftRoll = Mathf.Lerp(visual.LeftRoll, 82f, t);
+        visual.RightRoll = Mathf.Lerp(visual.RightRoll, -82f, t);
         visual.LeftCurl = Mathf.Lerp(visual.LeftCurl, .18f, t);
         visual.RightCurl = Mathf.Lerp(visual.RightCurl, .18f, t);
         visual.Curl = Mathf.Max(visual.LeftCurl, visual.RightCurl);

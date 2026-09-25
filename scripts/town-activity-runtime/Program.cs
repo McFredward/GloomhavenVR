@@ -178,12 +178,12 @@ public static class InteractionProgram
         TownServiceActivityMotion.Engage(ref prayer,true);
         prayer=TownServiceActivityMotion.Advance(prayer,TownServiceActivityMotion.TransitionSeconds);
         var receiving=TownServiceActivityMotion.Visual(2,in prayer);
-        Check(receiving.Left.x>.30f&&receiving.Right.x<-.30f
-            &&receiving.Left.y>1.05f&&receiving.Right.y>1.05f
-            &&receiving.Left.y<1.11f&&receiving.Right.y<1.11f
-            &&receiving.Left.z>.18f&&receiving.Right.z>.18f
-            &&receiving.Left.z<.22f&&receiving.Right.z<.22f
-            &&receiving.LeftElbow.x>.36f&&receiving.RightElbow.x<-.36f,
+        Check(receiving.Left.x>.26f&&receiving.Right.x<-.26f
+            &&receiving.Left.y>.90f&&receiving.Right.y>.90f
+            &&receiving.Left.y<.94f&&receiving.Right.y<.94f
+            &&receiving.Left.z>.48f&&receiving.Right.z>.48f
+            &&receiving.Left.z<.52f&&receiving.Right.z<.52f
+            &&receiving.LeftElbow.x>.35f&&receiving.RightElbow.x<-.35f,
             "attentive priestess rests both hands on her own hips behind the table edge");
         TownServiceActivityMotion.ApplyTempleAvailability(ref receiving,false,1f);
         Check(Mathf.Abs(receiving.Left.x)<.10f&&Mathf.Abs(receiving.Right.x)<.10f
@@ -194,9 +194,9 @@ public static class InteractionProgram
         TownServiceActivityMotion.Engage(ref pause,true);pause=TownServiceActivityMotion.Advance(pause,1f);
         var held=TownServiceActivityMotion.Visual(1,in pause);
         Check(held.CoinGrip.x==1f,"visitor interruption preserves held coin contact");
-        Check(held.RightRoll<90f&&held.Left.y>1.07f&&held.Left.y<1.12f&&held.Left.x>.30f
-            &&held.Right.x<-.30f&&held.Right.z>.16f&&held.Right.z<.20f
-            &&held.LeftElbow.x>.37f&&held.RightElbow.x<-.37f,
+        Check(held.RightRoll<90f&&held.Left.y>.96f&&held.Left.y<1f&&held.Left.x>.29f
+            &&held.Right.x<-.29f&&held.Right.z>.47f&&held.Right.z<.49f
+            &&held.LeftElbow.x>.40f&&held.RightElbow.x<-.40f,
             "visitor attention settles merchant with hands at his hips without an unsolicited offering");
         TownServiceActivityMotion.ApplyMerchantOffering(ref held,1f);
         Check(held.RightRoll>170f&&held.Right.y>1.17f,
@@ -309,6 +309,12 @@ public static class InteractionProgram
                                 Check(Vector3.Dot(palmAxis.position-shoulderJoint.position,root.up)/root.lossyScale.x<-.005f,"spell shaping palm stays below its shoulder");
                                 Check(Vector3.Dot(elbow.position-shoulderJoint.position,root.up)/root.lossyScale.x<-.07f,"spell elbow remains relaxed below the shoulder");
                             }
+                            if(service==2&&TownServiceActivityMotion.Blend(in phase)>.999f)
+                            {
+                                Vector3 inward=side=="L"?-root.right:root.right;
+                                Check(Vector3.Dot(palmAxis.forward,inward)>.55f,
+                                    "actual attentive priestess palm rests inward at her hip: "+side+" frame="+n);
+                            }
                             Check(Vector3.Angle(wrist.position-elbow.position,palmAxis.up)<55.1f,"actual wrist flexion remains anatomical: "+npc+" "+side+" frame="+n+" angle="+Vector3.Angle(wrist.position-elbow.position,palmAxis.up)+" wrist="+root.InverseTransformPoint(wrist.position)+" elbow="+root.InverseTransformPoint(elbow.position));
                             int supportCount=joints.Count(t=>t.name.StartsWith("ForearmTwist")&&t.name.EndsWith("."+side));
                             // The priestess FBX predates the three-support hand rig;
@@ -327,13 +333,13 @@ public static class InteractionProgram
                             if(n>0&&n!=833&&n!=1666)maximumKneeStep=Mathf.Max(maximumKneeStep,Vector3.Distance(previousKnees[leg],shin.position));
                             previousKnees[leg]=shin.position;
                         }
-                        if(service==2&&TownServiceActivityMotion.Blend(in phase)<.001f)
+                            if(service==2&&TownServiceActivityMotion.Blend(in phase)<.001f)
                         {
                             var contacts=root.GetComponentsInChildren<Transform>(true);
                             Transform lp=contacts.Single(t=>t.name=="PalmContact.L"),rp=contacts.Single(t=>t.name=="PalmContact.R");
                             Check(Vector3.Distance(lp.position,rp.position)/root.lossyScale.x<.03f,"prayer joins cupped hands at the sternum");
-                            Check(Mathf.Abs(root.InverseTransformPoint(lp.position).y-actualVisual.Left.y)<.01f && actualVisual.Left.y>=1.23f && actualVisual.Left.y<=1.34f,"prayer hands stay below the face");
-                        }
+                                Check(Mathf.Abs(root.InverseTransformPoint(lp.position).y-actualVisual.Left.y)<.01f && actualVisual.Left.y>=1.23f && actualVisual.Left.y<=1.34f,"prayer hands stay below the face");
+                            }
                         for(int foot=0;foot<2;foot++)maxFootDrift=Mathf.Max(maxFootDrift,Vector3.Distance(feet[foot].position,sampledFeet[foot]));
                         // These two fixture frames teleport the actor to another ground
                         // sample. Anatomical hand direction follows the changed forearm;
@@ -393,7 +399,13 @@ public static class InteractionProgram
                                 && Mathf.Abs(root.InverseTransformPoint(palm.position).x)>.22f,
                                 "attentive priest lowers hands beside her robe and away from the bowl: frame="+n
                                 +" error="+Vector3.Distance(palm.position,wanted)+" x="+root.InverseTransformPoint(palm.position).x);
-                            if(service!=2)
+                            if(service==1)
+                            {
+                                Vector3 hip=root.InverseTransformPoint(palm.position);
+                                Check(hip.y<1.04f&&hip.z>.42f&&Mathf.Abs(hip.x)>.20f,
+                                    "actual merchant palm settles at his waist behind the counter: frame="+n+" pose="+hip);
+                            }
+                            else if(service==3)
                                 Check(supports.All(t=>root.InverseTransformPoint(t.position).y>=.954f),"actual palmar skin stays above wood");
                         }
                         rig.BeforeBodySample();Check(Quaternion.Angle(upper.localRotation,before)<.05f,"original arm base restores without accumulation");

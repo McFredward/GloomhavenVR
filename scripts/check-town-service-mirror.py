@@ -212,6 +212,7 @@ def main():
         variants = [("production", None, None, None, "")]
         if not args.no_negative_controls:
             variants += [
+                ("source-wire-session", "PublisherTick.cs", "TownServiceMirror.LocalOwnsInteraction(service, Private._generation)", "TownServiceMirror.LocalOwnsInteraction(service, sourceSession)", "local interaction ownership uses the current wire generation after service switches"),
                 ("highest-player-wins", "TownServiceMirror.cs", "|| Mathf.Abs(age - oldestAge) <= .05f && pair.Key < owner)", "|| Mathf.Abs(age - oldestAge) <= .05f && pair.Key > owner)", "simultaneous resident claims use the deterministic player-ID tie break"),
                 ("nonowner-author", "TownServiceMirror.cs", "|| InteractionOwner(service) != player", "|| false", "only the elected visitor session can author shared interaction state"),
                 ("ignore-temple-owner", "TownServiceMirror.cs", "int owner = InteractionOwner(2);", "int owner = VisitorSessions.Count > 0 ? 3 : 0;", "disconnect releases only that player's resident leases"),

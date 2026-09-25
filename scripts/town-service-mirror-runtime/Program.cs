@@ -117,6 +117,18 @@ public static partial class MirrorProgram
             && TownServiceMirror.InteractionOwner(2) == 0
             && TownServiceMirror.InteractionOwner(3) == 0,
             "scene or network reset releases every shared NPC lease");
+        TownServiceMirror.BeginSession(1, 7, owner, owner);
+        object publisher = typeof(GloomhavenVR.WorldUI.TownServiceSync)
+            .GetField("Private", BindingFlags.Static | BindingFlags.NonPublic)!.GetValue(null);
+        typeof(GloomhavenVR.WorldUI.TownServiceSync).GetField("_session", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(publisher, (uint)900);
+        typeof(GloomhavenVR.WorldUI.TownServiceSync).GetField("_service", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(publisher, (byte)1);
+        typeof(GloomhavenVR.WorldUI.TownServiceSync).GetField("_generation", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(publisher, (uint)7);
+        TownServiceMirror.InteractionOwner(1);
+        for (float until = Time.unscaledTime + .13f; Time.unscaledTime < until;) yield return null;
+        Check(GloomhavenVR.WorldUI.TownServiceSync.LocalOwnsInteraction(1, 900)
+            && !GloomhavenVR.WorldUI.TownServiceSync.LocalOwnsInteraction(1, 899)
+            && !GloomhavenVR.WorldUI.TownServiceSync.LocalOwnsInteraction(2, 900),
+            "local interaction ownership uses the current wire generation after service switches");
         TownServiceMirror.Shutdown();
         GloomhavenVR.Net.NetPlayerActors.Peer = 1;
     }

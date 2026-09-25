@@ -18,6 +18,9 @@ internal sealed class TownServiceSync
     private static readonly TownServiceSync Private = new(), Public = new();
     internal static void Prepare() => Private.PrepareCore();
     internal static void Tick(Transform sharedFrame, Transform? stationRoot) => Private.TickCore(sharedFrame, stationRoot);
+    internal static bool LocalOwnsInteraction(byte service, uint sourceSession) =>
+        Private._session == sourceSession && Private._service == service && Private._generation != 0
+        && TownServiceMirror.LocalOwnsInteraction(service, Private._generation);
     internal static void Reset() => Private.ResetCore();
     internal static void ResetPublic() { using (TownServiceMirror.UsePublicLane()) Public.ResetCore(); }
     internal static void TickPublic(Transform frame, Transform station, TownServiceCatalog catalog, uint session, float age)

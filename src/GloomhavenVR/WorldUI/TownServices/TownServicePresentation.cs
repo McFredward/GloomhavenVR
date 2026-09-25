@@ -62,7 +62,7 @@ internal static class TownServicePresentation
         && ((Service != 1 && Service != 3) || TownServiceEnhancementHandoff.Enabled)
         && _window != null && _window.IsOpen && _station != null;
     internal static bool OwnsInteraction => Active
-        && TownServiceMirror.LocalOwnsInteraction(Service, _session);
+        && TownServiceSync.LocalOwnsInteraction(Service, _session);
 
     internal static bool OwnsGrab(GrabbableModal holder)
     {
@@ -190,7 +190,7 @@ internal static class TownServicePresentation
             VRLog.Note("WorldUI", "TOWN SERVICE OPEN: service=" + service + " session=" + _session + " native sections=" + Surfaces.Count);
         }
         float visibility = Mathf.Clamp01(SessionAge / .22f);
-        bool ownsInteraction = TownServiceMirror.LocalOwnsInteraction(Service, _session);
+        bool ownsInteraction = TownServiceSync.LocalOwnsInteraction(Service, _session);
         float localVisibility = ownsInteraction ? visibility : 0f;
         // Once carried, the tray keeps the player's chosen placement. A participant joining
         // or leaving may rearrange counter workspaces, but must not pull a held tray away.
