@@ -15,7 +15,9 @@ def source_contract(source):
         'six remote hands': 'MaximumPeerHands = 6' in source and 'TryGetTownClothHandProbes' in source,
         'local head mask': 'VRRigDriver.HeadCamera' in source and 'PlaceHead(_heads[headAt++]' in source,
         'three remote heads': 'MaximumHeads = 4' in source and 'TryGetTownFaceHead' in source,
-        'table support chain': 'const int samples = 9' in source and 'runner.SupportPairs.Add' in source,
+        'table support chain': ('const int samples = 9' in source
+                                and 'for (int row = 0; row < 2; row++)' in source
+                                and 'runner.SupportPairs.Add' in source),
         'all native colliders attached': 'runner.SupportPairs.Count + _hands.Length + _heads.Length' in source,
         'no ray interception': source.count('layer = IgnoreRaycastLayer') >= 5,
         'single vertex snapshot': source.count('runner.Cloth.vertices;') == 1,

@@ -259,18 +259,28 @@ internal sealed class TownServiceCloth : IDisposable
         // from carrying the runner through the stone/wood while leaving its free
         // lower edge fully movable.
         const int samples = 9;
-        SphereCollider? previous = null;
-        for (int i = 0; i < samples; i++)
+        // One curved row catches the free edge; the second carries the upper
+        // woven section across the tabletop. Without the rear row the solver
+        // could legally use its maxDistance to sag through the solid worktop
+        // before reaching the lip. Two rows keep the total at 16 table capsule
+        // pairs + 12 hand/head pairs, below Unity Cloth's 32-capsule ceiling.
+        for (int row = 0; row < 2; row++)
         {
-            float x = Mathf.Lerp(minX, maxX, i / (samples - 1f));
-            var go = new GameObject("GloomhavenVR.TownCloth.TableLip." + i) { layer = IgnoreRaycastLayer };
-            go.transform.SetParent(_station, false);
-            go.transform.localPosition = new Vector3(x, topY - .018f, TableFront(x) + .012f);
-            var sphere = go.AddComponent<SphereCollider>();
-            sphere.radius = .027f;
-            runner.Supports.Add(go);
-            if (previous != null) runner.SupportPairs.Add(new ClothSphereColliderPair(previous, sphere));
-            previous = sphere;
+            SphereCollider? previous = null;
+            for (int i = 0; i < samples; i++)
+            {
+                float x = Mathf.Lerp(minX, maxX, i / (samples - 1f));
+                var go = new GameObject("GloomhavenVR.TownCloth.TableSupport." + row + "." + i)
+                    { layer = IgnoreRaycastLayer };
+                go.transform.SetParent(_station, false);
+                float rearward = row == 0 ? .012f : .122f;
+                go.transform.localPosition = new Vector3(x, topY - .018f, TableFront(x) + rearward);
+                var sphere = go.AddComponent<SphereCollider>();
+                sphere.radius = .027f;
+                runner.Supports.Add(go);
+                if (previous != null) runner.SupportPairs.Add(new ClothSphereColliderPair(previous, sphere));
+                previous = sphere;
+            }
         }
     }
 
