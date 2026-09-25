@@ -227,6 +227,7 @@ public static class InteractionProgram
         TownServiceEnhancementHandoff.TickApproach(); Check(MapRoomDriver.Visits == 0, "distant card never opens service");
         Offer();
         Check(MapRoomDriver.Visits == 1, "owned card approach opens through original native visit");
+        Check(MapRoomDriver.LastSuppressed, "automatic enchantress entry suppresses the flat button sound");
         TownServiceEnhancementHandoff.TickApproach(); Check(MapRoomDriver.Visits == 1, "repeated approach cannot toggle native service");
         GuildmasterDestinations.Mode = EGuildmasterMode.None;
         TownServiceEnhancementHandoff.TickApproach(); Check(MapRoomDriver.Visits == 1, "explicit close remains closed while card stays near");

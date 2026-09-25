@@ -195,7 +195,8 @@ internal static class TownServiceMerchantHandoff
         {
             if (mode != EGuildmasterMode.None || !MapRoomDriver.CanVisitTownService(EGuildmasterMode.Merchant)
                 || Core.Events.VRModeStateMachine.CurrentMode == Core.Events.VRMode.ModalUI) return false;
-            MapRoomDriver.PressGuildmasterMode(EGuildmasterMode.Merchant, "item offered to merchant");
+            MapRoomDriver.PressGuildmasterMode(EGuildmasterMode.Merchant, "item offered to merchant",
+                suppressNativeSound: true);
         }
         _pending = item; _selling = selling; _pendingSession = Session;
         _pendingUntil = Time.unscaledTime + 3f;

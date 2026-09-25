@@ -242,8 +242,9 @@ internal static class MapRoomDriver
     /// </summary>
     internal static bool CanVisitTownService(EGuildmasterMode mode) => Active && Buttons.CanVisitTownService(mode);
 
-    internal static bool PressGuildmasterMode(EGuildmasterMode mode, string source) =>
-        Active && Buttons.PressMode(mode, source);
+    internal static bool PressGuildmasterMode(EGuildmasterMode mode, string source,
+        bool suppressNativeSound = false) =>
+        Active && Buttons.PressMode(mode, source, suppressNativeSound);
 
     /// <summary>
     /// Evaluate the mode predicate. Called once per frame from <c>VRRigDriver.UpdateBody</c>

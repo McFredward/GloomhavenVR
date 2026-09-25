@@ -166,7 +166,8 @@ internal sealed class TownServiceEnhancementHandoff : IDisposable
             || Core.Events.VRModeStateMachine.CurrentMode == Core.Events.VRMode.ModalUI
             || !MapRoomDriver.CanVisitTownService(EGuildmasterMode.Enchantress)) return;
         MapRoomDriver.PressGuildmasterMode(EGuildmasterMode.Enchantress,
-            cardEntered ? "owned card offered to enchantress" : "approached enchantress");
+            cardEntered ? "owned card offered to enchantress" : "approached enchantress",
+            suppressNativeSound: true);
     }
 
     private static bool HasOwnedMapCard()

@@ -140,13 +140,13 @@ internal sealed class TownServiceCloth : IDisposable
         while (left > 0f)
         {
             float h = Mathf.Min(.011f, left); left -= h;
-            velocity += (25f * (target - position) - 9f * velocity) * h;
+            velocity += (34f * (target - position) - 8f * velocity) * h;
             position += velocity * h;
-            position.x = Mathf.Clamp(position.x, -.08f, .08f);
-            // The authored free edge is only 4 mm outside the curved lip.
-            // A larger inward shift would bury the moving fabric in stone.
-            position.y = Mathf.Clamp(position.y, -.06f, .002f);
-            velocity = Vector2.ClampMagnitude(velocity, .24f);
+            position.x = Mathf.Clamp(position.x, -.095f, .095f);
+            // The authored free edge begins just outside the curved lip. Keep the stronger hand
+            // response within the measured support envelope so it cannot bury the cloth in stone.
+            position.y = Mathf.Clamp(position.y, -.085f, .002f);
+            velocity = Vector2.ClampMagnitude(velocity, .25f);
         }
     }
 
@@ -179,7 +179,7 @@ internal sealed class TownServiceCloth : IDisposable
             if (square < best) { best = square; closest = i; nearest = point; }
         }
         if (closest < 0) return;
-        float push = Mathf.Min(.055f, radius - Mathf.Sqrt(best));
+        float push = Mathf.Min(.085f, radius - Mathf.Sqrt(best));
         Vector2 away = new(nearest.x - p.x, nearest.z - p.z);
         if (away.sqrMagnitude < .00001f) away = new Vector2(0f, nearest.z >= p.z ? 1f : -1f);
         Vector2 movement = away.normalized * push * runner.Freedom[closest];
@@ -205,9 +205,9 @@ internal sealed class TownServiceCloth : IDisposable
             if (VRRigDriver.HeadCamera != null)
                 Contact(runner, VRRigDriver.HeadCamera.transform.position, .14f, ref left, ref right);
             if (VRHands.Left?.HasPose == true)
-                Contact(runner, VRHands.Left.Rig.GrabAnchor.position, .065f, ref left, ref right);
+                Contact(runner, VRHands.Left.Rig.GrabAnchor.position, .085f, ref left, ref right);
             if (VRHands.Right?.HasPose == true)
-                Contact(runner, VRHands.Right.Rig.GrabAnchor.position, .065f, ref left, ref right);
+                Contact(runner, VRHands.Right.Rig.GrabAnchor.position, .085f, ref left, ref right);
             foreach (int peer in _peers)
             {
                 if (NetAvatarDriver.TryGetTownFaceHead(peer, out Vector3 head))
@@ -215,13 +215,13 @@ internal sealed class TownServiceCloth : IDisposable
                 if (NetAvatarDriver.TryGetTownClothHands(peer, out Vector3 l, out Vector3 r,
                     out bool lv, out bool rv))
                 {
-                    if (lv) Contact(runner, l, .065f, ref left, ref right);
-                    if (rv) Contact(runner, r, .065f, ref left, ref right);
+                    if (lv) Contact(runner, l, .085f, ref left, ref right);
+                    if (rv) Contact(runner, r, .085f, ref left, ref right);
                 }
             }
             TownClothRunnerState state = runner.State;
-            Step(ref state.Left, ref state.LeftVelocity, Vector2.ClampMagnitude(left, .06f), dt);
-            Step(ref state.Right, ref state.RightVelocity, Vector2.ClampMagnitude(right, .06f), dt);
+            Step(ref state.Left, ref state.LeftVelocity, Vector2.ClampMagnitude(left, .09f), dt);
+            Step(ref state.Right, ref state.RightVelocity, Vector2.ClampMagnitude(right, .09f), dt);
             runner.State = state;
             if (visible) Render(runner, age, state);
         }

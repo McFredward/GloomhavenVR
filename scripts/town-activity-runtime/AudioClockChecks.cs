@@ -18,7 +18,7 @@ internal static class AudioClockChecks
                 int frames = (int)((service == 1 ? TownServiceActivityMotion.MerchantCycleSeconds : 48f) * 4f * rate);
                 for (int frame = 0; frame < frames; frame++)
                 {
-                    var state = new TownActivityPose { WorkClock = (float)frame / rate, TransitionAge = .65f };
+                    var state = new TownActivityPose { WorkClock = (float)frame / rate, TransitionAge = TownServiceActivityMotion.TransitionSeconds };
                     var shown = TownServiceActivityMotion.Visual(service, in state);
                     var sound = clock.Sample(service, 1, 3, state.WorkClock, 1f / rate, true, in shown);
                     if (sound == TownActivitySound.Coin) coins++;

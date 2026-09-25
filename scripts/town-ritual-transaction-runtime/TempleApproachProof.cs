@@ -14,9 +14,10 @@ public static class MapRoomDriver
 {
     public static bool Active=true;
     public static int TemplePresses;
+    public static bool LastSuppressed;
     public static bool CanVisitTownService(EGuildmasterMode mode)=>true;
-    public static void PressGuildmasterMode(EGuildmasterMode mode,string reason)
-    { if(mode==EGuildmasterMode.Temple)TemplePresses++;ModeEntered=mode; }
+    public static void PressGuildmasterMode(EGuildmasterMode mode,string reason, bool suppressNativeSound = false)
+    { if(mode==EGuildmasterMode.Temple)TemplePresses++;ModeEntered=mode;LastSuppressed=suppressNativeSound; }
     public static EGuildmasterMode ModeEntered;
 }
 public sealed class ToggleFlag { public bool Value=true; }
@@ -69,6 +70,7 @@ internal static class TempleApproachProof
         GuildmasterDestinations.Mode=EGuildmasterMode.None;
         BoundTempleApproach.TickApproach();
         Check(MapRoomDriver.TemplePresses==1,"merchant departure reopens priestess without leaving her radius");
+        Check(MapRoomDriver.LastSuppressed,"automatic priestess entry suppresses the flat button sound");
         GuildmasterDestinations.Mode=EGuildmasterMode.Temple;
         BoundTempleApproach.TickApproach();
         Check(MapRoomDriver.TemplePresses==1,"active priestess does not repeatedly press its native toggle");

@@ -66,10 +66,10 @@ internal static class ArmGeometry
         File.WriteAllLines(Path.Combine(args[arg+1],"service"+service+"-seams.csv"),seams.Select(p=>p.cloth+","+p.skin+","+p.gap.ToString("R",System.Globalization.CultureInfo.InvariantCulture)));
         var poses=new List<TownActivityPose>();float duration=service==2?64f:96f;
         // Twelve samples per second plus every phase's complete greeting and departure.
-        for(float t=0;t<duration;t+=1f/12f)poses.Add(new TownActivityPose{WorkClock=t,TransitionAge=.65f});
+        for(float t=0;t<duration;t+=1f/12f)poses.Add(new TownActivityPose{WorkClock=t,TransitionAge=TownServiceActivityMotion.TransitionSeconds});
         foreach(float start in new[]{0f,duration*.23f,duration*.51f,duration*.79f})
         {
-            var pose=new TownActivityPose{WorkClock=start,TransitionAge=.65f};
+            var pose=new TownActivityPose{WorkClock=start,TransitionAge=TownServiceActivityMotion.TransitionSeconds};
             for(int frame=0;frame<90;frame++)
             {
                 if(frame==0)TownServiceActivityMotion.Engage(ref pose,true);
@@ -77,7 +77,7 @@ internal static class ArmGeometry
                 pose=TownServiceActivityMotion.Advance(pose,1f/30f);poses.Add(pose);
             }
         }
-        var interrupted=new TownActivityPose{WorkClock=duration*.51f,TransitionAge=.65f};
+        var interrupted=new TownActivityPose{WorkClock=duration*.51f,TransitionAge=TownServiceActivityMotion.TransitionSeconds};
         for(int frame=0;frame<90;frame++)
         {
             if(frame==0||frame==16)TownServiceActivityMotion.Engage(ref interrupted,true);

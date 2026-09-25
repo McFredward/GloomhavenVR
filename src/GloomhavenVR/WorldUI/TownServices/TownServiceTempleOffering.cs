@@ -61,7 +61,8 @@ internal sealed class TownServiceTempleOffering : IDisposable
             || !MapRoomDriver.CanVisitTownService(EGuildmasterMode.Temple)) return;
         _approachInside = true;
         _approachAt = Time.unscaledTime + .5f;
-        MapRoomDriver.PressGuildmasterMode(EGuildmasterMode.Temple, "approached priestess");
+        MapRoomDriver.PressGuildmasterMode(EGuildmasterMode.Temple, "approached priestess",
+            suppressNativeSound: true);
     }
 
     internal TownServiceTempleOffering(TownServiceRitual ritual, UITempleWindow temple, Transform station)

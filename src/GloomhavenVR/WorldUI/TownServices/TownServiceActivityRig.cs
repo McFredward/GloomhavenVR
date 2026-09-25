@@ -361,19 +361,21 @@ internal sealed class TownServiceActivityRig
             guide = Vector3.Lerp(guide, greeting, attention);
             // The generated human reference is narrower than the merchant's actual
             // coat/belly. Keep the elbow's approach outside that measured silhouette.
-            float clearance = _service == 1 ? Mathf.Lerp(.85f, .45f, attention) : .40f;
+            float clearance = _service == 1 ? Mathf.Lerp(.85f, .36f, attention) : .40f;
             // Preserve the recorded lateral and forward elbow excursion outside the
             // silhouette. Hard-clamping every source x/z to the same minimum used
             // to erase that coordination and made the hands pivot on fixed poles.
             guide.x = side * (clearance + Mathf.Max(0f, side * guide.x - .14f) * .25f);
-            guide.y = _service == 3 ? .84f : Mathf.Max(1.10f, guide.y);
+            guide.y = _service == 3 ? .84f : _service == 1
+                ? Mathf.Lerp(Mathf.Max(1.10f, guide.y), 1f, attention)
+                : Mathf.Max(1.10f, guide.y);
             guide.z = _service == 1 ? Mathf.Lerp(.28f + Mathf.Clamp(guide.z - .50f, 0f, .20f) * .4f,
                 .16f, attention) : .28f + Mathf.Clamp(guide.z - .50f, 0f, .20f) * .4f;
             // Keep the lowered joined hands clear of the actual robe as well as
             // the original prayer. A rearward pole cut three sleeve/torso triangles.
             if (_service == 2)
                 guide = Vector3.Lerp(new Vector3(side * .42f, .70f, .10f),
-                    new Vector3(side * .34f, 1.05f, .16f), attention);
+                    new Vector3(side * .32f, 1f, .18f), attention);
             Vector3 pole = _root.TransformPoint(guide) - shoulder;
             Vector3 bend = Vector3.ProjectOnPlane(pole, direction).normalized;
             if (bend.sqrMagnitude < .5f) bend = _root.right * side;

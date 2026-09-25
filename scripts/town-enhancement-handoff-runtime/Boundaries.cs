@@ -87,9 +87,9 @@ namespace GloomhavenVR.WorldUI.MapRoom
 {
     public static class MapRoomDriver
     {
-        public static bool Active = true, CanVisit = true; public static int Visits;
+        public static bool Active = true, CanVisit = true, LastSuppressed; public static int Visits;
         public static bool CanVisitTownService(EGuildmasterMode mode) => CanVisit;
-        public static bool PressGuildmasterMode(EGuildmasterMode mode, string reason) { Visits++; GuildmasterDestinations.Mode = mode; return true; }
+        public static bool PressGuildmasterMode(EGuildmasterMode mode, string reason, bool suppressNativeSound = false) { Visits++; LastSuppressed=suppressNativeSound; GuildmasterDestinations.Mode = mode; return true; }
     }
     public static class GuildmasterDestinations { public static EGuildmasterMode Mode; public static EGuildmasterMode CurrentDestinationMode() => Mode; }
     public static class MapRoomHand

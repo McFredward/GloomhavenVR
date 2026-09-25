@@ -112,7 +112,7 @@ internal sealed class TownServiceDecor : IDisposable
         // Its separate wall bracket is deliberately not copied onto the counter.
         if (service == 1)
         {
-            Lantern(new Vector3(-1.51f, 1.23f, .08f), 0);
+            Lantern(new Vector3(-1.34f, 1.11f, .11f), 0);
             // A small native candle lights the ledger without placing a second oversized
             // lantern in the offered hand's path. The hanging cabinet lantern is the key.
             // Chapel.Clutter.Shelf.Individual#2 is a scroll, not a candle: height-fitting
@@ -123,13 +123,13 @@ internal sealed class TownServiceDecor : IDisposable
         {
             // This original furniture FBX places its rear lamp perch on negative X.
             // Match the imported support, not the pre-export authoring handedness.
-            Lantern(new Vector3(.68f, .957f, .20f), 0);
-            Lantern(new Vector3(-.70f, .957f, .83f), 1);
+            Lantern(new Vector3(.53f, .957f, .16f), 0);
+            Lantern(new Vector3(-.52f, .957f, .42f), 1);
         }
         else
         {
-            Lantern(new Vector3(-.68f, .957f, .20f), 0);
-            Lantern(new Vector3(.68f, .957f, .20f), 1);
+            Lantern(new Vector3(-.53f, .957f, .16f), 0);
+            Lantern(new Vector3(.53f, .957f, .16f), 1);
         }
         if (service == 1)
         {
@@ -164,7 +164,7 @@ internal sealed class TownServiceDecor : IDisposable
 
     private void Lantern(Vector3 position, int slot)
     {
-        Piece lantern = Add("Gaslight", "Gaslight.Lighting.Torch.Wall#1", position, .40f, true, slot);
+        Piece lantern = Add("Gaslight", "Gaslight.Lighting.Torch.Wall#1", position, .32f, true, slot);
         lantern.Select = "CR_INT_Lantern_01_b";
         Piece flame = Add("Tone_Candlelight", "Candlelight.Lighting.Torch.Wall#1", position + Vector3.up * .15f, .09f);
         flame.Select = "CandlePivot";

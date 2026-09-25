@@ -95,6 +95,7 @@ public static class InteractionProgram
   // Native window opening may complete on a subsequent frame; no hidden purchase is allowed.
   first.Release(palm.position);
   Check(first.TownOffering && MapRoomDriver.Visits==1,"actual owned release parks the original card and requests merchant");
+  Check(MapRoomDriver.LastSuppressed,"automatic merchant entry suppresses the flat button sound");
   Check(first.transform.parent == zone.parent,"actual owned item shares the floating offering frame");
   Check(TownServiceMerchantTransaction.Requests==0,"release waits for native inventory readiness");
   window.GetComponent<UIWindow>().IsOpen=true;

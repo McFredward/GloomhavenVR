@@ -88,7 +88,7 @@ namespace GloomhavenVR.WorldUI.MapRoom
         internal static EGuildmasterMode Mode;
         internal static string? Context;
         internal static bool CanVisitTownService(EGuildmasterMode mode) => CanVisit;
-        internal static bool PressGuildmasterMode(EGuildmasterMode mode, string context)
+        internal static bool PressGuildmasterMode(EGuildmasterMode mode, string context, bool suppressNativeSound = false)
         { Presses++; Mode = mode; Context = context; return Accept; }
     }
 }

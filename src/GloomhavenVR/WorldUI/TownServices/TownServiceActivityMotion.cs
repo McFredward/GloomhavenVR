@@ -16,7 +16,7 @@ internal struct TownActivityVisual
 }
 internal static class TownServiceActivityMotion
 {
-    internal const float TransitionSeconds = .65f;
+    internal const float TransitionSeconds = .70f;
     internal static float Blend(in TownActivityPose state)
     {
         float t = Mathf.Clamp01(state.TransitionAge / TransitionSeconds);
@@ -78,10 +78,21 @@ internal static class TownServiceActivityMotion
         // Keep the merchant's hands at his belt and the priestess's hands beside
         // her robe. Their previous forward/sideward targets read as stiffly held
         // arms, and the latter crossed the donation bowl when a visitor arrived.
-        work.Left = Vector3.Lerp(work.Left, service == 1 ? new Vector3(.29f, 1.06f, .24f)
-            : service == 2 ? new Vector3(.25f, 1.07f, .26f) : new Vector3(.22f, 1.13f, .23f), attention);
-        work.Right = Vector3.Lerp(work.Right, service == 1 ? new Vector3(-.29f, 1.06f, .24f)
-            : service == 3 ? new Vector3(-.18f, 1.17f, .23f) : new Vector3(-.25f, 1.07f, .26f), attention);
+        work.Left = Vector3.Lerp(work.Left, service == 1 ? new Vector3(.29f, 1.02f, .23f)
+            : service == 2 ? new Vector3(.26f, 1.02f, .30f) : new Vector3(.22f, 1.13f, .23f), attention);
+        work.Right = Vector3.Lerp(work.Right, service == 1 ? new Vector3(-.29f, 1.02f, .23f)
+            : service == 3 ? new Vector3(-.18f, 1.17f, .23f) : new Vector3(-.26f, 1.02f, .30f), attention);
+        // Hand targets alone cannot lower an arm naturally. Author the matching elbow path as
+        // part of the same blend so the upper arm leaves the shoulder downward instead of staying
+        // abducted while the forearm reaches for a low hand target.
+        if (service is 1 or 2)
+        {
+            float side = service == 1 ? .36f : .32f;
+            work.LeftElbow = Vector3.Lerp(work.LeftElbow,
+                new Vector3(side, 1f, service == 1 ? .16f : .18f), attention);
+            work.RightElbow = Vector3.Lerp(work.RightElbow,
+                new Vector3(-side, 1f, service == 1 ? .16f : .18f), attention);
+        }
         work.RightRoll = Mathf.Lerp(work.RightRoll, service == 1 ? 65f : service == 3 ? 180f : 0f, attention);
         work.LeftRoll = Mathf.Lerp(work.LeftRoll, service == 1 ? -65f : service == 3 ? -65f : 0f, attention);
         work.RightCurl = Mathf.Lerp(work.RightCurl, service == 1 ? .22f : service == 3 ? .08f : .06f, attention);
@@ -190,7 +201,10 @@ internal static class TownServiceActivityMotion
         // The imported Count and Return clips have different boundary body poses.
         // Feather their whole-body contribution to the same neutral stance at each
         // transfer edge while keeping the measured hand contact path authoritative.
-        visual.Body.Weight *= Soft(t, 0f, .24f) * (1f - Soft(t, 3.30f, 3.6f));
+        // Keep only a very short neutral seam between consecutive transfers. The former quarter
+        // phase fade read as a crane stopping between every coin even though the hand path itself
+        // was continuous.
+        visual.Body.Weight *= Soft(t, 0f, .12f) * (1f - Soft(t, 3.45f, 3.6f));
         for (int coin = 0; coin < 3; coin++)
         {
             bool counted = returning ? coin <= index : coin < index;

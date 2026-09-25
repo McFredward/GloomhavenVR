@@ -2298,7 +2298,7 @@ internal sealed class MapButtonRail
     /// <para><c>Presses</c> keeps counting both kinds, because it is the double-dispatch detector
     /// and a programmatic dispatch IS a dispatch; the log line names which kind this was.</para></param>
     internal void Press(UIGuildmasterButton button, string source, bool physical = true,
-                        VRHand? hand = null)
+                        VRHand? hand = null, bool suppressNativeSound = false)
     {
         if (button == null)
             return;
@@ -2489,6 +2489,15 @@ internal sealed class MapButtonRail
         if (barDown)
         {
             SelectThroughTheGamesOwnApi(button, source, physical);
+            return;
+        }
+
+        // Automatic immersive-station entry has no physical map-button press. Route that narrow
+        // case through the game's Toggle selection API, which runs the complete mode/window
+        // lifecycle without synthesizing pointer events and their flat UI click sound.
+        if (suppressNativeSound)
+        {
+            SelectThroughTheGamesOwnApi(button, source, physical: false);
             return;
         }
 
@@ -2684,14 +2693,14 @@ internal sealed class MapButtonRail
         return false;
     }
 
-    internal bool PressMode(EGuildmasterMode mode, string source)
+    internal bool PressMode(EGuildmasterMode mode, string source, bool suppressNativeSound = false)
     {
         for (int i = 0; i < _caps.Count; i++)
         {
             UIGuildmasterButton button = _caps[i].Button;
             if (button == null || button.GuildmasterMode != mode)
                 continue;
-            Press(button, source, physical: false);
+            Press(button, source, physical: false, suppressNativeSound: suppressNativeSound);
             return true;
         }
         return false;
