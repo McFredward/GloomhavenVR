@@ -135,34 +135,53 @@ def turned_leg(x, z, height=.9, stone=False):
 
 
 def drape(x, width, z, top=.964, material='AltarCloth'):
+    # The former vertical fold began over the stone. Its vertices entered the
+    # mensa below the top face; a static renderer hid the fault until close VR
+    # inspection. Cross the measured front edge at tabletop height first. The
+    # free edge is a separate mesh so runtime cloth motion cannot drag the
+    # stone or detach a decorative stitched border.
     vertices, faces = [], []
     for row in range(25):
         t = row/24
         for col in range(13):
             u = col/12
             xx = x+(u-.5)*width
-            zz = z+.56*(1-min(1,t*2))-.014*math.sin(u*math.tau*3)*(max(0,t-.5)*2)
-            yy = top+.006*math.sin(u*math.tau*3)-max(0,t-.5)*1.1
-            yy -= .065*max(0,(t-.85)/.15)*(1-abs(u*2-1))
+            fold = .007*math.sin(u*math.tau*3.2+.3)
+            zz = .12+(-.50)*min(1,t/.45) - .012*math.sin(u*math.tau*3)*(max(0,t-.45)/.55)
+            yy = top+.007+fold - .50*max(0,(t-.45)/.55)
+            yy -= .018*max(0,(t-.84)/.16)*(1-abs(u*2-1))
             vertices.append((xx,yy,zz))
     for row in range(24):
         for col in range(12):
             i=row*13+col
             faces.append((i,i+1,i+14,i+13))
-    obj=mesh('Embroidered draped runner', vertices, faces, material)
+    obj=mesh('ClothRunner_%s_%s' % (round(x*100), material), vertices, faces, material)
     for poly in obj.data.polygons: poly.use_smooth = True
     bpy.context.view_layer.objects.active=obj
     mod=obj.modifiers.new('Woven cloth thickness','SOLIDIFY'); mod.thickness=.003
     bpy.ops.object.modifier_apply(modifier=mod.name)
-    # The front embroidered medallion is real relief and remains readable in stereo.
-    ring('Runner sun embroidery',(x,top-.31,z-.008),width*.21,.003,vertical=True)
-    for sign in (-1,1):
-        points=[vertices[row*13+(1 if sign < 0 else 11)] for row in range(25)]
-        tube('Runner stitched border',[(a,b+.002,c-.002) for a,b,c in points],[.0018]*25,'Brass',5)
-    for i in range(12):
-        a=i*math.tau/12
-        tube('Embroidered ray',[(x+width*.24*math.cos(a),top-.31+width*.24*math.sin(a),z-.009),
-             (x+width*.30*math.cos(a),top-.31+width*.30*math.sin(a),z-.009)],[.002]*2,'Brass',5)
+    return obj
+
+
+def worn_crank_plate():
+    # A hand-cut iron escutcheon has eight unequal corners and a shallow
+    # hammer-bevel, unlike the previous perfectly circular annulus.
+    n=32; vertices=[]; faces=[]
+    for x,r in ((-.021,.045),(-.015,.058),(-.010,.052)):
+        for i in range(n):
+            a=i*math.tau/n
+            wav=.0031*math.sin(7*a+.7)+.0016*math.sin(13*a+1.2)
+            radius=r+wav
+            vertices.append((x,radius*math.cos(a),radius*math.sin(a)))
+    for row in range(2):
+        for i in range(n):faces.append((row*n+i,row*n+(i+1)%n,(row+1)*n+(i+1)%n,(row+1)*n+i))
+    faces.extend((tuple(reversed(range(n))),tuple(range(2*n,3*n))))
+    obj=mesh('Hand cut crank escutcheon',vertices,faces,'ForgedIron')
+    for i in (2,8,18,27):
+        a=i*math.tau/n
+        tube('Escutcheon hand rivet',[(-.007,.043*math.cos(a),.043*math.sin(a)),
+             (-.003,.043*math.cos(a),.043*math.sin(a))],[.0045,.0035],'Brass',7)
+    return obj
 
 
 def terrace(name, columns=24, origin=-1.32, curved=True):
@@ -301,14 +320,18 @@ def merchant_cassette():
 
 def merchant_crank():
     # Rotation axis +X. Named Handle geometry remains separate for the grip collider.
-    tube('Crank axle',[(-.055,0,0),(.022,0,0)],[.017,.017],'ForgedIron',16)
-    tube('Crank ornamental flange',[(-.015,0,0),(.004,0,0)],[.057,.053],'Brass',24)
-    tube('Bent forged crank arm',[(.025,0,0),(.036,-.035,-.012),(.036,-.12,-.030)],
-         [.018,.014,.016],'ForgedIron',14)
-    tube('Handle_DarkWood',[(.04,-.12,-.030),(.115,-.12,-.030),(.15,-.12,-.030)],
-         [.021,.027,.018],'DarkWood',20)
-    for x in (.048,.133):
-        tube('Crank grip ferrule',[(x,-.12,-.030),(x+.009,-.12,-.030)],[.023,.023],'Brass',16)
+    worn_crank_plate()
+    tube('Crank axle',[(-.055,0,0),(-.03,.001,-.002),(.022,-.001,0)],
+         [.014,.018,.016],'ForgedIron',11)
+    tube('Hammered bent crank arm',[(.021,0,0),(.029,-.020,-.004),(.037,-.046,-.014),
+         (.033,-.080,-.023),(.039,-.118,-.031)],
+         [.017,.015,.014,.012,.015],'ForgedIron',9)
+    tube('Handle_DarkWood',[(.040,-.119,-.031),(.057,-.120,-.031),(.082,-.121,-.030),
+         (.113,-.119,-.033),(.137,-.121,-.029),(.153,-.118,-.032)],
+         [.019,.023,.026,.025,.022,.017],'DarkWood',13)
+    for x in (.048,.138):
+        tube('Worn grip ferrule',[(x,-.12,-.030),(x+.006,-.121,-.030)],
+             [.021,.022],'Brass',11)
 
 
 def merchant_button():
@@ -394,7 +417,7 @@ def export(name, build):
     for parent in parents:
         for material in materials.values():
             objects=[o for o in bpy.context.scene.objects if o.type == 'MESH' and o not in supports
-                     and o.parent == parent and not o.name.startswith('Handle_') and o.data.materials[0] == material]
+                     and o.parent == parent and not o.name.startswith(('Handle_','ClothRunner_')) and o.data.materials[0] == material]
             if not objects: continue
             bpy.ops.object.select_all(action='DESELECT')
             for obj in objects: obj.select_set(True)

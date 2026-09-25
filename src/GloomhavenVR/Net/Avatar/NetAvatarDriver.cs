@@ -806,6 +806,22 @@ internal sealed partial class NetAvatarDriver : MonoBehaviour
             && avatar.TryGetHeadWorld(out head);
     }
 
+    /// <summary>Current visible peer hand centres for owner-authored town cloth contact.
+    /// Only live, active hand holders are eligible; an absent tracked side must never
+    /// reuse the previous holder position as a phantom collision.</summary>
+    internal static bool TryGetTownClothHands(int player, out Vector3 left, out Vector3 right,
+        out bool leftValid, out bool rightValid)
+    {
+        left = right = Vector3.zero; leftValid = rightValid = false;
+        NetAvatarDriver? driver = _instance;
+        if (driver == null || !driver._avatars.TryGetValue(player, out RemoteAvatar avatar)
+            || avatar == null || avatar.TimeSinceUpdate > NetProtocol.StaleTimeoutSeconds) return false;
+        Transform l = avatar.LeftHandHolder, r = avatar.RightHandHolder;
+        if (l.gameObject.activeInHierarchy) { left = l.position; leftValid = true; }
+        if (r.gameObject.activeInHierarchy) { right = r.position; rightValid = true; }
+        return leftValid || rightValid;
+    }
+
     internal static void CollectTownFacePeers(List<int> into)
     {
         NetAvatarDriver? driver = _instance;

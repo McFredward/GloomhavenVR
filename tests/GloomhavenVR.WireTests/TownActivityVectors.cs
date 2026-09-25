@@ -49,7 +49,7 @@ internal static class TownActivityVectors
                 &&parsed.TownActivityRecordSeen&&!parsed.HasTownActivity,"reordered79+80+truncated81 preserves atomic marker"+remaining);
         presence.HasTownActivity=false;count=PresenceSerializer.Write(in presence,bytes);t.True(PresenceSerializer.TryRead(bytes,count,out parsed)&&!parsed.HasTownActivity,"absence retains oldwire");
         offset=7082;t.True(TownActivityCodec.Write(bytes,ref offset,in state)&&offset==7136,"worst snapshot exact7136");
-        t.True(ExtrasFragments.MaxSnapshotBytes-(offset+3+510)==31&&PresenceSerializer.MaxSize-(offset+3+510)==257,"combined opening histories and public loadout88 retain fragment and allocation margins");
-        t.True(NetProtocol.Version==3&&NetProtocol.ExtIdTownResidents==79&&TownResidentsCodec.MaxPayload==115&&TownFaceCodec.MaxPayload==94,"79and80unchanged");
+        t.True(ExtrasFragments.MaxSnapshotBytes-(offset+3+510)==31&&PresenceSerializer.MaxSize-(offset+3+510)==281,"legacy resident prefix retains its original fragment margin");
+        t.True(NetProtocol.Version==3&&NetProtocol.ExtIdTownResidents==79&&TownResidentsCodec.LegacyPayload==115&&TownResidentsCodec.MaxPayload==139&&TownFaceCodec.MaxPayload==94,"79 retains its prefix and adds bounded cloth controls");
     }
 }

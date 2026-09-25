@@ -32,6 +32,20 @@ internal static class TownResidentsVectors
         for (int i = 0; i < a.Length; i++) if (a[i] != b[i]) return false;
         return true;
     }
+    private static TownResidentsState WithCloth()
+    {
+        var state = Example(); state.HasCloth = true;
+        state.TempleLeft = new TownClothRunnerState
+        { Left = new Vector2(.015f, -.010f), Right = new Vector2(-.020f, .030f),
+            LeftVelocity = new Vector2(.040f, -.020f), RightVelocity = new Vector2(-.060f, .080f) };
+        state.TempleRight = new TownClothRunnerState
+        { Left = new Vector2(-.010f, .020f), Right = new Vector2(.025f, -.015f),
+            LeftVelocity = new Vector2(-.020f, .030f), RightVelocity = new Vector2(.040f, -.040f) };
+        state.EnchantressCloth = new TownClothRunnerState
+        { Left = new Vector2(.005f, -.005f), Right = new Vector2(-.007f, .009f),
+            LeftVelocity = new Vector2(.012f, -.014f), RightVelocity = new Vector2(-.018f, .020f) };
+        return state;
+    }
     private static void FloatAt(byte[] b, int offset, float value) => BitConverter.GetBytes(value).CopyTo(b, offset);
     private static byte[] Packet(byte[] record)
     {
@@ -77,6 +91,35 @@ internal static class TownResidentsVectors
         t.Wire(Hex.Bytes("31 52 56 47 03 01 00 00"), bytes, length, "omission preserves legacy idle bytes exactly");
         t.True(PresenceSerializer.TryRead(bytes, length, out full) && !full.HasTownResidents && !full.TownResidents.Active,
             "fresh decode never inherits a previous permanent population");
+
+        t.Case("town residents79: owner cloth controls append after the unchanged pose prefix");
+        var cloth = WithCloth(); var extended = new byte[Golden.Length + 24]; Golden.CopyTo(extended, 0);
+        extended[1] = 139;
+        Hex.Bytes("0F F6 EC 1E 14 F6 E2 28 F6 14 19 F1 F6 0F 14 EC 05 FB F9 09 06 F9 F7 0A")
+            .CopyTo(extended, Golden.Length);
+        offset = 0;
+        t.True(TownResidentsCodec.Write(bytes, ref offset, in cloth), "owner writes complete cloth controls");
+        t.Wire(extended, bytes, offset, "literal signed millimetre/velocity tail preserves the old pose prefix");
+        t.True(TownResidentsCodec.TryRead(extended, 2, 139, out decoded) && decoded.HasCloth,
+            "observer reads explicit cloth tail");
+        t.True(decoded.TempleLeft.Left == cloth.TempleLeft.Left && decoded.TempleRight.Right == cloth.TempleRight.Right
+            && decoded.EnchantressCloth.LeftVelocity == cloth.EnchantressCloth.LeftVelocity,
+            "owner and observer reconstruct the same three edge controls");
+        t.True(TownResidentsCodec.TryRead(Golden, 2, 115, out decoded) && !decoded.HasCloth,
+            "old 115-byte record leaves cloth motion absent, never stale");
+        for (int cut = 115; cut < 139; cut++)
+            t.True(!TownResidentsCodec.TryRead(extended, 2, cut, out decoded) && !decoded.Active,
+                "partial cloth tail " + cut + " rejects atomically");
+        foreach (int tailIndex in new[] { 115, 119, 123, 131 })
+        {
+            byte[] invalid = (byte[])extended.Clone(); invalid[2 + tailIndex] = 0x80;
+            t.True(!TownResidentsCodec.TryRead(invalid, 2, 139, out decoded) && !decoded.Active,
+                "out-of-range signed cloth control " + tailIndex + " rejects atomically");
+        }
+        var invalidSource = cloth; invalidSource.TempleRight.RightVelocity.x = float.NaN;
+        byte[] beforeCloth = (byte[])bytes.Clone(); offset = 0;
+        t.True(!TownResidentsCodec.Write(bytes, ref offset, in invalidSource) && offset == 0 && Same(bytes, beforeCloth),
+            "nonfinite owner cloth velocity cannot leak partial bytes");
 
         t.Case("town residents79: every truncation and invalid offset stays bounded");
         for (int cut = 0; cut < Golden.Length; cut++)
@@ -212,10 +255,14 @@ internal static class TownResidentsVectors
         offset = 6869;
         t.True(TownResidentsCodec.Write(bytes, ref offset, in state) && offset == 6986,
             "the complete maximum resident record adds117 to the established6869-byte worst case");
-        t.True(PresenceSerializer.MaxSize == 7906 && PresenceSerializer.MaxSize - (offset + 96 + 54 + 3 + 510) == 257
-            && offset <= ExtrasFragments.MaxSnapshotBytes && ExtrasFragments.MaxSnapshotBytes == 7680,
-            "combined town and native opening records retain the largest-record spare capacity");
-        t.True(NetProtocol.Version == 3 && NetProtocol.ExtIdTownResidents == 79 && TownResidentsCodec.MaxPayload == 115,
+        offset = 6869;
+        t.True(TownResidentsCodec.Write(bytes, ref offset, in cloth) && offset == 7010,
+            "extended resident record adds141 bytes including24 cloth controls");
+        t.True(PresenceSerializer.MaxSize == 7930 && PresenceSerializer.MaxSize - (offset + 96 + 54 + 3 + 510) == 257
+            && ExtrasFragments.MaxSnapshotBytes - (offset + 96 + 54 + 3 + 510) == 7,
+            "cloth and opening records retain exact send and fragment margins");
+        t.True(NetProtocol.Version == 3 && NetProtocol.ExtIdTownResidents == 79 && TownResidentsCodec.LegacyPayload == 115
+            && TownResidentsCodec.MaxPayload == 139,
             "new residents retain wirev3 and never reuse a historical record identifier");
     }
 }

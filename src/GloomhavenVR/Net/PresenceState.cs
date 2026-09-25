@@ -1636,8 +1636,9 @@ internal static class PresenceSerializer
     /// + 56 (HELD PROPS: 2 + its two-slot form, 2 x <c>NetProtocol.HeldPropSlotBytes</c>)
     /// = 1726.
     ///
-    /// <para>Native opening histories83/84 and town records79/80/81/88 coexist: worst7649,
-    /// buffer7906 retains a257-byte margin; bounded7680 reassembly has31 bytes spare.</para>
+    /// <para>Native opening histories83/84 and town records79/80/81/88 coexist: worst7673
+    /// with the optional cloth tail, buffer7930 retains a257-byte margin; bounded7680
+    /// reassembly has7 bytes spare.</para>
     /// <para>Before the opening histories, public map loadout88 adds3 bytes: worst7139,
     /// allocation7396 keeps257 spare bytes.</para>
     /// <para>Town activity81 adds54 bytes: worst7136, allocation7393 keeps257 spare; reassembly7168 has32 bytes remaining.</para>
@@ -1897,10 +1898,11 @@ internal static class PresenceSerializer
     /// ITS OWN COMMIT, and keeps a margin of at least one record's worth. Record 27 (track order)
     /// took the worst case 859 → 887 on 2026-08-08; the margin is 393 bytes, i.e. still more than
     /// every optional record on the tail put together.</para></summary>
-    // Base6869 + residents79(117) + faces80(96) + activity81(54) + public
-    // map loadout88(3) + native opening histories83/84(510) = 7649.
-    // Keep the 257-byte largest-record margin; the 7680-byte fragment envelope fits.
-    public const int MaxSize = 7906;
+    // Base6869 + residents79(141 including anchored cloth controls) + faces80(96)
+    // + activity81(54) + public map loadout88(3) + native opening histories83/84(510)
+    // = 7673. The 7680-byte fragment envelope retains seven bytes; the local send
+    // buffer still keeps the 257-byte largest-record margin.
+    public const int MaxSize = 7930;
 
     // ---- write --------------------------------------------------------------------------
 
