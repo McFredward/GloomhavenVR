@@ -62,14 +62,17 @@ not cache native slot objects across closes because their lifetime is owned by t
 and scene; retaining them without a proven lifecycle would risk stale callbacks and deadlocks.
 That measured performance item remains separate from the correctness fixes.
 
-Focused integration validation before the final guard passed 2,699 voice assertions plus twelve
-negative controls, 198 ritual assertions plus eighteen controls, 1,296 merchant assertions plus
-seventeen controls, 908 enchantment assertions plus twenty-one controls, 261 ritual-layout
-assertions plus thirteen controls, and 92 decoration assertions plus thirteen controls. The full
-mirror production suite and the actual-bundle activity run passed after their fixtures were
-updated for exclusive lease acquisition; the latter executed 624,208 runtime assertions against
-the Unity 2021.3.5 town bundle. Final wire, source, negative-control, strict build and bundle-format
-results are appended after integration.
+Focused integration validation passed 2,699 voice assertions plus twelve negative controls, 198
+ritual assertions plus eighteen controls, 1,296 merchant assertions plus seventeen controls, 908
+enchantment assertions plus twenty-one controls, 261 ritual-layout assertions plus thirteen
+controls, and 92 decoration assertions plus thirteen controls. The full mirror production suite
+and the actual-bundle activity run passed after their fixtures were updated for exclusive lease
+acquisition; the latter executed 624,208 runtime assertions against the Unity 2021.3.5 town
+bundle. The complete 78-suite gate then passed 286,569 assertions, including all compiled negative
+controls. The fourteen source guards, removal-only config/patch/log surface comparison, EN/DE
+documentation check, strict Release build (zero warnings and errors), and both UnityFS bundle
+checks passed. The historical compiled-form baseline predates the NPC feature and therefore
+reports its intended production surface as changed; it is not a same-feature no-op baseline.
 
 Automated checks cannot judge the perceived age and character of the new voice, the final hand
 silhouette from both headset eyes, purse readability and snap feel, the blessing's visual weight,
