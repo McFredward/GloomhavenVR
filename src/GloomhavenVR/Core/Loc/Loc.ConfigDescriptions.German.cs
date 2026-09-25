@@ -2352,6 +2352,14 @@ internal static partial class Loc
                 + "in die Hand nehmen. Aus stellt die bisherigen Fenster und ihre Bedienung "
                 + "wieder her, auch bei einem bereits geöffneten Besuch. Andere Spieler behalten ihre "
                 + "gewählte Darstellung.",
+            ["WorldUI/ImmersiveTownSpeech"] =
+                "Spielt die englische Sprachausgabe von Händler, Priesterin und Verzauberin. "
+                + "Das ändert nur, was du hörst: Im Multiplayer bleiben Satz und Gesichtsanimation synchron. "
+                + "Beim Ausschalten verstummt die Sprachausgabe sofort.",
+            ["WorldUI/ImmersiveTownSoundEffects"] =
+                "Spielt physische Geräusche der immersiven NPCs und ihrer Stände, etwa Münzen, Magie und "
+                + "den Händlerschrank. Das ändert nur, was du hörst, und schaltet normale Spiel-, Karten- "
+                + "oder Menügeräusche nicht aus.",
             ["WorldUI/Dialogs"] = "Bestätigungsdialoge als Welt-Modale vor dem HMD (Ja/Nein antippen).",
             ["WorldUI/DecisionDock"] =
                 "Entscheidungs-/Bestätigungsabfragen im Szenario (die Verbrennen-Wahl beim Schadennehmen, der "

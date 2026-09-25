@@ -14,6 +14,8 @@ public static class InteractionProgram
     private static int assertions;
     private static void Check(bool value,string message){assertions++;if(!value)throw new Exception(message);}
     private static void Set(object o,string field,object value)=>o.GetType().GetField(field,BindingFlags.Instance|BindingFlags.NonPublic)!.SetValue(o,value);
+    private static TownRackState RackState(TownServiceMerchantDrawer crank,uint epoch,float elapsed)=>new()
+        {Turn=epoch,Elapsed=elapsed,Page=(ushort)crank.Page,From=(ushort)crank.Page,To=(ushort)crank.Page,PageCount=(ushort)crank.PageCount};
     private static RectTransform Rect(string name,Transform parent)
     {var go=new GameObject(name,typeof(RectTransform));go.transform.SetParent(parent,false);var r=(RectTransform)go.transform;r.sizeDelta=new Vector2(500,50);return r;}
     private static void Census(TownServiceCatalog c)=>typeof(TownServiceCatalog).GetMethod("RefreshRows",BindingFlags.Instance|BindingFlags.NonPublic)!.Invoke(c,null);
@@ -47,6 +49,10 @@ public static class InteractionProgram
     {
         int previous=crank.Page;
         Check(crank.RequestTurn(),"unheld stocked rack accepts one mechanical turn");
+        var audio=crank.HousingRoot.Find("Town.MerchantCabinet.Foley").GetComponent<AudioSource>();
+        Check(audio.isPlaying&&audio.clip==TownServiceAssets.Cabinet,"local cabinet turn starts one spatial mechanism sound");
+        Check(audio.spatialBlend==1f&&audio.loop==false&&audio.rolloffMode==AudioRolloffMode.Linear,
+            "cabinet mechanism remains a bounded spatial one-shot");
         Check(!crank.RequestTurn(),"a running mechanical turn cannot restart");
         Set(crank,"_clock",.20f);crank.Tick(1f);
         Check(crank.Page==previous,"card identity is retained while outgoing front is visible");
@@ -315,6 +321,7 @@ public static class InteractionProgram
             t.SetActive(false);
         }
         TownServiceAssets.Merchant=prefab;
+        TownServiceAssets.Cabinet=AudioClip.Create("cabinet-cycle",24000,1,24000,false);
         var normalizedRack=TownServiceMerchantDrawer.CreateHousingTemplate();
         for(int row=0;row<3;row++)
         {
@@ -413,6 +420,26 @@ public static class InteractionProgram
         HeldScale(catalog,anchor.transform);
         OfferedStock(catalog);
         var crank=catalog.Drawers[0];
+        WorldUIConfig.ImmersiveTownSoundEffects.Value=false;
+        uint mutedEpoch=crank.TurnEpoch+1;
+        crank.Follow(RackState(crank,mutedEpoch,.05f));
+        Check(crank.HousingRoot.Find("Town.MerchantCabinet.Foley")==null,"disabled cabinet effects do not create a playback source");
+        WorldUIConfig.ImmersiveTownSoundEffects.Value=true;
+        uint observerEpoch=mutedEpoch+1;
+        crank.Follow(RackState(crank,observerEpoch,.05f));
+        var observerAudio=crank.HousingRoot.Find("Town.MerchantCabinet.Foley")?.GetComponent<AudioSource>();
+        Check(observerAudio!=null&&observerAudio.isPlaying&&observerAudio.time>=.04f,
+            "observer cabinet state triggers the same spatial mechanism sound");
+        float observedTime=observerAudio!.time;
+        crank.Follow(RackState(crank,observerEpoch,.10f));
+        Check(observerAudio.time>=observedTime,"repeated state for one epoch never restarts cabinet foley");
+        WorldUIConfig.ImmersiveTownSoundEffects.Value=false;crank.Tick(1f);
+        Check(!observerAudio.isPlaying,"effects preference stops cabinet playback immediately");
+        WorldUIConfig.ImmersiveTownSoundEffects.Value=true;
+        uint lateEpoch=observerEpoch+1;
+        crank.Follow(RackState(crank,lateEpoch,.3f));
+        Check(!observerAudio.isPlaying,"late observer does not replay an old cabinet start");
+        crank.Follow(RackState(crank,lateEpoch,TownRackState.TurnDuration));
         stable.Tick(1f);var holder=new VRHand();stable.Sample.OnGrab(holder);stable.Tick(1f);
         Check(!crank.RequestTurn(),"held merchandise prevents rack motion");
         Check(stable.Exposed&&crank.Page==0,"held card cannot be swapped into a hidden tray");

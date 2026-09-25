@@ -179,6 +179,12 @@ public static class InteractionProgram
         Check(Mathf.Abs(Source!.time - .2f) < .02f,
             "late joining observer seeks to elected author's shared cue age");
         Check(Mathf.Abs(Source!.volume - .084f) < .0001f, "master and story sliders scale greeting");
+        WorldUIConfig.ImmersiveTownSpeech.Value = false;
+        TownServiceFaceSpeech.Observer(1, 7, 1, 1, .25f, head.transform);
+        Check(Source.volume == 0f, "local resident speech preference mutes playback without changing shared cue");
+        WorldUIConfig.ImmersiveTownSpeech.Value = true;
+        TownServiceFaceSpeech.Observer(1, 7, 1, 1, .3f, head.transform);
+        Check(Mathf.Abs(Source.volume - .084f) < .0001f, "resident speech preference applies immediately");
         Check(Source.spatialBlend == 1f && Source.dopplerLevel == 0f
             && Source.rolloffMode == AudioRolloffMode.Linear
             && Mathf.Abs(Source.minDistance - 89.154f) < .01f

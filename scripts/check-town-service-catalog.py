@@ -28,7 +28,7 @@ def replace_once(source, before, after):
 
 def sources(root):
     base = root / "src/GloomhavenVR/WorldUI/TownServices"
-    names = ["TownServiceCatalog.cs", "TownServiceCatalogCategory.cs", "TownServiceMerchantRows.cs", "TownServiceMerchantTransaction.cs", "TownServiceMerchantDrawer.cs", "TownServiceMerchantCounter.cs", "TownServiceMerchantZone.cs", "TownServiceCatalogPreview.cs", "TownServiceWindowMask.cs", "TownServiceToken.cs", "TownServiceOfferingPose.cs"]
+    names = ["TownServiceCatalog.cs", "TownServiceCatalogCategory.cs", "TownServiceMerchantRows.cs", "TownServiceMerchantTransaction.cs", "TownServiceMerchantDrawer.cs", "TownServiceCabinetAudio.cs", "TownServiceMerchantCounter.cs", "TownServiceMerchantZone.cs", "TownServiceCatalogPreview.cs", "TownServiceWindowMask.cs", "TownServiceToken.cs", "TownServiceOfferingPose.cs"]
     bound = {name: (base / name).read_text() for name in names}
     bound["TownRackState.cs"] = (root / "src/GloomhavenVR/Net/TownServices/TownRackState.cs").read_text()
     bound["TownCassetteMotion.cs"] = (root / "src/GloomhavenVR/Net/TownServices/TownCassetteMotion.cs").read_text()
@@ -89,6 +89,7 @@ def mutations():
         ("sell-identity", "TownServiceMerchantTransaction.cs", "return inventory.service.GetItemsToSell(inventory.character).Contains(item)", "return true", "stale owned item is ineligible"),
         ("held-rack", "TownServiceCatalog.cs", "() => !_entries.Exists(entry => entry.Sample.IsMoving)", "() => true", "held merchandise prevents rack motion"),
         ("early-tray-swap", "TownServiceMerchantDrawer.cs", "progress >= .5f", "progress >= .01f", "card identity is retained while outgoing front is visible"),
+        ("silent-observer-cabinet", "TownServiceMerchantDrawer.cs", "_audio.Begin(state.Turn, state.Elapsed);", "", "observer cabinet state triggers the same spatial mechanism sound"),
         ("automatic-confirm", "TownServiceMerchantTransaction.cs", "// The player makes the final purchase/sale decision", "ExecuteEvents.Execute(confirmation.confirmButton.gameObject, pointer, ExecuteEvents.pointerClickHandler);\n        // The player makes the final purchase/sale decision", "offering opens confirmation without spending"),
     ]
 

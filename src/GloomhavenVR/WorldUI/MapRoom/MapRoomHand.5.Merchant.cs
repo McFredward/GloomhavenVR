@@ -1,11 +1,12 @@
 using FFSNet;
+using GloomhavenVR.Cards;
 using MapRuleLibrary.Party;
 
 namespace GloomhavenVR.WorldUI.MapRoom;
 
 internal sealed partial class MapRoomHand
 {
-    private bool _merchantInspection, _templeInspection;
+    private bool _merchantInspection, _templeInspection, _townInspectionFanWasOpen;
     private bool TownInspection => _merchantInspection || _templeInspection;
     internal static CMapCharacter? OwnedMerchantCharacter()
     {
@@ -17,16 +18,32 @@ internal sealed partial class MapRoomHand
     {
         MapRoomHand? hand = s_live;
         if (hand == null || hand._templeInspection == active) return;
+        bool wasInspecting = hand.TownInspection;
         hand._templeInspection = active;
-        if (active) hand.ReleaseFan("temple donation pouch");
-        else if (!hand.TownInspection && MapRoomDriver.Active && hand._engaged) hand.RebuildFan();
+        hand.SetTownInspectionFan(active, wasInspecting, "temple donation pouch");
     }
     internal static void SetMerchantInspection(bool active)
     {
         MapRoomHand? hand = s_live;
         if (hand == null || hand._merchantInspection == active) return;
+        bool wasInspecting = hand.TownInspection;
         hand._merchantInspection = active;
-        if (active) hand.ReleaseFan("merchant owned-item inspection");
-        else if (!hand.TownInspection && MapRoomDriver.Active && hand._engaged) hand.RebuildFan();
+        hand.SetTownInspectionFan(active, wasInspecting, "merchant owned-item inspection");
+    }
+
+    private void SetTownInspectionFan(bool active, bool wasInspecting, string reason)
+    {
+        if (active)
+        {
+            if (wasInspecting) return;
+            _townInspectionFanWasOpen = CardsDriver.OffScenarioFanIsOpen;
+            if (_townInspectionFanWasOpen) CardsDriver.SuppressNextOffScenarioFanEdgeSound(open: false);
+            ReleaseFan(reason);
+            return;
+        }
+        if (TownInspection || !wasInspecting) return;
+        if (_townInspectionFanWasOpen) CardsDriver.SuppressNextOffScenarioFanEdgeSound(open: true);
+        _townInspectionFanWasOpen = false;
+        if (MapRoomDriver.Active && _engaged) RebuildFan();
     }
 }

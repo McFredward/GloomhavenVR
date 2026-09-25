@@ -23,6 +23,8 @@ namespace GloomhavenVR.Net
 namespace GloomhavenVR.Rig { internal static class VRRigDriver { internal static Camera? HeadCamera=null; } }
 namespace GloomhavenVR.WorldUI
 {
+    internal sealed class BoolSetting { internal bool Value=true; }
+    internal static class WorldUIConfig { internal static readonly BoolSetting ImmersiveTownSoundEffects=new(); }
     internal static class TownServiceAssets
     {
         internal static AudioClip? Coin;

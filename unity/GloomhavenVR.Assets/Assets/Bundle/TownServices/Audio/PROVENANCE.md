@@ -1,13 +1,15 @@
 # Town resident speech and foley
 
-The 55 English voice cues and quiet coin contact are original mod assets, not
+The 55 English voice cues, quiet coin contact and merchant cabinet mechanism are original mod assets, not
 recordings extracted from Gloomhaven. They are generated offline; the shipped
 mod makes no paid API request. Source WAVs are mono 24 kHz PCM for deterministic
 Rhubarb analysis; Unity stores every imported clip as quality-0.45 mono Vorbis
 so the expanded set stays within the release bundle limit. `coin-soft.wav` is
 a 0.48-second single subdued coin touch with a -49.5 dB mean and -27.8 dB peak;
 the resident foley player applies a further 0.065 gain and the game's master/SFX
-sliders.
+sliders. `cabinet-cycle.wav` is a 0.84-second subdued wooden latch, card cassette
+and stop performance with a -41.0 dB mean and -18.5 dB peak; its spatial source
+applies a further 0.55 gain and the same master/SFX controls.
 
 | Resident | Voice source | Cues |
 | --- | --- | --- |
@@ -46,3 +48,13 @@ reconciled. Sources: [Qwen voice design](https://fal.ai/models/fal-ai/qwen-3-tts
 [ElevenLabs SFX](https://fal.ai/models/fal-ai/elevenlabs/sound-effects/v2).
 Private receipts and source MP3s stay gitignored under
 `.planning/debug/town562-speech/`; the API key is never written there.
+
+The cabinet performance was generated through ElevenLabs Sound Effects v2 in
+the bounded build-563 revision. Three calls were submitted before the account
+entered its `TOP_UP` lock: the cabinet effect (USD 0.002 listed-price estimate)
+and two voice-design references (USD 0.00801 combined estimate). Only the
+completed cabinet result is shipped. The merchant and priestess voice assets
+remain the previously validated sets; no partial voice revision was imported.
+The complete planned revision was 20 calls with a USD 0.0704 listed-price
+estimate. Its private intents remain gitignored under
+`.planning/debug/town563-speech/`.

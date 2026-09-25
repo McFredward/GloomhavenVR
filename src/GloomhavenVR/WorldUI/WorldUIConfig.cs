@@ -120,6 +120,10 @@ internal static class WorldUIConfig
     internal static ConfigEntry<bool> CombatLogAtStart = null!;
     /// <summary>Local town visits use immersive stations; off retains the original service windows.</summary>
     internal static ConfigEntry<bool> ImmersiveTownServices = null!;
+    /// <summary>Local playback preference; shared resident cue clocks remain authoritative.</summary>
+    internal static ConfigEntry<bool> ImmersiveTownSpeech = null!;
+    /// <summary>Local playback preference for physical resident and furniture foley.</summary>
+    internal static ConfigEntry<bool> ImmersiveTownSoundEffects = null!;
     internal static ConfigEntry<bool> Dialogs = null!;
     internal static ConfigEntry<bool> DecisionDock = null!;
     internal static ConfigEntry<bool> TrayNativeControls = null!;
@@ -599,6 +603,14 @@ internal static class WorldUIConfig
             "touch an NPC to visit. Merchant cards can be picked up without buying them. " +
             "Off restores the original service windows and their " +
             "controls, including an already open visit. Other players retain their chosen presentation.");
+        ImmersiveTownSpeech = _file.Bind("WorldUI", "ImmersiveTownSpeech", Defaults.ImmersiveTownSpeech,
+            "Play English speech from the immersive merchant, priestess and enchantress. " +
+            "This is a local listening preference: multiplayer still shares the same cue and facial performance. " +
+            "Off stops resident speech immediately without changing the visit or another player's audio.");
+        ImmersiveTownSoundEffects = _file.Bind("WorldUI", "ImmersiveTownSoundEffects", Defaults.ImmersiveTownSoundEffects,
+            "Play physical foley from immersive residents and their furniture, including coins, spells, prayer props " +
+            "and the merchant cabinet. This is a local listening preference and applies immediately. " +
+            "It does not mute ordinary game, card or interface sounds.");
         Dialogs = _file.Bind("WorldUI", "Dialogs", Defaults.Dialogs,
             "Confirmation dialogs as world-space modals in front of the HMD (poke yes/no). " +
             "Off = the generic modal fallback floats the SAME window instead (ModalFallback " +

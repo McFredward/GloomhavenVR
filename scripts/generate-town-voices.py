@@ -24,6 +24,7 @@ ROOT = Path(__file__).resolve().parents[1]
 OUT = ROOT / ".planning/debug/town560-speech"
 REVISION_OUT = ROOT / ".planning/debug/town561-speech"
 VARIANT_OUT = ROOT / ".planning/debug/town562-speech"
+ROUND563_OUT = ROOT / ".planning/debug/town563-speech"
 ASSETS = ROOT / "unity/GloomhavenVR.Assets/Assets/Bundle/TownServices/Audio"
 ENDPOINT = "fal-ai/elevenlabs/tts/eleven-v3"
 PRICE_PER_1000 = 0.10  # fal listing checked 2026-09-25; estimate, not receipt.
@@ -501,7 +502,7 @@ def variant_collect(stage: str, name: str) -> None:
 
 def compress_imports() -> None:
     """Use mono Vorbis in the bundle; source WAVs remain lossless for Rhubarb."""
-    names = [name for name, _ in VARIANT_CUES] + ["coin-soft"]
+    names = [name for name, _ in VARIANT_CUES] + ["coin-soft", "cabinet-cycle"]
     for name in names:
         wav = ASSETS / (name + ".wav")
         if not wav.is_file(): raise FileNotFoundError(wav)
@@ -687,14 +688,152 @@ def revision_collect(stage: str, name: str) -> None:
         import_audio(name, mp3, replace=True, target_lufs=-34)
 
 
+# Build 563 listening revision. The user rejected the priestess voice as distant
+# and identified merchant-sell-2 ("Here is a fair price") as a broken take. One
+# designed reference per actor is cloned once; every priestess performance uses
+# the same immutable embedding. The cabinet gets one short physical mechanism
+# recording rather than three unrelated UI clicks.
+ROUND563_REFERENCES = {
+    "merchant": ("Good day, friend. Here is a fair price.",
+        "A close-miked English-speaking man in his late forties with a naturally deep, clear, warm baritone. "
+        "He is a well-fed, friendly fantasy merchant speaking calmly to one customer at arm's length. "
+        "Full chest resonance and crisp consonants, relaxed and conversational. No shouting, announcer projection, "
+        "distance, room echo, radio processing, monster voice or exaggerated acting."),
+    "priestess": (VOICE_EVENTS["priestess-greet"][0][1],
+        "A close-miked elderly English-speaking woman around eighty-five. Her voice is unmistakably feminine, "
+        "low and smoky with a weathered hoarse rasp, soft breath and subtle age tremor. She is kind, intimate, "
+        "quietly devotional and clearly beside the listener. Dry studio sound with no room echo or distant quality. "
+        "Never masculine, young, theatrical, booming, witch-like, monstrous or processed."),
+}
+ROUND563_PRIESTESS = tuple(item for key in ("priestess-greet", "priestess-prayer", "priestess-donate")
+                           for item in VOICE_EVENTS[key])
+ROUND563_CABINET_DESCRIPTION = (
+    "One compact hand-operated wooden fantasy merchant card cabinet mechanism over 0.85 seconds: "
+    "a soft wooden latch and short shutter slide, a muted leather-and-card cassette roll, then one gentle wooden stop. "
+    "Close dry physical foley, restrained and quiet. No voice, music, electronic UI tone, bell, coin, loud impact, "
+    "long reverb or background ambience.")
+
+
+def round563_steps() -> list[tuple[str, str, float]]:
+    steps = []
+    for actor in ("merchant", "priestess"):
+        steps.append(("design", actor, len(ROUND563_REFERENCES[actor][0]) * .09 / 1000))
+        steps.append(("clone", actor, .0007 * 5 / 60))
+    for name, text in ROUND563_PRIESTESS:
+        if name != "priestess-greet":
+            steps.append(("speak", name, len(text) * .09 / 1000))
+    steps.append(("speak", "merchant-sell-2", len(VOICE_EVENTS["merchant-sell"][1][1]) * .09 / 1000))
+    steps.append(("effect", "cabinet-cycle", .002))
+    return steps
+
+
+def round563_plan() -> None:
+    steps = round563_steps()
+    estimate = sum(cost for _, _, cost in steps)
+    if estimate > .10:
+        raise RuntimeError("Build 563 audio batch exceeds USD 0.10 displayed-price ceiling")
+    for stage, name, cost in steps:
+        save_json(ROUND563_OUT / stage / name / "plan.json",
+                  {"stage": stage, "name": name, "estimated_usd": round(cost, 6)})
+    print(f"Planned {len(steps)} one-shot calls; listed-price estimate USD {estimate:.4f}.")
+
+
+def round563_input(stage: str, name: str) -> tuple[str, dict]:
+    if stage == "design":
+        text, prompt = ROUND563_REFERENCES[name]
+        return "fal-ai/qwen-3-tts/voice-design/1.7b", {
+            "text": text, "prompt": prompt, "language": "English",
+            "temperature": .45, "max_new_tokens": 240}
+    if stage == "clone":
+        result = json.loads((ROUND563_OUT / "design" / name / "result.json").read_text())
+        return "fal-ai/qwen-3-tts/clone-voice/0.6b", {
+            "audio_url": result["audio"]["url"], "reference_text": ROUND563_REFERENCES[name][0]}
+    if stage == "speak":
+        actor = name.split("-")[0]
+        lines = dict(ROUND563_PRIESTESS)
+        text = lines[name] if actor == "priestess" else VOICE_EVENTS["merchant-sell"][1][1]
+        result = json.loads((ROUND563_OUT / "clone" / actor / "result.json").read_text())
+        return "fal-ai/qwen-3-tts/text-to-speech/0.6b", {
+            "text": text, "language": "English",
+            "speaker_voice_embedding_file_url": result["speaker_embedding"]["url"],
+            "reference_text": ROUND563_REFERENCES[actor][0],
+            "temperature": .38, "repetition_penalty": 1.2, "max_new_tokens": 120}
+    if stage == "effect":
+        return "fal-ai/elevenlabs/sound-effects/v2", {
+            "text": ROUND563_CABINET_DESCRIPTION, "duration_seconds": .85,
+            "prompt_influence": .78, "loop": False}
+    raise ValueError(stage)
+
+
+def round563_submit(stage: str, name: str) -> None:
+    folder = ROUND563_OUT / stage / name
+    planned = json.loads((folder / "plan.json").read_text())
+    if (folder / "receipt.json").exists():
+        print(stage, name, "already submitted"); return
+    if (folder / "intent.json").exists():
+        raise RuntimeError(f"Ambiguous paid intent for {stage}/{name}; reconcile provider history")
+    endpoint, payload = round563_input(stage, name)
+    if sum(cost for _, _, cost in round563_steps()) > .10:
+        raise RuntimeError("Build 563 audio batch exceeds USD 0.10 displayed-price ceiling")
+    folder.mkdir(parents=True, exist_ok=True)
+    with (folder / "intent.json").open("x") as stream:
+        json.dump({"input_sha256": hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest(),
+                   "estimated_usd": planned["estimated_usd"], "endpoint": endpoint}, stream)
+        stream.flush(); os.fsync(stream.fileno())
+    receipt = request("https://queue.fal.run/" + endpoint, payload)
+    save_json(folder / "receipt.json", receipt)
+    print(stage, name, "submitted", receipt.get("request_id", "unknown"))
+
+
+def round563_collect(stage: str, name: str) -> None:
+    folder = ROUND563_OUT / stage / name
+    result_path = folder / "result.json"
+    if result_path.exists():
+        result = json.loads(result_path.read_text())
+        print(stage, name, "already collected")
+    else:
+        receipt = json.loads((folder / "receipt.json").read_text())
+        status = request(receipt["status_url"])
+        save_json(folder / "status.json", status)
+        if status.get("status") != "COMPLETED":
+            print(stage, name, status.get("status")); return
+        result = request(receipt["response_url"])
+        save_json(result_path, result)
+        print(stage, name, "collected")
+    if stage == "clone": return
+    url = result["audio"]["url"]
+    if urlparse(url).scheme != "https": raise ValueError("Provider audio URL must be HTTPS")
+    mp3 = folder / "audio.mp3"
+    if not mp3.exists():
+        with urllib.request.urlopen(url, timeout=120) as response:
+            data = response.read(2_000_001)
+        if len(data) > 2_000_000 or not (data.startswith(b"ID3") or data[:2] in (b"\xff\xfb", b"\xff\xf3")):
+            raise ValueError("Unexpected audio response")
+        mp3.write_bytes(data)
+    if stage == "design" and name == "merchant":
+        return  # reference-only; keep the already accepted merchant greeting asset
+    target = (name + "-greet") if stage == "design" else name
+    import_audio(target, mp3, replace=True, target_lufs=-34 if stage == "effect" else -27)
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("action", choices=("prepare", "submit", "collect", "import-greetings", "curves",
                                            "revision-plan", "revision-submit", "revision-collect",
                                            "variant-plan", "variant-submit", "variant-collect",
-                                           "variant-curves", "compress-imports"))
+                                           "variant-curves", "compress-imports",
+                                           "round563-plan", "round563-submit", "round563-collect"))
     parser.add_argument("names", nargs="*")
     args = parser.parse_args()
+    if args.action.startswith("round563-"):
+        if args.action == "round563-plan": round563_plan()
+        else:
+            if len(args.names) != 2: parser.error("round563 calls need STAGE NAME")
+            stage, name = args.names
+            if (stage, name) not in {(s, n) for s, n, _ in round563_steps()}:
+                parser.error("Unknown round563 stage/name")
+            (round563_submit if args.action == "round563-submit" else round563_collect)(stage, name)
+        raise SystemExit(0)
     if args.action.startswith("revision-"):
         if args.action == "revision-plan": revision_plan()
         else:

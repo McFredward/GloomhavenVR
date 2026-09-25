@@ -22,6 +22,7 @@ internal sealed class TownServiceMerchantDrawer : IGrabbable, IGrabbableHandFilt
     private readonly Func<bool> _alive, _mayClose;
     private readonly Action<TownServiceMerchantDrawer> _opening;
     private readonly BoxCollider _pick;
+    private readonly TownServiceCabinetAudio _audio;
     private readonly List<Material> _materials = new();
     private VRHand? _hand;
     private Vector3 _cursorStart;
@@ -95,6 +96,7 @@ internal sealed class TownServiceMerchantDrawer : IGrabbable, IGrabbableHandFilt
         // .025 made a 2.5-metre invisible box to the merchant's left; releasing its
         // laser grab advanced the cassette. Specify padding in cabinet metres instead.
         _pick.size = gripBounds.size + GripPadding(handle.localScale, .025f);
+        _audio = new TownServiceCabinetAudio(HousingRoot);
         VRInteractables.RegisterGrabbable(this, _pick); VRLayers.Apply(_root); VRLayers.Apply(_housing);
         TownCassetteMotion.Apply(HousingRoot, 1f);
     }
@@ -121,6 +123,7 @@ internal sealed class TownServiceMerchantDrawer : IGrabbable, IGrabbableHandFilt
     internal void Follow(TownRackState state)
     {
         if (_hand != null || !_mayClose()) return;
+        _audio.Begin(state.Turn, state.Elapsed);
         TurnEpoch = state.Turn; Page = state.Page; FromPage = state.From; ToPage = state.To;
         _clock = state.Elapsed; _leadAngle = state.LeadAngle; ScrollDirection = state.ScrollDirection;
         PageCount = state.PageCount;
@@ -140,7 +143,8 @@ internal sealed class TownServiceMerchantDrawer : IGrabbable, IGrabbableHandFilt
     private bool Begin(int page, int direction = 0)
     {
         ScrollDirection = (sbyte)Math.Sign(direction); TurnEpoch++; FromPage = Page; ToPage = page; _turning = true;
-        _leadAngle = _pull * 35f; _clock = 0f; _swapped = false; _opening(this); return true;
+        _leadAngle = _pull * 35f; _clock = 0f; _swapped = false; _opening(this);
+        _audio.Begin(TurnEpoch, 0f); return true;
     }
     internal bool RequestTurn() => RequestTurn(1);
     internal bool RequestTurn(int direction) => direction != 0 && CanGrab
@@ -239,6 +243,7 @@ internal sealed class TownServiceMerchantDrawer : IGrabbable, IGrabbableHandFilt
     internal void Tick(float opacity)
     {
         if (_disposed) return;
+        _audio.Tick();
         if (_hand != null && !_laser)
         {
             _pull = Mathf.Clamp01((_cursorStart.y - Root.parent.InverseTransformPoint(_hand.Rig.GrabAnchor.position).y) / .10f);
@@ -268,6 +273,7 @@ internal sealed class TownServiceMerchantDrawer : IGrabbable, IGrabbableHandFilt
     {
         if (_disposed) return; _disposed = true; ContentRoots.Remove(Content); foreach (Transform cards in _rowContents) ContentRoots.Remove(cards); VRInteractables.UnregisterGrabbable(this);
         foreach (Material material in _materials) UnityEngine.Object.Destroy(material);
+        _audio.Dispose();
         UnityEngine.Object.Destroy(_root); UnityEngine.Object.Destroy(_housing);
     }
 }

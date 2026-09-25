@@ -153,22 +153,37 @@ namespace GloomhavenVR.WorldUI
         {
             WorldUIConfig.Bind();
             Entry<bool> entry = WorldUIConfig.ImmersiveTownServices;
+            Entry<bool> speech = WorldUIConfig.ImmersiveTownSpeech;
+            Entry<bool> effects = WorldUIConfig.ImmersiveTownSoundEffects;
             Check(entry.Value, "fresh installation defaults to immersive NPCs");
+            Check(speech.Value && effects.Value, "fresh installation enables resident speech and physical effects");
             _curated = Array.FindIndex(Curated, c => c.LocKey == "cat_panels");
             Check(_curated >= 0, "panels category exists");
             CuratedCategory panels = Curated[_curated];
             Check(panels.Sections[0].LocKey == "vr_sec_townservices", "town services are the first panel section above other readouts");
-            Check(panels.Sections[0].Entries.Length == 1 && panels.Sections[0].Entries[0].Key == "ImmersiveTownServices", "one explicit mode choice in first section");
+            Check(panels.Sections[0].Entries.Length == 3
+                && panels.Sections[0].Entries[0].Key == "ImmersiveTownServices"
+                && panels.Sections[0].Entries[1].Key == "ImmersiveTownSpeech"
+                && panels.Sections[0].Entries[2].Key == "ImmersiveTownSoundEffects",
+                "town mode and both local audio controls occupy the first section");
             var declared = Curated.SelectMany(c => c.Sections).SelectMany(s => s.Entries).Where(e => !e.IsAction).ToArray();
             Check(declared.Count(e => e.Section == "WorldUI" && e.Key == "ImmersiveTownServices") == 1, "town mode has exactly one curated home");
+            Check(declared.Count(e => e.Section == "WorldUI" && e.Key == "ImmersiveTownSpeech") == 1
+                && declared.Count(e => e.Section == "WorldUI" && e.Key == "ImmersiveTownSoundEffects") == 1,
+                "each town audio preference has exactly one curated home");
             foreach (CuratedEntry declaredEntry in declared)
             {
                 var item = new ConfigCatalog.ConfigItem { Section = declaredEntry.Section, Key = declaredEntry.Key };
                 if (item.Section == "WorldUI" && item.Key == "ImmersiveTownServices") item.Entry = entry;
+                if (item.Section == "WorldUI" && item.Key == "ImmersiveTownSpeech") item.Entry = speech;
+                if (item.Section == "WorldUI" && item.Key == "ImmersiveTownSoundEffects") item.Entry = effects;
                 if (!ConfigCatalog.Group.Items.Any(existing => existing.Section == item.Section && existing.Key == item.Key)) ConfigCatalog.Group.Items.Add(item);
             }
             ConfigCatalog.ConfigItem target = Lookup("WorldUI", "ImmersiveTownServices")!;
             Check(ReferenceEquals(target.Entry, entry), "lookup resolves the existing persisted bool");
+            Check(ReferenceEquals(Lookup("WorldUI", "ImmersiveTownSpeech")!.Entry, speech)
+                && ReferenceEquals(Lookup("WorldUI", "ImmersiveTownSoundEffects")!.Entry, effects),
+                "audio rows resolve their independent persisted booleans");
             foreach (string language in new[] { "English", "German" })
             foreach (bool enabled in new[] { true, false })
             foreach (Cards.ControlBoard board in Enum.GetValues<Cards.ControlBoard>())

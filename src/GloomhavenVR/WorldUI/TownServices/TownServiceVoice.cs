@@ -272,7 +272,8 @@ internal static class TownServiceVoice
         _source.maxDistance = Mathf.Max(.02f, 7f * scale);
         // Prayer is an intimate murmur; ordinary speech remains conversational
         // rather than projecting like room narration.
-        _source.volume = _disabled || _narration ? 0f : _volume * (IsPrayerCue(cue) ? .12f : .42f);
+        _source.volume = _disabled || _narration || !WorldUIConfig.ImmersiveTownSpeech.Value
+            ? 0f : _volume * (IsPrayerCue(cue) ? .12f : .42f);
         bool different = _playingService != service || _playingCue != cue || _playingGeneration != generation;
         if (different)
         {

@@ -33,6 +33,10 @@ internal sealed class TownServiceActivityAudio : IDisposable
         try
         {
             TownActivitySound sound = _clock.Sample(_service, author, epoch, workClock, elapsed, visible, in shown);
+            // The activity clock still advances while locally muted. Its author-owned
+            // phase is shared presentation state; a listener preference may silence the
+            // result, but must never make this peer choose a different later sound edge.
+            if (!WorldUIConfig.ImmersiveTownSoundEffects.Value) { Stop(); return; }
             if (!visible) { Stop(); return; }
             if (!HeadEar.Claim(_claim)) { _clock.Reset(); Stop(); return; }
             float now = Time.unscaledTime;

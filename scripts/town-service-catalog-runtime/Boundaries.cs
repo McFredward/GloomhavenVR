@@ -132,7 +132,7 @@ namespace TMPro
 }
 namespace GloomhavenVR.Core
 {
-    internal static class VRLog { internal static bool WantsDebug => false; internal static void Debug(string a,string b) {} }
+    internal static class VRLog { internal static bool WantsDebug => false; internal static void Debug(string a,string b) {} internal static void Warn(string a,string b) {} }
     internal static class VRLayers{internal static void Apply(GameObject go){}}
     internal static class Loc{internal static event Action? OnChanged;internal static int Subscribers=>OnChanged?.GetInvocationList().Length??0;internal static void Change()=>OnChanged?.Invoke();internal static string Mod(string key)=>key;}
 }
@@ -213,7 +213,7 @@ namespace GloomhavenVR.WorldUI
     internal static class TownServiceNativeAssets{internal static void PrepareItem(ItemCardUI i){}}
     internal class TownServiceSurface{}
     internal static class TownServicePhysicalRay{internal static void Claim(GloomhavenVR.Hands.VRHand hand){}}
-    internal static class TownServiceAssets{internal static GameObject? Merchant;internal static GameObject? Prefab(string n)=>Merchant;}
+    internal static class TownServiceAssets{internal static GameObject? Merchant;internal static AudioClip? Cabinet;internal static GameObject? Prefab(string n)=>Merchant;internal static AudioClip? Audio(string n)=>n=="cabinet-cycle"?Cabinet:null;}
     internal static class PanelLayout{internal static float WorldScale=>1f;}
 }
 
@@ -245,5 +245,7 @@ namespace GloomhavenVR.Cards { internal partial class ItemsPile { internal parti
  private float FaceWidth=>.18f;private float FaceHeight=>.14f;
 } } }
 
-namespace GloomhavenVR.WorldUI { internal static class WorldUIConfig { internal static BoolSetting ImmersiveTownServices=new(); } internal class BoolSetting { internal bool Value=true; } internal static class StoryComposite { internal static bool PointOfNoReturn; } }
+public sealed class GlobalData { public float MasterVolume=100f,SFXVolume=100f; }
+public sealed class SaveData { public static SaveData? Instance=new(); public GlobalData Global=new(); }
+namespace GloomhavenVR.WorldUI { internal static class WorldUIConfig { internal static BoolSetting ImmersiveTownServices=new(); internal static BoolSetting ImmersiveTownSoundEffects=new(); } internal class BoolSetting { internal bool Value=true; } internal static class StoryComposite { internal static bool PointOfNoReturn; } }
 namespace GloomhavenVR.WorldUI.MapRoom { internal static class MapRoomDriver { internal static bool Active=true; } }

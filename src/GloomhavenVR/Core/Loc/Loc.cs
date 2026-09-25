@@ -930,6 +930,8 @@ internal static partial class Loc
         ["town_mode_npcs"] = Pair("Immersive NPCs", "Immersive NPCs"),
         ["town_mode_windows"] = Pair("Original windows", "Originale Fenster"),
         ["vr_o_immersivetown"] = Pair("Town service mode", "Stadtbesuch-Modus"),
+        ["vr_o_townspeech"] = Pair("NPC speech", "NPC-Sprachausgabe"),
+        ["vr_o_townsfx"] = Pair("NPC sound effects", "NPC-Soundeffekte"),
         ["vr_o_dialogs"] = Pair("Dialogs in VR", "Dialoge in VR"),
         ["vr_o_decisiondock"] = Pair("Decision dock", "Entscheidungsleiste"),
         // The board family on the "Objekt: Wirkung" colon pattern (2026-08 naming pass, audit
@@ -1281,6 +1283,12 @@ internal static partial class Loc
             + "including an open visit. Other players retain their chosen presentation.",
             "Wähle immersive NPC-Stationen oder die bisherigen Fenster. Gilt sofort, auch während "
             + "eines offenen Besuchs. Andere Spieler behalten ihre gewählte Darstellung."),
+        ["h_vr_o_townspeech"] = Pair(
+            "English resident speech. This affects only what you hear; shared lines and facial animation stay synchronized.",
+            "Englische Sprachausgabe der NPCs. Das betrifft nur deinen Ton; Satz und Gesichtsanimation bleiben synchron."),
+        ["h_vr_o_townsfx"] = Pair(
+            "Physical sounds from residents and their furniture. Ordinary game, card and interface sounds remain enabled.",
+            "Physische Geräusche der NPCs und ihrer Stände. Normale Spiel-, Karten- und Menügeräusche bleiben aktiv."),
         ["h_vr_o_dialogs"] = Pair("Show the game's dialogs as panels in front of you.", "Zeigt die Dialoge des Spiels als Tafeln vor dir."),
         ["h_vr_o_decisiondock"] = Pair("A bar within reach for choices you have to make.", "Eine Leiste in Reichweite für Entscheidungen."),
         ["h_control_board"] = Pair("Which control board model sits in front of you.", "Welches Kontrollbrett-Modell vor dir steht."),

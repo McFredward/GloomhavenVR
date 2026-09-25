@@ -1299,6 +1299,8 @@ internal static partial class VROptionsTab
                     Entries = new CuratedEntry[]
                     {
                         new("WorldUI", "ImmersiveTownServices", "vr_o_immersivetown"),
+                        new("WorldUI", "ImmersiveTownSpeech", "vr_o_townspeech"),
+                        new("WorldUI", "ImmersiveTownSoundEffects", "vr_o_townsfx"),
                     },
                 },
                 new()

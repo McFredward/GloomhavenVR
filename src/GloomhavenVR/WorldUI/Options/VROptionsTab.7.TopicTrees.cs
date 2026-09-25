@@ -245,6 +245,8 @@ internal static partial class VROptionsTab
                     Entries = new[]
                     {
                         new BoardRef("WorldUI", "ImmersiveTownServices", perBoard: false),
+                        new BoardRef("WorldUI", "ImmersiveTownSpeech", perBoard: false),
+                        new BoardRef("WorldUI", "ImmersiveTownSoundEffects", perBoard: false),
                         new BoardRef("WorldUI", "ModalStyle", perBoard: false),
                         // The everyday door for this one is Tafeln ▸ Bedienung (user request 8);
                         // listed here too because this topic is the catalog's own index of the

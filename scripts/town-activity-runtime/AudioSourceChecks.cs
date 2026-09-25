@@ -39,23 +39,37 @@ internal static class AudioSourceChecks
             FaceClock.Now=.015f;audio.Tick(1,1,2.015f,.005f,true,in released);
             Check(Mathf.Abs(source.minDistance-40f)<.01f&&Mathf.Abs(source.maxDistance-700f)<.01f,
                 "range tracks a later map scale change without recreating the voice");
-            float full=source.volume;SaveData.Instance.Global.MasterVolume=50;SaveData.Instance.Global.SFXVolume=20;
-            FaceClock.Now=.02f;audio.Tick(1,1,2.02f,.01f,true,in released);
+            WorldUIConfig.ImmersiveTownSoundEffects.Value=false;
+            FaceClock.Now=.017f;audio.Tick(1,1,2.017f,.002f,true,in released);
+            Check(!source.isPlaying&&HeadEar.Claims.Count==0,
+                "local resident effects preference immediately stops foley and releases listener");
+            WorldUIConfig.ImmersiveTownSoundEffects.Value=true;
+            float resumedClock=4f;
+            FaceClock.Now=.018f;audio.Tick(1,2,resumedClock,.001f,true,in held);
+            for(int n=0;n<11;n++){FaceClock.Now+=.24f;resumedClock+=.24f;audio.Tick(1,2,resumedClock,.24f,true,in held);}
+            FaceClock.Now+=.01f;resumedClock+=.01f;audio.Tick(1,2,resumedClock,.01f,true,in released);
+            source=root.GetComponentsInChildren<AudioSource>().SingleOrDefault(item=>item.isPlaying);
+            Check(source!=null&&source.isPlaying&&HeadEar.Claims.Count==1,
+                "resident effects preference resumes on the next shared physical contact");
+            float full=source!.volume;SaveData.Instance.Global.MasterVolume=50;SaveData.Instance.Global.SFXVolume=20;
+            FaceClock.Now+=.01f;audio.Tick(1,1,2.02f,.01f,true,in released);
             Check(Mathf.Abs(source.volume-full*.1f)<.00001f,"native master and effects settings both apply live");
             SaveData.Instance.Global.MasterVolume=0;
-            FaceClock.Now=.03f;audio.Tick(1,1,2.03f,.01f,true,in released);
+            FaceClock.Now+=.01f;audio.Tick(1,1,2.03f,.01f,true,in released);
             Check(source.volume==0f,"master mute immediately silences resident foley");
             Check(HeadEar.Claims.Count==1,"resident uses the shared head listener claim");
-            FaceClock.Now=.04f;audio.Tick(1,1,2.04f,.01f,false,in released);
+            FaceClock.Now+=.01f;audio.Tick(1,1,2.04f,.01f,false,in released);
             Check(!source.isPlaying&&HeadEar.Claims.Count==0,"hidden or disabled station stops sound and releases listener");
-            FaceClock.Now=.05f;audio.Tick(1,1,2.05f,.01f,true,in released);
-            Check(root.GetComponentsInChildren<AudioSource>().Length==1,"reopening does not replay contact or leak voices");
+            FaceClock.Now+=.01f;audio.Tick(1,1,2.05f,.01f,true,in released);
+            var voices=root.GetComponentsInChildren<AudioSource>();
+            Check(voices.Length==2&&!voices.Any(item=>item.isPlaying),"reopening does not replay contact or leak voices");
             audio.Dispose();Check(HeadEar.Claims.Count==0,"resident disposal releases shared listener");
             Check(VRLog.Warnings==0,"normal native foley lifetime emits no warning");
         }
         finally
         {
             SaveData.Instance.Global.MasterVolume=100;SaveData.Instance.Global.SFXVolume=100;
+            WorldUIConfig.ImmersiveTownSoundEffects.Value=true;
             AudioController.Items.Clear();TownServiceAssets.Coin=null;
             UnityEngine.Object.DestroyImmediate(root.gameObject);UnityEngine.Object.DestroyImmediate(clip);
             UnityEngine.Object.DestroyImmediate(contact);

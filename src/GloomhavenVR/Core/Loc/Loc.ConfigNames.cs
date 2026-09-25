@@ -718,6 +718,8 @@ internal static partial class Loc
             ["WorldUI/CombatLog"] = Pair("Show combat log at scenario start",
                                          "Kampflog beim Szenariostart einblenden"),
             ["WorldUI/ImmersiveTownServices"] = Pair("Town service mode", "Stadtbesuch-Modus"),
+            ["WorldUI/ImmersiveTownSpeech"] = Pair("NPC speech", "NPC-Sprachausgabe"),
+            ["WorldUI/ImmersiveTownSoundEffects"] = Pair("NPC sound effects", "NPC-Soundeffekte"),
             ["WorldUI/Dialogs"] = Pair("Dialogs in VR", "Dialoge in VR"),
             ["WorldUI/DecisionDock"] = Pair("Decision dock", "Entscheidungsleiste"),
             ["WorldUI/TrayNativeControls"] = Pair("Real buttons on board", "Echte Tasten am Brett"),

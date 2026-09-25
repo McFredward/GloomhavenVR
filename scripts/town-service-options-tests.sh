@@ -44,11 +44,15 @@ s += read('WorldUI/Options/VROptionsTab.8.Dependencies.cs').replace('using Syste
 # Production default, bound description and localization; config persistence itself is a fixture.
 config = read('WorldUI/WorldUIConfig.cs')
 start = config.index('        ImmersiveTownServices = _file.Bind(')
-bind = config[start:config.index(';', start)+1]
-default = re.search(r'    internal const bool ImmersiveTownServices = .*?;', read('Defaults/Defaults.WorldUI.cs')).group(0)
-s += 'namespace GloomhavenVR.WorldUI { internal static class Defaults {\n' + default + '\n} internal static class WorldUIConfig { internal static Entry<bool> ImmersiveTownServices = null!; internal static ConfigFile _file = new(); internal static void Bind() {\n' + bind + '\n} } }\n'
+last = config.index('        ImmersiveTownSoundEffects = _file.Bind(', start)
+bind = config[start:config.index(';', last)+1]
+defaults_source = read('Defaults/Defaults.WorldUI.cs')
+defaults = '\n'.join(re.search(r'    internal const bool '+key+r' = .*?;', defaults_source).group(0)
+                     for key in ('ImmersiveTownServices','ImmersiveTownSpeech','ImmersiveTownSoundEffects'))
+s += 'namespace GloomhavenVR.WorldUI { internal static class Defaults {\n' + defaults + '\n} internal static class WorldUIConfig { internal static Entry<bool> ImmersiveTownServices = null!, ImmersiveTownSpeech = null!, ImmersiveTownSoundEffects = null!; internal static ConfigFile _file = new(); internal static void Bind() {\n' + bind + '\n} } }\n'
 loc = read('Core/Loc/Loc.cs')
-keys = ['cat_panels','vr_sec_townservices','vr_o_immersivetown','town_mode_npcs','town_mode_windows','h_vr_o_immersivetown']
+keys = ['cat_panels','vr_sec_townservices','vr_o_immersivetown','vr_o_townspeech','vr_o_townsfx',
+        'town_mode_npcs','town_mode_windows','h_vr_o_immersivetown','h_vr_o_townspeech','h_vr_o_townsfx']
 s += 'namespace GloomhavenVR.Core { internal static partial class Loc { internal static readonly Dictionary<string,(string En,string De)> Texts = new() {\n'
 for key in keys:
     match = re.search(r'\["'+key+r'"\]\s*=\s*Pair\([\s\S]*?\),', loc)
