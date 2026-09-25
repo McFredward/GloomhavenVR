@@ -7,6 +7,7 @@ using Object=UnityEngine.Object;
 namespace GloomhavenVR.WorldUI
 {
     internal static class TownServiceDecor { internal static Transform? TempleBookRoot; }
+    internal static class TownServiceAssets { internal static Shader? Shader(string key) => UnityEngine.Shader.Find("Standard"); }
 }
 internal static class BookInkProof
 {
@@ -37,6 +38,9 @@ internal static class BookInkProof
             var text=go.AddComponent<TextMeshProUGUI>();text.text="Original localized temple text with native numbers 40/100";
             var ink=new TownServiceBookInk(key,ritual.transform);ink.Apply(go.transform);
             Check(go.activeSelf,"real readable page supports native ink");
+            var leaves=book.transform.Find("Town.BlankTemplePages");
+            Check(leaves!=null&&leaves.GetComponent<MeshFilter>()?.sharedMesh.vertexCount>400
+                &&leaves.GetComponent<Collider>()==null,"native inscription sits over curved blank parchment without a hit blocker");
             Vector3 p=visitor.transform.InverseTransformPoint(go.transform.position);
             float y=p.x<-.33f?.99f+(p.x+.49f)*(.035f/.16f):1.025f-(p.x+.33f)*(.03f/.16f);
             Check(Mathf.Abs(p.y-y)<.001f,"ink is attached within one millimetre of the actual original page");
@@ -92,6 +96,7 @@ internal static class NativeBookProof
             var go=new GameObject(key,typeof(RectTransform));go.transform.SetParent(ritual.transform,false);var text=go.AddComponent<TextMeshProUGUI>();
             text.text="Original localized donation content";var ink=new TownServiceBookInk(key,ritual.transform);ink.Apply(go.transform);
             Check(go.activeSelf,"all ink blocks fit real shipped original book pages");
+            Check(book.transform.Find("Town.BlankTemplePages")!=null,"actual original temple pages receive blank reading surface");
             // Exercise the actual TMP deformation callback with a glyph quad covering its block.
             TMP_TextInfo info=new TMP_TextInfo();info.characterCount=1;
             info.characterInfo=new[]{new TMP_CharacterInfo{isVisible=true,vertexIndex=0,materialReferenceIndex=0}};

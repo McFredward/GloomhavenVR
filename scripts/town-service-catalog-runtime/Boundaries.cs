@@ -132,6 +132,7 @@ namespace TMPro
 }
 namespace GloomhavenVR.Core
 {
+    internal static class VRLog { internal static bool WantsDebug => false; internal static void Debug(string a,string b) {} }
     internal static class VRLayers{internal static void Apply(GameObject go){}}
     internal static class Loc{internal static event Action? OnChanged;internal static int Subscribers=>OnChanged?.GetInvocationList().Length??0;internal static void Change()=>OnChanged?.Invoke();internal static string Mod(string key)=>key;}
 }

@@ -33,7 +33,7 @@ def sources(root):
     start = raw.index("    private bool OfferingEligible(")
     end = raw.index("    private bool Confirm(", start)
     methods += raw[start:end].replace("private bool Donate(", "internal bool Donate(")
-    text = "using System;using System.Collections.Generic;using UnityEngine;using UnityEngine.UI;using UnityEngine.EventSystems;using GloomhavenVR.WorldUI;\n" + \
+    text = "using System;using System.Collections.Generic;using UnityEngine;using UnityEngine.UI;using UnityEngine.EventSystems;using GloomhavenVR.WorldUI;using GloomhavenVR.Core;\n" + \
         "internal sealed class BoundRitual {private readonly Func<bool> _alive;private readonly Func<object?> _context;" + \
         "private readonly HashSet<(string Character,object Blessing)> _submittedOfferings=new();internal FakeTempleOffering _templeOffering=new();" + \
         "internal BoundRitual(Func<bool> alive,Func<object?> context){_alive=alive;_context=context;}\n" + methods + "\n}"
@@ -49,11 +49,14 @@ def sources(root):
         "internal BoundTempleExit(UIWindow window,Transform station){_window=window;_station=station;}" + exit_method + "}"
     pose_raw = (root / "src/GloomhavenVR/WorldUI/TownServices/TownServiceOfferingPose.cs").read_text()
     exit_source += "internal static class TownServiceOfferingPose {" + method(pose_raw, "internal static bool VisitorWithin(") + "}"
-    return {"RitualTransactions.cs": text, "RitualGuard.cs": guard, "TempleExit.cs": exit_source}, {"TownServiceRitual.cs": hashlib.sha256(raw.encode()).hexdigest(), "TownServiceRitualConfirmationGuard.cs": hashlib.sha256(guard_raw.encode()).hexdigest()}
+    approach = method(offering_raw, "internal static void TickApproach()")
+    approach_source = "using UnityEngine;namespace GloomhavenVR.WorldUI { internal static class BoundTempleApproach { private static bool _approachInside;private static float _approachAt;" + approach + "} }"
+    return {"RitualTransactions.cs": text, "RitualGuard.cs": guard, "TempleExit.cs": exit_source, "TempleApproach.cs": approach_source}, {"TownServiceRitual.cs": hashlib.sha256(raw.encode()).hexdigest(), "TownServiceRitualConfirmationGuard.cs": hashlib.sha256(guard_raw.encode()).hexdigest(), "TownServiceTempleOffering.cs": hashlib.sha256(offering_raw.encode()).hexdigest()}
 
 
 def mutations():
     return [
+        ("merchant-approach-latch", "TempleApproach.cs", "if (destination != EGuildmasterMode.None && destination != EGuildmasterMode.Temple)\n        { _approachInside = false; return; }", "if (destination != EGuildmasterMode.None && destination != EGuildmasterMode.Temple)\n        { _approachInside = true; return; }", "leaving merchant mode while still beside priestess reopens native Temple"),
         ("temple-close-missing", "TempleExit.cs", "ModalFallback.CloseFloatedWindow(_window);", "", "physical departure closes native temple before visiting another resident"),
         ("repeat-donation", "RitualTransactions.cs", "_submittedOfferings.Add(offering);", "", "a delayed online stock refresh never permits a duplicate donation"),
         ("delayed-validation", "RitualGuard.cs", "_box != null && _valid()", "_box != null", "delayed owner change cancels original transaction"),

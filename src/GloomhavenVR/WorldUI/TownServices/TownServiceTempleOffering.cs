@@ -39,12 +39,18 @@ internal sealed class TownServiceTempleOffering : IDisposable
         bool near = station != null && station.IsLocalVisitorNear(_approachInside)
             && TownServiceOfferingPose.VisitorWithin(station.Root, _approachInside ? 1.65f : 1.4f);
         if (!near) { _approachInside = false; return; }
+        // Another service can take the native destination while the visitor remains in
+        // this radius. Keep its latch clear so returning from that service can approach
+        // the priestess again; a deliberate close of Temple itself still stays latched.
+        EGuildmasterMode destination = GuildmasterDestinations.CurrentDestinationMode();
+        if (destination != EGuildmasterMode.None && destination != EGuildmasterMode.Temple)
+        { _approachInside = false; return; }
         if (_approachInside || Time.unscaledTime < _approachAt
             || VRHands.Left?.Grabber.Held is VRCard || VRHands.Right?.Grabber.Held is VRCard) return;
-        _approachInside = true;
-        if (GuildmasterDestinations.CurrentDestinationMode() != EGuildmasterMode.None
+        if (destination != EGuildmasterMode.None
             || Core.Events.VRModeStateMachine.CurrentMode == Core.Events.VRMode.ModalUI
             || !MapRoomDriver.CanVisitTownService(EGuildmasterMode.Temple)) return;
+        _approachInside = true;
         _approachAt = Time.unscaledTime + .5f;
         MapRoomDriver.PressGuildmasterMode(EGuildmasterMode.Temple, "approached priestess");
     }
@@ -89,7 +95,10 @@ internal sealed class TownServiceTempleOffering : IDisposable
             hand.PalmGate.EnterDegrees = CardsConfig.RevealEnterDegrees.Value;
             hand.PalmGate.ExitDegrees = CardsConfig.RevealExitDegrees.Value;
             hand.PalmGate.IgnoreWhenHandBusy = CardsConfig.RevealIgnoreWhenGrabbing.Value;
-            Root.position = hand.Rig.PalmCenter.position + hand.Rig.PalmCenter.up * (.075f * hand.WorldScale);
+            // The normalized original bag is 15 cm tall and its root is at its base.
+            // Seat that base above the visible palm; the old 7.5 cm offset buried the
+            // lower half in the fingers before the player even picked it up.
+            Root.position = hand.Rig.PalmCenter.position + hand.Rig.PalmCenter.up * (.12f * hand.WorldScale);
             // A purse is an upright object resting above the palm, not a card billboard.
             Vector3 forward = VRRigDriver.HeadCamera != null
                 ? Root.position - VRRigDriver.HeadCamera.transform.position : _station.forward;

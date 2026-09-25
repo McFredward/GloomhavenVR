@@ -427,15 +427,31 @@ internal sealed class TownServiceRitual : IDisposable
 
     private bool Donate(UITempleWindow temple, UITempleShopSlot slot, Action<bool>? settled = null)
     {
-        if (!OfferingEligible(temple, slot)) return false;
+        if (!OfferingEligible(temple, slot))
+        {
+            if (VRLog.WantsDebug) VRLog.Debug("TownServices", "Temple purse entered bowl but native blessing is unavailable; confirmation was not opened.");
+            return false;
+        }
         var offering = (temple.character.CharacterID, (object)slot.Blessing);
         _submittedOfferings.Add(offering);
         bool submitted = Confirm(slot.button, () => slot.Blessing, temple,
             () => _templeOffering?.Available == true && TempleEligible(temple, slot),
-            committed => { if (!committed) _submittedOfferings.Remove(offering); settled?.Invoke(committed); });
+            committed =>
+            {
+                if (!committed) _submittedOfferings.Remove(offering);
+                // This confirms execution of the original callback, not a later host
+                // inventory/currency acknowledgement. Keep those distinct in bug logs.
+                if (committed) VRLog.Note("TownServices", "Temple purse: original donation callback executed for the selected blessing.");
+                else if (VRLog.WantsDebug) VRLog.Debug("TownServices", "Temple purse: native confirmation cancelled or stale before donation callback.");
+                settled?.Invoke(committed);
+            });
         // Online clients wait for the original host action before stock refreshes. A second
         // release during that interval must never send the same donation twice.
-        if (!submitted) _submittedOfferings.Remove(offering);
+        if (!submitted)
+        {
+            _submittedOfferings.Remove(offering);
+            if (VRLog.WantsDebug) VRLog.Debug("TownServices", "Temple purse: native confirmation could not be submitted.");
+        }
         return submitted;
     }
 

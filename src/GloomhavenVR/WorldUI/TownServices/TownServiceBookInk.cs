@@ -174,6 +174,73 @@ internal sealed class TownServiceBookInk
                     if (normal.y >= .6f) _triangles.Add((a, b, c, normal));
                 }
             }
+            // The original prop has dense dark decorative print across both pages.
+            // Native localized ink on top of that print was unreadable in the headset
+            // (build 558 screenshot 085152). Lay a thin blank parchment skin over the
+            // same sampled page curvature, below the real text. No collider or copied
+            // gameplay component is created. The cover and spine remain original.
+            AddBlankPages(book, frame);
+        }
+        private void AddBlankPages(Transform book, Transform frame)
+        {
+            const int columns = 12, rows = 18;
+            var vertices = new List<Vector3>();
+            var uvs = new List<Vector2>();
+            var indices = new List<int>();
+            var covered = new List<bool>();
+            // Two native leaves, separated at the fold. Stay 2 mm inside the outer
+            // edges so the original raised binding keeps a visible paper border.
+            float[] edges = { -.488f, -.332f, -.328f, -.172f };
+            for (int page = 0; page < 2; page++)
+            {
+                int start = vertices.Count;
+                for (int row = 0; row <= rows; row++)
+                    for (int column = 0; column <= columns; column++)
+                    {
+                        float u = column / (float)columns, v = row / (float)rows;
+                        float x = Mathf.Lerp(edges[page * 2], edges[page * 2 + 1], u);
+                        float z = Mathf.Lerp(-.288f, .038f, v);
+                        bool onPage = Sample(x, z, out Vector3 surface, out Vector3 normal);
+                        covered.Add(onPage);
+                        vertices.Add(book.InverseTransformPoint(frame.TransformPoint(surface + normal * .0002f)));
+                        uvs.Add(new Vector2(u, v));
+                    }
+                for (int row = 0; row < rows; row++)
+                    for (int column = 0; column < columns; column++)
+                    {
+                        int a = start + row * (columns + 1) + column, b = a + columns + 1;
+                        // The native binding curves and trims the outer leaves. Skip
+                        // only cells outside its actual top surface, not the whole book.
+                        if (!covered[a] || !covered[a + 1] || !covered[b] || !covered[b + 1]) continue;
+                        indices.Add(a); indices.Add(b); indices.Add(a + 1);
+                        indices.Add(a + 1); indices.Add(b); indices.Add(b + 1);
+                    }
+            }
+            if (indices.Count == 0) return;
+            Shader? shader = TownServiceAssets.Shader("townnpc");
+            if (shader == null) return;
+            var parchment = new GameObject("Town.BlankTemplePages") { layer = book.gameObject.layer };
+            parchment.transform.SetParent(book, false);
+            var mesh = new Mesh { name = "Blank original temple leaves" };
+            mesh.SetVertices(vertices); mesh.SetUVs(0, uvs); mesh.SetTriangles(indices, 0);
+            mesh.RecalculateNormals(); mesh.RecalculateBounds();
+            parchment.AddComponent<MeshFilter>().sharedMesh = mesh;
+            var texture = new Texture2D(16, 16, TextureFormat.RGBA32, false) { name = "Unwritten temple parchment", wrapMode = TextureWrapMode.Repeat };
+            for (int y = 0; y < 16; y++)
+                for (int x = 0; x < 16; x++)
+                {
+                    float grain = .94f + ((x * 37 + y * 61 + x * y * 13) % 17) / 300f;
+                    texture.SetPixel(x, y, new Color(grain, grain, grain, 1f));
+                }
+            texture.Apply(false, true);
+            var material = new Material(shader) { name = "Town.BlankTempleParchment", mainTexture = texture };
+            material.SetColor("_Color", new Color(.91f, .78f, .57f, 1f));
+            material.SetColor("_EmissionColor", new Color(.10f, .075f, .045f, 1f));
+            material.EnableKeyword("_EMISSION");
+            material.SetFloat("_Glossiness", .08f);
+            parchment.AddComponent<MeshRenderer>().sharedMaterial = material;
+            var lifetime = parchment.AddComponent<TownServiceBlankPagesLifetime>();
+            lifetime.Mesh = mesh; lifetime.Texture = texture; lifetime.Material = material;
         }
         internal bool Sample(float x, float z, out Vector3 point, out Vector3 normal)
         {
@@ -207,5 +274,19 @@ internal sealed class TownServiceBookInk
         if (v < 0f || u + v > 1f) return false;
         distance = Vector3.Dot(edge2, q) * inv;
         return distance >= 0f;
+    }
+}
+
+/// <summary>Generated reading skin belongs to its original book, not the global asset cache.</summary>
+internal sealed class TownServiceBlankPagesLifetime : MonoBehaviour
+{
+    internal Mesh? Mesh;
+    internal Texture2D? Texture;
+    internal Material? Material;
+    private void OnDestroy()
+    {
+        if (Mesh != null) UnityEngine.Object.Destroy(Mesh);
+        if (Texture != null) UnityEngine.Object.Destroy(Texture);
+        if (Material != null) UnityEngine.Object.Destroy(Material);
     }
 }

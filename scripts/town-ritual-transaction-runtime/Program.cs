@@ -4,10 +4,12 @@
 // and never assigns the unused _onCancelCallback field. Capture models only the Harmony
 // prefix dispatch; real patch installation is a separate integration requirement.
 using System;
+using GloomhavenVR.Core;
 using GloomhavenVR.WorldUI;
 using UnityEngine;
 using UnityEngine.UI;
 using UnityEngine.EventSystems;
+namespace GloomhavenVR.Core { internal static class VRLog { internal static bool WantsDebug => false; internal static void Debug(string scope,string message) {} internal static void Note(string scope,string message) {} } }
 public class Singleton<T>{public static T Instance=default!;}
 public class UIWindow:MonoBehaviour{public bool IsOpen;}
 public class UITempleWindow:MonoBehaviour{public bool _isConfirmationBoxOpened;public FakeCharacter character=new();public FakeTempleInventory Shop=new();public FakeTempleService service=new();}
@@ -91,6 +93,6 @@ public static class InteractionProgram
         TownServiceRitualConfirmationGuard.Capture(a.GetComponent<UIEnhancementConfirmationBox>(),ref cb,ref cancelCb);
         Check(ReferenceEquals(cb,original)&&ReferenceEquals(cancelCb,originalCancel),"scope exits without intercepting future flat prompts");
         UnityEngine.Object.DestroyImmediate(a);UnityEngine.Object.DestroyImmediate(b);
-        return count + DonationProof.Run() + TempleExitProof.Run();
+        return count + DonationProof.Run() + TempleExitProof.Run() + TempleApproachProof.Run();
     }
 }

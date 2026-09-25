@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using GloomhavenVR.Cards;
+using GloomhavenVR.Core;
 using GloomhavenVR.Hands;
 using GloomhavenVR.Hands.Interact;
 using GloomhavenVR.Net;
@@ -234,9 +235,11 @@ internal sealed class TownServiceToken : IGrabbable, ITriggerOnlyGrabbable, IGra
             }
             if (_uprightProp)
             {
-                // A purse hangs below the pinch; it does not adopt a flat card reading pose.
+                // The original purse template is normalized at its bottom and stands about
+                // 15 cm tall. Put that bottom below the pinch so the fingers hold its neck;
+                // the old 5.5 cm drop buried most of the mesh through the glove.
                 _heldRotation = Quaternion.Inverse(hand.Rig.GrabAnchor.rotation) * _physical.rotation;
-                _heldPosition = pinch + hand.Rig.GrabAnchor.InverseTransformVector(Vector3.down * (.055f * hand.WorldScale));
+                _heldPosition = pinch + hand.Rig.GrabAnchor.InverseTransformVector(Vector3.down * (.13f * hand.WorldScale));
             }
             _physical.SetParent(hand.Rig.GrabAnchor, true);
             _held = _physical.gameObject;
@@ -279,10 +282,23 @@ internal sealed class TownServiceToken : IGrabbable, ITriggerOnlyGrabbable, IGra
         {
             // A deliberate trigger release in the matching zone is the sole transaction
             // gesture. Cancellation, stale context, pose loss and all other drops return.
-            bool commit = _heldTracked && hand.HasPose && hand.TriggerUp && _drop != null && DropEligible
-                && ReferenceEquals(_pickedIdentity, _identity()) && ReferenceEquals(_pickedContext, _contextIdentity())
-                && _held != null && (_dropLocation?.Invoke(_held.transform.position)
-                    ?? WithinDropZone(_mat.InverseTransformPoint(_held.transform.position) - _zoneCenter));
+            // The purse's normalized root is its visible bottom, which is the point that
+            // must enter the bowl. Sample it before parenting back to the worktop. A
+            // Debug line per release separates a missed trigger, stale owner, unavailable
+            // native blessing and missed bowl from a native confirmation refusal.
+            Vector3 dropPoint = _held != null ? _held.transform.position : Vector3.zero;
+            bool gesture = _heldTracked && hand.HasPose && hand.TriggerUp && _drop != null;
+            bool eligible = gesture && DropEligible;
+            bool identity = eligible && ReferenceEquals(_pickedIdentity, _identity());
+            bool context = identity && ReferenceEquals(_pickedContext, _contextIdentity());
+            bool inZone = context && _held != null && (_dropLocation?.Invoke(dropPoint)
+                ?? WithinDropZone(_mat.InverseTransformPoint(dropPoint) - _zoneCenter));
+            bool commit = inZone;
+            if (_uprightProp && VRLog.WantsDebug)
+                VRLog.Debug("TownServices", "Temple purse release: " + (commit ? "bowl accepted" : "returned")
+                    + " tracked=" + _heldTracked + " pose=" + hand.HasPose + " triggerUp=" + hand.TriggerUp
+                    + " eligible=" + eligible + " identity=" + identity + " context=" + context
+                    + " bowl=" + inZone + " point=" + dropPoint);
             Hover(false);
             _physical.SetParent(_homeParent, true);
             _returnPosition = _physical.localPosition; _returnRotation = _physical.localRotation; _returnScale = _physical.localScale;

@@ -672,7 +672,7 @@ public static class InteractionProgram
             Check(Quaternion.Angle(initial, physical.rotation) < .05f, "purse pickup preserves upright physical orientation");
             Vector3 pinch = new Vector3(0f, CardsConfig.HeldOffPalm.Value, CardsConfig.HeldForward.Value);
             Vector3 below = physical.position - hand.Rig.GrabAnchor.TransformPoint(pinch);
-            Check(Vector3.Distance(below, Vector3.down * (.055f * scale)) < .0001f,
+            Check(Vector3.Distance(below, Vector3.down * (.13f * scale)) < .0001f,
                 "purse hangs below pinch without applying map scale twice");
             Quaternion delta = Quaternion.Euler(10f, -20f, 15f);
             hand.Rig.GrabAnchor.rotation = delta * hand.Rig.GrabAnchor.rotation;

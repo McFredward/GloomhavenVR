@@ -50,7 +50,8 @@ public static class Probe
         return go;
     }
 }
-namespace GloomhavenVR.Core { internal static class VRLog { public static void Note(string a, string b) { } public static void Warn(string a,string b) {} } }
+namespace GloomhavenVR.Core { internal static class VRLog { public static bool WantsDebug => false; public static void Note(string a, string b) { } public static void Warn(string a,string b) {} public static void Debug(string a,string b) {} } }
+namespace GloomhavenVR.WorldUI { internal static class TownServiceTempleOffering { internal static void TickApproach() {} } }
 namespace GloomhavenVR.Core
 { internal static class Loc { internal static event Action? OnChanged { add { } remove { } } internal static string Mod(string key) => key; } }
 namespace TMPro
