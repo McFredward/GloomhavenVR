@@ -12,7 +12,8 @@ internal sealed class TownServiceFrame
     internal bool PublicCatalog;
     internal uint PublicClaim;
     internal byte Service;
-    internal const ushort ManifestModule = ushort.MaxValue, BundleStream = ushort.MaxValue - 1;
+    internal const ushort ManifestModule = ushort.MaxValue, BundleStream = ushort.MaxValue - 1,
+        VoiceModule = ushort.MaxValue - 2;
     internal uint Session;
     internal ulong Sequence;
     internal ulong BaseSequence;

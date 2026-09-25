@@ -29,7 +29,11 @@ internal sealed class TownServiceSessionInfo
 /// </summary>
 internal static partial class TownServiceMirror
 {
-    static TownServiceMirror() { TownServiceDelivery.Completed = SnapshotSent; }
+    static TownServiceMirror()
+    {
+        TownServiceDelivery.Completed = SnapshotSent;
+        TownServiceVoice.RelayRequest = QueueVoiceReaction;
+    }
     internal static readonly TownServiceAssets Assets = new();
     private static readonly Dictionary<int, TownServiceSessionInfo> Sessions = new();
     private static readonly Dictionary<int, TownServiceSessionInfo> VisitorSessions = new();
@@ -226,14 +230,14 @@ internal static partial class TownServiceMirror
         TemplateKey(service, 1);
         if (session == 0 || sharedFrame == null || stationAnchor == null) throw new ArgumentException("Missing town-service session frame.");
         if (_session != session || _service != service)
-        { ClearLocalModules(); _nextManifest = 0; _sessionStarted = Time.unscaledTime - Mathf.Max(0f, ownerAge); }
+        { ClearLocalModules(); ClearVoiceOutgoing(); _nextManifest = 0; _sessionStarted = Time.unscaledTime - Mathf.Max(0f, ownerAge); }
         _service = service; _session = session; _sharedFrame = sharedFrame; _station = stationAnchor; _active = true;
     }
 
     internal static void RegisterModule(ushort module, ushort template, Transform liveRoot,
         Func<Transform, bool>? exclude = null, string address = "")
     {
-        if (!_active || module >= TownServiceFrame.BundleStream || liveRoot == null
+        if (!_active || module >= TownServiceFrame.VoiceModule || liveRoot == null
             || Local.Count >= TownServiceFrame.MaxModules && !Local.ContainsKey(module))
             throw new ArgumentException("Invalid live town-service module.");
         if (!Templates.ContainsKey(TemplateKey(_service, template, address)))
@@ -286,13 +290,13 @@ internal static partial class TownServiceMirror
         || ReferenceEquals(_local, PrivateLane) && _service == 1 && module.Address == MerchantOfferingAddress;
 
     internal static void EndSession()
-    { _active = false; _closedUntil = Time.unscaledTime + 5; _nextManifest = 0; ClearLocalModules(); }
+    { _active = false; _closedUntil = Time.unscaledTime + 5; _nextManifest = 0; ClearVoiceOutgoing(); ClearLocalModules(); }
 
     /// <summary>Call in the owner's final presentation pass. Immutable packets go to the existing transport.</summary>
     internal static void Capture(Action<byte[], int> send) => Capture((bytes, length, _) => send(bytes, length));
     internal static void Capture(Action<byte[], int, object?> send)
     {
-        using (new LaneScope(PrivateLane)) CaptureLane(send);
+        using (new LaneScope(PrivateLane)) { CaptureLane(send); CaptureVoice(send); }
         using (new LaneScope(PublicLane)) CaptureLane(send);
     }
     private static void CaptureLane(Action<byte[], int, object?> send)
@@ -382,6 +386,8 @@ internal static partial class TownServiceMirror
     internal static bool Receive(int peer, byte[] packet, int length)
     {
         if (peer <= 0 || !TownServiceCodec.TryRead(packet, length, out TownServiceFrame? frame)) return false;
+        if (frame!.Module == TownServiceFrame.VoiceModule)
+        { ReceiveVoice(peer, frame); return true; }
         if (frame!.PublicCatalog) { peer = -peer; _observedPublicClaim = Math.Max(_observedPublicClaim, frame.PublicClaim); }
         if (!Sessions.ContainsKey(peer) && Sessions.Count >= 16) return true;
         if (frame!.Module == TownServiceFrame.ManifestModule)
@@ -403,6 +409,7 @@ internal static partial class TownServiceMirror
             PrunePending(Pending, peer, frame);
             PrunePending(ReceivedBaselines, peer, frame);
             ReconcileMerchantOffering(peer);
+            if (peer > 0) FlushVoicePending(peer);
             return true;
         }
         if (!Pending.TryGetValue(peer, out Dictionary<ushort, TownServiceFrame>? pending))
@@ -654,7 +661,7 @@ internal static partial class TownServiceMirror
         canvas.sortingOrder = frame.CanvasSortingOrder; canvas.sortingLayerID = frame.CanvasSortingLayer;
     }
     internal static void RemovePeer(int peer)
-    { MerchantOfferings.Remove(peer); ClearRemoteModules(peer); Pending.Remove(peer); ReceivedBaselines.Remove(peer); Sessions.Remove(peer); VisitorSessions.Remove(peer);
+    { MerchantOfferings.Remove(peer); ClearVoicePeer(peer); ClearRemoteModules(peer); Pending.Remove(peer); ReceivedBaselines.Remove(peer); Sessions.Remove(peer); VisitorSessions.Remove(peer);
       ClearRemoteModules(-peer); Pending.Remove(-peer); ReceivedBaselines.Remove(-peer); Sessions.Remove(-peer); }
     internal static void RequestFullRefresh()
     {
@@ -668,7 +675,7 @@ internal static partial class TownServiceMirror
     internal static void ResetNetwork()
     {
         foreach (int peer in new List<int>(Remote.Keys)) ClearRemoteModules(peer);
-        MerchantOfferings.Clear(); Pending.Clear(); ReceivedBaselines.Clear(); Sessions.Clear(); VisitorSessions.Clear(); RemoteRetry.Clear(); foreach (LocalModule module in AllLocalModules())
+        MerchantOfferings.Clear(); ClearVoiceNetwork(); Pending.Clear(); ReceivedBaselines.Clear(); Sessions.Clear(); VisitorSessions.Clear(); RemoteRetry.Clear(); foreach (LocalModule module in AllLocalModules())
         { module.Last = null; module.Baseline = null; module.NextRefresh = module.NextBaseline = 0; }
         PrivateLane.NextManifest = PublicLane.NextManifest = 0;
     }
@@ -677,7 +684,7 @@ internal static partial class TownServiceMirror
         ResetNetwork(); using (new LaneScope(PublicLane)) { ClearLocalModules(); _session = 0; _active = false; }
         ClearLocalModules(); Templates.Clear();
         if (_templateHost != null) Object.Destroy(_templateHost);
-        _templateHost = null; _session = 0; _service = 0; _active = false; _station = _sharedFrame = null;
+        _templateHost = null; _session = 0; _service = 0; _active = false; _station = _sharedFrame = null; ClearVoiceOutgoing();
         SourceParents.Clear(); ParentGroups.Clear(); TownServiceMaterial.Reset(); Assets.Clear();
         ReportReset();
     }

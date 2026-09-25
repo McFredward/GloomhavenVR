@@ -182,17 +182,43 @@ internal sealed class TownServiceLaneSendQueue
 internal sealed class TownServiceSendQueue
 {
     private readonly TownServiceLaneSendQueue _private, _public;
+    private readonly ExtrasSendQueue _voice;
+    private readonly Queue<(byte[] Bytes, TownServiceFrame Frame)> _voicePending = new();
+    private uint _voiceSession;
+    private byte _voiceService;
     private bool _publicTurn;
     internal TownServiceSendQueue(ulong seed)
     { _private = new TownServiceLaneSendQueue(seed & ~131071UL);
-      _public = new TownServiceLaneSendQueue((seed & ~131071UL) | 65536UL); }
+      _public = new TownServiceLaneSendQueue((seed & ~131071UL) | 65536UL);
+      _voice = new ExtrasSendQueue((seed & ~131071UL) | TownServiceFrame.VoiceModule,
+          TownServiceCodec.MessageType, TownServiceCodec.FragmentType,
+          snapshotLimit: TownServiceFrame.MaxBytes, sequenceStride: 131072); }
     internal void Enqueue(byte[] bytes, int length, TownServiceFrame frame)
-        => (frame.PublicCatalog ? _public : _private).Enqueue(bytes, length, frame);
+    {
+        if (!frame.PublicCatalog && (_voiceSession != frame.Session || _voiceService != frame.Service))
+        { _voice.Clear(); _voicePending.Clear(); _voiceSession = frame.Session; _voiceService = frame.Service; }
+        if (frame.Module == TownServiceFrame.VoiceModule)
+        {
+            if (!TownServiceVoiceRelayCodec.TryRead(frame, out _) || _voicePending.Count >= 16) return;
+            byte[] copy = new byte[length]; Buffer.BlockCopy(bytes, 0, copy, 0, length);
+            _voicePending.Enqueue((copy, frame));
+            return;
+        }
+        (frame.PublicCatalog ? _public : _private).Enqueue(bytes, length, frame);
+    }
     internal byte[]? Next(double now)
     {
+        if (!_voice.HasPending && !_voice.HasInFlight && _voicePending.Count > 0)
+        {
+            var eventPacket = _voicePending.Dequeue();
+            _voice.Enqueue(eventPacket.Bytes, eventPacket.Bytes.Length);
+        }
+        byte[]? voice = _voice.Next(now);
+        if (voice != null) return voice;
         _publicTurn = !_publicTurn;
         return (_publicTurn ? _public : _private).Next(now) ?? (_publicTurn ? _private : _public).Next(now);
     }
-    internal void Clear() { _private.Clear(); _public.Clear(); }
+    internal void Clear()
+    { _private.Clear(); _public.Clear(); _voice.Clear(); _voicePending.Clear(); _voiceSession = 0; _voiceService = 0; }
     internal static bool SameIdentity(TownServiceFrame a, TownServiceFrame b) => TownServiceLaneSendQueue.SameIdentity(a,b);
 }

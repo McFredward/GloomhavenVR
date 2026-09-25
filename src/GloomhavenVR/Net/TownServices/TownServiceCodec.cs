@@ -356,7 +356,7 @@ internal static class TownServiceCodec
             throw new InvalidDataException("Malformed town-service manifest.");
         if (frame.SampleTime < 0) throw new InvalidDataException("Invalid town-service sample time.");
         for (int i = 0; i < frame.Modules.Length; i++)
-            if (frame.Modules[i] >= TownServiceFrame.BundleStream || (i > 0 && frame.Modules[i] <= frame.Modules[i - 1]))
+            if (frame.Modules[i] >= TownServiceFrame.VoiceModule || (i > 0 && frame.Modules[i] <= frame.Modules[i - 1]))
                 throw new InvalidDataException("Invalid town-service manifest.");
         foreach (float value in frame.Pose) Finite(value);
         double norm = 0;

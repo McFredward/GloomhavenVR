@@ -20,6 +20,68 @@ public sealed class GameplayFixture : MonoBehaviour
 
 public static partial class MirrorProgram
 {
+    private static void VoiceRelay()
+    {
+        TownServiceMirror.Shutdown();
+        GloomhavenVR.WorldUI.TownServiceVoice.Accepted.Clear();
+        Transform owner = Go("Voice visitor").transform;
+        TownServiceMirror.BeginSession(1, 910, owner, owner);
+        GloomhavenVR.WorldUI.TownServiceVoice.RelayRequest!(1,
+            GloomhavenVR.WorldUI.TownVoiceReaction.MerchantBuy);
+        GloomhavenVR.WorldUI.TownServiceVoice.RelayRequest!(1,
+            GloomhavenVR.WorldUI.TownVoiceReaction.MerchantSell);
+        List<byte[]> first = Capture();
+        byte[] manifest = first.Find(bytes => TownServiceCodec.TryRead(bytes, bytes.Length, out TownServiceFrame? f)
+            && f!.Module == TownServiceFrame.ManifestModule)!;
+        var events = first.FindAll(bytes => TownServiceCodec.TryRead(bytes, bytes.Length, out TownServiceFrame? f)
+            && f!.Module == TownServiceFrame.VoiceModule);
+        Check(manifest != null && events.Count == 1, "one bounded voice request is captured per presentation pass");
+        List<byte[]> second = Capture();
+        events.AddRange(second.FindAll(bytes => TownServiceCodec.TryRead(bytes, bytes.Length, out TownServiceFrame? f)
+            && f!.Module == TownServiceFrame.VoiceModule));
+        Check(events.Count == 2, "distinct visitor requests retain their sequence");
+        Check(TownServiceCodec.TryRead(events[0], events[0].Length, out TownServiceFrame? firstEvent)
+            && TownServiceVoiceRelayCodec.TryRead(firstEvent!, out var firstReaction)
+            && firstReaction == GloomhavenVR.WorldUI.TownVoiceReaction.MerchantBuy
+            && !firstEvent!.PublicCatalog && firstEvent.Session == 910,
+            "voice request uses a private cosmetic envelope");
+        int publicBefore = TownServiceMirror.PublicSessions.Count;
+        TownServiceMirror.Receive(2, events[0], events[0].Length);
+        TownServiceMirror.Receive(2, events[1], events[1].Length);
+        Check(GloomhavenVR.WorldUI.TownServiceVoice.Accepted.Count == 0,
+            "visitor request cannot play before a matching private manifest");
+        TownServiceMirror.Receive(2, manifest, manifest.Length);
+        Check(GloomhavenVR.WorldUI.TownServiceVoice.Accepted.Count == 2
+            && GloomhavenVR.WorldUI.TownServiceVoice.Accepted[0].Sequence == 1
+            && GloomhavenVR.WorldUI.TownServiceVoice.Accepted[1].Sequence == 2
+            && TownServiceMirror.PublicSessions.Count == publicBefore + 1
+            && TownServiceMirror.RemoteSessions.Count == 1
+            && !TownServiceMirror.PublicSessions.ContainsKey(-2),
+            "ordered requests reach face author without entering public catalog");
+        TownServiceFrame malformed = TownServiceVoiceRelayCodec.Create(1, 910, 3,
+            GloomhavenVR.WorldUI.TownVoiceReaction.MerchantBuy, Time.unscaledTime, 0f);
+        malformed.PublicCatalog = true;
+        byte[] rejected = TownServiceCodec.Write(malformed);
+        TownServiceMirror.Receive(2, rejected, rejected.Length);
+        Check(GloomhavenVR.WorldUI.TownServiceVoice.Accepted.Count == 2,
+            "public-catalog voice forgery is rejected");
+        malformed.PublicCatalog = false; malformed.Session = 911;
+        rejected = TownServiceCodec.Write(malformed);
+        TownServiceMirror.Receive(2, rejected, rejected.Length);
+        Check(GloomhavenVR.WorldUI.TownServiceVoice.Accepted.Count == 2,
+            "unmatched visitor session cannot trigger a reaction");
+        bool reservedCensusRejected = false;
+        try
+        {
+            TownServiceCodec.Write(new TownServiceFrame { Service = 1, Session = 910,
+                Sequence = 4, Module = TownServiceFrame.ManifestModule, Visible = true,
+                SampleTime = Time.unscaledTime, Modules = new[] { TownServiceFrame.VoiceModule },
+                Pose = new[] { 0f, 0f, 0f, 0f, 0f, 0f, 1f, 1f, 1f, 1f } });
+        }
+        catch (InvalidDataException) { reservedCensusRejected = true; }
+        Check(reservedCensusRejected, "voice events cannot masquerade as original widget modules");
+        TownServiceMirror.Shutdown();
+    }
     private static IEnumerator PrivateClothLane()
     {
         var owner = Go("Private cloth owner").transform;
@@ -1067,6 +1129,11 @@ public static partial class MirrorProgram
             if (suite == "item-transfer")
             {
                 ItemTransferDetector();
+                File.WriteAllText(Path.Combine(_output,"assertions.txt"),_assertions+" assertions\n");yield break;
+            }
+            if (suite == "voice-relay")
+            {
+                VoiceRelay();
                 File.WriteAllText(Path.Combine(_output,"assertions.txt"),_assertions+" assertions\n");yield break;
             }
             if (suite == "public-catalog")

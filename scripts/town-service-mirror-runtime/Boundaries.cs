@@ -20,6 +20,20 @@ namespace GloomhavenVR.Cards
 namespace GloomhavenVR.WorldUI
 {
     internal static class PanelMipBake { internal static Texture OriginalFor(Texture texture) => texture; }
+    internal enum TownVoiceReaction : byte
+    { MerchantOffer, MerchantBuy, MerchantSell, PriestessDonate, EnchantressEnhance }
+    internal static class TownServiceVoice
+    {
+        internal static Action<byte, TownVoiceReaction>? RelayRequest;
+        internal static readonly List<(byte Service, TownVoiceReaction Reaction, int Peer, uint Session, uint Sequence, float Age)> Accepted = new();
+        internal static bool AcceptRelayedReaction(byte service, TownVoiceReaction reaction,
+            int peer, uint session, uint sequence, float age)
+        {
+            if (!TownServicePopulation.IsFaceAuthor || age < 0f || age > 3f) return false;
+            Accepted.Add((service, reaction, peer, session, sequence, age)); return true;
+        }
+    }
+    internal static class TownServicePopulation { internal static bool IsFaceAuthor = true; }
     // The cloth mesh/contact solver has its own furniture fixture. This mirror
     // fixture observes only the network lane and the inert clone's lifecycle.
     internal sealed class TownServiceCloth : IDisposable

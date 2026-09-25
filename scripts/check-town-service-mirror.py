@@ -24,7 +24,7 @@ def expression(text, signature):
 def sources(root):
     base = root / "src/GloomhavenVR"
     names = ["TownServiceAssets", "TownServiceBinding", "TownServiceCodec", "TownServiceDelta",
-             "TownServiceFrame", "TownRackState", "TownCassetteMotion", "TownServiceMirror.Racks", "TownServiceMirror.Offerings", "TownServiceMaterial", "TownServiceFlameClock", "TownServiceMirror"]
+             "TownServiceFrame", "TownRackState", "TownCassetteMotion", "TownServiceMirror.Racks", "TownServiceMirror.Offerings", "TownServiceMirror.Voice", "TownServiceMaterial", "TownServiceFlameClock", "TownServiceMirror"]
     bound = {name + ".cs": (base / "Net/TownServices" / (name + ".cs")).read_text() for name in names}
     offering = base / "WorldUI/TownServices/TownServiceOfferingPose.cs"
     bound[offering.name] = offering.read_text()
@@ -93,7 +93,7 @@ def main():
     parser.add_argument("--source-root", type=Path, default=repo)
     parser.add_argument("--output-dir", type=Path, default=repo / ".planning/debug/town-service-mirror")
     parser.add_argument("--unity", type=Path, default=Path(os.environ.get("UNITY_PATH", "/home/claw/unity-2021.3.5/Editor/Unity")))
-    parser.add_argument("--suite", choices=("basic", "full", "lifecycle", "counter-final", "relocation", "asset-identity", "rack-clock", "catalog-lifetime", "public-catalog", "item-transfer"), default="full")
+    parser.add_argument("--suite", choices=("basic", "full", "lifecycle", "counter-final", "relocation", "asset-identity", "rack-clock", "catalog-lifetime", "public-catalog", "voice-relay", "item-transfer"), default="full")
     parser.add_argument("--no-negative-controls", action="store_true")
     args = parser.parse_args()
     args.source_root = args.source_root.resolve()
