@@ -37,16 +37,14 @@ def inspect_fan_contract(source):
 
 def sources(root):
     raw = (root / "src/GloomhavenVR/WorldUI/TownServices/TownServiceRitual.cs").read_text()
-    methods = method(raw, "private bool Confirm(") + "\n" + method(raw, "private void TickPendingConfirmation(") + "\n" + method(raw, "private static bool Click(")
+    methods = method(raw, "private bool Confirm(") + "\n" + method(raw, "private static bool Click(")
     methods = methods.replace("private bool Confirm(", "internal bool Confirm(")
-    methods = methods.replace("private void TickPendingConfirmation(", "internal void TickPendingConfirmation(")
     start = raw.index("    private bool OfferingEligible(")
     end = raw.index("    private bool Confirm(", start)
     methods += raw[start:end].replace("private bool Donate(", "internal bool Donate(")
     text = "using System;using System.Collections.Generic;using UnityEngine;using UnityEngine.UI;using UnityEngine.EventSystems;using GloomhavenVR.WorldUI;using GloomhavenVR.Core;\n" + \
         "internal sealed class BoundRitual {private readonly Func<bool> _alive;private readonly Func<bool> _sessionAlive;private readonly Func<object?> _context;" + \
         "private readonly HashSet<(string Character,object Blessing)> _submittedOfferings=new();internal FakeTempleOffering _templeOffering=new();" + \
-        "private UIEnhancementConfirmationBox? _pendingConfirmation;private Func<bool>? _pendingConfirmationValid;internal float _pendingConfirmationUntil;" + \
         "internal BoundRitual(Func<bool> alive,Func<object?> context){_alive=alive;_sessionAlive=alive;_context=context;}" + \
         "internal BoundRitual(Func<bool> alive,Func<bool> sessionAlive,Func<object?> context){_alive=alive;_sessionAlive=sessionAlive;_context=context;}\n" + methods + "\n}"
     guard_path = root / "src/GloomhavenVR/WorldUI/TownServices/TownServiceRitualConfirmationGuard.cs"
@@ -78,7 +76,7 @@ def sources(root):
 def mutations():
     return [
         ("temple-approach-hysteresis", "TempleApproach.cs", "TownServiceOfferingPose.VisitorWithin(station.Root, 1.4f)", "TownServiceOfferingPose.VisitorWithin(station.Root, _approachInside ? 1.65f : 1.4f)", "return from larger attention radius creates a fresh priestess approach"),
-        ("merchant-approach-latch", "TempleApproach.cs", "if (destination != EGuildmasterMode.None && destination != EGuildmasterMode.Temple)\n        { _approachInside = false; return; }", "if (destination != EGuildmasterMode.None && destination != EGuildmasterMode.Temple)\n        { _approachInside = true; return; }", "merchant departure reopens priestess without leaving her radius"),
+        ("merchant-approach-latch", "TempleApproach.cs", "if (destination != EGuildmasterMode.None) _approachInside = false;", "if (destination != EGuildmasterMode.None) _approachInside = true;", "blocked foreign service cannot preserve a stale temple latch"),
         ("temple-close-missing", "TempleExit.cs", "ModalFallback.CloseFloatedWindow(_window);", "", "physical departure closes native temple before visiting another resident"),
         ("repeat-donation", "RitualTransactions.cs", "_submittedOfferings.Add(offering);", "", "a delayed online stock refresh never permits a duplicate donation"),
         ("visitor-departure", "RitualTransactions.cs", "_templeOffering?.VisitorPresent == true && TemplePendingEligible(temple, slot)", "TemplePendingEligible(temple, slot)", "walking away before native completion cancels the donation"),
@@ -94,7 +92,7 @@ def mutations():
         ("ownership", "RitualTransactions.cs", "bool created = owns &&", "bool created =", "unowned new callback not confirmed"),
         ("stale-prompt", "RitualTransactions.cs", "if (created) box.Hide();", "if (created) { }", "own stale prompt cancelled through native lifecycle"),
         ("transient-row-lock", "RitualTransactions.cs", "if (!valid || !created)", "if (!valid || !button.IsInteractable() || !created)", "native row lock during confirmation is not a cancellation"),
-        ("deferred-confirm", "RitualTransactions.cs", "_pendingConfirmation = box;", "box.Hide();", "original confirmation becomes interactable after its entrance transition"),
+        ("flat-button-dependency", "RitualTransactions.cs", "box.OnConfirm();", "Click(box.confirmButton);", "one native confirmation succeeds"),
     ]
 
 

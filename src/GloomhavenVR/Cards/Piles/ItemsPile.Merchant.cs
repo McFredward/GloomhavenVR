@@ -134,8 +134,20 @@ internal sealed partial class ItemsPile
     {
         _inspectionCensusDirty = true;
         if (chip.Holder != null) return;
-        if (!IsOpen && _root != null) chip.BeginCollapse(_root.position);
-        else { chip.ResumeInspectionGlide(); Relayout(); }
+        if (_root == null) return;
+        // Every return path converges here. Merchant palm space is not a valid fan frame: keeping
+        // that parent made the normal local home rotation render as alternating backs/brown faces.
+        // Restore the canonical fan parent before either collapse or layout owns the pose.
+        chip.PrepareInspectionReturn(_root);
+        if (!IsOpen) chip.BeginCollapse(_root.position);
+        else if (!chip.InspectionArtPending) { chip.ResumeInspectionGlide(); Relayout(); }
+    }
+
+    /// <summary>Restore the fan frame before the base grabber records a parked card's return parent.</summary>
+    internal void PrepareInspectionReclaim(ItemChip chip)
+    {
+        if (_root == null || chip == null || !ReferenceEquals(chip.Owner, this)) return;
+        chip.transform.SetParent(_root, true);
     }
 
     private void RetireInspectionAt(int index)

@@ -5780,6 +5780,33 @@ internal sealed partial class ItemsPile
             return false;
         }
 
+        /// <summary>Re-enter the ordinary owned-item fan after any merchant offering outcome.</summary>
+        internal void PrepareInspectionReturn(Transform fanRoot)
+        {
+            if (Holder != null || fanRoot == null) return;
+            transform.SetParent(fanRoot, true);
+            Image? background = _cardUI != null ? _cardUI.cardBackground : null;
+            if (_cardUI == null || background != null && background.sprite != null)
+            {
+                _inspectionArtPending = false;
+                if (_box != null) _box.enabled = true;
+                return;
+            }
+
+            // A native inventory refresh can temporarily clear the async front even for a card
+            // object that already existed. Keep the backing unrendered/ungrabbable until the same
+            // original-art arrival seam used by newly purchased cards is ready.
+            _inspectionArtPending = true;
+            _inspectionArtConverge = transform.localPosition;
+            _inspectionArtSpinSign = transform.localPosition.x >= 0f ? 1f : -1f;
+            _inspectionArtDeadline = Time.unscaledTime + TightArtPollSeconds;
+            _emerging = false;
+            _releaseGlide = 0f;
+            transform.localRotation = _homeRot;
+            transform.localScale = Vector3.zero;
+            if (_box != null) _box.enabled = false;
+        }
+
         /// <summary>
         /// Requirement 5 (collapse): begin a self-driven WORLD-space glide into the pile stack point,
         /// then destroy this chip. The owner has already re-parented the chip out of the fan root so it
@@ -6266,6 +6293,10 @@ internal sealed partial class ItemsPile
             // root first (world pose preserved) keeps the whole grab/release path in one frame of
             // reference, so a cancel really does return the card to the deck.
             _owner?.UnclipChip(this);
+            // A merchant offering is parented to the resident's palm. Reclaim it into the fan
+            // frame before GrabbableBehaviour records its original parent; otherwise a later hand
+            // release restores the palm parent and interprets fan-local homes in merchant space.
+            if (TownOffering) _owner?.PrepareInspectionReclaim(this);
             // PendingUse means EXACTLY "this card is lying in the board's recess". A card in a hand
             // is not, so the flag drops at the grab rather than one tick later, when the owner's
             // per-tick service notices Holder != null and backs the decision out through its game

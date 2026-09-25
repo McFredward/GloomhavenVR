@@ -63,13 +63,14 @@ internal static class TempleApproachProof
         MapRoomHand.Selected=new FakeCharacter();
         MapRoomDriver.TemplePresses=0;
         GuildmasterDestinations.Mode=EGuildmasterMode.Merchant;
-        typeof(BoundTempleApproach).GetField("_approachInside",BindingFlags.Static|BindingFlags.NonPublic)!.SetValue(null,false);
+        typeof(BoundTempleApproach).GetField("_approachInside",BindingFlags.Static|BindingFlags.NonPublic)!.SetValue(null,true);
         typeof(BoundTempleApproach).GetField("_approachAt",BindingFlags.Static|BindingFlags.NonPublic)!.SetValue(null,0f);
+        GloomhavenVR.Core.Events.VRModeStateMachine.CurrentMode=GloomhavenVR.Core.Events.VRMode.ModalUI;
         BoundTempleApproach.TickApproach();
-        Check(MapRoomDriver.TemplePresses==0,"merchant owns native destination while player is in priestess radius");
-        GuildmasterDestinations.Mode=EGuildmasterMode.None;
+        Check(MapRoomDriver.TemplePresses==0,"merchant confirmation blocks a physical priestess switch");
+        GloomhavenVR.Core.Events.VRModeStateMachine.CurrentMode=GloomhavenVR.Core.Events.VRMode.TableIdle;
         BoundTempleApproach.TickApproach();
-        Check(MapRoomDriver.TemplePresses==1,"merchant departure reopens priestess without leaving her radius");
+        Check(MapRoomDriver.TemplePresses==1,"blocked foreign service cannot preserve a stale temple latch");
         Check(MapRoomDriver.LastSuppressed,"automatic priestess entry suppresses the flat button sound");
         GuildmasterDestinations.Mode=EGuildmasterMode.Temple;
         BoundTempleApproach.TickApproach();
@@ -88,12 +89,9 @@ internal static class TempleApproachProof
         Check(MapRoomDriver.TemplePresses==2,"return from larger attention radius creates a fresh priestess approach");
 
         GuildmasterDestinations.Mode=EGuildmasterMode.Enchantress;
-        BoundTempleApproach.TickApproach();
-        Check(MapRoomDriver.TemplePresses==2,"enchantress context cannot retain the temple approach latch");
-        GuildmasterDestinations.Mode=EGuildmasterMode.None;
         typeof(BoundTempleApproach).GetField("_approachAt",BindingFlags.Static|BindingFlags.NonPublic)!.SetValue(null,0f);
         BoundTempleApproach.TickApproach();
-        Check(MapRoomDriver.TemplePresses==3,"return from enchantress opens one fresh temple session");
+        Check(MapRoomDriver.TemplePresses==3,"physical priestess approach replaces an idle foreign town service");
         TownServicePopulation.Station.Near=false;
         BoundTempleApproach.TickApproach();
         TownServicePopulation.Station.Near=true;

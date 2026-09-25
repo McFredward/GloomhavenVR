@@ -98,6 +98,7 @@ namespace GloomhavenVR.Cards {
    private Vector3 _inspectionArtConverge;
    private float _inspectionArtSpinSign,_inspectionArtDeadline;
    public bool InspectionArtPending=>_inspectionArtPending;
+   public float FaceWidth=>.14f;
    public Vector3 Home=>_homePos; public Quaternion HomeRotation=>_homeRot;
    public float CollapseTime=>_collapseTime;
    private static float SeedScale()=>Mathf.Clamp(CardsConfig.ItemFanSeedScale.Value,.02f,1f);
@@ -136,6 +137,7 @@ namespace GloomhavenVR.WorldUI.MapRoom {
  }
 }
 namespace GloomhavenVR.WorldUI {
+ internal static class TownServiceMerchantLayout { internal const float CardWidth=.14f; }
  internal enum TownVoiceReaction : byte { MerchantOffer, MerchantBuy, MerchantSell }
  internal static class TownServiceVoice { internal static int Offers, Buys, Sells; internal static void RequestReaction(byte service, TownVoiceReaction reaction) { if(service!=1) return; if(reaction==TownVoiceReaction.MerchantOffer) Offers++; else if(reaction==TownVoiceReaction.MerchantBuy) Buys++; else if(reaction==TownVoiceReaction.MerchantSell) Sells++; } }
  public static class WorldUIConfig { public static readonly Cards.Dial<bool> ImmersiveTownServices = new(true); }

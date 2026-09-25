@@ -38,7 +38,6 @@ internal static class DonationProof
             var prompt=new GameObject("Original confirm",typeof(UIWindow),typeof(UIEnhancementConfirmationBox));
             var box=prompt.GetComponent<UIEnhancementConfirmationBox>();Singleton<UIEnhancementConfirmationBox>.Instance=box;
             var confirm=new GameObject("Confirm",typeof(RectTransform),typeof(Button));confirm.transform.SetParent(prompt.transform,false);box.confirmButton=confirm.GetComponent<Button>();
-            box.confirmButton.onClick.AddListener(box.Confirm);
             int commits=0,selections=0,cancels=0;
             FakeTempleOffering? offering=null;
             slot.button.onClick.AddListener(()=>

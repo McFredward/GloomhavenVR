@@ -262,9 +262,6 @@ internal sealed class TownServiceRitual : IDisposable
     private readonly float _started = Time.unscaledTime;
     private bool _disposed;
     private TownServiceTempleOffering? _templeOffering;
-    private UIEnhancementConfirmationBox? _pendingConfirmation;
-    private Func<bool>? _pendingConfirmationValid;
-    private float _pendingConfirmationUntil;
     private readonly HashSet<(string Character, object Blessing)> _submittedOfferings = new();
     internal TownServiceEnhancementHandoff? Handoff { get; private set; }
     internal TownServiceCardSlots CardSlots { get; } = new();
@@ -356,7 +353,6 @@ internal sealed class TownServiceRitual : IDisposable
 
     internal void Tick(float scale)
     {
-        TickPendingConfirmation();
         Handoff?.Tick();
         if (Handoff != null) CardSlots.Tick(Handoff);
         _templeOffering?.Tick(!_disposed && _alive());
@@ -530,42 +526,22 @@ internal sealed class TownServiceRitual : IDisposable
             if (created) box.Hide();
             return false;
         }
-        if (Click(box.confirmButton)) return true;
-        // The game's newly opened modal may keep its confirm button disabled until
-        // its entrance/focus transition completes. Build 560 hid the prompt within
-        // the same release; never turn a temporarily unavailable button into a
-        // cancellation after the native selection has already been accepted.
-        // Keep the physical purse in the bowl and press the ORIGINAL button once
-        // it becomes interactable; no donation is made by this presentation path.
-        _pendingConfirmation = box;
-        _pendingConfirmationValid = stillValid;
-        _pendingConfirmationUntil = Time.unscaledTime + 2f;
-        if (VRLog.WantsDebug) VRLog.Debug("TownServices", "Temple purse: waiting for the original confirmation button to become interactable.");
-        return true;
-    }
-
-    private void TickPendingConfirmation()
-    {
-        UIEnhancementConfirmationBox? box = _pendingConfirmation;
-        if (box == null) return;
-        if (!box.GetComponent<UIWindow>().IsOpen)
-        { _pendingConfirmation = null; _pendingConfirmationValid = null; return; }
-        bool valid = false;
-        try { valid = _pendingConfirmationValid != null && _pendingConfirmationValid(); }
-        catch (MissingReferenceException) { }
-        catch (NullReferenceException) { }
-        if (!valid)
+        // Gamepad mode intentionally does not wire confirmButton.OnClick in the flat game.
+        // Waiting for that visual control therefore leaves every VR donation pending forever.
+        // Enter through the confirmation box's own continuation instead: OnConfirm installs the
+        // native hidden-transition callback and starts Hide, so controller flags, navigation and
+        // delayed transaction validation still follow the exact flat-game lifecycle.
+        try
         {
-            _pendingConfirmation = null; _pendingConfirmationValid = null;
-            box.Hide();
-            return;
+            box.OnConfirm();
+            return true;
         }
-        if (Click(box.confirmButton))
-        { _pendingConfirmation = null; _pendingConfirmationValid = null; return; }
-        if (Time.unscaledTime < _pendingConfirmationUntil) return;
-        _pendingConfirmation = null; _pendingConfirmationValid = null;
-        VRLog.Warn("TownServices", "Temple purse: original confirmation button stayed unavailable; cancelled the pending donation.");
-        box.Hide();
+        catch (Exception error)
+        {
+            VRLog.Error("TownServices", "Temple purse could not continue through the original confirmation lifecycle: " + error);
+            if (box.GetComponent<UIWindow>().IsOpen) box.Hide();
+            return false;
+        }
     }
 
     private static bool Click(Selectable button)
@@ -579,9 +555,6 @@ internal sealed class TownServiceRitual : IDisposable
     public void Dispose()
     {
         if (_disposed) return; _disposed = true;
-        UIEnhancementConfirmationBox? pending = _pendingConfirmation;
-        _pendingConfirmation = null; _pendingConfirmationValid = null;
-        if (pending != null && pending.GetComponent<UIWindow>().IsOpen) pending.Hide();
         CardSlots.Dispose();
         Handoff?.Dispose(); Handoff = null;
         foreach (Piece piece in _pieces.Values) piece.Dispose(); _pieces.Clear(); _samples.Clear();

@@ -42,7 +42,6 @@ internal static class TownServiceMerchantHandoff
     private static ItemsPile.ItemChip? _offeredChip;
     private static TownServiceToken? _offeredStock;
     private static TownServiceOfferingCard? _offering;
-    private static Transform? _ownedHome;
     private static CMapParty? _party;
     private static ShopService? _shop;
     private static CItem? _eligibilityItem;
@@ -180,11 +179,16 @@ internal static class TownServiceMerchantHandoff
     {
         if (_resetting || _seat == null || chip.Item == null || !ReferenceEquals(chip.Owner, _fan)
             || !Offer(chip.Item, true, world)) return;
-        _offeredChip = chip; _ownedHome = chip.transform.parent;
+        _offeredChip = chip;
         chip.TownOffering = true; chip.TownOfferingReclaimed = Reclaim;
         chip.CancelReleaseGlide();
         chip.SetGrabStrip(float.MaxValue); chip.ClearHandSuppressed();
-        float scale = chip.transform.lossyScale.x / Mathf.Max(.0001f, _seat.lossyScale.x);
+        // Both sources occupy the same physical palm card: cabinet tokens are presented at
+        // 1.5 times their authored counter width, so derive the owned card's local scale from
+        // that world width instead of preserving its larger wrist-reading scale.
+        float stationScale = Mathf.Max(.0001f, Mathf.Abs((_station?.Root ?? _seat).lossyScale.x));
+        float worldWidth = TownServiceMerchantLayout.CardWidth * stationScale * 1.5f;
+        float scale = worldWidth / Mathf.Max(.0001f, chip.FaceWidth * Mathf.Abs(_seat.lossyScale.x));
         _offering = new TownServiceOfferingCard(chip.transform, _seat, scale);
     }
     internal static bool Offer(CItem item, bool selling, Vector3 world)
@@ -299,10 +303,8 @@ internal static class TownServiceMerchantHandoff
         if (chip != null)
         {
             chip.TownOffering = false; chip.TownOfferingReclaimed = null;
-            if (chip.Holder == null && _ownedHome != null) chip.transform.SetParent(_ownedHome, true);
             _fan?.ResumeInspection(chip);
         }
-        _ownedHome = null;
         stock?.ReturnOffering();
     }
 

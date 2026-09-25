@@ -40,12 +40,12 @@ internal sealed class TownServiceTempleOffering : IDisposable
         bool near = station != null && station.IsLocalVisitorNear(_approachInside)
             && TownServiceOfferingPose.VisitorWithin(station.Root, 1.4f);
         if (!near) { _approachInside = false; return; }
-        // Another service can take the native destination while the visitor remains in
-        // this radius. Keep its latch clear so returning from that service can approach
-        // the priestess again; a deliberate close of Temple itself still stays latched.
         EGuildmasterMode destination = GuildmasterDestinations.CurrentDestinationMode();
-        if (destination != EGuildmasterMode.None && destination != EGuildmasterMode.Temple)
-        { _approachInside = false; return; }
+        if (destination == EGuildmasterMode.Temple) return;
+        // A foreign service owns a different hand/fan mode. Clear any earlier Temple latch before
+        // considering a physical switch, so a blocked switch (modal confirmation, held card, or
+        // native refusal) can be retried and a later return can never inherit stale Temple state.
+        if (destination != EGuildmasterMode.None) _approachInside = false;
         // The latch describes the small physical APPROACH volume, not the resident's larger
         // attention/exit hysteresis. Build 561 kept it armed through 1.65 m. The three stands are
         // close enough that walking from the priestess to another resident can remain inside that
@@ -53,11 +53,10 @@ internal sealed class TownServiceTempleOffering : IDisposable
         // return never generated another approach edge and the ordinary ability fan remained.
         // Rearm as soon as the head leaves the same 1.4 m volume that opens the service. A deliberate
         // close while still standing at the bowl stays closed, while moving to another stand and
-        // returning creates one fresh edge. The destination check above clears the latch separately.
+        // returning creates one fresh edge. A foreign destination clears the latch separately.
         if (_approachInside || Time.unscaledTime < _approachAt
             || VRHands.Left?.Grabber.Held is VRCard || VRHands.Right?.Grabber.Held is VRCard) return;
-        if (destination != EGuildmasterMode.None
-            || Core.Events.VRModeStateMachine.CurrentMode == Core.Events.VRMode.ModalUI
+        if (Core.Events.VRModeStateMachine.CurrentMode == Core.Events.VRMode.ModalUI
             || !MapRoomDriver.CanVisitTownService(EGuildmasterMode.Temple)) return;
         _approachInside = true;
         _approachAt = Time.unscaledTime + .5f;

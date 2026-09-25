@@ -54,6 +54,7 @@ def sources(root):
         "internal void BeginEmerge(Vector3 localConverge, float delay, float spinSign)",
         "internal void BeginInspectionEmerge(Vector3 localConverge, float spinSign)",
         "internal bool TickInspectionArtArrival()",
+        "internal void PrepareInspectionReturn(Transform fanRoot)",
         "internal void BeginCollapse(Vector3 worldConverge, float delay = 0f, float spinSign = 1f)",
         "private void TickEmerge(float dt, Vector3 posTarget, float scaleTarget)",
         "private static float EaseOutBack(float t, float s)"])
@@ -75,6 +76,9 @@ def mutations():
         ("stale-native", "TownServiceMerchantHandoff.cs", "!ReferenceEquals(inventory.character, _character)", "false", "native inventory for another character cannot receive offer"),
         ("auto-approach", "TownServiceMerchantHandoff.cs", "_nextItems = 0f;", "_nextItems = 0f; MapRoomDriver.PressGuildmasterMode(EGuildmasterMode.Merchant, \"mutant\");", "approach never opens a native service"),
         ("return-dropped", "ItemsPile.Merchant.cs", "_inspectionPublished.AddRange(_inspectionRetiring);", "", "closing animation remains published until completion"),
+        ("return-parent", "ItemsPile.Merchant.cs", "chip.PrepareInspectionReturn(_root);", "", "every free merchant return restores the item fan parent"),
+        ("reclaim-parent", "ItemsPile.Merchant.cs", "chip.transform.SetParent(_root, true);", "", "reclaimed merchant item records the item fan as its release parent"),
+        ("offering-size", "TownServiceMerchantHandoff.cs", "float worldWidth = TownServiceMerchantLayout.CardWidth * stationScale * 1.5f;", "float worldWidth = chip.FaceWidth * stationScale * 2.5f;", "owned and cabinet cards have one merchant-palm size"),
     ]
 
 
@@ -117,7 +121,9 @@ def main():
                     text = (fixture / "ItemsPile.Merchant.pre-optimization.fixture").read_text()
                     # Preserve the historical quadratic census, adapting only its new parked-card API.
                     text = text.replace("if (chip.Holder == null && (", "if (chip.Holder == null && !chip.TownOffering && (")
-                    text = text.replace("    private void RetireInspectionAt", method(bound["ItemsPile.Merchant.cs"], "internal void ResumeInspection(ItemChip chip)") + "\n    private void RetireInspectionAt")
+                    return_methods = method(bound["ItemsPile.Merchant.cs"], "internal void ResumeInspection(ItemChip chip)") + "\n" + \
+                        method(bound["ItemsPile.Merchant.cs"], "internal void PrepareInspectionReclaim(ItemChip chip)")
+                    text = text.replace("    private void RetireInspectionAt", return_methods + "\n    private void RetireInspectionAt")
                     text = text.replace("TickInspection(IReadOnlyList<CItem> items)", "TickInspection(IReadOnlyList<CItem> items, uint revision)")
                     text = text.replace("chip.BeginEmerge(Vector3.zero, 0f, _chips.Count % 2 == 0 ? -1f : 1f);",
                                         "chip.BeginInspectionEmerge(Vector3.zero, _chips.Count % 2 == 0 ? -1f : 1f);")

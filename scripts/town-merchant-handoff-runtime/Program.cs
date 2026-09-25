@@ -62,6 +62,7 @@ public static class InteractionProgram
   for(int i=0;i<30;i++) character.AllCharacterItems.Add(new CItem{ID=i}); character.AllCharacterItems.Add(duplicate);
   character.AllCharacterItems[4].Tradeable=false; MapCharacterSelection.Selected=character;
   window.ItemInventory.character=character; window.ItemInventory.service=new ShopService(AdventureState.MapState.MapParty,_=>{});
+  ProveInspectionReturnInvariant(root.transform, character.AllCharacterItems[0]);
   TownServiceMerchantHandoff.Tick(); TownServiceMerchantHandoff.LateTick();
   Check(MapRoomDriver.Visits==0,"approach never opens a native service");
   Transform zone = TownServiceMerchantHandoff.Zone!;
@@ -95,6 +96,11 @@ public static class InteractionProgram
   // Native window opening may complete on a subsequent frame; no hidden purchase is allowed.
   first.Release(palm.position);
   Check(first.TownOffering && MapRoomDriver.Visits==1,"actual owned release parks the original card and requests merchant");
+  object offering=typeof(TownServiceMerchantHandoff).GetField("_offering",System.Reflection.BindingFlags.NonPublic|System.Reflection.BindingFlags.Static)!.GetValue(null)!;
+  float offeredScale=(float)offering.GetType().GetField("_scale",System.Reflection.BindingFlags.NonPublic|System.Reflection.BindingFlags.Instance)!.GetValue(offering)!;
+  float offeredWorldWidth=first.FaceWidth*offeredScale*first.transform.parent.lossyScale.x;
+  Check(Mathf.Abs(offeredWorldWidth-TownServiceMerchantLayout.CardWidth*scale*1.5f)<.0001f,
+      "owned and cabinet cards have one merchant-palm size");
   Check(MapRoomDriver.LastSuppressed,"automatic merchant entry suppresses the flat button sound");
   Check(first.transform.parent == zone.parent,"actual owned item shares the floating offering frame");
   Check(TownServiceMerchantTransaction.Requests==0,"release waits for native inventory readiness");
@@ -169,6 +175,27 @@ public static class InteractionProgram
   Check(Singleton<UIItemConfirmationBox>.Instance.IsActive && ReferenceEquals(Singleton<UIItemConfirmationBox>.Instance._onConfirmedCallback,foreign),"reset cannot cancel somebody else's confirmation");
   Check(TownServiceCatalog.Offer==null && TownServiceCatalog.CanOffer==null && TownServiceCatalog.InOfferingZone==null,"reset clears callback lifetime");
   UnityEngine.Object.DestroyImmediate(root);
+ }
+ private static void ProveInspectionReturnInvariant(Transform rigRoot,CItem item) {
+  var fan=ItemsPile.CreateInspection((chip,point)=>{});
+  fan.TickInspection(new[]{item},1);
+  var chip=fan.InspectionChips[0];
+  var merchantPalm=new GameObject("Merchant palm").transform;merchantPalm.SetParent(rigRoot,false);
+  chip.transform.SetParent(merchantPalm,true);chip.TownOffering=true;
+  fan.PrepareInspectionReclaim(chip);
+  Check(chip.transform.parent!=merchantPalm&&chip.transform.parent.name=="GloomhavenVR.MerchantOwnedItems",
+      "reclaimed merchant item records the item fan as its release parent");
+  chip.TownOffering=false;chip.transform.SetParent(merchantPalm,true);chip.SetArtReady(false);
+  fan.ResumeInspection(chip);
+  Check(chip.transform.parent!=merchantPalm&&chip.transform.parent.name=="GloomhavenVR.MerchantOwnedItems",
+      "every free merchant return restores the item fan parent");
+  Check(chip.InspectionArtPending&&chip.transform.localScale==Vector3.zero&&!chip.GetComponent<BoxCollider>().enabled,
+      "returned item never exposes a brown backing while its original front is unavailable");
+  chip.SetArtReady(true);Check(!chip.TickInspectionArtArrival(),"returned original front resumes the ordinary fan animation");
+  chip.AdvanceEmerge(1f);
+  Check(Quaternion.Angle(chip.transform.localRotation,chip.HomeRotation)<.1f,
+      "returned item lands front-forward at the canonical fan rotation");
+  fan.DestroyInspection();UnityEngine.Object.DestroyImmediate(merchantPalm.gameObject);
  }
  private sealed class InventoryProbe : IReadOnlyList<CItem> {
   public readonly List<CItem> Values = new(); public int Reads;
