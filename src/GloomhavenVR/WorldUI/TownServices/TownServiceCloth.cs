@@ -46,8 +46,14 @@ internal sealed class TownServiceCloth : IDisposable
         var filters = new List<MeshFilter>(2);
         foreach (MeshFilter filter in station.GetComponentsInChildren<MeshFilter>(true))
             if (filter.name.StartsWith("ClothRunner_", StringComparison.Ordinal)) filters.Add(filter);
-        filters.Sort((a, b) => _station.InverseTransformPoint(a.transform.position).x
-            .CompareTo(_station.InverseTransformPoint(b.transform.position).x));
+        // Imported FBX cloth objects can share the same pivot even when their
+        // actual sheets occupy opposite sides of the altar. Sort the mesh
+        // centres, not equal pivots: left/right controls must retain the same
+        // semantic runner order in the owner's TLV and every observer clone.
+        filters.Sort((a, b) => _station.InverseTransformPoint(
+                a.transform.TransformPoint(a.sharedMesh.bounds.center)).x
+            .CompareTo(_station.InverseTransformPoint(
+                b.transform.TransformPoint(b.sharedMesh.bounds.center)).x));
         if (filters.Count != (service == 2 ? 2 : service == 3 ? 1 : 0))
             throw new InvalidOperationException("Town cloth mesh count does not match the authored furniture for service " + service);
         _runners = new Runner[filters.Count];
@@ -79,7 +85,7 @@ internal sealed class TownServiceCloth : IDisposable
         for (int n = 0; n < rest.Length; n++)
         {
             Vector3 p = _station.InverseTransformPoint(filter.transform.TransformPoint(rest[n]));
-            runner.Freedom[n] = Mathf.Pow(Mathf.Clamp01((maxY - p.y - .045f) / (maxY - minY - .045f)), 1.45f);
+            runner.Freedom[n] = Freedom(p, maxY);
             runner.Side[n] = Mathf.Clamp01((p.x - minX) / (maxX - minX));
         }
         foreach (MeshFilter child in filter.GetComponentsInChildren<MeshFilter>(true))
@@ -94,7 +100,7 @@ internal sealed class TownServiceCloth : IDisposable
             for (int n = 0; n < childRest.Length; n++)
             {
                 Vector3 p = _station.InverseTransformPoint(child.transform.TransformPoint(childRest[n]));
-                decoration.Freedom[n] = Mathf.Pow(Mathf.Clamp01((maxY - p.y - .045f) / (maxY - minY - .045f)), 1.45f);
+                decoration.Freedom[n] = Freedom(p, maxY);
                 decoration.Side[n] = Mathf.Clamp01((p.x - minX) / (maxX - minX));
             }
             runner.Decorations.Add(decoration);
@@ -110,6 +116,22 @@ internal sealed class TownServiceCloth : IDisposable
         return runner;
     }
 
+    private float Freedom(Vector3 p, float top)
+    {
+        // The top of the old cloth was immobile until the hanging face began:
+        // physical hands touching the runner on the table produced no feedback.
+        // Each authored column follows the actual curved table lip. Its rear
+        // seam remains pinned, the upper weave can shift modestly, and the
+        // hanging face has full freedom without dragging through the stone.
+        float radiusX = _service == 2 ? .81f : .86f;
+        float edge = (_service == 2 ? 0f : .03f)
+            - (_service == 2 ? .38f : .46f)
+            * Mathf.Sqrt(Mathf.Max(0f, 1f - p.x * p.x / (radiusX * radiusX)));
+        float topWeave = Mathf.Clamp01((edge + .145f - p.z) / .145f);
+        float hanging = Mathf.Clamp01((top - p.y) / .38f);
+        return Mathf.Pow(Mathf.Max(.55f * topWeave, hanging), 1.25f);
+    }
+
     private static void Step(ref Vector2 position, ref Vector2 velocity, Vector2 target, float dt)
     {
         // Semi-implicit spring with bounded substeps remains stable across a VR
@@ -121,17 +143,26 @@ internal sealed class TownServiceCloth : IDisposable
             velocity += (25f * (target - position) - 9f * velocity) * h;
             position += velocity * h;
             position.x = Mathf.Clamp(position.x, -.08f, .08f);
-            // The +Z limit keeps even the inward-shifted edge outside the
-            // priestess's elliptical stone lip (closest clearance 35 mm).
-            position.y = Mathf.Clamp(position.y, -.06f, .03f);
+            // The authored free edge is only 4 mm outside the curved lip.
+            // A larger inward shift would bury the moving fabric in stone.
+            position.y = Mathf.Clamp(position.y, -.06f, .002f);
             velocity = Vector2.ClampMagnitude(velocity, .24f);
         }
     }
 
-    private void Contact(Runner runner, Vector3 world, float worldRadius, ref Vector2 left, ref Vector2 right)
+    private void Contact(Runner runner, Vector3 world, float physicalRadius, ref Vector2 left, ref Vector2 right)
     {
         Vector3 p = _station.InverseTransformPoint(world);
-        float radius = worldRadius / Mathf.Max(.0001f, Mathf.Abs(_station.lossyScale.x));
+        // Tracked hand/head positions are in game-world units; the advertised
+        // radii are real metres. The prior code divided 6.5 cm by the ~12x map
+        // scale, shrinking a hand to a few millimetres in cloth space, smaller
+        // than the 20 mm vertex spacing. No contact could pass the nearest-node
+        // check in the headset. Convert through the *live* rig scale first.
+        float rigScale = VRRigDriver.RigRoot != null
+            ? Mathf.Abs(VRRigDriver.RigRoot.lossyScale.x)
+            : Mathf.Max(.001f, VRRigDriver.BaseWorldScale);
+        float radius = physicalRadius * rigScale
+            / Mathf.Max(.0001f, Mathf.Abs(_station.lossyScale.x));
         if (p.y < runner.BottomY - radius || p.y > runner.TopY + radius
             || p.x < runner.LeftX - radius || p.x > runner.RightX + radius) return;
         if (p.z < runner.FrontZ - radius - .08f || p.z > .13f + radius) return;
@@ -152,6 +183,14 @@ internal sealed class TownServiceCloth : IDisposable
         Vector2 away = new(nearest.x - p.x, nearest.z - p.z);
         if (away.sqrMagnitude < .00001f) away = new Vector2(0f, nearest.z >= p.z ? 1f : -1f);
         Vector2 movement = away.normalized * push * runner.Freedom[closest];
+        // A finger in front of the free edge cannot shove the fabric through
+        // the tabletop. Spill that resisted inward displacement sideways.
+        if (movement.y > 0f && nearest.y < runner.TopY - .07f)
+        {
+            movement.x += (nearest.x < (runner.LeftX + runner.RightX) * .5f ? -1f : 1f)
+                * movement.y * .7f;
+            movement.y = 0f;
+        }
         float side = runner.Side[closest];
         left += movement * (1f - side); right += movement * side;
     }

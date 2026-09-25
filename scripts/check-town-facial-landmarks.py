@@ -71,6 +71,10 @@ def main():
     priestess_actual = source.side_texture_coordinates(priestess_ear, 'priestess')
     assert registered(priestess_actual, priestess_expected)
     assertions += 1
+    priestess_shape = source.fit(priestess_ear, 'priestess', orbital=False)
+    assert priestess_shape[0, 0] > .097 and priestess_shape[1, 0] > .087
+    assert priestess_shape[0, 2] - priestess_shape[1, 2] > .041
+    assertions += 2
     old_priestess = np.column_stack((111 + (priestess_ear[:, 2] + .391) / 2.0717 * 499,
                                      source.portrait_coordinates(priestess_ear, source.PROFILES['priestess'])[:, 1]))
     assert not registered(old_priestess, priestess_expected)

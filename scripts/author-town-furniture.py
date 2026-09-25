@@ -134,21 +134,32 @@ def turned_leg(x, z, height=.9, stone=False):
         ring('Forged collar', (x,y,z), .061, .009)
 
 
-def drape(x, width, z, top=.964, material='AltarCloth'):
-    # The former vertical fold began over the stone. Its vertices entered the
-    # mensa below the top face; a static renderer hid the fault until close VR
-    # inspection. Cross the measured front edge at tabletop height first. The
-    # free edge is a separate mesh so runtime cloth motion cannot drag the
-    # stone or detach a decorative stitched border.
+def cloth_front(x, table):
+    # The stone mensa and rootwood top have different elliptical footprints.
+    # A fixed -0.38 Z edge left most of the runner unsupported above the rim.
+    if table == 'priestess':
+        return -.38 * math.sqrt(max(0, 1 - (x / .81) ** 2))
+    if table == 'enchantress':
+        return .03 - .46 * math.sqrt(max(0, 1 - (x / .86) ** 2))
+    raise ValueError(table)
+
+
+def drape(x, width, table, top=.955, material='AltarCloth'):
+    # Every column follows the actual tabletop lip: the upper cloth rests on
+    # stone/wood, while the free rows begin just outside that lip. A single
+    # rectangular Z edge floated over both curved counters in headset closeup.
     vertices, faces = [], []
     for row in range(25):
         t = row/24
         for col in range(13):
             u = col/12
             xx = x+(u-.5)*width
-            fold = .007*math.sin(u*math.tau*3.2+.3)
-            zz = .12+(-.50)*min(1,t/.45) - .012*math.sin(u*math.tau*3)*(max(0,t-.45)/.55)
-            yy = top+.007+fold - .50*max(0,(t-.45)/.55)
+            edge = cloth_front(xx, table)
+            fold = .0015*math.sin(u*math.tau*3.2+.3)
+            surface = min(1, t/.45)
+            zz = edge+.145*(1-surface)-.004*surface
+            zz -= .012*math.sin(u*math.tau*3)*(max(0,t-.45)/.55)
+            yy = top+.0025+fold - .49*max(0,(t-.45)/.55)
             yy -= .018*max(0,(t-.84)/.16)*(1-abs(u*2-1))
             vertices.append((xx,yy,zz))
     for row in range(24):
@@ -164,15 +175,25 @@ def drape(x, width, z, top=.964, material='AltarCloth'):
     # per cloth is deformed by the same owner-authored edge controls at runtime;
     # the former unparented embroidery would remain fixed in midair.
     decorations=[]
-    decorations.append(ring('Runner sun embroidery',(x,top-.31,-.400),width*.19,.0025,vertical=True))
+    def stitched_z(xx, yy):
+        u = max(0, min(1, (xx-(x-width/2))/width))
+        drop = max(0, min(1, (top+.0025-yy)/.49))
+        return cloth_front(xx, table)-.007-.012*math.sin(u*math.tau*3)*drop
+
+    sun = [(x+width*.19*math.cos(i*math.tau/48),
+            top-.31+width*.19*math.sin(i*math.tau/48)) for i in range(49)]
+    decorations.append(tube('Runner sun embroidery',[(a,b,stitched_z(a,b)) for a,b in sun],
+                            [.0025]*len(sun),'Brass',6))
     for sign in (-1,1):
         points=[vertices[row*13+(1 if sign < 0 else 11)] for row in range(25)]
         decorations.append(tube('Runner stitched border',[(a,b+.002,c-.004) for a,b,c in points],
                                 [.0016]*25,'Brass',5))
     for i in range(12):
         a=i*math.tau/12
-        decorations.append(tube('Embroidered ray',[(x+width*.22*math.cos(a),top-.31+width*.22*math.sin(a),-.400),
-             (x+width*.28*math.cos(a),top-.31+width*.28*math.sin(a),-.400)],[.0018]*2,'Brass',5))
+        xx0=x+width*.22*math.cos(a); yy0=top-.31+width*.22*math.sin(a)
+        xx1=x+width*.28*math.cos(a); yy1=top-.31+width*.28*math.sin(a)
+        decorations.append(tube('Embroidered ray',[(xx0,yy0,stitched_z(xx0,yy0)),
+             (xx1,yy1,stitched_z(xx1,yy1))],[.0018]*2,'Brass',5))
     bpy.ops.object.select_all(action='DESELECT')
     for decoration in decorations: decoration.select_set(True)
     bpy.context.view_layer.objects.active=decorations[0]
@@ -189,7 +210,9 @@ def worn_crank_plate():
     # A hand-cut iron escutcheon has eight unequal corners and a shallow
     # hammer-bevel, unlike the previous perfectly circular annulus.
     n=32; vertices=[]; faces=[]
-    for x,r in ((-.021,.045),(-.015,.058),(-.010,.052)):
+    # The crank's outside seat is 45 mm left of the cabinet cheek. These
+    # asymmetrical forged layers end immediately before that wood surface.
+    for x,r in ((.026,.045),(.032,.058),(.038,.052)):
         for i in range(n):
             a=i*math.tau/n
             wav=.0031*math.sin(7*a+.7)+.0016*math.sin(13*a+1.2)
@@ -201,8 +224,8 @@ def worn_crank_plate():
     obj=mesh('Hand cut crank escutcheon',vertices,faces,'ForgedIron')
     for i in (2,8,18,27):
         a=i*math.tau/n
-        tube('Escutcheon hand rivet',[(-.007,.043*math.cos(a),.043*math.sin(a)),
-             (-.003,.043*math.cos(a),.043*math.sin(a))],[.0045,.0035],'Brass',7)
+        tube('Escutcheon hand rivet',[(.038,.043*math.cos(a),.043*math.sin(a)),
+             (.042,.043*math.cos(a),.043*math.sin(a))],[.0045,.0035],'Brass',7)
     return obj
 
 
@@ -341,17 +364,19 @@ def merchant_cassette():
 
 
 def merchant_crank():
-    # Rotation axis +X. Named Handle geometry remains separate for the grip collider.
+    # Rotation axis +X. The rear spindle seats on the right cabinet cheek at
+    # X=-.525 in station coordinates, while the grip's full radius remains left
+    # of the ledger edge at X=-.356. Named Handle retains its exact grip collider.
     worn_crank_plate()
-    tube('Crank axle',[(-.055,0,0),(-.03,.001,-.002),(.022,-.001,0)],
+    tube('Crank axle',[(.045,0,0),(.060,.001,-.002),(.080,-.001,0)],
          [.014,.018,.016],'ForgedIron',11)
-    tube('Hammered bent crank arm',[(.021,0,0),(.029,-.020,-.004),(.037,-.046,-.014),
-         (.033,-.080,-.023),(.039,-.118,-.031)],
+    tube('Hammered bent crank arm',[(.080,0,0),(.087,-.020,-.004),(.094,-.046,-.014),
+         (.090,-.080,-.023),(.096,-.118,-.031)],
          [.017,.015,.014,.012,.015],'ForgedIron',9)
-    tube('Handle_DarkWood',[(.040,-.119,-.031),(.057,-.120,-.031),(.082,-.121,-.030),
-         (.113,-.119,-.033),(.137,-.121,-.029),(.153,-.118,-.032)],
+    tube('Handle_DarkWood',[(.097,-.119,-.031),(.108,-.120,-.031),(.121,-.121,-.030),
+         (.139,-.119,-.033),(.155,-.121,-.029),(.167,-.118,-.032)],
          [.019,.023,.026,.025,.022,.017],'DarkWood',13)
-    for x in (.048,.138):
+    for x in (.105,.155):
         tube('Worn grip ferrule',[(x,-.12,-.030),(x+.006,-.121,-.030)],
              [.021,.022],'Brass',11)
 
@@ -399,7 +424,7 @@ def enchantress():
     for i in range(6):
         a=i*math.tau/6
         tube('Hexagram inlay',[(.21*math.cos(a),.961,-.05+.21*math.sin(a)),(.21*math.cos(a+math.tau/3),.961,-.05+.21*math.sin(a+math.tau/3))],[.0018]*2,'Brass',5)
-    drape(-.60,.22,-.32)
+    drape(-.60,.22,'enchantress')
     # Supported native lantern perch; handoff at (-.18,1.12,.18) stays clear.
     rect('Lamp return',.70,.63,.32,.64,.955,.06)
     turned_leg(.70,.83)
@@ -415,7 +440,7 @@ def priestess():
     # A pointed open arch: the negative space is modelled, never painted onto a cube.
     pts=[(-.48,.38,0),(-.42,.53,0),(-.28,.65,0),(0,.80,0),(.28,.65,0),(.42,.53,0),(.48,.38,0)]
     tube('Gothic stone arch',pts,[.055]*len(pts),'PaleStone',12)
-    for x in (-.58,.58): drape(x,.23,-.285)
+    for x in (-.58,.58): drape(x,.23,'priestess')
     for i in range(13):
         x=(i-6)*.108; z=-.36*math.sqrt(max(0,1-(x/.81)**2))
         pts=[(x-.035,.872,z-.006),(x-.025,.901,z-.01),(x,.923,z-.012),(x+.025,.901,z-.01),(x+.035,.872,z-.006)]

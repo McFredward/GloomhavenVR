@@ -652,11 +652,27 @@ namespace GloomhavenVR
                 RefreshFixedDetail();
                 // Prefab dependencies include the referenced meshes, clips, materials and textures.
                 // Do not expose the FBX import roots (duplicate actors with default materials).
+                string audioRoot = Root + "/Audio";
+                var audio = Directory.Exists(audioRoot)
+                    ? Directory.GetFiles(audioRoot, "*", SearchOption.AllDirectories)
+                        .Where(p => p.EndsWith(".wav", StringComparison.OrdinalIgnoreCase)
+                            || p.EndsWith(".json", StringComparison.OrdinalIgnoreCase))
+                    : Enumerable.Empty<string>();
                 var assets = Directory.GetFiles(Root + "/Prefabs", "*.prefab", SearchOption.AllDirectories)
                     .Concat(Directory.GetFiles(Root + "/Shaders", "*.shader"))
+                    .Concat(audio)
                     .Concat(new[] { Root + "/town-facial-rig-contract.json" })
                     .Select(p => p.Replace('\\', '/')).OrderBy(p => p).ToArray();
                 if (assets.Length == 0) throw new InvalidOperationException("No town assets to bundle");
+                foreach (string path in assets.Where(p => p.StartsWith(audioRoot + "/", StringComparison.Ordinal)))
+                {
+                    if (path.EndsWith(".wav", StringComparison.OrdinalIgnoreCase)
+                        && AssetDatabase.LoadAssetAtPath<AudioClip>(path) == null)
+                        throw new InvalidOperationException("Town voice clip failed to import: " + path);
+                    if (path.EndsWith(".json", StringComparison.OrdinalIgnoreCase)
+                        && AssetDatabase.LoadAssetAtPath<TextAsset>(path) == null)
+                        throw new InvalidOperationException("Town voice metadata failed to import as TextAsset: " + path);
+                }
                 foreach (string path in assets.Where(p => p.EndsWith(".prefab", StringComparison.Ordinal)))
                 {
                     GameObject prefab = AssetDatabase.LoadAssetAtPath<GameObject>(path);

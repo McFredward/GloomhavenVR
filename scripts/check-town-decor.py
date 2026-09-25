@@ -36,6 +36,7 @@ def main():
         ('global-material-gate', 'TownServiceDecor.cs', 'foreach (MaterialLoad load in piece.Materials)', 'foreach (MaterialLoad load in _loads.Values)', 'unrelated book builds while lantern material fails'),
         ('no-retry', 'TownServiceDecor.cs', 'Attempts >= 3', 'Attempts >= 1', 'independent material retry restores both practicals'),
         ('wrong-atlas-quadrant', 'TownServiceDecorMaterial.cs', 'Vector2.one * tiling', 'Vector2.one * .5f', 'native atlas UVs do not sample stale Standard quadrant'),
+        ('identical-spell-form', 'TownServiceArcaneEffect.cs', 'float sigil = Mathf.Clamp01(mode * 2f);', 'float sigil = 0f;', 'shared effect mode changes sigil shape rather than only translating it'),
         ('template-leak', 'TownServiceDecor.cs', 'CoinTemplate = null;', 'CoinTemplate = CoinTemplate;', 'coin template cannot outlive owner materials'),
         ('workspace-light-in-template', 'TownServiceWorkspacePractical.cs', 'if (owner.isActiveAndEnabled)', 'if (true)', 'inactive frozen template never creates a practical'),
         ('workspace-topology-change', 'TownServiceWorkspacePractical.cs', 'obj.transform.position = transform.TransformPoint(_point);', 'obj.transform.SetParent(transform,false); obj.transform.position = transform.TransformPoint(_point);', 'lighting cannot alter mirrored prop topology'),

@@ -127,14 +127,33 @@ public static class InteractionProgram
         Setup(0);root=new GameObject("enchantress");
         var grip=new GameObject("ActivityOfferingPalm");grip.transform.SetParent(root.transform,false);grip.transform.localPosition=new Vector3(.2f,1.1f,.3f);
         decor=new TownServiceDecor(root.transform,3,light);Tick(decor,0);Tick(decor,.11f);decor.SetVisibility(.8f);decor.SetClock(100f);
-        var visual=new GloomhavenVR.Net.TownActivityVisual{Cast=.4f,EffectClock=100f};decor.SampleActivity(in visual);
+        var visual=new GloomhavenVR.Net.TownActivityVisual{Cast=.4f,EffectClock=100f,
+            Left=new Vector3(-.20f,1.15f,.20f),Right=new Vector3(.20f,1.15f,.20f)};
+        decor.SampleActivity(in visual);
         Transform effect=root.transform.Find("Town.ArcaneConstellation");
         Check(effect!=null&&effect.gameObject.activeSelf,"native constellation visible during authored cast");
         Check(effect!.childCount==25,"magic draw count is bounded");
         Material glow=effect.GetComponentInChildren<MeshRenderer>().sharedMaterial;
         Check(Math.Abs(glow.GetFloat("_TownVisibility")-.32f)<.0001f,"magic opacity combines station fade and cast envelope");
-        Vector3 orbit=effect.GetChild(4).position;decor.SampleActivity(in visual);
+        Vector3 orbit=effect.GetChild(4).position;
+        Vector3 compactLocal=effect.GetChild(4).localPosition;decor.SampleActivity(in visual);
         Check(effect.GetChild(4).position==orbit,"same shared clock yields identical orbit on owner and observer");
+        visual.CastSway=.5f;decor.SampleActivity(in visual);
+        Vector3 sigil=effect.GetChild(4).position;
+        Check(Vector3.Distance(orbit,sigil)>.025f,"two-hand sigil differs visibly from palm experiment");
+        Check(Vector3.Distance(compactLocal,effect.GetChild(4).localPosition)>.025f,
+            "shared effect mode changes sigil shape rather than only translating it");
+        var tint=new MaterialPropertyBlock();effect.GetChild(4).GetComponent<MeshRenderer>().GetPropertyBlock(tint);
+        Color sigilColor=tint.GetColor("_Color");
+        visual.CastSway=1f;decor.SampleActivity(in visual);
+        Vector3 threads=effect.GetChild(4).position;
+        Check(Vector3.Distance(sigil,threads)>.025f,"book threads differ visibly from two-hand sigil");
+        Check(Vector3.Distance(effect.position,root.transform.TransformPoint(new Vector3(0f,1.10f,.22f)))<.001f,
+            "book spell centres over the original ledger, not the casting palm");
+        effect.GetChild(4).GetComponent<MeshRenderer>().GetPropertyBlock(tint);
+        Check(tint.GetColor("_Color")!=sigilColor,"shared spell mode changes native glow tint without changing source material");
+        decor.SampleActivity(in visual);
+        Check(effect.GetChild(4).position==threads,"same shared mode and clock reproduce identical effect on observer");
         visual.Cast=.1f;decor.SampleActivity(in visual);
         Check(Math.Abs(glow.GetFloat("_TownVisibility")-.08f)<.0001f,"interrupting magic fades continuously before shutdown");
         visual.Cast=0f;decor.SampleActivity(in visual);Check(!effect.gameObject.activeSelf,"finished cast has no orphan glow");

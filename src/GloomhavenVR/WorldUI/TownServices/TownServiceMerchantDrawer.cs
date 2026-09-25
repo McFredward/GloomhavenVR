@@ -74,7 +74,11 @@ internal sealed class TownServiceMerchantDrawer : IGrabbable, IGrabbableHandFilt
         _pageLabelGate = HousingRoot.Find("PageIndicator").GetComponent<CanvasGroup>();
         if (font != null) { _pageLabel.font = font.font; _pageLabel.fontSharedMaterial = font.fontSharedMaterial; }
         _root = CreateTemplate(font); Root.SetParent(parent, false);
-        Root.localPosition = new Vector3(-.47f, .08f, .11f);
+        // The cabinet cheek is at X=-.525 m. The old crank reached X=-.295 m,
+        // 61 mm inside the ledger's left edge, so the grip pierced the desk.
+        // The re-authored mounting plate and axle bridge this outside seat to
+        // the cheek while the grip ends clear of the ledger.
+        Root.localPosition = new Vector3(-.57f, .08f, .11f);
         CopyMaterials(_root); CopyMaterials(_housing);
         // Authored furniture is visual only. An imported collision shape must never turn
         // an invisible part of the cabinet into another laser/poke target.

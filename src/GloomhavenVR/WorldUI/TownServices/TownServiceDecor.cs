@@ -521,8 +521,14 @@ internal sealed class TownServiceDecor : IDisposable
         }
         if (_castGrip == null) return;
         float strength = visual.Cast;
-        _magic?.Sample(_castGrip.position + _castGrip.up * (.07f + .10f * strength),
-            _castGrip.up, visual.EffectClock, strength);
+        float mode = Mathf.Clamp01(visual.CastSway);
+        Vector3 hand = _castGrip.position + _castGrip.up * (.07f + .10f * strength);
+        Vector3 betweenHands = _root.TransformPoint((visual.Left + visual.Right) * .5f + Vector3.up * .09f);
+        Vector3 overBook = _root.TransformPoint(new Vector3(0f, 1.10f, .22f));
+        Vector3 centre = Vector3.Lerp(hand, betweenHands, Mathf.Clamp01(mode * 2f));
+        centre = Vector3.Lerp(centre, overBook, Mathf.Clamp01((mode - .5f) * 2f));
+        Vector3 normal = Vector3.Slerp(_castGrip.up, _root.up, mode);
+        _magic?.Sample(centre, normal, visual.EffectClock, strength, mode);
         foreach (Material material in _arcane.EffectMaterials)
             material.SetFloat(Visibility, _visibility * strength);
     }
