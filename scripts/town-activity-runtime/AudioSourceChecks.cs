@@ -23,7 +23,10 @@ internal static class AudioSourceChecks
             Check(root.GetComponentsInChildren<AudioSource>().Length==0,"late join creates no historical audio voice");
             FaceClock.Now=.01f;audio.Tick(1,1,2.01f,.01f,true,in released);
             var source=root.GetComponentInChildren<AudioSource>();
-            Check(source!=null&&source.clip==clip,"contact uses original native clip without copying it");
+            Check(source!=null&&source.clip!=null&&source.clip!=clip&&source.clip.name=="GloomhavenVR.Town.CoinClink",
+                "coin contact uses a dedicated short physical clink, never the long equipment UI toggle");
+            Check(source!.clip!.length<=.22f&&source.volume<=.075f,
+                "small coin contact has a short bounded duration and quiet gain");
             Check(source!.spatialBlend==1f&&source.dopplerLevel==0f,"resident foley is spatial and has no moving-rig Doppler");
             Check(Mathf.Abs(source.minDistance-148.59f)<.01f&&Mathf.Abs(source.maxDistance-891.54f)<.01f,
                 "resident range follows the map's world units per perceived metre");
