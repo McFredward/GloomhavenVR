@@ -62,21 +62,23 @@ public static class InteractionProgram
     {
         RemoteTownActivities.Reset(); RemoteTownFaces.Reset(); FaceClock.Now=0;
         var pose=new TownActivityPose{WorkClock=3,TransitionAge=.65f};
-        var activity=new TownActivityState{Active=true,Epoch=9,Sequence=1,Clock=5,Merchant=pose,Temple=pose,Enchantress=pose};
+        var activity=new TownActivityState{Active=true,Epoch=9,Sequence=1,Clock=5,Merchant=pose,Temple=pose,Enchantress=pose,MerchantOfferingBlend=.4f};
         var expression=new TownFacePose{HeadYaw=0,Cue=0,Generation=0,SpeechAge=0,Jaw=0,Wide=0,Round=0};
         var face=new TownFaceState{Active=true,Epoch=9,Sequence=1,Clock=5,Merchant=expression,Temple=expression,Enchantress=expression};
         Check(RemoteTownPerformance.Observe(2,in activity,in face,true),"paired presence establishes both timelines");
         FaceClock.Now=.08f;
         RemoteTownActivities.Sample(2,out var beforeBody,out _); RemoteTownFaces.Sample(2,out var beforeFace,out _);
-        activity.Sequence=2;activity.Clock=5.066f;activity.Merchant.WorkClock=3.066f;
+        activity.Sequence=2;activity.Clock=5.066f;activity.Merchant.WorkClock=3.066f;activity.MerchantOfferingBlend=.8f;
         face.Sequence=2;face.Clock=activity.Clock;face.Merchant.HeadYaw=20;
         Check(RemoteTownPerformance.Observe(2,in activity,in face,false),"matching paired stream accepted");
         RemoteTownActivities.Sample(2,out var body,out _);RemoteTownFaces.Sample(2,out var head,out _);
         Near(body.Merchant.WorkClock,beforeBody.Merchant.WorkClock,.00001f,"packet jitter does not jump occupation at arrival");
+        Near(body.MerchantOfferingBlend,.4f,.00001f,"packet jitter does not jump shared merchant offering pose");
         Near(head.Merchant.HeadYaw,beforeFace.Merchant.HeadYaw,.00001f,"packet jitter does not jump gaze at arrival");
         FaceClock.Now+=.033f;RemoteTownActivities.Sample(2,out body,out _);RemoteTownFaces.Sample(2,out head,out _);
         Near(head.Merchant.HeadYaw,10,.001f,"head at correlated half reconciliation interval");
         Near(body.Merchant.WorkClock,(beforeBody.Merchant.WorkClock+activity.Merchant.WorkClock)*.5f,.0001f,"body at correlated half reconciliation interval");
+        Near(body.MerchantOfferingBlend,.6f,.0001f,"merchant offering pose follows authored reconciliation interval");
         Near(body.Clock,head.Clock,.00001f,"face and body share expression clock");
         var legacy=face;legacy.Sequence=100;
         Check(!RemoteTownPerformance.ObserveLegacyFace(2,in legacy),"legacy face cannot advance paired epoch alone");
