@@ -56,7 +56,7 @@ def sources(root):
 
 def mutations():
     return [
-        ("merchant-approach-latch", "TempleApproach.cs", "if (destination != EGuildmasterMode.None && destination != EGuildmasterMode.Temple)\n        { _approachInside = false; return; }", "if (destination != EGuildmasterMode.None && destination != EGuildmasterMode.Temple)\n        { _approachInside = true; return; }", "leaving merchant mode while still beside priestess reopens native Temple"),
+        ("merchant-approach-latch", "TempleApproach.cs", "if (destination != EGuildmasterMode.None && destination != EGuildmasterMode.Temple)\n        { _approachInside = false; return; }", "if (destination != EGuildmasterMode.None && destination != EGuildmasterMode.Temple)\n        { _approachInside = true; return; }", "merchant departure reopens priestess without leaving her radius"),
         ("temple-close-missing", "TempleExit.cs", "ModalFallback.CloseFloatedWindow(_window);", "", "physical departure closes native temple before visiting another resident"),
         ("repeat-donation", "RitualTransactions.cs", "_submittedOfferings.Add(offering);", "", "a delayed online stock refresh never permits a duplicate donation"),
         ("delayed-validation", "RitualGuard.cs", "_box != null && _valid()", "_box != null", "delayed owner change cancels original transaction"),

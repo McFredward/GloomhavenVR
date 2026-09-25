@@ -5,6 +5,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Reflection;
 using GloomhavenVR.Net.TownServices;
+using GloomhavenVR.Net;
 using TMPro;
 using UnityEngine;
 using UnityEngine.UI;
@@ -19,6 +20,72 @@ public sealed class GameplayFixture : MonoBehaviour
 
 public static partial class MirrorProgram
 {
+    private static IEnumerator PrivateClothLane()
+    {
+        var owner = Go("Private cloth owner").transform;
+        var furniture = Go("Private cloth furniture", owner).transform;
+        var observer = Go("Private cloth observer").transform;
+        const string address = "temple.counter|root";
+        TownServiceMirror.RegisterTemplate(2, 1, furniture, address: address);
+        TownServiceMirror.BeginSession(2, 700, owner, furniture);
+        TownServiceMirror.RegisterModule(7, 1, furniture, address: address);
+        byte[] controls = new byte[16]; controls[0] = 12;
+        TownServiceMirror.SetWorkspaceCloth(7, controls, controls.Length);
+        List<byte[]> initial = Capture();
+        Check(initial.Exists(bytes => TownServiceCodec.TryRead(bytes, bytes.Length, out TownServiceFrame? frame)
+            && frame!.Module == 7 && frame.WorkspaceCloth?.Length == 16),
+            "private furniture packet carries both cloth runners");
+        Receive(2, initial); TownServiceMirror.TickRemote(_ => observer);
+        Check(GloomhavenVR.WorldUI.TownServiceCloth.Created == 1
+            && GloomhavenVR.WorldUI.TownServiceCloth.Ticks > 0
+            && GloomhavenVR.WorldUI.TownServiceCloth.Last?.Visible == true,
+            "private observer builds one inert cloth replay on its furniture clone");
+        Check(Mathf.Abs(GloomhavenVR.WorldUI.TownServiceCloth.LastFirst.Left.x - .012f) < .0001f,
+            "observer decodes the owner's signed edge control");
+        int replayed = GloomhavenVR.WorldUI.TownServiceCloth.Ticks;
+        yield return null;
+        TownServiceMirror.TickRemote(_ => observer);
+        Check(GloomhavenVR.WorldUI.TownServiceCloth.Ticks > replayed,
+            "private cloth keeps its intermediate motion between owner packets");
+        furniture.gameObject.SetActive(false);
+        Receive(2, Capture()); TownServiceMirror.TickRemote(_ => observer);
+        Check(GloomhavenVR.WorldUI.TownServiceCloth.Last?.Visible == false,
+            "hidden private furniture retires its cloth contact surface");
+        TownServiceMirror.Shutdown();
+        Check(GloomhavenVR.WorldUI.TownServiceCloth.Disposed == 1,
+            "private cloth replay is disposed with the observer session");
+        yield return null;
+    }
+    private static void PublisherPrivateCloth()
+    {
+        GloomhavenVR.WorldUI.TownServiceSync.Reset();
+        GloomhavenVR.WorldUI.TownServiceSync.BindModules = true;
+        var shared = Go("Publisher cloth frame").transform;
+        for (byte service = 2; service <= 3; service++)
+        {
+            GloomhavenVR.WorldUI.TownServicePresentation.Active = true;
+            GloomhavenVR.WorldUI.TownServicePresentation.Service = service;
+            GloomhavenVR.WorldUI.TownServicePresentation.Session = (uint)(800 + service);
+            GloomhavenVR.WorldUI.TownServicePresentation.Ritual = new GloomhavenVR.WorldUI.TownServiceRitual();
+            GloomhavenVR.WorldUI.TownServicePresentation.CounterFurniture = Go("Publisher furniture " + service, shared).transform;
+            GloomhavenVR.WorldUI.TownServicePresentation.HasWorkspaceCloth = true;
+            GloomhavenVR.WorldUI.TownServicePresentation.WorkspaceClothFirst = new TownClothRunnerState { Left = new Vector2(.019f, 0) };
+            GloomhavenVR.WorldUI.TownServicePresentation.WorkspaceClothSecond = new TownClothRunnerState { Right = new Vector2(-.011f, 0) };
+            GloomhavenVR.WorldUI.TownServiceSync.Tick(shared, shared);
+            List<byte[]> packets = Capture();
+            Check(packets.Exists(bytes => TownServiceCodec.TryRead(bytes, bytes.Length, out TownServiceFrame? frame)
+                && frame!.TemplateAddress == (service == 2 ? "temple.counter|" : "enchant.counter|")
+                && frame.WorkspaceCloth?.Length == (service == 2 ? 16 : 8)
+                && frame.WorkspaceCloth[0] == 19),
+                "source publisher attaches private cloth controls to the actual furniture module");
+            GloomhavenVR.WorldUI.TownServiceSync.Reset();
+        }
+        GloomhavenVR.WorldUI.TownServicePresentation.HasWorkspaceCloth = false;
+        GloomhavenVR.WorldUI.TownServicePresentation.CounterFurniture = null;
+        GloomhavenVR.WorldUI.TownServicePresentation.Ritual = null;
+        GloomhavenVR.WorldUI.TownServiceSync.BindModules = false;
+        TownServiceMirror.Shutdown();
+    }
     private static readonly List<GameObject> Objects = new();
     private static readonly List<Object> Assets = new();
     private static readonly Dictionary<ushort, byte[]> Baselines = new();
@@ -985,6 +1052,14 @@ public static partial class MirrorProgram
             _camera.orthographic = true; _camera.nearClipPlane = .01f; _camera.farClipPlane = 100;
             _camera.clearFlags = CameraClearFlags.SolidColor; _camera.backgroundColor = new Color(.025f, .03f, .04f, 1);
             GloomhavenVR.Rig.VRRigDriver.HeadCamera = _camera;
+            // The early-awake mutation deliberately breaks template inertness;
+            // leave its historical gameplay callback proof as the first target.
+            if (variant != "early-awake")
+            {
+                IEnumerator privateCloth = PrivateClothLane();
+                while (privateCloth.MoveNext()) yield return privateCloth.Current;
+            }
+            if (variant == "production") PublisherPrivateCloth();
             if (suite == "item-transfer")
             {
                 ItemTransferDetector();

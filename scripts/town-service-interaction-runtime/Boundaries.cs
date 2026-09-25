@@ -331,6 +331,9 @@ namespace GloomhavenVR.WorldUI
         internal float RelocationVisibility => 1f;
         internal bool InputAvailable => true;
         internal ulong RelocationRevision => 0;
+        internal bool HasCloth => false;
+        internal GloomhavenVR.Net.TownClothRunnerState ClothFirst => default;
+        internal GloomhavenVR.Net.TownClothRunnerState ClothSecond => default;
         internal void SetVisibility(float value) { }
         public void Dispose() { UnityEngine.Object.Destroy(Root.gameObject); }
     }
@@ -345,6 +348,9 @@ namespace GloomhavenVR.WorldUI
         public void Dispose() { UnityEngine.Object.Destroy(Root.gameObject); }
     }
 }
+
+namespace GloomhavenVR.Net
+{ internal struct TownClothRunnerState { internal Vector2 Left, Right, LeftVelocity, RightVelocity; } }
 
 namespace GloomhavenVR.WorldUI { internal static class MaskClock { internal static float Now; } }
 

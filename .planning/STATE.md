@@ -1,11 +1,13 @@
 # State — where the project stands
 
-**Updated 2026-09-24: feature/immersive-town-services, version 1.1.0 hardware candidate.**
+**Updated 2026-09-25: feature/immersive-town-services, version 1.1.0 hardware candidate.**
 The feature includes released 1.0.8 / ModBuild 556 and the subsequent 1.0.9
-version bookkeeping on `dev`. ModBuild 558 integrates that runtime and addresses
-the latest merchant, enhancement, temple and priestess-face hardware findings.
+version bookkeeping on `dev`. ModBuild 559 follows the build-558 NPC hardware
+report, including priestess donation flow, resident attention and audio range,
+cloth, cabinet finish, book readability and sleeves.
 Headset verification of the resulting presentation remains open. Historical NPC
 design: [research/TOWN-SERVICES-552.md](research/TOWN-SERVICES-552.md).
+Current evidence and implementation limits: [TOWN-559.md](TOWN-559.md).
 The feature remains isolated from `dev`, and NPC work belongs on this branch.
 
 The file this replaces had gone 168 builds
@@ -20,6 +22,15 @@ change per build) → this file (where things stand and what is owed) → the bu
 ---
 
 ## 1. Position
+
+- **NPC feature / 1.1.0 / ModBuild 559 (hardware candidate):** fixed-scale NPC
+  foley, stable merchant/priestess proximity, native temple purse release
+  diagnostics, curved blank book pages, continuous coin motion, reworked crank,
+  contact-responsive shared altar cloth and inner sleeves. TLV79 adds an optional
+  24-byte cloth tail without changing the older resident prefix; private visitor
+  furniture carries equivalent runner controls in a bounded additive TLV90. Source and
+  automated validation are described in [TOWN-559.md](TOWN-559.md); headset
+  appearance and a completed donation remain unverified.
 
 - **NPC feature / 1.1.0 / ModBuild 558 (hardware candidate):** the merchant stops
   coin work while attending to a player and uses coordinated, continuous hand/body

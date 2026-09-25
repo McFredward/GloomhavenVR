@@ -53,6 +53,7 @@ public static class InteractionProgram
     private static readonly Vector4 Lectern = new(-.36f, .36f, -.08f, .52f);
     private static readonly Vector4 Worktop = new(-.88f, .88f, -.44f, .50f);
     private static readonly Vector4 Lantern = new(-.88f, -.48f, .28f, .96f);
+    private static readonly Vector4 RightLantern = new(.48f, .88f, .28f, .96f);
     private static readonly Vector4 Actor = new(-.60f, .60f, .30f, 1.20f);
     private static Vector2[] Envelope(Vector3 p, Quaternion q, Vector4 bounds, float padding = .05f)
     {
@@ -69,7 +70,7 @@ public static class InteractionProgram
         if(merchant) { parts.Add(Envelope(p,q,Cabinet)); parts.Add(Envelope(p,q,Lectern)); }
         else parts.Add(Envelope(p,q,Worktop));
         if(actor) parts.Add(Envelope(p,q,Actor));
-        if(!actor || service==3) parts.Add(Envelope(p,q,Lantern));
+        if(!actor || service==3) { parts.Add(Envelope(p,q,Lantern)); parts.Add(Envelope(p,q,RightLantern)); }
         return parts;
     }
     private static void CheckGeometry(List<TownServiceWorkspace> workspaces)
@@ -105,12 +106,15 @@ public static class InteractionProgram
             foreach(var filter in workspaces[i].FurnitureRoot.GetComponentsInChildren<MeshFilter>(true))
             {
                 if (returnTemplate != null && filter.transform.IsChildOf(returnTemplate)) continue;
+                var mesh=filter.sharedMesh;
+                Check(mesh != null, "shipping furniture mesh is present: " + filter.name);
                 // Material batches can join the worktop and a rear lantern into one mesh.
                 // Empty corners of that combined AABB are not occupied furniture.
-                foreach(Vector3 v in filter.sharedMesh.vertices)
+                foreach(Vector3 v in mesh!.vertices)
                 {
                     var local=root.InverseTransformPoint(filter.transform.TransformPoint(v));
-                    Check(Contains(Worktop,local)||Contains(Lantern,local),"shipping furniture fits reserved physical counter envelope: " + filter.name + " " + local.ToString("F5"));
+                    Check(Contains(Worktop,local)||Contains(Lantern,local)||Contains(RightLantern,local),
+                        "shipping furniture fits reserved physical counter envelope: " + filter.name + " " + local.ToString("F5"));
                 }
             }
         }

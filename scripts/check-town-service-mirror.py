@@ -43,11 +43,12 @@ def sources(root):
         "private void PublishCatalog(TownServiceCatalog catalog, Transform? furniture)",
         "private void TickCatalog(Transform frame, Transform station, TownServiceCatalog catalog, uint session, float age)",
         "private void PruneSources()", "private void ResetCore()")
-    declarations = ("private uint _generation", "private ulong _relocationRevision", "private bool _generationExhausted")
+    declarations = ("private uint _generation", "private ulong _relocationRevision", "private bool _generationExhausted",
+        "private readonly byte[] _workspaceClothBytes")
     wrappers = publisher[publisher.index("    private static readonly TownServiceSync Private"):publisher.index("    private sealed class Published")]
     wrappers = wrappers.replace("internal static void Prepare() => Private.PrepareCore();", "")
     network = next(line for line in publisher.splitlines() if "internal static void ResetNetwork()" in line)
-    bound["PublisherTick.cs"] = "using System;\nusing System.IO;\nusing System.Collections.Generic;\nusing GloomhavenVR.Net.TownServices;\nusing GloomhavenVR.Cards;\nusing UnityEngine;\nnamespace GloomhavenVR.WorldUI;\ninternal sealed partial class TownServiceSync {\n" + wrappers + "\n" + network + "\n" + "\n".join(expression(publisher, declaration) for declaration in declarations) + "\n" + "\n".join(method(publisher, signature) for signature in signatures) + "\n}\n"
+    bound["PublisherTick.cs"] = "using System;\nusing System.IO;\nusing System.Collections.Generic;\nusing GloomhavenVR.Net;\nusing GloomhavenVR.Net.TownServices;\nusing GloomhavenVR.Cards;\nusing UnityEngine;\nnamespace GloomhavenVR.WorldUI;\ninternal sealed partial class TownServiceSync {\n" + wrappers + "\n" + network + "\n" + "\n".join(expression(publisher, declaration) for declaration in declarations) + "\n" + "\n".join(method(publisher, signature) for signature in signatures) + "\n}\n"
     publish = method(publisher, "private void Publish(string key, Transform? source, Transform? provenance = null, Func<Transform, Transform?>? cloneOf = null, bool prewarm = false)").replace("private void Publish(", "private void PublishNative(", 1)
     bound["PublisherNative.cs"] = "using System;\nusing System.IO;\nusing System.Collections.Generic;\nusing UnityEngine;\nusing GloomhavenVR.Net.TownServices;\nnamespace GloomhavenVR.WorldUI;\ninternal sealed partial class TownServiceSync {\n" + publish + "\n}\n"
     catalog = (base / "WorldUI/TownServices/TownServiceCatalog.cs").read_text()

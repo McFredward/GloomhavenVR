@@ -40,7 +40,8 @@ def sources(root):
     bound = {Path(p).name: (root / p).read_text() for p in paths}
     face = (root / "src/GloomhavenVR/WorldUI/TownServices/TownServiceFace.cs").read_text()
     attention = method(face, "internal bool IsLocalVisitorNear(bool wasNear)")
-    bound["ActualAttention.cs"] = "using UnityEngine; namespace GloomhavenVR.WorldUI { internal class ActualAttention { public Transform _root = null!; public Eye _rig = new(); public class Eye { public Vector3 EyePosition; public Quaternion OpticalRotation = Quaternion.identity; } " + attention + " } }"
+    reach = next(line.strip() for line in face.splitlines() if "private const float VisitorReachMetres =" in line)
+    bound["ActualAttention.cs"] = "using UnityEngine; namespace GloomhavenVR.WorldUI { internal class ActualAttention { " + reach + " public Transform _root = null!; public Eye _rig = new(); public class Eye { public Vector3 EyePosition; public Quaternion OpticalRotation = Quaternion.identity; } " + attention + " } }"
     pile = (root / "src/GloomhavenVR/Cards/Piles/ItemsPile.cs").read_text()
     start = pile.index("        public bool AllowsHand(VRHand hand) =>")
     gate = pile[start:pile.index(";", start) + 1]

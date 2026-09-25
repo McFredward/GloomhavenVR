@@ -133,6 +133,9 @@ namespace GloomhavenVR.WorldUI
         internal static byte Service = 1;
         internal static uint Session = 1200;
         internal static float SessionAge;
+        internal static bool HasWorkspaceCloth;
+        internal static GloomhavenVR.Net.TownClothRunnerState WorkspaceClothFirst;
+        internal static GloomhavenVR.Net.TownClothRunnerState WorkspaceClothSecond;
         internal static ulong RelocationRevision;
         internal static float RelocationVisibility = 1f;
         internal static PublisherWindow? Window;
@@ -187,6 +190,7 @@ namespace GloomhavenVR.WorldUI
             Sources[source] = new() { Seen = true };
             string identity = key + "@" + source.GetInstanceID();
             if (!Modules.TryGetValue(identity, out Published? module)) Modules.Add(identity, module = new() { Id = ++_nextId });
+            module.Address = key + "|";
             module.Seen = true; Sources[source].Parts.Add(module);
             if (BindModules)
             {

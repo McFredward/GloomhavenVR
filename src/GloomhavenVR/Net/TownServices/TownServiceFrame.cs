@@ -24,6 +24,10 @@ internal sealed class TownServiceFrame
     internal bool Visible;
     internal TownRackState? Rack;
     internal TownRackStamp? RackMember;
+    // Quantized 8-byte edge controls per runner. Private furniture uses one
+    // enchantress runner or two temple runners; null means no cloth record.
+    internal byte[]? WorkspaceCloth;
+    internal bool HasWorkspaceCloth => WorkspaceCloth != null;
     // Local transport scheduling only; never serialized or interpreted as gameplay authority.
     internal bool HighPriority;
     internal float SampleTime;

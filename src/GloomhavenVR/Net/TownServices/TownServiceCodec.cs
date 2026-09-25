@@ -10,6 +10,7 @@ internal static class TownServiceCodec
 {
     // Integrator owns allocation in NetProtocol. Keep these aliases until the integration commit.
     internal const byte MessageType = 19, FragmentType = 20, RecordId = 78;
+    internal const byte WorkspaceClothRecordId = NetProtocol.ExtIdTownWorkspaceCloth;
     private static readonly UTF8Encoding Utf8 = new(false, true);
 
     internal static byte[] Write(TownServiceFrame frame)
@@ -62,7 +63,8 @@ internal static class TownServiceCodec
         byte[] rack = frame.Rack != null ? frame.Rack.Write(frame.Module) : frame.RackMember?.Write(frame.Module) ?? Array.Empty<byte>();
         int mechanismBytes = frame.Rack?.Cassette == true || frame.PublicCatalog ? 8 : 0;
         int rollerBytes = frame.Rack?.Cassette == true ? 6 : 0;
-        int size = rollerBytes + mechanismBytes + 6 + raw.Length + 2 * ((raw.Length + 254) / 255) + rack.Length + 2 * ((rack.Length + 254) / 255);
+        int clothBytes = frame.WorkspaceCloth == null ? 0 : frame.WorkspaceCloth.Length + 4;
+        int size = rollerBytes + mechanismBytes + clothBytes + 6 + raw.Length + 2 * ((raw.Length + 254) / 255) + rack.Length + 2 * ((rack.Length + 254) / 255);
         if (size > TownServiceFrame.MaxBytes) throw new InvalidDataException("Town-service module exceeds the bounded snapshot size.");
         var packet = new byte[size];
         // NetProtocol.Magic (0x47565231) is written little endian by every existing lane.
@@ -78,6 +80,16 @@ internal static class TownServiceCodec
         {
             int count = Math.Min(255, rack.Length - offset); packet[at++] = TownRackState.RecordId; packet[at++] = (byte)count;
             Buffer.BlockCopy(rack, offset, packet, at, count); at += count; offset += count;
+        }
+        if (frame.WorkspaceCloth != null)
+        {
+            int at = 6 + raw.Length + 2 * ((raw.Length + 254) / 255)
+                + rack.Length + 2 * ((rack.Length + 254) / 255);
+            packet[at++] = WorkspaceClothRecordId;
+            packet[at++] = (byte)(frame.WorkspaceCloth.Length + 2);
+            packet[at++] = 1; // cloth-control grammar
+            packet[at++] = (byte)(frame.WorkspaceCloth.Length / 8);
+            Buffer.BlockCopy(frame.WorkspaceCloth, 0, packet, at, frame.WorkspaceCloth.Length);
         }
         if (mechanismBytes != 0)
         { packet[size - rollerBytes - 8] = TownCassetteMotion.RecordId; packet[size - rollerBytes - 7] = 6; packet[size - rollerBytes - 6] = 1; packet[size - rollerBytes - 5] = (byte)((frame.Rack?.Cassette == true ? 1 : 0) | (frame.PublicCatalog ? 2 : 0));
@@ -99,6 +111,7 @@ internal static class TownServiceCodec
         {
             using var body = new MemoryStream();
             using var rack = new MemoryStream();
+            byte[]? workspaceCloth = null;
             bool rollerSeen = false; sbyte scrollDirection = 0; ushort pageCount = 1;
             bool cassette = false, publicCatalog = false, mechanismSeen = false; uint publicClaim = 0;
             for (int at = 6; at < length;)
@@ -109,6 +122,13 @@ internal static class TownServiceCodec
                 if (record == RecordId) body.Write(packet, at, count);
                 if (record == TownRackState.RecordId)
                 { if (count == 0) return false; rack.Write(packet, at, count); }
+                if (record == WorkspaceClothRecordId)
+                {
+                    if (workspaceCloth != null || (count != 10 && count != 18)
+                        || packet[at] != 1 || packet[at + 1] != (count - 2) / 8) return false;
+                    workspaceCloth = new byte[count - 2];
+                    Buffer.BlockCopy(packet, at + 2, workspaceCloth, 0, workspaceCloth.Length);
+                }
                 if (record == TownCassetteMotion.RecordId)
                 {
                     if (mechanismSeen || count != 6 || packet[at] != 1 || (packet[at + 1] == 0 || packet[at + 1] > 3)) return false;
@@ -129,6 +149,7 @@ internal static class TownServiceCodec
             var result = new TownServiceFrame { Service = r.ReadByte(), Session = r.ReadUInt32(),
                 Sequence = r.ReadUInt64(), BaseSequence = r.ReadUInt64(), Module = r.ReadUInt16(), Template = r.ReadUInt16(), TemplateAddress = ReadText(r),
                 Structure = r.ReadUInt32() };
+            result.WorkspaceCloth = workspaceCloth;
             byte shown = r.ReadByte(); if (shown > 1) return false;
             result.Visible = shown != 0; result.ParentModule = r.ReadUInt16(); result.ParentBinding = r.ReadUInt32();
             result.ParentAlpha = r.ReadSingle(); result.SampleTime = r.ReadSingle(); result.SessionAge = r.ReadSingle();
@@ -283,6 +304,21 @@ internal static class TownServiceCodec
             if (frame.Service != 1 || (frame.TemplateAddress == null || !frame.TemplateAddress.StartsWith("merchant.rack|", StringComparison.Ordinal)))
                 throw new InvalidDataException("Cabinet clock belongs to a merchant rack module");
             frame.Rack.Validate(frame.Module);
+        }
+        if (frame.WorkspaceCloth != null)
+        {
+            int expected = frame.Service == 2 ? 16 : frame.Service == 3 ? 8 : 0;
+            string prefix = frame.Service == 2 ? "temple.counter|" : "enchant.counter|";
+            if (frame.PublicCatalog || frame.Module == TownServiceFrame.ManifestModule
+                || frame.WorkspaceCloth.Length != expected || expected == 0
+                || frame.TemplateAddress == null || !frame.TemplateAddress.StartsWith(prefix, StringComparison.Ordinal))
+                throw new InvalidDataException("Workspace cloth belongs to a private altar furniture module.");
+            for (int at = 0; at < frame.WorkspaceCloth.Length; at++)
+            {
+                int value = unchecked((sbyte)frame.WorkspaceCloth[at]);
+                if (Math.Abs(value) > (at % 8 < 4 ? 100 : 125))
+                    throw new InvalidDataException("Workspace cloth control exceeds its physical bound.");
+            }
         }
 
         if (frame.Module == TownServiceFrame.BundleStream || frame.Service < 1 || frame.Service > 3 || frame.Session == 0 || frame.Sequence == 0

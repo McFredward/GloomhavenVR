@@ -75,6 +75,8 @@ internal sealed class TownServiceToken : IGrabbable, ITriggerOnlyGrabbable, IGra
     private float _nextRefresh;
     private readonly float _reachDepth;
     private readonly bool _uprightProp;
+    private bool _insidePhysicalDrop;
+    private float _nextPhysicalDropPulse;
     private readonly Func<VRHand, bool>? _handAllowed;
 
     internal Transform Source => _source;
@@ -124,6 +126,17 @@ internal sealed class TownServiceToken : IGrabbable, ITriggerOnlyGrabbable, IGra
                 else _held.transform.SetPositionAndRotation(_hand.Rig.GrabAnchor.TransformPoint(_heldPosition),
                     _hand.Rig.GrabAnchor.rotation * _heldRotation);
                 if (!IsPhysical) _held.transform.localScale = Vector3.one * scale;
+                if (_uprightProp && _dropLocation != null)
+                {
+                    bool inside = DropEligible && _dropLocation(_held.transform.position);
+                    if (inside && !_insidePhysicalDrop && _hand.HasPose
+                        && Time.unscaledTime >= _nextPhysicalDropPulse)
+                    {
+                        _nextPhysicalDropPulse = Time.unscaledTime + .3f;
+                        _hand.SendHaptic(HapticPreset.ClickPulse);
+                    }
+                    _insidePhysicalDrop = inside;
+                }
             }
             if (Time.unscaledTime >= _nextRefresh)
             {
@@ -200,7 +213,8 @@ internal sealed class TownServiceToken : IGrabbable, ITriggerOnlyGrabbable, IGra
         _pickedIdentity = _identity();
         _pickedContext = _contextIdentity();
         if (_pickedIdentity == null) return;
-        _hand = hand; PickupSequence=++_nextPickup; _heldTracked = false; TownServicePhysicalRay.Claim(hand);
+        _hand = hand; PickupSequence=++_nextPickup; _heldTracked = false; _insidePhysicalDrop = false;
+        TownServicePhysicalRay.Claim(hand);
         float side = Board.FigureGrab.HeldPoseMirror.OffsetSign(hand.Side == HandSide.Left);
         Vector3 pinch = new Vector3(0f, CardsConfig.HeldOffPalm.Value, CardsConfig.HeldForward.Value);
         FingerJoints thumb = hand.Rig.GetFinger(Finger.Thumb), index = hand.Rig.GetFinger(Finger.Index);
@@ -264,6 +278,7 @@ internal sealed class TownServiceToken : IGrabbable, ITriggerOnlyGrabbable, IGra
     {
         if (_hand != hand) return;
         TownServicePhysicalRay.Claim(hand);
+        _insidePhysicalDrop = false;
         if (_transferTo != null && _physical != null)
         {
             VRHand recipient = _transferTo; _transferTo = null; _hand = null; _held = null;

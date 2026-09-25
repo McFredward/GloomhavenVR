@@ -72,6 +72,9 @@ internal static class NetProtocol
     public const byte MsgTownServiceFragments = 20;
     public const byte ExtIdTownService = 78;
     public const byte ExtIdTownServiceBundle = 89;
+    // Small owner-authored cloth controls inside a town-service module packet,
+    // independent of the 7680-byte avatar presence snapshot (record 79).
+    public const byte ExtIdTownWorkspaceCloth = 90;
     public const byte ExtIdTownRack = 85;
     public const byte ExtIdTownCassette = 86;
     public const byte ExtIdTownResidents = 79;
@@ -535,7 +538,21 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 558;
+    public const ushort ModBuild = 559;
+
+    // ModBuild 559 — town-service hardware follow-up on the NPC feature branch.
+    // Temple purse roots now follow the visible bag base and the native bowl,
+    // with one release diagnosis at Debug and a native-callback marker at Info.
+    // A merchant visit cannot enlarge resident attention or latch the priestess
+    // approach; foley hearing distances use the actual map world scale. Blank
+    // parchment backs the original temple book text. The cabinet crank and altar
+    // runners are reauthored; anchored cloth contact is elected once and sent to
+    // peers in an optional 24-byte tail on residents record79. Private visitor
+    // furniture carries its own 8/16-byte controls in additive record90, so
+    // simultaneous remote visitor clones retain the same intermediate drape.
+    // The 115-byte resident prefix and wire v3 grammar are unchanged. Full worst-case presence becomes
+    // 7673/7680 bytes, with a 257-byte send-buffer margin. Headset presentation
+    // and physical donation still require the next hardware check.
 
     // ModBuild 558 — hardware follow-up for immersive town residents. Merchant
     // gaze settles coin work, its crank collider fits the visible grip, and

@@ -164,10 +164,11 @@ namespace UnityEngine
         public Vector3 eulerAngles=>new(0,rotation.yaw*180/MathF.PI,0);
         public int PoseWrites;
         public bool HasAnchor=true;
+        public bool HasActor;
         public void SetPositionAndRotation(Vector3 p,Quaternion q) { position=p;rotation=q;PoseWrites++; }
         public Transform? floor;
         public Mesh? mesh;
-        public Transform? Find(string name)=>children.TryGetValue(name,out var child)?child:name=="RoomGeo/Ground"?floor:name=="InteractionAnchor"&&HasAnchor?new Transform():null;
+        public Transform? Find(string name)=>children.TryGetValue(name,out var child)?child:name=="RoomGeo/Ground"?floor:name=="InteractionAnchor"&&HasAnchor?new Transform():name=="Actor"&&HasActor?new Transform():null;
         public T? GetComponent<T>() where T:class=>new MeshFilter {sharedMesh=mesh!,transform=this} as T;
         public Vector3 InverseTransformPoint(Vector3 v){if(parent!=null)v=parent.InverseTransformPoint(v);v=Quaternion.Inverse(rotation)*(v-localPosition);return new Vector3(v.x/localScale.x,v.y/localScale.y,v.z/localScale.z);}
         public Vector3 TransformPoint(Vector3 v){v=new Vector3(v.x*localScale.x,v.y*localScale.y,v.z*localScale.z);v=rotation*v+localPosition;return parent!=null?parent.TransformPoint(v):v;}

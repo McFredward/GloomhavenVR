@@ -17,6 +17,13 @@ namespace GloomhavenVR.Core
 }
 namespace GloomhavenVR.Net
 {
+    internal struct TownClothRunnerState
+    {
+        internal Vector2 Left { get; set; }
+        internal Vector2 Right { get; set; }
+        internal Vector2 LeftVelocity { get; set; }
+        internal Vector2 RightVelocity { get; set; }
+    }
     internal static class NetPlayerActors
     {
         internal static int Local;
@@ -27,6 +34,18 @@ namespace GloomhavenVR.Net
 }
 namespace GloomhavenVR.WorldUI
 {
+    // Contact/deformation is covered by the furniture fixture; this suite owns
+    // workspace placement, original asset envelopes, and lifecycle.
+    internal static class TownServicePresentation { internal static float SessionAge => 0f; }
+    internal sealed class TownServiceCloth : IDisposable
+    {
+        internal TownServiceCloth(Transform station, byte service) { }
+        internal GloomhavenVR.Net.TownClothRunnerState First => default;
+        internal GloomhavenVR.Net.TownClothRunnerState Second => default;
+        internal void TickAuthor(float age, float dt, bool visible) { }
+        internal void SetVisible(bool visible) { }
+        public void Dispose() { }
+    }
     internal static class WorkspaceClock { internal static float Now; }
     internal static class TownServiceAssets
     {

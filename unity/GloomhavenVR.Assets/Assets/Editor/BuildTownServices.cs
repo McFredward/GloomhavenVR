@@ -657,6 +657,26 @@ namespace GloomhavenVR
                     .Concat(new[] { Root + "/town-facial-rig-contract.json" })
                     .Select(p => p.Replace('\\', '/')).OrderBy(p => p).ToArray();
                 if (assets.Length == 0) throw new InvalidOperationException("No town assets to bundle");
+                foreach (string path in assets.Where(p => p.EndsWith(".prefab", StringComparison.Ordinal)))
+                {
+                    GameObject prefab = AssetDatabase.LoadAssetAtPath<GameObject>(path);
+                    if (prefab == null) throw new InvalidOperationException("Town prefab failed to load: " + path);
+                    foreach (MeshFilter filter in prefab.GetComponentsInChildren<MeshFilter>(true))
+                        if (filter.sharedMesh == null)
+                            throw new InvalidOperationException("Town prefab has a missing mesh: " + path + "/" + filter.name);
+                    string furnitureName = path.EndsWith("TownPriestess.prefab", StringComparison.Ordinal) ? "Shrine"
+                        : path.EndsWith("TownEnchantress.prefab", StringComparison.Ordinal) ? "Workbench" : "";
+                    if (furnitureName.Length != 0)
+                    {
+                        Transform furniture = prefab.transform.Find(furnitureName);
+                        if (furniture == null || furniture.GetComponentsInChildren<Transform>(true).Length > 128)
+                            throw new InvalidOperationException("Town cloth furniture must fit its one root mirror module: " + path);
+                        int runners = furniture.GetComponentsInChildren<MeshFilter>(true)
+                            .Count(filter => filter.name.StartsWith("ClothRunner_", StringComparison.Ordinal));
+                        if (runners != (furnitureName == "Shrine" ? 2 : 1))
+                            throw new InvalidOperationException("Town cloth runner count is wrong: " + path + "/" + runners);
+                    }
+                }
                 Directory.CreateDirectory("Build/TownServices");
                 var result = BuildPipeline.BuildAssetBundles("Build/TownServices", new[] {
                     new AssetBundleBuild { assetBundleName = "ghvr-town.bundle", assetNames = assets }

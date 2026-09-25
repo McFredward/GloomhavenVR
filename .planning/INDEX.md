@@ -1,6 +1,6 @@
 # Planning index
 
-Updated 2026-09-24 for the NPC feature's build-558 hardware candidate and the
+Updated 2026-09-25 for the NPC feature's build-559 hardware candidate and the
 released 1.0.8 / build-556 integration. This directory holds internal
 engineering evidence, historical decisions and current status; it is not the player manual.
 
@@ -12,6 +12,7 @@ engineering evidence, historical decisions and current status; it is not the pla
 | [../CLAUDE.md](../CLAUDE.md) | Technical contracts retained across agent tools |
 | [TEST-PARALLELISM.md](TEST-PARALLELISM.md) | Parallel local/CI execution, coverage and measured timing |
 | [STATE.md](STATE.md) | Current build, validation and outstanding hardware checks |
+| [TOWN-559.md](TOWN-559.md) | Build-558 hardware evidence, build-559 NPC fixes, wire budget and next headset checks |
 | [research/TOWN-SERVICES-552.md](research/TOWN-SERVICES-552.md) | Current visible town input, physical temple purses, card slots, native page ink and positional foley |
 | [research/TOWN-SERVICES-551.md](research/TOWN-SERVICES-551.md) | Previous palm decisions, native enchantment folio, restrained resident motion and rolling cabinet |
 | [research/TOWN-SERVICES-550.md](research/TOWN-SERVICES-550.md) | Previous hardware corrections: merchant input, hand tracking, floating handoffs, coordinated motion and contact geometry |

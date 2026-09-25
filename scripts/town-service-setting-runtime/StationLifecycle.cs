@@ -92,7 +92,7 @@ namespace GloomhavenVR.WorldUI
     internal static class TownServiceAssets
     {
         internal static bool HasAnchor=true;
-        internal static GameObject? Prefab(string name) {var obj=new GameObject();obj.transform.HasAnchor=HasAnchor;return obj;}
+        internal static GameObject? Prefab(string name) {var obj=new GameObject();obj.transform.HasAnchor=HasAnchor;obj.transform.HasActor=true;return obj;}
     }
     internal sealed class TownServiceLighting : IDisposable
     {
@@ -126,7 +126,7 @@ namespace UnityEngine
 {
     public class Object
     {
-        public static GameObject Instantiate(GameObject prefab) {var clone=new GameObject();clone.transform.HasAnchor=prefab.transform.HasAnchor;return clone;}
+        public static GameObject Instantiate(GameObject prefab) {var clone=new GameObject();clone.transform.HasAnchor=prefab.transform.HasAnchor;clone.transform.HasActor=prefab.transform.HasActor;return clone;}
         public static void Destroy(Object obj){}
     }
     public class GameObject : Object
@@ -191,6 +191,12 @@ namespace GloomhavenVR.Core {internal static class VRLog {internal static void W
 namespace GloomhavenVR.WorldUI
 {
     internal struct TownActivityVisual { }
+    internal sealed class TownServiceSleeveLining : IDisposable
+    {
+        internal TownServiceSleeveLining(UnityEngine.Transform station, UnityEngine.Transform actor, byte service) { }
+        internal void Tick() { }
+        public void Dispose() { }
+    }
     internal sealed class TownServiceCloth : IDisposable
     {
         internal TownServiceCloth(UnityEngine.Transform root, byte service) { }

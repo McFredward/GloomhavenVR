@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using GloomhavenVR.Core;
 using GloomhavenVR.Cards;
+using GloomhavenVR.Net;
 using GloomhavenVR.Net.TownServices;
 using GloomhavenVR.WorldUI.MapRoom;
 using UnityEngine;
@@ -53,6 +54,7 @@ internal sealed class TownServiceSync
     private readonly HashSet<Transform> Visited = new();
     private readonly List<Transform> Dynamic = new();
     private readonly List<Transform> PriorityRoots = new();
+    private readonly byte[] _workspaceClothBytes = new byte[16];
     private readonly Dictionary<string, float> Failures = new(StringComparer.Ordinal);
     private float _reportWindow;
     private int _reportCount;
@@ -248,6 +250,24 @@ internal sealed class TownServiceSync
                     Publish((confirmation.Service == 1 ? "item.confirm.part." : "enhance.confirm.part.")
                         + (surface.Id - 60), surface.Panel.Target);
                 }
+        }
+        if (active && service is 2 or 3 && TownServicePresentation.HasWorkspaceCloth)
+        {
+            // Modules are keyed by original address plus source instance, not by
+            // the short publication key. Only the root partition owns the cloth
+            // runners; child partitions must retain their independent snapshots.
+            string furnitureAddress = service == 2 ? "temple.counter|" : "enchant.counter|";
+            foreach (Published furniture in Modules.Values)
+            {
+                if (!furniture.Seen || furniture.Address != furnitureAddress) continue;
+                TownClothRunnerState first = TownServicePresentation.WorkspaceClothFirst;
+                TownClothRunnerState second = TownServicePresentation.WorkspaceClothSecond;
+                int length = 0;
+                TownResidentsCodec.WriteCloth(_workspaceClothBytes, ref length, in first);
+                if (service == 2) TownResidentsCodec.WriteCloth(_workspaceClothBytes, ref length, in second);
+                TownServiceMirror.SetWorkspaceCloth(furniture.Id, _workspaceClothBytes, length);
+                break;
+            }
         }
         Removed.Clear();
         foreach (var pair in Modules) if (!pair.Value.Seen) Removed.Add(pair.Key);

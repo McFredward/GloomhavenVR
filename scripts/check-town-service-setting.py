@@ -43,7 +43,8 @@ def main():
         ("remote scale misses light update", {"Station.cs": sources["Station.cs"].replace('changed || lightScale != _lightScale', 'changed || false && lightScale != _lightScale')}),
         ("late card property block corruption", {"Station.cs": sources["Station.cs"].replace('foreach (Renderer renderer in _renderers)', 'foreach (Renderer renderer in _root.GetComponentsInChildren<Renderer>(true))')}),
         ("constructor resource acquisition before anchor validation", {"Station.cs": sources["Station.cs"].replace(anchor, '').replace(
-            '        catch { _lighting.Dispose(); _grounding.Dispose(); throw; }', '        catch { _lighting.Dispose(); _grounding.Dispose(); throw; }\n' + anchor)}),
+            '            _lighting.Dispose(); _grounding.Dispose(); throw;\n        }',
+            '            _lighting.Dispose(); _grounding.Dispose(); throw;\n        }\n' + anchor)}),
     ]
     with tempfile.TemporaryDirectory(prefix="ghvr-setting-") as scratch:
         folder = Path(scratch)

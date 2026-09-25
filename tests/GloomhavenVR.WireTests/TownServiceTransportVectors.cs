@@ -11,6 +11,7 @@ internal static class TownServiceTransportVectors
     {
         RackClocks(t);
         PublicCatalogLanes(t);
+        PrivateWorkspaceCloth(t);
         t.Case("Town service original widgets use the real wire header and loss-safe module lanes");
         var frame = Frame(62000, 1);
         byte[] raw = TownServiceCodec.Write(frame);
@@ -64,6 +65,46 @@ internal static class TownServiceTransportVectors
         ColdService(t, 8, false); ColdService(t, 24, false); ColdService(t, 24, true); ColdService(t, 64, true);
         LateGameCatalog(t, false, 191 * 3 + 64); LateGameCatalog(t, false); LateGameCatalog(t, true);
         BundleBounds(t); UrgentBundleDependency(t); DelayedFragmentCensus(t);
+    }
+    private static void PrivateWorkspaceCloth(Harness t)
+    {
+        t.Case("Private town furniture carries bounded physical cloth controls in its own module lane");
+        var temple = Frame(7, 1, 1);
+        temple.Service = 2; temple.TemplateAddress = "temple.counter|main";
+        temple.WorkspaceCloth = new byte[] { 12, 244, 3, 253, 7, 249, 2, 254,
+            9, 247, 4, 252, 6, 250, 1, 255 };
+        byte[] raw = TownServiceCodec.Write(temple);
+        t.Wire(Hex.Bytes("5A 12 01 02 0C F4 03 FD 07 F9 02 FE 09 F7 04 FC 06 FA 01 FF"),
+            Slice(raw, raw.Length - 20, 20), 20, "private temple cloth extension has a stable two-runner grammar");
+        t.True(TownServiceCodec.TryRead(raw, raw.Length, out TownServiceFrame? received)
+            && received!.WorkspaceCloth != null, "private temple cloth survives module decoding");
+        if (received?.WorkspaceCloth != null)
+            t.Wire(temple.WorkspaceCloth, received.WorkspaceCloth, 16, "private controls preserve each signed edge sample");
+        var changed = TownServiceDelta.Copy(temple);
+        changed.Sequence = 2; changed.WorkspaceCloth![0] = 25;
+        var delta = TownServiceDelta.Create(temple, changed);
+        byte[] deltaBytes = TownServiceCodec.Write(delta);
+        t.True(TownServiceCodec.TryRead(deltaBytes, deltaBytes.Length, out TownServiceFrame? deltaRead),
+            "private cloth-only delta decodes");
+        var expanded = TownServiceDelta.Expand(temple, deltaRead!);
+        t.True(expanded?.WorkspaceCloth?[0] == 25 && temple.WorkspaceCloth[0] == 12,
+            "new cloth sample overlays an immutable baseline after dropped intermediate packets");
+        byte[] duplicate = new byte[raw.Length + 20];
+        Array.Copy(raw, duplicate, raw.Length); Array.Copy(raw, raw.Length - 20, duplicate, raw.Length, 20);
+        t.True(!TownServiceCodec.TryRead(duplicate, duplicate.Length, out _), "duplicate private cloth record rejected");
+        byte[] foreign = (byte[])raw.Clone(); foreign[^18] = 2;
+        t.True(!TownServiceCodec.TryRead(foreign, foreign.Length, out _), "unknown cloth grammar rejected");
+        byte[] excessive = (byte[])raw.Clone(); excessive[^16] = 127;
+        t.True(!TownServiceCodec.TryRead(excessive, excessive.Length, out _), "cloth deformation beyond physical bounds rejected");
+        var wrongAddress = TownServiceDelta.Copy(temple); wrongAddress.TemplateAddress = "merchant.counter|main";
+        bool rejected = false; try { TownServiceCodec.Write(wrongAddress); } catch (System.IO.InvalidDataException) { rejected = true; }
+        t.True(rejected, "private cloth cannot attach to another station type");
+        var enchant = Frame(8, 1, 1);
+        enchant.Service = 3; enchant.TemplateAddress = "enchant.counter|main";
+        enchant.WorkspaceCloth = new byte[] { 1, 255, 2, 254, 3, 253, 4, 252 };
+        byte[] enchantBytes = TownServiceCodec.Write(enchant);
+        t.True(TownServiceCodec.TryRead(enchantBytes, enchantBytes.Length, out TownServiceFrame? enchantRead)
+            && enchantRead!.WorkspaceCloth?.Length == 8, "enchantress furniture carries one runner");
     }
     private static void LateGameCatalog(Harness t, bool contention, int count = 673 * 3 + 64)
     {

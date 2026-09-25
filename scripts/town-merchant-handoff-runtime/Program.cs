@@ -34,7 +34,8 @@ public static class InteractionProgram
   camera.transform.position=Vector3.forward*(2.35f*scale);
   Check(attention.IsLocalVisitorNear(false),"resident attention enter distance matches handoff");
   camera.transform.position=Vector3.forward*(2.6f*scale);
-  Check(!attention.IsLocalVisitorNear(false) && attention.IsLocalVisitorNear(true),"attention hysteresis prevents fan chatter");
+  Check(!attention.IsLocalVisitorNear(false) && !attention.IsLocalVisitorNear(true),
+      "visitor range is fixed after a previous merchant interaction");
   camera.transform.position=Vector3.back*scale;
   Check(!attention.IsLocalVisitorNear(true),"behind-resident player never opens merchant fan");
   camera.transform.position=Vector3.forward*(2.35f*scale);
