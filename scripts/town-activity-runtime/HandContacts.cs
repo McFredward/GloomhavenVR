@@ -37,7 +37,11 @@ internal static class HandContacts
                 }
                 Transform chest=Child(root,"Chest",Vector3.zero);
                 Transform neck=Child(root,"Neck",Vector3.zero);
+                Transform body=Child(root,"LOD0_Costume",Vector3.zero);
+                body.gameObject.AddComponent<SkinnedMeshRenderer>().sharedMaterial =
+                    new Material(Shader.Find("Unlit/Color"));
                 var rig=new TownServiceActivityRig(root,service);
+                using var sleeves=new TownServiceSleeveLining(root,root,service);
                 var state=new TownActivityPose{Engaged=true,FromBlend=1f,TransitionAge=.65f};
                 var visual=TownServiceActivityMotion.Visual(service,in state);
                 if(service==1)
@@ -46,14 +50,42 @@ internal static class HandContacts
                     TownServiceActivityMotion.ApplyMerchantOffering(ref visual,1f);
                 }
                 rig.Apply(in visual);
+                sleeves.Tick();
                 foreach(string side in new[]{"L","R"})
                 {
+                    Transform hem=root.Find("SewnSleeveInterior."+side);
+                    if(hem==null)throw new Exception("inner cuff is attached to both moving arms");checks++;
+                    Mesh sewn=hem.GetComponent<MeshFilter>().sharedMesh;
+                    if(!sewn.triangles.Contains(97))
+                        throw new Exception("shallow cuff diaphragm hides the severed forearm end");checks++;
+                    Transform wrist=root.GetComponentsInChildren<Transform>().Single(t=>t.name=="Hand."+side);
+                    Transform forearm=root.GetComponentsInChildren<Transform>().Single(t=>t.name=="Forearm."+side);
+                    Vector3 axis=(wrist.position-forearm.position).normalized;
+                    float capDepth=Vector3.Dot(hem.TransformPoint(sewn.vertices[97])-wrist.position,axis);
+                    if(capDepth<-.021f||capDepth>-.017f)
+                        throw new Exception("shallow cuff diaphragm hides the severed forearm end");checks++;
+                    for(int vertex=0;vertex<24;vertex++)
+                    {
+                        Vector3 delta=hem.TransformPoint(sewn.vertices[vertex])-wrist.position;
+                        float depth=Vector3.Dot(delta,axis);
+                        float radius=Vector3.ProjectOnPlane(delta,axis).magnitude;
+                        if(depth<-.016f||depth>-.008f||radius<.023f||radius>.033f)
+                            throw new Exception("inner cuff overlaps the anatomical wrist ahead of the cut");
+                        checks++;
+                    }
                     Transform contact=service==1&&side=="L"?root.Find("ActivityGripLeft"):root.GetComponentsInChildren<Transform>().Single(t=>t.name=="PalmContact."+side);
                     Vector3 expected=root.TransformPoint(side=="L"?visual.Left:visual.Right);
                     Vector3 horizontal=contact.position-expected;horizontal=Vector3.ProjectOnPlane(horizontal,root.up);
                     if(horizontal.magnitude>.0001f)throw new Exception("anatomical palm contacts transformed counter surface service="+service+" side="+side+" error="+horizontal.magnitude);checks++;
                     float lowest=root.GetComponentsInChildren<Transform>().Where(t=>t.name=="PalmContact."+side||t.name.EndsWith("Pad."+side)).Min(t=>root.InverseTransformPoint(t.position).y);
-                    if(!(service==1&&side=="L")&&!(service!=2&&side=="R"))
+                    if(service==2)
+                    {
+                        Vector3 lowered=root.InverseTransformPoint(contact.position);
+                        if(Mathf.Abs(lowered.x)<.22f||lowered.z>.245f||lowered.y>1.08f)
+                            throw new Exception("attentive priestess hands stay beside her robe and outside the donation bowl");
+                        checks++;
+                    }
+                    else if(!(service==1&&side=="L")&&!(service!=2&&side=="R"))
                     {if(lowest<1.02f)throw new Exception("attentive palms remain clear of the worktop");checks++;}
                     if(service!=2&&side=="R")
                     {if(rig.OfferingPalm==null||Vector3.Dot(rig.OfferingPalm.up,root.up)<.99f)throw new Exception("offering palm faces upward");checks++;}

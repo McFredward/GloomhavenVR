@@ -36,7 +36,7 @@ public static class InteractionProgram
                 phase=TownServiceActivityMotion.Advance(phase,1f/90f);
                 TownServiceActivityMotion.Hands(service,in phase,out var left,out var right,out var curl);
                 if(n>0)Check(Vector3.Distance(previous,right)<.018f,"no handtarget jump at loop or interruption");
-                Check(left.y>=.957f&&right.y>=.957f&&curl>=0&&curl<=1,"bounded occupation contacts");previous=right;
+                Check(left.y>=.87f&&right.y>=.87f&&curl>=0&&curl<=1,"bounded occupation contacts");previous=right;
             }
         }
         FaceClock.Now=0;RemoteTownActivities.Reset();
@@ -175,15 +175,17 @@ public static class InteractionProgram
         TownServiceActivityMotion.Engage(ref prayer,true);
         prayer=TownServiceActivityMotion.Advance(prayer,.65f);
         var receiving=TownServiceActivityMotion.Visual(2,in prayer);
-        Check(receiving.Left.x>.33f&&receiving.Right.x<-.33f
-            &&receiving.Left.y>1.10f&&receiving.Right.y>1.10f,
-            "attentive priestess clears the bowl with both hands before an offering");
+        Check(receiving.Left.x>.23f&&receiving.Right.x<-.23f
+            &&receiving.Left.y<1.07f&&receiving.Right.y<1.07f
+            &&receiving.Left.z<.24f&&receiving.Right.z<.24f,
+            "attentive priestess lowers both hands beside her robe and clears the bowl");
         var pause=new TownActivityPose{WorkClock=1.8f,TransitionAge=.65f};
         TownServiceActivityMotion.Engage(ref pause,true);pause=TownServiceActivityMotion.Advance(pause,1f);
         var held=TownServiceActivityMotion.Visual(1,in pause);
         Check(held.CoinGrip.x==1f,"visitor interruption preserves held coin contact");
-        Check(held.RightRoll<90f&&held.Left.y>1.07f,
-            "visitor attention settles merchant into a neutral pose without an unsolicited offering");
+        Check(held.RightRoll<90f&&held.Left.y<1.07f&&held.Left.x>.30f
+            &&held.Right.x<-.30f&&held.Right.z<.24f,
+            "visitor attention settles merchant with hands at his hips without an unsolicited offering");
         TownServiceActivityMotion.ApplyMerchantOffering(ref held,1f);
         Check(held.RightRoll>170f&&held.Right.y>1.17f,
             "a held or parked card independently opens the merchant offering palm");

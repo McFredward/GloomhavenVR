@@ -7,8 +7,9 @@ namespace GloomhavenVR.WorldUI;
 /// The source hand-shell removal cut the whole forearm at a common wrist plane,
 /// including costume triangles, leaving a visible flat arm end when looking into
 /// the sleeve (build558 screenshot085012). This sewn inner lining follows the
-/// real forearm and wrist bones. It does not alter hand geometry, silhouette,
-/// fingers or the original face/skin atlas.</summary>
+/// real forearm and wrist bones. A fitted inner hem meets the wrist skin ahead
+/// of the cut, while the wider lining overlaps the original cuff behind it.
+/// It does not alter hand geometry, fingers or the original face/skin atlas.</summary>
 internal sealed class TownServiceSleeveLining : IDisposable
 {
     private sealed class Side
@@ -27,9 +28,9 @@ internal sealed class TownServiceSleeveLining : IDisposable
     internal TownServiceSleeveLining(Transform station, Transform actor, byte service)
     {
         _root = station;
-        // Stay behind the visible cuff. The 20 mm cut also intersects outer
-        // garment folds; using its furthest vertex as a radius made a dark
-        // flange project outside the original silhouette in close preview.
+        // Stay inside the visible cuff. The first ring wraps the wrist skin;
+        // the second meets the garment's cut edge. Using the furthest source
+        // vertex as a radius made a dark flange project beyond the silhouette.
         _outer = service == 1 ? .044f : .038f;
         SkinnedMeshRenderer? body = null;
         foreach (SkinnedMeshRenderer candidate in actor.GetComponentsInChildren<SkinnedMeshRenderer>(true))
@@ -52,7 +53,7 @@ internal sealed class TownServiceSleeveLining : IDisposable
             var renderer = holder.gameObject.AddComponent<MeshRenderer>();
             renderer.sharedMaterial = material; renderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
             _sides[side] = new Side { Forearm = forearm, Hand = hand, Holder = holder,
-                Mesh = mesh, Vertices = new Vector3[Segments * 4 + 1] };
+                Mesh = mesh, Vertices = new Vector3[Segments * 4 + 2] };
         }
         Tick();
     }
@@ -67,14 +68,15 @@ internal sealed class TownServiceSleeveLining : IDisposable
     private static Mesh BuildMesh(Vector2 swatch)
     {
         var mesh = new Mesh { name = "TownSleeveInterior" };
-        var vertices = new Vector3[Segments * 4 + 1];
+        var vertices = new Vector3[Segments * 4 + 2];
         var uv = new Vector2[vertices.Length];
         // Atlas swatch from each costume's own dark inner-fabric colour.
         for (int row = 0; row < 4; row++)
             for (int i = 0; i < Segments; i++)
                 uv[row * Segments + i] = swatch + new Vector2((i / (float)Segments - .5f) * .0015f, row * .00035f);
         uv[Segments * 4] = swatch;
-        var triangles = new int[3 * Segments * 12 + 6 * Segments]; int cursor = 0;
+        uv[Segments * 4 + 1] = swatch;
+        var triangles = new int[3 * Segments * 12 + 12 * Segments]; int cursor = 0;
         for (int row = 0; row < 3; row++)
             for (int i = 0; i < Segments; i++)
             {
@@ -88,6 +90,15 @@ internal sealed class TownServiceSleeveLining : IDisposable
         for (int i = 0; i < Segments; i++)
         {
             int a = 3 * Segments + i, b = 3 * Segments + (i + 1) % Segments, c = 4 * Segments;
+            triangles[cursor++] = a; triangles[cursor++] = b; triangles[cursor++] = c;
+            triangles[cursor++] = c; triangles[cursor++] = b; triangles[cursor++] = a;
+        }
+        // A dark, shallow fabric diaphragm closes the sightline from the hand
+        // into the hollow sleeve. The real wrist remains in front of this cap;
+        // the tapered hem covers the cut without adding a visible skin stump.
+        for (int i = 0; i < Segments; i++)
+        {
+            int a = i, b = (i + 1) % Segments, c = 4 * Segments + 1;
             triangles[cursor++] = a; triangles[cursor++] = b; triangles[cursor++] = c;
             triangles[cursor++] = c; triangles[cursor++] = b; triangles[cursor++] = a;
         }
@@ -111,9 +122,9 @@ internal sealed class TownServiceSleeveLining : IDisposable
             tangent.Normalize(); Vector3 bitangent = Vector3.Cross(axis, tangent).normalized;
             for (int row = 0; row < 4; row++)
             {
-                float depth = row == 0 ? -.050f : row == 1 ? -.057f : row == 2 ? -.105f : -.165f;
-                float radius = row == 0 ? _outer : row == 1 ? _outer * .72f
-                    : row == 2 ? _outer * .73f : _outer * .53f;
+                float depth = row == 0 ? -.012f : row == 1 ? -.052f : row == 2 ? -.105f : -.165f;
+                float radius = row == 0 ? _outer * .69f : row == 1 ? _outer
+                    : row == 2 ? _outer * .86f : _outer * .53f;
                 for (int i = 0; i < Segments; i++)
                 {
                     float angle = Mathf.PI * 2f * i / Segments;
@@ -125,6 +136,7 @@ internal sealed class TownServiceSleeveLining : IDisposable
                 }
             }
             side.Vertices[Segments * 4] = side.Holder.InverseTransformPoint(centre - axis * .205f);
+            side.Vertices[Segments * 4 + 1] = side.Holder.InverseTransformPoint(centre - axis * .019f);
             side.Mesh.vertices = side.Vertices;
             side.Mesh.RecalculateNormals(); side.Mesh.RecalculateBounds();
         }

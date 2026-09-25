@@ -354,21 +354,25 @@ internal sealed class TownServiceActivityRig
             // Generated elbow motion preserves changing shoulder/elbow coordination.
             // A fixed pole was one reason the former hands moved like mechanical arms.
             Vector3 guide = authoredElbow.sqrMagnitude > .01f ? authoredElbow : new Vector3(side * .34f, .98f, .46f);
-            Vector3 greeting = new Vector3(side * (_service == 1 ? .43f : .35f), 1.04f, .45f);
+            Vector3 greeting = _service == 1
+                ? new Vector3(side * .49f, 1.08f, .16f)
+                : new Vector3(side * .33f, 1.08f, .16f);
             guide = Vector3.Lerp(guide, greeting, attention);
             // The generated human reference is narrower than the merchant's actual
             // coat/belly. Keep the elbow's approach outside that measured silhouette.
-            float clearance = _service == 1 ? .85f : .40f;
+            float clearance = _service == 1 ? Mathf.Lerp(.85f, .45f, attention) : .40f;
             // Preserve the recorded lateral and forward elbow excursion outside the
             // silhouette. Hard-clamping every source x/z to the same minimum used
             // to erase that coordination and made the hands pivot on fixed poles.
             guide.x = side * (clearance + Mathf.Max(0f, side * guide.x - .14f) * .25f);
             guide.y = _service == 3 ? .84f : Mathf.Max(1.10f, guide.y);
-            guide.z = .28f + Mathf.Clamp(guide.z - .50f, 0f, .20f) * .4f;
+            guide.z = _service == 1 ? Mathf.Lerp(.28f + Mathf.Clamp(guide.z - .50f, 0f, .20f) * .4f,
+                .16f, attention) : .28f + Mathf.Clamp(guide.z - .50f, 0f, .20f) * .4f;
             // Keep the lowered joined hands clear of the actual robe as well as
             // the original prayer. A rearward pole cut three sleeve/torso triangles.
             if (_service == 2)
-                guide = new Vector3(side * .42f, .70f, .10f);
+                guide = Vector3.Lerp(new Vector3(side * .42f, .70f, .10f),
+                    new Vector3(side * .34f, 1.05f, .16f), attention);
             Vector3 pole = _root.TransformPoint(guide) - shoulder;
             Vector3 bend = Vector3.ProjectOnPlane(pole, direction).normalized;
             if (bend.sqrMagnitude < .5f) bend = _root.right * side;

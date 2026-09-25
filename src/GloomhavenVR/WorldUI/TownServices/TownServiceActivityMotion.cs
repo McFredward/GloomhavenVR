@@ -75,14 +75,17 @@ internal static class TownServiceActivityMotion
         // Interruption stops the shared work clock smoothly. A pinched coin stays in
         // the hand while greeting; it never slides through space back onto the table.
         // Looking at a visitor is separate from offering an item hand to that visitor.
-        work.Left = Vector3.Lerp(work.Left, service == 1 ? new Vector3(.20f, 1.09f, .20f)
-            : service == 2 ? new Vector3(.37f, 1.19f, .13f) : new Vector3(.22f, 1.13f, .23f), attention);
-        work.Right = Vector3.Lerp(work.Right, service == 1 ? new Vector3(-.20f, 1.09f, .20f)
-            : service == 3 ? new Vector3(-.18f, 1.17f, .23f) : new Vector3(-.37f, 1.19f, .13f), attention);
-        work.RightRoll = Mathf.Lerp(work.RightRoll, service == 1 ? 45f : service == 3 ? 180f : 0f, attention);
-        work.LeftRoll = Mathf.Lerp(work.LeftRoll, service == 3 ? -65f : 0f, attention);
-        work.RightCurl = Mathf.Lerp(work.RightCurl, service == 3 ? .08f : 0f, attention);
-        work.LeftCurl = service == 1 ? work.LeftCurl : Mathf.Lerp(work.LeftCurl, service == 3 ? .26f : 0f, attention);
+        // Keep the merchant's hands at his belt and the priestess's hands beside
+        // her robe. Their previous forward/sideward targets read as stiffly held
+        // arms, and the latter crossed the donation bowl when a visitor arrived.
+        work.Left = Vector3.Lerp(work.Left, service == 1 ? new Vector3(.33f, 1.04f, .22f)
+            : service == 2 ? new Vector3(.26f, 1.02f, .21f) : new Vector3(.22f, 1.13f, .23f), attention);
+        work.Right = Vector3.Lerp(work.Right, service == 1 ? new Vector3(-.33f, 1.04f, .22f)
+            : service == 3 ? new Vector3(-.18f, 1.17f, .23f) : new Vector3(-.26f, 1.02f, .21f), attention);
+        work.RightRoll = Mathf.Lerp(work.RightRoll, service == 1 ? 65f : service == 3 ? 180f : 0f, attention);
+        work.LeftRoll = Mathf.Lerp(work.LeftRoll, service == 1 ? -65f : service == 3 ? -65f : 0f, attention);
+        work.RightCurl = Mathf.Lerp(work.RightCurl, service == 1 ? .22f : service == 3 ? .08f : .06f, attention);
+        work.LeftCurl = Mathf.Lerp(work.LeftCurl, service == 1 ? .22f : service == 3 ? .26f : .06f, attention);
         work.Chest = Vector3.Lerp(work.Chest, Vector3.zero, attention);
         work.Body.Weight *= 1f - attention;
         work.Cast *= 1f - attention;

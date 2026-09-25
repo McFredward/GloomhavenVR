@@ -22,7 +22,7 @@ def replace_once(source, before, after):
 
 def sources(root):
     base = root / "src/GloomhavenVR/WorldUI/TownServices"
-    names = ["TownServiceActivityHandover.cs", "TownServiceActivityMotion.cs", "TownServiceActivityRig.cs", "TownServiceActivityProps.cs", "TownServiceGrounding.cs", "TownServiceFaceAttention.cs", "TownServiceFaceMotion.cs", "TownServiceFaceRig.cs"]
+    names = ["TownServiceActivityHandover.cs", "TownServiceActivityMotion.cs", "TownServiceActivityRig.cs", "TownServiceActivityProps.cs", "TownServiceSleeveLining.cs", "TownServiceGrounding.cs", "TownServiceFaceAttention.cs", "TownServiceFaceMotion.cs", "TownServiceFaceRig.cs"]
     names += ["TownServiceMotionClips.cs", "TownServiceMotionClips.Data.cs", "TownServiceLightList.cs", "TownServiceActivitySoundClock.cs", "TownServiceActivityAudio.cs"]
     bound = {name: (base / name).read_text() for name in names}
     bound["RemoteTownActivities.cs"] = (root / "src/GloomhavenVR/Net/Remote/RemoteTownActivities.cs").read_text()
@@ -58,7 +58,7 @@ def mutations():
         ("work-runs-while-engaged", "TownServiceActivityMotion.cs", "dt - Integral(in state, state.TransitionAge + dt) + Integral(in state, state.TransitionAge)", "dt", "engaged occupation remains paused"),
         ("ignore-ik", "TownServiceActivityRig.cs", "if (!Ready) return;", "if (Ready) return;", "anatomical palm contacts transformed counter surface"),
         ("thumb-overcurl", "TownServiceActivityRig.cs", "arm.Anatomical ? 38f : 5f", "arm.Anatomical ? 150f : 5f", "anatomical thumb stays inside natural grasp range"),
-        ("attentive-counter-bracing", "TownServiceActivityMotion.cs", "new Vector3(.37f, 1.19f, .13f)", "new Vector3(.21f, .959f, .337f)", "attentive palms remain clear of the worktop"),
+        ("attentive-counter-bracing", "TownServiceActivityMotion.cs", "new Vector3(.26f, 1.02f, .21f)", "new Vector3(.21f, .959f, .337f)", "attentive priestess hands stay beside her robe and outside the donation bowl"),
         ("excessive-work-bow", "TownServiceActivityRig.cs", "-6f - terrainLean", "-35f - terrainLean", "work posture does not stack an extreme torso and neck bow"),
         ("ignore-palm-offset", "TownServiceActivityRig.cs", "target -= palmOffset;", "target -= palmOffset * 0f;", "anatomical palm contacts transformed counter surface"),
         ("curl-contact-markers", "TownServiceActivityRig.cs", ' && !t.name.Contains("Tip")', "", "contact markers are not articulated finger joints"),
@@ -68,7 +68,10 @@ def mutations():
         ("magnetic-coin", "TownServiceActivityMotion.cs", "coin == index && t >= 1.04f && t < 2.86f ? 1f : 0f", "coin == index ? grip : 0f", "coin is resting or rigidly gripped, never magnetically attracted"),
         ("paused-coin-in-air", "TownServiceActivityMotion.cs", "float transferProgress = Soft(t, 1.05f, 2.84f);", "float transferProgress = Soft(t < 1.70f ? t : t < 2f ? 1.70f : 1.70f + (t - 2f) * (2.84f - 1.70f) / .84f, 1.05f, 2.84f);", "merchant never parks a pinched coin in midair"),
         ("mid-transfer-greeting", "TownServiceActivityMotion.cs", "return t < .50f || t >= 3.05f;", "return true;", "merchant only greets after releasing the current coin"),
-        ("prayer-blocks-bowl", "TownServiceActivityMotion.cs", "new Vector3(.37f, 1.19f, .13f)", "new Vector3(.012f, 1.19f, .20f)", "attentive priestess clears the bowl with both hands before an offering"),
+        ("prayer-blocks-bowl", "TownServiceActivityMotion.cs", "new Vector3(.26f, 1.02f, .21f)", "new Vector3(.012f, 1.19f, .20f)", "attentive priestess hands stay beside her robe and outside the donation bowl"),
+        ("merchant-stiff-greeting", "TownServiceActivityMotion.cs", "new Vector3(.33f, 1.04f, .22f)", "new Vector3(.20f, 1.09f, .20f)", "visitor attention settles merchant with hands at his hips without an unsolicited offering"),
+        ("open-sleeve-hem", "TownServiceSleeveLining.cs", "row == 0 ? -.012f", "row == 0 ? -.050f", "inner cuff overlaps the anatomical wrist ahead of the cut"),
+        ("open-sleeve-interior", "TownServiceSleeveLining.cs", "int a = i, b = (i + 1) % Segments, c = 4 * Segments + 1;", "int a = i, b = (i + 1) % Segments, c = 4 * Segments;", "shallow cuff diaphragm hides the severed forearm end"),
         ("downward-offering", "TownServiceActivityMotion.cs", "Mathf.Lerp(visual.RightRoll, 180f, t)", "Mathf.Lerp(visual.RightRoll, 0f, t)", "offering palm faces upward"),
         ("coin-detached-from-grip", "TownServiceActivityProps.cs", "Vector3.Lerp(seat, pinch, grip)", "seat", "real coin follows actual pinch or resting seat"),
     ]
