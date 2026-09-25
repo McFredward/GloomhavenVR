@@ -23,11 +23,11 @@ internal struct TownActivityState
 }
 
 /// <summary>Additive81: active1/epoch4/sequence4/clock4, three13-byte occupation phases,
-/// then the author's four-byte merchant offering blend.
+/// then the author's quantized merchant offering blend (one byte).
 /// Existing records79/80 and their dedicated packets remain byte-identical.</summary>
 internal static class TownActivityCodec
 {
-    internal const int MaxPayload = 56;
+    internal const int MaxPayload = 53;
     internal const int PacketBytes = 6 + 2 + MaxPayload + 2 + TownFaceCodec.MaxPayload;
     private static bool Finite(float value) => !float.IsNaN(value) && !float.IsInfinity(value);
     internal static bool Valid(in TownActivityState state)
@@ -63,7 +63,7 @@ internal static class TownActivityCodec
             AvatarSerializer.WriteF32(buffer, ref offset, p.FromBlend);
             buffer[offset++] = p.Engaged ? (byte)1 : (byte)0;
         }
-        AvatarSerializer.WriteF32(buffer, ref offset, state.MerchantOfferingBlend);
+        buffer[offset++] = (byte)Mathf.RoundToInt(state.MerchantOfferingBlend * 255f);
         return true;
     }
     internal static bool TryRead(byte[] buffer, int offset, int length, out TownActivityState state)
@@ -86,7 +86,7 @@ internal static class TownActivityCodec
             p.Engaged = target == 1;
             read.Set(n, p);
         }
-        read.MerchantOfferingBlend = AvatarSerializer.ReadF32(buffer, ref offset);
+        read.MerchantOfferingBlend = buffer[offset++] / 255f;
         if (!Valid(in read)) return false;
         state = read; return true;
     }
