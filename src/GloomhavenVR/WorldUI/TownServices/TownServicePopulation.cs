@@ -179,10 +179,14 @@ internal static class TownServicePopulation
                 if (IsFaceAuthor)
                 {
                     bool engaged = resident.Station.PrepareActivityAttention(resident.Activity.Engaged);
-                    // The merchant stops counting when looking at a visitor. Offering
-                    // the palm remains a separate intent, never implied by proximity.
+                    // Finish the current coin contact before greeting. Immediate
+                    // attention could strand a gripped coin in midair; this authored
+                    // decision is carried in the ordinary occupation stream.
                     if (service == 1) engaged |= TownServiceMerchantHandoff.WantsOffering
                         || TownServiceMirror.RemoteMerchantOffering;
+                    if (service == 1 && engaged && !resident.Activity.Engaged
+                        && !TownServiceActivityMotion.MerchantCanAttend(resident.Activity.WorkClock))
+                        engaged = false;
                     TownServiceActivityMotion.Engage(ref resident.Activity, engaged);
                 }
                 // A follower never decides which player deserves attention, including when

@@ -122,7 +122,9 @@ public static class InteractionProgram
         Vector3 previousMerchantHand=Vector3.zero;
         int motionlessAirFrames=0, longestMotionlessAir=0;
         bool large=false,small=false; float quietSeconds=0f; int experiments=0; bool casting=false;
-        float[] strengths=new float[3]; float lastExperiment=-100f; Vector3 previousSpell=Vector3.zero;
+        float[] strengths=new float[3], modes=new float[3];
+        Vector3[] spellPeaks=new Vector3[3];
+        float lastExperiment=-100f; Vector3 previousSpell=Vector3.zero;
         for(int frame=0;frame<12960;frame++)
         {
             var state=new TownActivityPose{WorkClock=frame/90f,TransitionAge=.65f};
@@ -140,16 +142,21 @@ public static class InteractionProgram
                 Vector3 displayed=Vector3.Lerp(seat,merchant.Left,grip);
                 if(frame>0)Check(Vector3.Distance(previous[coin],displayed)<.014f,"counted coin never teleports across pickup/deposit/loop frame="+frame+" coin="+coin+" delta="+Vector3.Distance(previous[coin],displayed));
                 Check(grip==0f||grip==1f,"coin is resting or rigidly gripped, never magnetically attracted");
-                if(grip==0f)Check(displayed.y>=.969f&&displayed.y<=.977f,"released coins rest on counter/stack");
+                if(grip==0f)Check(displayed.y>=.957f&&displayed.y<=.965f,"released coins rest on counter/stack");
                 previous[coin]=displayed;
             }
+            if(TownServiceActivityMotion.MerchantCanAttend(state.WorkClock))
+                Check(Vector3.Distance(merchant.CoinGrip,Vector3.zero)==0f,
+                    "merchant only greets after releasing the current coin");
             var spell=TownServiceActivityMotion.Visual(3,in state);
             if(spell.Cast>.75f)large=true;
             if(spell.Cast>.45f&&spell.Cast<.7f)small=true;
             if(spell.Cast<.001f)quietSeconds+=1f/90f;
             if(spell.Cast>.25f&&!casting)
             { Check(state.WorkClock-lastExperiment>35f,"spell phrases have long varied quiet intervals");lastExperiment=state.WorkClock;experiments++; }
-            int block=frame/(48*90); strengths[block]=Mathf.Max(strengths[block],spell.Cast);
+            int block=frame/(48*90);
+            if(spell.Cast>strengths[block]) { strengths[block]=spell.Cast; spellPeaks[block]=spell.Right; }
+            modes[block]=Mathf.Max(modes[block],spell.CastSway);
             if(frame>0)Check(Vector3.Distance(previousSpell,spell.Right)<.006f,"spell reach and recovery remain smooth at block boundaries");
             previousSpell=spell.Right;
             casting=spell.Cast>.25f;
@@ -159,11 +166,23 @@ public static class InteractionProgram
         Check(longestMotionlessAir<6,"merchant never parks a pinched coin in midair");
         Check(experiments==3&&quietSeconds>110f,"shared schedule leaves long quiet reading intervals between experiments");
         Check(Mathf.Abs(strengths[0]-strengths[1])>.05f&&Mathf.Abs(strengths[1]-strengths[2])>.10f,"spell experiment strength varies between shared clock blocks");
+        Check(modes[0]<.01f&&modes[1]>.49f&&modes[1]<.51f&&modes[2]>.99f,
+            "shared clock selects three distinct spell effect modes");
+        Check(Vector3.Distance(spellPeaks[0],spellPeaks[1])>.04f
+            &&Vector3.Distance(spellPeaks[1],spellPeaks[2])>.08f,
+            "spell phrases change hand choreography as well as light effects");
+        var prayer=new TownActivityPose{WorkClock=4f,TransitionAge=.65f};
+        TownServiceActivityMotion.Engage(ref prayer,true);
+        prayer=TownServiceActivityMotion.Advance(prayer,.65f);
+        var receiving=TownServiceActivityMotion.Visual(2,in prayer);
+        Check(receiving.Left.x>.33f&&receiving.Right.x<-.33f
+            &&receiving.Left.y>1.10f&&receiving.Right.y>1.10f,
+            "attentive priestess clears the bowl with both hands before an offering");
         var pause=new TownActivityPose{WorkClock=1.8f,TransitionAge=.65f};
         TownServiceActivityMotion.Engage(ref pause,true);pause=TownServiceActivityMotion.Advance(pause,1f);
         var held=TownServiceActivityMotion.Visual(1,in pause);
         Check(held.CoinGrip.x==1f,"visitor interruption preserves held coin contact");
-        Check(held.RightRoll<90f&&held.Left.y>1.10f,
+        Check(held.RightRoll<90f&&held.Left.y>1.07f,
             "visitor attention settles merchant into a neutral pose without an unsolicited offering");
         TownServiceActivityMotion.ApplyMerchantOffering(ref held,1f);
         Check(held.RightRoll>170f&&held.Right.y>1.17f,
@@ -174,6 +193,21 @@ public static class InteractionProgram
         var secondReach=TownServiceActivityMotion.Visual(1,in late);
         Check(Vector3.Distance(firstReach.Right,secondReach.Right)>.005f,
             "merchant support hand participates in each transfer");
+        for(float entry=0f;entry<TownServiceActivityMotion.MerchantCycleSeconds;entry+=.73f)
+        {
+            var settling=new TownActivityPose{WorkClock=entry,TransitionAge=.65f};
+            int frames=0;
+            for(;frames<360&&!settling.Engaged;frames++)
+            {
+                if(TownServiceActivityMotion.MerchantCanAttend(settling.WorkClock))
+                    TownServiceActivityMotion.Engage(ref settling,true);
+                settling=TownServiceActivityMotion.Advance(settling,1f/90f);
+            }
+            Check(settling.Engaged&&frames<360,"merchant finishes a held transfer before greeting every arrival phase");
+            var settled=TownServiceActivityMotion.Visual(1,in settling);
+            Check(Vector3.Distance(settled.CoinGrip,Vector3.zero)==0f,
+                "visitor transition begins with each counted coin supported by the counter");
+        }
     }
     private static void GeneratedMotion()
     {
@@ -331,7 +365,12 @@ public static class InteractionProgram
                             if(service!=2)
                             {
                                 Check(Vector3.Distance(palm.position,wanted)<.012f,"actual enchantress offered palm reaches handoff n="+n+" distance="+Vector3.Distance(palm.position,wanted)+" shoulder="+upper.position+" target="+wanted+" reach="+reach);
-                                Check(rig.OfferingPalm!=null&&Vector3.Dot(rig.OfferingPalm.up,root.up)>.99f,"actual offering normal points above palm");
+                                // Merchant attention is not an offering. The right palm
+                                // points up only when a card is separately offered.
+                                if(service==3)
+                                    Check(rig.OfferingPalm!=null&&Vector3.Dot(rig.OfferingPalm.up,root.up)>.99f,
+                                        "actual offering normal points above palm: "+npc+" frame="+n
+                                        +" dot="+(rig.OfferingPalm==null?0f:Vector3.Dot(rig.OfferingPalm.up,root.up)));
                             }
                             else Check(Vector3.Distance(palm.position,wanted)<.012f&&lowest>1.13f,"attentive priest keeps joined hands off the counter");
                             Check(supports.All(t=>root.InverseTransformPoint(t.position).y>=.954f),"actual palmar skin stays above wood");

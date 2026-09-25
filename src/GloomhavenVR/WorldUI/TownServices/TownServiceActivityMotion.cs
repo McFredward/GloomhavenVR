@@ -41,6 +41,21 @@ internal static class TownServiceActivityMotion
         if (wanted == state.Engaged) return;
         state.FromBlend = Blend(in state); state.TransitionAge = 0f; state.Engaged = wanted;
     }
+    internal static bool MerchantCanAttend(float clock)
+    {
+        // Build 560: entering attention in the middle of a transfer froze a coin
+        // between the fingertips and the counter. The author finishes the current
+        // counted coin first; the resulting pose is the one observers receive.
+        float cycle = clock - Mathf.Floor(clock / MerchantCycleSeconds) * MerchantCycleSeconds;
+        int transfer = 0;
+        while (transfer < 5 && cycle >= TransferEnd[transfer]) transfer++;
+        float start = transfer == 0 ? 0f : TransferEnd[transfer - 1];
+        float t = MerchantTime(cycle - start, TransferEnd[transfer] - start,
+            (uint)Mathf.Floor(clock / MerchantCycleSeconds) * 6u + (uint)transfer);
+        // The hand may abandon an ungripped reach or finish its released return;
+        // neither case leaves a coin hovering when the work clock eases to rest.
+        return t < .50f || t >= 3.05f;
+    }
     internal static float Wave(float clock, float period) => .5f - .5f * Mathf.Cos(clock * (2f * Mathf.PI / period));
     internal static float Pulse(float cycle, float from, float to)
     {
@@ -60,10 +75,10 @@ internal static class TownServiceActivityMotion
         // Interruption stops the shared work clock smoothly. A pinched coin stays in
         // the hand while greeting; it never slides through space back onto the table.
         // Looking at a visitor is separate from offering an item hand to that visitor.
-        work.Left = Vector3.Lerp(work.Left, service == 1 ? new Vector3(.24f, 1.13f, .21f)
-            : service == 2 ? new Vector3(.012f, 1.23f, .20f) : new Vector3(.22f, 1.13f, .23f), attention);
-        work.Right = Vector3.Lerp(work.Right, service == 1 ? new Vector3(-.27f, 1.13f, .23f)
-            : service == 3 ? new Vector3(-.18f, 1.17f, .23f) : new Vector3(-.012f, 1.23f, .20f), attention);
+        work.Left = Vector3.Lerp(work.Left, service == 1 ? new Vector3(.20f, 1.09f, .20f)
+            : service == 2 ? new Vector3(.37f, 1.19f, .13f) : new Vector3(.22f, 1.13f, .23f), attention);
+        work.Right = Vector3.Lerp(work.Right, service == 1 ? new Vector3(-.20f, 1.09f, .20f)
+            : service == 3 ? new Vector3(-.18f, 1.17f, .23f) : new Vector3(-.37f, 1.19f, .13f), attention);
         work.RightRoll = Mathf.Lerp(work.RightRoll, service == 1 ? 45f : service == 3 ? 180f : 0f, attention);
         work.LeftRoll = Mathf.Lerp(work.LeftRoll, service == 3 ? -65f : 0f, attention);
         work.RightCurl = Mathf.Lerp(work.RightCurl, service == 3 ? .08f : 0f, attention);
@@ -71,6 +86,7 @@ internal static class TownServiceActivityMotion
         work.Chest = Vector3.Lerp(work.Chest, Vector3.zero, attention);
         work.Body.Weight *= 1f - attention;
         work.Cast *= 1f - attention;
+        work.CastSway *= 1f - attention;
         work.Curl = Mathf.Max(work.LeftCurl, work.RightCurl);
         return work;
     }
@@ -102,8 +118,8 @@ internal static class TownServiceActivityMotion
 
     private static float Ease(float time, float from, float to) => Mathf.SmoothStep(0f, 1f, (time - from) / (to - from));
     internal static Vector3 CoinSeat(int index, bool counted) => counted
-        ? new Vector3(.24f, .970f + index * .003f, .29f)
-        : new Vector3(.24f, .970f, .38f - index * .026f);
+        ? new Vector3(.24f, .958f + index * .003f, .29f)
+        : new Vector3(.24f, .958f, .38f - index * .026f);
 
     internal const float MerchantCycleSeconds = 28.6f;
     private static readonly float[] TransferEnd = { 4.8f, 8.9f, 14.6f, 19.1f, 24.3f, MerchantCycleSeconds };
@@ -222,11 +238,12 @@ internal static class TownServiceActivityMotion
     }
     private static TownActivityVisual Enchantress(float clock)
     {
-        // Hardware550 showed high elbows with hanging wrists, followed by the same
-        // second flourish a few seconds later. Do not retime that unsuitable stage
-        // performance again. One quiet, palm-supported experiment is surrounded by
-        // long reading intervals, with distinct reach/observation/recovery timing.
+        // Three separate experiments share the authored clock: a palm-held spark,
+        // a two-hand sigil and a low tracing motion above the book. Their rests and
+        // ends coincide, so even a late remote observer sees the same full gesture
+        // without an elbow snap at the next phrase. The long reading interval stays.
         uint block = (uint)Mathf.Floor(clock / 48f);
+        int variant = (int)(block % 3u);
         float phase = clock - block * 48f;
         float start = 12f + 10f * Variation(block, 3u);
         float length = 8f + 3f * Variation(block, 7u);
@@ -244,15 +261,25 @@ internal static class TownServiceActivityMotion
         quiet.Body.Weight = .22f;
         gesture.Body.Weight = .42f;
         var body = TownMotionBody.Lerp(in quiet.Body, in gesture.Body, lift);
+        Vector3 leftSpell = variant == 0 ? new Vector3(.18f, 1.27f, .17f)
+            : variant == 1 ? new Vector3(.12f, 1.25f, .23f)
+            : new Vector3(.21f, 1.14f, .27f);
+        Vector3 rightSpell = variant == 0 ? new Vector3(-.20f, 1.26f, .17f)
+            : variant == 1 ? new Vector3(-.12f, 1.24f, .23f)
+            : new Vector3(-.08f, 1.12f, .31f);
+        float trace = shape * Mathf.Sin(Mathf.PI * Mathf.Clamp01((t - .25f) / .50f));
+        if (variant == 2) rightSpell += new Vector3(.025f * trace, 0f, .018f * trace);
         return new TownActivityVisual {
             Left = Vector3.Lerp(new Vector3(.22f, 1.11f, .23f),
-                new Vector3(.18f, 1.27f, .17f), shape),
+                leftSpell, shape),
             Right = Vector3.Lerp(new Vector3(-.22f, 1.11f, .23f),
-                new Vector3(-.20f, 1.26f, .17f), lift),
+                rightSpell, lift),
             LeftElbow = new Vector3(.40f, .84f, .26f),
             RightElbow = new Vector3(-.40f, .84f, .26f), Body = body,
-            LeftRoll = -65f + 30f * shape, RightRoll = 65f + 115f * turn,
+            LeftRoll = -65f + (variant == 1 ? -25f : 30f) * shape,
+            RightRoll = 65f + 115f * turn,
             Cast = cast, LeftCurl = Mathf.Lerp(.26f, .10f, shape),
+            CastSway = variant * .5f * lift,
             RightCurl = Mathf.Lerp(.26f, .08f, lift), EffectClock = clock
         };
     }
