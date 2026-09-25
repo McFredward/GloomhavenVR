@@ -1,42 +1,48 @@
 # Town resident speech and foley
 
-The twelve English voice cues and quiet coin contact are original mod assets, not
+The 55 English voice cues and quiet coin contact are original mod assets, not
 recordings extracted from Gloomhaven. They are generated offline; the shipped
-mod makes no paid API request. All WAVs are mono 24 kHz PCM. `coin-soft.wav` is
-a 0.44-second, gently faded physical coin contact at roughly -37 LUFS; the
-resident foley player applies a further 0.15 gain and the game's master/SFX
+mod makes no paid API request. Source WAVs are mono 24 kHz PCM for deterministic
+Rhubarb analysis; Unity stores every imported clip as quality-0.45 mono Vorbis
+so the expanded set stays within the release bundle limit. `coin-soft.wav` is
+a 0.48-second single subdued coin touch with a -49.5 dB mean and -27.8 dB peak;
+the resident foley player applies a further 0.065 gain and the game's master/SFX
 sliders.
 
 | Resident | Voice source | Cues |
 | --- | --- | --- |
-| Merchant | Qwen 3 TTS voice design + one fixed 0.6B cloned speaker embedding | greet, offer, buy, sell |
-| Priestess | Qwen 3 TTS voice design candidate v4 + one fixed 0.6B cloned speaker embedding | greet, prayer, donate |
-| Enchantress | ElevenLabs v3 voice ID `pFZP5JQG7iQjIQuC4Bku` | greet, two casts, enhance, invite |
+| Merchant | Qwen 3 TTS voice design + one fixed 0.6B cloned speaker embedding | five each: greet, offer, buy, sell |
+| Priestess | Qwen 3 TTS voice design candidate v4 + one fixed 0.6B cloned speaker embedding | five each: greet, prayer, donate |
+| Enchantress | ElevenLabs v3 voice ID `pFZP5JQG7iQjIQuC4Bku` | five each: greet, cast, enhance, invite |
 
-The merchant design asked for a projected, hearty middle-aged baritone with a
-natural laugh. The priestess v4 design asked for an elderly feminine, breathy,
-smoke-roughened voice. Independent audio-model reviews heard a clear laugh in
-the merchant greeting and more noticeable rasp/breath in priestess v4 than in
-v2. Both reviews still estimated the priestess as roughly 40s-60s, so her exact
-perceived age remains a headset/listening validation item. No subtle pitch or
-formant pass was applied because an unverified effect could introduce artifacts
-or damage consistency. Local tiny.en ASR recovered every new line, including
-the enchantress hand invitation, but ASR and audio-model reviews do not replace
-human listening.
+The revised merchant design asks for a close-miked, deep, clear and warm
+middle-aged baritone speaking calmly to one nearby customer. It explicitly
+excludes shouting, announcer projection and distant or processed sound. An
+independent audio-model review heard a man in his 40s-50s, low-to-mid pitch,
+exceptionally clear, warm, close and conversational, with only slight room
+reverb and no shouting. The priestess v4 design remains an elderly feminine,
+breathy, smoke-roughened voice. No pitch or formant post-process is applied.
+Local tiny.en ASR recovered the intended sentence structure for every newly
+generated line, with occasional expected homophones. One first merchant-buy
+take stretched two short sentences to 17.98 seconds; it was rejected and
+replaced once with a bounded-token take lasting 3.43 seconds. ASR and model
+reviews do not replace human listening in the headset.
 
 The paired JSON files are baked from these exact WAVs by Rhubarb Lip Sync 1.14.
 Their validated cue, resident, duration and phoneme intervals let the elected
-multiplayer face author broadcast one cue/generation/age to all observers. The
+multiplayer face author choose one of five event variants, then broadcast that
+exact cue/generation/age to all observers. The
 voice playback seeks to that shared age; mouth curves use it directly. Neither
 the voice API nor Rhubarb runs at game runtime.
 
-The revision plan in `scripts/generate-town-voices.py` records immutable paid
-intents and estimated per-call prices. Its 26 listed one-shot calls total about
-USD 0.1157 at fal's 2026-09-25 listed rates; three incompatible experimental
-requests returned HTTP 422 and were not retried. Actual account billing was not
-independently reconciled. Sources: [Qwen voice design](https://fal.ai/models/fal-ai/qwen-3-tts/voice-design/1.7b),
+The variant plan in `scripts/generate-town-voices.py` records immutable paid
+intents and estimated per-call prices. Its 51 planned one-shot calls total about
+USD 0.2021 at fal's 2026-09-25 listed rates. The one bounded replacement raises
+the displayed-price estimate to about USD 0.2057. A separate coin-review request
+returned HTTP 403 and was not retried; actual account billing was not independently
+reconciled. Sources: [Qwen voice design](https://fal.ai/models/fal-ai/qwen-3-tts/voice-design/1.7b),
 [Qwen TTS](https://fal.ai/models/fal-ai/qwen-3-tts/text-to-speech/0.6b),
 [ElevenLabs v3](https://fal.ai/models/fal-ai/elevenlabs/tts/eleven-v3),
 [ElevenLabs SFX](https://fal.ai/models/fal-ai/elevenlabs/sound-effects/v2).
 Private receipts and source MP3s stay gitignored under
-`.planning/debug/town561-speech/`; the API key is never written there.
+`.planning/debug/town562-speech/`; the API key is never written there.

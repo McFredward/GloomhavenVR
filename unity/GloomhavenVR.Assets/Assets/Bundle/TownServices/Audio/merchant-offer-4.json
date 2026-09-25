@@ -1,0 +1,55 @@
+{
+  "schema": 1,
+  "cue": 19,
+  "service": 1,
+  "language": "en",
+  "duration": 2.15,
+  "packed": "0.00,0.80,X;0.80,1.33,B;1.33,1.61,F;1.61,1.68,C;1.68,1.82,A;1.82,1.90,B;1.90,2.04,D;2.04,2.11,B;2.11,2.15,X",
+  "mouthCues": [
+    {
+      "start": 0.0,
+      "end": 0.8,
+      "value": "X"
+    },
+    {
+      "start": 0.8,
+      "end": 1.33,
+      "value": "B"
+    },
+    {
+      "start": 1.33,
+      "end": 1.61,
+      "value": "F"
+    },
+    {
+      "start": 1.61,
+      "end": 1.68,
+      "value": "C"
+    },
+    {
+      "start": 1.68,
+      "end": 1.82,
+      "value": "A"
+    },
+    {
+      "start": 1.82,
+      "end": 1.9,
+      "value": "B"
+    },
+    {
+      "start": 1.9,
+      "end": 2.04,
+      "value": "D"
+    },
+    {
+      "start": 2.04,
+      "end": 2.11,
+      "value": "B"
+    },
+    {
+      "start": 2.11,
+      "end": 2.15,
+      "value": "X"
+    }
+  ]
+}

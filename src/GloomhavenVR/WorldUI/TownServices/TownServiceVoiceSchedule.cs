@@ -9,11 +9,12 @@ internal sealed class TownServiceVoiceSchedule
     {
         internal bool Visiting, Pending, Ended;
         internal float VisitAge, Deadline, NextAllowed, Started, ObservedAge;
-        internal ushort Cue, PendingCue, LastRequestedCue;
+        internal ushort Cue, PendingCue, LastRequestedCue, LastVariantCue;
         internal uint Generation, ObservedGeneration;
         internal int Author;
         internal bool Observed;
         internal float LastRequestedAt, LastWorkClock, LastCast, LastAttention;
+        internal uint VariantState;
         internal bool WorkSeeded;
         internal byte Priority;
     }
@@ -30,7 +31,7 @@ internal sealed class TownServiceVoiceSchedule
         // The enchantress invites a visitor as her hand opens, not before the
         // shared gesture. This also avoids two back-to-back greetings on entry.
         if (beginning && service != 3 && age <= 2f && now >= e.NextAllowed && e.Cue == 0)
-            Queue(service, TownServiceVoice.GreetingCue(service), 1, now + 5f);
+            QueueVariant(service, TownServiceVoice.GreetingFirstCue(service), 1, now + 5f, age + now);
     }
 
     internal void Work(byte service, float clock, float cast, float attention, bool visible, float now)
@@ -42,16 +43,16 @@ internal sealed class TownServiceVoiceSchedule
         if (continuous && attention < .2f)
         {
             if (service == 2 && Crossed(e.LastWorkClock, clock, 64f, 6f))
-                Queue(service, 7, 0, now + 3f);
+                QueueVariant(service, 31, 0, now + 3f, clock);
             if (service == 3 && e.LastCast <= .16f && cast > .16f)
-                Queue(service, (ushort)(Math.Floor(clock / 48f) % 2 == 0 ? 9 : 10), 0, now + 3f);
+                QueueVariant(service, 41, 0, now + 3f, clock);
         }
         // The hand-extension is authored in TLV81. Cue 12 is selected only by
         // the elected face author from that shared edge, then TLV80 publishes its
         // identity and age; proximity on each observer can never choose a line.
         if (continuous && service == 3 && e.LastAttention < .35f && attention >= .35f
             && now >= e.NextAllowed)
-            Queue(service, 12, 1, now + 4f);
+            QueueVariant(service, 51, 1, now + 4f, clock);
         e.WorkSeeded = true; e.LastWorkClock = clock; e.LastCast = cast; e.LastAttention = attention;
     }
 
@@ -59,19 +60,45 @@ internal sealed class TownServiceVoiceSchedule
         => Math.Floor(before / period) == Math.Floor(after / period)
             && before % period < threshold && after % period >= threshold;
 
-    internal void Request(byte service, ushort cue, float now)
+    internal void Request(byte service, ushort firstCue, float now)
     {
         Entry e = At(service);
-        if (e.LastRequestedCue == cue && now - e.LastRequestedAt < 4f) return;
-        e.LastRequestedCue = cue; e.LastRequestedAt = now;
-        Queue(service, cue, 2, now + 6f);
+        // Deduplicate the event, not its selected variant. Choosing before this
+        // guard let two copies of one native callback evade the four-second gate.
+        if (e.LastRequestedCue == firstCue && now - e.LastRequestedAt < 4f) return;
+        e.LastRequestedCue = firstCue; e.LastRequestedAt = now;
+        QueueVariant(service, firstCue, 2, now + 6f, now);
     }
 
-    private void Queue(byte service, ushort cue, byte priority, float deadline)
+    private void QueueVariant(byte service, ushort firstCue, byte priority, float deadline, float entropy)
     {
         Entry e = At(service);
         if (e.Pending && e.Priority > priority) return;
-        e.Pending = true; e.PendingCue = cue; e.Priority = priority; e.Deadline = deadline;
+        e.Pending = true; e.PendingCue = Pick(e, firstCue, entropy);
+        e.Priority = priority; e.Deadline = deadline;
+    }
+
+    /// <summary>Choose one of five performances only on the elected author. TLV80
+    /// publishes the resulting exact cue. A private xorshift state gives varied
+    /// order without touching Unity's gameplay random stream or repeating the
+    /// immediately preceding line.</summary>
+    private static ushort Pick(Entry e, ushort firstCue, float entropy)
+    {
+        // Millisecond quantization is sufficient entropy for presentation and
+        // remains available in the game's .NET Framework profile without an
+        // allocating float-to-byte conversion.
+        uint bits = unchecked((uint)(entropy * 1000f));
+        uint state = e.VariantState;
+        if (state == 0) state = bits ^ ((uint)firstCue * 0x9e3779b9u) ^ 0xa341316cu;
+        state ^= state << 13; state ^= state >> 17; state ^= state << 5;
+        if (state == 0) state = 0x6d2b79f5u;
+        e.VariantState = state;
+        uint offset = state % 5u;
+        ushort cue = (ushort)(firstCue + offset);
+        if (cue == e.LastVariantCue)
+            cue = (ushort)(firstCue + (offset + 1u + state % 4u) % 5u);
+        e.LastVariantCue = cue;
+        return cue;
     }
 
     internal void Sample(byte service, Func<ushort, float> duration, float now, bool narration)
@@ -102,7 +129,8 @@ internal sealed class TownServiceVoiceSchedule
         e.Cue = cue; e.Ended = cue == 0;
         if (cue != 0)
         {
-            e.Started = now - age; e.Pending = false; e.NextAllowed = Math.Max(e.NextAllowed, now + 45f);
+            e.Started = now - age; e.Pending = false; e.LastVariantCue = cue;
+            e.NextAllowed = Math.Max(e.NextAllowed, now + 45f);
         }
         return true;
     }

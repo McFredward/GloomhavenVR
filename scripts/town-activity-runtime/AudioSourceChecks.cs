@@ -27,17 +27,17 @@ internal static class AudioSourceChecks
             var source=root.GetComponentInChildren<AudioSource>();
             Check(source!=null&&source.clip==contact&&source.clip!=clip,
                 "coin contact uses the bundled short physical clink, never the long equipment UI toggle");
-            Check(source!.clip!.length<=.45f&&source.volume<=.15f,
+            Check(source!.clip!.length<=.5f&&source.volume<=.065f,
                 "small coin contact has a short bounded duration and quiet gain");
-            Check(source!.spatialBlend==1f&&source.dopplerLevel==0f,"resident foley is spatial and has no moving-rig Doppler");
-            Check(Mathf.Abs(source.minDistance-148.59f)<.01f&&Mathf.Abs(source.maxDistance-891.54f)<.01f,
+            Check(source!.spatialBlend==1f&&source.dopplerLevel==0f&&source.rolloffMode==AudioRolloffMode.Linear,"resident foley has continuous linear falloff and no moving-rig Doppler");
+            Check(Mathf.Abs(source.minDistance-79.248f)<.01f&&Mathf.Abs(source.maxDistance-1386.84f)<.01f,
                 "resident range follows the map's world units per perceived metre");
             Check(.8f*root.lossyScale.x<source.maxDistance,
                 "a visitor eight tenths of a metre from the source is inside audible range");
             Check(Vector3.Distance(source.transform.position,root.TransformPoint(released.Left))<.00001f,"coin foley originates at actual resident contact");
             root.localScale=Vector3.one*100f;
             FaceClock.Now=.015f;audio.Tick(1,1,2.015f,.005f,true,in released);
-            Check(Mathf.Abs(source.minDistance-75f)<.01f&&Mathf.Abs(source.maxDistance-450f)<.01f,
+            Check(Mathf.Abs(source.minDistance-40f)<.01f&&Mathf.Abs(source.maxDistance-700f)<.01f,
                 "range tracks a later map scale change without recreating the voice");
             float full=source.volume;SaveData.Instance.Global.MasterVolume=50;SaveData.Instance.Global.SFXVolume=20;
             FaceClock.Now=.02f;audio.Tick(1,1,2.02f,.01f,true,in released);

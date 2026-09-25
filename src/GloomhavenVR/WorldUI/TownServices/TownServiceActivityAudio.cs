@@ -68,7 +68,7 @@ internal sealed class TownServiceActivityAudio : IDisposable
             // The previous foley gain was multiplied by the game's two volume sliders
             // and then attenuated again at the visitor's normal standing distance.
             // These remain quieter than native transactions but are audible nearby.
-            _gains[slot] = sound == TownActivitySound.Coin ? .15f : sound == TownActivitySound.Spell ? .16f : .18f;
+            _gains[slot] = sound == TownActivitySound.Coin ? .065f : sound == TownActivitySound.Spell ? .12f : .11f;
             voice.volume = master * _gains[slot];
             // Native effects can contain long gameplay tails. Foley uses a bounded
             // excerpt with a short end fade; the original shared clip is untouched.
@@ -98,8 +98,11 @@ internal sealed class TownServiceActivityAudio : IDisposable
 
     private static void SetHearingRange(AudioSource source, float worldUnitsPerMetre)
     {
-        source.minDistance = .75f * worldUnitsPerMetre;
-        source.maxDistance = 4.5f * worldUnitsPerMetre;
+        // Keep one long, linear falloff across the room. A short maxDistance
+        // behaves like an audible on/off boundary when a tracked head crosses it
+        // between frames, especially at the map's large world-unit scale.
+        source.minDistance = .4f * worldUnitsPerMetre;
+        source.maxDistance = 7f * worldUnitsPerMetre;
     }
 
     private AudioClip? Resolve(TownActivitySound sound, float now)

@@ -23,6 +23,7 @@ import uuid
 ROOT = Path(__file__).resolve().parents[1]
 OUT = ROOT / ".planning/debug/town560-speech"
 REVISION_OUT = ROOT / ".planning/debug/town561-speech"
+VARIANT_OUT = ROOT / ".planning/debug/town562-speech"
 ASSETS = ROOT / "unity/GloomhavenVR.Assets/Assets/Bundle/TownServices/Audio"
 ENDPOINT = "fal-ai/elevenlabs/tts/eleven-v3"
 PRICE_PER_1000 = 0.10  # fal listing checked 2026-09-25; estimate, not receipt.
@@ -48,6 +49,79 @@ GREETING = {
     "enchantress-greet": "enchantress-en",
 }
 CUES = tuple(GREETING) + tuple(LINES)
+
+# Cue order is a wire contract: TLV80 carries the selected cue number. Every
+# event has five complete English performances. Only the elected author makes
+# the bounded random choice, after which every peer plays this exact asset.
+VOICE_EVENTS = {
+    "merchant-greet": (
+        ("merchant-greet", "Welcome. Take your time and look around."),
+        ("merchant-greet-2", "Good to see you. I may have just what you need."),
+        ("merchant-greet-3", "Come closer. The stock is ready for you."),
+        ("merchant-greet-4", "Welcome back. Let us find something useful."),
+        ("merchant-greet-5", "Have a look. Every piece has earned its place.")),
+    "priestess-greet": (
+        ("priestess-greet", "Welcome, traveler. The Great Oak watches over you."),
+        ("priestess-greet-2", "Come closer, traveler. You are welcome here."),
+        ("priestess-greet-3", "Rest a moment. The Great Oak shelters us all."),
+        ("priestess-greet-4", "Welcome, child. May this quiet place bring you peace."),
+        ("priestess-greet-5", "Traveler, you stand beneath the Great Oak's care.")),
+    "enchantress-greet": (
+        ("enchantress-greet", "So, you seek a little more power."),
+        ("enchantress-greet-2", "There is always more hidden within a card."),
+        ("enchantress-greet-3", "Come in. Let us wake the magic you carry."),
+        ("enchantress-greet-4", "You have brought me something interesting."),
+        ("enchantress-greet-5", "Step closer. The runes are already listening.")),
+    "merchant-offer": (
+        ("merchant-offer", "Let me take a closer look at that."),
+        ("merchant-offer-2", "Set it here. I will give it a fair appraisal."),
+        ("merchant-offer-3", "That caught your eye? Hand it over."),
+        ("merchant-offer-4", "Let us see what you have brought."),
+        ("merchant-offer-5", "Place it in my hand. I will inspect it.")),
+    "merchant-buy": (
+        ("merchant-buy", "A fine choice. It should serve you well."),
+        ("merchant-buy-2", "Excellent. That one belongs in capable hands."),
+        ("merchant-buy-3", "A sound purchase. Use it wisely."),
+        ("merchant-buy-4", "Good choice. I think you will be pleased."),
+        ("merchant-buy-5", "Done. May it see you safely home.")),
+    "merchant-sell": (
+        ("merchant-sell", "A fair trade. I will take good care of it."),
+        ("merchant-sell-2", "Sold. Here is a fair price."),
+        ("merchant-sell-3", "A useful piece. We have a deal."),
+        ("merchant-sell-4", "Agreed. The coin is yours."),
+        ("merchant-sell-5", "That will do nicely. A fair exchange.")),
+    "priestess-prayer": (
+        ("priestess-prayer", "Great Oak, guide us through the dark."),
+        ("priestess-prayer-2", "Great Oak, shelter those who walk beyond these walls."),
+        ("priestess-prayer-3", "Let root and branch guard every weary traveler."),
+        ("priestess-prayer-4", "May the Great Oak lend us patience and strength."),
+        ("priestess-prayer-5", "Keep our companions safe beneath your ancient boughs.")),
+    "priestess-donate": (
+        ("priestess-donate", "May your offering bring you strength."),
+        ("priestess-donate-2", "The Great Oak receives your generous offering."),
+        ("priestess-donate-3", "Your kindness will not be forgotten."),
+        ("priestess-donate-4", "May this gift guard your path ahead."),
+        ("priestess-donate-5", "With gratitude, I place your offering before the Great Oak.")),
+    "enchantress-cast": (
+        ("enchantress-cast-ember", "[whispers] Wake, hidden spark."),
+        ("enchantress-cast-echo", "By ember and echo, take shape."),
+        ("enchantress-cast-spark", "Threads of light, gather in my hand."),
+        ("enchantress-cast-veil", "Let the veil bend, but never break."),
+        ("enchantress-cast-rune", "Old rune, answer and awaken.")),
+    "enchantress-enhance": (
+        ("enchantress-enhance", "The power is yours to command."),
+        ("enchantress-enhance-2", "There. The enchantment has taken hold."),
+        ("enchantress-enhance-3", "Its magic runs deeper now."),
+        ("enchantress-enhance-4", "The rune is bound. Use it well."),
+        ("enchantress-enhance-5", "Your card carries a stronger spell.")),
+    "enchantress-invite": (
+        ("enchantress-invite", "Bring me your card. Let us see what magic it can bear."),
+        ("enchantress-invite-2", "Place the card in my hand, and I will read its weave."),
+        ("enchantress-invite-3", "Let me see the card. Its hidden paths may surprise you."),
+        ("enchantress-invite-4", "Offer me the card, and we shall test its potential."),
+        ("enchantress-invite-5", "Give me the card. I can show you what lies within.")),
+}
+VARIANT_CUES = tuple(item for event in VOICE_EVENTS.values() for item in event)
 
 
 def save_json(path: Path, value: object) -> None:
@@ -232,6 +306,222 @@ def curves() -> None:
         print(f"{cue:2d} {name}: {duration:.2f}s, {len(intervals)} mouth intervals")
 
 
+def variant_curves() -> None:
+    """Bake all five performances for each shared event in wire cue order."""
+    rhubarb = Path(os.environ.get("RHUBARB_PATH", "/tmp/town543-rhubarb/Rhubarb-Lip-Sync-1.14.0-Linux/rhubarb"))
+    if not rhubarb.is_file():
+        raise FileNotFoundError("Rhubarb Lip Sync 1.14 executable not found; set RHUBARB_PATH")
+    for cue, (name, _) in enumerate(VARIANT_CUES, 1):
+        wav = ASSETS / (name + ".wav")
+        if not wav.is_file():
+            raise FileNotFoundError(wav)
+        raw = VARIANT_OUT / "rhubarb" / name / "rhubarb.json"
+        raw.parent.mkdir(parents=True, exist_ok=True)
+        wav_hash = hashlib.sha256(wav.read_bytes()).hexdigest()
+        hash_path = raw.with_suffix(".wav.sha256")
+        if not raw.exists() or not hash_path.exists() or hash_path.read_text() != wav_hash:
+            subprocess.run([str(rhubarb), "-r", "phonetic", "-f", "json", "-q",
+                            "-o", str(raw), str(wav)], check=True, capture_output=True)
+            hash_path.write_text(wav_hash)
+        result = json.loads(raw.read_text())
+        duration = float(result["metadata"]["duration"])
+        intervals = result["mouthCues"]
+        service = 1 if name.startswith("merchant-") else 2 if name.startswith("priestess-") else 3
+        packed = ";".join(f"{item['start']:.2f},{item['end']:.2f},{item['value']}" for item in intervals)
+        save_json(ASSETS / (name + ".json"), {
+            "schema": 1, "cue": cue, "service": service, "language": "en",
+            "duration": duration, "packed": packed, "mouthCues": intervals})
+        meta = ASSETS / (name + ".json.meta")
+        if not meta.exists():
+            meta.write_text("fileFormatVersion: 2\nguid: " + uuid.uuid4().hex + "\nTextScriptImporter:\n"
+                            "  externalObjects: {}\n  userData: \n  assetBundleName: \n"
+                            "  assetBundleVariant: \n")
+        print(f"{cue:2d} {name}: {duration:.2f}s, {len(intervals)} mouth intervals")
+
+
+VARIANT_MERCHANT_DESCRIPTION = (
+    "A close-miked English-speaking man in his late forties with a naturally deep, clear, warm baritone. "
+    "He is a well-fed, friendly fantasy merchant speaking calmly to one customer at arm's length. "
+    "Full chest resonance, crisp consonants, an occasional restrained chuckle, and relaxed conversational energy. "
+    "No shouting, calling across a market, announcer projection, room echo, distant sound, gravelly monster voice, "
+    "radio processing, or exaggerated acting.")
+VARIANT_COIN_DESCRIPTION = (
+    "Exactly one soft dry click from two small old metal coins gently touching in a merchant's fingertips. "
+    "Very quiet close foley, natural dull metal contact, under half a second, followed by silence. "
+    "No handful, spill, jingle, ringing tail, impact, music, voice, reverb, or electronic tone.")
+
+
+def variant_required_lines() -> list[tuple[str, str, str]]:
+    lines: list[tuple[str, str, str]] = []
+    for event in VOICE_EVENTS.values():
+        for name, text in event:
+            actor = name.split("-")[0]
+            # Existing priestess/enchantress first takes stay in the approved
+            # voice. The rejected merchant voice is replaced in full.
+            existing_first = not name[-1:].isdigit() and name not in (
+                "enchantress-cast-spark", "enchantress-cast-veil", "enchantress-cast-rune")
+            if actor != "merchant" and existing_first:
+                continue
+            lines.append((actor, name, text))
+    return lines
+
+
+def variant_steps() -> list[tuple[str, str, float]]:
+    steps = [
+        ("design", "merchant", len(VOICE_EVENTS["merchant-greet"][0][1]) * .09 / 1000),
+        ("review", "merchant", .01),
+        ("clone", "merchant", .0007 * 4 / 60),
+    ]
+    for actor, name, text in variant_required_lines():
+        if actor == "merchant" and name == "merchant-greet":
+            continue  # the voice-design reference is this exact line
+        steps.append(("eleven" if actor == "enchantress" else "speak", name,
+                      len(text) * (.10 if actor == "enchantress" else .09) / 1000))
+    steps += [("effect", "coin-soft", .002), ("review", "coin-soft", .01)]
+    return steps
+
+
+def variant_plan() -> None:
+    estimate = sum(cost for _, _, cost in variant_steps())
+    if estimate > .22:
+        raise RuntimeError("Variant batch exceeds USD 0.22 displayed-price ceiling")
+    for stage, name, cost in variant_steps():
+        save_json(VARIANT_OUT / stage / name / "plan.json",
+                  {"stage": stage, "name": name, "estimated_usd": round(cost, 6)})
+    print(f"Planned {len(variant_steps())} one-shot calls; listed-price estimate USD {estimate:.4f}.")
+
+
+def variant_line(name: str) -> tuple[str, str]:
+    for event in VOICE_EVENTS.values():
+        for candidate, text in event:
+            if candidate == name:
+                return candidate.split("-")[0], text
+    raise KeyError(name)
+
+
+def prior_priestess_embedding() -> dict:
+    configured = os.environ.get("TOWN_PRIESTESS_EMBEDDING_RESULT")
+    path = Path(configured) if configured else Path(
+        "/home/claw/worktrees/npc561-voice/.planning/debug/town561-speech/clone-v4/priestess/result.json")
+    if not path.is_file():
+        raise FileNotFoundError("Set TOWN_PRIESTESS_EMBEDDING_RESULT to the build-561 clone result")
+    return json.loads(path.read_text())
+
+
+def variant_input(stage: str, name: str) -> tuple[str, dict]:
+    if stage == "design":
+        return "fal-ai/qwen-3-tts/voice-design/1.7b", {
+            "text": VOICE_EVENTS["merchant-greet"][0][1],
+            "prompt": VARIANT_MERCHANT_DESCRIPTION, "language": "English",
+            "temperature": .45, "repetition_penalty": 1.15, "max_new_tokens": 120}
+    if stage == "clone":
+        result = json.loads((VARIANT_OUT / "design" / "merchant" / "result.json").read_text())
+        return "fal-ai/qwen-3-tts/clone-voice/0.6b", {
+            "audio_url": result["audio"]["url"],
+            "reference_text": VOICE_EVENTS["merchant-greet"][0][1]}
+    if stage == "review":
+        result = json.loads((VARIANT_OUT / ("effect" if name == "coin-soft" else "design") /
+                             name / "result.json").read_text())
+        return "fal-ai/audio-understanding", {
+            "audio_url": result["audio"]["url"],
+            "prompt": ("Describe the sound events and loudness impression. Confirm whether this is one quiet, dry, natural coin touch with no jingle, ringing tail, electronic tone, voice, music, or reverb."
+                       if name == "coin-soft" else
+                       "Judge the recorded sound, not the words: describe perceived age, pitch, clarity, warmth, distance, room echo, and whether the man sounds conversational or is shouting. Be direct about any mismatch."),
+            "detailed_analysis": True}
+    if stage == "speak":
+        actor, text = variant_line(name)
+        result = (json.loads((VARIANT_OUT / "clone" / "merchant" / "result.json").read_text())
+                  if actor == "merchant" else prior_priestess_embedding())
+        return "fal-ai/qwen-3-tts/text-to-speech/0.6b", {
+            "text": text, "language": "English",
+            "speaker_voice_embedding_file_url": result["speaker_embedding"]["url"],
+            "reference_text": (VOICE_EVENTS["merchant-greet"][0][1] if actor == "merchant"
+                               else VOICE_EVENTS["priestess-greet"][0][1]),
+            "temperature": .45, "repetition_penalty": 1.15, "max_new_tokens": 120}
+    if stage == "eleven":
+        _, text = variant_line(name)
+        return ENDPOINT, {"text": text, "voice": VOICES["enchantress"], "language_code": "en",
+                          "stability": .55, "similarity_boost": .82,
+                          "apply_text_normalization": "auto", "timestamps": True}
+    if stage == "effect":
+        return "fal-ai/elevenlabs/sound-effects/v2", {
+            "text": VARIANT_COIN_DESCRIPTION, "duration_seconds": .5,
+            "prompt_influence": .8, "loop": False}
+    raise ValueError(stage)
+
+
+def variant_submit(stage: str, name: str) -> None:
+    folder = VARIANT_OUT / stage / name
+    planned = json.loads((folder / "plan.json").read_text())
+    if (folder / "receipt.json").exists():
+        print(stage, name, "already submitted"); return
+    if (folder / "intent.json").exists():
+        raise RuntimeError(f"Ambiguous paid intent for {stage}/{name}; reconcile provider history")
+    endpoint, payload = variant_input(stage, name)
+    if sum(cost for _, _, cost in variant_steps()) > .22:
+        raise RuntimeError("Variant batch exceeds USD 0.22 displayed-price ceiling")
+    folder.mkdir(parents=True, exist_ok=True)
+    with (folder / "intent.json").open("x") as stream:
+        json.dump({"input_sha256": hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest(),
+                   "estimated_usd": planned["estimated_usd"], "endpoint": endpoint}, stream)
+        stream.flush(); os.fsync(stream.fileno())
+    receipt = request("https://queue.fal.run/" + endpoint, payload)
+    save_json(folder / "receipt.json", receipt)
+    print(stage, name, "submitted", receipt.get("request_id", "unknown"))
+
+
+def variant_collect(stage: str, name: str) -> None:
+    folder = VARIANT_OUT / stage / name
+    result_path = folder / "result.json"
+    if result_path.exists():
+        result = json.loads(result_path.read_text())
+        print(stage, name, "already collected")
+    else:
+        receipt = json.loads((folder / "receipt.json").read_text())
+        status = request(receipt["status_url"])
+        save_json(folder / "status.json", status)
+        if status.get("status") != "COMPLETED":
+            print(stage, name, status.get("status")); return
+        result = request(receipt["response_url"])
+        save_json(result_path, result)
+        print(stage, name, "collected")
+    if stage in ("clone", "review"): return
+    url = result["audio"]["url"]
+    if urlparse(url).scheme != "https": raise ValueError("Provider audio URL must be HTTPS")
+    with urllib.request.urlopen(url, timeout=120) as response:
+        data = response.read(2_000_001)
+    if len(data) > 2_000_000 or not (data.startswith(b"ID3") or data[:2] in (b"\xff\xfb", b"\xff\xf3")):
+        raise ValueError("Unexpected audio response")
+    mp3 = folder / "audio.mp3"
+    if not mp3.exists(): mp3.write_bytes(data)
+    target = "merchant-greet" if stage == "design" else name
+    import_audio(target, mp3, replace=True,
+                 target_lufs=-42 if stage == "effect" else -27)
+
+
+def compress_imports() -> None:
+    """Use mono Vorbis in the bundle; source WAVs remain lossless for Rhubarb."""
+    names = [name for name, _ in VARIANT_CUES] + ["coin-soft"]
+    for name in names:
+        wav = ASSETS / (name + ".wav")
+        if not wav.is_file(): raise FileNotFoundError(wav)
+        meta = wav.with_suffix(".wav.meta")
+        if not meta.exists():
+            guid = uuid.uuid4().hex
+        else:
+            guid = next(line.split(":", 1)[1].strip() for line in meta.read_text().splitlines()
+                        if line.startswith("guid:"))
+        meta.write_text("fileFormatVersion: 2\nguid: " + guid + "\nAudioImporter:\n"
+                        "  externalObjects: {}\n  serializedVersion: 7\n  defaultSettings:\n"
+                        "    serializedVersion: 2\n    loadType: 0\n    sampleRateSetting: 0\n"
+                        "    sampleRateOverride: 24000\n    compressionFormat: 1\n    quality: 0.45\n"
+                        "    conversionMode: 0\n  platformSettingOverrides: {}\n  forceToMono: 1\n"
+                        "  normalize: 0\n  preloadAudioData: 1\n  loadInBackground: 0\n"
+                        "  ambisonic: 0\n  3D: 1\n  userData: \n  assetBundleName: \n"
+                        "  assetBundleVariant: \n")
+    print(f"Configured {len(names)} resident clips for mono Vorbis bundle storage.")
+
+
 # Build-561 voice revision. Two inexpensive voice-designed greetings become the
 # exact references for fixed Qwen speaker embeddings. All later merchant and
 # priestess lines reuse those embeddings, rather than designing each utterance
@@ -400,7 +690,9 @@ def revision_collect(stage: str, name: str) -> None:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("action", choices=("prepare", "submit", "collect", "import-greetings", "curves",
-                                           "revision-plan", "revision-submit", "revision-collect"))
+                                           "revision-plan", "revision-submit", "revision-collect",
+                                           "variant-plan", "variant-submit", "variant-collect",
+                                           "variant-curves", "compress-imports"))
     parser.add_argument("names", nargs="*")
     args = parser.parse_args()
     if args.action.startswith("revision-"):
@@ -411,6 +703,17 @@ if __name__ == "__main__":
             if (stage, name) not in {(s, n) for s, n, _ in revision_steps()}:
                 parser.error("Unknown revision stage/name")
             (revision_submit if args.action == "revision-submit" else revision_collect)(stage, name)
+        raise SystemExit(0)
+    if args.action.startswith("variant-") or args.action == "compress-imports":
+        if args.action == "variant-plan": variant_plan()
+        elif args.action == "variant-curves": variant_curves()
+        elif args.action == "compress-imports": compress_imports()
+        else:
+            if len(args.names) != 2: parser.error("variant calls need STAGE NAME")
+            stage, name = args.names
+            if (stage, name) not in {(s, n) for s, n, _ in variant_steps()}:
+                parser.error("Unknown variant stage/name")
+            (variant_submit if args.action == "variant-submit" else variant_collect)(stage, name)
         raise SystemExit(0)
     if any(name not in LINES for name in args.names):
         parser.error("Unknown line name; choose from: " + ", ".join(LINES))

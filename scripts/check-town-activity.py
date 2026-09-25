@@ -36,8 +36,8 @@ def sources(root):
 def mutations():
     return [
         ("audio-ignores-master", "TownServiceActivityAudio.cs", "Mathf.Clamp01(global.MasterVolume / 100f)", "1f", "native master and effects settings both apply live"),
-        ("audio-not-spatial", "TownServiceActivityAudio.cs", "source.spatialBlend = 1f", "source.spatialBlend = 0f", "resident foley is spatial and has no moving-rig Doppler"),
-        ("audio-fixed-world-range", "TownServiceActivityAudio.cs", "source.maxDistance = 4.5f * worldUnitsPerMetre;", "source.maxDistance = 4.5f;", "resident range follows the map's world units per perceived metre"),
+        ("audio-not-spatial", "TownServiceActivityAudio.cs", "source.spatialBlend = 1f", "source.spatialBlend = 0f", "resident foley has continuous linear falloff and no moving-rig Doppler"),
+        ("audio-fixed-world-range", "TownServiceActivityAudio.cs", "source.maxDistance = 7f * worldUnitsPerMetre;", "source.maxDistance = 7f;", "resident range follows the map's world units per perceived metre"),
         ("audio-leaks-listener", "TownServiceActivityAudio.cs", "HeadEar.Release(_claim);", "// negative: leak shared listener", "hidden or disabled station stops sound and releases listener"),
         ("audio-seek-replay", "TownServiceActivitySoundClock.cs", "delta >= -.001f && delta <= .25f", "true", "authority seek stall or hide cannot replay historical contact"),
         ("audio-contact-repeat", "TownServiceActivitySoundClock.cs", "before > .99f && after < .01f", "after < .01f", "each visible coin deposit sounds once independent of frame rate"),
