@@ -2,14 +2,15 @@
 
 **Updated 2026-09-25: feature/immersive-town-services, version 1.1.0 hardware candidate.**
 The feature includes released 1.0.8 / ModBuild 556 and the subsequent 1.0.9
-version bookkeeping on `dev`. ModBuild 561 follows the build-560 NPC hardware
-report with donation confirmation, visitor poses, book/sleeve geometry and
-shared merchant/voice transition corrections. ModBuild 560 introduced resident
+version bookkeeping on `dev`. ModBuild 562 follows the build-561 NPC hardware
+report with repeated temple entry, async item-front readiness, fitted visitor
+poses, stronger cloth, practical placement and varied synchronized voice cues.
+ModBuild 560 introduced resident
 voices, shared merchant confirmation presentation, a visible temple donation
 target, cloth contact, cabinet detail and varied idle motion.
 Headset verification of the resulting presentation remains open. Historical NPC
 design: [research/TOWN-SERVICES-552.md](research/TOWN-SERVICES-552.md).
-Current evidence and implementation limits: [TOWN-561.md](TOWN-561.md).
+Current evidence and implementation limits: [TOWN-562.md](TOWN-562.md).
 The feature remains isolated from `dev`, and NPC work belongs on this branch.
 
 The file this replaces had gone 168 builds
@@ -24,6 +25,15 @@ change per build) → this file (where things stand and what is owed) → the bu
 ---
 
 ## 1. Position
+
+- **NPC feature / 1.1.0 / ModBuild 562 (hardware candidate):** repeated temple
+  visits rebuild the physical purse; item cards emerge only after their original
+  front is ready and use canonical fan rotation. Merchant and priestess attention
+  author elbows with lowered hands, coin work has no long neutral stop, cloth
+  contact is stronger, and practical lights stay on their furniture. Automatic
+  service entry is silent. Eleven resident cue families each contain five shared,
+  non-repeating variants with linear spatial rolloff. Headset verification remains
+  open; evidence and limits are in [TOWN-562.md](TOWN-562.md).
 
 - **NPC feature / 1.1.0 / ModBuild 561 (hardware candidate):** the physical
   temple purse retains its original confirmation through native modal focus;

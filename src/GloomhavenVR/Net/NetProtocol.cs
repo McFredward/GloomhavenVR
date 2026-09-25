@@ -538,7 +538,15 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 561;
+    public const ushort ModBuild = 562;
+
+    // ModBuild 562 — second NPC hardware follow-up on the feature branch. Town
+    // speech now has five authored variants per cue family, with the elected
+    // author sharing the chosen cue and timeline. Spatial rolloff is linear;
+    // automatic immersive visits no longer synthesize the flat button sound.
+    // Temple proximity and item-front readiness survive repeated visits, while
+    // visitor elbows, cloth response, practical placement and book parchment
+    // are fitted to the photographed geometry.
 
     // ModBuild 561 — NPC hardware follow-up on the feature branch. The temple
     // donation keeps the original native confirmation alive while the source
