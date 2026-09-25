@@ -212,6 +212,8 @@ internal static class TownServicePresentation
         }
         _catalog?.Tick(_scale);
         _ritual?.Tick(_scale);
+        if (_ritual?.TempleDonationAvailabilityKnown == true)
+            TownServiceMirror.SetLocalTempleDonationAvailable(_ritual.TempleDonationAvailable);
         if (Time.unscaledTime >= _nextCensus)
         {
             _nextCensus = Time.unscaledTime + .25f;

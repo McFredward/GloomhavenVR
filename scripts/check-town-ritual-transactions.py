@@ -35,6 +35,27 @@ def inspect_fan_contract(source):
         raise RuntimeError("Temple fan suppression is coupled to transient native input")
 
 
+def inspect_shared_blessing_contract(root):
+    town = root / "src/GloomhavenVR/WorldUI/TownServices"
+    ritual = (town / "TownServiceRitual.cs").read_text()
+    presentation = (town / "TownServicePresentation.cs").read_text()
+    population = (town / "TownServicePopulation.cs").read_text()
+    station = (town / "TownServiceStation.cs").read_text()
+    donate = method(ritual, "private bool Donate(")
+    if ".Bless(" in donate:
+        raise RuntimeError("Private ritual plays a duplicate local blessing")
+    required = (
+        "TownServiceMirror.SetLocalTempleDonationAvailable(_ritual.TempleDonationAvailable)",
+        "RevisionAdvanced(revision, resident.TempleRevision)",
+        "resident.Station.PlayTempleBlessing(transitionAge)",
+        "new TownServiceTempleBowlMarker(root.transform, stationSpace: true)",
+    )
+    joined = presentation + population + station
+    missing = [entry for entry in required if entry not in joined]
+    if missing:
+        raise RuntimeError("Shared temple blessing seam is incomplete: " + ", ".join(missing))
+
+
 def sources(root):
     raw = (root / "src/GloomhavenVR/WorldUI/TownServices/TownServiceRitual.cs").read_text()
     methods = method(raw, "private bool Confirm(") + "\n" + method(raw, "private static bool Click(")
@@ -105,6 +126,7 @@ def main():
     parser.add_argument("--unity-ui", type=Path, help="Real UnityEngine.UI.dll (never metadata-only RefAsm)")
     parser.add_argument("--no-negative-controls", action="store_true", help="Quick positive run; not complete validation")
     args = parser.parse_args()
+    inspect_shared_blessing_contract(args.source_root)
     args.output_dir.mkdir(parents=True, exist_ok=True)
     run = Path(tempfile.mkdtemp(prefix="run-", dir=args.output_dir.resolve()))
     fixture = Path(__file__).resolve().parent / "town-ritual-transaction-runtime"

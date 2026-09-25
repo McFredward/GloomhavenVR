@@ -17,6 +17,10 @@ internal static class TownServicePopulation
         internal byte Clip;
         internal TownActivityPose Activity = new TownActivityPose { TransitionAge = TownServiceActivityMotion.TransitionSeconds };
         internal float MerchantOfferingBlend;
+        internal int TempleOwner;
+        internal uint TempleSession, TempleRevision;
+        internal bool TempleRevisionInitialized;
+        internal float TempleUnavailableBlend;
         internal bool ObservedActivity;
         internal readonly TownServiceActivityHandover Handover = new();
         internal TownServiceVisitTarget Visit = null!;
@@ -33,6 +37,8 @@ internal static class TownServicePopulation
     internal static bool Available(byte service) => Residents.TryGetValue(service, out Resident? resident)
         && resident.Station.IsReady;
     private static float _started, _retryAt;
+    private static bool RevisionAdvanced(uint current, uint previous) =>
+        unchecked((int)(current - previous)) > 0;
 
     internal static bool HasRemoteVisitors
     {
@@ -206,6 +212,35 @@ internal static class TownServicePopulation
                 // pose. It must never invent a new transition from local offer state.
                 TownServiceActivityMotion.ApplyMerchantOffering(ref displayedActivity, resident.MerchantOfferingBlend);
                 activities.MerchantOfferingBlend = resident.MerchantOfferingBlend;
+            }
+            else if (service == 2)
+            {
+                bool received = TownServiceMirror.TryTempleDonationState(out int owner, out uint session,
+                    out bool known, out bool available, out uint revision, out float transitionAge);
+                if (!received)
+                {
+                    resident.TempleRevisionInitialized = false;
+                    resident.TempleUnavailableBlend = 0f;
+                }
+                else
+                {
+                    bool sameSession = resident.TempleRevisionInitialized
+                        && resident.TempleOwner == owner && resident.TempleSession == session;
+                    // Hydration and a new interaction owner establish a baseline only. A visual
+                    // response belongs exclusively to a later live donation edge in that session.
+                    if (sameSession && known && !available
+                        && RevisionAdvanced(revision, resident.TempleRevision))
+                        resident.Station.PlayTempleBlessing(transitionAge);
+                    resident.TempleOwner = owner;
+                    resident.TempleSession = session;
+                    resident.TempleRevision = revision;
+                    resident.TempleRevisionInitialized = true;
+                    resident.TempleUnavailableBlend = Mathf.MoveTowards(resident.TempleUnavailableBlend,
+                        known && !available ? 1f : 0f,
+                        Time.unscaledDeltaTime / TownServiceActivityMotion.TransitionSeconds);
+                    TownServiceActivityMotion.ApplyTempleAvailability(ref displayedActivity,
+                        !known || available, resident.TempleUnavailableBlend);
+                }
             }
             resident.Station.SampleActivity(in displayedActivity);
             resident.Station.SampleActivityAudio(faceAuthor, sourceEpoch, resident.Activity.WorkClock,

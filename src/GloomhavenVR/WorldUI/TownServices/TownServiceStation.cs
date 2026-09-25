@@ -20,6 +20,7 @@ internal sealed class TownServiceStation : IDisposable
     private readonly TownServiceActivityAudio _audio;
     private readonly TownServiceCloth _cloth;
     private readonly TownServiceSleeveLining _sleeves;
+    private TownServiceTempleBowlMarker? _templeBlessing;
     private bool _faceFailed, _activityFailed;
     private static readonly bool[] ActivityFailureReported = new bool[4];
     private static readonly bool[] FaceFailureReported = new bool[4];
@@ -59,10 +60,11 @@ internal sealed class TownServiceStation : IDisposable
         try { _decor = new TownServiceDecor(root.transform, service, _lighting);
             _cloth = new TownServiceCloth(root.transform, service);
             _sleeves = new TownServiceSleeveLining(root.transform,
-                root.transform.Find("Actor") ?? throw new InvalidOperationException("Town actor missing"), service); }
+                root.transform.Find("Actor") ?? throw new InvalidOperationException("Town actor missing"), service);
+            if (service == 2) _templeBlessing = new TownServiceTempleBowlMarker(root.transform, stationSpace: true); }
         catch
         {
-            _sleeves?.Dispose(); _cloth?.Dispose(); _decor?.Dispose();
+            _templeBlessing?.Dispose(); _sleeves?.Dispose(); _cloth?.Dispose(); _decor?.Dispose();
             _lighting.Dispose(); _grounding.Dispose(); throw;
         }
     }
@@ -166,6 +168,9 @@ internal sealed class TownServiceStation : IDisposable
 
     internal void Sample(string clip, float seconds)
     {
+        // The permanent station owns the blessing so the same replicated revision can
+        // play on clients that do not own a private native temple window.
+        _templeBlessing?.Tick(false);
         _face.BeforeBodySample();
         _activity.BeforeBodySample();
         _decor.SetClock(seconds);
@@ -189,6 +194,8 @@ internal sealed class TownServiceStation : IDisposable
     internal TownClothRunnerState ClothSecond => _cloth.Second;
 
     internal bool IsLocalVisitorNear(bool wasNear) => _face.IsLocalVisitorNear(wasNear);
+
+    internal void PlayTempleBlessing(float elapsed) => _templeBlessing?.Bless(elapsed);
 
     internal bool PrepareActivityAttention(bool wasEngaged)
     {
@@ -245,6 +252,7 @@ internal sealed class TownServiceStation : IDisposable
 
     public void Dispose()
     {
+        _templeBlessing?.Dispose(); _templeBlessing = null;
         _sleeves.Dispose();
         _cloth.Dispose();
         _audio.Dispose();
