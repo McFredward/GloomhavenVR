@@ -1636,12 +1636,12 @@ internal static class PresenceSerializer
     /// + 56 (HELD PROPS: 2 + its two-slot form, 2 x <c>NetProtocol.HeldPropSlotBytes</c>)
     /// = 1726.
     ///
-    /// <para>Native opening histories83/84 and town records79/80/81/88 coexist: worst7673
-    /// with the optional cloth tail, buffer7930 retains a257-byte margin; bounded7680
-    /// reassembly has7 bytes spare.</para>
+    /// <para>Native opening histories83/84 and town records79/80/81/88 coexist: worst7674
+    /// with the optional cloth tail, buffer7931 retains a257-byte margin; bounded7680
+    /// reassembly has6 bytes spare.</para>
     /// <para>Before the opening histories, public map loadout88 adds3 bytes: worst7139,
     /// allocation7396 keeps257 spare bytes.</para>
-    /// <para>Town activity81 adds54 bytes: worst7136, allocation7393 keeps257 spare; reassembly7168 has32 bytes remaining.</para>
+    /// <para>Town activity81 adds55 bytes: worst7137, allocation7394 keeps257 spare; reassembly7168 has31 bytes remaining.</para>
     /// <para>Town faces80 adds96 bytes: 6986 ->7082 worst case, buffer7339 preserves257 spare
     /// bytes and the actual snapshot still fits unchanged7168-byte reassembly.</para>
     /// <para>Permanent residents79 adds at most117 bytes: 6869 -> 6986 worst case; buffer7243
@@ -1899,10 +1899,10 @@ internal static class PresenceSerializer
     /// took the worst case 859 → 887 on 2026-08-08; the margin is 393 bytes, i.e. still more than
     /// every optional record on the tail put together.</para></summary>
     // Base6869 + residents79(141 including anchored cloth controls) + faces80(96)
-    // + activity81(54) + public map loadout88(3) + native opening histories83/84(510)
-    // = 7673. The 7680-byte fragment envelope retains seven bytes; the local send
+    // + activity81(55) + public map loadout88(3) + native opening histories83/84(510)
+    // = 7674. The 7680-byte fragment envelope retains six bytes; the local send
     // buffer still keeps the 257-byte largest-record margin.
-    public const int MaxSize = 7930;
+    public const int MaxSize = 7931;
 
     // ---- write --------------------------------------------------------------------------
 
