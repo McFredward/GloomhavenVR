@@ -149,6 +149,9 @@ internal static class SharedBowlProof
             "both owners donate into the actual shared priest bowl, never a relocated workspace");
         foreach(Transform bowl in new[]{bowl1,bowl2})
         {
+            Vector3 guide=bowl.TransformPoint(TownServiceTempleBowl.PurseSeat);
+            Check(Vector3.Distance(guide,actual+priest.transform.TransformVector(Vector3.up*.018f))<.0001f,
+                "physical purse and translucent guide share the exact bowl seat");
             Check(TownServiceTempleBowl.Contains(bowl,actual+priest.transform.up*.02f),"deliberate drop above actual bowl is accepted for both owners");
             Check(!TownServiceTempleBowl.Contains(bowl,workspace1.transform.TransformPoint(TownServiceRitualLayout.Origin+TownServiceTempleBowl.Center))
                 &&!TownServiceTempleBowl.Contains(bowl,workspace2.transform.TransformPoint(TownServiceRitualLayout.Origin+TownServiceTempleBowl.Center)),"empty browsing workspace cannot receive a donation");

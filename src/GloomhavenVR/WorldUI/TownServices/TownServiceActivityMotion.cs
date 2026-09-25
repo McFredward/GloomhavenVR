@@ -75,26 +75,27 @@ internal static class TownServiceActivityMotion
         // Interruption stops the shared work clock smoothly. A pinched coin stays in
         // the hand while greeting; it never slides through space back onto the table.
         // Looking at a visitor is separate from offering an item hand to that visitor.
-        // Keep the merchant's hands at his belt and the priestess's hands beside
-        // her robe. Their previous forward/sideward targets read as stiffly held
-        // arms, and the latter crossed the donation bowl when a visitor arrived.
-        work.Left = Vector3.Lerp(work.Left, service == 1 ? new Vector3(.29f, 1.02f, .23f)
-            : service == 2 ? new Vector3(.24f, .74f, .13f) : new Vector3(.22f, 1.13f, .23f), attention);
-        work.Right = Vector3.Lerp(work.Right, service == 1 ? new Vector3(-.29f, 1.02f, .23f)
-            : service == 3 ? new Vector3(-.18f, 1.17f, .23f) : new Vector3(-.24f, .74f, .13f), attention);
+        // Keep the merchant's and priestess's hands on their OWN hips, behind the front
+        // edge of the worktops. Build 563's "lowered" targets still put both wrists on
+        // the table in the headset screenshots because they were authored forward of the
+        // torso. Hands on hips need a rearward wrist, an outward elbow and a relaxed shoulder.
+        work.Left = Vector3.Lerp(work.Left, service == 1 ? new Vector3(.32f, .97f, .04f)
+            : service == 2 ? new Vector3(.30f, .87f, .015f) : new Vector3(.22f, 1.13f, .23f), attention);
+        work.Right = Vector3.Lerp(work.Right, service == 1 ? new Vector3(-.32f, .97f, .04f)
+            : service == 3 ? new Vector3(-.18f, 1.17f, .23f) : new Vector3(-.30f, .87f, .015f), attention);
         // Hand targets alone cannot lower an arm naturally. Author the matching elbow path as
         // part of the same blend so the upper arm leaves the shoulder downward instead of staying
         // abducted while the forearm reaches for a low hand target.
         if (service is 1 or 2)
         {
-            float side = service == 1 ? .36f : .29f;
+            float side = service == 1 ? .42f : .43f;
             work.LeftElbow = Vector3.Lerp(work.LeftElbow,
-                new Vector3(side, service == 1 ? 1f : .98f, service == 1 ? .16f : .11f), attention);
+                new Vector3(side, service == 1 ? 1.05f : 1.06f, service == 1 ? .07f : .06f), attention);
             work.RightElbow = Vector3.Lerp(work.RightElbow,
-                new Vector3(-side, service == 1 ? 1f : .98f, service == 1 ? .16f : .11f), attention);
+                new Vector3(-side, service == 1 ? 1.05f : 1.06f, service == 1 ? .07f : .06f), attention);
         }
-        work.RightRoll = Mathf.Lerp(work.RightRoll, service == 1 ? 65f : service == 3 ? 180f : 0f, attention);
-        work.LeftRoll = Mathf.Lerp(work.LeftRoll, service == 1 ? -65f : service == 3 ? -65f : 0f, attention);
+        work.RightRoll = Mathf.Lerp(work.RightRoll, service == 1 ? 65f : service == 3 ? 180f : 38f, attention);
+        work.LeftRoll = Mathf.Lerp(work.LeftRoll, service == 1 ? -65f : service == 3 ? -65f : -38f, attention);
         work.RightCurl = Mathf.Lerp(work.RightCurl, service == 1 ? .22f : service == 3 ? .08f : .06f, attention);
         work.LeftCurl = Mathf.Lerp(work.LeftCurl, service == 1 ? .22f : service == 3 ? .26f : .06f, attention);
         work.Chest = Vector3.Lerp(work.Chest, Vector3.zero, attention);
@@ -103,6 +104,24 @@ internal static class TownServiceActivityMotion
         work.CastSway *= 1f - attention;
         work.Curl = Mathf.Max(work.LeftCurl, work.RightCurl);
         return work;
+    }
+
+    /// <summary>Blend the attentive priestess from hands-on-hips into a deliberate closed-bowl
+    /// pose after the native service reports that this visitor cannot donate again. The caller
+    /// owns and replicates <paramref name="blend"/>; this method never reads local gameplay state.</summary>
+    internal static void ApplyTempleAvailability(ref TownActivityVisual visual, bool donationAvailable, float blend)
+    {
+        if (donationAvailable) return;
+        float t = Mathf.SmoothStep(0f, 1f, Mathf.Clamp01(blend)) * visual.Attention;
+        visual.Left = Vector3.Lerp(visual.Left, new Vector3(.085f, 1.205f, .18f), t);
+        visual.Right = Vector3.Lerp(visual.Right, new Vector3(-.085f, 1.205f, .18f), t);
+        visual.LeftElbow = Vector3.Lerp(visual.LeftElbow, new Vector3(.31f, 1.10f, .12f), t);
+        visual.RightElbow = Vector3.Lerp(visual.RightElbow, new Vector3(-.31f, 1.10f, .12f), t);
+        visual.LeftRoll = Mathf.Lerp(visual.LeftRoll, -82f, t);
+        visual.RightRoll = Mathf.Lerp(visual.RightRoll, 82f, t);
+        visual.LeftCurl = Mathf.Lerp(visual.LeftCurl, .18f, t);
+        visual.RightCurl = Mathf.Lerp(visual.RightCurl, .18f, t);
+        visual.Curl = Mathf.Max(visual.LeftCurl, visual.RightCurl);
     }
     internal static void ApplyMerchantOffering(ref TownActivityVisual visual, float blend)
     {

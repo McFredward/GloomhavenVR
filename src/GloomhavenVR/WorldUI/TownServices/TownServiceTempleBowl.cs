@@ -7,6 +7,10 @@ namespace GloomhavenVR.WorldUI;
 internal static class TownServiceTempleBowl
 {
     internal static readonly Vector3 Center = new(0f, .16f, .26f);
+    // The translucent guide and the accepted physical purse share one authored seat.
+    // Keeping this separate from Center is deliberate: Center is the volume tested by
+    // the purse's visible midpoint, while a purse mesh is rooted at its bottom.
+    internal static readonly Vector3 PurseSeat = Center + Vector3.up * .018f;
     internal static Transform Create(Transform priest)
     {
         Transform frame = new GameObject("GloomhavenVR.Temple.SharedBowl").transform;

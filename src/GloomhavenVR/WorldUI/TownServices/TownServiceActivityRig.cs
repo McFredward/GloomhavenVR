@@ -355,8 +355,8 @@ internal sealed class TownServiceActivityRig
             // A fixed pole was one reason the former hands moved like mechanical arms.
             Vector3 guide = authoredElbow.sqrMagnitude > .01f ? authoredElbow : new Vector3(side * .34f, .98f, .46f);
             Vector3 greeting = _service == 1
-                ? new Vector3(side * .49f, 1.08f, .16f)
-                : _service == 2 ? new Vector3(side * .33f, 1.08f, .16f)
+                ? new Vector3(side * .42f, 1.05f, .07f)
+                : _service == 2 ? new Vector3(side * .43f, 1.06f, .06f)
                 : new Vector3(side * .35f, 1.04f, .45f);
             guide = Vector3.Lerp(guide, greeting, attention);
             // The generated human reference is narrower than the merchant's actual
@@ -375,7 +375,11 @@ internal sealed class TownServiceActivityRig
             // the original prayer. A rearward pole cut three sleeve/torso triangles.
             if (_service == 2)
                 guide = Vector3.Lerp(new Vector3(side * .42f, .70f, .10f),
-                    new Vector3(side * .32f, 1f, .18f), attention);
+                    authoredElbow.sqrMagnitude > .01f ? authoredElbow
+                        : new Vector3(side * .43f, 1.06f, .06f), attention);
+            else if (_service == 1 && attention > 0f)
+                guide = Vector3.Lerp(guide, authoredElbow.sqrMagnitude > .01f ? authoredElbow
+                    : new Vector3(side * .42f, 1.05f, .07f), attention);
             Vector3 pole = _root.TransformPoint(guide) - shoulder;
             Vector3 bend = Vector3.ProjectOnPlane(pole, direction).normalized;
             if (bend.sqrMagnitude < .5f) bend = _root.right * side;

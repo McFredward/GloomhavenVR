@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using GloomhavenVR.Core;
 using GloomhavenVR.Net;
+using GloomhavenVR.Rig;
 using GloomhavenVR.WorldUI.MapRoom;
 using TMPro;
 using UnityEngine;
@@ -69,10 +70,12 @@ internal sealed class TownServiceRitual : IDisposable
         private readonly Selectable _button;
         private float _detailRefresh;
         private readonly Func<object?> _identity;
+        private readonly Func<bool> _visible;
         private readonly object? _createdIdentity;
         private readonly List<Graphic> _inscriptions;
         private readonly RectTransform _reach;
         private readonly bool _card;
+        private readonly bool _offering;
         private readonly CanvasGroup? _purseGate;
         private float _requestedVisibility = 1f;
         private Transform? _graphicRoot;
@@ -90,12 +93,13 @@ internal sealed class TownServiceRitual : IDisposable
         internal Transform? DetailCloneOf(Transform source) => _hovering ? _details?.CloneOf(source) : null;
         internal bool Current => Source != null && Source.gameObject.activeInHierarchy
             && ReferenceEquals(_createdIdentity, _identity());
+        internal bool NativeVisible => Current && _visible();
 
         internal Piece(TownServiceRitual owner, Component source, string key, Selectable button,
-            Func<object?> identity, Func<bool> eligible, Func<bool> drop, TownServiceRitualLayout.Placement placement,
+            Func<object?> identity, Func<bool> visible, Func<bool> eligible, Func<bool> drop, TownServiceRitualLayout.Placement placement,
             bool card, params Graphic[] inscriptions)
         {
-            _owner = owner; Source = source; Key = key; _identity = identity; _button = button;
+            _owner = owner; Source = source; Key = key; _identity = identity; _visible = visible; _button = button;
             _placement = placement;
             _createdIdentity = identity(); _inscriptions = new List<Graphic>(inscriptions); _card = card;
             var root = new GameObject("GloomhavenVR.TownService." + key, typeof(RectTransform));
@@ -105,7 +109,7 @@ internal sealed class TownServiceRitual : IDisposable
                 Root.SetParent(owner._templeOffering?.Root ?? owner.Root, false);
                 Root.localPosition = placement.Position; Root.localRotation = placement.Rotation;
                 _reach = (RectTransform)Root;
-                bool offering = source is UITempleShopSlot;
+                bool offering = source is UITempleShopSlot; _offering = offering;
                 _reach.sizeDelta = placement.Size;
                 if (offering)
                 {
@@ -141,7 +145,7 @@ internal sealed class TownServiceRitual : IDisposable
                 Token = new TownServiceToken(_reach, button, identity, owner._context,
                     () => owner._alive() && Current, owner._templeOffering?.DropFrame ?? owner.Root, Root, drop, eligible,
                     owner._service == 2 ? TownServiceTempleBowl.Center : Vector3.zero,
-                    inspect: () => owner._templeOffering?.Available ?? true,
+                    inspect: () => (owner._templeOffering?.Available ?? true) && _visible(),
                     zoneHalfWidth: owner._service == 2 ? .095f : .20f,
                     dropLocation: owner._service == 2 ? world => owner._templeOffering?.InBowl(world) ?? false : null, reachDepth: offering ? .10f : .009f, uprightProp: offering,
                     handAllowed: hand => owner._templeOffering?.AllowsHand(hand) ?? true);
@@ -154,6 +158,11 @@ internal sealed class TownServiceRitual : IDisposable
         internal void SetVisibility(float visibility)
         {
             _requestedVisibility = visibility;
+            // A spent/unaffordable native blessing must not leave either a purse or an
+            // invisible physical target in front of the bowl. A purse already in flight
+            // retains visual ownership until its native confirmation completes or returns.
+            bool available = !_offering || _visible() || Token?.IsMoving == true;
+            if (!available) visibility = 0f;
             visibility *= Token?.PhysicalVisibility ?? 1f;
             if (_purseGate != null) _purseGate.alpha = visibility;
             if (BodyKey == "merchant.cardbody") TownServiceCardBody.SetVisibility(Body.gameObject, visibility);
@@ -172,7 +181,30 @@ internal sealed class TownServiceRitual : IDisposable
             if (Time.unscaledTime >= _refreshAt)
             { _refreshAt = Time.unscaledTime + .2f; _mirror.Refresh(Source.transform); }
             _mirror.TickLive(); ApplyInscriptions(); Token.Tick(scale);
+            if (_offering)
+            {
+                if (Token.IsHeld)
+                {
+                    // Controller pitch and roll must never turn a money bag sideways. Keep
+                    // its base vertical and the same readable side toward the wearer.
+                    Vector3 forward = VRRigDriver.HeadCamera != null
+                        ? Body.position - VRRigDriver.HeadCamera.transform.position : _owner.Root.forward;
+                    forward.y = 0f;
+                    Body.rotation = Quaternion.LookRotation(forward.sqrMagnitude > .0001f
+                        ? forward : _owner.Root.forward, Vector3.up);
+                }
+                else if (_owner._templeOffering != null
+                    && ReferenceEquals(Body.parent, _owner._templeOffering.DropFrame))
+                {
+                    // TownServiceToken has already transferred presentation ownership to the
+                    // bowl. Replace its release point with the exact guide seat before render;
+                    // confirmation still belongs entirely to the original native callback.
+                    Body.localPosition = TownServiceTempleBowl.PurseSeat;
+                    Body.localRotation = Quaternion.identity;
+                }
+            }
             SetVisibility(_requestedVisibility);
+            if (_offering && !_visible() && !Token.IsMoving) Token.PickCollider.enabled = false;
             TickDetails();
         }
 
@@ -271,6 +303,11 @@ internal sealed class TownServiceRitual : IDisposable
     internal IReadOnlyList<Inscription> Inscriptions => _inscriptions;
     internal Transform? Zone => _bowlMarker?.Visual ?? _zone?.transform;
     internal IReadOnlyList<TownServiceSurface> Surfaces => _surfaces;
+    /// <summary>Quiet native temple availability sampled by the local interaction owner.
+    /// The shared activity publisher replicates this value; followers must not infer it.</summary>
+    internal bool TempleDonationAvailabilityKnown => _service == 2
+        && _templeOffering?.VisitorPresent == true && _visibility >= .99f;
+    internal bool TempleDonationAvailable { get; private set; }
     internal bool CanRelocate
     { get { if (Handoff?.Card != null) return false; foreach (Piece piece in _pieces.Values) if (piece.Token.IsMoving) return false; return true; } }
 
@@ -356,7 +393,8 @@ internal sealed class TownServiceRitual : IDisposable
         Handoff?.Tick();
         if (Handoff != null) CardSlots.Tick(Handoff);
         _templeOffering?.Tick(!_disposed && _alive());
-        if (_disposed || !_alive()) return;
+        if (_disposed) return;
+        if (!_alive()) { _bowlMarker?.Tick(false); return; }
         if (_service == 2 && TownServiceDecor.MoneyBagTemplate == null && Time.unscaledTime - _started > 15f)
             throw new InvalidOperationException("Original offering geometry did not load; restoring the native temple window.");
         if (Time.unscaledTime >= _censusAt) { _censusAt = Time.unscaledTime + .2f; RefreshPieces(); }
@@ -377,7 +415,13 @@ internal sealed class TownServiceRitual : IDisposable
         // Show the noninteractive destination while the player can inspect a purse,
         // not only after the purse has already been picked up. Otherwise the cue is
         // missing when deciding where to carry it.
-        _bowlMarker?.Tick(offeringHeld || _templeOffering?.Available == true);
+        bool donationAvailable = false;
+        if (_service == 2)
+            foreach (Piece piece in _pieces.Values)
+                if (piece.Source is UITempleShopSlot && piece.NativeVisible)
+                { donationAvailable = true; break; }
+        TempleDonationAvailable = donationAvailable;
+        _bowlMarker?.Tick(donationAvailable && (offeringHeld || _templeOffering?.Available == true));
         foreach (Inscription inscription in _inscriptions) inscription.Tick();
         foreach (TownServiceSurface surface in _surfaces) surface.Tick(Vector3.zero, Quaternion.identity, scale);
     }
@@ -403,6 +447,7 @@ internal sealed class TownServiceRitual : IDisposable
                 var placement = TownServiceRitualLayout.Offering(index++, count);
                 if (ArrangeExisting(slot, placement)) continue;
                 Add(slot, "temple.row", slot.button, () => slot.Blessing,
+                        () => TempleVisibleEligible(temple, slot),
                         () => OfferingEligible(temple, slot),
                         () => Donate(temple, slot, accepted =>
                         { if (_pieces.TryGetValue(slot, out Piece? piece)) piece.Token.CompletePhysicalOffering(accepted); }),
@@ -422,9 +467,9 @@ internal sealed class TownServiceRitual : IDisposable
     }
 
     private void Add(Component source, string key, Selectable button, Func<object?> identity,
-        Func<bool> eligible, Func<bool> drop, TownServiceRitualLayout.Placement placement, bool card, params Graphic[] inscriptions)
+        Func<bool> visible, Func<bool> eligible, Func<bool> drop, TownServiceRitualLayout.Placement placement, bool card, params Graphic[] inscriptions)
     {
-        var piece = new Piece(this, source, key, button, identity, eligible, drop, placement, card, inscriptions);
+        var piece = new Piece(this, source, key, button, identity, visible, eligible, drop, placement, card, inscriptions);
         _pieces.Add(source, piece); _samples.Add(piece.Token);
     }
 
@@ -437,6 +482,14 @@ internal sealed class TownServiceRitual : IDisposable
 
     private bool OfferingEligible(UITempleWindow temple, UITempleShopSlot slot) => _templeOffering?.Available == true && temple.character != null && slot.Blessing != null
         && !_submittedOfferings.Contains((temple.character.CharacterID, slot.Blessing)) && TempleEligible(temple, slot);
+
+    private bool TempleVisibleEligible(UITempleWindow temple, UITempleShopSlot slot) => temple.character != null
+        && slot != null && slot.Blessing != null
+        && !_submittedOfferings.Contains((temple.character.CharacterID, slot.Blessing))
+        && MapRoomHand.OwnedMerchantCharacter()?.CharacterID == temple.character.CharacterID
+        && temple.Shop.slotsCanvasGroup.interactable && slot.IsAvailable && slot.button.IsInteractable()
+        && temple.service.IsAvailable(temple.character.CharacterID, slot.Blessing)
+        && temple.service.CanAfford(temple.character.CharacterID, slot.Blessing);
 
     private bool Donate(UITempleWindow temple, UITempleShopSlot slot, Action<bool>? settled = null)
     {
