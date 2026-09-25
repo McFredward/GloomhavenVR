@@ -122,7 +122,7 @@ def ring(name, center, radius, wire=.006, material='Brass', vertical=False):
     pts = [(x+radius*math.cos(i*math.tau/48),
             y+radius*math.sin(i*math.tau/48) if vertical else y,
             z if vertical else z+radius*math.sin(i*math.tau/48)) for i in range(49)]
-    tube(name, pts, [wire]*49, material, 6)
+    return tube(name, pts, [wire]*49, material, 6)
 
 
 def turned_leg(x, z, height=.9, stone=False):
@@ -160,6 +160,28 @@ def drape(x, width, z, top=.964, material='AltarCloth'):
     bpy.context.view_layer.objects.active=obj
     mod=obj.modifiers.new('Woven cloth thickness','SOLIDIFY'); mod.thickness=.003
     bpy.ops.object.modifier_apply(modifier=mod.name)
+    # Sew the relief into the moving runner hierarchy. One brass child renderer
+    # per cloth is deformed by the same owner-authored edge controls at runtime;
+    # the former unparented embroidery would remain fixed in midair.
+    decorations=[]
+    decorations.append(ring('Runner sun embroidery',(x,top-.31,-.400),width*.19,.0025,vertical=True))
+    for sign in (-1,1):
+        points=[vertices[row*13+(1 if sign < 0 else 11)] for row in range(25)]
+        decorations.append(tube('Runner stitched border',[(a,b+.002,c-.004) for a,b,c in points],
+                                [.0016]*25,'Brass',5))
+    for i in range(12):
+        a=i*math.tau/12
+        decorations.append(tube('Embroidered ray',[(x+width*.22*math.cos(a),top-.31+width*.22*math.sin(a),-.400),
+             (x+width*.28*math.cos(a),top-.31+width*.28*math.sin(a),-.400)],[.0018]*2,'Brass',5))
+    bpy.ops.object.select_all(action='DESELECT')
+    for decoration in decorations: decoration.select_set(True)
+    bpy.context.view_layer.objects.active=decorations[0]
+    bpy.ops.object.join()
+    for decoration in decorations[1:]:parts.remove(decoration)
+    decorations[0].name='ClothDecoration_%s' % round(x*100)
+    decorations[0].parent=obj
+    decorations[0].matrix_parent_inverse=obj.matrix_world.inverted()
+    decorations[0].select_set(False)
     return obj
 
 
@@ -417,7 +439,7 @@ def export(name, build):
     for parent in parents:
         for material in materials.values():
             objects=[o for o in bpy.context.scene.objects if o.type == 'MESH' and o not in supports
-                     and o.parent == parent and not o.name.startswith(('Handle_','ClothRunner_')) and o.data.materials[0] == material]
+                     and o.parent == parent and not o.name.startswith(('Handle_','ClothRunner_','ClothDecoration_')) and o.data.materials[0] == material]
             if not objects: continue
             bpy.ops.object.select_all(action='DESELECT')
             for obj in objects: obj.select_set(True)

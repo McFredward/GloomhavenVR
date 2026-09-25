@@ -57,7 +57,7 @@ internal static class TownResidentsCodec
         }
         return true;
     }
-    private static bool ValidCloth(in TownClothRunnerState runner)
+    internal static bool ValidCloth(in TownClothRunnerState runner)
     {
         return ValidPoint(runner.Left) && ValidPoint(runner.Right)
             && ValidSpeed(runner.LeftVelocity) && ValidSpeed(runner.RightVelocity);
@@ -70,14 +70,14 @@ internal static class TownResidentsCodec
     private static byte Velocity(float metresPerSecond) => unchecked((byte)(sbyte)Mathf.RoundToInt(Mathf.Clamp(metresPerSecond, -.25f, .25f) * 500f));
     private static float ReadPosition(byte value) => unchecked((sbyte)value) * .001f;
     private static float ReadVelocity(byte value) => unchecked((sbyte)value) * .002f;
-    private static void WriteCloth(byte[] buffer, ref int offset, in TownClothRunnerState runner)
+    internal static void WriteCloth(byte[] buffer, ref int offset, in TownClothRunnerState runner)
     {
         buffer[offset++] = Position(runner.Left.x); buffer[offset++] = Position(runner.Left.y);
         buffer[offset++] = Position(runner.Right.x); buffer[offset++] = Position(runner.Right.y);
         buffer[offset++] = Velocity(runner.LeftVelocity.x); buffer[offset++] = Velocity(runner.LeftVelocity.y);
         buffer[offset++] = Velocity(runner.RightVelocity.x); buffer[offset++] = Velocity(runner.RightVelocity.y);
     }
-    private static TownClothRunnerState ReadCloth(byte[] buffer, ref int offset) => new()
+    internal static TownClothRunnerState ReadCloth(byte[] buffer, ref int offset) => new()
     {
         Left = new Vector2(ReadPosition(buffer[offset++]), ReadPosition(buffer[offset++])),
         Right = new Vector2(ReadPosition(buffer[offset++]), ReadPosition(buffer[offset++])),

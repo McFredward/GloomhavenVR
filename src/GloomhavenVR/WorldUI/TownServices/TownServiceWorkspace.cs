@@ -30,6 +30,7 @@ internal sealed class TownServiceWorkspace : IDisposable
     private readonly List<int> _ids = new();
     private readonly Transform _station;
     private readonly TownServiceGrounding _grounding;
+    private TownServiceCloth? _cloth;
     private Vector3 _target, _center, _stationPosition;
     private Quaternion _targetRotation, _stationRotation;
     private Transform? _room;
@@ -43,6 +44,9 @@ internal sealed class TownServiceWorkspace : IDisposable
     private bool _disposed;
     internal Transform Root => _root.transform;
     internal Transform FurnitureRoot { get; }
+    internal TownClothRunnerState ClothFirst => _shownPrimary ? default : _cloth?.First ?? default;
+    internal TownClothRunnerState ClothSecond => _shownPrimary ? default : _cloth?.Second ?? default;
+    internal bool HasCloth => !_shownPrimary && _cloth != null && _appliedVisibility > 0f;
     internal IReadOnlyList<Prop> Props => _props;
     internal IReadOnlyList<Material> Materials => _materials;
     internal static Transform? CounterTemplate => FurnitureTemplate(1);
@@ -66,6 +70,7 @@ internal sealed class TownServiceWorkspace : IDisposable
             foreach (Collider collider in FurnitureRoot.GetComponentsInChildren<Collider>(true)) collider.enabled = false;
             VRLayers.Apply(_root);
             OwnMaterials(FurnitureRoot);
+            if (service != 1) _cloth = new TownServiceCloth(Root, service);
             _grounding = new TownServiceGrounding(Root);
             if (!RefreshTarget(ResolveSlot(), true))
                 throw new InvalidOperationException("Merchant workspace map frame is unavailable");
@@ -179,6 +184,8 @@ internal sealed class TownServiceWorkspace : IDisposable
             }
         }
         ApplyVisibility();
+        if (_appliedVisibility > 0f)
+            _cloth?.TickAuthor(TownServicePresentation.SessionAge, Time.unscaledDeltaTime, true);
     }
 
     internal void SetVisibility(float value)
@@ -196,6 +203,7 @@ internal sealed class TownServiceWorkspace : IDisposable
         _appliedVisibility = value;
         foreach (Material material in _materials) material.SetFloat(VisibilityId, value);
         FurnitureRoot.gameObject.SetActive(value > 0f);
+        _cloth?.SetVisible(value > 0f);
         foreach (Prop prop in _props) prop.Root.gameObject.SetActive(value > 0f);
         // Mesh property blocks are deliberately absent: the native presentation stream captures
         // these owned material values, including every intermediate dissolve value.
@@ -246,6 +254,7 @@ internal sealed class TownServiceWorkspace : IDisposable
         if (_disposed) return;
         _disposed = true;
         _grounding?.Dispose();
+        _cloth?.Dispose();
         if (_root != null) { _root.SetActive(false); UnityEngine.Object.Destroy(_root); }
         foreach (Material material in _materials) UnityEngine.Object.Destroy(material);
         _materials.Clear(); _materialCopies.Clear(); _animatedMaterials.Clear(); _props.Clear();

@@ -19,6 +19,7 @@ internal sealed class TownServiceStation : IDisposable
     private readonly TownServiceActivityRig _activity;
     private readonly TownServiceActivityAudio _audio;
     private readonly TownServiceCloth _cloth;
+    private readonly TownServiceSleeveLining _sleeves;
     private bool _faceFailed, _activityFailed;
     private static readonly bool[] ActivityFailureReported = new bool[4];
     private static readonly bool[] FaceFailureReported = new bool[4];
@@ -56,8 +57,14 @@ internal sealed class TownServiceStation : IDisposable
         _audio = new TownServiceActivityAudio(root.transform, service);
         _lighting = new TownServiceLighting(root.transform, service);
         try { _decor = new TownServiceDecor(root.transform, service, _lighting);
-            _cloth = new TownServiceCloth(root.transform, service); }
-        catch { _lighting.Dispose(); _grounding.Dispose(); throw; }
+            _cloth = new TownServiceCloth(root.transform, service);
+            _sleeves = new TownServiceSleeveLining(root.transform,
+                root.transform.Find("Actor") ?? throw new InvalidOperationException("Town actor missing"), service); }
+        catch
+        {
+            _sleeves?.Dispose(); _cloth?.Dispose(); _decor?.Dispose();
+            _lighting.Dispose(); _grounding.Dispose(); throw;
+        }
     }
 
     private static void PreserveActorDetail(Transform? actor)
@@ -172,6 +179,7 @@ internal sealed class TownServiceStation : IDisposable
         state.time = seconds;
         _animation.Sample();
         state.enabled = false;
+        _sleeves.Tick();
     }
 
     internal void TickClothAuthor(float age, float dt) => _cloth.TickAuthor(age, dt, _visibility > .01f);
@@ -233,6 +241,7 @@ internal sealed class TownServiceStation : IDisposable
 
     public void Dispose()
     {
+        _sleeves.Dispose();
         _cloth.Dispose();
         _audio.Dispose();
         _grounding.Dispose();

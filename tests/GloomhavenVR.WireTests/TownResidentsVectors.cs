@@ -107,7 +107,7 @@ internal static class TownResidentsVectors
             "owner and observer reconstruct the same three edge controls");
         t.True(TownResidentsCodec.TryRead(Golden, 2, 115, out decoded) && !decoded.HasCloth,
             "old 115-byte record leaves cloth motion absent, never stale");
-        for (int cut = 115; cut < 139; cut++)
+        for (int cut = 116; cut < 139; cut++)
             t.True(!TownResidentsCodec.TryRead(extended, 2, cut, out decoded) && !decoded.Active,
                 "partial cloth tail " + cut + " rejects atomically");
         foreach (int tailIndex in new[] { 115, 119, 123, 131 })

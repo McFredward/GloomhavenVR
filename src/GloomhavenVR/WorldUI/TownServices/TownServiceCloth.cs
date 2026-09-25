@@ -16,6 +16,13 @@ internal sealed class TownServiceCloth : IDisposable
 {
     private sealed class Runner
     {
+        internal sealed class Decoration
+        {
+            internal MeshFilter Filter = null!;
+            internal Mesh Mesh = null!;
+            internal Vector3[] Rest = Array.Empty<Vector3>(), Deformed = Array.Empty<Vector3>();
+            internal float[] Freedom = Array.Empty<float>(), Side = Array.Empty<float>();
+        }
         internal MeshFilter Filter = null!;
         internal Mesh Mesh = null!;
         internal MeshCollider Collider = null!;
@@ -24,6 +31,7 @@ internal sealed class TownServiceCloth : IDisposable
         internal float LeftX, RightX, BottomY, TopY, FrontZ;
         internal TownClothRunnerState State;
         internal float NextCollider, NextRender;
+        internal readonly List<Decoration> Decorations = new();
     }
 
     private readonly Transform _station;
@@ -74,6 +82,23 @@ internal sealed class TownServiceCloth : IDisposable
             runner.Freedom[n] = Mathf.Pow(Mathf.Clamp01((maxY - p.y - .045f) / (maxY - minY - .045f)), 1.45f);
             runner.Side[n] = Mathf.Clamp01((p.x - minX) / (maxX - minX));
         }
+        foreach (MeshFilter child in filter.GetComponentsInChildren<MeshFilter>(true))
+        {
+            if (child == filter || !child.name.StartsWith("ClothDecoration_", StringComparison.Ordinal)) continue;
+            Mesh childMesh = child.mesh; childMesh.MarkDynamic();
+            Vector3[] childRest = childMesh.vertices;
+            var decoration = new Runner.Decoration { Filter = child, Mesh = childMesh, Rest = childRest,
+                Deformed = new Vector3[childRest.Length], Freedom = new float[childRest.Length],
+                Side = new float[childRest.Length] };
+            Array.Copy(childRest, decoration.Deformed, childRest.Length);
+            for (int n = 0; n < childRest.Length; n++)
+            {
+                Vector3 p = _station.InverseTransformPoint(child.transform.TransformPoint(childRest[n]));
+                decoration.Freedom[n] = Mathf.Pow(Mathf.Clamp01((maxY - p.y - .045f) / (maxY - minY - .045f)), 1.45f);
+                decoration.Side[n] = Mathf.Clamp01((p.x - minX) / (maxX - minX));
+            }
+            runner.Decorations.Add(decoration);
+        }
         // This collider is for ordinary physical objects. Virtual VR hands and
         // masks also use the same sheet geometry as an explicit sphere constraint.
         // Ignore Raycast prevents it from stealing card and cabinet laser hits.
@@ -96,7 +121,9 @@ internal sealed class TownServiceCloth : IDisposable
             velocity += (25f * (target - position) - 9f * velocity) * h;
             position += velocity * h;
             position.x = Mathf.Clamp(position.x, -.08f, .08f);
-            position.y = Mathf.Clamp(position.y, -.06f, .06f);
+            // The +Z limit keeps even the inward-shifted edge outside the
+            // priestess's elliptical stone lip (closest clearance 35 mm).
+            position.y = Mathf.Clamp(position.y, -.06f, .03f);
             velocity = Vector2.ClampMagnitude(velocity, .24f);
         }
     }
@@ -188,26 +215,36 @@ internal sealed class TownServiceCloth : IDisposable
     {
         if (Time.unscaledTime < runner.NextRender) return;
         runner.NextRender = Time.unscaledTime + 1f / 72f;
-        Vector3 localX = runner.Filter.transform.InverseTransformVector(_station.TransformVector(Vector3.right));
-        Vector3 localZ = runner.Filter.transform.InverseTransformVector(_station.TransformVector(Vector3.forward));
-        // A low-amplitude shared clock is wind; it continues between packets.
-        // Local tracking can only enter through the owner's published controls.
-        for (int n = 0; n < runner.Rest.Length; n++)
-        {
-            float freedom = runner.Freedom[n], side = runner.Side[n];
-            Vector2 edge = Vector2.Lerp(state.Left, state.Right, side);
-            float breeze = .0045f * Mathf.Sin(age * 1.7f + side * 5.1f + _service);
-            runner.Deformed[n] = runner.Rest[n] + freedom *
-                (localX * (edge.x + breeze) + localZ * edge.y);
-        }
-        runner.Mesh.vertices = runner.Deformed;
-        runner.Mesh.RecalculateNormals(); runner.Mesh.RecalculateBounds();
+        Deform(runner.Filter, runner.Mesh, runner.Rest, runner.Deformed,
+            runner.Freedom, runner.Side, age, in state);
+        foreach (Runner.Decoration decoration in runner.Decorations)
+            Deform(decoration.Filter, decoration.Mesh, decoration.Rest, decoration.Deformed,
+                decoration.Freedom, decoration.Side, age, in state);
         if (Time.unscaledTime >= runner.NextCollider)
         {
             runner.NextCollider = Time.unscaledTime + .1f;
             runner.Collider.sharedMesh = null;
             runner.Collider.sharedMesh = runner.Mesh;
         }
+    }
+
+    private void Deform(MeshFilter filter, Mesh mesh, Vector3[] rest, Vector3[] deformed,
+        float[] freedom, float[] sideValues, float age, in TownClothRunnerState state)
+    {
+        Vector3 localX = filter.transform.InverseTransformVector(_station.TransformVector(Vector3.right));
+        Vector3 localZ = filter.transform.InverseTransformVector(_station.TransformVector(Vector3.forward));
+        // A low-amplitude shared clock is wind; it continues between packets.
+        // Local tracking can only enter through the owner's published controls.
+        for (int n = 0; n < rest.Length; n++)
+        {
+            float influence = freedom[n], side = sideValues[n];
+            Vector2 edge = Vector2.Lerp(state.Left, state.Right, side);
+            float breeze = .0045f * Mathf.Sin(age * 1.7f + side * 5.1f + _service);
+            deformed[n] = rest[n] + influence *
+                (localX * (edge.x + breeze) + localZ * edge.y);
+        }
+        mesh.vertices = deformed;
+        mesh.RecalculateNormals(); mesh.RecalculateBounds();
     }
 
     public void Dispose()
@@ -217,6 +254,8 @@ internal sealed class TownServiceCloth : IDisposable
         {
             if (runner.Collider != null) UnityEngine.Object.Destroy(runner.Collider);
             if (runner.Mesh != null) UnityEngine.Object.Destroy(runner.Mesh);
+            foreach (Runner.Decoration decoration in runner.Decorations)
+                if (decoration.Mesh != null) UnityEngine.Object.Destroy(decoration.Mesh);
         }
     }
 }
