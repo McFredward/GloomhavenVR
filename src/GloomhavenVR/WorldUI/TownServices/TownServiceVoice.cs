@@ -14,7 +14,7 @@ internal enum TownVoiceReaction : byte
     MerchantOffer, MerchantBuy, MerchantSell, PriestessDonate, EnchantressEnhance
 }
 
-/// <summary>Eleven original English lines, baked offline with one consistent voice per
+/// <summary>Original English lines, baked offline with one consistent voice per
 /// resident. The elected face author starts each cue; TLV80 carries its cue, generation
 /// and age so every observer hears and articulates the same shared performance.
 /// Speech never opens, closes or continues a native gameplay dialog.</summary>
@@ -23,7 +23,8 @@ internal static class TownServiceVoice
     private const string Ear = "TownResidents";
     private static readonly string[] Names = { "merchant-greet", "priestess-greet", "enchantress-greet",
         "merchant-offer", "merchant-buy", "merchant-sell", "priestess-prayer", "priestess-donate",
-        "enchantress-cast-ember", "enchantress-cast-echo", "enchantress-enhance" };
+        "enchantress-cast-ember", "enchantress-cast-echo", "enchantress-enhance",
+        "enchantress-invite" };
     private static readonly AudioClip?[] Clips = new AudioClip?[Names.Length];
     private static readonly TownServiceVoiceCurve?[] Curves = new TownServiceVoiceCurve?[Names.Length];
     private struct RelayStamp { internal uint Session, Sequence; }
@@ -44,7 +45,7 @@ internal static class TownServiceVoice
 
     internal static byte ServiceForCue(ushort cue) => cue == 1 || cue >= 4 && cue <= 6 ? (byte)1
         : cue == 2 || cue == 7 || cue == 8 ? (byte)2
-        : cue == 3 || cue >= 9 && cue <= 11 ? (byte)3 : (byte)0;
+        : cue == 3 || cue >= 9 && cue <= 12 ? (byte)3 : (byte)0;
 
     internal static ushort GreetingCue(byte service) => service;
 
@@ -222,7 +223,18 @@ internal static class TownServiceVoice
             return;
         }
         AudioClip? clip = Clips[cue - 1];
-        if (clip == null || age >= clip.length || clip.loadState != AudioDataLoadState.Loaded) return;
+        if (clip == null || age >= clip.length || clip.loadState != AudioDataLoadState.Loaded)
+        {
+            // A late join can receive an already-finished authored cue. Do not
+            // leave an older utterance audible while the shared mouth is silent.
+            if (_playingService == service)
+            {
+                if (_source != null) _source.Stop();
+                _playingService = 0; _playingCue = 0; _playingGeneration = 0;
+                HeadEar.Release(Ear);
+            }
+            return;
+        }
         if (!HeadEar.Claim(Ear)) return;
         if (_source == null)
         {

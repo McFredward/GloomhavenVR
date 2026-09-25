@@ -73,12 +73,23 @@ internal sealed class TownServiceVoiceCurve
             if (age < cue.start) return Vector3.zero;
             if (age >= cue.end) continue;
             Vector3 current = Shape(cue.value[0]);
-            // Transition at the start only: every A/X interval reaches a genuinely closed
-            // mouth and holds it. Never hold a jaw-open amplitude through an MBP closure.
-            float blend = Mathf.Min(.035f, (cue.end - cue.start) * .35f);
-            if (age < cue.start + blend && i > 0 && cues[i - 1].end >= cue.start - .011f)
-                return Vector3.Lerp(Shape(cues[i - 1].value[0]), current,
-                    Mathf.SmoothStep(0f, 1f, (age - cue.start) / blend));
+            // Coarticulate around both phoneme boundaries on the shared cue
+            // timeline. The old 35 ms leading blend followed by a hard held pose
+            // caused visible jaw steps, especially with short Rhubarb intervals.
+            // Keep A/X closures genuine in the middle of their interval.
+            float left = Mathf.Min(.07f, (cue.end - cue.start) * .3f);
+            float right = left;
+            bool joinedLeft = i > 0 && cues[i - 1].end >= cue.start - .011f;
+            bool joinedRight = i + 1 < cues.Length && cues[i + 1].start <= cue.end + .011f;
+            Vector3 previous = joinedLeft ? Shape(cues[i - 1].value[0]) : Vector3.zero;
+            Vector3 next = joinedRight ? Shape(cues[i + 1].value[0]) : Vector3.zero;
+            if (age < cue.start + left)
+                return Vector3.Lerp(Vector3.Lerp(previous, current, joinedLeft ? .5f : 0f), current,
+                    Mathf.SmoothStep(0f, 1f, (age - cue.start) / left));
+            if (age >= cue.end - right)
+                return Vector3.Lerp(current,
+                    Vector3.Lerp(current, next, joinedRight ? .5f : 1f),
+                    Mathf.SmoothStep(0f, 1f, (age - (cue.end - right)) / right));
             return current;
         }
         return Vector3.zero;

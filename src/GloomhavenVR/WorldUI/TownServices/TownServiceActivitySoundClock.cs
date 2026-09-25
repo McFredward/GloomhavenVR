@@ -39,7 +39,11 @@ internal sealed class TownServiceActivitySoundClock
                 result = TownActivitySound.Cloth;
         }
         _seeded = true; _author = author; _epoch = epoch; _clock = clock; _previous = shown;
-        if (result != TownActivitySound.None) _cooldown = result == TownActivitySound.Cloth ? 2f : .35f;
+        // Counting is a background gesture, not an alert on every coin. One
+        // subdued contact per cycle remains enough to locate the work.
+        if (result != TownActivitySound.None)
+            _cooldown = result == TownActivitySound.Coin ? 2.4f
+                : result == TownActivitySound.Cloth ? 2f : .35f;
         return result;
     }
 

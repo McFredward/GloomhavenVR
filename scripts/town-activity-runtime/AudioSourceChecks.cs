@@ -13,8 +13,10 @@ internal static class AudioSourceChecks
         count=0; var root=new GameObject("Resident audio test").transform;
         root.position=new Vector3(4,2,-7);root.rotation=Quaternion.Euler(0,33,0);root.localScale=Vector3.one*198.12f;
         AudioClip clip=AudioClip.Create("Native boundary coin",22050,1,22050,false);
+        AudioClip contact=AudioClip.Create("coin-soft",10800,1,24000,false);
         try
         {
+            TownServiceAssets.Coin=contact;
             AudioController.Items["PlaySound_ScenarioUIEquipmentToggle_Trinkets"]=new FixtureAudioItem{ subItems=new[]{new FixtureAudioSubItem{Clip=clip}}};
             using var audio=new TownServiceActivityAudio(root,1);
             var held=new TownActivityVisual { CoinGrip=Vector3.right,Left=new Vector3(.2f,1.1f,.3f) };
@@ -23,9 +25,9 @@ internal static class AudioSourceChecks
             Check(root.GetComponentsInChildren<AudioSource>().Length==0,"late join creates no historical audio voice");
             FaceClock.Now=.01f;audio.Tick(1,1,2.01f,.01f,true,in released);
             var source=root.GetComponentInChildren<AudioSource>();
-            Check(source!=null&&source.clip!=null&&source.clip!=clip&&source.clip.name=="GloomhavenVR.Town.CoinClink",
-                "coin contact uses a dedicated short physical clink, never the long equipment UI toggle");
-            Check(source!.clip!.length<=.22f&&source.volume<=.075f,
+            Check(source!=null&&source.clip==contact&&source.clip!=clip,
+                "coin contact uses the bundled short physical clink, never the long equipment UI toggle");
+            Check(source!.clip!.length<=.45f&&source.volume<=.15f,
                 "small coin contact has a short bounded duration and quiet gain");
             Check(source!.spatialBlend==1f&&source.dopplerLevel==0f,"resident foley is spatial and has no moving-rig Doppler");
             Check(Mathf.Abs(source.minDistance-148.59f)<.01f&&Mathf.Abs(source.maxDistance-891.54f)<.01f,
@@ -54,7 +56,9 @@ internal static class AudioSourceChecks
         finally
         {
             SaveData.Instance.Global.MasterVolume=100;SaveData.Instance.Global.SFXVolume=100;
-            AudioController.Items.Clear();UnityEngine.Object.DestroyImmediate(root.gameObject);UnityEngine.Object.DestroyImmediate(clip);
+            AudioController.Items.Clear();TownServiceAssets.Coin=null;
+            UnityEngine.Object.DestroyImmediate(root.gameObject);UnityEngine.Object.DestroyImmediate(clip);
+            UnityEngine.Object.DestroyImmediate(contact);
         }
         return count;
     }

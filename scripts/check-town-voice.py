@@ -16,8 +16,16 @@ variants=[('production',None,None,None,''),
  ('ignore-volume','TownServiceVoice.cs','_volume * (cue == 7 ? .16f : .52f)','1f','master and story sliders scale greeting'),
  ('ignore-narration','TownServiceVoiceSchedule.cs','(narration || now - e.Started >= duration(e.Cue))','(now - e.Started >= duration(e.Cue))','native narration interrupts resident speech'),
  ('closure','TownServiceVoiceCurve.cs','default: return Vector3.zero;','default: return new Vector3(.5f, 0f, 0f);','closed/silent interval closes mouth'),
- ('forget-adoption','TownServiceVoiceSchedule.cs','e.Started = now - age;','e.Started = now;','authority handover inherits utterance age'),
+ ('forget-adoption','TownServiceVoiceSchedule.cs','e.Started = now - age;','e.Started = now;','shared invitation age survives handover'),
  ('restart-ended','TownServiceVoiceSchedule.cs','age + .001f < e.ObservedAge || e.Ended','age + .001f < e.ObservedAge','ended cue cannot reopen')]
+variants += [
+ ('premature-enchantress','TownServiceVoiceSchedule.cs','beginning && service != 3 && age <= 2f','beginning && age <= 2f','enchantress does not greet before the shared hand gesture'),
+ ('no-hand-invite','TownServiceVoiceSchedule.cs','e.LastAttention < .35f && attention >= .35f','false','hand extension selects one author-owned invitation'),
+ ('hard-mouth-boundary','TownServiceVoiceCurve.cs','joinedRight ? .5f : 1f','1f','shared phoneme boundary does not step the mouth'),
+ ('stale-late-join','TownServiceVoice.cs',
+  'if (_playingService == service)\n            {\n                if (_source != null) _source.Stop();',
+  'if (_playingService == 255)\n            {\n                if (_source != null) _source.Stop();',
+  'late join skips expired shared cue and stops stale resident audio')]
 if args.no_negative_controls: variants=variants[:1]
 manifest={'result':str(out/'results.txt'),'cases':[]}
 unity=Path('/home/claw/unity-2021.3.5/Editor/Unity'); managed=repo/'ressources/GH_Data/Managed'

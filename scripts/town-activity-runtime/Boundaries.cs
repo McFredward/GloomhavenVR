@@ -23,6 +23,11 @@ namespace GloomhavenVR.Net
 namespace GloomhavenVR.Rig { internal static class VRRigDriver { internal static Camera? HeadCamera=null; } }
 namespace GloomhavenVR.WorldUI
 {
+    internal static class TownServiceAssets
+    {
+        internal static AudioClip? Coin;
+        internal static AudioClip? Audio(string name) => name == "coin-soft" ? Coin : null;
+    }
     internal static class SkyAlternative {internal static Transform? PlacedRoomRoot=null;}
     // Activity cases use no terrain; actual mesh sampling is covered by workspace/setting suites.
     internal static class TownServicePlacement {internal static float GroundHeight(Transform room,Vector3 world)=>world.y;

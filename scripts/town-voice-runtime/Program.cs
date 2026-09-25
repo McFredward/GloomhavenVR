@@ -57,6 +57,21 @@ public static class InteractionProgram
         cast.Work(3, 70.03f, .3f, 0f, true, 60.03f);
         Check(!cast.At(3).Pending, "discontinuous seek does not replay historical cast");
 
+        var invitation = new TownServiceVoiceSchedule();
+        invitation.Visit(3, true, 0f, 0f);
+        invitation.Sample(3, duration, 0f, false);
+        Check(invitation.At(3).Cue == 0, "enchantress does not greet before the shared hand gesture");
+        invitation.Work(3, 1f, 0f, 0f, true, 0f);
+        invitation.Work(3, 1.1f, 0f, .4f, true, .1f);
+        invitation.Sample(3, duration, .1f, false);
+        Check(invitation.At(3).Cue == 12 && invitation.At(3).Generation == 1,
+            "hand extension selects one author-owned invitation");
+        invitation.Work(3, 1.2f, 0f, .6f, true, .2f);
+        Check(!invitation.At(3).Pending, "continuous hand pose does not repeat invitation");
+        Check(invitation.Observe(3, 7, 12, 1, .6f, 1f), "observer adopts author invitation age");
+        Check(Mathf.Abs(invitation.At(3).Started - .4f) < .001f,
+            "shared invitation age survives handover");
+
         var inherited = new TownServiceVoiceSchedule();
         Check(inherited.Observe(1, 7, 4, 12, 1f, 10f), "observer adopts cue");
         inherited.Sample(1, duration, 10.2f, false);
@@ -71,7 +86,8 @@ public static class InteractionProgram
         string assets = Environment.GetEnvironmentVariable("TOWN_SPEECH_ASSETS")!;
         string[] names = { "merchant-greet", "priestess-greet", "enchantress-greet", "merchant-offer",
             "merchant-buy", "merchant-sell", "priestess-prayer", "priestess-donate",
-            "enchantress-cast-ember", "enchantress-cast-echo", "enchantress-enhance" };
+            "enchantress-cast-ember", "enchantress-cast-echo", "enchantress-enhance",
+            "enchantress-invite" };
         for (ushort cue = 1; cue <= names.Length; cue++)
         {
             string json = File.ReadAllText(Path.Combine(assets, names[cue - 1] + ".json"));
@@ -94,6 +110,16 @@ public static class InteractionProgram
                     && shape.z >= 0f && shape.z <= 1f, "bounded mouth channels");
                 if (item.value == "A" || item.value == "X")
                     Check(shape == Vector3.zero, "closed/silent interval closes mouth");
+            }
+            for (int i = 1; i < curve.Intervals.Length; i++)
+            {
+                var left = curve.Intervals[i - 1]; var right = curve.Intervals[i];
+                if (Math.Abs(left.end - right.start) > .001f) continue;
+                float epsilon = .00001f;
+                Vector3 before = curve.At(left.end - epsilon);
+                Vector3 after = curve.At(right.start + epsilon);
+                Check(Vector3.Distance(before, after) < .015f,
+                    "shared phoneme boundary does not step the mouth");
             }
             Check(curve!.At(-1f) == Vector3.zero && curve.At(curve.Duration) == Vector3.zero,
                 "mouth closes outside spoken clip");
@@ -128,6 +154,8 @@ public static class InteractionProgram
         Refresh(); TownServiceFaceSpeech.Observer!(1, 7, 1, 1, .2f, head.transform);
         Check(Source != null && Source.clip == TownServiceAssets.Clips["merchant-greet"],
             "observer plays exact bundled cue");
+        Check(Mathf.Abs(Source!.time - .2f) < .02f,
+            "late joining observer seeks to elected author's shared cue age");
         Check(Mathf.Abs(Source!.volume - .104f) < .0001f, "master and story sliders scale greeting");
         Check(Source.spatialBlend == 1f && Source.dopplerLevel == 0f
             && Mathf.Abs(Source.minDistance - 128.778f) < .01f
@@ -150,6 +178,13 @@ public static class InteractionProgram
         Refresh(); TownServiceFaceSpeech.Observer(2, 7, 7, 1, .3f, head.transform);
         Check(Source.volume == 0f && AudioController.Playing.Count == 1,
             "native narration ducks only NPC-owned speech");
+        AudioController.Playing.Clear(); Refresh();
+        TownServiceFaceSpeech.Observer(2, 7, 7, 2, .15f, head.transform);
+        Check(Source.isPlaying, "new authored generation can start after a previous cue");
+        TownServiceFaceSpeech.Observer(2, 7, 7, 3,
+            TownServiceAssets.Clips["priestess-prayer"].length + .1f, head.transform);
+        Check(!Source.isPlaying && !HeadEar.Claims.Contains("TownResidents"),
+            "late join skips expired shared cue and stops stale resident audio");
         TownServiceVoice.Reset();
         Check(!HeadEar.Claims.Contains("TownResidents") && HeadEar.Claims.Contains("ExistingEnvironment"),
             "teardown releases only own listener claim");

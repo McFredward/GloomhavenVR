@@ -13,7 +13,7 @@ internal sealed class TownServiceVoiceSchedule
         internal uint Generation, ObservedGeneration;
         internal int Author;
         internal bool Observed;
-        internal float LastRequestedAt, LastWorkClock, LastCast;
+        internal float LastRequestedAt, LastWorkClock, LastCast, LastAttention;
         internal bool WorkSeeded;
         internal byte Priority;
     }
@@ -27,7 +27,9 @@ internal sealed class TownServiceVoiceSchedule
         bool beginning = visiting && (!e.Visiting || age + .2f < e.VisitAge);
         e.Visiting = visiting; e.VisitAge = age;
         if (!visiting && e.Priority == 1) e.Pending = false;
-        if (beginning && age <= 2f && now >= e.NextAllowed && e.Cue == 0)
+        // The enchantress invites a visitor as her hand opens, not before the
+        // shared gesture. This also avoids two back-to-back greetings on entry.
+        if (beginning && service != 3 && age <= 2f && now >= e.NextAllowed && e.Cue == 0)
             Queue(service, TownServiceVoice.GreetingCue(service), 1, now + 5f);
     }
 
@@ -44,7 +46,13 @@ internal sealed class TownServiceVoiceSchedule
             if (service == 3 && e.LastCast <= .16f && cast > .16f)
                 Queue(service, (ushort)(Math.Floor(clock / 48f) % 2 == 0 ? 9 : 10), 0, now + 3f);
         }
-        e.WorkSeeded = true; e.LastWorkClock = clock; e.LastCast = cast;
+        // The hand-extension is authored in TLV81. Cue 12 is selected only by
+        // the elected face author from that shared edge, then TLV80 publishes its
+        // identity and age; proximity on each observer can never choose a line.
+        if (continuous && service == 3 && e.LastAttention < .35f && attention >= .35f
+            && now >= e.NextAllowed)
+            Queue(service, 12, 1, now + 4f);
+        e.WorkSeeded = true; e.LastWorkClock = clock; e.LastCast = cast; e.LastAttention = attention;
     }
 
     private static bool Crossed(float before, float after, float period, float threshold)
