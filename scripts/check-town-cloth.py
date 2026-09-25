@@ -15,13 +15,20 @@ def source_contract(source):
         'six remote hands': 'MaximumPeerHands = 6' in source and 'TryGetTownClothHandProbes' in source,
         'local head mask': 'VRRigDriver.HeadCamera' in source and 'PlaceHead(_heads[headAt++]' in source,
         'three remote heads': 'MaximumHeads = 4' in source and 'TryGetTownFaceHead' in source,
-        'table support chain': ('const int samples = 9' in source
-                                and 'for (int row = 0; row < 2; row++)' in source
-                                and 'runner.SupportPairs.Add' in source),
+        'particle-aligned table support': ('const int samples = DriverColumns' in source
+                                           and 'TableSupport(runner, i, "Front"' in source
+                                           and 'TableSupport(runner, i, "Rear"' in source),
         'all native colliders attached': 'runner.SupportPairs.Count + _hands.Length + _heads.Length' in source,
         'no ray interception': source.count('layer = IgnoreRaycastLayer') >= 5,
         'single vertex snapshot': source.count('runner.Cloth.vertices;') == 1,
         'single-layer physical driver': 'DriverRows = 25' in source and 'DriverColumns = 13' in source,
+        'FBX reorder independent': ('AuthoredPoint(row, column, minX, maxX)' in source
+                                    and 'shipping FBX importer reorders and splits' in source),
+        'nested FBX scale converted': ('stationUnitInDriver = driver.InverseTransformVector' in source
+                                      and 'runner.DriverFreedom[n] * .34f * stationUnitInDriver' in source
+                                      and '.004f * stationUnitInDriver' in source),
+        'real local fingertips': ('VRHands.Left.Rig.IndexTip.position' in source
+                                  and 'VRHands.Right.Rig.IndexTip.position' in source),
     }
     missing = [name for name, present in checks.items() if not present]
     if missing:
@@ -37,10 +44,13 @@ def validate_source():
         'local-hand': ('VRHands.Left?.HasPose', 'VRHands.Left == null'),
         'remote-hand': ('TryGetTownClothHandProbes', 'DisabledRemoteHandProbe'),
         'head-mask': ('TryGetTownFaceHead', 'DisabledRemoteHeadProbe'),
-        'table': ('const int samples = 9', 'const int samples = 0'),
+        'table': ('const int samples = DriverColumns', 'const int samples = 0'),
         'raycast': ('layer = IgnoreRaycastLayer', 'layer = 0'),
         'double-snapshot': ('Vector3[] simulated = runner.Cloth.vertices;',
                             'Vector3[] simulated = runner.Cloth.vertices; var duplicate = runner.Cloth.vertices;'),
+        'nested-scale': ('stationUnitInDriver = driver.InverseTransformVector',
+                         'missingScale = driver.InverseTransformVector'),
+        'fingertip': ('VRHands.Left.Rig.IndexTip.position', 'VRHands.Left.Rig.PalmCenter.forward'),
     }
     for name, (before, after) in mutations.items():
         changed = source.replace(before, after, 1)
@@ -59,6 +69,7 @@ def main():
                         default=Path('/home/claw/unity-2021.3.5/Editor/Unity'))
     parser.add_argument('--output-dir', type=Path,
                         default=ROOT / '.planning/debug/town-cloth-native')
+    parser.add_argument('--bundle', type=Path, default=ROOT / 'prebuilt/ghvr-town.bundle')
     args = parser.parse_args()
     args.output_dir.mkdir(parents=True, exist_ok=True)
     run = Path(tempfile.mkdtemp(prefix='run-', dir=args.output_dir.resolve()))
@@ -70,7 +81,7 @@ def main():
     shutil.copyfile(fixture / 'Builder.cs', project / 'Assets/Editor/Builder.cs')
     shutil.copyfile(fixture / 'TownClothProbe.cs', project / 'Assets/TownClothProbe.cs')
     (project / 'Packages/manifest.json').write_text(
-        '{"dependencies":{"com.unity.modules.cloth":"1.0.0","com.unity.modules.physics":"1.0.0"}}')
+        '{"dependencies":{"com.unity.modules.assetbundle":"1.0.0","com.unity.modules.cloth":"1.0.0","com.unity.modules.physics":"1.0.0"}}')
     (project / 'ProjectSettings/ProjectVersion.txt').write_text('m_EditorVersion: 2021.3.5f1\n')
     editor_log = run / 'editor.log'
     built = subprocess.run(['xvfb-run', '-a', str(args.unity), '-batchmode', '-nographics',
@@ -81,7 +92,8 @@ def main():
     result = run / 'result.txt'
     player_log = run / 'player.log'
     played = subprocess.run(['xvfb-run', '-a', str(project / 'Build/towncloth'), '-batchmode',
-        '--result=' + str(result), '-logFile', str(player_log)], timeout=120)
+        '--result=' + str(result), '--bundle=' + str(args.bundle.resolve()),
+        '-logFile', str(player_log)], timeout=120)
     if played.returncode or not result.exists() or 'PASS' not in result.read_text():
         raise SystemExit('Unity cloth probe failed: ' + str(player_log))
     print(result.read_text().strip())

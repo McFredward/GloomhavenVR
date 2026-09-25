@@ -50,6 +50,7 @@ internal sealed class TownServiceCloth : IDisposable
         internal GameObject DriverRoot = null!;
         internal Mesh DriverMesh = null!;
         internal Cloth Cloth = null!;
+        internal float DriverBaseScale;
         internal readonly List<Decoration> Decorations = new();
         internal readonly List<GameObject> Supports = new();
         internal readonly List<ClothSphereColliderPair> SupportPairs = new();
@@ -139,29 +140,51 @@ internal sealed class TownServiceCloth : IDisposable
             runner.Side[n] = Mathf.Clamp01((p.x - minX) / (maxX - minX));
         }
 
-        BuildNativeDriver(runner);
+        BuildNativeDriver(runner, minX, maxX);
         BuildDecorations(runner);
         BuildTableSupports(runner, minX, maxX, maxY);
         RewriteColliders(runner);
         return runner;
     }
 
-    private void BuildNativeDriver(Runner runner)
+    private void BuildNativeDriver(Runner runner, float minX, float maxX)
     {
         runner.DriverRoot = new GameObject("GloomhavenVR.NativeTownCloth") { layer = IgnoreRaycastLayer };
         Transform driver = runner.DriverRoot.transform;
-        driver.SetParent(runner.Filter.transform, false);
+        // Unity Cloth becomes numerically unstable when the solver itself inherits
+        // the town hierarchy's ~19,800x lossy scale. Keep the solver at unit scale,
+        // bake the already-placed sheet into that space, and follow only the source
+        // mesh's world pose. A ratio near one handles a later room-scale change.
+        driver.SetPositionAndRotation(runner.Filter.transform.position, runner.Filter.transform.rotation);
+        driver.localScale = Vector3.one;
+        runner.DriverBaseScale = UniformScale(runner.Filter.transform);
 
         // Blender's Solidify output contains a second surface and side walls.
         // Feeding that closed shell to PhysX makes two nearly coincident sheets
-        // fight each other and produces the rigid board-like motion reported in
-        // headset. The authored source grid is deliberately retained in the
-        // first 25x13 vertices; simulate that single manifold surface and map
-        // its displacement back onto every rendered thickness vertex.
-        if (runner.Rest.Length < DriverVertexCount)
-            throw new InvalidOperationException("Town cloth is missing its authored 25x13 source grid.");
+        // fight each other and produces rigid board-like motion. Do not assume
+        // the first 325 imported vertices are Blender's source grid either: the
+        // shipping FBX importer reorders and splits them by face/UV (889-918
+        // vertices, with the first thirteen running DOWN one column). Build the
+        // authored 25x13 surface from its measured curved-lip contract, then map
+        // every rendered thickness vertex to that physical sheet. A proximity
+        // check below makes any future furniture-authoring change fail closed.
         runner.DriverRest = new Vector3[DriverVertexCount];
-        Array.Copy(runner.Rest, runner.DriverRest, DriverVertexCount);
+        for (int row = 0; row < DriverRows; row++)
+        for (int column = 0; column < DriverColumns; column++)
+        {
+            Vector3 stationPoint = AuthoredPoint(row, column, minX, maxX);
+            float closest = float.MaxValue;
+            for (int visible = 0; visible < runner.Rest.Length; visible++)
+            {
+                Vector3 candidate = _station.InverseTransformPoint(
+                    runner.Filter.transform.TransformPoint(runner.Rest[visible]));
+                closest = Mathf.Min(closest, (candidate - stationPoint).sqrMagnitude);
+            }
+            if (closest > .008f * .008f)
+                throw new InvalidOperationException("Town cloth rendered mesh no longer matches its physical source grid.");
+            runner.DriverRest[row * DriverColumns + column] = driver.InverseTransformPoint(
+                _station.TransformPoint(stationPoint));
+        }
         var triangles = new int[(DriverRows - 1) * (DriverColumns - 1) * 6];
         int triangle = 0;
         for (int row = 0; row < DriverRows - 1; row++)
@@ -203,40 +226,74 @@ internal sealed class TownServiceCloth : IDisposable
         cloth.worldAccelerationScale = .35f;
         cloth.sleepThreshold = .05f;
 
-        // Cloth coefficients are world-unit distances. The town resident is born
-        // at map-room scale (roughly two hundred game units per perceived metre),
-        // unlike a normal 1x authoring preview. FigureCloth established that both
-        // fabric and coefficients have to agree at the live scale; because this
-        // component is created after placement, the fabric is cooked correctly
-        // here and only the coefficient distance needs the same scale conversion.
-        float minX = float.MaxValue, maxX = float.MinValue, maxY = float.MinValue;
+        // Cloth coefficients use the driver's particle space. The first native
+        // implementation treated them as world units and multiplied by the live
+        // 19800x lossy scale (roughly 198 map scale x Blender's 100x FBX child).
+        // It gave a sheet whose local width is about 0.012 a maxDistance in the
+        // THOUSANDS and a collision skin tens of world units thick. The solver
+        // could neither conform to the worktop nor wait for a physical finger to
+        // touch it. Convert the intended station-space distances into the mesh's
+        // local particle units exactly once. FigureCloth's coefficient rescale is
+        // for an already-cooked garment whose miniature changes scale afterwards;
+        // this cloth is created only after its final station hierarchy is placed.
+        float physicalMinX = float.MaxValue, physicalMaxX = float.MinValue, maxY = float.MinValue;
         runner.DriverFreedom = new float[runner.DriverRest.Length];
         runner.DriverSide = new float[runner.DriverRest.Length];
         for (int n = 0; n < runner.DriverRest.Length; n++)
         {
-            Vector3 p = _station.InverseTransformPoint(runner.Filter.transform.TransformPoint(runner.DriverRest[n]));
-            minX = Mathf.Min(minX, p.x); maxX = Mathf.Max(maxX, p.x); maxY = Mathf.Max(maxY, p.y);
+            Vector3 p = _station.InverseTransformPoint(driver.TransformPoint(runner.DriverRest[n]));
+            physicalMinX = Mathf.Min(physicalMinX, p.x);
+            physicalMaxX = Mathf.Max(physicalMaxX, p.x); maxY = Mathf.Max(maxY, p.y);
         }
         for (int n = 0; n < runner.DriverRest.Length; n++)
         {
-            Vector3 p = _station.InverseTransformPoint(runner.Filter.transform.TransformPoint(runner.DriverRest[n]));
+            Vector3 p = _station.InverseTransformPoint(driver.TransformPoint(runner.DriverRest[n]));
             runner.DriverFreedom[n] = Freedom(p, maxY);
-            runner.DriverSide[n] = Mathf.Clamp01((p.x - minX) / Mathf.Max(.0001f, maxX - minX));
+            runner.DriverSide[n] = Mathf.Clamp01((p.x - physicalMinX)
+                / Mathf.Max(.0001f, physicalMaxX - physicalMinX));
         }
         for (int n = 0; n < runner.Rest.Length; n++)
             runner.VisibleDriverVertex[n] = Nearest(runner.Filter.transform.TransformPoint(runner.Rest[n]),
-                runner.Filter.transform, runner.DriverRest);
+                driver, runner.DriverRest);
 
-        float worldScale = Mathf.Max(.0001f, Mathf.Abs(driver.lossyScale.x));
+        float stationUnitInDriver = driver.InverseTransformVector(
+            _station.TransformVector(Vector3.up)).magnitude;
+        if (stationUnitInDriver < .000001f || float.IsNaN(stationUnitInDriver)
+            || float.IsInfinity(stationUnitInDriver))
+            throw new InvalidOperationException("Town cloth station-to-driver scale is invalid.");
         var coefficients = new ClothSkinningCoefficient[runner.DriverRest.Length];
         for (int n = 0; n < coefficients.Length; n++)
         {
-            coefficients[n].maxDistance = runner.DriverFreedom[n] * .34f * worldScale;
-            coefficients[n].collisionSphereDistance = .004f * worldScale;
+            coefficients[n].maxDistance = runner.DriverFreedom[n] * .34f * stationUnitInDriver;
+            coefficients[n].collisionSphereDistance = .004f * stationUnitInDriver;
         }
         cloth.coefficients = coefficients;
         cloth.ClearTransformMotion();
         runner.Cloth = cloth;
+    }
+
+    private static float UniformScale(Transform transform)
+    {
+        Vector3 scale = transform.lossyScale;
+        float smallest = Mathf.Min(Mathf.Abs(scale.x), Mathf.Abs(scale.y), Mathf.Abs(scale.z));
+        float largest = Mathf.Max(Mathf.Abs(scale.x), Mathf.Abs(scale.y), Mathf.Abs(scale.z));
+        if (smallest < .000001f || largest / smallest > 1.01f)
+            throw new InvalidOperationException("Town cloth requires a positive uniform furniture scale.");
+        return (smallest + largest) * .5f;
+    }
+
+    private static void FollowSource(Runner runner)
+    {
+        Transform source = runner.Filter.transform;
+        Transform driver = runner.DriverRoot.transform;
+        float ratio = UniformScale(source) / runner.DriverBaseScale;
+        Vector3 scale = Vector3.one * ratio;
+        if ((driver.position - source.position).sqrMagnitude < .000001f
+            && Quaternion.Angle(driver.rotation, source.rotation) < .001f
+            && (driver.localScale - scale).sqrMagnitude < .000001f) return;
+        driver.SetPositionAndRotation(source.position, source.rotation);
+        driver.localScale = scale;
+        runner.Cloth.ClearTransformMotion();
     }
 
     private static int Nearest(Vector3 worldPoint, Transform driverTransform, Vector3[] vertices)
@@ -258,30 +315,37 @@ internal sealed class TownServiceCloth : IDisposable
         // equivalent of the table's solid lip. It prevents an inward finger push
         // from carrying the runner through the stone/wood while leaving its free
         // lower edge fully movable.
-        const int samples = 9;
-        // One curved row catches the free edge; the second carries the upper
-        // woven section across the tabletop. Without the rear row the solver
-        // could legally use its maxDistance to sag through the solid worktop
-        // before reaching the lip. Two rows keep the total at 16 table capsule
-        // pairs + 12 hand/head pairs, below Unity Cloth's 32-capsule ceiling.
-        for (int row = 0; row < 2; row++)
+        // Unity Cloth has no mesh-collider input. Support each of the authored
+        // source grid's thirteen columns with a front-to-rear capsule instead.
+        // Every simulated particle on the tabletop then sits over its own solid
+        // support rather than between two sparse horizontal rails. The endpoint
+        // sphere follows the curved lip, so the hanging rows remain free while a
+        // finger cannot push their seam through the table. Thirteen table pairs
+        // plus eight hand and four head pairs remain below the 32-pair limit.
+        const int samples = DriverColumns;
+        for (int i = 0; i < samples; i++)
         {
-            SphereCollider? previous = null;
-            for (int i = 0; i < samples; i++)
-            {
-                float x = Mathf.Lerp(minX, maxX, i / (samples - 1f));
-                var go = new GameObject("GloomhavenVR.TownCloth.TableSupport." + row + "." + i)
-                    { layer = IgnoreRaycastLayer };
-                go.transform.SetParent(_station, false);
-                float rearward = row == 0 ? .012f : .122f;
-                go.transform.localPosition = new Vector3(x, topY - .018f, TableFront(x) + rearward);
-                var sphere = go.AddComponent<SphereCollider>();
-                sphere.radius = .027f;
-                runner.Supports.Add(go);
-                if (previous != null) runner.SupportPairs.Add(new ClothSphereColliderPair(previous, sphere));
-                previous = sphere;
-            }
+            float x = Mathf.Lerp(minX, maxX, i / (samples - 1f));
+            SphereCollider front = TableSupport(runner, i, "Front", x, topY, .008f);
+            SphereCollider rear = TableSupport(runner, i, "Rear", x, topY, .142f);
+            runner.SupportPairs.Add(new ClothSphereColliderPair(front, rear));
         }
+    }
+
+    private SphereCollider TableSupport(Runner runner, int column, string edge,
+        float x, float topY, float rearward)
+    {
+        var go = new GameObject("GloomhavenVR.TownCloth.TableSupport." + column + "." + edge)
+            { layer = IgnoreRaycastLayer };
+        Transform driver = runner.DriverRoot.transform;
+        go.transform.SetParent(driver, false);
+        Vector3 stationPoint = new(x, topY - .022f, TableFront(x) + rearward);
+        go.transform.localPosition = driver.InverseTransformPoint(_station.TransformPoint(stationPoint));
+        var sphere = go.AddComponent<SphereCollider>();
+        sphere.radius = .026f * driver.InverseTransformVector(
+            _station.TransformVector(Vector3.up)).magnitude;
+        runner.Supports.Add(go);
+        return sphere;
     }
 
     private float TableFront(float x)
@@ -290,6 +354,20 @@ internal sealed class TownServiceCloth : IDisposable
         float depth = _service == 2 ? .38f : .46f;
         float center = _service == 2 ? 0f : .03f;
         return center - depth * Mathf.Sqrt(Mathf.Max(0f, 1f - x * x / (radius * radius)));
+    }
+
+    private Vector3 AuthoredPoint(int row, int column, float minX, float maxX)
+    {
+        float t = row / (DriverRows - 1f);
+        float u = column / (DriverColumns - 1f);
+        float x = Mathf.Lerp(minX, maxX, u);
+        float fold = .0015f * Mathf.Sin(u * Mathf.PI * 6.4f + .3f);
+        float surface = Mathf.Min(1f, t / .45f);
+        float z = TableFront(x) + .145f * (1f - surface) - .004f * surface;
+        z -= .012f * Mathf.Sin(u * Mathf.PI * 6f) * (Mathf.Max(0f, t - .45f) / .55f);
+        float y = .9575f + fold - .49f * Mathf.Max(0f, (t - .45f) / .55f);
+        y -= .018f * Mathf.Max(0f, (t - .84f) / .16f) * (1f - Mathf.Abs(u * 2f - 1f));
+        return new Vector3(x, y, z);
     }
 
     private void BuildDecorations(Runner runner)
@@ -356,13 +434,18 @@ internal sealed class TownServiceCloth : IDisposable
         probe.Tip.position = probe.Palm.position;
     }
 
-    private static void Place(HandProbe probe, Vector3 palm, Vector3 direction, float scale)
+    private static void Place(HandProbe probe, Vector3 palm, Vector3 tip, float scale)
     {
-        if (direction.sqrMagnitude < .001f) direction = Vector3.forward;
         probe.Palm.position = palm;
-        probe.Tip.position = palm + direction.normalized * (FingerLengthRealMeters * scale);
+        probe.Tip.position = tip;
         probe.PalmSphere.radius = PalmRadiusRealMeters * scale;
         probe.TipSphere.radius = TipRadiusRealMeters * scale;
+    }
+
+    private static void PlaceDirection(HandProbe probe, Vector3 palm, Vector3 direction, float scale)
+    {
+        if (direction.sqrMagnitude < .001f) direction = Vector3.forward;
+        Place(probe, palm, palm + direction.normalized * (FingerLengthRealMeters * scale), scale);
     }
 
     private static void PlaceHead(HandProbe probe, Vector3 center, float scale)
@@ -380,9 +463,9 @@ internal sealed class TownServiceCloth : IDisposable
             ? Mathf.Max(.0001f, Mathf.Abs(VRRigDriver.RigRoot.lossyScale.x))
             : Mathf.Max(.0001f, VRRigDriver.BaseWorldScale);
         if (VRHands.Left?.HasPose == true && at < _hands.Length)
-            Place(_hands[at++], VRHands.Left.Rig.PalmCenter.position, VRHands.Left.Rig.PalmCenter.forward, scale);
+            Place(_hands[at++], VRHands.Left.Rig.PalmCenter.position, VRHands.Left.Rig.IndexTip.position, scale);
         if (VRHands.Right?.HasPose == true && at < _hands.Length)
-            Place(_hands[at++], VRHands.Right.Rig.PalmCenter.position, VRHands.Right.Rig.PalmCenter.forward, scale);
+            Place(_hands[at++], VRHands.Right.Rig.PalmCenter.position, VRHands.Right.Rig.IndexTip.position, scale);
 
         _peers.Clear();
         NetAvatarDriver.CollectTownFacePeers(_peers);
@@ -391,8 +474,8 @@ internal sealed class TownServiceCloth : IDisposable
             if (at >= _hands.Length) break;
             if (!NetAvatarDriver.TryGetTownClothHandProbes(peer, out Vector3 left, out Vector3 leftDirection,
                     out Vector3 right, out Vector3 rightDirection, out bool leftValid, out bool rightValid)) continue;
-            if (leftValid && at < _hands.Length) Place(_hands[at++], left, leftDirection, scale);
-            if (rightValid && at < _hands.Length) Place(_hands[at++], right, rightDirection, scale);
+            if (leftValid && at < _hands.Length) PlaceDirection(_hands[at++], left, leftDirection, scale);
+            if (rightValid && at < _hands.Length) PlaceDirection(_hands[at++], right, rightDirection, scale);
         }
         while (at < _hands.Length) Park(_hands[at++]);
 
@@ -425,6 +508,7 @@ internal sealed class TownServiceCloth : IDisposable
         foreach (Runner runner in _runners)
         {
             if (!visible) continue;
+            FollowSource(runner);
             TownClothRunnerState previous = runner.State;
             TownClothRunnerState measured = Render(runner, default, false);
             float inverse = dt > .0001f ? 1f / dt : 0f;
@@ -442,6 +526,7 @@ internal sealed class TownServiceCloth : IDisposable
         for (int i = 0; i < _runners.Length; i++)
         {
             Runner runner = _runners[i];
+            FollowSource(runner);
             TownClothRunnerState state = i == 0 ? first : second;
             float prediction = Mathf.Clamp(elapsed, 0f, .12f);
             state.Left += state.LeftVelocity * prediction;
@@ -457,16 +542,16 @@ internal sealed class TownServiceCloth : IDisposable
         if (vertices.Length != runner.DriverRest.Length) return state;
         Vector2 left = Vector2.zero, right = Vector2.zero;
         float leftWeight = 0f, rightWeight = 0f;
-        Vector3 localX = runner.Filter.transform.InverseTransformVector(_station.TransformVector(Vector3.right));
-        Vector3 localZ = runner.Filter.transform.InverseTransformVector(_station.TransformVector(Vector3.forward));
-        float xx = Mathf.Max(.0001f, Vector3.Dot(localX, localX));
-        float zz = Mathf.Max(.0001f, Vector3.Dot(localZ, localZ));
+        Vector3 worldX = _station.TransformVector(Vector3.right);
+        Vector3 worldZ = _station.TransformVector(Vector3.forward);
+        float xx = Mathf.Max(.0001f, Vector3.Dot(worldX, worldX));
+        float zz = Mathf.Max(.0001f, Vector3.Dot(worldZ, worldZ));
         for (int n = 0; n < vertices.Length; n++)
         {
             float weight = runner.DriverFreedom[n] * runner.DriverFreedom[n];
             if (weight < .1f) continue;
-            Vector3 delta = vertices[n] - runner.DriverRest[n];
-            var offset = new Vector2(Vector3.Dot(delta, localX) / xx, Vector3.Dot(delta, localZ) / zz);
+            Vector3 delta = runner.DriverRoot.transform.TransformVector(vertices[n] - runner.DriverRest[n]);
+            var offset = new Vector2(Vector3.Dot(delta, worldX) / xx, Vector3.Dot(delta, worldZ) / zz);
             float side = runner.DriverSide[n];
             float lw = weight * (1f - side), rw = weight * side;
             left += offset * lw; right += offset * rw;
@@ -492,7 +577,9 @@ internal sealed class TownServiceCloth : IDisposable
         for (int n = 0; n < runner.Rest.Length; n++)
         {
             int source = runner.VisibleDriverVertex[n];
-            Vector3 shown = runner.Rest[n] + simulated[source] - runner.DriverRest[source];
+            Vector3 worldDelta = runner.DriverRoot.transform.TransformVector(
+                simulated[source] - runner.DriverRest[source]);
+            Vector3 shown = runner.Rest[n] + runner.Filter.transform.InverseTransformVector(worldDelta);
             if (correctToOwner)
             {
                 float side = runner.Side[n];

@@ -2,6 +2,7 @@ using System;
 using System.Collections;
 using System.Diagnostics;
 using System.IO;
+using System.Linq;
 using UnityEngine;
 
 public sealed class TownClothProbe : MonoBehaviour
@@ -13,6 +14,12 @@ public sealed class TownClothProbe : MonoBehaviour
         internal Transform Mover = null!;
         internal Mesh Visible = null!;
         internal Vector3[] Rest = Array.Empty<Vector3>();
+        internal float StationScale;
+        internal float SolverScale;
+        internal Transform Station = null!;
+        internal Transform Driver = null!;
+        internal int[] TableIndices = Array.Empty<int>();
+        internal Vector3[] TableRest = Array.Empty<Vector3>();
     }
 
     [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
@@ -43,21 +50,27 @@ public sealed class TownClothProbe : MonoBehaviour
         yield return Sweep(nullContact);
         float nullMotion = MaximumDistance(nullBefore, nullContact.Cloth.vertices);
 
-        Fixture scaled = Build("authored-coefficients", 1f, 1f, true,
+        // Shipping town furniture nests a 100x FBX mesh below the roughly 198x
+        // map-room station. Exercise that hierarchy rather than a unit-scale
+        // sheet: the regression multiplied station travel by the complete 19800x
+        // driver scale and consequently made the cloth's travel/skin 100x large.
+        Fixture scaled = Build("unit-scale-world-driver", 198f, 100f, true, true,
             new Vector3(3f, 2f, -4f), 37f);
         yield return Settle(scaled, 60);
+        float scaledGravityMotion = MaximumDistance(scaled.Rest, scaled.Cloth.vertices) * scaled.SolverScale;
         yield return Freeze(scaled);
         Vector3[] scaledBefore = scaled.Cloth.vertices;
         yield return Sweep(scaled, .60f);
-        float scaledLocalMotion = MaximumDistance(scaledBefore, scaled.Cloth.vertices);
+        float scaledLocalMotion = MaximumDistance(scaledBefore, scaled.Cloth.vertices) * scaled.SolverScale;
 
-        Fixture unscaled = Build("underscaled-coefficients-negative-control", 1f, .001f, true,
+        Fixture unscaled = Build("inherited-fbx-scale-negative-control", 198f, 100f, true, false,
             new Vector3(-3f, 2f, -4f), -29f);
         yield return Settle(unscaled, 60);
+        float unscaledGravityMotion = MaximumDistance(unscaled.Rest, unscaled.Cloth.vertices) * unscaled.SolverScale;
         yield return Freeze(unscaled);
         Vector3[] unscaledBefore = unscaled.Cloth.vertices;
         yield return Sweep(unscaled, .60f);
-        float unscaledLocalMotion = MaximumDistance(unscaledBefore, unscaled.Cloth.vertices);
+        float unscaledLocalMotion = MaximumDistance(unscaledBefore, unscaled.Cloth.vertices) * unscaled.SolverScale;
 
         Vector3[] sample = positive.Cloth.vertices;
         var watch = Stopwatch.StartNew();
@@ -75,23 +88,71 @@ public sealed class TownClothProbe : MonoBehaviour
 
         bool hiddenPass = gravityMotion > .025f && contactMotion > .012f;
         bool negativePass = nullMotion < .006f && contactMotion > nullMotion + .012f;
-        // Cloth coefficients are world distances while Cloth.vertices is local.
-        // At transform scale 10, scaling the coefficient preserves the authored
-        // local travel; omitting it limits travel to roughly one tenth.
-        bool scalePass = scaledLocalMotion > .025f
-            && scaledLocalMotion > unscaledLocalMotion * 1.25f
-            && scaledLocalMotion < .75f;
-        bool pass = hiddenPass && negativePass && scalePass;
+        // Production bakes the already-placed sheet into a unit-scale solver.
+        // The control reproduces the released inherited-19,800x driver, whose
+        // particles become numerically unbounded under the same physical sweep.
+        bool scalePass = scaledLocalMotion > .5f
+            && scaledLocalMotion < 200f
+            && unscaledLocalMotion > scaledLocalMotion * 3f;
+        string bundlePath = Argument("--bundle=");
+        AssetBundle bundle = AssetBundle.LoadFromFile(bundlePath);
+        bool actualPass = bundle != null;
+        float actualContactMin = float.MaxValue, actualContactMax = 0f, actualTableDrop = 0f;
+        int actualRunners = 0;
+        if (bundle != null)
+        {
+            int assetOffset = 0;
+            foreach (var item in new[] { (Name: "priestess", Service: (byte)2, Count: 2),
+                         (Name: "enchantress", Service: (byte)3, Count: 1) })
+            {
+                string asset = bundle.GetAllAssetNames().Single(n => n.EndsWith("/town" + item.Name + ".prefab"));
+                GameObject station = Instantiate(bundle.LoadAsset<GameObject>(asset));
+                station.transform.SetPositionAndRotation(new Vector3(assetOffset * 500f, 0f, 800f), Quaternion.identity);
+                station.transform.localScale = Vector3.one * 198f;
+                MeshFilter[] filters = station.GetComponentsInChildren<MeshFilter>(true)
+                    .Where(f => f.name.StartsWith("ClothRunner_", StringComparison.Ordinal)).ToArray();
+                actualPass &= filters.Length == item.Count;
+                foreach (MeshFilter filter in filters)
+                {
+                    actualRunners++;
+                    float nested = filter.transform.lossyScale.x / station.transform.lossyScale.x;
+                    actualPass &= nested > 99f && nested < 101f;
+                    Fixture actual = BuildActual("actual-" + item.Name + "-" + actualRunners,
+                        station.transform, filter, item.Service, 198f);
+                    yield return Settle(actual, 120);
+                    actualTableDrop = Mathf.Max(actualTableDrop, MaximumTableDrop(actual));
+                    yield return Freeze(actual);
+                    Vector3[] before = actual.Cloth.vertices;
+                    yield return Sweep(actual, .18f);
+                    float contact = MaximumDistance(before, actual.Cloth.vertices);
+                    actualContactMin = Mathf.Min(actualContactMin, contact);
+                    actualContactMax = Mathf.Max(actualContactMax, contact);
+                    actualPass &= contact > .25f && contact < 80f;
+                    actualPass &= MaximumDistance(actual.Rest, actual.Cloth.vertices) < 90f;
+                    assetOffset++;
+                }
+            }
+            actualPass &= actualRunners == 3 && actualTableDrop < 8f;
+            bundle.Unload(false);
+        }
+        bool pass = hiddenPass && negativePass && scalePass && actualPass;
         string line = "native_hidden_cloth=" + (pass ? "PASS" : "FAIL")
             + " gravity_motion=" + gravityMotion.ToString("F5")
             + " collider_sweep_motion=" + contactMotion.ToString("F5")
             + " null_sweep_motion=" + nullMotion.ToString("F5")
             + " scaled_coeff_local_motion=" + scaledLocalMotion.ToString("F5")
             + " unscaled_coeff_local_motion=" + unscaledLocalMotion.ToString("F5")
+            + " scaled_gravity_motion=" + scaledGravityMotion.ToString("F5")
+            + " unscaled_gravity_motion=" + unscaledGravityMotion.ToString("F5")
             + " forceRenderingOff=true updateWhenOffscreen=true"
             + " vertices=" + sample.Length
             + " snapshot_bytes=" + snapshotBytes
             + " pull_render_us=" + microseconds.ToString("F2");
+        line += " actual_bundle=" + (actualPass ? "PASS" : "FAIL")
+            + " actual_runners=" + actualRunners
+            + " actual_contact_min=" + actualContactMin.ToString("F5")
+            + " actual_contact_max=" + actualContactMax.ToString("F5")
+            + " actual_table_drop=" + actualTableDrop.ToString("F5");
         UnityEngine.Debug.Log("[TOWN-CLOTH] " + line);
         string result = Argument("--result=");
         if (result.Length != 0) File.WriteAllText(result, line + Environment.NewLine);
@@ -122,7 +183,8 @@ public sealed class TownClothProbe : MonoBehaviour
         Vector3 start = fixture.Mover.position;
         for (int frame = 0; frame < 45; frame++)
         {
-            fixture.Mover.position = start + Vector3.right * (distance * (frame + 1) / 45f);
+            fixture.Mover.position = start + Vector3.right
+                * (distance * fixture.StationScale * (frame + 1) / 45f);
             yield return null;
         }
     }
@@ -130,13 +192,20 @@ public sealed class TownClothProbe : MonoBehaviour
     private static Fixture Build(string name, float scale, float coefficientMultiplier, bool contact,
         Vector3 position, float yaw)
     {
+        return Build(name, scale, 1f, contact, true, position, yaw);
+    }
+
+    private static Fixture Build(string name, float stationScale, float fbxScale, bool contact,
+        bool convertNestedScale, Vector3 position, float yaw)
+    {
         const int columns = 17, rows = 21;
         var vertices = new Vector3[columns * rows];
         var triangles = new int[(columns - 1) * (rows - 1) * 6];
         for (int row = 0; row < rows; row++)
             for (int column = 0; column < columns; column++)
-                vertices[row * columns + column] = new Vector3(-.6f + 1.2f * column / (columns - 1f),
-                    0f, .8f * row / (rows - 1f));
+                vertices[row * columns + column] = new Vector3(
+                    (-.6f + 1.2f * column / (columns - 1f)) / fbxScale,
+                    0f, .8f * row / (rows - 1f) / fbxScale);
         int at = 0;
         for (int row = 0; row < rows - 1; row++)
             for (int column = 0; column < columns - 1; column++)
@@ -151,9 +220,28 @@ public sealed class TownClothProbe : MonoBehaviour
         for (int i = 0; i < weights.Length; i++) weights[i] = new BoneWeight { boneIndex0 = 0, weight0 = 1f };
         mesh.boneWeights = weights; mesh.bindposes = new[] { Matrix4x4.identity };
 
+        var station = new GameObject(name + ".station") { layer = 2 };
+        station.transform.localScale = Vector3.one * stationScale;
+        station.transform.SetPositionAndRotation(position, Quaternion.Euler(0f, yaw, 0f));
+        var source = new GameObject(name + ".fbx-source") { layer = 2 };
+        source.transform.SetParent(station.transform, false);
+        source.transform.localScale = Vector3.one * fbxScale;
         var driver = new GameObject(name) { layer = 2 };
-        driver.transform.localScale = Vector3.one * scale;
-        driver.transform.SetPositionAndRotation(position, Quaternion.Euler(0f, yaw, 0f));
+        Vector3[] driverVertices;
+        if (convertNestedScale)
+        {
+            driver.transform.SetPositionAndRotation(source.transform.position, source.transform.rotation);
+            driver.transform.localScale = Vector3.one;
+            driverVertices = new Vector3[vertices.Length];
+            for (int i = 0; i < vertices.Length; i++)
+                driverVertices[i] = driver.transform.InverseTransformPoint(source.transform.TransformPoint(vertices[i]));
+        }
+        else
+        {
+            driver.transform.SetParent(source.transform, false);
+            driverVertices = vertices;
+        }
+        mesh.vertices = driverVertices; mesh.RecalculateNormals(); mesh.RecalculateBounds();
         var skin = driver.AddComponent<SkinnedMeshRenderer>();
         skin.sharedMesh = mesh; skin.rootBone = driver.transform; skin.bones = new[] { driver.transform };
         skin.updateWhenOffscreen = true; skin.forceRenderingOff = true;
@@ -164,21 +252,134 @@ public sealed class TownClothProbe : MonoBehaviour
         var coefficients = new ClothSkinningCoefficient[vertices.Length];
         for (int row = 0; row < rows; row++)
             for (int column = 0; column < columns; column++)
-                coefficients[row * columns + column].maxDistance = row == 0 ? 0f : .45f * coefficientMultiplier;
+                coefficients[row * columns + column].maxDistance = row == 0 ? 0f
+                    : convertNestedScale ? .45f * stationScale : .45f * driver.transform.lossyScale.x;
         cloth.coefficients = coefficients;
 
         var collider = new GameObject(name + ".moving-probe") { layer = 2 };
-        var palm = collider.AddComponent<SphereCollider>(); palm.radius = .16f * scale;
+        var palm = collider.AddComponent<SphereCollider>(); palm.radius = .16f * stationScale;
         var tipObject = new GameObject("Tip") { layer = 2 }; tipObject.transform.SetParent(collider.transform, false);
-        tipObject.transform.localPosition = Vector3.forward * .16f * scale;
-        var tip = tipObject.AddComponent<SphereCollider>(); tip.radius = .06f * scale;
-        collider.transform.position = driver.transform.TransformPoint(new Vector3(-.18f, -.08f, .48f));
+        tipObject.transform.localPosition = Vector3.forward * .16f * stationScale;
+        var tip = tipObject.AddComponent<SphereCollider>(); tip.radius = .06f * stationScale;
+        collider.transform.position = station.transform.TransformPoint(new Vector3(-.18f, -.08f, .48f));
         if (contact) cloth.sphereColliders = new[] { new ClothSphereColliderPair(palm, tip) };
         cloth.ClearTransformMotion();
 
         var visible = UnityEngine.Object.Instantiate(mesh);
-        return new Fixture { Root = driver, Cloth = cloth, Mover = collider.transform,
-            Visible = visible, Rest = cloth.vertices };
+        return new Fixture { Root = station, Cloth = cloth, Mover = collider.transform,
+            Visible = visible, Rest = cloth.vertices, StationScale = stationScale,
+            SolverScale = driver.transform.lossyScale.x };
+    }
+
+    private static Fixture BuildActual(string name, Transform station, MeshFilter filter,
+        byte service, float stationScale)
+    {
+        const int columns = 13, rows = 25, count = columns * rows;
+        Vector3[] source = filter.sharedMesh.vertices;
+        if (source.Length < count) throw new Exception("actual runner lost its authored source grid");
+        var driver = new GameObject(name + ".unit-driver") { layer = 2 };
+        driver.transform.SetPositionAndRotation(filter.transform.position, filter.transform.rotation);
+        float maxY = float.MinValue, minX = float.MaxValue, maxX = float.MinValue;
+        foreach (Vector3 vertex in source)
+        {
+            Vector3 point = station.InverseTransformPoint(filter.transform.TransformPoint(vertex));
+            maxY = Mathf.Max(maxY, point.y); minX = Mathf.Min(minX, point.x); maxX = Mathf.Max(maxX, point.x);
+        }
+        float Front(float x)
+        {
+            float radius = service == 2 ? .81f : .86f, depth = service == 2 ? .38f : .46f;
+            return (service == 2 ? 0f : .03f) - depth * Mathf.Sqrt(Mathf.Max(0f, 1f - x * x / (radius * radius)));
+        }
+        Vector3 Authored(int row, int column)
+        {
+            float t = row / (rows - 1f), u = column / (columns - 1f), x = Mathf.Lerp(minX, maxX, u);
+            float fold = .0015f * Mathf.Sin(u * Mathf.PI * 6.4f + .3f);
+            float surface = Mathf.Min(1f, t / .45f);
+            float z = Front(x) + .145f * (1f - surface) - .004f * surface;
+            z -= .012f * Mathf.Sin(u * Mathf.PI * 6f) * (Mathf.Max(0f, t - .45f) / .55f);
+            float y = .9575f + fold - .49f * Mathf.Max(0f, (t - .45f) / .55f);
+            y -= .018f * Mathf.Max(0f, (t - .84f) / .16f) * (1f - Mathf.Abs(u * 2f - 1f));
+            return new Vector3(x, y, z);
+        }
+        Vector3[] vertices = new Vector3[count];
+        for (int row = 0; row < rows; row++) for (int column = 0; column < columns; column++)
+            vertices[row * columns + column] = driver.transform.InverseTransformPoint(
+                station.TransformPoint(Authored(row, column)));
+        int[] triangles = new int[(rows - 1) * (columns - 1) * 6]; int triangle = 0;
+        for (int row = 0; row < rows - 1; row++) for (int column = 0; column < columns - 1; column++)
+        {
+            int a = row * columns + column, b = a + 1, c = a + columns, d = c + 1;
+            triangles[triangle++] = a; triangles[triangle++] = c; triangles[triangle++] = b;
+            triangles[triangle++] = b; triangles[triangle++] = c; triangles[triangle++] = d;
+        }
+        var mesh = new Mesh { name = name + ".mesh" }; mesh.vertices = vertices; mesh.triangles = triangles;
+        var weights = new BoneWeight[count];
+        for (int i = 0; i < count; i++) weights[i] = new BoneWeight { boneIndex0 = 0, weight0 = 1f };
+        mesh.boneWeights = weights; mesh.bindposes = new[] { Matrix4x4.identity };
+        mesh.RecalculateNormals(); mesh.RecalculateBounds();
+        var skin = driver.AddComponent<SkinnedMeshRenderer>(); skin.sharedMesh = mesh;
+        skin.rootBone = driver.transform; skin.bones = new[] { driver.transform };
+        skin.updateWhenOffscreen = true; skin.forceRenderingOff = true;
+        var cloth = driver.AddComponent<Cloth>(); cloth.useGravity = true; cloth.useTethers = true;
+        cloth.damping = .23f; cloth.friction = .48f; cloth.bendingStiffness = .42f;
+        cloth.stretchingStiffness = .82f; cloth.clothSolverFrequency = 120f;
+        cloth.enableContinuousCollision = true;
+        Vector3[] stationPoints = new Vector3[count];
+        for (int row = 0; row < rows; row++) for (int column = 0; column < columns; column++)
+            stationPoints[row * columns + column] = Authored(row, column);
+        var coefficients = new ClothSkinningCoefficient[count];
+        var table = new System.Collections.Generic.List<int>();
+        for (int i = 0; i < count; i++)
+        {
+            Vector3 p = stationPoints[i]; float edge = Front(p.x);
+            float top = Mathf.Clamp01((edge + .145f - p.z) / .145f);
+            float hanging = Mathf.Clamp01((maxY - p.y) / .38f);
+            float freedom = Mathf.Pow(Mathf.Max(.55f * top, hanging), 1.25f);
+            coefficients[i].maxDistance = freedom * .34f * stationScale;
+            coefficients[i].collisionSphereDistance = .004f * stationScale;
+            if (p.y > maxY - .05f && p.z >= edge - .01f && p.z <= edge + .15f) table.Add(i);
+        }
+        cloth.coefficients = coefficients;
+        var pairs = new System.Collections.Generic.List<ClothSphereColliderPair>();
+        for (int column = 0; column < columns; column++)
+        {
+            float x = Mathf.Lerp(minX, maxX, column / (columns - 1f));
+            SphereCollider Make(float rear, string side)
+            {
+                var support = new GameObject(name + ".support." + column + "." + side) { layer = 2 };
+                support.transform.SetParent(driver.transform, false);
+                support.transform.localPosition = driver.transform.InverseTransformPoint(
+                    station.TransformPoint(new Vector3(x, maxY - .022f, Front(x) + rear)));
+                var sphere = support.AddComponent<SphereCollider>(); sphere.radius = .026f * stationScale;
+                return sphere;
+            }
+            pairs.Add(new ClothSphereColliderPair(Make(.008f, "front"), Make(.142f, "rear")));
+        }
+        int target = Enumerable.Range(0, count).OrderByDescending(i => coefficients[i].maxDistance
+            - Mathf.Abs(stationPoints[i].x) * stationScale).First();
+        var mover = new GameObject(name + ".hand") { layer = 2 };
+        var palm = mover.AddComponent<SphereCollider>(); palm.radius = .035f * stationScale;
+        var tipObject = new GameObject("Tip") { layer = 2 }; tipObject.transform.SetParent(mover.transform, false);
+        tipObject.transform.localPosition = Vector3.forward * (.09f * stationScale);
+        var tip = tipObject.AddComponent<SphereCollider>(); tip.radius = .01f * stationScale;
+        mover.transform.position = driver.transform.TransformPoint(vertices[target]) - station.right * (.09f * stationScale);
+        pairs.Add(new ClothSphereColliderPair(palm, tip)); cloth.sphereColliders = pairs.ToArray();
+        cloth.ClearTransformMotion();
+        return new Fixture { Root = driver, Cloth = cloth, Mover = mover.transform, Visible = mesh,
+            Rest = cloth.vertices, StationScale = stationScale, SolverScale = 1f, Station = station,
+            Driver = driver.transform, TableIndices = table.ToArray(), TableRest = stationPoints };
+    }
+
+    private static float MaximumTableDrop(Fixture fixture)
+    {
+        Vector3[] current = fixture.Cloth.vertices; float drop = 0f;
+        foreach (int index in fixture.TableIndices)
+        {
+            Vector3 stationPoint = fixture.Station.InverseTransformPoint(
+                fixture.Driver.TransformPoint(current[index]));
+            drop = Mathf.Max(drop, (fixture.TableRest[index].y - stationPoint.y) * fixture.StationScale);
+        }
+        return drop;
     }
 
     private static float MaximumDistance(Vector3[] a, Vector3[] b)
