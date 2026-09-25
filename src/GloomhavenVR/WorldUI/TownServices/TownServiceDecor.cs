@@ -165,7 +165,8 @@ internal sealed class TownServiceDecor : IDisposable
     private void Lantern(Vector3 position, int slot)
     {
         Piece lantern = Add("Gaslight", "Gaslight.Lighting.Torch.Wall#1", position, .32f, true, slot);
-        lantern.FurnitureSupported = true; lantern.SupportInset = .32f * .12f;
+        // Build measures and clamps the copied lantern's actual visible footprint.
+        lantern.FurnitureSupported = true; lantern.SupportInset = .32f * .50f;
         lantern.Select = "CR_INT_Lantern_01_b";
         Piece flame = Add("Tone_Candlelight", "Candlelight.Lighting.Torch.Wall#1", position + Vector3.up * .15f, .09f);
         flame.FurnitureSupported = true; flame.SupportOffsetY = .15f; flame.SupportInset = lantern.SupportInset;
@@ -353,16 +354,6 @@ internal sealed class TownServiceDecor : IDisposable
         try
         {
             holder.transform.SetParent(_root, false);
-            // Only the enchantress report concerns an imported workbench whose practicals
-            // missed its actual top by several millimetres. Merchant furniture contains a tall
-            // side cabinet in the same mesh bounds, so applying this surface query there would
-            // incorrectly lift counter candles to the cabinet roof.
-            if (piece.FurnitureSupported && _service == 3)
-            {
-                piece.Position = FurnitureSupport(piece.Position,
-                    piece.SupportInset > 0f ? piece.SupportInset : piece.Size * .12f);
-                piece.Position.y += piece.SupportOffsetY;
-            }
             holder.transform.localPosition = piece.Position;
             var overrides = new Dictionary<Renderer, Material[]>();
             foreach (MaterialLoaderData data in MaterialData(piece))
@@ -415,6 +406,18 @@ internal sealed class TownServiceDecor : IDisposable
             if (!any || bounds.size.sqrMagnitude < 1e-8f) { UnityEngine.Object.Destroy(holder); return; }
             float size = piece.Candle ? bounds.size.y : Mathf.Max(bounds.size.x, bounds.size.y, bounds.size.z);
             float factor = piece.Size / Mathf.Max(.0001f, size);
+            // Only the enchantress report concerns an imported workbench whose practicals
+            // missed its actual top and edge. Clamp after copying, when the visible geometry's
+            // normalized footprint is known. A fixed fraction of the requested height cannot
+            // cover broad lantern variants and allowed their renderer to float past the table.
+            // Merchant furniture contains a tall side cabinet in the same mesh bounds, so this
+            // surface query remains deliberately limited to the enchantress workbench.
+            if (piece.FurnitureSupported && _service == 3)
+            {
+                float visibleInset = Mathf.Max(bounds.extents.x, bounds.extents.z) * factor;
+                piece.Position = FurnitureSupport(piece.Position, Mathf.Max(piece.SupportInset, visibleInset));
+                piece.Position.y += piece.SupportOffsetY;
+            }
             holder.transform.localScale = Vector3.one * factor;
             holder.transform.localPosition = piece.Position - new Vector3(bounds.center.x, bounds.min.y, bounds.center.z) * factor;
             piece.PracticalPoint = piece.Position + Vector3.up * (piece.Select.Length != 0 ? .18f : piece.Size);
@@ -471,10 +474,13 @@ internal sealed class TownServiceDecor : IDisposable
                 minZ = Mathf.Min(minZ, point.z); maxZ = Mathf.Max(maxZ, point.z);
                 top = Mathf.Max(top, point.y);
             }
-            float lowX = minX + Mathf.Min(inset, Mathf.Max(0f, (maxX - minX) * .25f));
-            float highX = maxX - Mathf.Min(inset, Mathf.Max(0f, (maxX - minX) * .25f));
-            float lowZ = minZ + Mathf.Min(inset, Mathf.Max(0f, (maxZ - minZ) * .25f));
-            float highZ = maxZ - Mathf.Min(inset, Mathf.Max(0f, (maxZ - minZ) * .25f));
+            // A support can admit the full footprint up to half its span. The old quarter-span
+            // cap still let a 32 cm lantern overhang a 62 cm workbench even when the caller
+            // supplied the exact renderer extent.
+            float lowX = minX + Mathf.Min(inset, Mathf.Max(0f, (maxX - minX) * .50f));
+            float highX = maxX - Mathf.Min(inset, Mathf.Max(0f, (maxX - minX) * .50f));
+            float lowZ = minZ + Mathf.Min(inset, Mathf.Max(0f, (maxZ - minZ) * .50f));
+            float highZ = maxZ - Mathf.Min(inset, Mathf.Max(0f, (maxZ - minZ) * .50f));
             Vector2 candidate = new(Mathf.Clamp(seat.x, lowX, highX), Mathf.Clamp(seat.z, lowZ, highZ));
             float distance = (candidate - new Vector2(seat.x, seat.z)).sqrMagnitude;
             if (distance < bestDistance - 1e-6f || Mathf.Abs(distance - bestDistance) <= 1e-6f && top > support)

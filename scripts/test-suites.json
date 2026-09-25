@@ -227,6 +227,18 @@
       "weight": 35
     },
     {
+      "id": "town-native-audio",
+      "command": [
+        "python3",
+        "scripts/check-town-native-audio.py"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 3
+    },
+    {
       "id": "town-activity-portable",
       "command": [
         "python3",

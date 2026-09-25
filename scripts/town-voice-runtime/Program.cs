@@ -201,7 +201,8 @@ public static class InteractionProgram
         TownServiceFaceSpeech.Observer(2, 7, 31, 1, .1f, head.transform);
         SaveData.Instance.Global.StoryVolume = 100; Refresh();
         TownServiceFaceSpeech.Observer(2, 7, 31, 1, .2f, head.transform);
-        Check(Mathf.Abs(Source.volume - .06f) < .0001f, "priestess prayer is a quiet murmur");
+        Check(Mathf.Abs(Source.volume - .078f) < .0001f,
+            "priestess source gain compensates measured integrated loudness");
         AudioController.Playing.Add(new ClockStone.AudioObject
             { category = new ClockStone.AudioCategory { Name = "VONarrationCampaign" } });
         Refresh(); TownServiceFaceSpeech.Observer(2, 7, 31, 1, .3f, head.transform);

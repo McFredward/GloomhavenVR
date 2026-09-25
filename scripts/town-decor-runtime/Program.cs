@@ -11,6 +11,25 @@ public static class InteractionProgram
     private const string BrokenCoin = "2c309731defe50f4d84721fd7f50c5c4";
     private static void Check(bool pass,string text){_checks++;if(!pass)throw new Exception(text);}
     private static void Tick(TownServiceDecor decor,float time){DecorClock.Now=time;decor.Tick();}
+    private static GameObject ActualEnchantressStation()
+    {
+        string[] args=Environment.GetCommandLineArgs();int at=Array.IndexOf(args,"-decorBundle");
+        Check(at>=0&&at+1<args.Length,"actual town bundle path supplied");
+        string path=args[at+1];
+        AssetBundle bundle=AssetBundle.GetAllLoadedAssetBundles().FirstOrDefault(b=>b.GetAllAssetNames().Any(n=>n.EndsWith("/townenchantress.prefab")))
+            ?? AssetBundle.LoadFromFile(path);
+        Check(bundle!=null,"actual town bundle loads");
+        string asset=bundle!.GetAllAssetNames().Single(n=>n.EndsWith("/townenchantress.prefab"));
+        return UnityEngine.Object.Instantiate(bundle.LoadAsset<GameObject>(asset));
+    }
+    private static Bounds VisibleBounds(GameObject root)
+    {
+        MeshRenderer[] renderers=root.GetComponentsInChildren<MeshRenderer>(true);
+        Check(renderers.Length>0,"visible furniture geometry exists");
+        Bounds bounds=renderers[0].bounds;
+        for(int i=1;i<renderers.Length;i++)bounds.Encapsulate(renderers[i].bounds);
+        return bounds;
+    }
     private static GameObject Source(string name,string material)
     {
         var root=new GameObject(name);
@@ -124,18 +143,19 @@ public static class InteractionProgram
         Tick(decor,.22f);
         Check(GloomhavenVR.Net.TownServices.TownServiceMirror.Assets.Items.Count>0,"network asset reset rebinds living native coin textures");
         decor.Dispose();Check(TownServiceDecor.MoneyBagTemplate==null&&TownServiceDecor.TempleBookRoot==null,"purse and book do not outlive original material ownership");Check(TownServiceDecor.StaticPropSource(2)==null&&TownServiceDecor.StaticPropCount(2)==0,"disposed station invalidates static prop lookup");Check(TownServiceDecor.CoinTemplate==null&&Addressables.Held==0,"coin template cannot outlive owner materials");UnityEngine.Object.DestroyImmediate(root);
-        Setup(0);root=new GameObject("enchantress");
-        var workbench=GameObject.CreatePrimitive(PrimitiveType.Cube);workbench.name="Workbench";
-        workbench.transform.SetParent(root.transform,false);workbench.transform.localPosition=new Vector3(0f,.78f,.20f);
-        workbench.transform.localScale=new Vector3(1.30f,.20f,.62f);UnityEngine.Object.DestroyImmediate(workbench.GetComponent<Collider>());
-        var grip=new GameObject("ActivityOfferingPalm");grip.transform.SetParent(root.transform,false);grip.transform.localPosition=new Vector3(.2f,1.1f,.3f);
+        Setup(0);root=ActualEnchantressStation();
+        Transform workbenchTransform=root.transform.Find("Workbench");Check(workbenchTransform!=null,"actual enchantress workbench exists");
+        GameObject workbench=workbenchTransform!.gameObject;
+        var grip=root.transform.Find("ActivityOfferingPalm")?.gameObject??new GameObject("ActivityOfferingPalm");
+        if(grip.transform.parent==null){grip.transform.SetParent(root.transform,false);grip.transform.localPosition=new Vector3(.2f,1.1f,.3f);}
         decor=new TownServiceDecor(root.transform,3,light);Tick(decor,0);Tick(decor,.11f);decor.SetVisibility(.8f);decor.SetClock(100f);
-        float worktop=workbench.GetComponent<MeshRenderer>().bounds.max.y;
+        Bounds workbenchBounds=VisibleBounds(workbench);float worktop=workbenchBounds.max.y;
         var groundedLamps=root.transform.Cast<Transform>().Where(t=>t.name=="Original.Gaslight.Lighting.Torch.Wall#1").ToArray();
         Check(groundedLamps.Length==2&&groundedLamps.All(l=>Math.Abs(l.GetComponentInChildren<MeshRenderer>().bounds.min.y-worktop)<.0001f),
             "enchantress lanterns ground on actual workbench support");
-        Check(groundedLamps.All(l=>Math.Abs(l.localPosition.x)<.66f&&l.localPosition.z<.50f),
-            "unsupported lantern seat is clamped onto furniture instead of floating beyond its edge");
+        Check(groundedLamps.All(l=>{Bounds b=l.GetComponentInChildren<MeshRenderer>().bounds;return b.min.x>=workbenchBounds.min.x-.0001f
+                &&b.max.x<=workbenchBounds.max.x+.0001f&&b.min.z>=workbenchBounds.min.z-.0001f&&b.max.z<=workbenchBounds.max.z+.0001f;}),
+            "enchantress lantern visible footprints remain fully over the workbench");
         var visual=new GloomhavenVR.Net.TownActivityVisual{Cast=.4f,EffectClock=100f,
             Left=new Vector3(-.20f,1.15f,.20f),Right=new Vector3(.20f,1.15f,.20f)};
         decor.SampleActivity(in visual);
@@ -167,6 +187,21 @@ public static class InteractionProgram
         Check(Math.Abs(glow.GetFloat("_TownVisibility")-.08f)<.0001f,"interrupting magic fades continuously before shutdown");
         visual.Cast=0f;decor.SampleActivity(in visual);Check(!effect.gameObject.activeSelf,"finished cast has no orphan glow");
         decor.Dispose();Check(Addressables.Held==0,"effect teardown releases native dependency handles");UnityEngine.Object.DestroyImmediate(root);
+        // The final bundle's authored workbench is comfortably wider than its current lamps.
+        // Exercise the edge contract independently so a future broad original prop cannot
+        // regress to pivot-only clamping while still happening to fit today's table.
+        Setup(0);root=new GameObject("edge-workbench");
+        workbench=GameObject.CreatePrimitive(PrimitiveType.Cube);workbench.name="Workbench";
+        workbench.transform.SetParent(root.transform,false);workbench.transform.localPosition=new Vector3(0f,.78f,.20f);
+        workbench.transform.localScale=new Vector3(1.30f,.20f,.62f);UnityEngine.Object.DestroyImmediate(workbench.GetComponent<Collider>());
+        grip=new GameObject("ActivityOfferingPalm");grip.transform.SetParent(root.transform,false);
+        decor=new TownServiceDecor(root.transform,3,light);Tick(decor,0);Tick(decor,.11f);
+        workbenchBounds=VisibleBounds(workbench);
+        groundedLamps=root.transform.Cast<Transform>().Where(t=>t.name=="Original.Gaslight.Lighting.Torch.Wall#1").ToArray();
+        Check(groundedLamps.All(l=>{Bounds b=l.GetComponentInChildren<MeshRenderer>().bounds;return b.min.x>=workbenchBounds.min.x-.0001f
+                &&b.max.x<=workbenchBounds.max.x+.0001f&&b.min.z>=workbenchBounds.min.z-.0001f&&b.max.z<=workbenchBounds.max.z+.0001f;}),
+            "enchantress lantern visible footprints remain fully over the workbench");
+        decor.Dispose();UnityEngine.Object.DestroyImmediate(root);
         Setup(0);List("Library",("Library.Clutter.Shelf.Individual#7","coinsingle",BrokenCoin));
         root=new GameObject("unrelated stale asset");decor=new TownServiceDecor(root.transform,1,light);
         foreach(float time in new[]{0f,.11f,1.2f,1.31f,5.4f,5.51f,100f})Tick(decor,time);

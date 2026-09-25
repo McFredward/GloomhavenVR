@@ -17,6 +17,7 @@ def main():
     parser.add_argument('--unity', type=Path, default=Path(os.environ.get('UNITY_PATH', '/home/claw/unity-2021.3.5/Editor/Unity')))
     parser.add_argument('--output-dir', type=Path, default=ROOT / '.planning/debug/town-decor')
     args = parser.parse_args()
+    bundle = (args.source_root / 'prebuilt/ghvr-town.bundle').resolve()
     args.output_dir.mkdir(parents=True, exist_ok=True)
     run = Path(tempfile.mkdtemp(prefix='run-', dir=args.output_dir.resolve()))
     base = args.source_root / 'src/GloomhavenVR/WorldUI/TownServices'
@@ -42,9 +43,13 @@ def main():
         ('workspace-topology-change', 'TownServiceWorkspacePractical.cs', 'obj.transform.position = transform.TransformPoint(_point);', 'obj.transform.SetParent(transform,false); obj.transform.position = transform.TransformPoint(_point);', 'lighting cannot alter mirrored prop topology'),
         ('workspace-ownership-leak', 'TownServiceWorkspacePractical.cs', 'TownServiceLighting.ForgetPractical(_light!);', '', 'disable immediately releases and darkens standalone light')]
     variants.insert(5, ('furniture-grounding', 'TownServiceDecor.cs',
-        'piece.Position = FurnitureSupport(piece.Position,\n                    piece.SupportInset > 0f ? piece.SupportInset : piece.Size * .12f);',
+        'piece.Position = FurnitureSupport(piece.Position, Mathf.Max(piece.SupportInset, visibleInset));',
         'piece.Position = new Vector3(piece.Position.x, piece.Position.y, piece.Position.z);',
         'enchantress lanterns ground on actual workbench support'))
+    variants.insert(6, ('lantern-footprint', 'TownServiceDecor.cs',
+        'float visibleInset = Mathf.Max(bounds.extents.x, bounds.extents.z) * factor;\n                piece.Position = FurnitureSupport(piece.Position, Mathf.Max(piece.SupportInset, visibleInset));',
+        'float visibleInset = piece.Size * .12f;\n                piece.Position = FurnitureSupport(piece.Position, visibleInset);',
+        'enchantress lantern visible footprints remain fully over the workbench'))
     manifest = {'result': str(run / 'results.txt'), 'cases': []}
     fixture = ROOT / 'scripts/town-decor-runtime'
     dotnet = shutil.which('dotnet') or str(Path.home() / '.dotnet/dotnet')
@@ -78,10 +83,10 @@ def main():
     (project / 'Assets/NativeFixture.shader').write_text('Shader "Amp_TownDecorFixture" { Properties { _MainTex("Atlas",2D)="white"{} _UVTiling("UV",Float)=1 _Tint("Tint",Color)=(1,1,1,0) } SubShader { Pass {} } }')
     (project / 'Packages/manifest.json').write_text('{"dependencies":{"com.unity.modules.physics":"1.0.0"}}')
     (project / 'ProjectSettings/ProjectVersion.txt').write_text('m_EditorVersion: 2021.3.5f1\n')
-    result = subprocess.run(['xvfb-run', '-a', str(args.unity), '-batchmode', '-nographics', '-projectPath', str(project), '-executeMethod', 'InteractionRunner.Start', '-interactionManifest', str(path), '-logFile', str(run / 'unity.log')], timeout=240, stdout=subprocess.DEVNULL)
+    result = subprocess.run(['xvfb-run', '-a', str(args.unity), '-batchmode', '-nographics', '-projectPath', str(project), '-executeMethod', 'InteractionRunner.Start', '-interactionManifest', str(path), '-decorBundle', str(bundle), '-logFile', str(run / 'unity.log')], timeout=240, stdout=subprocess.DEVNULL)
     evidence = Path(manifest['result'])
     if evidence.exists(): print(evidence.read_text())
     if result.returncode or not evidence.exists(): raise SystemExit('FAIL: ' + str(run / 'unity.log'))
-    print('PASS: native decor loading/material tests and thirteen compiled negative controls; evidence: ' + str(run))
+    print('PASS: native decor loading/material tests and fourteen compiled negative controls; evidence: ' + str(run))
 
 if __name__ == '__main__': main()

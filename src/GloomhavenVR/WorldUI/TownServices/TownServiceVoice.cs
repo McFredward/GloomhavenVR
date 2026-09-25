@@ -270,10 +270,14 @@ internal static class TownServiceVoice
         // samples and sounded like a switch even with Unity's linear rolloff.
         _source.minDistance = Mathf.Max(.01f, .45f * scale);
         _source.maxDistance = Mathf.Max(.02f, 7f * scale);
-        // Prayer is an intimate murmur; ordinary speech remains conversational
-        // rather than projecting like room narration.
+        // The final priestess performances measure -26.84 LUFS on average, 2.24 LU below the
+        // merchant set and with a softer spectral balance. Compensate at the source rather than
+        // rewriting/limiting the WAVs: dynamics and shared cue timing stay intact. Prayer keeps
+        // the same relative murmur-to-speech ratio.
+        float speechGain = IsPrayerCue(cue) ? .12f : .42f;
+        if (service == 2) speechGain *= 1.30f;
         _source.volume = _disabled || _narration || !WorldUIConfig.ImmersiveTownSpeech.Value
-            ? 0f : _volume * (IsPrayerCue(cue) ? .12f : .42f);
+            ? 0f : _volume * speechGain;
         bool different = _playingService != service || _playingCue != cue || _playingGeneration != generation;
         if (different)
         {
