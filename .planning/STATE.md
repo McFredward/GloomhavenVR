@@ -2,15 +2,17 @@
 
 **Updated 2026-09-25: feature/immersive-town-services, version 1.1.0 hardware candidate.**
 The feature includes released 1.0.8 / ModBuild 556 and the subsequent 1.0.9
-version bookkeeping on `dev`. ModBuild 562 follows the build-561 NPC hardware
-report with repeated temple entry, async item-front readiness, fitted visitor
-poses, stronger cloth, practical placement and varied synchronized voice cues.
+version bookkeeping on `dev`. ModBuild 563 follows the build-562 NPC hardware
+report with native table cloth, reliable native temple continuation, canonical
+merchant-card returns, stock-card mip watching and independent local NPC audio controls.
+Requested merchant/priestess voice regeneration remains blocked by the FAL account's
+`TOP_UP` response; the existing affected cues are unchanged.
 ModBuild 560 introduced resident
 voices, shared merchant confirmation presentation, a visible temple donation
 target, cloth contact, cabinet detail and varied idle motion.
 Headset verification of the resulting presentation remains open. Historical NPC
 design: [research/TOWN-SERVICES-552.md](research/TOWN-SERVICES-552.md).
-Current evidence and implementation limits: [TOWN-562.md](TOWN-562.md).
+Current evidence and implementation limits: [TOWN-563.md](TOWN-563.md).
 The feature remains isolated from `dev`, and NPC work belongs on this branch.
 
 The file this replaces had gone 168 builds
@@ -25,6 +27,16 @@ change per build) → this file (where things stand and what is owed) → the bu
 ---
 
 ## 1. Position
+
+- **NPC feature / 1.1.0 / ModBuild 563 (hardware candidate):** native Unity Cloth
+  replaces the rigid altar-runner spring and collides with the complete curved table,
+  local/remote hands and heads without adding ray targets. Temple donations use the
+  original confirmation continuation; every merchant-item return restores fan parent,
+  art readiness, rotation and one palm size. Merchant stock uses the proven mip watcher.
+  Automatic service fan-edge sounds are silent, the shared cabinet has physical foley,
+  and local NPC speech/effects toggles are independent and default on. Voice regeneration
+  remains externally blocked and is not claimed by this build. Evidence and headset limits
+  are in [TOWN-563.md](TOWN-563.md).
 
 - **NPC feature / 1.1.0 / ModBuild 562 (hardware candidate):** repeated temple
   visits rebuild the physical purse; item cards emerge only after their original

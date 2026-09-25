@@ -1,6 +1,6 @@
 # Planning index
 
-Updated 2026-09-25 for the NPC feature's build-562 hardware candidate and the
+Updated 2026-09-25 for the NPC feature's build-563 hardware candidate and the
 released 1.0.8 / build-556 integration. This directory holds internal
 engineering evidence, historical decisions and current status; it is not the player manual.
 
@@ -12,6 +12,7 @@ engineering evidence, historical decisions and current status; it is not the pla
 | [../CLAUDE.md](../CLAUDE.md) | Technical contracts retained across agent tools |
 | [TEST-PARALLELISM.md](TEST-PARALLELISM.md) | Parallel local/CI execution, coverage and measured timing |
 | [STATE.md](STATE.md) | Current build, validation and outstanding hardware checks |
+| [TOWN-563.md](TOWN-563.md) | Build-562 hardware evidence, native cloth, donation/card return fixes and local NPC audio controls |
 | [TOWN-562.md](TOWN-562.md) | Build-561 hardware evidence, build-562 repeated visits, varied voice, pose and decor corrections |
 | [TOWN-561.md](TOWN-561.md) | Build-560 hardware evidence, build-561 NPC fixes, shared pose and voice validation |
 | [TOWN-560.md](TOWN-560.md) | Build-559 evidence and build-560 resident voices, confirmation mirroring and donation target |

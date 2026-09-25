@@ -205,6 +205,17 @@
       "weight": 80
     },
     {
+      "id": "town-cloth",
+      "command": [
+        "python3",
+        "scripts/check-town-cloth.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 55
+    },
+    {
       "id": "town-voice",
       "command": [
         "python3",

@@ -538,7 +538,16 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 562;
+    public const ushort ModBuild = 563;
+
+    // ModBuild 563 — third NPC hardware follow-up on the feature branch. Native
+    // Unity cloth now drives the altar runners and collides with the curved table,
+    // local/remote hands and heads without adding laser targets. Temple donations
+    // continue through the original confirmation lifecycle, and all merchant-item
+    // returns restore the canonical fan parent, original-front readiness and palm
+    // scale. Merchant stock uses the existing zero-alias card-art watcher. Automatic
+    // service fan edges stay silent; local default-on speech/effects preferences are
+    // independent, while shared cue clocks and cabinet motion remain synchronized.
 
     // ModBuild 562 — second NPC hardware follow-up on the feature branch. Town
     // speech now has five authored variants per cue family, with the elected
