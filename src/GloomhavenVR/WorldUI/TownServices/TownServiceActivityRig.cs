@@ -356,7 +356,8 @@ internal sealed class TownServiceActivityRig
             Vector3 guide = authoredElbow.sqrMagnitude > .01f ? authoredElbow : new Vector3(side * .34f, .98f, .46f);
             Vector3 greeting = _service == 1
                 ? new Vector3(side * .49f, 1.08f, .16f)
-                : new Vector3(side * .33f, 1.08f, .16f);
+                : _service == 2 ? new Vector3(side * .33f, 1.08f, .16f)
+                : new Vector3(side * .35f, 1.04f, .45f);
             guide = Vector3.Lerp(guide, greeting, attention);
             // The generated human reference is narrower than the merchant's actual
             // coat/belly. Keep the elbow's approach outside that measured silhouette.

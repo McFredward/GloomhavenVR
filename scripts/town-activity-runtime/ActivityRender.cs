@@ -86,7 +86,31 @@ internal static class ActivityRender
                 camera.transform.position=view==0?new Vector3(-.7f,1.9f,-.8f):new Vector3(.5f,2.05f,.15f);camera.transform.LookAt(new Vector3(0,1.15f,.4f));camera.Render();RenderTexture.active=rt;
                 var image=new Texture2D(rt.width,rt.height,TextureFormat.RGB24,false);image.ReadPixels(new Rect(0,0,rt.width,rt.height),0,0);image.Apply();File.WriteAllBytes(Path.Combine(folder,"service"+service+"-phase"+phase+"-view"+view+".png"),image.EncodeToPNG());UnityEngine.Object.DestroyImmediate(image);
             }
+            if(service==3&&!sequence)
+            {
+                // Albedo-only closeup separates real dark atlas regions and open
+                // geometry from lighting on the sharply folded shoulder cloth.
+                foreach(MeshRenderer shown in snapshot.GetComponentsInChildren<MeshRenderer>())
+                    foreach(Material material in shown.sharedMaterials)
+                        material.shader=Shader.Find("Unlit/Texture");
+                camera.fieldOfView=30;
+                foreach(string side in new[]{"L","R"})
+                {
+                    Transform upper=root.GetComponentsInChildren<Transform>(true).Single(t=>t.name=="UpperArm."+side);
+                    Vector3 center=upper.position+new Vector3(0f,-.08f,0f);
+                    camera.transform.position=center+new Vector3(side=="L"?.36f:-.36f,.10f,-.40f);
+                    camera.transform.LookAt(center);
+                    camera.Render();RenderTexture.active=rt;
+                    var close=new Texture2D(rt.width,rt.height,TextureFormat.RGB24,false);
+                    close.ReadPixels(new Rect(0,0,rt.width,rt.height),0,0);close.Apply();
+                    File.WriteAllBytes(Path.Combine(folder,"service3-phase"+phase+"-shoulder"+side+".png"),close.EncodeToPNG());
+                    UnityEngine.Object.DestroyImmediate(close);
+                }
+                camera.fieldOfView=48;
+            }
             foreach(MeshFilter mesh in snapshot.GetComponentsInChildren<MeshFilter>())UnityEngine.Object.DestroyImmediate(mesh.sharedMesh);
+            foreach(MeshRenderer shown in snapshot.GetComponentsInChildren<MeshRenderer>())
+                foreach(Material material in shown.sharedMaterials)UnityEngine.Object.DestroyImmediate(material);
             UnityEngine.Object.DestroyImmediate(snapshot);
             for(int i=0;i<originalSkins.Length;i++)originalSkins[i].enabled=enabledSkins[i];
         }
@@ -124,7 +148,18 @@ internal static class ActivityRender
             }
             mesh.vertices=vertices;mesh.RecalculateNormals();mesh.RecalculateBounds();mesh.RecalculateTangents();
             var copy=new GameObject(renderer.name);copy.transform.SetParent(holder.transform,false);copy.AddComponent<MeshFilter>().sharedMesh=mesh;
-            var shown=copy.AddComponent<MeshRenderer>();shown.sharedMaterials=renderer.sharedMaterials;
+            var shown=copy.AddComponent<MeshRenderer>();
+            // Windows bundle shaders are deliberately not compiled for this Linux
+            // diagnostic Editor. Preserve original atlas UVs with a neutral Standard
+            // material so actual skinned cracks, rather than magenta fallback, render.
+            shown.sharedMaterials=renderer.sharedMaterials.Select((source,index)=>
+            {
+                var material=new Material(Shader.Find("Standard"));
+                material.mainTexture=source.mainTexture;
+                material.color=index==2?new Color(.82f,.60f,.48f):index==0
+                    ?new Color(.42f,.37f,.40f):new Color(.58f,.48f,.50f);
+                return material;
+            }).ToArray();
             var block=new MaterialPropertyBlock();renderer.GetPropertyBlock(block);shown.SetPropertyBlock(block);
         }
         return holder;

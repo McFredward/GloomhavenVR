@@ -78,10 +78,10 @@ internal static class TownServiceActivityMotion
         // Keep the merchant's hands at his belt and the priestess's hands beside
         // her robe. Their previous forward/sideward targets read as stiffly held
         // arms, and the latter crossed the donation bowl when a visitor arrived.
-        work.Left = Vector3.Lerp(work.Left, service == 1 ? new Vector3(.33f, 1.04f, .22f)
-            : service == 2 ? new Vector3(.26f, 1.02f, .21f) : new Vector3(.22f, 1.13f, .23f), attention);
-        work.Right = Vector3.Lerp(work.Right, service == 1 ? new Vector3(-.33f, 1.04f, .22f)
-            : service == 3 ? new Vector3(-.18f, 1.17f, .23f) : new Vector3(-.26f, 1.02f, .21f), attention);
+        work.Left = Vector3.Lerp(work.Left, service == 1 ? new Vector3(.29f, 1.06f, .24f)
+            : service == 2 ? new Vector3(.25f, 1.07f, .26f) : new Vector3(.22f, 1.13f, .23f), attention);
+        work.Right = Vector3.Lerp(work.Right, service == 1 ? new Vector3(-.29f, 1.06f, .24f)
+            : service == 3 ? new Vector3(-.18f, 1.17f, .23f) : new Vector3(-.25f, 1.07f, .26f), attention);
         work.RightRoll = Mathf.Lerp(work.RightRoll, service == 1 ? 65f : service == 3 ? 180f : 0f, attention);
         work.LeftRoll = Mathf.Lerp(work.LeftRoll, service == 1 ? -65f : service == 3 ? -65f : 0f, attention);
         work.RightCurl = Mathf.Lerp(work.RightCurl, service == 1 ? .22f : service == 3 ? .08f : .06f, attention);

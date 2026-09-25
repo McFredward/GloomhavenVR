@@ -58,7 +58,7 @@ def mutations():
         ("work-runs-while-engaged", "TownServiceActivityMotion.cs", "dt - Integral(in state, state.TransitionAge + dt) + Integral(in state, state.TransitionAge)", "dt", "engaged occupation remains paused"),
         ("ignore-ik", "TownServiceActivityRig.cs", "if (!Ready) return;", "if (Ready) return;", "anatomical palm contacts transformed counter surface"),
         ("thumb-overcurl", "TownServiceActivityRig.cs", "arm.Anatomical ? 38f : 5f", "arm.Anatomical ? 150f : 5f", "anatomical thumb stays inside natural grasp range"),
-        ("attentive-counter-bracing", "TownServiceActivityMotion.cs", "new Vector3(.26f, 1.02f, .21f)", "new Vector3(.21f, .959f, .337f)", "attentive priestess hands stay beside her robe and outside the donation bowl"),
+        ("attentive-counter-bracing", "TownServiceActivityMotion.cs", "new Vector3(.25f, 1.07f, .26f)", "new Vector3(.21f, .959f, .337f)", "attentive priestess hands stay beside her robe and outside the donation bowl"),
         ("excessive-work-bow", "TownServiceActivityRig.cs", "-6f - terrainLean", "-35f - terrainLean", "work posture does not stack an extreme torso and neck bow"),
         ("ignore-palm-offset", "TownServiceActivityRig.cs", "target -= palmOffset;", "target -= palmOffset * 0f;", "anatomical palm contacts transformed counter surface"),
         ("curl-contact-markers", "TownServiceActivityRig.cs", ' && !t.name.Contains("Tip")', "", "contact markers are not articulated finger joints"),
@@ -68,8 +68,8 @@ def mutations():
         ("magnetic-coin", "TownServiceActivityMotion.cs", "coin == index && t >= 1.04f && t < 2.86f ? 1f : 0f", "coin == index ? grip : 0f", "coin is resting or rigidly gripped, never magnetically attracted"),
         ("paused-coin-in-air", "TownServiceActivityMotion.cs", "float transferProgress = Soft(t, 1.05f, 2.84f);", "float transferProgress = Soft(t < 1.70f ? t : t < 2f ? 1.70f : 1.70f + (t - 2f) * (2.84f - 1.70f) / .84f, 1.05f, 2.84f);", "merchant never parks a pinched coin in midair"),
         ("mid-transfer-greeting", "TownServiceActivityMotion.cs", "return t < .50f || t >= 3.05f;", "return true;", "merchant only greets after releasing the current coin"),
-        ("prayer-blocks-bowl", "TownServiceActivityMotion.cs", "new Vector3(.26f, 1.02f, .21f)", "new Vector3(.012f, 1.19f, .20f)", "attentive priestess hands stay beside her robe and outside the donation bowl"),
-        ("merchant-stiff-greeting", "TownServiceActivityMotion.cs", "new Vector3(.33f, 1.04f, .22f)", "new Vector3(.20f, 1.09f, .20f)", "visitor attention settles merchant with hands at his hips without an unsolicited offering"),
+        ("prayer-blocks-bowl", "TownServiceActivityMotion.cs", "new Vector3(.25f, 1.07f, .26f)", "new Vector3(.012f, 1.19f, .20f)", "attentive priestess"),
+        ("merchant-stiff-greeting", "TownServiceActivityMotion.cs", "new Vector3(.29f, 1.06f, .24f)", "new Vector3(.20f, 1.09f, .20f)", "visitor attention settles merchant with hands at his hips without an unsolicited offering"),
         ("open-sleeve-hem", "TownServiceSleeveLining.cs", "row == 0 ? -.012f", "row == 0 ? -.050f", "inner cuff overlaps the anatomical wrist ahead of the cut"),
         ("open-sleeve-interior", "TownServiceSleeveLining.cs", "int a = i, b = (i + 1) % Segments, c = 4 * Segments + 1;", "int a = i, b = (i + 1) % Segments, c = 4 * Segments;", "shallow cuff diaphragm hides the severed forearm end"),
         ("downward-offering", "TownServiceActivityMotion.cs", "Mathf.Lerp(visual.RightRoll, 180f, t)", "Mathf.Lerp(visual.RightRoll, 0f, t)", "offering palm faces upward"),
@@ -122,7 +122,7 @@ def main():
     manifest = {"result": str(run / "results.txt"), "cases": []}
     variants = [("production", None, None, None, "")]
     if not args.no_negative_controls:
-        rig_only = ("audio-ignores-master", "audio-not-spatial", "audio-fixed-world-range", "audio-leaks-listener", "unmirrored-mage-pronation", "separated-prayer", "animated-knee-pole", "zero-weight-stance-snap", "raised-stage-gesture", "vertical-casting-palm", "wrapped-forearm-support", "unplanted-feet", "ignore-ik", "thumb-overcurl", "attentive-counter-bracing", "excessive-work-bow", "ignore-palm-offset", "curl-contact-markers", "downward-offering", "coin-detached-from-grip")
+        rig_only = ("audio-ignores-master", "audio-not-spatial", "audio-fixed-world-range", "audio-leaks-listener", "unmirrored-mage-pronation", "separated-prayer", "animated-knee-pole", "zero-weight-stance-snap", "raised-stage-gesture", "vertical-casting-palm", "wrapped-forearm-support", "unplanted-feet", "ignore-ik", "thumb-overcurl", "attentive-counter-bracing", "excessive-work-bow", "ignore-palm-offset", "curl-contact-markers", "open-sleeve-hem", "open-sleeve-interior", "downward-offering", "coin-detached-from-grip")
         variants += [v for v in mutations() if (not args.portable or v[0] not in rig_only) and (args.bundle or v[0] not in ("unmirrored-mage-pronation", "attentive-counter-bracing", "unplanted-feet", "wrapped-forearm-support", "separated-prayer", "animated-knee-pole", "zero-weight-stance-snap", "raised-stage-gesture", "vertical-casting-palm"))]
     # A mutation of an absent production file is not an executable negative control.
     # The full Unity suite retains every rig mutation; portable mode only claims its
