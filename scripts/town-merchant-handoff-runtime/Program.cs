@@ -25,6 +25,7 @@ public static class InteractionProgram
   return _count;
  }
  private static void RunScale(float scale) {
+  ItemsPile.ItemChip.NewArtReady=true;
   TownServiceVoice.Offers=TownServiceVoice.Buys=TownServiceVoice.Sells=0;
   TownServiceMerchantHandoff.Reset(); MapRoomDriver.Active=true; MapRoomDriver.CanVisit=true;
   GuildmasterDestinations.Mode=EGuildmasterMode.None; MapRoomDriver.Visits=0;
@@ -139,10 +140,28 @@ public static class InteractionProgram
   TownServiceMerchantHandoff.Tick(); Check(!TownServiceMerchantTransaction.LastSelling,"stock release dispatches buy confirmation");
   Check(TownServiceVoice.Offers==2 && TownServiceVoice.Buys==0,"opening a buy prompt does not claim the transaction succeeded");
   Singleton<UIItemConfirmationBox>.Instance.confirmButton.onClick.Invoke();
+  ItemsPile.ItemChip.NewArtReady=false;
   replacement.AllCharacterItems.Add(stock);
   Singleton<UIItemConfirmationBox>.Instance.IsActive=false;
+  typeof(TownServiceMerchantHandoff).GetField("_nextItems",System.Reflection.BindingFlags.NonPublic|System.Reflection.BindingFlags.Static)!.SetValue(null,0f);
   TownServiceMerchantHandoff.Tick();
   Check(TownServiceVoice.Buys==1,"confirmed native inventory change voices one purchase");
+  ItemsPile.ItemChip? purchased=null;
+  foreach(var chip in TownServiceMerchantHandoff.OwnedChips)if(ReferenceEquals(chip.Item,stock)){purchased=chip;break;}
+  Check(purchased!=null,"purchased item joins the owned inspection census");
+  var bought=purchased!;
+  Check(ReferenceEquals(bought.Item,stock)&&bought.InspectionArtPending
+      &&bought.transform.localScale==Vector3.zero&&!bought.GetComponent<BoxCollider>().enabled,
+      "purchased item never exposes a brown backing while original art is pending");
+  Check(bought.TickInspectionArtArrival(),"pending original art keeps purchased item hidden");
+  bought.SetArtReady(true);
+  Check(!bought.TickInspectionArtArrival()&&!bought.InspectionArtPending
+      &&bought.GetComponent<BoxCollider>().enabled,"original art arrival starts one normal grabbable emergence");
+  bought.AdvanceEmerge(1f);
+  Check((bought.transform.localPosition-bought.Home).sqrMagnitude<.000001f
+      &&Quaternion.Angle(bought.transform.localRotation,bought.HomeRotation)<.1f,
+      "purchased item lands on the exact ordinary fan home pose and face rotation");
+  ItemsPile.ItemChip.NewArtReady=true;
   Action foreign=()=>{}; Singleton<UIItemConfirmationBox>.Instance._onConfirmedCallback=foreign;
   Singleton<UIItemConfirmationBox>.Instance.IsActive=true;
   TownServiceMerchantHandoff.Reset();

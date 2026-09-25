@@ -52,10 +52,12 @@ def sources(root):
     lifecycle = "\n".join(method(pile, signature) for signature in [
         "internal void SetHome(Vector3 pos, Quaternion rot, float scale)",
         "internal void BeginEmerge(Vector3 localConverge, float delay, float spinSign)",
+        "internal void BeginInspectionEmerge(Vector3 localConverge, float spinSign)",
+        "internal bool TickInspectionArtArrival()",
         "internal void BeginCollapse(Vector3 worldConverge, float delay = 0f, float spinSign = 1f)",
         "private void TickEmerge(float dt, Vector3 posTarget, float scaleTarget)",
         "private static float EaseOutBack(float t, float s)"])
-    bound["ActualItemLifecycle.cs"] = "using UnityEngine; namespace GloomhavenVR.Cards { internal sealed partial class ItemsPile { " + layout + " internal partial class ItemChip { " + lifecycle + " } } }"
+    bound["ActualItemLifecycle.cs"] = "using UnityEngine;using UnityEngine.UI;using GloomhavenVR.Core; namespace GloomhavenVR.Cards { internal sealed partial class ItemsPile { " + layout + " internal partial class ItemChip { " + lifecycle + " } } }"
     hashes = {p: hashlib.sha256(s.encode()).hexdigest() for p, s in bound.items()}
     return bound, hashes
 
@@ -63,6 +65,7 @@ def sources(root):
 def mutations():
     return [
         ("inspection-tapped-item", "ActualItemLifecycle.cs", "chip.State == ItemChip.Visual.Spent && _inspectionRelease == null", "chip.State == ItemChip.Visual.Spent", "merchant inspection keeps a native spent item upright on first reveal"),
+        ("purchase-placeholder", "ItemsPile.Merchant.cs", "chip.BeginInspectionEmerge(Vector3.zero, chip.transform.localPosition.x >= 0f ? 1f : -1f);", "chip.BeginEmerge(Vector3.zero, 0f, chip.transform.localPosition.x >= 0f ? 1f : -1f);", "purchased item never exposes a brown backing while original art is pending"),
         ("offering-flat", "TownServiceOfferingPose.cs", "facing * Quaternion.Euler(0f, 1.5f * Mathf.Sin(age * .9f), 0f)", "palm.rotation * Quaternion.Euler(90f, 0f, 0f)", "offering overlay is upright over the palm"),
         ("offering-static", "TownServiceOfferingPose.cs", ".006f * Mathf.Sin(age * 1.8f)", "0f", "offering suspension has visible gentle continuous motion"),
         ("offering-retirement", "ItemsPile.Merchant.cs", "!chip.TownOffering &&", "", "closed wrist fan retains actual pending offering"),
@@ -116,6 +119,8 @@ def main():
                     text = text.replace("if (chip.Holder == null && (", "if (chip.Holder == null && !chip.TownOffering && (")
                     text = text.replace("    private void RetireInspectionAt", method(bound["ItemsPile.Merchant.cs"], "internal void ResumeInspection(ItemChip chip)") + "\n    private void RetireInspectionAt")
                     text = text.replace("TickInspection(IReadOnlyList<CItem> items)", "TickInspection(IReadOnlyList<CItem> items, uint revision)")
+                    text = text.replace("chip.BeginEmerge(Vector3.zero, 0f, _chips.Count % 2 == 0 ? -1f : 1f);",
+                                        "chip.BeginInspectionEmerge(Vector3.zero, _chips.Count % 2 == 0 ? -1f : 1f);")
                     # Compatibility-only field consumed by the unchanged release boundary.
                     text = text.replace("private VRHand? _inspectionGateHand;", "private VRHand? _inspectionGateHand; private bool _inspectionCensusDirty;")
                 else:

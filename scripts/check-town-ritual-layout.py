@@ -92,7 +92,7 @@ def main():
         ('unwrapped-ink', 'TownServiceBookInk.cs', 'text.enableWordWrapping = true;', 'text.enableWordWrapping = false;', 'native description wraps on its own page'),
         ('striped-parchment', 'TownServiceBookInk.cs', 'indices.Add(a); indices.Add(b); indices.Add(a + 1);',
          'if (column != 3) { indices.Add(a); indices.Add(b); indices.Add(a + 1); }',
-         'blank parchment has no missing interior grid cells or visible dark strips'),
+         'dense blank parchment resolves raised native details without missing dark strips'),
         ('overlapping-purses', 'TownServiceRitualLayout.cs', ') * .145f,', ') * .04f,', 'all native blessing purses have separate reachable bodies')]
     manifest = {'result': str(run / 'results.txt'), 'cases': []}
     fixture = ROOT / 'scripts/town-ritual-layout-runtime'

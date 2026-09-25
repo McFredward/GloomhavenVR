@@ -25,7 +25,7 @@ public class ShopService {
 public class Singleton<T> { public static T? Instance; }
 public enum EGuildmasterMode { None, Merchant, Enchantress }
 public class UIWindow : MonoBehaviour { public bool IsOpen; }
-public class ItemCardUI : MonoBehaviour { }
+public class ItemCardUI : MonoBehaviour { public UnityEngine.UI.Image cardBackground=null!; }
 public class UIShopItemInventory { public ShopService? service; public MapRuleLibrary.Party.CMapCharacter? character; }
 public class UIShopItemWindow : MonoBehaviour { public UIShopItemInventory ItemInventory = new(); }
 public class UIGuildmasterHUD { public UIShopItemWindow shopWindow = null!; }
@@ -36,6 +36,7 @@ public class UIItemConfirmationBox {
 namespace GloomhavenVR.Core {
  public static class Loc { public static string Mod(string s) => s; }
  public static class VRLayers { public const int ModLayer=27; public static void Apply(GameObject o) { } }
+ public static class VRLog { public static void Warn(string scope,string message) { } }
 }
 namespace GloomhavenVR.Core.Events {
  public enum VRMode { TableIdle, ModalUI } public static class VRModeStateMachine { public static VRMode CurrentMode; }
@@ -91,7 +92,13 @@ namespace GloomhavenVR.Cards {
    private float _homeScale=1f,_releaseGlide,_emergeTime,_emergeDelay,_collapseFromScale,_collapseTime,_collapseDelay;
    private bool _emerging,_collapsing,_fingerPopped,_laserPopped,_recessPopped;
    private BoxCollider? _box;
-   public Vector3 Home=>_homePos;
+   private ItemCardUI? _cardUI;
+   private const float TightArtPollSeconds=2f;
+   private bool _inspectionArtPending;
+   private Vector3 _inspectionArtConverge;
+   private float _inspectionArtSpinSign,_inspectionArtDeadline;
+   public bool InspectionArtPending=>_inspectionArtPending;
+   public Vector3 Home=>_homePos; public Quaternion HomeRotation=>_homeRot;
    public float CollapseTime=>_collapseTime;
    private static float SeedScale()=>Mathf.Clamp(CardsConfig.ItemFanSeedScale.Value,.02f,1f);
    private static float Overshoot()=>Mathf.Clamp(CardsConfig.ItemFanSettleOvershoot.Value,0f,3f);
@@ -101,10 +108,15 @@ namespace GloomhavenVR.Cards {
 
    private Hands.VRHand? _suppressedForHand=null,_suppressedForHand2=null;
    private ItemsPile? _owner; public ScenarioRuleLibrary.CItem? Item; public ItemsPile? Owner { get=>_owner; set=>_owner=value; } public Hands.VRHand? Holder; public bool IsCollapsing=>_collapsing;
+   public static bool NewArtReady=true;
    public ItemCardUI? NativeItemCard; public Transform InspectionMount => transform; public Transform? InspectionBody;
    public static ItemChip Create(ItemsPile owner, Transform parent, ScenarioRuleLibrary.CItem item) {
-    var c = new GameObject("ActualInspectionCard",typeof(ItemChip)).GetComponent<ItemChip>(); c.transform.SetParent(parent,false); c.Owner = owner; c.Item = item; return c;
+    var go=new GameObject("ActualInspectionCard",typeof(BoxCollider),typeof(ItemChip));
+    var c=go.GetComponent<ItemChip>(); c.transform.SetParent(parent,false); c.Owner=owner;c.Item=item;c._box=go.GetComponent<BoxCollider>();
+    var art=new GameObject("NativeArt",typeof(RectTransform),typeof(CanvasRenderer),typeof(UnityEngine.UI.Image),typeof(ItemCardUI));art.transform.SetParent(go.transform,false);
+    c._cardUI=art.GetComponent<ItemCardUI>();c.NativeItemCard=c._cardUI;c._cardUI.cardBackground=art.GetComponent<UnityEngine.UI.Image>();c.SetArtReady(NewArtReady);return c;
    }
+   public void SetArtReady(bool ready) { _cardUI!.cardBackground.sprite=ready?Sprite.Create(Texture2D.whiteTexture,new Rect(0,0,1,1),Vector2.one*.5f):null; }
    public void Release(Vector3 p) { Holder = null; Owner!._inspectionCensusDirty = true; Owner._inspectionRelease!(this,p); }
   }
  }

@@ -117,7 +117,7 @@ internal sealed partial class ItemsPile
                 Relayout(); // one complete layout after the batch has its final membership
             }
             foreach (ItemChip chip in _inspectionNew)
-                chip.BeginEmerge(Vector3.zero, 0f, chip.transform.localPosition.x >= 0f ? 1f : -1f);
+                chip.BeginInspectionEmerge(Vector3.zero, chip.transform.localPosition.x >= 0f ? 1f : -1f);
             _inspectionNew.Clear();
         }
         InspectionCurrent = show ? this : null;

@@ -4,7 +4,7 @@ using GloomhavenVR.WorldUI;
 using UnityEngine;
 using Object=UnityEngine.Object;
 
-public enum EGuildmasterMode { None, Merchant, Temple }
+public enum EGuildmasterMode { None, Merchant, Temple, Enchantress }
 public static class GuildmasterDestinations
 {
     public static EGuildmasterMode Mode;
@@ -72,13 +72,34 @@ internal static class TempleApproachProof
         GuildmasterDestinations.Mode=EGuildmasterMode.Temple;
         BoundTempleApproach.TickApproach();
         Check(MapRoomDriver.TemplePresses==1,"active priestess does not repeatedly press its native toggle");
-        TownServicePopulation.Station.Near=false;
+
+        // The resident's attention/exit radius is deliberately larger than the physical approach
+        // core. Leaving only the 1.4 m core must rearm a later visit; the old 1.65 m latch stayed
+        // armed while walking between the closely spaced stands and suppressed every later purse.
+        GuildmasterDestinations.Mode=EGuildmasterMode.None;
+        head.transform.position=root.transform.TransformPoint(Vector3.forward*1.5f);
         BoundTempleApproach.TickApproach();
-        TownServicePopulation.Station.Near=true;
+        Check(MapRoomDriver.TemplePresses==1,"leaving approach core does not reopen while still outside it");
+        head.transform.position=root.transform.TransformPoint(Vector3.forward*1.3f);
+        typeof(BoundTempleApproach).GetField("_approachAt",BindingFlags.Static|BindingFlags.NonPublic)!.SetValue(null,0f);
+        BoundTempleApproach.TickApproach();
+        Check(MapRoomDriver.TemplePresses==2,"return from larger attention radius creates a fresh priestess approach");
+
+        GuildmasterDestinations.Mode=EGuildmasterMode.Enchantress;
+        BoundTempleApproach.TickApproach();
+        Check(MapRoomDriver.TemplePresses==2,"enchantress context cannot retain the temple approach latch");
         GuildmasterDestinations.Mode=EGuildmasterMode.None;
         typeof(BoundTempleApproach).GetField("_approachAt",BindingFlags.Static|BindingFlags.NonPublic)!.SetValue(null,0f);
         BoundTempleApproach.TickApproach();
-        Check(MapRoomDriver.TemplePresses==2,"leaving and returning permits a fresh physical approach");
+        Check(MapRoomDriver.TemplePresses==3,"return from enchantress opens one fresh temple session");
+        TownServicePopulation.Station.Near=false;
+        BoundTempleApproach.TickApproach();
+        TownServicePopulation.Station.Near=true;
+        head.transform.position=root.transform.position;
+        GuildmasterDestinations.Mode=EGuildmasterMode.None;
+        typeof(BoundTempleApproach).GetField("_approachAt",BindingFlags.Static|BindingFlags.NonPublic)!.SetValue(null,0f);
+        BoundTempleApproach.TickApproach();
+        Check(MapRoomDriver.TemplePresses==4,"leaving and returning permits a fresh physical approach");
         Object.DestroyImmediate(root);Object.DestroyImmediate(head);
         TownServicePopulation.Station=null;VRRigDriver.HeadCamera=null;MapRoomHand.Selected=null;
         return checks;

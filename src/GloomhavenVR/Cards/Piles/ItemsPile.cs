@@ -4926,6 +4926,21 @@ internal sealed partial class ItemsPile
         private float _tightArtPollUntil;
         private bool _artBaked;
 
+        // Merchant inventory additions (most visibly a just-purchased item) are created while the
+        // fan is already open. The native ItemCardUI loads its front asynchronously. Letting the
+        // ordinary emergence start immediately therefore dealt a fully readable card-sized BACKING
+        // into the arc for several frames — the brown "wrongly oriented" card in the build-561
+        // screenshot — before the original front arrived. Keep the live widget active at zero scale
+        // so its loader continues, then use the normal ItemChip emergence from the normal fan home
+        // on the first frame the original background exists. The deadline is only a fail-open for a
+        // broken/missing addressable; it prevents one failed art request from leaving an invisible,
+        // ungrabbable inventory entry forever.
+        private bool _inspectionArtPending;
+        private Vector3 _inspectionArtConverge;
+        private float _inspectionArtSpinSign;
+        private float _inspectionArtDeadline;
+        internal bool InspectionArtPending => _inspectionArtPending;
+
         // USABLE HIGHLIGHT (replaces the former de-emphasis dim — see ROOT CAUSE below).
         //
         // WHAT CHANGED AND WHY: the first two attempts at this cue worked the NEGATIVE way round —
@@ -5728,6 +5743,43 @@ internal sealed partial class ItemsPile
             transform.localScale = Vector3.one * (_homeScale * SeedScale());
         }
 
+        /// <summary>Start an inspection-card arrival only after its original async front exists.</summary>
+        internal void BeginInspectionEmerge(Vector3 localConverge, float spinSign)
+        {
+            Image? background = _cardUI != null ? _cardUI.cardBackground : null;
+            if (_cardUI == null || background != null && background.sprite != null)
+            {
+                BeginEmerge(localConverge, 0f, spinSign);
+                return;
+            }
+            _inspectionArtPending = true;
+            _inspectionArtConverge = localConverge;
+            _inspectionArtSpinSign = spinSign;
+            _inspectionArtDeadline = Time.unscaledTime + TightArtPollSeconds;
+            _emerging = false;
+            _releaseGlide = 0f;
+            transform.localPosition = localConverge;
+            transform.localRotation = _homeRot;
+            transform.localScale = Vector3.zero;
+            if (_box != null) _box.enabled = false;
+        }
+
+        /// <summary>Release a hidden merchant addition into the normal fan animation when ready.</summary>
+        internal bool TickInspectionArtArrival()
+        {
+            if (!_inspectionArtPending) return false;
+            Image? background = _cardUI != null ? _cardUI.cardBackground : null;
+            bool ready = background != null && background.sprite != null;
+            if (!ready && Time.unscaledTime < _inspectionArtDeadline) return true;
+            if (!ready)
+                VRLog.Warn("Cards", $"Merchant inspection art did not arrive within {TightArtPollSeconds:F0}s for "
+                                    + $"'{name}' — revealing the original hosted card fail-open.");
+            _inspectionArtPending = false;
+            if (_box != null) _box.enabled = true;
+            BeginEmerge(_inspectionArtConverge, 0f, _inspectionArtSpinSign);
+            return false;
+        }
+
         /// <summary>
         /// Requirement 5 (collapse): begin a self-driven WORLD-space glide into the pile stack point,
         /// then destroy this chip. The owner has already re-parented the chip out of the fan root so it
@@ -6145,7 +6197,7 @@ internal sealed partial class ItemsPile
             _homePos = pos;
             _homeRot = rot;
             _homeScale = scale;
-            // RECORD the home, but do NOT move a chip whose pose somebody else owns. Four owners,
+            // RECORD the home, but do NOT move a chip whose pose somebody else owns. Five owners,
             // and the two rounds of 2026-08-08/09 found them from opposite ends — the presence pass
             // (fly-out) and the item-area pass (clip/glide) each discovered one half of the same
             // rule, so they are stated together here rather than as two guards that could drift:
@@ -6165,9 +6217,13 @@ internal sealed partial class ItemsPile
             //     winner change, and the presence pass made the flight long enough (a 12-item fan
             //     deals for ~0.64 s) that a fingertip easily arrives inside it. TickEmerge re-reads
             //     _homePos/_homeRot/_homeScale every frame precisely so this costs nothing.
+            //   • WAITING FOR INSPECTION ART — the live native widget remains active at zero scale
+            //     until its async original front exists. A hover/layout change in that interval must
+            //     update the destination fields without exposing the brown backing at that destination.
             // In every case the animation keeps converging on the NEW home, which is what a
             // relayout mid-flight should mean anyway.
-            if (Holder != null || PendingUse || TownOffering || _releaseGlide > 0f || _emerging)
+            if (Holder != null || PendingUse || TownOffering || _releaseGlide > 0f || _emerging
+                || _inspectionArtPending)
                 return;
             transform.localPosition = pos;
             transform.localRotation = rot;
@@ -6777,6 +6833,8 @@ internal sealed partial class ItemsPile
             }
 
             TickFaceMaintenance(); // ITEM #1 (de-shimmer) + live usable-highlight frame — held or not
+
+            if (TickInspectionArtArrival()) return;
 
             if (Holder != null)
             {

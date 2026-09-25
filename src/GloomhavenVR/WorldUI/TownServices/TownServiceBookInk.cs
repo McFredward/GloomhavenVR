@@ -184,7 +184,14 @@ internal sealed class TownServiceBookInk
         private void AddBlankPages(Transform book, Transform frame)
         {
             if (_triangles.Count == 0) return;
-            const int columns = 12, rows = 18;
+            // The shipped prop is not one smooth page surface. Thin raised printed/page-detail
+            // islands sit between the broad leaves. Build 561 sampled only twelve columns, so a
+            // narrow island could fall between two samples and protrude through the otherwise opaque
+            // parchment as one of the dark vertical bands visible in the headset. This is geometry,
+            // not a texture seam: use a sub-3-mm grid across the measured 30-cm spread so the skin
+            // follows every raised island. It is generated once per original book (about 6k vertices),
+            // has no collider and performs no per-frame work.
+            const int columns = 64, rows = 48;
             var vertices = new List<Vector3>();
             var uvs = new List<Vector2>();
             var indices = new List<int>();
