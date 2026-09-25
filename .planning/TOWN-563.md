@@ -52,12 +52,16 @@ independent, default-on VR options control immersive NPC speech and NPC/furnitur
 They are local listening preferences: disabling either stops playback immediately without
 changing the shared cue, facial timeline, cabinet state or another player's audio.
 
-The requested merchant and priestess voice regeneration is not represented by this build.
-The supplied FAL account accepted three planned requests and then returned `403 TOP_UP`; no
-partial or unverified voice assets were committed. The specifically reported file is
-`merchant-sell-2.wav` (`Sold. Here is a fair price.`), and all existing priestess cues remain
-byte-for-byte unchanged until a consistent replacement voice set can be generated. The new
-cabinet mechanism sample completed before the lock and is the only new generated audio asset.
+The completed listening revision replaces all fifteen priestess cues with performances derived
+from one immutable close-miked elderly female embedding. It also replaces the broken
+`merchant-sell-2.wav` take (`Sold. Here is a fair price.`) from a close, calm, deep merchant
+reference. Rhubarb regenerated every affected mouth curve from the final WAV. Local tiny.en ASR
+recovered every intended sentence; all revised clips are mono 24 kHz, cluster around -27 dBFS
+RMS and contain no clipped samples. Independent audio analysis describes the final merchant take
+as close, clean, natural, middle-aged and calmly conversational, with the complete sentence
+intelligible. It describes the final priestess as close, elderly, feminine, smoky, hoarse, gentle
+and devotional, without echo, processing or glitches. Automated listening does not establish
+perceived voice quality in a headset, so both residents remain on the hardware checklist.
 
 Focused validation before integration passed 198 temple runtime assertions plus 18 mutation
 controls, 1,278 merchant-handoff assertions plus 14 mutation controls, 466 options assertions
@@ -75,8 +79,12 @@ frame-time/GC peaks. Those remain the build-563 hardware checklist.
 
 Final integration validation passed all 14 source groups, all 78 local suites and 286,560 wire
 assertions. `ci-build.sh Release` completed with zero warnings and zero errors; documentation
-localization and both bundle-format checks passed. The rebuilt `ghvr-town.bundle` is 96,813,959
-bytes with SHA-256 `fb7b22b7e3185c540ec03fc04067b0b93a4d5b5a42810ce166c6716993e66c5b`.
+localization and both bundle-format checks passed. The rebuilt `ghvr-town.bundle` was 96,813,959
+bytes in that pre-audio integration pass. After the final speech revision, the focused voice
+suite passed 2,801 runtime assertions and twelve negative controls. Unity rebuilt the final
+bundle at 96,777,432 bytes with SHA-256
+`ec354624f16da369b95ac1214311b3da1218536c9c8652c1e3b4bcb82dfc7411`; its UnityFS format check
+passed for Unity 2021.3.5f1.
 The refactor guard completed those checks and then returned its expected nonzero result because
 the feature branch differs from the private `080c505e9` compiled-form baseline: no tracked
 configuration, Harmony-patch or log-token surface was removed; the current comparison contains

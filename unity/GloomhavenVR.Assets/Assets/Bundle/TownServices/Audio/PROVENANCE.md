@@ -13,8 +13,8 @@ applies a further 0.55 gain and the same master/SFX controls.
 
 | Resident | Voice source | Cues |
 | --- | --- | --- |
-| Merchant | Qwen 3 TTS voice design + one fixed 0.6B cloned speaker embedding | five each: greet, offer, buy, sell |
-| Priestess | Qwen 3 TTS voice design candidate v4 + one fixed 0.6B cloned speaker embedding | five each: greet, prayer, donate |
+| Merchant | Qwen 3 TTS voice designs + fixed 0.6B cloned speaker embeddings | five each: greet, offer, buy, sell |
+| Priestess | Qwen 3 TTS voice design + one fixed 0.6B cloned speaker embedding | five each: greet, prayer, donate |
 | Enchantress | ElevenLabs v3 voice ID `pFZP5JQG7iQjIQuC4Bku` | five each: greet, cast, enhance, invite |
 
 The revised merchant design asks for a close-miked, deep, clear and warm
@@ -22,13 +22,22 @@ middle-aged baritone speaking calmly to one nearby customer. It explicitly
 excludes shouting, announcer projection and distant or processed sound. An
 independent audio-model review heard a man in his 40s-50s, low-to-mid pitch,
 exceptionally clear, warm, close and conversational, with only slight room
-reverb and no shouting. The priestess v4 design remains an elderly feminine,
-breathy, smoke-roughened voice. No pitch or formant post-process is applied.
+reverb and no shouting. The build-563 priestess design is one close-miked elderly
+feminine, breathy, smoke-roughened voice shared by all fifteen of her lines. The
+rejected merchant-sell-2 take uses a new close, calm merchant reference. No pitch
+or formant post-process is applied.
 Local tiny.en ASR recovered the intended sentence structure for every newly
 generated line, with occasional expected homophones. One first merchant-buy
 take stretched two short sentences to 17.98 seconds; it was rejected and
 replaced once with a bounded-token take lasting 3.43 seconds. ASR and model
 reviews do not replace human listening in the headset.
+
+The final build-563 audio review heard the replacement merchant sentence in full
+and described it as close, clean, natural, middle-aged and calmly conversational,
+without glitches. A final priestess performance was described as close, elderly,
+feminine, smoky, hoarse, gentle and devotional, with no room echo, processing or
+cut words. An analysis attempt on the raw priestess design reference returned
+`Invalid audio`; the repeated check used the final shipped greeting instead.
 
 The paired JSON files are baked from these exact WAVs by Rhubarb Lip Sync 1.14.
 Their validated cue, resident, duration and phoneme intervals let the elected
@@ -50,11 +59,12 @@ Private receipts and source MP3s stay gitignored under
 `.planning/debug/town562-speech/`; the API key is never written there.
 
 The cabinet performance was generated through ElevenLabs Sound Effects v2 in
-the bounded build-563 revision. Three calls were submitted before the account
-entered its `TOP_UP` lock: the cabinet effect (USD 0.002 listed-price estimate)
-and two voice-design references (USD 0.00801 combined estimate). Only the
-completed cabinet result is shipped. The merchant and priestess voice assets
-remain the previously validated sets; no partial voice revision was imported.
-The complete planned revision was 20 calls with a USD 0.0704 listed-price
-estimate. Its private intents remain gitignored under
-`.planning/debug/town563-speech/`.
+the bounded build-563 revision. The final speech pass ships two accessible voice
+references, their fixed cloned embeddings, all fifteen priestess performances and
+the replacement merchant-sell-2 performance. One completed priestess reference and
+one completed donation result became inaccessible while the original account was
+locked; both receipts were retained privately and only those outputs were regenerated
+under the replacement key. Provider billing was not independently reconciled. The
+complete original revision plan had a USD 0.0704 listed-price estimate. Private
+intents, receipts, source MP3s and local ASR output remain gitignored under
+`.planning/debug/town563-speech/` and `.planning/debug/town563-whisper/`.

@@ -5,8 +5,8 @@ The feature includes released 1.0.8 / ModBuild 556 and the subsequent 1.0.9
 version bookkeeping on `dev`. ModBuild 563 follows the build-562 NPC hardware
 report with native table cloth, reliable native temple continuation, canonical
 merchant-card returns, stock-card mip watching and independent local NPC audio controls.
-Requested merchant/priestess voice regeneration remains blocked by the FAL account's
-`TOP_UP` response; the existing affected cues are unchanged.
+The complete priestess cue set now uses one close-miked elderly female voice, and the broken
+`merchant-sell-2` take has been replaced. Exact WAV-derived mouth curves ship with both revisions.
 ModBuild 560 introduced resident
 voices, shared merchant confirmation presentation, a visible temple donation
 target, cloth contact, cabinet detail and varied idle motion.
@@ -35,8 +35,9 @@ change per build) → this file (where things stand and what is owed) → the bu
   art readiness, rotation and one palm size. Merchant stock uses the proven mip watcher.
   Automatic service fan-edge sounds are silent, the shared cabinet has physical foley,
   and local NPC speech/effects toggles are independent and default on. Voice regeneration
-  remains externally blocked and is not claimed by this build. Evidence and headset limits
-  are in [TOWN-563.md](TOWN-563.md).
+  replaces all fifteen priestess cues with one consistent close-miked voice and replaces the
+  broken `merchant-sell-2` take. Evidence and headset limits are in
+  [TOWN-563.md](TOWN-563.md).
 
 - **NPC feature / 1.1.0 / ModBuild 562 (hardware candidate):** repeated temple
   visits rebuild the physical purse; item cards emerge only after their original
