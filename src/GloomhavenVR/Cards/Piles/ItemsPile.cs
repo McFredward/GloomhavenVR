@@ -6863,9 +6863,12 @@ internal sealed partial class ItemsPile
             }
             else
             {
-                // Settled: apply the pop directly on the arc home (unchanged steady-state behavior).
+                // The merchant offering may return from a palm frame facing the opposite way.
+                // The timed glide only approaches home, so settle rotation as well: leaving its
+                // residual angle here made a reopened item fan show a card's blank back forever.
                 transform.localScale = Vector3.one * scaleTarget;
                 transform.localPosition = posTarget;
+                transform.localRotation = _homeRot;
             }
         }
 
