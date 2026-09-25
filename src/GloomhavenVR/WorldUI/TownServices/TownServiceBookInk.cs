@@ -183,14 +183,26 @@ internal sealed class TownServiceBookInk
         }
         private void AddBlankPages(Transform book, Transform frame)
         {
+            if (_triangles.Count == 0) return;
             const int columns = 12, rows = 18;
             var vertices = new List<Vector3>();
             var uvs = new List<Vector2>();
             var indices = new List<int>();
             var covered = new List<bool>();
-            // Two native leaves, separated at the fold. Stay 2 mm inside the outer
-            // edges so the original raised binding keeps a visible paper border.
-            float[] edges = { -.488f, -.332f, -.328f, -.172f };
+            // The original book is normalized to its width, but its actual page depth
+            // is much shorter than that width. Sampling the old fixed 32-cm depth
+            // covered only narrow strips of the real 20-cm leaves. Derive the reading
+            // area from the actual top triangles so both leaves stay covered.
+            float minX = float.PositiveInfinity, maxX = float.NegativeInfinity;
+            float minZ = float.PositiveInfinity, maxZ = float.NegativeInfinity;
+            foreach (var triangle in _triangles)
+                foreach (Vector3 vertex in new[] { triangle.A, triangle.B, triangle.C })
+                {
+                    minX = Mathf.Min(minX, vertex.x); maxX = Mathf.Max(maxX, vertex.x);
+                    minZ = Mathf.Min(minZ, vertex.z); maxZ = Mathf.Max(maxZ, vertex.z);
+                }
+            float inset = .002f, middle = (minX + maxX) * .5f;
+            float[] edges = { minX + inset, middle - .003f, middle + .003f, maxX - inset };
             for (int page = 0; page < 2; page++)
             {
                 int start = vertices.Count;
@@ -199,7 +211,7 @@ internal sealed class TownServiceBookInk
                     {
                         float u = column / (float)columns, v = row / (float)rows;
                         float x = Mathf.Lerp(edges[page * 2], edges[page * 2 + 1], u);
-                        float z = Mathf.Lerp(-.288f, .038f, v);
+                        float z = Mathf.Lerp(minZ + inset, maxZ - inset, v);
                         bool onPage = Sample(x, z, out Vector3 surface, out Vector3 normal);
                         covered.Add(onPage);
                         vertices.Add(book.InverseTransformPoint(frame.TransformPoint(surface + normal * .0002f)));

@@ -52,6 +52,19 @@ public static partial class MirrorProgram
         TownServiceMirror.EndSession(); Receive(2,Capture()); TownServiceMirror.TickRemote(_=>observer);
         Check(Remote(2,10)==null&&Remote(-2,10)!=null,
             "closing private native window leaves public cabinet continuously visible");
+        Transform prompt=Go("merchant purchase decision",owner).transform;
+        var confirm=prompt.gameObject.AddComponent<UnityEngine.UI.Button>();
+        int purchases=0;confirm.onClick.AddListener(()=>purchases++);
+        TownServiceMirror.RegisterTemplate(1,2,prompt,address:"item.confirm.part.2|");
+        TownServiceMirror.BeginSession(1,902,owner,prompt);
+        TownServiceMirror.RegisterModule(11,2,prompt,address:"item.confirm.part.2|");
+        Receive(2,Capture());TownServiceMirror.TickRemote(_=>observer);
+        Check(Remote(2,11)!=null&&Remote(-2,10)!=null,
+            "every peer sees the buyer's original purchase confirmation beside the same public cabinet");
+        var copiedConfirm=Remote(2,11)!.Root.GetComponent<UnityEngine.UI.Button>();
+        Check(copiedConfirm==null||!copiedConfirm.interactable,
+            "remote purchase controls are visible but cannot execute the buyer's gameplay callback");
+        Check(purchases==0,"observing the shared purchase decision never purchases an item");
         TownServiceMirror.ClaimPublicCatalog();
         Check(TownServiceMirror.IsPublicAuthor,"physical cabinet interaction promotes local presentation authority");
         TownServiceMirror.TickRemote(_=>observer);

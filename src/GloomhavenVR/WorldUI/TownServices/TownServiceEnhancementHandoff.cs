@@ -17,6 +17,9 @@ namespace GloomhavenVR.WorldUI;
 internal sealed class TownServiceEnhancementHandoff : IDisposable
 {
     private static TownServiceEnhancementHandoff? _current;
+    internal static bool HasCurrentOffering => _current != null && !_current._disposed
+        && _current.Card != null && _current._window != null && _current._window.IsOpen
+        && TownServicePresentation.Active && TownServicePresentation.Service == 3;
     private static float _approachSearchAt;
     private static Transform? _approachPalm;
     private static VRCard? _approachCard;

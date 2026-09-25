@@ -81,6 +81,11 @@ internal sealed class TownServiceToken : IGrabbable, ITriggerOnlyGrabbable, IGra
 
     internal Transform Source => _source;
     internal Transform? HeldRoot => _held != null ? _held.transform : null;
+    // A normalized purse is rooted at its base. The visible body, rather than that
+    // base point below the player's pinch, is what the player places in the bowl.
+    private Vector3 PhysicalDropPoint => _physical != null && _uprightProp
+        ? _physical.TransformPoint(Vector3.up * .0625f)
+        : _held != null ? _held.transform.position : Vector3.zero;
     internal Transform? HeldContent => _mirror?.CloneOf(_source);
     internal Transform? HeldCloneOf(Transform original) => _mirror?.CloneOf(original);
     public bool GrabWithGrip => false;
@@ -128,7 +133,7 @@ internal sealed class TownServiceToken : IGrabbable, ITriggerOnlyGrabbable, IGra
                 if (!IsPhysical) _held.transform.localScale = Vector3.one * scale;
                 if (_uprightProp && _dropLocation != null)
                 {
-                    bool inside = DropEligible && _dropLocation(_held.transform.position);
+                    bool inside = DropEligible && _dropLocation(PhysicalDropPoint);
                     if (inside && !_insidePhysicalDrop && _hand.HasPose
                         && Time.unscaledTime >= _nextPhysicalDropPulse)
                     {
@@ -297,11 +302,10 @@ internal sealed class TownServiceToken : IGrabbable, ITriggerOnlyGrabbable, IGra
         {
             // A deliberate trigger release in the matching zone is the sole transaction
             // gesture. Cancellation, stale context, pose loss and all other drops return.
-            // The purse's normalized root is its visible bottom, which is the point that
-            // must enter the bowl. Sample it before parenting back to the worktop. A
+            // Sample the visible purse body before parenting back to the worktop. A
             // Debug line per release separates a missed trigger, stale owner, unavailable
             // native blessing and missed bowl from a native confirmation refusal.
-            Vector3 dropPoint = _held != null ? _held.transform.position : Vector3.zero;
+            Vector3 dropPoint = PhysicalDropPoint;
             bool gesture = _heldTracked && hand.HasPose && hand.TriggerUp && _drop != null;
             bool eligible = gesture && DropEligible;
             bool identity = eligible && ReferenceEquals(_pickedIdentity, _identity());

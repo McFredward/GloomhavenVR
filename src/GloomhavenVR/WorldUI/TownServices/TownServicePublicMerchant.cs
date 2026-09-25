@@ -28,7 +28,11 @@ internal static class TownServicePublicMerchant
         {
             if (TownServiceMirror.IsPublicAuthor) return true;
             TownRackState? state = TownServiceMirror.PublicRack;
-            if (state != null) foreach (TownRackMember member in state.Members) if (member.Detached) return false;
+            // The observer's local cabinet is visually suppressed. Until the elected
+            // author's rack is actually present, its hidden controls cannot claim or
+            // pick an item that no one can see on the shared stand.
+            if (state == null) return false;
+            foreach (TownRackMember member in state.Members) if (member.Detached) return false;
             return true;
         }
     }

@@ -641,7 +641,7 @@ public static class InteractionProgram
     private static void PhysicalPurse()
     {
         foreach (float scale in new[] { 1f, 2f })
-        for (int scenario = 0; scenario < 6; scenario++)
+        for (int scenario = 0; scenario < 7; scenario++)
         {
             var counter = Probe.Go("PurseCounter").transform;
             counter.localScale = Vector3.one * scale;
@@ -656,7 +656,8 @@ public static class InteractionProgram
             hand.Rig.GrabAnchor.rotation = Quaternion.Euler(32f, 70f, 10f);
             using var token = new TownServiceToken(source, button, () => identity, () => identity, () => true,
                 counter, physical, drop: () => { commits++; return true; }, eligible: () => true,
-                inspect: () => inspect, reachDepth: .10f, uprightProp: true, handAllowed: candidate => scenario != 5);
+                inspect: () => inspect, reachDepth: .10f, uprightProp: true, handAllowed: candidate => scenario != 5,
+                dropLocation: scenario == 6 ? world => world.y > counter.TransformPoint(new Vector3(0f, .09f, 0f)).y : null);
             token.Tick(scale);
             var shape = (BoxCollider)typeof(TownServiceToken).GetField("_shape", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(token)!;
             Check(Mathf.Abs(shape.size.z - .1f * scale) < .0001f, "purse collider encloses its physical depth at each map scale");
@@ -683,7 +684,8 @@ public static class InteractionProgram
             if (scenario == 1) hand.Grabber.CancelAll();
             if (scenario == 2) hand.HasPose = false;
             hand.Grabber.ReleaseTick(); token.OnRelease(hand, Vector3.zero);
-            Check(commits == (scenario == 0 ? 1 : 0), "purse drop uses tracked deliberate bowl release once " + scenario);
+            Check(commits == (scenario == 0 || scenario == 6 ? 1 : 0),
+                "visible purse body can enter the bowl while its normalized base remains below the rim " + scenario);
             Clean();
         }
     }

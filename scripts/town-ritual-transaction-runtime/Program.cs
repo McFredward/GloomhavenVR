@@ -10,6 +10,7 @@ using UnityEngine;
 using UnityEngine.UI;
 using UnityEngine.EventSystems;
 namespace GloomhavenVR.Core { internal static class VRLog { internal static bool WantsDebug => false; internal static void Debug(string scope,string message) {} internal static void Note(string scope,string message) {} } }
+namespace GloomhavenVR.WorldUI { internal enum TownVoiceReaction : byte { PriestessDonate } internal static class TownServiceVoice { internal static int Donations; internal static void RequestReaction(byte service, TownVoiceReaction reaction) { if (service == 2 && reaction == TownVoiceReaction.PriestessDonate) Donations++; } } }
 public class Singleton<T>{public static T Instance=default!;}
 public class UIWindow:MonoBehaviour{public bool IsOpen;}
 public class UITempleWindow:MonoBehaviour{public bool _isConfirmationBoxOpened;public FakeCharacter character=new();public FakeTempleInventory Shop=new();public FakeTempleService service=new();}

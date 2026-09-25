@@ -96,7 +96,10 @@ internal static class NativeBookProof
             var go=new GameObject(key,typeof(RectTransform));go.transform.SetParent(ritual.transform,false);var text=go.AddComponent<TextMeshProUGUI>();
             text.text="Original localized donation content";var ink=new TownServiceBookInk(key,ritual.transform);ink.Apply(go.transform);
             Check(go.activeSelf,"all ink blocks fit real shipped original book pages");
-            Check(book.transform.Find("Town.BlankTemplePages")!=null,"actual original temple pages receive blank reading surface");
+            var blankPages=book.transform.Find("Town.BlankTemplePages");
+            Check(blankPages!=null,"actual original temple pages receive blank reading surface");
+            Check(blankPages!.GetComponent<MeshFilter>().sharedMesh.triangles.Length>=1700,
+                "blank parchment covers most of both actual original leaves, not two disconnected strips");
             // Exercise the actual TMP deformation callback with a glyph quad covering its block.
             TMP_TextInfo info=new TMP_TextInfo();info.characterCount=1;
             info.characterInfo=new[]{new TMP_CharacterInfo{isVisible=true,vertexIndex=0,materialReferenceIndex=0}};

@@ -234,7 +234,7 @@ namespace GloomhavenVR.WorldUI { internal sealed class TownServiceGrounding : Sy
 
 namespace GloomhavenVR.Net.TownServices { internal static class TownServiceFrame { internal const ushort BundleStream=65534; } }
 
-namespace GloomhavenVR.WorldUI {internal static partial class TownServicePublicMerchant {internal static bool CanClaim=>true;internal static void Claim(){} }}
+namespace GloomhavenVR.WorldUI {internal static partial class TownServicePublicMerchant {internal static bool ClaimAvailable=true;internal static bool CanClaim=>ClaimAvailable;internal static void Claim(){} }}
 
 namespace GloomhavenVR.Hands.Interact { internal class RayInteractor { internal struct CardContact {
  internal readonly float Depth,Margin,Limit; internal CardContact(string probe,float depth,float margin,float limit){Depth=depth;Margin=margin;Limit=limit;}

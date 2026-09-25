@@ -10,6 +10,7 @@ using ScenarioRuleLibrary;
 using TMPro;
 using UnityEngine;
 using UnityEngine.UI;
+using UnityEngine.Events;
 
 namespace GloomhavenVR.WorldUI;
 
@@ -29,6 +30,13 @@ internal static class TownServiceMerchantHandoff
     private static bool _near, _resetting;
     private static CItem? _pending;
     private static bool _selling;
+    private static CItem? _tradeItem;
+    private static bool _tradeSelling;
+    private static int _tradeBaseline;
+    private static float _tradeUntil;
+    private static bool _tradePressed;
+    private static UIItemConfirmationBox? _tradeBox;
+    private static UnityAction? _tradeListener;
     private static uint _pendingSession;
     private static Action? _ourConfirmation;
     private static ItemsPile.ItemChip? _offeredChip;
@@ -100,6 +108,7 @@ internal static class TownServiceMerchantHandoff
             { Items.Clear(); Items.AddRange(current); unchecked { _itemRevision++; } }
         }
         _fan!.TickInspection(Items, _itemRevision);
+        TickTradeOutcome();
         TickPending();
         TickConfirmation();
     }
@@ -208,6 +217,18 @@ internal static class TownServiceMerchantHandoff
             UIItemConfirmationBox? box = Singleton<UIItemConfirmationBox>.Instance;
             _ourConfirmation = box?._onConfirmedCallback;
             if (box != null && _seat != null) TownServicePalmConfirmation.Begin(box, _seat);
+            _tradeItem = item; _tradeSelling = _selling;
+            _tradeBaseline = ItemCount(_character, item);
+            _tradeUntil = Time.unscaledTime + 8f;
+            _tradePressed = false;
+            DetachTradeListener();
+            if (box?.confirmButton != null)
+            {
+                _tradeBox = box;
+                _tradeListener = () => { if (ReferenceEquals(_tradeBox, box) && _tradeItem != null) _tradePressed = true; };
+                box.confirmButton.onClick.AddListener(_tradeListener);
+            }
+            TownServiceVoice.RequestReaction(1, TownVoiceReaction.MerchantOffer);
         }
         else ReleaseOffering();
     }
@@ -225,12 +246,42 @@ internal static class TownServiceMerchantHandoff
         if (confirmation != null && confirmation.IsActive
             && ReferenceEquals(confirmation._onConfirmedCallback, _ourConfirmation)) return;
         _ourConfirmation = null;
+        DetachTradeListener();
         ReleaseOffering();
+    }
+
+    private static void DetachTradeListener()
+    {
+        if (_tradeBox?.confirmButton != null && _tradeListener != null)
+            _tradeBox.confirmButton.onClick.RemoveListener(_tradeListener);
+        _tradeBox = null; _tradeListener = null;
+    }
+
+    private static int ItemCount(CMapCharacter? character, CItem item)
+    {
+        if (character == null) return 0;
+        int count = 0;
+        foreach (CItem owned in character.AllCharacterItems)
+            if (owned != null && owned.ID == item.ID) count++;
+        return count;
+    }
+
+    private static void TickTradeOutcome()
+    {
+        CItem? item = _tradeItem;
+        if (item == null) return;
+        if (Time.unscaledTime > _tradeUntil) { _tradeItem = null; DetachTradeListener(); return; }
+        int count = ItemCount(_character, item);
+        if (!_tradePressed || (_tradeSelling ? count >= _tradeBaseline : count <= _tradeBaseline)) return;
+        _tradeItem = null;
+        DetachTradeListener();
+        TownServiceVoice.RequestReaction(1, _tradeSelling ? TownVoiceReaction.MerchantSell : TownVoiceReaction.MerchantBuy);
     }
 
     private static void Reclaim()
     {
         Action? callback = _ourConfirmation; _ourConfirmation = null; _pending = null;
+        _tradeItem = null; DetachTradeListener();
         // Withdraw the display before the native cancellation can reenter teardown. A card
         // already adopted by a hand is never reparented or flown out of that hand.
         ReleaseOffering();
@@ -274,7 +325,7 @@ internal static class TownServiceMerchantHandoff
         ReleaseOffering();
         ItemsPile? fan = _fan; _fan = null;
         Transform? seat = _seat; _seat = _zone = null; _zoneGate = null; _caption = null;
-        _pending = null; _eligibilityItem = null; Items.Clear(); _character = null;
+        _pending = null; _tradeItem = null; DetachTradeListener(); _eligibilityItem = null; Items.Clear(); _character = null;
         try
         {
             UIItemConfirmationBox? confirmation = Singleton<UIItemConfirmationBox>.Instance;

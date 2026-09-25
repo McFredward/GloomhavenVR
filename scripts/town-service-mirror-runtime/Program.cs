@@ -818,9 +818,13 @@ public static partial class MirrorProgram
             Check(calls.Exists(c => c.Key == piece.Key && c.Source == piece.Content && c.Provenance == piece.Source
                 && c.CloneOf!(piece.Source) == piece.Content), "physical ritual keeps original native inscription provenance");
             Check(calls.Exists(c => c.Key == piece.BodyKey && c.Source == piece.Body), "ritual mirrors exact physical coin or rune body");
+            if (service == 2)
+                Check(calls.Count(c => c.Key == "ritual.purse") == 2,
+                    "the public bowl's ghost purse and the owner's carried real purse remain separate mirrored objects");
             Check(calls.Exists(c => c.Key == piece.DetailKey && c.Source == piece.DetailContent && c.Provenance == piece.DetailSource),
                 "held ritual description mirrors actual owner presentation");
-            Check(calls.Exists(c => c.Key == "merchant.zone" && c.Source == ritual.Zone), "physical ritual drop indicator is shared");
+            Check(calls.Exists(c => c.Key == (service == 2 ? "ritual.purse" : "merchant.zone") && c.Source == ritual.Zone),
+                "the physical offering silhouette or enhancement drop indicator is shared");
             Check(service == 2 ? calls.Exists(c => c.Key == "temple.level" && c.Source == inscription.Content)
                 : calls.Exists(c => c.Key == "enchant.holder" && c.Source == holder.Panel.Target),
                 "ritual preserves devotion ledger or original ability hotspots");

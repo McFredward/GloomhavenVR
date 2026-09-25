@@ -11,6 +11,7 @@ using MapRuleLibrary.Party;
 using MapRuleLibrary.Adventure;
 using ScenarioRuleLibrary;
 using UnityEngine;
+using UnityEngine.UI;
 public static class InteractionProgram
 {
  private static int _count;
@@ -24,6 +25,7 @@ public static class InteractionProgram
   return _count;
  }
  private static void RunScale(float scale) {
+  TownServiceVoice.Offers=TownServiceVoice.Buys=TownServiceVoice.Sells=0;
   TownServiceMerchantHandoff.Reset(); MapRoomDriver.Active=true; MapRoomDriver.CanVisit=true;
   GuildmasterDestinations.Mode=EGuildmasterMode.None; MapRoomDriver.Visits=0;
   FFSNet.FFSNetwork.IsOnline=false; StoryComposite.PointOfNoReturn=false;
@@ -54,6 +56,7 @@ public static class InteractionProgram
   var native=new GameObject("NativeMerchant",typeof(UIWindow),typeof(UIShopItemWindow)); native.transform.SetParent(root.transform,false);
   var window=native.GetComponent<UIShopItemWindow>();
   Singleton<UIGuildmasterHUD>.Instance=new UIGuildmasterHUD{shopWindow=window}; Singleton<UIItemConfirmationBox>.Instance=new();
+  Singleton<UIItemConfirmationBox>.Instance.confirmButton=new GameObject("Native Confirm",typeof(RectTransform),typeof(Button)).GetComponent<Button>();
   var character=new CMapCharacter(); var duplicate=new CItem{ID=1};
   for(int i=0;i<30;i++) character.AllCharacterItems.Add(new CItem{ID=i}); character.AllCharacterItems.Add(duplicate);
   character.AllCharacterItems[4].Tradeable=false; MapCharacterSelection.Selected=character;
@@ -99,6 +102,7 @@ public static class InteractionProgram
   Check(first.TownOffering && !first.IsCollapsing,"closed wrist fan retains actual pending offering");
   window.ItemInventory.character=character; TownServiceMerchantHandoff.Tick();
   Check(TownServiceMerchantTransaction.Requests==1 && TownServiceMerchantTransaction.LastSelling,"owned release dispatches exact sell confirmation");
+  Check(TownServiceVoice.Offers==1,"resident acknowledges a native merchant offer once");
   Check(ReferenceEquals(TownServiceMerchantTransaction.LastItem,first.Item),"sale preserves item copy identity");
   Check(Singleton<UIItemConfirmationBox>.Instance!.IsActive,"final native confirmation remains visibly pending");
   Check(TownServiceMerchantHandoff.WantsOffering && TownServiceMerchantHandoff.CanReclaim(first),"exact pending card keeps palm and can be reclaimed");
@@ -111,6 +115,7 @@ public static class InteractionProgram
   character.AllCharacterItems.Remove(first.Item!);
   typeof(TownServiceMerchantHandoff).GetField("_nextItems", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)!.SetValue(null,0f);
   TownServiceMerchantHandoff.Tick();
+  Check(TownServiceVoice.Sells==0,"an inventory refresh without native confirmation cannot voice a sale");
   Check(first.TownOffering && !first.IsCollapsing,"native inventory mutation cannot destroy a pending offered card");
   // Leaving cancels only our own confirmation and restores the original hand.
   int restore=MapRoomHand.NormalRebuilds;
@@ -132,7 +137,14 @@ public static class InteractionProgram
   var stock=new CItem{ID=99}; AdventureState.MapState.MapParty.Stock.Add(stock); window.ItemInventory.character=replacement;
   Check(TownServiceMerchantHandoff.Offer(stock,false,palm.position),"cabinet release requests native buy");
   TownServiceMerchantHandoff.Tick(); Check(!TownServiceMerchantTransaction.LastSelling,"stock release dispatches buy confirmation");
+  Check(TownServiceVoice.Offers==2 && TownServiceVoice.Buys==0,"opening a buy prompt does not claim the transaction succeeded");
+  Singleton<UIItemConfirmationBox>.Instance.confirmButton.onClick.Invoke();
+  replacement.AllCharacterItems.Add(stock);
+  Singleton<UIItemConfirmationBox>.Instance.IsActive=false;
+  TownServiceMerchantHandoff.Tick();
+  Check(TownServiceVoice.Buys==1,"confirmed native inventory change voices one purchase");
   Action foreign=()=>{}; Singleton<UIItemConfirmationBox>.Instance._onConfirmedCallback=foreign;
+  Singleton<UIItemConfirmationBox>.Instance.IsActive=true;
   TownServiceMerchantHandoff.Reset();
   Check(Singleton<UIItemConfirmationBox>.Instance.IsActive && ReferenceEquals(Singleton<UIItemConfirmationBox>.Instance._onConfirmedCallback,foreign),"reset cannot cancel somebody else's confirmation");
   Check(TownServiceCatalog.Offer==null && TownServiceCatalog.CanOffer==null && TownServiceCatalog.InOfferingZone==null,"reset clears callback lifetime");

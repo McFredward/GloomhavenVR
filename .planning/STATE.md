@@ -2,12 +2,12 @@
 
 **Updated 2026-09-25: feature/immersive-town-services, version 1.1.0 hardware candidate.**
 The feature includes released 1.0.8 / ModBuild 556 and the subsequent 1.0.9
-version bookkeeping on `dev`. ModBuild 559 follows the build-558 NPC hardware
-report, including priestess donation flow, resident attention and audio range,
-cloth, cabinet finish, book readability and sleeves.
+version bookkeeping on `dev`. ModBuild 560 follows the build-559 NPC hardware
+report with resident voices, shared merchant confirmation presentation, a visible
+temple donation target, cloth contact, cabinet detail and varied idle motion.
 Headset verification of the resulting presentation remains open. Historical NPC
 design: [research/TOWN-SERVICES-552.md](research/TOWN-SERVICES-552.md).
-Current evidence and implementation limits: [TOWN-559.md](TOWN-559.md).
+Current evidence and implementation limits: [TOWN-560.md](TOWN-560.md).
 The feature remains isolated from `dev`, and NPC work belongs on this branch.
 
 The file this replaces had gone 168 builds
@@ -22,6 +22,15 @@ change per build) → this file (where things stand and what is owed) → the bu
 ---
 
 ## 1. Position
+
+- **NPC feature / 1.1.0 / ModBuild 560 (hardware candidate):** quieter coin foley,
+  English spatial resident lines and mouth curves, varied enchantress activity,
+  merchant attention transition, visibly grounded cloth and cabinet details,
+  guarded donation body target and ghost-purse bowl cue. One elected public
+  merchant cabinet and buyer-owned native confirmation surfaces are mirrored
+  to all players; remote visual controls remain inert. Presentation-only voice
+  reactions are relayed from visitors to the elected resident author. Automated
+  and hardware limits are recorded in [TOWN-560.md](TOWN-560.md).
 
 - **NPC feature / 1.1.0 / ModBuild 559 (hardware candidate):** fixed-scale NPC
   foley, stable merchant/priestess proximity, native temple purse release

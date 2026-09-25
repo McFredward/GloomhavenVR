@@ -158,7 +158,7 @@ internal sealed class TownServiceSync
             TownServiceRitual? ritual = TownServicePresentation.Ritual;
             if (ritual != null)
             {
-                Publish("merchant.zone", ritual.Zone);
+                Publish(service == 2 ? "ritual.purse" : "merchant.zone", ritual.Zone);
                 Publish(prefix + ".counter", TownServicePresentation.CounterFurniture);
                 TownServiceEnhancementHandoff? handoff = ritual.Handoff;
                 if (handoff != null)

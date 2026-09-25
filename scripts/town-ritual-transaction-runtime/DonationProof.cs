@@ -3,6 +3,7 @@ using Object=UnityEngine.Object;
 using UnityEngine;
 using UnityEngine.EventSystems;
 using UnityEngine.UI;
+using GloomhavenVR.WorldUI;
 
 public sealed class FakeCharacter { public string CharacterID="owned"; }
 public static class MapRoomHand { public static FakeCharacter? Selected; public static FakeCharacter? OwnedMerchantCharacter()=>Selected;public static bool TempleInspection;public static void SetTempleInspection(bool value)=>TempleInspection=value; }
@@ -44,6 +45,7 @@ internal static class DonationProof
                 box.Show(()=>{commits++;temple._isConfirmationBoxOpened=false;},()=>{cancels++;temple._isConfirmationBoxOpened=false;});
             });
             var ritual=new BoundRitual(()=>true,()=>temple.character);
+            int voiceBefore=TownServiceVoice.Donations;
             if(scenario==1)temple.service.Affordable=false;
             if(scenario==2)MapRoomHand.Selected=new FakeCharacter{CharacterID="observer"};
             if(scenario==3)temple.service.Permission=false;
@@ -72,6 +74,7 @@ internal static class DonationProof
                     Check(commits==2,"character-specific donation latch does not consume another character's money");
                 }
             }
+            Check(TownServiceVoice.Donations-voiceBefore==commits,"resident speaks only after each guarded native donation callback");
             Object.DestroyImmediate(root);Object.DestroyImmediate(events);
         }
         MapRoomHand.Selected=null;

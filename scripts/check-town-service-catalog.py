@@ -60,6 +60,7 @@ def sources(root):
 
 def mutations():
     return [
+        ("observer-ghost-collider", "TownServiceCatalog.cs", "if (observer && !TownServicePublicMerchant.CanClaim)", "if (false)", "observer has no invisible local card collider before the public author's rack arrives"),
         ("fbx-grip-wall", "TownServiceMerchantDrawer.cs", "GripPadding(handle.localScale, .025f)", "Vector3.one * .025f", "FBX-scale crank grip has no invisible cabinet-sized laser wall"),
         ("imported-collider-wall", "TownServiceMerchantDrawer.cs", "foreach (Collider collider in _housing.GetComponentsInChildren<Collider>(true)) collider.enabled = false;", "", "imported cabinet decoration is never an invisible input wall"),
         ("roller-static-holders", "TownCassetteMotion.cs", "direction == 0 || progress <= 0f", "direction != 0 || progress <= 0f", "scroll direction moves visible rows vertically in the requested direction"),

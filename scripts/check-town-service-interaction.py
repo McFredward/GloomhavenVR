@@ -83,6 +83,7 @@ def mutations():
         ("purse-return-before-payment", "Token.cs", "_physical.SetParent(_mat, true);", "_physical.SetParent(_homeParent, true);", "accepted purse waits at actual bowl instead of returning to moving hand before native payment"),
         ("purse-restart-completion", "Token.cs", "if (_settlementDecided) return;", "", "confirmed purse sinks and fades once at bowl without restarting on duplicate completion"),
         ("purse-own-hand", "Token.cs", "(_handAllowed?.Invoke(hand) ?? true)", "true", "unowned or unavailable purse cannot be grabbed or donated"),
+        ("purse-visible-body", "Token.cs", "_physical.TransformPoint(Vector3.up * .0625f)", "_physical.position", "visible purse body, rather than its hidden base, triggers an intentional bowl donation"),
         ("flat-purse", "Token.cs", "if (_uprightProp)", "if (!_uprightProp)", "physical original follows either tracked hand"),
         ("purse-depth", "Token.cs", "_reachDepth * scale", ".009f * scale", "purse collider encloses its physical depth at each map scale"),
         ("purse-double-scale", "Token.cs", "InverseTransformVector(Vector3.down * (.13f * hand.WorldScale))", "InverseTransformDirection(Vector3.down * (.13f * hand.WorldScale))", "purse hangs below pinch without applying map scale twice"),

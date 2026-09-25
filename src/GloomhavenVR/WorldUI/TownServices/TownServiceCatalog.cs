@@ -222,6 +222,8 @@ internal sealed class TownServiceCatalog : IDisposable
         }
         foreach (Canvas canvas in _observerCanvases) if (canvas != null) canvas.enabled = !observer;
         foreach (Renderer renderer in _observerRenderers) if (renderer != null) renderer.forceRenderingOff = observer;
+        if (observer && !TownServicePublicMerchant.CanClaim)
+            foreach (Entry entry in _entries) entry.Sample.PickCollider.enabled = false;
         if (!observer)
             foreach (Entry entry in _entries)
                 if (!entry.Exposed && entry.BodyRoot != null)

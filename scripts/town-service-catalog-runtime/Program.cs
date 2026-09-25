@@ -358,6 +358,13 @@ public static class InteractionProgram
         ShopService.Source=inventory.service;
         var catalog=new TownServiceCatalog(inventory,anchor.transform,()=>context,()=>alive,anchor.transform,persistent:true);
         catalog.SetVisibility(1f);Census(catalog);catalog.Tick(1f);
+        TownServicePublicMerchant.ClaimAvailable=false;
+        catalog.SetObserver(true);
+        foreach(var entry in catalog.Entries)
+            if(entry.Exposed) Check(!entry.Sample.PickCollider.enabled,
+                "observer has no invisible local card collider before the public author's rack arrives");
+        TownServicePublicMerchant.ClaimAvailable=true;
+        catalog.SetObserver(false);catalog.Tick(1f);
         Check(catalog.Entries.Count==164,"all 164 stock identities remain available in the persistent cabinet");
         Check(catalog.Controls.Count==0,"no flat filter or page buttons");
         Check(ObjectPool.Alive==164,"one physical original card per persistent entry");

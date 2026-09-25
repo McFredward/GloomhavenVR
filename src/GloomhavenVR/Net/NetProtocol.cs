@@ -538,7 +538,15 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 559;
+    public const ushort ModBuild = 560;
+
+    // ModBuild 560 — NPC hardware follow-up on the feature branch. Resident
+    // activity, coin foley and speech have bounded shared presentation;
+    // confirmation reactions are cosmetic events, never gameplay commands.
+    // The merchant cabinet remains a single elected public presentation;
+    // visitors share its cards and the buyer's original confirmation surfaces.
+    // Temple purse targeting uses the visible bag body and a physical ghost
+    // marker, while the book backing follows the actual original page mesh.
 
     // ModBuild 559 — town-service hardware follow-up on the NPC feature branch.
     // Temple purse roots now follow the visible bag base and the native bowl,

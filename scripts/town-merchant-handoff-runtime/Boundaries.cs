@@ -30,7 +30,7 @@ public class UIShopItemInventory { public ShopService? service; public MapRuleLi
 public class UIShopItemWindow : MonoBehaviour { public UIShopItemInventory ItemInventory = new(); }
 public class UIGuildmasterHUD { public UIShopItemWindow shopWindow = null!; }
 public class UIItemConfirmationBox {
- public bool IsActive; public Action? _onConfirmedCallback; public Action? OnCancelled; public int Cancels;
+ public bool IsActive; public UnityEngine.UI.Button confirmButton=null!; public Action? _onConfirmedCallback; public Action? OnCancelled; public int Cancels;
  public void OnCancel() { Cancels++; OnCancelled?.Invoke(); IsActive = false; _onConfirmedCallback = null; }
 }
 namespace GloomhavenVR.Core {
@@ -124,6 +124,8 @@ namespace GloomhavenVR.WorldUI.MapRoom {
  }
 }
 namespace GloomhavenVR.WorldUI {
+ internal enum TownVoiceReaction : byte { MerchantOffer, MerchantBuy, MerchantSell }
+ internal static class TownServiceVoice { internal static int Offers, Buys, Sells; internal static void RequestReaction(byte service, TownVoiceReaction reaction) { if(service!=1) return; if(reaction==TownVoiceReaction.MerchantOffer) Offers++; else if(reaction==TownVoiceReaction.MerchantBuy) Buys++; else if(reaction==TownVoiceReaction.MerchantSell) Sells++; } }
  public static class WorldUIConfig { public static readonly Cards.Dial<bool> ImmersiveTownServices = new(true); }
  public static class TownServiceEnhancementHandoff { public static bool Enabled = true; }
  public static class StoryComposite { public static bool PointOfNoReturn; }

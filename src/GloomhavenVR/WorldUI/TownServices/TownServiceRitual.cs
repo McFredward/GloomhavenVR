@@ -250,11 +250,13 @@ internal sealed class TownServiceRitual : IDisposable
     private readonly List<Component> _retired = new();
     private readonly List<TownServiceSurface> _surfaces = new();
     private readonly List<Inscription> _inscriptions = new();
-    private readonly GameObject _zone;
-    private readonly CanvasGroup _zoneGate, _opening;
+    private readonly GameObject? _zone;
+    private readonly CanvasGroup? _zoneGate;
+    private readonly CanvasGroup _opening;
     private bool _allowInput = true;
     private float _visibility;
-    private readonly TMP_Text _zoneLabel;
+    private readonly TMP_Text? _zoneLabel;
+    private readonly TownServiceTempleBowlMarker? _bowlMarker;
     private float _censusAt;
     private readonly float _started = Time.unscaledTime;
     private bool _disposed;
@@ -266,7 +268,7 @@ internal sealed class TownServiceRitual : IDisposable
     internal IEnumerable<Piece> Pieces => _pieces.Values;
     internal IReadOnlyCollection<TownServiceToken> Samples => _samples;
     internal IReadOnlyList<Inscription> Inscriptions => _inscriptions;
-    internal Transform Zone => _zone.transform;
+    internal Transform? Zone => _bowlMarker?.Visual ?? _zone?.transform;
     internal IReadOnlyList<TownServiceSurface> Surfaces => _surfaces;
     internal bool CanRelocate
     { get { if (Handoff?.Card != null) return false; foreach (Piece piece in _pieces.Values) if (piece.Token.IsMoving) return false; return true; } }
@@ -283,21 +285,20 @@ internal sealed class TownServiceRitual : IDisposable
             if (service == 2)
                 _templeOffering = new TownServiceTempleOffering(this, window.GetComponent<UITempleWindow>(),
                     TownServicePresentation.StationRoot ?? station);
-            _zone = TownServiceMerchantZone.CreateTemplate(window.GetComponentInChildren<TMP_Text>(true));
-            _zone.transform.SetParent(_templeOffering?.DropFrame ?? Root, false);
-            _zone.transform.localPosition = service == 2 ? TownServiceTempleBowl.Center : new Vector3(0f, .014f, 0f);
-            _zoneGate = _zone.GetComponent<CanvasGroup>(); _zoneGate.alpha = 0f;
-            _zoneLabel = _zone.transform.Find("Caption").GetComponent<TMP_Text>();
-            // Ritual placement uses the full central mat. Merchant marks are narrower
-            // to clear its upper stock cabinets; do not inherit that distinct geometry.
-            ((RectTransform)_zone.transform).sizeDelta = new Vector2(380f, 260f);
-            ((RectTransform)_zone.transform.Find("Border")).sizeDelta = new Vector2(380f, 260f);
-            _zoneLabel.rectTransform.sizeDelta = new Vector2(360f, 70f); _zoneLabel.fontSize = 36f;
             if (service == 2)
             {
-                ((RectTransform)_zone.transform).sizeDelta = new Vector2(190f, 190f);
-                ((RectTransform)_zone.transform.Find("Border")).sizeDelta = new Vector2(190f, 190f);
-                _zoneLabel.rectTransform.sizeDelta = new Vector2(175f, 90f); _zoneLabel.fontSize = 24f;
+                _bowlMarker = new TownServiceTempleBowlMarker(_templeOffering!.DropFrame);
+            }
+            else
+            {
+                _zone = TownServiceMerchantZone.CreateTemplate(window.GetComponentInChildren<TMP_Text>(true));
+                _zone.transform.SetParent(Root, false);
+                _zone.transform.localPosition = new Vector3(0f, .014f, 0f);
+                _zoneGate = _zone.GetComponent<CanvasGroup>(); _zoneGate.alpha = 0f;
+                _zoneLabel = _zone.transform.Find("Caption").GetComponent<TMP_Text>();
+                ((RectTransform)_zone.transform).sizeDelta = new Vector2(380f, 260f);
+                ((RectTransform)_zone.transform.Find("Border")).sizeDelta = new Vector2(380f, 260f);
+                _zoneLabel.rectTransform.sizeDelta = new Vector2(360f, 70f); _zoneLabel.fontSize = 36f;
             }
             if (service == 2)
             {
@@ -339,7 +340,8 @@ internal sealed class TownServiceRitual : IDisposable
     internal void SetVisibility(float visibility, bool allowInput)
     {
         _allowInput = allowInput;
-        if (!allowInput || visibility < .99f) _zoneGate.alpha = 0f;
+        if (!allowInput || visibility < .99f)
+        { if (_zoneGate != null) _zoneGate.alpha = 0f; _bowlMarker?.Tick(false); }
         _opening.interactable = allowInput; _opening.blocksRaycasts = allowInput;
         foreach (TownServiceSurface surface in _surfaces) surface.SetVisibility(visibility, allowInput);
         if (_visibility == visibility) return;
@@ -357,14 +359,20 @@ internal sealed class TownServiceRitual : IDisposable
             throw new InvalidOperationException("Original offering geometry did not load; restoring the native temple window.");
         if (Time.unscaledTime >= _censusAt) { _censusAt = Time.unscaledTime + .2f; RefreshPieces(); }
         foreach (Piece piece in _pieces.Values) piece.Tick(scale);
-        _zoneGate.alpha = 0f;
+        if (_zoneGate != null) _zoneGate.alpha = 0f;
+        bool offeringHeld = false;
         foreach (Piece piece in _pieces.Values)
         {
             if (!piece.Token.DropEligible) continue;
-            _zoneLabel.text = Loc.Mod(_service == 2 ? "town_offering"
-                : piece.Source is AbilityCardUI ? "town_enchant_card" : "town_inscribe");
-            _zoneGate.alpha = 1f; break;
+            offeringHeld = true;
+            if (_zoneLabel != null && _zoneGate != null)
+            {
+                _zoneLabel.text = Loc.Mod(piece.Source is AbilityCardUI ? "town_enchant_card" : "town_inscribe");
+                _zoneGate.alpha = 1f;
+            }
+            break;
         }
+        _bowlMarker?.Tick(offeringHeld);
         foreach (Inscription inscription in _inscriptions) inscription.Tick();
         foreach (TownServiceSurface surface in _surfaces) surface.Tick(Vector3.zero, Quaternion.identity, scale);
     }
@@ -441,7 +449,11 @@ internal sealed class TownServiceRitual : IDisposable
                 if (!committed) _submittedOfferings.Remove(offering);
                 // This confirms execution of the original callback, not a later host
                 // inventory/currency acknowledgement. Keep those distinct in bug logs.
-                if (committed) VRLog.Note("TownServices", "Temple purse: original donation callback executed for the selected blessing.");
+                if (committed)
+                {
+                    VRLog.Note("TownServices", "Temple purse: original donation callback executed for the selected blessing.");
+                    TownServiceVoice.RequestReaction(2, TownVoiceReaction.PriestessDonate);
+                }
                 else if (VRLog.WantsDebug) VRLog.Debug("TownServices", "Temple purse: native confirmation cancelled or stale before donation callback.");
                 settled?.Invoke(committed);
             });
@@ -509,6 +521,7 @@ internal sealed class TownServiceRitual : IDisposable
         CardSlots.Dispose();
         Handoff?.Dispose(); Handoff = null;
         foreach (Piece piece in _pieces.Values) piece.Dispose(); _pieces.Clear(); _samples.Clear();
+        _bowlMarker?.Dispose();
         _templeOffering?.Dispose(); _templeOffering = null;
         foreach (Inscription inscription in _inscriptions) inscription.Dispose(); _inscriptions.Clear();
         for (int i = _surfaces.Count - 1; i >= 0; i--) _surfaces[i].Dispose(); _surfaces.Clear();
