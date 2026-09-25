@@ -156,6 +156,21 @@ internal static class TownServicePopulation
             }
             resident.Station.SetVisibility(resident.Visibility);
             resident.Station.Sample(resident.Clip == 1 ? "Greeting" : "Idle", resident.Age);
+            // Only the elected resident author samples tracked contact. Every observer
+            // deforms the same pinned cloth from the authored TLV79 edge controls;
+            // the shared age keeps the low-amplitude breeze continuous between packets.
+            if (IsFaceAuthor) resident.Station.TickClothAuthor(resident.Age, Time.unscaledDeltaTime);
+            else if (follows)
+            {
+                TownClothRunnerState first = default, second = default;
+                if (authored.HasCloth)
+                {
+                    if (service == 2) { first = authored.TempleLeft; second = authored.TempleRight; }
+                    else if (service == 3) first = authored.EnchantressCloth;
+                }
+                resident.Station.TickClothObserver(resident.Age, authored.HasCloth ? elapsed : 0f,
+                    in first, in second);
+            }
             if (hasActivity)
             { resident.Activity = remoteActivity.At(service - 1); resident.ObservedActivity = true; }
             else
@@ -204,10 +219,14 @@ internal static class TownServicePopulation
                 Age = resident.Age, Clip = resident.Clip,
                 ActorFloorOffset = resident.Station.ActorFloorOffset, FurnitureBottom = resident.Station.FurnitureBottom,
                 Visibility = (byte)Mathf.RoundToInt(resident.Visibility * 255f) });
+            if (service == 2)
+            { published.TempleLeft = resident.Station.ClothFirst; published.TempleRight = resident.Station.ClothSecond; }
+            else if (service == 3) published.EnchantressCloth = resident.Station.ClothFirst;
             if (!used && resident.Visibility <= 0f)
             { NativeTemplates.InvalidateResident(service); resident.Visit.Dispose(); resident.Station.Dispose(); Residents.Remove(service); }
         }
         if (missing && retry) _retryAt = now + 2f;
+        published.HasCloth = published.Active && (IsFaceAuthor || follows && authored.HasCloth);
         Published = published;
         faces.Active = published.Active;
         PublishedFaces = faces; activities.Active = published.Active; PublishedActivities = activities;
