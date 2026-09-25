@@ -97,12 +97,20 @@ internal sealed class TownServiceFace
         }
         else
         {
+            TownFacePose previous = _shown;
+            int previousAuthor = _shownAuthor;
             if (received)
             { _shown = remote; _hasRemote = true; _shownAuthor = authorId; _lastRemote = Time.unscaledTime; }
             else if (Time.unscaledTime - _lastRemote > .25f)
                 _shown = TownServiceFaceMotion.Aim(_rig.OpticalRotation, _root.lossyScale.x,
                     _rig.HeadPosition, _rig.LeftPosition, _rig.RightPosition, null, in _shown, Time.unscaledDeltaTime);
             _shown.SpeechAge = Mathf.Min(3600f, _shown.SpeechAge + (received ? elapsed : Time.unscaledDeltaTime));
+            // A newly received sample may be slightly older than the mouth pose
+            // already displayed from the prior packet. Audio ignores that rewind;
+            // keep the same cue's visual age monotonic so lips cannot snap backward.
+            if (received && authorId == previousAuthor && _shown.Cue != 0
+                && _shown.Cue == previous.Cue && _shown.Generation == previous.Generation)
+                _shown.SpeechAge = Mathf.Max(_shown.SpeechAge, previous.SpeechAge);
             mouth = TownServiceFaceSpeech.Curve != null
                 ? TownServiceFaceSpeech.Curve(_service, _shown.Cue, _shown.SpeechAge)
                 : Vector3.zero;

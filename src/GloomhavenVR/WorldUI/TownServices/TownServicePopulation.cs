@@ -200,10 +200,18 @@ internal static class TownServicePopulation
                 out TownActivityVisual displayedActivity, out TownFacePose displayedFace);
             if (service == 1)
             {
-                bool offering = TownServiceMerchantHandoff.WantsOffering || TownServiceMirror.RemoteMerchantOffering;
-                resident.MerchantOfferingBlend = Mathf.MoveTowards(resident.MerchantOfferingBlend,
-                    offering ? 1f : 0f, Time.unscaledDeltaTime / TownServiceActivityMotion.TransitionSeconds);
+                if (IsFaceAuthor)
+                {
+                    bool offering = TownServiceMerchantHandoff.WantsOffering || TownServiceMirror.RemoteMerchantOffering;
+                    resident.MerchantOfferingBlend = Mathf.MoveTowards(resident.MerchantOfferingBlend,
+                        offering ? 1f : 0f, Time.unscaledDeltaTime / TownServiceActivityMotion.TransitionSeconds);
+                }
+                else if (hasActivity)
+                    resident.MerchantOfferingBlend = remoteActivity.MerchantOfferingBlend;
+                // A follower with no fresh activity packet holds the last authored
+                // pose. It must never invent a new transition from local offer state.
                 TownServiceActivityMotion.ApplyMerchantOffering(ref displayedActivity, resident.MerchantOfferingBlend);
+                activities.MerchantOfferingBlend = resident.MerchantOfferingBlend;
             }
             resident.Station.SampleActivity(in displayedActivity);
             resident.Station.SampleActivityAudio(faceAuthor, sourceEpoch, resident.Activity.WorkClock,

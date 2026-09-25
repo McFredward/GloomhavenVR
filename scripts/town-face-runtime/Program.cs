@@ -149,6 +149,14 @@ public static class InteractionProgram
         face.BeforeBodySample();camera.transform.position=head.position+new Vector3(-4,0,2);output=face.Tick(false,true,2,in remote,.1f,2);Near(output.HeadYaw,-30,"observer movement cannot alter author pose");
         var second=Rig(out _,out _,out _,out var secondSkins);var otherFace=new TownServiceFace(second,1);otherFace.Tick(false,true,2,in remote,.1f,2);
         Near(secondSkins[0].GetBlendShapeWeight(2),skins[0].GetBlendShapeWeight(2),"two observers share exact mouth curve");
+        var jittered=remote;jittered.SpeechAge=.1f;
+        face.BeforeBodySample();
+        output=face.Tick(false,true,2,in jittered,.1f,2);
+        Near(output.SpeechAge,.5f,"same-utterance packet jitter never rewinds visible lips");
+        jittered.Generation=2;
+        face.BeforeBodySample();
+        output=face.Tick(false,true,2,in jittered,.1f,2);
+        Near(output.SpeechAge,.2f,"new utterance starts at its authored age");
         float before=output.HeadYaw;face.BeforeBodySample();FaceClock.Now+=.1f;
         output=face.Tick(false,false,2,in remote,0,2.1f);Near(output.HeadYaw,before,"short missing face interval retains head");
         face.BeforeBodySample();FaceClock.Now+=1f;output=face.Tick(false,false,2,in remote,0,3);

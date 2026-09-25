@@ -14,22 +14,28 @@ internal struct TownActivityState
     internal uint Epoch, Sequence;
     internal float Clock;
     internal TownActivityPose Merchant, Temple, Enchantress;
+    // The resident author alone advances this transition. Recomputing it from a
+    // visitor's locally received offer would give every observer a different pose.
+    internal float MerchantOfferingBlend;
     internal TownActivityPose At(int index) => index == 0 ? Merchant : index == 1 ? Temple : Enchantress;
     internal void Set(int index, TownActivityPose pose)
     { if (index == 0) Merchant = pose; else if (index == 1) Temple = pose; else Enchantress = pose; }
 }
 
-/// <summary>Additive81: active1/epoch4/sequence4/clock4, then three13-byte occupation phases.
+/// <summary>Additive81: active1/epoch4/sequence4/clock4, three13-byte occupation phases,
+/// then the author's four-byte merchant offering blend.
 /// Existing records79/80 and their dedicated packets remain byte-identical.</summary>
 internal static class TownActivityCodec
 {
-    internal const int MaxPayload = 52;
+    internal const int MaxPayload = 56;
     internal const int PacketBytes = 6 + 2 + MaxPayload + 2 + TownFaceCodec.MaxPayload;
     private static bool Finite(float value) => !float.IsNaN(value) && !float.IsInfinity(value);
     internal static bool Valid(in TownActivityState state)
     {
         if (!state.Active) return true;
-        if (state.Epoch == 0 || !Finite(state.Clock) || state.Clock < 0f || state.Clock > 10000000f) return false;
+        if (state.Epoch == 0 || !Finite(state.Clock) || state.Clock < 0f || state.Clock > 10000000f
+            || !Finite(state.MerchantOfferingBlend) || state.MerchantOfferingBlend < 0f
+            || state.MerchantOfferingBlend > 1f) return false;
         for (int n = 0; n < 3; n++)
         {
             TownActivityPose p = state.At(n);
@@ -57,6 +63,7 @@ internal static class TownActivityCodec
             AvatarSerializer.WriteF32(buffer, ref offset, p.FromBlend);
             buffer[offset++] = p.Engaged ? (byte)1 : (byte)0;
         }
+        AvatarSerializer.WriteF32(buffer, ref offset, state.MerchantOfferingBlend);
         return true;
     }
     internal static bool TryRead(byte[] buffer, int offset, int length, out TownActivityState state)
@@ -79,6 +86,7 @@ internal static class TownActivityCodec
             p.Engaged = target == 1;
             read.Set(n, p);
         }
+        read.MerchantOfferingBlend = AvatarSerializer.ReadF32(buffer, ref offset);
         if (!Valid(in read)) return false;
         state = read; return true;
     }

@@ -105,6 +105,10 @@ internal static class RemoteTownActivities
             }
             state.Set(n, target);
         }
+        // Offering is a visible hand pose, not an observer-local visitor decision.
+        // Reconcile the author's samples with the same packet span as the body.
+        state.MerchantOfferingBlend = Mathf.Lerp(peer.Previous.MerchantOfferingBlend,
+            peer.Latest.MerchantOfferingBlend, t);
         state.Clock += elapsed;
         return state;
     }
