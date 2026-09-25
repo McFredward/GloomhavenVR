@@ -89,6 +89,13 @@ internal static class StationLifecycle
 
 namespace GloomhavenVR.WorldUI
 {
+    internal sealed class TownServiceTempleBowlMarker : IDisposable
+    {
+        internal TownServiceTempleBowlMarker(Transform root,bool stationSpace) { }
+        internal void Tick(bool available) { }
+        internal void Bless(float elapsed) { }
+        public void Dispose() { }
+    }
     internal static class TownServiceAssets
     {
         internal static bool HasAnchor=true;

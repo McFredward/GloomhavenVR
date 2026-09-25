@@ -79,20 +79,23 @@ internal static class TownServiceActivityMotion
         // edge of the worktops. Build 563's "lowered" targets still put both wrists on
         // the table in the headset screenshots because they were authored forward of the
         // torso. Hands on hips need a rearward wrist, an outward elbow and a relaxed shoulder.
-        work.Left = Vector3.Lerp(work.Left, service == 1 ? new Vector3(.32f, .97f, .04f)
-            : service == 2 ? new Vector3(.30f, .87f, .015f) : new Vector3(.22f, 1.13f, .23f), attention);
-        work.Right = Vector3.Lerp(work.Right, service == 1 ? new Vector3(-.32f, .97f, .04f)
-            : service == 3 ? new Vector3(-.18f, 1.17f, .23f) : new Vector3(-.30f, .87f, .015f), attention);
+        // These points are inside the measured reach of the imported arms. Pushing a
+        // target farther rearward made the IK clamp at full extension and left the palm
+        // visibly in front of the torso despite the nominal "hip" coordinates.
+        work.Left = Vector3.Lerp(work.Left, service == 1 ? new Vector3(.32f, 1.10f, .18f)
+            : service == 2 ? new Vector3(.31f, 1.08f, .20f) : new Vector3(.22f, 1.13f, .23f), attention);
+        work.Right = Vector3.Lerp(work.Right, service == 1 ? new Vector3(-.32f, 1.10f, .18f)
+            : service == 3 ? new Vector3(-.18f, 1.17f, .23f) : new Vector3(-.31f, 1.08f, .20f), attention);
         // Hand targets alone cannot lower an arm naturally. Author the matching elbow path as
         // part of the same blend so the upper arm leaves the shoulder downward instead of staying
         // abducted while the forearm reaches for a low hand target.
         if (service is 1 or 2)
         {
-            float side = service == 1 ? .42f : .43f;
+            float side = service == 1 ? .38f : .37f;
             work.LeftElbow = Vector3.Lerp(work.LeftElbow,
-                new Vector3(side, service == 1 ? 1.05f : 1.06f, service == 1 ? .07f : .06f), attention);
+                new Vector3(side, service == 1 ? 1.14f : 1.15f, .20f), attention);
             work.RightElbow = Vector3.Lerp(work.RightElbow,
-                new Vector3(-side, service == 1 ? 1.05f : 1.06f, service == 1 ? .07f : .06f), attention);
+                new Vector3(-side, service == 1 ? 1.14f : 1.15f, .20f), attention);
         }
         work.RightRoll = Mathf.Lerp(work.RightRoll, service == 1 ? 65f : service == 3 ? 180f : 38f, attention);
         work.LeftRoll = Mathf.Lerp(work.LeftRoll, service == 1 ? -65f : service == 3 ? -65f : -38f, attention);

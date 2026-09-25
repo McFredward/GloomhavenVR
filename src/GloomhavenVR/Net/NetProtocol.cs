@@ -75,6 +75,9 @@ internal static class NetProtocol
     // Small owner-authored cloth controls inside a town-service module packet,
     // independent of the 7680-byte avatar presence snapshot (record 79).
     public const byte ExtIdTownWorkspaceCloth = 90;
+    /// <summary>Owner-authored temple availability and blessing revision inside the
+    /// town-service manifest. This contains no character, card or transaction identity.</summary>
+    public const byte ExtIdTownInteraction = 91;
     public const byte ExtIdTownRack = 85;
     public const byte ExtIdTownCassette = 86;
     public const byte ExtIdTownResidents = 79;
@@ -538,7 +541,21 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 563;
+    public const ushort ModBuild = 564;
+
+    // ModBuild 564 — fourth NPC hardware follow-up on the feature branch (FULL
+    // INSTALL). The priestess now uses fifteen consistent elderly Wise_Woman
+    // performances with regenerated mouth curves. Her eligible purse remains
+    // upright, snaps exactly into a blue translucent bowl guide and produces one
+    // shared blue/gold blessing; an unavailable donation hides that guide and
+    // closes both hands over the bowl. Reachable anatomical targets put merchant
+    // and priestess hands on their own hips. Merchant and enchantress palms accept
+    // an atomic replacement card; the enchantress practical is grounded to the
+    // actual workbench. One sticky, timeout-bounded lease per resident elects the
+    // only visitor who can interact, author motion or speak while every peer sees
+    // the same result. Additive inner town-service record 91 shares only temple
+    // eligibility and blessing revision. Exact immersive show edges suppress the
+    // remaining flat-service sound without muting native NPC foley.
 
     // ModBuild 563 — third NPC hardware follow-up on the feature branch. Native
     // Unity cloth now drives the altar runners and collides with the curved table,

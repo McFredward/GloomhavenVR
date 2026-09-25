@@ -97,14 +97,14 @@ internal static class HandContacts
                         // The imported upper/forearm lengths end above the .74 guide;
                         // verify the solved anatomical palm, not the unreachable guide.
                         // It must hang below the .955 worktop and beside the robe.
-                        if(Mathf.Abs(lowered.x)<.22f||lowered.z>.30f||lowered.y>1.02f)
+                        if(Mathf.Abs(lowered.x)<.22f||lowered.z>.30f||lowered.y>1.12f)
                             throw new Exception("attentive priestess hands stay beside her robe and outside the donation bowl: "+side+" "+lowered);
                         checks++;
                     }
                     else if(service==1&&side=="L")
                     {
                         Vector3 hip=root.InverseTransformPoint(contact.position);
-                        if(Mathf.Abs(hip.x)<.24f||hip.z>.15f||hip.y>1.05f)
+                        if(Mathf.Abs(hip.x)<.24f||hip.z>.20f||hip.y>1.12f)
                             throw new Exception("attentive merchant free hand rests on his hip behind the counter: "+side+" "+hip);
                         checks++;
                     }

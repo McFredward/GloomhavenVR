@@ -115,6 +115,7 @@ namespace GloomhavenVR.WorldUI
         internal void SeedFace(GloomhavenVR.Net.TownFacePose pose,int author,float elapsed){FaceSeeds++;FacePose=pose;}
         internal GloomhavenVR.Net.TownFacePose SampleFace(bool author,bool received,int authorId,in GloomhavenVR.Net.TownFacePose remote,float elapsed,float clock){FaceAuthor=author;FaceReceived=received;if(received)FacePose=remote;return FacePose;}
         internal void Sample(string clip,float age) { Clip=clip;Age=age; }
+        internal void PlayTempleBlessing(float elapsed) { }
         internal void Dispose() { Live.Remove(Service);Disposals++; }
     }
     internal sealed class TownServiceVisitTarget
@@ -135,7 +136,28 @@ namespace GloomhavenVR.Net.TownServices
     internal sealed class TownServiceSessionInfo
     { internal bool Active;internal byte Service;internal float ReceivedTime,LastSeenTime,SessionAge;internal int Peer; }
     internal static class TownServiceMirror
-    { internal static bool RemoteMerchantOffering; internal static readonly Dictionary<int,TownServiceSessionInfo> RemoteSessions=new();internal static Func<int,Transform?>? SharedFrameForRemote; }
+    {
+        internal static bool RemoteMerchantOffering;
+        internal static readonly Dictionary<int,TownServiceSessionInfo> RemoteSessions=new();
+        internal static Func<int,Transform?>? SharedFrameForRemote;
+        internal static bool TryInteractionOwner(byte service,out int player,out uint session,out float age)
+        {
+            player=0;session=0;age=0;
+            foreach(var pair in RemoteSessions)
+            {
+                TownServiceSessionInfo value=pair.Value;
+                if(!value.Active||value.Service!=service
+                    ||UnityEngine.Time.unscaledTime-value.LastSeenTime>GloomhavenVR.Net.NetProtocol.StaleTimeoutSeconds)continue;
+                if(player!=0&&pair.Key>=player)continue;
+                player=pair.Key;session=0;
+                age=value.SessionAge+UnityEngine.Mathf.Max(0,UnityEngine.Time.unscaledTime-value.ReceivedTime);
+            }
+            return player!=0;
+        }
+        internal static bool TryTempleDonationState(out int owner,out uint session,out bool known,
+            out bool available,out uint revision,out float transitionAge)
+        { owner=0;session=0;known=false;available=true;revision=0;transitionAge=0;return false; }
+    }
 }
 namespace GloomhavenVR.Net
 {

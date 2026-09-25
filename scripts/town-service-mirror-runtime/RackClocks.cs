@@ -11,6 +11,7 @@ public static partial class MirrorProgram
     private static CanvasGroup RemoteGate(int peer,ushort id)=>Remote(peer,id)!.Root.GetComponentInParent<CanvasGroup>();
     private static IEnumerator RackClocks()
     {
+        GloomhavenVR.Net.NetPlayerActors.Peer=10;
         foreach(float scale in new[]{.05f,1f,2f,198.12f})
         {
             TownServiceMirror.Shutdown();TownServiceMirror.ResetNetwork();Baselines.Clear();
@@ -61,7 +62,9 @@ public static partial class MirrorProgram
             TownServiceMirror.SetRack(1,clock);
             List<byte[]> first=Capture();
             byte[] withheld=first.Single(bytes=>TownServiceCodec.TryRead(bytes,bytes.Length,out var frame)&&frame!.Module==98);
-            Receive(2,first.Where(bytes=>!ReferenceEquals(bytes,withheld)));TownServiceMirror.TickRemote(_=>observer);
+            Receive(2,first.Where(bytes=>!ReferenceEquals(bytes,withheld)));TownServiceMirror.InteractionOwner(1);
+            for(float settle=Time.unscaledTime+.13f;Time.unscaledTime<settle;)
+            {TownServiceMirror.TickRemote(_=>observer);yield return null;}
             Check(Remote(2,1)!=null&&Remote(2,3)!=null,"actual rack and original warm modules instantiate");
             for(ushort id=3;id<98;id++)Check(RemoteGate(2,id).alpha==(id<51?1f:0f),"hidden prewarm never leaks a face or price");
             Check(Remote(2,52)!.Root.GetComponent<MeshRenderer>().forceRenderingOff,"hidden physical body uses its explicit page gate");
@@ -69,7 +72,8 @@ public static partial class MirrorProgram
             rack.localRotation=Quaternion.Euler(0,15+360*TownRackState.Progress(.1f),0);
             TownServiceMirror.SetRack(1,clock);var beginning=Capture();Receive(2,beginning);TownServiceMirror.TickRemote(_=>observer);
             Receive(3,first);Receive(3,beginning);TownServiceMirror.TickRemote(_=>observer);
-            Check(Quaternion.Angle(Quaternion.Inverse(observer.rotation)*Remote(3,1)!.Root.rotation,rack.localRotation)<.1f,"late join reconstructs the actual owner mid-turn phase");
+            Check(Remote(3,1)==null,"second visitor cannot replace the active shared rack owner");
+            TownServiceMirror.RemovePeer(3);
             for(float wait=Time.unscaledTime+.08f;Time.unscaledTime<wait;)yield return null;TownServiceMirror.TickRemote(_=>observer);
             Check(Quaternion.Angle(Quaternion.Inverse(observer.rotation)*Remote(2,1)!.Root.rotation,Quaternion.Euler(0,15,0))<.1f,"missing one dependency keeps the complete outgoing page at rest");
             Receive(2,new[]{withheld});TownServiceMirror.TickRemote(_=>observer);
@@ -168,5 +172,6 @@ public static partial class MirrorProgram
             TownServiceMirror.EndSession();TownServiceMirror.ResetNetwork();
             UnityEngine.Object.DestroyImmediate(owner.gameObject);UnityEngine.Object.DestroyImmediate(observer.gameObject);
         }
+        GloomhavenVR.Net.NetPlayerActors.Peer=1;
     }
 }

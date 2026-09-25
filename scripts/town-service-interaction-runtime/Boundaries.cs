@@ -80,7 +80,11 @@ namespace GloomhavenVR.Cards
     internal static class CardsConfig
     { internal static ConfigFloat HeldOffPalm = new(), HeldForward = new(), HeldFaceBias = new(),InspectScale=new(){Value=1f},CardWidth=new(){Value=.18f},CardLerpSpeed=new(){Value=20f},CardGrabSound=new();internal static ConfigVector HeldPinchOffset=new(); }
     internal sealed class ConfigVector {internal Vector3 Value=Vector3.zero;}
-    internal static class CardsDriver {internal static void PlayCardSound(float s,Transform t){} }
+    internal static class CardsDriver
+    {
+        internal static void PlayCardSound(float s,Transform t){}
+        internal static void SuppressNextOffScenarioFanEdgeSound(bool open,float seconds=0f){}
+    }
     internal static class HeldCardGrip {internal static float Blend(GloomhavenVR.Hands.VRHand h)=>0f;internal static bool TryPose(GloomhavenVR.Hands.VRHand h,float w,float ht,out Vector3 p,out Quaternion q){p=default;q=Quaternion.identity;return false;}}
 }
 public class ItemCardUI:MonoBehaviour {}
@@ -147,6 +151,14 @@ namespace GloomhavenVR.Net
         internal void Destroy() { }
     }
 }
+namespace GloomhavenVR.Net.TownServices
+{
+    internal static class TownServiceMirror
+    {
+        internal static bool LocalOwnsInteraction(byte service, uint session) => true;
+        internal static void SetLocalTempleDonationAvailable(bool available) { }
+    }
+}
 namespace GloomhavenVR.WorldUI.MapRoom
 {
     internal static class MapRoomDriver
@@ -158,6 +170,7 @@ namespace GloomhavenVR.WorldUI.MapRoom
 }
 namespace GloomhavenVR.WorldUI
 {
+    internal static class TownServiceNativeAudioSilence { internal static void EnsureInstalled() { } }
     internal static class TownServicePhysicalRay { internal static void Claim(GloomhavenVR.Hands.VRHand hand) { } }
     internal sealed class ConfigBool { internal bool Value = true; }
     internal static class WorldUIConfig
@@ -271,6 +284,8 @@ namespace GloomhavenVR.WorldUI
         internal IReadOnlyCollection<TownServiceToken> Samples => _tokens;
         internal Transform Root { get; }
         internal bool CanRelocate => !_tokens.Exists(t => t.IsMoving);
+        internal bool TempleDonationAvailabilityKnown => true;
+        internal bool TempleDonationAvailable => true;
         internal void SetVisibility(float value, bool input) { }
         internal TownServiceRitual(UIWindow window, byte service, Transform parent,
             Func<bool> session, Func<object?> context)

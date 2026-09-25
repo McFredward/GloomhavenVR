@@ -8,10 +8,9 @@ namespace GloomhavenVR.Net.TownServices;
 /// <summary>One complete module revision, split into additive TLV78 records inside GVR1.</summary>
 internal static class TownServiceCodec
 {
-    // Integrator owns allocation in NetProtocol. Keep these aliases until the integration commit.
     internal const byte MessageType = 19, FragmentType = 20, RecordId = 78;
     internal const byte WorkspaceClothRecordId = NetProtocol.ExtIdTownWorkspaceCloth;
-    internal const byte TempleInteractionRecordId = 91;
+    internal const byte TempleInteractionRecordId = NetProtocol.ExtIdTownInteraction;
     private static readonly UTF8Encoding Utf8 = new(false, true);
 
     internal static byte[] Write(TownServiceFrame frame)

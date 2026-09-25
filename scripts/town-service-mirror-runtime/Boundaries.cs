@@ -55,6 +55,7 @@ namespace GloomhavenVR.Net
     internal static class NetProtocol
     {
         internal const byte ExtIdTownWorkspaceCloth = 90;
+        internal const byte ExtIdTownInteraction = 91;
         internal const float StaleTimeoutSeconds = 3f;
     }
     internal struct TownClothRunnerState { internal Vector2 Left, Right, LeftVelocity, RightVelocity; }

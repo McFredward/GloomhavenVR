@@ -14,7 +14,7 @@ applies a further 0.55 gain and the same master/SFX controls.
 | Resident | Voice source | Cues |
 | --- | --- | --- |
 | Merchant | Qwen 3 TTS voice designs + fixed 0.6B cloned speaker embeddings | five each: greet, offer, buy, sell |
-| Priestess | Qwen 3 TTS voice design + one fixed 0.6B cloned speaker embedding | five each: greet, prayer, donate |
+| Priestess | MiniMax Speech 2.8 HD preset `Wise_Woman` | five each: greet, prayer, donate |
 | Enchantress | ElevenLabs v3 voice ID `pFZP5JQG7iQjIQuC4Bku` | five each: greet, cast, enhance, invite |
 
 The revised merchant design asks for a close-miked, deep, clear and warm
@@ -22,8 +22,12 @@ middle-aged baritone speaking calmly to one nearby customer. It explicitly
 excludes shouting, announcer projection and distant or processed sound. An
 independent audio-model review heard a man in his 40s-50s, low-to-mid pitch,
 exceptionally clear, warm, close and conversational, with only slight room
-reverb and no shouting. The build-563 priestess design is one close-miked elderly
-feminine, breathy, smoke-roughened voice shared by all fifteen of her lines. The
+reverb and no shouting. Build 564 replaces the hardware-rejected Qwen priestess
+with MiniMax Speech 2.8 HD's age-specific `Wise_Woman` preset, shared by all fifteen
+lines. Three bounded previews compared its direct performance with two modified
+pitch/timbre variants. The direct preset was selected to avoid adding an artificial
+filter to the named older-woman source. A random web recording was not cloned because
+speaker consent and reuse rights could not be established. The
 rejected merchant-sell-2 take uses a new close, calm merchant reference. No pitch
 or formant post-process is applied.
 Local tiny.en ASR recovered the intended sentence structure for every newly
@@ -32,7 +36,7 @@ take stretched two short sentences to 17.98 seconds; it was rejected and
 replaced once with a bounded-token take lasting 3.43 seconds. ASR and model
 reviews do not replace human listening in the headset.
 
-The final build-563 audio review heard the replacement merchant sentence in full
+The final build-564 audio review heard the replacement merchant sentence in full
 and described it as close, clean, natural, middle-aged and calmly conversational,
 without glitches. A final priestess performance was described as close, elderly,
 feminine, smoky, hoarse, gentle and devotional, with no room echo, processing or
@@ -44,7 +48,10 @@ Their validated cue, resident, duration and phoneme intervals let the elected
 multiplayer face author choose one of five event variants, then broadcast that
 exact cue/generation/age to all observers. The
 voice playback seeks to that shared age; mouth curves use it directly. Neither
-the voice API nor Rhubarb runs at game runtime.
+the voice API nor Rhubarb runs at game runtime. Build 564 regenerated the fifteen
+priestess curves from the replacement WAVs. Local tiny.en ASR recovered every
+sentence; one ambiguous `boughs` take was deliberately replaced with the clearer
+authored wording `ancient branches` under a separate paid intent.
 
 The variant plan in `scripts/generate-town-voices.py` records immutable paid
 intents and estimated per-call prices. Its 51 planned one-shot calls total about
@@ -53,6 +60,7 @@ the displayed-price estimate to about USD 0.2057. A separate coin-review request
 returned HTTP 403 and was not retried; actual account billing was not independently
 reconciled. Sources: [Qwen voice design](https://fal.ai/models/fal-ai/qwen-3-tts/voice-design/1.7b),
 [Qwen TTS](https://fal.ai/models/fal-ai/qwen-3-tts/text-to-speech/0.6b),
+[MiniMax Speech 2.8 HD](https://fal.ai/models/fal-ai/minimax/speech-2.8-hd),
 [ElevenLabs v3](https://fal.ai/models/fal-ai/elevenlabs/tts/eleven-v3),
 [ElevenLabs SFX](https://fal.ai/models/fal-ai/elevenlabs/sound-effects/v2).
 Private receipts and source MP3s stay gitignored under
@@ -68,3 +76,12 @@ under the replacement key. Provider billing was not independently reconciled. Th
 complete original revision plan had a USD 0.0704 listed-price estimate. Private
 intents, receipts, source MP3s and local ASR output remain gitignored under
 `.planning/debug/town563-speech/` and `.planning/debug/town563-whisper/`.
+
+The build-564 MiniMax pass planned nineteen one-shot requests at the displayed
+USD 0.0900 estimate: three short previews, fifteen final lines and one explicit
+clarity replacement. The first three preview submissions were rejected by input
+schema validation before speech generation because the live endpoint required
+integer audio enums where the documentation examples exposed string values. Their
+receipts are retained as rejected evidence and were resubmitted only after this
+failure was unambiguous. Private intents, receipts, preview MP3s and ASR output stay
+gitignored under `.planning/debug/town564-speech/`.

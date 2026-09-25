@@ -34,7 +34,9 @@ public static partial class MirrorProgram
         Check(snapshots.Count(bytes=>TownServiceCodec.TryRead(bytes,bytes.Length,out var frame)&&frame!.Module==10)==2,
             "private service and public stock both publish identical module IDs without overwrite");
         Check(TownServiceMirror.RemoteSessions.Count==0,"local public stock creates no visitor workspace");
-        NetPlayerActors.Peer=3; Receive(2,snapshots); TownServiceMirror.TickRemote(_=>observer);
+        NetPlayerActors.Peer=3; Receive(2,snapshots); TownServiceMirror.InteractionOwner(2);
+        for(float until=Time.unscaledTime+.13f;Time.unscaledTime<until;)yield return null;
+        TownServiceMirror.InteractionOwner(2); TownServiceMirror.TickRemote(_=>observer);
         Check(TownServiceMirror.PublicAuthor==2,"one lowest live stock author is elected");
         Check(TownServiceMirror.RemoteSessions.Count==1,"remote public stock is excluded from visitor census");
         Check(Remote(2,10)!=null&&Remote(-2,10)!=null,"private native service coexists with shared public cabinet");
@@ -58,7 +60,9 @@ public static partial class MirrorProgram
         TownServiceMirror.RegisterTemplate(1,2,prompt,address:"item.confirm.part.2|");
         TownServiceMirror.BeginSession(1,902,owner,prompt);
         TownServiceMirror.RegisterModule(11,2,prompt,address:"item.confirm.part.2|");
-        Receive(2,Capture());TownServiceMirror.TickRemote(_=>observer);
+        Receive(2,Capture());TownServiceMirror.InteractionOwner(1);
+        for(float until=Time.unscaledTime+.13f;Time.unscaledTime<until;)yield return null;
+        TownServiceMirror.InteractionOwner(1);TownServiceMirror.TickRemote(_=>observer);
         Check(Remote(2,11)!=null&&Remote(-2,10)!=null,
             "every peer sees the buyer's original purchase confirmation beside the same public cabinet");
         var copiedConfirm=Remote(2,11)!.Root.GetComponent<UnityEngine.UI.Button>();

@@ -6,7 +6,7 @@ using UnityEngine;
 
 public static partial class MirrorProgram
 {
-    private static void MerchantOfferingIntent()
+    private static IEnumerator MerchantOfferingIntent()
     {
         TownServiceMirror.Shutdown();
         try
@@ -50,6 +50,9 @@ public static partial class MirrorProgram
                 "offering heartbeat samples owner time afresh instead of replaying cached intent");
             Check(renewed.HighPriority, "offering heartbeat bypasses cold catalog backlog");
             TownServiceMirror.UnregisterModule(1);
+            // This fixture captures the local owner and then replays those packets as
+            // an observer. Release the sender lane before exercising the remote lease.
+            TownServiceMirror.EndSession();
             ulong sequence = 1000;
             void Deliver(TownServiceFrame frame)
             {
@@ -62,6 +65,8 @@ public static partial class MirrorProgram
             Deliver(offering!);
             Check(!TownServiceMirror.RemoteMerchantOffering, "offering cannot outlive its owner membership");
             Deliver(manifest!);
+            TownServiceMirror.InteractionOwner(1);
+            for (float until = Time.unscaledTime + .13f; Time.unscaledTime < until;) yield return null;
             Check(TownServiceMirror.RemoteMerchantOffering, "parked zero-alpha overlay keeps the shared palm open");
             byte[] stale = TownServiceCodec.Write(offering!);
             offering!.Visible = false; Deliver(offering);
@@ -80,6 +85,8 @@ public static partial class MirrorProgram
             Check(TownServiceMirror.RemoteMerchantOffering, "fresh original offering renews its bounded lifetime");
             offering.Session = 992; Deliver(offering);
             manifest.Session = 992; Deliver(manifest);
+            TownServiceMirror.InteractionOwner(1);
+            for (float until = Time.unscaledTime + .13f; Time.unscaledTime < until;) yield return null;
             Check(TownServiceMirror.RemoteMerchantOffering, "reopened owner session adopts its earlier arriving original overlay");
             manifest.Visible = false; manifest.Modules = Array.Empty<ushort>(); Deliver(manifest);
             Check(!TownServiceMirror.RemoteMerchantOffering, "closed native visit cannot leave the resident offering");

@@ -178,10 +178,12 @@ public static class InteractionProgram
         TownServiceActivityMotion.Engage(ref prayer,true);
         prayer=TownServiceActivityMotion.Advance(prayer,TownServiceActivityMotion.TransitionSeconds);
         var receiving=TownServiceActivityMotion.Visual(2,in prayer);
-        Check(receiving.Left.x>.28f&&receiving.Right.x<-.28f
-            &&receiving.Left.y<.90f&&receiving.Right.y<.90f
-            &&receiving.Left.z<.04f&&receiving.Right.z<.04f
-            &&receiving.LeftElbow.x>.40f&&receiving.RightElbow.x<-.40f,
+        Check(receiving.Left.x>.30f&&receiving.Right.x<-.30f
+            &&receiving.Left.y>1.05f&&receiving.Right.y>1.05f
+            &&receiving.Left.y<1.11f&&receiving.Right.y<1.11f
+            &&receiving.Left.z>.18f&&receiving.Right.z>.18f
+            &&receiving.Left.z<.22f&&receiving.Right.z<.22f
+            &&receiving.LeftElbow.x>.36f&&receiving.RightElbow.x<-.36f,
             "attentive priestess rests both hands on her own hips behind the table edge");
         TownServiceActivityMotion.ApplyTempleAvailability(ref receiving,false,1f);
         Check(Mathf.Abs(receiving.Left.x)<.10f&&Mathf.Abs(receiving.Right.x)<.10f
@@ -192,9 +194,9 @@ public static class InteractionProgram
         TownServiceActivityMotion.Engage(ref pause,true);pause=TownServiceActivityMotion.Advance(pause,1f);
         var held=TownServiceActivityMotion.Visual(1,in pause);
         Check(held.CoinGrip.x==1f,"visitor interruption preserves held coin contact");
-        Check(held.RightRoll<90f&&held.Left.y<1f&&held.Left.x>.30f
-            &&held.Right.x<-.30f&&held.Right.z<.08f
-            &&held.LeftElbow.x>.40f&&held.RightElbow.x<-.40f,
+        Check(held.RightRoll<90f&&held.Left.y>1.07f&&held.Left.y<1.12f&&held.Left.x>.30f
+            &&held.Right.x<-.30f&&held.Right.z>.16f&&held.Right.z<.20f
+            &&held.LeftElbow.x>.37f&&held.RightElbow.x<-.37f,
             "visitor attention settles merchant with hands at his hips without an unsolicited offering");
         TownServiceActivityMotion.ApplyMerchantOffering(ref held,1f);
         Check(held.RightRoll>170f&&held.Right.y>1.17f,

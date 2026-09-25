@@ -23,7 +23,11 @@ namespace GloomhavenVR.WorldUI
 namespace GloomhavenVR.Net.TownServices
 {
     internal sealed class TownServiceSessionInfo { internal bool Active;internal byte Service;internal float LastSeenTime; }
-    internal static class TownServiceMirror {internal static readonly Dictionary<int,TownServiceSessionInfo> RemoteSessions=new();}
+    internal static class TownServiceMirror
+    {
+        internal static readonly Dictionary<int,TownServiceSessionInfo> RemoteSessions=new();
+        internal static int InteractionOwner(byte service)=>0;
+    }
 }
 
 namespace GloomhavenVR.Core { internal static class VRLayers {internal const int ModLayer=27;} internal static class VRLog { internal static int Warnings; internal static void Warn(string source,string text)=>Warnings++; } }

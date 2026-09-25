@@ -671,6 +671,11 @@ public static partial class MirrorProgram
             if (frame!.Module != TownServiceFrame.ManifestModule)
             { Check(frame.BaseSequence != 0, "late baseline probe uses an actual delta"); Receive(2, new[] { packet }); }
         }
+        // The private resident now has one shared visitor. Release the original
+        // observer before proving that a second peer's out-of-order baseline can
+        // still construct the module once that peer owns the station.
+        TownServiceMirror.EndSession();
+        TownServiceMirror.RemovePeer(1);
         foreach (byte[] packet in baseline)
         {
             TownServiceCodec.TryRead(packet, packet.Length, out TownServiceFrame? frame);
@@ -688,11 +693,14 @@ public static partial class MirrorProgram
         TownServiceMirror.RemovePeer(2);
 
 
-        // Four independently captured owners share templates/assets, never mutable widget state.
+        // Four sequential owners share templates/assets, never mutable widget state.
+        // The immersive resident deliberately admits only one visitor at a time,
+        // so each handover must retire the previous observer before the next claim.
         var frames = new Dictionary<int, Transform> { [1] = observer };
         var references = new Dictionary<int, Color32[]>();
         var texts = new Dictionary<int, string>();
         List<byte[]> ownerFour = null!;
+        NetPlayerActors.Peer = 10; // keep every replayed identity remote in this single-process fixture
         for (int peer = 1; peer <= 4; peer++)
         {
             if (peer != 1) { frames[peer] = Go("Observer " + peer).transform; frames[peer].position = new Vector3(peer * 12, 0, 0); }
@@ -704,42 +712,44 @@ public static partial class MirrorProgram
             yield return null;
             references[peer] = Render(source, 8, "owner-" + peer);
             List<byte[]> packets = Capture(); if (peer == 4) ownerFour = packets;
-            Receive(peer, packets); TownServiceMirror.TickRemote(id => frames[id]);
-        for (float settle = Time.unscaledTime + .13f; Time.unscaledTime < settle;)
-        { TownServiceMirror.TickRemote(id => frames[id]); yield return null; }
-        }
-        for (int peer = 1; peer <= 4; peer++)
-        {
+            TownServiceMirror.EndSession();
+            if (peer > 1) TownServiceMirror.RemovePeer(peer - 1);
+            Receive(peer, packets); TownServiceMirror.InteractionOwner(1);
+            for (float settle = Time.unscaledTime + .13f; Time.unscaledTime < settle;)
+            { TownServiceMirror.TickRemote(id => frames[id]); yield return null; }
             var remote = Remote(peer)!;
-            Check(remote.Root.Find("Name").GetComponent<TMP_Text>().text == texts[peer], "owners retain independent text");
+            string observedText = remote != null ? remote.Root.Find("Name").GetComponent<TMP_Text>().text : "<missing>";
+            Check(remote != null && observedText == texts[peer],
+                "successive resident owner " + peer + " retains text '" + texts[peer] + "' (observed '" + observedText + "')");
+            if (peer > 1) Check(Remote(peer - 1) == null,
+                "resident handover retires the preceding visitor presentation");
             Inert(remote, awakes, enables);
-            ComparePixels(references[peer], Render(remote.Root, 9, "observer-" + peer), "four-owner-" + peer);
+            ComparePixels(references[peer], Render(remote.Root, 9, "observer-" + peer), "successive-owner-" + peer);
         }
         int transforms = Object.FindObjectsOfType<Transform>(true).Length;
         long allocation = GC.GetAllocatedBytesForCurrentThread(); var timer = Stopwatch.StartNew();
         for (int i = 0; i < 1000; i++) TownServiceMirror.TickRemote(id => frames[id]);
         timer.Stop(); allocation = GC.GetAllocatedBytesForCurrentThread() - allocation;
-        Check(Object.FindObjectsOfType<Transform>(true).Length == transforms, "four-owner steady ticks create no hierarchy objects");
-        File.WriteAllText(Path.Combine(_output, "cost.txt"), "1000 ticks, 4 owners: " + timer.Elapsed.TotalMilliseconds + " ms (allocation counter requires calibration; see measurements below)\n");
+        Check(Object.FindObjectsOfType<Transform>(true).Length == transforms, "resident-owner steady ticks create no hierarchy objects");
+        File.WriteAllText(Path.Combine(_output, "cost.txt"), "1000 ticks, one elected owner: " + timer.Elapsed.TotalMilliseconds + " ms (allocation counter requires calibration; see measurements below)\n");
 
         TownServiceBinding oldFour = Remote(4)!;
         _text.text = "Reopened owner 4";
         TownServiceMirror.BeginSession(1, 304, shared, source); TownServiceMirror.RegisterModule(10, 1, source);
         yield return null;
-        Receive(4, Capture()); TownServiceMirror.TickRemote(id => frames[id]);
+        List<byte[]> reopenedFour = Capture();
+        TownServiceMirror.EndSession();
+        List<byte[]> closedFour = Capture();
+        Receive(4, reopenedFour); TownServiceMirror.InteractionOwner(1);
         for (float settle = Time.unscaledTime + .13f; Time.unscaledTime < settle;)
         { TownServiceMirror.TickRemote(id => frames[id]); yield return null; }
         Check(!ReferenceEquals(oldFour, Remote(4)), "reopen retires previous session binding");
         Receive(4, ownerFour); TownServiceMirror.TickRemote(id => frames[id]);
         Check(Remote(4)!.Root.Find("Name").GetComponent<TMP_Text>().text == _text.text, "late old session cannot overwrite reopened owner");
-        TownServiceMirror.EndSession(); Receive(4, Capture()); TownServiceMirror.TickRemote(id => frames[id]);
-        Check(Remote(4) == null && Remote(3) != null, "close removes only closed owner");
-        TownServiceMirror.RemovePeer(3); Check(Remote(3) == null && Remote(2) != null, "peer loss removes only lost owner");
-        var sessions = (IDictionary)typeof(TownServiceMirror).GetField("Sessions", PrivateStatic)!.GetValue(null)!;
-        object session = sessions[2]!;
-        session.GetType().GetField("LastSeenTime", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(session, Time.unscaledTime - 11);
-        TownServiceMirror.TickRemote(id => frames[id]);
-        Check(Remote(2) == null && Remote(1) != null, "stale owner timeout preserves other owners");
+        Receive(4, closedFour); TownServiceMirror.TickRemote(id => frames[id]);
+        Check(Remote(4) == null, "close removes the elected resident owner");
+        TownServiceMirror.RemovePeer(4);
+        NetPlayerActors.Peer = 1;
 
         Cost(source, shared, observer);
 
@@ -1031,6 +1041,7 @@ public static partial class MirrorProgram
     private static IEnumerator CounterPlayback()
     {
         TownServiceMirror.Shutdown(); Baselines.Clear();
+        NetPlayerActors.Peer = 10; // fixture sender must not preempt the replayed observer
         var shared = Go("counter-owner-frame").transform;
         var observer = Go("counter-observer-frame").transform; observer.position = new Vector3(8, 0, 0);
         var counter = Rect("counter-opening", shared, Vector2.zero, new Vector2(900, 600));
@@ -1048,7 +1059,9 @@ public static partial class MirrorProgram
         TownServiceMirror.BeginSession(1, 1100, shared, counter);
         for (ushort i = 0; i < 6; i++) TownServiceMirror.RegisterModule((ushort)(i + 1), 1, cards[i], address: "counter." + i);
         yield return null;
-        Receive(3, Capture()); TownServiceMirror.TickRemote(_ => observer);
+        Receive(3, Capture()); TownServiceMirror.InteractionOwner(1);
+        for (float settle = Time.unscaledTime + .13f; Time.unscaledTime < settle;)
+        { TownServiceMirror.TickRemote(_ => observer); yield return null; }
         for (int i = 0; i < 6; i++) Check(Remote(3, (ushort)(i + 1)) != null, "all six counter cards have observer modules");
         opening.alpha = .37f;
         yield return null;
@@ -1073,6 +1086,7 @@ public static partial class MirrorProgram
         for (float settle = Time.unscaledTime + .13f; Time.unscaledTime < settle;)
         { TownServiceMirror.TickRemote(_ => observer); yield return null; }
         for (int i = 0; i < 2; i++) ComparePixels(cards[i], Remote(3, (ushort)(i + 1))!.Root, "counter-page-shrink-" + i);
+        NetPlayerActors.Peer = 1;
     }
 
     private static IEnumerator FurniturePlayback()
@@ -1315,7 +1329,9 @@ public static partial class MirrorProgram
             TownServiceMirror.BeginSession(1, 101, shared, source);
             TownServiceMirror.RegisterModule(10, 1, source);
             List<byte[]> baseline = Capture(); Check(baseline.Count == 2, "first capture emits module and manifest");
-            Receive(1, baseline); TownServiceMirror.TickRemote(_ => observer);
+            Receive(1, baseline); TownServiceMirror.InteractionOwner(1);
+            for (float until = Time.unscaledTime + .13f; Time.unscaledTime < until;) yield return null;
+            TownServiceMirror.TickRemote(_ => observer);
             var copy = Remote(1); Check(copy != null, "owner packet creates inert observer module");
             Inert(copy!, awakes, enables);
             Check(copy!.Root.gameObject.layer == 9, "observer uses configured presentation layer before rendering");
@@ -1363,11 +1379,16 @@ public static partial class MirrorProgram
                 PublisherRouting();
                 // Offering mutations must fail at their own intent assertions
                 // before a stale offer can spill into independent rack checks.
-                MerchantOfferingIntent();
+                IEnumerator merchantOffering = MerchantOfferingIntent();
+                while (merchantOffering.MoveNext()) yield return merchantOffering.Current;
                 IEnumerator racks = RackClocks(); while (racks.MoveNext()) yield return racks.Current;
                 CatalogLifetime();
             }
-            else MerchantOfferingIntent();
+            else
+            {
+                IEnumerator merchantOffering = MerchantOfferingIntent();
+                while (merchantOffering.MoveNext()) yield return merchantOffering.Current;
+            }
             File.WriteAllText(Path.Combine(_output, "assertions.txt"), _assertions + " assertions\n");
         }
         finally

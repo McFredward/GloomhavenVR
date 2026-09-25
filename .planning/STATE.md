@@ -2,17 +2,18 @@
 
 **Updated 2026-09-25: feature/immersive-town-services, version 1.1.0 hardware candidate.**
 The feature includes released 1.0.8 / ModBuild 556 and the subsequent 1.0.9
-version bookkeeping on `dev`. ModBuild 563 follows the build-562 NPC hardware
-report with native table cloth, reliable native temple continuation, canonical
-merchant-card returns, stock-card mip watching and independent local NPC audio controls.
-The complete priestess cue set now uses one close-miked elderly female voice, and the broken
-`merchant-sell-2` take has been replaced. Exact WAV-derived mouth curves ship with both revisions.
+version bookkeeping on `dev`. ModBuild 564 follows the build-563 NPC hardware
+report with one synchronized interaction lease per resident, a blue physical donation
+target and shared blessing, reachable hands-on-hips visitor poses, atomic palm-card swaps,
+grounded enchantress lighting and exact suppression of the obsolete flat service sound.
+The complete priestess cue set now uses MiniMax Speech 2.8 HD's elderly `Wise_Woman`
+voice, with exact WAV-derived mouth curves.
 ModBuild 560 introduced resident
 voices, shared merchant confirmation presentation, a visible temple donation
 target, cloth contact, cabinet detail and varied idle motion.
 Headset verification of the resulting presentation remains open. Historical NPC
 design: [research/TOWN-SERVICES-552.md](research/TOWN-SERVICES-552.md).
-Current evidence and implementation limits: [TOWN-563.md](TOWN-563.md).
+Current evidence and implementation limits: [TOWN-564.md](TOWN-564.md).
 The feature remains isolated from `dev`, and NPC work belongs on this branch.
 
 The file this replaces had gone 168 builds
@@ -27,6 +28,20 @@ change per build) → this file (where things stand and what is owed) → the bu
 ---
 
 ## 1. Position
+
+- **NPC feature / 1.1.0 / ModBuild 564 (hardware candidate):** each resident has
+  one sticky, timeout-bounded multiplayer visitor lease. The elected visitor alone
+  can interact and author the resident, while all peers receive the same station,
+  pose, speech, offering and confirmation presentation. Temple eligibility and one
+  blessing revision use additive inner town-service TLV91 without gameplay identity.
+  The donation guide is blue and translucent, the real purse remains upright and
+  snaps exactly into it, and an unavailable ritual hides the guide while the
+  priestess covers the bowl. Merchant and priestess use reachable anatomical hip
+  poses; merchant and enchantress card palms swap valid cards atomically. The
+  enchantress practical is grounded to the workbench and the remaining immersive
+  flat-service show sound is suppressed at its exact display edge. All fifteen
+  priestess lines use the elderly `Wise_Woman` performance. Evidence and headset
+  limits are in [TOWN-564.md](TOWN-564.md).
 
 - **NPC feature / 1.1.0 / ModBuild 563 (hardware candidate):** native Unity Cloth
   replaces the rigid altar-runner spring and collides with the complete curved table,

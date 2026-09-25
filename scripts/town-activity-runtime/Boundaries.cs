@@ -39,7 +39,14 @@ namespace GloomhavenVR.WorldUI
 namespace GloomhavenVR.Net.TownServices
 {
     internal sealed class TownServiceSessionInfo { internal bool Active=false;internal byte Service=0;internal float LastSeenTime=0; }
-    internal static class TownServiceMirror {internal static readonly Dictionary<int,TownServiceSessionInfo> RemoteSessions=new();}
+    internal static class TownServiceMirror
+    {
+        internal static readonly Dictionary<int,TownServiceSessionInfo> RemoteSessions=new();
+        // Lease election itself belongs to the mirror suite. Activity fixtures can
+        // inject the already elected identity without inventing a second election.
+        internal static int Owner { get; set; }
+        internal static int InteractionOwner(byte service)=>Owner;
+    }
 }
 
 namespace GloomhavenVR.Core { internal static class VRLayers {internal const int ModLayer=27;} internal static class VRLog { internal static int Warnings; internal static void Warn(string source,string text)=>Warnings++; } }
