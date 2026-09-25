@@ -93,7 +93,7 @@ def main():
     parser.add_argument("--source-root", type=Path, default=repo)
     parser.add_argument("--output-dir", type=Path, default=repo / ".planning/debug/town-service-mirror")
     parser.add_argument("--unity", type=Path, default=Path(os.environ.get("UNITY_PATH", "/home/claw/unity-2021.3.5/Editor/Unity")))
-    parser.add_argument("--suite", choices=("basic", "full", "lifecycle", "counter-final", "relocation", "asset-identity", "rack-clock", "catalog-lifetime", "public-catalog", "voice-relay", "item-transfer"), default="full")
+    parser.add_argument("--suite", choices=("basic", "full", "lifecycle", "counter-final", "relocation", "asset-identity", "rack-clock", "catalog-lifetime", "public-catalog", "voice-relay", "shared-interaction", "item-transfer"), default="full")
     parser.add_argument("--no-negative-controls", action="store_true")
     args = parser.parse_args()
     args.source_root = args.source_root.resolve()
@@ -207,6 +207,14 @@ def main():
                 ("haptic-repeat", "TransferDetector.cs", "if (!wasHovering)", "if (true)", "continued shared hover emits no repeated haptic"),
                 ("ignore-closer-ui", "TransferDetector.cs", "if (free.RayUgui.HasHit)", "if (free.RayUgui.HasHit && free.WorldScale < 0)", "nearer native UI retains the trigger"),
                 ("ignore-modal", "TransferDetector.cs", " || _modalInputBlocked", "", "modal decision keeps transfer input blocked"),
+            ]
+    if args.suite == "shared-interaction":
+        variants = [("production", None, None, None, "")]
+        if not args.no_negative_controls:
+            variants += [
+                ("highest-player-wins", "TownServiceMirror.cs", "|| Mathf.Abs(age - oldestAge) <= .05f && pair.Key < owner)", "|| Mathf.Abs(age - oldestAge) <= .05f && pair.Key > owner)", "simultaneous resident claims use the deterministic player-ID tie break"),
+                ("nonowner-author", "TownServiceMirror.cs", "|| InteractionOwner(service) != player", "|| false", "only the elected visitor session can author shared interaction state"),
+                ("ignore-temple-owner", "TownServiceMirror.cs", "int owner = InteractionOwner(2);", "int owner = VisitorSessions.Count > 0 ? 3 : 0;", "disconnect releases only that player's resident leases"),
             ]
     print(f"Production binding: {args.source_root.resolve()}; evidence: {run}", flush=True)
     for name, filename, before, after, expected in variants:

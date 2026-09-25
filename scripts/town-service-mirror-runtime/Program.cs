@@ -20,12 +20,115 @@ public sealed class GameplayFixture : MonoBehaviour
 
 public static partial class MirrorProgram
 {
-    private static void VoiceRelay()
+    private static byte[] InteractionManifest(int peer, byte service, uint session, ulong sequence,
+        bool active = true, bool donationKnown = false, bool donationAvailable = false)
+    {
+        var frame = new TownServiceFrame
+        {
+            Service = service, Session = session, Sequence = sequence,
+            Module = TownServiceFrame.ManifestModule, Visible = active,
+            SampleTime = Time.unscaledTime, SessionAge = 1f,
+            Modules = Array.Empty<ushort>(),
+            Pose = new[] { 0f, 0f, 0f, 0f, 0f, 0f, 1f, 1f, 1f, 1f },
+            TempleDonationKnown = donationKnown,
+            TempleDonationAvailable = donationAvailable
+        };
+        byte[] packet = TownServiceCodec.Write(frame);
+        Check(TownServiceMirror.Receive(peer, packet, packet.Length), "shared interaction manifest is accepted");
+        return packet;
+    }
+
+    private static IEnumerator SharedInteraction()
+    {
+        TownServiceMirror.Shutdown();
+        GloomhavenVR.Net.NetPlayerActors.Peer = 10;
+        InteractionManifest(3, 1, 301, 1);
+        InteractionManifest(2, 1, 201, 1);
+        InteractionManifest(6, 1, 601, 1);
+        TownServiceMirror.InteractionOwner(1);
+        for (float until = Time.unscaledTime + .13f; Time.unscaledTime < until;) yield return null;
+        Check(TownServiceMirror.InteractionOwner(1) == 2,
+            "simultaneous resident claims use the deterministic player-ID tie break");
+        Check(TownServiceMirror.IsInteractionOwner(2, 1, 201)
+            && !TownServiceMirror.IsInteractionOwner(3, 1, 301),
+            "only the elected visitor session can author shared interaction state");
+        var owner = Go("Local shared visitor").transform;
+        GloomhavenVR.Net.NetPlayerActors.Peer = 1;
+        TownServiceMirror.BeginSession(1, 101, owner, owner);
+        for (float until = Time.unscaledTime + .13f; Time.unscaledTime < until;) yield return null;
+        Check(TownServiceMirror.InteractionOwner(1) == 2,
+            "later lower-ID visitor cannot preempt an active resident lease");
+
+        InteractionManifest(4, 3, 403, 1);
+        InteractionManifest(5, 2, 502, 1, donationKnown: true, donationAvailable: false);
+        InteractionManifest(3, 2, 302, 2, donationKnown: true, donationAvailable: true);
+        TownServiceMirror.InteractionOwner(2); TownServiceMirror.InteractionOwner(3);
+        for (float until = Time.unscaledTime + .13f; Time.unscaledTime < until;) yield return null;
+        Check(TownServiceMirror.InteractionOwner(1) == 2
+            && TownServiceMirror.InteractionOwner(2) == 3
+            && TownServiceMirror.InteractionOwner(3) == 4,
+            "all three residents hold independent shared leases");
+        Check(TownServiceMirror.TempleDonationAvailable,
+            "lower elected temple owner overrides a losing visitor's ritual state");
+
+        InteractionManifest(2, 1, 201, 2, active: false);
+        TownServiceMirror.InteractionOwner(1);
+        for (float until = Time.unscaledTime + .13f; Time.unscaledTime < until;) yield return null;
+        Check(TownServiceMirror.InteractionOwner(1) == 6,
+            "explicit close hands the resident to the next waiting visitor");
+        TownServiceMirror.RemovePeer(3);
+        TownServiceMirror.InteractionOwner(2);
+        for (float until = Time.unscaledTime + .13f; Time.unscaledTime < until;) yield return null;
+        Check(TownServiceMirror.InteractionOwner(1) == 6
+            && TownServiceMirror.InteractionOwner(2) == 5
+            && !TownServiceMirror.TempleDonationAvailable,
+            "disconnect releases only that player's resident leases");
+
+        TownServiceSessionInfo stale = TownServiceMirror.RemoteSessions[4];
+        stale.LastSeenTime = Time.unscaledTime - NetProtocol.StaleTimeoutSeconds - .1f;
+        Check(TownServiceMirror.InteractionOwner(3) == 0,
+            "missing heartbeat releases a resident lease after the bounded timeout");
+
+        TownServiceMirror.RemovePeer(5);
+        TownServiceMirror.InteractionOwner(2);
+        TownServiceMirror.BeginSession(2, 102, owner, owner);
+        TownServiceMirror.InteractionOwner(2);
+        for (float until = Time.unscaledTime + .13f; Time.unscaledTime < until;) yield return null;
+        Check(TownServiceMirror.InteractionOwner(2) == 1,
+            "local lowest player wins the same deterministic lease election");
+        TownServiceMirror.SetLocalTempleDonationAvailable(true);
+        TownServiceMirror.SetLocalTempleDonationAvailable(false);
+        Check(!TownServiceMirror.TempleDonationAvailable,
+            "local owner publishes explicit temple unavailability");
+        Check(TownServiceMirror.TryTempleDonationState(out _, out _, out bool known, out _, out uint revision, out _)
+            && known && revision == 1,
+            "one available-to-unavailable edge advances exactly one shared blessing revision");
+        List<byte[]> packets = Capture();
+        Check(packets.Exists(bytes => TownServiceCodec.TryRead(bytes, bytes.Length, out TownServiceFrame? frame)
+            && frame!.Module == TownServiceFrame.ManifestModule && frame.TempleDonationKnown
+            && !frame.TempleDonationAvailable),
+            "private owner manifest carries the temple availability extension");
+        TownServiceMirror.EndSession();
+        Check(TownServiceMirror.InteractionOwner(2) == 0,
+            "local close releases its resident without retaining stale ritual state");
+
+        TownServiceMirror.ResetNetwork();
+        Check(TownServiceMirror.InteractionOwner(1) == 0
+            && TownServiceMirror.InteractionOwner(2) == 0
+            && TownServiceMirror.InteractionOwner(3) == 0,
+            "scene or network reset releases every shared NPC lease");
+        TownServiceMirror.Shutdown();
+        GloomhavenVR.Net.NetPlayerActors.Peer = 1;
+    }
+
+    private static IEnumerator VoiceRelay()
     {
         TownServiceMirror.Shutdown();
         GloomhavenVR.WorldUI.TownServiceVoice.Accepted.Clear();
         Transform owner = Go("Voice visitor").transform;
         TownServiceMirror.BeginSession(1, 910, owner, owner);
+        TownServiceMirror.InteractionOwner(1);
+        for (float until = Time.unscaledTime + .13f; Time.unscaledTime < until;) yield return null;
         GloomhavenVR.WorldUI.TownServiceVoice.RelayRequest!(1,
             GloomhavenVR.WorldUI.TownVoiceReaction.MerchantBuy);
         GloomhavenVR.WorldUI.TownServiceVoice.RelayRequest!(1,
@@ -45,12 +148,20 @@ public static partial class MirrorProgram
             && firstReaction == GloomhavenVR.WorldUI.TownVoiceReaction.MerchantBuy
             && !firstEvent!.PublicCatalog && firstEvent.Session == 910,
             "voice request uses a private cosmetic envelope");
+        // The capture above models the sender. Release its fixture-local lane before
+        // replaying the same packets as peer 2 on the observer side.
+        TownServiceMirror.EndSession();
         int publicBefore = TownServiceMirror.PublicSessions.Count;
         TownServiceMirror.Receive(2, events[0], events[0].Length);
         TownServiceMirror.Receive(2, events[1], events[1].Length);
         Check(GloomhavenVR.WorldUI.TownServiceVoice.Accepted.Count == 0,
             "visitor request cannot play before a matching private manifest");
         TownServiceMirror.Receive(2, manifest, manifest.Length);
+        for (float until = Time.unscaledTime + .13f; Time.unscaledTime < until;) yield return null;
+        TownServiceCodec.TryRead(manifest, manifest.Length, out TownServiceFrame? heartbeat);
+        heartbeat!.Sequence++;
+        byte[] heartbeatPacket = TownServiceCodec.Write(heartbeat);
+        TownServiceMirror.Receive(2, heartbeatPacket, heartbeatPacket.Length);
         Check(GloomhavenVR.WorldUI.TownServiceVoice.Accepted.Count == 2
             && GloomhavenVR.WorldUI.TownServiceVoice.Accepted[0].Sequence == 1
             && GloomhavenVR.WorldUI.TownServiceVoice.Accepted[1].Sequence == 2
@@ -84,6 +195,9 @@ public static partial class MirrorProgram
     }
     private static IEnumerator PrivateClothLane()
     {
+        // This single-process fixture models an owner and an observer together. Give
+        // the replayed peer the lower network ID so its private lease is authoritative.
+        GloomhavenVR.Net.NetPlayerActors.Peer = 3;
         var owner = Go("Private cloth owner").transform;
         var furniture = Go("Private cloth furniture", owner).transform;
         var observer = Go("Private cloth observer").transform;
@@ -97,7 +211,9 @@ public static partial class MirrorProgram
         Check(initial.Exists(bytes => TownServiceCodec.TryRead(bytes, bytes.Length, out TownServiceFrame? frame)
             && frame!.Module == 7 && frame.WorkspaceCloth?.Length == 16),
             "private furniture packet carries both cloth runners");
-        Receive(2, initial); TownServiceMirror.TickRemote(_ => observer);
+        Receive(2, initial); TownServiceMirror.InteractionOwner(2);
+        for (float until = Time.unscaledTime + .13f; Time.unscaledTime < until;) yield return null;
+        TownServiceMirror.TickRemote(_ => observer);
         Check(GloomhavenVR.WorldUI.TownServiceCloth.Created == 1
             && GloomhavenVR.WorldUI.TownServiceCloth.Ticks > 0
             && GloomhavenVR.WorldUI.TownServiceCloth.Last?.Visible == true,
@@ -114,6 +230,7 @@ public static partial class MirrorProgram
         Check(GloomhavenVR.WorldUI.TownServiceCloth.Last?.Visible == false,
             "hidden private furniture retires its cloth contact surface");
         TownServiceMirror.Shutdown();
+        GloomhavenVR.Net.NetPlayerActors.Peer = 1;
         Check(GloomhavenVR.WorldUI.TownServiceCloth.Disposed == 1,
             "private cloth replay is disposed with the observer session");
         yield return null;
@@ -1120,7 +1237,7 @@ public static partial class MirrorProgram
             GloomhavenVR.Rig.VRRigDriver.HeadCamera = _camera;
             // The early-awake mutation deliberately breaks template inertness;
             // leave its historical gameplay callback proof as the first target.
-            if (variant != "early-awake")
+            if (variant != "early-awake" && suite != "shared-interaction")
             {
                 IEnumerator privateCloth = PrivateClothLane();
                 while (privateCloth.MoveNext()) yield return privateCloth.Current;
@@ -1133,7 +1250,13 @@ public static partial class MirrorProgram
             }
             if (suite == "voice-relay")
             {
-                VoiceRelay();
+                IEnumerator voice = VoiceRelay(); while (voice.MoveNext()) yield return voice.Current;
+                File.WriteAllText(Path.Combine(_output,"assertions.txt"),_assertions+" assertions\n");yield break;
+            }
+            if (suite == "shared-interaction")
+            {
+                IEnumerator interaction = SharedInteraction();
+                while (interaction.MoveNext()) yield return interaction.Current;
                 File.WriteAllText(Path.Combine(_output,"assertions.txt"),_assertions+" assertions\n");yield break;
             }
             if (suite == "public-catalog")

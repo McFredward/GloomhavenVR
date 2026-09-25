@@ -67,6 +67,7 @@ internal static partial class TownServiceMirror
     {
         using var lane = new LaneScope(PrivateLane);
         if (!_active || _session == 0 || _service != service || VoiceOutgoing.Count >= 16
+            || !LocalOwnsInteraction(service, _session)
             || _voiceOrdinal == uint.MaxValue) return;
         // The same schema is checked before spending transport budget and on receive.
         TownServiceFrame frame = TownServiceVoiceRelayCodec.Create(service, _session, ++_voiceOrdinal,
@@ -90,7 +91,12 @@ internal static partial class TownServiceMirror
         if (!TownServiceVoiceRelayCodec.TryRead(frame, out _)) return;
         if (VisitorSessions.TryGetValue(peer, out TownServiceSessionInfo? session)
             && session.Session == frame.Session && session.Service == frame.Service)
-        { DeliverVoice(peer, frame, session, Time.unscaledTime); return; }
+        {
+            int owner = InteractionOwner(frame.Service);
+            if (owner == peer)
+                DeliverVoice(peer, frame, session, Time.unscaledTime);
+            if (owner != 0) return;
+        }
         if (!VoicePending.TryGetValue(peer, out List<PendingVoice>? pending))
         {
             if (VoicePending.Count >= 8) return;
@@ -104,7 +110,10 @@ internal static partial class TownServiceMirror
     {
         if (!VoicePending.TryGetValue(peer, out List<PendingVoice>? pending)
             || !VisitorSessions.TryGetValue(peer, out TownServiceSessionInfo? session)) return;
+        int owner = InteractionOwner(session.Service);
+        if (owner == 0) return; // acquisition settle window: keep reordered requests bounded
         VoicePending.Remove(peer);
+        if (owner != peer) return;
         pending.Sort((a, b) => a.Frame.Sequence.CompareTo(b.Frame.Sequence));
         foreach (PendingVoice queued in pending)
             if (Time.unscaledTime - queued.Received <= 3f)
@@ -114,6 +123,7 @@ internal static partial class TownServiceMirror
     private static void DeliverVoice(int peer, TownServiceFrame frame, TownServiceSessionInfo session, float received)
     {
         if (!session.Active || session.Service != frame.Service || session.Session != frame.Session
+            || !IsInteractionOwner(peer, frame.Service, frame.Session)
             || !TownServiceVoiceRelayCodec.TryRead(frame, out TownVoiceReaction reaction)
             || Time.unscaledTime - received > 3f
             || Mathf.Abs((frame.SampleTime - session.SampleTime)

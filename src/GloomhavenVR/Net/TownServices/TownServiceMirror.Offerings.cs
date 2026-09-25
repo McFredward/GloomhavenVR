@@ -21,7 +21,8 @@ internal static partial class TownServiceMirror
             foreach (var pair in MerchantOfferings)
             {
                 TownServiceFrame intent = pair.Value;
-                if (!Sessions.TryGetValue(pair.Key, out TownServiceSessionInfo? session)
+                if (InteractionOwner(1) != pair.Key
+                    || !Sessions.TryGetValue(pair.Key, out TownServiceSessionInfo? session)
                     || !session.Active || session.Service != 1 || session.Session != intent.Session
                     || !intent.Visible || Array.BinarySearch(session.Modules, intent.Module) < 0
                     || now - session.LastSeenTime > OfferingFreshSeconds) continue;

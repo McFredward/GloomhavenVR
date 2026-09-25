@@ -115,14 +115,8 @@ internal static class TownServicePopulation
         bool missing = false;
         for (byte service = 1; service <= 3; service++)
         {
-            bool visiting = TownServicePresentation.Active && TownServicePresentation.Service == service;
-            float visitAge = visiting ? TownServicePresentation.SessionAge : float.PositiveInfinity;
-            foreach (TownServiceSessionInfo remote in TownServiceMirror.RemoteSessions.Values)
-            {
-                if (!remote.Active || remote.Service != service || now - remote.LastSeenTime > NetProtocol.StaleTimeoutSeconds) continue;
-                visiting = true;
-                visitAge = Mathf.Min(visitAge, remote.SessionAge + Mathf.Max(0f, now - remote.ReceivedTime));
-            }
+            bool visiting = TownServiceMirror.TryInteractionOwner(service, out _, out _, out float ownerAge);
+            float visitAge = visiting ? ownerAge : float.PositiveInfinity;
             bool used = enabled || visiting;
             if (used && retry) Acquire(service);
             if (!Residents.TryGetValue(service, out Resident? resident))

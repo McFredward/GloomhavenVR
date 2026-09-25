@@ -30,6 +30,12 @@ internal sealed class TownServiceFrame
     // enchantress runner or two temple runners; null means no cloth record.
     internal byte[]? WorkspaceCloth;
     internal bool HasWorkspaceCloth => WorkspaceCloth != null;
+    // Additive TLV91 lives on a private service manifest. It carries no
+    // transaction or character identity: it only says whether the current temple
+    // interaction owner sampled the native donation affordance as available.
+    internal bool TempleDonationKnown;
+    internal bool TempleDonationAvailable;
+    internal uint TempleDonationRevision;
     // Local transport scheduling only; never serialized or interpreted as gameplay authority.
     internal bool HighPriority;
     internal float SampleTime;

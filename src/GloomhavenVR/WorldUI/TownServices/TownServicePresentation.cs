@@ -1,7 +1,9 @@
 using System;
 using System.Collections.Generic;
+using GloomhavenVR.Cards;
 using GloomhavenVR.Core;
 using GloomhavenVR.Net;
+using GloomhavenVR.Net.TownServices;
 using GloomhavenVR.WorldUI.MapRoom;
 using TMPro;
 using UnityEngine;
@@ -59,6 +61,8 @@ internal static class TownServicePresentation
     internal static bool Active => WorldUIConfig.ImmersiveTownServices.Value
         && ((Service != 1 && Service != 3) || TownServiceEnhancementHandoff.Enabled)
         && _window != null && _window.IsOpen && _station != null;
+    internal static bool OwnsInteraction => Active
+        && TownServiceMirror.LocalOwnsInteraction(Service, _session);
 
     internal static bool OwnsGrab(GrabbableModal holder)
     {
@@ -76,7 +80,7 @@ internal static class TownServicePresentation
 
     internal static void Tick()
     {
-        try { TownServiceConfirmationMask.Tick(); TickCore(); TownServicePublicMerchant.Tick(); }
+        try { TownServiceNativeAudioSilence.EnsureInstalled(); TownServiceConfirmationMask.Tick(); TickCore(); TownServicePublicMerchant.Tick(); }
         catch (Exception e)
         {
             UIWindow? restore = _window;
@@ -123,6 +127,11 @@ internal static class TownServicePresentation
         if (_failedWindow == window) return;
         if (_window == null)
         {
+            // Service entry swaps the ordinary map hand for a physical offering. Suppress
+            // exactly that automatic edge once; extending this window every frame would also
+            // swallow a real manual fan gesture while the resident is open.
+            CardsDriver.SuppressNextOffScenarioFanEdgeSound(open: true, seconds: .35f);
+            CardsDriver.SuppressNextOffScenarioFanEdgeSound(open: false, seconds: .35f);
             ConvertedPanel? context = FindContext(window);
             if (context == null || !context.IsAlive || !MapRoomDriver.TryGetParchmentFrame(out Vector3 center, out float scale)) return;
             _window = window;
@@ -181,6 +190,8 @@ internal static class TownServicePresentation
             VRLog.Note("WorldUI", "TOWN SERVICE OPEN: service=" + service + " session=" + _session + " native sections=" + Surfaces.Count);
         }
         float visibility = Mathf.Clamp01(SessionAge / .22f);
+        bool ownsInteraction = TownServiceMirror.LocalOwnsInteraction(Service, _session);
+        float localVisibility = ownsInteraction ? visibility : 0f;
         // Once carried, the tray keeps the player's chosen placement. A participant joining
         // or leaving may rearrange counter workspaces, but must not pull a held tray away.
         if (_workspace != null)
@@ -188,15 +199,15 @@ internal static class TownServicePresentation
             if (_tray != null && _tray.IsGrabbed && _tray.Root.parent == _workspace.Root)
                 _tray.Root.SetParent(null, true);
             _workspace.Tick(_catalog?.CanRelocate != false && _ritual?.CanRelocate != false);
-            _workspace.SetVisibility(visibility);
+            _workspace.SetVisibility(localVisibility);
         }
         float relocation = _workspace?.RelocationVisibility ?? 1f;
-        bool allowInput = _workspace?.InputAvailable ?? true;
-        _catalog?.SetVisibility(visibility, relocation, allowInput);
-        _ritual?.SetVisibility(visibility * relocation, allowInput);
+        bool allowInput = ownsInteraction && (_workspace?.InputAvailable ?? true);
+        _catalog?.SetVisibility(localVisibility, relocation, allowInput);
+        _ritual?.SetVisibility(localVisibility * relocation, allowInput);
         foreach (TownServiceSurface surface in Surfaces)
         {
-            if (_catalog != null) surface.SetVisibility(visibility * relocation, allowInput);
+            if (_catalog != null) surface.SetVisibility(localVisibility * relocation, allowInput);
             surface.Tick(_origin, _yaw, _scale);
         }
         _catalog?.Tick(_scale);
@@ -207,7 +218,7 @@ internal static class TownServicePresentation
             if (Service != 1 && _catalog == null && _ritual == null) RefreshTokens();
         }
         _tray?.Tick();
-        _tray?.SetVisibility(visibility);
+        _tray?.SetVisibility(localVisibility);
         foreach (TownServiceToken token in Tokens.Values) token.Tick(_scale);
     }
 
@@ -360,6 +371,8 @@ internal static class TownServicePresentation
     internal static void Reset()
     {
         if (_window == null && Surfaces.Count == 0 && Tokens.Count == 0 && _mat == null) return;
+        CardsDriver.SuppressNextOffScenarioFanEdgeSound(open: true);
+        CardsDriver.SuppressNextOffScenarioFanEdgeSound(open: false);
         TownServicePalmConfirmation.Clear();
         TownServiceSync.Reset();
         if (_window != null) _window.onHidden.RemoveListener(OnNativeHidden);

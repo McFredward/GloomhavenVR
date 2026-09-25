@@ -41,7 +41,18 @@ internal sealed class TownServiceFaceAttention
     }
     internal Vector3? Select(byte service, Transform root, Quaternion optical, Vector3 eye)
     {
-        int local = NetPlayerActors.LocalPlayerId();
+        int local = Mathf.Max(1, NetPlayerActors.LocalPlayerId());
+        int interactionOwner = TownServiceMirror.InteractionOwner(service);
+        if (interactionOwner != 0)
+        {
+            _target = interactionOwner;
+            _nextChoice = Time.unscaledTime + .2f;
+            Visitor = true;
+            if (Head(interactionOwner, local, out Vector3 ownerHead)
+                && Visible(root, optical, eye, ownerHead) && Unobstructed(root, eye, ownerHead))
+                return ownerHead;
+            return null;
+        }
         bool valid = _target != int.MinValue && Head(_target, local, out Vector3 current) && Visible(root, optical, eye, current);
         if (valid && Time.unscaledTime < _nextChoice && Head(_target, local, out current))
         { Visitor = Visiting(_target, service, local); return current; }

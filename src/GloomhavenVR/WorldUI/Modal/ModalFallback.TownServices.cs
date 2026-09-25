@@ -1,3 +1,6 @@
+using System;
+using GloomhavenVR.Core;
+using HarmonyLib;
 using UnityEngine;
 using UnityEngine.UI;
 
@@ -43,5 +46,40 @@ internal static partial class ModalFallback
             return wp.Panel;
         }
         return null;
+    }
+}
+
+/// <summary>Suppress the hidden flat enchantment list's own tab sound while its physical
+/// replacement is active. This patch changes one serialized string only for the duration of
+/// the original Display call; flat mode, purchase feedback and NPC foley retain their audio.</summary>
+internal static class TownServiceNativeAudioSilence
+{
+    private static bool _installed;
+    internal static void EnsureInstalled()
+    {
+        if (_installed || VRSession.Harmony == null) return;
+        var target = AccessTools.Method(typeof(UIPartyCharacterEnhancementAbilityCardsDisplay),
+            nameof(UIPartyCharacterEnhancementAbilityCardsDisplay.Display));
+        if (target == null) return;
+        VRSession.Harmony.Patch(target,
+            prefix: new HarmonyMethod(typeof(TownServiceNativeAudioSilence), nameof(BeforeDisplay)),
+            finalizer: new HarmonyMethod(typeof(TownServiceNativeAudioSilence), nameof(AfterDisplay)));
+        _installed = true;
+    }
+
+    private static void BeforeDisplay(UIPartyCharacterEnhancementAbilityCardsDisplay __instance,
+        ref string? __state)
+    {
+        __state = null;
+        if (!MapRoom.MapRoomDriver.Active || !WorldUIConfig.ImmersiveTownServices.Value) return;
+        __state = __instance.audioItemShow;
+        __instance.audioItemShow = string.Empty;
+    }
+
+    private static Exception? AfterDisplay(UIPartyCharacterEnhancementAbilityCardsDisplay __instance,
+        string? __state, Exception? __exception)
+    {
+        if (__state != null) __instance.audioItemShow = __state;
+        return __exception;
     }
 }

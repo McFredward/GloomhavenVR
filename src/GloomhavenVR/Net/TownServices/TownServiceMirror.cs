@@ -17,6 +17,9 @@ internal sealed class TownServiceSessionInfo
     internal ulong Sequence;
     internal float SampleTime, ReceivedTime, LastSeenTime, SessionAge;
     internal bool Active;
+    internal bool TempleDonationKnown, TempleDonationAvailable;
+    internal uint TempleDonationRevision;
+    internal float TempleDonationChangedTime;
     internal Vector3 Position, Scale;
     internal Quaternion Rotation;
     internal ushort[] Modules = Array.Empty<ushort>();
@@ -76,6 +79,149 @@ internal static partial class TownServiceMirror
 
     private static uint _publicClaim, _observedPublicClaim;
     private static int LocalPeer => Math.Max(1, NetPlayerActors.LocalPlayerId());
+
+    private sealed class InteractionLease
+    {
+        internal int Player;
+        internal uint Session;
+        internal float PendingSince = float.NegativeInfinity;
+    }
+    private static readonly InteractionLease[] InteractionLeases =
+    {
+        new(), new(), new(), new()
+    };
+    private const float InteractionClaimSettleSeconds = .12f;
+
+    /// <summary>The single presentation owner for one resident interaction. The native
+    /// service manifests already carry a bounded heartbeat, close edge, player identity and
+    /// session generation, so a second claim stream would only introduce split-brain state.
+    /// A short acquisition window makes simultaneously arriving claims deterministic; once
+    /// granted, a later visitor can never preempt the active owner. A close, walk-away,
+    /// disconnect, scene reset or timeout releases the lease without a gameplay RPC.</summary>
+    internal static int InteractionOwner(byte service)
+    {
+        if (service < 1 || service > 3) return 0;
+        float now = Time.unscaledTime;
+        InteractionLease lease = InteractionLeases[service];
+        if (LiveInteraction(lease.Player, service, lease.Session, now)) return lease.Player;
+        lease.Player = 0; lease.Session = 0;
+        int owner = 0; uint sessionId = 0; float oldestAge = float.NegativeInfinity;
+        if (PrivateLane.Active && PrivateLane.Service == service)
+        {
+            owner = LocalPeer; sessionId = PrivateLane.Session;
+            oldestAge = Mathf.Max(0f, now - PrivateLane.Started);
+        }
+        foreach (var pair in VisitorSessions)
+        {
+            TownServiceSessionInfo session = pair.Value;
+            if (pair.Key <= 0 || !session.Active || session.Service != service
+                || now - session.LastSeenTime > NetProtocol.StaleTimeoutSeconds) continue;
+            float age = session.SessionAge + Mathf.Max(0f, now - session.ReceivedTime);
+            if (owner == 0 || age > oldestAge + .05f
+                || Mathf.Abs(age - oldestAge) <= .05f && pair.Key < owner)
+            { owner = pair.Key; sessionId = session.Session; oldestAge = age; }
+        }
+        if (owner == 0) { lease.PendingSince = float.NegativeInfinity; return 0; }
+        if (float.IsNegativeInfinity(lease.PendingSince))
+        { lease.PendingSince = now; return 0; }
+        if (now - lease.PendingSince < InteractionClaimSettleSeconds) return 0;
+        lease.Player = owner; lease.Session = sessionId;
+        lease.PendingSince = float.NegativeInfinity;
+        return owner;
+    }
+
+    private static bool LiveInteraction(int player, byte service, uint session, float now)
+    {
+        if (player <= 0 || session == 0) return false;
+        if (player == LocalPeer) return PrivateLane.Active && PrivateLane.Service == service
+            && PrivateLane.Session == session;
+        return VisitorSessions.TryGetValue(player, out TownServiceSessionInfo? remote)
+            && remote.Active && remote.Service == service && remote.Session == session
+            && now - remote.LastSeenTime <= NetProtocol.StaleTimeoutSeconds;
+    }
+
+    internal static bool LocalOwnsInteraction(byte service, uint session) => session != 0
+        && PrivateLane.Active && PrivateLane.Service == service && PrivateLane.Session == session
+        && InteractionOwner(service) == LocalPeer;
+
+    internal static bool IsInteractionOwner(int player, byte service, uint session)
+    {
+        if (player <= 0 || session == 0 || InteractionOwner(service) != player) return false;
+        if (player == LocalPeer) return PrivateLane.Active && PrivateLane.Service == service
+            && PrivateLane.Session == session;
+        return VisitorSessions.TryGetValue(player, out TownServiceSessionInfo? remote)
+            && remote.Active && remote.Service == service && remote.Session == session
+            && Time.unscaledTime - remote.LastSeenTime <= NetProtocol.StaleTimeoutSeconds;
+    }
+
+    internal static bool TryInteractionOwner(byte service, out int player, out uint session, out float age)
+    {
+        player = InteractionOwner(service); session = 0; age = 0f;
+        if (player == 0) return false;
+        if (player == LocalPeer)
+        {
+            session = PrivateLane.Session;
+            age = Mathf.Max(0f, Time.unscaledTime - PrivateLane.Started);
+            return PrivateLane.Active && PrivateLane.Service == service;
+        }
+        if (!VisitorSessions.TryGetValue(player, out TownServiceSessionInfo? remote)) return false;
+        session = remote.Session;
+        age = remote.SessionAge + Mathf.Max(0f, Time.unscaledTime - remote.ReceivedTime);
+        return remote.Active && remote.Service == service;
+    }
+
+    /// <summary>Publish the native donation affordance sampled by the elected local temple
+    /// visitor. Unknown deliberately reads as available: an observer must never cover the bowl
+    /// merely because the owner's first eligibility sample has not arrived yet.</summary>
+    internal static void SetLocalTempleDonationAvailable(bool available)
+    {
+        if (!LocalOwnsInteraction(2, PrivateLane.Session)) return;
+        if (PrivateLane.TempleDonationKnown && PrivateLane.TempleDonationAvailable == available) return;
+        if (PrivateLane.TempleDonationKnown && PrivateLane.TempleDonationAvailable && !available)
+        {
+            PrivateLane.TempleDonationRevision++;
+            if (PrivateLane.TempleDonationRevision == 0) PrivateLane.TempleDonationRevision = 1;
+            PrivateLane.TempleDonationChangedTime = Time.unscaledTime;
+        }
+        PrivateLane.TempleDonationKnown = true;
+        PrivateLane.TempleDonationAvailable = available;
+        PrivateLane.NextManifest = 0f;
+    }
+
+    internal static bool TempleDonationAvailable
+    {
+        get
+        {
+            int owner = InteractionOwner(2);
+            if (owner == LocalPeer) return !PrivateLane.TempleDonationKnown || PrivateLane.TempleDonationAvailable;
+            return owner == 0 || !VisitorSessions.TryGetValue(owner, out TownServiceSessionInfo? remote)
+                || !remote.TempleDonationKnown || remote.TempleDonationAvailable;
+        }
+    }
+
+    internal static bool TryTempleDonationState(out int owner, out uint session, out bool known,
+        out bool available, out uint revision, out float transitionAge)
+    {
+        owner = InteractionOwner(2); session = 0; known = false; available = true;
+        revision = 0; transitionAge = 0f;
+        if (owner == 0) return false;
+        if (owner == LocalPeer)
+        {
+            session = PrivateLane.Session; known = PrivateLane.TempleDonationKnown;
+            available = !known || PrivateLane.TempleDonationAvailable;
+            revision = PrivateLane.TempleDonationRevision;
+            transitionAge = revision == 0 ? 0f : Mathf.Max(0f,
+                Time.unscaledTime - PrivateLane.TempleDonationChangedTime);
+            return true;
+        }
+        if (!VisitorSessions.TryGetValue(owner, out TownServiceSessionInfo? remote)) return false;
+        session = remote.Session; known = remote.TempleDonationKnown;
+        available = !known || remote.TempleDonationAvailable;
+        revision = remote.TempleDonationRevision;
+        transitionAge = revision == 0 ? 0f : Mathf.Max(0f,
+            Time.unscaledTime - remote.TempleDonationChangedTime);
+        return true;
+    }
     internal static int PublicAuthor
     {
         get
@@ -136,6 +282,9 @@ internal static partial class TownServiceMirror
         internal Transform? SharedFrame, Station;
         internal byte Service; internal uint Session; internal ulong Sequence;
         internal bool Active; internal float NextManifest, ClosedUntil, Started; internal ushort Heartbeat;
+        internal bool TempleDonationKnown, TempleDonationAvailable;
+        internal uint TempleDonationRevision;
+        internal float TempleDonationChangedTime;
     }
     private static readonly LocalLane PrivateLane = new(), PublicLane = new();
     private static LocalLane _local = PrivateLane;
@@ -230,7 +379,9 @@ internal static partial class TownServiceMirror
         TemplateKey(service, 1);
         if (session == 0 || sharedFrame == null || stationAnchor == null) throw new ArgumentException("Missing town-service session frame.");
         if (_session != session || _service != service)
-        { ClearLocalModules(); ClearVoiceOutgoing(); _nextManifest = 0; _sessionStarted = Time.unscaledTime - Mathf.Max(0f, ownerAge); }
+        { ClearLocalModules(); ClearVoiceOutgoing(); _nextManifest = 0; _sessionStarted = Time.unscaledTime - Mathf.Max(0f, ownerAge);
+          _local.TempleDonationKnown = _local.TempleDonationAvailable = false;
+          _local.TempleDonationRevision = 0; _local.TempleDonationChangedTime = 0f; }
         _service = service; _session = session; _sharedFrame = sharedFrame; _station = stationAnchor; _active = true;
     }
 
@@ -290,7 +441,10 @@ internal static partial class TownServiceMirror
         || ReferenceEquals(_local, PrivateLane) && _service == 1 && module.Address == MerchantOfferingAddress;
 
     internal static void EndSession()
-    { _active = false; _closedUntil = Time.unscaledTime + 5; _nextManifest = 0; ClearVoiceOutgoing(); ClearLocalModules(); }
+    { _active = false; _closedUntil = Time.unscaledTime + 5; _nextManifest = 0;
+      _local.TempleDonationKnown = _local.TempleDonationAvailable = false;
+      _local.TempleDonationRevision = 0; _local.TempleDonationChangedTime = 0f;
+      ClearVoiceOutgoing(); ClearLocalModules(); }
 
     /// <summary>Call in the owner's final presentation pass. Immutable packets go to the existing transport.</summary>
     internal static void Capture(Action<byte[], int> send) => Capture((bytes, length, _) => send(bytes, length));
@@ -376,7 +530,13 @@ internal static partial class TownServiceMirror
                     Module = TownServiceFrame.ManifestModule, Sequence = NextSequence(), SampleTime = now,
                     SessionAge = now - _sessionStarted,
                     Visible = _active, Modules = ids.ToArray(), Pose = _station != null ? ReadPose(_station, _sharedFrame) : IdentityPose() };
-                byte[] packet = TownServiceCodec.Write(manifest); send(packet, packet.Length, manifest); _nextManifest = now + (_active ? 5f : .5f);
+                if (ReferenceEquals(_local, PrivateLane) && _service == 2 && _active && _local.TempleDonationKnown)
+                { manifest.TempleDonationKnown = true; manifest.TempleDonationAvailable = _local.TempleDonationAvailable;
+                  manifest.TempleDonationRevision = _local.TempleDonationRevision; }
+                byte[] packet = TownServiceCodec.Write(manifest); send(packet, packet.Length, manifest);
+                // Private manifests are also the deterministic interaction lease heartbeat.
+                // Keep it below the stale timeout even when a service currently has no modules.
+                _nextManifest = now + (_active && ReferenceEquals(_local, PrivateLane) ? .75f : _active ? 5f : .5f);
             }
             catch (Exception e) { Report("capture manifest", e); }
         }
@@ -394,11 +554,17 @@ internal static partial class TownServiceMirror
         {
             if (Sessions.TryGetValue(peer, out TownServiceSessionInfo? previous) && frame.Sequence <= previous.Sequence) return true;
             if (previous != null && (previous.Session != frame.Session || previous.Service != frame.Service)) ClearRemoteModules(peer);
+            bool donationAdvanced = previous != null && previous.Session == frame.Session && previous.Service == frame.Service
+                && previous.TempleDonationKnown && frame.TempleDonationKnown
+                && frame.TempleDonationRevision > previous.TempleDonationRevision;
             Sessions[peer] = new TownServiceSessionInfo { Peer = peer, PublicClaim = frame.PublicClaim, Service = frame.Service, Session = frame.Session,
                 Sequence = frame.Sequence, SampleTime = frame.SampleTime, ReceivedTime = Time.unscaledTime, LastSeenTime = Time.unscaledTime, Active = frame.Visible,
-                SessionAge = frame.SessionAge,
+                SessionAge = frame.SessionAge, TempleDonationKnown = frame.TempleDonationKnown,
+                TempleDonationAvailable = frame.TempleDonationAvailable, TempleDonationRevision = frame.TempleDonationRevision,
+                TempleDonationChangedTime = donationAdvanced ? Time.unscaledTime : previous?.TempleDonationChangedTime ?? 0f,
                 Modules = frame.Modules, Position = Position(frame.Pose), Rotation = Rotation(frame.Pose), Scale = Scale(frame.Pose) };
             if (peer > 0) VisitorSessions[peer] = Sessions[peer];
+            if (peer > 0) InteractionOwner(frame.Service); // start/advance the bounded claim window
             if (!frame.Visible) ClearRemoteModules(peer);
             else if (Remote.TryGetValue(peer, out Dictionary<ushort, RemoteModule>? standing))
             {
@@ -456,8 +622,11 @@ internal static partial class TownServiceMirror
         foreach (var entry in Sessions)
         {
             TownServiceSessionInfo session = entry.Value;
-            if (!session.Active || now - session.LastSeenTime > 10)
+            float staleSeconds = entry.Key > 0 ? NetProtocol.StaleTimeoutSeconds : 10f;
+            if (!session.Active || now - session.LastSeenTime > staleSeconds)
             { ClearRemoteModules(entry.Key); session.Active = false; continue; }
+            if (entry.Key > 0 && InteractionOwner(session.Service) != entry.Key)
+            { ClearRemoteModules(entry.Key); continue; }
             if (entry.Key < 0 && -entry.Key != PublicAuthor)
             { ClearRemoteModules(entry.Key); continue; }
             Transform? parent = sharedFrame(entry.Key);
@@ -678,6 +847,9 @@ internal static partial class TownServiceMirror
         MerchantOfferings.Clear(); ClearVoiceNetwork(); Pending.Clear(); ReceivedBaselines.Clear(); Sessions.Clear(); VisitorSessions.Clear(); RemoteRetry.Clear(); foreach (LocalModule module in AllLocalModules())
         { module.Last = null; module.Baseline = null; module.NextRefresh = module.NextBaseline = 0; }
         PrivateLane.NextManifest = PublicLane.NextManifest = 0;
+        PrivateLane.TempleDonationKnown = PrivateLane.TempleDonationAvailable = false;
+        PrivateLane.TempleDonationRevision = 0; PrivateLane.TempleDonationChangedTime = 0f;
+        ResetInteractionLeases();
     }
     internal static void Shutdown()
     {
@@ -685,11 +857,19 @@ internal static partial class TownServiceMirror
         ClearLocalModules(); Templates.Clear();
         if (_templateHost != null) Object.Destroy(_templateHost);
         _templateHost = null; _session = 0; _service = 0; _active = false; _station = _sharedFrame = null; ClearVoiceOutgoing();
+        PrivateLane.TempleDonationKnown = PrivateLane.TempleDonationAvailable = false;
+        PrivateLane.TempleDonationRevision = 0; PrivateLane.TempleDonationChangedTime = 0f;
+        ResetInteractionLeases();
         SourceParents.Clear(); ParentGroups.Clear(); TownServiceMaterial.Reset(); Assets.Clear();
         ReportReset();
     }
     private static void ClearLocalModules()
     { LocalRacks.Clear(); LocalRackMembers.Clear(); LocalRackGates.Clear(); foreach (LocalModule module in Local.Values) module.Binding.Dispose(); Local.Clear(); }
+    private static void ResetInteractionLeases()
+    {
+        for (int i = 1; i < InteractionLeases.Length; i++)
+        { InteractionLeases[i].Player = 0; InteractionLeases[i].Session = 0; InteractionLeases[i].PendingSince = float.NegativeInfinity; }
+    }
     private static void ClearRemoteModules(int peer)
     { RemoteRacks.Remove(peer); if (!Remote.TryGetValue(peer, out Dictionary<ushort, RemoteModule>? modules)) return;
         foreach (RemoteModule module in modules.Values) module.Dispose(); Remote.Remove(peer); }

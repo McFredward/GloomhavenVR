@@ -12,6 +12,7 @@ internal static class TownServiceTransportVectors
         RackClocks(t);
         PublicCatalogLanes(t);
         PrivateWorkspaceCloth(t);
+        SharedTempleAvailability(t);
         t.Case("Town service original widgets use the real wire header and loss-safe module lanes");
         var frame = Frame(62000, 1);
         byte[] raw = TownServiceCodec.Write(frame);
@@ -105,6 +106,44 @@ internal static class TownServiceTransportVectors
         byte[] enchantBytes = TownServiceCodec.Write(enchant);
         t.True(TownServiceCodec.TryRead(enchantBytes, enchantBytes.Length, out TownServiceFrame? enchantRead)
             && enchantRead!.WorkspaceCloth?.Length == 8, "enchantress furniture carries one runner");
+    }
+    private static void SharedTempleAvailability(Harness t)
+    {
+        t.Case("TLV91 temple availability extends the owner manifest without changing its historical prefix");
+        var manifest = Frame(TownServiceFrame.ManifestModule, 7, 0);
+        manifest.Service = 2; manifest.Template = 0; manifest.Structure = 0;
+        byte[] historical = TownServiceCodec.Write(manifest);
+        manifest.TempleDonationKnown = true;
+        manifest.TempleDonationRevision = 7;
+        byte[] unavailable = TownServiceCodec.Write(manifest);
+        t.Wire(historical, unavailable, historical.Length, "interaction state leaves complete historical manifest prefix byte-identical");
+        t.Wire(Hex.Bytes("5B 06 01 00 07 00 00 00"), Slice(unavailable, unavailable.Length - 8, 8), 8,
+            "additive interaction record carries unavailable state and blessing revision");
+        t.True(TownServiceCodec.TryRead(unavailable, unavailable.Length, out TownServiceFrame? blocked)
+            && blocked!.TempleDonationKnown && !blocked.TempleDonationAvailable
+            && blocked.TempleDonationRevision == 7,
+            "observer decodes explicit unavailable state without inventing gameplay state");
+        manifest.TempleDonationAvailable = true;
+        byte[] available = TownServiceCodec.Write(manifest);
+        t.Wire(Hex.Bytes("5B 06 01 01 07 00 00 00"), Slice(available, available.Length - 8, 8), 8,
+            "interaction record carries the owner's available donation affordance");
+        t.True(TownServiceCodec.TryRead(available, available.Length, out TownServiceFrame? open)
+            && open!.TempleDonationKnown && open.TempleDonationAvailable,
+            "observer preserves explicit available state");
+        byte[] duplicate = new byte[available.Length + 8];
+        available.CopyTo(duplicate, 0); Array.Copy(available, available.Length - 8, duplicate, available.Length, 8);
+        t.True(!TownServiceCodec.TryRead(duplicate, duplicate.Length, out _), "duplicate interaction state rejected");
+        byte[] invalidFlag = (byte[])available.Clone(); invalidFlag[^5] = 2;
+        t.True(!TownServiceCodec.TryRead(invalidFlag, invalidFlag.Length, out _), "invalid availability flag rejected");
+        var wrongService = Frame(TownServiceFrame.ManifestModule, 8, 0);
+        wrongService.Template = 0; wrongService.Structure = 0; wrongService.TempleDonationKnown = true;
+        bool rejected = false;
+        try { TownServiceCodec.Write(wrongService); } catch (System.IO.InvalidDataException) { rejected = true; }
+        t.True(rejected, "temple availability cannot attach to another resident manifest");
+        manifest.Visible = false;
+        rejected = false;
+        try { TownServiceCodec.Write(manifest); } catch (System.IO.InvalidDataException) { rejected = true; }
+        t.True(rejected, "closed session cannot retain a stale availability lock");
     }
     private static void LateGameCatalog(Harness t, bool contention, int count = 673 * 3 + 64)
     {
