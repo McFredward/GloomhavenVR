@@ -881,7 +881,7 @@ public static partial class MirrorProgram
                 && c.CloneOf!(piece.Source) == piece.Content), "physical ritual keeps original native inscription provenance");
             Check(calls.Exists(c => c.Key == piece.BodyKey && c.Source == piece.Body), "ritual mirrors exact physical coin or rune body");
             if (service == 2)
-                Check(calls.Count(c => c.Key == "ritual.purse") == 2,
+                Check(calls.FindAll(c => c.Key == "ritual.purse").Count == 2,
                     "the public bowl's ghost purse and the owner's carried real purse remain separate mirrored objects");
             Check(calls.Exists(c => c.Key == piece.DetailKey && c.Source == piece.DetailContent && c.Provenance == piece.DetailSource),
                 "held ritual description mirrors actual owner presentation");

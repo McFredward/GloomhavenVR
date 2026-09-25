@@ -9,7 +9,7 @@ namespace GloomhavenVR.Net.TownServices;
 /// resulting cue through TLV80; this packet cannot execute a native transaction.</summary>
 internal static class TownServiceVoiceRelayCodec
 {
-    internal const string Address = "town.voice.reaction|v1";
+    internal const string Address = TownServiceFrame.VoiceAddress;
     private const uint Signature = 0x564F0000;
 
     internal static TownServiceFrame Create(byte service, uint session, uint sequence, TownVoiceReaction reaction,

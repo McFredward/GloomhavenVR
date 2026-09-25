@@ -199,7 +199,9 @@ internal sealed class TownServiceSendQueue
         { _voice.Clear(); _voicePending.Clear(); _voiceSession = frame.Session; _voiceService = frame.Service; }
         if (frame.Module == TownServiceFrame.VoiceModule)
         {
-            if (!TownServiceVoiceRelayCodec.TryRead(frame, out _) || _voicePending.Count >= 16) return;
+            if (frame.PublicCatalog || frame.TemplateAddress != TownServiceFrame.VoiceAddress
+                || frame.Session == 0 || frame.Sequence == 0 || frame.BaseSequence != 0
+                || _voicePending.Count >= 16) return;
             byte[] copy = new byte[length]; Buffer.BlockCopy(bytes, 0, copy, 0, length);
             _voicePending.Enqueue((copy, frame));
             return;

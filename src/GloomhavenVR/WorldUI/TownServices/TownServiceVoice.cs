@@ -55,8 +55,9 @@ internal static class TownServiceVoice
             _schedule.Work(service, workClock, shown.Cast, shown.Attention, visible, Time.unscaledTime);
     }
 
-    /// <summary>Called after a native transaction succeeds, never on speculative hover or
-    /// a blocked confirmation. A non-author cannot invent a divergent shared cue.</summary>
+    /// <summary>Called for a real native interaction: an opened merchant offer, a
+    /// confirmed trade, donation or enhancement. Never on speculative hover.
+    /// A non-author cannot invent a divergent shared cue.</summary>
     internal static void RequestReaction(byte service, TownVoiceReaction reaction)
     {
         ushort cue = ReactionCue(service, reaction);
