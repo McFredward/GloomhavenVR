@@ -122,8 +122,25 @@ public static class InteractionProgram
   first.Holder=VRHands.Left; first.TownOffering=false;
   Check(first.AllowsHand(VRHands.Left),"reclaimed item remains valid for its fan-owning holder");
   first.Holder=null; first.TownOffering=true;
-  Check(!TownServiceMerchantHandoff.CanReclaim(TownServiceMerchantHandoff.OwnedChips[1]),"unrelated item never receives pending decision exception");
-  Check(!TownServiceMerchantHandoff.Offer(duplicate,true,palm.position),"pending native confirmation excludes another offer");
+  var second=TownServiceMerchantHandoff.OwnedChips[1];
+  Check(!TownServiceMerchantHandoff.CanReclaim(second),"unrelated item never receives pending decision exception");
+  Check(!TownServiceMerchantHandoff.Offer(first.Item!,true,palm.position),"same pending card cannot replace itself");
+  VRHands.Left.PalmGate.IsOpen=true; TownServiceMerchantHandoff.Tick();
+  int requestsBeforeSwap=TownServiceMerchantTransaction.Requests;
+  int cancelsBeforeSwap=Singleton<UIItemConfirmationBox>.Instance.Cancels;
+  second.Release(palm.position);
+  Check(!first.TownOffering && second.TownOffering && first.transform.parent.name=="GloomhavenVR.MerchantOwnedItems",
+      "second valid item atomically replaces merchant palm and returns old card to canonical fan");
+  Check(Singleton<UIItemConfirmationBox>.Instance.Cancels==cancelsBeforeSwap+1,
+      "merchant swap cancels exactly the displaced native decision");
+  TownServiceMerchantHandoff.Tick();
+  Check(TownServiceMerchantTransaction.Requests==requestsBeforeSwap+1
+      && ReferenceEquals(TownServiceMerchantTransaction.LastItem,second.Item),
+      "merchant swap opens one native decision for replacement only");
+  first.Release(palm.position); TownServiceMerchantHandoff.Tick();
+  Check(first.TownOffering && !second.TownOffering
+      && ReferenceEquals(TownServiceMerchantTransaction.LastItem,first.Item),
+      "merchant palm swaps back without leaving duplicate ownership");
   character.AllCharacterItems.Remove(first.Item!);
   typeof(TownServiceMerchantHandoff).GetField("_nextItems", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)!.SetValue(null,0f);
   TownServiceMerchantHandoff.Tick();
@@ -131,6 +148,7 @@ public static class InteractionProgram
   Check(first.TownOffering && !first.IsCollapsing,"native inventory mutation cannot destroy a pending offered card");
   // Leaving cancels only our own confirmation and restores the original hand.
   int restore=MapRoomHand.NormalRebuilds;
+  int cancelsBeforeLeaving=Singleton<UIItemConfirmationBox>.Instance.Cancels;
   Singleton<UIItemConfirmationBox>.Instance.OnCancelled=()=> {
    Check(!TownServiceMerchantHandoff.Active,"reentrant native cancellation observes withdrawn handoff");
    TownServiceMerchantHandoff.Tick(); TownServiceMerchantHandoff.Reset();
@@ -138,7 +156,7 @@ public static class InteractionProgram
   Check(!TownServiceMerchantHandoff.Active && MapRoomHand.NormalRebuilds==restore+1,"leaving restores normal fan exactly once");
   Check(CardsDriver.SuppressedCloseEdges==1 && CardsDriver.SuppressedOpenEdges==1,
       "merchant departure silences exactly the matching automatic fan reopen edge");
-  Check(Singleton<UIItemConfirmationBox>.Instance.Cancels==1,"leaving cancels own unconfirmed sale");
+  Check(Singleton<UIItemConfirmationBox>.Instance.Cancels==cancelsBeforeLeaving+1,"leaving cancels own unconfirmed sale");
   Check(ItemsPile.InspectionCurrent==null,"leaving clears laser owner");
   GuildmasterDestinations.Mode=EGuildmasterMode.None; TownServicePopulation.Station.Near=true;
   FFSNet.FFSNetwork.IsOnline=true; character.IsUnderMyControl=false; TownServiceMerchantHandoff.Tick();
@@ -151,7 +169,7 @@ public static class InteractionProgram
   var stock=new CItem{ID=99}; AdventureState.MapState.MapParty.Stock.Add(stock); window.ItemInventory.character=replacement;
   Check(TownServiceMerchantHandoff.Offer(stock,false,palm.position),"cabinet release requests native buy");
   TownServiceMerchantHandoff.Tick(); Check(!TownServiceMerchantTransaction.LastSelling,"stock release dispatches buy confirmation");
-  Check(TownServiceVoice.Offers==2 && TownServiceVoice.Buys==0,"opening a buy prompt does not claim the transaction succeeded");
+  Check(TownServiceVoice.Offers==4 && TownServiceVoice.Buys==0,"opening a buy prompt does not claim the transaction succeeded");
   Singleton<UIItemConfirmationBox>.Instance.confirmButton.onClick.Invoke();
   ItemsPile.ItemChip.NewArtReady=false;
   replacement.AllCharacterItems.Add(stock);

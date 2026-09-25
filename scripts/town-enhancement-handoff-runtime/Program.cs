@@ -18,7 +18,65 @@ public static class InteractionProgram
         WalkAway();
         foreach (float scale in new[] { .05f, 1f, 2f, 198.12f })
         for (int scenario = 0; scenario < 22; scenario++) RunCase(scale, scenario);
+        SwapOffering();
         return count;
+    }
+
+    private static void SwapOffering()
+    {
+        var root = new GameObject("Swap fixture");
+        var native = new GameObject("Native", typeof(UIWindow), typeof(UINewEnhancementWindow));
+        native.transform.SetParent(root.transform, false);
+        var shop = native.GetComponent<UINewEnhancementWindow>();
+        var station = new GameObject("Resident").transform; station.SetParent(root.transform, false);
+        var palm = new GameObject("ActivityOfferingPalm").transform; palm.SetParent(station, false);
+        palm.localPosition = new Vector3(-.18f, 1.14f, .23f);
+        var fan = new GameObject("Fan").transform; fan.SetParent(root.transform, false); CardsDriver.FanRoot = fan;
+        VRCard Card(int id)
+        {
+            var card = new GameObject("Card " + id, typeof(VRCard)).GetComponent<VRCard>();
+            card.transform.SetParent(fan, false); card.Owner = shop.character; card.Model.ID = id;
+            new GameObject("Full", typeof(FullAbilityCard)).transform.SetParent(card.transform, false);
+            return card;
+        }
+        UIEnhanceCardSlot Slot(VRCard card)
+        {
+            var slot = new GameObject("Slot " + card.Model.ID, typeof(RectTransform), typeof(Button), typeof(UIEnhanceCardSlot)).GetComponent<UIEnhanceCardSlot>();
+            slot.transform.SetParent(native.transform, false); slot.Selectable = slot.GetComponent<Button>();
+            slot.AbilityCard = new GameObject("Original " + card.Model.ID, typeof(AbilityCardUI)).GetComponent<AbilityCardUI>();
+            slot.AbilityCard.transform.SetParent(slot.transform, false); slot.AbilityCard.AbilityCard = card.Model;
+            slot.AbilityCard.fullAbilityCard = new GameObject("Full", typeof(FullAbilityCard)).GetComponent<FullAbilityCard>();
+            slot.Selected = () => shop.selectedCard = slot.AbilityCard;
+            shop.CardsDisplay.slotsPool.Add(slot); return slot;
+        }
+        VRCard first = Card(301), replacement = Card(302), rejected = Card(303);
+        Slot(first); Slot(replacement); UIEnhanceCardSlot rejectedSlot = Slot(rejected);
+        rejectedSlot.Selected = () => { shop.selectedCard = rejectedSlot.AbilityCard; throw new Exception("replacement rejected"); };
+        CardsDriver.OffScenarioFanCards = new[] { first, replacement, rejected };
+        CardsDriver.Returned = CardsDriver.Rebuilds = 0; CardsDriver.LastReturned = null;
+        using (var handoff = new TownServiceEnhancementHandoff(shop, station, () => true, () => true))
+        {
+            handoff.Tick(); first.transform.position = handoff.Seat.position;
+            Check(TownServiceEnhancementHandoff.TryOffer(first), "first valid owned card occupies enchantress palm");
+            rejected.transform.position = handoff.Seat.position;
+            Check(!TownServiceEnhancementHandoff.TryOffer(rejected) && ReferenceEquals(handoff.Card, first)
+                && CardsDriver.Returned == 0 && ReferenceEquals(shop.selectedCard!.AbilityCard, first.Model),
+                "rejected replacement preserves prior enchantress card atomically");
+            replacement.transform.position = handoff.Seat.position;
+            Check(TownServiceEnhancementHandoff.TryOffer(replacement), "second valid owned card atomically swaps into enchantress palm");
+            Check(ReferenceEquals(handoff.Card, replacement) && ReferenceEquals(shop.selectedCard!.AbilityCard, replacement.Model),
+                "replacement owns both physical and native enchantment selection");
+            Check(CardsDriver.Returned == 1 && ReferenceEquals(CardsDriver.LastReturned, first) && first.IsFlying,
+                "displaced enchantment card takes canonical fan return flight");
+            Check(TownServiceEnhancementHandoff.IsParked(first) && TownServiceEnhancementHandoff.IsParked(replacement),
+                "returning old card and parked replacement remain uniquely published");
+            Check(!TownServiceEnhancementHandoff.TryOffer(replacement), "same parked card cannot replace itself");
+            CardsDriver.Complete();
+            Check(!TownServiceEnhancementHandoff.IsParked(first) && TownServiceEnhancementHandoff.IsParked(replacement),
+                "displaced card retires only after its canonical return completes");
+        }
+        CardsDriver.Complete();
+        UnityEngine.Object.DestroyImmediate(root);
     }
     private static void RunCase(float scale, int scenario)
     {

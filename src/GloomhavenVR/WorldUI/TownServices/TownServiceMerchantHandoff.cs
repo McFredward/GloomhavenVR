@@ -161,10 +161,17 @@ internal static class TownServiceMerchantHandoff
     internal static bool CanOffer(CItem item, bool selling) => Eligible(item, selling, cached: true);
     private static bool Eligible(CItem item, bool selling, bool cached)
     {
-        if (!Active || item == null || !item.Tradeable || _pending != null || _offering != null || _offeredStock != null
+        if (!Active || item == null || !item.Tradeable
             || !ReferenceEquals(MapRoomHand.OwnedMerchantCharacter(), _character)) return false;
         UIItemConfirmationBox? confirmation = Singleton<UIItemConfirmationBox>.Instance;
-        if (confirmation != null && confirmation.IsActive) return false;
+        bool ownsConfirmation = confirmation != null && confirmation.IsActive && _ourConfirmation != null
+            && ReferenceEquals(confirmation._onConfirmedCallback, _ourConfirmation);
+        if (confirmation != null && confirmation.IsActive && !ownsConfirmation) return false;
+        CItem? current = _pending ?? _tradeItem;
+        bool replacing = current != null && (!ReferenceEquals(current, item)
+            || (_pending != null ? _selling : _tradeSelling) != selling);
+        if (current != null && !replacing) return false;
+        if (current == null && (_offering != null || _offeredStock != null)) return false;
         if (cached && ReferenceEquals(_eligibilityItem, item) && _eligibilitySelling == selling
             && Time.unscaledTime < _eligibilityUntil) return _eligibilityResult;
         ShopService? shop = Shop();
@@ -194,6 +201,7 @@ internal static class TownServiceMerchantHandoff
     internal static bool Offer(CItem item, bool selling, Vector3 world)
     {
         if (!Eligible(item, selling, cached: false) || !InOfferingZone(world)) return false;
+        uint session = Session;
         EGuildmasterMode mode = GuildmasterDestinations.CurrentDestinationMode();
         if (mode != EGuildmasterMode.Merchant)
         {
@@ -201,6 +209,17 @@ internal static class TownServiceMerchantHandoff
                 || Core.Events.VRModeStateMachine.CurrentMode == Core.Events.VRMode.ModalUI) return false;
             MapRoomDriver.PressGuildmasterMode(EGuildmasterMode.Merchant, "item offered to merchant",
                 suppressNativeSound: true);
+        }
+        if (_pending != null || _tradeItem != null || _offering != null || _offeredStock != null)
+        {
+            // Validate the incoming card first, then retire the complete old transaction before
+            // exposing the replacement. This is one release-stack ownership transfer: the old
+            // physical card resumes its canonical source and the native prompt is cancelled,
+            // while the new card becomes the sole pending decision below. Cancellation can run
+            // native callbacks, so recheck session ownership before accepting the replacement.
+            WithdrawForReplacement();
+            if (!Active || Session != session || !ReferenceEquals(MapRoomHand.OwnedMerchantCharacter(), _character))
+                return false;
         }
         _pending = item; _selling = selling; _pendingSession = Session;
         _pendingUntil = Time.unscaledTime + 3f;
@@ -289,6 +308,17 @@ internal static class TownServiceMerchantHandoff
         _tradeItem = null; DetachTradeListener();
         // Withdraw the display before the native cancellation can reenter teardown. A card
         // already adopted by a hand is never reparented or flown out of that hand.
+        ReleaseOffering();
+        UIItemConfirmationBox? confirmation = Singleton<UIItemConfirmationBox>.Instance;
+        if (callback != null && confirmation != null && confirmation.IsActive
+            && ReferenceEquals(confirmation._onConfirmedCallback, callback)) confirmation.OnCancel();
+    }
+
+    private static void WithdrawForReplacement()
+    {
+        Action? callback = _ourConfirmation;
+        _ourConfirmation = null; _pending = null; _tradeItem = null;
+        DetachTradeListener();
         ReleaseOffering();
         UIItemConfirmationBox? confirmation = Singleton<UIItemConfirmationBox>.Instance;
         if (callback != null && confirmation != null && confirmation.IsActive

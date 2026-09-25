@@ -41,6 +41,10 @@ def main():
         ('workspace-light-in-template', 'TownServiceWorkspacePractical.cs', 'if (owner.isActiveAndEnabled)', 'if (true)', 'inactive frozen template never creates a practical'),
         ('workspace-topology-change', 'TownServiceWorkspacePractical.cs', 'obj.transform.position = transform.TransformPoint(_point);', 'obj.transform.SetParent(transform,false); obj.transform.position = transform.TransformPoint(_point);', 'lighting cannot alter mirrored prop topology'),
         ('workspace-ownership-leak', 'TownServiceWorkspacePractical.cs', 'TownServiceLighting.ForgetPractical(_light!);', '', 'disable immediately releases and darkens standalone light')]
+    variants.insert(5, ('furniture-grounding', 'TownServiceDecor.cs',
+        'piece.Position = FurnitureSupport(piece.Position,\n                    piece.SupportInset > 0f ? piece.SupportInset : piece.Size * .12f);',
+        'piece.Position = new Vector3(piece.Position.x, piece.Position.y, piece.Position.z);',
+        'enchantress lanterns ground on actual workbench support'))
     manifest = {'result': str(run / 'results.txt'), 'cases': []}
     fixture = ROOT / 'scripts/town-decor-runtime'
     dotnet = shutil.which('dotnet') or str(Path.home() / '.dotnet/dotnet')
@@ -78,6 +82,6 @@ def main():
     evidence = Path(manifest['result'])
     if evidence.exists(): print(evidence.read_text())
     if result.returncode or not evidence.exists(): raise SystemExit('FAIL: ' + str(run / 'unity.log'))
-    print('PASS: native decor loading/material tests and eleven compiled negative controls; evidence: ' + str(run))
+    print('PASS: native decor loading/material tests and thirteen compiled negative controls; evidence: ' + str(run))
 
 if __name__ == '__main__': main()

@@ -203,7 +203,8 @@ internal sealed class TownServiceEnhancementHandoff : IDisposable
             // Authored activity markers carry station units, not imported bone scale.
             _seat.localScale = Vector3.one;
         }
-        _zoneGate.alpha = Ready && _palm != null && Card == null && HasAvailableOwnedCard() ? 1f : 0f;
+        _zoneGate.alpha = Ready && _palm != null && HasAvailableOwnedCard()
+            && (Card == null || HeldReplacementAvailable()) ? 1f : 0f;
         if (Card == null)
         {
             // Native character changes can automatically select their first card. Until a real
@@ -264,6 +265,14 @@ internal sealed class TownServiceEnhancementHandoff : IDisposable
         return false;
     }
 
+    private bool HeldReplacementAvailable()
+    {
+        VRCard? card = HeldOwnedCard(VRHands.Left) ?? HeldOwnedCard(VRHands.Right);
+        return card != null && !ReferenceEquals(card, Card) && ValidOwner(card)
+            && MapRoomHand.TryOwnedTownCard(card, out _, out CAbilityCard? model)
+            && FindAvailableSlot(model) != null;
+    }
+
     private UIEnhanceCardSlot? FindAvailableSlot(CAbilityCard? model)
     {
         if (model == null) return null;
@@ -278,12 +287,14 @@ internal sealed class TownServiceEnhancementHandoff : IDisposable
     {
         TownServiceEnhancementHandoff? target = _current;
         if (target == null) return false;
+        VRCard? previous = target.Card;
         try { return target.Offer(card); }
         catch (Exception ex)
         {
             // Let the driver's ordinary inspection-release path reclaim the physical card
-            // even when a native callback rejects it. No pending purchase was created here.
-            target.Detach();
+            // when the first native callback rejects it. During a replacement, the existing
+            // physical offer retains ownership; a failed second selection must not evict it.
+            if (previous == null) target.Detach();
             VRLog.Warn("WorldUI", "TOWN ENHANCEMENT: original card selection refused; returning the card: " + ex.Message);
             return false;
         }
@@ -291,16 +302,33 @@ internal sealed class TownServiceEnhancementHandoff : IDisposable
 
     private bool Offer(VRCard card)
     {
-        if (!Ready || Card != null || _palm == null || card == null || card.IsHeld
+        if (!Ready || _palm == null || card == null || card.IsHeld || ReferenceEquals(Card, card)
             || !TownServiceOfferingPose.Contains(_seat, card.transform.position) || !ValidOwner(card)
             || !MapRoomHand.TryOwnedTownCard(card, out _, out var model)) return false;
         UIEnhanceCardSlot? found = FindAvailableSlot(model);
         if (found == null) return false;
+        VRCard? existing = Card;
+        UIEnhanceCardSlot? existingSlot = NativeSlot;
         // Original selection changes only the candidate; gold and enhancements still require
         // the original rune confirmation path. Recheck after callbacks may rebuild the pool.
-        found.Select();
+        try { found.Select(); }
+        catch
+        {
+            RestoreSelection(existing, existingSlot);
+            throw;
+        }
         if (!Ready || !ValidOwner(card) || _shop.selectedCard == null
-            || !SameCard(_shop.selectedCard.AbilityCard, model)) return false;
+            || !SameCard(_shop.selectedCard.AbilityCard, model))
+        { RestoreSelection(existing, existingSlot); return false; }
+        // A second valid card replaces the first one in the same physical palm. The native
+        // selection is changed before presentation ownership moves, so a rejected callback
+        // cannot steal either card. Once accepted, the displaced original takes the ordinary
+        // fan-return flight and remains published through that flight; the replacement is
+        // adopted in this same release stack, leaving no empty or duplicate palm frame.
+        VRCard? displaced = existing;
+        ReturnPresentation? displacedPresentation = displaced != null && _model != null
+            ? new ReturnPresentation(displaced, _model.ID, _station) : null;
+        if (displaced != null) displaced.Grabbed -= OnGrabbed;
         Reclaimed.Remove(card);
         Card = card; NativeSource = _shop.selectedCard; NativeSlot = found; _model = model;
         CardFan.Current?.Remove(card);
@@ -314,8 +342,18 @@ internal sealed class TownServiceEnhancementHandoff : IDisposable
         card.SetHandPopSuppressed(false);
         card.ResetColliderRegion();
         card.Grabbable = true; card.InspectOnly = true; card.AllowsGateHand = true;
+        if (displaced != null && !displaced.IsHeld && displacedPresentation != null)
+            BeginReturn(displacedPresentation);
         VRLog.Debug("WorldUI", "TOWN ENHANCEMENT: actual owned hand card offered to resident palm.");
         return true;
+    }
+
+    private void RestoreSelection(VRCard? existing, UIEnhanceCardSlot? slot)
+    {
+        if (existing == null || slot == null || !ValidOwner(existing) || slot.Selectable == null
+            || !slot.gameObject.activeInHierarchy || !slot.Selectable.IsActive() || !slot.Selectable.IsInteractable()) return;
+        try { slot.Select(); }
+        catch { /* The physical original remains reclaimable; Tick returns it if native recovery failed. */ }
     }
 
     private void OnGrabbed(VRCard card, VRHand hand)

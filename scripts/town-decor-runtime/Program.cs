@@ -125,8 +125,17 @@ public static class InteractionProgram
         Check(GloomhavenVR.Net.TownServices.TownServiceMirror.Assets.Items.Count>0,"network asset reset rebinds living native coin textures");
         decor.Dispose();Check(TownServiceDecor.MoneyBagTemplate==null&&TownServiceDecor.TempleBookRoot==null,"purse and book do not outlive original material ownership");Check(TownServiceDecor.StaticPropSource(2)==null&&TownServiceDecor.StaticPropCount(2)==0,"disposed station invalidates static prop lookup");Check(TownServiceDecor.CoinTemplate==null&&Addressables.Held==0,"coin template cannot outlive owner materials");UnityEngine.Object.DestroyImmediate(root);
         Setup(0);root=new GameObject("enchantress");
+        var workbench=GameObject.CreatePrimitive(PrimitiveType.Cube);workbench.name="Workbench";
+        workbench.transform.SetParent(root.transform,false);workbench.transform.localPosition=new Vector3(0f,.78f,.20f);
+        workbench.transform.localScale=new Vector3(1.30f,.20f,.62f);UnityEngine.Object.DestroyImmediate(workbench.GetComponent<Collider>());
         var grip=new GameObject("ActivityOfferingPalm");grip.transform.SetParent(root.transform,false);grip.transform.localPosition=new Vector3(.2f,1.1f,.3f);
         decor=new TownServiceDecor(root.transform,3,light);Tick(decor,0);Tick(decor,.11f);decor.SetVisibility(.8f);decor.SetClock(100f);
+        float worktop=workbench.GetComponent<MeshRenderer>().bounds.max.y;
+        var groundedLamps=root.transform.Cast<Transform>().Where(t=>t.name=="Original.Gaslight.Lighting.Torch.Wall#1").ToArray();
+        Check(groundedLamps.Length==2&&groundedLamps.All(l=>Math.Abs(l.GetComponentInChildren<MeshRenderer>().bounds.min.y-worktop)<.0001f),
+            "enchantress lanterns ground on actual workbench support");
+        Check(groundedLamps.All(l=>Math.Abs(l.localPosition.x)<.66f&&l.localPosition.z<.50f),
+            "unsupported lantern seat is clamped onto furniture instead of floating beyond its edge");
         var visual=new GloomhavenVR.Net.TownActivityVisual{Cast=.4f,EffectClock=100f,
             Left=new Vector3(-.20f,1.15f,.20f),Right=new Vector3(.20f,1.15f,.20f)};
         decor.SampleActivity(in visual);

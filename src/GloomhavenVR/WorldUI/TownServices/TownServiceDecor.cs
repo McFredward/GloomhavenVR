@@ -15,8 +15,8 @@ internal sealed class TownServiceDecor : IDisposable
     {
         internal string Key = string.Empty, Entry = string.Empty;
         internal Vector3 Position, PracticalPoint;
-        internal float Size;
-        internal bool Candle, Arcane, FlameOnly, Template;
+        internal float Size, SupportOffsetY, SupportInset;
+        internal bool Candle, Arcane, FlameOnly, Template, FurnitureSupported;
         internal string Select = string.Empty;
         internal Material[] EffectMaterials = Array.Empty<Material>();
         internal GameObject? Holder;
@@ -165,8 +165,10 @@ internal sealed class TownServiceDecor : IDisposable
     private void Lantern(Vector3 position, int slot)
     {
         Piece lantern = Add("Gaslight", "Gaslight.Lighting.Torch.Wall#1", position, .32f, true, slot);
+        lantern.FurnitureSupported = true; lantern.SupportInset = .32f * .12f;
         lantern.Select = "CR_INT_Lantern_01_b";
         Piece flame = Add("Tone_Candlelight", "Candlelight.Lighting.Torch.Wall#1", position + Vector3.up * .15f, .09f);
+        flame.FurnitureSupported = true; flame.SupportOffsetY = .15f; flame.SupportInset = lantern.SupportInset;
         flame.Select = "CandlePivot";
         flame.FlameOnly = true;
     }
@@ -320,6 +322,7 @@ internal sealed class TownServiceDecor : IDisposable
         // A real freestanding wax candle, including its original flame/glow subtree.
         // The previous wall-candle prefab left a floating bracket and spike on the table.
         Piece piece = Add("RockTemple", "RockTemple.Feature.Small#3", position, height, lightSlot >= 0, lightSlot);
+        piece.FurnitureSupported = true;
         piece.Select = "CR_GE_Candle_V1";
     }
 
@@ -350,6 +353,16 @@ internal sealed class TownServiceDecor : IDisposable
         try
         {
             holder.transform.SetParent(_root, false);
+            // Only the enchantress report concerns an imported workbench whose practicals
+            // missed its actual top by several millimetres. Merchant furniture contains a tall
+            // side cabinet in the same mesh bounds, so applying this surface query there would
+            // incorrectly lift counter candles to the cabinet roof.
+            if (piece.FurnitureSupported && _service == 3)
+            {
+                piece.Position = FurnitureSupport(piece.Position,
+                    piece.SupportInset > 0f ? piece.SupportInset : piece.Size * .12f);
+                piece.Position.y += piece.SupportOffsetY;
+            }
             holder.transform.localPosition = piece.Position;
             var overrides = new Dictionary<Renderer, Material[]>();
             foreach (MaterialLoaderData data in MaterialData(piece))
@@ -433,6 +446,46 @@ internal sealed class TownServiceDecor : IDisposable
             else holder.SetActive(!piece.Arcane);
         }
         catch { UnityEngine.Object.Destroy(holder); throw; }
+    }
+
+    private Vector3 FurnitureSupport(Vector3 seat, float inset)
+    {
+        Transform? furniture = _root.Find(_service == 1 ? "Counter" : _service == 2 ? "Shrine" : "Workbench");
+        if (furniture == null) return seat;
+        float support = float.NegativeInfinity, bestDistance = float.PositiveInfinity;
+        Vector2 best = new(seat.x, seat.z);
+        foreach (MeshFilter filter in furniture.GetComponentsInChildren<MeshFilter>(true))
+        {
+            Mesh? mesh = filter.sharedMesh;
+            if (mesh == null) continue;
+            Bounds bounds = mesh.bounds;
+            float minX = float.PositiveInfinity, maxX = float.NegativeInfinity;
+            float minZ = float.PositiveInfinity, maxZ = float.NegativeInfinity, top = float.NegativeInfinity;
+            for (int corner = 0; corner < 8; corner++)
+            {
+                Vector3 local = bounds.center + Vector3.Scale(bounds.extents, new Vector3(
+                    (corner & 1) == 0 ? -1f : 1f, (corner & 2) == 0 ? -1f : 1f,
+                    (corner & 4) == 0 ? -1f : 1f));
+                Vector3 point = _root.InverseTransformPoint(filter.transform.TransformPoint(local));
+                minX = Mathf.Min(minX, point.x); maxX = Mathf.Max(maxX, point.x);
+                minZ = Mathf.Min(minZ, point.z); maxZ = Mathf.Max(maxZ, point.z);
+                top = Mathf.Max(top, point.y);
+            }
+            float lowX = minX + Mathf.Min(inset, Mathf.Max(0f, (maxX - minX) * .25f));
+            float highX = maxX - Mathf.Min(inset, Mathf.Max(0f, (maxX - minX) * .25f));
+            float lowZ = minZ + Mathf.Min(inset, Mathf.Max(0f, (maxZ - minZ) * .25f));
+            float highZ = maxZ - Mathf.Min(inset, Mathf.Max(0f, (maxZ - minZ) * .25f));
+            Vector2 candidate = new(Mathf.Clamp(seat.x, lowX, highX), Mathf.Clamp(seat.z, lowZ, highZ));
+            float distance = (candidate - new Vector2(seat.x, seat.z)).sqrMagnitude;
+            if (distance < bestDistance - 1e-6f || Mathf.Abs(distance - bestDistance) <= 1e-6f && top > support)
+            { bestDistance = distance; support = top; best = candidate; }
+        }
+        // The approved authored seat remains the fallback when an imported furniture part has
+        // not arrived. Once present, the lamp bottom follows that actual support in station space,
+        // including grounded or mirrored workspaces, rather than a one-off world-space height.
+        if (float.IsNegativeInfinity(support)) return seat;
+        seat.x = best.x; seat.y = support; seat.z = best.y;
+        return seat;
     }
 
     private static void RegisterPropTextures(Transform root, string entry)

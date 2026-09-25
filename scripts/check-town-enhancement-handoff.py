@@ -87,8 +87,10 @@ def mutations():
         ("card-close", name, "if (cardEntered) _cardInside = true;", "", "explicit close remains closed while card stays near"),
         ("other-service", name, "GuildmasterDestinations.CurrentDestinationMode() != EGuildmasterMode.None", "GuildmasterDestinations.CurrentDestinationMode() == EGuildmasterMode.Enchantress", "proximity never takes over another open service"),
         ("modal", name, "|| Core.Events.VRModeStateMachine.CurrentMode == Core.Events.VRMode.ModalUI", "", "modal confirmation prevents proximity opening"),
-        ("empty-palm", name, "&& Card == null && HasAvailableOwnedCard()", "&& Card == null && HeldOwnedCard(VRHands.Left) != null && HasAvailableOwnedCard()", "empty ready palm advertises an owned offering without requiring a held card"),
+        ("empty-palm", name, "&& (Card == null || HeldReplacementAvailable())", "&& HeldOwnedCard(VRHands.Left) != null && (Card == null || HeldReplacementAvailable())", "empty ready palm advertises an owned offering without requiring a held card"),
         ("model-refresh", name, "a.ID == b.ID", "ReferenceEquals(a, b)", "same owned card ID survives a native enhancement-list model refresh"),
+        ("occupied-swap", name, "|| card == null || card.IsHeld || ReferenceEquals(Card, card)", "|| card == null || card.IsHeld || Card != null", "second valid owned card atomically swaps into enchantress palm"),
+        ("swap-rollback", name, "catch\n        {\n            RestoreSelection(existing, existingSlot);\n            throw;\n        }", "catch\n        {\n            throw;\n        }", "rejected replacement preserves prior enchantress card atomically"),
     ]
 
 

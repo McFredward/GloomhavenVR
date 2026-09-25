@@ -80,6 +80,7 @@ def mutations():
         ("reclaim-parent", "ItemsPile.Merchant.cs", "chip.transform.SetParent(_root, true);", "", "reclaimed merchant item records the item fan as its release parent"),
         ("offering-size", "TownServiceMerchantHandoff.cs", "float worldWidth = TownServiceMerchantLayout.CardWidth * stationScale * 1.5f;", "float worldWidth = chip.FaceWidth * stationScale * 2.5f;", "owned and cabinet cards have one merchant-palm size"),
         ("inspection-edge-sound", "MapRoomHand.5.Merchant.cs", "if (_townInspectionFanWasOpen) CardsDriver.SuppressNextOffScenarioFanEdgeSound(open: false);", "", "merchant inspection silences exactly the automatic open fan close edge"),
+        ("occupied-swap", "TownServiceMerchantHandoff.cs", "if (current != null && !replacing) return false;", "if (current != null) return false;", "second valid item atomically replaces merchant palm and returns old card to canonical fan"),
     ]
 
 
