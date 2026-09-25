@@ -85,7 +85,10 @@ internal static class HandContacts
                     if(service==2)
                     {
                         Vector3 lowered=root.InverseTransformPoint(contact.position);
-                        if(Mathf.Abs(lowered.x)<.22f||lowered.z>.45f||lowered.y>1.10f)
+                        // The imported upper/forearm lengths end above the .74 guide;
+                        // verify the solved anatomical palm, not the unreachable guide.
+                        // It must hang below the .955 worktop and beside the robe.
+                        if(Mathf.Abs(lowered.x)<.22f||lowered.z>.30f||lowered.y>.93f)
                             throw new Exception("attentive priestess hands stay beside her robe and outside the donation bowl");
                         checks++;
                     }

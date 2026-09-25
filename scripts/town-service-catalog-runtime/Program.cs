@@ -537,6 +537,9 @@ public static class InteractionProgram
             }
         }
         Check(ObjectPool.Alive==0&&VRInteractables.Registered.Count==0,"maximum native inventory releases every card and return");
+        Check(GloomhavenVR.Cards.CardArtWatch.Captures>=161,"every merchant stock face captures the proven zero-aliased-frame art watcher");
+        Check(GloomhavenVR.Cards.CardArtWatch.Polls>=161,"merchant stock polls async art arrival before its first visible frame");
+        Check(GloomhavenVR.Cards.CardArtWatch.Clears>=161,"merchant stock releases every art watcher at teardown");
         UnityEngine.Object.DestroyImmediate(root);UnityEngine.Object.DestroyImmediate(prefab);UnityEngine.Object.DestroyImmediate(events);
         return assertions;
     }

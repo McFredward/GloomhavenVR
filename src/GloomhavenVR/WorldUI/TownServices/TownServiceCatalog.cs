@@ -259,6 +259,11 @@ internal sealed class TownServiceCatalog : IDisposable
         private readonly List<Transform> _rowBackgrounds = new();
         private GameObject? _card;
         private float _nextRefresh;
+        // The cabinet borrows the same native ItemCardUI as the scenario fan.
+        // Use its exact zero-aliased-frame watcher as well: the native async
+        // loader assigns a mipless sprite one frame before enabling the Image,
+        // and a periodic bulk rescan alone necessarily exposes that frame.
+        private readonly CardArtWatch _artWatch = new();
         private bool _disposed;
         internal readonly UIShopItemSlot RowSource;
         internal readonly CItem Item;
@@ -314,6 +319,8 @@ internal sealed class TownServiceCatalog : IDisposable
                 CardUI.item = Item;
                 ItemBurnPlayback.ObserveInitialState(CardUI);
                 CardUI.Show(highlightElement: false);
+                CardFaceMipBake.Rescan(CardUI);
+                _artWatch.Capture(CardUI);
                 RectTransform rect = (RectTransform)_card.transform;
                 Vector2 size = rect.rect.size;
                 if (size.x < 1f || size.y < 1f) throw new InvalidOperationException("Native merchant item card has invalid dimensions");
@@ -375,11 +382,13 @@ internal sealed class TownServiceCatalog : IDisposable
                 _display.localPosition = _displayHome + new Vector3(0f, 0f, .045f * (1f - ease));
             }
             _canvas.worldCamera = VRRigDriver.HeadCamera != null ? VRRigDriver.HeadCamera : Camera.main;
+            _artWatch.Poll("merchant cabinet item");
             if (Time.unscaledTime >= _nextRefresh)
             {
                 _nextRefresh = Time.unscaledTime + .25f;
                 _row.Refresh(RowSource.transform);
                 CardFaceMipBake.Rescan(CardUI);
+                _artWatch.Capture(CardUI);
             }
             _row.TickLive();
             // Preserve original stock/price/name glyphs but remove the flat list's backing.
@@ -406,6 +415,8 @@ internal sealed class TownServiceCatalog : IDisposable
             foreach (var canvas in _canvases) if (canvas.Key != null) canvas.Key.enabled = canvas.Value;
             foreach (var target in _raycastTargets) if (target.Key != null) target.Key.raycastTarget = target.Value;
             foreach (var raycaster in _raycasters) if (raycaster.Key != null) raycaster.Key.enabled = raycaster.Value;
+            _artWatch.Clear();
+            CardFaceMipBake.RestoreSprites(CardUI);
             if (_card != null) { RemoteItemCardSource.ReturnBorrowed(Item.ID, _card); _card = null; }
             UnityEngine.Object.Destroy(_root);
         }

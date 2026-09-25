@@ -79,19 +79,19 @@ internal static class TownServiceActivityMotion
         // her robe. Their previous forward/sideward targets read as stiffly held
         // arms, and the latter crossed the donation bowl when a visitor arrived.
         work.Left = Vector3.Lerp(work.Left, service == 1 ? new Vector3(.29f, 1.02f, .23f)
-            : service == 2 ? new Vector3(.26f, 1.02f, .30f) : new Vector3(.22f, 1.13f, .23f), attention);
+            : service == 2 ? new Vector3(.24f, .74f, .13f) : new Vector3(.22f, 1.13f, .23f), attention);
         work.Right = Vector3.Lerp(work.Right, service == 1 ? new Vector3(-.29f, 1.02f, .23f)
-            : service == 3 ? new Vector3(-.18f, 1.17f, .23f) : new Vector3(-.26f, 1.02f, .30f), attention);
+            : service == 3 ? new Vector3(-.18f, 1.17f, .23f) : new Vector3(-.24f, .74f, .13f), attention);
         // Hand targets alone cannot lower an arm naturally. Author the matching elbow path as
         // part of the same blend so the upper arm leaves the shoulder downward instead of staying
         // abducted while the forearm reaches for a low hand target.
         if (service is 1 or 2)
         {
-            float side = service == 1 ? .36f : .32f;
+            float side = service == 1 ? .36f : .29f;
             work.LeftElbow = Vector3.Lerp(work.LeftElbow,
-                new Vector3(side, 1f, service == 1 ? .16f : .18f), attention);
+                new Vector3(side, service == 1 ? 1f : .98f, service == 1 ? .16f : .11f), attention);
             work.RightElbow = Vector3.Lerp(work.RightElbow,
-                new Vector3(-side, 1f, service == 1 ? .16f : .18f), attention);
+                new Vector3(-side, service == 1 ? 1f : .98f, service == 1 ? .16f : .11f), attention);
         }
         work.RightRoll = Mathf.Lerp(work.RightRoll, service == 1 ? 65f : service == 3 ? 180f : 0f, attention);
         work.LeftRoll = Mathf.Lerp(work.LeftRoll, service == 1 ? -65f : service == 3 ? -65f : 0f, attention);

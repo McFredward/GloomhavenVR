@@ -36,7 +36,8 @@ public static class InteractionProgram
                 phase=TownServiceActivityMotion.Advance(phase,1f/90f);
                 TownServiceActivityMotion.Hands(service,in phase,out var left,out var right,out var curl);
                 if(n>0)Check(Vector3.Distance(previous,right)<.018f,"no handtarget jump at loop or interruption");
-                Check(left.y>=.87f&&right.y>=.87f&&curl>=0&&curl<=1,"bounded occupation contacts");previous=right;
+                float minimumHandHeight=service==2?.60f:.87f;
+                Check(left.y>=minimumHandHeight&&right.y>=minimumHandHeight&&curl>=0&&curl<=1,"bounded occupation contacts");previous=right;
             }
         }
         FaceClock.Now=0;RemoteTownActivities.Reset();
@@ -177,10 +178,11 @@ public static class InteractionProgram
         TownServiceActivityMotion.Engage(ref prayer,true);
         prayer=TownServiceActivityMotion.Advance(prayer,TownServiceActivityMotion.TransitionSeconds);
         var receiving=TownServiceActivityMotion.Visual(2,in prayer);
-        Check(receiving.Left.x>.23f&&receiving.Right.x<-.23f
-            &&receiving.Left.y<1.10f&&receiving.Right.y<1.10f
-            &&receiving.Left.z<.45f&&receiving.Right.z<.45f,
-            "attentive priestess lowers both hands beside her robe and clears the bowl");
+        Check(receiving.Left.x>.22f&&receiving.Right.x<-.22f
+            &&receiving.Left.y<.80f&&receiving.Right.y<.80f
+            &&receiving.Left.z<.16f&&receiving.Right.z<.16f
+            &&receiving.LeftElbow.y<1.01f&&receiving.RightElbow.y<1.01f,
+            "attentive priestess hangs both hands fully below the table beside her hips");
         var pause=new TownActivityPose{WorkClock=1.8f,TransitionAge=TownServiceActivityMotion.TransitionSeconds};
         TownServiceActivityMotion.Engage(ref pause,true);pause=TownServiceActivityMotion.Advance(pause,1f);
         var held=TownServiceActivityMotion.Visual(1,in pause);

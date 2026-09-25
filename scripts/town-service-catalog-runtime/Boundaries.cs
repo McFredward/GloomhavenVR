@@ -139,7 +139,15 @@ namespace GloomhavenVR.Core
 namespace GloomhavenVR.Cards
 {
     internal static class ItemBurnPlayback{internal static void ObserveInitialState(ItemCardUI item){}}
-    internal static class CardFaceMipBake{internal static void Rescan(ItemCardUI item){}}
+    internal static class CardFaceMipBake
+    {internal static void Rescan(ItemCardUI item){} internal static void RestoreSprites(ItemCardUI item){}}
+    internal sealed class CardArtWatch
+    {
+        internal static int Captures,Polls,Clears;
+        internal void Capture(Component item){Captures++;}
+        internal int Poll(string what){Polls++;return 0;}
+        internal void Clear(){Clears++;}
+    }
     internal sealed class ConfigFloat { internal float Value; internal ConfigFloat(float value){Value=value;} }
     internal static class CardsConfig
     { internal static ConfigFloat HeldOffPalm=new(.01f),HeldForward=new(.025f),HeldFaceBias=new(65f),InspectScale=new(1f),CardWidth=new(.18f),CardLerpSpeed=new(20f),CardGrabSound=new(0);

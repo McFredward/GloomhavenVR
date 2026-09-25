@@ -822,6 +822,29 @@ internal sealed partial class NetAvatarDriver : MonoBehaviour
         return leftValid || rightValid;
     }
 
+    /// <summary>Peer palm positions and finger directions for the same native
+    /// conic cloth capsule used by the local hands. The remote hand prefab is
+    /// built from the same <c>HandRig</c>; its PalmCenter therefore carries the
+    /// sender's +Z along the fingers without adding anything to the wire.</summary>
+    internal static bool TryGetTownClothHandProbes(int player, out Vector3 left,
+        out Vector3 leftDirection, out Vector3 right, out Vector3 rightDirection,
+        out bool leftValid, out bool rightValid)
+    {
+        left = right = Vector3.zero;
+        leftDirection = rightDirection = Vector3.forward;
+        leftValid = rightValid = false;
+        NetAvatarDriver? driver = _instance;
+        if (driver == null || !driver._avatars.TryGetValue(player, out RemoteAvatar avatar)
+            || avatar == null || avatar.TimeSinceUpdate > NetProtocol.StaleTimeoutSeconds) return false;
+        Transform l = avatar.LeftHandHolder, r = avatar.RightHandHolder;
+        Transform? lp = avatar.PalmAnchorFor(l), rp = avatar.PalmAnchorFor(r);
+        if (l.gameObject.activeInHierarchy && lp != null)
+        { left = lp.position; leftDirection = lp.forward; leftValid = true; }
+        if (r.gameObject.activeInHierarchy && rp != null)
+        { right = rp.position; rightDirection = rp.forward; rightValid = true; }
+        return leftValid || rightValid;
+    }
+
     internal static void CollectTownFacePeers(List<int> into)
     {
         NetAvatarDriver? driver = _instance;
