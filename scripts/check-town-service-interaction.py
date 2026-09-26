@@ -40,8 +40,10 @@ def sources(root):
         "Composite.cs": "WorldUI/Modal/ModalFallback.CompositeTransfer.cs",
         "Grabber.cs": "Hands/Interact/ProximityGrabber.cs",
         "Interfaces.cs": "Hands/Interact/IGrabbable.cs",
+        "HiddenWindowVeil.cs": "WorldUI/Conversion/CanvasConversion.9e.HiddenWindowVeil.cs",
     }
     raw = {name: (base / path).read_text() for name, path in paths.items()}
+    inspect_hidden_window_veil(raw["HiddenWindowVeil.cs"])
     hashes = {paths[name]: hashlib.sha256(text.encode()).hexdigest() for name, text in raw.items()}
     bound = {name: raw[name] for name in ("Token.cs", "OfferingPose.cs", "Presentation.cs", "Handoff.cs", "WindowMask.cs", "ConfirmationMask.cs", "PalmConfirmation.cs", "Surface.cs")}
     # Native audio suppression has its own integration/build coverage. This fixture binds the
@@ -82,6 +84,25 @@ def sources(root):
     return bound, hashes
 
 
+def inspect_hidden_window_veil(source):
+    """A pooled card leaving a hidden confirmation must leave that window's veil as well."""
+    required = (
+        "!g.transform.IsChildOf(v.Window.transform)",
+        "ReleaseRenderer(cr, g);",
+        "v.Graphics.RemoveAt(i);",
+        "v.Renderers.RemoveAt(i);",
+    )
+    reassert = method(source, "private static void ReassertVeil(")
+    missing = [term for term in required if term not in reassert]
+    if missing:
+        raise RuntimeError("pooled renderer can retain a former window's hidden veil: " + ", ".join(missing))
+    # Negative control: the old identity-only ownership compiles and looks plausible, but must
+    # fail this contract because reparenting does not replace the CanvasRenderer instance.
+    mutant = reassert.replace(" || !g.transform.IsChildOf(v.Window.transform)", "")
+    if all(term in mutant for term in required):
+        raise RuntimeError("hidden-window ancestry negative control did not fail")
+
+
 def mutations():
     # Every mutant compiles and must reach the specified runtime assertion. A compile error,
     # unrelated exception or changed source binding cannot count as a rejected negative control.
@@ -113,9 +134,11 @@ def mutations():
         ("mask-sibling", "WindowMask.cs", "            _source.SetSiblingIndex(_sibling);", "", "mask disposal restores original parent and sibling exactly"),
         ("mask-native-state", "WindowMask.cs", "            _source.SetSiblingIndex(_sibling);", "            _source.SetSiblingIndex(_sibling);\n            _source.GetComponent<CanvasGroup>().alpha = 1f;", "mask disposal preserves current native animation and permissions"),
         ("mask-reparent-owner", "WindowMask.cs", "_source != null && _source.parent == _wrapper", "_source != null", "native reparent is never overwritten during mask disposal"),
+        ("confirmation-retirement", "WindowMask.cs", "private const int ConfirmationRetirementTicks = 3;", "private const int ConfirmationRetirementTicks = 1;", "closed native confirmation remains masked through first render opportunity"),
         ("window-suppression-fence", "Presentation.cs", "|| (_catalog != null || _ritual != null || _contextMask != null) && _window != null", "|| Active && (_catalog != null || _ritual != null || _contextMask != null) && _window != null", "merchant context suppression survives until explicit rollback"),
+        ("service-preclaim", "Presentation.cs", "        || WantsNativeController(window)\n", "", "immersive service controller is claimed before generic full-window conversion"),
         ("manual-tray", "Presentation.cs", "_tray.Root.SetParent(null, true);", "{ }", "manual tray grab detaches before workspace movement"),
-        ("option-open", "Presentation.cs", "        if (!WorldUIConfig.ImmersiveTownServices.Value)", "        if (_session == uint.MaxValue)", "rollback releases native window suppression claim"),
+        ("option-open", "Presentation.cs", "        if (!WorldUIConfig.ImmersiveTownServices.Value)", "        if (_session == uint.MaxValue)", "opting out restores the ordinary converted flat merchant lifecycle"),
         ("option-release", "Presentation.cs", "internal static bool Active => WorldUIConfig.ImmersiveTownServices.Value\n        &&", "internal static bool Active =>", "disabled option immediately fences a held release before next tick"),
         ("option-classic-lifecycle", "Handoff.cs", "        if (window != null && window.IsOpen) TryConvertWindow(window);", "        if (window != null && window.IsOpen) RestoreTownServiceContext(window, Vector3.zero, Quaternion.identity);", "disabled window retains ordinary placement and fitting lifecycle"),
         ("owner", "Presentation.cs", "!ReferenceEquals(owner, _selectionOwner)", "false", "owner switch cancels held selection"),

@@ -77,12 +77,34 @@ internal static class TownServicePresentation
     // ModalFallback runs before our Tick and must not adopt a half-restored controller.
     internal static bool OwnsWindow(UIWindow window) => TownServicePalmConfirmation.Owns(window)
         || TownServiceConfirmationMask.Owns(window)
+        || TownServiceWindowMask.OwnsRetiring(window)
+        || WantsNativeController(window)
         || (_catalog != null || _ritual != null || _contextMask != null) && _window != null
         && (window == _window || window.transform.IsChildOf(_window.transform));
 
+    /// <summary>Claim an immersive service controller before the generic modal pass converts it.
+    /// WorldUI runs the modal pass before this presentation tick, so waiting for <see cref="_window"/>
+    /// made every approach build and tear down a complete converted window before the physical
+    /// station could mask it. The claim is derived only from the game's current destination and
+    /// exact controller instance; flat mode and the explicit hand fallback remain unchanged.</summary>
+    private static bool WantsNativeController(UIWindow window)
+    {
+        if (window == null || !MapRoomDriver.Active || !WorldUIConfig.ImmersiveTownServices.Value)
+            return false;
+        EGuildmasterMode mode = GuildmasterDestinations.CurrentDestinationMode();
+        if (mode != EGuildmasterMode.Merchant && mode != EGuildmasterMode.Temple
+            && mode != EGuildmasterMode.Enchantress)
+            return false;
+        if ((mode == EGuildmasterMode.Merchant || mode == EGuildmasterMode.Enchantress)
+            && !TownServiceEnhancementHandoff.Enabled)
+            return false;
+        UIWindow? controller = GuildmasterDestinations.ModeWindow(mode);
+        return controller != null && ReferenceEquals(controller, window);
+    }
+
     internal static void Tick()
     {
-        try { TownServiceNativeAudioSilence.EnsureInstalled(); TownServiceConfirmationMask.Tick(); TickCore(); TownServicePublicMerchant.Tick(); }
+        try { TownServiceNativeAudioSilence.EnsureInstalled(); TownServiceWindowMask.TickRetirements(); TownServiceConfirmationMask.Tick(); TickCore(); TownServicePublicMerchant.Tick(); }
         catch (Exception e)
         {
             UIWindow? restore = _window;
@@ -140,7 +162,8 @@ internal static class TownServicePresentation
             CardsDriver.SuppressNextOffScenarioFanEdgeSound(open: true, seconds: .35f);
             CardsDriver.SuppressNextOffScenarioFanEdgeSound(open: false, seconds: .35f);
             ConvertedPanel? context = FindContext(window);
-            if (context == null || !context.IsAlive || !MapRoomDriver.TryGetParchmentFrame(out Vector3 center, out float scale)) return;
+            if (context != null && !context.IsAlive) context = null;
+            if (!MapRoomDriver.TryGetParchmentFrame(out Vector3 center, out float scale)) return;
             _window = window;
             _station = TownServicePopulation.Acquire(service);
             if (_station == null)
@@ -150,11 +173,13 @@ internal static class TownServicePresentation
                 return;
             }
             Service = service; _session++; if (_session == 0) _session++;
-            _context = context; _scale = scale; _origin = context.HostGo.transform.position;
-            _yaw = Quaternion.Euler(0f, context.HostGo.transform.eulerAngles.y, 0f);
+            _context = context; _scale = scale;
+            _origin = context != null ? context.HostGo.transform.position : center;
+            _yaw = Quaternion.Euler(0f,
+                context != null ? context.HostGo.transform.eulerAngles.y : _station.Root.eulerAngles.y, 0f);
             _opened = Time.unscaledTime;
             window.onHidden.AddListener(OnNativeHidden);
-            if (!ModalFallback.ReleaseForTownService(window, context))
+            if (context != null && !ModalFallback.ReleaseForTownService(window, context))
                 throw new InvalidOperationException("Previous service conversion has not restored its native hierarchy");
             _workspace = AcquireWorkspace(_station.Root, service);
             BuildMat();

@@ -95,6 +95,7 @@ public class UIItemConfirmationBox:MonoBehaviour
     public bool IsConfirmingItem(CItem item)=>ReferenceEquals(Item,item);
     public void OnCancel(){IsActive=false;Cancels++;}
 }
+public class UIEnhancementConfirmationBox:MonoBehaviour { }
 public class UIPartyItemInventoryTooltip:MonoBehaviour
 {
     public bool IsShown;public ItemCardUI m_ItemCardUI=null!;public int Shows;public CMapCharacter? BoundTo;public Service? Service;
@@ -226,7 +227,7 @@ namespace GloomhavenVR.WorldUI
 }
 
 // Confirmation presentation is tested with the actual mask in the interaction suite.
-namespace UnityEngine.UI { public class UIWindow : MonoBehaviour { } }
+namespace UnityEngine.UI { public class UIWindow : MonoBehaviour { public bool IsOpen,IsVisible; } }
 namespace GloomhavenVR.WorldUI { internal static class TownServiceConfirmationMask
 { internal static void Begin(UnityEngine.UI.UIWindow? window, Func<object?> identity) { } } }
 

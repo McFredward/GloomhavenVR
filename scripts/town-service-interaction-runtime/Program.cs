@@ -555,6 +555,25 @@ public static class InteractionProgram
         Clean();
     }
 
+    private static void UnconvertedMerchantController()
+    {
+        var root=Probe.Go("DirectNativeMerchant");
+        var window=root.AddComponent<UIShopItemWindow>();
+        window.ItemInventory=Child<UIShopItemInventory>("inventory",root.transform);
+        GuildmasterDestinations.Window=window;GuildmasterDestinations.Mode=EGuildmasterMode.Merchant;
+        Check(TownServicePresentation.OwnsWindow(window),
+            "immersive service controller is claimed before generic full-window conversion");
+        Check(CanvasConversion.ActivePanels.Count==0&&ModalFallback.Converted.Count==0,
+            "preclaim itself does not build a converted full window");
+        TownServicePresentation.Tick();
+        Check(TownServicePresentation.Active&&CanvasConversion.ActivePanels.Count==0,
+            "direct immersive merchant masks its controller without full-window conversion");
+        WorldUIConfig.ImmersiveTownServices.Value=false;TownServicePresentation.Tick();
+        Check(!TownServicePresentation.Active&&CanvasConversion.ActivePanels.Count==1,
+            "opting out restores the ordinary converted flat merchant lifecycle");
+        Clean();
+    }
+
     private static void ManualTrayPlacement()
     {
         var session = Open(2);
@@ -840,7 +859,16 @@ public static class InteractionProgram
             TownServicePalmConfirmation.Tick();
             Check(commits==1 && TownServicePalmConfirmation.Owns(window),"native confirm runs once while its hide transition remains owned");
             window.IsVisible=false;TownServicePalmConfirmation.Tick();
-            Check(!TownServicePalmConfirmation.Owns(window)&&box.confirmButton.transform.parent==native.transform,"completed hide restores original hierarchy without losing continuation");
+            Check(!TownServicePalmConfirmation.Owns(window)&&TownServiceWindowMask.OwnsRetiring(window)
+                &&native.transform.parent!=null,
+                "closed native confirmation remains masked instead of returning a stale renderer to the converted panel");
+            TownServiceWindowMask.TickRetirements();
+            Check(TownServiceWindowMask.OwnsRetiring(window),"closed native confirmation remains masked through first render opportunity");
+            TownServiceWindowMask.TickRetirements();
+            Check(TownServiceWindowMask.OwnsRetiring(window),"closed native confirmation remains masked through two complete render opportunities");
+            TownServiceWindowMask.TickRetirements();
+            Check(!TownServiceWindowMask.OwnsRetiring(window)&&box.confirmButton.transform.parent==native.transform,
+                "settled confirmation restores original hierarchy without losing continuation");
             window.IsOpen=window.IsVisible=true;box._onConfirmedCallback=()=>commits+=100;
             TownServicePalmConfirmation.Begin(box,seat);TownServicePalmConfirmation.Tick();
             box._onConfirmedCallback=()=>commits+=1000;
@@ -917,7 +945,7 @@ public static class InteractionProgram
     public static int Run()
     {
         _assertions = 0;
-        try { NativeFolioAndTeardown(); EnhancementDecisionLayout(); PalmConfirmationLifecycle(); ParkedStockRegrab(); PhysicalCommitCases(); PhysicalMerchantSamples(); WindowMaskLifecycle(); MerchantContextLifecycle(); ConfirmationFadeLifecycle(); IdentityChanges(); HoverAndRelease(); CancellationCompatibility(); Handoff(); RollbackAndContinuation(); OptionalPresentation(); ManualTrayPlacement(); MapHandFallback(); PhysicalPurse(); PurseSettlement(); return _assertions; }
+        try { NativeFolioAndTeardown(); EnhancementDecisionLayout(); PalmConfirmationLifecycle(); ParkedStockRegrab(); PhysicalCommitCases(); PhysicalMerchantSamples(); WindowMaskLifecycle(); UnconvertedMerchantController(); MerchantContextLifecycle(); ConfirmationFadeLifecycle(); IdentityChanges(); HoverAndRelease(); CancellationCompatibility(); Handoff(); RollbackAndContinuation(); OptionalPresentation(); ManualTrayPlacement(); MapHandFallback(); PhysicalPurse(); PurseSettlement(); return _assertions; }
         finally { Clean(); }
     }
 }
