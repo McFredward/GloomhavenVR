@@ -106,6 +106,14 @@ internal static class TownServiceTransportVectors
         byte[] enchantBytes = TownServiceCodec.Write(enchant);
         t.True(TownServiceCodec.TryRead(enchantBytes, enchantBytes.Length, out TownServiceFrame? enchantRead)
             && enchantRead!.WorkspaceCloth?.Length == 8, "enchantress furniture carries one runner");
+        var merchant = Frame(9, 1, 1);
+        merchant.Service = 1; merchant.TemplateAddress = "merchant.counter|main";
+        merchant.WorkspaceCloth = new byte[] { 8, 250, 3, 255, 4, 253, 2, 254 };
+        byte[] merchantBytes = TownServiceCodec.Write(merchant);
+        t.True(TownServiceCodec.TryRead(merchantBytes, merchantBytes.Length, out TownServiceFrame? merchantRead)
+            && merchantRead!.WorkspaceCloth?.Length == 8
+            && merchantRead.WorkspaceCloth[0] == merchant.WorkspaceCloth[0],
+            "merchant visitor furniture carries its moving side hanging");
     }
     private static void SharedTempleAvailability(Harness t)
     {

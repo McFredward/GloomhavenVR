@@ -254,12 +254,13 @@ internal sealed class TownServiceSync
                         + (surface.Id - 60), surface.Panel.Target);
                 }
         }
-        if (active && service is 2 or 3 && TownServicePresentation.HasWorkspaceCloth)
+        if (active && service is >= 1 and <= 3 && TownServicePresentation.HasWorkspaceCloth)
         {
             // Modules are keyed by original address plus source instance, not by
             // the short publication key. Only the root partition owns the cloth
             // runners; child partitions must retain their independent snapshots.
-            string furnitureAddress = service == 2 ? "temple.counter|" : "enchant.counter|";
+            string furnitureAddress = service == 1 ? "merchant.counter|"
+                : service == 2 ? "temple.counter|" : "enchant.counter|";
             foreach (Published furniture in Modules.Values)
             {
                 if (!furniture.Seen || furniture.Address != furnitureAddress) continue;

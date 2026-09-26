@@ -333,12 +333,13 @@ internal static class TownServiceCodec
         }
         if (frame.WorkspaceCloth != null)
         {
-            int expected = frame.Service == 2 ? 16 : frame.Service == 3 ? 8 : 0;
-            string prefix = frame.Service == 2 ? "temple.counter|" : "enchant.counter|";
+            int expected = frame.Service == 2 ? 16 : frame.Service is 1 or 3 ? 8 : 0;
+            string prefix = frame.Service == 1 ? "merchant.counter|"
+                : frame.Service == 2 ? "temple.counter|" : "enchant.counter|";
             if (frame.PublicCatalog || frame.Module == TownServiceFrame.ManifestModule
                 || frame.WorkspaceCloth.Length != expected || expected == 0
                 || frame.TemplateAddress == null || !frame.TemplateAddress.StartsWith(prefix, StringComparison.Ordinal))
-                throw new InvalidDataException("Workspace cloth belongs to a private altar furniture module.");
+                throw new InvalidDataException("Workspace cloth belongs to private station furniture.");
             for (int at = 0; at < frame.WorkspaceCloth.Length; at++)
             {
                 int value = unchecked((sbyte)frame.WorkspaceCloth[at]);
