@@ -2,7 +2,7 @@ using UnityEngine;
 
 namespace GloomhavenVR.WorldUI;
 
-internal enum TownActivitySound : byte { None, Coin, Cloth, Spell }
+internal enum TownActivitySound : byte { None, Coin, Spell }
 
 /// <summary>Audible contacts follow the displayed shared performance. Joining, seeking,
 /// authority changes and hidden stations seed silently; no historical sounds are replayed.</summary>
@@ -33,17 +33,18 @@ internal sealed class TownServiceActivitySoundClock
                 result = TownActivitySound.Coin;
             else if (service == 3 && _previous.Cast <= .16f && shown.Cast > .16f)
                 result = TownActivitySound.Spell;
-            else if ((_previous.Attention < .25f && shown.Attention >= .25f)
-                || (_previous.Attention > .75f && shown.Attention <= .75f)
-                || (service == 2 && _previous.Left.y > 1.31f && shown.Left.y <= 1.31f))
-                result = TownActivitySound.Cloth;
+            // Attention is a pose transition, not a physical contact. Builds 560-566 mapped
+            // approach/departure and one priestess hand edge to the game's flat equipment-toggle
+            // UI clip. Because the copied clip was spatialized at each resident it sounded like
+            // windows opening/closing on every range crossing and at apparently random positions.
+            // Do not invent foley for a transition. Coin releases and spell casts remain tied to
+            // visible physical events; voices are scheduled independently.
         }
         _seeded = true; _author = author; _epoch = epoch; _clock = clock; _previous = shown;
         // Counting is a background gesture, not an alert on every coin. One
         // subdued contact per cycle remains enough to locate the work.
         if (result != TownActivitySound.None)
-            _cooldown = result == TownActivitySound.Coin ? 2.4f
-                : result == TownActivitySound.Cloth ? 2f : .35f;
+            _cooldown = result == TownActivitySound.Coin ? 2.4f : .35f;
         return result;
     }
 

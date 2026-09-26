@@ -49,7 +49,7 @@ namespace GloomhavenVR.Net.TownServices
     }
 }
 
-namespace GloomhavenVR.Core { internal static class VRLayers {internal const int ModLayer=27;} internal static class VRLog { internal static int Warnings; internal static void Warn(string source,string text)=>Warnings++; } }
+namespace GloomhavenVR.Core { internal static class VRLayers {internal const int ModLayer=27;} internal static class VRLog { internal static int Warnings, InfoLines; internal static bool WantsDebug=false; internal static void Warn(string source,string text)=>Warnings++; internal static void Info(string source,string text)=>InfoLines++; } }
 
 internal sealed class GlobalData { public int MasterVolume=100,SFXVolume=100; }
 internal sealed class SaveData { public static SaveData Instance=new(); public GlobalData Global=new(); }

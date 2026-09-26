@@ -1,4 +1,5 @@
 using System;
+using System.Diagnostics;
 using System.Runtime.CompilerServices;
 using GloomhavenVR.Core;
 using HarmonyLib;
@@ -51,14 +52,19 @@ internal static partial class ModalFallback
 }
 
 /// <summary>Suppress the hidden flat town UI's show/hide sounds while its physical replacement
-/// is active. The native controllers and their callbacks still run; only the exact serialized
-/// audio field read by that call is blank for the call's duration. Flat mode, confirmation and
-/// purchase feedback, resident speech and physical cabinet/card sounds remain untouched.</summary>
+/// is active. The native controllers and their callbacks still run; exact serialized fields are
+/// blank only for their calls and direct UI audio is skipped only inside an automatic service
+/// transition. Flat mode, confirmation and purchase feedback, resident speech, physical map
+/// presses and cabinet/card sounds remain untouched.</summary>
 internal static class TownServiceNativeAudioSilence
 {
     private sealed class ImmersiveOpenMarker { }
 
     private static bool _installed;
+    [ThreadStatic] private static int _automaticTransitionDepth;
+    [ThreadStatic] private static string? _automaticTransitionContext;
+    private static int _traceLines;
+    private const int TraceLineBudget = 32;
     private static readonly ConditionalWeakTable<UIWindow, ImmersiveOpenMarker> ImmersiveOpenWindows = new();
     internal static void EnsureInstalled()
     {
@@ -67,7 +73,9 @@ internal static class TownServiceNativeAudioSilence
             nameof(UIPartyCharacterEnhancementAbilityCardsDisplay.Display));
         var show = AccessTools.Method(typeof(UIWindow), nameof(UIWindow.Show), new[] { typeof(bool) });
         var hide = AccessTools.Method(typeof(UIWindow), nameof(UIWindow.Hide), new[] { typeof(bool) });
-        if (target == null || show == null || hide == null) return;
+        var nativePlay = AccessTools.Method(typeof(AudioControllerUtils), nameof(AudioControllerUtils.PlaySound),
+            new[] { typeof(string), typeof(bool) });
+        if (target == null || show == null || hide == null || nativePlay == null) return;
         VRSession.Harmony.Patch(target,
             prefix: new HarmonyMethod(typeof(TownServiceNativeAudioSilence), nameof(BeforeDisplay)),
             finalizer: new HarmonyMethod(typeof(TownServiceNativeAudioSilence), nameof(AfterDisplay)));
@@ -77,7 +85,39 @@ internal static class TownServiceNativeAudioSilence
         VRSession.Harmony.Patch(hide,
             prefix: new HarmonyMethod(typeof(TownServiceNativeAudioSilence), nameof(BeforeWindowHide)),
             finalizer: new HarmonyMethod(typeof(TownServiceNativeAudioSilence), nameof(AfterWindowHide)));
+        VRSession.Harmony.Patch(nativePlay,
+            prefix: new HarmonyMethod(typeof(TownServiceNativeAudioSilence), nameof(BeforeNativePlay)));
         _installed = true;
+    }
+
+    /// <summary>Mark one automatic physical-resident mode transition. The native mode still runs
+    /// every listener and callback; only audio requested synchronously by that automatic switch is
+    /// skipped. Physical map-button presses never enter this scope, so their hover/down feedback
+    /// remains the game's own.</summary>
+    internal static bool BeginAutomaticTransition(EGuildmasterMode mode, string source)
+    {
+        if (!MapRoom.MapRoomDriver.Active || !WorldUIConfig.ImmersiveTownServices.Value
+            || !TownServiceEnhancementHandoff.Enabled)
+            return false;
+        if (_automaticTransitionDepth++ == 0)
+            _automaticTransitionContext = source + " -> " + mode;
+        return true;
+    }
+
+    internal static void EndAutomaticTransition(bool armed)
+    {
+        if (!armed || _automaticTransitionDepth <= 0) return;
+        if (--_automaticTransitionDepth == 0) _automaticTransitionContext = null;
+    }
+
+    /// <summary>Final defense for direct native UI sounds which do not read a UIWindow field.
+    /// This is deliberately stack-bounded by <see cref="BeginAutomaticTransition"/> rather than
+    /// item-name based: the same UI item is legitimate when the player presses a physical map cap.</summary>
+    internal static bool BeforeNativePlay(string audioItem)
+    {
+        if (_automaticTransitionDepth <= 0) return true;
+        Trace("AudioControllerUtils.PlaySound", audioItem, Caller());
+        return false;
     }
 
     /// <summary>The immersive hand path is the switch that decides whether these native windows
@@ -101,7 +141,7 @@ internal static class TownServiceNativeAudioSilence
         ImmersiveOpenWindows.Add(__instance, new ImmersiveOpenMarker());
         __state = __instance.AudioItemShow;
         __instance.AudioItemShow = string.Empty;
-        VRLog.Debug("TownServices", "Immersive town native window show sound suppressed for " + __instance.name + ".");
+        Trace("UIWindow.Show", __state, __instance.name);
     }
 
     internal static Exception? AfterWindowShow(UIWindow __instance, string? __state, Exception? __exception)
@@ -124,7 +164,7 @@ internal static class TownServiceNativeAudioSilence
         if (!ShouldSilence(__instance) && !retainImmersiveClose) return;
         __state = __instance.AudioItemHide;
         __instance.AudioItemHide = string.Empty;
-        VRLog.Debug("TownServices", "Immersive town native window hide sound suppressed for " + __instance.name + ".");
+        Trace("UIWindow.Hide", __state, __instance.name);
     }
 
     internal static Exception? AfterWindowHide(UIWindow __instance, string? __state, Exception? __exception)
@@ -141,6 +181,8 @@ internal static class TownServiceNativeAudioSilence
         if (window == null || !ShouldSilence(window)) return;
         __state = __instance.audioItemShow;
         __instance.audioItemShow = string.Empty;
+        Trace("UIPartyCharacterEnhancementAbilityCardsDisplay.Display", __state,
+            window.name);
     }
 
     internal static Exception? AfterDisplay(UIPartyCharacterEnhancementAbilityCardsDisplay __instance,
@@ -148,5 +190,37 @@ internal static class TownServiceNativeAudioSilence
     {
         if (__state != null) __instance.audioItemShow = __state;
         return __exception;
+    }
+
+    private static void Trace(string edge, string? item, string owner)
+    {
+        // The maintainer tests at Debug. VRLog.Debug maps to BepInEx LogDebug, which the supplied
+        // build-566 capture proved can be filtered independently (zero Debug lines despite abundant
+        // project Debug-tier output). Use the project's Debug-tier Info emitter and cap the whole
+        // session so ordinary player logs remain unchanged and repeated visits cannot grow a file.
+        if (!VRLog.WantsDebug || _traceLines >= TraceLineBudget) return;
+        _traceLines++;
+        VRLog.Info("TownServices", "TOWN NATIVE AUDIO suppressed " + edge + " item='"
+            + (string.IsNullOrEmpty(item) ? "<empty>" : item) + "' owner='" + owner
+            + "' automatic='" + (_automaticTransitionContext ?? "none") + "' ("
+            + _traceLines + "/" + TraceLineBudget + ").");
+    }
+
+    private static string Caller()
+    {
+        // Called only inside a rare automatic transition, only when Debug is requested and only
+        // for the bounded lines above. This is causal evidence, not a per-frame sampling stream.
+        if (!VRLog.WantsDebug || _traceLines >= TraceLineBudget) return "not sampled";
+        var trace = new StackTrace(2, false);
+        for (int i = 0; i < trace.FrameCount; i++)
+        {
+            var method = trace.GetFrame(i)?.GetMethod();
+            Type? type = method?.DeclaringType;
+            if (method == null || type == null || type == typeof(TownServiceNativeAudioSilence)
+                || type == typeof(AudioControllerUtils) || type.Namespace?.StartsWith("HarmonyLib") == true)
+                continue;
+            return type.FullName + "." + method.Name;
+        }
+        return "unknown managed caller";
     }
 }

@@ -4,6 +4,13 @@ using System.Reflection;
 
 namespace UnityEngine { }
 
+internal enum EGuildmasterMode { None, Enchantress, Merchant, Temple, WorldMap }
+
+public static class AudioControllerUtils
+{
+    public static void PlaySound(string audioItem, bool optional = false) { }
+}
+
 namespace HarmonyLib
 {
     internal sealed class HarmonyMethod
@@ -63,8 +70,9 @@ namespace GloomhavenVR.Core
     internal static class VRSession { internal static Harmony? Harmony = new(); }
     internal static class VRLog
     {
-        internal static readonly List<string> DebugLines = new();
-        internal static void Debug(string scope, string text) => DebugLines.Add(scope + ":" + text);
+        internal static readonly List<string> InfoLines = new();
+        internal static bool WantsDebug = true;
+        internal static void Info(string scope, string text) => InfoLines.Add(scope + ":" + text);
     }
 }
 

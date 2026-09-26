@@ -22,6 +22,8 @@ internal sealed class TownServiceActivityAudio : IDisposable
     private static AudioClip? _coinClink;
     private static float _nextCoinResolve;
     private static readonly bool[] Reported = new bool[4], MissingReported = new bool[4];
+    private static readonly int[] TraceLines = new int[4];
+    private const int TraceLineBudgetPerResident = 8;
 
     internal TownServiceActivityAudio(Transform root, byte service)
     { _root = root; _service = service; _claim = "TownResidentAudio." + service; }
@@ -63,16 +65,22 @@ internal sealed class TownServiceActivityAudio : IDisposable
             if (sound == TownActivitySound.None || master <= 0f) return;
             AudioClip? clip = Resolve(sound, now);
             if (clip == null) return;
+            if (VRLog.WantsDebug && TraceLines[_service] < TraceLineBudgetPerResident)
+            {
+                TraceLines[_service]++;
+                VRLog.Info("TownServices", "NPC FOLEY played service=" + _service + " event=" + sound
+                    + " clip='" + clip.name + "' source=TownServiceActivitySoundClock ("
+                    + TraceLines[_service] + "/" + TraceLineBudgetPerResident + ").");
+            }
             int slot = _voice++ % _voices.Length;
             AudioSource voice = _voices[slot] ?? Create(slot);
             voice.Stop(); voice.clip = clip;
-            voice.transform.position = _root.TransformPoint(sound == TownActivitySound.Coin ? shown.Left
-                : sound == TownActivitySound.Spell ? shown.Right : new Vector3(0f, 1.25f, .35f));
+            voice.transform.position = _root.TransformPoint(sound == TownActivitySound.Coin ? shown.Left : shown.Right);
             voice.pitch = 1f;
             // The previous foley gain was multiplied by the game's two volume sliders
             // and then attenuated again at the visitor's normal standing distance.
             // These remain quieter than native transactions but are audible nearby.
-            _gains[slot] = sound == TownActivitySound.Coin ? .065f : sound == TownActivitySound.Spell ? .12f : .11f;
+            _gains[slot] = sound == TownActivitySound.Coin ? .065f : .12f;
             voice.volume = master * _gains[slot];
             // Native effects can contain long gameplay tails. Foley uses a bounded
             // excerpt with a short end fade; the original shared clip is untouched.
@@ -130,11 +138,10 @@ internal sealed class TownServiceActivityAudio : IDisposable
         if (_clips[index] != null) return _clips[index];
         if (now < _resolveAt[index]) return null;
         _resolveAt[index] = now + 5f;
-        // Verified in the original AudioMaster resource: each named AudioItem
-        // directly references the matching short clip (resources path IDs 3144,
-        // 3829 and 1599). Reuse its data, not the native UI/gameplay sound trigger.
-        string id = sound == TownActivitySound.Spell ? "PlaySound_ScenarioUIAugmentLight"
-            : "PlaySound_ScenarioUIEquipmentToggle_Body";
+        // The spell edge reuses the matching short clip, not the native UI/gameplay trigger.
+        // Attention changes intentionally have no sound: a former fallback reused the flat
+        // equipment-toggle clip and was the spatial open/close noise reported in builds 560-566.
+        string id = "PlaySound_ScenarioUIAugmentLight";
         if (!AudioController.IsValidAudioID(id))
         {
             if (!MissingReported[index])

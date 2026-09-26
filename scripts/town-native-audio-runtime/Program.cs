@@ -41,7 +41,7 @@ internal static class Program
         WorldUIConfig.ImmersiveTownServices.Value = true;
         TownServiceEnhancementHandoff.Enabled = true;
         TownServiceNativeAudioSilence.EnsureInstalled();
-        Check(VRSession.Harmony!.Targets.Count == 3, "all three exact native audio seams installed before map entry");
+        Check(VRSession.Harmony!.Targets.Count == 4, "window, cards-display and direct native audio seams installed before map entry");
         CheckService(Window<UIShopItemWindow>());
         CheckService(Window<UITempleWindow>());
         UIWindow enchantress = Window<UINewEnhancementWindow>();
@@ -70,7 +70,16 @@ internal static class Program
         TownServiceEnhancementHandoff.Enabled = true;
         MapRoomDriver.Active = false;
         Check(!TownServiceNativeAudioSilence.ShouldSilence(flat), "service window outside 3D map remains audible");
-        Check(VRLog.DebugLines.Count == 6, "debug evidence is one bounded line per native show/hide edge");
+        Check(VRLog.InfoLines.Count == 7, "debug evidence is one bounded line per native show/hide/display edge");
+
+        MapRoomDriver.Active = true;
+        Check(TownServiceNativeAudioSilence.BeginAutomaticTransition(EGuildmasterMode.Merchant, "approached merchant"),
+            "immersive automatic resident transition arms native audio scope");
+        Check(!TownServiceNativeAudioSilence.BeforeNativePlay("native-direct"),
+            "direct native audio inside automatic transition is suppressed");
+        TownServiceNativeAudioSilence.EndAutomaticTransition(armed: true);
+        Check(TownServiceNativeAudioSilence.BeforeNativePlay("physical-map-press"),
+            "physical map audio outside automatic scope remains audible");
 
         MapRoomDriver.Active = true;
         UIWindow leavingMap = Window<UIShopItemWindow>();
@@ -95,7 +104,17 @@ internal static class Program
         TownServiceNativeAudioSilence.BeforeWindowHide(disabledBeforeClose, ref state);
         Check(state == null && disabledBeforeClose.AudioItemHide == "native-close",
             "disabling immersive presentation restores flat close sound immediately");
-        Check(VRLog.DebugLines.Count == 9, "diagnostics remain bounded to suppressed show/hide calls");
+        Check(VRLog.InfoLines.Count == 11, "diagnostics remain bounded to suppressed native calls");
+
+        MapRoomDriver.Active = true;
+        WorldUIConfig.ImmersiveTownServices.Value = true;
+        TownServiceEnhancementHandoff.Enabled = true;
+        Check(TownServiceNativeAudioSilence.BeginAutomaticTransition(EGuildmasterMode.WorldMap, "left merchant"),
+            "automatic departure to map is scoped even though the target is not a resident");
+        TownServiceNativeAudioSilence.EndAutomaticTransition(armed: true);
+        WorldUIConfig.ImmersiveTownServices.Value = false;
+        Check(!TownServiceNativeAudioSilence.BeginAutomaticTransition(EGuildmasterMode.Merchant, "flat merchant"),
+            "classic flat presentation never arms audio suppression");
         Console.WriteLine("PASS: " + _checks + " immersive native-audio assertions");
         return 0;
     }

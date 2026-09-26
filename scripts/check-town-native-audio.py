@@ -3,8 +3,10 @@
 
 The window-field fixture protects the first half of the path. The source contract below protects
 the separate automatic mode-exit path which runs before UIWindow.Hide and otherwise dispatches an
-ExtendedToggle pointer press (and therefore PlaySound_UIMapOpen). Both bindings are production
-source, and the mutations prove that this checker rejects either regression.
+ExtendedToggle pointer press (and therefore PlaySound_UIMapOpen), plus the synchronous native audio
+scope around all automatic resident transitions. The foley contract rejects the build-560 regression
+which reused a flat equipment-window clip for spatial approach/departure gestures. All bindings are
+production source, and the mutations prove that this checker rejects each regression class.
 """
 from pathlib import Path
 import shutil
@@ -15,6 +17,9 @@ root = Path(__file__).resolve().parents[1]
 source = (root / "src/GloomhavenVR/WorldUI/Modal/ModalFallback.TownServices.cs").read_text()
 destinations = (root / "src/GloomhavenVR/WorldUI/MapRoom/GuildmasterDestinations.cs").read_text()
 rail = (root / "src/GloomhavenVR/WorldUI/MapRoom/MapButtonRail.cs").read_text()
+driver = (root / "src/GloomhavenVR/WorldUI/MapRoom/MapRoomDriver.cs").read_text()
+activity_audio = (root / "src/GloomhavenVR/WorldUI/TownServices/TownServiceActivityAudio.cs").read_text()
+activity_clock = (root / "src/GloomhavenVR/WorldUI/TownServices/TownServiceActivitySoundClock.cs").read_text()
 marker = "internal static class TownServiceNativeAudioSilence"
 section = source[source.index(marker):]
 
@@ -25,7 +30,7 @@ def method(text: str, signature: str, next_signature: str) -> str:
     return text[start:end]
 
 
-def validate_automatic_route(destination_source: str, rail_source: str) -> None:
+def validate_automatic_route(destination_source: str, rail_source: str, driver_source: str) -> None:
     return_home = method(destination_source,
         "private static bool ReturnHome(string source, string what)",
         "private static EGuildmasterMode HomeMode")
@@ -53,8 +58,32 @@ def validate_automatic_route(destination_source: str, rail_source: str) -> None:
     if "NativeUiPress.Press" in select:
         raise AssertionError("no-pointer selection unexpectedly dispatches pointer audio")
 
+    dispatch = method(driver_source,
+        "internal static bool PressGuildmasterMode(EGuildmasterMode mode, string source,",
+        "    /// <summary>\n    /// Evaluate the mode predicate")
+    begin = dispatch.index("TownServiceNativeAudioSilence.BeginAutomaticTransition(mode, source)")
+    press_mode = dispatch.index("Buttons.PressMode(mode, source, suppressNativeSound)")
+    end = dispatch.index("TownServiceNativeAudioSilence.EndAutomaticTransition(audioScope)")
+    if not begin < press_mode < end or "finally" not in dispatch[press_mode:end]:
+        raise AssertionError("automatic transition audio scope does not enclose native mode dispatch through finally")
 
-validate_automatic_route(destinations, rail)
+
+def validate_resident_foley(audio_source: str, clock_source: str) -> None:
+    forbidden = "PlaySound_ScenarioUIEquipmentToggle_Body"
+    if forbidden in audio_source or forbidden in clock_source:
+        raise AssertionError("resident attention still reuses the flat equipment-window audio clip")
+    if "TownActivitySound.Cloth" in clock_source or "result = TownActivitySound.Cloth" in clock_source:
+        raise AssertionError("approach/departure still emits invented cloth/window foley")
+    for required in ("coin-soft", "PlaySound_ScenarioUIAugmentLight"):
+        if required not in audio_source:
+            raise AssertionError("physical resident foley was removed with transition noise: " + required)
+    for required in ("result = TownActivitySound.Coin", "result = TownActivitySound.Spell"):
+        if required not in clock_source:
+            raise AssertionError("physical resident event clock was removed: " + required)
+
+
+validate_automatic_route(destinations, rail, driver)
+validate_resident_foley(activity_audio, activity_clock)
 
 # Effective negative controls: each is the exact defect this round is intended to prevent.
 mutations = {
@@ -64,15 +93,34 @@ mutations = {
     "silent route falls through to pointer press": rail.replace(
         "SelectThroughTheGamesOwnApi(button, source, physical: false);\n            return;",
         "SelectThroughTheGamesOwnApi(button, source, physical: false);", 1),
+    "automatic scope lacks finally": driver.replace(
+        "finally { TownServiceNativeAudioSilence.EndAutomaticTransition(audioScope); }",
+        "TownServiceNativeAudioSilence.EndAutomaticTransition(audioScope);", 1),
 }
 for name, mutation in mutations.items():
     try:
         validate_automatic_route(mutation if "exit" in name else destinations,
-            mutation if "route" in name else rail)
+            mutation if "route" in name else rail,
+            mutation if "scope" in name else driver)
     except (AssertionError, ValueError):
         continue
     raise AssertionError("negative control survived: " + name)
-print("PASS: automatic resident audio route bound; 2 negative controls rejected")
+foley_mutations = {
+    "flat equipment clip restored": activity_audio.replace(
+        'string id = "PlaySound_ScenarioUIAugmentLight";',
+        'string id = "PlaySound_ScenarioUIEquipmentToggle_Body";', 1),
+    "attention cloth edge restored": activity_clock.replace(
+        "TownActivitySound result = TownActivitySound.None;",
+        "TownActivitySound result = TownActivitySound.None; result = TownActivitySound.Cloth;", 1),
+}
+for name, mutation in foley_mutations.items():
+    try:
+        validate_resident_foley(mutation if "clip" in name else activity_audio,
+            mutation if "edge" in name else activity_clock)
+    except AssertionError:
+        continue
+    raise AssertionError("negative control survived: " + name)
+print("PASS: automatic resident audio route + foley policy bound; 5 negative controls rejected")
 
 fixture = root / "scripts/town-native-audio-runtime"
 out_root = root / ".planning/debug/town-native-audio"
@@ -81,7 +129,7 @@ run = Path(tempfile.mkdtemp(prefix="run-", dir=out_root))
 for name in ("TownNativeAudio.csproj", "Boundaries.cs", "Program.cs"):
     shutil.copyfile(fixture / name, run / name)
 (run / "production.cs").write_text(
-    "using System;\nusing System.Runtime.CompilerServices;\nusing GloomhavenVR.Core;\nusing HarmonyLib;\nusing UnityEngine;\n"
+    "using System;\nusing System.Diagnostics;\nusing System.Runtime.CompilerServices;\nusing GloomhavenVR.Core;\nusing HarmonyLib;\nusing UnityEngine;\n"
     "namespace GloomhavenVR.WorldUI {\n" + section + "\n}\n")
 dotnet = shutil.which("dotnet") or str(Path.home() / ".dotnet/dotnet")
 result = subprocess.run([dotnet, "run", "--project", str(run / "TownNativeAudio.csproj"),
