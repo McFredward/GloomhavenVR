@@ -25,6 +25,7 @@ internal sealed class TownServiceCloth : IDisposable
     private const float PalmRadiusRealMeters = .035f;
     private const float TipRadiusRealMeters = .010f;
     private const float FingerLengthRealMeters = .09f;
+    private const float MaximumFreedomRealMeters = .11f;
 
     private sealed class Decoration
     {
@@ -45,17 +46,31 @@ internal sealed class TownServiceCloth : IDisposable
         internal float[] Side = Array.Empty<float>();
         internal int[] VisibleDriverVertex = Array.Empty<int>();
         internal Vector3[] DriverRest = Array.Empty<Vector3>();
+        internal Vector3[] EpisodeOrigin = Array.Empty<Vector3>();
         internal float[] DriverFreedom = Array.Empty<float>();
         internal float[] DriverSide = Array.Empty<float>();
+        internal float[] DriverMaximum = Array.Empty<float>();
+        internal DriverMap[] VisibleDriverMap = Array.Empty<DriverMap>();
         internal GameObject DriverRoot = null!;
         internal Mesh DriverMesh = null!;
         internal Cloth Cloth = null!;
         internal float DriverBaseScale;
+        internal float StationUnitInDriver;
         internal readonly List<Decoration> Decorations = new();
         internal readonly List<GameObject> Supports = new();
         internal readonly List<ClothSphereColliderPair> SupportPairs = new();
         internal TownClothRunnerState State;
         internal float NextRender;
+        internal float DeformationWeight;
+        internal bool Interactive;
+        internal bool Contacting;
+        internal bool CaptureOrigin;
+    }
+
+    private struct DriverMap
+    {
+        internal int A, B, C, D;
+        internal Vector4 Weight;
     }
 
     private sealed class HandProbe
@@ -120,7 +135,8 @@ internal sealed class TownServiceCloth : IDisposable
             Shown = new Vector3[rest.Length],
             Freedom = new float[rest.Length],
             Side = new float[rest.Length],
-            VisibleDriverVertex = new int[rest.Length]
+            VisibleDriverVertex = new int[rest.Length],
+            VisibleDriverMap = new DriverMap[rest.Length]
         };
         Array.Copy(rest, runner.Shown, rest.Length);
 
@@ -169,6 +185,7 @@ internal sealed class TownServiceCloth : IDisposable
         // every rendered thickness vertex to that physical sheet. A proximity
         // check below makes any future furniture-authoring change fail closed.
         runner.DriverRest = new Vector3[DriverVertexCount];
+        runner.EpisodeOrigin = new Vector3[DriverVertexCount];
         for (int row = 0; row < DriverRows; row++)
         for (int column = 0; column < DriverColumns; column++)
         {
@@ -185,6 +202,7 @@ internal sealed class TownServiceCloth : IDisposable
             runner.DriverRest[row * DriverColumns + column] = driver.InverseTransformPoint(
                 _station.TransformPoint(stationPoint));
         }
+        Array.Copy(runner.DriverRest, runner.EpisodeOrigin, runner.DriverRest.Length);
         var triangles = new int[(DriverRows - 1) * (DriverColumns - 1) * 6];
         int triangle = 0;
         for (int row = 0; row < DriverRows - 1; row++)
@@ -214,17 +232,12 @@ internal sealed class TownServiceCloth : IDisposable
         skin.forceRenderingOff = true;
 
         Cloth cloth = runner.DriverRoot.AddComponent<Cloth>();
-        cloth.useGravity = true;
-        cloth.useTethers = true;
-        cloth.damping = .23f;
-        cloth.friction = .48f;
-        cloth.bendingStiffness = .42f;
-        cloth.stretchingStiffness = .82f;
-        cloth.clothSolverFrequency = 120f;
-        cloth.enableContinuousCollision = true;
-        cloth.worldVelocityScale = .35f;
-        cloth.worldAccelerationScale = .35f;
-        cloth.sleepThreshold = .05f;
+        // The driver deliberately lives at world scale one. Native gravity is
+        // expressed in world units, while the map uses roughly 198 world units
+        // for one perceived metre. `useGravity=true` therefore supplied only
+        // about 0.05 g to this solver: after a finger left, the runner stayed in
+        // its crumpled pose for seconds. Apply one physical g in station metres
+        // explicitly once the station-to-driver conversion is known below.
 
         // Cloth coefficients use the driver's particle space. The first native
         // implementation treated them as world units and multiplied by the live
@@ -239,6 +252,7 @@ internal sealed class TownServiceCloth : IDisposable
         float physicalMinX = float.MaxValue, physicalMaxX = float.MinValue, maxY = float.MinValue;
         runner.DriverFreedom = new float[runner.DriverRest.Length];
         runner.DriverSide = new float[runner.DriverRest.Length];
+        runner.DriverMaximum = new float[runner.DriverRest.Length];
         for (int n = 0; n < runner.DriverRest.Length; n++)
         {
             Vector3 p = _station.InverseTransformPoint(driver.TransformPoint(runner.DriverRest[n]));
@@ -253,23 +267,58 @@ internal sealed class TownServiceCloth : IDisposable
                 / Mathf.Max(.0001f, physicalMaxX - physicalMinX));
         }
         for (int n = 0; n < runner.Rest.Length; n++)
-            runner.VisibleDriverVertex[n] = Nearest(runner.Filter.transform.TransformPoint(runner.Rest[n]),
-                driver, runner.DriverRest);
+        {
+            Vector3 point = runner.Filter.transform.TransformPoint(runner.Rest[n]);
+            runner.VisibleDriverVertex[n] = Nearest(point, driver, runner.DriverRest);
+            runner.VisibleDriverMap[n] = Map(point, driver, runner.DriverRest);
+        }
 
         float stationUnitInDriver = driver.InverseTransformVector(
             _station.TransformVector(Vector3.up)).magnitude;
         if (stationUnitInDriver < .000001f || float.IsNaN(stationUnitInDriver)
             || float.IsInfinity(stationUnitInDriver))
             throw new InvalidOperationException("Town cloth station-to-driver scale is invalid.");
+        runner.StationUnitInDriver = stationUnitInDriver;
+        Configure(cloth, stationUnitInDriver);
         var coefficients = new ClothSkinningCoefficient[runner.DriverRest.Length];
         for (int n = 0; n < coefficients.Length; n++)
         {
-            coefficients[n].maxDistance = runner.DriverFreedom[n] * .34f * stationUnitInDriver;
+            // The previous 34 cm envelope let one fingertip invert almost the
+            // complete runner and pull its solidified sides apart. Eleven
+            // centimetres retains tactile folds while tethers bound the largest
+            // deformation and the scale-correct gravity restores the hanging rest.
+            runner.DriverMaximum[n] = runner.DriverFreedom[n]
+                * MaximumFreedomRealMeters * stationUnitInDriver;
+            // The authored mesh is already the exact rest drape. Begin pinned and
+            // expand the physical envelope only as a hand/head approaches.
+            coefficients[n].maxDistance = 0f;
             coefficients[n].collisionSphereDistance = .004f * stationUnitInDriver;
         }
         cloth.coefficients = coefficients;
         cloth.ClearTransformMotion();
         runner.Cloth = cloth;
+    }
+
+    private static void Configure(Cloth cloth, float stationUnitInDriver)
+    {
+        cloth.useGravity = false;
+        cloth.useTethers = true;
+        // The authored mesh already contains its resting drape. Keep gravity quiet
+        // while pinned or merely approached; one physical g is enabled during real
+        // contact and its visible recovery below.
+        cloth.externalAcceleration = Vector3.zero;
+        cloth.damping = .40f;
+        cloth.friction = .52f;
+        cloth.bendingStiffness = .82f;
+        cloth.stretchingStiffness = .94f;
+        // Match figure cloth's bounded high-quality rate. Raising this to 180 Hz
+        // adds fifty percent solver work for three permanent runners without
+        // improving the visible return authored below.
+        cloth.clothSolverFrequency = 120f;
+        cloth.enableContinuousCollision = true;
+        cloth.worldVelocityScale = .35f;
+        cloth.worldAccelerationScale = .35f;
+        cloth.sleepThreshold = .05f;
     }
 
     private static float UniformScale(Transform transform)
@@ -308,6 +357,33 @@ internal sealed class TownServiceCloth : IDisposable
         return nearest;
     }
 
+    private static DriverMap Map(Vector3 worldPoint, Transform driverTransform, Vector3[] vertices)
+    {
+        int a = 0, b = 0, c = 0, d = 0;
+        float da = float.MaxValue, db = float.MaxValue, dc = float.MaxValue, dd = float.MaxValue;
+        for (int i = 0; i < vertices.Length; i++)
+        {
+            float distance = (driverTransform.TransformPoint(vertices[i]) - worldPoint).sqrMagnitude;
+            if (distance < da) { dd = dc; d = c; dc = db; c = b; db = da; b = a; da = distance; a = i; }
+            else if (distance < db) { dd = dc; d = c; dc = db; c = b; db = distance; b = i; }
+            else if (distance < dc) { dd = dc; d = c; dc = distance; c = i; }
+            else if (distance < dd) { dd = distance; d = i; }
+        }
+        if (da < 1e-10f) return new DriverMap { A = a, B = b, C = c, D = d,
+            Weight = new Vector4(1f, 0f, 0f, 0f) };
+        var inverse = new Vector4(1f / da, 1f / db, 1f / dc, 1f / dd);
+        float sum = inverse.x + inverse.y + inverse.z + inverse.w;
+        return new DriverMap { A = a, B = b, C = c, D = d, Weight = inverse / sum };
+    }
+
+    private static Vector3 DriverDelta(in DriverMap map, Vector3[] current, Vector3[] rest)
+    {
+        return (current[map.A] - rest[map.A]) * map.Weight.x
+            + (current[map.B] - rest[map.B]) * map.Weight.y
+            + (current[map.C] - rest[map.C]) * map.Weight.z
+            + (current[map.D] - rest[map.D]) * map.Weight.w;
+    }
+
     private void BuildTableSupports(Runner runner, float minX, float maxX, float topY)
     {
         // Unity Cloth intentionally collides only with spheres/capsules. A chain
@@ -339,10 +415,15 @@ internal sealed class TownServiceCloth : IDisposable
             { layer = IgnoreRaycastLayer };
         Transform driver = runner.DriverRoot.transform;
         go.transform.SetParent(driver, false);
-        Vector3 stationPoint = new(x, topY - .022f, TableFront(x) + rearward);
+        // Adjacent columns are about 12.5 cm apart. The old 2.6 cm spheres left
+        // a seven-centimetre unsupported gap between every pair, so a strong
+        // fingertip could push triangles straight between them. Sink overlapping
+        // seven-centimetre spheres below the top; their crown stays four
+        // millimetres above the authored surface while their width is continuous.
+        Vector3 stationPoint = new(x, topY - .066f, TableFront(x) + rearward);
         go.transform.localPosition = driver.InverseTransformPoint(_station.TransformPoint(stationPoint));
         var sphere = go.AddComponent<SphereCollider>();
-        sphere.radius = .026f * driver.InverseTransformVector(
+        sphere.radius = .070f * driver.InverseTransformVector(
             _station.TransformVector(Vector3.up)).magnitude;
         runner.Supports.Add(go);
         return sphere;
@@ -401,7 +482,10 @@ internal sealed class TownServiceCloth : IDisposable
         float edge = TableFront(p.x);
         float topWeave = Mathf.Clamp01((edge + .145f - p.z) / .145f);
         float hanging = Mathf.Clamp01((top - p.y) / .38f);
-        return Mathf.Pow(Mathf.Max(.55f * topWeave, hanging), 1.25f);
+        // The woven surface above the table may flex a few millimetres, but must
+        // not use the hanging edge's full envelope: gravity otherwise spends that
+        // allowance below the solid top before a hand has touched it.
+        return Mathf.Pow(Mathf.Max(.10f * topWeave, hanging), 1.25f);
     }
 
     private HandProbe BuildProbe(string kind, int index)
@@ -491,6 +575,74 @@ internal sealed class TownServiceCloth : IDisposable
         while (headAt < _heads.Length) Park(_heads[headAt++]);
     }
 
+    private bool AnyProbeWithin(Runner runner, float realMargin)
+    {
+        Renderer? renderer = runner.Filter.GetComponent<Renderer>();
+        if (renderer == null) return false;
+        Bounds bounds = renderer.bounds;
+        float margin = _station.TransformVector(Vector3.right).magnitude * realMargin;
+        bounds.Expand(margin * 2f);
+        foreach (HandProbe probe in _hands)
+            if (bounds.SqrDistance(probe.Palm.position) <= 0f
+                || bounds.SqrDistance(probe.Tip.position) <= 0f) return true;
+        foreach (HandProbe probe in _heads)
+            if (bounds.SqrDistance(probe.Palm.position) <= 0f) return true;
+        return false;
+    }
+
+    private static void SetFreedom(Runner runner, float scale)
+    {
+        ClothSkinningCoefficient[] coefficients = runner.Cloth.coefficients;
+        for (int n = 0; n < coefficients.Length; n++)
+            coefficients[n].maxDistance = runner.DriverMaximum[n] * scale;
+        runner.Cloth.coefficients = coefficients;
+        runner.Cloth.ClearTransformMotion();
+    }
+
+    private void RestoreAfterContact(Runner runner, float dt)
+    {
+        bool near = AnyProbeWithin(runner, .16f);
+        bool contact = AnyProbeWithin(runner, .025f);
+        if (near && !runner.Interactive)
+        {
+            // Unity does not move its hidden particles back to the authored mesh when
+            // maxDistance is tightened. Capture that bounded hidden state as this
+            // contact episode's visual zero before expanding the envelope. Re-entry
+            // therefore starts from the unchanged authored renderer without rebuilding
+            // a Cloth component (which previously caused a large main-thread stall).
+            runner.CaptureOrigin = true;
+            SetFreedom(runner, 1f);
+            runner.Interactive = true;
+        }
+        if (contact && !runner.Contacting)
+            runner.Cloth.externalAcceleration = Physics.gravity * runner.StationUnitInDriver;
+        runner.Contacting = contact;
+        if (near && !contact && runner.DeformationWeight <= 0f)
+        {
+            // Prepare the physical envelope inside a generous approach margin, but
+            // keep following its hidden zero until a palm/tip reaches the actual
+            // runner. Coefficient settling can therefore never appear as a cloth pop.
+            runner.CaptureOrigin = true;
+        }
+        runner.DeformationWeight = Mathf.MoveTowards(runner.DeformationWeight, contact ? 1f : 0f,
+            Mathf.Max(0f, dt) / (contact ? .12f : .48f));
+        if (!near && runner.Interactive && runner.DeformationWeight <= 0f)
+        {
+            // The visible delta has returned exactly to the authored drape. Pin the
+            // bounded hidden solver until another probe approaches. Its stale offset
+            // never becomes visible because the next episode captures a fresh origin.
+            SetFreedom(runner, 0f);
+            runner.Cloth.externalAcceleration = Vector3.zero;
+            runner.Interactive = false;
+        }
+        else if (!contact && runner.DeformationWeight <= 0f)
+        {
+            // Stay prepared while a hand remains nearby, but stop accumulating a
+            // gravity-only fold that could become the next episode's starting kick.
+            runner.Cloth.externalAcceleration = Vector3.zero;
+        }
+    }
+
     private void RewriteColliders(Runner runner)
     {
         var pairs = new ClothSphereColliderPair[runner.SupportPairs.Count + _hands.Length + _heads.Length];
@@ -509,6 +661,7 @@ internal sealed class TownServiceCloth : IDisposable
         {
             if (!visible) continue;
             FollowSource(runner);
+            RestoreAfterContact(runner, dt);
             TownClothRunnerState previous = runner.State;
             TownClothRunnerState measured = Render(runner, default, false);
             float inverse = dt > .0001f ? 1f / dt : 0f;
@@ -527,6 +680,7 @@ internal sealed class TownServiceCloth : IDisposable
         {
             Runner runner = _runners[i];
             FollowSource(runner);
+            RestoreAfterContact(runner, Time.unscaledDeltaTime);
             TownClothRunnerState state = i == 0 ? first : second;
             float prediction = Mathf.Clamp(elapsed, 0f, .12f);
             state.Left += state.LeftVelocity * prediction;
@@ -550,7 +704,8 @@ internal sealed class TownServiceCloth : IDisposable
         {
             float weight = runner.DriverFreedom[n] * runner.DriverFreedom[n];
             if (weight < .1f) continue;
-            Vector3 delta = runner.DriverRoot.transform.TransformVector(vertices[n] - runner.DriverRest[n]);
+            Vector3 delta = runner.DriverRoot.transform.TransformVector(vertices[n] - runner.EpisodeOrigin[n])
+                * runner.DeformationWeight;
             var offset = new Vector2(Vector3.Dot(delta, worldX) / xx, Vector3.Dot(delta, worldZ) / zz);
             float side = runner.DriverSide[n];
             float lw = weight * (1f - side), rw = weight * side;
@@ -570,15 +725,20 @@ internal sealed class TownServiceCloth : IDisposable
         // solver snapshot for rendering, owner measurement and peer correction.
         Vector3[] simulated = runner.Cloth.vertices;
         if (simulated.Length != runner.DriverRest.Length) return runner.State;
+        if (runner.CaptureOrigin)
+        {
+            Array.Copy(simulated, runner.EpisodeOrigin, simulated.Length);
+            runner.CaptureOrigin = false;
+        }
 
         TownClothRunnerState measured = Measure(runner, simulated);
         Vector3 localX = runner.Filter.transform.InverseTransformVector(_station.TransformVector(Vector3.right));
         Vector3 localZ = runner.Filter.transform.InverseTransformVector(_station.TransformVector(Vector3.forward));
         for (int n = 0; n < runner.Rest.Length; n++)
         {
-            int source = runner.VisibleDriverVertex[n];
             Vector3 worldDelta = runner.DriverRoot.transform.TransformVector(
-                simulated[source] - runner.DriverRest[source]);
+                DriverDelta(in runner.VisibleDriverMap[n], simulated, runner.EpisodeOrigin))
+                * runner.DeformationWeight;
             Vector3 shown = runner.Rest[n] + runner.Filter.transform.InverseTransformVector(worldDelta);
             if (correctToOwner)
             {

@@ -46,7 +46,15 @@ internal static class ActivityRender
                 transition=TownServiceActivityMotion.Advance(transition,frameSeconds);state=transition;
                 attentive=TownServiceActivityMotion.Blend(in state)>.5f;
             }
-            rig.Apply(in state);props.Sample(in state);
+            TownActivityVisual rendered=TownServiceActivityMotion.Visual(service,in state);
+            if(service==2&&attentionSequence)
+            {
+                float clock=phases[phase];
+                float cover=Mathf.SmoothStep(0f,1f,Mathf.Clamp01((clock-1.45f)/.55f))
+                    *(1f-Mathf.SmoothStep(0f,1f,Mathf.Clamp01((clock-3.25f)/.55f)));
+                TownServiceActivityMotion.ApplyTempleAvailability(ref rendered,clock>=3.25f,cover);
+            }
+            rig.Apply(in rendered);props.Sample(in rendered);
             {
                 Vector3 focus=attentive?new Vector3(-.7f,1.9f,-.8f):root.Find("ActivityWorkFocus").position;
                 for(int frame=0;frame<(sequence?1:90);frame++)gaze=TownServiceFaceMotion.Aim(faceRig.OpticalRotation,root.lossyScale.x,

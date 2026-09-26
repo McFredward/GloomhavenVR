@@ -25,8 +25,20 @@ def source_contract(source):
         'FBX reorder independent': ('AuthoredPoint(row, column, minX, maxX)' in source
                                     and 'shipping FBX importer reorders and splits' in source),
         'nested FBX scale converted': ('stationUnitInDriver = driver.InverseTransformVector' in source
-                                      and 'runner.DriverFreedom[n] * .34f * stationUnitInDriver' in source
+                                      and 'Physics.gravity * runner.StationUnitInDriver' in source
+                                      and '* MaximumFreedomRealMeters * stationUnitInDriver' in source
                                       and '.004f * stationUnitInDriver' in source),
+        'bounded smooth visible deformation': ('MaximumFreedomRealMeters = .11f' in source
+                                               and 'VisibleDriverMap' in source
+                                               and 'DriverDelta(in runner.VisibleDriverMap[n]' in source
+                                               and 'RestoreAfterContact(runner, dt)' in source
+                                               and 'runner.EpisodeOrigin' in source
+                                               and 'SetFreedom(runner, 0f)' in source
+                                               and 'runner.CaptureOrigin = true' in source
+                                               and 'Array.Copy(simulated, runner.EpisodeOrigin' in source
+                                               and 'AnyProbeWithin(runner, .16f)' in source
+                                               and 'AnyProbeWithin(runner, .025f)' in source
+                                               and source.count('AddComponent<Cloth>()') == 1),
         'real local fingertips': ('VRHands.Left.Rig.IndexTip.position' in source
                                   and 'VRHands.Right.Rig.IndexTip.position' in source),
     }
@@ -46,10 +58,23 @@ def validate_source():
         'head-mask': ('TryGetTownFaceHead', 'DisabledRemoteHeadProbe'),
         'table': ('const int samples = DriverColumns', 'const int samples = 0'),
         'raycast': ('layer = IgnoreRaycastLayer', 'layer = 0'),
-        'double-snapshot': ('Vector3[] simulated = runner.Cloth.vertices;',
-                            'Vector3[] simulated = runner.Cloth.vertices; var duplicate = runner.Cloth.vertices;'),
+        'extra-frame-snapshot': ('Vector3[] simulated = runner.Cloth.vertices;',
+                                 'Vector3[] simulated = runner.Cloth.vertices; var duplicate = runner.Cloth.vertices;'),
         'nested-scale': ('stationUnitInDriver = driver.InverseTransformVector',
                          'missingScale = driver.InverseTransformVector'),
+        'scale-correct-gravity': ('Physics.gravity * runner.StationUnitInDriver',
+                                  'Physics.gravity'),
+        'bounded-envelope': ('MaximumFreedomRealMeters = .11f',
+                             'MaximumFreedomRealMeters = .34f'),
+        'smooth-map': ('DriverDelta(in runner.VisibleDriverMap[n]',
+                       'simulated[runner.VisibleDriverVertex[n]] - runner.DriverRest[runner.VisibleDriverVertex[n]]'),
+        'episode-zero': ('Array.Copy(simulated, runner.EpisodeOrigin, simulated.Length)',
+                         'Array.Copy(runner.DriverRest, runner.EpisodeOrigin, simulated.Length)'),
+        'idle-pin': ('SetFreedom(runner, 0f)', 'SetFreedom(runner, 1f)'),
+        'component-rebuild': ('SetFreedom(runner, 0f);',
+                              'SetFreedom(runner, 0f); runner.Cloth = runner.DriverRoot.AddComponent<Cloth>();'),
+        'proximity-is-contact': ('AnyProbeWithin(runner, .025f)',
+                                 'AnyProbeWithin(runner, .16f)'),
         'fingertip': ('VRHands.Left.Rig.IndexTip.position', 'VRHands.Left.Rig.PalmCenter.forward'),
     }
     for name, (before, after) in mutations.items():

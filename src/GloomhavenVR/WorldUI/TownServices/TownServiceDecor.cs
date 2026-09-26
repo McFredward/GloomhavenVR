@@ -142,9 +142,12 @@ internal sealed class TownServiceDecor : IDisposable
         {
             Add("Chapel", "Chapel.Clutter.Shelf.Individual#7", new Vector3(0f, .957f, .18f), .18f);
             _templeBook = Add("Library", "Library.Clutter.Shelf.Individual#7", new Vector3(-.33f, .957f, -.12f), .30f);
-            Candle(new Vector3(.40f, .957f, .23f), .20f);
-            Candle(new Vector3(.55f, .957f, .08f), .14f);
-            Candle(new Vector3(-.54f, .957f, .19f), .16f);
+            // Keep each wax body outside both 32 cm lantern footprints. Build 565
+            // placed the .55/.08 candle almost on the right lantern's .53/.16
+            // pivot, visibly embedding one original prop inside another.
+            Candle(new Vector3(.15f, .957f, .40f), .20f);
+            Candle(new Vector3(.23f, .957f, -.12f), .14f);
+            Candle(new Vector3(-.12f, .957f, .42f), .16f);
             _coinTemplate = Add("Treasure", "Treasure.Clutter.Shelf.Individual#1", Vector3.zero, .05f);
             _coinTemplate.Template = true;
             _moneyBagTemplate = Add("Treasure", "Treasure.Bay.Variant#2", Vector3.zero, .125f);

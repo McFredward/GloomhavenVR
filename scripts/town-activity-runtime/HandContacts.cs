@@ -97,7 +97,7 @@ internal static class HandContacts
                         // The imported upper/forearm lengths end above the .74 guide;
                         // verify the solved anatomical palm, not the unreachable guide.
                         // It must hang below the .955 worktop and beside the robe.
-                        if(Mathf.Abs(lowered.x)<.20f||lowered.z<.42f||lowered.z>.58f
+                        if(Mathf.Abs(lowered.x)<.12f||lowered.z<.42f||lowered.z>.59f
                             ||lowered.y<.84f||lowered.y>1.02f)
                             throw new Exception("attentive priestess hands stay beside her robe and outside the donation bowl: "+side+" "+lowered);
                         Vector3 inward=(side=="L"?-root.right:root.right);
@@ -108,7 +108,7 @@ internal static class HandContacts
                     else if(service==1&&side=="L")
                     {
                         Vector3 hip=root.InverseTransformPoint(contact.position);
-                        if(Mathf.Abs(hip.x)<.20f||hip.z<.42f||hip.z>.58f
+                        if(Mathf.Abs(hip.x)<.08f||hip.z<.42f||hip.z>.59f
                             ||hip.y<.88f||hip.y>1.04f)
                             throw new Exception("attentive merchant free hand rests on his hip behind the counter: "+side+" "+hip);
                         Vector3 inward=side=="L"?-root.right:root.right;
@@ -165,11 +165,22 @@ internal static class HandContacts
                         previousLeft=leftPalm.rotation;previousRight=rightPalm.rotation;
                     }
                     Vector3 left=root.InverseTransformPoint(leftPalm.position),right=root.InverseTransformPoint(rightPalm.position);
-                    if(Mathf.Abs(left.x)>.11f||Mathf.Abs(right.x)>.11f||left.y<1.18f||right.y<1.18f)
-                        throw new Exception("unavailable donation places both hands over the shared bowl");
+                    if(Mathf.Abs(left.x)>.10f||Mathf.Abs(right.x)>.10f||left.y<1.05f||right.y<1.08f
+                        ||left.y>1.14f||right.y>1.14f)
+                        throw new Exception("unavailable donation places both hands over the shared bowl left="+left+" right="+right);
                     if(Vector3.Dot(leftPalm.forward,-root.up)<.72f||Vector3.Dot(rightPalm.forward,-root.up)<.72f)
                         throw new Exception("unavailable donation covers the bowl with both palms facing down");
-                    checks+=67;
+                    for(int frame=63;frame>=0;frame--)
+                    {
+                        rig.BeforeBodySample();
+                        var recovering=visual;
+                        TownServiceActivityMotion.ApplyTempleAvailability(ref recovering,true,frame/64f);
+                        rig.Apply(in recovering);
+                        if(Quaternion.Angle(previousLeft,leftPalm.rotation)>5f||Quaternion.Angle(previousRight,rightPalm.rotation)>5f)
+                            throw new Exception("available temple returns continuously without dropping the cover pose");
+                        previousLeft=leftPalm.rotation;previousRight=rightPalm.rotation;
+                    }
+                    checks+=131;
                 }
                 rig.BeforeBodySample();
                 state=new TownActivityPose{WorkClock=8f,TransitionAge=TownServiceActivityMotion.TransitionSeconds};

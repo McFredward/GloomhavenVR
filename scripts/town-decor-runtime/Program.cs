@@ -99,6 +99,21 @@ public static class InteractionProgram
         Check(root.GetComponentsInChildren<Transform>(true).Count(t => t.name == "Original.RockTemple.Feature.Small#3") == 3
             && root.GetComponentsInChildren<Transform>(true).Count(t => t.name == "Original.Candlelight.Lighting.Torch.Wall#1") == 2,
             "three actual candles and two lantern flames retain independent stand poses");
+        var templeLanterns=root.GetComponentsInChildren<Transform>(true)
+            .Where(t=>t.name=="Original.Gaslight.Lighting.Torch.Wall#1").ToArray();
+        var templeCandles=root.GetComponentsInChildren<Transform>(true)
+            .Where(t=>t.name=="Original.RockTemple.Feature.Small#3").ToArray();
+        var templeSurfaces=templeLanterns.Concat(root.GetComponentsInChildren<Transform>(true)
+            .Where(t=>t.name=="Original.Library.Clutter.Shelf.Individual#7"
+                ||t.name=="Original.Chapel.Clutter.Shelf.Individual#7")).ToArray();
+        foreach(Transform lantern in templeSurfaces)
+        foreach(Transform candle in templeCandles)
+        {
+            Bounds a=VisibleBounds(lantern.gameObject),b=VisibleBounds(candle.gameObject);
+            bool overlapX=a.min.x<b.max.x&&a.max.x>b.min.x;
+            bool overlapZ=a.min.z<b.max.z&&a.max.z>b.min.z;
+            Check(!(overlapX&&overlapZ),"priestess candles remain outside complete lantern book and bowl bounds");
+        }
         Check(TownServiceDecor.TryStaticProp(2,0,out var lampSource,out _),"priestess static lamp ready");
         Check(TownServiceDecor.TryPractical(2,0,out var lampPoint,out var rangeScale),"original lamp has exact flame calibration");
         var lamp=UnityEngine.Object.Instantiate(lampSource!.gameObject);lamp.SetActive(false);

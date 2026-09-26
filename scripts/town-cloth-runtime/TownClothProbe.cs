@@ -20,6 +20,8 @@ public sealed class TownClothProbe : MonoBehaviour
         internal Transform Driver = null!;
         internal int[] TableIndices = Array.Empty<int>();
         internal Vector3[] TableRest = Array.Empty<Vector3>();
+        internal Vector3 Gravity;
+        internal float RestDamping;
     }
 
     [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
@@ -98,6 +100,11 @@ public sealed class TownClothProbe : MonoBehaviour
         AssetBundle bundle = AssetBundle.LoadFromFile(bundlePath);
         bool actualPass = bundle != null;
         float actualContactMin = float.MaxValue, actualContactMax = 0f, actualTableDrop = 0f;
+        float actualVisibleReturnMax = 0f, actualReentryMin = float.MaxValue;
+        float actualLongTermMax = 0f, actualPinnedDriftMax = 0f;
+        float actualReturnStepMax = 0f, actualReentryPopMax = 0f;
+        float actualApproachRawDriftMax = 0f, actualContactStepMax = 0f;
+        bool actualReturnMonotone = true;
         int actualRunners = 0;
         if (bundle != null)
         {
@@ -123,12 +130,89 @@ public sealed class TownClothProbe : MonoBehaviour
                     actualTableDrop = Mathf.Max(actualTableDrop, MaximumTableDrop(actual));
                     yield return Freeze(actual);
                     Vector3[] before = actual.Cloth.vertices;
-                    yield return Sweep(actual, .18f);
+                    Vector3 sweepStart = actual.Mover.position;
+                    ClothSkinningCoefficient[] active = actual.Cloth.coefficients;
+                    yield return RepeatedSweep(actual, .18f, 3);
                     float contact = MaximumDistance(before, actual.Cloth.vertices);
                     actualContactMin = Mathf.Min(actualContactMin, contact);
                     actualContactMax = Mathf.Max(actualContactMax, contact);
                     actualPass &= contact > .25f && contact < 80f;
-                    actualPass &= MaximumDistance(actual.Rest, actual.Cloth.vertices) < 90f;
+                    actual.Mover.position = new Vector3(0f, -100000f, 0f);
+                    actual.Cloth.externalAcceleration = actual.Gravity;
+                    actual.Cloth.damping = actual.RestDamping;
+                    // Production fades the episode delta to the unchanged authored
+                    // renderer over 0.48 seconds, then pins its bounded hidden solver.
+                    // Exercise that path after three large bidirectional impulses.
+                    float visibleReturn = contact;
+                    float previousVisible = contact;
+                    for (int frame = 0; frame < 44; frame++)
+                    {
+                        yield return null;
+                        float weight = Mathf.Max(0f, 1f - (frame + 1f) / 44f);
+                        visibleReturn = MaximumDistance(before, actual.Cloth.vertices) * weight;
+                        actualReturnStepMax = Mathf.Max(actualReturnStepMax,
+                            Mathf.Abs(visibleReturn - previousVisible));
+                        actualReturnMonotone &= visibleReturn <= previousVisible + .25f;
+                        previousVisible = visibleReturn;
+                    }
+                    actualVisibleReturnMax = Mathf.Max(actualVisibleReturnMax, visibleReturn);
+                    ClothSkinningCoefficient[] pinned = actual.Cloth.coefficients;
+                    for (int i = 0; i < pinned.Length; i++) pinned[i].maxDistance = 0f;
+                    actual.Cloth.coefficients = pinned;
+                    actual.Cloth.externalAcceleration = Vector3.zero;
+                    actual.Cloth.ClearTransformMotion();
+                    Vector3[] pinnedOrigin = actual.Cloth.vertices;
+                    for (int frame = 0; frame < 90; frame++) yield return null;
+                    float pinnedDrift = MaximumDistance(pinnedOrigin, actual.Cloth.vertices);
+                    actualPinnedDriftMax = Mathf.Max(actualPinnedDriftMax, pinnedDrift);
+                    actualPass &= visibleReturn < .001f;
+
+                    // Re-entry captures the current hidden state as a new visual zero.
+                    // Expanding the existing component must therefore have no pose pop,
+                    // while a subsequent physical sweep still produces a real response.
+                    actual.Cloth.coefficients = active;
+                    actual.Cloth.ClearTransformMotion();
+                    Vector3[] reentryOrigin = actual.Cloth.vertices;
+                    // Production keeps the renderer at rest through a 60 ms
+                    // coefficient warm-up and refreshes the episode origin while
+                    // the probe is still in the approach margin.
+                    for (int frame = 0; frame < 6; frame++)
+                    {
+                        yield return null;
+                        reentryOrigin = actual.Cloth.vertices;
+                    }
+                    // Remaining inside proximity without touching keeps weight at
+                    // zero and refreshes the visual origin on every production tick.
+                    // Its raw hidden movement is recorded, but cannot become a pop.
+                    for (int frame = 0; frame < 12; frame++)
+                    {
+                        yield return null;
+                        float raw = MaximumDistance(reentryOrigin, actual.Cloth.vertices);
+                        actualApproachRawDriftMax = Mathf.Max(actualApproachRawDriftMax, raw);
+                        actualReentryPopMax = Mathf.Max(actualReentryPopMax, raw * 0f);
+                        reentryOrigin = actual.Cloth.vertices;
+                    }
+                    actual.Mover.position = sweepStart;
+                    actual.Cloth.externalAcceleration = actual.Gravity;
+                    float previousEntry = 0f;
+                    for (int frame = 0; frame < 12; frame++)
+                    {
+                        yield return null;
+                        float weight = Mathf.Min(1f, (frame + 1f) / 11f);
+                        float shown = MaximumDistance(reentryOrigin, actual.Cloth.vertices) * weight;
+                        actualContactStepMax = Mathf.Max(actualContactStepMax,
+                            Mathf.Abs(shown - previousEntry));
+                        previousEntry = shown;
+                    }
+                    actualPass &= actualReentryPopMax < .001f && actualContactStepMax < 2.5f;
+                    yield return RepeatedSweep(actual, .18f, 2);
+                    float reentry = MaximumDistance(reentryOrigin, actual.Cloth.vertices);
+                    actualReentryMin = Mathf.Min(actualReentryMin, reentry);
+                    float longTerm = MaximumDistance(actual.Rest, actual.Cloth.vertices);
+                    actualLongTermMax = Mathf.Max(actualLongTermMax, longTerm);
+                    actualPass &= reentry > .25f && reentry < 80f;
+                    actualPass &= longTerm < 30f && pinnedDrift < 25f;
+                    actualPass &= actualReturnMonotone && actualReturnStepMax < Mathf.Max(2.5f, contact * .15f);
                     assetOffset++;
                 }
             }
@@ -152,7 +236,16 @@ public sealed class TownClothProbe : MonoBehaviour
             + " actual_runners=" + actualRunners
             + " actual_contact_min=" + actualContactMin.ToString("F5")
             + " actual_contact_max=" + actualContactMax.ToString("F5")
-            + " actual_table_drop=" + actualTableDrop.ToString("F5");
+            + " actual_table_drop=" + actualTableDrop.ToString("F5")
+            + " actual_visible_return_max=" + actualVisibleReturnMax.ToString("F5")
+            + " actual_return_step_max=" + actualReturnStepMax.ToString("F5")
+            + " actual_return_monotone=" + actualReturnMonotone
+            + " actual_pinned_drift_max=" + actualPinnedDriftMax.ToString("F5")
+            + " actual_reentry_pop_max=" + actualReentryPopMax.ToString("F5")
+            + " actual_approach_raw_drift_max=" + actualApproachRawDriftMax.ToString("F5")
+            + " actual_contact_step_max=" + actualContactStepMax.ToString("F5")
+            + " actual_reentry_min=" + actualReentryMin.ToString("F5")
+            + " actual_longterm_max=" + actualLongTermMax.ToString("F5");
         UnityEngine.Debug.Log("[TOWN-CLOTH] " + line);
         string result = Argument("--result=");
         if (result.Length != 0) File.WriteAllText(result, line + Environment.NewLine);
@@ -186,6 +279,29 @@ public sealed class TownClothProbe : MonoBehaviour
             fixture.Mover.position = start + Vector3.right
                 * (distance * fixture.StationScale * (frame + 1) / 45f);
             yield return null;
+        }
+    }
+
+    private static IEnumerator RepeatedSweep(Fixture fixture, float distance, int repetitions)
+    {
+        Vector3 centre = fixture.Mover.position;
+        for (int repetition = 0; repetition < repetitions; repetition++)
+        {
+            Vector3 from = centre + Vector3.right * (repetition == 0 ? 0f : -distance * fixture.StationScale);
+            Vector3 to = centre + Vector3.right * (distance * fixture.StationScale);
+            for (int frame = 0; frame < 36; frame++)
+            {
+                float t = (frame + 1f) / 36f;
+                fixture.Mover.position = Vector3.Lerp(from, to, t);
+                yield return null;
+            }
+            for (int frame = 0; frame < 36; frame++)
+            {
+                float t = (frame + 1f) / 36f;
+                fixture.Mover.position = Vector3.Lerp(to,
+                    centre - Vector3.right * distance * fixture.StationScale, t);
+                yield return null;
+            }
         }
     }
 
@@ -320,9 +436,10 @@ public sealed class TownClothProbe : MonoBehaviour
         var skin = driver.AddComponent<SkinnedMeshRenderer>(); skin.sharedMesh = mesh;
         skin.rootBone = driver.transform; skin.bones = new[] { driver.transform };
         skin.updateWhenOffscreen = true; skin.forceRenderingOff = true;
-        var cloth = driver.AddComponent<Cloth>(); cloth.useGravity = true; cloth.useTethers = true;
-        cloth.damping = .23f; cloth.friction = .48f; cloth.bendingStiffness = .42f;
-        cloth.stretchingStiffness = .82f; cloth.clothSolverFrequency = 120f;
+        var cloth = driver.AddComponent<Cloth>(); cloth.useGravity = false; cloth.useTethers = true;
+        cloth.externalAcceleration = Physics.gravity * stationScale;
+        cloth.damping = .40f; cloth.friction = .52f; cloth.bendingStiffness = .82f;
+        cloth.stretchingStiffness = .94f; cloth.clothSolverFrequency = 120f;
         cloth.enableContinuousCollision = true;
         Vector3[] stationPoints = new Vector3[count];
         for (int row = 0; row < rows; row++) for (int column = 0; column < columns; column++)
@@ -334,8 +451,8 @@ public sealed class TownClothProbe : MonoBehaviour
             Vector3 p = stationPoints[i]; float edge = Front(p.x);
             float top = Mathf.Clamp01((edge + .145f - p.z) / .145f);
             float hanging = Mathf.Clamp01((maxY - p.y) / .38f);
-            float freedom = Mathf.Pow(Mathf.Max(.55f * top, hanging), 1.25f);
-            coefficients[i].maxDistance = freedom * .34f * stationScale;
+            float freedom = Mathf.Pow(Mathf.Max(.10f * top, hanging), 1.25f);
+            coefficients[i].maxDistance = freedom * .11f * stationScale;
             coefficients[i].collisionSphereDistance = .004f * stationScale;
             if (p.y > maxY - .05f && p.z >= edge - .01f && p.z <= edge + .15f) table.Add(i);
         }
@@ -349,8 +466,8 @@ public sealed class TownClothProbe : MonoBehaviour
                 var support = new GameObject(name + ".support." + column + "." + side) { layer = 2 };
                 support.transform.SetParent(driver.transform, false);
                 support.transform.localPosition = driver.transform.InverseTransformPoint(
-                    station.TransformPoint(new Vector3(x, maxY - .022f, Front(x) + rear)));
-                var sphere = support.AddComponent<SphereCollider>(); sphere.radius = .026f * stationScale;
+                    station.TransformPoint(new Vector3(x, maxY - .066f, Front(x) + rear)));
+                var sphere = support.AddComponent<SphereCollider>(); sphere.radius = .070f * stationScale;
                 return sphere;
             }
             pairs.Add(new ClothSphereColliderPair(Make(.008f, "front"), Make(.142f, "rear")));
@@ -367,7 +484,8 @@ public sealed class TownClothProbe : MonoBehaviour
         cloth.ClearTransformMotion();
         return new Fixture { Root = driver, Cloth = cloth, Mover = mover.transform, Visible = mesh,
             Rest = cloth.vertices, StationScale = stationScale, SolverScale = 1f, Station = station,
-            Driver = driver.transform, TableIndices = table.ToArray(), TableRest = stationPoints };
+            Driver = driver.transform, TableIndices = table.ToArray(), TableRest = stationPoints,
+            Gravity = Physics.gravity * stationScale, RestDamping = .40f };
     }
 
     private static float MaximumTableDrop(Fixture fixture)

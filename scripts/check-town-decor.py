@@ -31,6 +31,7 @@ def main():
         'internal static class TownServiceActivityMotion { ' + motion[start:end] + ' } }')
     variants = [('production', None, '', '', ''),
         ('wall-bracket', 'TownServiceDecor.cs', 'piece.Select = "CR_GE_Candle_V1";', 'piece.Select = "MissingWallCandle";', 'merchant ledger candle is a native candle body'),
+        ('temple-prop-separation', 'TownServiceDecor.cs', 'new Vector3(.23f, .957f, -.12f)', 'new Vector3(.55f, .957f, .08f)', 'priestess candles remain outside complete lantern book and bowl bounds'),
         ('stale-coin-guid', 'TownServiceDecor.cs', '? NativeCoinMaterialAddress : key;', '? key : key;', 'merchant original work coin survives stale native material GUID'),
         ('coin-alias-scope', 'TownServiceDecor.cs', 'piece.Entry == "Treasure.Clutter.Shelf.Individual#1"', 'piece.Entry.Length > 0', 'coin catalog alias cannot rewrite another native prop'),
         ('wrong-coin-identity', 'TownServiceDecor.cs', 'load.Handle.Result.name != "GoldCoinMat"', 'false', 'unexpected coin subasset is never rendered as native coin art'),
@@ -87,6 +88,7 @@ def main():
     evidence = Path(manifest['result'])
     if evidence.exists(): print(evidence.read_text())
     if result.returncode or not evidence.exists(): raise SystemExit('FAIL: ' + str(run / 'unity.log'))
-    print('PASS: native decor loading/material tests and fourteen compiled negative controls; evidence: ' + str(run))
+    print('PASS: native decor loading/material tests and ' + str(len(variants) - 1)
+        + ' compiled negative controls; evidence: ' + str(run))
 
 if __name__ == '__main__': main()

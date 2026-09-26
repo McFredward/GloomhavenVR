@@ -178,26 +178,34 @@ public static class InteractionProgram
         TownServiceActivityMotion.Engage(ref prayer,true);
         prayer=TownServiceActivityMotion.Advance(prayer,TownServiceActivityMotion.TransitionSeconds);
         var receiving=TownServiceActivityMotion.Visual(2,in prayer);
-        Check(receiving.Left.x>.26f&&receiving.Right.x<-.26f
-            &&receiving.Left.y>.90f&&receiving.Right.y>.90f
-            &&receiving.Left.y<.94f&&receiving.Right.y<.94f
-            &&receiving.Left.z>.48f&&receiving.Right.z>.48f
-            &&receiving.Left.z<.52f&&receiving.Right.z<.52f
-            &&receiving.LeftElbow.x>.35f&&receiving.RightElbow.x<-.35f,
+        var attentiveTemple=receiving;
+        Check(receiving.Left.x>.23f&&receiving.Right.x<-.23f
+            &&receiving.Left.y>.97f&&receiving.Right.y>.97f
+            &&receiving.Left.y<.99f&&receiving.Right.y<.99f
+            &&receiving.Left.z>.55f&&receiving.Right.z>.55f
+            &&receiving.Left.z<.57f&&receiving.Right.z<.57f
+            &&receiving.LeftElbow.x>.43f&&receiving.RightElbow.x<-.43f,
             "attentive priestess rests both hands on her own hips behind the table edge");
         TownServiceActivityMotion.ApplyTempleAvailability(ref receiving,false,1f);
-        Check(Mathf.Abs(receiving.Left.x)<.10f&&Mathf.Abs(receiving.Right.x)<.10f
-            &&receiving.Left.y>1.19f&&receiving.Right.y>1.19f
-            &&receiving.Left.z>.17f&&receiving.Right.z>.17f,
+        Check(Mathf.Abs(receiving.Left.x)<.01f&&Mathf.Abs(receiving.Right.x)<.10f
+            &&receiving.Left.y>1.05f&&receiving.Right.y>1.09f
+            &&receiving.Left.y<1.08f&&receiving.Right.y<1.12f
+            &&receiving.Left.z>.12f&&receiving.Right.z>.17f,
             "unavailable donation moves both hands over the shared bowl");
         var pause=new TownActivityPose{WorkClock=1.8f,TransitionAge=TownServiceActivityMotion.TransitionSeconds};
         TownServiceActivityMotion.Engage(ref pause,true);pause=TownServiceActivityMotion.Advance(pause,1f);
         var held=TownServiceActivityMotion.Visual(1,in pause);
         Check(held.CoinGrip.x==1f,"visitor interruption preserves held coin contact");
-        Check(held.RightRoll<90f&&held.Left.y>.96f&&held.Left.y<1f&&held.Left.x>.29f
-            &&held.Right.x<-.29f&&held.Right.z>.47f&&held.Right.z<.49f
-            &&held.LeftElbow.x>.40f&&held.RightElbow.x<-.40f,
+        Check(held.RightRoll<90f&&held.Left.y>.93f&&held.Left.y<.95f&&held.Left.x>.16f
+            &&held.Right.x<-.23f&&held.Right.z>.49f&&held.Right.z<.51f
+            &&held.LeftElbow.x>.34f&&held.RightElbow.x<-.40f,
             "visitor attention settles merchant with hands at his hips without an unsolicited offering");
+        // The return path must use the fading visual blend even after the native
+        // availability boolean has changed, otherwise the covered bowl pops open.
+        var returning=attentiveTemple;
+        TownServiceActivityMotion.ApplyTempleAvailability(ref returning,true,.5f);
+        Check(returning.Left.y>attentiveTemple.Left.y&&returning.Left.y<receiving.Left.y,
+            "available temple fades out the previous cover pose instead of dropping it in one frame");
         TownServiceActivityMotion.ApplyMerchantOffering(ref held,1f);
         Check(held.RightRoll>170f&&held.Right.y>1.17f,
             "a held or parked card independently opens the merchant offering palm");
@@ -314,12 +322,33 @@ public static class InteractionProgram
                                 Vector3 inward=side=="L"?-root.right:root.right;
                                 Check(Vector3.Dot(palmAxis.forward,inward)>.55f,
                                     "actual attentive priestess palm rests inward at her hip: "+side+" frame="+n);
+                                Check(Vector3.Dot(palmAxis.up,-root.up)>.55f,
+                                    "actual attentive priestess fingers rest down along her hip: "+side+" frame="+n);
                             }
                             Check(Vector3.Angle(wrist.position-elbow.position,palmAxis.up)<55.1f,"actual wrist flexion remains anatomical: "+npc+" "+side+" frame="+n+" angle="+Vector3.Angle(wrist.position-elbow.position,palmAxis.up)+" wrist="+root.InverseTransformPoint(wrist.position)+" elbow="+root.InverseTransformPoint(elbow.position));
                             int supportCount=joints.Count(t=>t.name.StartsWith("ForearmTwist")&&t.name.EndsWith("."+side));
                             // The priestess FBX predates the three-support hand rig;
                             // its source has no twist bones and uses the solver fallback.
                             Check(supportCount==(service==2?0:3),"imported pronation has the source-authored skin support count: "+npc+" "+side+" found="+supportCount);
+                        }
+                        if((service==1||service==2)&&TownServiceActivityMotion.Blend(in phase)>.999f)
+                        {
+                            Transform[] joints=root.GetComponentsInChildren<Transform>(true);
+                            Transform lp=joints.Single(t=>t.name=="PalmContact.L"),rp=joints.Single(t=>t.name=="PalmContact.R");
+                            Transform le=joints.Single(t=>t.name=="Forearm.L"),re=joints.Single(t=>t.name=="Forearm.R");
+                            Vector3 l=root.InverseTransformPoint(lp.position),r=root.InverseTransformPoint(rp.position);
+                            Vector3 mirroredPalm=new Vector3(-l.x,l.y,l.z);
+                            Vector3 el=root.InverseTransformPoint(le.position),er=root.InverseTransformPoint(re.position);
+                            Vector3 mirroredElbow=new Vector3(-el.x,el.y,el.z);
+                            Vector3 lf=root.InverseTransformDirection(lp.up),rf=root.InverseTransformDirection(rp.up);
+                            Vector3 mirroredFingers=new Vector3(-lf.x,lf.y,lf.z);
+                            Check(Vector3.Distance(mirroredPalm,r)<.075f&&Vector3.Distance(mirroredElbow,er)<.09f
+                                &&Vector3.Dot(mirroredFingers.normalized,rf.normalized)>.82f,
+                                "actual attentive resident arms and hands remain geometrically mirrored: "+npc+" frame="+n
+                                +" palm="+Vector3.Distance(mirroredPalm,r)+" elbow="+Vector3.Distance(mirroredElbow,er)
+                                +" fingers="+Vector3.Dot(mirroredFingers.normalized,rf.normalized)
+                                +" mirroredLeft="+mirroredPalm+" right="+r
+                                +" mirroredLeftElbow="+mirroredElbow+" rightElbow="+er);
                         }
                         for (int leg=0;leg<2;leg++)
                         {
@@ -396,7 +425,7 @@ public static class InteractionProgram
                                         +" dot="+(rig.OfferingPalm==null?0f:Vector3.Dot(rig.OfferingPalm.up,root.up)));
                             }
                             else Check(Vector3.Distance(palm.position,wanted)<.09f
-                                && Mathf.Abs(root.InverseTransformPoint(palm.position).x)>.22f,
+                                && Mathf.Abs(root.InverseTransformPoint(palm.position).x)>.21f,
                                 "attentive priest lowers hands beside her robe and away from the bowl: frame="+n
                                 +" error="+Vector3.Distance(palm.position,wanted)+" x="+root.InverseTransformPoint(palm.position).x);
                             if(service==1)

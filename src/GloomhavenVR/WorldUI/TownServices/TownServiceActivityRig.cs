@@ -403,7 +403,13 @@ internal sealed class TownServiceActivityRig
             Quaternion palmFrame;
             if (_service == 2)
             {
-                Vector3 fingerDirection = Vector3.ProjectOnPlane(_root.up - _root.forward * .8f, wantedNormal).normalized;
+                // The prayer pose needs raised fingers, while the visitor pose
+                // needs both hands level against the hips. Reusing the prayer
+                // direction under full attention left one imported hand crossing
+                // the abdomen and the other hanging vertically beside the robe.
+                Vector3 handReference = Vector3.Slerp(_root.up - _root.forward * .8f,
+                    -_root.up - _root.forward * .2f, attention);
+                Vector3 fingerDirection = Vector3.ProjectOnPlane(handReference, wantedNormal).normalized;
                 fingerDirection = Vector3.RotateTowards(foreDirection, fingerDirection, 55f * Mathf.Deg2Rad, 0f).normalized;
                 palmFrame = Quaternion.LookRotation(fingerDirection,
                     Vector3.ProjectOnPlane(wantedNormal, fingerDirection).normalized);
@@ -414,7 +420,10 @@ internal sealed class TownServiceActivityRig
                 // Pronation follows a signed angle about the forearm, including a full
                 // offered half turn. Slerping between opposing palm normals introduces
                 // an ambiguous 180-degree branch. Only flexion is corrected here.
-                Vector3 flatFingers = _service == 1 && side > 0f ? -_root.forward : Vector3.ProjectOnPlane(foreDirection, _root.up);
+                // Both merchant hands use the same mirrored level reference. Build 565
+                // applied it only to the left side, so equal hip targets produced a
+                // planted left hand and a vertically hanging, sharply bent right arm.
+                Vector3 flatFingers = _service == 1 ? -_root.forward : Vector3.ProjectOnPlane(foreDirection, _root.up);
                 if (flatFingers.sqrMagnitude > .001f)
                 {
                     Vector3 bent = Vector3.RotateTowards(foreDirection, flatFingers.normalized, 55f * Mathf.Deg2Rad, 0f).normalized;

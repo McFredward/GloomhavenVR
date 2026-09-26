@@ -79,10 +79,14 @@ internal static class TownServiceActivityMotion
         // worktops. Station forward points from the visitor toward the actor: a larger Z
         // is therefore closer to the body. Earlier targets used the opposite assumption;
         // their unreachable forward position clamped the imported arms over the counter.
-        work.Left = Vector3.Lerp(work.Left, service == 1 ? new Vector3(.30f, .98f, .48f)
-            : service == 2 ? new Vector3(.27f, .92f, .50f) : new Vector3(.22f, 1.13f, .23f), attention);
-        work.Right = Vector3.Lerp(work.Right, service == 1 ? new Vector3(-.30f, .98f, .48f)
-            : service == 3 ? new Vector3(-.18f, 1.17f, .23f) : new Vector3(-.27f, .92f, .50f), attention);
+        // The imported left arms have a different palm-surface offset from the
+        // generated reference. These side-specific guides resolve to mirrored
+        // *visible* palm positions on the actual skins; symmetric numeric wrist
+        // targets left the screen-right arm hanging away from the body.
+        work.Left = Vector3.Lerp(work.Left, service == 1 ? new Vector3(.17f, .94f, .45f)
+            : service == 2 ? new Vector3(.24f, .98f, .56f) : new Vector3(.22f, 1.13f, .23f), attention);
+        work.Right = Vector3.Lerp(work.Right, service == 1 ? new Vector3(-.24f, .98f, .50f)
+            : service == 3 ? new Vector3(-.18f, 1.17f, .23f) : new Vector3(-.24f, .98f, .56f), attention);
         // Hand targets alone cannot lower an arm naturally. Author the matching elbow path as
         // part of the same blend so the upper arm leaves the shoulder downward instead of staying
         // abducted while the forearm reaches for a low hand target.
@@ -90,9 +94,11 @@ internal static class TownServiceActivityMotion
         {
             float side = service == 1 ? .41f : .36f;
             work.LeftElbow = Vector3.Lerp(work.LeftElbow,
-                new Vector3(side, service == 1 ? 1.13f : 1.10f, service == 1 ? .50f : .53f), attention);
+                new Vector3(service == 1 ? .35f : .44f, service == 1 ? 1.08f : 1.08f,
+                    service == 1 ? .45f : .55f), attention);
             work.RightElbow = Vector3.Lerp(work.RightElbow,
-                new Vector3(-side, service == 1 ? 1.13f : 1.10f, service == 1 ? .50f : .53f), attention);
+                new Vector3(service == 1 ? -side : -.44f, service == 1 ? 1.13f : .98f,
+                    service == 1 ? .50f : .55f), attention);
         }
         work.RightRoll = Mathf.Lerp(work.RightRoll, service == 1 ? 65f : service == 3 ? 180f : 0f, attention);
         work.LeftRoll = Mathf.Lerp(work.LeftRoll, service == 1 ? -65f : service == 3 ? -65f : 0f, attention);
@@ -111,12 +117,20 @@ internal static class TownServiceActivityMotion
     /// owns and replicates <paramref name="blend"/>; this method never reads local gameplay state.</summary>
     internal static void ApplyTempleAvailability(ref TownActivityVisual visual, bool donationAvailable, float blend)
     {
-        if (donationAvailable) return;
+        // `blend` is the replicated visual state and may still be non-zero while
+        // availability is returning. Returning solely on the new boolean dropped
+        // the complete cover pose in one frame as a visitor left the temple. Keep
+        // applying the fading pose until its authored blend has reached zero.
+        if (donationAvailable && blend <= 0f) return;
         float t = Mathf.SmoothStep(0f, 1f, Mathf.Clamp01(blend)) * visual.Attention;
-        visual.Left = Vector3.Lerp(visual.Left, new Vector3(.085f, 1.205f, .18f), t);
-        visual.Right = Vector3.Lerp(visual.Right, new Vector3(-.085f, 1.205f, .18f), t);
-        visual.LeftElbow = Vector3.Lerp(visual.LeftElbow, new Vector3(.31f, 1.10f, .12f), t);
-        visual.RightElbow = Vector3.Lerp(visual.RightElbow, new Vector3(-.31f, 1.10f, .12f), t);
+        // The actual bowl rim is around y=1.10 in station space. Build 565's
+        // 1.205 target held both hands a palm-height above it, reading as a vague
+        // raised gesture rather than physically covering the offering. Bring the
+        // relaxed palms just over the rim while leaving room for the original mesh.
+        visual.Left = Vector3.Lerp(visual.Left, new Vector3(0f, 1.065f, .13f), t);
+        visual.Right = Vector3.Lerp(visual.Right, new Vector3(-.070f, 1.105f, .18f), t);
+        visual.LeftElbow = Vector3.Lerp(visual.LeftElbow, new Vector3(.24f, 1.03f, .14f), t);
+        visual.RightElbow = Vector3.Lerp(visual.RightElbow, new Vector3(-.30f, 1.08f, .19f), t);
         // The temple solver starts with inward-facing palms. Opposite quarter turns
         // place both palmar surfaces down over the bowl; the former signs faced them up.
         visual.LeftRoll = Mathf.Lerp(visual.LeftRoll, 82f, t);
