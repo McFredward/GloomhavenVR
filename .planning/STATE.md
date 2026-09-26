@@ -2,16 +2,16 @@
 
 **Updated 2026-09-26: feature/immersive-town-services, version 1.1.0 hardware candidate.**
 The feature includes released 1.0.8 / ModBuild 556 and the subsequent 1.0.9
-version bookkeeping on `dev`. ModBuild 567 follows the build-566 NPC hardware
-report with the actual attention-transition UI sound removed, wrist-gated informational purses,
-a seeded particle blessing, production-path cloth contact, anatomically connected priestess
-shoulders and continuous hip/bowl poses, and props outside the resulting motion envelope.
+version bookkeeping on `dev`. ModBuild 568 follows the build-567 videos, screenshot and Debug log
+with one donation-bound blessing owner, continuous priestess cover release, preclaimed immersive
+service controllers, ancestry-safe renderer veils and the merchant lantern back on its exterior
+cabinet bracket.
 ModBuild 560 introduced resident
 voices, shared merchant confirmation presentation, a visible temple donation
 target, cloth contact, cabinet detail and varied idle motion.
 Headset verification of the resulting presentation remains open. Historical NPC
 design: [research/TOWN-SERVICES-552.md](research/TOWN-SERVICES-552.md).
-Current evidence and implementation limits: [TOWN-567.md](TOWN-567.md).
+Current evidence and implementation limits: [TOWN-568.md](TOWN-568.md).
 The feature remains isolated from `dev`, and NPC work belongs on this branch.
 
 The file this replaces had gone 168 builds
@@ -26,6 +26,19 @@ change per build) → this file (where things stand and what is owed) → the bu
 ---
 
 ## 1. Position
+
+- **NPC feature / 1.1.0 / ModBuild 568 (hardware candidate):** the permanent temple
+  resident alone owns the blessing particle system, whose only live trigger is a later committed
+  donation revision in the same owner/session. Close/reopen and hydration preserve their baseline,
+  and smaller additive motes originate in the bowl. Priestess cover availability now blends out
+  continuously rather than snapping when the temporary interaction record disappears; imported-rig
+  tests measure every 90 Hz intermediate hand and elbow frame. Immersive service controllers are
+  claimed before generic modal conversion, closed confirmations stay masked through render
+  retirement, and a renderer reparented out of a hidden window is released immediately. This removes
+  the filmed full native confirmation panel, its measured conversion spike and the stale veil that
+  made returned item fronts grey. The merchant lantern is restored to the cabinet's exterior bracket
+  with complete side-wall clearance. Evidence and the headset checklist are in
+  [TOWN-568.md](TOWN-568.md).
 
 - **NPC feature / 1.1.0 / ModBuild 567 (hardware candidate):** the recurring spatial
   open/close sound was the flat equipment-toggle clip reused as invented resident cloth foley on

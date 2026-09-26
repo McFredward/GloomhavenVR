@@ -541,7 +541,20 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 567;
+    public const ushort ModBuild = 568;
+
+    // ModBuild 568 — eighth NPC hardware follow-up on the feature branch (FULL
+    // INSTALL). The permanent temple resident alone owns the blessing particle
+    // system, and a same-session donation revision is the only play edge; transient
+    // close/reopen and hydration retain their baseline. Smaller additive motes rise
+    // from the bowl, while the unavailable-pose blend now exits continuously instead
+    // of resetting when its temporary manifest disappears. Immersive service windows
+    // are claimed before generic modal conversion, and closed confirmations remain
+    // invisibly owned through their render retirement, removing the captured full
+    // native popup and its conversion spike. Hidden-window veil membership follows
+    // actual ancestry, so pooled item fronts are released immediately when returned
+    // to the wrist fan. The merchant lantern is restored to the cabinet's exterior
+    // bracket and checked against the complete side-wall envelope.
 
     // ModBuild 567 — seventh NPC hardware follow-up on the feature branch (FULL
     // INSTALL). Resident attention no longer invents cloth foley from the flat
