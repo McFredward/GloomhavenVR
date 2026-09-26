@@ -162,11 +162,6 @@ internal static class TownServicePresentation
         if (_failedWindow == window) return;
         if (_window == null)
         {
-            // Service entry swaps the ordinary map hand for a physical offering. Suppress
-            // exactly that automatic edge once; extending this window every frame would also
-            // swallow a real manual fan gesture while the resident is open.
-            CardsDriver.SuppressNextOffScenarioFanEdgeSound(open: true, seconds: .35f);
-            CardsDriver.SuppressNextOffScenarioFanEdgeSound(open: false, seconds: .35f);
             // Preclaim handles the normal ordering. Also retire a descendant which an earlier
             // modal pass already detached before the destination/controller identity settled.
             // This only releases presentation ownership; native shop callbacks keep running.
@@ -178,10 +173,24 @@ internal static class TownServicePresentation
             _station = TownServicePopulation.Acquire(service);
             if (_station == null)
             {
-                _failedWindow = window; _window = null;
-                VRLog.Note("WorldUI", "TOWN SERVICE ASSET MISSING: original service window remains available; install the matching asset bundle.");
+                _window = null;
+                // A user can reach the map while Unity is still preloading the
+                // optional town bundle. Keep the native service usable during that
+                // interval, but do not latch this window as permanently failed:
+                // the same open window must convert once the preload completes.
+                if (!TownServiceAssets.IsLoading)
+                {
+                    _failedWindow = window;
+                    VRLog.Note("WorldUI", "TOWN SERVICE ASSET MISSING: original service window remains available; install the matching asset bundle.");
+                }
                 return;
             }
+            // Service entry swaps the ordinary map hand for a physical offering. Suppress
+            // exactly that automatic edge once, after the station is actually ready:
+            // retries during async art loading must not continually extend the mute and
+            // swallow a real manual fan gesture.
+            CardsDriver.SuppressNextOffScenarioFanEdgeSound(open: true, seconds: .35f);
+            CardsDriver.SuppressNextOffScenarioFanEdgeSound(open: false, seconds: .35f);
             Service = service; _session++; if (_session == 0) _session++;
             _context = context; _scale = scale;
             _origin = context != null ? context.HostGo.transform.position : center;

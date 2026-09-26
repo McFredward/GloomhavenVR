@@ -47,6 +47,10 @@ internal sealed class WorldUIModule : IVRModule
             return;
         }
 
+        // The town bank is large and optional. Start its Unity async requests while
+        // the player is still in the menu, before the first map frame can create NPCs.
+        if (WorldUIConfig.ImmersiveTownServices.Value) TownServiceAssets.BeginPreload();
+
         // Own Harmony patch classes (ROADMAP conflict containment): all prefixes
         // gate on WorldUI state and are vanilla otherwise.
         VRSession.Harmony?.PatchAll(typeof(WorldspaceDisplayPanelBase_Patches));
@@ -373,6 +377,7 @@ internal sealed class WorldUIModule : IVRModule
                 // peek, before ModalFallback so its show/dismiss is reflected by the level-message
                 // poll in the same tick, exactly like a scripted message would be.
                 ("Compat.TutorialGrabStep", Compat.TutorialGrabStep.Tick),
+                ("TownServiceAssets", TownServiceAssets.Tick),
                 ("TownServiceSync.Prepare", TownServiceSync.Prepare), // preserve original template roots before handoff
                 ("TownPalmConfirmation", TownServicePalmConfirmation.Tick), // restore/position owned native controls before fallback scans
                 ("ModalFallback", ModalFallback.Tick),      // before the flat screen reads ScreenWanted
