@@ -1,6 +1,7 @@
 # Town resident speech and foley
 
-The 55 English voice cues, quiet coin contact and merchant cabinet mechanism are original mod assets, not
+The 60 resident voice cues, quiet coin contact, merchant cabinet mechanism and five
+subtle spell performances are original mod assets, not
 recordings extracted from Gloomhaven. They are generated offline; the shipped
 mod makes no paid API request. Source WAVs are mono 24 kHz PCM for deterministic
 Rhubarb analysis; Unity stores every imported clip as quality-0.45 mono Vorbis
@@ -13,9 +14,24 @@ applies a further 0.55 gain and the same master/SFX controls.
 
 | Resident | Voice source | Cues |
 | --- | --- | --- |
-| Merchant | Qwen 3 TTS voice designs + fixed 0.6B cloned speaker embeddings | five each: greet, offer, buy, sell |
-| Priestess | MiniMax Speech 2.8 HD preset `Wise_Woman` | five each: greet, prayer, donate |
-| Enchantress | ElevenLabs v3 voice ID `pFZP5JQG7iQjIQuC4Bku` | five each: greet, cast, enhance, invite |
+| Merchant | MiniMax Speech 2.8 HD preset `English_Deep-VoicedGentleman` | five each: greet, offer, buy, sell |
+| Priestess | MiniMax Speech 2.8 HD preset `Wise_Woman` | five each: greet, prayer, donate, unavailable |
+| Enchantress | MiniMax Speech 2.8 HD preset `English_Whispering_girl` | five each: greet, cast, enhance, invite |
+
+Build 570 moves the merchant and enchantress to the same MiniMax Speech 2.8 HD
+renderer approved for the priestess. The merchant preset is a close, deep gentleman;
+the enchantress keeps one whispering preset across every family. Her five cast takes
+replace English dialogue with original Latin-like fantasy syllables and play below
+ordinary speech. A 35 Hz offline high-pass removes the preset's small fixed DC offset
+without changing its audible range. All forty replacement clips are mono 24 kHz PCM,
+contain no clipped samples, and have regenerated Rhubarb curves. Their measured durations
+are 2.00-5.07 seconds, with speech means near -27 dBFS after the common import pass.
+
+The same build replaces the repeated native augment/UI effect with five original 1.28-second
+spell foley clips: ember shimmer, sigil hum, rune dust, veil ripple and a restrained crystalline
+pulse. They are normalized below speech and receive a 0.075 spatial-source gain. The shared
+48-second occupation clock selects the take, so all multiplayer observers hear the same sound
+without adding a wire field.
 
 The revised merchant design asks for a close-miked, deep, clear and warm
 middle-aged baritone speaking calmly to one nearby customer. It explicitly
@@ -65,6 +81,16 @@ reconciled. Sources: [Qwen voice design](https://fal.ai/models/fal-ai/qwen-3-tts
 [ElevenLabs SFX](https://fal.ai/models/fal-ai/elevenlabs/sound-effects/v2).
 Private receipts and source MP3s stay gitignored under
 `.planning/debug/town562-speech/`; the API key is never written there.
+
+The build-570 plan contains forty MiniMax voice renders, five ElevenLabs sound-effect
+renders and three bounded audio-model reviews. Its maximum listed-price estimate is
+USD 0.1781, including a conservative USD 0.004 allowance for two review requests which
+the provider rejected before inference because its live endpoint required reasoning.
+The final merchant and enchantress previews were also checked locally for duration,
+loudness, silence, DC offset, pitch range and clipping before the remaining immutable
+intents were submitted. Private plans, receipts, source MP3s and review output remain
+gitignored under `.planning/debug/town570-speech/`; provider billing was not independently
+reconciled.
 
 The cabinet performance was generated through ElevenLabs Sound Effects v2 in
 the bounded build-563 revision. The final speech pass ships two accessible voice

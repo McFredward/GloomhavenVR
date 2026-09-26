@@ -83,11 +83,12 @@ internal sealed class TownServiceActivityAudio : IDisposable
             // The previous foley gain was multiplied by the game's two volume sliders
             // and then attenuated again at the visitor's normal standing distance.
             // These remain quieter than native transactions but are audible nearby.
-            _gains[slot] = sound == TownActivitySound.Coin ? .065f : .12f;
+            _gains[slot] = sound == TownActivitySound.Coin ? .065f : .075f;
             voice.volume = master * _gains[slot];
             // Native effects can contain long gameplay tails. Foley uses a bounded
             // excerpt with a short end fade; the original shared clip is untouched.
-            float duration = sound == TownActivitySound.Spell ? 2.8f : sound == TownActivitySound.Coin ? .45f : .65f;
+            float duration = TownServiceActivitySoundClock.IsSpell(sound) ? 1.3f
+                : sound == TownActivitySound.Coin ? .45f : .65f;
             _ends[slot] = now + Mathf.Min(duration, clip.length);
             voice.Play();
         }
@@ -138,24 +139,25 @@ internal sealed class TownServiceActivityAudio : IDisposable
                 ? _coinClink : null;
         }
         int index = (int)sound;
-        if (_clips[index] != null) return _clips[index];
+        if (_clips[index] != null)
+            return _clips[index]!.loadState == AudioDataLoadState.Loaded ? _clips[index] : null;
         if (now < _resolveAt[index]) return null;
         _resolveAt[index] = now + 5f;
-        // The spell edge reuses the matching short clip, not the native UI/gameplay trigger.
-        // Attention changes intentionally have no sound: a former fallback reused the flat
-        // equipment-toggle clip and was the spatial open/close noise reported in builds 560-566.
-        string id = "PlaySound_ScenarioUIAugmentLight";
-        if (!AudioController.IsValidAudioID(id))
+        if (!TownServiceActivitySoundClock.IsSpell(sound)) return null;
+        // A gameplay augment/UI cue was conspicuous at the resident and repeated the
+        // same timbre for every experiment. These five original, short close-fidelity
+        // performances are quieter and follow the shared clock-selected spell take.
+        string name = "spell-soft-" + (index - (int)TownActivitySound.Spell1 + 1);
+        _clips[index] = TownServiceAssets.Audio(name);
+        AudioClip? spell = _clips[index];
+        if (spell != null && spell.loadState == AudioDataLoadState.Unloaded)
+            spell.LoadAudioData();
+        if (spell == null && !MissingReported[index])
         {
-            if (!MissingReported[index])
-            { MissingReported[index] = true; VRLog.Warn("TownServices", "NPC native activity sound unavailable: " + id); }
-            return null;
+            MissingReported[index] = true;
+            VRLog.Warn("TownServices", "NPC spell activity sound unavailable: " + name);
         }
-        var item = AudioController.GetAudioItem(id);
-        if (item?.subItems == null) return null;
-        foreach (var sub in item.subItems)
-            if (sub.Clip != null) { _clips[index] = sub.Clip; break; }
-        return _clips[index];
+        return spell != null && spell.loadState == AudioDataLoadState.Loaded ? spell : null;
     }
 
     private void Stop()

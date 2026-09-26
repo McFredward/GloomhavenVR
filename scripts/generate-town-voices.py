@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate a bounded set of original English resident lines through fal.
+"""Generate a bounded set of original resident voice and foley assets through fal.
 
 This script reads only FAL_AI_API_KEY from its process environment. Launch with
 ``uv run --env-file /path/to/.env python3 scripts/generate-town-voices.py``.
@@ -27,6 +27,7 @@ VARIANT_OUT = ROOT / ".planning/debug/town562-speech"
 ROUND563_OUT = ROOT / ".planning/debug/town563-speech"
 ROUND564_OUT = ROOT / ".planning/debug/town564-speech"
 ROUND569_OUT = ROOT / ".planning/debug/town569-speech"
+ROUND570_OUT = ROOT / ".planning/debug/town570-speech"
 ASSETS = ROOT / "unity/GloomhavenVR.Assets/Assets/Bundle/TownServices/Audio"
 ENDPOINT = "fal-ai/elevenlabs/tts/eleven-v3"
 PRICE_PER_1000 = 0.10  # fal listing checked 2026-09-25; estimate, not receipt.
@@ -203,15 +204,19 @@ def submit(name: str) -> None:
           "estimated USD", descriptor["estimated_usd"])
 
 
-def import_audio(name: str, mp3: Path, *, replace: bool = False, target_lufs: int = -23) -> None:
+def import_audio(name: str, mp3: Path, *, replace: bool = False, target_lufs: int = -23,
+                 highpass_hz: int = 0) -> None:
     ASSETS.mkdir(parents=True, exist_ok=True)
     wav = ASSETS / (name + ".wav")
     if wav.exists() and not replace:
         print(name, "asset already exists")
         return
     temp = wav.with_suffix(".wav.tmp")
+    audio_filter = f"loudnorm=I={target_lufs}:TP=-6:LRA=9"
+    if highpass_hz > 0:
+        audio_filter = f"highpass=f={highpass_hz}," + audio_filter
     subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-i", str(mp3),
-                    "-ac", "1", "-ar", "24000", "-af", f"loudnorm=I={target_lufs}:TP=-6:LRA=9",
+                    "-ac", "1", "-ar", "24000", "-af", audio_filter,
                     "-c:a", "pcm_s16le", "-f", "wav", str(temp)], check=True)
     probe = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration",
                             "-of", "default=noprint_wrappers=1:nokey=1", str(temp)],
@@ -511,7 +516,8 @@ def variant_collect(stage: str, name: str) -> None:
 
 def compress_imports() -> None:
     """Use mono Vorbis in the bundle; source WAVs remain lossless for Rhubarb."""
-    names = [name for name, _ in VARIANT_CUES] + ["coin-soft", "cabinet-cycle"]
+    names = [name for name, _ in VARIANT_CUES] + ["coin-soft", "cabinet-cycle"] \
+        + [f"spell-soft-{take}" for take in range(1, 6)]
     for name in names:
         wav = ASSETS / (name + ".wav")
         if not wav.is_file(): raise FileNotFoundError(wav)
@@ -1031,6 +1037,215 @@ def round569_collect(stage: str, name: str) -> None:
     import_audio(name, mp3, replace=True, target_lufs=-27)
 
 
+# Build 570 moves both remaining residents onto the same MiniMax Speech 2.8 HD
+# renderer whose direct Wise_Woman preset was approved for the priestess in
+# hardware. Stable system presets keep one recognizable voice per resident and
+# avoid the inconsistency of designing or cloning every line independently.
+# Existing asset names and cue order stay unchanged, so TLV80 remains wire-
+# compatible. The cast family deliberately uses invented, Latin-like syllables:
+# they are atmosphere, not dialogue or real-world liturgy.
+ROUND570_VOICES = {
+    "merchant": "English_Deep-VoicedGentleman",
+    "enchantress": "English_Whispering_girl",
+}
+ROUND570_EVENTS = {
+    "merchant-greet": (
+        ("merchant-greet", "Welcome, friend. Take your time and look around."),
+        ("merchant-greet-2", "Good to see you. I may have just what you need."),
+        ("merchant-greet-3", "Come closer. The stock is ready for you."),
+        ("merchant-greet-4", "Welcome back. Let us find something useful."),
+        ("merchant-greet-5", "Have a look. Every piece has earned its place.")),
+    "merchant-offer": (
+        ("merchant-offer", "Let me take a closer look at that."),
+        ("merchant-offer-2", "Set it here. I will give it a fair appraisal."),
+        ("merchant-offer-3", "That caught your eye? Hand it over."),
+        ("merchant-offer-4", "Let us see what you have brought."),
+        ("merchant-offer-5", "Place it in my hand. I will inspect it.")),
+    "merchant-buy": (
+        ("merchant-buy", "A fine choice. Shall we make it yours?"),
+        ("merchant-buy-2", "Excellent choice. Shall we settle the price?"),
+        ("merchant-buy-3", "That will serve you well. Do we have a deal?"),
+        ("merchant-buy-4", "A sound purchase. Shall I wrap it up?"),
+        ("merchant-buy-5", "You have a good eye. Ready to buy?")),
+    "merchant-sell": (
+        ("merchant-sell", "A useful piece. Shall I take it off your hands?"),
+        ("merchant-sell-2", "I can offer a fair price. Do we have a deal?"),
+        ("merchant-sell-3", "I know a buyer for that. Shall we trade?"),
+        ("merchant-sell-4", "This will do nicely. Will you sell it?"),
+        ("merchant-sell-5", "A respectable item. Shall we make the exchange?")),
+    "enchantress-greet": (
+        ("enchantress-greet", "So, you seek a little more power."),
+        ("enchantress-greet-2", "There is always more hidden within a card."),
+        ("enchantress-greet-3", "Come closer. Let us wake the magic you carry."),
+        ("enchantress-greet-4", "You have brought me something interesting."),
+        ("enchantress-greet-5", "Step closer. The runes are already listening.")),
+    "enchantress-cast": (
+        ("enchantress-cast-ember", "Vela ignis, lumen arcanum."),
+        ("enchantress-cast-echo", "Umbra velis, aethera sona."),
+        ("enchantress-cast-spark", "Solae varin, caelum oris."),
+        ("enchantress-cast-veil", "Nox elara, sigillum vive."),
+        ("enchantress-cast-rune", "Astra veyra, lumen thalis.")),
+    "enchantress-enhance": (
+        ("enchantress-enhance", "The power is yours to command."),
+        ("enchantress-enhance-2", "There. The enchantment has taken hold."),
+        ("enchantress-enhance-3", "Its magic runs deeper now."),
+        ("enchantress-enhance-4", "The rune is bound. Use it well."),
+        ("enchantress-enhance-5", "Your card carries a stronger spell.")),
+    "enchantress-invite": (
+        ("enchantress-invite", "Bring me your card. Let us see what magic it can bear."),
+        ("enchantress-invite-2", "Place the card in my hand, and I will read its weave."),
+        ("enchantress-invite-3", "Let me see the card. Its hidden paths may surprise you."),
+        ("enchantress-invite-4", "Offer me the card, and we shall test its potential."),
+        ("enchantress-invite-5", "Give me the card. I can show you what lies within.")),
+}
+ROUND570_LINES = tuple(item for event in ROUND570_EVENTS.values() for item in event)
+ROUND570_PREVIEWS = {"merchant-greet", "enchantress-greet", "enchantress-cast-ember"}
+# Two first review requests were rejected before inference because the live
+# OpenRouter endpoint requires reasoning=true. Retain their possible listed-
+# price debit in every later ceiling even though no review output was created.
+ROUND570_REJECTED_REVIEW_DEBIT = .004
+ROUND570_SPELL_EFFECTS = {
+    "spell-soft-1": "A subtle close magical ember awakening: one soft airy shimmer and faint warm sparkle, restrained and organic, 1.3 seconds, no voice, music, UI chime, impact, alarm, loud whoosh or long reverb.",
+    "spell-soft-2": "A quiet arcane sigil forming in the air: a low silky hum with two delicate dust-like glints, intimate and restrained, 1.3 seconds, no voice, music, UI chime, impact, alarm, loud whoosh or long reverb.",
+    "spell-soft-3": "A delicate rune traced above an old book: soft dry magical grains and a faint breath of light, intimate and restrained, 1.3 seconds, no voice, music, UI chime, impact, alarm, loud whoosh or long reverb.",
+    "spell-soft-4": "A thin enchanted veil bending gently: one quiet airy ripple and muted harmonic bloom, intimate and restrained, 1.3 seconds, no voice, music, UI chime, impact, alarm, loud whoosh or long reverb.",
+    "spell-soft-5": "A small ancient rune softly answering: a subdued crystalline pulse with a short velvety tail, intimate and restrained, 1.3 seconds, no voice, music, UI chime, impact, alarm, loud whoosh or long reverb.",
+}
+
+
+def round570_steps() -> list[tuple[str, str, float]]:
+    steps: list[tuple[str, str, float]] = []
+    for name, text in ROUND570_LINES:
+        steps.append(("preview" if name in ROUND570_PREVIEWS else "speak", name,
+                      len(text) * .10 / 1000))
+    steps.extend(("review2", name, .002) for name in sorted(ROUND570_PREVIEWS))
+    steps.extend(("effect", name, .002) for name in ROUND570_SPELL_EFFECTS)
+    return steps
+
+
+def round570_plan() -> None:
+    steps = round570_steps()
+    estimate = ROUND570_REJECTED_REVIEW_DEBIT + sum(cost for _, _, cost in steps)
+    if estimate > .18:
+        raise RuntimeError("Build 570 resident audio batch exceeds USD 0.18 displayed-price ceiling")
+    for stage, name, cost in steps:
+        if stage == "review2":
+            endpoint, digest = "openrouter/router/audio", "preview-result-dependent"
+        else:
+            endpoint, payload = round570_input(stage, name)
+            digest = hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()
+        save_json(ROUND570_OUT / stage / name / "plan.json", {
+            "stage": stage, "name": name, "endpoint": endpoint,
+            "input_sha256": digest,
+            "estimated_usd": round(cost, 6)})
+    print(f"Planned {len(steps)} immutable one-shot calls; listed-price estimate USD {estimate:.4f}.")
+
+
+def round570_line(name: str) -> tuple[str, str]:
+    for candidate, text in ROUND570_LINES:
+        if candidate == name:
+            return ("merchant" if name.startswith("merchant-") else "enchantress"), text
+    raise KeyError(name)
+
+
+def round570_input(stage: str, name: str) -> tuple[str, dict]:
+    if stage in ("preview", "speak"):
+        actor, line = round570_line(name)
+        casting = name.startswith("enchantress-cast-")
+        return ROUND564_ENDPOINT, {
+            "prompt": line,
+            "voice_setting": {
+                "voice_id": ROUND570_VOICES[actor],
+                "speed": .82 if casting else .94,
+                "vol": .72 if casting else 1.0,
+                "pitch": -1 if casting else 0,
+                # A mystery performance must not inherit fear or a tremulous panic.
+                # The same whispering preset carries every enchantress family;
+                # cast quietness comes from pace, gain and final playback level.
+                "emotion": "neutral",
+                "english_normalization": not casting,
+            },
+            "audio_setting": {"sample_rate": 24000, "bitrate": 128000,
+                              "format": "mp3", "channel": 1},
+            "language_boost": "auto" if casting else "English", "output_format": "url",
+            "normalization_setting": {"enabled": True, "target_loudness": -22,
+                                      "target_range": 8, "target_peak": -3},
+        }
+    if stage == "review2":
+        result = json.loads((ROUND570_OUT / "preview" / name / "result.json").read_text())
+        actor = "merchant" if name.startswith("merchant-") else "enchantress"
+        if actor == "merchant":
+            quality = "a deep, clear, warm middle-aged man speaking calmly at close range, without shouting"
+        elif name.startswith("enchantress-cast-"):
+            quality = "a close, quiet, mystical adult woman whispering an invented incantation, without fear, panic, shouting, or a youthful cartoon quality"
+        else:
+            quality = "a close, quiet, mysterious adult woman with clear natural speech and no youthful cartoon quality"
+        return "openrouter/router/audio", {
+            "audio_url": result["audio"]["url"], "model": "google/gemini-3.8-flash",
+            "prompt": "Listen to the recording itself. Judge perceived age, pitch, clarity, distance, naturalness, artifacts and delivery. State directly whether it fits " + quality + ".",
+            "max_tokens": 220, "temperature": 0, "reasoning": True}
+    if stage == "effect":
+        return "fal-ai/elevenlabs/sound-effects/v2", {
+            "text": ROUND570_SPELL_EFFECTS[name], "duration_seconds": 1.3,
+            "prompt_influence": .72, "loop": False}
+    raise ValueError(stage)
+
+
+def round570_submit(stage: str, name: str) -> None:
+    folder = ROUND570_OUT / stage / name
+    planned = json.loads((folder / "plan.json").read_text())
+    if (folder / "receipt.json").exists():
+        print(stage, name, "already submitted"); return
+    if (folder / "intent.json").exists():
+        raise RuntimeError(f"Ambiguous paid intent for {stage}/{name}; reconcile provider history")
+    endpoint, payload = round570_input(stage, name)
+    digest = hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()
+    expected_digest = planned["input_sha256"]
+    if planned["endpoint"] != endpoint or expected_digest not in (digest, "preview-result-dependent"):
+        raise RuntimeError(f"Paid payload differs from immutable plan for {stage}/{name}")
+    if ROUND570_REJECTED_REVIEW_DEBIT + sum(cost for _, _, cost in round570_steps()) > .18:
+        raise RuntimeError("Build 570 resident audio batch exceeds USD 0.18 displayed-price ceiling")
+    folder.mkdir(parents=True, exist_ok=True)
+    with (folder / "intent.json").open("x") as stream:
+        json.dump({"input_sha256": digest, "estimated_usd": planned["estimated_usd"],
+                   "endpoint": endpoint}, stream)
+        stream.flush(); os.fsync(stream.fileno())
+    receipt = request("https://queue.fal.run/" + endpoint, payload)
+    save_json(folder / "receipt.json", receipt)
+    print(stage, name, "submitted", receipt.get("request_id", "unknown"))
+
+
+def round570_collect(stage: str, name: str) -> None:
+    folder = ROUND570_OUT / stage / name
+    result_path = folder / "result.json"
+    if result_path.exists():
+        result = json.loads(result_path.read_text())
+        print(stage, name, "already collected")
+    else:
+        receipt = json.loads((folder / "receipt.json").read_text())
+        status = request(receipt["status_url"])
+        save_json(folder / "status.json", status)
+        if status.get("status") != "COMPLETED":
+            print(stage, name, status.get("status")); return
+        result = request(receipt["response_url"])
+        save_json(result_path, result)
+        print(stage, name, "collected")
+    if stage == "review2":
+        print(json.dumps(result, indent=2)[:4000]); return
+    url = result["audio"]["url"]
+    if urlparse(url).scheme != "https": raise ValueError("Provider audio URL must be HTTPS")
+    mp3 = folder / "audio.mp3"
+    if not mp3.exists():
+        with urllib.request.urlopen(url, timeout=120) as response:
+            data = response.read(2_000_001)
+        if len(data) > 2_000_000 or not (data.startswith(b"ID3") or data[:2] in (b"\xff\xfb", b"\xff\xf3")):
+            raise ValueError("Unexpected audio response")
+        mp3.write_bytes(data)
+    import_audio(name, mp3, replace=True,
+                 target_lufs=-31 if stage == "effect" else -27,
+                 highpass_hz=35 if name.startswith("enchantress-") or stage == "effect" else 0)
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("action", choices=("prepare", "submit", "collect", "import-greetings", "curves",
@@ -1039,9 +1254,19 @@ if __name__ == "__main__":
                                            "variant-curves", "compress-imports",
                                            "round563-plan", "round563-submit", "round563-collect",
                                            "round564-plan", "round564-submit", "round564-collect",
-                                           "round569-plan", "round569-submit", "round569-collect"))
+                                           "round569-plan", "round569-submit", "round569-collect",
+                                           "round570-plan", "round570-submit", "round570-collect"))
     parser.add_argument("names", nargs="*")
     args = parser.parse_args()
+    if args.action.startswith("round570-"):
+        if args.action == "round570-plan": round570_plan()
+        else:
+            if len(args.names) != 2: parser.error("round570 calls need STAGE NAME")
+            stage, name = args.names
+            if (stage, name) not in {(s, n) for s, n, _ in round570_steps()}:
+                parser.error("Unknown round570 stage/name")
+            (round570_submit if args.action == "round570-submit" else round570_collect)(stage, name)
+        raise SystemExit(0)
     if args.action.startswith("round569-"):
         if args.action == "round569-plan": round569_plan()
         else:

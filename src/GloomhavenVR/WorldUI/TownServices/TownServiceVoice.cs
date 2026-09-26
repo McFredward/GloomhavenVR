@@ -15,7 +15,7 @@ internal enum TownVoiceReaction : byte
     PriestessUnavailable
 }
 
-/// <summary>Original English lines, baked offline with one consistent voice per
+/// <summary>Original resident lines, baked offline with one consistent voice per
 /// resident. The elected face author starts each cue; TLV80 carries its cue, generation
 /// and age so every observer hears and articulates the same shared performance.
 /// Speech never opens, closes or continues a native gameplay dialog.</summary>
@@ -71,6 +71,7 @@ internal static class TownServiceVoice
         : service == 2 ? (ushort)6 : service == 3 ? (ushort)11 : (ushort)0;
 
     internal static bool IsPrayerCue(ushort cue) => cue >= 31 && cue <= 35;
+    internal static bool IsWhisperedCastCue(ushort cue) => cue >= 41 && cue <= 45;
 
     internal static void Tick(byte service, float workClock, bool visible, in TownActivityVisual shown)
     {
@@ -288,7 +289,7 @@ internal static class TownServiceVoice
         // merchant set and with a softer spectral balance. Compensate at the source rather than
         // rewriting/limiting the WAVs: dynamics and shared cue timing stay intact. Prayer keeps
         // the same relative murmur-to-speech ratio.
-        float speechGain = IsPrayerCue(cue) ? .12f : .42f;
+        float speechGain = IsPrayerCue(cue) ? .12f : IsWhisperedCastCue(cue) ? .22f : .42f;
         if (service == 2) speechGain *= 1.30f;
         _source.volume = _disabled || _narration || !WorldUIConfig.ImmersiveTownSpeech.Value
             ? 0f : _volume * speechGain;

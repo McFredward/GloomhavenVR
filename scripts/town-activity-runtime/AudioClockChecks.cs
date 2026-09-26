@@ -22,12 +22,24 @@ internal static class AudioClockChecks
                     var shown = TownServiceActivityMotion.Visual(service, in state);
                     var sound = clock.Sample(service, 1, 3, state.WorkClock, 1f / rate, true, in shown);
                     if (sound == TownActivitySound.Coin) coins++;
-                    if (sound == TownActivitySound.Spell) spells++;
+                    if (TownServiceActivitySoundClock.IsSpell(sound)) spells++;
                     if (frame == 0) Check(sound == TownActivitySound.None, "late join seeds activity audio silently");
                 }
             }
             Check(coins == 24, "each visible coin deposit sounds once independent of frame rate: " + coins);
             Check(spells == 4, "one subtle sound per actual experiment independent of frame rate: " + spells);
+        }
+        var variants = new TownServiceActivitySoundClock();
+        var beforeCast = new TownActivityVisual { Cast = 0f };
+        var afterCast = new TownActivityVisual { Cast = .2f };
+        for (int block = 0; block < 5; block++)
+        {
+            float edgeTime = block * 48f + 20f;
+            variants.Reset();
+            variants.Sample(3, 7, 11, edgeTime - .01f, .01f, true, in beforeCast);
+            Check(variants.Sample(3, 7, 11, edgeTime, .01f, true, in afterCast)
+                == (TownActivitySound)((int)TownActivitySound.Spell1 + block),
+                "shared work-clock block selects deterministic spell foley " + block);
         }
         var edge = new TownServiceActivitySoundClock();
         var held = new TownActivityVisual { CoinGrip = new UnityEngine.Vector3(1, 0, 0) };

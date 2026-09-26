@@ -74,10 +74,12 @@ def validate_resident_foley(audio_source: str, clock_source: str) -> None:
         raise AssertionError("resident attention still reuses the flat equipment-window audio clip")
     if "TownActivitySound.Cloth" in clock_source or "result = TownActivitySound.Cloth" in clock_source:
         raise AssertionError("approach/departure still emits invented cloth/window foley")
-    for required in ("coin-soft", "PlaySound_ScenarioUIAugmentLight"):
+    if "PlaySound_ScenarioUIAugmentLight" in audio_source:
+        raise AssertionError("resident spell still reuses the intrusive native augment/UI clip")
+    for required in ("coin-soft", "spell-soft-", "TownServiceActivitySoundClock.IsSpell"):
         if required not in audio_source:
             raise AssertionError("physical resident foley was removed with transition noise: " + required)
-    for required in ("result = TownActivitySound.Coin", "result = TownActivitySound.Spell"):
+    for required in ("result = TownActivitySound.Coin", "TownActivitySound.Spell1 + take"):
         if required not in clock_source:
             raise AssertionError("physical resident event clock was removed: " + required)
 
@@ -106,9 +108,9 @@ for name, mutation in mutations.items():
         continue
     raise AssertionError("negative control survived: " + name)
 foley_mutations = {
-    "flat equipment clip restored": activity_audio.replace(
-        'string id = "PlaySound_ScenarioUIAugmentLight";',
-        'string id = "PlaySound_ScenarioUIEquipmentToggle_Body";', 1),
+    "intrusive augment clip restored": activity_audio.replace(
+        'string name = "spell-soft-" + (index - (int)TownActivitySound.Spell1 + 1);',
+        'string name = "PlaySound_ScenarioUIAugmentLight";', 1),
     "attention cloth edge restored": activity_clock.replace(
         "TownActivitySound result = TownActivitySound.None;",
         "TownActivitySound result = TownActivitySound.None; result = TownActivitySound.Cloth;", 1),

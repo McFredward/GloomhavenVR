@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Exercise production English resident voice scheduling/curves/playback in Unity."""
+"""Exercise production resident voice scheduling, curves and playback in Unity."""
 import argparse,json,os,shutil,subprocess,tempfile
 from pathlib import Path
 repo=Path(__file__).resolve().parent.parent
@@ -15,6 +15,7 @@ variants=[('production',None,None,None,''),
  ('restart','TownServiceVoice.cs','if (different)','if (different || _source != null)','same cue packet never restarts audio'),
  ('ignore-volume','TownServiceVoice.cs','_volume * speechGain','1f','master and story sliders scale greeting'),
  ('quiet-priestess','TownServiceVoice.cs','if (service == 2) speechGain *= 1.30f;','if (service == 2) speechGain *= 1f;','priestess source gain compensates measured integrated loudness'),
+ ('quiet-incantation','TownServiceVoice.cs','IsWhisperedCastCue(cue) ? .22f','IsWhisperedCastCue(cue) ? .42f','mystical incantation stays below ordinary speech'),
  ('ignore-narration','TownServiceVoiceSchedule.cs','(narration || now - e.Started >= duration(e.Cue))','(now - e.Started >= duration(e.Cue))','native narration interrupts resident speech'),
  ('closure','TownServiceVoiceCurve.cs','default: return Vector3.zero;','default: return new Vector3(.5f, 0f, 0f);','closed/silent interval closes mouth'),
  ('forget-adoption','TownServiceVoiceSchedule.cs','e.Started = now - age;','e.Started = now;','shared invitation age survives handover'),

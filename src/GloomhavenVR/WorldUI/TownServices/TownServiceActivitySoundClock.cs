@@ -2,7 +2,7 @@ using UnityEngine;
 
 namespace GloomhavenVR.WorldUI;
 
-internal enum TownActivitySound : byte { None, Coin, Spell }
+internal enum TownActivitySound : byte { None, Coin, Spell1, Spell2, Spell3, Spell4, Spell5 }
 
 /// <summary>Audible contacts follow the displayed shared performance. Joining, seeking,
 /// authority changes and hidden stations seed silently; no historical sounds are replayed.</summary>
@@ -32,7 +32,14 @@ internal sealed class TownServiceActivitySoundClock
                 || Released(_previous.CoinGrip.z, shown.CoinGrip.z)))
                 result = TownActivitySound.Coin;
             else if (service == 3 && _previous.Cast <= .16f && shown.Cast > .16f)
-                result = TownActivitySound.Spell;
+            {
+                // The occupation clock is authored once and replicated to every peer.
+                // Deriving the take from its 48-second experiment block therefore gives
+                // all listeners the same foley without adding another wire field or
+                // consulting client-local randomness.
+                int take = (int)Mathf.Floor(Mathf.Max(0f, clock) / 48f) % 5;
+                result = (TownActivitySound)((int)TownActivitySound.Spell1 + take);
+            }
             // Attention is a pose transition, not a physical contact. Builds 560-566 mapped
             // approach/departure and one priestess hand edge to the game's flat equipment-toggle
             // UI clip. Because the copied clip was spatialized at each resident it sounded like
@@ -47,6 +54,9 @@ internal sealed class TownServiceActivitySoundClock
             _cooldown = result == TownActivitySound.Coin ? 2.4f : .35f;
         return result;
     }
+
+    internal static bool IsSpell(TownActivitySound sound) =>
+        sound >= TownActivitySound.Spell1 && sound <= TownActivitySound.Spell5;
 
     private static bool Released(float before, float after) => before > .99f && after < .01f;
 }

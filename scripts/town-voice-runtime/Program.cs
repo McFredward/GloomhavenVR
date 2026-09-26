@@ -212,6 +212,9 @@ public static class InteractionProgram
         TownServiceFaceSpeech.Observer(2, 7, 31, 1, .2f, head.transform);
         Check(Mathf.Abs(Source.volume - .078f) < .0001f,
             "priestess source gain compensates measured integrated loudness");
+        TownServiceFaceSpeech.Observer(3, 7, 41, 2, .2f, head.transform);
+        Check(Mathf.Abs(Source.volume - .11f) < .0001f,
+            "mystical incantation stays below ordinary speech");
         AudioController.Playing.Add(new ClockStone.AudioObject
             { category = new ClockStone.AudioCategory { Name = "VONarrationCampaign" } });
         Refresh(); TownServiceFaceSpeech.Observer(2, 7, 31, 1, .3f, head.transform);
