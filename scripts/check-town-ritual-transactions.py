@@ -45,8 +45,9 @@ def inspect_particle_contract(marker):
         "AddComponent<ParticleSystem>()",
         "ParticleSystemRenderMode.Billboard",
         "BuildParticleTexture()",
-        "_blessing.Simulate(age, true, false, true)",
-        "_blessing.randomSeed = 0x475652u",
+        "ParticleSystem[] phases = { _blessing, _halo, _falling, _outward };",
+        "phase.Simulate(age, true, false, true);",
+        "phase.randomSeed = 0x475652u + (uint)(i * 917);",
         "if (_ownsBlessing) BuildBlessing();",
         "effect.SetActive(false);",
         "ParticleSystemStopBehavior.StopEmittingAndClear",
@@ -82,7 +83,7 @@ def inspect_shared_blessing_contract(root):
     gate = (
         "if (!received) return false; // Keep the baseline across transient close/reopen gaps.",
         "bool play = sameSession && known && !available && advanced;",
-        "if (unavailable && (displayedActivity.Attention < .10f || revision == 0))",
+        "if (unavailable && !resident.TempleAvailabilityObserved)",
         "resident.TempleUnavailableBlend = 1f;",
         "transitionAge / TownServiceActivityMotion.TransitionSeconds",
         "resident.TempleUnavailableBlend = Mathf.MoveTowards(resident.TempleUnavailableBlend,\n                        0f,",
@@ -93,7 +94,7 @@ def inspect_shared_blessing_contract(root):
         raise RuntimeError("Temple blessing/cover continuity gate is incomplete: " + ", ".join(missing_gate))
     cover_controls = (
         replace_once(population,
-            "if (unavailable && (displayedActivity.Attention < .10f || revision == 0))",
+            "if (unavailable && !resident.TempleAvailabilityObserved)",
             "if (unavailable && false)"),
         replace_once(population,
             "transitionAge / TownServiceActivityMotion.TransitionSeconds",
@@ -108,7 +109,11 @@ def inspect_shared_blessing_contract(root):
             pass
         else:
             raise RuntimeError("Temple cover transition negative control did not fail")
-    polygon_control = replace_once(marker, "AddComponent<ParticleSystem>()", "AddComponent<MeshFilter>()")
+    # The blessing now has a primary system and secondary phases. Mutating the
+    # primary alone must still trip the no-polygon contract.
+    if marker.count("AddComponent<ParticleSystem>()") < 2:
+        raise RuntimeError("Temple blessing lost its primary or secondary particle phase")
+    polygon_control = marker.replace("AddComponent<ParticleSystem>()", "AddComponent<MeshFilter>()", 1)
     try:
         inspect_particle_contract(polygon_control)
     except RuntimeError:
