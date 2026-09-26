@@ -110,6 +110,7 @@ public sealed class TownClothProbe : MonoBehaviour
         float productionVisibleContact = 0f, productionVisibleNull = 0f, productionDeadVisible = 0f;
         float productionShortTouchPeak = 0f;
         float productionContactEdgePeak = 0f;
+        float productionResetEdgePeak = 0f;
         float productionNearReturn = 0f;
         float productionDeepHold = 0f, productionRestGateDeepHold = 0f;
         bool productionPathPass = false;
@@ -248,9 +249,11 @@ public sealed class TownClothProbe : MonoBehaviour
             VRHands.Left = hand; VRHands.Right = null;
             TownServiceCloth nullProduction = null;
             TownServiceCloth contactProduction = null;
+            TownServiceClothContactReset resetProduction = null;
             TownServiceClothDead deadProduction = null;
             TownServiceClothRestGate restGateProduction = null;
-            GameObject nullStation = null, contactStation = null, deadStation = null, restGateStation = null;
+            GameObject nullStation = null, contactStation = null, resetStation = null;
+            GameObject deadStation = null, restGateStation = null;
             try
             {
                 nullStation = Instantiate(priestessPrefab);
@@ -268,6 +271,42 @@ public sealed class TownClothProbe : MonoBehaviour
                     yield return null;
                 }
                 productionVisibleNull = VisibleMotion(nullRunner, nullRest, 198f);
+
+                // Control from the shipped implementation before this fix: it
+                // re-captures the solver after the first physical contact and
+                // therefore hides that contact's entire displacement.
+                resetStation = Instantiate(priestessPrefab);
+                resetStation.name = "production-contact-reset-negative-control";
+                resetStation.transform.SetPositionAndRotation(new Vector3(5100f, 0f, 1200f),
+                    Quaternion.Euler(0f, 37f, 0f));
+                resetStation.transform.localScale = Vector3.one * 198f;
+                MeshFilter resetRunner = resetStation.GetComponentsInChildren<MeshFilter>(true)
+                    .First(f => f.name.StartsWith("ClothRunner_", StringComparison.Ordinal));
+                resetProduction = new TownServiceClothContactReset(resetStation.transform, 2);
+                resetProduction.SetVisible(true);
+                Vector3[] resetRest = resetRunner.mesh.vertices;
+                int resetIndex = Enumerable.Range(0, resetRest.Length)
+                    .OrderBy(i => resetStation.transform.InverseTransformPoint(
+                        resetRunner.transform.TransformPoint(resetRest[i])).y)
+                    .ThenBy(i => Mathf.Abs(resetStation.transform.InverseTransformPoint(
+                        resetRunner.transform.TransformPoint(resetRest[i])).x))
+                    .First();
+                Vector3 resetTarget = resetRunner.transform.TransformPoint(resetRest[resetIndex]);
+                hand.HasPose = true;
+                for (int frame = 0; frame < 10; frame++)
+                {
+                    Vector3 away = resetTarget + resetStation.transform.forward * (198f * .10f);
+                    tipObject.transform.position = away;
+                    palmObject.transform.position = away;
+                    resetProduction.TickAuthor(frame / 90f, 1f / 90f, true);
+                    yield return null;
+                }
+                Vector3 resetTouch = resetTarget - resetStation.transform.forward * (198f * .01f);
+                tipObject.transform.position = resetTouch;
+                palmObject.transform.position = resetTouch;
+                yield return null;
+                resetProduction.TickAuthor(11f / 90f, 1f / 90f, true);
+                productionResetEdgePeak = VisibleMotion(resetRunner, resetRest, 198f);
 
                 contactStation = Instantiate(priestessPrefab);
                 contactStation.name = "production-contact-station";
@@ -444,6 +483,8 @@ public sealed class TownClothProbe : MonoBehaviour
                 deadProduction.TickAuthor(121f / 90f, 1f / 90f, true);
                 productionDeadVisible = VisibleMotion(deadRunner, deadRest, 198f);
                 productionPathPass = productionContactEdgePeak > .002f
+                    && productionResetEdgePeak < .0005f
+                    && productionContactEdgePeak > productionResetEdgePeak + .002f
                     && productionShortTouchPeak > .002f
                     && productionVisibleContact > .0025f
                     && productionVisibleNull < .0005f
@@ -457,11 +498,13 @@ public sealed class TownClothProbe : MonoBehaviour
             finally
             {
                 hand.HasPose = false; VRHands.Left = VRHands.Right = null;
+                resetProduction?.Dispose();
                 restGateProduction?.Dispose();
                 deadProduction?.Dispose();
                 contactProduction?.Dispose();
                 nullProduction?.Dispose();
                 if (restGateStation != null) Destroy(restGateStation);
+                if (resetStation != null) Destroy(resetStation);
                 if (deadStation != null) Destroy(deadStation);
                 if (contactStation != null) Destroy(contactStation);
                 if (nullStation != null) Destroy(nullStation);
@@ -502,6 +545,7 @@ public sealed class TownClothProbe : MonoBehaviour
             + " production_visible_contact_m=" + productionVisibleContact.ToString("F5")
             + " production_short_touch_peak_m=" + productionShortTouchPeak.ToString("F5")
             + " production_contact_edge_peak_m=" + productionContactEdgePeak.ToString("F5")
+            + " production_reset_edge_peak_m=" + productionResetEdgePeak.ToString("F5")
             + " production_visible_null_m=" + productionVisibleNull.ToString("F5")
             + " production_near_only_return_m=" + productionNearReturn.ToString("F5")
             + " production_deep_hold_m=" + productionDeepHold.ToString("F5")

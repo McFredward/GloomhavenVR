@@ -135,6 +135,15 @@ def main():
     dead_visible = dead_visible.replace('runner.DeformationWeight = contact ? 1f',
                                         'runner.DeformationWeight = false ? 1f', 1)
     (project / 'Assets/TownServiceClothDead.cs').write_text(dead_visible)
+    contact_reset = production.replace('TownServiceCloth', 'TownServiceClothContactReset')
+    contact_reset = contact_reset.replace(
+        'if (runner.CaptureOrigin && runner.ContactSurface.Length == runner.EpisodeOrigin.Length)\n'
+        '            {\n'
+        '                Array.Copy(runner.ContactSurface, runner.EpisodeOrigin, runner.EpisodeOrigin.Length);\n'
+        '                runner.CaptureOrigin = false;\n'
+        '            }',
+        'if (runner.DeformationWeight <= 0f) runner.CaptureOrigin = true;', 1)
+    (project / 'Assets/TownServiceClothContactReset.cs').write_text(contact_reset)
     rest_gate = production.replace('TownServiceCloth', 'TownServiceClothRestGate')
     rest_gate = rest_gate.replace(
         'Vector3[] surface = runner.ContactSurface.Length == runner.DriverRest.Length\n'
