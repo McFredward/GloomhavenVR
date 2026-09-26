@@ -125,8 +125,13 @@ def main():
     manifest = {"result": str(run / "results.txt"), "cases": []}
     variants = [("production", None, None, None, "")]
     if not args.no_negative_controls:
-        rig_only = ("audio-ignores-master", "audio-not-spatial", "audio-fixed-world-range", "audio-leaks-listener", "unmirrored-mage-pronation", "separated-prayer", "animated-knee-pole", "zero-weight-stance-snap", "raised-stage-gesture", "vertical-casting-palm", "wrapped-forearm-support", "unplanted-feet", "ignore-ik", "thumb-overcurl", "attentive-counter-bracing", "excessive-work-bow", "ignore-palm-offset", "curl-contact-markers", "open-sleeve-hem", "open-sleeve-interior", "downward-offering", "coin-detached-from-grip")
-        variants += [v for v in mutations() if (not args.portable or v[0] not in rig_only) and (args.bundle or v[0] not in ("unmirrored-mage-pronation", "attentive-counter-bracing", "unplanted-feet", "wrapped-forearm-support", "separated-prayer", "animated-knee-pole", "zero-weight-stance-snap", "raised-stage-gesture", "vertical-casting-palm"))]
+        # Portable validation omits Unity components exercised by these controls.
+        rig_only = ("audio-ignores-master", "audio-not-spatial", "audio-fixed-world-range", "audio-leaks-listener", "unmirrored-mage-pronation", "separated-prayer", "animated-knee-pole", "zero-weight-stance-snap", "raised-stage-gesture", "vertical-casting-palm", "wrapped-forearm-support", "unplanted-feet", "one-sided-merchant-hip", "upturned-priestess-hip", "ignore-ik", "thumb-overcurl", "attentive-counter-bracing", "excessive-work-bow", "ignore-palm-offset", "curl-contact-markers", "open-sleeve-hem", "open-sleeve-interior", "downward-offering", "coin-detached-from-grip")
+        # Source-only Unity has no imported resident prefab to observe. The explicit
+        # imported-asset run supplies --bundle and executes every one of these controls.
+        bundle_only = ("unmirrored-mage-pronation", "attentive-counter-bracing", "unplanted-feet", "wrapped-forearm-support", "separated-prayer", "animated-knee-pole", "zero-weight-stance-snap", "raised-stage-gesture", "vertical-casting-palm", "one-sided-merchant-hip", "upturned-priestess-hip")
+        variants += [v for v in mutations() if (not args.portable or v[0] not in rig_only)
+            and (args.bundle or v[0] not in bundle_only)]
     # A mutation of an absent production file is not an executable negative control.
     # The full Unity suite retains every rig mutation; portable mode only claims its
     # compiled phase/network sources and must fail loudly if this partition drifts.

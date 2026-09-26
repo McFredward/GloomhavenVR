@@ -154,7 +154,11 @@ public static class InteractionProgram
     {
         CanvasConversion.DeferParent = false; CanvasConversion.KeepActive = false;
         TownServicePalmConfirmation.Clear(); TownServiceRitual.Fail = false; ModalFallback.FailConvert = false;
-        TownServicePresentation.Reset();
+        // Model the map teardown boundary so the production presentation also disposes its
+        // deliberately cached temple workspace before this fixture destroys scene roots.
+        GloomhavenVR.WorldUI.MapRoom.MapRoomDriver.Active = false;
+        TownServicePresentation.Tick();
+        GloomhavenVR.WorldUI.MapRoom.MapRoomDriver.Active = true;
         typeof(TownServicePresentation).GetField("_failedWindow", Static)!.SetValue(null, null);
         Tokens.Clear(); ModalFallback.Converted.Clear(); CanvasConversion.ActivePanels.Clear();
         foreach (var root in Probe.Roots) if (root != null) UnityEngine.Object.DestroyImmediate(root);

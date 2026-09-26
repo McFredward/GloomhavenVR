@@ -342,6 +342,12 @@ namespace GloomhavenVR.WorldUI
         internal Transform? FurnitureRoot => Root;
         internal sealed class Prop { }
         internal IReadOnlyList<Prop> Props => Array.Empty<Prop>();
+        // This suite deliberately models a non-primary multiplayer ordinal because its
+        // ManualTrayPlacement case owns the relocation branch. The dedicated workspace
+        // suite binds the production slot resolver and proves that ordinal zero returns
+        // null without constructing furniture or Cloth.
+        internal static TownServiceWorkspace? CreateForLocalVisitor(Transform station, byte service) =>
+            new TownServiceWorkspace(station, service);
         internal TownServiceWorkspace(Transform station, byte service = 1)
         { Root = Probe.Go("workspace", station).transform; }
         internal void Tick(bool mayRelocate = true) { if (mayRelocate) Root.localPosition += new Vector3(.01f, 0f, 0f); }
