@@ -401,10 +401,10 @@ public static class ValidateTownAssets
         // envelope also avoids treating the intentionally touching hanging link as an
         // obstruction or collapsing the cabinet's non-convex gaps into one giant AABB.
         var completeSide = new Bounds(new Vector3(-1.355f, 1.22f, .45f), new Vector3(.04f, .84f, .88f));
-        Check(TownServiceMerchantDrawer.MerchantLanternClears(
-                completeSide, TownServiceMerchantDrawer.MerchantLanternSeat()),
+        Check(TownServiceDecor.MerchantLanternClears(
+                completeSide, TownServiceDecor.MerchantLanternSeat()),
             "Merchant hanging lantern clears the complete imported cabinet side and rear envelope");
-        Check(!TownServiceMerchantDrawer.MerchantLanternClears(
+        Check(!TownServiceDecor.MerchantLanternClears(
                 completeSide, new Vector3(-1.34f, 1.11f, .11f)),
             "Lantern-clearance instrument rejects the regressed build-565 seat inside the cabinet wall");
         foreach (var collider in colliders) UnityEngine.Object.DestroyImmediate(collider);

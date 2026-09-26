@@ -11,6 +11,20 @@ namespace GloomhavenVR.WorldUI;
 /// <summary>Original game decoration, copied as rendering data without any native controllers.</summary>
 internal sealed class TownServiceDecor : IDisposable
 {
+    // The authored bracket terminates outside the cabinet's left cheek at X=-1.51.
+    // Build 565 moved the native lantern inward to X=-1.34 while trying to lower all
+    // practicals together. Keep the seat and its visible-footprint contract with the
+    // decor owner: the isolated decor harness deliberately compiles this class without
+    // the interactive cabinet controller.
+    internal static Vector3 MerchantLanternSeat() => new(-1.51f, 1.23f, .08f);
+    internal static bool MerchantLanternClears(Bounds cabinetPart, Vector3 seat)
+    {
+        // Build() normalizes this original lantern to 32 cm tall and seats its bottom at
+        // `seat`. The cabinet carry handle extends farther left but remains behind it in Z.
+        var lantern = new Bounds(seat + Vector3.up * .16f, new Vector3(.22f, .32f, .20f));
+        return !lantern.Intersects(cabinetPart);
+    }
+
     private sealed class Piece
     {
         internal string Key = string.Empty, Entry = string.Empty;
@@ -116,9 +130,9 @@ internal sealed class TownServiceDecor : IDisposable
             // complete original lantern there: the build-565 inward/downward adjustment
             // embedded it in the side wall photographed in build 567 and also left that
             // large exterior face black because its practical light sat behind the wood.
-            // The seat is owned by the cabinet class and checked against the complete
+            // The seat is owned by this decor class and checked against the complete
             // imported cabinet bounds by the town-asset harness.
-            Lantern(TownServiceMerchantDrawer.MerchantLanternSeat(), 0);
+            Lantern(MerchantLanternSeat(), 0);
             // A small native candle lights the ledger without placing a second oversized
             // lantern in the offered hand's path. The hanging cabinet lantern is the key.
             // Chapel.Clutter.Shelf.Individual#2 is a scroll, not a candle: height-fitting

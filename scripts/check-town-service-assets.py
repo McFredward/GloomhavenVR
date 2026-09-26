@@ -38,22 +38,28 @@ layout_end = layout_source.index('\n/// <summary>An authored', layout_start)
 # Compile unchanged physical factory methods against the actual final prefab. The unused
 # TMP font argument is substituted with object; the crank deliberately contains no UI.
 drawer = (root / 'src/GloomhavenVR/WorldUI/TownServices/TownServiceMerchantDrawer.cs').read_text()
+decor = (root / 'src/GloomhavenVR/WorldUI/TownServices/TownServiceDecor.cs').read_text()
 def method(signature):
     start = drawer.index('    ' + signature)
     end = drawer.index('\n    }', start) + 6
     return drawer[start:end].replace('TMP_Text?', 'object')
 methods = [method(signature) for signature in (
     'internal static GameObject Authored(string name)',
-    'internal static GameObject CreateHousingTemplate()',
-    'internal static bool MerchantLanternClears(Bounds cabinetPart, Vector3 seat)')]
-methods.append('    ' + next(line.strip() for line in drawer.splitlines()
-    if line.strip().startswith('internal static Vector3 MerchantLanternSeat(')))
+    'internal static GameObject CreateHousingTemplate()')]
 methods.append('    ' + next(line.strip() for line in drawer.splitlines()
     if line.strip().startswith('internal static GameObject CreateTemplate(')).replace('TMP_Text?', 'object'))
+def decor_method(signature):
+    start = decor.index('    ' + signature)
+    end = decor.index('\n    }', start) + 6
+    return decor[start:end]
+decor_methods = [decor_method('internal static bool MerchantLanternClears(Bounds cabinetPart, Vector3 seat)')]
+decor_methods.append('    ' + next(line.strip() for line in decor.splitlines()
+    if line.strip().startswith('internal static Vector3 MerchantLanternSeat(')))
 (assets / 'Editor/TownServiceRackFactories.cs').write_text(
     'using System; using UnityEngine; using TMPro; using GloomhavenVR.Net.TownServices; namespace GloomhavenVR.WorldUI { '
     'internal static class TownServiceAssets { internal static GameObject Current; internal static GameObject Prefab(string name) => Current; } '
-    'internal static class TownServiceMerchantDrawer {\n' + '\n'.join(methods) + '\n} }')
+    'internal static class TownServiceMerchantDrawer {\n' + '\n'.join(methods) + '\n} '
+    'internal static class TownServiceDecor {\n' + '\n'.join(decor_methods) + '\n} }')
 motion = (root / 'src/GloomhavenVR/Net/TownServices/TownCassetteMotion.cs').read_text()
 (assets / 'Editor/TownCassetteMotion.cs').write_text(motion.replace(
     'namespace GloomhavenVR.Net.TownServices;', 'namespace GloomhavenVR.Net.TownServices {') + '\n}\n')
@@ -74,6 +80,7 @@ validation_sources = [root / path for path in (
     'scripts/author-town-furniture.py',
     'src/GloomhavenVR/WorldUI/TownServices/TownServiceMerchantCounter.cs',
     'src/GloomhavenVR/WorldUI/TownServices/TownServiceMerchantDrawer.cs',
+    'src/GloomhavenVR/WorldUI/TownServices/TownServiceDecor.cs',
     'src/GloomhavenVR/WorldUI/TownServices/TownServiceCatalog.cs',
     'scripts/town_npc_necklines.py', 'scripts/town_npc_garment_weights.py', 'scripts/town_npc_cloth_edges.py',
     'unity/GloomhavenVR.Assets/Assets/Editor/BuildTownServices.cs')]
