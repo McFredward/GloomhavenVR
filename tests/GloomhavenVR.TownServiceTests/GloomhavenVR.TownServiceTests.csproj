@@ -4,9 +4,12 @@
     <TargetFramework>net8.0</TargetFramework>
     <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
     <Nullable>enable</Nullable>
+    <NoWarn>$(NoWarn);CS0649</NoWarn>
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="Program.cs" />
+    <Compile Include="ProtocolBoundary.cs" />
+    <Compile Include="../../src/GloomhavenVR/Net/TownServices/TownRackState.cs" />
     <Compile Include="../../src/GloomhavenVR/Net/TownServices/TownServiceFrame.cs" />
     <Compile Include="../../src/GloomhavenVR/Net/TownServices/TownServiceCodec.cs" />
     <Compile Include="../../src/GloomhavenVR/Net/TownServices/TownServiceDelta.cs" />
