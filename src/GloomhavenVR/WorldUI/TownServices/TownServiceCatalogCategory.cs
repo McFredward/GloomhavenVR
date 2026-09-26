@@ -29,7 +29,12 @@ internal sealed class TownServiceCatalogCategory : IPokeable, IDisposable
     {
         _category = category; _rack = rack; _available = available;
         _root = CreateTemplate(category); Root.SetParent(parent, false);
-        _home = new Vector3(-1.25f + category * .12f, -.034f, .0f); Root.localPosition = _home;
+        // MB571 headset side view: the sculpted fascia is shallow at the two
+        // ends and recessed across its four middle sockets. A common Z=0 seat
+        // left every 36 mm wheel floating, and a common inset still left the
+        // middle four 39 mm proud. Place each wheel against its measured wood
+        // surface; icon, visible face and poke collider share this moving root.
+        _home = new Vector3(-1.25f + category * .12f, -.034f, category == 0 ? .079f : category == 5 ? .093f : .105f); Root.localPosition = _home;
         _shape = _root.AddComponent<BoxCollider>(); _shape.isTrigger = true; _shape.size = new Vector3(.104f,.104f,.045f);
         var copies = new Dictionary<Material, Material>();
         foreach (Renderer renderer in _root.GetComponentsInChildren<Renderer>(true))

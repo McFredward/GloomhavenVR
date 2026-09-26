@@ -304,7 +304,7 @@ def worn_crank_plate():
 
 
 def merchant_forged_lantern_bracket(cx):
-    """One pierced, hammered gooseneck instead of a floating chain of rods."""
+    """A forged upper hook and lower saddle that carry the native lantern."""
     # The triangular web has a real negative-space opening. Its rear flange is
     # seated on the cabinet cheek, and the last eye owns the native lamp hook.
     outer = [(cx-.397, 1.720), (cx-.560, 1.685), (cx-.397, 1.600)]
@@ -340,6 +340,19 @@ def merchant_forged_lantern_bracket(cx):
     tube('Lantern short hanging link',[(cx-.550,1.665,.078),(cx-.556,1.634,.078)],
          [.005,.004],'ForgedIron',10)
     ring('Lantern hanging link',(cx-.56,1.62,.078),.026,.005,'Brass',True)
+    # A top-only hook made the entire 32 cm native lamp read as a long dangling
+    # pendulum in MB571's side view. The actual bottom now sits in this forged
+    # saddle at Y=1.27 while the original hook still meets the top eye. The
+    # rear riser makes the two bearing points one continuous cabinet fixture.
+    tube('Lantern lower saddle arm',[(cx-.394,1.284,.142),
+         (cx-.475,1.265,.124),(cx-.560,1.265,.080)],
+         [.012,.010,.010],'ForgedIron',12)
+    ring('Lantern lower bearing cup',(cx-.560,1.263,.080),.078,.007,
+         'ForgedIron')
+    tube('Lantern rear load-bearing riser',[(cx-.397,1.602,.155),
+         (cx-.492,1.594,.178),(cx-.560,1.485,.184),
+         (cx-.560,1.275,.184)], [.008,.008,.007,.007],
+         'ForgedIron',10)
 
 
 def merchant_carved_cheek(cx, side):
@@ -449,6 +462,55 @@ def terrace(name, columns=24, origin=-1.32, curved=True):
         tube('Curved apron moulding',pts,[radius]*33)
 
 
+def merchant_side_cloth():
+    """A touchable crimson travelling banner on the outside left cabinet cheek.
+
+    Station-local, row-major 25x13 mesh for the runtime Cloth solver. Row 0 is
+    clamped to an offset crown rail; columns run Z=.205..460. The side wall is
+    6 cm behind the fabric so real fingertip contacts have room to displace it.
+    The side handle is a separate, rigid fixture in front of the fabric.
+    """
+    vertices, faces = [], []
+    for row in range(25):
+        t = row / 24
+        for col in range(13):
+            u = col / 12
+            x = -1.436 - .0025*math.sin(math.pi*t)*math.sin(math.tau*u)
+            y = 1.590 - .600*t + .002*math.sin(math.pi*t)*math.cos(3*math.pi*u)
+            z = .205 + .255*u + .004*math.sin(math.tau*t)*math.sin(math.pi*u)
+            vertices.append((x,y,z))
+    for row in range(24):
+        for col in range(12):
+            i = row*13+col
+            faces.append((i,i+13,i+14,i+1)) # outward normal is station -X
+    cloth = mesh('ClothRunner_MerchantSide_AltarCloth',vertices,faces,'AltarCloth')
+    for polygon in cloth.data.polygons: polygon.use_smooth = True
+    bpy.context.view_layer.objects.active = cloth
+    modifier = cloth.modifiers.new('Merchant woven cloth thickness','SOLIDIFY')
+    modifier.thickness = .003
+    bpy.ops.object.modifier_apply(modifier=modifier.name)
+    # An actual rod carries the pinned row. Only the fabric deforms on contact.
+    tube('Merchant cloth crown rod', [(-1.449,1.593,.198),(-1.449,1.593,.468)],
+         [.006,.006], 'ForgedIron', 10)
+    for z in (.201,.464):
+        tube('Merchant cloth rod ferrule', [(-1.453,1.593,z),(-1.443,1.593,z)],
+             [.010,.010], 'Brass', 10)
+        tube('Merchant cloth wall standoff', [(-1.356,1.593,z),(-1.449,1.593,z)],
+             [.006,.006], 'ForgedIron', 10)
+    # The sculpt's integral transport-grip silhouette is covered by the moving
+    # fabric. Rebuild it as a rigid, projecting fixture with real screw seats.
+    for y in (1.06,1.31):
+        tube('Merchant side carry eye', [(-1.355,y,.270),(-1.480,y,.270)],
+             [.008,.011], 'ForgedIron', 12)
+        tube('Merchant side cloth grommet',
+             [(-1.444,y+.014*math.cos(i*math.tau/32),
+               .270+.014*math.sin(i*math.tau/32)) for i in range(33)],
+             [.003]*33,'Brass',6)
+    tube('Merchant side leather grip', [(-1.477,1.06,.270),(-1.500,1.10,.270),
+         (-1.500,1.27,.270),(-1.477,1.31,.270)],
+         [.012,.018,.018,.012], 'Leather', 14)
+
+
 def merchant():
     # Approved build-549 concept: a chest-height travelling cabinet BESIDE the actor,
     # with a separate folding ledger stand. Metre-space contract is shared with runtime.
@@ -457,22 +519,37 @@ def merchant():
         x = cx + side*.405
         # Fold-out legs and positive stops explain how a portable cabinet stands up.
         for z, foot in ((.15,-.025),(.45,.64)):
+            def leg_z(t):
+                # The old (z + foot) * t only happened to work for the front foot.
+                # For the rear foot it overshot the hinge by 32 cm at mid-height,
+                # then doubled back into the sharp, disconnected zigzag in MB571.
+                return foot + (z-foot)*t
             # A single hand-hewn, bowed timber per leg carries the cabinet;
             # uneven section thickness and knots keep it from reading as a
             # smooth cylindrical prototype at normal VR inspection distance.
             tube('Cabinet folding trestle',[
                  (cx+side*.46,.006,foot),
-                 (cx+side*.455,.085,foot+.035),
-                 (cx+side*.446,.19,(z+foot)*.29),
-                 (cx+side*.42,.34,(z+foot)*.5),
-                 (cx+side*.396,.52,(z+foot)*.71),
-                 (cx+side*.374,.68,z-.027),
+                 (cx+side*.455,.085,leg_z(.06)),
+                 (cx+side*.446,.19,leg_z(.22)),
+                 (cx+side*.42,.34,leg_z(.40)),
+                 (cx+side*.396,.52,leg_z(.65)),
+                 (cx+side*.374,.68,leg_z(.84)),
                  (cx+side*.35,.86,z)],
                  [.034,.037,.033,.035,.032,.034,.038],sides=14)
-            tube('Trestle iron stay',[(cx+side*.415,.30,(z+foot)*.5),
-                 (cx+side*.375,.65,z+.015)],[.009,.009],'ForgedIron',8)
             tube('Iron foot shoe',[(cx+side*.46,.007,foot),
-                 (cx+side*.455,.078,foot+.008)],[.037,.035],'ForgedIron',12)
+                 (cx+side*.453,.11,leg_z(.07))],[.039,.042],'ForgedIron',12)
+        # Two forged diagonal stays form an X between the *two* legs of each
+        # trestle. Both ends enter timber at the sampled leg centreline; a brace
+        # drawn along one leg looked like a loose rod from the side and under it.
+        front_low = (-.025 + (.15+.025)*.34, .31)
+        front_high = (-.025 + (.15+.025)*.79, .63)
+        rear_low = (.64 + (.45-.64)*.34, .31)
+        rear_high = (.64 + (.45-.64)*.79, .63)
+        for start, end, offset in ((front_low,rear_high,-.013),(rear_low,front_high,.013)):
+            tube('Trestle diagonal iron stay',
+                 [(cx+side*(.427+offset),start[1],start[0]),
+                  (cx+side*(.381+offset),end[1],end[0])],
+                 [.010,.010],'ForgedIron',10)
         ring('Folding pivot washer',(x,.825,.090),.030,.006,'ForgedIron',True)
         for y in (.80,1.605):
             rect('Corner band vertical',x,.010,.070,.010,y+.025,.12,'ForgedIron',.004)
@@ -495,6 +572,10 @@ def merchant():
         rect('Rear vertical timber',cx+(i-2.5)*.133,.508,.131,.026,1.63,.86,bevel=.004)
     # Real, relief-cut front boards retain exact native cassette/button seats.
     # The fal surface contributes worn side/crown detail but never a frozen card.
+    # The bisected provider sculpt has an open, ragged underside. A full timber
+    # sole closes that cut so the player sees a sound base from below, while the
+    # four separate trestles still pass through into the carcass above it.
+    rect('Cabinet underside plank',cx,.25,.83,.42,.785,.025,bevel=.006)
     rect('Cabinet crown',cx,.29,.87,.49,1.665,.07,bevel=.015)
     rect('Cabinet sill',cx,.30,.85,.45,.785,.046,bevel=.012)
     merchant_sculpted_front('Carved category fascia',cx,.772,.968,.83,.097,.840)
@@ -508,6 +589,7 @@ def merchant():
         tube('Top handle mount',[(x,1.665,.31),(x,1.716,.31)],[.009,.009],'ForgedIron',10)
     tube('Top leather carry bar',[(cx-.10,1.716,.31),(cx+.10,1.716,.31)], [.016,.016],'Leather',14)
     merchant_forged_lantern_bracket(cx)
+    merchant_side_cloth()
     # Small folding writing stand, with dovetail-like board ends and iron X braces.
     for i in range(5):
         # The merchant's coat reaches Z=.368 at table height across the work cycle.
@@ -649,8 +731,9 @@ def export(name, build):
         # The multiview, UV-atlased carcass replaces the entire former box/rail
         # prototype, not just its side cheeks. Keep only supports, live-cassette
         # guides, the native lantern's physical hook and the separate ledger.
-        retained = ('Cabinet folding trestle', 'Trestle iron stay',
-                    'Iron foot shoe', 'Lantern ',
+        retained = ('Cabinet folding trestle', 'Trestle diagonal iron stay',
+                    'Iron foot shoe', 'Lantern ', 'ClothRunner_MerchantSide_',
+                    'Merchant cloth ', 'Merchant side ', 'Cabinet underside plank',
                     'Ledger ')
         for obj in tuple(parts):
             if not obj.name.startswith(retained):

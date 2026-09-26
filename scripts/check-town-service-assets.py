@@ -39,6 +39,12 @@ layout_end = layout_source.index('\n/// <summary>An authored', layout_start)
 # TMP font argument is substituted with object; the crank deliberately contains no UI.
 drawer = (root / 'src/GloomhavenVR/WorldUI/TownServices/TownServiceMerchantDrawer.cs').read_text()
 decor = (root / 'src/GloomhavenVR/WorldUI/TownServices/TownServiceDecor.cs').read_text()
+category_source = (root / 'src/GloomhavenVR/WorldUI/TownServices/TownServiceCatalogCategory.cs').read_text()
+button_line = next(line for line in category_source.splitlines() if '_home = new Vector3(' in line)
+button_expression = button_line.split('_home = ', 1)[1].split(';', 1)[0]
+(assets / 'Editor/MerchantButtonSeat.cs').write_text(
+    'using UnityEngine; namespace GloomhavenVR.WorldUI { internal static class MerchantButtonSeat { '
+    'internal static Vector3 Seat(int category) => ' + button_expression + '; } }\n')
 def method(signature):
     start = drawer.index('    ' + signature)
     end = drawer.index('\n    }', start) + 6
@@ -81,6 +87,7 @@ validation_sources = [root / path for path in (
     'scripts/author-town-furniture.py',
     'src/GloomhavenVR/WorldUI/TownServices/TownServiceMerchantCounter.cs',
     'src/GloomhavenVR/WorldUI/TownServices/TownServiceMerchantDrawer.cs',
+    'src/GloomhavenVR/WorldUI/TownServices/TownServiceCatalogCategory.cs',
     'src/GloomhavenVR/WorldUI/TownServices/TownServiceDecor.cs',
     'src/GloomhavenVR/WorldUI/TownServices/TownServiceCatalog.cs',
     'scripts/town_npc_necklines.py', 'scripts/town_npc_garment_weights.py', 'scripts/town_npc_cloth_edges.py',

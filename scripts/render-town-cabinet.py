@@ -18,7 +18,7 @@ parser.add_argument("--populate", action="store_true")
 parser.add_argument("--preview-icons", action="store_true",
                     help="Show dimensionally correct proxy glyphs; native UIInfoTools sprites load only in game")
 parser.add_argument("--output", type=Path, required=True)
-parser.add_argument("--view", choices=("front", "side", "close"), default="front")
+parser.add_argument("--view", choices=("front", "side", "under", "close"), default="front")
 options = parser.parse_args(sys.argv[sys.argv.index("--") + 1:])
 bpy.ops.object.select_all(action="SELECT")
 bpy.ops.object.delete(use_global=False)
@@ -35,13 +35,17 @@ if options.populate:
             if obj.parent not in added:
                 obj.location += Vector(shift)
         return added
-    button=import_mechanism("merchant_button.fbx", (1.25, 0, .936))
+    # The carved fascia is recessed in the middle. The production category
+    # roots use .079, .105 and .093 m depths across the six sockets.
+    button_depths=(.079,.105,.105,.105,.105,.093)
+    button=import_mechanism("merchant_button.fbx", (1.25, -button_depths[0], .936))
     for category in range(1, 6):
         for original in button:
             if original.type != "MESH": continue
             copy=original.copy();copy.data=original.data.copy()
             bpy.context.collection.objects.link(copy)
             copy.location.x-=category*.12
+            copy.location.y-=button_depths[category]-button_depths[0]
     if options.preview_icons:
         icon_material=bpy.data.materials.new("IconPlacementProxy")
         icon_material.diffuse_color=(.88,.73,.46,1)
@@ -56,7 +60,7 @@ if options.populate:
             shape.materials.append(icon_material)
             icon=bpy.data.objects.new("Proxy only; runtime uses original game sprite",shape)
             bpy.context.collection.objects.link(icon)
-            icon.location=(1.25-category*.12,.024,.936)
+            icon.location=(1.25-category*.12,-button_depths[category]+.021,.936)
             icon.rotation_euler=glyph_rotation
     import_mechanism("merchant_crank.fbx", (.57,-.11,1.22))
     import_mechanism("merchant_cassette.fbx", (.95,-.035,1.22))
@@ -121,6 +125,7 @@ ground.from_pydata([(-2, -2, 0), (4, -2, 0), (4, 3, 0), (-2, 3, 0)], [], [(0, 1,
 ground.update()
 floor = bpy.data.objects.new("Floor", ground)
 bpy.context.collection.objects.link(floor)
+if options.view == "under": floor.hide_render = True
 material = bpy.data.materials.new("FloorGrey")
 material.diffuse_color = (.18, .18, .18, 1)
 material.use_nodes = True
@@ -146,6 +151,7 @@ camera = bpy.data.objects.new("ReviewCamera", camera_data)
 bpy.context.collection.objects.link(camera)
 camera.location = ((2.15, 3.0, 1.94) if options.view == "front" else
                    (3.35, -.24, 1.86) if options.view == "side" else
+                   (2.2, 2.15, .20) if options.view == "under" else
                    (.95, 1.5, 1.65))
 camera.rotation_euler = (target - camera.location).to_track_quat("-Z", "Y").to_euler()
 camera_data.type = "ORTHO"

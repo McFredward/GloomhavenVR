@@ -344,6 +344,26 @@ public static class ValidateTownAssets
         var rack = GloomhavenVR.WorldUI.TownServiceMerchantDrawer.CreateHousingTemplate();
         var crank = GloomhavenVR.WorldUI.TownServiceMerchantDrawer.CreateTemplate(null);
         Check(crank.transform.Find("Handle") != null, "Actual cabinet materials support a physical crank factory");
+        var sculpt = root.transform.Find("Counter/CarvedCabinetShell");
+        var shellPoints = sculpt.GetComponentsInChildren<MeshFilter>(true)
+            .SelectMany(filter => filter.sharedMesh.vertices.Select(vertex =>
+                root.transform.InverseTransformPoint(filter.transform.TransformPoint(vertex)))).ToArray();
+        for (int category = 0; category < 6; category++)
+        {
+            var seat = GloomhavenVR.WorldUI.MerchantButtonSeat.Seat(category) + Vector3.up * .970f;
+            var button = GloomhavenVR.WorldUI.TownServiceMerchantDrawer.Authored("MerchantButtonTemplate");
+            button.transform.SetParent(root.transform, false); button.transform.localPosition = seat;
+            var visible = button.GetComponentsInChildren<MeshFilter>(true)
+                .SelectMany(filter => filter.sharedMesh.vertices.Select(vertex =>
+                    root.transform.InverseTransformPoint(filter.transform.TransformPoint(vertex)))).ToArray();
+            var front = shellPoints.Where(point => Math.Abs(point.x - seat.x) < .042f &&
+                Math.Abs(point.y - seat.y) < .045f).Min(point => point.z);
+            Check(visible.Min(point => point.z) >= front - .025f &&
+                visible.Min(point => point.z) <= front - .004f &&
+                visible.Max(point => point.z) >= front + .005f,
+                "Each category wheel projects less than 25 mm and seats its back inside the real sculpted fascia");
+            UnityEngine.Object.DestroyImmediate(button);
+        }
         rack.transform.SetParent(root.transform, false);
         rack.transform.localPosition = new Vector3(-.95f, 1.22f, .035f);
         var colliders = FurnitureColliders(rack.transform.Find("Cassette"));
@@ -392,6 +412,17 @@ public static class ValidateTownAssets
         // The static cabinet must be on the same side as its runtime cassette anchors.
         Check(SupportHeight(furniture, root.transform, new Vector3(-.95f, 0f, .30f)) > 1.5f,
             "Asymmetric cabinet FBX imports on the agreed left side of the merchant");
+        var legs = root.transform.Find("Counter").GetComponentsInChildren<MeshFilter>()
+            .Where(filter => filter.name.StartsWith("GroundSupport", StringComparison.Ordinal) &&
+                filter.name.Contains("Cabinet folding trestle")).ToArray();
+        Check(legs.Length == 4, "Four independently grounded cabinet trestles remain intact");
+        foreach (var leg in legs)
+            Check(leg.sharedMesh.vertices.All(vertex =>
+                root.transform.InverseTransformPoint(leg.transform.TransformPoint(vertex)).z < .71f),
+                "Rear trestles do not overshoot their hinges into sharp zigzags");
+        var underside = new Ray(root.transform.TransformPoint(new Vector3(-.95f, .70f, .25f)), root.transform.up);
+        Check(furniture.Any(collider => collider.Raycast(underside, out RaycastHit hit, .16f)),
+            "Cabinet cut has a closed timber underside when inspected from below");
         // The native hanging lantern is not part of this bundle, but its measured visible
         // half-width and production seat are. Test that complete footprint against the
         // complete authored cabinet, including the tall side/rear panels. The regression
@@ -434,6 +465,25 @@ public static class ValidateTownAssets
         foreach (var material in renderer.sharedMaterials)
             Check(material != null && material.shader != null && material.HasProperty("_TownVisibility"), npc + " every authored detail uses the lit dissolving town material");
         if (npc != "merchant") return;
+        var cloths = furniture.GetComponentsInChildren<MeshFilter>(true)
+            .Where(filter => filter.gameObject.activeInHierarchy &&
+                filter.name.StartsWith("ClothRunner_", StringComparison.Ordinal)).ToArray();
+        Check(cloths.Length == 1 && cloths[0].name == "ClothRunner_MerchantSide_AltarCloth",
+            "Merchant has exactly one independently deformable side cloth");
+        var cloth = cloths[0];
+        var clothVertices = cloth.sharedMesh.vertices.Select(vertex =>
+            root.transform.InverseTransformPoint(cloth.transform.TransformPoint(vertex))).ToArray();
+        Check(clothVertices.Length >= 25 * 13 * 2, "Merchant side cloth has a solid 25x13 UV grid");
+        for (int row = 0; row < 25; row++) for (int col = 0; col < 13; col++)
+        {
+            float t = row / 24f, u = col / 12f;
+            var expected = new Vector3(
+                -1.436f - .0025f * Mathf.Sin(Mathf.PI * t) * Mathf.Sin(2f * Mathf.PI * u),
+                1.590f - .600f * t + .002f * Mathf.Sin(Mathf.PI * t) * Mathf.Cos(3f * Mathf.PI * u),
+                .205f + .255f * u + .004f * Mathf.Sin(2f * Mathf.PI * t) * Mathf.Sin(Mathf.PI * u));
+            Check(clothVertices.Any(vertex => (vertex - expected).sqrMagnitude <= .008f * .008f),
+                "Imported merchant cloth follows its runtime contact grid");
+        }
         ValidateSlots(root);
         var template = furniture.Find("CounterReturn");
         Check(template != null && !template.gameObject.activeSelf, "Open return template exists without drawing unused stock wings");
@@ -443,6 +493,59 @@ public static class ValidateTownAssets
             Check(Mathf.Abs(SupportHeight(surfaces, furniture, new Vector3(x, 0, .18f)) - .958f) < .012f,
                 "Merchant ledger and coin workspace remains supported behind stock terraces");
         foreach (var collider in surfaces) UnityEngine.Object.DestroyImmediate(collider);
+    }
+
+    static void MerchantCabinetPictures(GameObject root)
+    {
+        // The MB571 headset report was from beside and below the cabinet. Render
+        // the actual refreshed Unity prefab plus its production cassette, crank
+        // and category mesh at the source-derived runtime seats from those views.
+        GloomhavenVR.WorldUI.TownServiceAssets.Current = root;
+        var clones = new List<GameObject>();
+        var rack = GloomhavenVR.WorldUI.TownServiceMerchantDrawer.CreateHousingTemplate();
+        rack.transform.SetParent(root.transform, false);
+        rack.transform.localPosition = new Vector3(-.95f, 1.22f, .035f);
+        clones.Add(rack);
+        var crank = GloomhavenVR.WorldUI.TownServiceMerchantDrawer.CreateTemplate(null);
+        crank.transform.SetParent(root.transform, false);
+        crank.transform.localPosition = new Vector3(-.57f, 1.22f, .11f);
+        clones.Add(crank);
+        for (int category = 0; category < 6; category++)
+        {
+            var button = GloomhavenVR.WorldUI.TownServiceMerchantDrawer.Authored("MerchantButtonTemplate");
+            button.transform.SetParent(root.transform, false);
+            button.transform.localPosition = GloomhavenVR.WorldUI.MerchantButtonSeat.Seat(category) + Vector3.up * .970f;
+            clones.Add(button);
+        }
+        foreach (var clone in clones)
+            foreach (var part in clone.GetComponentsInChildren<Transform>(true)) part.gameObject.layer = 31;
+        var actor = root.transform.Find("Actor");
+        actor.gameObject.SetActive(false);
+        Vector3 oldPosition = camera.transform.position;
+        Quaternion oldRotation = camera.transform.rotation;
+        float oldFov = camera.fieldOfView, oldNear = camera.nearClipPlane;
+        var reviewLight = new GameObject("Cabinet side inspection fill").AddComponent<Light>();
+        reviewLight.type = LightType.Point; reviewLight.renderMode = LightRenderMode.ForceVertex;
+        reviewLight.cullingMask = 1 << 31; reviewLight.range = 3f; reviewLight.intensity = 2.5f;
+        reviewLight.color = new Color(1f, .91f, .80f);
+        camera.fieldOfView = 55f; camera.nearClipPlane = .01f;
+        foreach (var view in new[] { "front", "side", "under", "rear" })
+        {
+            Vector3 centre = new Vector3(-.95f, 1.05f, .25f);
+            camera.transform.position = view == "front" ? new Vector3(-.95f, 1.28f, -1.80f) :
+                view == "side" ? new Vector3(-3.00f, 1.15f, .30f) :
+                view == "under" ? new Vector3(-2.10f, .36f, -.82f) :
+                new Vector3(-.95f, 1.27f, 1.80f);
+            camera.transform.LookAt(centre);
+            reviewLight.transform.position = camera.transform.position + Vector3.up * .35f;
+            Picture("merchant-cabinet-" + view);
+        }
+        UnityEngine.Object.DestroyImmediate(reviewLight.gameObject);
+        camera.transform.position = oldPosition; camera.transform.rotation = oldRotation;
+        camera.fieldOfView = oldFov; camera.nearClipPlane = oldNear;
+        actor.gameObject.SetActive(true);
+        foreach (var clone in clones) UnityEngine.Object.DestroyImmediate(clone);
+        GloomhavenVR.WorldUI.TownServiceAssets.Current = null;
     }
     static void Step()
     {
@@ -499,6 +602,7 @@ public static class ValidateTownAssets
             Check(body > 10000, npc + " auto-LOD actor visible and textured with stand lighting");
             Check(furniture > 1000, npc + " furniture visible and textured with stand lighting");
             Check(!full.Any(p => p.r > 240 && p.b > 240 && p.g < 10), npc + " no unsupported shader magenta");
+            if (npc == "merchant") MerchantCabinetPictures(root);
             var overviewPosition = camera.transform.position; var overviewRotation = camera.transform.rotation;
             camera.transform.position = new Vector3(0f, 1.8f, -4.5f);
             camera.transform.LookAt(new Vector3(0f, .90f, -.30f));
