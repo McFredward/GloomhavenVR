@@ -33,6 +33,8 @@ def inspect_fan_contract(source):
     if "MapRoomHand.SetTempleInspection(_inspectionNear && !holdingCard);" not in tick \
             or "_near = input && _inspectionNear && !holdingCard;" not in tick:
         raise RuntimeError("Temple fan suppression is coupled to transient native input")
+    if "bool shown = _inspectionNear && hand != null && hand.HasPose && hand.Grabber.Held == null;" not in tick:
+        raise RuntimeError("Temple purse visibility is coupled to palm angle or payment eligibility")
 
 
 def inspect_shared_blessing_contract(root):
@@ -56,8 +58,29 @@ def inspect_shared_blessing_contract(root):
         raise RuntimeError("Shared temple blessing seam is incomplete: " + ", ".join(missing))
 
 
+def inspect_purse_contract(source):
+    required = (
+        "private readonly Func<bool> _available;",
+        "bool visible = !_offering || _visible() || Token?.IsMoving == true;",
+        "if (_offering && !_available() && !Token.IsMoving) Token.PickCollider.enabled = false;",
+        "() => TemplePurseVisible(temple, slot)",
+        "if (piece.Source is UITempleShopSlot && piece.NativeAvailable)",
+    )
+    missing = [entry for entry in required if entry not in source]
+    if missing:
+        raise RuntimeError("Temple purse visibility is still coupled to payment eligibility: " + ", ".join(missing))
+
+
 def sources(root):
     raw = (root / "src/GloomhavenVR/WorldUI/TownServices/TownServiceRitual.cs").read_text()
+    inspect_purse_contract(raw)
+    coupled = replace_once(raw, "() => TemplePurseVisible(temple, slot)", "() => TempleVisibleEligible(temple, slot)")
+    try:
+        inspect_purse_contract(coupled)
+    except RuntimeError:
+        pass
+    else:
+        raise RuntimeError("Temple purse visibility negative control did not fail")
     methods = method(raw, "private bool Confirm(") + "\n" + method(raw, "private static bool Click(")
     methods = methods.replace("private bool Confirm(", "internal bool Confirm(")
     start = raw.index("    private bool OfferingEligible(")
@@ -83,6 +106,15 @@ def sources(root):
         pass
     else:
         raise RuntimeError("Temple fan suppression negative control did not fail")
+    coupled_visibility = replace_once(offering_raw,
+        "bool shown = _inspectionNear && hand != null && hand.HasPose && hand.Grabber.Held == null;",
+        "bool shown = Available && hand != null && hand.HasPose && hand.Grabber.Held == null;")
+    try:
+        inspect_fan_contract(coupled_visibility)
+    except RuntimeError:
+        pass
+    else:
+        raise RuntimeError("Temple purse visibility negative control did not fail")
     exit_method = method(offering_raw, "private bool ExitIfAway(").replace("private bool ExitIfAway(", "internal bool ExitIfAway(")
     exit_source = "using UnityEngine;using GloomhavenVR.WorldUI;internal sealed class BoundTempleExit {" + \
         "internal bool _visited=true,_near=true,_inspectionNear=true,Available=true;internal UIWindow _window;internal Transform _station;internal TownServiceRitual _ritual=new();" + \
@@ -98,6 +130,7 @@ def mutations():
     return [
         ("temple-approach-hysteresis", "TempleApproach.cs", "TownServiceOfferingPose.VisitorWithin(station.Root, 1.4f)", "TownServiceOfferingPose.VisitorWithin(station.Root, _approachInside ? 1.65f : 1.4f)", "return from larger attention radius creates a fresh priestess approach"),
         ("merchant-approach-latch", "TempleApproach.cs", "if (destination != EGuildmasterMode.None) _approachInside = false;", "if (destination != EGuildmasterMode.None) _approachInside = true;", "blocked foreign service cannot preserve a stale temple latch"),
+        ("temple-character-restore", "TempleApproach.cs", "selectedSlot.OnClick();", "if (selectedSlot.State == PartySlotState.Empty) selectedSlot.OnClick();", "temple entry preserves the exact previously selected native slot"),
         ("temple-close-missing", "TempleExit.cs", "ModalFallback.CloseFloatedWindow(_window);", "", "physical departure closes native temple before visiting another resident"),
         ("repeat-donation", "RitualTransactions.cs", "_submittedOfferings.Add(offering);", "", "a delayed online stock refresh never permits a duplicate donation"),
         ("visitor-departure", "RitualTransactions.cs", "_templeOffering?.VisitorPresent == true && TemplePendingEligible(temple, slot)", "TemplePendingEligible(temple, slot)", "walking away before native completion cancels the donation"),

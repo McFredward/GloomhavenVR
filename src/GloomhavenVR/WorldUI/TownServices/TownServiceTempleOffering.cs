@@ -60,8 +60,20 @@ internal sealed class TownServiceTempleOffering : IDisposable
             || !MapRoomDriver.CanVisitTownService(EGuildmasterMode.Temple)) return;
         _approachInside = true;
         _approachAt = Time.unscaledTime + .5f;
+        // EnterTemple enables native selection mode. If the preceding service cleared its tab,
+        // the flat UI immediately selects the first assigned slot. Preserve the exact character
+        // the player was looking at across that native mode transition.
+        NewPartyDisplayUI? display = NewPartyDisplayUI.PartyDisplay;
+        NewPartyCharacterUI? selectedSlot = display?.SelectedUISlot;
         MapRoomDriver.PressGuildmasterMode(EGuildmasterMode.Temple, "approached priestess",
             suppressNativeSound: true);
+        if (selectedSlot != null && selectedSlot.State == PartySlotState.Assigned
+            && display != null && !ReferenceEquals(display.SelectedUISlot, selectedSlot))
+        {
+            // Use the original native slot, not a character-id lookup: campaigns can contain
+            // equivalent character records and the slot is the identity the player selected.
+            selectedSlot.OnClick();
+        }
     }
 
     internal TownServiceTempleOffering(TownServiceRitual ritual, UITempleWindow temple, Transform station)
@@ -93,15 +105,15 @@ internal sealed class TownServiceTempleOffering : IDisposable
         _near = input && _inspectionNear && !holdingCard;
         if (_near) _visited = true;
         VRHand? hand = VRHands.Primary == VRHands.Left ? VRHands.Right : VRHands.Left;
-        bool held = false;
         foreach (TownServiceRitual.Piece piece in _ritual.Pieces)
         {
-            held |= piece.Token.IsHeld;
             if (!_near) piece.Token.CancelInspection();
         }
         Available = _near && hand != null && hand.HasPose;
-        bool shown = Available && hand!.Grabber.Held == null
-            && (CardsConfig.RevealAlways || hand.PalmGate.IsOpen || held);
+        // The purse is also the temple's availability/status display. Keep it on the free
+        // secondary hand for the whole physical visit; palm angle and payment eligibility
+        // only govern interaction, never whether that information exists.
+        bool shown = _inspectionNear && hand != null && hand.HasPose && hand.Grabber.Held == null;
         if (hand != null)
         {
             hand.PalmGate.Enabled = true;

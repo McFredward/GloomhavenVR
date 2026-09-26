@@ -17,7 +17,16 @@ public static class MapRoomDriver
     public static bool LastSuppressed;
     public static bool CanVisitTownService(EGuildmasterMode mode)=>true;
     public static void PressGuildmasterMode(EGuildmasterMode mode,string reason, bool suppressNativeSound = false)
-    { if(mode==EGuildmasterMode.Temple)TemplePresses++;ModeEntered=mode;LastSuppressed=suppressNativeSound; }
+    {
+        if(mode==EGuildmasterMode.Temple)
+        {
+            TemplePresses++;
+            // UITempleWindow.EnterTemple enables selection mode, which immediately chooses
+            // the first assigned slot whenever the preceding mode cleared the tab.
+            NewPartyDisplayUI.PartyDisplay!.SelectFirst();
+        }
+        ModeEntered=mode;LastSuppressed=suppressNativeSound;
+    }
     public static EGuildmasterMode ModeEntered;
 }
 public sealed class ToggleFlag { public bool Value=true; }
@@ -31,6 +40,20 @@ public static class VRHands
 public sealed class FakeHand { public FakeGrabber Grabber=new(); }
 public sealed class FakeGrabber { public object? Held; }
 public sealed class VRCard { }
+public enum PartySlotState { Empty, Assigned }
+public sealed class NewPartyCharacterUI
+{
+    public PartySlotState State=PartySlotState.Assigned;
+    public FakeCharacter Data=null!;
+    public void OnClick(){NewPartyDisplayUI.PartyDisplay!.SelectedUISlot=this;MapRoomHand.Selected=Data;}
+}
+public sealed class NewPartyDisplayUI
+{
+    public static NewPartyDisplayUI? PartyDisplay;
+    public NewPartyCharacterUI? SelectedUISlot;
+    public NewPartyCharacterUI[] Slots=Array.Empty<NewPartyCharacterUI>();
+    public void SelectFirst(){if(Slots.Length>0){SelectedUISlot=Slots[0];MapRoomHand.Selected=Slots[0].Data;}}
+}
 public sealed class TownServiceStation
 {
     public Transform Root=null!;
@@ -60,7 +83,10 @@ internal static class TempleApproachProof
         VRRigDriver.HeadCamera=head.GetComponent<Camera>();
         TownServicePopulation.Station=new TownServiceStation{Root=root.transform};
         VRHands.Left=new FakeHand();VRHands.Right=new FakeHand();
-        MapRoomHand.Selected=new FakeCharacter();
+        var first=new NewPartyCharacterUI{Data=new FakeCharacter{CharacterID="first"}};
+        var selected=new NewPartyCharacterUI{Data=new FakeCharacter{CharacterID="selected"}};
+        NewPartyDisplayUI.PartyDisplay=new NewPartyDisplayUI{Slots=new[]{first,selected},SelectedUISlot=selected};
+        MapRoomHand.Selected=selected.Data;
         MapRoomDriver.TemplePresses=0;
         GuildmasterDestinations.Mode=EGuildmasterMode.Merchant;
         typeof(BoundTempleApproach).GetField("_approachInside",BindingFlags.Static|BindingFlags.NonPublic)!.SetValue(null,true);
@@ -71,6 +97,7 @@ internal static class TempleApproachProof
         GloomhavenVR.Core.Events.VRModeStateMachine.CurrentMode=GloomhavenVR.Core.Events.VRMode.TableIdle;
         BoundTempleApproach.TickApproach();
         Check(MapRoomDriver.TemplePresses==1,"blocked foreign service cannot preserve a stale temple latch");
+        Check(ReferenceEquals(NewPartyDisplayUI.PartyDisplay.SelectedUISlot,selected),"temple entry preserves the exact previously selected native slot");
         Check(MapRoomDriver.LastSuppressed,"automatic priestess entry suppresses the flat button sound");
         GuildmasterDestinations.Mode=EGuildmasterMode.Temple;
         BoundTempleApproach.TickApproach();
@@ -87,6 +114,7 @@ internal static class TempleApproachProof
         typeof(BoundTempleApproach).GetField("_approachAt",BindingFlags.Static|BindingFlags.NonPublic)!.SetValue(null,0f);
         BoundTempleApproach.TickApproach();
         Check(MapRoomDriver.TemplePresses==2,"return from larger attention radius creates a fresh priestess approach");
+        Check(ReferenceEquals(NewPartyDisplayUI.PartyDisplay.SelectedUISlot,selected),"repeated temple entry cannot fall back to the first native slot");
 
         GuildmasterDestinations.Mode=EGuildmasterMode.Enchantress;
         typeof(BoundTempleApproach).GetField("_approachAt",BindingFlags.Static|BindingFlags.NonPublic)!.SetValue(null,0f);
@@ -101,7 +129,7 @@ internal static class TempleApproachProof
         BoundTempleApproach.TickApproach();
         Check(MapRoomDriver.TemplePresses==4,"leaving and returning permits a fresh physical approach");
         Object.DestroyImmediate(root);Object.DestroyImmediate(head);
-        TownServicePopulation.Station=null;VRRigDriver.HeadCamera=null;MapRoomHand.Selected=null;
+        TownServicePopulation.Station=null;VRRigDriver.HeadCamera=null;MapRoomHand.Selected=null;NewPartyDisplayUI.PartyDisplay=null;
         return checks;
     }
 }

@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using Stopwatch=System.Diagnostics.Stopwatch;
 using GloomhavenVR.Core;
 using GloomhavenVR.Net;
 using GloomhavenVR.WorldUI;
@@ -258,9 +259,42 @@ public static class InteractionProgram
     {
         count=0; PoseEvidence.Clear(); WorkspaceClock.Now=0; SkyAlternative.PlacedRoomRoot=null;
         ReadingIndependentRooms(); BakedActorEnvelope();
+        PrimaryEntryCost();
         foreach(byte service in new byte[]{2,3}) { WorkspaceClock.Now=0; ServiceWorkspace(service); }
         count += WorkspacePropsProgram.Run();
         return count;
+    }
+    private static void PrimaryEntryCost()
+    {
+        var station=new GameObject("Primary service station");PlaceStation(station.transform,2);
+        try
+        {
+            Roster(1);NetPlayerActors.Local=1;TownServiceCloth.Constructions=0;
+            var firstTimer=Stopwatch.StartNew();
+            var first=TownServiceWorkspace.CreateForLocalVisitor(station.transform,2);
+            firstTimer.Stop();
+            var repeatTimer=Stopwatch.StartNew();
+            TownServiceWorkspace? repeat=null;
+            for(int i=0;i<1000;i++)repeat=TownServiceWorkspace.CreateForLocalVisitor(station.transform,2);
+            repeatTimer.Stop();
+            Check(first==null&&repeat==null,"primary service entry never constructs a hidden private workspace");
+            Check(TownServiceCloth.Constructions==0,"first and repeated primary entry skip Unity cloth cooking");
+            Check(firstTimer.ElapsedMilliseconds<20&&repeatTimer.ElapsedMilliseconds<20,
+                "primary workspace decision remains outside the interactive-frame budget");
+            Debug.Log("TOWN_WORKSPACE_ENTRY firstMs="+firstTimer.Elapsed.TotalMilliseconds.ToString("F3")
+                +" repeat1000Ms="+repeatTimer.Elapsed.TotalMilliseconds.ToString("F3")+" cloth=0");
+
+            Roster(1,7);NetPlayerActors.Local=7;
+            using(var visitor=TownServiceWorkspace.CreateForLocalVisitor(station.transform,2))
+            {
+                Check(visitor!=null,"multiplayer visitor keeps a private service workspace");
+                visitor!.SetVisibility(1f);
+                Check(visitor.FurnitureRoot.gameObject.activeSelf&&visitor.HasCloth,
+                    "multiplayer visitor workspace retains visible furniture and cloth");
+            }
+            Check(TownServiceCloth.Constructions==1,"only the visible visitor workspace constructs cloth");
+        }
+        finally{UnityEngine.Object.DestroyImmediate(station);}
     }
     private static void ServiceWorkspace(byte service)
     {

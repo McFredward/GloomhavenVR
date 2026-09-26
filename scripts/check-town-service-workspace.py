@@ -27,6 +27,24 @@ def sources(root):
     return bound, {name: hashlib.sha256(text.encode()).hexdigest() for name, text in bound.items()}
 
 
+def inspect_presentation_contract(root):
+    source = (root / "src/GloomhavenVR/WorldUI/TownServices/TownServicePresentation.cs").read_text()
+    required = (
+        "_workspace = AcquireWorkspace(_station.Root, service);",
+        "_workspace?.Root ?? _station.Root",
+        "return TownServiceWorkspace.CreateForLocalVisitor(station, service);",
+        "if (!RetainTempleWorkspace()) { _workspace?.Dispose(); _workspace = null; }",
+        "if (!MapRoomDriver.Active) DisposeCachedTempleWorkspace();",
+    )
+    missing = [entry for entry in required if entry not in source]
+    if missing:
+        raise RuntimeError("Workspace entry/reuse contract is incomplete: " + ", ".join(missing))
+    broken = replace_once(source, "_workspace = AcquireWorkspace(_station.Root, service);",
+                          "_workspace = new TownServiceWorkspace(_station.Root, service);")
+    if all(entry in broken for entry in required):
+        raise RuntimeError("Workspace entry/reuse negative control did not fail")
+
+
 def mutations():
     return [
         ("ground-support", "TownServiceGrounding.cs", "support.Apply(furnitureBottom);", "support.Restore();", "ground supports reach their sampled terrain"),
@@ -43,6 +61,7 @@ def mutations():
         ("materials", "TownServiceWorkspace.cs", "copy = new Material(original)", "copy = original", "each workspace owns its materials"),
         ("held-relocation", "TownServiceWorkspace.cs", "_pending && mayRelocate && !_relocating", "_pending && !_relocating", "held or returning card defers relocation"),
         ("floor", "TownServiceWorkspace.cs", "TownServicePlacement.GroundHeight(room, _target)", "room.position.y", "workspace rests on original sloped floor at its own target"),
+        ("primary-entry-cost", "TownServiceWorkspace.cs", "return slot == 0 ? null : new TownServiceWorkspace(station, service, slot);", "return slot < 0 ? null : new TownServiceWorkspace(station, service, slot);", "primary service entry never constructs a hidden private workspace"),
     ]
 
 
@@ -56,6 +75,7 @@ def main():
     parser.add_argument("--no-negative-controls", action="store_true", help="Quick positive run; not complete validation")
     parser.add_argument("--bundle", type=Path, help="Immutable final town bundle for actual mesh envelope validation")
     args = parser.parse_args()
+    inspect_presentation_contract(args.source_root)
     bundle = (args.bundle or args.source_root / "prebuilt/ghvr-town.bundle").resolve()
     bundle_hash = hashlib.sha256(bundle.read_bytes()).hexdigest()
     args.output_dir.mkdir(parents=True, exist_ok=True)

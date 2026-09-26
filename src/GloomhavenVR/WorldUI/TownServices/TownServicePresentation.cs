@@ -27,6 +27,8 @@ internal static class TownServicePresentation
     private static TownServiceCatalog? _catalog;
     private static TownServiceRitual? _ritual;
     private static TownServiceWorkspace? _workspace;
+    private static TownServiceWorkspace? _cachedTempleWorkspace;
+    private static Transform? _cachedTempleStation;
     private static Transform? _counter;
     private static TownServiceWindowMask? _contextMask, _enhancementListMask;
     private static Vector3 _origin;
@@ -100,6 +102,7 @@ internal static class TownServicePresentation
             // native controller: its character, selection and pending confirmation stay intact.
             UIWindow? restore = _window;
             Reset();
+            DisposeCachedTempleWorkspace();
             _failedWindow = null;
             if (restore != null && restore.IsOpen)
                 ModalFallback.RestoreClassicTownService(restore);
@@ -122,7 +125,11 @@ internal static class TownServicePresentation
             return;
         }
         if (!MapRoomDriver.Active || window == null || !window.IsOpen)
-        { Reset(); _failedWindow = null; return; }
+        {
+            Reset();
+            if (!MapRoomDriver.Active) DisposeCachedTempleWorkspace();
+            _failedWindow = null; return;
+        }
         if (_window != null && !ReferenceEquals(_window, window)) Reset();
         if (_failedWindow == window) return;
         if (_window == null)
@@ -149,7 +156,7 @@ internal static class TownServicePresentation
             window.onHidden.AddListener(OnNativeHidden);
             if (!ModalFallback.ReleaseForTownService(window, context))
                 throw new InvalidOperationException("Previous service conversion has not restored its native hierarchy");
-            _workspace = service == 1 ? null : new TownServiceWorkspace(_station.Root, service);
+            _workspace = AcquireWorkspace(_station.Root, service);
             BuildMat();
             try
             {
@@ -164,7 +171,7 @@ internal static class TownServicePresentation
                 else
                 {
                     uint session = _session;
-                    _ritual = new TownServiceRitual(window, service, _workspace!.Root,
+                    _ritual = new TownServiceRitual(window, service, _workspace?.Root ?? _station.Root,
                         () => Active && _session == session, SelectionContext);
                     if (service == 3)
                     {
@@ -235,6 +242,40 @@ internal static class TownServicePresentation
     {
         // Public stock has its own lifetime and publication lane. Opening the native shop
         // only establishes permission/confirmation context; it never builds a second cabinet.
+    }
+
+    private static TownServiceWorkspace? AcquireWorkspace(Transform station, byte service)
+    {
+        if (service == 1) return null;
+        if (service == 2 && _cachedTempleWorkspace != null)
+        {
+            if (_cachedTempleStation == station && _cachedTempleWorkspace.Root != null)
+            {
+                TownServiceWorkspace workspace = _cachedTempleWorkspace;
+                _cachedTempleWorkspace = null; _cachedTempleStation = null;
+                return workspace;
+            }
+            _cachedTempleWorkspace.Dispose();
+            _cachedTempleWorkspace = null; _cachedTempleStation = null;
+        }
+        return TownServiceWorkspace.CreateForLocalVisitor(station, service);
+    }
+
+    private static bool RetainTempleWorkspace()
+    {
+        if (Service != 2 || _workspace == null || _station == null) return false;
+        if (_cachedTempleWorkspace != null) _cachedTempleWorkspace.Dispose();
+        _workspace.SetVisibility(0f);
+        _cachedTempleWorkspace = _workspace;
+        _cachedTempleStation = _station.Root;
+        _workspace = null;
+        return true;
+    }
+
+    private static void DisposeCachedTempleWorkspace()
+    {
+        _cachedTempleWorkspace?.Dispose();
+        _cachedTempleWorkspace = null; _cachedTempleStation = null;
     }
 
     private static void BuildSections(UIWindow window, byte service)
@@ -396,7 +437,7 @@ internal static class TownServicePresentation
         Portraits.Clear();
         if (_tray == null && _mat != null) UnityEngine.Object.Destroy(_mat);
         _tray?.Dispose(); _tray = null; _mat = null;
-        _workspace?.Dispose(); _workspace = null;
+        if (!RetainTempleWorkspace()) { _workspace?.Dispose(); _workspace = null; }
         _station = null; // Population retains a station while another visitor still uses it.
         _window = null; _context = null; Service = 0;
         _selectionOwner = null; _selectionCard = null; _selectionKey = null;

@@ -55,7 +55,20 @@ internal sealed class TownServiceWorkspace : IDisposable
             ? "Counter" : service == 2 ? "Shrine" : "Workbench");
     private static readonly int VisibilityId = Shader.PropertyToID("_TownVisibility");
 
+    internal static TownServiceWorkspace? CreateForLocalVisitor(Transform station, byte service)
+    {
+        int slot = ResolveLocalSlot(new List<(int Id, string? Account, string? Name)>(), new List<int>());
+        // Ordinal zero already uses the permanent resident stand. Constructing an invisible
+        // duplicate used to cook two Unity Cloth meshes here and accounted for hundreds of
+        // milliseconds on every temple entry.
+        return slot == 0 ? null : new TownServiceWorkspace(station, service, slot);
+    }
+
     internal TownServiceWorkspace(Transform station, byte service = 1)
+        : this(station, service, ResolveLocalSlot(new List<(int Id, string? Account, string? Name)>(), new List<int>()))
+    { }
+
+    private TownServiceWorkspace(Transform station, byte service, int slot)
     {
         _service = service;
         Transform? template = FurnitureTemplate(service);
@@ -70,11 +83,12 @@ internal sealed class TownServiceWorkspace : IDisposable
             foreach (Collider collider in FurnitureRoot.GetComponentsInChildren<Collider>(true)) collider.enabled = false;
             VRLayers.Apply(_root);
             OwnMaterials(FurnitureRoot);
-            if (service != 1) _cloth = new TownServiceCloth(Root, service);
             _grounding = new TownServiceGrounding(Root);
-            if (!RefreshTarget(ResolveSlot(), true))
+            if (!RefreshTarget(slot, true))
                 throw new InvalidOperationException("Merchant workspace map frame is unavailable");
-            ApplyTarget(); _pending = false; RefreshProps();
+            ApplyTarget();
+            if (service != 1 && !_shownPrimary) _cloth = new TownServiceCloth(Root, service);
+            _pending = false; RefreshProps();
             _nextRoster = Time.unscaledTime + .25f;
             ApplyVisibility();
         }
@@ -126,19 +140,21 @@ internal sealed class TownServiceWorkspace : IDisposable
         _shownPrimary = _slot == 0; _pending = false;
     }
 
-    private int ResolveSlot()
+    private int ResolveSlot() => ResolveLocalSlot(_roster, _ids);
+
+    private static int ResolveLocalSlot(List<(int Id, string? Account, string? Name)> roster, List<int> ids)
     {
         // Participants excludes connected users without an active controllable. Their default
         // index would otherwise be zero, colliding with the host. AllPlayers also includes flat
         // peers; reserving their ordinal avoids depending on local mod-handshake arrival order.
-        _roster.Clear(); _ids.Clear(); NetPlayerActors.CollectRoster(_roster);
+        roster.Clear(); ids.Clear(); NetPlayerActors.CollectRoster(roster);
         int local = NetPlayerActors.LocalPlayerId();
         if (local <= 0) return 0;
-        foreach (var player in _roster)
-            if (player.Id > 0 && !_ids.Contains(player.Id)) _ids.Add(player.Id);
-        if (!_ids.Contains(local)) _ids.Add(local);
-        _ids.Sort();
-        int slot = _ids.IndexOf(local);
+        foreach (var player in roster)
+            if (player.Id > 0 && !ids.Contains(player.Id)) ids.Add(player.Id);
+        if (!ids.Contains(local)) ids.Add(local);
+        ids.Sort();
+        int slot = ids.IndexOf(local);
         // The native session supports four users. Reject impossible registry data instead of
         // mapping two owners onto the same counter; presentation's normal fallback stays usable.
         if (slot > 3) throw new InvalidOperationException("Merchant workspace roster exceeds four users");

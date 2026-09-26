@@ -39,7 +39,8 @@ namespace GloomhavenVR.WorldUI
     internal static class TownServicePresentation { internal static float SessionAge => 0f; }
     internal sealed class TownServiceCloth : IDisposable
     {
-        internal TownServiceCloth(Transform station, byte service) { }
+        internal static int Constructions;
+        internal TownServiceCloth(Transform station, byte service) { Constructions++; }
         internal GloomhavenVR.Net.TownClothRunnerState First => default;
         internal GloomhavenVR.Net.TownClothRunnerState Second => default;
         internal void TickAuthor(float age, float dt, bool visible) { }
