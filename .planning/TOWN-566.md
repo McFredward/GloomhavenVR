@@ -56,6 +56,12 @@ carry the resulting owner-authored state.
   0 visible re-entry pop, 10.86–19.56 world units of new contact response and bounded long-session
   displacement. The solver remains at 120 Hz with one vertex snapshot per 90 Hz render.
 - Decoration: 134 assertions and 15 mutation controls over complete prop bounds.
+- Integrated refactor guard: all 14 source suites and all 79 local runtime/Unity suites pass;
+  wire validation completes 286,569 assertions. Its final non-zero status is the expected
+  compiled-form report against the older `080c505e9` feature baseline, with no removal from the
+  guarded configuration, Harmony-patch or log-token surfaces.
+- Town-service interaction: 1,300 production assertions and all 51 mutation controls pass. The
+  fixture now models map teardown when retiring the intentionally cached temple workspace.
 - Strict Release compilation reports zero warnings and zero errors.
 
 These checks establish call ownership, construction cost, native slot identity, actual imported
