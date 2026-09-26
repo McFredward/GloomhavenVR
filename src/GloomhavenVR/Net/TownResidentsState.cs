@@ -30,15 +30,17 @@ internal struct TownResidentsState
 }
 
 /// <summary>Additive79: active1; when active, three pose20/scale4/age4/visibility1/clip1/actorFloor4/furnitureBottom4 entries.
-/// An optional 32-byte tail holds four cloth runners, each with four signed millimetre
-/// displacements and four signed 2 mm/s velocities. The 115-byte prefix and the previous
-/// 24-byte cloth tail remain readable.
+/// An optional 30-byte tail holds four cloth runners. The merchant's 6-byte runner
+/// keeps millimetre positions and packs its predictive velocities into signed nibbles;
+/// the other three retain their 8-byte encoding. The 115-byte prefix and previous
+/// 24-byte cloth tail remain readable. The 6-byte former packet margin is consumed
+/// exactly in the maximum fragmented snapshot.
 /// Idle0 and greeting1 are sampled from the same authored clips on all clients.</summary>
 internal static class TownResidentsCodec
 {
     internal const int LegacyPayload = 115;
     internal const int LegacyClothPayload = 139;
-    internal const int MaxPayload = 147;
+    internal const int MaxPayload = 145;
     private static bool Finite(float x) => !float.IsNaN(x) && !float.IsInfinity(x);
     internal static bool Valid(in TownResidentsState state)
     {
@@ -86,6 +88,31 @@ internal static class TownResidentsCodec
         LeftVelocity = new Vector2(ReadVelocity(buffer[offset++]), ReadVelocity(buffer[offset++])),
         RightVelocity = new Vector2(ReadVelocity(buffer[offset++]), ReadVelocity(buffer[offset++]))
     };
+    private static byte VelocityNibble(float speed) => (byte)(Mathf.Clamp(
+        Mathf.RoundToInt(Mathf.Clamp(speed, -.25f, .25f) * 28f), -7, 7) & 0x0F);
+    private static float ReadVelocityNibble(int bits) => ((bits << 28) >> 28) / 28f;
+    private static bool ValidVelocityNibbles(byte value) => (value & 0x0F) != 8 && (value >> 4) != 8;
+    internal static void WriteMerchantCloth(byte[] buffer, ref int offset, in TownClothRunnerState runner)
+    {
+        buffer[offset++] = Position(runner.Left.x); buffer[offset++] = Position(runner.Left.y);
+        buffer[offset++] = Position(runner.Right.x); buffer[offset++] = Position(runner.Right.y);
+        buffer[offset++] = (byte)(VelocityNibble(runner.LeftVelocity.x)
+            | VelocityNibble(runner.LeftVelocity.y) << 4);
+        buffer[offset++] = (byte)(VelocityNibble(runner.RightVelocity.x)
+            | VelocityNibble(runner.RightVelocity.y) << 4);
+    }
+    internal static TownClothRunnerState ReadMerchantCloth(byte[] buffer, ref int offset)
+    {
+        TownClothRunnerState runner = new()
+        {
+            Left = new Vector2(ReadPosition(buffer[offset++]), ReadPosition(buffer[offset++])),
+            Right = new Vector2(ReadPosition(buffer[offset++]), ReadPosition(buffer[offset++]))
+        };
+        byte left = buffer[offset++], right = buffer[offset++];
+        runner.LeftVelocity = new Vector2(ReadVelocityNibble(left & 0x0F), ReadVelocityNibble(left >> 4));
+        runner.RightVelocity = new Vector2(ReadVelocityNibble(right & 0x0F), ReadVelocityNibble(right >> 4));
+        return runner;
+    }
     internal static bool Write(byte[] buffer, ref int offset, in TownResidentsState state)
     {
         int length = state.Active ? state.HasCloth ? MaxPayload : LegacyPayload : 1;
@@ -104,7 +131,7 @@ internal static class TownResidentsCodec
             AvatarSerializer.WriteF32(buffer, ref offset, entry.FurnitureBottom);
         }
         if (state.HasCloth)
-        { WriteCloth(buffer, ref offset, in state.MerchantCloth);
+        { WriteMerchantCloth(buffer, ref offset, in state.MerchantCloth);
             WriteCloth(buffer, ref offset, in state.TempleLeft); WriteCloth(buffer, ref offset, in state.TempleRight);
             WriteCloth(buffer, ref offset, in state.EnchantressCloth); }
         return true;
@@ -138,7 +165,11 @@ internal static class TownResidentsCodec
             read.Set(n, entry);
         }
         if (read.HasCloth)
-        { if (length == MaxPayload) read.MerchantCloth = ReadCloth(buffer, ref offset);
+        { if (length == MaxPayload)
+            {
+                if (!ValidVelocityNibbles(buffer[offset + 4]) || !ValidVelocityNibbles(buffer[offset + 5])) return false;
+                read.MerchantCloth = ReadMerchantCloth(buffer, ref offset);
+            }
             read.TempleLeft = ReadCloth(buffer, ref offset); read.TempleRight = ReadCloth(buffer, ref offset);
             read.EnchantressCloth = ReadCloth(buffer, ref offset); }
         if (!Valid(in read)) return false;

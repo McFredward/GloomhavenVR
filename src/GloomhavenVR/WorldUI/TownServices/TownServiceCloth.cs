@@ -435,7 +435,7 @@ internal sealed class TownServiceCloth : IDisposable
         // fingers while preventing the cloth from passing through the cabinet.
         for (int column = 0; column < DriverColumns; column++)
         {
-            float z = Mathf.Lerp(.105f, .460f, column / (DriverColumns - 1f));
+            float z = Mathf.Lerp(.205f, .460f, column / (DriverColumns - 1f));
             SphereCollider top = MerchantSupport(runner, column, "Top", 1.57f, z);
             SphereCollider bottom = MerchantSupport(runner, column, "Bottom", 1.00f, z);
             runner.SupportPairs.Add(new ClothSphereColliderPair(top, bottom));
@@ -505,9 +505,9 @@ internal sealed class TownServiceCloth : IDisposable
         float t = row / (DriverRows - 1f);
         float u = column / (DriverColumns - 1f);
         return new Vector3(
-            -1.376f - .0025f * Mathf.Sin(Mathf.PI * t) * Mathf.Sin(2f * Mathf.PI * u),
+            -1.436f - .0025f * Mathf.Sin(Mathf.PI * t) * Mathf.Sin(2f * Mathf.PI * u),
             1.590f - .600f * t + .002f * Mathf.Sin(Mathf.PI * t) * Mathf.Cos(3f * Mathf.PI * u),
-            .105f + .355f * u + .004f * Mathf.Sin(2f * Mathf.PI * t) * Mathf.Sin(Mathf.PI * u));
+            .205f + .255f * u + .004f * Mathf.Sin(2f * Mathf.PI * t) * Mathf.Sin(Mathf.PI * u));
     }
 
     private void BuildDecorations(Runner runner)

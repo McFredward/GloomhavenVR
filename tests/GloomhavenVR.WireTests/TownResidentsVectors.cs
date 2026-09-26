@@ -35,6 +35,10 @@ internal static class TownResidentsVectors
     private static TownResidentsState WithCloth()
     {
         var state = Example(); state.HasCloth = true;
+        state.MerchantCloth = new TownClothRunnerState
+        { Left = new Vector2(.013f, -.009f), Right = new Vector2(.007f, -.011f),
+            LeftVelocity = new Vector2(2f / 28f, -3f / 28f),
+            RightVelocity = new Vector2(4f / 28f, -5f / 28f) };
         state.TempleLeft = new TownClothRunnerState
         { Left = new Vector2(.015f, -.010f), Right = new Vector2(-.020f, .030f),
             LeftVelocity = new Vector2(.040f, -.020f), RightVelocity = new Vector2(-.060f, .080f) };
@@ -93,27 +97,38 @@ internal static class TownResidentsVectors
             "fresh decode never inherits a previous permanent population");
 
         t.Case("town residents79: owner cloth controls append after the unchanged pose prefix");
-        var cloth = WithCloth(); var extended = new byte[Golden.Length + 24]; Golden.CopyTo(extended, 0);
-        extended[1] = 139;
-        Hex.Bytes("0F F6 EC 1E 14 F6 E2 28 F6 14 19 F1 F6 0F 14 EC 05 FB F9 09 06 F9 F7 0A")
+        var cloth = WithCloth(); var extended = new byte[Golden.Length + 30]; Golden.CopyTo(extended, 0);
+        extended[1] = 145;
+        Hex.Bytes("0D F7 07 F5 D2 B4 0F F6 EC 1E 14 F6 E2 28 F6 14 19 F1 F6 0F 14 EC 05 FB F9 09 06 F9 F7 0A")
             .CopyTo(extended, Golden.Length);
         offset = 0;
         t.True(TownResidentsCodec.Write(bytes, ref offset, in cloth), "owner writes complete cloth controls");
         t.Wire(extended, bytes, offset, "literal signed millimetre/velocity tail preserves the old pose prefix");
-        t.True(TownResidentsCodec.TryRead(extended, 2, 139, out decoded) && decoded.HasCloth,
+        t.True(TownResidentsCodec.TryRead(extended, 2, 145, out decoded) && decoded.HasCloth,
             "observer reads explicit cloth tail");
-        t.True(decoded.TempleLeft.Left == cloth.TempleLeft.Left && decoded.TempleRight.Right == cloth.TempleRight.Right
+        t.True(decoded.MerchantCloth.Left == cloth.MerchantCloth.Left
+            && Mathf.Abs(decoded.MerchantCloth.RightVelocity.y - cloth.MerchantCloth.RightVelocity.y) < .0001f
+            && decoded.TempleLeft.Left == cloth.TempleLeft.Left && decoded.TempleRight.Right == cloth.TempleRight.Right
             && decoded.EnchantressCloth.LeftVelocity == cloth.EnchantressCloth.LeftVelocity,
-            "owner and observer reconstruct the same three edge controls");
+            "owner and observer reconstruct the same four edge controls");
+        var legacyCloth = new byte[Golden.Length + 24]; Golden.CopyTo(legacyCloth, 0);
+        legacyCloth[1] = 139;
+        Array.Copy(extended, Golden.Length + 6, legacyCloth, Golden.Length, 24);
+        t.True(TownResidentsCodec.TryRead(legacyCloth, 2, 139, out decoded) && decoded.HasCloth
+            && decoded.MerchantCloth.Left == Vector2.zero && decoded.TempleLeft.Left == cloth.TempleLeft.Left,
+            "earlier three-runner cloth tail remains readable");
         t.True(TownResidentsCodec.TryRead(Golden, 2, 115, out decoded) && !decoded.HasCloth,
             "old 115-byte record leaves cloth motion absent, never stale");
-        for (int cut = 116; cut < 139; cut++)
+        for (int cut = 116; cut < 145; cut++)
+        {
+            if (cut == 139) continue; // A complete historical three-runner tail is valid.
             t.True(!TownResidentsCodec.TryRead(extended, 2, cut, out decoded) && !decoded.Active,
                 "partial cloth tail " + cut + " rejects atomically");
-        foreach (int tailIndex in new[] { 115, 119, 123, 131 })
+        }
+        foreach (int tailIndex in new[] { 115, 119, 121, 125, 129, 137 })
         {
             byte[] invalid = (byte[])extended.Clone(); invalid[2 + tailIndex] = 0x80;
-            t.True(!TownResidentsCodec.TryRead(invalid, 2, 139, out decoded) && !decoded.Active,
+            t.True(!TownResidentsCodec.TryRead(invalid, 2, 145, out decoded) && !decoded.Active,
                 "out-of-range signed cloth control " + tailIndex + " rejects atomically");
         }
         var invalidSource = cloth; invalidSource.TempleRight.RightVelocity.x = float.NaN;
@@ -256,13 +271,13 @@ internal static class TownResidentsVectors
         t.True(TownResidentsCodec.Write(bytes, ref offset, in state) && offset == 6986,
             "the complete maximum resident record adds117 to the established6869-byte worst case");
         offset = 6869;
-        t.True(TownResidentsCodec.Write(bytes, ref offset, in cloth) && offset == 7010,
-            "extended resident record adds141 bytes including24 cloth controls");
-        t.True(PresenceSerializer.MaxSize == 7931 && PresenceSerializer.MaxSize - (offset + 96 + 55 + 3 + 510) == 257
-            && ExtrasFragments.MaxSnapshotBytes - (offset + 96 + 55 + 3 + 510) == 6,
-            "cloth and opening records retain exact send and fragment margins");
+        t.True(TownResidentsCodec.Write(bytes, ref offset, in cloth) && offset == 7016,
+            "extended resident record adds147 bytes including30 cloth-control bytes");
+        t.True(PresenceSerializer.MaxSize == 7931 && PresenceSerializer.MaxSize - (offset + 96 + 55 + 3 + 510) == 251
+            && ExtrasFragments.MaxSnapshotBytes - (offset + 96 + 55 + 3 + 510) == 0,
+            "merchant cloth fits the maximum fragmented snapshot exactly");
         t.True(NetProtocol.Version == 3 && NetProtocol.ExtIdTownResidents == 79 && TownResidentsCodec.LegacyPayload == 115
-            && TownResidentsCodec.MaxPayload == 139,
+            && TownResidentsCodec.LegacyClothPayload == 139 && TownResidentsCodec.MaxPayload == 145,
             "new residents retain wirev3 and never reuse a historical record identifier");
     }
 }

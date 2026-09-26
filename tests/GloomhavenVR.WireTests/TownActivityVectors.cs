@@ -50,6 +50,6 @@ internal static class TownActivityVectors
         presence.HasTownActivity=false;count=PresenceSerializer.Write(in presence,bytes);t.True(PresenceSerializer.TryRead(bytes,count,out parsed)&&!parsed.HasTownActivity,"absence retains oldwire");
         offset=7082;t.True(TownActivityCodec.Write(bytes,ref offset,in state)&&offset==7137,"worst snapshot exact7137");
         t.True(ExtrasFragments.MaxSnapshotBytes-(offset+3+510)==30&&PresenceSerializer.MaxSize-(offset+3+510)==281,"legacy resident prefix retains its original fragment margin");
-        t.True(NetProtocol.Version==3&&NetProtocol.ExtIdTownResidents==79&&TownResidentsCodec.LegacyPayload==115&&TownResidentsCodec.MaxPayload==139&&TownFaceCodec.MaxPayload==94,"79 retains its prefix and adds bounded cloth controls");
+        t.True(NetProtocol.Version==3&&NetProtocol.ExtIdTownResidents==79&&TownResidentsCodec.LegacyPayload==115&&TownResidentsCodec.LegacyClothPayload==139&&TownResidentsCodec.MaxPayload==145&&TownFaceCodec.MaxPayload==94,"79 retains its prefix and adds bounded cloth controls");
     }
 }
