@@ -38,7 +38,7 @@ internal sealed class TownServiceTempleBowlMarker : IDisposable
         VRLayers.Apply(_root);
     }
 
-    internal void Tick(bool shown)
+    internal void Tick(bool shown, float approach = 0f)
     {
         if (_root == null) return;
         if (_bag == null && TownServiceDecor.MoneyBagTemplate != null)
@@ -66,14 +66,17 @@ internal sealed class TownServiceTempleBowlMarker : IDisposable
             if (_ownsBlessing) BuildBlessing();
         }
         _visibility = Mathf.MoveTowards(_visibility, shown ? 1f : 0f, Time.unscaledDeltaTime / .12f);
-        float pulse = .96f + .06f * Mathf.Sin(Time.unscaledTime * 4f);
+        float pulse = .96f + .06f * Mathf.Sin(Time.unscaledTime * 4f) + .09f * approach;
         _root.transform.localScale = Vector3.one * pulse;
         foreach (Material material in _materials)
             if (material != null && material.HasProperty("_Color"))
             {
                 Color tint = material.GetColor("_Color");
-                tint.a = _visibility * .30f;
+                tint.a = _visibility * (.30f + .40f * approach);
                 material.SetColor("_Color", tint);
+                if (material.HasProperty("_EmissionColor"))
+                    material.SetColor("_EmissionColor", new Color(.035f + .10f * approach,
+                        .13f + .22f * approach, .28f + .16f * approach, 1f));
             }
         if (_bag != null) _bag.SetActive(_visibility > .01f);
         if (_blessingLight != null)

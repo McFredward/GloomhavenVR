@@ -69,7 +69,7 @@ namespace GloomhavenVR.Core.Events {
 }
 namespace GloomhavenVR.Hands {
  public enum HandSide { Left, Right }
- public enum HapticPreset { ClickPulse }
+ public enum HapticPreset { ClickPulse, HoverTick }
  public class VRHand { public bool HasPose = true; public float WorldScale = 1; public Holder Grabber = new(); public HandRig Rig = new(); public Gate PalmGate = new(); public HandSide Side; public void SendHaptic(HapticPreset preset) { } }
  public class Holder { public object? Held; public void CancelAll() { if (Held is Cards.ItemsPile.ItemChip chip) chip.Holder = null; Held = null; } }
  public class HandRig { public Transform PalmCenter = null!; public Transform GrabAnchor = null!; }
@@ -205,7 +205,7 @@ namespace GloomhavenVR.WorldUI {
  public static class StoryComposite { public static bool PointOfNoReturn; }
  internal sealed class TownServiceStation { public Transform Root = null!; public bool Near = true; public bool IsLocalVisitorNear(bool previous)=>Near; }
  internal static class TownServicePopulation { public static TownServiceStation? Station; public static bool Available(byte s)=>Station!=null; public static TownServiceStation? Acquire(byte s)=>Station; }
- internal static class TownServiceCatalog { public static Func<ScenarioRuleLibrary.CItem,bool,bool>? CanOffer; public static Func<ScenarioRuleLibrary.CItem,bool,Vector3,bool>? Offer; public static Func<Vector3,bool>? InOfferingZone; public static bool HeldOfferAvailable; public static Action<TownServiceToken>? RetainOffer; }
+ internal static class TownServiceCatalog { public static Func<ScenarioRuleLibrary.CItem,bool,bool>? CanOffer; public static Func<ScenarioRuleLibrary.CItem,bool,Vector3,bool>? Offer; public static Func<Vector3,bool>? InOfferingZone; public static bool HeldOfferAvailable; public static Action<TownServiceToken>? RetainOffer; public static bool TryHeldOffer(Vector3 target, out Vector3 position, out Hands.VRHand? hand, out bool selling) { position=default; hand=null; selling=false; return HeldOfferAvailable; } }
  internal sealed class TownServiceToken { public void ParkOffering(Transform seat,Action reclaim) {} public void ReturnOffering() {} }
  internal static class TownServicePalmConfirmation { internal static void Begin(UIItemConfirmationBox box, Transform seat) {} }
  internal static class TownServiceMerchantTransaction {

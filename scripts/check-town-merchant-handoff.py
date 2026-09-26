@@ -38,6 +38,8 @@ def sources(root):
              "src/GloomhavenVR/Cards/Piles/ItemsPile.Merchant.cs",
              "src/GloomhavenVR/WorldUI/MapRoom/MapRoomHand.5.Merchant.cs"]
     bound = {Path(p).name: (root / p).read_text() for p in paths}
+    feedback = root / "src/GloomhavenVR/WorldUI/TownServices/TownServiceOfferFeedback.cs"
+    bound[feedback.name] = feedback.read_text()
     face = (root / "src/GloomhavenVR/WorldUI/TownServices/TownServiceFace.cs").read_text()
     attention = method(face, "internal bool IsLocalVisitorNear(bool wasNear)")
     reach = next(line.strip() for line in face.splitlines() if "private const float VisitorReachMetres =" in line)

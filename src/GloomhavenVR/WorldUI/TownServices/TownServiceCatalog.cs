@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using GloomhavenVR.Cards;
 using GloomhavenVR.Core;
+using GloomhavenVR.Hands;
 using GloomhavenVR.Hands.Interact;
 using GloomhavenVR.Net;
 using GloomhavenVR.Rig;
@@ -200,6 +201,21 @@ internal sealed class TownServiceCatalog : IDisposable
                 if (entry.Sample.IsHeld && entry.Current && (CanOffer?.Invoke(entry.Item, entry.Selling) ?? false)) return true;
             return false;
         }
+    }
+    internal static bool TryHeldOffer(Vector3 target, out Vector3 position, out VRHand? hand, out bool selling)
+    {
+        float best = float.PositiveInfinity;
+        position = default; hand = null; selling = false;
+        foreach (Entry entry in CardMounts.Values)
+            if (entry.Sample.IsHeld && entry.Current && (CanOffer?.Invoke(entry.Item, entry.Selling) ?? false))
+            {
+                Vector3 point = entry.MountRoot.position;
+                float distance = (point - target).sqrMagnitude;
+                if (distance >= best) continue;
+                best = distance; position = point;
+                hand = entry.Sample.HoldingHand; selling = entry.Selling;
+            }
+        return hand != null;
     }
     internal static Func<CItem, bool, bool>? CanOffer = null;
     internal static Func<CItem, bool, Vector3, bool>? Offer = null;

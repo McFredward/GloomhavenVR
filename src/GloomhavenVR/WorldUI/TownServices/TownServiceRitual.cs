@@ -300,6 +300,7 @@ internal sealed class TownServiceRitual : IDisposable
     private readonly float _started = Time.unscaledTime;
     private bool _disposed;
     private TownServiceTempleOffering? _templeOffering;
+    private readonly TownServiceOfferFeedback _templeFeedback = new();
     private readonly HashSet<(string Character, object Blessing)> _submittedOfferings = new();
     internal TownServiceEnhancementHandoff? Handoff { get; private set; }
     internal TownServiceCardSlots CardSlots { get; } = new();
@@ -415,17 +416,15 @@ internal sealed class TownServiceRitual : IDisposable
         }
         _templeOffering?.Tick(!_disposed && _alive());
         if (_disposed) return;
-        if (!_alive()) { _bowlMarker?.Tick(false); return; }
+        if (!_alive()) { _templeFeedback.Clear(); _bowlMarker?.Tick(false); return; }
         if (_service == 2 && TownServiceDecor.MoneyBagTemplate == null && Time.unscaledTime - _started > 15f)
             throw new InvalidOperationException("Original offering geometry did not load; restoring the native temple window.");
         if (Time.unscaledTime >= _censusAt) { _censusAt = Time.unscaledTime + .2f; RefreshPieces(); }
         foreach (Piece piece in _pieces.Values) piece.Tick(scale);
         if (_zoneGate != null) _zoneGate.alpha = 0f;
-        bool offeringHeld = false;
         foreach (Piece piece in _pieces.Values)
         {
             if (!piece.Token.DropEligible) continue;
-            offeringHeld = true;
             if (_zoneLabel != null && _zoneGate != null)
             {
                 _zoneLabel.text = Loc.Mod(piece.Source is AbilityCardUI ? "town_enchant_card" : "town_inscribe");
@@ -442,7 +441,33 @@ internal sealed class TownServiceRitual : IDisposable
                 if (piece.Source is UITempleShopSlot && piece.NativeAvailable)
                 { donationAvailable = true; break; }
         TempleDonationAvailable = donationAvailable;
-        _bowlMarker?.Tick(donationAvailable && (offeringHeld || _templeOffering?.Available == true));
+        bool purseHeld = false, purseEligible = false;
+        VRHand? purseHand = null;
+        Vector3 pursePoint = Vector3.zero;
+        if (_service == 2)
+            foreach (Piece piece in _pieces.Values)
+                if (piece.Source is UITempleShopSlot && piece.Token.IsHeld)
+                {
+                    purseHeld = true;
+                    if (piece.Token.DropEligible)
+                    { purseEligible = true; purseHand = piece.Token.HoldingHand;
+                      pursePoint = piece.Token.OfferingPoint; }
+                    break;
+                }
+        // A purse stays readable in the wrist fan when payment is unavailable, but a held
+        // rejected purse must not illuminate the bowl as though its release could commit.
+        bool bowlShown = donationAvailable && (purseHeld ? purseEligible
+            : _templeOffering?.Available == true);
+        Vector3 bowlLocal = purseHand != null && _templeOffering != null
+            ? _templeOffering.DropFrame.InverseTransformPoint(pursePoint) - TownServiceTempleBowl.Center
+            : Vector3.zero;
+        // The token's existing inside-bowl pulse is the drop edge. This shared cue supplies
+        // the earlier hover tick and owner-authored visual approach without duplicating it.
+        float bowlStrength = _templeFeedback.Tick(bowlShown && purseHand != null, purseHand,
+            purseHand != null ? bowlLocal.magnitude : float.MaxValue,
+            purseHand != null && _templeOffering?.InBowl(pursePoint) == true, .28f,
+            snapPulse: false);
+        _bowlMarker?.Tick(bowlShown, bowlStrength);
         foreach (Inscription inscription in _inscriptions) inscription.Tick();
         foreach (TownServiceSurface surface in _surfaces) surface.Tick(Vector3.zero, Quaternion.identity, scale);
     }

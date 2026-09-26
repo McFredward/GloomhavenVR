@@ -81,6 +81,8 @@ internal sealed class TownServiceToken : IGrabbable, ITriggerOnlyGrabbable, IGra
 
     internal Transform Source => _source;
     internal Transform? HeldRoot => _held != null ? _held.transform : null;
+    internal VRHand? HoldingHand => _hand;
+    internal Vector3 OfferingPoint => IsHeld ? PhysicalDropPoint : Vector3.zero;
     // A normalized purse is rooted at its base. The visible body, rather than that
     // base point below the player's pinch, is what the player places in the bowl.
     private Vector3 PhysicalDropPoint => _physical != null && _uprightProp

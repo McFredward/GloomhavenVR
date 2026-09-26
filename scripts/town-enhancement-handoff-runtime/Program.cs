@@ -14,12 +14,99 @@ public static class InteractionProgram
     public static int Run()
     {
         count = 0;
+        OfferFeedback();
+        FirstVisitCue();
         Approach();
         WalkAway();
         foreach (float scale in new[] { .05f, 1f, 2f, 198.12f })
         for (int scenario = 0; scenario < 22; scenario++) RunCase(scale, scenario);
         SwapOffering();
         return count;
+    }
+
+    private static void FirstVisitCue()
+    {
+        var root = new GameObject("First visit fixture");
+        var native = new GameObject("Native", typeof(UIWindow), typeof(UINewEnhancementWindow));
+        native.transform.SetParent(root.transform, false);
+        var shop = native.GetComponent<UINewEnhancementWindow>();
+        var station = new GameObject("Resident").transform; station.SetParent(root.transform, false);
+        var palm = new GameObject("ActivityOfferingPalm").transform; palm.SetParent(station, false);
+        var card = new GameObject("Owned map card", typeof(VRCard)).GetComponent<VRCard>();
+        card.transform.SetParent(root.transform, false); card.Owner = shop.character; card.Model.ID = 412;
+        CardsDriver.OffScenarioFanCards = new[] { card };
+        var slot = new GameObject("Native slot", typeof(RectTransform), typeof(Button), typeof(UIEnhanceCardSlot))
+            .GetComponent<UIEnhanceCardSlot>();
+        slot.transform.SetParent(native.transform, false); slot.Selectable = slot.GetComponent<Button>();
+        slot.AbilityCard = new GameObject("Native card", typeof(AbilityCardUI)).GetComponent<AbilityCardUI>();
+        slot.AbilityCard.AbilityCard = card.Model;
+        slot.Selected = () => shop.selectedCard = slot.AbilityCard;
+        shop.CardsDisplay.slotsPool.Add(slot);
+        var hand = new VRHand(); VRHands.Left = hand; VRHands.Right = null;
+        hand.Grabber.Held = card; card.IsHeld = true;
+        bool input = false;
+        TownServicePresentation.SessionAge = .08f;
+        using (var handoff = new TownServiceEnhancementHandoff(shop, station, () => true, () => input))
+        {
+            handoff.Tick(); card.transform.position = handoff.Seat.position; handoff.Tick();
+            CanvasGroup gate = handoff.Zone.GetComponent<CanvasGroup>();
+            Check(gate.alpha > .3f && gate.alpha < .5f && hand.HoverTicks == 0 && hand.ClickPulses == 0,
+                "first opening shows neutral palm locator while native input remains blocked");
+            card.IsHeld = false; hand.Grabber.Held = null;
+            Check(!TownServiceEnhancementHandoff.TryOffer(card) && handoff.Card == null,
+                "first opening preview cannot commit native card selection");
+            card.IsHeld = true; hand.Grabber.Held = card;
+            input = true; handoff.Tick();
+            Check(gate.alpha == 1f && hand.HoverTicks == 1 && hand.ClickPulses == 1,
+                "ready first visit turns the same locator into a haptic snap target");
+            CardsDriver.OffScenarioFanCards = Array.Empty<VRCard>(); handoff.Tick();
+            Check(gate.alpha == 1f,
+                "held owned card remains offerable when the visible fan no longer lists its plucked card");
+        }
+        CardsDriver.OffScenarioFanCards = new[] { card };
+        TownServicePresentation.SessionAge = 3f;
+        using (var revisit = new TownServiceEnhancementHandoff(shop, station, () => true, () => true))
+        { revisit.Tick(); Check(revisit.Zone.GetComponent<CanvasGroup>().alpha == 1f,
+            "later visit is ready without inheriting a stale preview latch"); }
+        VRHands.Left = null; card.IsHeld = false;
+        UnityEngine.Object.DestroyImmediate(root);
+    }
+
+    private static void OfferFeedback()
+    {
+        var root = new GameObject("Offer cue", typeof(RectTransform), typeof(CanvasGroup));
+        var border = new GameObject("Border", typeof(RectTransform), typeof(Image));
+        border.transform.SetParent(root.transform, false);
+        var cue = new TownServiceOfferFeedback(root.GetComponent<CanvasGroup>(), root.transform);
+        var hand = new VRHand();
+        cue.Tick(false, hand, 0f, true, .43f); cue.Paint(false);
+        Check(hand.HoverTicks == 0 && hand.ClickPulses == 0 && root.GetComponent<CanvasGroup>().alpha == 0f,
+            "blocked native offer has no visual or haptic preview");
+        cue.Tick(true, hand, .7f, false, .43f); cue.Paint(true);
+        Check(root.GetComponent<CanvasGroup>().alpha > .99f && hand.HoverTicks == 0,
+            "valid empty handoff target is visible before card approach");
+        cue.Tick(true, hand, .30f, false, .43f);
+        cue.Tick(true, hand, .22f, false, .43f);
+        Check(hand.HoverTicks == 1 && hand.ClickPulses == 0,
+            "approach has one debounced hover pulse");
+        cue.Tick(true, hand, .10f, true, .43f);
+        cue.Tick(true, hand, .08f, true, .43f);
+        Check(hand.HoverTicks == 1 && hand.ClickPulses == 1,
+            "native accept volume has one debounced snap pulse");
+        var secondHand = new VRHand();
+        cue.Tick(true, secondHand, .09f, true, .43f);
+        Check(secondHand.HoverTicks == 1 && secondHand.ClickPulses == 1,
+            "a different controller receives its own approach and snap edge");
+        cue.Tick(false, hand, .08f, true, .43f); cue.Paint(false);
+        Check(root.GetComponent<CanvasGroup>().alpha == 0f && hand.ClickPulses == 1,
+            "native disablement clears an apparently actionable target");
+        var bowl = new TownServiceOfferFeedback();
+        var purseHand = new VRHand();
+        bowl.Tick(true, purseHand, .20f, false, .28f, snapPulse: false);
+        bowl.Tick(true, purseHand, .05f, true, .28f, snapPulse: false);
+        Check(purseHand.HoverTicks == 1 && purseHand.ClickPulses == 0,
+            "priestess approach adds one hover pulse without duplicating the purse token's inside-bowl snap pulse");
+        UnityEngine.Object.DestroyImmediate(root);
     }
 
     private static void SwapOffering()

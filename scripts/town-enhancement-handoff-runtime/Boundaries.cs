@@ -45,7 +45,8 @@ namespace GloomhavenVR.Core
 }
 namespace GloomhavenVR.Hands
 {
-    public class VRHand { public string Side="Right"; public float WorldScale=1f; public bool HasPose = true; public Holder Grabber; public VRHand(){Grabber=new Holder(this);} }
+    public enum HapticPreset { HoverTick, ClickPulse }
+    public class VRHand { public string Side="Right"; public float WorldScale=1f; public bool HasPose = true; public Holder Grabber; public int HoverTicks, ClickPulses; public VRHand(){Grabber=new Holder(this);} public void SendHaptic(HapticPreset preset) { if (preset == HapticPreset.HoverTick) HoverTicks++; else ClickPulses++; } }
     public partial class Holder {
         public object? Held; private bool _enabled=true; private VRHand _hand; private string _grabLabel="fixture";
         public Holder(VRHand hand){_hand=hand;} private void LogRefusal(string text){}
@@ -102,6 +103,7 @@ namespace GloomhavenVR.WorldUI
 {
     public static class TownServicePalmConfirmation { public static bool Owned; public static bool OwnsCurrent(UIWindow? window)=>Owned && window!=null; public static void Begin(UIEnhancementConfirmationBox box,Transform seat){} public static void CancelOwned(UIWindow window){} }
     public static class TownServicePresentation { public static uint Session = 22; public static float SessionAge = 3f; public static bool Active = true; public static byte Service = 3; }
+    public static class TownServiceSync { public static bool Owner = true; public static bool LocalOwnsInteraction(byte service, uint session) => Owner && service == 3 && session == TownServicePresentation.Session; }
     public static class WorldUIConfig
     {
         public static readonly ToggleValue ImmersiveTownServices = new(); public static ToggleValue? MapRoomHand = new();

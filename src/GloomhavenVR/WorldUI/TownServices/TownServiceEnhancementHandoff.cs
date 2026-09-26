@@ -74,11 +74,13 @@ internal sealed class TownServiceEnhancementHandoff : IDisposable
     private readonly Func<bool> _input;
     private readonly Transform _seat;
     private readonly CanvasGroup _zoneGate;
+    private readonly TMP_Text _zoneLabel;
+    private readonly TownServiceOfferFeedback _feedback;
     private readonly Transform _station;
     private Transform? _palm;
     private float _palmSearchAt;
     private CAbilityCard? _model;
-    private bool _disposed, _confirmationSeen, _cueRecorded, _lastCueShown;
+    private bool _disposed, _confirmationSeen, _cueRecorded, _lastCueShown, _labelReady = true;
     private float _offeredHeight;
     internal VRCard? Card { get; private set; }
     internal AbilityCardUI? NativeSource { get; private set; }
@@ -101,7 +103,9 @@ internal sealed class TownServiceEnhancementHandoff : IDisposable
         TMP_Text label = Zone.Find("Caption").GetComponent<TMP_Text>();
         label.text = Loc.Mod("town_enchant_card"); label.fontSize = 26f;
         label.rectTransform.sizeDelta = new Vector2(150f, 100f);
+        _zoneLabel = label;
         _zoneGate = Zone.GetComponent<CanvasGroup>(); _zoneGate.alpha = 0f;
+        _feedback = new TownServiceOfferFeedback(_zoneGate, Zone);
         VRLayers.Apply(_seat.gameObject);
         _current = this;
         ClearNativeSelection();
@@ -225,10 +229,42 @@ internal sealed class TownServiceEnhancementHandoff : IDisposable
             _seat.localScale = Vector3.one;
         }
         bool ready = Ready, hasPalm = _palm != null;
-        bool availableCard = ready && hasPalm && HasAvailableOwnedCard();
-        bool replacement = Card == null || HeldReplacementAvailable();
-        bool showCue = availableCard && replacement;
-        _zoneGate.alpha = showCue ? 1f : 0f;
+        VRCard? leftHeld = VRHands.Left?.Grabber.Held as VRCard;
+        VRCard? rightHeld = VRHands.Right?.Grabber.Held as VRCard;
+        bool leftEligible = OfferableHeld(leftHeld), rightEligible = OfferableHeld(rightHeld);
+        VRHand? holder = leftEligible ? VRHands.Left : rightEligible ? VRHands.Right : null;
+        if (leftEligible && rightEligible)
+            holder = (leftHeld!.transform.position - _seat.position).sqrMagnitude
+                <= (rightHeld!.transform.position - _seat.position).sqrMagnitude ? VRHands.Left : VRHands.Right;
+        VRCard? held = holder?.Grabber.Held as VRCard;
+        bool availableCard = hasPalm && _window != null && _window.IsOpen && _alive()
+            && !_shop._isConfirmationBoxOpened && (held != null || HasAvailableOwnedCard());
+        // When the hand carries a card, the preview must describe THAT card. A different
+        // valid card elsewhere in the fan cannot make an invalid held card look droppable.
+        bool replacement = Card == null || held != null;
+        bool heldEligible = leftHeld == null && rightHeld == null || held != null;
+        bool candidate = availableCard && replacement && heldEligible;
+        bool showCue = ready && candidate;
+        // Build 571 first-visit evidence: screenshot 005428 shows the outstretched empty
+        // hand; its one local Debug visit logged cue hidden with input=False, followed by
+        // cue shown/input=True and a successful actual owned-card offer. eligibleOwnedCard
+        // was false only because the old ready && ... expression short-circuited; it did
+        // not prove a late native card refresh. The first visit starts a 220 ms workspace
+        // relocation and opening fade, while the second visit often has no relocation.
+        // Show a quiet target outline on the stationary hand during that bounded opening,
+        // but keep Ready on the native accept path. An opening preview has no action text,
+        // no haptics and no permission to select a card. The bright green target means the
+        // native card slot and interaction are ready for the actual release callback.
+        bool preview = !ready && candidate && TownServicePresentation.SessionAge < .35f
+            && TownServiceSync.LocalOwnsInteraction(3, TownServicePresentation.Session)
+            && Core.Events.VRModeStateMachine.CurrentMode != Core.Events.VRMode.ModalUI;
+        Vector3 local = held != null ? _seat.InverseTransformPoint(held.transform.position) : Vector3.zero;
+        float distance = held != null ? local.magnitude : float.MaxValue;
+        _feedback.Tick(showCue && held != null, holder, distance,
+            held != null && TownServiceOfferingPose.Contains(_seat, held.transform.position), .43f);
+        _feedback.Paint(showCue, preview);
+        if (_labelReady != showCue)
+        { _labelReady = showCue; _zoneLabel.text = showCue ? Loc.Mod("town_enchant_card") : string.Empty; }
         if (VRLog.WantsDebug && (!_cueRecorded || _lastCueShown != showCue))
         {
             _cueRecorded = true; _lastCueShown = showCue;
@@ -236,7 +272,7 @@ internal sealed class TownServiceEnhancementHandoff : IDisposable
                 + ": nativeOpen=" + (_window != null && _window.IsOpen)
                 + " input=" + _input() + " palm=" + hasPalm
                 + " eligibleOwnedCard=" + availableCard + " replacement=" + replacement
-                + " offered=" + (Card != null) + ".");
+                + " offered=" + (Card != null) + " preview=" + preview + ".");
         }
         if (Card == null)
         {
@@ -298,9 +334,8 @@ internal sealed class TownServiceEnhancementHandoff : IDisposable
         return false;
     }
 
-    private bool HeldReplacementAvailable()
+    private bool OfferableHeld(VRCard? card)
     {
-        VRCard? card = HeldOwnedCard(VRHands.Left) ?? HeldOwnedCard(VRHands.Right);
         return card != null && !ReferenceEquals(card, Card) && ValidOwner(card)
             && MapRoomHand.TryOwnedTownCard(card, out _, out CAbilityCard? model)
             && FindAvailableSlot(model) != null;

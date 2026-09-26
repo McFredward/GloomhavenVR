@@ -30,7 +30,8 @@ def sources(root):
     path = root / "src/GloomhavenVR/WorldUI/TownServices/TownServiceEnhancementHandoff.cs"
     source = path.read_text()
     pose = path.with_name("TownServiceOfferingPose.cs")
-    bound = {path.name: source, pose.name: pose.read_text()}
+    feedback = path.with_name("TownServiceOfferFeedback.cs")
+    bound = {path.name: source, pose.name: pose.read_text(), feedback.name: feedback.read_text()}
     card = (root / "src/GloomhavenVR/Cards/VRCard.cs").read_text()
     start = card.index("    public override bool CanGrab =>")
     gate = card[start:card.index(";", start) + 1]
@@ -82,6 +83,7 @@ def mutations():
         ("return-life", name, "finally { presentation.Started = true; PruneReturns(); }", "finally { presentation.Started = true; Returns.Remove(presentation); PruneReturns(); }", "return presentation survives ritual disposal with actual face and fixed identity"),
         ("reclaim", name, "Detach(); ClearNativeSelection();", "Detach();", "manual reclaim clears native options"),
         ("startup", name, "if (!ValidOwner(Card) || !_alive()", "if (!ValidOwner(Card) || !_alive() || !_input()", "opening input fade retains offering"),
+        ("preview-commit", name, "&& !_shop._isConfirmationBoxOpened && _alive() && _input();", "&& !_shop._isConfirmationBoxOpened && _alive();", "first opening shows neutral palm locator while native input remains blocked"),
         ("head-proximity", name, "bool headEntered = head != null && !_headInside && NearVisitor(palm, head.transform.position, 1.4f);", "bool headEntered = false;", "head proximity opens original service without a held card"),
         ("deferred-approach", name, "if (!_pendingApproach || GuildmasterDestinations.CurrentDestinationMode()", "if (!_pendingApproach || !headEntered && !cardEntered || GuildmasterDestinations.CurrentDestinationMode()", "pending approach opens when original native rail becomes ready"),
         ("bounded-retry", name, "if (!headEntered && !cardEntered && now < _approachRetryAt) return;", "if (now < -1f) return;", "pending native rail retries are rate-limited between frames"),
@@ -90,7 +92,7 @@ def mutations():
         ("explicit-close", name, "suppressNativeSound: true)) _pendingApproach = false;", "suppressNativeSound: true)) { }", "explicit close remains closed while card stays near"),
         ("other-service", name, "&& GuildmasterDestinations.CurrentDestinationMode() == EGuildmasterMode.None", "&& true", "closing another service while near does not take over"),
         ("modal", name, "|| Core.Events.VRModeStateMachine.CurrentMode == Core.Events.VRMode.ModalUI", "", "modal confirmation prevents proximity opening"),
-        ("empty-palm", name, "bool showCue = availableCard && replacement;", "bool showCue = availableCard && replacement && HeldOwnedCard(VRHands.Left) != null;", "empty ready palm advertises an owned offering without requiring a held card"),
+        ("empty-palm", name, "bool heldEligible = leftHeld == null && rightHeld == null || held != null;", "bool heldEligible = held != null;", "empty ready palm advertises an owned offering without requiring a held card"),
         ("model-refresh", name, "a.ID == b.ID", "ReferenceEquals(a, b)", "same owned card ID survives a native enhancement-list model refresh"),
         ("occupied-swap", name, "|| card == null || card.IsHeld || ReferenceEquals(Card, card)", "|| card == null || card.IsHeld || Card != null", "second valid owned card atomically swaps into enchantress palm"),
         ("swap-rollback", name, "catch\n        {\n            RestoreSelection(existing, existingSlot);\n            throw;\n        }", "catch\n        {\n            throw;\n        }", "rejected replacement preserves prior enchantress card atomically"),

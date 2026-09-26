@@ -21,6 +21,7 @@ internal static class TownServiceMerchantHandoff
     private static TownServiceStation? _station;
     private static Transform? _palm, _seat, _zone;
     private static CanvasGroup? _zoneGate;
+    private static TownServiceOfferFeedback? _feedback;
     private static TMP_Text? _caption;
     private static CMapCharacter? _character;
     private static ItemsPile? _fan;
@@ -129,22 +130,47 @@ internal static class TownServiceMerchantHandoff
             _caption = _zone.Find("Caption").GetComponent<TMP_Text>();
             _caption.rectTransform.sizeDelta = new Vector2(150f, 100f);
             _zoneGate = _zone.GetComponent<CanvasGroup>();
+            _feedback = new TownServiceOfferFeedback(_zoneGate, _zone);
             VRLayers.Apply(_seat.gameObject);
         }
         TownServiceOfferingPose.Place(_seat, _palm, _station.Root, SessionAge);
         _offering?.Tick();
-        bool heldOwned = HeldOwned(VRHands.Left) || HeldOwned(VRHands.Right);
+        VRHand? ownedHand = NearestHeldOwned(_seat);
+        bool heldOwned = ownedHand != null;
         // Cabinet card eligibility is supplied by the same predicate through its release host.
-        bool heldStock = TownServiceCatalog.HeldOfferAvailable;
-        _caption!.text = Loc.Mod(heldOwned ? "town_merchant_sell" : "town_merchant_buy");
+        bool heldStock = TownServiceCatalog.TryHeldOffer(_seat.position, out Vector3 stockPosition,
+            out VRHand? stockHand, out bool stockSelling);
+        Vector3 ownedPosition = heldOwned ? ((ItemsPile.ItemChip)ownedHand!.Grabber.Held!).transform.position : default;
+        bool useOwned = heldOwned && (!heldStock || (ownedPosition - _seat.position).sqrMagnitude
+            <= (stockPosition - _seat.position).sqrMagnitude);
+        _caption!.text = Loc.Mod(useOwned || stockSelling
+            ? "town_merchant_sell" : "town_merchant_buy");
         // Active membership also carries the owner's near/offer intent to the shared resident
         // author. A parked card keeps that membership with alpha zero: no second overlay.
         _zone!.gameObject.SetActive(WantsOffering);
-        _zoneGate!.alpha = _offering == null && _offeredStock == null && (heldOwned || heldStock) ? 1f : 0f;
+        bool show = _offering == null && _offeredStock == null && (heldOwned || heldStock);
+        VRHand? holder = useOwned ? ownedHand : stockHand;
+        Vector3 position = useOwned ? ownedPosition : stockPosition;
+        Vector3 local = show ? _seat.InverseTransformPoint(position) : Vector3.zero;
+        _feedback!.Tick(show, holder, show ? local.magnitude : float.MaxValue,
+            show && TownServiceOfferingPose.Contains(_seat, position), .43f);
+        _feedback.Paint(show);
     }
 
     private static bool HeldOwned(VRHand? hand) => hand != null && hand.Grabber.Held is ItemsPile.ItemChip chip
         && ReferenceEquals(chip.Owner, _fan) && chip.Item != null && CanOffer(chip.Item, true);
+
+    private static VRHand? NearestHeldOwned(Transform seat)
+    {
+        VRHand? left = HeldOwned(VRHands.Left) ? VRHands.Left : null;
+        VRHand? right = HeldOwned(VRHands.Right) ? VRHands.Right : null;
+        if (left == null) return right;
+        if (right == null) return left;
+        Vector3 leftPoint = ((ItemsPile.ItemChip)left.Grabber.Held!).transform.position;
+        Vector3 rightPoint = ((ItemsPile.ItemChip)right.Grabber.Held!).transform.position;
+        return (leftPoint - seat.position).sqrMagnitude <= (rightPoint - seat.position).sqrMagnitude
+            ? left : right;
+    }
 
     internal static bool InOfferingZone(Vector3 world)
     {
@@ -161,8 +187,12 @@ internal static class TownServiceMerchantHandoff
     internal static bool CanOffer(CItem item, bool selling) => Eligible(item, selling, cached: true);
     private static bool Eligible(CItem item, bool selling, bool cached)
     {
+        EGuildmasterMode mode = GuildmasterDestinations.CurrentDestinationMode();
         if (!Active || item == null || !item.Tradeable
             || !ReferenceEquals(MapRoomHand.OwnedMerchantCharacter(), _character)) return false;
+        if (mode != EGuildmasterMode.Merchant && (mode != EGuildmasterMode.None
+            || !MapRoomDriver.CanVisitTownService(EGuildmasterMode.Merchant)
+            || Core.Events.VRModeStateMachine.CurrentMode == Core.Events.VRMode.ModalUI)) return false;
         UIItemConfirmationBox? confirmation = Singleton<UIItemConfirmationBox>.Instance;
         bool ownsConfirmation = confirmation != null && confirmation.IsActive && _ourConfirmation != null
             && ReferenceEquals(confirmation._onConfirmedCallback, _ourConfirmation);
@@ -361,7 +391,7 @@ internal static class TownServiceMerchantHandoff
         Action? ownedConfirmation = _ourConfirmation; _ourConfirmation = null;
         ReleaseOffering();
         ItemsPile? fan = _fan; _fan = null;
-        Transform? seat = _seat; _seat = _zone = null; _zoneGate = null; _caption = null;
+        Transform? seat = _seat; _seat = _zone = null; _zoneGate = null; _caption = null; _feedback = null;
         _pending = null; _tradeItem = null; DetachTradeListener(); _eligibilityItem = null; Items.Clear(); _character = null;
         try
         {
