@@ -187,7 +187,7 @@ public static class InteractionProgram
             &&receiving.LeftElbow.x>.27f&&receiving.RightElbow.x<-.27f,
             "attentive priestess rests both hands on her own hips behind the table edge");
         TownServiceActivityMotion.ApplyTempleAvailability(ref receiving,false,1f);
-        Check(Mathf.Abs(receiving.Left.x)<.05f&&Mathf.Abs(receiving.Right.x)<.05f
+        Check(Mathf.Abs(receiving.Left.x)<.07f&&Mathf.Abs(receiving.Right.x)<.07f
             &&receiving.Left.y>1.10f&&receiving.Right.y>1.10f
             &&receiving.Left.y<1.11f&&receiving.Right.y<1.11f
             &&receiving.Left.z>.17f&&receiving.Right.z>.17f,

@@ -131,10 +131,15 @@ internal static class TownServiceActivityMotion
         // 1.205 target held both hands a palm-height above it, reading as a vague
         // raised gesture rather than physically covering the offering. Bring the
         // relaxed palms just over the rim while leaving room for the original mesh.
-        visual.Left = Vector3.Lerp(visual.Left, new Vector3(.045f, 1.105f, .18f), t);
-        visual.Right = Vector3.Lerp(visual.Right, new Vector3(-.045f, 1.105f, .18f), t);
-        visual.LeftElbow = Vector3.Lerp(visual.LeftElbow, new Vector3(.34f, 1.24f, .31f), t);
-        visual.RightElbow = Vector3.Lerp(visual.RightElbow, new Vector3(-.34f, 1.24f, .31f), t);
+        // Keep a palm-width gap so the imported fingers cover the rim without intersecting.
+        // The former high, wide elbow guides made both upper sleeves leave the shoulder almost
+        // horizontally before the forearms converged, which read as detached arms in the filmed
+        // transition. These guides keep the elbows below and inside their shoulder line while
+        // the palms arrive symmetrically at the bowl.
+        visual.Left = Vector3.Lerp(visual.Left, new Vector3(.060f, 1.105f, .19f), t);
+        visual.Right = Vector3.Lerp(visual.Right, new Vector3(-.060f, 1.105f, .19f), t);
+        visual.LeftElbow = Vector3.Lerp(visual.LeftElbow, new Vector3(.28f, 1.18f, .34f), t);
+        visual.RightElbow = Vector3.Lerp(visual.RightElbow, new Vector3(-.28f, 1.18f, .34f), t);
         // The temple solver starts with inward-facing palms. Opposite quarter turns
         // place both palmar surfaces down over the bowl; the former signs faced them up.
         visual.LeftRoll = Mathf.Lerp(visual.LeftRoll, 82f, t);

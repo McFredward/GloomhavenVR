@@ -10,6 +10,31 @@ namespace GloomhavenVR.WorldUI;
 /// The canonical parchment frame never uses a visitor's zoom, head pose or environment choice.</summary>
 internal static class TownServicePopulation
 {
+    /// <summary>Tracks the committed temple edge independently of the temporary native
+    /// window lifetime. Losing a manifest for a frame, rebuilding the private ritual, or
+    /// hydrating an already-unavailable session must never replay a blessing. A new owner or
+    /// session establishes a baseline; only a later revision in that same session is live.</summary>
+    internal struct TempleBlessingGate
+    {
+        private int _owner;
+        private uint _session, _revision;
+        private bool _initialized;
+
+        internal bool Observe(bool received, int owner, uint session, bool known,
+            bool available, uint revision)
+        {
+            if (!received) return false; // Keep the baseline across transient close/reopen gaps.
+            bool sameSession = _initialized && _owner == owner && _session == session;
+            bool advanced = unchecked((int)(revision - _revision)) > 0;
+            bool play = sameSession && known && !available && advanced;
+            _owner = owner;
+            _session = session;
+            _revision = revision;
+            _initialized = true;
+            return play;
+        }
+    }
+
     private sealed class Resident
     {
         internal TownServiceStation Station = null!;
@@ -17,9 +42,7 @@ internal static class TownServicePopulation
         internal byte Clip;
         internal TownActivityPose Activity = new TownActivityPose { TransitionAge = TownServiceActivityMotion.TransitionSeconds };
         internal float MerchantOfferingBlend;
-        internal int TempleOwner;
-        internal uint TempleSession, TempleRevision;
-        internal bool TempleRevisionInitialized;
+        internal TempleBlessingGate TempleBlessing;
         internal float TempleUnavailableBlend;
         internal bool ObservedActivity;
         internal readonly TownServiceActivityHandover Handover = new();
@@ -37,9 +60,6 @@ internal static class TownServicePopulation
     internal static bool Available(byte service) => Residents.TryGetValue(service, out Resident? resident)
         && resident.Station.IsReady;
     private static float _started, _retryAt;
-    private static bool RevisionAdvanced(uint current, uint previous) =>
-        unchecked((int)(current - previous)) > 0;
-
     internal static bool HasRemoteVisitors
     {
         get
@@ -217,30 +237,20 @@ internal static class TownServicePopulation
             {
                 bool received = TownServiceMirror.TryTempleDonationState(out int owner, out uint session,
                     out bool known, out bool available, out uint revision, out float transitionAge);
-                if (!received)
-                {
-                    resident.TempleRevisionInitialized = false;
-                    resident.TempleUnavailableBlend = 0f;
-                }
-                else
-                {
-                    bool sameSession = resident.TempleRevisionInitialized
-                        && resident.TempleOwner == owner && resident.TempleSession == session;
-                    // Hydration and a new interaction owner establish a baseline only. A visual
-                    // response belongs exclusively to a later live donation edge in that session.
-                    if (sameSession && known && !available
-                        && RevisionAdvanced(revision, resident.TempleRevision))
-                        resident.Station.PlayTempleBlessing(transitionAge);
-                    resident.TempleOwner = owner;
-                    resident.TempleSession = session;
-                    resident.TempleRevision = revision;
-                    resident.TempleRevisionInitialized = true;
-                    resident.TempleUnavailableBlend = Mathf.MoveTowards(resident.TempleUnavailableBlend,
-                        known && !available ? 1f : 0f,
-                        Time.unscaledDeltaTime / TownServiceActivityMotion.TransitionSeconds);
-                    TownServiceActivityMotion.ApplyTempleAvailability(ref displayedActivity,
-                        !known || available, resident.TempleUnavailableBlend);
-                }
+                if (resident.TempleBlessing.Observe(received, owner, session, known, available, revision))
+                    resident.Station.PlayTempleBlessing(transitionAge);
+                // The private window may already be unavailable when first hydrated. Its
+                // revision is a baseline, not evidence that this viewer witnessed a donation.
+                // The unavailable pose belongs to the permanent resident, so removal of the
+                // temporary interaction record must release it over the same analytic transition
+                // as attention. Resetting this value to zero produced the recorded one-frame
+                // bowl-cover -> prayer snap every time the visitor walked away.
+                bool unavailable = received && known && !available;
+                resident.TempleUnavailableBlend = Mathf.MoveTowards(resident.TempleUnavailableBlend,
+                    unavailable ? 1f : 0f,
+                    Time.unscaledDeltaTime / TownServiceActivityMotion.TransitionSeconds);
+                TownServiceActivityMotion.ApplyTempleAvailability(ref displayedActivity,
+                    !unavailable, resident.TempleUnavailableBlend);
             }
             resident.Station.SampleActivity(in displayedActivity);
             resident.Station.SampleActivityAudio(faceAuthor, sourceEpoch, resident.Activity.WorkClock,

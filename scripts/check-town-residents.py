@@ -45,6 +45,7 @@ def main():
             ("viewer retains ahead facial clock", "Population.cs", "_faceClock = remoteFace.Clock;", "_faceClock = Mathf.Max(_faceClock, remoteFace.Clock);"),
             ("follower elects local facial target", "Population.cs", "IsFaceAuthor = !follows && enabled;", "IsFaceAuthor = enabled;"),
             ("opted out observer authors faces", "Population.cs", "SampleFace(IsFaceAuthor, hasFace", "SampleFace(!follows, hasFace"),
+            ("temple reopen replays blessing", "Population.cs", "bool play = sameSession && known && !available && advanced;", "bool play = _initialized && known && !available;"),
             ("stale author never expires", "Remote.cs", "now - pair.Value.Received <= NetProtocol.StaleTimeoutSeconds", "true"),
         ]
         for label, file, before, after in variants:

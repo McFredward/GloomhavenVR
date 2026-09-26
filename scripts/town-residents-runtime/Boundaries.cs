@@ -29,6 +29,7 @@ namespace UnityEngine
         public static Vector3 operator +(Vector3 a,Vector3 b)=>new(a.x+b.x,a.y+b.y,a.z+b.z);
         public static Vector3 operator -(Vector3 a,Vector3 b)=>new(a.x-b.x,a.y-b.y,a.z-b.z);
         public static Vector3 operator *(Vector3 a,float s)=>new(a.x*s,a.y*s,a.z*s);
+        public static float Distance(Vector3 a,Vector3 b)=>Mathf.Sqrt((a-b).sqrMagnitude);
     }
     public struct Quaternion
     {
@@ -55,6 +56,7 @@ namespace UnityEngine
         public static float Min(float a,float b)=>Math.Min(a,b);
         public static int Min(int a,int b)=>Math.Min(a,b);
         public static float Max(float a,float b)=>Math.Max(a,b);
+        public static float Sqrt(float v)=>(float)Math.Sqrt(v);
         public static int RoundToInt(float v)=>(int)Math.Round(v);
         public static float MoveTowards(float v,float target,float delta)=>Math.Abs(v-target)<=delta?target:v+Math.Sign(target-v)*delta;
     }
@@ -103,7 +105,8 @@ namespace GloomhavenVR.WorldUI
         internal void SetVisibility(float value)=>Visibility=value;
         internal static bool NearVisitor; internal int AttentionQueries;
         internal bool PrepareActivityAttention(bool previous){AttentionQueries++;return NearVisitor;}
-        internal void SampleActivity(in TownActivityVisual pose) { }
+        internal TownActivityVisual LastActivity;
+        internal void SampleActivity(in TownActivityVisual pose) { LastActivity=pose; }
         internal void SampleActivityAudio(int author,uint epoch,float clock,bool visible,in TownActivityVisual shown) { }
         internal int ClothAuthorTicks, ClothObserverTicks;
         internal GloomhavenVR.Net.TownClothRunnerState ClothFirst, ClothSecond;
@@ -115,7 +118,8 @@ namespace GloomhavenVR.WorldUI
         internal void SeedFace(GloomhavenVR.Net.TownFacePose pose,int author,float elapsed){FaceSeeds++;FacePose=pose;}
         internal GloomhavenVR.Net.TownFacePose SampleFace(bool author,bool received,int authorId,in GloomhavenVR.Net.TownFacePose remote,float elapsed,float clock){FaceAuthor=author;FaceReceived=received;if(received)FacePose=remote;return FacePose;}
         internal void Sample(string clip,float age) { Clip=clip;Age=age; }
-        internal void PlayTempleBlessing(float elapsed) { }
+        internal int Blessings; internal float LastBlessingAge;
+        internal void PlayTempleBlessing(float elapsed) { Blessings++;LastBlessingAge=elapsed; }
         internal void Dispose() { Live.Remove(Service);Disposals++; }
     }
     internal sealed class TownServiceVisitTarget
@@ -138,6 +142,10 @@ namespace GloomhavenVR.Net.TownServices
     internal static class TownServiceMirror
     {
         internal static bool RemoteMerchantOffering;
+        internal static bool TempleReceived,TempleKnown,TempleAvailable=true;
+        internal static int TempleOwner;
+        internal static uint TempleSession,TempleRevision;
+        internal static float TempleTransitionAge;
         internal static readonly Dictionary<int,TownServiceSessionInfo> RemoteSessions=new();
         internal static Func<int,Transform?>? SharedFrameForRemote;
         internal static bool TryInteractionOwner(byte service,out int player,out uint session,out float age)
@@ -156,7 +164,10 @@ namespace GloomhavenVR.Net.TownServices
         }
         internal static bool TryTempleDonationState(out int owner,out uint session,out bool known,
             out bool available,out uint revision,out float transitionAge)
-        { owner=0;session=0;known=false;available=true;revision=0;transitionAge=0;return false; }
+        {
+            owner=TempleOwner;session=TempleSession;known=TempleKnown;available=TempleAvailable;
+            revision=TempleRevision;transitionAge=TempleTransitionAge;return TempleReceived;
+        }
     }
 }
 namespace GloomhavenVR.Net

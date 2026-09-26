@@ -47,6 +47,10 @@ def inspect_particle_contract(marker):
         "BuildParticleTexture()",
         "_blessing.Simulate(age, true, false, true)",
         "_blessing.randomSeed = 0x475652u",
+        "if (_ownsBlessing) BuildBlessing();",
+        "effect.SetActive(false);",
+        "ParticleSystemStopBehavior.StopEmittingAndClear",
+        "Shader.Find(\"Legacy Shaders/Particles/Additive\")",
     )
     missing = [entry for entry in particle if entry not in marker]
     if missing or "BlessingSpark" in marker or "AddComponent<MeshFilter>()" in marker:
@@ -66,7 +70,7 @@ def inspect_shared_blessing_contract(root):
         raise RuntimeError("Private ritual plays a duplicate local blessing")
     required = (
         "TownServiceMirror.SetLocalTempleDonationAvailable(_ritual.TempleDonationAvailable)",
-        "RevisionAdvanced(revision, resident.TempleRevision)",
+        "resident.TempleBlessing.Observe(received, owner, session, known, available, revision)",
         "resident.Station.PlayTempleBlessing(transitionAge)",
         "new TownServiceTempleBowlMarker(root.transform, stationSpace: true)",
     )
@@ -75,6 +79,27 @@ def inspect_shared_blessing_contract(root):
     if missing:
         raise RuntimeError("Shared temple blessing seam is incomplete: " + ", ".join(missing))
     inspect_particle_contract(marker)
+    gate = (
+        "if (!received) return false; // Keep the baseline across transient close/reopen gaps.",
+        "bool play = sameSession && known && !available && advanced;",
+        "resident.TempleUnavailableBlend = Mathf.MoveTowards(resident.TempleUnavailableBlend,",
+        "unavailable ? 1f : 0f,\n                    Time.unscaledDeltaTime / TownServiceActivityMotion.TransitionSeconds",
+        "TownServiceActivityMotion.ApplyTempleAvailability(ref displayedActivity,\n                    !unavailable, resident.TempleUnavailableBlend)",
+    )
+    missing_gate = [entry for entry in gate if entry not in population]
+    if missing_gate or "resident.TempleUnavailableBlend = 0f" in population:
+        raise RuntimeError("Temple blessing/cover continuity gate is incomplete: " + ", ".join(missing_gate))
+    snap_control = replace_once(population,
+        "unavailable ? 1f : 0f,\n                    Time.unscaledDeltaTime / TownServiceActivityMotion.TransitionSeconds",
+        "unavailable ? 1f : 0f,\n                    unavailable ? Time.unscaledDeltaTime / TownServiceActivityMotion.TransitionSeconds : 1f")
+    try:
+        missing_snap = [entry for entry in gate if entry not in snap_control]
+        if missing_snap or "resident.TempleUnavailableBlend = 0f" in snap_control:
+            raise RuntimeError("mutated cover snaps")
+    except RuntimeError:
+        pass
+    else:
+        raise RuntimeError("Temple cover-pop negative control did not fail")
     polygon_control = replace_once(marker, "AddComponent<ParticleSystem>()", "AddComponent<MeshFilter>()")
     try:
         inspect_particle_contract(polygon_control)
@@ -82,6 +107,13 @@ def inspect_shared_blessing_contract(root):
         pass
     else:
         raise RuntimeError("Temple blessing polygon negative control did not fail")
+    autoplay_control = replace_once(marker, "effect.SetActive(false);", "effect.SetActive(true);")
+    try:
+        inspect_particle_contract(autoplay_control)
+    except RuntimeError:
+        pass
+    else:
+        raise RuntimeError("Temple blessing play-on-create negative control did not fail")
 
 
 def inspect_purse_contract(source):

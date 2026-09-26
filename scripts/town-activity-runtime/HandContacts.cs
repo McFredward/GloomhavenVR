@@ -209,6 +209,62 @@ internal static class HandContacts
                         previousLeftPosition=leftPalm.position;previousRightPosition=rightPalm.position;
                     }
                     checks+=201;
+
+                    // Reproduce the filmed prayer -> visitor -> unavailable bowl -> prayer
+                    // path at the headset's 90 Hz cadence. Checking only authored targets missed
+                    // a discontinuity inside the real imported arm solver, so every intermediate
+                    // anatomical palm and elbow is measured here.
+                    var visit=new TownActivityPose{WorkClock=4f,
+                        TransitionAge=TownServiceActivityMotion.TransitionSeconds};
+                    float unavailableBlend=0f;
+                    var visitVisual=TownServiceActivityMotion.Visual(2,in visit);
+                    rig.BeforeBodySample();rig.Apply(in visitVisual);
+                    previousLeft=leftPalm.rotation;previousRight=rightPalm.rotation;
+                    previousLeftPosition=leftPalm.position;previousRightPosition=rightPalm.position;
+                    TownServiceActivityMotion.Engage(ref visit,true);
+                    for(int frame=1;frame<=70;frame++)
+                    {
+                        visit=TownServiceActivityMotion.Advance(visit,1f/90f);
+                        unavailableBlend=Mathf.MoveTowards(unavailableBlend,1f,
+                            (1f/90f)/TownServiceActivityMotion.TransitionSeconds);
+                        visitVisual=TownServiceActivityMotion.Visual(2,in visit);
+                        TownServiceActivityMotion.ApplyTempleAvailability(ref visitVisual,false,unavailableBlend);
+                        rig.BeforeBodySample();rig.Apply(in visitVisual);
+                        float leftStep=Quaternion.Angle(previousLeft,leftPalm.rotation),rightStep=Quaternion.Angle(previousRight,rightPalm.rotation);
+                        float leftTravel=Vector3.Distance(previousLeftPosition,leftPalm.position),rightTravel=Vector3.Distance(previousRightPosition,rightPalm.position);
+                        Vector3 leftLocal=root.InverseTransformPoint(leftPalm.position),rightLocal=root.InverseTransformPoint(rightPalm.position);
+                        Transform leftElbow=root.GetComponentsInChildren<Transform>().Single(t=>t.name=="Forearm.L");
+                        Transform rightElbow=root.GetComponentsInChildren<Transform>().Single(t=>t.name=="Forearm.R");
+                        Vector3 leftElbowLocal=root.InverseTransformPoint(leftElbow.position),rightElbowLocal=root.InverseTransformPoint(rightElbow.position);
+                        if(leftStep>5f||rightStep>5f||leftTravel>.015f||rightTravel>.015f)
+                            throw new Exception("prayer-to-covered-bowl transition is continuous frame="+frame
+                                +" leftDegrees="+leftStep+" rightDegrees="+rightStep
+                                +" leftTravel="+leftTravel+" rightTravel="+rightTravel);
+                        if(leftLocal.x<-.01f||rightLocal.x>.01f||leftElbowLocal.x<.04f||rightElbowLocal.x>-.04f)
+                            throw new Exception("priestess arms retain their anatomical sides without crossing frame="+frame
+                                +" palms="+leftLocal+" / "+rightLocal+" elbows="+leftElbowLocal+" / "+rightElbowLocal);
+                        previousLeft=leftPalm.rotation;previousRight=rightPalm.rotation;
+                        previousLeftPosition=leftPalm.position;previousRightPosition=rightPalm.position;
+                    }
+                    TownServiceActivityMotion.Engage(ref visit,false);
+                    for(int frame=1;frame<=70;frame++)
+                    {
+                        visit=TownServiceActivityMotion.Advance(visit,1f/90f);
+                        unavailableBlend=Mathf.MoveTowards(unavailableBlend,0f,
+                            (1f/90f)/TownServiceActivityMotion.TransitionSeconds);
+                        visitVisual=TownServiceActivityMotion.Visual(2,in visit);
+                        TownServiceActivityMotion.ApplyTempleAvailability(ref visitVisual,true,unavailableBlend);
+                        rig.BeforeBodySample();rig.Apply(in visitVisual);
+                        float leftStep=Quaternion.Angle(previousLeft,leftPalm.rotation),rightStep=Quaternion.Angle(previousRight,rightPalm.rotation);
+                        float leftTravel=Vector3.Distance(previousLeftPosition,leftPalm.position),rightTravel=Vector3.Distance(previousRightPosition,rightPalm.position);
+                        if(leftStep>5f||rightStep>5f||leftTravel>.015f||rightTravel>.015f)
+                            throw new Exception("covered-bowl-to-prayer transition is continuous frame="+frame
+                                +" leftDegrees="+leftStep+" rightDegrees="+rightStep
+                                +" leftTravel="+leftTravel+" rightTravel="+rightTravel);
+                        previousLeft=leftPalm.rotation;previousRight=rightPalm.rotation;
+                        previousLeftPosition=leftPalm.position;previousRightPosition=rightPalm.position;
+                    }
+                    checks+=420;
                 }
                 rig.BeforeBodySample();
                 state=new TownActivityPose{WorkClock=8f,TransitionAge=TownServiceActivityMotion.TransitionSeconds};

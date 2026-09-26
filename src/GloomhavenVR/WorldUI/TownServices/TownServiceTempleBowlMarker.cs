@@ -10,6 +10,7 @@ namespace GloomhavenVR.WorldUI;
 internal sealed class TownServiceTempleBowlMarker : IDisposable
 {
     private readonly GameObject _root;
+    private readonly bool _ownsBlessing;
     private readonly List<Material> _materials = new();
     private ParticleSystem? _blessing;
     private Material? _blessingMaterial;
@@ -23,6 +24,7 @@ internal sealed class TownServiceTempleBowlMarker : IDisposable
     /// station rather than by its temporary shared-bowl frame.</param>
     internal TownServiceTempleBowlMarker(Transform parent, bool stationSpace = false)
     {
+        _ownsBlessing = stationSpace;
         _root = new GameObject("GloomhavenVR.Temple.GhostPurse");
         _root.transform.SetParent(parent, false);
         _root.transform.localPosition = stationSpace
@@ -54,7 +56,10 @@ internal sealed class TownServiceTempleBowlMarker : IDisposable
                 renderer.shadowCastingMode = ShadowCastingMode.Off;
                 renderer.receiveShadows = false;
             }
-            BuildBlessing();
+            // The permanent resident owns the shared blessing. The private browsing marker is
+            // only a destination guide; giving both markers a ParticleSystem caused two effects
+            // merely by approaching the priestess, before any donation callback had run.
+            if (_ownsBlessing) BuildBlessing();
         }
         _visibility = Mathf.MoveTowards(_visibility, shown ? 1f : 0f, Time.unscaledDeltaTime / .12f);
         float pulse = .96f + .06f * Mathf.Sin(Time.unscaledTime * 4f);
@@ -109,8 +114,12 @@ internal sealed class TownServiceTempleBowlMarker : IDisposable
     {
         if (_bag == null || _blessing != null) return;
         var effect = new GameObject("TempleBlessingParticles") { layer = VRLayers.ModLayer };
+        // AddComponent<ParticleSystem> starts its default play-on-awake system immediately.
+        // Build inactive and clear it before activation so constructing the station cannot emit
+        // a single proximity-triggered frame. Bless() is the only play edge.
+        effect.SetActive(false);
         effect.transform.SetParent(_root.transform, false);
-        effect.transform.localPosition = new Vector3(0f, .02f, 0f);
+        effect.transform.localPosition = new Vector3(0f, -.018f, 0f);
         _blessing = effect.AddComponent<ParticleSystem>();
         ParticleSystem.MainModule main = _blessing.main;
         main.playOnAwake = false; main.loop = false; main.duration = 1.65f;
@@ -118,7 +127,7 @@ internal sealed class TownServiceTempleBowlMarker : IDisposable
         main.scalingMode = ParticleSystemScalingMode.Hierarchy; main.maxParticles = 72;
         main.startLifetime = new ParticleSystem.MinMaxCurve(.72f, 1.35f);
         main.startSpeed = new ParticleSystem.MinMaxCurve(.14f, .34f);
-        main.startSize = new ParticleSystem.MinMaxCurve(.012f, .032f);
+        main.startSize = new ParticleSystem.MinMaxCurve(.005f, .014f);
         main.startRotation = new ParticleSystem.MinMaxCurve(0f, Mathf.PI * 2f);
         main.startColor = new ParticleSystem.MinMaxGradient(
             new Color(.22f, .62f, 1f, .72f), new Color(1f, .82f, .30f, .82f));
@@ -126,7 +135,7 @@ internal sealed class TownServiceTempleBowlMarker : IDisposable
 
         ParticleSystem.EmissionModule emission = _blessing.emission;
         emission.rateOverTime = 0f;
-        emission.SetBursts(new[] { new ParticleSystem.Burst(0f, 42, 54) });
+        emission.SetBursts(new[] { new ParticleSystem.Burst(0f, 26, 34) });
         ParticleSystem.ShapeModule shape = _blessing.shape;
         shape.enabled = true; shape.shapeType = ParticleSystemShapeType.Hemisphere;
         shape.radius = .055f; shape.radiusThickness = .55f;
@@ -147,7 +156,10 @@ internal sealed class TownServiceTempleBowlMarker : IDisposable
         size.enabled = true; size.size = new ParticleSystem.MinMaxCurve(1f,
             new AnimationCurve(new Keyframe(0f, .2f), new Keyframe(.18f, 1f), new Keyframe(1f, .15f)));
 
-        Shader shader = Shader.Find("Particles/Standard Unlit") ?? Shader.Find("Legacy Shaders/Particles/Additive")
+        // The legacy additive pass has deterministic soft-alpha behavior in the game's built-in
+        // render pipeline. Particle Standard defaults to an opaque mode on some installations,
+        // which exposed each generated texture as the cyan/orange square seen in the headset.
+        Shader shader = Shader.Find("Legacy Shaders/Particles/Additive") ?? Shader.Find("Particles/Standard Unlit")
             ?? throw new InvalidOperationException("Particle shader unavailable for temple blessing");
         _blessingTexture = BuildParticleTexture();
         _blessingMaterial = new Material(shader) { name = "Temple blessing particles" };
@@ -156,6 +168,9 @@ internal sealed class TownServiceTempleBowlMarker : IDisposable
         renderer.renderMode = ParticleSystemRenderMode.Billboard;
         renderer.sharedMaterial = _blessingMaterial;
         renderer.shadowCastingMode = ShadowCastingMode.Off; renderer.receiveShadows = false;
+        _blessing.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
+        effect.SetActive(true);
+        _blessing.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
     }
 
     private static Texture2D BuildParticleTexture()

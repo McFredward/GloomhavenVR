@@ -15,6 +15,9 @@ internal static class Program
     {
         TownServicePopulation.Reset();RemoteTownResidents.Reset();TownServiceMirror.RemoteSessions.Clear();
         TownServiceMerchantHandoff.WantsOffering=false;TownServiceMirror.RemoteMerchantOffering=false;TownServiceStation.NearVisitor=false;
+        TownServiceMirror.TempleReceived=false;TownServiceMirror.TempleKnown=false;TownServiceMirror.TempleAvailable=true;
+        TownServiceMirror.TempleOwner=0;TownServiceMirror.TempleSession=TownServiceMirror.TempleRevision=0;
+        TownServiceMirror.TempleTransitionAge=0;
         WorldUIConfig.ImmersiveTownServices.Value=true;MapRoomDriver.Active=true;MapRoomDriver.FrameReady=true;
         MapRoomDriver.Center=new(10,20,30);MapRoomDriver.Scale=2;NetPlayerActors.Local=10;
         TownServicePresentation.Active=false;TownServicePresentation.Service=0;TownServicePresentation.SessionAge=0;
@@ -52,9 +55,49 @@ internal static class Program
         TownServiceMirror.RemoteMerchantOffering=false;Tick();
         Check(!TownServicePopulation.PublishedActivities.Merchant.Engaged,"last offer withdrawal releases merchant arm");
     }
+    private static void TemplePresentation()
+    {
+        Reset();TownServiceStation.NearVisitor=true;
+        TownServiceMirror.TempleReceived=true;TownServiceMirror.TempleOwner=10;
+        TownServiceMirror.TempleSession=7;TownServiceMirror.TempleKnown=true;
+        TownServiceMirror.TempleAvailable=false;TownServiceMirror.TempleRevision=9;
+        Tick(.01f);Tick(.7f);
+        TownServiceStation temple=TownServiceStation.Live[2];
+        Check(temple.Blessings==0,"unavailable hydration establishes a blessing baseline");
+
+        // Closing and rebuilding the native ritual briefly removes the manifest. Rehydrating
+        // the same unavailable revision is presentation continuity, never a new donation.
+        TownServiceMirror.TempleReceived=false;Tick(.01f);
+        Vector3 before=temple.LastActivity.Left;
+        TownServiceMirror.TempleReceived=true;Tick(.01f);
+        Check(temple.Blessings==0,"unchanged unavailable revision does not replay after reopen");
+        Check(Vector3.Distance(before,temple.LastActivity.Left)<.003f,
+            "one-frame temple manifest gap preserves the running cover pose");
+
+        TownServiceMirror.TempleRevision=10;TownServiceMirror.TempleTransitionAge=.12f;Tick(.01f);
+        Check(temple.Blessings==1,"live revision in the same session plays one blessing");
+        Near(temple.LastBlessingAge,.12f,"blessing resumes at replicated age");
+        Tick(.01f);Check(temple.Blessings==1,"unchanged revision cannot replay per frame");
+        TownServiceMirror.TempleReceived=false;Tick(.01f);
+        TownServiceMirror.TempleReceived=true;Tick(.01f);
+        Check(temple.Blessings==1,"unchanged committed revision cannot replay after hydration");
+
+        TownServiceMirror.TempleSession=8;TownServiceMirror.TempleRevision=40;Tick(.01f);
+        Check(temple.Blessings==1,"new owner session establishes a baseline even at higher revision");
+
+        // Departure used to assign cover blend zero before the analytic attention transition.
+        // At 90 Hz both the palm target and cover contribution must begin their return gradually.
+        TownServiceMirror.TempleReceived=false;TownServiceStation.NearVisitor=false;
+        before=temple.LastActivity.Left;float beforeRoll=temple.LastActivity.LeftRoll;Tick(1f/90f);
+        Check(Vector3.Distance(before,temple.LastActivity.Left)<.003f,
+            "temple cover and visitor attention release continuously on departure");
+        Check(Math.Abs(beforeRoll-temple.LastActivity.LeftRoll)<.5f,
+            "temple cover wrist rotation releases continuously on departure");
+    }
     private static void Main()
     {
         MerchantOffering();
+        TemplePresentation();
         Reset();Tick();AllVisible();Check(TownServicePopulation.Published.Active,"ready population advertised");
         Check(TownServicePopulation.Published.HasCloth && TownServiceStation.Live[2].ClothAuthorTicks > 0,
             "elected owner advances and publishes priestess cloth contact");
