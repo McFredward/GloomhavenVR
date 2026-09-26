@@ -112,7 +112,14 @@ public static class InteractionProgram
             Bounds a=VisibleBounds(lantern.gameObject),b=VisibleBounds(candle.gameObject);
             bool overlapX=a.min.x<b.max.x&&a.max.x>b.min.x;
             bool overlapZ=a.min.z<b.max.z&&a.max.z>b.min.z;
-            Check(!(overlapX&&overlapZ),"priestess candles remain outside complete lantern book and bowl bounds");
+            Check(!(overlapX&&overlapZ),"priestess candles remain outside complete lantern book and bowl bounds surface="+lantern.name
+                +" candle="+root.transform.InverseTransformPoint(candle.position)+" surfaceBounds="+a+" candleBounds="+b);
+        }
+        foreach(Transform candle in templeCandles)
+        {
+            Vector3 seat=root.transform.InverseTransformPoint(candle.position);
+            Check(seat.z<=.34f||Mathf.Abs(seat.x)>=.38f,
+                "priestess candles remain outside her arm and hip envelope");
         }
         Check(TownServiceDecor.TryStaticProp(2,0,out var lampSource,out _),"priestess static lamp ready");
         Check(TownServiceDecor.TryPractical(2,0,out var lampPoint,out var rangeScale),"original lamp has exact flame calibration");

@@ -144,10 +144,12 @@ internal sealed class TownServiceDecor : IDisposable
             _templeBook = Add("Library", "Library.Clutter.Shelf.Individual#7", new Vector3(-.33f, .957f, -.12f), .30f);
             // Keep each wax body outside both 32 cm lantern footprints. Build 565
             // placed the .55/.08 candle almost on the right lantern's .53/.16
-            // pivot, visibly embedding one original prop inside another.
-            Candle(new Vector3(.15f, .957f, .40f), .20f);
-            Candle(new Vector3(.23f, .957f, -.12f), .14f);
-            Candle(new Vector3(-.12f, .957f, .42f), .16f);
+            // pivot, visibly embedding one original prop inside another. The later
+            // rear arrangement also put two flames beside the priestess's hips and
+            // moving sleeves. Keep all three on the visitor side of the bowl instead.
+            Candle(new Vector3(.34f, .957f, -.12f), .20f);
+            Candle(new Vector3(.10f, .957f, -.24f), .14f);
+            Candle(new Vector3(-.08f, .957f, -.20f), .16f);
             _coinTemplate = Add("Treasure", "Treasure.Clutter.Shelf.Individual#1", Vector3.zero, .05f);
             _coinTemplate.Template = true;
             _moneyBagTemplate = Add("Treasure", "Treasure.Bay.Variant#2", Vector3.zero, .125f);

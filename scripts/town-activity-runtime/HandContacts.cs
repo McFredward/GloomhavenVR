@@ -97,8 +97,8 @@ internal static class HandContacts
                         // The imported upper/forearm lengths end above the .74 guide;
                         // verify the solved anatomical palm, not the unreachable guide.
                         // It must hang below the .955 worktop and beside the robe.
-                        if(Mathf.Abs(lowered.x)<.12f||lowered.z<.42f||lowered.z>.59f
-                            ||lowered.y<.84f||lowered.y>1.02f)
+                        if(Mathf.Abs(lowered.x)<.12f||lowered.z<.40f||lowered.z>.59f
+                            ||lowered.y<.96f||lowered.y>1.12f)
                             throw new Exception("attentive priestess hands stay beside her robe and outside the donation bowl: "+side+" "+lowered);
                         Vector3 inward=(side=="L"?-root.right:root.right);
                         if(Vector3.Dot(contact.forward,inward)<.55f)
@@ -160,8 +160,9 @@ internal static class HandContacts
                         var covered=visual;
                         TownServiceActivityMotion.ApplyTempleAvailability(ref covered,false,frame/64f);
                         rig.Apply(in covered);
-                        if(Quaternion.Angle(previousLeft,leftPalm.rotation)>5f||Quaternion.Angle(previousRight,rightPalm.rotation)>5f)
-                            throw new Exception("unavailable temple pose transitions continuously without a wrist snap");
+                        float leftStep=Quaternion.Angle(previousLeft,leftPalm.rotation),rightStep=Quaternion.Angle(previousRight,rightPalm.rotation);
+                        if(leftStep>5f||rightStep>5f)
+                            throw new Exception("unavailable temple pose transitions continuously without a wrist snap frame="+frame+" left="+leftStep+" right="+rightStep);
                         previousLeft=leftPalm.rotation;previousRight=rightPalm.rotation;
                     }
                     Vector3 left=root.InverseTransformPoint(leftPalm.position),right=root.InverseTransformPoint(rightPalm.position);
@@ -176,11 +177,38 @@ internal static class HandContacts
                         var recovering=visual;
                         TownServiceActivityMotion.ApplyTempleAvailability(ref recovering,true,frame/64f);
                         rig.Apply(in recovering);
-                        if(Quaternion.Angle(previousLeft,leftPalm.rotation)>5f||Quaternion.Angle(previousRight,rightPalm.rotation)>5f)
-                            throw new Exception("available temple returns continuously without dropping the cover pose");
+                        float leftStep=Quaternion.Angle(previousLeft,leftPalm.rotation),rightStep=Quaternion.Angle(previousRight,rightPalm.rotation);
+                        if(leftStep>5f||rightStep>5f)
+                            throw new Exception("available temple returns continuously without dropping the cover pose frame="+frame+" left="+leftStep+" right="+rightStep);
                         previousLeft=leftPalm.rotation;previousRight=rightPalm.rotation;
                     }
-                    checks+=131;
+                    // Reproduce the reported path directly: donation stays unavailable
+                    // while the visitor walks away. Attention and the cover contribution
+                    // must decay on the same continuous curve into the prayer pose.
+                    var departure=new TownActivityPose{WorkClock=4f,FromBlend=1f,Engaged=true,
+                        TransitionAge=TownServiceActivityMotion.TransitionSeconds};
+                    var departing=TownServiceActivityMotion.Visual(2,in departure);
+                    TownServiceActivityMotion.ApplyTempleAvailability(ref departing,false,1f);
+                    rig.BeforeBodySample();rig.Apply(in departing);
+                    previousLeft=leftPalm.rotation;previousRight=rightPalm.rotation;
+                    Vector3 previousLeftPosition=leftPalm.position,previousRightPosition=rightPalm.position;
+                    TownServiceActivityMotion.Engage(ref departure,false);
+                    for(int frame=1;frame<=70;frame++)
+                    {
+                        departure=TownServiceActivityMotion.Advance(departure,1f/90f);
+                        departing=TownServiceActivityMotion.Visual(2,in departure);
+                        TownServiceActivityMotion.ApplyTempleAvailability(ref departing,false,1f);
+                        rig.BeforeBodySample();rig.Apply(in departing);
+                        float leftStep=Quaternion.Angle(previousLeft,leftPalm.rotation),rightStep=Quaternion.Angle(previousRight,rightPalm.rotation);
+                        float leftTravel=Vector3.Distance(previousLeftPosition,leftPalm.position),rightTravel=Vector3.Distance(previousRightPosition,rightPalm.position);
+                        if(leftStep>5f||rightStep>5f||leftTravel>.015f||rightTravel>.015f)
+                            throw new Exception("unavailable temple attention exit remains continuous frame="+frame
+                                +" leftDegrees="+leftStep+" rightDegrees="+rightStep
+                                +" leftTravel="+leftTravel+" rightTravel="+rightTravel);
+                        previousLeft=leftPalm.rotation;previousRight=rightPalm.rotation;
+                        previousLeftPosition=leftPalm.position;previousRightPosition=rightPalm.position;
+                    }
+                    checks+=201;
                 }
                 rig.BeforeBodySample();
                 state=new TownActivityPose{WorkClock=8f,TransitionAge=TownServiceActivityMotion.TransitionSeconds};

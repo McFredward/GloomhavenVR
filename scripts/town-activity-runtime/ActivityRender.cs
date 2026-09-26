@@ -50,9 +50,11 @@ internal static class ActivityRender
             if(service==2&&attentionSequence)
             {
                 float clock=phases[phase];
-                float cover=Mathf.SmoothStep(0f,1f,Mathf.Clamp01((clock-1.45f)/.55f))
-                    *(1f-Mathf.SmoothStep(0f,1f,Mathf.Clamp01((clock-3.25f)/.55f)));
-                TownServiceActivityMotion.ApplyTempleAvailability(ref rendered,clock>=3.25f,cover);
+                // Hold the unavailable pose while attention exits. This is the headset
+                // failure path: walking away must blend cover -> hip -> prayer without
+                // dropping the authored hand frame on a boolean edge.
+                float cover=Mathf.SmoothStep(0f,1f,Mathf.Clamp01((clock-1.45f)/.55f));
+                TownServiceActivityMotion.ApplyTempleAvailability(ref rendered,false,cover);
             }
             rig.Apply(in rendered);props.Sample(in rendered);
             {
@@ -64,13 +66,16 @@ internal static class ActivityRender
             }
             Transform hand=root.GetComponentsInChildren<Transform>(true).Single(t=>t.name=="Hand.R");Transform grip=root.Find("ActivityGripRight"),pen=root.Find("Town.ReedPen");Vector3 tip=Vector3.zero;
             Transform shoulder=root.GetComponentsInChildren<Transform>(true).Single(t=>t.name=="UpperArm.R");Transform elbow=root.GetComponentsInChildren<Transform>(true).Single(t=>t.name=="Forearm.R");
+            Transform clavicle=root.GetComponentsInChildren<Transform>(true).Single(t=>t.name=="Clavicle.R");
             if(service==1)
             {
                 Transform index=root.GetComponentsInChildren<Transform>(true).Single(t=>t.name=="IndexTip.L");
                 Transform thumb=root.GetComponentsInChildren<Transform>(true).Single(t=>t.name=="ThumbTip.L");
                 metrics.WriteLine("# coin pinch gap="+Vector3.Distance(index.position,thumb.position).ToString("R",CultureInfo.InvariantCulture));
             }
-            metrics.WriteLine("# shoulder="+shoulder.position.ToString("F5")+" upper="+Vector3.Distance(shoulder.position,elbow.position)+" fore="+Vector3.Distance(elbow.position,hand.position));
+            metrics.WriteLine("# clavicle="+clavicle.position.ToString("F5")+" shoulder="+shoulder.position.ToString("F5")
+                +" elbow="+elbow.position.ToString("F5")+" upper="+Vector3.Distance(shoulder.position,elbow.position)
+                +" fore="+Vector3.Distance(elbow.position,hand.position));
             metrics.WriteLine(string.Join(",",new[]{(float)phase,hand.position.x,hand.position.y,hand.position.z,grip.position.x,grip.position.y,grip.position.z,tip.x,tip.y,tip.z}.Select(v=>v.ToString("R",CultureInfo.InvariantCulture))));
             using(var poses=new StreamWriter(Path.Combine(folder,"service"+service+"-phase"+phase+"-bones.json")))
             {

@@ -59,10 +59,11 @@ def mutations():
         ("work-runs-while-engaged", "TownServiceActivityMotion.cs", "dt - Integral(in state, state.TransitionAge + dt) + Integral(in state, state.TransitionAge)", "dt", "engaged occupation remains paused"),
         ("ignore-ik", "TownServiceActivityRig.cs", "if (!Ready) return;", "if (Ready) return;", "anatomical palm contacts transformed counter surface"),
         ("thumb-overcurl", "TownServiceActivityRig.cs", "arm.Anatomical ? 38f : 5f", "arm.Anatomical ? 150f : 5f", "anatomical thumb stays inside natural grasp range"),
-        ("attentive-counter-bracing", "TownServiceActivityMotion.cs", "new Vector3(.24f, .98f, .56f)", "new Vector3(.21f, .959f, .337f)", "attentive priestess hands stay beside her robe and outside the donation bowl"),
+        ("attentive-counter-bracing", "TownServiceActivityMotion.cs", "new Vector3(.20f, 1.10f, .52f)", "new Vector3(.21f, .959f, .337f)", "attentive priestess hands stay beside her robe and outside the donation bowl"),
+        ("low-priestess-shoulders", "TownServiceActivityMotion.cs", "float priestessElbowHeight = 1.23f;", "float priestessElbowHeight = .40f;", "actual priestess upper arms preserve the clavicle shoulder line"),
         ("upturned-priestess-hip", "TownServiceActivityRig.cs", "-_root.up - _root.forward * .2f", "-_root.forward", "actual attentive priestess fingers rest down along her hip"),
         ("excessive-work-bow", "TownServiceActivityRig.cs", "-6f - terrainLean", "-35f - terrainLean", "work posture does not stack an extreme torso and neck bow"),
-        ("ignore-palm-offset", "TownServiceActivityRig.cs", "target -= palmOffset;", "target -= palmOffset * 0f;", "unavailable donation places both hands over the shared bowl"),
+        ("ignore-palm-offset", "TownServiceActivityRig.cs", "target -= palmOffset;", "target -= palmOffset * 0f;", "anatomical palm contacts transformed counter surface"),
         ("curl-contact-markers", "TownServiceActivityRig.cs", ' && !t.name.Contains("Tip")', "", "contact markers are not articulated finger joints"),
         ("returning-author-snap", "TownServiceActivityHandover.cs", "_age = 0f;", "_age = Duration;", "returning authority keeps displayed hands at first frame"),
         ("unpaired-sequences", "RemoteTownPerformance.cs", "if (!TownActivityCodec.Matches(in activity, in face)", "if (false", "mismatched sequence cannot partially advance pair"),
@@ -70,8 +71,10 @@ def mutations():
         ("magnetic-coin", "TownServiceActivityMotion.cs", "coin == index && t >= 1.04f && t < 2.86f ? 1f : 0f", "coin == index ? grip : 0f", "coin is resting or rigidly gripped, never magnetically attracted"),
         ("paused-coin-in-air", "TownServiceActivityMotion.cs", "float transferProgress = Soft(t, 1.05f, 2.84f);", "float transferProgress = Soft(t < 1.70f ? t : t < 2f ? 1.70f : 1.70f + (t - 2f) * (2.84f - 1.70f) / .84f, 1.05f, 2.84f);", "merchant never parks a pinched coin in midair"),
         ("mid-transfer-greeting", "TownServiceActivityMotion.cs", "return t < .50f || t >= 3.05f;", "return true;", "merchant only greets after releasing the current coin"),
-        ("prayer-blocks-bowl", "TownServiceActivityMotion.cs", "new Vector3(0f, 1.065f, .13f)", "new Vector3(.012f, 1.19f, .20f)", "unavailable temple pose transitions continuously without a wrist snap"),
-        ("upturned-bowl-cover", "TownServiceActivityMotion.cs", "Mathf.Lerp(visual.LeftRoll, 82f, t)", "Mathf.Lerp(visual.LeftRoll, -82f, t)", "unavailable donation covers the bowl with both palms facing down"),
+        ("prayer-blocks-bowl", "TownServiceActivityMotion.cs", "new Vector3(.045f, 1.105f, .18f)", "new Vector3(.012f, 1.19f, .20f)", "unavailable donation places both hands over the shared bowl"),
+        ("splayed-bowl-cover", "TownServiceActivityMotion.cs", "new Vector3(.045f, 1.105f, .18f)", "new Vector3(.15f, 1.105f, .18f)", "unavailable donation places both hands over the shared bowl"),
+        ("availability-cover-pop", "TownServiceActivityMotion.cs", "if (donationAvailable && blend <= 0f) return;", "if (donationAvailable) return;", "available temple returns continuously without dropping the cover pose"),
+        ("upturned-bowl-cover", "TownServiceActivityRig.cs", "Vector3.ProjectOnPlane(-_root.up, coverFinger)", "Vector3.ProjectOnPlane(_root.up, coverFinger)", "unavailable donation covers the bowl with both palms facing down"),
         ("merchant-stiff-greeting", "TownServiceActivityMotion.cs", "new Vector3(.17f, .94f, .45f)", "new Vector3(.20f, 1.09f, .20f)", "attentive merchant free hand rests on his hip behind the counter"),
         ("open-sleeve-hem", "TownServiceSleeveLining.cs", "row == 0 ? -.012f", "row == 0 ? -.050f", "inner cuff overlaps the anatomical wrist ahead of the cut"),
         ("open-sleeve-interior", "TownServiceSleeveLining.cs", "int a = i, b = (i + 1) % Segments, c = 4 * Segments + 1;", "int a = i, b = (i + 1) % Segments, c = 4 * Segments;", "shallow cuff diaphragm hides the severed forearm end"),
@@ -126,10 +129,10 @@ def main():
     variants = [("production", None, None, None, "")]
     if not args.no_negative_controls:
         # Portable validation omits Unity components exercised by these controls.
-        rig_only = ("audio-ignores-master", "audio-not-spatial", "audio-fixed-world-range", "audio-leaks-listener", "unmirrored-mage-pronation", "separated-prayer", "animated-knee-pole", "zero-weight-stance-snap", "raised-stage-gesture", "vertical-casting-palm", "wrapped-forearm-support", "unplanted-feet", "one-sided-merchant-hip", "upturned-priestess-hip", "ignore-ik", "thumb-overcurl", "attentive-counter-bracing", "excessive-work-bow", "ignore-palm-offset", "curl-contact-markers", "open-sleeve-hem", "open-sleeve-interior", "downward-offering", "coin-detached-from-grip")
+        rig_only = ("audio-ignores-master", "audio-not-spatial", "audio-fixed-world-range", "audio-leaks-listener", "unmirrored-mage-pronation", "separated-prayer", "animated-knee-pole", "zero-weight-stance-snap", "raised-stage-gesture", "vertical-casting-palm", "wrapped-forearm-support", "unplanted-feet", "one-sided-merchant-hip", "upturned-priestess-hip", "low-priestess-shoulders", "ignore-ik", "thumb-overcurl", "attentive-counter-bracing", "excessive-work-bow", "ignore-palm-offset", "curl-contact-markers", "open-sleeve-hem", "open-sleeve-interior", "downward-offering", "coin-detached-from-grip")
         # Source-only Unity has no imported resident prefab to observe. The explicit
         # imported-asset run supplies --bundle and executes every one of these controls.
-        bundle_only = ("unmirrored-mage-pronation", "attentive-counter-bracing", "unplanted-feet", "wrapped-forearm-support", "separated-prayer", "animated-knee-pole", "zero-weight-stance-snap", "raised-stage-gesture", "vertical-casting-palm", "one-sided-merchant-hip", "upturned-priestess-hip")
+        bundle_only = ("unmirrored-mage-pronation", "attentive-counter-bracing", "unplanted-feet", "wrapped-forearm-support", "separated-prayer", "animated-knee-pole", "zero-weight-stance-snap", "raised-stage-gesture", "vertical-casting-palm", "one-sided-merchant-hip", "upturned-priestess-hip", "low-priestess-shoulders")
         variants += [v for v in mutations() if (not args.portable or v[0] not in rig_only)
             and (args.bundle or v[0] not in bundle_only)]
     # A mutation of an absent production file is not an executable negative control.

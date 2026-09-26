@@ -374,9 +374,13 @@ internal sealed class TownServiceActivityRig
             // Keep the lowered joined hands clear of the actual robe as well as
             // the original prayer. A rearward pole cut three sleeve/torso triangles.
             if (_service == 2)
-                guide = Vector3.Lerp(new Vector3(side * .42f, .70f, .10f),
-                    authoredElbow.sqrMagnitude > .01f ? authoredElbow
-                        : new Vector3(side * .36f, 1.10f, .53f), attention);
+                // Preserve the imported clavicle and upper-arm origin. The former
+                // y=.70 fallback pulled the whole sleeve down from the chest while
+                // transitioning between prayer and attention, producing the apparent
+                // low shoulder seen in the headset. The authored elbow carries the
+                // complete continuous path and bends the forearm toward the hip/bowl.
+                guide = authoredElbow.sqrMagnitude > .01f ? authoredElbow
+                    : new Vector3(side * .40f, 1.20f, .46f);
             else if (_service == 1 && attention > 0f)
                 guide = Vector3.Lerp(guide, authoredElbow.sqrMagnitude > .01f ? authoredElbow
                     : new Vector3(side * .41f, 1.13f, .50f), attention);
@@ -409,10 +413,27 @@ internal sealed class TownServiceActivityRig
                 // the abdomen and the other hanging vertically beside the robe.
                 Vector3 handReference = Vector3.Slerp(_root.up - _root.forward * .8f,
                     -_root.up - _root.forward * .2f, attention);
-                Vector3 fingerDirection = Vector3.ProjectOnPlane(handReference, wantedNormal).normalized;
-                fingerDirection = Vector3.RotateTowards(foreDirection, fingerDirection, 55f * Mathf.Deg2Rad, 0f).normalized;
-                palmFrame = Quaternion.LookRotation(fingerDirection,
-                    Vector3.ProjectOnPlane(wantedNormal, fingerDirection).normalized);
+                // Availability already arrives as a smooth authored blend through roll.
+                // Preserve that exact curve; adding a second threshold compressed the
+                // turn into a few frames and recreated the visible cover/return pop.
+                float cover = Mathf.Clamp01(Mathf.Abs(roll) / 82f);
+                // A covered offering is a distinct anatomical contact: both palms face
+                // down and both relaxed fingers point toward the visitor. Interpolate
+                // complete frames rather than projecting two moving vectors; the latter
+                // crossed a near-singularity and turned the wrist five degrees in one
+                // 90 Hz frame during both cover and return.
+                Quaternion baseHand = Quaternion.LookRotation(_root.up, -side * _root.right)
+                    * Quaternion.Inverse(Quaternion.LookRotation(arm.PalmForward, arm.PalmNormal));
+                Vector3 baseNormal = baseHand * arm.PalmNormal;
+                Vector3 baseFinger = Vector3.ProjectOnPlane(handReference, baseNormal).normalized;
+                baseFinger = Vector3.RotateTowards(foreDirection, baseFinger, 55f * Mathf.Deg2Rad, 0f).normalized;
+                Quaternion baseFrame = Quaternion.LookRotation(baseFinger,
+                    Vector3.ProjectOnPlane(baseNormal, baseFinger).normalized);
+                Vector3 coverFinger = Vector3.RotateTowards(foreDirection, -_root.forward,
+                    55f * Mathf.Deg2Rad, 0f).normalized;
+                Quaternion coverFrame = Quaternion.LookRotation(coverFinger,
+                    Vector3.ProjectOnPlane(-_root.up, coverFinger).normalized);
+                palmFrame = Quaternion.Slerp(baseFrame, coverFrame, cover);
             }
             else
             {

@@ -84,21 +84,25 @@ internal static class TownServiceActivityMotion
         // *visible* palm positions on the actual skins; symmetric numeric wrist
         // targets left the screen-right arm hanging away from the body.
         work.Left = Vector3.Lerp(work.Left, service == 1 ? new Vector3(.17f, .94f, .45f)
-            : service == 2 ? new Vector3(.24f, .98f, .56f) : new Vector3(.22f, 1.13f, .23f), attention);
+            : service == 2 ? new Vector3(.20f, 1.10f, .52f) : new Vector3(.22f, 1.13f, .23f), attention);
         work.Right = Vector3.Lerp(work.Right, service == 1 ? new Vector3(-.24f, .98f, .50f)
-            : service == 3 ? new Vector3(-.18f, 1.17f, .23f) : new Vector3(-.24f, .98f, .56f), attention);
+            : service == 3 ? new Vector3(-.18f, 1.17f, .23f) : new Vector3(-.20f, 1.10f, .52f), attention);
         // Hand targets alone cannot lower an arm naturally. Author the matching elbow path as
         // part of the same blend so the upper arm leaves the shoulder downward instead of staying
         // abducted while the forearm reaches for a low hand target.
         if (service is 1 or 2)
         {
             float side = service == 1 ? .41f : .36f;
+            // The priestess upper arm must leave the real clavicle at shoulder height.
+            // A low elbow target deformed the broad sleeve into a second, false shoulder
+            // at chest height even though the hand itself reached the intended hip.
+            float priestessElbowHeight = 1.23f;
             work.LeftElbow = Vector3.Lerp(work.LeftElbow,
-                new Vector3(service == 1 ? .35f : .44f, service == 1 ? 1.08f : 1.08f,
-                    service == 1 ? .45f : .55f), attention);
+                new Vector3(service == 1 ? .35f : .28f, service == 1 ? 1.08f : priestessElbowHeight,
+                    service == 1 ? .45f : .52f), attention);
             work.RightElbow = Vector3.Lerp(work.RightElbow,
-                new Vector3(service == 1 ? -side : -.44f, service == 1 ? 1.13f : .98f,
-                    service == 1 ? .50f : .55f), attention);
+                new Vector3(service == 1 ? -side : -.28f, service == 1 ? 1.13f : priestessElbowHeight,
+                    service == 1 ? .50f : .52f), attention);
         }
         work.RightRoll = Mathf.Lerp(work.RightRoll, service == 1 ? 65f : service == 3 ? 180f : 0f, attention);
         work.LeftRoll = Mathf.Lerp(work.LeftRoll, service == 1 ? -65f : service == 3 ? -65f : 0f, attention);
@@ -127,16 +131,16 @@ internal static class TownServiceActivityMotion
         // 1.205 target held both hands a palm-height above it, reading as a vague
         // raised gesture rather than physically covering the offering. Bring the
         // relaxed palms just over the rim while leaving room for the original mesh.
-        visual.Left = Vector3.Lerp(visual.Left, new Vector3(0f, 1.065f, .13f), t);
-        visual.Right = Vector3.Lerp(visual.Right, new Vector3(-.070f, 1.105f, .18f), t);
-        visual.LeftElbow = Vector3.Lerp(visual.LeftElbow, new Vector3(.24f, 1.03f, .14f), t);
-        visual.RightElbow = Vector3.Lerp(visual.RightElbow, new Vector3(-.30f, 1.08f, .19f), t);
+        visual.Left = Vector3.Lerp(visual.Left, new Vector3(.045f, 1.105f, .18f), t);
+        visual.Right = Vector3.Lerp(visual.Right, new Vector3(-.045f, 1.105f, .18f), t);
+        visual.LeftElbow = Vector3.Lerp(visual.LeftElbow, new Vector3(.34f, 1.24f, .31f), t);
+        visual.RightElbow = Vector3.Lerp(visual.RightElbow, new Vector3(-.34f, 1.24f, .31f), t);
         // The temple solver starts with inward-facing palms. Opposite quarter turns
         // place both palmar surfaces down over the bowl; the former signs faced them up.
         visual.LeftRoll = Mathf.Lerp(visual.LeftRoll, 82f, t);
         visual.RightRoll = Mathf.Lerp(visual.RightRoll, -82f, t);
-        visual.LeftCurl = Mathf.Lerp(visual.LeftCurl, .18f, t);
-        visual.RightCurl = Mathf.Lerp(visual.RightCurl, .18f, t);
+        visual.LeftCurl = Mathf.Lerp(visual.LeftCurl, .08f, t);
+        visual.RightCurl = Mathf.Lerp(visual.RightCurl, .08f, t);
         visual.Curl = Mathf.Max(visual.LeftCurl, visual.RightCurl);
     }
     internal static void ApplyMerchantOffering(ref TownActivityVisual visual, float blend)
