@@ -2,16 +2,16 @@
 
 **Updated 2026-09-26: feature/immersive-town-services, version 1.1.0 hardware candidate.**
 The feature includes released 1.0.8 / ModBuild 556 and the subsequent 1.0.9
-version bookkeeping on `dev`. ModBuild 566 follows the build-565 NPC hardware
-report with silent automatic resident exits, exact temple character retention, removal of the
-primary-entry workspace/Cloth stall, persistent informational purses, actual-skin hip and bowl
-poses, bounded cloth recovery and nonintersecting priestess props.
+version bookkeeping on `dev`. ModBuild 567 follows the build-566 NPC hardware
+report with the actual attention-transition UI sound removed, wrist-gated informational purses,
+a seeded particle blessing, production-path cloth contact, anatomically connected priestess
+shoulders and continuous hip/bowl poses, and props outside the resulting motion envelope.
 ModBuild 560 introduced resident
 voices, shared merchant confirmation presentation, a visible temple donation
 target, cloth contact, cabinet detail and varied idle motion.
 Headset verification of the resulting presentation remains open. Historical NPC
 design: [research/TOWN-SERVICES-552.md](research/TOWN-SERVICES-552.md).
-Current evidence and implementation limits: [TOWN-566.md](TOWN-566.md).
+Current evidence and implementation limits: [TOWN-567.md](TOWN-567.md).
 The feature remains isolated from `dev`, and NPC work belongs on this branch.
 
 The file this replaces had gone 168 builds
@@ -26,6 +26,17 @@ change per build) → this file (where things stand and what is owed) → the bu
 ---
 
 ## 1. Position
+
+- **NPC feature / 1.1.0 / ModBuild 567 (hardware candidate):** the recurring spatial
+  open/close sound was the flat equipment-toggle clip reused as invented resident cloth foley on
+  approach/departure attention thresholds; that path is removed while coin, spell and voice cues
+  remain. Debug-only bounded traces identify any native town audio request. The purse appears only
+  through the ordinary card-fan wrist gesture, including when donation is unavailable, while its
+  interaction stays disabled. A seeded particle system replaces the polygon blessing. The actual
+  production cloth class now measures capsule-to-sheet contact and preserves its visual zero, with
+  measured contact response and complete recovery. Imported priestess shoulder origins, hip pose,
+  palms-down bowl cover, cover exit and candle clearance were revalidated against the real bundle.
+  Evidence and the headset checklist are in [TOWN-567.md](TOWN-567.md).
 
 - **NPC feature / 1.1.0 / ModBuild 566 (hardware candidate):** automatic resident
   departure keeps the native mode transition but omits synthetic pointer audio. Temple entry

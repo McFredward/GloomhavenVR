@@ -8,21 +8,24 @@ namespace GloomhavenVR.WorldUI;
 /// the game's current master/effects levels. Never invokes native purchase sounds.</summary>
 internal sealed class TownServiceActivityAudio : IDisposable
 {
+    private static readonly int SoundCount = Enum.GetValues(typeof(TownActivitySound)).Length;
+    // Resident service ids are 1..3; slot zero is intentionally unused.
+    private const int ResidentSlotCount = 4;
     private readonly Transform _root;
     private readonly byte _service;
     private readonly string _claim;
     private readonly TownServiceActivitySoundClock _clock = new();
     private readonly AudioSource?[] _voices = new AudioSource?[2];
     private readonly float[] _ends = new float[2], _gains = new float[2];
-    private readonly AudioClip?[] _clips = new AudioClip?[4];
-    private readonly float[] _resolveAt = new float[4];
+    private readonly AudioClip?[] _clips = new AudioClip?[SoundCount];
+    private readonly float[] _resolveAt = new float[SoundCount];
     private int _voice;
     private float _voiceScale;
     private bool _failed;
     private static AudioClip? _coinClink;
     private static float _nextCoinResolve;
-    private static readonly bool[] Reported = new bool[4], MissingReported = new bool[4];
-    private static readonly int[] TraceLines = new int[4];
+    private static readonly bool[] Reported = new bool[ResidentSlotCount], MissingReported = new bool[SoundCount];
+    private static readonly int[] TraceLines = new int[ResidentSlotCount];
     private const int TraceLineBudgetPerResident = 8;
 
     internal TownServiceActivityAudio(Transform root, byte service)

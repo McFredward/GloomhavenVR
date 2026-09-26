@@ -541,7 +541,19 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 566;
+    public const ushort ModBuild = 567;
+
+    // ModBuild 567 — seventh NPC hardware follow-up on the feature branch (FULL
+    // INSTALL). Resident attention no longer invents cloth foley from the flat
+    // equipment-toggle UI clip; bounded Debug traces identify any remaining native
+    // town audio request without changing normal player logs. The temple purse uses
+    // the ordinary card-fan wrist reveal while affordability/prior use gates only
+    // interaction. The shared blessing is a seeded billboard particle effect rather
+    // than flown polygon meshes. Town cloth contact measures the real hand capsule
+    // against the physical sheet and no longer re-captures a displaced solver as its
+    // visual zero. Imported priestess shoulders retain their anatomical origin, hip
+    // and bowl-cover poses use continuous complete palm frames, and candles remain
+    // outside the complete arm, book, bowl and lantern envelopes.
 
     // ModBuild 566 — sixth NPC hardware follow-up on the feature branch (FULL
     // INSTALL). Automatic resident departure now takes the game's native map-mode

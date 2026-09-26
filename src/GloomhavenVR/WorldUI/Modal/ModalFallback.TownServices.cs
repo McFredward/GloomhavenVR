@@ -210,7 +210,10 @@ internal static class TownServiceNativeAudioSilence
     {
         // Called only inside a rare automatic transition, only when Debug is requested and only
         // for the bounded lines above. This is causal evidence, not a per-frame sampling stream.
-        if (!VRLog.WantsDebug || _traceLines >= TraceLineBudget) return "not sampled";
+        // Trace() has already enforced the session budget before asking for a caller.
+        // Keep this helper read-only with respect to that diagnostic counter so instrumentation
+        // cannot become a false mechanism dependency in the refactor guard.
+        if (!VRLog.WantsDebug) return "not sampled";
         var trace = new StackTrace(2, false);
         for (int i = 0; i < trace.FrameCount; i++)
         {

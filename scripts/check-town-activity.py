@@ -61,7 +61,7 @@ def mutations():
         ("thumb-overcurl", "TownServiceActivityRig.cs", "arm.Anatomical ? 38f : 5f", "arm.Anatomical ? 150f : 5f", "anatomical thumb stays inside natural grasp range"),
         ("attentive-counter-bracing", "TownServiceActivityMotion.cs", "new Vector3(.20f, 1.10f, .52f)", "new Vector3(.21f, .959f, .337f)", "attentive priestess hands stay beside her robe and outside the donation bowl"),
         ("low-priestess-shoulders", "TownServiceActivityMotion.cs", "float priestessElbowHeight = 1.23f;", "float priestessElbowHeight = .40f;", "actual priestess upper arms preserve the clavicle shoulder line"),
-        ("upturned-priestess-hip", "TownServiceActivityRig.cs", "-_root.up - _root.forward * .2f", "-_root.forward", "actual attentive priestess fingers rest down along her hip"),
+        ("upturned-priestess-hip", "TownServiceActivityRig.cs", "-_root.up - _root.forward * .2f", "_root.up", "unavailable temple pose transitions continuously without a wrist snap"),
         ("excessive-work-bow", "TownServiceActivityRig.cs", "-6f - terrainLean", "-35f - terrainLean", "work posture does not stack an extreme torso and neck bow"),
         ("ignore-palm-offset", "TownServiceActivityRig.cs", "target -= palmOffset;", "target -= palmOffset * 0f;", "anatomical palm contacts transformed counter surface"),
         ("curl-contact-markers", "TownServiceActivityRig.cs", ' && !t.name.Contains("Tip")', "", "contact markers are not articulated finger joints"),
