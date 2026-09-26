@@ -379,13 +379,24 @@ internal sealed class TownServiceActivityRig
             // Keep the lowered joined hands clear of the actual robe as well as
             // the original prayer. A rearward pole cut three sleeve/torso triangles.
             if (_service == 2)
+            {
                 // Preserve the imported clavicle and upper-arm origin. The former
                 // y=.70 fallback pulled the whole sleeve down from the chest while
                 // transitioning between prayer and attention, producing the apparent
-                // low shoulder seen in the headset. The authored elbow carries the
-                // complete continuous path and bends the forearm toward the hip/bowl.
+                // low shoulder seen in the headset. The build 571 arm guide was
+                // only 110 mm from centre at attention. With the real imported
+                // upper-arm length its IK bend plane swung the elbow across the
+                // torso even while the hand remained on its anatomical side.
+                // Keep the pole outside the torso during the descent, then return
+                // to the narrow guide that makes the attended arms hang vertically.
+                // A permanently wide pole passed the continuity test but looked
+                // arms-akimbo in the actual imported rig render.
                 guide = authoredElbow.sqrMagnitude > .01f ? authoredElbow
                     : new Vector3(side * .40f, 1.20f, .46f);
+                float outer = .11f + .15f * (1f - attention)
+                    + .10f * Mathf.Sin(Mathf.PI * attention);
+                guide.x = side * Mathf.Max(outer, side * guide.x);
+            }
             else if (_service == 1 && attention > 0f)
                 guide = Vector3.Lerp(guide, authoredElbow.sqrMagnitude > .01f ? authoredElbow
                     : new Vector3(side * .41f, 1.13f, .50f), attention);
@@ -430,8 +441,18 @@ internal sealed class TownServiceActivityRig
                 Quaternion baseHand = Quaternion.LookRotation(_root.up, -side * _root.right)
                     * Quaternion.Inverse(Quaternion.LookRotation(arm.PalmForward, arm.PalmNormal));
                 Vector3 baseNormal = baseHand * arm.PalmNormal;
-                Vector3 baseFinger = Vector3.ProjectOnPlane(handReference, baseNormal).normalized;
-                baseFinger = Vector3.RotateTowards(foreDirection, baseFinger, 55f * Mathf.Deg2Rad, 0f).normalized;
+                Vector3 naturalFinger = Vector3.ProjectOnPlane(handReference, baseNormal).normalized;
+                Vector3 limitedFinger = Vector3.RotateTowards(foreDirection, naturalFinger,
+                    55f * Mathf.Deg2Rad, 0f).normalized;
+                // As an attentive arm reaches a vertical rest, the forearm can
+                // briefly point opposite the descending finger reference. The
+                // 55-degree RotateTowards plane then flips sides in one frame.
+                // Borrow the stable body-space direction through that crossing;
+                // return to the original forearm-limited frame at full attention
+                // so her idle arms hang naturally beside the robe.
+                float freeFinger = Mathf.SmoothStep(0f, 1f, (attention - .45f) / .25f)
+                    * (1f - Mathf.SmoothStep(0f, 1f, (attention - .85f) / .15f));
+                Vector3 baseFinger = Vector3.Slerp(limitedFinger, naturalFinger, freeFinger).normalized;
                 Quaternion baseFrame = Quaternion.LookRotation(baseFinger,
                     Vector3.ProjectOnPlane(baseNormal, baseFinger).normalized);
                 // Each hand turns a little toward the common bowl centre. The former

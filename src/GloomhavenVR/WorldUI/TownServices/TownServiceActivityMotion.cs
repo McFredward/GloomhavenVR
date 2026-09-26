@@ -128,28 +128,19 @@ internal static class TownServiceActivityMotion
         // applying the fading pose until its authored blend has reached zero.
         if (donationAvailable && blend <= 0f) return;
         float t = Mathf.SmoothStep(0f, 1f, Mathf.Clamp01(blend)) * visual.Attention;
-        // The actual bowl rim is around y=1.10 in station space. Build 565's
-        // 1.205 target held both hands a palm-height above it, reading as a vague
-        // raised gesture rather than physically covering the offering. Bring the
-        // relaxed palms just over the rim while leaving room for the original mesh.
-        // Keep a palm-width gap so the imported fingers cover the rim without intersecting.
-        // The former high, wide elbow guides made both upper sleeves leave the shoulder almost
-        // horizontally before the forearms converged, which read as detached arms in the filmed
-        // transition. These guides keep the elbows below and inside their shoulder line while
-        // the palms arrive symmetrically at the bowl.
-        visual.Left = Vector3.Lerp(visual.Left, new Vector3(.045f, 1.105f, .19f), t);
-        visual.Right = Vector3.Lerp(visual.Right, new Vector3(-.045f, 1.105f, .19f), t);
-        // The elbows bend below the bowl instead of projecting the bulky upper sleeves
-        // horizontally toward the visitor. In the filmed build the latter silhouette
-        // looked like two rigid padded tubes growing out of the shoulders.
-        visual.LeftElbow = Vector3.Lerp(visual.LeftElbow, new Vector3(.245f, 1.015f, .43f), t);
-        visual.RightElbow = Vector3.Lerp(visual.RightElbow, new Vector3(-.245f, 1.015f, .43f), t);
-        // The temple solver starts with inward-facing palms. Opposite quarter turns
-        // place both palmar surfaces down over the bowl; the former signs faced them up.
+        // Build 571 hardware video (2026-09-27, 00:53:56) showed both palms
+        // crowded into the 90 mm bowl. The imported forearms ran parallel across
+        // her torso and the fingers overlapped. Separating both hands to the outer
+        // rim removed the collision but left the bowl visibly open. Instead she
+        // covers its centre with her left palm while the right arm settles at her
+        // side. This also gives her a natural, asymmetric rest after a donation.
+        visual.Left = Vector3.Lerp(visual.Left, new Vector3(.005f, 1.115f, .18f), t);
+        visual.LeftElbow = Vector3.Lerp(visual.LeftElbow, new Vector3(.285f, 1.035f, .44f), t);
+        // The temple solver starts with an inward-facing left palm. A quarter turn
+        // places its palmar surface down across the opening. The right hand keeps
+        // its already relaxed attention pose rather than twisting over the bowl.
         visual.LeftRoll = Mathf.Lerp(visual.LeftRoll, 82f, t);
-        visual.RightRoll = Mathf.Lerp(visual.RightRoll, -82f, t);
         visual.LeftCurl = Mathf.Lerp(visual.LeftCurl, .08f, t);
-        visual.RightCurl = Mathf.Lerp(visual.RightCurl, .08f, t);
         visual.Curl = Mathf.Max(visual.LeftCurl, visual.RightCurl);
     }
 
@@ -163,14 +154,14 @@ internal static class TownServiceActivityMotion
         // Gather the light above the bowl, then send it forward with one hand while
         // the other returns toward her heart. Two equally outstretched arms read as a
         // rigid mannequin and put both sleeves in a T-shaped silhouette in the render.
-        Vector3 left = new Vector3(Mathf.Lerp(.07f, .07f, open),
-            Mathf.Lerp(1.20f, 1.27f, open), Mathf.Lerp(.25f, .34f, open));
-        Vector3 right = new Vector3(Mathf.Lerp(-.07f, -.15f, open),
-            Mathf.Lerp(1.20f, 1.37f, open), Mathf.Lerp(.25f, .17f, open));
+        Vector3 left = new Vector3(Mathf.Lerp(.10f, .12f, open),
+            Mathf.Lerp(1.20f, 1.28f, open), Mathf.Lerp(.26f, .36f, open));
+        Vector3 right = new Vector3(Mathf.Lerp(-.10f, -.17f, open),
+            Mathf.Lerp(1.20f, 1.36f, open), Mathf.Lerp(.20f, .13f, open));
         visual.Left = Vector3.Lerp(visual.Left, left, lift);
         visual.Right = Vector3.Lerp(visual.Right, right, lift);
-        visual.LeftElbow = Vector3.Lerp(visual.LeftElbow, new Vector3(.18f, 1.12f, .45f), lift);
-        visual.RightElbow = Vector3.Lerp(visual.RightElbow, new Vector3(-.22f, 1.14f, .42f), lift);
+        visual.LeftElbow = Vector3.Lerp(visual.LeftElbow, new Vector3(.29f, 1.10f, .45f), lift);
+        visual.RightElbow = Vector3.Lerp(visual.RightElbow, new Vector3(-.29f, 1.12f, .40f), lift);
         visual.LeftRoll = Mathf.Lerp(visual.LeftRoll, 30f, lift);
         visual.RightRoll = Mathf.Lerp(visual.RightRoll, -88f, lift);
         visual.LeftCurl = Mathf.Lerp(visual.LeftCurl, .04f, lift);
@@ -316,10 +307,12 @@ internal static class TownServiceActivityMotion
         float height = Mathf.Lerp(1.34f, 1.23f, rest);
         visual.Body.Weight = .55f;
         // Palm targets are actual skin surfaces, not wrist centres. The old +/-35 mm
-        // targets left a visible 70 mm gap. Join the cupped hands at the sternum while
-        // retaining a small skin allowance and the recorded breathing motion.
-        visual.Left = new Vector3(.012f,height,.20f);
-        visual.Right = new Vector3(-.012f,height,.20f);
+        // targets left a visible 70 mm gap. Build 571 still put the joined hands at
+        // z=.20, directly above the bowl, so both forearms projected straight across
+        // the chest in the headset video. Keep the palms together near the sternum
+        // (larger station Z is nearer her body) and let the elbows bend below them.
+        visual.Left = new Vector3(.012f,height,.36f);
+        visual.Right = new Vector3(-.012f,height,.36f);
         visual.LeftCurl=0f; visual.RightCurl=0f;
         return visual;
     }

@@ -175,6 +175,10 @@ public static class InteractionProgram
             &&Vector3.Distance(spellPeaks[1],spellPeaks[2])>.08f,
             "spell phrases change hand choreography as well as light effects");
         var prayer=new TownActivityPose{WorkClock=4f,TransitionAge=TownServiceActivityMotion.TransitionSeconds};
+        var praying=TownServiceActivityMotion.Visual(2,in prayer);
+        Check(praying.Left.z>.34f&&praying.Right.z>.34f
+            &&Mathf.Abs(praying.Left.x-praying.Right.x)<.03f,
+            "prayer joins palms near the sternum instead of reaching across the bowl");
         TownServiceActivityMotion.Engage(ref prayer,true);
         prayer=TownServiceActivityMotion.Advance(prayer,TownServiceActivityMotion.TransitionSeconds);
         var receiving=TownServiceActivityMotion.Visual(2,in prayer);
@@ -187,11 +191,12 @@ public static class InteractionProgram
             &&receiving.LeftElbow.x>.10f&&receiving.RightElbow.x<-.10f,
             "attentive priestess lets both arms hang beside her robe behind the table edge");
         TownServiceActivityMotion.ApplyTempleAvailability(ref receiving,false,1f);
-        Check(Mathf.Abs(receiving.Left.x)<.08f&&Mathf.Abs(receiving.Right.x)<.08f
-            &&receiving.Left.y>1.10f&&receiving.Right.y>1.10f
-            &&receiving.Left.y<1.11f&&receiving.Right.y<1.11f
-            &&receiving.Left.z>.17f&&receiving.Right.z>.17f,
-            "unavailable donation moves both hands over the shared bowl "+receiving.Left+" / "+receiving.Right);
+        Check(Mathf.Abs(receiving.Left.x)<.025f&&receiving.Left.y>1.10f&&receiving.Left.y<1.13f
+            &&receiving.Left.z>.16f&&receiving.Left.z<.20f
+            &&receiving.Right.x<-.17f&&receiving.Right.y>.79f&&receiving.Right.y<.81f
+            &&receiving.LeftElbow.x>.27f&&receiving.RightElbow.x<-.10f,
+            "unavailable donation covers the bowl with one hand while the other rests beside the robe "
+            +receiving.Left+" / "+receiving.Right);
         var pause=new TownActivityPose{WorkClock=1.8f,TransitionAge=TownServiceActivityMotion.TransitionSeconds};
         TownServiceActivityMotion.Engage(ref pause,true);pause=TownServiceActivityMotion.Advance(pause,1f);
         var held=TownServiceActivityMotion.Visual(1,in pause);
@@ -208,8 +213,8 @@ public static class InteractionProgram
             "available temple fades out the previous cover pose instead of dropping it in one frame");
         var blessed=receiving;
         TownServiceActivityMotion.ApplyTempleBlessing(ref blessed,1.04f);
-        Check(blessed.Left.y>receiving.Left.y+.15f&&blessed.Right.y>receiving.Right.y+.22f
-            &&blessed.Left.x<.09f&&blessed.Right.x<-.11f
+        Check(blessed.Left.y>receiving.Left.y+.13f&&blessed.Right.y>receiving.Right.y+.22f
+            &&blessed.Left.x>.09f&&blessed.Right.x<-.11f
             &&blessed.Left.z>receiving.Left.z+.10f,
             "committed blessing lifts light with one hand at her heart and one extended toward the recipient");
         var completed=receiving;

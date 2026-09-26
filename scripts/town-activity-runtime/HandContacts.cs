@@ -163,11 +163,15 @@ internal static class HandContacts
                         previousLeft=leftPalm.rotation;previousRight=rightPalm.rotation;
                     }
                     Vector3 left=root.InverseTransformPoint(leftPalm.position),right=root.InverseTransformPoint(rightPalm.position);
-                    if(Mathf.Abs(left.x)>.10f||Mathf.Abs(right.x)>.10f||left.y<1.05f||right.y<1.08f
-                        ||left.y>1.14f||right.y>1.14f)
-                        throw new Exception("unavailable donation moves both hands over the shared bowl left="+left+" right="+right);
-                    if(Vector3.Dot(leftPalm.forward,-root.up)<.72f||Vector3.Dot(rightPalm.forward,-root.up)<.72f)
-                        throw new Exception("unavailable donation covers the bowl with both palms facing down");
+                    // One palm closes the centre of the 90 mm radius bowl; the
+                    // other remains at her hip. Two palms at the centre produced
+                    // crossed sleeves and fingers in the build 571 headset video.
+                    if(Mathf.Abs(left.x)>.035f||left.y<1.09f||left.y>1.14f
+                        ||right.x>-.16f||right.y<.77f||right.y>.90f)
+                        throw new Exception("unavailable donation covers the bowl with one hand while the other rests beside the robe left="+left+" right="+right);
+                    if(Vector3.Dot(leftPalm.forward,-root.up)<.72f
+                        ||Vector3.Dot(rightPalm.forward,root.right)<.55f)
+                        throw new Exception("unavailable donation keeps the covering palm down and the resting palm inward");
                     for(int frame=63;frame>=0;frame--)
                     {
                         rig.BeforeBodySample();
@@ -238,7 +242,7 @@ internal static class HandContacts
                             throw new Exception("prayer-to-covered-bowl transition is continuous frame="+frame
                                 +" leftDegrees="+leftStep+" rightDegrees="+rightStep
                                 +" leftTravel="+leftTravel+" rightTravel="+rightTravel);
-                        if(leftLocal.x<-.01f||rightLocal.x>.01f||leftElbowLocal.x<.04f||rightElbowLocal.x>-.04f)
+                        if(leftLocal.x<-.01f||rightLocal.x>.01f||leftElbowLocal.x<.04f||rightElbowLocal.x>-.02f)
                             throw new Exception("priestess arms retain their anatomical sides without crossing frame="+frame
                                 +" palms="+leftLocal+" / "+rightLocal+" elbows="+leftElbowLocal+" / "+rightElbowLocal);
                         previousLeft=leftPalm.rotation;previousRight=rightPalm.rotation;

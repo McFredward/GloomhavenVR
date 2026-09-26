@@ -103,12 +103,16 @@ internal static class ActivityRender
                 attentive=TownServiceActivityMotion.Blend(in state)>.5f;
             }
             TownActivityVisual rendered=TownServiceActivityMotion.Visual(service,in state);
-            if(service==2&&(attentionSequence||templeUnavailable&&attentive))
+            if(service==2&&(templeUnavailable||templeBlessing)&&(attentionSequence||attentive))
             {
-                // The resident already knows that this visit is unavailable before
-                // attention starts. Render the production prayer -> covered-bowl ->
-                // prayer path directly; there must be no intermediate available pose.
-                TownServiceActivityMotion.ApplyTempleAvailability(ref rendered,false,1f);
+                // An unavailable return visit starts its attention transition
+                // covered. A newly committed donation instead starts available
+                // and covers the bowl over the shared transition age at t=2s.
+                // Earlier sequence renders unconditionally covered both cases and
+                // could not reveal a bad donation/cover/blessing overlap.
+                float cover=templeBlessing
+                    ?Mathf.Clamp01((phases[phase]-2f)/TownServiceActivityMotion.TransitionSeconds):1f;
+                TownServiceActivityMotion.ApplyTempleAvailability(ref rendered,false,cover);
             }
             if(service==2&&templeBlessing)
                 TownServiceActivityMotion.ApplyTempleBlessing(ref rendered,phases[phase]-2f);
