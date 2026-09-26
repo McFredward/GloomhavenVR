@@ -194,6 +194,18 @@
       "weight": 15
     },
     {
+      "id": "town-service-warmup",
+      "command": [
+        "bash",
+        "scripts/check-town-service-warmup.sh"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 5
+    },
+    {
       "id": "town-activity",
       "command": [
         "python3",

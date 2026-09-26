@@ -183,7 +183,11 @@ namespace GloomhavenVR.WorldUI
         internal static UIWindow? ModeWindow(EGuildmasterMode mode) => Window;
     }
     internal static class PanelLayout { internal static float WorldScale = 1; }
-    internal static class TownServiceAssets { internal static GameObject? Prefab(string name) => Probe.Go(name); }
+    internal static class TownServiceAssets
+    {
+        internal static bool IsLoading => false;
+        internal static GameObject? Prefab(string name) => Probe.Go(name);
+    }
     internal static class WorldUIAssets
     { internal static Material CreateFlatMaterial(Color color) => new Material(Shader.Find("UI/Default")) { color = color }; }
     internal sealed class ConvertedPanel
