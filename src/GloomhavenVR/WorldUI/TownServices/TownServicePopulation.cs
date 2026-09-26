@@ -45,6 +45,7 @@ internal static class TownServicePopulation
         internal TempleBlessingGate TempleBlessing;
         internal float TempleUnavailableBlend;
         internal bool TempleDirectCover;
+        internal bool TempleHydratingCover;
         internal bool TempleUnavailableSpoken;
         internal bool TempleAvailabilityObserved;
         internal float TempleBlessingStartedAt = float.NegativeInfinity;
@@ -196,7 +197,8 @@ internal static class TownServicePopulation
                 TownClothRunnerState first = default, second = default;
                 if (authored.HasCloth)
                 {
-                    if (service == 2) { first = authored.TempleLeft; second = authored.TempleRight; }
+                    if (service == 1) first = authored.MerchantCloth;
+                    else if (service == 2) { first = authored.TempleLeft; second = authored.TempleRight; }
                     else if (service == 3) first = authored.EnchantressCloth;
                 }
                 resident.Station.TickClothObserver(resident.Age, authored.HasCloth ? elapsed : 0f,
@@ -256,6 +258,7 @@ internal static class TownServicePopulation
                     resident.TempleVoiceSession = session;
                     resident.TempleUnavailableSpoken = false;
                     resident.TempleAvailabilityObserved = false;
+                    resident.TempleHydratingCover = false;
                 }
                 bool donationCommitted = resident.TempleBlessing.Observe(received, owner, session, known, available, revision);
                 if (donationCommitted)
@@ -280,15 +283,21 @@ internal static class TownServicePopulation
                 // zero made the first half of the entrance visibly pass through the available
                 // hands-down pose. A live availability change while she is already attending
                 // still uses the ordinary smooth transition, as does every departure.
-                // The private temple window can hydrate after attention has already started.
-                // The first *known* unavailable state is still an entry into the blocked visit,
-                // not a donation made in this pose. Go straight from prayer to the bowl cover;
-                // otherwise the visitor sees an unintended hands-down intermediate stance.
+                // A private window can hydrate after attention has already become visible.
+                // Jumping its cover weight to one at that point produces a one-frame arm snap.
+                // Only choose the direct prayer-to-cover path before attention starts; a late
+                // baseline blends from the pose already on screen.
                 if (unavailable && !resident.TempleAvailabilityObserved)
-                    resident.TempleDirectCover = true;
+                {
+                    resident.TempleDirectCover = displayedActivity.Attention <= .05f;
+                    resident.TempleHydratingCover = !resident.TempleDirectCover;
+                }
                 if (received && known) resident.TempleAvailabilityObserved = true;
                 if (unavailable && resident.TempleDirectCover)
                     resident.TempleUnavailableBlend = 1f;
+                else if (unavailable && resident.TempleHydratingCover)
+                    resident.TempleUnavailableBlend = Mathf.MoveTowards(resident.TempleUnavailableBlend,
+                        1f, Time.unscaledDeltaTime / TownServiceActivityMotion.TransitionSeconds);
                 else if (unavailable)
                 {
                     // A donation made while the priestess is already attentive follows
@@ -301,6 +310,7 @@ internal static class TownServicePopulation
                 else if (received || displayedActivity.Attention <= .001f)
                 {
                     resident.TempleDirectCover = false;
+                    resident.TempleHydratingCover = false;
                     resident.TempleUnavailableBlend = Mathf.MoveTowards(resident.TempleUnavailableBlend,
                         0f,
                         Time.unscaledDeltaTime / TownServiceActivityMotion.TransitionSeconds);
@@ -349,7 +359,8 @@ internal static class TownServicePopulation
                 Age = resident.Age, Clip = resident.Clip,
                 ActorFloorOffset = resident.Station.ActorFloorOffset, FurnitureBottom = resident.Station.FurnitureBottom,
                 Visibility = (byte)Mathf.RoundToInt(resident.Visibility * 255f) });
-            if (service == 2)
+            if (service == 1) published.MerchantCloth = resident.Station.ClothFirst;
+            else if (service == 2)
             { published.TempleLeft = resident.Station.ClothFirst; published.TempleRight = resident.Station.ClothSecond; }
             else if (service == 3) published.EnchantressCloth = resident.Station.ClothFirst;
             if (!used && resident.Visibility <= 0f)

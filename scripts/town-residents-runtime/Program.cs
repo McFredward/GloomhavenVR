@@ -72,6 +72,19 @@ internal static class Program
         Check(Vector3.Distance(TownServiceStation.Live[2].LastActivity.Left,direct.Left)<.0001f,
             "known unavailable approach transitions directly from prayer to covered bowl");
 
+        // A late private-window hydration is different: attention has already moved
+        // the arms. The newly learned unavailable baseline must blend from that
+        // visible pose, not snap the cover weight to one on its first packet.
+        Reset();TownServiceStation.NearVisitor=true;
+        Tick(.7f);
+        Vector3 beforeHydration=TownServiceStation.Live[2].LastActivity.Left;
+        TownServiceMirror.TempleReceived=true;TownServiceMirror.TempleOwner=10;
+        TownServiceMirror.TempleSession=8;TownServiceMirror.TempleKnown=true;
+        TownServiceMirror.TempleAvailable=false;TownServiceMirror.TempleRevision=2;
+        Tick(.01f);
+        Check(Vector3.Distance(beforeHydration,TownServiceStation.Live[2].LastActivity.Left)<.03f,
+            "late unavailable hydration retains a continuous arm pose");
+
         Reset();TownServiceStation.NearVisitor=true;
         TownServiceMirror.TempleReceived=true;TownServiceMirror.TempleOwner=10;
         TownServiceMirror.TempleSession=7;TownServiceMirror.TempleKnown=true;
@@ -185,6 +198,7 @@ internal static class Program
 
         Reset();Observe(5,State(5));
         var clothOwner = State(2); clothOwner.HasCloth = true;
+        clothOwner.MerchantCloth = new TownClothRunnerState { Left = new Vector2(-.018f, .012f) };
         clothOwner.TempleLeft = new TownClothRunnerState { Left = new Vector2(.02f, -.01f) };
         Observe(2,clothOwner);
         Check(RemoteTownResidents.TryAuthor(out var chosen,out var elapsed),"remote author elected");Near(chosen.Merchant.Age,2,"lowest fresh player wins");Near(elapsed,0,"new packet elapsed zero");
@@ -192,6 +206,10 @@ internal static class Program
         Check(TownServiceStation.Live[2].ClothObserverTicks > 0 && TownServiceStation.Live[2].ClothAuthorTicks == 0,
             "remote priestess cloth replays owner state without local contact sampling");
         Near(TownServicePopulation.Published.TempleLeft.Left.x,.02f,"observer republishes the same cloth edge");
+        Near(TownServiceStation.Live[1].ClothFirst.Left.x,-.018f,
+            "remote merchant side cloth replays the elected owner's contact");
+        Near(TownServicePopulation.Published.MerchantCloth.Left.y,.012f,
+            "remote merchant side cloth remains published through the resident author");
         for(byte s=1;s<=3;s++)
         {
             Near(TownServiceStation.Live[s].ActorFloorOffset,-.03f*s,"observer applies author's sole height");

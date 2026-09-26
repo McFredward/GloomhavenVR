@@ -23,25 +23,27 @@ internal struct TownResidentsState
     internal bool Active;
     internal bool HasCloth;
     internal TownResidentPose Merchant, Temple, Enchantress;
-    internal TownClothRunnerState TempleLeft, TempleRight, EnchantressCloth;
+    internal TownClothRunnerState MerchantCloth, TempleLeft, TempleRight, EnchantressCloth;
     internal TownResidentPose At(int index) => index == 0 ? Merchant : index == 1 ? Temple : Enchantress;
     internal void Set(int index, TownResidentPose pose)
     { if (index == 0) Merchant = pose; else if (index == 1) Temple = pose; else Enchantress = pose; }
 }
 
 /// <summary>Additive79: active1; when active, three pose20/scale4/age4/visibility1/clip1/actorFloor4/furnitureBottom4 entries.
-/// An optional 24-byte tail holds three cloth runners, each with four signed millimetre
-/// displacements and four signed 2 mm/s velocities. The 115-byte prefix is unchanged.
+/// An optional 32-byte tail holds four cloth runners, each with four signed millimetre
+/// displacements and four signed 2 mm/s velocities. The 115-byte prefix and the previous
+/// 24-byte cloth tail remain readable.
 /// Idle0 and greeting1 are sampled from the same authored clips on all clients.</summary>
 internal static class TownResidentsCodec
 {
     internal const int LegacyPayload = 115;
-    internal const int MaxPayload = 139;
+    internal const int LegacyClothPayload = 139;
+    internal const int MaxPayload = 147;
     private static bool Finite(float x) => !float.IsNaN(x) && !float.IsInfinity(x);
     internal static bool Valid(in TownResidentsState state)
     {
         if (!state.Active) return true;
-        if (state.HasCloth && (!ValidCloth(state.TempleLeft) || !ValidCloth(state.TempleRight)
+        if (state.HasCloth && (!ValidCloth(state.MerchantCloth) || !ValidCloth(state.TempleLeft) || !ValidCloth(state.TempleRight)
             || !ValidCloth(state.EnchantressCloth))) return false;
         for (int n = 0; n < 3; n++)
         {
@@ -102,17 +104,20 @@ internal static class TownResidentsCodec
             AvatarSerializer.WriteF32(buffer, ref offset, entry.FurnitureBottom);
         }
         if (state.HasCloth)
-        { WriteCloth(buffer, ref offset, in state.TempleLeft); WriteCloth(buffer, ref offset, in state.TempleRight);
+        { WriteCloth(buffer, ref offset, in state.MerchantCloth);
+            WriteCloth(buffer, ref offset, in state.TempleLeft); WriteCloth(buffer, ref offset, in state.TempleRight);
             WriteCloth(buffer, ref offset, in state.EnchantressCloth); }
         return true;
     }
     internal static bool TryRead(byte[] buffer, int offset, int length, out TownResidentsState state)
     {
         state = default;
-        if ((length != 1 && length != LegacyPayload && length != MaxPayload) || offset < 0 || offset > buffer.Length - length) return false;
+        if ((length != 1 && length != LegacyPayload && length != LegacyClothPayload && length != MaxPayload)
+            || offset < 0 || offset > buffer.Length - length) return false;
         byte flags = buffer[offset++];
         if (flags > 1 || flags == 0 && length != 1 || flags == 1 && length == 1) return false;
-        var read = new TownResidentsState { Active = flags == 1, HasCloth = length == MaxPayload };
+        var read = new TownResidentsState { Active = flags == 1,
+            HasCloth = length == LegacyClothPayload || length == MaxPayload };
         if (!read.Active) return true;
         for (int n = 0; n < 3; n++)
         {
@@ -133,7 +138,8 @@ internal static class TownResidentsCodec
             read.Set(n, entry);
         }
         if (read.HasCloth)
-        { read.TempleLeft = ReadCloth(buffer, ref offset); read.TempleRight = ReadCloth(buffer, ref offset);
+        { if (length == MaxPayload) read.MerchantCloth = ReadCloth(buffer, ref offset);
+            read.TempleLeft = ReadCloth(buffer, ref offset); read.TempleRight = ReadCloth(buffer, ref offset);
             read.EnchantressCloth = ReadCloth(buffer, ref offset); }
         if (!Valid(in read)) return false;
         state = read; return true;

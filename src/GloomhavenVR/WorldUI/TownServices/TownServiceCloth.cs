@@ -8,7 +8,7 @@ using UnityEngine;
 
 namespace GloomhavenVR.WorldUI;
 
-/// <summary>Native Unity cloth for the priestess and enchantress furniture.
+/// <summary>Native Unity cloth for the three town-service stations.
 /// The original visible mesh and materials remain in place; an invisible
 /// <see cref="Cloth"/> driver supplies their simulated vertices. This is the
 /// same PhysX cloth and tapered palm-to-fingertip collider mechanism used by
@@ -110,7 +110,7 @@ internal sealed class TownServiceCloth : IDisposable
             if (filter.name.StartsWith("ClothRunner_", StringComparison.Ordinal)) filters.Add(filter);
         filters.Sort((a, b) => _station.InverseTransformPoint(a.transform.TransformPoint(a.sharedMesh.bounds.center)).x
             .CompareTo(_station.InverseTransformPoint(b.transform.TransformPoint(b.sharedMesh.bounds.center)).x));
-        if (filters.Count != (service == 2 ? 2 : service == 3 ? 1 : 0))
+        if (filters.Count != (service == 2 ? 2 : 1))
             throw new InvalidOperationException("Town cloth mesh count does not match the authored furniture for service " + service);
 
         try
@@ -151,24 +151,29 @@ internal sealed class TownServiceCloth : IDisposable
         Array.Copy(rest, runner.Shown, rest.Length);
 
         float minX = float.MaxValue, maxX = float.MinValue, minY = float.MaxValue, maxY = float.MinValue;
+        float minZ = float.MaxValue, maxZ = float.MinValue;
         for (int n = 0; n < rest.Length; n++)
         {
             Vector3 p = _station.InverseTransformPoint(filter.transform.TransformPoint(rest[n]));
             minX = Mathf.Min(minX, p.x); maxX = Mathf.Max(maxX, p.x);
             minY = Mathf.Min(minY, p.y); maxY = Mathf.Max(maxY, p.y);
+            minZ = Mathf.Min(minZ, p.z); maxZ = Mathf.Max(maxZ, p.z);
         }
-        if (maxY - minY < .3f || maxX - minX < .1f)
+        if (maxY - minY < .3f || (_service == 1 ? maxZ - minZ : maxX - minX) < .1f)
             throw new InvalidOperationException("Town cloth dimensions do not match the native cloth source.");
         for (int n = 0; n < rest.Length; n++)
         {
             Vector3 p = _station.InverseTransformPoint(filter.transform.TransformPoint(rest[n]));
             runner.Freedom[n] = Freedom(p, maxY);
-            runner.Side[n] = Mathf.Clamp01((p.x - minX) / (maxX - minX));
+            runner.Side[n] = _service == 1
+                ? Mathf.Clamp01((p.z - minZ) / (maxZ - minZ))
+                : Mathf.Clamp01((p.x - minX) / (maxX - minX));
         }
 
         BuildNativeDriver(runner, minX, maxX);
         BuildDecorations(runner);
-        BuildTableSupports(runner, minX, maxX, maxY);
+        if (_service == 1) BuildMerchantSupports(runner);
+        else BuildTableSupports(runner, minX, maxX, maxY);
         RewriteColliders(runner);
         return runner;
     }
@@ -199,7 +204,8 @@ internal sealed class TownServiceCloth : IDisposable
         for (int row = 0; row < DriverRows; row++)
         for (int column = 0; column < DriverColumns; column++)
         {
-            Vector3 stationPoint = AuthoredPoint(row, column, minX, maxX);
+            Vector3 stationPoint = _service == 1 ? MerchantAuthoredPoint(row, column)
+                : AuthoredPoint(row, column, minX, maxX);
             float closest = float.MaxValue;
             for (int visible = 0; visible < runner.Rest.Length; visible++)
             {
@@ -260,7 +266,8 @@ internal sealed class TownServiceCloth : IDisposable
         // local particle units exactly once. FigureCloth's coefficient rescale is
         // for an already-cooked garment whose miniature changes scale afterwards;
         // this cloth is created only after its final station hierarchy is placed.
-        float physicalMinX = float.MaxValue, physicalMaxX = float.MinValue, maxY = float.MinValue;
+        float physicalMinX = float.MaxValue, physicalMaxX = float.MinValue;
+        float physicalMinZ = float.MaxValue, physicalMaxZ = float.MinValue, maxY = float.MinValue;
         runner.DriverFreedom = new float[runner.DriverRest.Length];
         runner.DriverSide = new float[runner.DriverRest.Length];
         runner.DriverMaximum = new float[runner.DriverRest.Length];
@@ -269,13 +276,15 @@ internal sealed class TownServiceCloth : IDisposable
             Vector3 p = _station.InverseTransformPoint(driver.TransformPoint(runner.DriverRest[n]));
             physicalMinX = Mathf.Min(physicalMinX, p.x);
             physicalMaxX = Mathf.Max(physicalMaxX, p.x); maxY = Mathf.Max(maxY, p.y);
+            physicalMinZ = Mathf.Min(physicalMinZ, p.z); physicalMaxZ = Mathf.Max(physicalMaxZ, p.z);
         }
         for (int n = 0; n < runner.DriverRest.Length; n++)
         {
             Vector3 p = _station.InverseTransformPoint(driver.TransformPoint(runner.DriverRest[n]));
             runner.DriverFreedom[n] = Freedom(p, maxY);
-            runner.DriverSide[n] = Mathf.Clamp01((p.x - physicalMinX)
-                / Mathf.Max(.0001f, physicalMaxX - physicalMinX));
+            runner.DriverSide[n] = _service == 1
+                ? Mathf.Clamp01((p.z - physicalMinZ) / Mathf.Max(.0001f, physicalMaxZ - physicalMinZ))
+                : Mathf.Clamp01((p.x - physicalMinX) / Mathf.Max(.0001f, physicalMaxX - physicalMinX));
         }
         for (int n = 0; n < runner.Rest.Length; n++)
         {
@@ -419,6 +428,35 @@ internal sealed class TownServiceCloth : IDisposable
         }
     }
 
+    private void BuildMerchantSupports(Runner runner)
+    {
+        // The merchant's side hanging is vertical. A capsule in every grid column
+        // follows the cabinet wall behind it, leaving the outer face accessible to
+        // fingers while preventing the cloth from passing through the cabinet.
+        for (int column = 0; column < DriverColumns; column++)
+        {
+            float z = Mathf.Lerp(.105f, .460f, column / (DriverColumns - 1f));
+            SphereCollider top = MerchantSupport(runner, column, "Top", 1.57f, z);
+            SphereCollider bottom = MerchantSupport(runner, column, "Bottom", 1.00f, z);
+            runner.SupportPairs.Add(new ClothSphereColliderPair(top, bottom));
+        }
+    }
+
+    private SphereCollider MerchantSupport(Runner runner, int column, string end, float y, float z)
+    {
+        var go = new GameObject("GloomhavenVR.TownCloth.MerchantSupport." + column + "." + end)
+            { layer = IgnoreRaycastLayer };
+        Transform driver = runner.DriverRoot.transform;
+        go.transform.SetParent(driver, false);
+        go.transform.localPosition = driver.InverseTransformPoint(_station.TransformPoint(
+            new Vector3(-1.334f, y, z)));
+        var sphere = go.AddComponent<SphereCollider>();
+        sphere.radius = .041f * driver.InverseTransformVector(
+            _station.TransformVector(Vector3.up)).magnitude;
+        runner.Supports.Add(go);
+        return sphere;
+    }
+
     private SphereCollider TableSupport(Runner runner, int column, string edge,
         float x, float topY, float rearward)
     {
@@ -462,6 +500,16 @@ internal sealed class TownServiceCloth : IDisposable
         return new Vector3(x, y, z);
     }
 
+    private static Vector3 MerchantAuthoredPoint(int row, int column)
+    {
+        float t = row / (DriverRows - 1f);
+        float u = column / (DriverColumns - 1f);
+        return new Vector3(
+            -1.376f - .0025f * Mathf.Sin(Mathf.PI * t) * Mathf.Sin(2f * Mathf.PI * u),
+            1.590f - .600f * t + .002f * Mathf.Sin(Mathf.PI * t) * Mathf.Cos(3f * Mathf.PI * u),
+            .105f + .355f * u + .004f * Mathf.Sin(2f * Mathf.PI * t) * Mathf.Sin(Mathf.PI * u));
+    }
+
     private void BuildDecorations(Runner runner)
     {
         foreach (MeshFilter child in runner.Filter.GetComponentsInChildren<MeshFilter>(true))
@@ -490,6 +538,7 @@ internal sealed class TownServiceCloth : IDisposable
 
     private float Freedom(Vector3 p, float top)
     {
+        if (_service == 1) return Mathf.Pow(Mathf.Clamp01((top - p.y) / .56f), 1.25f);
         float edge = TableFront(p.x);
         float topWeave = Mathf.Clamp01((edge + .145f - p.z) / .145f);
         float hanging = Mathf.Clamp01((top - p.y) / .38f);
@@ -807,7 +856,7 @@ internal sealed class TownServiceCloth : IDisposable
         Vector2 left = Vector2.zero, right = Vector2.zero;
         float leftWeight = 0f, rightWeight = 0f;
         Vector3 worldX = _station.TransformVector(Vector3.right);
-        Vector3 worldZ = _station.TransformVector(Vector3.forward);
+        Vector3 worldZ = _station.TransformVector(_service == 1 ? Vector3.up : Vector3.forward);
         float xx = Mathf.Max(.0001f, Vector3.Dot(worldX, worldX));
         float zz = Mathf.Max(.0001f, Vector3.Dot(worldZ, worldZ));
         for (int n = 0; n < vertices.Length; n++)
@@ -847,7 +896,8 @@ internal sealed class TownServiceCloth : IDisposable
 
         TownClothRunnerState measured = Measure(runner, simulated);
         Vector3 localX = runner.Filter.transform.InverseTransformVector(_station.TransformVector(Vector3.right));
-        Vector3 localZ = runner.Filter.transform.InverseTransformVector(_station.TransformVector(Vector3.forward));
+        Vector3 localZ = runner.Filter.transform.InverseTransformVector(
+            _station.TransformVector(_service == 1 ? Vector3.up : Vector3.forward));
         bool measureDebug = runner.Contacting && VRLog.WantsDebug;
         float debugScale = measureDebug
             ? Mathf.Max(.0001f, _station.TransformVector(Vector3.right).magnitude) : 1f;

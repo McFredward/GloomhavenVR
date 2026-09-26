@@ -87,7 +87,7 @@ internal sealed class TownServiceWorkspace : IDisposable
             if (!RefreshTarget(slot, true))
                 throw new InvalidOperationException("Merchant workspace map frame is unavailable");
             ApplyTarget();
-            if (service != 1 && !_shownPrimary) _cloth = new TownServiceCloth(Root, service);
+            if (!_shownPrimary) _cloth = new TownServiceCloth(Root, service);
             _pending = false; RefreshProps();
             _nextRoster = Time.unscaledTime + .25f;
             ApplyVisibility();
