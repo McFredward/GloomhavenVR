@@ -89,6 +89,11 @@ inputs = {str(p.relative_to(root)): hashlib.sha256(p.read_bytes()).hexdigest()
           for p in list(source.rglob('*')) + validation_sources if p.is_file()}
 (project / 'source-hashes.json').write_text(json.dumps(inputs, indent=2) + '\n')
 evidence = project / 'evidence'
+refresh = ['xvfb-run', '-a', str(args.unity), '-batchmode', '-projectPath', str(project),
+           '-executeMethod', 'GloomhavenVR.TownServicesBuilder.RefreshMerchantCabinet',
+           '-logFile', str(project / 'merchant-refresh.log')]
+if subprocess.run(refresh, cwd=root).returncode:
+    raise SystemExit(f'Merchant cabinet refresh failed; inspect {project / "merchant-refresh.log"}')
 command = ['xvfb-run', '-a', str(args.unity), '-batchmode', '-projectPath', str(project),
            '-executeMethod', 'ValidateTownAssets.BuildAndRun', '-townEvidence', str(evidence),
            '-logFile', str(project / 'unity.log')]

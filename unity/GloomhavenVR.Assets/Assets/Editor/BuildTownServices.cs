@@ -218,7 +218,17 @@ namespace GloomhavenVR
             {
                 var separator = renderer.name.LastIndexOf('_');
                 var materialName = renderer.name.Substring(separator + 1);
-                var material = Mat(materialName);
+                // The merchant has one warm wood finish across its stationary cabinet,
+                // articulated holders, category buttons and crank. Other stations keep
+                // their existing shared wood. The provider sculpt has its own PBR atlas.
+                bool merchant = name.StartsWith("merchant", StringComparison.Ordinal);
+                var finish = name == "merchant_cabinet_sculpt" ? "CabinetSculpt" : merchant ? materialName switch {
+                    "DarkWood" => "CabinetWood",
+                    "Brass" => "MerchantBrass",
+                    "ForgedIron" => "MerchantIron",
+                    _ => materialName,
+                } : materialName;
+                var material = Mat(finish);
                 if (material == null) throw new InvalidDataException("Unknown furniture material: " + renderer.name);
                 renderer.sharedMaterial = material;
                 if (renderer.name == "Handle_DarkWood") renderer.gameObject.name = "Handle";
@@ -242,6 +252,9 @@ namespace GloomhavenVR
             furniture.transform.SetParent(root.transform, false);
             if (npc == "merchant")
             {
+                var sculpt = AuthoredFurniture("merchant_cabinet_sculpt");
+                sculpt.name = "CarvedCabinetShell";
+                sculpt.transform.SetParent(furniture.transform, false);
                 var extension = AuthoredFurniture("merchant_return");
                 extension.name = "CounterReturn";
                 extension.transform.SetParent(furniture.transform, false);
@@ -277,7 +290,7 @@ namespace GloomhavenVR
             foreach (var pair in new[] {
                 ("CabinetAnchor", new Vector3(-.95f, 0, .30f)),
                 ("CabinetCassetteAnchor", new Vector3(-.95f, 1.22f, .035f)),
-                ("CabinetCrankAnchor", new Vector3(-.47f, 1.05f, .11f)),
+                ("CabinetCrankAnchor", new Vector3(-.47f, 1.22f, .11f)),
                 ("CabinetShutterAnchor", new Vector3(-.95f, 1.22f, .015f)) })
                 Anchor(counter.gameObject, pair.Item1, pair.Item2);
         }
@@ -293,6 +306,27 @@ namespace GloomhavenVR
             try { ExpandMerchantCounter(root); PrefabUtility.SaveAsPrefabAsset(root, path); }
             finally { PrefabUtility.UnloadPrefabContents(root); }
             AssetDatabase.SaveAssets();
+        }
+
+        public static void RefreshMerchantCabinet()
+        {
+            // The actor rig is unchanged while iterating on this physical booth.
+            // Rebuild only its cabinet presentation and original card anchors.
+            ConfigureMerchantMaterials();
+            var path = Root + "/Prefabs/TownMerchant.prefab";
+            var root = PrefabUtility.LoadPrefabContents(path);
+            try
+            {
+                var old = root.transform.Find("Counter");
+                if (old != null) UnityEngine.Object.DestroyImmediate(old.gameObject);
+                BuildStation(root, "merchant");
+                ExpandMerchantCounter(root);
+                PrefabUtility.SaveAsPrefabAsset(root, path);
+            }
+            finally { PrefabUtility.UnloadPrefabContents(root); }
+            AssetDatabase.SaveAssets();
+            Debug.Log("TOWN_MERCHANT_CABINET_REFRESH_OK");
+            if (Application.isBatchMode) EditorApplication.Exit(0);
         }
 
         static void BuildWorkTray()
@@ -339,6 +373,40 @@ namespace GloomhavenVR
                 material.SetTexture("_BumpMap", Texture(Root + "/Textures/" + pair[1] + "_nrm.jpg", true, true));
                 material.EnableKeyword("_NORMALMAP");
             }
+            ConfigureMerchantMaterials();
+        }
+        static void ConfigureMerchantMaterials()
+        {
+            Material Refresh(string name, float metal, float smoothness)
+            {
+                var material = Mat(name) ?? Material(name, Color.white, metal, smoothness);
+                material.color = Color.white;
+                material.SetFloat("_Metallic", metal);
+                material.SetFloat("_Glossiness", smoothness);
+                return material;
+            }
+            Refresh("CabinetWood", 0, .22f);
+            Refresh("MerchantBrass", .82f, .43f);
+            Refresh("MerchantIron", .83f, .27f);
+            var cabinetSculpt = Refresh("CabinetSculpt", 0, .30f);
+            string cabinetRoot = Root + "/Furniture/Textures/";
+            foreach (var pair in new[] { new[] { "CabinetWood", "wood" },
+                                         new[] { "MerchantBrass", "brass" },
+                                         new[] { "MerchantIron", "iron" } })
+            {
+                var material = Mat(pair[0]);
+                material.color = Color.white;
+                material.mainTexture = Texture(cabinetRoot + "merchant_hardware_" + pair[1] + ".png", false, false);
+                material.SetTexture("_BumpMap", Texture(cabinetRoot + "merchant_hardware_" + pair[1] + "_normal.png", true, true));
+                material.EnableKeyword("_NORMALMAP");
+            }
+            cabinetSculpt.mainTexture = Texture(cabinetRoot + "merchant_cabinet_albedo.png", false, false);
+            cabinetSculpt.SetTexture("_BumpMap", Texture(cabinetRoot + "merchant_cabinet_normal.png", true, true));
+            cabinetSculpt.EnableKeyword("_NORMALMAP");
+            cabinetSculpt.SetTexture("_MetallicGlossMap", Texture(cabinetRoot +
+                "merchant_cabinet_metallic_smoothness.png", false, true));
+            cabinetSculpt.SetFloat("_GlossMapScale", 1f);
+            cabinetSculpt.EnableKeyword("_METALLICGLOSSMAP");
         }
         static void SetPosedLodBounds(LODGroup group)
         {

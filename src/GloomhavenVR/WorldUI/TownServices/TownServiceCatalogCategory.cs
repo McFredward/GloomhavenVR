@@ -29,8 +29,8 @@ internal sealed class TownServiceCatalogCategory : IPokeable, IDisposable
     {
         _category = category; _rack = rack; _available = available;
         _root = CreateTemplate(category); Root.SetParent(parent, false);
-        _home = new Vector3(-1.25f + category * .12f, -.13f, .0f); Root.localPosition = _home;
-        _shape = _root.AddComponent<BoxCollider>(); _shape.isTrigger = true; _shape.size = new Vector3(.095f,.09f,.04f);
+        _home = new Vector3(-1.25f + category * .12f, -.034f, .0f); Root.localPosition = _home;
+        _shape = _root.AddComponent<BoxCollider>(); _shape.isTrigger = true; _shape.size = new Vector3(.104f,.104f,.045f);
         var copies = new Dictionary<Material, Material>();
         foreach (Renderer renderer in _root.GetComponentsInChildren<Renderer>(true))
         {
@@ -51,14 +51,14 @@ internal sealed class TownServiceCatalogCategory : IPokeable, IDisposable
         GameObject root = TownServiceMerchantDrawer.Authored("MerchantButtonTemplate");
         var icon = new GameObject("OriginalSlotIcon", typeof(RectTransform), typeof(Canvas), typeof(Image));
         icon.transform.SetParent(root.transform, false);
-        var rect = (RectTransform)icon.transform; rect.sizeDelta = new Vector2(64f,64f);
+        var rect = (RectTransform)icon.transform; rect.sizeDelta = new Vector2(52f,52f);
         rect.localScale = Vector3.one * .001f; rect.localPosition = new Vector3(0f,0f,-.021f);
         icon.GetComponent<Canvas>().renderMode = RenderMode.WorldSpace;
         Image image = icon.GetComponent<Image>(); image.raycastTarget = false; image.preserveAspect = true;
         CItem.EItemSlot slot = category switch {0=>CItem.EItemSlot.Head,1=>CItem.EItemSlot.Body,2=>CItem.EItemSlot.Legs,
             3=>CItem.EItemSlot.OneHand,4=>CItem.EItemSlot.TwoHand,_=>CItem.EItemSlot.SmallItem};
         image.sprite = UIInfoTools.Instance.GetItemSlotIcon(slot.ToString());
-        image.color = new Color(.21f,.12f,.035f,1f); return root;
+        image.color = new Color(.88f,.73f,.46f,1f); return root;
     }
     internal void Tick(float opacity)
     {

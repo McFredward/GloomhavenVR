@@ -125,6 +125,80 @@ def ring(name, center, radius, wire=.006, material='Brass', vertical=False):
     return tube(name, pts, [wire]*49, material, 6)
 
 
+def hand_turned_disc(name, profile, material, caps=True):
+    """A single lathed, subtly uneven mesh rather than stacked cylinders."""
+    segments = 48
+    vertices, faces = [], []
+    for row, (z, radius) in enumerate(profile):
+        for col in range(segments):
+            angle = math.tau * col / segments
+            toolmarks = .0005 * math.sin(11*angle + row*.65) + .00023*math.sin(23*angle-row*.3)
+            r = max(.0005, radius + toolmarks)
+            vertices.append((r*math.cos(angle),r*math.sin(angle),z))
+    for row in range(len(profile)-1):
+        for col in range(segments):
+            a=row*segments+col; b=row*segments+(col+1)%segments
+            faces.append((a,b,b+segments,a+segments))
+    if caps:
+        faces += [tuple(reversed(range(segments))),
+                  tuple(range((len(profile)-1)*segments,len(profile)*segments))]
+    obj = mesh(name,vertices,faces,material)
+    for polygon in obj.data.polygons: polygon.use_smooth=len(polygon.vertices)==4
+    return obj
+
+
+def hand_carved_crank_grip():
+    # Keep the exact handle root and reach required by the physical grip collider.
+    sections = 20
+    vertices, faces = [], []
+    for step in range(17):
+        t=step/16
+        x=.097+.070*t
+        centre_y=-.120+.0012*math.sin(t*math.tau*1.3)
+        centre_z=-.031+.0009*math.sin(t*math.tau*2.1)
+        radius=.018+.009*math.sin(math.pi*t)**.8
+        radius-=.002*math.exp(-((t-.14)/.055)**2)+.002*math.exp(-((t-.86)/.055)**2)
+        for col in range(sections):
+            angle=math.tau*col/sections
+            grain=.0007*math.sin(5*angle+4*t)+.00035*math.sin(11*angle-2*t)
+            r=radius+grain
+            vertices.append((x,centre_y+r*math.cos(angle),centre_z+r*math.sin(angle)))
+    for row in range(16):
+        for col in range(sections):
+            a=row*sections+col;b=row*sections+(col+1)%sections
+            faces.append((a,b,b+sections,a+sections))
+    faces += [tuple(reversed(range(sections))),tuple(range(16*sections,17*sections))]
+    obj=mesh('Handle_DarkWood',vertices,faces,'DarkWood')
+    for polygon in obj.data.polygons:polygon.use_smooth=len(polygon.vertices)==4
+    return obj
+
+
+def forged_crank_arm():
+    """One tapered, kinked iron strap with an inlaid line and real edge relief."""
+    path=[(.080,.000,.000),(.086,-.025,-.003),(.093,-.050,-.010),
+          (.090,-.078,-.020),(.096,-.115,-.030)]
+    vertices=[];faces=[]
+    for step,(x,y,z) in enumerate(path):
+        previous=path[max(0,step-1)];following=path[min(len(path)-1,step+1)]
+        dy=following[1]-previous[1];dz=following[2]-previous[2]
+        length=max(.0001,math.hypot(dy,dz))
+        side_y,side_z=-dz/length,dy/length
+        width=.015 if step in (0,4) else .0125
+        for xoff,sign in ((-.005,-1),(-.005,1),(.005,1),(.005,-1)):
+            vertices.append((x+xoff,y+sign*width*side_y,z+sign*width*side_z))
+    for step in range(len(path)-1):
+        for side in range(4):
+            a=step*4+side;b=step*4+(side+1)%4
+            faces.append((a,b,b+4,a+4))
+    faces += [(3,2,1,0),tuple(range((len(path)-1)*4,len(path)*4))]
+    mesh('Hand forged crank strap',vertices,faces,'ForgedIron',.002)
+    tube('Crank engraved inset',[(x-.006,y,z-.008) for x,y,z in path],
+         [.0015]*len(path),'Brass',6)
+    for x,y,z in (path[1],path[3]):
+        tube('Crank peened pin',[(x-.009,y,z),(x-.012,y,z)],
+             [.004,.003],'Brass',10)
+
+
 def turned_leg(x, z, height=.9, stone=False):
     profile = [(0,.10),(.035,.11),(.075,.09),(.12,.055),(.22,.06),
                (.28,.065),(.34,.04),(.57,.042),(.70,.07),(.77,.08),(.84,.065),(.90,.09)]
@@ -229,6 +303,115 @@ def worn_crank_plate():
     return obj
 
 
+def merchant_forged_lantern_bracket(cx):
+    """One pierced, hammered gooseneck instead of a floating chain of rods."""
+    # The triangular web has a real negative-space opening. Its rear flange is
+    # seated on the cabinet cheek, and the last eye owns the native lamp hook.
+    outer = [(cx-.397, 1.720), (cx-.560, 1.685), (cx-.397, 1.600)]
+    inner = [(cx-.420, 1.681), (cx-.512, 1.671), (cx-.420, 1.632)]
+    vertices = [(x,y,z) for z in (.075,.081) for loop in (outer,inner)
+                for x,y in loop]
+    faces=[]
+    for layer in (0,6):
+        for i in range(3):
+            j=(i+1)%3
+            face=(layer+i,layer+j,layer+3+j,layer+3+i)
+            faces.append(face if layer==0 else tuple(reversed(face)))
+    for start in (0,3):
+        for i in range(3):
+            j=(i+1)%3
+            faces.append((start+i,start+j,start+6+j,start+6+i))
+    mesh('Lantern pierced forged web',vertices,faces,'ForgedIron',.001)
+    # These curved edges and varied rivets follow the web silhouette; they are
+    # part of the same non-interactive mount, never independent hit targets.
+    for edge in (outer[:2], (outer[1],outer[2])):
+        tube('Lantern worn web edge',[(x,y,.071) for x,y in edge],
+             [.0048,.0042],'Brass',9)
+    plate=[(cx-.386,1.585,.10),(cx-.386,1.730,.10),
+           (cx-.386,1.733,.055),(cx-.386,1.584,.055)]
+    inset=[(x-.006,y,z) for x,y,z in plate]
+    mesh('Lantern shaped mounting flange',plate+inset,
+         [(0,1,2,3),(7,6,5,4)]+[(i,(i+1)%4,(i+1)%4+4,i+4) for i in range(4)],
+         'ForgedIron',.001)
+    for y in (1.602,1.711):
+        tube('Lantern flush brass rivet',[(cx-.393,y,.077),(cx-.399,y,.077)],
+             [.0055,.0043],'Brass',10)
+    ring('Lantern rolled tip eye',(cx-.550,1.677,.078),.018,.006,'ForgedIron',True)
+    tube('Lantern short hanging link',[(cx-.550,1.665,.078),(cx-.556,1.634,.078)],
+         [.005,.004],'ForgedIron',10)
+    ring('Lantern hanging link',(cx-.56,1.62,.078),.026,.005,'Brass',True)
+
+
+def merchant_carved_cheek(cx, side):
+    """One continuous, slightly bowed timber cheek in place of stacked boxes."""
+    vertices, faces = [], []
+    ys = [0.775 + i * (1.65 - .775) / 24 for i in range(25)]
+    # The exterior relief is contained within the 0.88 m cabinet envelope.
+    for y in ys:
+        wave = .006 * math.sin(y * 11.3 + side * .4) + .003 * math.sin(y * 24.7)
+        outer = cx + side * (.414 + wave)
+        inner = cx + side * (.363 + .002 * math.sin(y * 8.2))
+        front = .026 + .004 * math.sin(y * 14.1 + side)
+        rear = .532 + .004 * math.sin(y * 9.4 - side)
+        for x, z in ((outer, front), (outer, rear), (inner, rear), (inner, front)):
+            vertices.append((x, y, z))
+    for row in range(24):
+        for edge in range(4):
+            a = row * 4 + edge
+            b = row * 4 + (edge + 1) % 4
+            faces.append((a, b, b + 4, a + 4))
+    faces += [tuple(reversed(range(4))), tuple(range(96, 100))]
+    obj = mesh('Carved one-piece cabinet cheek', vertices, faces, 'DarkWood')
+    for poly in obj.data.polygons: poly.use_smooth = len(poly.vertices) == 4
+    return obj
+
+
+def merchant_sculpted_front(name, cx, bottom, top, width, depth, socket_y=None):
+    """Continuous hand-cut front board with true surface relief and closed sides."""
+    cols, rows = 96, 20
+    vertices, faces = [], []
+    def front(x, y):
+        u = (x - cx) / (width * .5)
+        v = (y - bottom) / (top - bottom)
+        relief = -.007 * (1 - u*u) * math.sin(v * math.pi)
+        relief += .002 * math.sin(17*u + 2*v) * math.sin(v*math.pi)
+        if socket_y is not None:
+            for index in range(6):
+                button_x = -1.25 + index*.12
+                radius = math.hypot(x-button_x, y-socket_y)
+                relief += .0012*math.exp(-((radius-.049)/.014)**2)
+                relief -= .0013*math.exp(-(radius/.030)**2)
+        return .027 + relief
+    for row in range(rows+1):
+        y = bottom + (top-bottom)*row/rows
+        for col in range(cols+1):
+            u = col/cols
+            x = cx + width*(u-.5)
+            # Deliberately cut, slightly nonparallel ends, rather than a slab.
+            x += .003 * math.sin(y*8.3+u*3.1) * math.sin(u*math.pi)
+            vertices.append((x,y,front(x,y)))
+    layer=(rows+1)*(cols+1)
+    for x,y,z in vertices[:]: vertices.append((x,y,depth))
+    for row in range(rows):
+        for col in range(cols):
+            i=row*(cols+1)+col
+            faces.append((i,i+1,i+cols+2,i+cols+1))
+            faces.append((i+layer+cols+1,i+layer+cols+2,i+layer+1,i+layer))
+    for col in range(cols):
+        a=col; b=col+1
+        faces.append((a+layer,b+layer,b,a))
+        a=rows*(cols+1)+col; b=a+1
+        faces.append((a,b,b+layer,a+layer))
+    for row in range(rows):
+        a=row*(cols+1);b=(row+1)*(cols+1)
+        faces.append((a,b,b+layer,a+layer))
+        a=row*(cols+1)+cols;b=(row+1)*(cols+1)+cols
+        faces.append((a+layer,b+layer,b,a))
+    obj=mesh(name,vertices,faces,'DarkWood')
+    for poly in obj.data.polygons: poly.use_smooth = True
+    return obj
+
+
 def terrace(name, columns=24, origin=-1.32, curved=True):
     width=columns*.15+.16
     for row in range(8):
@@ -272,14 +455,20 @@ def merchant():
     cx = -.95
     for side in (-1, 1):
         x = cx + side*.405
-        rect('Cabinet solid cheek',x,.30,.04,.45,1.64,.88,bevel=.011)
-        rect('Front worn stile',x,.049,.070,.060,1.65,.88,bevel=.011)
-        rect('Rear corner post',x,.525,.055,.042,1.65,.89,bevel=.009)
         # Fold-out legs and positive stops explain how a portable cabinet stands up.
         for z, foot in ((.15,-.025),(.45,.64)):
-            tube('Cabinet folding trestle',[(cx+side*.46,.006,foot),
-                 (cx+side*.42,.34,(z+foot)*.5),(cx+side*.35,.86,z)],
-                 [.031,.030,.035],sides=12)
+            # A single hand-hewn, bowed timber per leg carries the cabinet;
+            # uneven section thickness and knots keep it from reading as a
+            # smooth cylindrical prototype at normal VR inspection distance.
+            tube('Cabinet folding trestle',[
+                 (cx+side*.46,.006,foot),
+                 (cx+side*.455,.085,foot+.035),
+                 (cx+side*.446,.19,(z+foot)*.29),
+                 (cx+side*.42,.34,(z+foot)*.5),
+                 (cx+side*.396,.52,(z+foot)*.71),
+                 (cx+side*.374,.68,z-.027),
+                 (cx+side*.35,.86,z)],
+                 [.034,.037,.033,.035,.032,.034,.038],sides=14)
             tube('Trestle iron stay',[(cx+side*.415,.30,(z+foot)*.5),
                  (cx+side*.375,.65,z+.015)],[.009,.009],'ForgedIron',8)
             tube('Iron foot shoe',[(cx+side*.46,.007,foot),
@@ -304,11 +493,13 @@ def merchant():
                  [.007,.007],'ForgedIron',8)
     for i in range(6):
         rect('Rear vertical timber',cx+(i-2.5)*.133,.508,.131,.026,1.63,.86,bevel=.004)
+    # Real, relief-cut front boards retain exact native cassette/button seats.
+    # The fal surface contributes worn side/crown detail but never a frozen card.
     rect('Cabinet crown',cx,.29,.87,.49,1.665,.07,bevel=.015)
     rect('Cabinet sill',cx,.30,.85,.45,.785,.046,bevel=.012)
-    rect('Control fascia',cx,.064,.83,.066,.968,.196,bevel=.012)
+    merchant_sculpted_front('Carved category fascia',cx,.772,.968,.83,.097,.840)
     # Header leaves enough hidden roof depth for the bifold opaque changeover shutter.
-    rect('Front header',cx,.052,.85,.060,1.613,.102,bevel=.010)
+    merchant_sculpted_front('Carved cabinet header',cx,1.511,1.613,.85,.085)
     for y in (.792,.954,1.535):
         tube('Beaded front moulding',[(cx-.377,y,.012),(cx,y-.003,.009),(cx+.377,y,.012)],
              [.009,.009,.009],sides=12)
@@ -316,10 +507,7 @@ def merchant():
     for x in (cx-.10,cx+.10):
         tube('Top handle mount',[(x,1.665,.31),(x,1.716,.31)],[.009,.009],'ForgedIron',10)
     tube('Top leather carry bar',[(cx-.10,1.716,.31),(cx+.10,1.716,.31)], [.016,.016],'Leather',14)
-    tube('Lantern bracket',[(cx-.39,1.60,.30),(cx-.39,1.72,.30),
-         (cx-.46,1.74,.19),(cx-.56,1.71,.08),(cx-.56,1.65,.08)],
-         [.010,.010,.010,.009,.008],'ForgedIron',12)
-    ring('Lantern hanging link',(cx-.56,1.62,.08),.026,.004,'Brass',True)
+    merchant_forged_lantern_bracket(cx)
     # Small folding writing stand, with dovetail-like board ends and iron X braces.
     for i in range(5):
         # The merchant's coat reaches Z=.368 at table height across the work cycle.
@@ -370,21 +558,28 @@ def merchant_crank():
     worn_crank_plate()
     tube('Crank axle',[(.045,0,0),(.060,.001,-.002),(.080,-.001,0)],
          [.014,.018,.016],'ForgedIron',11)
-    tube('Hammered bent crank arm',[(.080,0,0),(.087,-.020,-.004),(.094,-.046,-.014),
-         (.090,-.080,-.023),(.096,-.118,-.031)],
-         [.017,.015,.014,.012,.015],'ForgedIron',9)
-    tube('Handle_DarkWood',[(.097,-.119,-.031),(.108,-.120,-.031),(.121,-.121,-.030),
-         (.139,-.119,-.033),(.155,-.121,-.029),(.167,-.118,-.032)],
-         [.019,.023,.026,.025,.022,.017],'DarkWood',13)
+    forged_crank_arm()
+    hand_carved_crank_grip()
     for x in (.105,.155):
         tube('Worn grip ferrule',[(x,-.12,-.030),(x+.006,-.121,-.030)],
              [.021,.022],'Brass',11)
 
 
 def merchant_button():
-    tube('Button turned wood',[(0,0,.006),(0,0,-.011)],[.046,.043],'DarkWood',32)
-    tube('Button brass inset',[(0,0,-.012),(0,0,-.017)],[.037,.036],'Brass',32)
-    ring('Button milled rim',(0,0,-.011),.043,.003,'Brass',True)
+    hand_turned_disc('Button turned walnut body',[(.014,.032),(.010,.041),
+        (.004,.047),(-.006,.048),(-.010,.044),(-.013,.039)],'DarkWood')
+    hand_turned_disc('Button hammered brass bezel',[( -.010,.046),(-.013,.049),
+        (-.017,.047),(-.019,.040),(-.019,.033),(-.016,.031)],'Brass',False)
+    hand_turned_disc('Button carved inner face',[( -.015,.032),(-.016,.031),
+        (-.018,.027),(-.018,.001)],'DarkWood')
+    points=[(.0318*math.cos(i*math.tau/48),.0318*math.sin(i*math.tau/48),-.020)
+            for i in range(49)]
+    tube('Button inset forged border',points,[.00135]*len(points),'ForgedIron',8)
+    for index in range(12):
+        angle=math.tau*index/12
+        x=.0425*math.cos(angle);y=.0425*math.sin(angle)
+        tube('Button peened bezel rivet',[(x,y,-.019),(x,y,-.022)],
+             [.0022,.00165],'Brass',8)
     # Original native category pictogram is runtime artwork on the front, never invented card art.
 
 
@@ -450,6 +645,17 @@ def priestess():
 def export(name, build):
     bpy.ops.object.select_all(action='SELECT'); bpy.ops.object.delete(use_global=False)
     parts.clear(); build()
+    if name == 'merchant':
+        # The multiview, UV-atlased carcass replaces the entire former box/rail
+        # prototype, not just its side cheeks. Keep only supports, live-cassette
+        # guides, the native lantern's physical hook and the separate ledger.
+        retained = ('Cabinet folding trestle', 'Trestle iron stay',
+                    'Iron foot shoe', 'Lantern ',
+                    'Ledger ')
+        for obj in tuple(parts):
+            if not obj.name.startswith(retained):
+                parts.remove(obj)
+                bpy.data.objects.remove(obj, do_unlink=True)
     # Keep only physical floor-contacting supports separate: their ordinary transforms
     # stretch down to terrain while their authored tops stay fixed. This presentation is
     # mirrored by the existing multiplayer node transforms, without private mesh updates.
