@@ -35,6 +35,7 @@ public static class InteractionProgram
   FFSNet.FFSNetwork.IsOnline=false; StoryComposite.PointOfNoReturn=false;
   TownServiceMerchantTransaction.Requests=0; ShopService.Affordable=true;
   var root=new GameObject("Fixture"); root.transform.localScale=Vector3.one*scale; VRRigDriver.RigRoot=root.transform;
+  var pool=new GameObject("NativeObjectPool",typeof(ObjectPool));pool.transform.SetParent(root.transform,false);ObjectPool.instance=pool.GetComponent<ObjectPool>();
   var camera=new GameObject("Head",typeof(Camera)).GetComponent<Camera>(); camera.transform.SetParent(root.transform,false); VRRigDriver.HeadCamera=camera;
   var attention=new ActualAttention{_root=root.transform};
   camera.transform.position=Vector3.forward*(2.35f*scale);
@@ -65,7 +66,7 @@ public static class InteractionProgram
   for(int i=0;i<30;i++) character.AllCharacterItems.Add(new CItem{ID=i}); character.AllCharacterItems.Add(duplicate);
   character.AllCharacterItems[4].Tradeable=false; MapCharacterSelection.Selected=character;
   window.ItemInventory.character=character; window.ItemInventory.service=new ShopService(AdventureState.MapState.MapParty,_=>{});
-  ProveInspectionReturnInvariant(root.transform, character.AllCharacterItems[0]);
+  ProveInspectionReturnInvariant(root.transform, character.AllCharacterItems[1]);
   TownServiceMerchantHandoff.Tick(); TownServiceMerchantHandoff.LateTick();
   Check(MapRoomDriver.Visits==0,"approach never opens a native service");
   Transform zone = TownServiceMerchantHandoff.Zone!;
@@ -210,17 +211,26 @@ public static class InteractionProgram
   Transform fanParent=chip.transform.parent;
   var merchantPalm=new GameObject("Merchant palm").transform;merchantPalm.SetParent(rigRoot,false);
   chip.transform.SetParent(merchantPalm,true);chip.TownOffering=true;
+  var reclaimFace=(RectTransform)chip.NativeItemCard!.transform;
+  reclaimFace.anchoredPosition3D=new Vector3(8,-13,2);reclaimFace.localRotation=Quaternion.Euler(17,93,41);
  fan.PrepareInspectionReclaim(chip);
   Check(chip.transform.parent!=merchantPalm&&chip.transform.parent.name=="GloomhavenVR.MerchantOwnedItems",
       "reclaimed merchant item records the item fan as its release parent");
   Check(CanvasConversion.Releases==1,
       "reclaimed merchant item explicitly releases its former flat-window renderer veil");
+  Check(reclaimFace.anchoredPosition3D==Vector3.zero
+      &&Quaternion.Angle(reclaimFace.localRotation,Quaternion.identity)<.001f,
+      "physical merchant reclaim repairs its native face before the hand sees it");
   chip.TownOffering=false;chip.transform.SetParent(merchantPalm,true);chip.SetArtReady(false);
+  reclaimFace.anchoredPosition3D=new Vector3(-21,5,4);reclaimFace.localRotation=Quaternion.Euler(72,11,139);
   fan.ResumeInspection(chip);
   Check(chip.transform.parent!=merchantPalm&&chip.transform.parent.name=="GloomhavenVR.MerchantOwnedItems",
       "every free merchant return restores the item fan parent");
   Check(CanvasConversion.Releases==2,
       "every free merchant return releases its former flat-window renderer veil before rendering");
+  Check(reclaimFace.anchoredPosition3D==Vector3.zero
+      &&Quaternion.Angle(reclaimFace.localRotation,Quaternion.identity)<.001f,
+      "free merchant return repairs its native face before that return frame renders");
   Check(chip.InspectionArtPending&&chip.transform.localScale==Vector3.zero&&!chip.GetComponent<BoxCollider>().enabled,
       "returned item never exposes a brown backing while its original front is unavailable");
   chip.SetArtReady(true);Check(!chip.TickInspectionArtArrival(),"returned original front resumes the ordinary fan animation");
@@ -271,7 +281,35 @@ public static class InteractionProgram
   Check(Quaternion.Angle(chip.transform.localRotation,chip.HomeRotation)<.01f
       &&Mathf.Abs(chip.transform.localScale.x-chip.HomeScale)<.0001f,
       "art-ready replacement or cancellation return shares the canonical terminal pose");
-  fan.DestroyInspection();UnityEngine.Object.DestroyImmediate(merchantPalm.gameObject);
+  GameObject pooledFace=chip.NativeItemCard!.gameObject;
+  Transform formerCanvas=pooledFace.transform.parent;
+  fan.DestroyInspection();
+  Check(pooledFace!=null&&ObjectPool.Contains(item.ID,pooledFace)
+      &&ReferenceEquals(pooledFace.transform.parent,ObjectPool.instance!.transform)
+      &&pooledFace.transform.parent!=formerCanvas,
+      "destroyed merchant fan returns its native item widget to the pool hierarchy before destroying its chip");
+  // A flat inventory layout may touch an inactive pooled rect after RecycleCard reset it. Re-enter
+  // through the real inspection creation boundary and require the SAME native object to be repaired.
+  var stale=(RectTransform)pooledFace.transform;stale.anchorMin=Vector2.zero;stale.anchorMax=Vector2.one;
+  stale.pivot=Vector2.zero;stale.anchoredPosition3D=new Vector3(41,-23,7);
+  stale.localRotation=Quaternion.Euler(39,117,74);stale.localScale=new Vector3(.4f,1.7f,.2f);
+  var reopened=ItemsPile.CreateInspection((returned,point)=>{});reopened.TickInspection(new[]{item},2);
+  var reused=reopened.InspectionChips[0];
+  Check(ReferenceEquals(reused.NativeItemCard!.gameObject,pooledFace),
+      "merchant leave and re-enter reuses the surviving native item widget rather than a stale destroyed entry");
+  Check(ObjectPool.LastResetScale&&ObjectPool.LastResetMiddle&&ObjectPool.LastResetRotation,
+      "merchant native item spawn requests every pool pose reset before activation");
+  var repaired=(RectTransform)reused.NativeItemCard.transform;
+  Check(repaired.anchorMin==Vector2.one*.5f&&repaired.anchorMax==Vector2.one*.5f
+      &&repaired.pivot==Vector2.one*.5f&&repaired.anchoredPosition3D==Vector3.zero
+      &&Quaternion.Angle(repaired.localRotation,Quaternion.identity)<.001f&&repaired.localScale==Vector3.one,
+      "pooled merchant item returns with a canonical inner RectTransform on the first reopened-fan frame");
+  repaired.anchoredPosition3D=new Vector3(-9,16,3);repaired.localRotation=Quaternion.Euler(0,180,31);
+  repaired.localScale=new Vector3(2,.3f,4);reused.RestoreHostedFaceFrame();
+  Check(repaired.anchoredPosition3D==Vector3.zero
+      &&Quaternion.Angle(repaired.localRotation,Quaternion.identity)<.001f&&repaired.localScale==Vector3.one,
+      "later flat-layout drift cannot rotate or offset the hosted native face away from its physical backing");
+  reopened.DestroyInspection();UnityEngine.Object.DestroyImmediate(merchantPalm.gameObject);
   UnityEngine.Object.DestroyImmediate(anchor.gameObject);
  }
  private sealed class InventoryProbe : IReadOnlyList<CItem> {

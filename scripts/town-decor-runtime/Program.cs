@@ -61,6 +61,10 @@ public static class InteractionProgram
     }
     public static int Run()
     {
+        Check(TownServiceDecor.MerchantLanternAttachmentGap(TownServiceDecor.MerchantLanternSeat()) < .001f,
+            "native lantern hook visibly meets the imported cabinet hanging ring");
+        Check(TownServiceDecor.MerchantLanternAttachmentGap(new Vector3(-1.51f,1.23f,.08f)) > .035f,
+            "lantern attachment instrument rejects the photographed floating build-569 seat");
         Setup(1);var root=new GameObject("station");var light=new TownServiceLighting();var decor=new TownServiceDecor(root.transform,1,light);
         Tick(decor,0);Tick(decor,.11f);
         Check(root.transform.Find("Original.Library.Clutter.Shelf.Individual#7")!=null,"unrelated book builds while lantern material fails");

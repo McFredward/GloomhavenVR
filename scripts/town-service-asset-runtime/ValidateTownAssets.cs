@@ -404,6 +404,10 @@ public static class ValidateTownAssets
         Check(TownServiceDecor.MerchantLanternClears(
                 completeSide, TownServiceDecor.MerchantLanternSeat()),
             "Merchant hanging lantern clears the complete imported cabinet side and rear envelope");
+        Check(TownServiceDecor.MerchantLanternAttachmentGap(TownServiceDecor.MerchantLanternSeat()) < .001f,
+            "Native lantern hook visibly meets the imported cabinet hanging ring");
+        Check(TownServiceDecor.MerchantLanternAttachmentGap(new Vector3(-1.51f, 1.23f, .08f)) > .035f,
+            "Lantern attachment instrument rejects the photographed floating build-569 seat");
         Check(!TownServiceDecor.MerchantLanternClears(
                 completeSide, new Vector3(-1.34f, 1.11f, .11f)),
             "Lantern-clearance instrument rejects the regressed build-565 seat inside the cabinet wall");

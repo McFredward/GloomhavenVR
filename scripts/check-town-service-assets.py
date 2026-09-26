@@ -52,7 +52,8 @@ def decor_method(signature):
     start = decor.index('    ' + signature)
     end = decor.index('\n    }', start) + 6
     return decor[start:end]
-decor_methods = [decor_method('internal static bool MerchantLanternClears(Bounds cabinetPart, Vector3 seat)')]
+decor_methods = [decor_method('internal static bool MerchantLanternClears(Bounds cabinetPart, Vector3 seat)'),
+                 decor_method('internal static float MerchantLanternAttachmentGap(Vector3 seat)')]
 decor_methods.append('    ' + next(line.strip() for line in decor.splitlines()
     if line.strip().startswith('internal static Vector3 MerchantLanternSeat(')))
 (assets / 'Editor/TownServiceRackFactories.cs').write_text(

@@ -44,6 +44,9 @@ def main():
         ('workspace-light-in-template', 'TownServiceWorkspacePractical.cs', 'if (owner.isActiveAndEnabled)', 'if (true)', 'inactive frozen template never creates a practical'),
         ('workspace-topology-change', 'TownServiceWorkspacePractical.cs', 'obj.transform.position = transform.TransformPoint(_point);', 'obj.transform.SetParent(transform,false); obj.transform.position = transform.TransformPoint(_point);', 'lighting cannot alter mirrored prop topology'),
         ('workspace-ownership-leak', 'TownServiceWorkspacePractical.cs', 'TownServiceLighting.ForgetPractical(_light!);', '', 'disable immediately releases and darkens standalone light')]
+    variants.insert(1, ('merchant-lantern-attachment', 'TownServiceDecor.cs',
+        'new(-1.51f, 1.27f, .08f)', 'new(-1.51f, 1.23f, .08f)',
+        'native lantern hook visibly meets the imported cabinet hanging ring'))
     variants.insert(5, ('furniture-grounding', 'TownServiceDecor.cs',
         'piece.Position = FurnitureSupport(piece.Position, Mathf.Max(piece.SupportInset, visibleInset));',
         'piece.Position = new Vector3(piece.Position.x, piece.Position.y, piece.Position.z);',

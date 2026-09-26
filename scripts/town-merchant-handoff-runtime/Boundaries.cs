@@ -26,6 +26,32 @@ public class Singleton<T> { public static T? Instance; }
 public enum EGuildmasterMode { None, Merchant, Enchantress }
 public class UIWindow : MonoBehaviour { public bool IsOpen; }
 public class ItemCardUI : MonoBehaviour { public UnityEngine.UI.Image cardBackground=null!; }
+public class ObjectPool : MonoBehaviour {
+ public enum ECardType { Item }
+ public static ObjectPool? instance;
+ private readonly Dictionary<int,List<GameObject>> _cards = new();
+ public static bool LastResetScale,LastResetMiddle,LastResetRotation;
+ public static GameObject SpawnCard(int id,ECardType type,Transform parent,bool resetLocalScale=false,bool resetToMiddle=false,bool resetLocalRotation=false,bool activate=true) {
+  LastResetScale=resetLocalScale;LastResetMiddle=resetToMiddle;LastResetRotation=resetLocalRotation;
+  GameObject card;
+  if(instance!=null&&instance._cards.TryGetValue(id,out var cards)&&cards.Count>0) {card=cards[^1];cards.RemoveAt(cards.Count-1);}
+  else card=new GameObject("NativeArt",typeof(RectTransform),typeof(CanvasRenderer),typeof(UnityEngine.UI.Image),typeof(ItemCardUI));
+  card.transform.SetParent(parent,false);
+  var rect=(RectTransform)card.transform;
+  if(resetLocalScale)rect.localScale=Vector3.one;
+  if(resetToMiddle){rect.anchorMin=rect.anchorMax=rect.pivot=Vector2.one*.5f;rect.anchoredPosition=Vector2.zero;}
+  if(resetLocalRotation)rect.localRotation=Quaternion.identity;
+  rect.localPosition=new Vector3(rect.localPosition.x,rect.localPosition.y,0f);card.SetActive(activate);return card;
+ }
+ public static void RecycleCard(int id,ECardType type,GameObject card) {
+  if(instance==null)return;
+  if(!instance._cards.TryGetValue(id,out var cards))instance._cards[id]=cards=new List<GameObject>();
+  card.transform.localRotation=Quaternion.identity;
+  var rect=(RectTransform)card.transform;rect.anchoredPosition=Vector2.zero;rect.anchorMin=rect.anchorMax=rect.pivot=Vector2.one*.5f;
+  card.SetActive(false);cards.Add(card);
+ }
+ public static bool Contains(int id,GameObject card)=>instance!=null&&instance._cards.TryGetValue(id,out var cards)&&cards.Contains(card);
+}
 public class UIShopItemInventory { public ShopService? service; public MapRuleLibrary.Party.CMapCharacter? character; }
 public class UIShopItemWindow : MonoBehaviour { public UIShopItemInventory ItemInventory = new(); }
 public class UIGuildmasterHUD { public UIShopItemWindow shopWindow = null!; }
@@ -119,6 +145,8 @@ namespace GloomhavenVR.Cards {
    private bool _emerging,_collapsing,_fingerPopped,_laserPopped,_recessPopped;
    private BoxCollider? _box;
    private ItemCardUI? _cardUI;
+   private GameObject? _cardGo;
+   private Canvas? _faceCanvas;
    private const float TightArtPollSeconds=2f;
    private bool _inspectionArtPending;
    private Vector3 _inspectionArtConverge;
@@ -140,9 +168,12 @@ namespace GloomhavenVR.Cards {
    public static ItemChip Create(ItemsPile owner, Transform parent, ScenarioRuleLibrary.CItem item) {
     var go=new GameObject("ActualInspectionCard",typeof(BoxCollider),typeof(ItemChip));
     var c=go.GetComponent<ItemChip>(); c.transform.SetParent(parent,false); c.Owner=owner;c.Item=item;c._box=go.GetComponent<BoxCollider>();
-    var art=new GameObject("NativeArt",typeof(RectTransform),typeof(CanvasRenderer),typeof(UnityEngine.UI.Image),typeof(ItemCardUI));art.transform.SetParent(go.transform,false);
-    c._cardUI=art.GetComponent<ItemCardUI>();c.NativeItemCard=c._cardUI;c._cardUI.cardBackground=art.GetComponent<UnityEngine.UI.Image>();c.SetArtReady(NewArtReady);return c;
+    var canvasGo=new GameObject("FaceCanvas",typeof(RectTransform),typeof(Canvas));canvasGo.transform.SetParent(go.transform,false);c._faceCanvas=canvasGo.GetComponent<Canvas>();
+    var art=SpawnHostedItemCard(item.ID,canvasGo.transform);
+    c._cardGo=art;c._cardUI=art.GetComponent<ItemCardUI>();c.NativeItemCard=c._cardUI;c._cardUI.cardBackground=art.GetComponent<UnityEngine.UI.Image>();
+    CanonicalizeHostedFace(art.transform,(RectTransform)canvasGo.transform);c.SetArtReady(NewArtReady);return c;
    }
+   private void OnDisable(){if(_cardGo!=null&&_cardUI!=null)ReturnHostedCardToPool(Item!.ID,_cardGo);_cardGo=null;_cardUI=null;NativeItemCard=null;}
    public void SetArtReady(bool ready) { _cardUI!.cardBackground.sprite=ready?Sprite.Create(Texture2D.whiteTexture,new Rect(0,0,1,1),Vector2.one*.5f):null; }
    public void Release(Vector3 p) { Holder = null; Owner!._inspectionCensusDirty = true; Owner._inspectionRelease!(this,p); }
    protected override HeldPose GetHeldPose(Hands.VRHand hand)=>new(new Vector3(.02f,.03f,.06f),Quaternion.Euler(5f,12f,3f),CardsConfig.InspectScale.Value);

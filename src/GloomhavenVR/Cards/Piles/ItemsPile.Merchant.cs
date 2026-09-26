@@ -148,6 +148,7 @@ internal sealed partial class ItemsPile
     {
         if (_root == null || chip == null || !ReferenceEquals(chip.Owner, this)) return;
         chip.transform.SetParent(_root, true);
+        chip.RestoreHostedFaceFrame();
         // Reclaim bypasses PrepareInspectionReturn while the card is already held. The pooled
         // native front still has to leave any former flat-window veil before the hand sees it.
         WorldUI.CanvasConversion.ReleaseHiddenWindowVeilOwnership(chip.transform);

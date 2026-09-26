@@ -5387,8 +5387,12 @@ internal sealed partial class ItemsPile
                 // keeps its authored UI layer; SpawnCard's reparent does not change the card's layer).
                 Core.VRLayers.Apply(canvasGo);
 
-                GameObject cardGo = ObjectPool.SpawnCard(item.ID, ObjectPool.ECardType.Item,
-                    canvasRect, resetLocalScale: true);
+                // Ask the pool to clear every top-level pose channel before the widget is
+                // activated. RecycleCard resets these today, but pooled ItemCardUI instances have
+                // also lived below inventory layouts which write them after the return call. The
+                // explicit request keeps the first frame honest; CanonicalizeHostedFace below is
+                // the continuing ownership boundary once this physical card has adopted it.
+                GameObject cardGo = SpawnHostedItemCard(item.ID, canvasRect);
                 if (cardGo == null)
                 {
                     Object.Destroy(canvasGo);
@@ -5434,13 +5438,7 @@ internal sealed partial class ItemsPile
                 // body is the same as the other cards, just cropped to the item card's shape).
                 _faceWidth = native.x * fit;
                 _faceHeight = native.y * fit;
-                if (cardRect != null)
-                {
-                    cardRect.anchorMin = cardRect.anchorMax = cardRect.pivot = new Vector2(0.5f, 0.5f);
-                    cardRect.anchoredPosition3D = Vector3.zero;
-                    cardRect.localRotation = Quaternion.identity;
-                    cardRect.localScale = Vector3.one;
-                }
+                CanonicalizeHostedFace(cardGo.transform, canvasRect);
 
                 // Bound the ONE part of the state FX that is NOT uGUI (see ClampCardEffectSmoke).
                 // Runs AFTER the fit above so the clamp can measure the card's final world scale;
@@ -5472,6 +5470,60 @@ internal sealed partial class ItemsPile
                 VRLog.Warn("Cards", $"ITEM CARD host failed ({e.Message}) — falling back to the colored slab.");
                 return false;
             }
+        }
+
+        private static GameObject SpawnHostedItemCard(int itemId, Transform parent)
+        {
+            return ObjectPool.SpawnCard(itemId, ObjectPool.ECardType.Item, parent,
+                resetLocalScale: true, resetToMiddle: true, resetLocalRotation: true);
+        }
+
+        /// <summary>
+        /// Keep the game-owned item widget in the one frame a physical item card supports. The
+        /// native pool resets most of these fields, but inventory/confirmation layouts can write a
+        /// pooled widget again after that reset. A card adopted by this chip has no licensed child
+        /// pose: its outer chip owns fan/hand motion and its FaceCanvas owns scale. Change-gating the
+        /// writes makes this safe to call from face maintenance while closing the stale-layout path
+        /// that presented a brown backing or a rotated picture after leaving and revisiting the
+        /// merchant.
+        /// </summary>
+        private static void CanonicalizeHostedFace(Transform face, RectTransform canvas)
+        {
+            if (face == null || canvas == null)
+                return;
+            if (!ReferenceEquals(face.parent, canvas))
+                face.SetParent(canvas, worldPositionStays: false);
+            if (face is not RectTransform rect)
+            {
+                if (face.localPosition != Vector3.zero) face.localPosition = Vector3.zero;
+                if (face.localRotation != Quaternion.identity) face.localRotation = Quaternion.identity;
+                if (face.localScale != Vector3.one) face.localScale = Vector3.one;
+                return;
+            }
+            Vector2 middle = new(0.5f, 0.5f);
+            if (rect.anchorMin != middle) rect.anchorMin = middle;
+            if (rect.anchorMax != middle) rect.anchorMax = middle;
+            if (rect.pivot != middle) rect.pivot = middle;
+            if (rect.anchoredPosition3D != Vector3.zero) rect.anchoredPosition3D = Vector3.zero;
+            if (rect.localRotation != Quaternion.identity) rect.localRotation = Quaternion.identity;
+            if (rect.localScale != Vector3.one) rect.localScale = Vector3.one;
+        }
+
+        /// <summary>
+        /// Item widgets are the one native card type whose <c>ObjectPool.RecycleCard</c> does not
+        /// reparent them to the pool. Leaving one below the ItemChip's FaceCanvas therefore adds it
+        /// to the pool and then destroys it with the chip. Detach first, exactly as the remote item
+        /// borrow path does, so a later merchant visit receives a living clean widget instead of a
+        /// destroyed/stale hierarchy entry.
+        /// </summary>
+        internal static void ReturnHostedCardToPool(int cardId, GameObject card)
+        {
+            if (card == null)
+                return;
+            card.SetActive(false);
+            card.transform.SetParent(ObjectPool.instance != null ? ObjectPool.instance.transform : null,
+                worldPositionStays: false);
+            ObjectPool.RecycleCard(cardId, ObjectPool.ECardType.Item, card);
         }
 
         /// <summary>One clamped game emitter + the module values it had before we touched it. The start
@@ -5790,6 +5842,7 @@ internal sealed partial class ItemsPile
         {
             if (Holder != null || fanRoot == null) return;
             transform.SetParent(fanRoot, true);
+            RestoreHostedFaceFrame();
             // The merchant palm can outlive the flat confirmation that supplied this pooled
             // ItemCardUI. Give its front back synchronously, before this return frame renders.
             CanvasConversion.ReleaseHiddenWindowVeilOwnership(transform);
@@ -5813,6 +5866,15 @@ internal sealed partial class ItemsPile
             transform.localRotation = _homeRot;
             transform.localScale = Vector3.zero;
             if (_box != null) _box.enabled = false;
+        }
+
+        /// <summary>Restore the native face at a merchant ownership boundary, before the next frame
+        /// can present it in the wrist fan or a physical hand. This is separate from the steady-state
+        /// maintenance because a reclaim can reparent the chip and render in the same frame.</summary>
+        internal void RestoreHostedFaceFrame()
+        {
+            if (_cardGo != null && _faceCanvas?.transform is RectTransform faceCanvas)
+                CanonicalizeHostedFace(_cardGo.transform, faceCanvas);
         }
 
         /// <summary>
@@ -6442,6 +6504,12 @@ internal sealed partial class ItemsPile
         /// </summary>
         private void TickFaceMaintenance()
         {
+            // The top-level native ItemCardUI is presentation content, not another pose owner.
+            // Flat inventory layout and pooled-window teardown can otherwise leave its RectTransform
+            // rotated or offset after a merchant leave/re-enter roundtrip. Correct only drifted
+            // channels; the steady state performs comparisons and no Transform writes.
+            RestoreHostedFaceFrame();
+
             // ITEM #5 — keep the WorldSpace face canvas bound to the head camera (mirror of
             // VRCard.UpdateCanvasCamera). A WorldSpace canvas renders on its LAYER regardless of
             // worldCamera, so this alone can't decide mirror visibility — the deep diagnostic below logs
@@ -7123,7 +7191,7 @@ internal sealed partial class ItemsPile
                     // face it is given, item faces included; the pooled widget must go back with the
                     // game's own colours. No-op on a face that was never muted.
                     CardFace.ReleaseFaceBlackout(_cardUI);
-                    ObjectPool.RecycleCard(_cardUI.CardID, ObjectPool.ECardType.Item, _cardGo);
+                    ReturnHostedCardToPool(_cardUI.CardID, _cardGo);
                 }
                 catch (System.Exception e)
                 {

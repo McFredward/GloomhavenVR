@@ -11,12 +11,22 @@ namespace GloomhavenVR.WorldUI;
 /// <summary>Original game decoration, copied as rendering data without any native controllers.</summary>
 internal sealed class TownServiceDecor : IDisposable
 {
-    // The authored bracket terminates outside the cabinet's left cheek at X=-1.51.
-    // Build 565 moved the native lantern inward to X=-1.34 while trying to lower all
-    // practicals together. Keep the seat and its visible-footprint contract with the
-    // decor owner: the isolated decor harness deliberately compiles this class without
+    // The authored bracket terminates outside the cabinet's left cheek at X=-1.51. Its
+    // hanging ring is centred at Y=1.62 with a 2.6 cm radius and 4 mm tube. Build normalizes
+    // the native lantern's complete visible height to 32 cm and places its visible minimum
+    // at this seat, so Y=1.27 puts the top of the native hook at the ring's lower inside edge
+    // (1.59 m). The former 1.23 seat left the photographed four-centimetre air gap.
+    // Build 565 also moved the native lantern inward to X=-1.34 while trying to lower all
+    // practicals together. Keep the seat and both its attachment/footprint contracts with
+    // the decor owner: the isolated decor harness deliberately compiles this class without
     // the interactive cabinet controller.
-    internal static Vector3 MerchantLanternSeat() => new(-1.51f, 1.23f, .08f);
+    internal static Vector3 MerchantLanternSeat() => new(-1.51f, 1.27f, .08f);
+    internal static float MerchantLanternAttachmentGap(Vector3 seat)
+    {
+        Vector3 nativeHookTop = seat + Vector3.up * .32f;
+        Vector3 bracketCatch = new(-1.51f, 1.62f - .026f - .004f, .08f);
+        return Vector3.Distance(nativeHookTop, bracketCatch);
+    }
     internal static bool MerchantLanternClears(Bounds cabinetPart, Vector3 seat)
     {
         // Build() normalizes this original lantern to 32 cm tall and seats its bottom at
