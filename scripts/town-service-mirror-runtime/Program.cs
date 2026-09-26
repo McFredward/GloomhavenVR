@@ -705,7 +705,10 @@ public static partial class MirrorProgram
         Check(Remote(2) == null, "delta waits for its missing baseline");
         Receive(2, new[] { Baselines[10] });
         TownServiceMirror.TickRemote(_ => observer);
-        for (float settle = Time.unscaledTime + .13f; Time.unscaledTime < settle;)
+        // Bound convergence by playback opportunities rather than editor wall
+        // time. Under parallel llvmpipe suites, a single frame can exceed 130 ms
+        // and the old clock loop never gave the newly received baseline a retry.
+        for (int playback = 0; playback < 12 && Remote(2) == null; playback++)
         { TownServiceMirror.TickRemote(_ => observer); yield return null; }
         Check(Remote(2) != null, "late matching baseline creates pending owner module");
         Check(Remote(2)!.Root.Find("Name").GetComponent<TMP_Text>().text == _text.text, "late baseline expands the newer pending delta");
