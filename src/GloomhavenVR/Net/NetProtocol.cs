@@ -541,7 +541,16 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 571;
+    public const ushort ModBuild = 572;
+
+    // ModBuild 572 — twelfth NPC hardware follow-up on the feature branch
+    // (FULL INSTALL). Merchant and temple cloth retain visible finger contact;
+    // the cabinet's legs, braces, category controls and lantern mount are
+    // aligned with the authored shell. Priestess prayer and bowl-cover arm
+    // paths avoid crossed hands and use continuous anatomical transitions.
+    // Enchantress handoff previews the native opening state. Merchant,
+    // enchantress and temple offers give local proximity ink and haptics;
+    // visual state follows the existing resident presentation to observers.
 
     // ModBuild 571 — eleventh NPC hardware follow-up on the feature branch
     // (FULL INSTALL). Short cloth contacts retain the prior solver snapshot

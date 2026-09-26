@@ -1,16 +1,16 @@
 # State — where the project stands
 
-**Updated 2026-09-26: feature/immersive-town-services, version 1.1.0 hardware candidate.**
+**Updated 2026-09-27: feature/immersive-town-services, version 1.1.0 hardware candidate.**
 The feature includes released 1.0.8 / ModBuild 556 and the subsequent 1.0.9
-version bookkeeping on `dev`. ModBuild 571 follows the build-570 video, screenshots and Debug log
-with short-contact cloth response, continuous priestess donation poses and a shared blessing,
-reliable enchantress card handoff, and an authored merchant cabinet with detailed physical controls.
+version bookkeeping on `dev`. ModBuild 572 follows the build-571 videos, screenshots and Debug log
+with visible merchant cloth contact and replication, joined cabinet hardware, a corrected
+priestess cover path, first-approach enchantress preview and eligible handoff haptics.
 ModBuild 560 introduced resident
 voices, shared merchant confirmation presentation, a visible temple donation
 target, cloth contact, cabinet detail and varied idle motion.
 Headset verification of the resulting presentation remains open. Historical NPC
 design: [research/TOWN-SERVICES-552.md](research/TOWN-SERVICES-552.md).
-Current evidence and implementation limits: [TOWN-571.md](TOWN-571.md).
+Current evidence and implementation limits: [TOWN-572.md](TOWN-572.md).
 The feature remains isolated from `dev`, and NPC work belongs on this branch.
 
 The file this replaces had gone 168 builds
@@ -25,6 +25,14 @@ change per build) → this file (where things stand and what is owed) → the bu
 ---
 
 ## 1. Position
+
+- **NPC feature / 1.1.0 / ModBuild 572 (hardware candidate):** the merchant's side cloth
+  responds to finger contact and shares its movement with observers. Cabinet legs, braces,
+  category controls and lantern mount align with the rebuilt shell. The priestess keeps her
+  arms uncrossed while covering the bowl and blends into and out of that pose. The enchantress
+  previews an opening handoff on first approach; valid merchant, enchantress and temple offers
+  give stronger visual and bounded haptic feedback near their release volumes. Source-grounded
+  evidence and headset checks are in [TOWN-572.md](TOWN-572.md).
 
 - **NPC feature / 1.1.0 / ModBuild 571 (hardware candidate):** a brief real cloth contact
   preserves the solver snapshot from approach so its first visible displacement is no longer

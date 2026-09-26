@@ -49,6 +49,7 @@ namespace UnityEngine
         public static float Cos(float v)=>(float)Math.Cos(v);
         public static float Floor(float v)=>(float)Math.Floor(v);
         public static float Clamp(float v,float a,float b)=>Math.Max(a,Math.Min(b,v));
+        public static int Clamp(int v,int a,int b)=>Math.Max(a,Math.Min(b,v));
         public static float Clamp01(float v)=>Math.Max(0,Math.Min(1,v));
         public static float Lerp(float a,float b,float t)=>a+(b-a)*Clamp01(t);
         public static float SmoothStep(float a,float b,float t){t=Clamp01(t);return a+(b-a)*t*t*(3-2*t);}
