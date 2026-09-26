@@ -13,12 +13,16 @@ internal sealed class TownServiceTempleBowlMarker : IDisposable
     private readonly bool _ownsBlessing;
     private readonly List<Material> _materials = new();
     private ParticleSystem? _blessing;
+    private ParticleSystem? _halo, _falling, _outward;
+    private Light? _blessingLight;
+    private float _blessingStartedAt = float.NegativeInfinity;
     private Material? _blessingMaterial;
     private Texture2D? _blessingTexture;
     private GameObject? _bag;
     private float _visibility;
     internal GameObject Root => _root;
     internal Transform? Visual => _bag != null ? _bag.transform : null;
+    internal float BlessingAge => Time.unscaledTime - _blessingStartedAt;
 
     /// <param name="stationSpace">True when the marker is owned by the permanent priestess
     /// station rather than by its temporary shared-bowl frame.</param>
@@ -72,22 +76,36 @@ internal sealed class TownServiceTempleBowlMarker : IDisposable
                 material.SetColor("_Color", tint);
             }
         if (_bag != null) _bag.SetActive(_visibility > .01f);
+        if (_blessingLight != null)
+        {
+            float age = Time.unscaledTime - _blessingStartedAt;
+            float rise = Mathf.SmoothStep(0f, 1f, Mathf.Clamp01(age / .55f));
+            float fall = 1f - Mathf.SmoothStep(0f, 1f, Mathf.Clamp01((age - 1.35f) / 1.15f));
+            _blessingLight.intensity = age >= 0f && age < 2.5f ? 1.6f * rise * fall : 0f;
+            _blessingLight.enabled = _blessingLight.intensity > .01f;
+        }
     }
 
     /// <summary>The original donation has committed. This is a bounded cosmetic response;
     /// it never predicts payment and never invokes a service callback.</summary>
     internal void Bless(float elapsed = 0f)
     {
-        if (_blessing == null) return;
+        if (_blessing == null || _halo == null || _falling == null || _outward == null) return;
         // The blessing revision/age is replicated by the existing resident presentation.
         // Restarting the same seeded local-space system and advancing it by that age gives every
         // observer the same bounded beat without publishing individual particles or predicting a
         // transaction. ParticleSystem owns the motes; no legible mesh shards are flown by hand.
-        float age = Mathf.Clamp(elapsed, 0f, 1.65f);
-        _blessing.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
-        _blessing.randomSeed = 0x475652u;
-        _blessing.Play(true);
-        if (age > 0f) _blessing.Simulate(age, true, false, true);
+        float age = Mathf.Clamp(elapsed, 0f, 2.45f);
+        _blessingStartedAt = Time.unscaledTime - age;
+        ParticleSystem[] phases = { _blessing, _halo, _falling, _outward };
+        for (int i = 0; i < phases.Length; i++)
+        {
+            ParticleSystem phase = phases[i];
+            phase.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
+            phase.randomSeed = 0x475652u + (uint)(i * 917);
+            phase.Play(true);
+            if (age > 0f) phase.Simulate(age, true, false, true);
+        }
     }
 
     private static Material GhostMaterial(Material source)
@@ -120,27 +138,31 @@ internal sealed class TownServiceTempleBowlMarker : IDisposable
         effect.SetActive(false);
         effect.transform.SetParent(_root.transform, false);
         effect.transform.localPosition = new Vector3(0f, -.018f, 0f);
+        effect.transform.localRotation = Quaternion.identity;
         _blessing = effect.AddComponent<ParticleSystem>();
         ParticleSystem.MainModule main = _blessing.main;
-        main.playOnAwake = false; main.loop = false; main.duration = 1.65f;
+        main.playOnAwake = false; main.loop = false; main.duration = 2.45f;
         main.useUnscaledTime = true; main.simulationSpace = ParticleSystemSimulationSpace.Local;
-        main.scalingMode = ParticleSystemScalingMode.Hierarchy; main.maxParticles = 72;
-        main.startLifetime = new ParticleSystem.MinMaxCurve(.72f, 1.35f);
-        main.startSpeed = new ParticleSystem.MinMaxCurve(.14f, .34f);
-        main.startSize = new ParticleSystem.MinMaxCurve(.005f, .014f);
+        main.scalingMode = ParticleSystemScalingMode.Hierarchy; main.maxParticles = 220;
+        main.startLifetime = new ParticleSystem.MinMaxCurve(.95f, 1.75f);
+        // Keep the opening bloom anchored to the bowl. The delayed gift cone carries
+        // the actual blessing outward; a fast hemispherical bloom filled the space
+        // behind her face and no longer read as originating from the offering.
+        main.startSpeed = new ParticleSystem.MinMaxCurve(.08f, .22f);
+        main.startSize = new ParticleSystem.MinMaxCurve(.014f, .030f);
         main.startRotation = new ParticleSystem.MinMaxCurve(0f, Mathf.PI * 2f);
         main.startColor = new ParticleSystem.MinMaxGradient(
             new Color(.22f, .62f, 1f, .72f), new Color(1f, .82f, .30f, .82f));
-        main.gravityModifier = -.025f;
+        main.gravityModifier = -.012f;
 
         ParticleSystem.EmissionModule emission = _blessing.emission;
-        emission.rateOverTime = 0f;
-        emission.SetBursts(new[] { new ParticleSystem.Burst(0f, 26, 34) });
+        emission.rateOverTime = 34f;
+        emission.SetBursts(new[] { new ParticleSystem.Burst(.05f, 86, 106) });
         ParticleSystem.ShapeModule shape = _blessing.shape;
         shape.enabled = true; shape.shapeType = ParticleSystemShapeType.Hemisphere;
-        shape.radius = .055f; shape.radiusThickness = .55f;
+        shape.radius = .055f; shape.radiusThickness = .65f;
         ParticleSystem.NoiseModule noise = _blessing.noise;
-        noise.enabled = true; noise.strength = .055f; noise.frequency = .48f;
+        noise.enabled = true; noise.strength = .035f; noise.frequency = .48f;
         noise.scrollSpeed = .25f; noise.damping = true;
         ParticleSystem.ColorOverLifetimeModule colour = _blessing.colorOverLifetime;
         colour.enabled = true;
@@ -168,9 +190,92 @@ internal sealed class TownServiceTempleBowlMarker : IDisposable
         renderer.renderMode = ParticleSystemRenderMode.Billboard;
         renderer.sharedMaterial = _blessingMaterial;
         renderer.shadowCastingMode = ShadowCastingMode.Off; renderer.receiveShadows = false;
+        ParticleSystem.TrailModule trails = _blessing.trails;
+        trails.enabled = true; trails.mode = ParticleSystemTrailMode.PerParticle;
+        trails.ratio = .30f; trails.lifetime = .22f; trails.dieWithParticles = true;
+        renderer.trailMaterial = _blessingMaterial;
+        _halo = CreateSecondary("TempleBlessingHalo", new Vector3(0f, .14f, 0f),
+            .62f, 108, 130, .80f, 1.18f, .016f, .032f,
+            new Color(.38f, .72f, 1f, .90f), new Color(1f, .83f, .36f, 1f),
+            ParticleSystemShapeType.Circle, .10f, .38f, true);
+        _halo.transform.localRotation = Quaternion.Euler(90f, 0f, 0f);
+        _falling = CreateSecondary("TempleBlessingCrown", new Vector3(0f, .54f, 0f),
+            1.20f, 100, 130, .65f, 1.16f, .012f, .026f,
+            new Color(.48f, .73f, 1f, .80f), new Color(1f, .92f, .57f, .92f),
+            ParticleSystemShapeType.Cone, .18f, .75f, false);
+        _falling.transform.localRotation = Quaternion.Euler(90f, 0f, 0f);
+        _outward = CreateSecondary("TempleBlessingGift", new Vector3(0f, .24f, -.05f),
+            1.02f, 70, 90, .58f, .93f, .012f, .024f,
+            new Color(.45f, .75f, 1f, .86f), new Color(1f, .92f, .58f, 1f),
+            ParticleSystemShapeType.Cone, .035f, .62f, false);
+        _outward.transform.localRotation = Quaternion.Euler(0f, 180f, 0f);
+        var lightRoot = new GameObject("TempleBlessingLight") { layer = VRLayers.ModLayer };
+        lightRoot.transform.SetParent(_root.transform, false);
+        lightRoot.transform.localPosition = new Vector3(0f, .34f, 0f);
+        _blessingLight = lightRoot.AddComponent<Light>();
+        _blessingLight.type = LightType.Point;
+        _blessingLight.color = new Color(.48f, .68f, 1f);
+        _blessingLight.range = 1.65f;
+        _blessingLight.shadows = LightShadows.None;
+        _blessingLight.intensity = 0f;
+        _blessingLight.enabled = false;
         _blessing.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
         effect.SetActive(true);
         _blessing.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
+    }
+
+    private ParticleSystem CreateSecondary(string name, Vector3 offset, float at,
+        short minCount, short maxCount, float minLife, float maxLife,
+        float minSize, float maxSize, Color first, Color second,
+        ParticleSystemShapeType shapeType, float radius, float speed, bool radial)
+    {
+        var root = new GameObject(name) { layer = VRLayers.ModLayer };
+        root.SetActive(false);
+        root.transform.SetParent(_root.transform, false);
+        root.transform.localPosition = offset;
+        ParticleSystem system = root.AddComponent<ParticleSystem>();
+        ParticleSystem.MainModule main = system.main;
+        main.playOnAwake = false; main.loop = false; main.duration = 2.45f;
+        main.useUnscaledTime = true; main.simulationSpace = ParticleSystemSimulationSpace.Local;
+        main.scalingMode = ParticleSystemScalingMode.Hierarchy; main.maxParticles = 160;
+        main.startLifetime = new ParticleSystem.MinMaxCurve(minLife, maxLife);
+        main.startSpeed = radial ? 0f : new ParticleSystem.MinMaxCurve(speed * .5f, speed);
+        main.startSize = new ParticleSystem.MinMaxCurve(minSize, maxSize);
+        main.startColor = new ParticleSystem.MinMaxGradient(first, second);
+        ParticleSystem.EmissionModule emission = system.emission;
+        emission.rateOverTime = 0f;
+        emission.SetBursts(new[] { new ParticleSystem.Burst(at, minCount, maxCount) });
+        ParticleSystem.ShapeModule shape = system.shape;
+        shape.enabled = true; shape.shapeType = shapeType; shape.radius = radius;
+        if (!radial) shape.angle = 20f;
+        if (radial)
+        {
+            ParticleSystem.VelocityOverLifetimeModule velocity = system.velocityOverLifetime;
+            velocity.enabled = true; velocity.radial = new ParticleSystem.MinMaxCurve(speed);
+        }
+        ParticleSystem.ColorOverLifetimeModule colour = system.colorOverLifetime;
+        colour.enabled = true;
+        var gradient = new Gradient();
+        gradient.SetKeys(new[] { new GradientColorKey(Color.white, 0f),
+            new GradientColorKey(Color.white, 1f) },
+            new[] { new GradientAlphaKey(0f, 0f), new GradientAlphaKey(1f, .18f),
+                new GradientAlphaKey(.70f, .62f), new GradientAlphaKey(0f, 1f) });
+        colour.color = new ParticleSystem.MinMaxGradient(gradient);
+        var renderer = root.GetComponent<ParticleSystemRenderer>();
+        renderer.renderMode = ParticleSystemRenderMode.Billboard;
+        renderer.sharedMaterial = _blessingMaterial;
+        renderer.shadowCastingMode = ShadowCastingMode.Off; renderer.receiveShadows = false;
+        if (radial)
+        {
+            ParticleSystem.TrailModule trails = system.trails;
+            trails.enabled = true; trails.mode = ParticleSystemTrailMode.PerParticle;
+            trails.ratio = .42f; trails.lifetime = .16f; trails.dieWithParticles = true;
+            renderer.trailMaterial = _blessingMaterial;
+        }
+        system.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
+        root.SetActive(true);
+        system.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
+        return system;
     }
 
     private static Texture2D BuildParticleTexture()

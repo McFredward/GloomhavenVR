@@ -22,7 +22,7 @@ def replace_once(source, before, after):
 
 def sources(root):
     base = root / "src/GloomhavenVR/WorldUI/TownServices"
-    names = ["TownServiceActivityHandover.cs", "TownServiceActivityMotion.cs", "TownServiceActivityRig.cs", "TownServiceActivityProps.cs", "TownServiceSleeveLining.cs", "TownServiceGrounding.cs", "TownServiceFaceAttention.cs", "TownServiceFaceMotion.cs", "TownServiceFaceRig.cs"]
+    names = ["TownServiceActivityHandover.cs", "TownServiceActivityMotion.cs", "TownServiceActivityRig.cs", "TownServiceActivityProps.cs", "TownServiceSleeveLining.cs", "TownServiceGrounding.cs", "TownServiceFaceAttention.cs", "TownServiceFaceMotion.cs", "TownServiceFaceRig.cs", "TownServiceTempleBowlMarker.cs"]
     names += ["TownServiceMotionClips.cs", "TownServiceMotionClips.Data.cs", "TownServiceLightList.cs", "TownServiceActivitySoundClock.cs", "TownServiceActivityAudio.cs"]
     bound = {name: (base / name).read_text() for name in names}
     bound["RemoteTownActivities.cs"] = (root / "src/GloomhavenVR/Net/Remote/RemoteTownActivities.cs").read_text()
@@ -59,9 +59,9 @@ def mutations():
         ("work-runs-while-engaged", "TownServiceActivityMotion.cs", "dt - Integral(in state, state.TransitionAge + dt) + Integral(in state, state.TransitionAge)", "dt", "engaged occupation remains paused"),
         ("ignore-ik", "TownServiceActivityRig.cs", "if (!Ready) return;", "if (Ready) return;", "anatomical palm contacts transformed counter surface"),
         ("thumb-overcurl", "TownServiceActivityRig.cs", "arm.Anatomical ? 38f : 5f", "arm.Anatomical ? 150f : 5f", "anatomical thumb stays inside natural grasp range"),
-        ("attentive-counter-bracing", "TownServiceActivityMotion.cs", "new Vector3(.21f, .80f, .54f)", "new Vector3(.21f, .959f, .337f)", "attentive priestess arms hang naturally beside her robe and outside the donation bowl"),
-        ("low-priestess-shoulders", "TownServiceActivityMotion.cs", "float priestessElbowHeight = 1.10f;", "float priestessElbowHeight = .40f;", "actual priestess upper arms descend naturally from the clavicle"),
-        ("upturned-priestess-hip", "TownServiceActivityRig.cs", "-_root.up - _root.forward * .2f", "_root.up", "unavailable temple pose transitions continuously without a wrist snap"),
+        ("attentive-counter-bracing", "TownServiceActivityMotion.cs", "new Vector3(.18f, .80f, .54f)", "new Vector3(.18f, .959f, .337f)", "attentive priestess arms hang beside her robe and outside the donation bowl"),
+        ("low-priestess-shoulders", "TownServiceActivityMotion.cs", "float priestessElbowHeight = 1.02f;", "float priestessElbowHeight = .40f;", "actual priestess upper arms descend naturally from the clavicle"),
+        ("upturned-priestess-hip", "TownServiceActivityRig.cs", "-_root.up - _root.forward * .2f", "_root.up", "anatomical palm contacts transformed counter surface"),
         ("excessive-work-bow", "TownServiceActivityRig.cs", "-6f - terrainLean", "-35f - terrainLean", "work posture does not stack an extreme torso and neck bow"),
         ("ignore-palm-offset", "TownServiceActivityRig.cs", "target -= palmOffset;", "target -= palmOffset * 0f;", "anatomical palm contacts transformed counter surface"),
         ("curl-contact-markers", "TownServiceActivityRig.cs", ' && !t.name.Contains("Tip")', "", "contact markers are not articulated finger joints"),
@@ -71,8 +71,8 @@ def mutations():
         ("magnetic-coin", "TownServiceActivityMotion.cs", "coin == index && t >= 1.04f && t < 2.86f ? 1f : 0f", "coin == index ? grip : 0f", "coin is resting or rigidly gripped, never magnetically attracted"),
         ("paused-coin-in-air", "TownServiceActivityMotion.cs", "float transferProgress = Soft(t, 1.05f, 2.84f);", "float transferProgress = Soft(t < 1.70f ? t : t < 2f ? 1.70f : 1.70f + (t - 2f) * (2.84f - 1.70f) / .84f, 1.05f, 2.84f);", "merchant never parks a pinched coin in midair"),
         ("mid-transfer-greeting", "TownServiceActivityMotion.cs", "return t < .50f || t >= 3.05f;", "return true;", "merchant only greets after releasing the current coin"),
-        ("prayer-blocks-bowl", "TownServiceActivityMotion.cs", "new Vector3(.060f, 1.105f, .19f)", "new Vector3(.012f, 1.19f, .20f)", "unavailable donation moves both hands over the shared bowl"),
-        ("splayed-bowl-cover", "TownServiceActivityMotion.cs", "new Vector3(.060f, 1.105f, .19f)", "new Vector3(.15f, 1.105f, .19f)", "unavailable donation moves both hands over the shared bowl"),
+        ("prayer-blocks-bowl", "TownServiceActivityMotion.cs", "new Vector3(.045f, 1.105f, .19f)", "new Vector3(.012f, 1.19f, .20f)", "unavailable donation moves both hands over the shared bowl"),
+        ("splayed-bowl-cover", "TownServiceActivityMotion.cs", "new Vector3(.045f, 1.105f, .19f)", "new Vector3(.15f, 1.105f, .19f)", "unavailable donation moves both hands over the shared bowl"),
         ("availability-cover-pop", "TownServiceActivityMotion.cs", "if (donationAvailable && blend <= 0f) return;", "if (donationAvailable) return;", "available temple fades out the previous cover pose instead of dropping it in one frame"),
         ("upturned-bowl-cover", "TownServiceActivityRig.cs", "Vector3.ProjectOnPlane(-_root.up, coverFinger)", "Vector3.ProjectOnPlane(_root.up, coverFinger)", "unavailable donation covers the bowl with both palms facing down"),
         ("merchant-stiff-greeting", "TownServiceActivityMotion.cs", "new Vector3(.17f, .94f, .45f)", "new Vector3(.20f, 1.09f, .20f)", "visitor attention settles merchant with hands at his hips without an unsolicited offering"),
@@ -95,6 +95,7 @@ def main():
     parser.add_argument("--anatomy-service", type=int, choices=[1, 2, 3], help="Export geometry for one resident; contact checks still cover all three")
     parser.add_argument("--attention-sequence", action="store_true", help="Render a24fps visitor-interruption transition instead of work cycle")
     parser.add_argument("--temple-unavailable-render", action="store_true", help="Render the attentive priestess covering the unavailable donation bowl")
+    parser.add_argument("--temple-blessing-render", action="store_true", help="Render the committed donation gesture from the shared event age")
     parser.add_argument("--render-service", type=int, choices=[1,2,3], help="Render only one resident; all contact checks still run")
     parser.add_argument("--sequence", action="store_true", help="Render complete resident performances at 8 fps")
     parser.add_argument("--book-obj", type=Path, help="Read-only original-game open book OBJ (Blender Z-up export)")
@@ -221,6 +222,7 @@ def main():
         if args.sequence or args.attention_sequence: command += ["-activitySequence"]
         if args.attention_sequence: command += ["-activityAttentionSequence"]
         if args.temple_unavailable_render: command += ["-activityTempleUnavailable"]
+        if args.temple_blessing_render: command += ["-activityTempleBlessing"]
         if args.render_service: command += ["-activityService", str(args.render_service)]
         if args.book_obj: command += ["-activityBook", str(args.book_obj.resolve())]
         if args.book_texture: command += ["-activityBookTexture", str(args.book_texture.resolve())]

@@ -179,15 +179,15 @@ public static class InteractionProgram
         prayer=TownServiceActivityMotion.Advance(prayer,TownServiceActivityMotion.TransitionSeconds);
         var receiving=TownServiceActivityMotion.Visual(2,in prayer);
         var attentiveTemple=receiving;
-        Check(receiving.Left.x>.20f&&receiving.Right.x<-.20f
+        Check(receiving.Left.x>.17f&&receiving.Right.x<-.17f
             &&receiving.Left.y>.79f&&receiving.Right.y>.79f
             &&receiving.Left.y<.81f&&receiving.Right.y<.81f
             &&receiving.Left.z>.53f&&receiving.Right.z>.53f
             &&receiving.Left.z<.55f&&receiving.Right.z<.55f
-            &&receiving.LeftElbow.x>.18f&&receiving.RightElbow.x<-.18f,
+            &&receiving.LeftElbow.x>.10f&&receiving.RightElbow.x<-.10f,
             "attentive priestess lets both arms hang beside her robe behind the table edge");
         TownServiceActivityMotion.ApplyTempleAvailability(ref receiving,false,1f);
-        Check(Mathf.Abs(receiving.Left.x)<.07f&&Mathf.Abs(receiving.Right.x)<.07f
+        Check(Mathf.Abs(receiving.Left.x)<.08f&&Mathf.Abs(receiving.Right.x)<.08f
             &&receiving.Left.y>1.10f&&receiving.Right.y>1.10f
             &&receiving.Left.y<1.11f&&receiving.Right.y<1.11f
             &&receiving.Left.z>.17f&&receiving.Right.z>.17f,
@@ -206,6 +206,17 @@ public static class InteractionProgram
         TownServiceActivityMotion.ApplyTempleAvailability(ref returning,true,.5f);
         Check(returning.Left.y>attentiveTemple.Left.y&&returning.Left.y<receiving.Left.y,
             "available temple fades out the previous cover pose instead of dropping it in one frame");
+        var blessed=receiving;
+        TownServiceActivityMotion.ApplyTempleBlessing(ref blessed,1.04f);
+        Check(blessed.Left.y>receiving.Left.y+.15f&&blessed.Right.y>receiving.Right.y+.22f
+            &&blessed.Left.x<.09f&&blessed.Right.x<-.11f
+            &&blessed.Left.z>receiving.Left.z+.10f,
+            "committed blessing lifts light with one hand at her heart and one extended toward the recipient");
+        var completed=receiving;
+        TownServiceActivityMotion.ApplyTempleBlessing(ref completed,2.45f);
+        Check(Vector3.Distance(completed.Left,receiving.Left)<.00001f
+            &&Vector3.Distance(completed.Right,receiving.Right)<.00001f,
+            "blessing leaves the authored covered-bowl pose continuous after its final frame");
         TownServiceActivityMotion.ApplyMerchantOffering(ref held,1f);
         Check(held.RightRoll>170f&&held.Right.y>1.17f,
             "a held or parked card independently opens the merchant offering palm");

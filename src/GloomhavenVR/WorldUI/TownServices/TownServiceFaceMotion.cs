@@ -52,9 +52,14 @@ internal static class TownServiceFaceMotion
         if (t < 0f || t > .22f) return 0f;
         return t < .075f ? Mathf.SmoothStep(0f, 1f, t / .075f) : 1f - Mathf.SmoothStep(0f, 1f, (t - .075f) / .145f);
     }
-    internal static TownServiceFacePose Evaluate(in TownFacePose state, float clock, byte service, Vector3 mouth)
+    internal static TownServiceFacePose Evaluate(in TownFacePose state, float clock, byte service, Vector3 mouth,
+        float blessingAge = float.PositiveInfinity)
     {
         float blink = Blink(clock, service);
+        float blessing = service == 2 && blessingAge >= 0f && blessingAge < 2.45f
+            ? Mathf.SmoothStep(0f, 1f, Mathf.Clamp01(blessingAge / .62f))
+                * (1f - Mathf.SmoothStep(0f, 1f, Mathf.Clamp01((blessingAge - 1.65f) / .8f)))
+            : 0f;
         return new TownServiceFacePose {
             HeadPitch = state.HeadPitch, HeadYaw = state.HeadYaw, HeadRoll = state.HeadRoll,
             LeftPitch = state.LeftPitch, LeftYaw = state.LeftYaw, RightPitch = state.RightPitch, RightYaw = state.RightYaw,
@@ -62,8 +67,8 @@ internal static class TownServiceFaceMotion
             JawOpen = state.Cue == 0 ? 0f : Weight(mouth.x),
             MouthWide = state.Cue == 0 ? 0f : Weight(mouth.y),
             MouthRound = state.Cue == 0 ? 0f : Weight(mouth.z),
-            Smile = .06f + .025f * Mathf.Sin(clock * .43f + service * 2f),
-            BrowRaise = .025f + .018f * Mathf.Sin(clock * .61f + service * 1.7f) };
+            Smile = .06f + .025f * Mathf.Sin(clock * .43f + service * 2f) + .13f * blessing,
+            BrowRaise = .025f + .018f * Mathf.Sin(clock * .61f + service * 1.7f) + .06f * blessing };
     }
     internal static TownFacePose Interpolate(in TownFacePose from, in TownFacePose to, float t)
     {

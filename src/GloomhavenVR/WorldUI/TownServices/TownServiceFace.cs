@@ -77,7 +77,8 @@ internal sealed class TownServiceFace
         _shown = pose; _shownAuthor = author; _shown.SpeechAge = Mathf.Min(3600f, pose.SpeechAge + elapsed);
         TownServiceFaceSpeech.Observer?.Invoke(_service, author, _shown.Cue, _shown.Generation, _shown.SpeechAge, _rig.Head);
     }
-    internal TownFacePose Tick(bool author, bool received, int authorId, in TownFacePose remote, float elapsed, float clock)
+    internal TownFacePose Tick(bool author, bool received, int authorId, in TownFacePose remote, float elapsed, float clock,
+        float blessingAge = float.PositiveInfinity)
     {
         Vector3 mouth;
         if (author)
@@ -128,7 +129,7 @@ internal sealed class TownServiceFace
                 : Vector3.zero;
         }
         TownServiceFaceSpeech.Observer?.Invoke(_service, _shownAuthor, _shown.Cue, _shown.Generation, _shown.SpeechAge, _rig.Head);
-        TownServiceFacePose pose = TownServiceFaceMotion.Evaluate(in _shown, clock, _service, mouth);
+        TownServiceFacePose pose = TownServiceFaceMotion.Evaluate(in _shown, clock, _service, mouth, blessingAge);
         _rig.Apply(in pose);
         return _shown;
     }

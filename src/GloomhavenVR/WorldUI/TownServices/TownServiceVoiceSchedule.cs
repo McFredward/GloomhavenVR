@@ -63,6 +63,18 @@ internal sealed class TownServiceVoiceSchedule
     internal void Request(byte service, ushort firstCue, float now)
     {
         Entry e = At(service);
+        // A committed temple donation outranks an availability refresh. The latter is
+        // expected immediately after payment and must never consume the first spoken
+        // response. If a stale refusal was already queued or speaking, retire that
+        // cosmetic line before choosing one of the five grateful performances.
+        if (service == 2 && firstCue == 36)
+        {
+            if (e.Cue >= 56 && e.Cue <= 60) { e.Cue = 0; e.Ended = true; _nextWorld = now; }
+            if (e.Pending && e.PendingCue >= 56 && e.PendingCue <= 60) e.Pending = false;
+        }
+        else if (service == 2 && firstCue == 56
+            && (e.Pending && e.PendingCue >= 36 && e.PendingCue <= 40
+                || e.Cue >= 36 && e.Cue <= 40)) return;
         // Deduplicate the event, not its selected variant. Choosing before this
         // guard let two copies of one native callback evade the four-second gate.
         if (e.LastRequestedCue == firstCue && now - e.LastRequestedAt < 4f) return;

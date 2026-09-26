@@ -434,7 +434,11 @@ internal sealed class TownServiceActivityRig
                 baseFinger = Vector3.RotateTowards(foreDirection, baseFinger, 55f * Mathf.Deg2Rad, 0f).normalized;
                 Quaternion baseFrame = Quaternion.LookRotation(baseFinger,
                     Vector3.ProjectOnPlane(baseNormal, baseFinger).normalized);
-                Vector3 coverFinger = Vector3.RotateTowards(foreDirection, -_root.forward,
+                // Each hand turns a little toward the common bowl centre. The former
+                // parallel fingers looked like two flat hands resting on the counter,
+                // even with both palm targets directly over the rim.
+                Vector3 inwardCover = (-_root.forward * .82f - side * _root.right * .20f).normalized;
+                Vector3 coverFinger = Vector3.RotateTowards(foreDirection, inwardCover,
                     55f * Mathf.Deg2Rad, 0f).normalized;
                 Quaternion coverFrame = Quaternion.LookRotation(coverFinger,
                     Vector3.ProjectOnPlane(-_root.up, coverFinger).normalized);

@@ -23,6 +23,9 @@ namespace GloomhavenVR.Net
 namespace GloomhavenVR.Rig { internal static class VRRigDriver { internal static Camera? HeadCamera=null; } }
 namespace GloomhavenVR.WorldUI
 {
+    internal static class TownServiceRitualLayout { internal static readonly Vector3 Origin=new(0f,.978f,-.08f); }
+    internal static class TownServiceTempleBowl { internal static readonly Vector3 PurseSeat=new(0f,.178f,.26f); }
+    internal static class TownServiceDecor { internal static Transform? MoneyBagTemplate; }
     internal sealed class BoolSetting { internal bool Value=true; }
     internal static class WorldUIConfig { internal static readonly BoolSetting ImmersiveTownSoundEffects=new(); }
     internal static class TownServiceAssets
@@ -49,7 +52,7 @@ namespace GloomhavenVR.Net.TownServices
     }
 }
 
-namespace GloomhavenVR.Core { internal static class VRLayers {internal const int ModLayer=27;} internal static class VRLog { internal static int Warnings, InfoLines; internal static bool WantsDebug=false; internal static void Warn(string source,string text)=>Warnings++; internal static void Info(string source,string text)=>InfoLines++; } }
+namespace GloomhavenVR.Core { internal static class VRLayers {internal const int ModLayer=27;internal static void Apply(GameObject root){root.layer=ModLayer;}} internal static class VRLog { internal static int Warnings, InfoLines; internal static bool WantsDebug=false; internal static void Warn(string source,string text)=>Warnings++; internal static void Info(string source,string text)=>InfoLines++; } }
 
 internal sealed class GlobalData { public int MasterVolume=100,SFXVolume=100; }
 internal sealed class SaveData { public static SaveData Instance=new(); public GlobalData Global=new(); }

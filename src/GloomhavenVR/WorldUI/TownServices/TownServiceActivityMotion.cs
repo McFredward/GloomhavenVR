@@ -85,25 +85,25 @@ internal static class TownServiceActivityMotion
         // *visible* palm positions on the actual skins; symmetric numeric wrist
         // targets left the screen-right arm hanging away from the body.
         work.Left = Vector3.Lerp(work.Left, service == 1 ? new Vector3(.17f, .94f, .45f)
-            : service == 2 ? new Vector3(.21f, .80f, .54f) : new Vector3(.22f, 1.13f, .23f), attention);
+            : service == 2 ? new Vector3(.18f, .80f, .54f) : new Vector3(.22f, 1.13f, .23f), attention);
         work.Right = Vector3.Lerp(work.Right, service == 1 ? new Vector3(-.24f, .98f, .50f)
-            : service == 3 ? new Vector3(-.18f, 1.17f, .23f) : new Vector3(-.21f, .80f, .54f), attention);
+            : service == 3 ? new Vector3(-.18f, 1.17f, .23f) : new Vector3(-.18f, .80f, .54f), attention);
         // Hand targets alone cannot lower an arm naturally. Author the matching elbow path as
         // part of the same blend so the upper arm leaves the shoulder downward instead of staying
         // abducted while the forearm reaches for a low hand target.
         if (service is 1 or 2)
         {
-            float side = service == 1 ? .41f : .19f;
+            float side = service == 1 ? .41f : .11f;
             // The priestess upper arm must leave the real clavicle at shoulder height.
             // A low elbow target deformed the broad sleeve into a second, false shoulder
             // at chest height even though the hand itself reached the intended hip.
-            float priestessElbowHeight = 1.10f;
+            float priestessElbowHeight = 1.02f;
             work.LeftElbow = Vector3.Lerp(work.LeftElbow,
-                new Vector3(service == 1 ? .35f : .19f, service == 1 ? 1.08f : priestessElbowHeight,
-                    service == 1 ? .45f : .55f), attention);
+                new Vector3(service == 1 ? .35f : .11f, service == 1 ? 1.08f : priestessElbowHeight,
+                    service == 1 ? .45f : .54f), attention);
             work.RightElbow = Vector3.Lerp(work.RightElbow,
                 new Vector3(-side, service == 1 ? 1.13f : priestessElbowHeight,
-                    service == 1 ? .50f : .55f), attention);
+                    service == 1 ? .50f : .54f), attention);
         }
         work.RightRoll = Mathf.Lerp(work.RightRoll, service == 1 ? 65f : service == 3 ? 180f : 0f, attention);
         work.LeftRoll = Mathf.Lerp(work.LeftRoll, service == 1 ? -65f : service == 3 ? -65f : 0f, attention);
@@ -137,10 +137,13 @@ internal static class TownServiceActivityMotion
         // horizontally before the forearms converged, which read as detached arms in the filmed
         // transition. These guides keep the elbows below and inside their shoulder line while
         // the palms arrive symmetrically at the bowl.
-        visual.Left = Vector3.Lerp(visual.Left, new Vector3(.060f, 1.105f, .19f), t);
-        visual.Right = Vector3.Lerp(visual.Right, new Vector3(-.060f, 1.105f, .19f), t);
-        visual.LeftElbow = Vector3.Lerp(visual.LeftElbow, new Vector3(.28f, 1.18f, .34f), t);
-        visual.RightElbow = Vector3.Lerp(visual.RightElbow, new Vector3(-.28f, 1.18f, .34f), t);
+        visual.Left = Vector3.Lerp(visual.Left, new Vector3(.045f, 1.105f, .19f), t);
+        visual.Right = Vector3.Lerp(visual.Right, new Vector3(-.045f, 1.105f, .19f), t);
+        // The elbows bend below the bowl instead of projecting the bulky upper sleeves
+        // horizontally toward the visitor. In the filmed build the latter silhouette
+        // looked like two rigid padded tubes growing out of the shoulders.
+        visual.LeftElbow = Vector3.Lerp(visual.LeftElbow, new Vector3(.245f, 1.015f, .43f), t);
+        visual.RightElbow = Vector3.Lerp(visual.RightElbow, new Vector3(-.245f, 1.015f, .43f), t);
         // The temple solver starts with inward-facing palms. Opposite quarter turns
         // place both palmar surfaces down over the bowl; the former signs faced them up.
         visual.LeftRoll = Mathf.Lerp(visual.LeftRoll, 82f, t);
@@ -148,6 +151,43 @@ internal static class TownServiceActivityMotion
         visual.LeftCurl = Mathf.Lerp(visual.LeftCurl, .08f, t);
         visual.RightCurl = Mathf.Lerp(visual.RightCurl, .08f, t);
         visual.Curl = Mathf.Max(visual.LeftCurl, visual.RightCurl);
+    }
+
+    /// <summary>One authored blessing performance after a committed donation revision.
+    /// The age comes from the owner timestamp, so peers interpolate the same gesture.</summary>
+    internal static void ApplyTempleBlessing(ref TownActivityVisual visual, float age)
+    {
+        if (age < 0f || age >= 2.45f) return;
+        float lift = Soft(age, .04f, .52f) * (1f - Soft(age, 1.64f, 2.42f));
+        float open = Soft(age, .48f, 1.12f);
+        // Gather the light above the bowl, then send it forward with one hand while
+        // the other returns toward her heart. Two equally outstretched arms read as a
+        // rigid mannequin and put both sleeves in a T-shaped silhouette in the render.
+        Vector3 left = new Vector3(Mathf.Lerp(.07f, .07f, open),
+            Mathf.Lerp(1.20f, 1.27f, open), Mathf.Lerp(.25f, .34f, open));
+        Vector3 right = new Vector3(Mathf.Lerp(-.07f, -.15f, open),
+            Mathf.Lerp(1.20f, 1.37f, open), Mathf.Lerp(.25f, .17f, open));
+        visual.Left = Vector3.Lerp(visual.Left, left, lift);
+        visual.Right = Vector3.Lerp(visual.Right, right, lift);
+        visual.LeftElbow = Vector3.Lerp(visual.LeftElbow, new Vector3(.18f, 1.12f, .45f), lift);
+        visual.RightElbow = Vector3.Lerp(visual.RightElbow, new Vector3(-.22f, 1.14f, .42f), lift);
+        visual.LeftRoll = Mathf.Lerp(visual.LeftRoll, 30f, lift);
+        visual.RightRoll = Mathf.Lerp(visual.RightRoll, -88f, lift);
+        visual.LeftCurl = Mathf.Lerp(visual.LeftCurl, .04f, lift);
+        visual.RightCurl = Mathf.Lerp(visual.RightCurl, .04f, lift);
+        visual.Chest += new Vector3(-3.5f * lift, 0f, 0f);
+        visual.Curl = Mathf.Max(visual.LeftCurl, visual.RightCurl);
+    }
+
+    internal static void ApplyTempleBreath(ref TownActivityVisual visual, float sharedClock)
+    {
+        float weight = visual.Attention;
+        if (weight <= 0f) return;
+        float breath = Mathf.Sin(sharedClock * 1.46f);
+        visual.Chest += new Vector3(.7f * breath * weight, 0f, .32f * breath * weight);
+        Vector3 drift = new Vector3(0f, .003f * breath * weight, 0f);
+        visual.Left += drift;
+        visual.Right += drift;
     }
     internal static void ApplyMerchantOffering(ref TownActivityVisual visual, float blend)
     {

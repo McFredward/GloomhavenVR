@@ -46,6 +46,10 @@ internal static class TownServicePopulation
         internal float TempleUnavailableBlend;
         internal bool TempleDirectCover;
         internal bool TempleUnavailableSpoken;
+        internal bool TempleAvailabilityObserved;
+        internal float TempleBlessingStartedAt = float.NegativeInfinity;
+        internal int TempleVoiceOwner;
+        internal uint TempleVoiceSession;
         internal bool ObservedActivity;
         internal readonly TownServiceActivityHandover Handover = new();
         internal TownServiceVisitTarget Visit = null!;
@@ -119,7 +123,8 @@ internal static class TownServicePopulation
         float faceElapsed = 0f;
         bool hasFace = follows && RemoteTownFaces.Sample(faceAuthor, out remoteFace, out faceElapsed);
         TownActivityState remoteActivity = default;
-        bool hasActivity = follows && RemoteTownActivities.Sample(faceAuthor, out remoteActivity, out _);
+        float activityElapsed = 0f;
+        bool hasActivity = follows && RemoteTownActivities.Sample(faceAuthor, out remoteActivity, out activityElapsed);
         bool wasFaceAuthor = IsFaceAuthor;
         IsFaceAuthor = !follows && enabled;
         if (IsFaceAuthor && !wasFaceAuthor)
@@ -245,8 +250,24 @@ internal static class TownServicePopulation
             {
                 bool received = TownServiceMirror.TryTempleDonationState(out int owner, out uint session,
                     out bool known, out bool available, out uint revision, out float transitionAge);
-                if (resident.TempleBlessing.Observe(received, owner, session, known, available, revision) && interactive)
-                    resident.Station.PlayTempleBlessing(transitionAge);
+                if (received && (owner != resident.TempleVoiceOwner || session != resident.TempleVoiceSession))
+                {
+                    resident.TempleVoiceOwner = owner;
+                    resident.TempleVoiceSession = session;
+                    resident.TempleUnavailableSpoken = false;
+                    resident.TempleAvailabilityObserved = false;
+                }
+                bool donationCommitted = resident.TempleBlessing.Observe(received, owner, session, known, available, revision);
+                if (donationCommitted)
+                {
+                    // The native donation callback requests her gratitude. Availability also
+                    // flips to false on the same update; treating that edge as a new refusal
+                    // used to replace the gratitude with "you cannot donate again".
+                    // Reserve the refusal for a later visit after she has returned to prayer.
+                    resident.TempleUnavailableSpoken = true;
+                    resident.TempleBlessingStartedAt = now - transitionAge;
+                    if (interactive) resident.Station.PlayTempleBlessing(transitionAge);
+                }
                 // The private window may already be unavailable when first hydrated. Its
                 // revision is a baseline, not evidence that this viewer witnessed a donation.
                 // The unavailable pose belongs to the permanent resident, so removal of the
@@ -259,8 +280,13 @@ internal static class TownServicePopulation
                 // zero made the first half of the entrance visibly pass through the available
                 // hands-down pose. A live availability change while she is already attending
                 // still uses the ordinary smooth transition, as does every departure.
-                if (unavailable && (displayedActivity.Attention < .10f || revision == 0))
+                // The private temple window can hydrate after attention has already started.
+                // The first *known* unavailable state is still an entry into the blocked visit,
+                // not a donation made in this pose. Go straight from prayer to the bowl cover;
+                // otherwise the visitor sees an unintended hands-down intermediate stance.
+                if (unavailable && !resident.TempleAvailabilityObserved)
                     resident.TempleDirectCover = true;
+                if (received && known) resident.TempleAvailabilityObserved = true;
                 if (unavailable && resident.TempleDirectCover)
                     resident.TempleUnavailableBlend = 1f;
                 else if (unavailable)
@@ -286,14 +312,21 @@ internal static class TownServicePopulation
                 // before any later available visit can start.
                 TownServiceActivityMotion.ApplyTempleAvailability(ref displayedActivity,
                     !unavailable, resident.TempleUnavailableBlend);
-                if (!unavailable || displayedActivity.Attention < .10f || !interactive)
+                if (interactive)
+                    TownServiceActivityMotion.ApplyTempleBlessing(ref displayedActivity,
+                        now - resident.TempleBlessingStartedAt);
+                TownServiceActivityMotion.ApplyTempleBreath(ref displayedActivity,
+                    hasActivity ? remoteActivity.Clock + activityElapsed : _faceClock);
+                if (displayedActivity.Attention < .10f || !interactive)
                     resident.TempleUnavailableSpoken = false;
-                else if (IsFaceAuthor && displayedActivity.Attention >= .35f
+                else if (unavailable && IsFaceAuthor && displayedActivity.Attention >= .35f
                     && !resident.TempleUnavailableSpoken)
                 {
                     resident.TempleUnavailableSpoken = true;
                     TownServiceVoice.RequestReaction(2, TownVoiceReaction.PriestessUnavailable);
                 }
+                if (displayedActivity.Attention <= .001f)
+                    resident.TempleAvailabilityObserved = false;
             }
             resident.Station.SampleActivity(in displayedActivity);
             resident.Station.SampleActivityAudio(faceAuthor, sourceEpoch, resident.Activity.WorkClock,

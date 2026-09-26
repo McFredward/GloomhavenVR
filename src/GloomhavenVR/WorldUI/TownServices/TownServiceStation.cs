@@ -239,7 +239,8 @@ internal sealed class TownServiceStation : IDisposable
     internal TownFacePose SampleFace(bool author, bool received, int authorId, in TownFacePose remote, float elapsed, float clock)
     {
         if (_faceFailed) return remote;
-        try { return _face.Tick(author, received, authorId, in remote, elapsed, clock); }
+        try { return _face.Tick(author, received, authorId, in remote, elapsed, clock,
+            _templeBlessing?.BlessingAge ?? float.PositiveInfinity); }
         catch (Exception error) { FaceFailure(error); return remote; }
     }
     private void FaceFailure(Exception error)

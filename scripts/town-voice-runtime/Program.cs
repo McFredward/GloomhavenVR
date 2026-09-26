@@ -62,6 +62,20 @@ public static class InteractionProgram
         prayer.Sample(2, duration, 7.4f, false);
         Check(prayer.At(2).Cue >= 56 && prayer.At(2).Cue <= 60 && prayer.At(2).Generation == 3,
             "covered-bowl explanation chooses one of five performances and remains deduplicated");
+        var commitRace = new TownServiceVoiceSchedule();
+        commitRace.Request(2, 56, 1f);
+        commitRace.Request(2, 36, 1.02f);
+        commitRace.Sample(2, duration, 1.02f, false);
+        Check(commitRace.At(2).Cue >= 36 && commitRace.At(2).Cue <= 40,
+            "native donation thanks the player even when an availability refusal was queued first");
+        commitRace.Request(2, 56, 1.04f);
+        Check(!commitRace.At(2).Pending,
+            "availability cannot replace an active blessing acknowledgement");
+        var spokenRefusal = new TownServiceVoiceSchedule();
+        spokenRefusal.Request(2, 56, 2f); spokenRefusal.Sample(2, duration, 2f, false);
+        spokenRefusal.Request(2, 36, 2.04f); spokenRefusal.Sample(2, duration, 2.04f, false);
+        Check(spokenRefusal.At(2).Cue >= 36 && spokenRefusal.At(2).Cue <= 40,
+            "native donation preempts a stale spoken refusal rather than waiting behind it");
         prayer.Silence(7.5f);
         Check(prayer.At(2).Cue == 0 && !prayer.At(2).Pending,
             "story commitment retires active and queued resident speech");

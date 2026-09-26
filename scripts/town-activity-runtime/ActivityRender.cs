@@ -15,10 +15,38 @@ internal static class ActivityRender
         bool sequence=Array.IndexOf(args,"-activitySequence")>=0;
         bool attentionSequence=Array.IndexOf(args,"-activityAttentionSequence")>=0;
         bool templeUnavailable=Array.IndexOf(args,"-activityTempleUnavailable")>=0;
+        bool templeBlessing=Array.IndexOf(args,"-activityTempleBlessing")>=0;
         float frameSeconds=attentionSequence?1f/24f:1f/8f;
         string folder=args[output+1];Transform root=obj.transform;rig.BeforeBodySample();root.SetPositionAndRotation(Vector3.zero,Quaternion.identity);root.localScale=Vector3.one;
         Shader shader=obj.GetComponentsInChildren<SkinnedMeshRenderer>(true)[0].sharedMaterial.shader;
         using var props=new TownServiceActivityProps(root,service,shader);props.SetVisibility(1);
+        // The Windows-built stone shader renders magenta in this Linux Editor. Diagnostic
+        // materials retain the prefab geometry and source maps, and the bowl guide uses the
+        // authored Chapel prop seat (TownServiceDecor), not a guessed camera-space overlay.
+        var originals=new Dictionary<MeshRenderer,Material[]>();var diagnostic=new List<Material>();
+        foreach(MeshRenderer shown in root.GetComponentsInChildren<MeshRenderer>(true))
+        {
+            originals.Add(shown,shown.sharedMaterials);
+            Material[] substitutes=shown.sharedMaterials.Select(source=>
+            {
+                var material=new Material(Shader.Find("Standard"));
+                if(source!=null)material.mainTexture=source.mainTexture;
+                material.color=new Color(.53f,.49f,.43f);diagnostic.Add(material);return material;
+            }).ToArray();
+            shown.sharedMaterials=substitutes;
+        }
+        GameObject? bowl=service==2?BowlGuide(root):null;
+        GameObject? purseTemplate=null;
+        TownServiceTempleBowlMarker? blessing=null;
+        if(service==2&&templeBlessing)
+        {
+            purseTemplate=GameObject.CreatePrimitive(PrimitiveType.Sphere);
+            purseTemplate.name="Diagnostic source purse (hidden)";
+            purseTemplate.SetActive(false);
+            TownServiceDecor.MoneyBagTemplate=purseTemplate.transform;
+            blessing=new TownServiceTempleBowlMarker(root,stationSpace:true);
+            blessing.Tick(false);
+        }
         int book=Array.IndexOf(args,"-activityBook");if(book>=0&&service!=2)Book(root,args[book+1]);
         var coin=GameObject.CreatePrimitive(PrimitiveType.Cylinder);coin.name="Diagnostic coin contact volume (not native asset)";coin.transform.SetParent(root,false);coin.transform.localScale=new Vector3(.026f,.0015f,.026f);coin.GetComponent<Renderer>().sharedMaterial=new Material(Shader.Find("Standard")){color=new Color(.6f,.4f,.1f)};
         if(service==1)props.BindCoin(coin.transform,Vector3.zero);else coin.SetActive(false);
@@ -32,18 +60,45 @@ internal static class ActivityRender
         var faceRig=new TownServiceFaceRig(root);
         var gaze=default(TownFacePose);
         using var metrics=new StreamWriter(Path.Combine(folder,"service"+service+"-contacts.csv"));metrics.WriteLine("phase,handX,handY,handZ,gripX,gripY,gripZ,tipX,tipY,tipZ");
+        using var particleCounts=templeBlessing&&service==2
+            ?new StreamWriter(Path.Combine(folder,"service2-blessing-particles.csv")):null;
+        particleCounts?.WriteLine("phase,system,time,count,worldX,worldY,worldZ,minZ,maxZ");
         float[] phases={.8f,1.8f,1.8f,22f,24f,26f,28f,32f};
-        if(sequence)phases=Enumerable.Range(0,attentionSequence?192:384).Select(n=>n*frameSeconds).ToArray();
+        if(sequence)phases=Enumerable.Range(0,attentionSequence?(templeBlessing?120:192):384).Select(n=>n*frameSeconds).ToArray();
         var transition=new TownActivityPose{WorkClock=5.3f,TransitionAge=TownServiceActivityMotion.TransitionSeconds};
         var envelope=new Bounds();bool envelopeStarted=false;
         for(int phase=0;phase<phases.Length;phase++)
         {
+            FaceClock.Now=phases[phase];
+            if(blessing!=null)
+            {
+                if(phase>0&&phases[phase-1]<2f&&phases[phase]>=2f)blessing.Bless(0f);
+                else if(phases[phase]>2f)
+                    foreach(ParticleSystem system in blessing.Root.GetComponentsInChildren<ParticleSystem>(true))
+                        system.Simulate(frameSeconds,true,false,false);
+                blessing.Tick(false);
+                if(phase%12==0)
+                    foreach(ParticleSystem system in blessing.Root.GetComponentsInChildren<ParticleSystem>(true))
+                    {
+                        var particles=new ParticleSystem.Particle[system.main.maxParticles];int count=system.GetParticles(particles);
+                        Vector3 sum=Vector3.zero;float minZ=float.PositiveInfinity,maxZ=float.NegativeInfinity;
+                        for(int i=0;i<count;i++)
+                        {
+                            Vector3 world=system.transform.TransformPoint(particles[i].position);
+                            sum+=world;minZ=Mathf.Min(minZ,world.z);maxZ=Mathf.Max(maxZ,world.z);
+                        }
+                        Vector3 mean=count>0?sum/count:Vector3.zero;
+                        particleCounts?.WriteLine(phases[phase].ToString("R",CultureInfo.InvariantCulture)+","+
+                            system.name+","+string.Join(",",new[]{system.time,(float)count,
+                            mean.x,mean.y,mean.z,minZ,maxZ}.Select(v=>v.ToString("R",CultureInfo.InvariantCulture))));
+                    }
+            }
             faceRig.BeforeBodySample();rig.BeforeBodySample();animation.Stop();var body=animation["Idle"];body.enabled=true;body.weight=1;body.time=0;animation.Sample();body.enabled=false;
             bool attentive=!sequence&&phase==2;
             var state=new TownActivityPose{WorkClock=phases[phase],TransitionAge=TownServiceActivityMotion.TransitionSeconds,FromBlend=attentive?1:0,Engaged=attentive};
             if(attentionSequence)
             {
-                TownServiceActivityMotion.Engage(ref transition,phases[phase]>=1f&&phases[phase]<4f);
+                TownServiceActivityMotion.Engage(ref transition,phases[phase]>=1f&&phases[phase]<(templeBlessing?6f:4f));
                 transition=TownServiceActivityMotion.Advance(transition,frameSeconds);state=transition;
                 attentive=TownServiceActivityMotion.Blend(in state)>.5f;
             }
@@ -55,12 +110,15 @@ internal static class ActivityRender
                 // prayer path directly; there must be no intermediate available pose.
                 TownServiceActivityMotion.ApplyTempleAvailability(ref rendered,false,1f);
             }
+            if(service==2&&templeBlessing)
+                TownServiceActivityMotion.ApplyTempleBlessing(ref rendered,phases[phase]-2f);
             rig.Apply(in rendered);props.Sample(in rendered);
             {
                 Vector3 focus=attentive?new Vector3(-.7f,1.9f,-.8f):root.Find("ActivityWorkFocus").position;
                 for(int frame=0;frame<(sequence?1:90);frame++)gaze=TownServiceFaceMotion.Aim(faceRig.OpticalRotation,root.lossyScale.x,
                     faceRig.HeadPosition,faceRig.LeftPosition,faceRig.RightPosition,focus,in gaze,sequence?frameSeconds:1f/90f);
-                TownServiceFacePose face=TownServiceFaceMotion.Evaluate(in gaze,phases[phase],service,Vector3.zero);faceRig.Apply(in face);
+                TownServiceFacePose face=TownServiceFaceMotion.Evaluate(in gaze,phases[phase],service,Vector3.zero,
+                    templeBlessing?phases[phase]-2f:float.PositiveInfinity);faceRig.Apply(in face);
                 metrics.WriteLine("# normal-work-gaze pitch="+gaze.HeadPitch.ToString("R",CultureInfo.InvariantCulture)+" yaw="+gaze.HeadYaw.ToString("R",CultureInfo.InvariantCulture));
             }
             Transform hand=root.GetComponentsInChildren<Transform>(true).Single(t=>t.name=="Hand.R");Transform grip=root.Find("ActivityGripRight"),pen=root.Find("Town.ReedPen");Vector3 tip=Vector3.zero;
@@ -92,7 +150,7 @@ internal static class ActivityRender
             GameObject snapshot=Snapshot(root);
             foreach(MeshFilter skin in snapshot.GetComponentsInChildren<MeshFilter>())
             {if(!envelopeStarted){envelope=skin.sharedMesh.bounds;envelopeStarted=true;}else envelope.Encapsulate(skin.sharedMesh.bounds);}
-            foreach(int view in sequence?new[]{0}:new[]{0,1,2})
+            foreach(int view in sequence&&!(service==2&&phase%12==0)?new[]{0}:new[]{0,1,2})
             {
                 if(pen!=null)pen.gameObject.SetActive(view!=2);
                 camera.transform.position=view==0?new Vector3(-.7f,1.9f,-.8f):new Vector3(.5f,2.05f,.15f);camera.transform.LookAt(new Vector3(0,1.15f,.4f));camera.Render();RenderTexture.active=rt;
@@ -128,6 +186,36 @@ internal static class ActivityRender
         }
         Console.WriteLine("Actual skinned work envelope service="+service+" min="+envelope.min.ToString("F5")+" max="+envelope.max.ToString("F5"));
         RenderTexture.active=null;camera.targetTexture=null;rt.Release();UnityEngine.Object.DestroyImmediate(rt);UnityEngine.Object.DestroyImmediate(camera.gameObject);TownServiceLightList.Forget(light);UnityEngine.Object.DestroyImmediate(light.gameObject);
+        if(bowl!=null)UnityEngine.Object.DestroyImmediate(bowl);
+        blessing?.Dispose();
+        TownServiceDecor.MoneyBagTemplate=null;
+        if(purseTemplate!=null)UnityEngine.Object.DestroyImmediate(purseTemplate);
+        foreach(var original in originals)if(original.Key!=null)original.Key.sharedMaterials=original.Value;
+        foreach(Material material in diagnostic)UnityEngine.Object.DestroyImmediate(material);
+    }
+    private static GameObject BowlGuide(Transform root)
+    {
+        var bowl=new GameObject("Diagnostic Chapel bowl at production prop seat");
+        bowl.transform.SetParent(root,false);
+        bowl.transform.localPosition=new Vector3(0f,.957f,.18f);
+        const int sections=32;
+        var vertices=new List<Vector3>();var triangles=new List<int>();
+        for(int i=0;i<=sections;i++)
+        {
+            float angle=i*2f*Mathf.PI/sections,c=Mathf.Cos(angle),s=Mathf.Sin(angle);
+            vertices.Add(new Vector3(c*.09f,.13f,s*.09f));
+            vertices.Add(new Vector3(c*.057f,.075f,s*.057f));
+        }
+        for(int i=0;i<sections;i++)
+        {
+            int a=i*2,b=a+1,c=a+2,d=a+3;
+            triangles.Add(a);triangles.Add(b);triangles.Add(c);
+            triangles.Add(c);triangles.Add(b);triangles.Add(d);
+        }
+        var mesh=new Mesh{vertices=vertices.ToArray(),triangles=triangles.ToArray()};mesh.RecalculateNormals();
+        bowl.AddComponent<MeshFilter>().sharedMesh=mesh;
+        bowl.AddComponent<MeshRenderer>().sharedMaterial=new Material(Shader.Find("Standard")){color=new Color(.38f,.25f,.11f)};
+        return bowl;
     }
     // Camera.Render calls in one Editor tick can reuse the previous GPU skinning upload.
     // Freeze the current bone matrices into a diagnostic static LOD0 snapshot so tool
