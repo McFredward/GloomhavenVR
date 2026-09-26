@@ -541,7 +541,22 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 565;
+    public const ushort ModBuild = 566;
+
+    // ModBuild 566 — sixth NPC hardware follow-up on the feature branch (FULL
+    // INSTALL). Automatic resident departure now takes the game's native map-mode
+    // transition without synthesizing pointer events, removing the recurring flat
+    // PlaySound_UIMapOpen cue while physical map presses remain audible. Temple
+    // entry preserves the exact selected native party slot and avoids constructing
+    // an invisible duplicate workspace and two Cloth solvers for the primary stand;
+    // extra multiplayer visitors retain their own visible workspaces. The physical
+    // purse remains visible throughout a visit while affordability and prior use
+    // gate only its interaction. Actual imported-skin renders calibrate both resident
+    // hip poses and the priestess bowl-cover transition. Town runners use map-scale
+    // gravity, bounded travel, continuous table support and episode-relative visible
+    // deformation, returning to their authored drape without rebuilding the solver
+    // or revealing its hidden settled offset. Complete prop bounds separate the
+    // priestess candles from both lanterns, the book and the offering bowl.
 
     // ModBuild 565 — fifth NPC hardware follow-up on the feature branch (FULL
     // INSTALL). Original temple input now resolves presentation sessions through

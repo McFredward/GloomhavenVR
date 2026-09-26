@@ -2,16 +2,16 @@
 
 **Updated 2026-09-26: feature/immersive-town-services, version 1.1.0 hardware candidate.**
 The feature includes released 1.0.8 / ModBuild 556 and the subsequent 1.0.9
-version bookkeeping on `dev`. ModBuild 565 follows the build-564 NPC hardware
-report with repeated temple interaction ownership repaired, actual-bundle attention poses,
-stable unit-scale physical cloth, early native window-audio suppression, measured priestess
-voice gain and renderer-bounds grounding for the enchantress practical.
+version bookkeeping on `dev`. ModBuild 566 follows the build-565 NPC hardware
+report with silent automatic resident exits, exact temple character retention, removal of the
+primary-entry workspace/Cloth stall, persistent informational purses, actual-skin hip and bowl
+poses, bounded cloth recovery and nonintersecting priestess props.
 ModBuild 560 introduced resident
 voices, shared merchant confirmation presentation, a visible temple donation
 target, cloth contact, cabinet detail and varied idle motion.
 Headset verification of the resulting presentation remains open. Historical NPC
 design: [research/TOWN-SERVICES-552.md](research/TOWN-SERVICES-552.md).
-Current evidence and implementation limits: [TOWN-565.md](TOWN-565.md).
+Current evidence and implementation limits: [TOWN-566.md](TOWN-566.md).
 The feature remains isolated from `dev`, and NPC work belongs on this branch.
 
 The file this replaces had gone 168 builds
@@ -26,6 +26,17 @@ change per build) → this file (where things stand and what is owed) → the bu
 ---
 
 ## 1. Position
+
+- **NPC feature / 1.1.0 / ModBuild 566 (hardware candidate):** automatic resident
+  departure keeps the native mode transition but omits synthetic pointer audio. Temple entry
+  preserves the exact selected party slot and no longer rebuilds an invisible primary workspace
+  with two Cloth solvers; measured repeat entry is sub-millisecond in the Unity harness. The purse
+  remains visible as status information independently of transaction eligibility. Actual imported
+  skins now use accepted merchant/priestess hip silhouettes and a continuous bowl-cover return.
+  Scale-correct gravity, bounded freedom, continuous supports and episode-relative rendering keep
+  the real cloth responsive without table inversion, re-entry pops or solver reconstruction.
+  Complete bounds separate all priestess candles from lanterns, book and bowl. Evidence and the
+  headset checklist are in [TOWN-566.md](TOWN-566.md).
 
 - **NPC feature / 1.1.0 / ModBuild 565 (hardware candidate):** repeated town-service
   visits resolve local input through the current wire generation, keeping the temple purse
