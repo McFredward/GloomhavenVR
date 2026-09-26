@@ -2,16 +2,15 @@
 
 **Updated 2026-09-26: feature/immersive-town-services, version 1.1.0 hardware candidate.**
 The feature includes released 1.0.8 / ModBuild 556 and the subsequent 1.0.9
-version bookkeeping on `dev`. ModBuild 569 follows the build-568 screenshots and Debug log with
-subwindow-safe immersive service ownership, complete repeated merchant-card returns, cloth contact
-against the moving sheet, rendered resident-pose corrections, contextual resident speech and one
-central silent/non-reactive story-commitment boundary.
+version bookkeeping on `dev`. ModBuild 570 follows the build-569 screenshots and Debug log with
+fully reset merchant item widgets, visible native cloth contact, direct temple availability poses,
+an attached cabinet lantern and regenerated merchant/enchantress audio.
 ModBuild 560 introduced resident
 voices, shared merchant confirmation presentation, a visible temple donation
 target, cloth contact, cabinet detail and varied idle motion.
 Headset verification of the resulting presentation remains open. Historical NPC
 design: [research/TOWN-SERVICES-552.md](research/TOWN-SERVICES-552.md).
-Current evidence and implementation limits: [TOWN-569.md](TOWN-569.md).
+Current evidence and implementation limits: [TOWN-570.md](TOWN-570.md).
 The feature remains isolated from `dev`, and NPC work belongs on this branch.
 
 The file this replaces had gone 168 builds
@@ -26,6 +25,16 @@ change per build) → this file (where things stand and what is owed) → the bu
 ---
 
 ## 1. Position
+
+- **NPC feature / 1.1.0 / ModBuild 570 (hardware candidate):** merchant item widgets now leave
+  the physical fan before their host is destroyed and restore every native face transform on
+  creation, reclaim and maintenance. Real cloth contact presents the native solver immediately;
+  only release retains a smooth recovery. An available priestess lets her arms hang beside the
+  robe, while a known unavailable visit moves directly from prayer to the synchronized covered-bowl
+  pose. Merchant and enchantress lines use the accepted high-quality speech renderer; casting uses
+  five quiet invented incantations with five deterministic restrained effects. The complete native
+  merchant lantern hook meets the cabinet ring. Evidence and the headset checklist are in
+  [TOWN-570.md](TOWN-570.md).
 
 - **NPC feature / 1.1.0 / ModBuild 569 (hardware candidate):** the merchant now claims and
   restores detached native child windows before generic modal conversion, keeping the item list

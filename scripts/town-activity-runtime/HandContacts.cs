@@ -107,7 +107,7 @@ internal static class HandContacts
                         Vector3 hip=root.InverseTransformPoint(contact.position);
                         if(Mathf.Abs(hip.x)<.08f||hip.z<.42f||hip.z>.59f
                             ||hip.y<.88f||hip.y>1.04f)
-                            throw new Exception("attentive merchant free hand rests on his hip behind the counter: "+side+" "+hip);
+                            throw new Exception("visitor attention settles merchant with hands at his hips without an unsolicited offering: "+side+" "+hip);
                         Vector3 inward=side=="L"?-root.right:root.right;
                         if(Vector3.Dot(contact.forward,inward)<.55f)
                             throw new Exception("attentive merchant palm rests naturally against his hip: "+side);
@@ -165,7 +165,7 @@ internal static class HandContacts
                     Vector3 left=root.InverseTransformPoint(leftPalm.position),right=root.InverseTransformPoint(rightPalm.position);
                     if(Mathf.Abs(left.x)>.10f||Mathf.Abs(right.x)>.10f||left.y<1.05f||right.y<1.08f
                         ||left.y>1.14f||right.y>1.14f)
-                        throw new Exception("unavailable donation places both hands over the shared bowl left="+left+" right="+right);
+                        throw new Exception("unavailable donation moves both hands over the shared bowl left="+left+" right="+right);
                     if(Vector3.Dot(leftPalm.forward,-root.up)<.72f||Vector3.Dot(rightPalm.forward,-root.up)<.72f)
                         throw new Exception("unavailable donation covers the bowl with both palms facing down");
                     for(int frame=63;frame>=0;frame--)
@@ -176,7 +176,7 @@ internal static class HandContacts
                         rig.Apply(in recovering);
                         float leftStep=Quaternion.Angle(previousLeft,leftPalm.rotation),rightStep=Quaternion.Angle(previousRight,rightPalm.rotation);
                         if(leftStep>5f||rightStep>5f)
-                            throw new Exception("available temple returns continuously without dropping the cover pose frame="+frame+" left="+leftStep+" right="+rightStep);
+                            throw new Exception("available temple fades out the previous cover pose instead of dropping it in one frame="+frame+" left="+leftStep+" right="+rightStep);
                         previousLeft=leftPalm.rotation;previousRight=rightPalm.rotation;
                     }
                     // Reproduce the reported path directly: donation stays unavailable

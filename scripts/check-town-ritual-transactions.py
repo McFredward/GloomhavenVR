@@ -82,24 +82,32 @@ def inspect_shared_blessing_contract(root):
     gate = (
         "if (!received) return false; // Keep the baseline across transient close/reopen gaps.",
         "bool play = sameSession && known && !available && advanced;",
-        "resident.TempleUnavailableBlend = Mathf.MoveTowards(resident.TempleUnavailableBlend,",
-        "unavailable ? 1f : 0f,\n                    Time.unscaledDeltaTime / TownServiceActivityMotion.TransitionSeconds",
+        "if (unavailable && (displayedActivity.Attention < .10f || revision == 0))",
+        "resident.TempleUnavailableBlend = 1f;",
+        "transitionAge / TownServiceActivityMotion.TransitionSeconds",
+        "resident.TempleUnavailableBlend = Mathf.MoveTowards(resident.TempleUnavailableBlend,\n                        0f,",
         "TownServiceActivityMotion.ApplyTempleAvailability(ref displayedActivity,\n                    !unavailable, resident.TempleUnavailableBlend)",
     )
     missing_gate = [entry for entry in gate if entry not in population]
     if missing_gate or "resident.TempleUnavailableBlend = 0f" in population:
         raise RuntimeError("Temple blessing/cover continuity gate is incomplete: " + ", ".join(missing_gate))
-    snap_control = replace_once(population,
-        "unavailable ? 1f : 0f,\n                    Time.unscaledDeltaTime / TownServiceActivityMotion.TransitionSeconds",
-        "unavailable ? 1f : 0f,\n                    unavailable ? Time.unscaledDeltaTime / TownServiceActivityMotion.TransitionSeconds : 1f")
-    try:
-        missing_snap = [entry for entry in gate if entry not in snap_control]
-        if missing_snap or "resident.TempleUnavailableBlend = 0f" in snap_control:
-            raise RuntimeError("mutated cover snaps")
-    except RuntimeError:
-        pass
-    else:
-        raise RuntimeError("Temple cover-pop negative control did not fail")
+    cover_controls = (
+        replace_once(population,
+            "if (unavailable && (displayedActivity.Attention < .10f || revision == 0))",
+            "if (unavailable && false)"),
+        replace_once(population,
+            "transitionAge / TownServiceActivityMotion.TransitionSeconds",
+            "Time.unscaledDeltaTime / TownServiceActivityMotion.TransitionSeconds"),
+    )
+    for snap_control in cover_controls:
+        try:
+            missing_snap = [entry for entry in gate if entry not in snap_control]
+            if missing_snap or "resident.TempleUnavailableBlend = 0f" in snap_control:
+                raise RuntimeError("mutated cover snaps")
+        except RuntimeError:
+            pass
+        else:
+            raise RuntimeError("Temple cover transition negative control did not fail")
     polygon_control = replace_once(marker, "AddComponent<ParticleSystem>()", "AddComponent<MeshFilter>()")
     try:
         inspect_particle_contract(polygon_control)

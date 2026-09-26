@@ -541,7 +541,20 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 569;
+    public const ushort ModBuild = 570;
+
+    // ModBuild 570 — tenth NPC hardware follow-up on the feature branch (FULL
+    // INSTALL). Merchant and enchantress voice families now use the same MiniMax
+    // Speech 2.8 HD renderer as the accepted priestess voice; five quiet invented
+    // incantations and five deterministic restrained spell sounds replace English
+    // casting dialogue and the conspicuous native augment cue. Real cloth collision
+    // displays native solver displacement immediately instead of attenuating short
+    // contacts through a second presentation fade. An available priestess lets both
+    // arms hang beside her robe; an already-unavailable visit moves directly from
+    // prayer to the replicated bowl-cover transition. Merchant item widgets detach
+    // safely into the native pool and restore every inner RectTransform channel on
+    // spawn, reclaim and maintenance, preventing the leave/re-enter rotated face.
+    // The native merchant lantern hook now meets the cabinet's authored hanging ring.
 
     // ModBuild 569 — ninth NPC hardware follow-up on the feature branch (FULL
     // INSTALL). Immersive service controllers now reclaim already-detached native
