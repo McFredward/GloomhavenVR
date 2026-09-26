@@ -39,8 +39,14 @@ for the new hardware candidate. The town asset bundle changed and requires a ful
   twice byte-identically at 104,395,074 bytes (SHA-256
   `abb9da2c79c7b483442f2d13fa9562204ceca72f441df3d610f0fead50464b3d`), with
   UnityFS format 7, Unity 2021.3.5f1 and TypeTrees enabled.
-- The integrated local suite, source/wire guard and remaining focused checks are recorded
-  after their final run below.
+- The final integrated local suite passed 79/79 suites with eight parallel jobs. The
+  source guard passed 14/14 checks. The native mirror full suite, including its 20
+  negative controls, passed under concurrent Unity load after the test fixture was
+  changed to wait for the actual 120 ms claim clock while sending owner heartbeats.
+  This correction changed the fixture only, not the production protocol.
+- The native Unity cloth check passed on the shipping bundle, including a short-touch
+  peak of 0.07996 m against the previous zero-displacement control. Bundle-format,
+  developer-documentation i18n and `git diff --check` passed.
 - A native Unity cloth negative control reproduces the old one-frame reset at zero displacement;
   the corrected short contact moves 7.904 cm in that harness. The measured value establishes
   solver response, not visible feel on a particular headset.
