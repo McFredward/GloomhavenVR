@@ -41,7 +41,7 @@ def source_contract(source):
                                                and 'AnyProbeWithin(runner, .018f, out' in source
                                                and 'ProbeWithin(runner, probe' in source
                                                and 'DistanceSquaredToSegment(surface[i], localA, localB)' in source
-                                               and 'contact ? 1f : 0f' in source
+                                               and 'runner.DeformationWeight = contact ? 1f' in source
                                                and 'if (runner.DeformationWeight <= 0f) runner.CaptureOrigin = true;' in source
                                                and source.count('AddComponent<Cloth>()') == 1),
         'real local fingertips': ('VRHands.Left.Rig.IndexTip.position' in source
@@ -87,7 +87,10 @@ def validate_source():
                                  'AnyProbeWithin(runner, .16f, out'),
         'point-aabb-contact': ('DistanceSquaredToSegment(surface[i], localA, localB)',
                                'broadphase.SqrDistance(a)'),
-        'invisible-contact-physics': ('contact ? 1f : 0f', 'false ? 1f : 0f'),
+        'invisible-contact-physics': ('runner.DeformationWeight = contact ? 1f',
+                                      'runner.DeformationWeight = false ? 1f'),
+        'attenuated-contact-physics': ('runner.DeformationWeight = contact ? 1f',
+            'runner.DeformationWeight = Mathf.MoveTowards(runner.DeformationWeight, contact ? 1f'),
         'repeat-contact-zero': ('if (runner.DeformationWeight <= 0f) runner.CaptureOrigin = true;',
                                 'runner.CaptureOrigin = true;'),
         'fingertip': ('VRHands.Left.Rig.IndexTip.position', 'VRHands.Left.Rig.PalmCenter.forward'),
@@ -128,7 +131,8 @@ def main():
                                     'namespace GloomhavenVR.WorldUI\n{\n', 1) + '\n}\n'
     (project / 'Assets/TownServiceCloth.cs').write_text(production)
     dead_visible = production.replace('TownServiceCloth', 'TownServiceClothDead')
-    dead_visible = dead_visible.replace('contact ? 1f : 0f', 'false ? 1f : 0f', 1)
+    dead_visible = dead_visible.replace('runner.DeformationWeight = contact ? 1f',
+                                        'runner.DeformationWeight = false ? 1f', 1)
     (project / 'Assets/TownServiceClothDead.cs').write_text(dead_visible)
     rest_gate = production.replace('TownServiceCloth', 'TownServiceClothRestGate')
     rest_gate = rest_gate.replace(

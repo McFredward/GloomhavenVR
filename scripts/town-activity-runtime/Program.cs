@@ -179,19 +179,19 @@ public static class InteractionProgram
         prayer=TownServiceActivityMotion.Advance(prayer,TownServiceActivityMotion.TransitionSeconds);
         var receiving=TownServiceActivityMotion.Visual(2,in prayer);
         var attentiveTemple=receiving;
-        Check(receiving.Left.x>.17f&&receiving.Right.x<-.17f
-            &&receiving.Left.y>1.03f&&receiving.Right.y>1.03f
-            &&receiving.Left.y<1.05f&&receiving.Right.y<1.05f
+        Check(receiving.Left.x>.20f&&receiving.Right.x<-.20f
+            &&receiving.Left.y>.79f&&receiving.Right.y>.79f
+            &&receiving.Left.y<.81f&&receiving.Right.y<.81f
             &&receiving.Left.z>.53f&&receiving.Right.z>.53f
             &&receiving.Left.z<.55f&&receiving.Right.z<.55f
-            &&receiving.LeftElbow.x>.21f&&receiving.RightElbow.x<-.21f,
-            "attentive priestess rests both hands on her own hips behind the table edge");
+            &&receiving.LeftElbow.x>.18f&&receiving.RightElbow.x<-.18f,
+            "attentive priestess lets both arms hang beside her robe behind the table edge");
         TownServiceActivityMotion.ApplyTempleAvailability(ref receiving,false,1f);
         Check(Mathf.Abs(receiving.Left.x)<.07f&&Mathf.Abs(receiving.Right.x)<.07f
             &&receiving.Left.y>1.10f&&receiving.Right.y>1.10f
             &&receiving.Left.y<1.11f&&receiving.Right.y<1.11f
             &&receiving.Left.z>.17f&&receiving.Right.z>.17f,
-            "unavailable donation moves both hands over the shared bowl");
+            "unavailable donation moves both hands over the shared bowl "+receiving.Left+" / "+receiving.Right);
         var pause=new TownActivityPose{WorkClock=1.8f,TransitionAge=TownServiceActivityMotion.TransitionSeconds};
         TownServiceActivityMotion.Engage(ref pause,true);pause=TownServiceActivityMotion.Advance(pause,1f);
         var held=TownServiceActivityMotion.Visual(1,in pause);
@@ -320,8 +320,9 @@ public static class InteractionProgram
                             if(service==2&&TownServiceActivityMotion.Blend(in phase)>.999f)
                             {
                                 Transform shoulderJoint=joints.Single(t=>t.name=="UpperArm."+side);
-                                Check(Vector3.Dot(elbow.position-shoulderJoint.position,root.up)/root.lossyScale.x>-.18f,
-                                    "actual priestess upper arms preserve the clavicle shoulder line: "+side+" frame="+n
+                                float upperDrop=Vector3.Dot(elbow.position-shoulderJoint.position,root.up)/root.lossyScale.x;
+                                Check(upperDrop<-.10f&&upperDrop>-.24f,
+                                    "actual priestess upper arms descend naturally from the clavicle: "+side+" frame="+n
                                     +" shoulder="+root.InverseTransformPoint(shoulderJoint.position)
                                     +" elbow="+root.InverseTransformPoint(elbow.position));
                                 Vector3 inward=side=="L"?-root.right:root.right;
@@ -429,7 +430,7 @@ public static class InteractionProgram
                                         "actual offering normal points above palm: "+npc+" frame="+n
                                         +" dot="+(rig.OfferingPalm==null?0f:Vector3.Dot(rig.OfferingPalm.up,root.up)));
                             }
-                            else Check(Vector3.Distance(palm.position,wanted)<.09f
+                            else Check(Vector3.Distance(palm.position,wanted)<.10f
                                 && Mathf.Abs(root.InverseTransformPoint(palm.position).x)>.16f,
                                 "attentive priest lowers hands beside her robe and away from the bowl: frame="+n
                                 +" error="+Vector3.Distance(palm.position,wanted)+" x="+root.InverseTransformPoint(palm.position).x);

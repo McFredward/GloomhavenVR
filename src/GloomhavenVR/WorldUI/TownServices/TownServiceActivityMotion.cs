@@ -75,8 +75,9 @@ internal static class TownServiceActivityMotion
         // Interruption stops the shared work clock smoothly. A pinched coin stays in
         // the hand while greeting; it never slides through space back onto the table.
         // Looking at a visitor is separate from offering an item hand to that visitor.
-        // Keep the merchant's and priestess's hands against their own waist, behind the
-        // worktops. Station forward points from the visitor toward the actor: a larger Z
+        // Keep the merchant's hands against his waist and let the priestess's arms hang
+        // naturally beside her robe, behind the worktops. Station forward points from
+        // the visitor toward the actor: a larger Z
         // is therefore closer to the body. Earlier targets used the opposite assumption;
         // their unreachable forward position clamped the imported arms over the counter.
         // The imported left arms have a different palm-surface offset from the
@@ -84,25 +85,25 @@ internal static class TownServiceActivityMotion
         // *visible* palm positions on the actual skins; symmetric numeric wrist
         // targets left the screen-right arm hanging away from the body.
         work.Left = Vector3.Lerp(work.Left, service == 1 ? new Vector3(.17f, .94f, .45f)
-            : service == 2 ? new Vector3(.18f, 1.04f, .54f) : new Vector3(.22f, 1.13f, .23f), attention);
+            : service == 2 ? new Vector3(.21f, .80f, .54f) : new Vector3(.22f, 1.13f, .23f), attention);
         work.Right = Vector3.Lerp(work.Right, service == 1 ? new Vector3(-.24f, .98f, .50f)
-            : service == 3 ? new Vector3(-.18f, 1.17f, .23f) : new Vector3(-.18f, 1.04f, .54f), attention);
+            : service == 3 ? new Vector3(-.18f, 1.17f, .23f) : new Vector3(-.21f, .80f, .54f), attention);
         // Hand targets alone cannot lower an arm naturally. Author the matching elbow path as
         // part of the same blend so the upper arm leaves the shoulder downward instead of staying
         // abducted while the forearm reaches for a low hand target.
         if (service is 1 or 2)
         {
-            float side = service == 1 ? .41f : .22f;
+            float side = service == 1 ? .41f : .19f;
             // The priestess upper arm must leave the real clavicle at shoulder height.
             // A low elbow target deformed the broad sleeve into a second, false shoulder
             // at chest height even though the hand itself reached the intended hip.
             float priestessElbowHeight = 1.10f;
             work.LeftElbow = Vector3.Lerp(work.LeftElbow,
-                new Vector3(service == 1 ? .35f : .22f, service == 1 ? 1.08f : priestessElbowHeight,
-                    service == 1 ? .45f : .57f), attention);
+                new Vector3(service == 1 ? .35f : .19f, service == 1 ? 1.08f : priestessElbowHeight,
+                    service == 1 ? .45f : .55f), attention);
             work.RightElbow = Vector3.Lerp(work.RightElbow,
                 new Vector3(-side, service == 1 ? 1.13f : priestessElbowHeight,
-                    service == 1 ? .50f : .57f), attention);
+                    service == 1 ? .50f : .55f), attention);
         }
         work.RightRoll = Mathf.Lerp(work.RightRoll, service == 1 ? 65f : service == 3 ? 180f : 0f, attention);
         work.LeftRoll = Mathf.Lerp(work.LeftRoll, service == 1 ? -65f : service == 3 ? -65f : 0f, attention);
@@ -116,7 +117,7 @@ internal static class TownServiceActivityMotion
         return work;
     }
 
-    /// <summary>Blend the attentive priestess from hands-on-hips into a deliberate closed-bowl
+    /// <summary>Blend the attentive priestess from relaxed hanging arms into a deliberate closed-bowl
     /// pose after the native service reports that this visitor cannot donate again. The caller
     /// owns and replicates <paramref name="blend"/>; this method never reads local gameplay state.</summary>
     internal static void ApplyTempleAvailability(ref TownActivityVisual visual, bool donationAvailable, float blend)

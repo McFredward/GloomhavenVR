@@ -14,6 +14,7 @@ internal static class ActivityRender
         int selected=Array.IndexOf(args,"-activityService");if(selected>=0&&int.Parse(args[selected+1])!=service)return;
         bool sequence=Array.IndexOf(args,"-activitySequence")>=0;
         bool attentionSequence=Array.IndexOf(args,"-activityAttentionSequence")>=0;
+        bool templeUnavailable=Array.IndexOf(args,"-activityTempleUnavailable")>=0;
         float frameSeconds=attentionSequence?1f/24f:1f/8f;
         string folder=args[output+1];Transform root=obj.transform;rig.BeforeBodySample();root.SetPositionAndRotation(Vector3.zero,Quaternion.identity);root.localScale=Vector3.one;
         Shader shader=obj.GetComponentsInChildren<SkinnedMeshRenderer>(true)[0].sharedMaterial.shader;
@@ -47,14 +48,12 @@ internal static class ActivityRender
                 attentive=TownServiceActivityMotion.Blend(in state)>.5f;
             }
             TownActivityVisual rendered=TownServiceActivityMotion.Visual(service,in state);
-            if(service==2&&attentionSequence)
+            if(service==2&&(attentionSequence||templeUnavailable&&attentive))
             {
-                float clock=phases[phase];
-                // Hold the unavailable pose while attention exits. This is the headset
-                // failure path: walking away must blend cover -> hip -> prayer without
-                // dropping the authored hand frame on a boolean edge.
-                float cover=Mathf.SmoothStep(0f,1f,Mathf.Clamp01((clock-1.45f)/.55f));
-                TownServiceActivityMotion.ApplyTempleAvailability(ref rendered,false,cover);
+                // The resident already knows that this visit is unavailable before
+                // attention starts. Render the production prayer -> covered-bowl ->
+                // prayer path directly; there must be no intermediate available pose.
+                TownServiceActivityMotion.ApplyTempleAvailability(ref rendered,false,1f);
             }
             rig.Apply(in rendered);props.Sample(in rendered);
             {

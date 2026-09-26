@@ -74,6 +74,7 @@ internal sealed class TownServiceCloth : IDisposable
         internal bool DebugNear;
         internal bool DebugContact;
         internal bool DebugReady;
+        internal float DebugShownPeak;
     }
 
     private struct DriverMap
@@ -689,8 +690,14 @@ internal sealed class TownServiceCloth : IDisposable
         // Capture once on approach/contact, then show every solver displacement while the physical
         // capsule touches the cloth. Withdrawing a hand fades back to the authored drape even while
         // the player remains nearby; the wider margin only keeps the existing solver prepared.
-        runner.DeformationWeight = Mathf.MoveTowards(runner.DeformationWeight, contact ? 1f : 0f,
-            Mathf.Max(0f, dt) / (contact ? .12f : .48f));
+        // PhysX already supplies the smooth physical onset. Build 569 multiplied its
+        // first real collision frames by a second 120 ms presentation fade. The headset
+        // log proves short finger contacts crossed the gate, yet their physical response
+        // was attenuated before it reached the rendered sheet. Draw native displacement
+        // at full weight for every genuine collision; retain only the gradual, gravity-
+        // driven release after the probe leaves.
+        runner.DeformationWeight = contact ? 1f : Mathf.MoveTowards(runner.DeformationWeight, 0f,
+            Mathf.Max(0f, dt) / .48f);
         if (!near && runner.Interactive && runner.DeformationWeight <= 0f)
         {
             // The visible delta has returned exactly to the authored drape. Pin the
@@ -708,13 +715,16 @@ internal sealed class TownServiceCloth : IDisposable
         }
         if (VRLog.WantsDebug && (near != runner.DebugNear || contact != runner.DebugContact))
         {
+            bool endedContact = runner.DebugContact && !contact;
             runner.DebugNear = near; runner.DebugContact = contact;
             float nearest = contact ? contactDistance : nearDistance;
             VRLog.Debug("TownServices", "Town cloth proximity edge: service=" + _service
                 + " runner='" + runner.Filter.name + "' near=" + near + " contact=" + contact
                 + " nearest=" + (nearest < float.MaxValue ? nearest.ToString("F3") + "m" : "parked")
                 + " driverEnabled=" + runner.Cloth.enabled + " interactive=" + runner.Interactive
-                + " visibleWeight=" + runner.DeformationWeight.ToString("F2"));
+                + " visibleWeight=" + runner.DeformationWeight.ToString("F2")
+                + (endedContact ? " shownPeak=" + runner.DebugShownPeak.ToString("F3") + "m" : ""));
+            if (endedContact) runner.DebugShownPeak = 0f;
         }
     }
 
@@ -824,6 +834,9 @@ internal sealed class TownServiceCloth : IDisposable
         TownClothRunnerState measured = Measure(runner, simulated);
         Vector3 localX = runner.Filter.transform.InverseTransformVector(_station.TransformVector(Vector3.right));
         Vector3 localZ = runner.Filter.transform.InverseTransformVector(_station.TransformVector(Vector3.forward));
+        bool measureDebug = runner.Contacting && VRLog.WantsDebug;
+        float debugScale = measureDebug
+            ? Mathf.Max(.0001f, _station.TransformVector(Vector3.right).magnitude) : 1f;
         for (int n = 0; n < runner.Rest.Length; n++)
         {
             Vector3 worldDelta = runner.DriverRoot.transform.TransformVector(
@@ -839,6 +852,10 @@ internal sealed class TownServiceCloth : IDisposable
                 shown += runner.Freedom[n] * (localX * correction.x + localZ * correction.y);
             }
             runner.Shown[n] = shown;
+            if (measureDebug)
+                runner.DebugShownPeak = Mathf.Max(runner.DebugShownPeak,
+                    Vector3.Distance(runner.Filter.transform.TransformPoint(runner.Rest[n]),
+                        runner.Filter.transform.TransformPoint(shown)) / debugScale);
         }
         runner.VisibleMesh.vertices = runner.Shown;
         runner.VisibleMesh.RecalculateNormals();

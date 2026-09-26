@@ -47,6 +47,8 @@ def main():
             ("opted out observer authors faces", "Population.cs", "SampleFace(IsFaceAuthor, hasFace", "SampleFace(!follows, hasFace"),
             ("temple reopen replays blessing", "Population.cs", "bool play = sameSession && known && !available && advanced;", "bool play = _initialized && known && !available;"),
             ("story commitment leaves resident input", "Population.cs", "bool interactive = enabled && !StoryComposite.PointOfNoReturn;", "bool interactive = enabled;"),
+            ("unavailable approach passes through available pose", "Population.cs", "displayedActivity.Attention < .10f || revision == 0", "false || revision == 0"),
+            ("temple cover follows packet arrival", "Population.cs", "transitionAge / TownServiceActivityMotion.TransitionSeconds", "Time.unscaledDeltaTime / TownServiceActivityMotion.TransitionSeconds"),
             ("stale author never expires", "Remote.cs", "now - pair.Value.Received <= NetProtocol.StaleTimeoutSeconds", "true"),
         ]
         for label, file, before, after in variants:

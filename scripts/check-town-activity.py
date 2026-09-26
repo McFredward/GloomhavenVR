@@ -59,8 +59,8 @@ def mutations():
         ("work-runs-while-engaged", "TownServiceActivityMotion.cs", "dt - Integral(in state, state.TransitionAge + dt) + Integral(in state, state.TransitionAge)", "dt", "engaged occupation remains paused"),
         ("ignore-ik", "TownServiceActivityRig.cs", "if (!Ready) return;", "if (Ready) return;", "anatomical palm contacts transformed counter surface"),
         ("thumb-overcurl", "TownServiceActivityRig.cs", "arm.Anatomical ? 38f : 5f", "arm.Anatomical ? 150f : 5f", "anatomical thumb stays inside natural grasp range"),
-        ("attentive-counter-bracing", "TownServiceActivityMotion.cs", "new Vector3(.18f, 1.04f, .54f)", "new Vector3(.21f, .959f, .337f)", "attentive priestess hands stay beside her robe and outside the donation bowl"),
-        ("low-priestess-shoulders", "TownServiceActivityMotion.cs", "float priestessElbowHeight = 1.10f;", "float priestessElbowHeight = .40f;", "actual priestess upper arms preserve the clavicle shoulder line"),
+        ("attentive-counter-bracing", "TownServiceActivityMotion.cs", "new Vector3(.21f, .80f, .54f)", "new Vector3(.21f, .959f, .337f)", "attentive priestess arms hang naturally beside her robe and outside the donation bowl"),
+        ("low-priestess-shoulders", "TownServiceActivityMotion.cs", "float priestessElbowHeight = 1.10f;", "float priestessElbowHeight = .40f;", "actual priestess upper arms descend naturally from the clavicle"),
         ("upturned-priestess-hip", "TownServiceActivityRig.cs", "-_root.up - _root.forward * .2f", "_root.up", "unavailable temple pose transitions continuously without a wrist snap"),
         ("excessive-work-bow", "TownServiceActivityRig.cs", "-6f - terrainLean", "-35f - terrainLean", "work posture does not stack an extreme torso and neck bow"),
         ("ignore-palm-offset", "TownServiceActivityRig.cs", "target -= palmOffset;", "target -= palmOffset * 0f;", "anatomical palm contacts transformed counter surface"),
@@ -71,11 +71,11 @@ def mutations():
         ("magnetic-coin", "TownServiceActivityMotion.cs", "coin == index && t >= 1.04f && t < 2.86f ? 1f : 0f", "coin == index ? grip : 0f", "coin is resting or rigidly gripped, never magnetically attracted"),
         ("paused-coin-in-air", "TownServiceActivityMotion.cs", "float transferProgress = Soft(t, 1.05f, 2.84f);", "float transferProgress = Soft(t < 1.70f ? t : t < 2f ? 1.70f : 1.70f + (t - 2f) * (2.84f - 1.70f) / .84f, 1.05f, 2.84f);", "merchant never parks a pinched coin in midair"),
         ("mid-transfer-greeting", "TownServiceActivityMotion.cs", "return t < .50f || t >= 3.05f;", "return true;", "merchant only greets after releasing the current coin"),
-        ("prayer-blocks-bowl", "TownServiceActivityMotion.cs", "new Vector3(.060f, 1.105f, .19f)", "new Vector3(.012f, 1.19f, .20f)", "unavailable donation places both hands over the shared bowl"),
-        ("splayed-bowl-cover", "TownServiceActivityMotion.cs", "new Vector3(.060f, 1.105f, .19f)", "new Vector3(.15f, 1.105f, .19f)", "unavailable donation places both hands over the shared bowl"),
-        ("availability-cover-pop", "TownServiceActivityMotion.cs", "if (donationAvailable && blend <= 0f) return;", "if (donationAvailable) return;", "available temple returns continuously without dropping the cover pose"),
+        ("prayer-blocks-bowl", "TownServiceActivityMotion.cs", "new Vector3(.060f, 1.105f, .19f)", "new Vector3(.012f, 1.19f, .20f)", "unavailable donation moves both hands over the shared bowl"),
+        ("splayed-bowl-cover", "TownServiceActivityMotion.cs", "new Vector3(.060f, 1.105f, .19f)", "new Vector3(.15f, 1.105f, .19f)", "unavailable donation moves both hands over the shared bowl"),
+        ("availability-cover-pop", "TownServiceActivityMotion.cs", "if (donationAvailable && blend <= 0f) return;", "if (donationAvailable) return;", "available temple fades out the previous cover pose instead of dropping it in one frame"),
         ("upturned-bowl-cover", "TownServiceActivityRig.cs", "Vector3.ProjectOnPlane(-_root.up, coverFinger)", "Vector3.ProjectOnPlane(_root.up, coverFinger)", "unavailable donation covers the bowl with both palms facing down"),
-        ("merchant-stiff-greeting", "TownServiceActivityMotion.cs", "new Vector3(.17f, .94f, .45f)", "new Vector3(.20f, 1.09f, .20f)", "attentive merchant free hand rests on his hip behind the counter"),
+        ("merchant-stiff-greeting", "TownServiceActivityMotion.cs", "new Vector3(.17f, .94f, .45f)", "new Vector3(.20f, 1.09f, .20f)", "visitor attention settles merchant with hands at his hips without an unsolicited offering"),
         ("open-sleeve-hem", "TownServiceSleeveLining.cs", "row == 0 ? -.012f", "row == 0 ? -.050f", "inner cuff overlaps the anatomical wrist ahead of the cut"),
         ("open-sleeve-interior", "TownServiceSleeveLining.cs", "int a = i, b = (i + 1) % Segments, c = 4 * Segments + 1;", "int a = i, b = (i + 1) % Segments, c = 4 * Segments;", "shallow cuff diaphragm hides the severed forearm end"),
         ("downward-offering", "TownServiceActivityMotion.cs", "Mathf.Lerp(visual.RightRoll, 180f, t)", "Mathf.Lerp(visual.RightRoll, 0f, t)", "offering palm faces upward"),
@@ -94,6 +94,7 @@ def main():
     parser.add_argument("--anatomy-export", type=Path, help="Export actual skinned arm/torso triangles over complete cycles and visits")
     parser.add_argument("--anatomy-service", type=int, choices=[1, 2, 3], help="Export geometry for one resident; contact checks still cover all three")
     parser.add_argument("--attention-sequence", action="store_true", help="Render a24fps visitor-interruption transition instead of work cycle")
+    parser.add_argument("--temple-unavailable-render", action="store_true", help="Render the attentive priestess covering the unavailable donation bowl")
     parser.add_argument("--render-service", type=int, choices=[1,2,3], help="Render only one resident; all contact checks still run")
     parser.add_argument("--sequence", action="store_true", help="Render complete resident performances at 8 fps")
     parser.add_argument("--book-obj", type=Path, help="Read-only original-game open book OBJ (Blender Z-up export)")
@@ -129,7 +130,7 @@ def main():
     variants = [("production", None, None, None, "")]
     if not args.no_negative_controls:
         # Portable validation omits Unity components exercised by these controls.
-        rig_only = ("audio-ignores-master", "audio-not-spatial", "audio-fixed-world-range", "audio-leaks-listener", "unmirrored-mage-pronation", "separated-prayer", "animated-knee-pole", "zero-weight-stance-snap", "raised-stage-gesture", "vertical-casting-palm", "wrapped-forearm-support", "unplanted-feet", "one-sided-merchant-hip", "upturned-priestess-hip", "low-priestess-shoulders", "ignore-ik", "thumb-overcurl", "attentive-counter-bracing", "excessive-work-bow", "ignore-palm-offset", "curl-contact-markers", "open-sleeve-hem", "open-sleeve-interior", "downward-offering", "coin-detached-from-grip")
+        rig_only = ("audio-ignores-master", "audio-not-spatial", "audio-fixed-world-range", "audio-leaks-listener", "unmirrored-mage-pronation", "separated-prayer", "animated-knee-pole", "zero-weight-stance-snap", "raised-stage-gesture", "vertical-casting-palm", "wrapped-forearm-support", "unplanted-feet", "one-sided-merchant-hip", "upturned-priestess-hip", "upturned-bowl-cover", "low-priestess-shoulders", "ignore-ik", "thumb-overcurl", "attentive-counter-bracing", "excessive-work-bow", "ignore-palm-offset", "curl-contact-markers", "open-sleeve-hem", "open-sleeve-interior", "downward-offering", "coin-detached-from-grip")
         # Source-only Unity has no imported resident prefab to observe. The explicit
         # imported-asset run supplies --bundle and executes every one of these controls.
         bundle_only = ("unmirrored-mage-pronation", "attentive-counter-bracing", "unplanted-feet", "wrapped-forearm-support", "separated-prayer", "animated-knee-pole", "zero-weight-stance-snap", "raised-stage-gesture", "vertical-casting-palm", "one-sided-merchant-hip", "upturned-priestess-hip", "low-priestess-shoulders")
@@ -219,6 +220,7 @@ def main():
         command += ["-activityRender", str(args.render.resolve())]
         if args.sequence or args.attention_sequence: command += ["-activitySequence"]
         if args.attention_sequence: command += ["-activityAttentionSequence"]
+        if args.temple_unavailable_render: command += ["-activityTempleUnavailable"]
         if args.render_service: command += ["-activityService", str(args.render_service)]
         if args.book_obj: command += ["-activityBook", str(args.book_obj.resolve())]
         if args.book_texture: command += ["-activityBookTexture", str(args.book_texture.resolve())]

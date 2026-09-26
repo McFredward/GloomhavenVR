@@ -44,6 +44,7 @@ internal static class TownServicePopulation
         internal float MerchantOfferingBlend;
         internal TempleBlessingGate TempleBlessing;
         internal float TempleUnavailableBlend;
+        internal bool TempleDirectCover;
         internal bool TempleUnavailableSpoken;
         internal bool ObservedActivity;
         internal readonly TownServiceActivityHandover Handover = new();
@@ -253,9 +254,36 @@ internal static class TownServicePopulation
                 // as attention. Resetting this value to zero produced the recorded one-frame
                 // bowl-cover -> prayer snap every time the visitor walked away.
                 bool unavailable = interactive && received && known && !available;
-                resident.TempleUnavailableBlend = Mathf.MoveTowards(resident.TempleUnavailableBlend,
-                    unavailable ? 1f : 0f,
-                    Time.unscaledDeltaTime / TownServiceActivityMotion.TransitionSeconds);
+                // If the first state seen on approach is already unavailable, attention must
+                // travel directly from prayer to the covered bowl. Ramping a second blend from
+                // zero made the first half of the entrance visibly pass through the available
+                // hands-down pose. A live availability change while she is already attending
+                // still uses the ordinary smooth transition, as does every departure.
+                if (unavailable && (displayedActivity.Attention < .10f || revision == 0))
+                    resident.TempleDirectCover = true;
+                if (unavailable && resident.TempleDirectCover)
+                    resident.TempleUnavailableBlend = 1f;
+                else if (unavailable)
+                {
+                    // A donation made while the priestess is already attentive follows
+                    // the owner's replicated transition age. All peers therefore cover
+                    // the bowl on the same analytic frame instead of integrating packet
+                    // arrival jitter independently.
+                    resident.TempleUnavailableBlend = Mathf.Clamp01(
+                        transitionAge / TownServiceActivityMotion.TransitionSeconds);
+                }
+                else if (received || displayedActivity.Attention <= .001f)
+                {
+                    resident.TempleDirectCover = false;
+                    resident.TempleUnavailableBlend = Mathf.MoveTowards(resident.TempleUnavailableBlend,
+                        0f,
+                        Time.unscaledDeltaTime / TownServiceActivityMotion.TransitionSeconds);
+                }
+                // A disappearing private manifest is ambiguous while attention is still
+                // returning: it can be an ordinary departure or a one-frame native window
+                // rebuild. Keep the last cover contribution and let the already analytic
+                // attention fade carry it to prayer. At neutral, the branch above clears it
+                // before any later available visit can start.
                 TownServiceActivityMotion.ApplyTempleAvailability(ref displayedActivity,
                     !unavailable, resident.TempleUnavailableBlend);
                 if (!unavailable || displayedActivity.Attention < .10f || !interactive)

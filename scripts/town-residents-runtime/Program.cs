@@ -58,6 +58,32 @@ internal static class Program
     }
     private static void TemplePresentation()
     {
+        // Learn an available baseline while nobody is visiting, then approach after
+        // availability has changed. The first attentive frame must already be on the
+        // direct prayer-to-cover path; it may never expose the available hands-down pose.
+        Reset();TownServiceStation.NearVisitor=false;
+        TownServiceMirror.TempleReceived=true;TownServiceMirror.TempleOwner=10;
+        TownServiceMirror.TempleSession=6;TownServiceMirror.TempleKnown=true;
+        TownServiceMirror.TempleAvailable=true;TownServiceMirror.TempleRevision=8;
+        Tick(.7f);TownServiceMirror.TempleAvailable=false;TownServiceStation.NearVisitor=true;Tick(.01f);
+        TownActivityPose directState=TownServicePopulation.PublishedActivities.Temple;
+        var direct=TownServiceActivityMotion.Visual(2,in directState);
+        TownServiceActivityMotion.ApplyTempleAvailability(ref direct,false,1f);
+        Check(Vector3.Distance(TownServiceStation.Live[2].LastActivity.Left,direct.Left)<.0001f,
+            "known unavailable approach transitions directly from prayer to covered bowl");
+
+        Reset();TownServiceStation.NearVisitor=true;
+        TownServiceMirror.TempleReceived=true;TownServiceMirror.TempleOwner=10;
+        TownServiceMirror.TempleSession=7;TownServiceMirror.TempleKnown=true;
+        TownServiceMirror.TempleAvailable=true;Tick(.7f);
+        TownServiceMirror.TempleAvailable=false;TownServiceMirror.TempleRevision=1;
+        TownServiceMirror.TempleTransitionAge=.14f;Tick(.01f);
+        TownActivityPose donationState=TownServicePopulation.PublishedActivities.Temple;
+        var donationExpected=TownServiceActivityMotion.Visual(2,in donationState);
+        TownServiceActivityMotion.ApplyTempleAvailability(ref donationExpected,false,.2f);
+        Check(Vector3.Distance(TownServiceStation.Live[2].LastActivity.Left,donationExpected.Left)<.0001f,
+            "live donation cover uses replicated transition age on every peer");
+
         Reset();TownServiceStation.NearVisitor=true;
         TownServiceMirror.TempleReceived=true;TownServiceMirror.TempleOwner=10;
         TownServiceMirror.TempleSession=7;TownServiceMirror.TempleKnown=true;

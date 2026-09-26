@@ -85,7 +85,7 @@ internal static class HandContacts
                     // The attentive priestess target is an unconstrained relaxed pose beside the
                     // robe, not a physical contact point. Her short imported arms retain their
                     // joint limit instead of stretching to the authored guide.
-                    // Hip rests are unconstrained poses, not prop contacts. Both imported
+                    // Relaxed hanging arms are unconstrained poses, not prop contacts. Both imported
                     // torsos have shorter arms than the generated guide; preserve their
                     // joint limit and verify the resulting anatomical region below.
                     float contactTolerance=service==2?.095f:service==1?.10f:.0001f;
@@ -94,15 +94,12 @@ internal static class HandContacts
                     if(service==2)
                     {
                         Vector3 lowered=root.InverseTransformPoint(contact.position);
-                        // The imported upper/forearm lengths end above the .74 guide;
+                        // The imported upper/forearm lengths end above the .80 guide;
                         // verify the solved anatomical palm, not the unreachable guide.
                         // It must hang below the .955 worktop and beside the robe.
                         if(Mathf.Abs(lowered.x)<.12f||lowered.z<.40f||lowered.z>.59f
-                            ||lowered.y<.96f||lowered.y>1.12f)
-                            throw new Exception("attentive priestess hands stay beside her robe and outside the donation bowl: "+side+" "+lowered);
-                        Vector3 inward=(side=="L"?-root.right:root.right);
-                        if(Vector3.Dot(contact.forward,inward)<.55f)
-                            throw new Exception("attentive priestess palms rest naturally against her hips: "+side);
+                            ||lowered.y<.78f||lowered.y>1.03f)
+                            throw new Exception("attentive priestess arms hang beside her robe and outside the donation bowl: "+side+" "+lowered);
                         checks++;
                     }
                     else if(service==1&&side=="L")
@@ -216,7 +213,10 @@ internal static class HandContacts
                     // anatomical palm and elbow is measured here.
                     var visit=new TownActivityPose{WorkClock=4f,
                         TransitionAge=TownServiceActivityMotion.TransitionSeconds};
-                    float unavailableBlend=0f;
+                    // The native unavailable state is already known before attention starts.
+                    // Cover therefore owns the complete attention transition from frame one;
+                    // ramping another blend would expose the available pose on entry.
+                    float unavailableBlend=1f;
                     var visitVisual=TownServiceActivityMotion.Visual(2,in visit);
                     rig.BeforeBodySample();rig.Apply(in visitVisual);
                     previousLeft=leftPalm.rotation;previousRight=rightPalm.rotation;
@@ -225,8 +225,6 @@ internal static class HandContacts
                     for(int frame=1;frame<=70;frame++)
                     {
                         visit=TownServiceActivityMotion.Advance(visit,1f/90f);
-                        unavailableBlend=Mathf.MoveTowards(unavailableBlend,1f,
-                            (1f/90f)/TownServiceActivityMotion.TransitionSeconds);
                         visitVisual=TownServiceActivityMotion.Visual(2,in visit);
                         TownServiceActivityMotion.ApplyTempleAvailability(ref visitVisual,false,unavailableBlend);
                         rig.BeforeBodySample();rig.Apply(in visitVisual);
