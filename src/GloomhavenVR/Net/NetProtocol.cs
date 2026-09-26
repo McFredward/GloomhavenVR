@@ -541,7 +541,18 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 570;
+    public const ushort ModBuild = 571;
+
+    // ModBuild 571 — eleventh NPC hardware follow-up on the feature branch
+    // (FULL INSTALL). Short cloth contacts retain the prior solver snapshot
+    // instead of clearing their visible displacement on the first touch frame.
+    // The priestess moves continuously between prayer, donation availability
+    // and bowl cover; committed donations take precedence over the unavailable
+    // response and stage one shared blessing performance. The enchantress retries
+    // a briefly blocked visit, accepts either physical release button, and shows
+    // the native enhancement controls only for a card actually offered to her.
+    // The merchant cabinet uses a carved PBR shell and detailed physical controls
+    // with their original native icons, card cassette and interaction anchors.
 
     // ModBuild 570 — tenth NPC hardware follow-up on the feature branch (FULL
     // INSTALL). Merchant and enchantress voice families now use the same MiniMax

@@ -2,15 +2,15 @@
 
 **Updated 2026-09-26: feature/immersive-town-services, version 1.1.0 hardware candidate.**
 The feature includes released 1.0.8 / ModBuild 556 and the subsequent 1.0.9
-version bookkeeping on `dev`. ModBuild 570 follows the build-569 screenshots and Debug log with
-fully reset merchant item widgets, visible native cloth contact, direct temple availability poses,
-an attached cabinet lantern and regenerated merchant/enchantress audio.
+version bookkeeping on `dev`. ModBuild 571 follows the build-570 video, screenshots and Debug log
+with short-contact cloth response, continuous priestess donation poses and a shared blessing,
+reliable enchantress card handoff, and an authored merchant cabinet with detailed physical controls.
 ModBuild 560 introduced resident
 voices, shared merchant confirmation presentation, a visible temple donation
 target, cloth contact, cabinet detail and varied idle motion.
 Headset verification of the resulting presentation remains open. Historical NPC
 design: [research/TOWN-SERVICES-552.md](research/TOWN-SERVICES-552.md).
-Current evidence and implementation limits: [TOWN-570.md](TOWN-570.md).
+Current evidence and implementation limits: [TOWN-571.md](TOWN-571.md).
 The feature remains isolated from `dev`, and NPC work belongs on this branch.
 
 The file this replaces had gone 168 builds
@@ -25,6 +25,16 @@ change per build) → this file (where things stand and what is owed) → the bu
 ---
 
 ## 1. Position
+
+- **NPC feature / 1.1.0 / ModBuild 571 (hardware candidate):** a brief real cloth contact
+  preserves the solver snapshot from approach so its first visible displacement is no longer
+  re-zeroed. The priestess no longer speaks the unavailable response immediately after a
+  committed donation; she performs a synchronized blessing and blends through the corrected
+  prayer, attention and cover poses. The enchantress can finish opening after a brief native
+  block, accepts either physical release, and exposes her original card-dependent options only
+  while holding an offered card. The merchant cabinet is re-authored as a carved PBR shell with
+  matching physical controls and aligned interaction anchors. Evidence and headset checks are in
+  [TOWN-571.md](TOWN-571.md).
 
 - **NPC feature / 1.1.0 / ModBuild 570 (hardware candidate):** merchant item widgets now leave
   the physical fan before their host is destroyed and restore every native face transform on
