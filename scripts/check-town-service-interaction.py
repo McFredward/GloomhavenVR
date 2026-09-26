@@ -102,6 +102,24 @@ def inspect_hidden_window_veil(source):
     if all(term in mutant for term in required):
         raise RuntimeError("hidden-window ancestry negative control did not fail")
 
+    explicit = method(source, "internal static int ReleaseHiddenWindowVeilOwnership(")
+    explicit_required = (
+        "graphic.transform.IsChildOf(root)",
+        "graphic.transform.IsChildOf(veil.Window.transform)",
+        "ReleaseRenderer(cr, graphic);",
+        "veil.Graphics.RemoveAt(i)",
+        "veil.Renderers.RemoveAt(i)",
+    )
+    missing = [term for term in explicit_required if term not in explicit]
+    if missing:
+        raise RuntimeError("merchant return lacks an explicit bounded hidden-window release: "
+                           + ", ".join(missing))
+    # Negative control: an unscoped release over every held renderer would fix the screenshot by
+    # exposing unrelated hidden dialogs. Requiring the caller-supplied subtree rejects that sweep.
+    mutant = explicit.replace(" || !graphic.transform.IsChildOf(root)", "")
+    if all(term in mutant for term in explicit_required):
+        raise RuntimeError("unbounded hidden-window release negative control did not fail")
+
 
 def mutations():
     # Every mutant compiles and must reach the specified runtime assertion. A compile error,
@@ -137,6 +155,8 @@ def mutations():
         ("confirmation-retirement", "WindowMask.cs", "private const int ConfirmationRetirementTicks = 3;", "private const int ConfirmationRetirementTicks = 1;", "closed native confirmation remains masked through first render opportunity"),
         ("window-suppression-fence", "Presentation.cs", "|| (_catalog != null || _ritual != null || _contextMask != null) && _window != null", "|| Active && (_catalog != null || _ritual != null || _contextMask != null) && _window != null", "merchant context suppression survives until explicit rollback"),
         ("service-preclaim", "Presentation.cs", "        || WantsNativeController(window)\n", "", "immersive service controller is claimed before generic full-window conversion"),
+        ("service-child-preclaim", "Presentation.cs", "            && window.transform.IsChildOf(controller.transform);", "            && false;", "merchant Scroll View is claimed before it can become the flat panel seen behind the build 568 NPC"),
+        ("service-child-retirement", "Presentation.cs", "            if (service == 1 && !ModalFallback.ReleaseTownServiceAuxiliaries(window)) return;", "", "direct immersive merchant restores detached shop children and masks its controller without a flat window"),
         ("manual-tray", "Presentation.cs", "_tray.Root.SetParent(null, true);", "{ }", "manual tray grab detaches before workspace movement"),
         ("option-open", "Presentation.cs", "        if (!WorldUIConfig.ImmersiveTownServices.Value)", "        if (_session == uint.MaxValue)", "opting out restores the ordinary converted flat merchant lifecycle"),
         ("option-release", "Presentation.cs", "internal static bool Active => WorldUIConfig.ImmersiveTownServices.Value\n        &&", "internal static bool Active =>", "disabled option immediately fences a held release before next tick"),

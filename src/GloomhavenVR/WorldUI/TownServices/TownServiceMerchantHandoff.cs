@@ -252,7 +252,10 @@ internal static class TownServiceMerchantHandoff
                 _tradeListener = () => { if (ReferenceEquals(_tradeBox, box) && _tradeItem != null) _tradePressed = true; };
                 box.confirmButton.onClick.AddListener(_tradeListener);
             }
-            TownServiceVoice.RequestReaction(1, TownVoiceReaction.MerchantOffer);
+            // The item identity already tells us which side of the counter this prompt belongs
+            // to. Select that family now so the resident addresses a buyer and seller differently.
+            TownServiceVoice.RequestReaction(1,
+                _selling ? TownVoiceReaction.MerchantSell : TownVoiceReaction.MerchantBuy);
         }
         else ReleaseOffering();
     }
@@ -299,7 +302,8 @@ internal static class TownServiceMerchantHandoff
         if (!_tradePressed || (_tradeSelling ? count >= _tradeBaseline : count <= _tradeBaseline)) return;
         _tradeItem = null;
         DetachTradeListener();
-        TownServiceVoice.RequestReaction(1, _tradeSelling ? TownVoiceReaction.MerchantSell : TownVoiceReaction.MerchantBuy);
+        // The contextual line ran when the confirmation opened. Repeating the same family after
+        // its inventory mutation sounds like a duplicated response, so completion stays silent.
     }
 
     private static void Reclaim()

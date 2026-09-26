@@ -560,14 +560,28 @@ public static class InteractionProgram
         var root=Probe.Go("DirectNativeMerchant");
         var window=root.AddComponent<UIShopItemWindow>();
         window.ItemInventory=Child<UIShopItemInventory>("inventory",root.transform);
+        var preclaimedScroll=Child<UIWindow>("Scroll View",window.ItemInventory.transform);
         GuildmasterDestinations.Window=window;GuildmasterDestinations.Mode=EGuildmasterMode.Merchant;
         Check(TownServicePresentation.OwnsWindow(window),
             "immersive service controller is claimed before generic full-window conversion");
+        Check(TownServicePresentation.OwnsWindow(preclaimedScroll),
+            "merchant Scroll View is claimed before it can become the flat panel seen behind the build 568 NPC");
         Check(CanvasConversion.ActivePanels.Count==0&&ModalFallback.Converted.Count==0,
             "preclaim itself does not build a converted full window");
+
+        // Model the observed ordering race: an earlier modal pass detached a service descendant
+        // before the destination identity settled. Presentation must return exactly that child to
+        // the native hierarchy without dismissing it or invoking a gameplay callback.
+        var racedScroll=Child<UIWindow>("Late Scroll View",window.ItemInventory.transform);
+        GuildmasterDestinations.Window=null;
+        Check(ModalFallback.TryConvertWindow(racedScroll),"fixture detaches the auxiliary shop window");
+        Check(!racedScroll.transform.IsChildOf(window.transform)&&CanvasConversion.ActivePanels.Count==1,
+            "race fixture starts with one detached flat shop child");
+        GuildmasterDestinations.Window=window;
         TownServicePresentation.Tick();
-        Check(TownServicePresentation.Active&&CanvasConversion.ActivePanels.Count==0,
-            "direct immersive merchant masks its controller without full-window conversion");
+        Check(TownServicePresentation.Active&&CanvasConversion.ActivePanels.Count==0
+              &&racedScroll.transform.IsChildOf(window.transform),
+            "direct immersive merchant restores detached shop children and masks its controller without a flat window");
         WorldUIConfig.ImmersiveTownServices.Value=false;TownServicePresentation.Tick();
         Check(!TownServicePresentation.Active&&CanvasConversion.ActivePanels.Count==1,
             "opting out restores the ordinary converted flat merchant lifecycle");

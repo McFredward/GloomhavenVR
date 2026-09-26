@@ -4,6 +4,7 @@ using GloomhavenVR.Core;
 using GloomhavenVR.Hands;
 using GloomhavenVR.Hands.Interact;
 using GloomhavenVR.Rig;
+using GloomhavenVR.WorldUI;
 using ScenarioRuleLibrary;
 using TMPro;
 using UnityEngine;
@@ -5400,6 +5401,10 @@ internal sealed partial class ItemsPile
                     Object.Destroy(canvasGo);
                     return false;
                 }
+                // ObjectPool can return the exact renderer hierarchy previously culled below a
+                // hidden flat inventory/confirmation window. It now belongs to this physical
+                // card, so release that former window's ownership before Show draws the front.
+                CanvasConversion.ReleaseHiddenWindowVeilOwnership(cardGo.transform);
                 cardUI.item = item;
                 // A newly hosted consumed item is historical presentation, not another use.
                 // Capture that initial state before Show requests the native effect so it paints
@@ -5785,6 +5790,9 @@ internal sealed partial class ItemsPile
         {
             if (Holder != null || fanRoot == null) return;
             transform.SetParent(fanRoot, true);
+            // The merchant palm can outlive the flat confirmation that supplied this pooled
+            // ItemCardUI. Give its front back synchronously, before this return frame renders.
+            CanvasConversion.ReleaseHiddenWindowVeilOwnership(transform);
             Image? background = _cardUI != null ? _cardUI.cardBackground : null;
             if (_cardUI == null || background != null && background.sprite != null)
             {

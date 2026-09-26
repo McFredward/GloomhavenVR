@@ -26,7 +26,8 @@ public static class InteractionProgram
  }
  private static void RunScale(float scale) {
   ItemsPile.ItemChip.NewArtReady=true;
-  TownServiceVoice.Offers=TownServiceVoice.Buys=TownServiceVoice.Sells=0;
+ TownServiceVoice.Offers=TownServiceVoice.Buys=TownServiceVoice.Sells=0;
+  CanvasConversion.Releases=0;
   TownServiceMerchantHandoff.Reset(); MapRoomDriver.Active=true; MapRoomDriver.CanVisit=true;
   CardsDriver.OffScenarioFanIsOpen=true;
   CardsDriver.SuppressedOpenEdges=CardsDriver.SuppressedCloseEdges=0;
@@ -114,7 +115,8 @@ public static class InteractionProgram
   Check(first.TownOffering && !first.IsCollapsing,"closed wrist fan retains actual pending offering");
   window.ItemInventory.character=character; TownServiceMerchantHandoff.Tick();
   Check(TownServiceMerchantTransaction.Requests==1 && TownServiceMerchantTransaction.LastSelling,"owned release dispatches exact sell confirmation");
-  Check(TownServiceVoice.Offers==1,"resident acknowledges a native merchant offer once");
+  Check(TownServiceVoice.Sells==1&&TownServiceVoice.Buys==0&&TownServiceVoice.Offers==0,
+      "merchant chooses the seller voice family when a sale confirmation opens");
   Check(ReferenceEquals(TownServiceMerchantTransaction.LastItem,first.Item),"sale preserves item copy identity");
   Check(Singleton<UIItemConfirmationBox>.Instance!.IsActive,"final native confirmation remains visibly pending");
   Check(TownServiceMerchantHandoff.WantsOffering && TownServiceMerchantHandoff.CanReclaim(first),"exact pending card keeps palm and can be reclaimed");
@@ -144,7 +146,7 @@ public static class InteractionProgram
   character.AllCharacterItems.Remove(first.Item!);
   typeof(TownServiceMerchantHandoff).GetField("_nextItems", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)!.SetValue(null,0f);
   TownServiceMerchantHandoff.Tick();
-  Check(TownServiceVoice.Sells==0,"an inventory refresh without native confirmation cannot voice a sale");
+  Check(TownServiceVoice.Sells==3,"an inventory refresh without native confirmation cannot voice another sale");
   Check(first.TownOffering && !first.IsCollapsing,"native inventory mutation cannot destroy a pending offered card");
   // Leaving cancels only our own confirmation and restores the original hand.
   int restore=MapRoomHand.NormalRebuilds;
@@ -169,14 +171,15 @@ public static class InteractionProgram
   var stock=new CItem{ID=99}; AdventureState.MapState.MapParty.Stock.Add(stock); window.ItemInventory.character=replacement;
   Check(TownServiceMerchantHandoff.Offer(stock,false,palm.position),"cabinet release requests native buy");
   TownServiceMerchantHandoff.Tick(); Check(!TownServiceMerchantTransaction.LastSelling,"stock release dispatches buy confirmation");
-  Check(TownServiceVoice.Offers==4 && TownServiceVoice.Buys==0,"opening a buy prompt does not claim the transaction succeeded");
+  Check(TownServiceVoice.Offers==0 && TownServiceVoice.Buys==1,
+      "merchant chooses the buyer voice family when a purchase confirmation opens");
   Singleton<UIItemConfirmationBox>.Instance.confirmButton.onClick.Invoke();
   ItemsPile.ItemChip.NewArtReady=false;
   replacement.AllCharacterItems.Add(stock);
   Singleton<UIItemConfirmationBox>.Instance.IsActive=false;
   typeof(TownServiceMerchantHandoff).GetField("_nextItems",System.Reflection.BindingFlags.NonPublic|System.Reflection.BindingFlags.Static)!.SetValue(null,0f);
   TownServiceMerchantHandoff.Tick();
-  Check(TownServiceVoice.Buys==1,"confirmed native inventory change voices one purchase");
+  Check(TownServiceVoice.Buys==1,"confirmed native inventory change does not repeat the purchase prompt voice");
   ItemsPile.ItemChip? purchased=null;
   foreach(var chip in TownServiceMerchantHandoff.OwnedChips)if(ReferenceEquals(chip.Item,stock)){purchased=chip;break;}
   Check(purchased!=null,"purchased item joins the owned inspection census");
@@ -206,13 +209,17 @@ public static class InteractionProgram
   var chip=fan.InspectionChips[0];
   var merchantPalm=new GameObject("Merchant palm").transform;merchantPalm.SetParent(rigRoot,false);
   chip.transform.SetParent(merchantPalm,true);chip.TownOffering=true;
-  fan.PrepareInspectionReclaim(chip);
+ fan.PrepareInspectionReclaim(chip);
   Check(chip.transform.parent!=merchantPalm&&chip.transform.parent.name=="GloomhavenVR.MerchantOwnedItems",
       "reclaimed merchant item records the item fan as its release parent");
+  Check(CanvasConversion.Releases==1,
+      "reclaimed merchant item explicitly releases its former flat-window renderer veil");
   chip.TownOffering=false;chip.transform.SetParent(merchantPalm,true);chip.SetArtReady(false);
   fan.ResumeInspection(chip);
   Check(chip.transform.parent!=merchantPalm&&chip.transform.parent.name=="GloomhavenVR.MerchantOwnedItems",
       "every free merchant return restores the item fan parent");
+  Check(CanvasConversion.Releases==2,
+      "every free merchant return releases its former flat-window renderer veil before rendering");
   Check(chip.InspectionArtPending&&chip.transform.localScale==Vector3.zero&&!chip.GetComponent<BoxCollider>().enabled,
       "returned item never exposes a brown backing while its original front is unavailable");
   chip.SetArtReady(true);Check(!chip.TickInspectionArtArrival(),"returned original front resumes the ordinary fan animation");

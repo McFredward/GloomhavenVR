@@ -10,6 +10,60 @@ namespace GloomhavenVR.WorldUI;
 
 internal static partial class ModalFallback
 {
+    /// <summary>Retire only auxiliary UIWindow floats which originated below one immersive town
+    /// controller. Build 568 hardware evidence showed the merchant's nested Scroll View detached
+    /// behind the NPC after an item handoff. Its native controller must remain alive, but that
+    /// duplicate presentation must return home before the controller is masked.</summary>
+    internal static bool ReleaseTownServiceAuxiliaries(UIWindow controller)
+    {
+        if (controller == null || controller.transform == null) return false;
+        // ReleaseForComposite mutates both registries. Re-scan after each exact release instead
+        // of sweeping scene windows or keeping stale panel indices.
+        for (int pass = 0; pass < 32; pass++)
+        {
+            UIWindow? auxiliary = null;
+            for (int i = 0; i < Converted.Count; i++)
+            {
+                WindowPanel wp = Converted[i];
+                if (IsTownServiceAuxiliary(controller, wp.Window, wp.Panel))
+                {
+                    auxiliary = wp.Window;
+                    break;
+                }
+            }
+            if (auxiliary == null)
+            {
+                for (int i = 0; i < CanvasConversion.ActivePanels.Count; i++)
+                {
+                    ConvertedPanel panel = CanvasConversion.ActivePanels[i];
+                    UIWindow? candidate = panel.Target != null
+                        ? panel.Target.GetComponent<UIWindow>() : null;
+                    if (IsTownServiceAuxiliary(controller, candidate, panel))
+                    {
+                        auxiliary = candidate;
+                        break;
+                    }
+                }
+            }
+            if (auxiliary == null) return true;
+            if (!ReleaseForComposite(auxiliary)) return false;
+        }
+        // A controller cannot reasonably contain this many detached child windows. Refuse to
+        // mask it if native code is continuously producing more during the handoff.
+        return false;
+    }
+
+    private static bool IsTownServiceAuxiliary(UIWindow controller, UIWindow? candidate,
+        ConvertedPanel panel)
+    {
+        if (candidate == null || ReferenceEquals(candidate, controller)) return false;
+        Transform child = candidate.transform;
+        Transform? parent = panel.OriginalParent;
+        return child != null && child.IsChildOf(controller.transform)
+            || parent != null && (ReferenceEquals(parent, controller.transform)
+                || parent.IsChildOf(controller.transform));
+    }
+
     /// <summary>Return the intact native controller to the ordinary window path. Unlike a
     /// section handoff, this retains the normal fitting, placement and opening lifecycle.</summary>
     internal static void RestoreClassicTownService(UIWindow window)

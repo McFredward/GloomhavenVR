@@ -144,6 +144,7 @@ namespace GloomhavenVR.WorldUI.MapRoom {
  }
 }
 namespace GloomhavenVR.WorldUI {
+ internal static class CanvasConversion { internal static int Releases; internal static int ReleaseHiddenWindowVeilOwnership(Transform root) { Releases++; return 1; } }
  internal static class TownServiceMerchantLayout { internal const float CardWidth=.14f; }
  internal enum TownVoiceReaction : byte { MerchantOffer, MerchantBuy, MerchantSell }
  internal static class TownServiceVoice { internal static int Offers, Buys, Sells; internal static void RequestReaction(byte service, TownVoiceReaction reaction) { if(service!=1) return; if(reaction==TownVoiceReaction.MerchantOffer) Offers++; else if(reaction==TownVoiceReaction.MerchantBuy) Buys++; else if(reaction==TownVoiceReaction.MerchantSell) Sells++; } }

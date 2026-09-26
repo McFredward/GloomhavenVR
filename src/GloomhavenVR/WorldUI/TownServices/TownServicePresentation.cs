@@ -99,7 +99,13 @@ internal static class TownServicePresentation
             && !TownServiceEnhancementHandoff.Enabled)
             return false;
         UIWindow? controller = GuildmasterDestinations.ModeWindow(mode);
-        return controller != null && ReferenceEquals(controller, window);
+        if (controller == null) return false;
+        // The shop Scroll View is itself a UIWindow. The generic modal pass sees it before this
+        // presentation tick and used to detach it as a second flat panel behind the merchant.
+        // It is presentation owned by the same native controller, not another dialog.
+        return ReferenceEquals(controller, window)
+            || mode == EGuildmasterMode.Merchant
+            && window.transform.IsChildOf(controller.transform);
     }
 
     internal static void Tick()
@@ -161,6 +167,10 @@ internal static class TownServicePresentation
             // swallow a real manual fan gesture while the resident is open.
             CardsDriver.SuppressNextOffScenarioFanEdgeSound(open: true, seconds: .35f);
             CardsDriver.SuppressNextOffScenarioFanEdgeSound(open: false, seconds: .35f);
+            // Preclaim handles the normal ordering. Also retire a descendant which an earlier
+            // modal pass already detached before the destination/controller identity settled.
+            // This only releases presentation ownership; native shop callbacks keep running.
+            if (service == 1 && !ModalFallback.ReleaseTownServiceAuxiliaries(window)) return;
             ConvertedPanel? context = FindContext(window);
             if (context != null && !context.IsAlive) context = null;
             if (!MapRoomDriver.TryGetParchmentFrame(out Vector3 center, out float scale)) return;

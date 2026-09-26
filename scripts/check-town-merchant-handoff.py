@@ -43,6 +43,9 @@ def sources(root):
     reach = next(line.strip() for line in face.splitlines() if "private const float VisitorReachMetres =" in line)
     bound["ActualAttention.cs"] = "using UnityEngine; namespace GloomhavenVR.WorldUI { internal class ActualAttention { " + reach + " public Transform _root = null!; public Eye _rig = new(); public class Eye { public Vector3 EyePosition; public Quaternion OpticalRotation = Quaternion.identity; } " + attention + " } }"
     pile = (root / "src/GloomhavenVR/Cards/Piles/ItemsPile.cs").read_text()
+    veil_release = "CanvasConversion.ReleaseHiddenWindowVeilOwnership"
+    if pile.count(veil_release) < 2 or bound["ItemsPile.Merchant.cs"].count(veil_release) < 1:
+        raise RuntimeError("pooled item cards do not explicitly leave hidden-window veil ownership on host and every merchant return path")
     start = pile.index("        public bool AllowsHand(VRHand hand) =>")
     gate = pile[start:pile.index(";", start) + 1]
     bound["ActualItemGate.cs"] = "using System; using GloomhavenVR.Hands; namespace GloomhavenVR.Cards { internal sealed partial class ItemsPile { internal partial class ItemChip { " + gate + " } } }"
@@ -58,7 +61,7 @@ def sources(root):
         "internal void BeginCollapse(Vector3 worldConverge, float delay = 0f, float spinSign = 1f)",
         "private void TickEmerge(float dt, Vector3 posTarget, float scaleTarget)",
         "private static float EaseOutBack(float t, float s)"])
-    bound["ActualItemLifecycle.cs"] = "using UnityEngine;using UnityEngine.UI;using GloomhavenVR.Core; namespace GloomhavenVR.Cards { internal sealed partial class ItemsPile { " + layout + " internal partial class ItemChip { " + lifecycle + " } } }"
+    bound["ActualItemLifecycle.cs"] = "using UnityEngine;using UnityEngine.UI;using GloomhavenVR.Core;using GloomhavenVR.WorldUI; namespace GloomhavenVR.Cards { internal sealed partial class ItemsPile { " + layout + " internal partial class ItemChip { " + lifecycle + " } } }"
     hashes = {p: hashlib.sha256(s.encode()).hexdigest() for p, s in bound.items()}
     return bound, hashes
 
@@ -78,9 +81,13 @@ def mutations():
         ("return-dropped", "ItemsPile.Merchant.cs", "_inspectionPublished.AddRange(_inspectionRetiring);", "", "closing animation remains published until completion"),
         ("return-parent", "ItemsPile.Merchant.cs", "chip.PrepareInspectionReturn(_root);", "", "every free merchant return restores the item fan parent"),
         ("reclaim-parent", "ItemsPile.Merchant.cs", "chip.transform.SetParent(_root, true);", "", "reclaimed merchant item records the item fan as its release parent"),
+        ("reclaim-renderer-veil", "ItemsPile.Merchant.cs", "        WorldUI.CanvasConversion.ReleaseHiddenWindowVeilOwnership(chip.transform);\n", "", "reclaimed merchant item explicitly releases its former flat-window renderer veil"),
+        ("return-renderer-veil", "ActualItemLifecycle.cs", "            CanvasConversion.ReleaseHiddenWindowVeilOwnership(transform);\n", "", "every free merchant return releases its former flat-window renderer veil before rendering"),
         ("offering-size", "TownServiceMerchantHandoff.cs", "float worldWidth = TownServiceMerchantLayout.CardWidth * stationScale * 1.5f;", "float worldWidth = chip.FaceWidth * stationScale * 2.5f;", "owned and cabinet cards have one merchant-palm size"),
         ("inspection-edge-sound", "MapRoomHand.5.Merchant.cs", "if (_townInspectionFanWasOpen) CardsDriver.SuppressNextOffScenarioFanEdgeSound(open: false);", "", "merchant inspection silences exactly the automatic open fan close edge"),
         ("occupied-swap", "TownServiceMerchantHandoff.cs", "if (current != null && !replacing) return false;", "if (current != null) return false;", "second valid item atomically replaces merchant palm and returns old card to canonical fan"),
+        ("merchant-context-voice", "TownServiceMerchantHandoff.cs", "_selling ? TownVoiceReaction.MerchantSell : TownVoiceReaction.MerchantBuy", "TownVoiceReaction.MerchantOffer", "merchant chooses the seller voice family when a sale confirmation opens"),
+        ("merchant-result-duplicate", "TownServiceMerchantHandoff.cs", "        // The contextual line ran when the confirmation opened. Repeating the same family after\n", "        TownServiceVoice.RequestReaction(1, _tradeSelling ? TownVoiceReaction.MerchantSell : TownVoiceReaction.MerchantBuy);\n        // The contextual line ran when the confirmation opened. Repeating the same family after\n", "confirmed native inventory change does not repeat the purchase prompt voice"),
     ]
 
 
