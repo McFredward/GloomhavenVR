@@ -11,12 +11,11 @@ internal sealed class TownServiceTempleBowlMarker : IDisposable
 {
     private readonly GameObject _root;
     private readonly List<Material> _materials = new();
-    private readonly List<Transform> _blessingSparks = new();
-    private readonly List<Material> _blessingMaterials = new();
+    private ParticleSystem? _blessing;
+    private Material? _blessingMaterial;
+    private Texture2D? _blessingTexture;
     private GameObject? _bag;
-    private Mesh? _blessingMesh;
     private float _visibility;
-    private float _blessingStarted = float.NegativeInfinity;
     internal GameObject Root => _root;
     internal Transform? Visual => _bag != null ? _bag.transform : null;
 
@@ -68,13 +67,23 @@ internal sealed class TownServiceTempleBowlMarker : IDisposable
                 material.SetColor("_Color", tint);
             }
         if (_bag != null) _bag.SetActive(_visibility > .01f);
-        TickBlessing();
     }
 
     /// <summary>The original donation has committed. This is a bounded cosmetic response;
     /// it never predicts payment and never invokes a service callback.</summary>
-    internal void Bless(float elapsed = 0f) =>
-        _blessingStarted = Time.unscaledTime - Mathf.Clamp(elapsed, 0f, 1.65f);
+    internal void Bless(float elapsed = 0f)
+    {
+        if (_blessing == null) return;
+        // The blessing revision/age is replicated by the existing resident presentation.
+        // Restarting the same seeded local-space system and advancing it by that age gives every
+        // observer the same bounded beat without publishing individual particles or predicting a
+        // transaction. ParticleSystem owns the motes; no legible mesh shards are flown by hand.
+        float age = Mathf.Clamp(elapsed, 0f, 1.65f);
+        _blessing.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
+        _blessing.randomSeed = 0x475652u;
+        _blessing.Play(true);
+        if (age > 0f) _blessing.Simulate(age, true, false, true);
+    }
 
     private static Material GhostMaterial(Material source)
     {
@@ -98,69 +107,81 @@ internal sealed class TownServiceTempleBowlMarker : IDisposable
 
     private void BuildBlessing()
     {
-        if (_bag == null || _blessingSparks.Count != 0) return;
-        _blessingMesh = new Mesh { name = "Temple blessing mote" };
-        _blessingMesh.vertices = new[]
-        {
-            new Vector3(0f, 1f, 0f), new Vector3(0f, -1f, 0f),
-            new Vector3(1f, 0f, 0f), new Vector3(-1f, 0f, 0f),
-            new Vector3(0f, 0f, 1f), new Vector3(0f, 0f, -1f),
-        };
-        _blessingMesh.triangles = new[]
-        {
-            0, 4, 2, 0, 3, 4, 0, 5, 3, 0, 2, 5,
-            1, 2, 4, 1, 4, 3, 1, 3, 5, 1, 5, 2,
-        };
-        _blessingMesh.RecalculateNormals();
-        _blessingMesh.RecalculateBounds();
-        Material sourceMaterial = _materials.Count > 0 ? _materials[0]
-            : throw new InvalidOperationException("Temple guide has no material");
-        for (int i = 0; i < 18; i++)
-        {
-            var spark = new GameObject("BlessingSpark" + i) { layer = VRLayers.ModLayer };
-            spark.transform.SetParent(_root.transform, false);
-            spark.AddComponent<MeshFilter>().sharedMesh = _blessingMesh;
-            var renderer = spark.AddComponent<MeshRenderer>();
-            Material material = GhostMaterial(sourceMaterial);
-            material.SetColor("_Color", i % 3 == 0
-                ? new Color(1f, .80f, .30f, .55f) : new Color(.18f, .62f, 1f, .48f));
-            renderer.sharedMaterial = material; renderer.shadowCastingMode = ShadowCastingMode.Off;
-            renderer.receiveShadows = false; spark.SetActive(false);
-            _blessingSparks.Add(spark.transform); _blessingMaterials.Add(material);
-        }
+        if (_bag == null || _blessing != null) return;
+        var effect = new GameObject("TempleBlessingParticles") { layer = VRLayers.ModLayer };
+        effect.transform.SetParent(_root.transform, false);
+        effect.transform.localPosition = new Vector3(0f, .02f, 0f);
+        _blessing = effect.AddComponent<ParticleSystem>();
+        ParticleSystem.MainModule main = _blessing.main;
+        main.playOnAwake = false; main.loop = false; main.duration = 1.65f;
+        main.useUnscaledTime = true; main.simulationSpace = ParticleSystemSimulationSpace.Local;
+        main.scalingMode = ParticleSystemScalingMode.Hierarchy; main.maxParticles = 72;
+        main.startLifetime = new ParticleSystem.MinMaxCurve(.72f, 1.35f);
+        main.startSpeed = new ParticleSystem.MinMaxCurve(.14f, .34f);
+        main.startSize = new ParticleSystem.MinMaxCurve(.012f, .032f);
+        main.startRotation = new ParticleSystem.MinMaxCurve(0f, Mathf.PI * 2f);
+        main.startColor = new ParticleSystem.MinMaxGradient(
+            new Color(.22f, .62f, 1f, .72f), new Color(1f, .82f, .30f, .82f));
+        main.gravityModifier = -.025f;
+
+        ParticleSystem.EmissionModule emission = _blessing.emission;
+        emission.rateOverTime = 0f;
+        emission.SetBursts(new[] { new ParticleSystem.Burst(0f, 42, 54) });
+        ParticleSystem.ShapeModule shape = _blessing.shape;
+        shape.enabled = true; shape.shapeType = ParticleSystemShapeType.Hemisphere;
+        shape.radius = .055f; shape.radiusThickness = .55f;
+        ParticleSystem.NoiseModule noise = _blessing.noise;
+        noise.enabled = true; noise.strength = .055f; noise.frequency = .48f;
+        noise.scrollSpeed = .25f; noise.damping = true;
+        ParticleSystem.ColorOverLifetimeModule colour = _blessing.colorOverLifetime;
+        colour.enabled = true;
+        var gradient = new Gradient();
+        gradient.SetKeys(
+            new[] { new GradientColorKey(new Color(.30f, .68f, 1f), 0f),
+                new GradientColorKey(new Color(1f, .82f, .36f), .58f),
+                new GradientColorKey(new Color(.25f, .55f, 1f), 1f) },
+            new[] { new GradientAlphaKey(0f, 0f), new GradientAlphaKey(.85f, .10f),
+                new GradientAlphaKey(.62f, .62f), new GradientAlphaKey(0f, 1f) });
+        colour.color = new ParticleSystem.MinMaxGradient(gradient);
+        ParticleSystem.SizeOverLifetimeModule size = _blessing.sizeOverLifetime;
+        size.enabled = true; size.size = new ParticleSystem.MinMaxCurve(1f,
+            new AnimationCurve(new Keyframe(0f, .2f), new Keyframe(.18f, 1f), new Keyframe(1f, .15f)));
+
+        Shader shader = Shader.Find("Particles/Standard Unlit") ?? Shader.Find("Legacy Shaders/Particles/Additive")
+            ?? throw new InvalidOperationException("Particle shader unavailable for temple blessing");
+        _blessingTexture = BuildParticleTexture();
+        _blessingMaterial = new Material(shader) { name = "Temple blessing particles" };
+        _blessingMaterial.mainTexture = _blessingTexture;
+        ParticleSystemRenderer renderer = effect.GetComponent<ParticleSystemRenderer>();
+        renderer.renderMode = ParticleSystemRenderMode.Billboard;
+        renderer.sharedMaterial = _blessingMaterial;
+        renderer.shadowCastingMode = ShadowCastingMode.Off; renderer.receiveShadows = false;
     }
 
-    private void TickBlessing()
+    private static Texture2D BuildParticleTexture()
     {
-        float age = Time.unscaledTime - _blessingStarted;
-        bool active = age >= 0f && age < 1.65f;
-        float t = Mathf.Clamp01(age / 1.65f);
-        float strength = active ? Mathf.Sin(t * Mathf.PI) : 0f;
-        for (int i = 0; i < _blessingSparks.Count; i++)
+        const int size = 32;
+        var texture = new Texture2D(size, size, TextureFormat.RGBA32, true)
+        { name = "Temple blessing soft mote", wrapMode = TextureWrapMode.Clamp,
+            filterMode = FilterMode.Trilinear, anisoLevel = 2 };
+        var pixels = new Color[size * size];
+        for (int y = 0; y < size; y++)
+        for (int x = 0; x < size; x++)
         {
-            Transform spark = _blessingSparks[i];
-            if (spark.gameObject.activeSelf != active) spark.gameObject.SetActive(active);
-            if (!active) continue;
-            float phase = i * (Mathf.PI * 2f / _blessingSparks.Count);
-            float radius = Mathf.Lerp(.025f, .19f, t);
-            spark.localPosition = new Vector3(Mathf.Cos(phase + age * .7f) * radius,
-                .015f + t * .34f + Mathf.Sin(phase * 2f) * .018f,
-                Mathf.Sin(phase + age * .7f) * radius);
-            spark.localRotation = Quaternion.Euler(0f, -phase * Mathf.Rad2Deg, age * 85f + i * 19f);
-            spark.localScale = Vector3.one * (.005f + .011f * strength);
-            Material material = _blessingMaterials[i];
-            Color color = material.GetColor("_Color"); color.a = strength * (i % 3 == 0 ? .55f : .42f);
-            material.SetColor("_Color", color);
+            float dx = (x + .5f) / size * 2f - 1f, dy = (y + .5f) / size * 2f - 1f;
+            float alpha = Mathf.Pow(Mathf.Clamp01(1f - Mathf.Sqrt(dx * dx + dy * dy)), 1.7f);
+            pixels[y * size + x] = new Color(1f, 1f, 1f, alpha);
         }
+        texture.SetPixels(pixels); texture.Apply(true, true);
+        return texture;
     }
 
     public void Dispose()
     {
         if (_root != null) UnityEngine.Object.Destroy(_root);
         foreach (Material material in _materials) if (material != null) UnityEngine.Object.Destroy(material);
-        foreach (Material material in _blessingMaterials) if (material != null) UnityEngine.Object.Destroy(material);
-        if (_blessingMesh != null) UnityEngine.Object.Destroy(_blessingMesh);
+        if (_blessingMaterial != null) UnityEngine.Object.Destroy(_blessingMaterial);
+        if (_blessingTexture != null) UnityEngine.Object.Destroy(_blessingTexture);
         _materials.Clear();
-        _blessingMaterials.Clear(); _blessingSparks.Clear();
     }
 }

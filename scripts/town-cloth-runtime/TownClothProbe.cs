@@ -3,6 +3,9 @@ using System.Collections;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using GloomhavenVR.Hands;
+using GloomhavenVR.Rig;
+using GloomhavenVR.WorldUI;
 using UnityEngine;
 
 public sealed class TownClothProbe : MonoBehaviour
@@ -104,6 +107,9 @@ public sealed class TownClothProbe : MonoBehaviour
         float actualLongTermMax = 0f, actualPinnedDriftMax = 0f;
         float actualReturnStepMax = 0f, actualReentryPopMax = 0f;
         float actualApproachRawDriftMax = 0f, actualContactStepMax = 0f;
+        float productionVisibleContact = 0f, productionVisibleNull = 0f, productionDeadVisible = 0f;
+        float productionNearReturn = 0f;
+        bool productionPathPass = false;
         bool actualReturnMonotone = true;
         int actualRunners = 0;
         if (bundle != null)
@@ -217,6 +223,136 @@ public sealed class TownClothProbe : MonoBehaviour
                 }
             }
             actualPass &= actualRunners == 3 && actualTableDrop < 8f;
+
+            // Execute the shipping TownServiceCloth class, not a fixture which merely repeats
+            // its coefficients. Build 566 passed the latter while its separate visibility gate
+            // captured every real collision as a fresh zero and drew no response at all.
+            string priestessAsset = bundle.GetAllAssetNames().Single(n => n.EndsWith("/townpriestess.prefab"));
+            GameObject priestessPrefab = bundle.LoadAsset<GameObject>(priestessAsset);
+            GameObject rigScale = new GameObject("production-rig-scale");
+            rigScale.transform.localScale = Vector3.one * 198f;
+            VRRigDriver.RigRoot = rigScale.transform;
+            VRRigDriver.BaseWorldScale = 198f;
+            VRRigDriver.HeadCamera = null;
+            var palmObject = new GameObject("production-palm");
+            var tipObject = new GameObject("production-tip");
+            var hand = new VRHand
+            {
+                HasPose = false,
+                WorldScale = 198f,
+                Rig = new ProbeRig { PalmCenter = palmObject.transform, IndexTip = tipObject.transform }
+            };
+            VRHands.Left = hand; VRHands.Right = null;
+            TownServiceCloth nullProduction = null;
+            TownServiceCloth contactProduction = null;
+            TownServiceClothDead deadProduction = null;
+            GameObject nullStation = null, contactStation = null, deadStation = null;
+            try
+            {
+                nullStation = Instantiate(priestessPrefab);
+                nullStation.name = "production-null-station";
+                nullStation.transform.SetPositionAndRotation(new Vector3(2500f, 0f, 1200f), Quaternion.identity);
+                nullStation.transform.localScale = Vector3.one * 198f;
+                MeshFilter nullRunner = nullStation.GetComponentsInChildren<MeshFilter>(true)
+                    .First(f => f.name.StartsWith("ClothRunner_", StringComparison.Ordinal));
+                nullProduction = new TownServiceCloth(nullStation.transform, 2);
+                nullProduction.SetVisible(true);
+                Vector3[] nullRest = nullRunner.mesh.vertices;
+                for (int frame = 0; frame < 100; frame++)
+                {
+                    nullProduction.TickAuthor(frame / 90f, 1f / 90f, true);
+                    yield return null;
+                }
+                productionVisibleNull = VisibleMotion(nullRunner, nullRest, 198f);
+
+                contactStation = Instantiate(priestessPrefab);
+                contactStation.name = "production-contact-station";
+                contactStation.transform.SetPositionAndRotation(new Vector3(3200f, 0f, 1200f), Quaternion.identity);
+                contactStation.transform.localScale = Vector3.one * 198f;
+                MeshFilter contactRunner = contactStation.GetComponentsInChildren<MeshFilter>(true)
+                    .First(f => f.name.StartsWith("ClothRunner_", StringComparison.Ordinal));
+                contactProduction = new TownServiceCloth(contactStation.transform, 2);
+                contactProduction.SetVisible(true);
+                Vector3[] contactRest = contactRunner.mesh.vertices;
+                Vector3[] sourceVertices = contactRunner.mesh.vertices;
+                int targetIndex = Enumerable.Range(0, sourceVertices.Length)
+                    .OrderBy(i => contactStation.transform.InverseTransformPoint(
+                        contactRunner.transform.TransformPoint(sourceVertices[i])).y)
+                    .ThenBy(i => Mathf.Abs(contactStation.transform.InverseTransformPoint(
+                        contactRunner.transform.TransformPoint(sourceVertices[i])).x))
+                    .First();
+                Vector3 target = contactRunner.transform.TransformPoint(sourceVertices[targetIndex]);
+                hand.HasPose = true;
+                for (int frame = 0; frame < 120; frame++)
+                {
+                    float sweep = Mathf.Lerp(-.13f, .13f, frame / 119f) * 198f;
+                    Vector3 tip = target + contactStation.transform.right * sweep;
+                    tipObject.transform.position = tip;
+                    palmObject.transform.position = tip - contactStation.transform.forward * (.07f * 198f);
+                    contactProduction.TickAuthor(frame / 90f, 1f / 90f, true);
+                    yield return null;
+                }
+                // Render the solver result produced after the last physics step.
+                contactProduction.TickAuthor(121f / 90f, 1f / 90f, true);
+                productionVisibleContact = VisibleMotion(contactRunner, contactRest, 198f);
+                Vector3 nearOnly = target + contactStation.transform.forward * (.10f * 198f);
+                tipObject.transform.position = nearOnly;
+                palmObject.transform.position = nearOnly;
+                for (int frame = 0; frame < 60; frame++)
+                {
+                    contactProduction.TickAuthor((122f + frame) / 90f, 1f / 90f, true);
+                    yield return null;
+                }
+                productionNearReturn = VisibleMotion(contactRunner, contactRest, 198f);
+
+                // In-player negative control: the Build 566 visual gate over the same production
+                // class keeps PhysX alive but suppresses every visible vertex. If this control ever
+                // produces the same result as production, the instrument no longer observes the
+                // reported defect and must fail rather than certify it.
+                deadStation = Instantiate(priestessPrefab);
+                deadStation.name = "production-dead-visible-control";
+                deadStation.transform.SetPositionAndRotation(new Vector3(3900f, 0f, 1200f), Quaternion.identity);
+                deadStation.transform.localScale = Vector3.one * 198f;
+                MeshFilter deadRunner = deadStation.GetComponentsInChildren<MeshFilter>(true)
+                    .First(f => f.name.StartsWith("ClothRunner_", StringComparison.Ordinal));
+                deadProduction = new TownServiceClothDead(deadStation.transform, 2);
+                deadProduction.SetVisible(true);
+                Vector3[] deadRest = deadRunner.mesh.vertices;
+                Vector3[] deadSource = deadRunner.mesh.vertices;
+                int deadTargetIndex = Enumerable.Range(0, deadSource.Length)
+                    .OrderBy(i => deadStation.transform.InverseTransformPoint(
+                        deadRunner.transform.TransformPoint(deadSource[i])).y)
+                    .First();
+                Vector3 deadTarget = deadRunner.transform.TransformPoint(deadSource[deadTargetIndex]);
+                for (int frame = 0; frame < 120; frame++)
+                {
+                    float sweep = Mathf.Lerp(-.13f, .13f, frame / 119f) * 198f;
+                    Vector3 tip = deadTarget + deadStation.transform.right * sweep;
+                    tipObject.transform.position = tip;
+                    palmObject.transform.position = tip - deadStation.transform.forward * (.07f * 198f);
+                    deadProduction.TickAuthor(frame / 90f, 1f / 90f, true);
+                    yield return null;
+                }
+                deadProduction.TickAuthor(121f / 90f, 1f / 90f, true);
+                productionDeadVisible = VisibleMotion(deadRunner, deadRest, 198f);
+                productionPathPass = productionVisibleContact > .0025f
+                    && productionVisibleNull < .0005f
+                    && productionDeadVisible < .0005f
+                    && productionNearReturn < .0005f
+                    && productionVisibleContact > productionVisibleNull + .002f
+                    && productionVisibleContact > productionDeadVisible + .002f;
+            }
+            finally
+            {
+                hand.HasPose = false; VRHands.Left = VRHands.Right = null;
+                deadProduction?.Dispose(); contactProduction?.Dispose(); nullProduction?.Dispose();
+                if (deadStation != null) Destroy(deadStation);
+                if (contactStation != null) Destroy(contactStation);
+                if (nullStation != null) Destroy(nullStation);
+                Destroy(palmObject); Destroy(tipObject); Destroy(rigScale);
+                VRRigDriver.RigRoot = null; VRRigDriver.BaseWorldScale = 0f;
+            }
+            actualPass &= productionPathPass;
             bundle.Unload(false);
         }
         bool pass = hiddenPass && negativePass && scalePass && actualPass;
@@ -245,7 +381,12 @@ public sealed class TownClothProbe : MonoBehaviour
             + " actual_approach_raw_drift_max=" + actualApproachRawDriftMax.ToString("F5")
             + " actual_contact_step_max=" + actualContactStepMax.ToString("F5")
             + " actual_reentry_min=" + actualReentryMin.ToString("F5")
-            + " actual_longterm_max=" + actualLongTermMax.ToString("F5");
+            + " actual_longterm_max=" + actualLongTermMax.ToString("F5")
+            + " production_visible_path=" + (productionPathPass ? "PASS" : "FAIL")
+            + " production_visible_contact_m=" + productionVisibleContact.ToString("F5")
+            + " production_visible_null_m=" + productionVisibleNull.ToString("F5")
+            + " production_near_only_return_m=" + productionNearReturn.ToString("F5")
+            + " production_dead_visible_control_m=" + productionDeadVisible.ToString("F5");
         UnityEngine.Debug.Log("[TOWN-CLOTH] " + line);
         string result = Argument("--result=");
         if (result.Length != 0) File.WriteAllText(result, line + Environment.NewLine);
@@ -504,6 +645,16 @@ public sealed class TownClothProbe : MonoBehaviour
     {
         float maximum = 0f;
         for (int i = 0; i < a.Length && i < b.Length; i++) maximum = Mathf.Max(maximum, Vector3.Distance(a[i], b[i]));
+        return maximum;
+    }
+
+    private static float VisibleMotion(MeshFilter filter, Vector3[] rest, float stationScale)
+    {
+        Vector3[] current = filter.mesh.vertices;
+        float maximum = 0f;
+        for (int i = 0; i < rest.Length && i < current.Length; i++)
+            maximum = Mathf.Max(maximum, Vector3.Distance(filter.transform.TransformPoint(rest[i]),
+                filter.transform.TransformPoint(current[i])) / stationScale);
         return maximum;
     }
 

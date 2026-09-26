@@ -33,8 +33,25 @@ def inspect_fan_contract(source):
     if "MapRoomHand.SetTempleInspection(_inspectionNear && !holdingCard);" not in tick \
             or "_near = input && _inspectionNear && !holdingCard;" not in tick:
         raise RuntimeError("Temple fan suppression is coupled to transient native input")
-    if "bool shown = _inspectionNear && hand != null && hand.HasPose && hand.Grabber.Held == null;" not in tick:
-        raise RuntimeError("Temple purse visibility is coupled to palm angle or payment eligibility")
+    if "bool shown = _inspectionNear && hand != null && hand.HasPose && hand.Grabber.Held == null" not in tick \
+            or "&& (CardsConfig.RevealAlways || hand.PalmGate.IsOpen);" not in tick:
+        raise RuntimeError("Temple purse does not use the ordinary card-fan wrist presentation")
+    if "bool shown = Available" in tick or "&& _near &&" in tick:
+        raise RuntimeError("Temple purse wrist presentation is coupled to payment eligibility")
+
+
+def inspect_particle_contract(marker):
+    particle = (
+        "AddComponent<ParticleSystem>()",
+        "ParticleSystemRenderMode.Billboard",
+        "BuildParticleTexture()",
+        "_blessing.Simulate(age, true, false, true)",
+        "_blessing.randomSeed = 0x475652u",
+    )
+    missing = [entry for entry in particle if entry not in marker]
+    if missing or "BlessingSpark" in marker or "AddComponent<MeshFilter>()" in marker:
+        raise RuntimeError("Temple blessing is not a seeded synchronized particle effect: "
+                           + ", ".join(missing))
 
 
 def inspect_shared_blessing_contract(root):
@@ -43,6 +60,7 @@ def inspect_shared_blessing_contract(root):
     presentation = (town / "TownServicePresentation.cs").read_text()
     population = (town / "TownServicePopulation.cs").read_text()
     station = (town / "TownServiceStation.cs").read_text()
+    marker = (town / "TownServiceTempleBowlMarker.cs").read_text()
     donate = method(ritual, "private bool Donate(")
     if ".Bless(" in donate:
         raise RuntimeError("Private ritual plays a duplicate local blessing")
@@ -56,6 +74,14 @@ def inspect_shared_blessing_contract(root):
     missing = [entry for entry in required if entry not in joined]
     if missing:
         raise RuntimeError("Shared temple blessing seam is incomplete: " + ", ".join(missing))
+    inspect_particle_contract(marker)
+    polygon_control = replace_once(marker, "AddComponent<ParticleSystem>()", "AddComponent<MeshFilter>()")
+    try:
+        inspect_particle_contract(polygon_control)
+    except RuntimeError:
+        pass
+    else:
+        raise RuntimeError("Temple blessing polygon negative control did not fail")
 
 
 def inspect_purse_contract(source):
@@ -107,8 +133,8 @@ def sources(root):
     else:
         raise RuntimeError("Temple fan suppression negative control did not fail")
     coupled_visibility = replace_once(offering_raw,
-        "bool shown = _inspectionNear && hand != null && hand.HasPose && hand.Grabber.Held == null;",
-        "bool shown = Available && hand != null && hand.HasPose && hand.Grabber.Held == null;")
+        "&& (CardsConfig.RevealAlways || hand.PalmGate.IsOpen);",
+        "&& Available;")
     try:
         inspect_fan_contract(coupled_visibility)
     except RuntimeError:

@@ -110,10 +110,13 @@ internal sealed class TownServiceTempleOffering : IDisposable
             if (!_near) piece.Token.CancelInspection();
         }
         Available = _near && hand != null && hand.HasPose;
-        // The purse is also the temple's availability/status display. Keep it on the free
-        // secondary hand for the whole physical visit; palm angle and payment eligibility
-        // only govern interaction, never whether that information exists.
-        bool shown = _inspectionNear && hand != null && hand.HasPose && hand.Grabber.Held == null;
+        // The purse replaces the normal card fan; it is not a permanently visible wrist prop.
+        // Keep the exact card-fan reveal gesture, including RevealAlways, while separating that
+        // presentation from payment eligibility. An unaffordable/already-used purse therefore
+        // still appears whenever the player turns the free palm up, with its original status
+        // inscription, but its collider and bowl guide remain disabled.
+        bool shown = _inspectionNear && hand != null && hand.HasPose && hand.Grabber.Held == null
+            && (CardsConfig.RevealAlways || hand.PalmGate.IsOpen);
         if (hand != null)
         {
             hand.PalmGate.Enabled = true;

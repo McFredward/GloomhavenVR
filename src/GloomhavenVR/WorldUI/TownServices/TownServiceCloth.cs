@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using GloomhavenVR.Core;
 using GloomhavenVR.Hands;
 using GloomhavenVR.Net;
 using GloomhavenVR.Rig;
@@ -65,6 +66,8 @@ internal sealed class TownServiceCloth : IDisposable
         internal bool Interactive;
         internal bool Contacting;
         internal bool CaptureOrigin;
+        internal bool DebugNear;
+        internal bool DebugContact;
     }
 
     private struct DriverMap
@@ -575,19 +578,68 @@ internal sealed class TownServiceCloth : IDisposable
         while (headAt < _heads.Length) Park(_heads[headAt++]);
     }
 
-    private bool AnyProbeWithin(Runner runner, float realMargin)
+    private bool AnyProbeWithin(Runner runner, float realMargin, out float closestReal)
     {
+        closestReal = float.MaxValue;
         Renderer? renderer = runner.Filter.GetComponent<Renderer>();
         if (renderer == null) return false;
         Bounds bounds = renderer.bounds;
-        float margin = _station.TransformVector(Vector3.right).magnitude * realMargin;
-        bounds.Expand(margin * 2f);
+        float stationScale = Mathf.Max(.0001f, _station.TransformVector(Vector3.right).magnitude);
+        float margin = stationScale * realMargin;
+        bounds.Expand((margin + stationScale * .14f) * 2f);
         foreach (HandProbe probe in _hands)
-            if (bounds.SqrDistance(probe.Palm.position) <= 0f
-                || bounds.SqrDistance(probe.Tip.position) <= 0f) return true;
+            if (ProbeWithin(runner, probe, bounds, margin, stationScale, ref closestReal)) return true;
         foreach (HandProbe probe in _heads)
-            if (bounds.SqrDistance(probe.Palm.position) <= 0f) return true;
+            if (ProbeWithin(runner, probe, bounds, margin, stationScale, ref closestReal)) return true;
         return false;
+    }
+
+    private static bool ProbeWithin(Runner runner, HandProbe probe, in Bounds broadphase,
+        float margin, float stationScale, ref float closestReal)
+    {
+        float radius = Mathf.Max(probe.PalmSphere.radius, probe.TipSphere.radius);
+        Bounds expanded = broadphase;
+        expanded.Expand(radius * 2f);
+        if (expanded.SqrDistance(probe.Palm.position) > 0f
+            && expanded.SqrDistance(probe.Tip.position) > 0f) return false;
+
+        // Build 566 used only a point-in-AABB test. PhysX could already push a runner with the
+        // probe's sphere/capsule while that separate test still said "no contact"; the render path
+        // then captured the displaced sheet as its new zero every frame, making real physics wholly
+        // invisible. Measure the capsule (including its radius) against the authored physical sheet.
+        // The 25x13 points are at most ~20 mm apart down the drape, so this remains both bounded and
+        // substantially tighter than the old box test. Broadphase rejects parked/distant probes.
+        Vector3 a = probe.Palm.position, b = probe.Tip.position;
+        float limit = radius + margin;
+        Transform driver = runner.DriverRoot.transform;
+        float driverScale = UniformScale(driver);
+        Vector3 localA = driver.InverseTransformPoint(a), localB = driver.InverseTransformPoint(b);
+        float localLimit = limit / driverScale;
+        float limitSquared = localLimit * localLimit;
+        float best = float.MaxValue;
+        for (int i = 0; i < runner.DriverRest.Length; i++)
+        {
+            float distance = DistanceSquaredToSegment(runner.DriverRest[i], localA, localB);
+            if (distance < best) best = distance;
+            if (distance <= limitSquared)
+            {
+                closestReal = Mathf.Min(closestReal,
+                    Mathf.Max(0f, Mathf.Sqrt(distance) * driverScale - radius) / stationScale);
+                return true;
+            }
+        }
+        closestReal = Mathf.Min(closestReal,
+            Mathf.Max(0f, Mathf.Sqrt(best) * driverScale - radius) / stationScale);
+        return false;
+    }
+
+    private static float DistanceSquaredToSegment(Vector3 point, Vector3 a, Vector3 b)
+    {
+        Vector3 edge = b - a;
+        float length = edge.sqrMagnitude;
+        if (length < .000001f) return (point - a).sqrMagnitude;
+        float t = Mathf.Clamp01(Vector3.Dot(point - a, edge) / length);
+        return (point - (a + edge * t)).sqrMagnitude;
     }
 
     private static void SetFreedom(Runner runner, float scale)
@@ -601,8 +653,8 @@ internal sealed class TownServiceCloth : IDisposable
 
     private void RestoreAfterContact(Runner runner, float dt)
     {
-        bool near = AnyProbeWithin(runner, .16f);
-        bool contact = AnyProbeWithin(runner, .025f);
+        bool near = AnyProbeWithin(runner, .16f, out float nearDistance);
+        bool contact = AnyProbeWithin(runner, .018f, out float contactDistance);
         if (near && !runner.Interactive)
         {
             // Unity does not move its hidden particles back to the authored mesh when
@@ -615,15 +667,17 @@ internal sealed class TownServiceCloth : IDisposable
             runner.Interactive = true;
         }
         if (contact && !runner.Contacting)
-            runner.Cloth.externalAcceleration = Physics.gravity * runner.StationUnitInDriver;
-        runner.Contacting = contact;
-        if (near && !contact && runner.DeformationWeight <= 0f)
         {
-            // Prepare the physical envelope inside a generous approach margin, but
-            // keep following its hidden zero until a palm/tip reaches the actual
-            // runner. Coefficient settling can therefore never appear as a cloth pop.
-            runner.CaptureOrigin = true;
+            // A second touch can begin without leaving the wider preparation margin. The prior
+            // episode has already faded completely, so take one new zero here; never refresh it
+            // every non-contact frame or the collider response itself becomes invisible again.
+            if (runner.DeformationWeight <= 0f) runner.CaptureOrigin = true;
+            runner.Cloth.externalAcceleration = Physics.gravity * runner.StationUnitInDriver;
         }
+        runner.Contacting = contact;
+        // Capture once on approach/contact, then show every solver displacement while the physical
+        // capsule touches the cloth. Withdrawing a hand fades back to the authored drape even while
+        // the player remains nearby; the wider margin only keeps the existing solver prepared.
         runner.DeformationWeight = Mathf.MoveTowards(runner.DeformationWeight, contact ? 1f : 0f,
             Mathf.Max(0f, dt) / (contact ? .12f : .48f));
         if (!near && runner.Interactive && runner.DeformationWeight <= 0f)
@@ -640,6 +694,16 @@ internal sealed class TownServiceCloth : IDisposable
             // Stay prepared while a hand remains nearby, but stop accumulating a
             // gravity-only fold that could become the next episode's starting kick.
             runner.Cloth.externalAcceleration = Vector3.zero;
+        }
+        if (VRLog.WantsDebug && (near != runner.DebugNear || contact != runner.DebugContact))
+        {
+            runner.DebugNear = near; runner.DebugContact = contact;
+            float nearest = contact ? contactDistance : nearDistance;
+            VRLog.Debug("TownServices", "Town cloth proximity edge: service=" + _service
+                + " runner='" + runner.Filter.name + "' near=" + near + " contact=" + contact
+                + " nearest=" + (nearest < float.MaxValue ? nearest.ToString("F3") + "m" : "parked")
+                + " driverEnabled=" + runner.Cloth.enabled + " interactive=" + runner.Interactive
+                + " visibleWeight=" + runner.DeformationWeight.ToString("F2"));
         }
     }
 

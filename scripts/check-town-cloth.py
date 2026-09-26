@@ -36,8 +36,12 @@ def source_contract(source):
                                                and 'SetFreedom(runner, 0f)' in source
                                                and 'runner.CaptureOrigin = true' in source
                                                and 'Array.Copy(simulated, runner.EpisodeOrigin' in source
-                                               and 'AnyProbeWithin(runner, .16f)' in source
-                                               and 'AnyProbeWithin(runner, .025f)' in source
+                                               and 'AnyProbeWithin(runner, .16f, out' in source
+                                               and 'AnyProbeWithin(runner, .018f, out' in source
+                                               and 'ProbeWithin(runner, probe' in source
+                                               and 'DistanceSquaredToSegment(runner.DriverRest[i], localA, localB)' in source
+                                               and 'contact ? 1f : 0f' in source
+                                               and 'if (runner.DeformationWeight <= 0f) runner.CaptureOrigin = true;' in source
                                                and source.count('AddComponent<Cloth>()') == 1),
         'real local fingertips': ('VRHands.Left.Rig.IndexTip.position' in source
                                   and 'VRHands.Right.Rig.IndexTip.position' in source),
@@ -73,8 +77,13 @@ def validate_source():
         'idle-pin': ('SetFreedom(runner, 0f)', 'SetFreedom(runner, 1f)'),
         'component-rebuild': ('SetFreedom(runner, 0f);',
                               'SetFreedom(runner, 0f); runner.Cloth = runner.DriverRoot.AddComponent<Cloth>();'),
-        'proximity-is-contact': ('AnyProbeWithin(runner, .025f)',
-                                 'AnyProbeWithin(runner, .16f)'),
+        'proximity-is-contact': ('AnyProbeWithin(runner, .018f, out',
+                                 'AnyProbeWithin(runner, .16f, out'),
+        'point-aabb-contact': ('DistanceSquaredToSegment(runner.DriverRest[i], localA, localB)',
+                               'broadphase.SqrDistance(a)'),
+        'invisible-contact-physics': ('contact ? 1f : 0f', 'false ? 1f : 0f'),
+        'repeat-contact-zero': ('if (runner.DeformationWeight <= 0f) runner.CaptureOrigin = true;',
+                                'runner.CaptureOrigin = true;'),
         'fingertip': ('VRHands.Left.Rig.IndexTip.position', 'VRHands.Left.Rig.PalmCenter.forward'),
     }
     for name, (before, after) in mutations.items():
@@ -105,6 +114,14 @@ def main():
     fixture = ROOT / 'scripts/town-cloth-runtime'
     shutil.copyfile(fixture / 'Builder.cs', project / 'Assets/Editor/Builder.cs')
     shutil.copyfile(fixture / 'TownClothProbe.cs', project / 'Assets/TownClothProbe.cs')
+    shutil.copyfile(fixture / 'ProductionBoundaries.cs', project / 'Assets/ProductionBoundaries.cs')
+    production = (ROOT / 'src/GloomhavenVR/WorldUI/TownServices/TownServiceCloth.cs').read_text()
+    production = production.replace('namespace GloomhavenVR.WorldUI;\n',
+                                    'namespace GloomhavenVR.WorldUI\n{\n', 1) + '\n}\n'
+    (project / 'Assets/TownServiceCloth.cs').write_text(production)
+    dead_visible = production.replace('TownServiceCloth', 'TownServiceClothDead')
+    dead_visible = dead_visible.replace('contact ? 1f : 0f', 'false ? 1f : 0f', 1)
+    (project / 'Assets/TownServiceClothDead.cs').write_text(dead_visible)
     (project / 'Packages/manifest.json').write_text(
         '{"dependencies":{"com.unity.modules.assetbundle":"1.0.0","com.unity.modules.cloth":"1.0.0","com.unity.modules.physics":"1.0.0"}}')
     (project / 'ProjectSettings/ProjectVersion.txt').write_text('m_EditorVersion: 2021.3.5f1\n')
