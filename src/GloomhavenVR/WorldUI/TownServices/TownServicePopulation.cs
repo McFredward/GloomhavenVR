@@ -44,6 +44,7 @@ internal static class TownServicePopulation
         internal float MerchantOfferingBlend;
         internal TempleBlessingGate TempleBlessing;
         internal float TempleUnavailableBlend;
+        internal bool TempleUnavailableSpoken;
         internal bool ObservedActivity;
         internal readonly TownServiceActivityHandover Handover = new();
         internal TownServiceVisitTarget Visit = null!;
@@ -102,6 +103,10 @@ internal static class TownServicePopulation
     internal static void Tick()
     {
         bool enabled = WorldUIConfig.ImmersiveTownServices.Value;
+        // Native quest commitment is the single boundary for every resident-facing
+        // affordance. Keep the residents allocated for visual continuity, while the
+        // elected author eases and publishes attention back to neutral for all peers.
+        bool interactive = enabled && !StoryComposite.PointOfNoReturn;
         if (!MapRoomDriver.Active) { Reset(); return; }
         if (_frame == null && !enabled && !HasRemoteVisitors
             && TownServiceEnhancementHandoff.Returning.Count == 0) return;
@@ -202,8 +207,9 @@ internal static class TownServicePopulation
                     // Finish the current coin contact before greeting. Immediate
                     // attention could strand a gripped coin in midair; this authored
                     // decision is carried in the ordinary occupation stream.
-                    if (service == 1) engaged |= TownServiceMerchantHandoff.WantsOffering
+                    if (service == 1 && interactive) engaged |= TownServiceMerchantHandoff.WantsOffering
                         || TownServiceMirror.RemoteMerchantOffering;
+                    if (!interactive) engaged = false;
                     if (service == 1 && engaged && !resident.Activity.Engaged
                         && !TownServiceActivityMotion.MerchantCanAttend(resident.Activity.WorkClock))
                         engaged = false;
@@ -222,7 +228,8 @@ internal static class TownServicePopulation
             {
                 if (IsFaceAuthor)
                 {
-                    bool offering = TownServiceMerchantHandoff.WantsOffering || TownServiceMirror.RemoteMerchantOffering;
+                    bool offering = interactive && (TownServiceMerchantHandoff.WantsOffering
+                        || TownServiceMirror.RemoteMerchantOffering);
                     resident.MerchantOfferingBlend = Mathf.MoveTowards(resident.MerchantOfferingBlend,
                         offering ? 1f : 0f, Time.unscaledDeltaTime / TownServiceActivityMotion.TransitionSeconds);
                 }
@@ -237,7 +244,7 @@ internal static class TownServicePopulation
             {
                 bool received = TownServiceMirror.TryTempleDonationState(out int owner, out uint session,
                     out bool known, out bool available, out uint revision, out float transitionAge);
-                if (resident.TempleBlessing.Observe(received, owner, session, known, available, revision))
+                if (resident.TempleBlessing.Observe(received, owner, session, known, available, revision) && interactive)
                     resident.Station.PlayTempleBlessing(transitionAge);
                 // The private window may already be unavailable when first hydrated. Its
                 // revision is a baseline, not evidence that this viewer witnessed a donation.
@@ -245,23 +252,34 @@ internal static class TownServicePopulation
                 // temporary interaction record must release it over the same analytic transition
                 // as attention. Resetting this value to zero produced the recorded one-frame
                 // bowl-cover -> prayer snap every time the visitor walked away.
-                bool unavailable = received && known && !available;
+                bool unavailable = interactive && received && known && !available;
                 resident.TempleUnavailableBlend = Mathf.MoveTowards(resident.TempleUnavailableBlend,
                     unavailable ? 1f : 0f,
                     Time.unscaledDeltaTime / TownServiceActivityMotion.TransitionSeconds);
                 TownServiceActivityMotion.ApplyTempleAvailability(ref displayedActivity,
                     !unavailable, resident.TempleUnavailableBlend);
+                if (!unavailable || displayedActivity.Attention < .10f || !interactive)
+                    resident.TempleUnavailableSpoken = false;
+                else if (IsFaceAuthor && displayedActivity.Attention >= .35f
+                    && !resident.TempleUnavailableSpoken)
+                {
+                    resident.TempleUnavailableSpoken = true;
+                    TownServiceVoice.RequestReaction(2, TownVoiceReaction.PriestessUnavailable);
+                }
             }
             resident.Station.SampleActivity(in displayedActivity);
             resident.Station.SampleActivityAudio(faceAuthor, sourceEpoch, resident.Activity.WorkClock,
-                enabled && used && ready && resident.Visibility >= .99f, in displayedActivity);
+                interactive && used && ready && resident.Visibility >= .99f, in displayedActivity);
             activities.Set(service - 1, resident.Activity);
             remotePose = displayedFace;
             if (seedAuthority) resident.Station.SeedFace(seed.At(service - 1), seedAuthor, seedElapsed);
             TownFacePose shownFace = resident.Station.SampleFace(IsFaceAuthor, hasFace, faceAuthor, in remotePose, faceElapsed, _faceClock);
             resident.Handover.RecordFace(in shownFace);
             faces.Set(service - 1, shownFace);
-            resident.Visit.Tick(used && ready && resident.Visibility >= .99f);
+            // An opted-out observer still needs the compatibility occlusion while
+            // watching a remote visit. An enabled client at story commitment does not:
+            // its resident visit is deliberately withdrawn with every real offering.
+            resident.Visit.Tick((interactive || !enabled) && used && ready && resident.Visibility >= .99f);
             Transform station = resident.Station.Root;
             published.Set(service - 1, new TownResidentPose {
                 Pose = new RigPose { Position = _frame!.transform.InverseTransformPoint(station.position),

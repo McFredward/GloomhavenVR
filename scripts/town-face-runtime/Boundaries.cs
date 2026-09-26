@@ -18,6 +18,7 @@ namespace GloomhavenVR.Net
 namespace GloomhavenVR.Rig { internal static class VRRigDriver { internal static Camera? HeadCamera; } }
 namespace GloomhavenVR.WorldUI
 {
+    internal static class StoryComposite { internal static bool PointOfNoReturn; }
     internal static class TownServicePresentation { internal static bool Active=false;internal static byte Service=0; }
 }
 namespace GloomhavenVR.Net.TownServices

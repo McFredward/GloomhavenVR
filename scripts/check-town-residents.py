@@ -36,7 +36,7 @@ def main():
             shutil.copyfile(file, folder / file.name)
         variants = [
             ("baseline", None, None, None),
-            ("merchant offer misses its resident", "Population.cs", "if (service == 1) engaged |=", "if (service == 0) engaged |="),
+            ("merchant offer misses its resident", "Population.cs", "if (service == 1 && interactive) engaged |=", "if (service == 0 && interactive) engaged |="),
             ("remote owner offer ignored", "Population.cs", "|| TownServiceMirror.RemoteMerchantOffering", "|| false"),
             ("visitor-only regression", "Population.cs", "bool used = enabled || visiting;", "bool used = visiting;"),
             ("viewer floor overrides author", "Population.cs", "RefreshEnvironment(!follows)", "RefreshEnvironment(true)"),
@@ -46,6 +46,7 @@ def main():
             ("follower elects local facial target", "Population.cs", "IsFaceAuthor = !follows && enabled;", "IsFaceAuthor = enabled;"),
             ("opted out observer authors faces", "Population.cs", "SampleFace(IsFaceAuthor, hasFace", "SampleFace(!follows, hasFace"),
             ("temple reopen replays blessing", "Population.cs", "bool play = sameSession && known && !available && advanced;", "bool play = _initialized && known && !available;"),
+            ("story commitment leaves resident input", "Population.cs", "bool interactive = enabled && !StoryComposite.PointOfNoReturn;", "bool interactive = enabled;"),
             ("stale author never expires", "Remote.cs", "now - pair.Value.Received <= NetProtocol.StaleTimeoutSeconds", "true"),
         ]
         for label, file, before, after in variants:

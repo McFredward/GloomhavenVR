@@ -20,6 +20,8 @@ variants=[('production',None,None,None,''),
  ('forget-adoption','TownServiceVoiceSchedule.cs','e.Started = now - age;','e.Started = now;','shared invitation age survives handover'),
  ('restart-ended','TownServiceVoiceSchedule.cs','age + .001f < e.ObservedAge || e.Ended','age + .001f < e.ObservedAge','ended cue cannot reopen')]
 variants += [
+ ('story-reaction-relay','TownServiceVoice.cs','if (StoryComposite.PointOfNoReturn) return;','if (StoryComposite.PointOfNoReturn && service == byte.MaxValue) return;','point of no return cannot relay a new resident reaction'),
+ ('story-cue-survives','TownServiceVoiceSchedule.cs','entry.Pending = false;\n            entry.Cue = 0;','entry.Pending = false;','story commitment retires active and queued resident speech'),
  ('premature-enchantress','TownServiceVoiceSchedule.cs','beginning && service != 3 && age <= 2f','beginning && age <= 2f','enchantress does not greet before the shared hand gesture'),
  ('no-hand-invite','TownServiceVoiceSchedule.cs','e.LastAttention < .35f && attention >= .35f','false','hand extension selects one author-owned invitation'),
  ('repeat-variant','TownServiceVoiceSchedule.cs',

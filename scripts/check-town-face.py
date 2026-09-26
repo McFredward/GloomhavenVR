@@ -50,6 +50,8 @@ def mutations():
         ("gaze-through-wall", "TownServiceFaceAttention.cs", " || !Unobstructed(root, eye, point)", "", "native scenery blocks gaze election"),
         ("observer-elects-viewer", "TownServiceFace.cs", "if (author)", "if (author || !author)", "remote ignores observer headset"),
         ("fixed-work-gaze", "TownServiceFace.cs", "_workFocus != null ? _workFocus.position : _root.TransformPoint(TownServiceActivityMotion.RestFocus(_service))", "_root.TransformPoint(TownServiceActivityMotion.RestFocus(_service))", "work gaze uses current post-activity contact"),
+        ("story-prepare-selects-viewer", "TownServiceFace.cs", "if (StoryComposite.PointOfNoReturn)", "if (StoryComposite.PointOfNoReturn && _service == byte.MaxValue)", "point of no return refuses player-facing resident attention"),
+        ("story-fallback-selects-viewer", "TownServiceFace.cs", "bool storyLocked = StoryComposite.PointOfNoReturn;", "bool storyLocked = false;", "point of no return keeps unprepared face on neutral work instead of viewer fallback"),
     ]
 
 

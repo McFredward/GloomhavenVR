@@ -57,6 +57,14 @@ public static class InteractionProgram
         prayer.Request(2, 36, 4.2f); prayer.Request(2, 36, 4.25f);
         prayer.Sample(2, duration, 4.2f, false);
         Check(prayer.At(2).Cue >= 36 && prayer.At(2).Cue <= 40 && prayer.At(2).Generation == 2, "donation reaction chooses one of five performances and remains deduplicated");
+        prayer.Sample(2, duration, 6.3f, false);
+        prayer.Request(2, 56, 7.4f); prayer.Request(2, 56, 7.45f);
+        prayer.Sample(2, duration, 7.4f, false);
+        Check(prayer.At(2).Cue >= 56 && prayer.At(2).Cue <= 60 && prayer.At(2).Generation == 3,
+            "covered-bowl explanation chooses one of five performances and remains deduplicated");
+        prayer.Silence(7.5f);
+        Check(prayer.At(2).Cue == 0 && !prayer.At(2).Pending,
+            "story commitment retires active and queued resident speech");
 
         var cast = new TownServiceVoiceSchedule();
         cast.Work(3, 13f, .1f, 0f, true, 0f);
@@ -109,7 +117,8 @@ public static class InteractionProgram
             "priestess-donate", "priestess-donate-2", "priestess-donate-3", "priestess-donate-4", "priestess-donate-5",
             "enchantress-cast-ember", "enchantress-cast-echo", "enchantress-cast-spark", "enchantress-cast-veil", "enchantress-cast-rune",
             "enchantress-enhance", "enchantress-enhance-2", "enchantress-enhance-3", "enchantress-enhance-4", "enchantress-enhance-5",
-            "enchantress-invite", "enchantress-invite-2", "enchantress-invite-3", "enchantress-invite-4", "enchantress-invite-5" };
+            "enchantress-invite", "enchantress-invite-2", "enchantress-invite-3", "enchantress-invite-4", "enchantress-invite-5",
+            "priestess-unavailable", "priestess-unavailable-2", "priestess-unavailable-3", "priestess-unavailable-4", "priestess-unavailable-5" };
         for (ushort cue = 1; cue <= names.Length; cue++)
         {
             string json = File.ReadAllText(Path.Combine(assets, names[cue - 1] + ".json"));
@@ -160,7 +169,7 @@ public static class InteractionProgram
         int requests = 0;
         TownServicePopulation.IsFaceAuthor = false;
         TownServiceVoice.RelayRequest = (service, reaction) =>
-        { if (service == 2 && reaction == TownVoiceReaction.PriestessDonate) requests++; };
+        { if (service == 2) requests++; };
         TownServiceVoice.RequestReaction(2, TownVoiceReaction.PriestessDonate);
         Check(requests == 1, "non-author forwards reaction without inventing a local voice cue");
         TownServicePopulation.IsFaceAuthor = true;
@@ -211,7 +220,19 @@ public static class InteractionProgram
         AudioController.Playing.Clear(); Refresh();
         TownServiceFaceSpeech.Observer(2, 7, 31, 2, .15f, head.transform);
         Check(Source.isPlaying, "new authored generation can start after a previous cue");
-        TownServiceFaceSpeech.Observer(2, 7, 31, 3,
+        StoryComposite.PointOfNoReturn = true;
+        TownServiceVoice.Tick(2, 0f, true, default);
+        Check(!Source.isPlaying && !HeadEar.Claims.Contains("TownResidents"),
+            "point of no return immediately stops active resident speech");
+        int storyRequests = requests;
+        TownServicePopulation.IsFaceAuthor = false;
+        TownServiceVoice.RequestReaction(2, TownVoiceReaction.PriestessUnavailable);
+        Check(requests == storyRequests, "point of no return cannot relay a new resident reaction");
+        StoryComposite.PointOfNoReturn = false;
+        TownServicePopulation.IsFaceAuthor = true;
+        TownServiceFaceSpeech.Observer(2, 7, 31, 4, .1f, head.transform);
+        Check(Source.isPlaying, "resident audio can resume after leaving story commitment");
+        TownServiceFaceSpeech.Observer(2, 7, 31, 5,
             TownServiceAssets.Clips["priestess-prayer"].length + .1f, head.transform);
         Check(!Source.isPlaying && !HeadEar.Claims.Contains("TownResidents"),
             "late join skips expired shared cue and stops stale resident audio");

@@ -15,6 +15,7 @@ namespace GloomhavenVR.Net.TownServices {
  internal static class TownServiceMirror { internal static Dictionary<int,TownServiceSessionInfo> RemoteSessions=new(); }
 }
 namespace GloomhavenVR.WorldUI {
+ internal static class StoryComposite { internal static bool PointOfNoReturn; }
  internal sealed class BoolSetting { internal bool Value=true; }
  internal static class WorldUIConfig { internal static readonly BoolSetting ImmersiveTownSpeech=new(); }
  internal static class TownServicePresentation {internal static bool Active; internal static byte Service; internal static float SessionAge;}

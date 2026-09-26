@@ -50,6 +50,16 @@ internal sealed class TownServiceFace
     }
     internal bool PrepareActivityAttention(bool wasEngaged)
     {
+        if (StoryComposite.PointOfNoReturn)
+        {
+            // Keep using the ordinary damped face solver, but point it back at
+            // the resident's work instead of selecting a player through proximity.
+            // The transition therefore eases out without one last story-time glance.
+            _preparedEngaged = false;
+            _preparedTarget = null;
+            _prepared = true;
+            return false;
+        }
         Vector3? target = _attention.Select(_service, _root, _rig.OpticalRotation, _rig.EyePosition);
         float reach = VisitorReachMetres * _root.lossyScale.x;
         // Visiting only prioritizes which nearby head receives attention. It
@@ -73,8 +83,10 @@ internal sealed class TownServiceFace
         if (author)
         {
             _shownAuthor = authorId;
-            Vector3? target = _prepared ? _preparedTarget : _attention.Select(_service, _root, _rig.OpticalRotation, _rig.EyePosition);
-            if (_prepared && !_preparedEngaged)
+            bool storyLocked = StoryComposite.PointOfNoReturn;
+            Vector3? target = _prepared ? _preparedTarget : storyLocked
+                ? null : _attention.Select(_service, _root, _rig.OpticalRotation, _rig.EyePosition);
+            if ((_prepared && !_preparedEngaged) || storyLocked)
             {
                 // Activity is applied between preparation and this final face sample.
                 // Look at this frame's actual coin/spell, not yesterday's fixed ledger

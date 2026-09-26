@@ -203,6 +203,14 @@ public static partial class MirrorProgram
         }
         catch (InvalidDataException) { reservedCensusRejected = true; }
         Check(reservedCensusRejected, "voice events cannot masquerade as original widget modules");
+        TownServiceFrame unavailable = TownServiceVoiceRelayCodec.Create(2, 44, 1,
+            GloomhavenVR.WorldUI.TownVoiceReaction.PriestessUnavailable, Time.unscaledTime, 0f);
+        Check(TownServiceVoiceRelayCodec.TryRead(unavailable, out var unavailableReaction)
+            && unavailableReaction == GloomhavenVR.WorldUI.TownVoiceReaction.PriestessUnavailable,
+            "covered-bowl explanation uses the private synchronized priestess relay");
+        unavailable.Service = 1;
+        Check(!TownServiceVoiceRelayCodec.TryRead(unavailable, out _),
+            "covered-bowl explanation cannot be forged as another resident");
         TownServiceMirror.Shutdown();
     }
     private static IEnumerator PrivateClothLane()

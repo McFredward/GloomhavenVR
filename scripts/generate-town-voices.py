@@ -26,6 +26,7 @@ REVISION_OUT = ROOT / ".planning/debug/town561-speech"
 VARIANT_OUT = ROOT / ".planning/debug/town562-speech"
 ROUND563_OUT = ROOT / ".planning/debug/town563-speech"
 ROUND564_OUT = ROOT / ".planning/debug/town564-speech"
+ROUND569_OUT = ROOT / ".planning/debug/town569-speech"
 ASSETS = ROOT / "unity/GloomhavenVR.Assets/Assets/Bundle/TownServices/Audio"
 ENDPOINT = "fal-ai/elevenlabs/tts/eleven-v3"
 PRICE_PER_1000 = 0.10  # fal listing checked 2026-09-25; estimate, not receipt.
@@ -122,6 +123,13 @@ VOICE_EVENTS = {
         ("enchantress-invite-3", "Let me see the card. Its hidden paths may surprise you."),
         ("enchantress-invite-4", "Offer me the card, and we shall test its potential."),
         ("enchantress-invite-5", "Give me the card. I can show you what lies within.")),
+    # Keep additive cue families at the end: TLV80 carries these numeric cue IDs.
+    "priestess-unavailable": (
+        ("priestess-unavailable", "The Great Oak has already blessed you. I must close the bowl for now."),
+        ("priestess-unavailable-2", "One blessing is granted before each journey. Keep your offering for now."),
+        ("priestess-unavailable-3", "Your offering was accepted earlier. I cannot receive another yet."),
+        ("priestess-unavailable-4", "The blessing has already been given. Return after your next journey."),
+        ("priestess-unavailable-5", "The temple has received your gift. The bowl must remain closed for now.")),
 }
 VARIANT_CUES = tuple(item for event in VOICE_EVENTS.values() for item in event)
 
@@ -936,6 +944,93 @@ def round564_collect(stage: str, name: str) -> None:
         import_audio(name, mp3, replace=True, target_lufs=-27)
 
 
+# Build 569 adds one contextual family to the already approved Wise_Woman
+# performance. Five direct takes are cheaper and more consistent than designing
+# or cloning another voice, and their names append to the stable cue table.
+ROUND569_PRIESTESS = VOICE_EVENTS["priestess-unavailable"]
+
+
+def round569_steps() -> list[tuple[str, str, float]]:
+    return [("speak", name, len(text) * .10 / 1000)
+            for name, text in ROUND569_PRIESTESS]
+
+
+def round569_plan() -> None:
+    steps = round569_steps()
+    estimate = sum(cost for _, _, cost in steps)
+    if estimate > .04:
+        raise RuntimeError("Build 569 contextual priestess batch exceeds USD 0.04 displayed-price ceiling")
+    for stage, name, cost in steps:
+        save_json(ROUND569_OUT / stage / name / "plan.json",
+                  {"stage": stage, "name": name, "estimated_usd": round(cost, 6)})
+    print(f"Planned {len(steps)} one-shot calls; listed-price estimate USD {estimate:.4f}.")
+
+
+def round569_payload(name: str) -> dict:
+    text = dict(ROUND569_PRIESTESS)[name]
+    settings = ROUND564_CANDIDATES[ROUND564_SELECTED]
+    return {
+        "prompt": text,
+        "voice_setting": {
+            "voice_id": "Wise_Woman", "speed": settings["speed"],
+            "vol": 1.0, "pitch": settings["pitch"], "emotion": "neutral",
+            "english_normalization": True,
+        },
+        "audio_setting": {"sample_rate": 24000, "bitrate": 128000,
+                          "format": "mp3", "channel": 1},
+        "language_boost": "English", "output_format": "url",
+        "normalization_setting": {"enabled": True, "target_loudness": -22,
+                                  "target_range": 8, "target_peak": -3},
+    }
+
+
+def round569_submit(stage: str, name: str) -> None:
+    folder = ROUND569_OUT / stage / name
+    planned = json.loads((folder / "plan.json").read_text())
+    if (folder / "receipt.json").exists():
+        print(stage, name, "already submitted"); return
+    if (folder / "intent.json").exists():
+        raise RuntimeError(f"Ambiguous paid intent for {stage}/{name}; reconcile provider history")
+    payload = round569_payload(name)
+    if sum(cost for _, _, cost in round569_steps()) > .04:
+        raise RuntimeError("Build 569 contextual priestess batch exceeds USD 0.04 displayed-price ceiling")
+    folder.mkdir(parents=True, exist_ok=True)
+    with (folder / "intent.json").open("x") as stream:
+        json.dump({"input_sha256": hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest(),
+                   "estimated_usd": planned["estimated_usd"], "endpoint": ROUND564_ENDPOINT}, stream)
+        stream.flush(); os.fsync(stream.fileno())
+    receipt = request("https://queue.fal.run/" + ROUND564_ENDPOINT, payload)
+    save_json(folder / "receipt.json", receipt)
+    print(stage, name, "submitted", receipt.get("request_id", "unknown"))
+
+
+def round569_collect(stage: str, name: str) -> None:
+    folder = ROUND569_OUT / stage / name
+    result_path = folder / "result.json"
+    if result_path.exists():
+        result = json.loads(result_path.read_text())
+        print(stage, name, "already collected")
+    else:
+        receipt = json.loads((folder / "receipt.json").read_text())
+        status = request(receipt["status_url"])
+        save_json(folder / "status.json", status)
+        if status.get("status") != "COMPLETED":
+            print(stage, name, status.get("status")); return
+        result = request(receipt["response_url"])
+        save_json(result_path, result)
+        print(stage, name, "collected")
+    url = result["audio"]["url"]
+    if urlparse(url).scheme != "https": raise ValueError("Provider audio URL must be HTTPS")
+    mp3 = folder / "audio.mp3"
+    if not mp3.exists():
+        with urllib.request.urlopen(url, timeout=120) as response:
+            data = response.read(2_000_001)
+        if len(data) > 2_000_000 or not (data.startswith(b"ID3") or data[:2] in (b"\xff\xfb", b"\xff\xf3")):
+            raise ValueError("Unexpected audio response")
+        mp3.write_bytes(data)
+    import_audio(name, mp3, replace=True, target_lufs=-27)
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("action", choices=("prepare", "submit", "collect", "import-greetings", "curves",
@@ -943,9 +1038,19 @@ if __name__ == "__main__":
                                            "variant-plan", "variant-submit", "variant-collect",
                                            "variant-curves", "compress-imports",
                                            "round563-plan", "round563-submit", "round563-collect",
-                                           "round564-plan", "round564-submit", "round564-collect"))
+                                           "round564-plan", "round564-submit", "round564-collect",
+                                           "round569-plan", "round569-submit", "round569-collect"))
     parser.add_argument("names", nargs="*")
     args = parser.parse_args()
+    if args.action.startswith("round569-"):
+        if args.action == "round569-plan": round569_plan()
+        else:
+            if len(args.names) != 2: parser.error("round569 calls need STAGE NAME")
+            stage, name = args.names
+            if (stage, name) not in {(s, n) for s, n, _ in round569_steps()}:
+                parser.error("Unknown round569 stage/name")
+            (round569_submit if args.action == "round569-submit" else round569_collect)(stage, name)
+        raise SystemExit(0)
     if args.action.startswith("round564-"):
         if args.action == "round564-plan": round564_plan()
         else:

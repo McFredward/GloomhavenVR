@@ -70,6 +70,23 @@ internal sealed class TownServiceVoiceSchedule
         QueueVariant(service, firstCue, 2, now + 6f, now);
     }
 
+    /// <summary>Immediately retire every resident utterance and queued reaction when
+    /// native story commitment crosses the point of no return. Generation is retained
+    /// so the next authored face packet publishes cue zero for the exact shared take
+    /// observers may still be playing.</summary>
+    internal void Silence(float now)
+    {
+        foreach (Entry entry in _entries)
+        {
+            entry.Visiting = false;
+            entry.Pending = false;
+            entry.Cue = 0;
+            entry.Ended = true;
+            entry.WorkSeeded = false;
+        }
+        _nextWorld = Math.Max(_nextWorld, now + 1f);
+    }
+
     private void QueueVariant(byte service, ushort firstCue, byte priority, float deadline, float entropy)
     {
         Entry e = At(service);

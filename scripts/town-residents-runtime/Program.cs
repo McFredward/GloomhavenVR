@@ -19,6 +19,7 @@ internal static class Program
         TownServiceMirror.TempleOwner=0;TownServiceMirror.TempleSession=TownServiceMirror.TempleRevision=0;
         TownServiceMirror.TempleTransitionAge=0;
         WorldUIConfig.ImmersiveTownServices.Value=true;MapRoomDriver.Active=true;MapRoomDriver.FrameReady=true;
+        StoryComposite.PointOfNoReturn=false;TownServiceVoice.Requests=0;
         MapRoomDriver.Center=new(10,20,30);MapRoomDriver.Scale=2;NetPlayerActors.Local=10;
         TownServicePresentation.Active=false;TownServicePresentation.Service=0;TownServicePresentation.SessionAge=0;
         TownServiceStation.Ready=true;TownServiceStation.Missing.Clear();TownServiceStation.Creates=0;TownServiceStation.Disposals=0;
@@ -94,10 +95,41 @@ internal static class Program
         Check(Math.Abs(beforeRoll-temple.LastActivity.LeftRoll)<.5f,
             "temple cover wrist rotation releases continuously on departure");
     }
+    private static void StoryCommitment()
+    {
+        Reset();TownServiceStation.NearVisitor=true;
+        TownServiceMirror.RemoteSessions[2]=new TownServiceSessionInfo { Active=true,Service=2,Peer=2,
+            ReceivedTime=Time.unscaledTime,LastSeenTime=Time.unscaledTime,SessionAge=.1f };
+        TownServiceMirror.TempleReceived=true;TownServiceMirror.TempleOwner=10;
+        TownServiceMirror.TempleSession=7;TownServiceMirror.TempleKnown=true;
+        TownServiceMirror.TempleAvailable=false;TownServiceMirror.TempleRevision=9;
+        StoryComposite.PointOfNoReturn=true;Tick(.7f);
+        Check(!TownServicePopulation.PublishedActivities.Merchant.Engaged
+            && !TownServicePopulation.PublishedActivities.Temple.Engaged
+            && !TownServicePopulation.PublishedActivities.Enchantress.Engaged,
+            "point of no return withdraws all player-facing resident attention");
+        Check(TownServiceVisitTarget.Live.Values.All(target=>!target.Visible),
+            "point of no return withdraws every resident visit");
+        Check(TownServiceStation.Live.Count==3,
+            "point of no return preserves shared resident presentation for a remote visitor");
+        Check(TownServiceStation.Live.Values.All(station=>!station.LastActivityAudioVisible),
+            "point of no return silences local and remote resident work audio");
+        Check(TownServiceVoice.Requests==0,
+            "point of no return suppresses contextual resident speech");
+        TownServiceMirror.TempleRevision=10;Tick(.01f);
+        Check(TownServiceStation.Live[2].Blessings==0,
+            "point of no return consumes a remote temple revision without replaying its blessing");
+        StoryComposite.PointOfNoReturn=false;Tick(.01f);
+        Check(TownServiceStation.Live.Values.All(station=>station.LastActivityAudioVisible),
+            "leaving story commitment restores resident audio without rebuilding the stations");
+        Check(TownServicePopulation.PublishedActivities.Merchant.TransitionAge>0f,
+            "leaving story commitment resumes the existing smooth attention transition");
+    }
     private static void Main()
     {
         MerchantOffering();
         TemplePresentation();
+        StoryCommitment();
         Reset();Tick();AllVisible();Check(TownServicePopulation.Published.Active,"ready population advertised");
         Check(TownServicePopulation.Published.HasCloth && TownServiceStation.Live[2].ClothAuthorTicks > 0,
             "elected owner advances and publishes priestess cloth contact");

@@ -278,6 +278,11 @@ internal sealed class TownServiceActivityRig
         {
             Transform finger = arm.Fingers[n];
             float amount = pinchTarget && !finger.name.StartsWith("Index") && !finger.name.StartsWith("Thumb") ? curl * .3f : curl;
+            // The merchant's attentive hands follow the convex belly surface with
+            // relaxed thumbs. Applying the work-grasp curl here drove both proximal
+            // thumb joints through the coat even though the palm contacts were clear.
+            if (_service == 1 && finger.name.StartsWith("Thumb"))
+                amount *= 1f - attention;
             finger.localRotation = arm.FingerRest[n] * Quaternion.AngleAxis(amount * arm.CurlFactors[n], arm.CurlAxes[n]);
         }
         if (_service == 2)

@@ -141,6 +141,26 @@ public static class InteractionProgram
         Check(!attentionFace.IsLocalVisitorNear(true),"reclaimed item never extends local visitor reach");
         camera.transform.position=rig.EyePosition+Vector3.forward*2.3f;FaceClock.Now+=2;
         Check(attentionFace.IsLocalVisitorNear(false),"fixed reach still admits the returning visitor");
+        StoryComposite.PointOfNoReturn=true;
+        Check(!attentionFace.PrepareActivityAttention(true),
+            "point of no return refuses player-facing resident attention");
+        var storyRoot=Rig(out _,out _,out _,out _);var storyFace=new TownServiceFace(storyRoot,1);
+        var storyRig=new TownServiceFaceRig(storyRoot);
+        var storyPose=default(TownFacePose);var expectedStory=default(TownFacePose);var noRemote=default(TownFacePose);
+        camera.transform.position=storyRig.EyePosition+new Vector3(1f,0f,2f);
+        for(int frame=0;frame<180;frame++)
+        {
+            storyFace.BeforeBodySample();FaceClock.Now+=1f/90f;
+            expectedStory=TownServiceFaceMotion.Aim(storyRig.OpticalRotation,storyRoot.lossyScale.x,
+                storyRig.HeadPosition,storyRig.LeftPosition,storyRig.RightPosition,
+                storyRoot.TransformPoint(TownServiceActivityMotion.RestFocus(1)),in expectedStory,1f/90f);
+            storyPose=storyFace.Tick(true,false,1,in noRemote,0,FaceClock.Now);
+        }
+        Check(Mathf.Abs(storyPose.HeadYaw-expectedStory.HeadYaw)<.01f
+                && Mathf.Abs(storyPose.HeadPitch-expectedStory.HeadPitch)<.01f,
+            "point of no return keeps unprepared face on neutral work instead of viewer fallback");
+        UnityEngine.Object.DestroyImmediate(storyRoot.gameObject);
+        StoryComposite.PointOfNoReturn=false;
         TownServicePresentation.Active=false;TownServicePresentation.Service=0;
         var face=new TownServiceFace(root,1);VRRigDriver.HeadCamera=camera;camera.transform.position=head.position+new Vector3(4,0,2);
         var remote=new TownFacePose{HeadYaw=-30,Cue=1,Generation=1,SpeechAge=.4f};

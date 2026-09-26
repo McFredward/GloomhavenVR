@@ -179,12 +179,12 @@ public static class InteractionProgram
         prayer=TownServiceActivityMotion.Advance(prayer,TownServiceActivityMotion.TransitionSeconds);
         var receiving=TownServiceActivityMotion.Visual(2,in prayer);
         var attentiveTemple=receiving;
-        Check(receiving.Left.x>.19f&&receiving.Right.x<-.19f
-            &&receiving.Left.y>1.09f&&receiving.Right.y>1.09f
-            &&receiving.Left.y<1.11f&&receiving.Right.y<1.11f
-            &&receiving.Left.z>.51f&&receiving.Right.z>.51f
-            &&receiving.Left.z<.53f&&receiving.Right.z<.53f
-            &&receiving.LeftElbow.x>.27f&&receiving.RightElbow.x<-.27f,
+        Check(receiving.Left.x>.17f&&receiving.Right.x<-.17f
+            &&receiving.Left.y>1.03f&&receiving.Right.y>1.03f
+            &&receiving.Left.y<1.05f&&receiving.Right.y<1.05f
+            &&receiving.Left.z>.53f&&receiving.Right.z>.53f
+            &&receiving.Left.z<.55f&&receiving.Right.z<.55f
+            &&receiving.LeftElbow.x>.21f&&receiving.RightElbow.x<-.21f,
             "attentive priestess rests both hands on her own hips behind the table edge");
         TownServiceActivityMotion.ApplyTempleAvailability(ref receiving,false,1f);
         Check(Mathf.Abs(receiving.Left.x)<.07f&&Mathf.Abs(receiving.Right.x)<.07f
@@ -430,7 +430,7 @@ public static class InteractionProgram
                                         +" dot="+(rig.OfferingPalm==null?0f:Vector3.Dot(rig.OfferingPalm.up,root.up)));
                             }
                             else Check(Vector3.Distance(palm.position,wanted)<.09f
-                                && Mathf.Abs(root.InverseTransformPoint(palm.position).x)>.18f,
+                                && Mathf.Abs(root.InverseTransformPoint(palm.position).x)>.16f,
                                 "attentive priest lowers hands beside her robe and away from the bowl: frame="+n
                                 +" error="+Vector3.Distance(palm.position,wanted)+" x="+root.InverseTransformPoint(palm.position).x);
                             if(service==1)

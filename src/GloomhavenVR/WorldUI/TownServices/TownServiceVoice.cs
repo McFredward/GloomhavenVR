@@ -11,7 +11,8 @@ namespace GloomhavenVR.WorldUI;
 
 internal enum TownVoiceReaction : byte
 {
-    MerchantOffer, MerchantBuy, MerchantSell, PriestessDonate, EnchantressEnhance
+    MerchantOffer, MerchantBuy, MerchantSell, PriestessDonate, EnchantressEnhance,
+    PriestessUnavailable
 }
 
 /// <summary>Original English lines, baked offline with one consistent voice per
@@ -40,7 +41,9 @@ internal static class TownServiceVoice
         "enchantress-enhance", "enchantress-enhance-2", "enchantress-enhance-3",
         "enchantress-enhance-4", "enchantress-enhance-5",
         "enchantress-invite", "enchantress-invite-2", "enchantress-invite-3",
-        "enchantress-invite-4", "enchantress-invite-5"
+        "enchantress-invite-4", "enchantress-invite-5",
+        "priestess-unavailable", "priestess-unavailable-2", "priestess-unavailable-3",
+        "priestess-unavailable-4", "priestess-unavailable-5"
     };
     private static readonly AudioClip?[] Clips = new AudioClip?[Names.Length];
     private static readonly TownServiceVoiceCurve?[] Curves = new TownServiceVoiceCurve?[Names.Length];
@@ -61,7 +64,7 @@ internal static class TownServiceVoice
     private static int _frame = -1;
 
     internal static byte ServiceForCue(ushort cue) => cue >= 1 && cue <= 5 || cue >= 16 && cue <= 30 ? (byte)1
-        : cue >= 6 && cue <= 10 || cue >= 31 && cue <= 40 ? (byte)2
+        : cue >= 6 && cue <= 10 || cue >= 31 && cue <= 40 || cue >= 56 && cue <= 60 ? (byte)2
         : cue >= 11 && cue <= 15 || cue >= 41 && cue <= 55 ? (byte)3 : (byte)0;
 
     internal static ushort GreetingFirstCue(byte service) => service == 1 ? (ushort)1
@@ -72,6 +75,7 @@ internal static class TownServiceVoice
     internal static void Tick(byte service, float workClock, bool visible, in TownActivityVisual shown)
     {
         Ensure();
+        if (StoryComposite.PointOfNoReturn) { SilenceForStory(); return; }
         if (TownServicePopulation.IsFaceAuthor && service >= 1 && service <= 3)
             _schedule.Work(service, workClock, shown.Cast, shown.Attention, visible, Time.unscaledTime);
     }
@@ -81,6 +85,7 @@ internal static class TownServiceVoice
     /// A non-author cannot invent a divergent shared cue.</summary>
     internal static void RequestReaction(byte service, TownVoiceReaction reaction)
     {
+        if (StoryComposite.PointOfNoReturn) return;
         ushort firstCue = ReactionFirstCue(service, reaction);
         if (firstCue == 0) return;
         if (!TownServicePopulation.IsFaceAuthor)
@@ -104,7 +109,7 @@ internal static class TownServiceVoice
         int sourcePeer, uint sourceSession, uint sequence, float ageSeconds)
     {
         ushort firstCue = ReactionFirstCue(service, reaction);
-        if (!TownServicePopulation.IsFaceAuthor || firstCue == 0 || sourcePeer <= 0
+        if (StoryComposite.PointOfNoReturn || !TownServicePopulation.IsFaceAuthor || firstCue == 0 || sourcePeer <= 0
             || sourceSession == 0 || sequence == 0 || !TownServiceVoiceSchedule.Finite(ageSeconds)
             || ageSeconds < 0f || ageSeconds > 3f) return false;
         ulong key = ((ulong)(uint)sourcePeer << 8) | service;
@@ -127,6 +132,7 @@ internal static class TownServiceVoice
             TownVoiceReaction.MerchantSell when service == 1 => 26,
             TownVoiceReaction.PriestessDonate when service == 2 => 36,
             TownVoiceReaction.EnchantressEnhance when service == 3 => 46,
+            TownVoiceReaction.PriestessUnavailable when service == 2 => 56,
             _ => 0
         };
 
@@ -170,6 +176,12 @@ internal static class TownServiceVoice
         if (_frame == Time.frameCount) return;
         _frame = Time.frameCount;
         float now = Time.unscaledTime;
+        if (StoryComposite.PointOfNoReturn)
+        {
+            SilenceForStory();
+            _narration = false; _disabled = true; _volume = 0f;
+            return;
+        }
         for (byte service = 1; service <= 3; service++)
         {
             bool visiting = TownServicePresentation.Active && TownServicePresentation.Service == service;
@@ -209,6 +221,7 @@ internal static class TownServiceVoice
         cue = 0; generation = 0; age = 0f; mouth = Vector3.zero;
         if (service < 1 || service > 3) return false;
         Ensure();
+        if (StoryComposite.PointOfNoReturn) { SilenceForStory(); return false; }
         TownServiceVoiceSchedule.Entry entry = _schedule.At(service);
         // Only the author gates new speech on bundled clip readiness. Once chosen,
         // observer face curves remain independent of local volume and narration.
@@ -233,6 +246,7 @@ internal static class TownServiceVoice
     private static void Observe(byte service, int author, ushort cue, uint generation, float age, Transform head)
     {
         if (service < 1 || service > 3 || head == null || cue != 0 && !Valid(service, cue)) return;
+        if (StoryComposite.PointOfNoReturn) { SilenceForStory(); return; }
         Refresh();
         if (!_schedule.Observe(service, author, cue, generation, age, Time.unscaledTime)) return;
         if (cue == 0)
@@ -306,5 +320,16 @@ internal static class TownServiceVoice
         _probed = false;
         Relayed.Clear();
         Array.Clear(Clips, 0, Clips.Length); Array.Clear(Curves, 0, Curves.Length);
+    }
+
+    private static void SilenceForStory()
+    {
+        _schedule.Silence(Time.unscaledTime);
+        if (_source != null && _source.isPlaying) _source.Stop();
+        if (_playingService != 0)
+        {
+            _playingService = 0; _playingCue = 0; _playingGeneration = 0;
+            HeadEar.Release(Ear);
+        }
     }
 }

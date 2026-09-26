@@ -75,6 +75,14 @@ namespace GloomhavenVR.WorldUI.MapRoom
 namespace GloomhavenVR.WorldUI
 {
     using UnityEngine;
+    internal static class StoryComposite { internal static bool PointOfNoReturn; }
+    internal enum TownVoiceReaction : byte
+    { MerchantOffer, MerchantBuy, MerchantSell, PriestessDonate, EnchantressEnhance, PriestessUnavailable }
+    internal static class TownServiceVoice
+    {
+        internal static int Requests;
+        internal static void RequestReaction(byte service,TownVoiceReaction reaction) { Requests++; }
+    }
     internal static class WorldUIConfig
     { internal sealed class Entry { internal bool Value; } internal static readonly Entry ImmersiveTownServices=new(); }
     internal static class TownServicePresentation { internal static bool Active; internal static byte Service; internal static float SessionAge; }
@@ -107,7 +115,9 @@ namespace GloomhavenVR.WorldUI
         internal bool PrepareActivityAttention(bool previous){AttentionQueries++;return NearVisitor;}
         internal TownActivityVisual LastActivity;
         internal void SampleActivity(in TownActivityVisual pose) { LastActivity=pose; }
-        internal void SampleActivityAudio(int author,uint epoch,float clock,bool visible,in TownActivityVisual shown) { }
+        internal bool LastActivityAudioVisible;
+        internal void SampleActivityAudio(int author,uint epoch,float clock,bool visible,in TownActivityVisual shown)
+        { LastActivityAudioVisible=visible; }
         internal int ClothAuthorTicks, ClothObserverTicks;
         internal GloomhavenVR.Net.TownClothRunnerState ClothFirst, ClothSecond;
         internal void TickClothAuthor(float age,float dt) { ClothAuthorTicks++; }
