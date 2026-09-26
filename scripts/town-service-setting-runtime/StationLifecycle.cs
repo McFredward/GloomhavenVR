@@ -92,6 +92,7 @@ namespace GloomhavenVR.WorldUI
     internal sealed class TownServiceTempleBowlMarker : IDisposable
     {
         internal TownServiceTempleBowlMarker(Transform root,bool stationSpace) { }
+        internal float BlessingAge => float.PositiveInfinity;
         internal void Tick(bool available) { }
         internal void Bless(float elapsed) { }
         public void Dispose() { }
@@ -189,7 +190,7 @@ namespace GloomhavenVR.WorldUI
         internal bool PrepareActivityAttention(bool previous)=>false;
         internal void BeforeBodySample() { }
         internal void Seed(in GloomhavenVR.Net.TownFacePose pose,int author,float elapsed){}
-        internal GloomhavenVR.Net.TownFacePose Tick(bool author,bool received,int authorId,in GloomhavenVR.Net.TownFacePose remote,float elapsed,float clock){Ticks++;if(Throw)throw new InvalidOperationException("fixture facial failure");return remote;}
+        internal GloomhavenVR.Net.TownFacePose Tick(bool author,bool received,int authorId,in GloomhavenVR.Net.TownFacePose remote,float elapsed,float clock,float blessingAge){Ticks++;if(Throw)throw new InvalidOperationException("fixture facial failure");return remote;}
     }
 }
 

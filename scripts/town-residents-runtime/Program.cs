@@ -81,8 +81,11 @@ internal static class Program
         TownActivityPose donationState=TownServicePopulation.PublishedActivities.Temple;
         var donationExpected=TownServiceActivityMotion.Visual(2,in donationState);
         TownServiceActivityMotion.ApplyTempleAvailability(ref donationExpected,false,.2f);
+        TownServiceActivityMotion.ApplyTempleBlessing(ref donationExpected,.14f);
+        TownServiceActivityMotion.ApplyTempleBreath(ref donationExpected,
+            TownServicePopulation.PublishedActivities.Clock);
         Check(Vector3.Distance(TownServiceStation.Live[2].LastActivity.Left,donationExpected.Left)<.0001f,
-            "live donation cover uses replicated transition age on every peer");
+            "live donation cover and blessing use replicated transition age on every peer");
 
         Reset();TownServiceStation.NearVisitor=true;
         TownServiceMirror.TempleReceived=true;TownServiceMirror.TempleOwner=10;
@@ -118,8 +121,12 @@ internal static class Program
         before=temple.LastActivity.Left;float beforeRoll=temple.LastActivity.LeftRoll;Tick(1f/90f);
         Check(Vector3.Distance(before,temple.LastActivity.Left)<.003f,
             "temple cover and visitor attention release continuously on departure");
-        Check(Math.Abs(beforeRoll-temple.LastActivity.LeftRoll)<.5f,
-            "temple cover wrist rotation releases continuously on departure");
+        // An already playing blessing has its own smooth wrist motion. The
+        // combined departure must remain below two degrees per 90 Hz frame;
+        // the old half-degree cover-only bound incorrectly rejected that motion.
+        Check(Math.Abs(beforeRoll-temple.LastActivity.LeftRoll)<2f,
+            "temple cover wrist rotation releases continuously on departure: "
+            + beforeRoll + " -> " + temple.LastActivity.LeftRoll);
     }
     private static void StoryCommitment()
     {
