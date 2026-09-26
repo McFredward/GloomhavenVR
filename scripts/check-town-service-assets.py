@@ -44,7 +44,10 @@ def method(signature):
     return drawer[start:end].replace('TMP_Text?', 'object')
 methods = [method(signature) for signature in (
     'internal static GameObject Authored(string name)',
-    'internal static GameObject CreateHousingTemplate()')]
+    'internal static GameObject CreateHousingTemplate()',
+    'internal static bool MerchantLanternClears(Bounds cabinetPart, Vector3 seat)')]
+methods.append('    ' + next(line.strip() for line in drawer.splitlines()
+    if line.strip().startswith('internal static Vector3 MerchantLanternSeat(')))
 methods.append('    ' + next(line.strip() for line in drawer.splitlines()
     if line.strip().startswith('internal static GameObject CreateTemplate(')).replace('TMP_Text?', 'object'))
 (assets / 'Editor/TownServiceRackFactories.cs').write_text(

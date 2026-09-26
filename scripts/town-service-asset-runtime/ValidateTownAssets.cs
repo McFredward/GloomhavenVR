@@ -392,6 +392,21 @@ public static class ValidateTownAssets
         // The static cabinet must be on the same side as its runtime cassette anchors.
         Check(SupportHeight(furniture, root.transform, new Vector3(-.95f, 0f, .30f)) > 1.5f,
             "Asymmetric cabinet FBX imports on the agreed left side of the merchant");
+        // The native hanging lantern is not part of this bundle, but its measured visible
+        // half-width and production seat are. Test that complete footprint against the
+        // complete authored cabinet, including the tall side/rear panels. The regression
+        // used only the ledger/worktop as its mental model and moved the lamp into the box.
+        // The complete side cheek spans the full cabinet height/depth, rather than only
+        // the ledger/worktop considered by the regression. Using its authored imported
+        // envelope also avoids treating the intentionally touching hanging link as an
+        // obstruction or collapsing the cabinet's non-convex gaps into one giant AABB.
+        var completeSide = new Bounds(new Vector3(-1.355f, 1.22f, .45f), new Vector3(.04f, .84f, .88f));
+        Check(TownServiceMerchantDrawer.MerchantLanternClears(
+                completeSide, TownServiceMerchantDrawer.MerchantLanternSeat()),
+            "Merchant hanging lantern clears the complete imported cabinet side and rear envelope");
+        Check(!TownServiceMerchantDrawer.MerchantLanternClears(
+                completeSide, new Vector3(-1.34f, 1.11f, .11f)),
+            "Lantern-clearance instrument rejects the regressed build-565 seat inside the cabinet wall");
         foreach (var collider in colliders) UnityEngine.Object.DestroyImmediate(collider);
         foreach (var collider in furniture) UnityEngine.Object.DestroyImmediate(collider);
         UnityEngine.Object.DestroyImmediate(rack); UnityEngine.Object.DestroyImmediate(crank);

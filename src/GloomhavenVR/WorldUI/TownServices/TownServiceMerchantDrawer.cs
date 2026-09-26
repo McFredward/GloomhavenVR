@@ -14,6 +14,24 @@ namespace GloomhavenVR.WorldUI;
 /// the new withdraw/shutter/extend mechanism without changing any TLV85 byte.</summary>
 internal sealed class TownServiceMerchantDrawer : IGrabbable, IGrabbableHandFilter, IGrabCancellation, IDisposable
 {
+    // The authored bracket terminates outside the cabinet's left cheek at X=-1.51.
+    // Build 565 moved the native lantern inward to X=-1.34 while trying to lower all
+    // practicals together. That point is inside the complete cabinet envelope
+    // (-1.39..-0.51), which made the lamp intersect the broad side panel and put its
+    // point light behind the wood. Keep this contract beside the cabinet geometry so
+    // the asset harness can validate it against the imported mesh, rather than against
+    // the ledger worktop alone.
+    internal static Vector3 MerchantLanternSeat() => new(-1.51f, 1.23f, .08f);
+    internal static bool MerchantLanternClears(Bounds cabinetPart, Vector3 seat)
+    {
+        // Build() normalizes this original lantern to 32 cm tall and seats its bottom at
+        // `seat`. Its measured horizontal footprint is smaller than these conservative
+        // bounds. Keep the three-dimensional test: the cabinet's carry handle projects
+        // farther left than its cheek, but remains safely behind the lantern in Z.
+        var lantern = new Bounds(seat + Vector3.up * .16f, new Vector3(.22f, .32f, .20f));
+        return !lantern.Intersects(cabinetPart);
+    }
+
     private static readonly HashSet<Transform> ContentRoots = new();
     internal static bool IsContentRoot(Transform node) => ContentRoots.Contains(node);
     internal const int Capacity = 12;

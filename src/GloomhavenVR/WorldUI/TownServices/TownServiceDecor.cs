@@ -112,7 +112,13 @@ internal sealed class TownServiceDecor : IDisposable
         // Its separate wall bracket is deliberately not copied onto the counter.
         if (service == 1)
         {
-            Lantern(new Vector3(-1.34f, 1.11f, .11f), 0);
+            // The cabinet's own authored hanging link is outside its left cheek. Seat the
+            // complete original lantern there: the build-565 inward/downward adjustment
+            // embedded it in the side wall photographed in build 567 and also left that
+            // large exterior face black because its practical light sat behind the wood.
+            // The seat is owned by the cabinet class and checked against the complete
+            // imported cabinet bounds by the town-asset harness.
+            Lantern(TownServiceMerchantDrawer.MerchantLanternSeat(), 0);
             // A small native candle lights the ledger without placing a second oversized
             // lantern in the offered hand's path. The hanging cabinet lantern is the key.
             // Chapel.Clutter.Shelf.Individual#2 is a scroll, not a candle: height-fitting
