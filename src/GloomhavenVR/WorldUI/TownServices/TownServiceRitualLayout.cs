@@ -23,13 +23,19 @@ internal static class TownServiceRitualLayout
     internal static Placement Folio(ushort section) => section switch
     {
         10 => new Placement(new Vector3(.32f, .33f, -.16f), Quaternion.identity, new Vector2(.60f, .55f)),
-        11 => new Placement(new Vector3(-.32f, .018f, -.03f), Quaternion.Euler(90f, 0f, 0f), new Vector2(.29f, .43f)),
         13 => new Placement(new Vector3(0f, .032f, .35f), Quaternion.Euler(90f, 0f, 0f), new Vector2(.28f, .065f)),
         14 => new Placement(new Vector3(0f, .033f, .25f), Quaternion.Euler(90f, 0f, 0f), new Vector2(.28f, .085f)),
         15 => new Placement(new Vector3(.19f, .036f, -.20f), Quaternion.Euler(90f, 0f, 0f), new Vector2(.18f, .055f)),
         16 => new Placement(new Vector3(.43f, .036f, -.20f), Quaternion.Euler(90f, 0f, 0f), new Vector2(.18f, .055f)),
         _ => throw new ArgumentOutOfRangeException(nameof(section))
     };
+
+    /// <summary>Native printed-ability hotspots follow the real card in the resident's
+    /// palm. Their original narrow cyan highlight is an interaction cue on that card,
+    /// never an unrelated strip on the worktop. Local negative Z is toward the visitor.</summary>
+    internal static Placement PalmHighlight(float cardWidth) => new(
+        new Vector3(0f, 0f, -.012f), Quaternion.identity,
+        new Vector2(cardWidth, cardWidth * (88f / 63.5f)));
 
     internal static Placement Offering(int index, int count)
     {

@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
+using GloomhavenVR.Cards;
 using GloomhavenVR.Core;
+using GloomhavenVR.Hands;
 using GloomhavenVR.Net;
 using GloomhavenVR.Rig;
 using GloomhavenVR.WorldUI.MapRoom;
@@ -291,6 +293,7 @@ internal sealed class TownServiceRitual : IDisposable
     private readonly CanvasGroup _opening;
     private bool _allowInput = true;
     private float _visibility;
+    private float _enchantmentOptionsVisibility;
     private readonly TMP_Text? _zoneLabel;
     private readonly TownServiceTempleBowlMarker? _bowlMarker;
     private float _censusAt;
@@ -368,6 +371,10 @@ internal sealed class TownServiceRitual : IDisposable
                 // cards let child anchors escape their faces and obscured later options.
                 // This open folio is attached to the stand, not a separate movable window.
                 AddFolio(10, shop.enhancementShop);
+                // CardHilight carries the original printed-ability selection hotspots.
+                // It must survive, but the separate flat cyan strip on the left of the
+                // worktop was meaningless before a card was offered. Seat the native
+                // highlight on the actual offered card and share its hand animation.
                 AddFolio(11, shop.cardHolder);
                 AddFolio(13, shop.CardsDisplay.enhancementPointsText.transform.parent);
                 AddFolio(14, shop.cardInformationText);
@@ -385,7 +392,7 @@ internal sealed class TownServiceRitual : IDisposable
         if (!allowInput || visibility < .99f)
         { if (_zoneGate != null) _zoneGate.alpha = 0f; _bowlMarker?.Tick(false); }
         _opening.interactable = allowInput; _opening.blocksRaycasts = allowInput;
-        foreach (TownServiceSurface surface in _surfaces) surface.SetVisibility(visibility, allowInput);
+        SetSurfaceVisibility(visibility, allowInput);
         if (_visibility == visibility) return;
         _visibility = _opening.alpha = Mathf.Clamp01(visibility);
         foreach (Piece piece in _pieces.Values) piece.SetVisibility(_visibility);
@@ -395,6 +402,17 @@ internal sealed class TownServiceRitual : IDisposable
     {
         Handoff?.Tick();
         if (Handoff != null) CardSlots.Tick(Handoff);
+        if (_service == 3)
+        {
+            // An open shop controller can fill enhancement rows before any physical card
+            // reaches the resident. The native selection remains alive, but its worktop
+            // appears only after that exact card has been accepted by the palm handoff.
+            // Use the same continuous alpha on the owner and in the mirrored parent pose.
+            float target = Handoff?.Card != null ? 1f : 0f;
+            _enchantmentOptionsVisibility = Mathf.MoveTowards(_enchantmentOptionsVisibility,
+                target, Time.unscaledDeltaTime / .16f);
+            SetSurfaceVisibility(_visibility, _allowInput);
+        }
         _templeOffering?.Tick(!_disposed && _alive());
         if (_disposed) return;
         if (!_alive()) { _bowlMarker?.Tick(false); return; }
@@ -427,6 +445,15 @@ internal sealed class TownServiceRitual : IDisposable
         _bowlMarker?.Tick(donationAvailable && (offeringHeld || _templeOffering?.Available == true));
         foreach (Inscription inscription in _inscriptions) inscription.Tick();
         foreach (TownServiceSurface surface in _surfaces) surface.Tick(Vector3.zero, Quaternion.identity, scale);
+    }
+
+    private void SetSurfaceVisibility(float visibility, bool allowInput)
+    {
+        bool cardOnPalm = _service != 3 || Handoff?.Card != null;
+        foreach (TownServiceSurface surface in _surfaces)
+            surface.SetVisibility(_service == 3 ? visibility * _enchantmentOptionsVisibility : visibility,
+                allowInput && cardOnPalm && visibility > .01f
+                    && (_service != 3 || _enchantmentOptionsVisibility > .01f));
     }
 
     private void RefreshPieces()
@@ -464,6 +491,20 @@ internal sealed class TownServiceRitual : IDisposable
 
     private void AddFolio(ushort id, Component source)
     {
+        if (id == 11 && Handoff != null)
+        {
+            // The native card-holder is an interaction layer, not a second card on the
+            // table. Match the physical card's configured inspect size in palm-local units;
+            // its thin original highlight can then appear over the actual selected ability.
+            float seatScale = Mathf.Max(.0001f, Mathf.Abs(Handoff.Seat.lossyScale.x));
+            float handScale = VRHands.Primary?.WorldScale ?? seatScale;
+            float cardWidth = CardsConfig.CardWidth.Value * CardsConfig.InspectScale.Value
+                * handScale / seatScale;
+            TownServiceRitualLayout.Placement highlight = TownServiceRitualLayout.PalmHighlight(cardWidth);
+            _surfaces.Add(new TownServiceSurface(id, (RectTransform)source.transform, highlight.Position,
+                highlight.Size.x, Handoff.Seat, highlight.Rotation, highlight.Size.y));
+            return;
+        }
         TownServiceRitualLayout.Placement placement = TownServiceRitualLayout.Folio(id);
         _surfaces.Add(new TownServiceSurface(id, (RectTransform)source.transform, placement.Position,
             placement.Size.x, Root, placement.Rotation, placement.Size.y));

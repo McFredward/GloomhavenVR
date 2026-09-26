@@ -21,9 +21,10 @@ internal sealed class TownServiceEnhancementHandoff : IDisposable
         && _current.Card != null && _current._window != null && _current._window.IsOpen
         && TownServicePresentation.Active && TownServicePresentation.Service == 3;
     private static float _approachSearchAt;
+    private static float _approachRetryAt;
     private static Transform? _approachPalm;
     private static VRCard? _approachCard;
-    private static bool _headInside, _cardInside;
+    private static bool _headInside, _cardInside, _pendingApproach;
     internal static bool Enabled => WorldUIConfig.MapRoomHand == null ? Defaults.MapRoomHand : WorldUIConfig.MapRoomHand.Value;
     private static System.Runtime.CompilerServices.ConditionalWeakTable<VRCard, ReturnPresentation> Reclaimed = new();
     private static bool _hasReclaimed;
@@ -77,7 +78,7 @@ internal sealed class TownServiceEnhancementHandoff : IDisposable
     private Transform? _palm;
     private float _palmSearchAt;
     private CAbilityCard? _model;
-    private bool _disposed, _confirmationSeen;
+    private bool _disposed, _confirmationSeen, _cueRecorded, _lastCueShown;
     private float _offeredHeight;
     internal VRCard? Card { get; private set; }
     internal AbilityCardUI? NativeSource { get; private set; }
@@ -132,7 +133,7 @@ internal sealed class TownServiceEnhancementHandoff : IDisposable
     {
         if (!MapRoomDriver.Active || !WorldUIConfig.ImmersiveTownServices.Value || !Enabled
             || !TownServicePopulation.Available(3))
-        { _headInside = _cardInside = false; _approachCard = null; return; }
+        { _headInside = _cardInside = _pendingApproach = false; _approachCard = null; return; }
         if (_approachPalm == null && Time.unscaledTime >= _approachSearchAt)
         {
             _approachSearchAt = Time.unscaledTime + .5f;
@@ -144,30 +145,41 @@ internal sealed class TownServiceEnhancementHandoff : IDisposable
         Camera? head = VRRigDriver.HeadCamera;
         // Leaving is the same native destination exit as its former X, including selection
         // and confirmation cleanup. Returning a card alone left an empty service open forever.
-        if (_current != null && _current._window.IsOpen && head != null && !Near(palm, head.transform.position, 1.8f))
+        if (_current != null && _current._window.IsOpen && head != null && !NearVisitor(palm, head.transform.position, 1.8f))
         {
             TownServiceEnhancementHandoff current = _current;
             current.Return();
             ModalFallback.CloseFloatedWindow(current._window);
         }
-        if (head == null || !Near(palm, head.transform.position, 1.8f)) _headInside = false;
-        bool headEntered = head != null && !_headInside && Near(palm, head.transform.position, 1.4f);
+        if (head == null || !NearVisitor(palm, head.transform.position, 1.8f))
+            _headInside = false;
+        bool headEntered = head != null && !_headInside && NearVisitor(palm, head.transform.position, 1.4f);
         if (headEntered) _headInside = true;
         VRCard? held = HeldOwnedCard(VRHands.Left) ?? HeldOwnedCard(VRHands.Right);
         if (held != _approachCard) { _approachCard = held; _cardInside = false; }
         if (held == null || !Near(palm, held.transform.position, 1.05f)) _cardInside = false;
         bool cardEntered = held != null && !_cardInside && Near(palm, held.transform.position, .85f);
         if (cardEntered) _cardInside = true;
-        // Consume proximity edges even while blocked. Closing another service or explicitly
-        // closing this one never reopens it merely because the player is still standing here.
-        if (!headEntered && !cardEntered || !HasOwnedMapCard()
-            || GuildmasterDestinations.CurrentDestinationMode() != EGuildmasterMode.None
-            || StoryComposite.PointOfNoReturn
-            || Core.Events.VRModeStateMachine.CurrentMode == Core.Events.VRMode.ModalUI
-            || !MapRoomDriver.CanVisitTownService(EGuildmasterMode.Enchantress)) return;
-        MapRoomDriver.PressGuildmasterMode(EGuildmasterMode.Enchantress,
+        // The resident can notice the visitor before the map fan finishes loading or while a
+        // modal/rail briefly blocks a native visit. Hold only that initial intent until the
+        // original shop can open. A successfully dispatched press clears it; explicitly
+        // closing the shop while still near therefore never reopens it automatically.
+        if ((headEntered || cardEntered)
+            && GuildmasterDestinations.CurrentDestinationMode() == EGuildmasterMode.None
+            && !StoryComposite.PointOfNoReturn) _pendingApproach = true;
+        if (!_headInside && !_cardInside || StoryComposite.PointOfNoReturn) _pendingApproach = false;
+        if (!_pendingApproach || GuildmasterDestinations.CurrentDestinationMode() != EGuildmasterMode.None
+            || Core.Events.VRModeStateMachine.CurrentMode == Core.Events.VRMode.ModalUI) return;
+        // A new physical entry gets its first attempt immediately. While waiting for cards
+        // or the native rail, sample those more expensive predicates at 10 Hz instead of
+        // traversing the map fan and rail every VR frame.
+        float now = Time.realtimeSinceStartup;
+        if (!headEntered && !cardEntered && now < _approachRetryAt) return;
+        _approachRetryAt = now + .1f;
+        if (!HasOwnedMapCard() || !MapRoomDriver.CanVisitTownService(EGuildmasterMode.Enchantress)) return;
+        if (MapRoomDriver.PressGuildmasterMode(EGuildmasterMode.Enchantress,
             cardEntered ? "owned card offered to enchantress" : "approached enchantress",
-            suppressNativeSound: true);
+            suppressNativeSound: true)) _pendingApproach = false;
     }
 
     private static bool HasOwnedMapCard()
@@ -192,6 +204,15 @@ internal sealed class TownServiceEnhancementHandoff : IDisposable
     private static bool Near(Transform frame, Vector3 position, float distance) =>
         frame.InverseTransformPoint(position).sqrMagnitude <= distance * distance;
 
+    // Resident attention is measured on the floor plane. Measuring the HMD's full height
+    // against the palm instead made the NPC extend her arm while the shop remained closed.
+    private static bool NearVisitor(Transform frame, Vector3 position, float distance)
+    {
+        Vector3 local = frame.InverseTransformPoint(position);
+        local.y = 0f;
+        return local.sqrMagnitude <= distance * distance;
+    }
+
     internal void Tick()
     {
         if (_disposed) return;
@@ -203,8 +224,20 @@ internal sealed class TownServiceEnhancementHandoff : IDisposable
             // Authored activity markers carry station units, not imported bone scale.
             _seat.localScale = Vector3.one;
         }
-        _zoneGate.alpha = Ready && _palm != null && HasAvailableOwnedCard()
-            && (Card == null || HeldReplacementAvailable()) ? 1f : 0f;
+        bool ready = Ready, hasPalm = _palm != null;
+        bool availableCard = ready && hasPalm && HasAvailableOwnedCard();
+        bool replacement = Card == null || HeldReplacementAvailable();
+        bool showCue = availableCard && replacement;
+        _zoneGate.alpha = showCue ? 1f : 0f;
+        if (VRLog.WantsDebug && (!_cueRecorded || _lastCueShown != showCue))
+        {
+            _cueRecorded = true; _lastCueShown = showCue;
+            VRLog.Debug("WorldUI", "TOWN ENHANCEMENT cue " + (showCue ? "shown" : "hidden")
+                + ": nativeOpen=" + (_window != null && _window.IsOpen)
+                + " input=" + _input() + " palm=" + hasPalm
+                + " eligibleOwnedCard=" + availableCard + " replacement=" + replacement
+                + " offered=" + (Card != null) + ".");
+        }
         if (Card == null)
         {
             // Native character changes can automatically select their first card. Until a real
@@ -212,9 +245,9 @@ internal sealed class TownServiceEnhancementHandoff : IDisposable
             if (_shop != null && _shop.selectedCard != null) ClearNativeSelection();
             return;
         }
-        if (!ValidOwner(Card) || !_alive() || _palm == null || _shop == null || !_window.IsOpen
+        if (!ValidOwner(Card) || !_alive() || _palm == null || _shop == null || _window == null || !_window.IsOpen
             || _shop.selectedCard == null || !SameCard(_shop.selectedCard.AbilityCard, _model)
-            || VRRigDriver.HeadCamera != null && !Near(_seat, VRRigDriver.HeadCamera.transform.position, 2.25f))
+            || VRRigDriver.HeadCamera != null && !NearVisitor(_seat, VRRigDriver.HeadCamera.transform.position, 2.25f))
             Return();
         else
         {
@@ -288,7 +321,14 @@ internal sealed class TownServiceEnhancementHandoff : IDisposable
         TownServiceEnhancementHandoff? target = _current;
         if (target == null) return false;
         VRCard? previous = target.Card;
-        try { return target.Offer(card); }
+        try
+        {
+            bool accepted = target.Offer(card);
+            if (!accepted && VRLog.WantsDebug && card != null && target._station != null
+                && Near(target._station, card.transform.position, .85f))
+                VRLog.Debug("WorldUI", "TOWN ENHANCEMENT release refused: " + target.Refusal(card));
+            return accepted;
+        }
         catch (Exception ex)
         {
             // Let the driver's ordinary inspection-release path reclaim the physical card
@@ -298,6 +338,19 @@ internal sealed class TownServiceEnhancementHandoff : IDisposable
             VRLog.Warn("WorldUI", "TOWN ENHANCEMENT: original card selection refused; returning the card: " + ex.Message);
             return false;
         }
+    }
+
+    private string Refusal(VRCard card)
+    {
+        if (!Ready) return "native shop or interaction is not ready";
+        if (_palm == null) return "resident palm was not found";
+        if (card.IsHeld) return "card still belongs to a hand";
+        if (ReferenceEquals(Card, card)) return "card is already offered";
+        if (!TownServiceOfferingPose.Contains(_seat, card.transform.position)) return "card missed palm volume";
+        if (!ValidOwner(card)) return "card owner differs from native shop character";
+        if (!MapRoomHand.TryOwnedTownCard(card, out _, out CAbilityCard? model)) return "card is not in owned map loadout";
+        if (FindAvailableSlot(model) == null) return "no enabled native card slot matches the offered card";
+        return "native card selection did not accept the physical offering";
     }
 
     private bool Offer(VRCard card)

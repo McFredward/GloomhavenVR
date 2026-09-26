@@ -20,7 +20,7 @@ public static class InteractionProgram
     public static int Run()
     {
         checks = 0;
-        var sections = new ushort[] {10,11,13,14,15,16};
+        var sections = new ushort[] {10,13,14,15,16};
         var occupied = new List<Bounds>();
         foreach (ushort id in sections)
         {
@@ -37,9 +37,13 @@ public static class InteractionProgram
             occupied.Add(bounds);
             if(id==10) Check(Vector3.Dot(placement.Rotation*Vector3.up,Vector3.up)>.999f,
                 "native enhancement options face the visitor upright");
-            if(id==11) Check(placement.Size.y<=.43f && placement.Position.x<-.3f,
-                "selected native card hotspots stay readable beside the options");
         }
+        var palmHighlight = TownServiceRitualLayout.PalmHighlight(.102f);
+        Check(palmHighlight.Position.z < -.005f && palmHighlight.Position.z > -.02f
+            && Mathf.Abs(palmHighlight.Size.x - .102f) < .001f
+            && Mathf.Abs(palmHighlight.Size.y - .141f) < .002f
+            && Quaternion.Angle(palmHighlight.Rotation, Quaternion.identity) < .001f,
+            "native ability hotspots follow the selected physical card at its face scale, in front of its collider");
         for (int count = 1; count <= TownServiceRitualLayout.MaxOfferings; count++)
         {
             var purseBounds = new List<Bounds>();
@@ -80,21 +84,51 @@ public static class InteractionProgram
         }
         Box("existing worktop", new Vector3(0f, .925f, 0f), new Vector3(1.5f, .06f, .676f), Quaternion.identity, new Color(.17f, .11f, .07f));
         Box("native capacity book reserved", new Vector3(0f, .972f, .22f), new Vector3(.32f, .03f, .32f), Quaternion.identity, new Color(.65f, .53f, .32f));
-        foreach (ushort id in new ushort[] {10,11,13,14,15,16})
-        {
-            var p=TownServiceRitualLayout.Folio(id);
-            Color color=id==10?new Color(.28f,.44f,.61f):id==11?new Color(.49f,.31f,.64f):new Color(.75f,.58f,.2f);
-            Box("original native section "+id,p.Position+TownServiceRitualLayout.Origin,
-                new Vector3(p.Size.x,p.Size.y,.003f),p.Rotation,color);
-        }
         var cameraObject = new GameObject("layout camera"); var camera = cameraObject.AddComponent<Camera>();
         camera.transform.position = new Vector3(.20f, 1.95f, -1.05f); camera.transform.LookAt(new Vector3(0f, .96f, 0f));
         camera.fieldOfView = 65f; camera.clearFlags = CameraClearFlags.SolidColor; camera.backgroundColor = new Color(.07f, .07f, .075f);
         var rt = new RenderTexture(1000, 750, 24); var image = new Texture2D(1000, 750, TextureFormat.RGBA32, false);
         try
         {
-            camera.targetTexture = rt; camera.Render(); RenderTexture.active = rt; image.ReadPixels(new Rect(0, 0, 1000, 750), 0, 0); image.Apply();
-            File.WriteAllBytes(Path.Combine(path, "native-folio-layout.png"), image.EncodeToPNG());
+            // Render both transition states. These boxes prove placement and intended
+            // presence, not the native UI artwork or headset appearance.
+            Capture("enchantress-empty-palm-layout.png");
+            var nativeOptions = new GameObject("native sections after card handoff");
+            nativeOptions.transform.SetParent(root.transform, false);
+            foreach (ushort id in new ushort[] {10,13,14,15,16})
+            {
+                var p = TownServiceRitualLayout.Folio(id);
+                Color color = id == 10 ? new Color(.28f,.44f,.61f) : new Color(.75f,.58f,.2f);
+                var box = GameObject.CreatePrimitive(PrimitiveType.Cube);
+                box.name = "original native section " + id;
+                box.transform.SetParent(nativeOptions.transform, false);
+                box.transform.localPosition = p.Position + TownServiceRitualLayout.Origin;
+                box.transform.localScale = new Vector3(p.Size.x, p.Size.y, .003f);
+                box.transform.localRotation = p.Rotation;
+                var material = new Material(Shader.Find("Unlit/Color")) { color = color };
+                materials.Add(material); box.GetComponent<MeshRenderer>().sharedMaterial = material;
+            }
+            Vector3 seat = new Vector3(-.28f, 1.26f, -.17f);
+            Box("physical offered card", seat, new Vector3(.102f, .141f, .004f),
+                Quaternion.identity, new Color(.72f,.64f,.48f));
+            var highlight = TownServiceRitualLayout.PalmHighlight(.102f);
+            Vector3 face = seat + highlight.Position;
+            Color hotspot = new Color(.49f,.31f,.64f);
+            const float border = .006f;
+            foreach (float x in new[] { -.5f, .5f })
+                Box("native hotspot card side", face + new Vector3(x * (highlight.Size.x - border), 0f, 0f),
+                    new Vector3(border, highlight.Size.y, .003f), highlight.Rotation, hotspot);
+            foreach (float y in new[] { -.5f, .5f })
+                Box("native hotspot card edge", face + new Vector3(0f, y * (highlight.Size.y - border), 0f),
+                    new Vector3(highlight.Size.x, border, .003f), highlight.Rotation, hotspot);
+            Capture("enchantress-card-offered-layout.png");
+
+            void Capture(string fileName)
+            {
+                camera.targetTexture = rt; camera.Render(); RenderTexture.active = rt;
+                image.ReadPixels(new Rect(0, 0, 1000, 750), 0, 0); image.Apply();
+                File.WriteAllBytes(Path.Combine(path, fileName), image.EncodeToPNG());
+            }
         }
         finally
         {

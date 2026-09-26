@@ -356,7 +356,10 @@ internal sealed partial class CardsDriver
         // release branch below to commit into a gap or cancel to origin).
         bool fanOrigin = _fanOriginCards.Remove(card);
 
-        if (hand.HasPose && hand.TriggerUp
+        // A town card can be held by trigger or by grip after a forced adoption/transfer.
+        // TriggerUp alone skipped that valid grip release. Keep an actual button-up edge:
+        // synthetic cancel/teardown releases must never select an enhancement card.
+        if (hand.HasPose && (hand.TriggerUp || hand.GripUp)
             && WorldUI.TownServiceEnhancementHandoff.TryOffer(card))
         {
             ClearFanInsertion();
