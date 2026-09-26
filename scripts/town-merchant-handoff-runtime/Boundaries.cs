@@ -36,25 +36,36 @@ public class UIItemConfirmationBox {
 namespace GloomhavenVR.Core {
  public static class Loc { public static string Mod(string s) => s; }
  public static class VRLayers { public const int ModLayer=27; public static void Apply(GameObject o) { } }
- public static class VRLog { public static void Warn(string scope,string message) { } }
+ public static class VRLog { public static void Warn(string scope,string message) { } public static void Info(string scope,string message) { } }
 }
 namespace GloomhavenVR.Core.Events {
  public enum VRMode { TableIdle, ModalUI } public static class VRModeStateMachine { public static VRMode CurrentMode; }
 }
 namespace GloomhavenVR.Hands {
- public class VRHand { public bool HasPose = true; public float WorldScale = 1; public Holder Grabber = new(); public HandRig Rig = new(); public Gate PalmGate = new(); }
+ public enum HandSide { Left, Right }
+ public enum HapticPreset { ClickPulse }
+ public class VRHand { public bool HasPose = true; public float WorldScale = 1; public Holder Grabber = new(); public HandRig Rig = new(); public Gate PalmGate = new(); public HandSide Side; public void SendHaptic(HapticPreset preset) { } }
  public class Holder { public object? Held; public void CancelAll() { if (Held is Cards.ItemsPile.ItemChip chip) chip.Holder = null; Held = null; } }
- public class HandRig { public Transform PalmCenter = null!; }
+ public class HandRig { public Transform PalmCenter = null!; public Transform GrabAnchor = null!; }
  public class Gate { public bool IsOpen = true, Enabled, IgnoreWhenHandBusy; public float EnterDegrees, ExitDegrees; }
  public static class VRHands { public static VRHand? Left, Right, Primary; }
 }
 namespace GloomhavenVR.Rig { public static class VRRigDriver { public static Transform? RigRoot; public static Camera? HeadCamera; } }
 namespace GloomhavenVR.Cards {
+ public readonly struct HeldPose { public readonly Vector3 LocalPosition; public readonly Quaternion LocalRotation; public readonly float? LocalScale; public HeldPose(Vector3 p,Quaternion r,float? s=null){LocalPosition=p;LocalRotation=r;LocalScale=s;} }
+ internal abstract class GrabbableBehaviour : MonoBehaviour {
+  private Transform? _originalParent; private Vector3 _originalLocalPos,_originalLocalScale; private Quaternion _originalLocalRot; private bool _attached;
+  public Hands.VRHand? Holder { get; set; }
+  protected virtual HeldPose GetHeldPose(Hands.VRHand hand)=>new(Vector3.zero,Quaternion.identity,1f);
+  public virtual void OnGrab(Hands.VRHand hand) { Holder=hand; _originalParent=transform.parent;_originalLocalPos=transform.localPosition;_originalLocalRot=transform.localRotation;_originalLocalScale=transform.localScale;var pose=GetHeldPose(hand);transform.SetParent(hand.Rig.GrabAnchor,false);transform.localPosition=pose.LocalPosition;transform.localRotation=pose.LocalRotation;if(pose.LocalScale.HasValue)transform.localScale=Vector3.one*pose.LocalScale.Value;_attached=true; }
+  public virtual void OnRelease(Hands.VRHand hand,Vector3 velocity) { if(_attached){Transform? parent=_originalParent!=null&&_originalParent.gameObject.activeInHierarchy?_originalParent:null;transform.SetParent(parent,false);transform.localPosition=_originalLocalPos;transform.localRotation=_originalLocalRot;transform.localScale=_originalLocalScale;_attached=false;}Holder=null; }
+ }
  public sealed class Dial<T> { public T Value; public Dial(T v) { Value = v; } }
  public static class CardsConfig {
   public static bool RevealAlways;
   public static readonly Dial<float> ItemFanSeedScale = new(.12f), ItemFanSettleOvershoot = new(1.7f), ItemFanOpenSpinDegrees = new(20f), ItemFanOpenDuration = new(.25f), ItemFanCloseDuration = new(.2f), ItemFanOpenArc = new(.015f);
   public static readonly Dial<float> FanRadius = new(.3f), FanSplitMultiplier = new(1f), FanSplitFalloff = new(1f), FanHoverSplitScale = new(1f);
+  public static readonly Dial<float> InspectScale = new(1.6f), CardLerpSpeed = new(14f); public static readonly Dial<string> CardGrabSound = new(""); public const float CardHeight=.14f,CardWidth=.1f;
   private static readonly Dial<float> RadiusFactor = new(1f), Step = new(10f);
   public static Dial<float> FanRadiusFactor(PileKind kind)=>RadiusFactor;
   public static Dial<float> FanStepDegrees(PileKind kind)=>Step;
@@ -67,6 +78,7 @@ namespace GloomhavenVR.Cards {
   internal static bool OffScenarioFanIsOpen;
   internal static int SuppressedOpenEdges, SuppressedCloseEdges;
   internal static void StandDownForItemFanContact(Hands.VRHand? hand, IReadOnlyList<ItemsPile.ItemChip> chips) { }
+  internal static void PlayCardSound(string sound,Transform at) { }
   internal static void SuppressNextOffScenarioFanEdgeSound(bool open, float seconds = 2f) {
    if(open) SuppressedOpenEdges++; else SuppressedCloseEdges++;
   }
@@ -87,16 +99,23 @@ namespace GloomhavenVR.Cards {
   private void ClearHandSweep() { }
   private bool PlacedCardIsLocked(ItemChip chip)=>false;
   private void UpdateHandSweep() { }
+  internal void UnclipChip(ItemChip chip) { }
+  internal bool IsTransferring(ItemChip chip)=>false;
+  internal bool CompleteChipTransfer(ItemChip chip,Hands.VRHand from)=>false;
+  internal void RefreshFanLayout() { if(IsOpen) Relayout(); }
+  internal void OnChipReleased(ItemChip chip,Vector3 point,Hands.VRHand hand) { if(_inspectionRelease!=null){_inspectionCensusDirty=true;_inspectionRelease(chip,point);if(!IsOpen&&!chip.TownOffering)chip.BeginCollapse(_root!=null?_root.position:point);} }
   private void Relayout() { LayoutCalls++; ProductionRelayout(); }
   private void ClearChips() { foreach(var c in _chips) UnityEngine.Object.DestroyImmediate(c.gameObject); _chips.Clear(); }
-  internal partial class ItemChip : MonoBehaviour {
+  internal partial class ItemChip : GrabbableBehaviour {
    public enum Visual { Normal, Spent } public Visual State;
    public bool PendingUse, TownOffering; public Action? TownOfferingReclaimed;
    public void CancelReleaseGlide() { _releaseGlide=0f; }
    public void ResumeInspectionGlide() { _releaseGlide=.3f; }
    private Vector3 _homePos,_emergeFrom,_collapseWorld,_collapseFrom;
    private Quaternion _homeRot=Quaternion.identity,_emergeSpin,_collapseFromRot,_collapseSpin;
-   private float _homeScale=1f,_releaseGlide,_emergeTime,_emergeDelay,_collapseFromScale,_collapseTime,_collapseDelay;
+   private float _homeScale=1f,_releaseGlide,_emergeTime,_emergeDelay,_collapseFromScale,_collapseTime,_collapseDelay,_heldScale=1f,_pop;
+   private Vector3 _heldPos;
+   private const float ReleaseGlideSeconds=.35f;
    private bool _emerging,_collapsing,_fingerPopped,_laserPopped,_recessPopped;
    private BoxCollider? _box;
    private ItemCardUI? _cardUI;
@@ -115,7 +134,7 @@ namespace GloomhavenVR.Cards {
    public void AdvanceEmerge(float dt) { TickEmerge(dt,_homePos,_homeScale); }
 
    private Hands.VRHand? _suppressedForHand=null,_suppressedForHand2=null;
-   private ItemsPile? _owner; public ScenarioRuleLibrary.CItem? Item; public ItemsPile? Owner { get=>_owner; set=>_owner=value; } public Hands.VRHand? Holder; public bool IsCollapsing=>_collapsing;
+   private ItemsPile? _owner; public ScenarioRuleLibrary.CItem? Item; public ItemsPile? Owner { get=>_owner; set=>_owner=value; } public bool IsCollapsing=>_collapsing;
    public static bool NewArtReady=true;
    public ItemCardUI? NativeItemCard; public Transform InspectionMount => transform; public Transform? InspectionBody;
    public static ItemChip Create(ItemsPile owner, Transform parent, ScenarioRuleLibrary.CItem item) {
@@ -126,6 +145,8 @@ namespace GloomhavenVR.Cards {
    }
    public void SetArtReady(bool ready) { _cardUI!.cardBackground.sprite=ready?Sprite.Create(Texture2D.whiteTexture,new Rect(0,0,1,1),Vector2.one*.5f):null; }
    public void Release(Vector3 p) { Holder = null; Owner!._inspectionCensusDirty = true; Owner._inspectionRelease!(this,p); }
+   protected override HeldPose GetHeldPose(Hands.VRHand hand)=>new(new Vector3(.02f,.03f,.06f),Quaternion.Euler(5f,12f,3f),CardsConfig.InspectScale.Value);
+   public float HomeScale=>_homeScale;
   }
  }
 }

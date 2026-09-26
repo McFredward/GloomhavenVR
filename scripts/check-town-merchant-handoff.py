@@ -60,8 +60,21 @@ def sources(root):
         "internal void PrepareInspectionReturn(Transform fanRoot)",
         "internal void BeginCollapse(Vector3 worldConverge, float delay = 0f, float spinSign = 1f)",
         "private void TickEmerge(float dt, Vector3 posTarget, float scaleTarget)",
-        "private static float EaseOutBack(float t, float s)"])
-    bound["ActualItemLifecycle.cs"] = "using UnityEngine;using UnityEngine.UI;using GloomhavenVR.Core;using GloomhavenVR.WorldUI; namespace GloomhavenVR.Cards { internal sealed partial class ItemsPile { " + layout + " internal partial class ItemChip { " + lifecycle + " } } }"
+        "private static float EaseOutBack(float t, float s)",
+        "public override void OnGrab(VRHand hand)",
+        "public override void OnRelease(VRHand hand, Vector3 velocity)"])
+    # Bind the exact production return-glide and terminal settle branches without importing the
+    # unrelated 200-line item Update state machine. This keeps the regression test sensitive to
+    # both the animated approach and the final canonical pose write.
+    return_start = pile.index("            else if (_releaseGlide > 0f)")
+    return_end_marker = "                transform.localRotation = _homeRot;\n            }"
+    return_end = pile.index(return_end_marker, return_start) + len(return_end_marker)
+    return_branch = pile[return_start:return_end].replace("            else if", "            if", 1)
+    lifecycle += ("\ninternal void AdvanceInspectionReturn(float udt) {\n"
+                  "            Vector3 posTarget = _homePos;\n"
+                  "            float scaleTarget = _homeScale;\n"
+                  + return_branch + "\n        }")
+    bound["ActualItemLifecycle.cs"] = "using UnityEngine;using UnityEngine.UI;using GloomhavenVR.Core;using GloomhavenVR.Hands;using GloomhavenVR.WorldUI; namespace GloomhavenVR.Cards { internal sealed partial class ItemsPile { " + layout + " internal partial class ItemChip { " + lifecycle + " } } }"
     hashes = {p: hashlib.sha256(s.encode()).hexdigest() for p, s in bound.items()}
     return bound, hashes
 
@@ -83,6 +96,7 @@ def mutations():
         ("reclaim-parent", "ItemsPile.Merchant.cs", "chip.transform.SetParent(_root, true);", "", "reclaimed merchant item records the item fan as its release parent"),
         ("reclaim-renderer-veil", "ItemsPile.Merchant.cs", "        WorldUI.CanvasConversion.ReleaseHiddenWindowVeilOwnership(chip.transform);\n", "", "reclaimed merchant item explicitly releases its former flat-window renderer veil"),
         ("return-renderer-veil", "ActualItemLifecycle.cs", "            CanvasConversion.ReleaseHiddenWindowVeilOwnership(transform);\n", "", "every free merchant return releases its former flat-window renderer veil before rendering"),
+        ("return-terminal-settle", "ActualItemLifecycle.cs", "                transform.localRotation = _homeRot;\n", "", "repeated art-ready merchant reclaim settles at the canonical fan position rotation and scale"),
         ("offering-size", "TownServiceMerchantHandoff.cs", "float worldWidth = TownServiceMerchantLayout.CardWidth * stationScale * 1.5f;", "float worldWidth = chip.FaceWidth * stationScale * 2.5f;", "owned and cabinet cards have one merchant-palm size"),
         ("inspection-edge-sound", "MapRoomHand.5.Merchant.cs", "if (_townInspectionFanWasOpen) CardsDriver.SuppressNextOffScenarioFanEdgeSound(open: false);", "", "merchant inspection silences exactly the automatic open fan close edge"),
         ("occupied-swap", "TownServiceMerchantHandoff.cs", "if (current != null && !replacing) return false;", "if (current != null) return false;", "second valid item atomically replaces merchant palm and returns old card to canonical fan"),

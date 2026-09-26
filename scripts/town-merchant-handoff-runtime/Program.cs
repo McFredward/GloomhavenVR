@@ -207,6 +207,7 @@ public static class InteractionProgram
   var fan=ItemsPile.CreateInspection((chip,point)=>{});
   fan.TickInspection(new[]{item},1);
   var chip=fan.InspectionChips[0];
+  Transform fanParent=chip.transform.parent;
   var merchantPalm=new GameObject("Merchant palm").transform;merchantPalm.SetParent(rigRoot,false);
   chip.transform.SetParent(merchantPalm,true);chip.TownOffering=true;
  fan.PrepareInspectionReclaim(chip);
@@ -226,7 +227,52 @@ public static class InteractionProgram
   chip.AdvanceEmerge(1f);
   Check(Quaternion.Angle(chip.transform.localRotation,chip.HomeRotation)<.1f,
       "returned item lands front-forward at the canonical fan rotation");
+  // Exercise the real production ItemChip grab/release methods repeatedly. The earlier assertions
+  // called ResumeInspection directly and therefore could not observe the base grabbable recording
+  // a merchant-palm parent or a held scale/rotation leaking into the next wrist-fan opening.
+  var anchor=new GameObject("Rotating grab anchor").transform;anchor.SetParent(rigRoot,false);
+  var hand=VRHands.Right!;hand.Rig.GrabAnchor=anchor;hand.Side=HandSide.Right;
+  int reclaimed=0;
+  for(int round=0;round<4;round++) {
+   chip.SetArtReady(true);
+   merchantPalm.localPosition=new Vector3(.14f+.03f*round,1.04f,.19f);
+   merchantPalm.localRotation=Quaternion.Euler(23f+11f*round,71f-9f*round,37f+7f*round);
+   chip.transform.SetParent(merchantPalm,false);
+   chip.transform.localPosition=new Vector3(.02f*round,.08f,-.03f);
+   chip.transform.localRotation=Quaternion.Euler(65f-3f*round,19f+17f*round,42f);
+   chip.transform.localScale=Vector3.one*(.42f+.07f*round);
+   chip.TownOffering=true;chip.TownOfferingReclaimed=()=>reclaimed++;
+   if(round==0) {
+    // The complete production wrist-close census is exercised in RunScale before this helper;
+    // carry that retained card through a close/reopen state into the real grab path here.
+    fan.IsOpen=false;Check(chip.TownOffering&&!chip.IsCollapsing,
+        "retained art-ready merchant card survives the closed-fan interval before reclaim");
+    fan.IsOpen=true;
+   }
+   anchor.localRotation=Quaternion.Euler(31f+round*13f,117f-round*8f,22f+round*19f);
+   chip.OnGrab(hand);
+   Check(ReferenceEquals(chip.Holder,hand)&&ReferenceEquals(chip.transform.parent,anchor)
+       &&reclaimed==round+1,"real merchant reclaim callback adopts the original card into the rotating hand once");
+   anchor.localRotation=Quaternion.Euler(74f-round*6f,33f+round*21f,91f-round*12f);
+   chip.OnRelease(hand,Vector3.zero);
+   for(int frame=0;frame<12;frame++)chip.AdvanceInspectionReturn(.05f);
+   Check(ReferenceEquals(chip.transform.parent,fanParent),
+       "repeated art-ready reclaim restores the canonical fan parent");
+   Check((chip.transform.localPosition-chip.Home).sqrMagnitude<.000001f
+       &&Quaternion.Angle(chip.transform.localRotation,chip.HomeRotation)<.01f
+       &&Mathf.Abs(chip.transform.localScale.x-chip.HomeScale)<.0001f,
+       "repeated art-ready merchant reclaim settles at the canonical fan position rotation and scale");
+  }
+  // Replacement/cancel returns do not pass through a grab. They must converge on the same terminal
+  // pose as the four reclaim/release rounds above while the original front is already available.
+  chip.transform.SetParent(merchantPalm,false);chip.transform.localRotation=Quaternion.Euler(81f,27f,63f);
+  chip.transform.localScale=Vector3.one*.57f;chip.TownOffering=false;fan.ResumeInspection(chip);
+  for(int frame=0;frame<12;frame++)chip.AdvanceInspectionReturn(.05f);
+  Check(Quaternion.Angle(chip.transform.localRotation,chip.HomeRotation)<.01f
+      &&Mathf.Abs(chip.transform.localScale.x-chip.HomeScale)<.0001f,
+      "art-ready replacement or cancellation return shares the canonical terminal pose");
   fan.DestroyInspection();UnityEngine.Object.DestroyImmediate(merchantPalm.gameObject);
+  UnityEngine.Object.DestroyImmediate(anchor.gameObject);
  }
  private sealed class InventoryProbe : IReadOnlyList<CItem> {
   public readonly List<CItem> Values = new(); public int Reads;
