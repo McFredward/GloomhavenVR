@@ -1,6 +1,6 @@
 # Planning index
 
-Updated 2026-09-26 for the NPC feature's build-567 hardware candidate and the
+Updated 2026-09-26 for the NPC feature's build-569 hardware candidate and the
 released 1.0.8 / build-556 integration. This directory holds internal
 engineering evidence, historical decisions and current status; it is not the player manual.
 
@@ -12,6 +12,8 @@ engineering evidence, historical decisions and current status; it is not the pla
 | [../CLAUDE.md](../CLAUDE.md) | Technical contracts retained across agent tools |
 | [TEST-PARALLELISM.md](TEST-PARALLELISM.md) | Parallel local/CI execution, coverage and measured timing |
 | [STATE.md](STATE.md) | Current build, validation and outstanding hardware checks |
+| [TOWN-569.md](TOWN-569.md) | Build-568 hardware evidence, merchant subwindows/card returns, moving-cloth contact, rendered poses, contextual voice and story silence |
+| [TOWN-568.md](TOWN-568.md) | Build-567 hardware evidence, temple continuity, native-window ownership and cabinet clearance |
 | [TOWN-567.md](TOWN-567.md) | Build-566 hardware evidence, resident UI-audio cause, wrist purse, particle blessing, production cloth and priestess anatomy |
 | [TOWN-566.md](TOWN-566.md) | Build-565 hardware evidence, automatic audio, temple entry cost, resident poses and cloth recovery |
 | [TOWN-565.md](TOWN-565.md) | Build-564 hardware evidence, repeat-visit temple ownership, physical cloth scale, native window audio and lamp grounding |

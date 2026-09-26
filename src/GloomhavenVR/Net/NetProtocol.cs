@@ -541,7 +541,20 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 568;
+    public const ushort ModBuild = 569;
+
+    // ModBuild 569 — ninth NPC hardware follow-up on the feature branch (FULL
+    // INSTALL). Immersive service controllers now reclaim already-detached native
+    // child windows, so the flat merchant item list cannot appear behind the physical
+    // resident. Merchant cards synchronously shed stale hidden-window renderer
+    // ownership and restore their canonical fan parent, pose and terminal rotation on
+    // every take-back. Cloth contact follows the already-simulated moving sheet instead
+    // of testing only its original rest surface. Production-bundle renders revise the
+    // priestess shoulder/elbow line and keep the merchant's relaxed thumbs outside his
+    // coat. Buy and sell prompts use distinct synchronized voice families; an
+    // unavailable priestess explains her covered bowl with one of five synchronized
+    // takes. Native story commitment is one central interaction boundary: every
+    // resident eases to neutral, drops its target and stops active or queued speech.
 
     // ModBuild 568 — eighth NPC hardware follow-up on the feature branch (FULL
     // INSTALL). The permanent temple resident alone owns the blessing particle

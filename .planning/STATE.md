@@ -2,16 +2,16 @@
 
 **Updated 2026-09-26: feature/immersive-town-services, version 1.1.0 hardware candidate.**
 The feature includes released 1.0.8 / ModBuild 556 and the subsequent 1.0.9
-version bookkeeping on `dev`. ModBuild 568 follows the build-567 videos, screenshot and Debug log
-with one donation-bound blessing owner, continuous priestess cover release, preclaimed immersive
-service controllers, ancestry-safe renderer veils and the merchant lantern back on its exterior
-cabinet bracket.
+version bookkeeping on `dev`. ModBuild 569 follows the build-568 screenshots and Debug log with
+subwindow-safe immersive service ownership, complete repeated merchant-card returns, cloth contact
+against the moving sheet, rendered resident-pose corrections, contextual resident speech and one
+central silent/non-reactive story-commitment boundary.
 ModBuild 560 introduced resident
 voices, shared merchant confirmation presentation, a visible temple donation
 target, cloth contact, cabinet detail and varied idle motion.
 Headset verification of the resulting presentation remains open. Historical NPC
 design: [research/TOWN-SERVICES-552.md](research/TOWN-SERVICES-552.md).
-Current evidence and implementation limits: [TOWN-568.md](TOWN-568.md).
+Current evidence and implementation limits: [TOWN-569.md](TOWN-569.md).
 The feature remains isolated from `dev`, and NPC work belongs on this branch.
 
 The file this replaces had gone 168 builds
@@ -26,6 +26,18 @@ change per build) → this file (where things stand and what is owed) → the bu
 ---
 
 ## 1. Position
+
+- **NPC feature / 1.1.0 / ModBuild 569 (hardware candidate):** the merchant now claims and
+  restores detached native child windows before generic modal conversion, keeping the item list
+  behind the physical resident hidden without bypassing native transaction callbacks. Reclaimed
+  item cards release stale renderer veils and independently restore fan parent, position, rotation
+  and scale across repeated grab/release, close/reopen and replacement/cancel paths. Cloth contact
+  follows the current simulated sheet rather than its former rest location. Production-bundle
+  renders verify revised priestess shoulder/elbow anatomy and merchant thumb clearance. Merchant
+  buy and sell prompts use their own synchronized voice families; the unavailable priestess has
+  five synchronized explanations. At the native point of no return every resident smoothly returns
+  to neutral, drops interaction and immediately silences active and queued speech for all peers.
+  Evidence and the headset checklist are in [TOWN-569.md](TOWN-569.md).
 
 - **NPC feature / 1.1.0 / ModBuild 568 (hardware candidate):** the permanent temple
   resident alone owns the blessing particle system, whose only live trigger is a later committed
