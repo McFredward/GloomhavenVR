@@ -108,6 +108,8 @@ public sealed class TownClothProbe : MonoBehaviour
         float actualReturnStepMax = 0f, actualReentryPopMax = 0f;
         float actualApproachRawDriftMax = 0f, actualContactStepMax = 0f;
         float productionVisibleContact = 0f, productionVisibleNull = 0f, productionDeadVisible = 0f;
+        float productionShortTouchPeak = 0f;
+        float productionContactEdgePeak = 0f;
         float productionNearReturn = 0f;
         float productionDeepHold = 0f, productionRestGateDeepHold = 0f;
         bool productionPathPass = false;
@@ -286,6 +288,52 @@ public sealed class TownClothProbe : MonoBehaviour
                     .First();
                 Vector3 target = contactRunner.transform.TransformPoint(sourceVertices[targetIndex]);
                 hand.HasPose = true;
+                // A fingertip reaches the hanging face and withdraws within six display
+                // frames. The old contact-edge re-zero erased exactly this brief response
+                // while the existing long sweep still passed.
+                for (int frame = 0; frame < 10; frame++)
+                {
+                    Vector3 away = target + contactStation.transform.forward * (.10f * 198f);
+                    tipObject.transform.position = away;
+                    palmObject.transform.position = away;
+                    contactProduction.TickAuthor(frame / 90f, 1f / 90f, true);
+                    yield return null;
+                }
+                // Let PhysX resolve a single fingertip touch before presentation
+                // samples the contact edge. This is the order in the headset when
+                // the tracked hand arrives between its simulation and UI ticks.
+                Vector3 edgeTouch = target - contactStation.transform.forward * (.01f * 198f);
+                tipObject.transform.position = edgeTouch;
+                palmObject.transform.position = edgeTouch;
+                yield return null;
+                contactProduction.TickAuthor(11f / 90f, 1f / 90f, true);
+                productionContactEdgePeak = VisibleMotion(contactRunner, contactRest, 198f);
+                tipObject.transform.position = target + contactStation.transform.forward * (198f * .10f);
+                palmObject.transform.position = tipObject.transform.position;
+                for (int frame = 0; frame < 60; frame++)
+                {
+                    contactProduction.TickAuthor((12f + frame) / 90f, 1f / 90f, true);
+                    yield return null;
+                }
+                for (int frame = 0; frame < 6; frame++)
+                {
+                    float depth = Mathf.Lerp(.06f, -.03f, frame / 5f) * 198f;
+                    Vector3 touch = target + contactStation.transform.forward * depth;
+                    tipObject.transform.position = touch;
+                    palmObject.transform.position = touch;
+                    contactProduction.TickAuthor((10f + frame) / 90f, 1f / 90f, true);
+                    yield return null;
+                    contactProduction.TickAuthor((11f + frame) / 90f, 1f / 90f, true);
+                    productionShortTouchPeak = Mathf.Max(productionShortTouchPeak,
+                        VisibleMotion(contactRunner, contactRest, 198f));
+                }
+                tipObject.transform.position = target + contactStation.transform.forward * (198f * .10f);
+                palmObject.transform.position = tipObject.transform.position;
+                for (int frame = 0; frame < 60; frame++)
+                {
+                    contactProduction.TickAuthor((17f + frame) / 90f, 1f / 90f, true);
+                    yield return null;
+                }
                 for (int frame = 0; frame < 120; frame++)
                 {
                     float sweep = Mathf.Lerp(-.13f, .13f, frame / 119f) * 198f;
@@ -395,7 +443,9 @@ public sealed class TownClothProbe : MonoBehaviour
                 }
                 deadProduction.TickAuthor(121f / 90f, 1f / 90f, true);
                 productionDeadVisible = VisibleMotion(deadRunner, deadRest, 198f);
-                productionPathPass = productionVisibleContact > .0025f
+                productionPathPass = productionContactEdgePeak > .002f
+                    && productionShortTouchPeak > .002f
+                    && productionVisibleContact > .0025f
                     && productionVisibleNull < .0005f
                     && productionDeadVisible < .0005f
                     && productionNearReturn < .0005f
@@ -450,6 +500,8 @@ public sealed class TownClothProbe : MonoBehaviour
             + " actual_longterm_max=" + actualLongTermMax.ToString("F5")
             + " production_visible_path=" + (productionPathPass ? "PASS" : "FAIL")
             + " production_visible_contact_m=" + productionVisibleContact.ToString("F5")
+            + " production_short_touch_peak_m=" + productionShortTouchPeak.ToString("F5")
+            + " production_contact_edge_peak_m=" + productionContactEdgePeak.ToString("F5")
             + " production_visible_null_m=" + productionVisibleNull.ToString("F5")
             + " production_near_only_return_m=" + productionNearReturn.ToString("F5")
             + " production_deep_hold_m=" + productionDeepHold.ToString("F5")

@@ -42,7 +42,8 @@ def source_contract(source):
                                                and 'ProbeWithin(runner, probe' in source
                                                and 'DistanceSquaredToSegment(surface[i], localA, localB)' in source
                                                and 'runner.DeformationWeight = contact ? 1f' in source
-                                               and 'if (runner.DeformationWeight <= 0f) runner.CaptureOrigin = true;' in source
+                                               and 'if (runner.CaptureOrigin && runner.ContactSurface.Length == runner.EpisodeOrigin.Length)' in source
+                                               and 'Array.Copy(runner.ContactSurface, runner.EpisodeOrigin' in source
                                                and source.count('AddComponent<Cloth>()') == 1),
         'real local fingertips': ('VRHands.Left.Rig.IndexTip.position' in source
                                   and 'VRHands.Right.Rig.IndexTip.position' in source
@@ -91,8 +92,8 @@ def validate_source():
                                       'runner.DeformationWeight = false ? 1f'),
         'attenuated-contact-physics': ('runner.DeformationWeight = contact ? 1f',
             'runner.DeformationWeight = Mathf.MoveTowards(runner.DeformationWeight, contact ? 1f'),
-        'repeat-contact-zero': ('if (runner.DeformationWeight <= 0f) runner.CaptureOrigin = true;',
-                                'runner.CaptureOrigin = true;'),
+        'short-touch-origin': ('if (runner.CaptureOrigin && runner.ContactSurface.Length == runner.EpisodeOrigin.Length)',
+                               'if (runner.DeformationWeight <= 0f) runner.CaptureOrigin = true;'),
         'fingertip': ('VRHands.Left.Rig.IndexTip.position', 'VRHands.Left.Rig.PalmCenter.forward'),
         'rest-surface-gate': ('Vector3[] surface = runner.ContactSurface',
                               'Vector3[] surface = runner.DriverRest'),

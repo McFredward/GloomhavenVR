@@ -680,10 +680,15 @@ internal sealed class TownServiceCloth : IDisposable
         }
         if (contact && !runner.Contacting)
         {
-            // A second touch can begin without leaving the wider preparation margin. The prior
-            // episode has already faded completely, so take one new zero here; never refresh it
-            // every non-contact frame or the collider response itself becomes invisible again.
-            if (runner.DeformationWeight <= 0f) runner.CaptureOrigin = true;
+            // Keep the snapshot taken on approach. Re-zeroing on the first contact
+            // frame hid the only physical displacement produced by a brief fingertip
+            // touch. If a fast hand crossed both proximity thresholds in one tick,
+            // use the previous solver snapshot, before this frame's collision step.
+            if (runner.CaptureOrigin && runner.ContactSurface.Length == runner.EpisodeOrigin.Length)
+            {
+                Array.Copy(runner.ContactSurface, runner.EpisodeOrigin, runner.EpisodeOrigin.Length);
+                runner.CaptureOrigin = false;
+            }
             runner.Cloth.externalAcceleration = Physics.gravity * runner.StationUnitInDriver;
         }
         runner.Contacting = contact;
@@ -696,8 +701,17 @@ internal sealed class TownServiceCloth : IDisposable
         // was attenuated before it reached the rendered sheet. Draw native displacement
         // at full weight for every genuine collision; retain only the gradual, gravity-
         // driven release after the probe leaves.
+        float previousWeight = runner.DeformationWeight;
         runner.DeformationWeight = contact ? 1f : Mathf.MoveTowards(runner.DeformationWeight, 0f,
             Mathf.Max(0f, dt) / .48f);
+        if (!contact && previousWeight > 0f && runner.DeformationWeight <= 0f
+            && runner.ContactSurface.Length == runner.EpisodeOrigin.Length)
+        {
+            // A second touch can begin without leaving the preparation margin.
+            // Capture the settled solver only once, after the visible release is
+            // complete, so the next short touch is visible from its first frame.
+            Array.Copy(runner.ContactSurface, runner.EpisodeOrigin, runner.EpisodeOrigin.Length);
+        }
         if (!near && runner.Interactive && runner.DeformationWeight <= 0f)
         {
             // The visible delta has returned exactly to the authored drape. Pin the
