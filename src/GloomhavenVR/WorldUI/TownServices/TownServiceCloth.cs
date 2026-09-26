@@ -47,6 +47,11 @@ internal sealed class TownServiceCloth : IDisposable
         internal float[] Side = Array.Empty<float>();
         internal int[] VisibleDriverVertex = Array.Empty<int>();
         internal Vector3[] DriverRest = Array.Empty<Vector3>();
+        // Last PhysX surface sampled by Render. Contact has to follow this surface,
+        // not the authored zero: once a fingertip has pushed the runner a few
+        // centimetres, testing against DriverRest declares that same fingertip
+        // "gone" and fades the visible deformation while it is still touching.
+        internal Vector3[] ContactSurface = Array.Empty<Vector3>();
         internal Vector3[] EpisodeOrigin = Array.Empty<Vector3>();
         internal float[] DriverFreedom = Array.Empty<float>();
         internal float[] DriverSide = Array.Empty<float>();
@@ -68,6 +73,7 @@ internal sealed class TownServiceCloth : IDisposable
         internal bool CaptureOrigin;
         internal bool DebugNear;
         internal bool DebugContact;
+        internal bool DebugReady;
     }
 
     private struct DriverMap
@@ -206,6 +212,7 @@ internal sealed class TownServiceCloth : IDisposable
                 _station.TransformPoint(stationPoint));
         }
         Array.Copy(runner.DriverRest, runner.EpisodeOrigin, runner.DriverRest.Length);
+        runner.ContactSurface = runner.DriverRest;
         var triangles = new int[(DriverRows - 1) * (DriverColumns - 1) * 6];
         int triangle = 0;
         for (int row = 0; row < DriverRows - 1; row++)
@@ -546,13 +553,15 @@ internal sealed class TownServiceCloth : IDisposable
     private void UpdateHands()
     {
         int at = 0;
-        float scale = VRRigDriver.RigRoot != null
+        float sharedScale = VRRigDriver.RigRoot != null
             ? Mathf.Max(.0001f, Mathf.Abs(VRRigDriver.RigRoot.lossyScale.x))
             : Mathf.Max(.0001f, VRRigDriver.BaseWorldScale);
         if (VRHands.Left?.HasPose == true && at < _hands.Length)
-            Place(_hands[at++], VRHands.Left.Rig.PalmCenter.position, VRHands.Left.Rig.IndexTip.position, scale);
+            Place(_hands[at++], VRHands.Left.Rig.PalmCenter.position, VRHands.Left.Rig.IndexTip.position,
+                Mathf.Max(.0001f, VRHands.Left.WorldScale));
         if (VRHands.Right?.HasPose == true && at < _hands.Length)
-            Place(_hands[at++], VRHands.Right.Rig.PalmCenter.position, VRHands.Right.Rig.IndexTip.position, scale);
+            Place(_hands[at++], VRHands.Right.Rig.PalmCenter.position, VRHands.Right.Rig.IndexTip.position,
+                Mathf.Max(.0001f, VRHands.Right.WorldScale));
 
         _peers.Clear();
         NetAvatarDriver.CollectTownFacePeers(_peers);
@@ -561,19 +570,19 @@ internal sealed class TownServiceCloth : IDisposable
             if (at >= _hands.Length) break;
             if (!NetAvatarDriver.TryGetTownClothHandProbes(peer, out Vector3 left, out Vector3 leftDirection,
                     out Vector3 right, out Vector3 rightDirection, out bool leftValid, out bool rightValid)) continue;
-            if (leftValid && at < _hands.Length) PlaceDirection(_hands[at++], left, leftDirection, scale);
-            if (rightValid && at < _hands.Length) PlaceDirection(_hands[at++], right, rightDirection, scale);
+            if (leftValid && at < _hands.Length) PlaceDirection(_hands[at++], left, leftDirection, sharedScale);
+            if (rightValid && at < _hands.Length) PlaceDirection(_hands[at++], right, rightDirection, sharedScale);
         }
         while (at < _hands.Length) Park(_hands[at++]);
 
         int headAt = 0;
         if (VRRigDriver.HeadCamera != null)
-            PlaceHead(_heads[headAt++], VRRigDriver.HeadCamera.transform.position, scale);
+            PlaceHead(_heads[headAt++], VRRigDriver.HeadCamera.transform.position, sharedScale);
         foreach (int peer in _peers)
         {
             if (headAt >= _heads.Length) break;
             if (NetAvatarDriver.TryGetTownFaceHead(peer, out Vector3 head))
-                PlaceHead(_heads[headAt++], head, scale);
+                PlaceHead(_heads[headAt++], head, sharedScale);
         }
         while (headAt < _heads.Length) Park(_heads[headAt++]);
     }
@@ -617,9 +626,11 @@ internal sealed class TownServiceCloth : IDisposable
         float localLimit = limit / driverScale;
         float limitSquared = localLimit * localLimit;
         float best = float.MaxValue;
-        for (int i = 0; i < runner.DriverRest.Length; i++)
+        Vector3[] surface = runner.ContactSurface.Length == runner.DriverRest.Length
+            ? runner.ContactSurface : runner.DriverRest;
+        for (int i = 0; i < surface.Length; i++)
         {
-            float distance = DistanceSquaredToSegment(runner.DriverRest[i], localA, localB);
+            float distance = DistanceSquaredToSegment(surface[i], localA, localB);
             if (distance < best) best = distance;
             if (distance <= limitSquared)
             {
@@ -725,6 +736,17 @@ internal sealed class TownServiceCloth : IDisposable
         {
             if (!visible) continue;
             FollowSource(runner);
+            if (VRLog.WantsDebug && !runner.DebugReady)
+            {
+                runner.DebugReady = true;
+                VRLog.Debug("TownServices", "Town cloth production probes ready: service=" + _service
+                    + " runner='" + runner.Filter.name + "' localLeft=" + (VRHands.Left?.HasPose == true)
+                    + " localRight=" + (VRHands.Right?.HasPose == true)
+                    + " rigScale=" + (VRRigDriver.RigRoot != null
+                        ? VRRigDriver.RigRoot.lossyScale.x.ToString("F2") : "none")
+                    + " driverEnabled=" + runner.Cloth.enabled
+                    + " physicalParticles=" + runner.ContactSurface.Length + ".");
+            }
             RestoreAfterContact(runner, dt);
             TownClothRunnerState previous = runner.State;
             TownClothRunnerState measured = Render(runner, default, false);
@@ -789,6 +811,10 @@ internal sealed class TownServiceCloth : IDisposable
         // solver snapshot for rendering, owner measurement and peer correction.
         Vector3[] simulated = runner.Cloth.vertices;
         if (simulated.Length != runner.DriverRest.Length) return runner.State;
+        // Keep the next frame's contact gate on the same physical sheet that is
+        // shown now. This costs no extra Cloth.vertices pull or allocation: the
+        // render/replication snapshot is already the sole PhysX read per frame.
+        runner.ContactSurface = simulated;
         if (runner.CaptureOrigin)
         {
             Array.Copy(simulated, runner.EpisodeOrigin, simulated.Length);

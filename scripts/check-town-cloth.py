@@ -11,7 +11,8 @@ ROOT = Path(__file__).resolve().parents[1]
 
 def source_contract(source):
     checks = {
-        'both local hands': 'VRHands.Left?.HasPose' in source and 'VRHands.Right?.HasPose' in source,
+        'both local hands': ('if (VRHands.Left?.HasPose == true' in source
+                             and 'if (VRHands.Right?.HasPose == true' in source),
         'six remote hands': 'MaximumPeerHands = 6' in source and 'TryGetTownClothHandProbes' in source,
         'local head mask': 'VRRigDriver.HeadCamera' in source and 'PlaceHead(_heads[headAt++]' in source,
         'three remote heads': 'MaximumHeads = 4' in source and 'TryGetTownFaceHead' in source,
@@ -39,12 +40,17 @@ def source_contract(source):
                                                and 'AnyProbeWithin(runner, .16f, out' in source
                                                and 'AnyProbeWithin(runner, .018f, out' in source
                                                and 'ProbeWithin(runner, probe' in source
-                                               and 'DistanceSquaredToSegment(runner.DriverRest[i], localA, localB)' in source
+                                               and 'DistanceSquaredToSegment(surface[i], localA, localB)' in source
                                                and 'contact ? 1f : 0f' in source
                                                and 'if (runner.DeformationWeight <= 0f) runner.CaptureOrigin = true;' in source
                                                and source.count('AddComponent<Cloth>()') == 1),
         'real local fingertips': ('VRHands.Left.Rig.IndexTip.position' in source
-                                  and 'VRHands.Right.Rig.IndexTip.position' in source),
+                                  and 'VRHands.Right.Rig.IndexTip.position' in source
+                                  and 'VRHands.Left.WorldScale' in source
+                                  and 'VRHands.Right.WorldScale' in source),
+        'contact follows physical surface': ('runner.ContactSurface = simulated;' in source
+                                             and 'Vector3[] surface = runner.ContactSurface' in source
+                                             and 'DistanceSquaredToSegment(surface[i], localA, localB)' in source),
     }
     missing = [name for name, present in checks.items() if not present]
     if missing:
@@ -57,7 +63,7 @@ def validate_source():
     figure_cloth = (ROOT / 'src/GloomhavenVR/Board/FigureGrab/FigureCloth.cs').read_text()
     assert 'next[v].maxDistance = m >= float.MaxValue ? m : m * factor;' in figure_cloth
     mutations = {
-        'local-hand': ('VRHands.Left?.HasPose', 'VRHands.Left == null'),
+        'local-hand': ('if (VRHands.Left?.HasPose == true', 'if (VRHands.Left == null'),
         'remote-hand': ('TryGetTownClothHandProbes', 'DisabledRemoteHandProbe'),
         'head-mask': ('TryGetTownFaceHead', 'DisabledRemoteHeadProbe'),
         'table': ('const int samples = DriverColumns', 'const int samples = 0'),
@@ -79,12 +85,14 @@ def validate_source():
                               'SetFreedom(runner, 0f); runner.Cloth = runner.DriverRoot.AddComponent<Cloth>();'),
         'proximity-is-contact': ('AnyProbeWithin(runner, .018f, out',
                                  'AnyProbeWithin(runner, .16f, out'),
-        'point-aabb-contact': ('DistanceSquaredToSegment(runner.DriverRest[i], localA, localB)',
+        'point-aabb-contact': ('DistanceSquaredToSegment(surface[i], localA, localB)',
                                'broadphase.SqrDistance(a)'),
         'invisible-contact-physics': ('contact ? 1f : 0f', 'false ? 1f : 0f'),
         'repeat-contact-zero': ('if (runner.DeformationWeight <= 0f) runner.CaptureOrigin = true;',
                                 'runner.CaptureOrigin = true;'),
         'fingertip': ('VRHands.Left.Rig.IndexTip.position', 'VRHands.Left.Rig.PalmCenter.forward'),
+        'rest-surface-gate': ('Vector3[] surface = runner.ContactSurface',
+                              'Vector3[] surface = runner.DriverRest'),
     }
     for name, (before, after) in mutations.items():
         changed = source.replace(before, after, 1)
@@ -122,6 +130,12 @@ def main():
     dead_visible = production.replace('TownServiceCloth', 'TownServiceClothDead')
     dead_visible = dead_visible.replace('contact ? 1f : 0f', 'false ? 1f : 0f', 1)
     (project / 'Assets/TownServiceClothDead.cs').write_text(dead_visible)
+    rest_gate = production.replace('TownServiceCloth', 'TownServiceClothRestGate')
+    rest_gate = rest_gate.replace(
+        'Vector3[] surface = runner.ContactSurface.Length == runner.DriverRest.Length\n'
+        '            ? runner.ContactSurface : runner.DriverRest;',
+        'Vector3[] surface = runner.DriverRest;', 1)
+    (project / 'Assets/TownServiceClothRestGate.cs').write_text(rest_gate)
     (project / 'Packages/manifest.json').write_text(
         '{"dependencies":{"com.unity.modules.assetbundle":"1.0.0","com.unity.modules.cloth":"1.0.0","com.unity.modules.physics":"1.0.0"}}')
     (project / 'ProjectSettings/ProjectVersion.txt').write_text('m_EditorVersion: 2021.3.5f1\n')

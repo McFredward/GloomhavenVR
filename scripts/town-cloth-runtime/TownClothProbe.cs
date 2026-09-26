@@ -109,6 +109,7 @@ public sealed class TownClothProbe : MonoBehaviour
         float actualApproachRawDriftMax = 0f, actualContactStepMax = 0f;
         float productionVisibleContact = 0f, productionVisibleNull = 0f, productionDeadVisible = 0f;
         float productionNearReturn = 0f;
+        float productionDeepHold = 0f, productionRestGateDeepHold = 0f;
         bool productionPathPass = false;
         bool actualReturnMonotone = true;
         int actualRunners = 0;
@@ -246,7 +247,8 @@ public sealed class TownClothProbe : MonoBehaviour
             TownServiceCloth nullProduction = null;
             TownServiceCloth contactProduction = null;
             TownServiceClothDead deadProduction = null;
-            GameObject nullStation = null, contactStation = null, deadStation = null;
+            TownServiceClothRestGate restGateProduction = null;
+            GameObject nullStation = null, contactStation = null, deadStation = null, restGateStation = null;
             try
             {
                 nullStation = Instantiate(priestessPrefab);
@@ -267,7 +269,8 @@ public sealed class TownClothProbe : MonoBehaviour
 
                 contactStation = Instantiate(priestessPrefab);
                 contactStation.name = "production-contact-station";
-                contactStation.transform.SetPositionAndRotation(new Vector3(3200f, 0f, 1200f), Quaternion.identity);
+                contactStation.transform.SetPositionAndRotation(new Vector3(3200f, 0f, 1200f),
+                    Quaternion.Euler(0f, 37f, 0f));
                 contactStation.transform.localScale = Vector3.one * 198f;
                 MeshFilter contactRunner = contactStation.GetComponentsInChildren<MeshFilter>(true)
                     .First(f => f.name.StartsWith("ClothRunner_", StringComparison.Ordinal));
@@ -305,6 +308,63 @@ public sealed class TownClothProbe : MonoBehaviour
                 }
                 productionNearReturn = VisibleMotion(contactRunner, contactRest, 198f);
 
+                // Push through the resting plane, then hold. The headset gesture does not keep a
+                // hand on the authored zero: the cloth surface travels with the hand. The released
+                // Build 568 gate measured the hand against DriverRest, declared contact lost once
+                // the push passed one collider radius, and faded the visible solver response away
+                // while PhysX was still touching it. Exercise a rotated production station as well
+                // as the sustained hold which the old lateral sweep never covered.
+                for (int frame = 0; frame < 90; frame++)
+                {
+                    float push = Mathf.Lerp(-.08f, .065f, frame / 89f) * 198f;
+                    Vector3 handPoint = target + contactStation.transform.forward * push;
+                    tipObject.transform.position = handPoint;
+                    palmObject.transform.position = handPoint;
+                    contactProduction.TickAuthor((190f + frame) / 90f, 1f / 90f, true);
+                    yield return null;
+                }
+                for (int frame = 0; frame < 72; frame++)
+                {
+                    contactProduction.TickAuthor((280f + frame) / 90f, 1f / 90f, true);
+                    yield return null;
+                }
+                productionDeepHold = VisibleMotion(contactRunner, contactRest, 198f);
+
+                restGateStation = Instantiate(priestessPrefab);
+                restGateStation.name = "production-rest-gate-negative-control";
+                restGateStation.transform.SetPositionAndRotation(new Vector3(4600f, 0f, 1200f),
+                    Quaternion.Euler(0f, 37f, 0f));
+                restGateStation.transform.localScale = Vector3.one * 198f;
+                MeshFilter restGateRunner = restGateStation.GetComponentsInChildren<MeshFilter>(true)
+                    .First(f => f.name.StartsWith("ClothRunner_", StringComparison.Ordinal));
+                restGateProduction = new TownServiceClothRestGate(restGateStation.transform, 2);
+                restGateProduction.SetVisible(true);
+                Vector3[] restGateRest = restGateRunner.mesh.vertices;
+                Vector3[] restGateSource = restGateRunner.mesh.vertices;
+                int restGateTargetIndex = Enumerable.Range(0, restGateSource.Length)
+                    .OrderBy(i => restGateStation.transform.InverseTransformPoint(
+                        restGateRunner.transform.TransformPoint(restGateSource[i])).y)
+                    .ThenBy(i => Mathf.Abs(restGateStation.transform.InverseTransformPoint(
+                        restGateRunner.transform.TransformPoint(restGateSource[i])).x))
+                    .First();
+                Vector3 restGateTarget = restGateRunner.transform.TransformPoint(
+                    restGateSource[restGateTargetIndex]);
+                for (int frame = 0; frame < 90; frame++)
+                {
+                    float push = Mathf.Lerp(-.08f, .065f, frame / 89f) * 198f;
+                    Vector3 handPoint = restGateTarget + restGateStation.transform.forward * push;
+                    tipObject.transform.position = handPoint;
+                    palmObject.transform.position = handPoint;
+                    restGateProduction.TickAuthor(frame / 90f, 1f / 90f, true);
+                    yield return null;
+                }
+                for (int frame = 0; frame < 72; frame++)
+                {
+                    restGateProduction.TickAuthor((90f + frame) / 90f, 1f / 90f, true);
+                    yield return null;
+                }
+                productionRestGateDeepHold = VisibleMotion(restGateRunner, restGateRest, 198f);
+
                 // In-player negative control: the Build 566 visual gate over the same production
                 // class keeps PhysX alive but suppresses every visible vertex. If this control ever
                 // produces the same result as production, the instrument no longer observes the
@@ -339,13 +399,19 @@ public sealed class TownClothProbe : MonoBehaviour
                     && productionVisibleNull < .0005f
                     && productionDeadVisible < .0005f
                     && productionNearReturn < .0005f
+                    && productionDeepHold > .008f
+                    && productionRestGateDeepHold < productionDeepHold * .35f
                     && productionVisibleContact > productionVisibleNull + .002f
                     && productionVisibleContact > productionDeadVisible + .002f;
             }
             finally
             {
                 hand.HasPose = false; VRHands.Left = VRHands.Right = null;
-                deadProduction?.Dispose(); contactProduction?.Dispose(); nullProduction?.Dispose();
+                restGateProduction?.Dispose();
+                deadProduction?.Dispose();
+                contactProduction?.Dispose();
+                nullProduction?.Dispose();
+                if (restGateStation != null) Destroy(restGateStation);
                 if (deadStation != null) Destroy(deadStation);
                 if (contactStation != null) Destroy(contactStation);
                 if (nullStation != null) Destroy(nullStation);
@@ -386,6 +452,8 @@ public sealed class TownClothProbe : MonoBehaviour
             + " production_visible_contact_m=" + productionVisibleContact.ToString("F5")
             + " production_visible_null_m=" + productionVisibleNull.ToString("F5")
             + " production_near_only_return_m=" + productionNearReturn.ToString("F5")
+            + " production_deep_hold_m=" + productionDeepHold.ToString("F5")
+            + " production_rest_gate_deep_hold_m=" + productionRestGateDeepHold.ToString("F5")
             + " production_dead_visible_control_m=" + productionDeadVisible.ToString("F5");
         UnityEngine.Debug.Log("[TOWN-CLOTH] " + line);
         string result = Argument("--result=");
