@@ -4,7 +4,8 @@
 The feature includes released 1.0.8 / ModBuild 556 and the subsequent 1.0.9
 version bookkeeping on `dev`. ModBuild 572 follows the build-571 videos, screenshots and Debug log
 with visible merchant cloth contact and replication, joined cabinet hardware, a corrected
-priestess cover path, first-approach enchantress preview and eligible handoff haptics.
+priestess cover path, first-approach enchantress preview, eligible handoff haptics and
+asynchronous town-art loading before the first map.
 ModBuild 560 introduced resident
 voices, shared merchant confirmation presentation, a visible temple donation
 target, cloth contact, cabinet detail and varied idle motion.
@@ -31,7 +32,9 @@ change per build) → this file (where things stand and what is owed) → the bu
   category controls and lantern mount align with the rebuilt shell. The priestess keeps her
   arms uncrossed while covering the bowl and blends into and out of that pose. The enchantress
   previews an opening handoff on first approach; valid merchant, enchantress and temple offers
-  give stronger visual and bounded haptic feedback near their release volumes. Source-grounded
+  give stronger visual and bounded haptic feedback near their release volumes. Town art preloads
+  asynchronously while the menu is open, avoiding the synchronous first-prefab bundle load;
+  the remaining station construction cost awaits headset measurement. Source-grounded
   evidence and headset checks are in [TOWN-572.md](TOWN-572.md).
 
 - **NPC feature / 1.1.0 / ModBuild 571 (hardware candidate):** a brief real cloth contact

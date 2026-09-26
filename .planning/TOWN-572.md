@@ -8,6 +8,10 @@ misaligned legs. The enchantress image and log show an outstretched hand without
 overlay on first approach: native opening was still pending for roughly 220 ms. These are
 hardware observations of build 571, not proof of how build 572 will look in a headset.
 
+The same log records a 5.11-second first map frame, including 4.26 seconds inside
+`TownServicePopulation`. The first resident prefab access reached a synchronous town-bundle
+load. This is one startup stall, not evidence of a progressive leak.
+
 ## Corrections
 
 - The merchant's hanging side cloth is now an actual native Unity cloth surface with a
@@ -26,6 +30,9 @@ hardware observations of build 571, not proof of how build 572 will look in a he
   held item approaches, with a bounded hover pulse and an inner-volume snap pulse on the
   owning controller. Ineligible items do not trigger acceptance feedback. Existing resident
   visual replication carries the owner's presentation to the other players.
+- Town-bundle loading and direct resident dependencies start asynchronously during UI setup.
+  A native station whose assets are still loading is retried rather than permanently marked
+  failed. The ordinary native service remains the fallback if the optional bundle is absent.
 
 The ordinary UI and NPC voice contracts are unchanged. The merchant cloth uses the six bytes
 remaining in the resident snapshot budget; the legacy snapshot is still accepted. Build 572
@@ -38,9 +45,12 @@ the bundle remains below the Git transport limit for a regular file.
   from the integrated prefab and copied to `prebuilt/ghvr-town.bundle`.
 - Source, codec, resident, offer and activity checks exercise first approach, both controller
   releases, eligible-only haptics, shared visual presentation, priestess arm contacts and
-  wire-size limits. The native Unity cabinet checker renders the front, side, underside and
-  rear geometry. The native cloth checker presses the side panel and measures displacement
-  and return. Exact final integrated check counts are recorded with the test run.
+  wire-size limits. The native Unity cabinet checker passed 951,601 assertions and nine
+  visual negative controls, rendering the front, side, underside and rear geometry. The
+  shipping Windows bundle is 104,453,773 bytes (SHA-256
+  `ab5c1aca10d03ad6e3552f3d89382721a6bc6281618a19ebb6e035991920349c`). The native
+  cloth checker pressed its actual merchant panel and measured 0.10424 m peak visible motion
+  and 0.00000 m residual motion after settling.
 
 ## Headset checklist
 
@@ -53,3 +63,6 @@ the bundle remains below the Git transport limit for a regular file.
 4. On the first enchantress approach, watch the overlay move from neutral preview to an
    actionable card target. Bring a valid and an invalid card near her hand. Check border,
    scale and controller pulse, then repeat at merchant hand and priestess bowl.
+5. Enter the map both after lingering in the main menu and immediately after launch. Check
+   whether the former first-map pause is reduced and whether all three residents appear once
+   their optional art finishes loading. A missing bundle must leave the original windows usable.
