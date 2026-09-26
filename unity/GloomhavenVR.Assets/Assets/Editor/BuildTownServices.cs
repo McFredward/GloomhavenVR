@@ -35,9 +35,12 @@ namespace GloomhavenVR
             importer.textureType = normal ? TextureImporterType.NormalMap : TextureImporterType.Default;
             importer.sRGBTexture = !linear;
             importer.alphaIsTransparency = false;
-            // Face and costume albedo retain 4K texel density. Costume micro-normal and
-            // metallic masks use smaller mip ceilings to keep the self-contained bundle bounded.
-            var maxSize = Path.GetFileName(path) == "hands545_albedo.png" ? 2048 :
+            // Keep authored source maps intact. Runtime mip ceilings reflect the current
+            // ordinary-Git artifact limit; they are not an art-quality requirement.
+            var maxSize = path.StartsWith(Root + "/Furniture/Textures/merchant_cabinet_", StringComparison.Ordinal)
+                ? (Path.GetFileName(path).Contains("albedo") ? 2048 : 512) :
+                path.StartsWith(Root + "/Furniture/Textures/merchant_hardware_", StringComparison.Ordinal) ? 512 :
+                Path.GetFileName(path) == "hands545_albedo.png" ? 2048 :
                 path.StartsWith(Root + "/Textures/", StringComparison.Ordinal) ? 1024 :
                 Path.GetFileName(path).StartsWith("body_", StringComparison.Ordinal) && linear ? (normal ? 2048 : 1024) : 4096;
             importer.maxTextureSize = maxSize;
@@ -310,6 +313,13 @@ namespace GloomhavenVR
 
         public static void RefreshMerchantCabinet()
         {
+            RebuildMerchantCabinet(true);
+            Debug.Log("TOWN_MERCHANT_CABINET_REFRESH_OK");
+            if (Application.isBatchMode) EditorApplication.Exit(0);
+        }
+
+        static void RebuildMerchantCabinet(bool force = false)
+        {
             // The actor rig is unchanged while iterating on this physical booth.
             // Rebuild only its cabinet presentation and original card anchors.
             ConfigureMerchantMaterials();
@@ -317,6 +327,8 @@ namespace GloomhavenVR
             var root = PrefabUtility.LoadPrefabContents(path);
             try
             {
+                if (!force && root.GetComponentsInChildren<Transform>(true)
+                    .Any(part => part.name == "CarvedCabinetShell")) return;
                 var old = root.transform.Find("Counter");
                 if (old != null) UnityEngine.Object.DestroyImmediate(old.gameObject);
                 BuildStation(root, "merchant");
@@ -325,8 +337,6 @@ namespace GloomhavenVR
             }
             finally { PrefabUtility.UnloadPrefabContents(root); }
             AssetDatabase.SaveAssets();
-            Debug.Log("TOWN_MERCHANT_CABINET_REFRESH_OK");
-            if (Application.isBatchMode) EditorApplication.Exit(0);
         }
 
         static void BuildWorkTray()
@@ -717,6 +727,9 @@ namespace GloomhavenVR
         {
             try
             {
+                // Prepare cabinet materials. Rebuild only older prefabs that lack
+                // the authored shell so repeated bundle builds stay deterministic.
+                RebuildMerchantCabinet();
                 RefreshFixedDetail();
                 // Prefab dependencies include the referenced meshes, clips, materials and textures.
                 // Do not expose the FBX import roots (duplicate actors with default materials).

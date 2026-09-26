@@ -705,12 +705,43 @@ public static partial class MirrorProgram
         Check(Remote(2) == null, "delta waits for its missing baseline");
         Receive(2, new[] { Baselines[10] });
         TownServiceMirror.TickRemote(_ => observer);
-        // Bound convergence by playback opportunities rather than editor wall
-        // time. Under parallel llvmpipe suites, a single frame can exceed 130 ms
-        // and the old clock loop never gave the newly received baseline a retry.
-        for (int playback = 0; playback < 12 && Remote(2) == null; playback++)
-        { TownServiceMirror.TickRemote(_ => observer); yield return null; }
-        Check(Remote(2) != null, "late matching baseline creates pending owner module");
+        // Allow both the interaction claim's 120 ms and a playback opportunity.
+        // A fixed number of frames can finish before that clock has elapsed, while
+        // one overloaded llvmpipe frame can exceed the old 130 ms-only deadline.
+        // Continue the owner's manifest heartbeat so the session stays live.
+        byte[] manifestPacket = baseline.Find(packet => TownServiceCodec.TryRead(packet, packet.Length,
+            out TownServiceFrame? frame) && frame!.Module == TownServiceFrame.ManifestModule)!;
+        Check(TownServiceCodec.TryRead(manifestPacket, manifestPacket.Length, out TownServiceFrame? heartbeat),
+            "late baseline has a matching owner manifest");
+        float convergenceStarted = Time.unscaledTime;
+        float convergenceDeadline = convergenceStarted + .3f;
+        // Batch-mode editor updates may advance the game clock by less than a
+        // millisecond. The clock, not an arbitrary frame count, defines the lease.
+        for (int playback = 0; playback < 10000 && Remote(2) == null; playback++)
+        {
+            heartbeat!.Sequence++;
+            Receive(2, new[] { TownServiceCodec.Write(heartbeat) });
+            TownServiceMirror.TickRemote(_ => observer);
+            if (Time.unscaledTime >= convergenceDeadline && playback >= 2) break;
+            yield return null;
+        }
+        if (Remote(2) == null)
+        {
+            TownServiceSessionInfo session = TownServiceMirror.PublicSessions[2];
+            var pending = (IDictionary)typeof(TownServiceMirror).GetField("Pending", PrivateStatic)!.GetValue(null)!;
+            var received = (IDictionary)typeof(TownServiceMirror).GetField("ReceivedBaselines", PrivateStatic)!.GetValue(null)!;
+            int pendingCount = pending.Contains(2) ? ((IDictionary)pending[2]!).Count : -1;
+            int baselineCount = received.Contains(2) ? ((IDictionary)received[2]!).Count : -1;
+            var leases = (Array)typeof(TownServiceMirror).GetField("InteractionLeases", PrivateStatic)!.GetValue(null)!;
+            object lease = leases.GetValue(1)!;
+            float pendingSince = (float)lease.GetType().GetField("PendingSince", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(lease)!;
+            throw new InvalidOperationException("late matching baseline creates pending owner module: "
+                + $"active={session.Active} owner={TownServiceMirror.InteractionOwner(1)} "
+                + $"age={Time.unscaledTime - session.LastSeenTime:F3} pending={pendingCount} "
+                + $"baselines={baselineCount} modules={String.Join(",", session.Modules)} "
+                + $"session={session.Session} heartbeat={heartbeat!.Sequence} "
+                + $"elapsed={Time.unscaledTime - convergenceStarted:F3} pendingFor={Time.unscaledTime - pendingSince:F3}");
+        }
         Check(Remote(2)!.Root.Find("Name").GetComponent<TMP_Text>().text == _text.text, "late baseline expands the newer pending delta");
         ComparePixels(source, Remote(2)!.Root, "late-baseline");
         TownServiceMirror.RemovePeer(2);
