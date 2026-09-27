@@ -51,6 +51,13 @@ the bundle remains below the Git transport limit for a regular file.
   `ab5c1aca10d03ad6e3552f3d89382721a6bc6281618a19ebb6e035991920349c`). The native
   cloth checker pressed its actual merchant panel and measured 0.10424 m peak visible motion
   and 0.00000 m residual motion after settling.
+- The integrated refactor guard completed all 14 source gates, 80/80 local suites (539.3 s),
+  286,578 wire assertions, both bundle-format checks and the config/log/patch surface check.
+  Its final decompiled-form comparison exited 1 because the linked baseline still points to
+  dev commit `080c505e9`: 129 changed types and 213 added/removed types include the NPC
+  feature itself. This is an expected feature-branch difference, not a failed test. The
+  integration diff against `origin/feature/immersive-town-services` is confined to town
+  services, their tests/assets/build number and this build note.
 
 ## Headset checklist
 
