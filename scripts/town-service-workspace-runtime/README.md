@@ -18,7 +18,9 @@ and the original-mesh scene audit (`scripts/check-town-scene-layout.py`):
 
 - Merchant resident: cabinet X -1.64..-.44, Z -.09...72 m, and separate ledger lectern
   X -.36...36, Z -.08...52 m.
-- Church/enchantress furniture: X -.88...88, Z -.44...50 m.
+- Church/enchantress furniture: X -.88...88, Z -.454...50 m. The enchantress's
+  free cloth edge reaches Z -.45203 m; the 1.97 mm remaining reservation margin
+  prevents an authored fabric vertex from silently escaping the workspace audit.
 - Enchantress rear lantern: X -.88..-.48, Z .28...96 m. Each visitor reserves this larger
   union so changing between church and enhancement never invalidates another reservation.
 - Every resident also reserves the actor X -.60...60, Z .30..1.20 m.

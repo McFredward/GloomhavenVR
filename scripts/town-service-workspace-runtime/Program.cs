@@ -52,7 +52,9 @@ public static class InteractionProgram
     // centimetres of clearance surround each real component in the reservation SAT test.
     private static readonly Vector4 Cabinet = new(-1.64f, -.44f, -.09f, .72f);
     private static readonly Vector4 Lectern = new(-.36f, .36f, -.08f, .52f);
-    private static readonly Vector4 Worktop = new(-.88f, .88f, -.44f, .50f);
+    // The current enchantress runner reaches Z=-.45203 m at its free lower
+    // edge; retain two millimetres of authored clearance in this reservation.
+    private static readonly Vector4 Worktop = new(-.88f, .88f, -.454f, .50f);
     private static readonly Vector4 Lantern = new(-.88f, -.48f, .28f, .96f);
     private static readonly Vector4 RightLantern = new(.48f, .88f, .28f, .96f);
     private static readonly Vector4 Actor = new(-.60f, .60f, .30f, 1.20f);
