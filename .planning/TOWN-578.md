@@ -43,7 +43,7 @@ The focused enchantress Unity fixture passed 1,197 runtime assertions and
 errors. The priestess and merchant imported-rig production suite passed
 628,564 assertions; all 47 active negative controls were demonstrated,
 including a corrected control that previously masked the prayer transition.
-The integrated feature checks run after merging the independent changes.
+The integrated checks include both independent changes.
 Automated geometry and screenshots cannot prove the
 headset appearance or controller interaction. The next headset test must
 check the priestess transition at normal speed, both resting merchant hands,
@@ -51,3 +51,13 @@ empty-card laser stopping, selection and physical input on each enhancement
 area, and the full aura throughout its pulse and card rotation. The creator
 edge, wall-visibility toggle and both overhead-bar scaling modes also require
 headset confirmation.
+
+The final integrated run passed all 14 source gates and 80/80 runtime suites,
+including `town-residents` after its test fixture stopped assuming the former
+0.70-second transition. The wire tests passed 286,578 assertions; the three
+Unity bundles passed format validation; the strict Release build finished with
+zero warnings and errors; and the English/German documentation check passed.
+The refactor guard's compiled-form comparison returns 1 because its available
+baseline predates the NPC feature: it reports 130 changed and 218 added/removed
+types. Its source, runtime, wire, bundle and surface gates passed without a
+removed setting, patch registration or log marker.
