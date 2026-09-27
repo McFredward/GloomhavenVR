@@ -24,7 +24,7 @@ public class ShopService {
 }
 public class Singleton<T> { public static T? Instance; }
 public enum EGuildmasterMode { None, Merchant, Enchantress }
-public class UIWindow : MonoBehaviour { public bool IsOpen; }
+public class UIWindow : MonoBehaviour { public bool IsOpen, IsVisible; public void Hide() { IsOpen=false; IsVisible=false; } }
 public class ItemCardUI : MonoBehaviour { public UnityEngine.UI.Image cardBackground=null!; }
 public class ObjectPool : MonoBehaviour {
  public enum ECardType { Item }
@@ -56,8 +56,12 @@ public class UIShopItemInventory { public ShopService? service; public MapRuleLi
 public class UIShopItemWindow : MonoBehaviour { public UIShopItemInventory ItemInventory = new(); }
 public class UIGuildmasterHUD { public UIShopItemWindow shopWindow = null!; }
 public class UIItemConfirmationBox {
- public bool IsActive; public UnityEngine.UI.Button confirmButton=null!; public Action? _onConfirmedCallback; public Action? OnCancelled; public int Cancels;
- public void OnCancel() { Cancels++; OnCancelled?.Invoke(); IsActive = false; _onConfirmedCallback = null; }
+ public bool IsActive; public UnityEngine.UI.Button confirmButton=null!; public Action? _onConfirmedCallback, _onCancelCallback; public Action? OnCancelled; public int Cancels;
+ public readonly UIWindow Window = new GameObject("Native Item Confirmation",typeof(UIWindow)).GetComponent<UIWindow>();
+ public T GetComponent<T>() where T:class => (T)(object)Window;
+ public void NativeHide() { IsActive = false; Window.Hide(); }
+ public void Hide() { NativeHide(); }
+ public void OnCancel() { Cancels++; NativeHide(); _onCancelCallback?.Invoke(); OnCancelled?.Invoke(); _onConfirmedCallback = null; }
 }
 namespace GloomhavenVR.Core {
  public static class Loc { public static string Mod(string s) => s; }
@@ -209,11 +213,16 @@ namespace GloomhavenVR.WorldUI {
  internal sealed class TownServiceToken { public void ParkOffering(Transform seat,Action reclaim) {} public void ReturnOffering() {} }
  internal static class TownServicePalmConfirmation { internal static void Begin(UIItemConfirmationBox box, Transform seat) {} }
  internal static class TownServiceMerchantTransaction {
-  public static int Requests; public static ScenarioRuleLibrary.CItem? LastItem; public static bool LastSelling;
+  public static int Requests, CommitFailures; public static ScenarioRuleLibrary.CItem? LastItem; public static bool LastSelling;
   public static bool Commit(UIShopItemInventory inventory, ScenarioRuleLibrary.CItem item, bool selling, Func<bool> current) {
-   if(!current()) return false; Requests++; LastItem=item; LastSelling=selling;
-   Singleton<UIItemConfirmationBox>.Instance!.IsActive = true;
-   Singleton<UIItemConfirmationBox>.Instance!._onConfirmedCallback = ()=>{}; return true;
+   if(!current()) return false;
+   if(CommitFailures>0) { CommitFailures--; return false; }
+   Requests++; LastItem=item; LastSelling=selling;
+   var box=Singleton<UIItemConfirmationBox>.Instance!;
+   box.IsActive=true; box.Window.IsOpen=box.Window.IsVisible=true; box._onConfirmedCallback=()=>{}; box._onCancelCallback=()=>{};
+   box.confirmButton.onClick.RemoveAllListeners();
+   box.confirmButton.onClick.AddListener(()=>{ box._onConfirmedCallback?.Invoke(); box.NativeHide(); });
+   return true;
   }
  }
  public static class TownServiceMerchantZone {

@@ -27,7 +27,7 @@ internal static class TownServiceMerchantHandoff
     private static ItemsPile? _fan;
     private static readonly List<CItem> Items = new();
     private static uint _itemRevision;
-    private static float _nextItems, _started, _pendingUntil;
+    private static float _nextItems, _started, _pendingUntil, _nextCommitAt;
     private static bool _near, _resetting;
     private static CItem? _pending;
     private static bool _selling;
@@ -36,6 +36,8 @@ internal static class TownServiceMerchantHandoff
     private static int _tradeBaseline;
     private static float _tradeUntil;
     private static bool _tradePressed;
+    private static bool _decisionConfirmed, _decisionCancelled;
+    private static int _decisionRetries;
     private static UIItemConfirmationBox? _tradeBox;
     private static UnityAction? _tradeListener;
     private static uint _pendingSession;
@@ -253,23 +255,25 @@ internal static class TownServiceMerchantHandoff
         }
         _pending = item; _selling = selling; _pendingSession = Session;
         _pendingUntil = Time.unscaledTime + 3f;
+        _nextCommitAt = 0f; _decisionRetries = 0;
         return true;
     }
     private static void TickPending()
     {
         if (_pending == null) return;
         if (!PendingCurrent() || Time.unscaledTime > _pendingUntil) { _pending = null; ReleaseOffering(); return; }
+        if (Time.unscaledTime < _nextCommitAt) return;
         UIShopItemWindow? window = Singleton<UIGuildmasterHUD>.Instance?.shopWindow;
         if (window == null || !window.GetComponent<UIWindow>().IsOpen) return;
         UIShopItemInventory inventory = window.ItemInventory;
         if (inventory == null || inventory.service == null || !ReferenceEquals(inventory.character, _character)) return;
         CItem item = _pending;
         bool opened = TownServiceMerchantTransaction.Commit(inventory, item, _selling, PendingCurrent);
-        _pending = null;
         if (opened)
         {
+            _pending = null;
             UIItemConfirmationBox? box = Singleton<UIItemConfirmationBox>.Instance;
-            _ourConfirmation = box?._onConfirmedCallback;
+            OwnConfirmation(box);
             if (box != null && _seat != null) TownServicePalmConfirmation.Begin(box, _seat);
             _tradeItem = item; _tradeSelling = _selling;
             _tradeBaseline = ItemCount(_character, item);
@@ -287,7 +291,36 @@ internal static class TownServiceMerchantHandoff
             TownServiceVoice.RequestReaction(1,
                 _selling ? TownVoiceReaction.MerchantSell : TownVoiceReaction.MerchantBuy);
         }
-        else ReleaseOffering();
+        else
+        {
+            // Build 572 stock-to-owned swap: the old prompt is already retired when the
+            // native sell tab is rebuilt. A temporary row, input or window transition
+            // refusal must not throw away the new physical card in that same frame.
+            // Keep the one pending decision until the bounded offer deadline; Commit
+            // rechecks native stock, ownership and the exact selectable on each attempt.
+            _nextCommitAt = Time.unscaledTime + .2f;
+        }
+    }
+    private static void OwnConfirmation(UIItemConfirmationBox? box)
+    {
+        _ourConfirmation = null;
+        _decisionConfirmed = _decisionCancelled = false;
+        if (box == null || box._onConfirmedCallback == null) return;
+        Action nativeConfirm = box._onConfirmedCallback;
+        Action? nativeCancel = box._onCancelCallback;
+        Action owned = null!;
+        owned = () =>
+        {
+            if (ReferenceEquals(_ourConfirmation, owned)) _decisionConfirmed = true;
+            nativeConfirm();
+        };
+        box._onConfirmedCallback = owned;
+        box._onCancelCallback = () =>
+        {
+            if (ReferenceEquals(_ourConfirmation, owned)) _decisionCancelled = true;
+            nativeCancel?.Invoke();
+        };
+        _ourConfirmation = owned;
     }
     private static void RetainStock(TownServiceToken token)
     {
@@ -300,9 +333,41 @@ internal static class TownServiceMerchantHandoff
     {
         if (_pending != null || _ourConfirmation == null) return;
         UIItemConfirmationBox? confirmation = Singleton<UIItemConfirmationBox>.Instance;
+        UIWindow? nativeWindow = confirmation?.GetComponent<UIWindow>();
         if (confirmation != null && confirmation.IsActive
-            && ReferenceEquals(confirmation._onConfirmedCallback, _ourConfirmation)) return;
+            && ReferenceEquals(confirmation._onConfirmedCallback, _ourConfirmation))
+        {
+            if (nativeWindow != null && (nativeWindow.IsOpen || nativeWindow.IsVisible)) return;
+            // UIWindowManager.Escape and other native owners can call UIWindow.Hide
+            // directly. That leaves UIItemConfirmationBox.IsActive true forever,
+            // although its underlying window has closed. The old IsActive-only
+            // check retained this decision and blocked the next offer. Reconcile
+            // the wrapper once the hide animation finishes, then treat the direct
+            // close as cancellation. The build-572 log shows the second native
+            // window closing; it does not identify which Hide caller did it.
+            confirmation.Hide();
+            _decisionCancelled = true;
+        }
+        if (confirmation != null && !confirmation.IsActive
+            && nativeWindow?.IsVisible == true) return;
+        // Native inventory RefreshView calls UIItemConfirmationBox.Hide without a
+        // confirm or cancel callback. Retry only that still-owned card, at most
+        // twice. Explicit native cancellation and confirmation never reopen it.
+        if (!_decisionConfirmed && !_decisionCancelled && _tradeItem != null
+            && _decisionRetries < 2 && PendingCurrent()
+            && (confirmation == null || !confirmation.IsActive))
+        {
+            _pending = _tradeItem; _selling = _tradeSelling; _pendingSession = Session;
+            _pendingUntil = Time.unscaledTime + 3f;
+            _nextCommitAt = Time.unscaledTime + .2f;
+            _tradeItem = null; _ourConfirmation = null; _decisionRetries++;
+            DetachTradeListener();
+            Core.VRLog.Warn("TownServices", "Merchant confirmation closed without a native decision; retrying the retained offer ("
+                + _decisionRetries + "/2).");
+            return;
+        }
         _ourConfirmation = null;
+        if (!_decisionConfirmed) _tradeItem = null;
         DetachTradeListener();
         ReleaseOffering();
     }
@@ -339,7 +404,7 @@ internal static class TownServiceMerchantHandoff
     private static void Reclaim()
     {
         Action? callback = _ourConfirmation; _ourConfirmation = null; _pending = null;
-        _tradeItem = null; DetachTradeListener();
+        _tradeItem = null; _decisionConfirmed = _decisionCancelled = false; DetachTradeListener();
         // Withdraw the display before the native cancellation can reenter teardown. A card
         // already adopted by a hand is never reparented or flown out of that hand.
         ReleaseOffering();
@@ -352,6 +417,7 @@ internal static class TownServiceMerchantHandoff
     {
         Action? callback = _ourConfirmation;
         _ourConfirmation = null; _pending = null; _tradeItem = null;
+        _decisionConfirmed = _decisionCancelled = false;
         DetachTradeListener();
         ReleaseOffering();
         UIItemConfirmationBox? confirmation = Singleton<UIItemConfirmationBox>.Instance;
@@ -392,7 +458,8 @@ internal static class TownServiceMerchantHandoff
         ReleaseOffering();
         ItemsPile? fan = _fan; _fan = null;
         Transform? seat = _seat; _seat = _zone = null; _zoneGate = null; _caption = null; _feedback = null;
-        _pending = null; _tradeItem = null; DetachTradeListener(); _eligibilityItem = null; Items.Clear(); _character = null;
+        _pending = null; _tradeItem = null; _decisionConfirmed = _decisionCancelled = false;
+        _decisionRetries = 0; DetachTradeListener(); _eligibilityItem = null; Items.Clear(); _character = null;
         try
         {
             UIItemConfirmationBox? confirmation = Singleton<UIItemConfirmationBox>.Instance;

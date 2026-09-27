@@ -60,6 +60,8 @@ def sources(root):
 
 def mutations():
     return [
+        ("raised-category-wheel", "TownServiceCatalogCategory.cs", "}, -.048f, .118f); Root.localPosition", "}, -.034f, .118f); Root.localPosition", "all six category buttons start in their measured sculpt sockets"),
+        ("offset-category-wheel", "TownServiceCatalogCategory.cs", "0 => -1.214f, 1 => -1.108f, 2 => -.999f", "0 => -1.25f, 1 => -1.13f, 2 => -1.01f", "all six category buttons start in their measured sculpt sockets"),
         ("observer-ghost-collider", "TownServiceCatalog.cs", "if (observer && !TownServicePublicMerchant.CanClaim)", "if (observer && TownServicePublicMerchant.CanClaim)", "observer has no invisible local card collider before the public author's rack arrives"),
         ("fbx-grip-wall", "TownServiceMerchantDrawer.cs", "GripPadding(handle.localScale, .025f)", "Vector3.one * .025f", "FBX-scale crank grip has no invisible cabinet-sized laser wall"),
         ("imported-collider-wall", "TownServiceMerchantDrawer.cs", "foreach (Collider collider in _housing.GetComponentsInChildren<Collider>(true)) collider.enabled = false;", "", "imported cabinet decoration is never an invisible input wall"),

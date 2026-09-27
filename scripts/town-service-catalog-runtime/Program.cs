@@ -364,6 +364,15 @@ public static class InteractionProgram
         object context=new object();bool alive=true;
         ShopService.Source=inventory.service;
         var catalog=new TownServiceCatalog(inventory,anchor.transform,()=>context,()=>alive,anchor.transform,persistent:true);
+        float[] socketX={-1.214f,-1.108f,-.999f,-.883f,-.776f,-.672f};
+        for(int category=0;category<catalog.Categories.Count;category++)
+        {
+            Vector3 seat=catalog.Categories[category].Root.localPosition;
+            Check(Mathf.Abs(seat.x-socketX[category])<.0001f
+                &&Mathf.Abs(seat.y+.048f)<.0001f
+                &&Mathf.Abs(seat.z-.118f)<.0001f,
+                "all six category buttons start in their measured sculpt sockets");
+        }
         catalog.SetVisibility(1f);Census(catalog);catalog.Tick(1f);
         TownServicePublicMerchant.ClaimAvailable=false;
         catalog.SetObserver(true);
@@ -376,6 +385,9 @@ public static class InteractionProgram
         Check(catalog.Controls.Count==0,"no flat filter or page buttons");
         Check(ObjectPool.Alive==164,"one physical original card per persistent entry");
         Check(catalog.Drawers.Count==1&&catalog.Categories.Count==6,"one crank and six physical category buttons share one cabinet");
+        foreach(var category in catalog.Categories)
+            Check(Mathf.Abs(category.Root.localPosition.y+.048f)<.0001f,
+                "category selection animation keeps every wheel at socket height");
         var crankPick=catalog.Drawers[0].Root.Find("Handle").GetComponent<BoxCollider>();
         Physics.SyncTransforms();
         foreach(var imported in catalog.Drawers[0].HousingRoot.GetComponentsInChildren<Collider>(true))

@@ -119,7 +119,7 @@ public static class InteractionProgram
   Check(TownServiceVoice.Sells==1&&TownServiceVoice.Buys==0&&TownServiceVoice.Offers==0,
       "merchant chooses the seller voice family when a sale confirmation opens");
   Check(ReferenceEquals(TownServiceMerchantTransaction.LastItem,first.Item),"sale preserves item copy identity");
-  Check(Singleton<UIItemConfirmationBox>.Instance!.IsActive,"final native confirmation remains visibly pending");
+  Check(Singleton<UIItemConfirmationBox>.Instance!.IsActive,"final native confirmation remains visibly pending (window="+Singleton<UIItemConfirmationBox>.Instance.Window.IsOpen+", visible="+Singleton<UIItemConfirmationBox>.Instance.Window.IsVisible+")");
   Check(TownServiceMerchantHandoff.WantsOffering && TownServiceMerchantHandoff.CanReclaim(first),"exact pending card keeps palm and can be reclaimed");
   Check(first.AllowsHand(VRHands.Left)&&first.AllowsHand(VRHands.Right),"parked owned item bypasses wrist fan election for both hands");
   first.Holder=VRHands.Left; first.TownOffering=false;
@@ -160,6 +160,7 @@ public static class InteractionProgram
   Check(CardsDriver.SuppressedCloseEdges==1 && CardsDriver.SuppressedOpenEdges==1,
       "merchant departure silences exactly the matching automatic fan reopen edge");
   Check(Singleton<UIItemConfirmationBox>.Instance.Cancels==cancelsBeforeLeaving+1,"leaving cancels own unconfirmed sale");
+  Singleton<UIItemConfirmationBox>.Instance.OnCancelled=null;
   Check(ItemsPile.InspectionCurrent==null,"leaving clears laser owner");
   GuildmasterDestinations.Mode=EGuildmasterMode.None; TownServicePopulation.Station.Near=true;
   FFSNet.FFSNetwork.IsOnline=true; character.IsUnderMyControl=false; TownServiceMerchantHandoff.Tick();
@@ -172,15 +173,63 @@ public static class InteractionProgram
   var stock=new CItem{ID=99}; AdventureState.MapState.MapParty.Stock.Add(stock); window.ItemInventory.character=replacement;
   Check(TownServiceMerchantHandoff.Offer(stock,false,palm.position),"cabinet release requests native buy");
   TownServiceMerchantHandoff.Tick(); Check(!TownServiceMerchantTransaction.LastSelling,"stock release dispatches buy confirmation");
-  Check(TownServiceVoice.Offers==0 && TownServiceVoice.Buys==1,
+  var ownedReplacement=TownServiceMerchantHandoff.OwnedChips[0];
+  int stockCancels=Singleton<UIItemConfirmationBox>.Instance!.Cancels;
+  ownedReplacement.Release(palm.position);
+  Check(Singleton<UIItemConfirmationBox>.Instance.Cancels==stockCancels+1
+      &&ownedReplacement.TownOffering,
+      "stock-to-owned swap cancels only the previous buy and parks the exact sale card");
+  int beforeRetry=TownServiceMerchantTransaction.Requests;
+  TownServiceMerchantTransaction.CommitFailures=1;
+  TownServiceMerchantHandoff.Tick();
+  Check(ownedReplacement.TownOffering&&TownServiceMerchantHandoff.WantsOffering
+      &&TownServiceMerchantTransaction.Requests==beforeRetry,
+      "temporary native row refusal retains the replacement card and palm overlay");
+  typeof(TownServiceMerchantHandoff).GetField("_nextCommitAt",System.Reflection.BindingFlags.NonPublic|System.Reflection.BindingFlags.Static)!.SetValue(null,0f);
+  TownServiceMerchantHandoff.Tick();
+  Check(TownServiceMerchantTransaction.Requests==beforeRetry+1
+      &&TownServiceMerchantTransaction.LastSelling
+      &&ReferenceEquals(TownServiceMerchantTransaction.LastItem,ownedReplacement.Item),
+      "stock-to-owned swap opens the exact native sale after a temporary refusal");
+  Singleton<UIItemConfirmationBox>.Instance.NativeHide(); TownServiceMerchantHandoff.Tick();
+  Check(ownedReplacement.TownOffering&&TownServiceMerchantHandoff.WantsOffering,
+      "native hide without cancel or confirm requeues the retained merchant offer");
+  typeof(TownServiceMerchantHandoff).GetField("_nextCommitAt",System.Reflection.BindingFlags.NonPublic|System.Reflection.BindingFlags.Static)!.SetValue(null,0f);
+  TownServiceMerchantHandoff.Tick();
+  Check(Singleton<UIItemConfirmationBox>.Instance.IsActive
+      &&TownServiceMerchantTransaction.Requests==beforeRetry+2,
+      "lost native prompt is restored once without losing the sale card");
+  Singleton<UIItemConfirmationBox>.Instance.OnCancel(); TownServiceMerchantHandoff.Tick();
+  Check(!ownedReplacement.TownOffering&&!TownServiceMerchantHandoff.WantsOffering,
+      "explicit native cancellation returns the card and never reopens its prompt");
+  Check(TownServiceMerchantHandoff.Offer(stock,false,palm.position),"stock remains offerable after cancelled replacement");
+  TownServiceMerchantHandoff.Tick();
+  Check(Singleton<UIItemConfirmationBox>.Instance.IsActive&&!TownServiceMerchantTransaction.LastSelling,
+      "cancelled stock-to-owned swap leaves a usable merchant buy path");
+  Singleton<UIItemConfirmationBox>.Instance.Window.Hide(); TownServiceMerchantHandoff.Tick();
+  Check(!Singleton<UIItemConfirmationBox>.Instance.IsActive
+      &&TownServiceMerchantHandoff.CanOffer(stock,false),
+      "direct native UIWindow close reconciles its stale active flag and permits the same item again");
+  Check(TownServiceMerchantHandoff.Offer(stock,false,palm.position),
+      "direct close leaves the merchant usable without leaving and reapproaching");
+  TownServiceMerchantHandoff.Tick();
+  Check(Singleton<UIItemConfirmationBox>.Instance.IsActive&&!TownServiceMerchantTransaction.LastSelling,
+      "reoffering after a direct close opens the original native buy confirmation");
+  Check(TownServiceVoice.Offers==0 && TownServiceVoice.Buys==3,
       "merchant chooses the buyer voice family when a purchase confirmation opens");
+  int requestsBeforeConfirm=TownServiceMerchantTransaction.Requests;
   Singleton<UIItemConfirmationBox>.Instance.confirmButton.onClick.Invoke();
+  TownServiceMerchantHandoff.Tick();
+  Check(TownServiceMerchantTransaction.Requests==requestsBeforeConfirm
+      &&!Singleton<UIItemConfirmationBox>.Instance.IsActive
+      &&typeof(TownServiceMerchantHandoff).GetField("_pending",System.Reflection.BindingFlags.NonPublic|System.Reflection.BindingFlags.Static)!.GetValue(null)==null,
+      "explicit native confirmation never reopens the pending purchase");
   ItemsPile.ItemChip.NewArtReady=false;
   replacement.AllCharacterItems.Add(stock);
   Singleton<UIItemConfirmationBox>.Instance.IsActive=false;
   typeof(TownServiceMerchantHandoff).GetField("_nextItems",System.Reflection.BindingFlags.NonPublic|System.Reflection.BindingFlags.Static)!.SetValue(null,0f);
   TownServiceMerchantHandoff.Tick();
-  Check(TownServiceVoice.Buys==1,"confirmed native inventory change does not repeat the purchase prompt voice");
+  Check(TownServiceVoice.Buys==3,"confirmed native inventory change does not repeat the purchase prompt voice");
   ItemsPile.ItemChip? purchased=null;
   foreach(var chip in TownServiceMerchantHandoff.OwnedChips)if(ReferenceEquals(chip.Item,stock)){purchased=chip;break;}
   Check(purchased!=null,"purchased item joins the owned inspection census");
