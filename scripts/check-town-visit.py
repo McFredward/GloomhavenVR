@@ -39,8 +39,9 @@ def main():
     (out / "source-hashes.json").write_text(json.dumps({str(paths[name].relative_to(repo)): hashlib.sha256(text.encode()).hexdigest() for name, text in originals.items()}, indent=2))
     ray = re.search(r"        float resident = WorldUI\.TownServiceVisitTarget\.OccludingDistance\(origin, direction, maxDistance\);\n.*?\n        SolidOccluderIsBoard = .*?;", originals["RayInteractor.cs"], re.S)
     ui = re.search(r"        Canvas\? solidOccluded = null;\n.*?\n        }", originals["RayUguiDriver.cs"], re.S)
+    physics = re.search(r"        // Physics occlusion: something solid in front of the panel blocks the laser\.\n        if \(best != null.*?\n            best = null;", originals["RayUguiDriver.cs"], re.S)
     epsilon = re.search(r"private const float OcclusionEpsilonMeters = .*?;", originals["RayUguiDriver.cs"])
-    if ray is None or ui is None or epsilon is None:
+    if ray is None or ui is None or physics is None or epsilon is None:
         raise RuntimeError("Early ray/uGUI integration changed: review the explicit source bindings")
     source = {name: originals[name] for name in ("TownServiceVisitTarget.cs", "LaserPointerPolicy.cs", "VisibleUiSurface.cs", "TownServicePhysicalRay.cs")}
     source["EarlyPointer.cs"] = """using UnityEngine;
@@ -52,8 +53,13 @@ internal sealed partial class RayInteractor {
 }
 internal static class BoundUiArbitration {
  """ + epsilon.group() + """
- internal static Canvas? Pick(VRHand _hand, Canvas? best, float bestDist, bool offeredCardInFront) {
+ private readonly struct PhysicalHit { internal readonly bool HasHit; internal readonly float HitDistance;
+  internal PhysicalHit(bool hit, float distance) { HasHit=hit; HitDistance=distance; } }
+ internal static Canvas? Pick(VRHand _hand, Canvas? best, float bestDist, bool offeredCardInFront,
+     bool physicalHit=false, float physicalDistance=float.PositiveInfinity) {
  float scale = _hand.WorldScale;
+ var pick = new PhysicalHit(physicalHit, physicalDistance);
+""" + physics.group() + """
 """ + ui.group() + """
  return best;
  }
@@ -68,7 +74,8 @@ internal static class BoundUiArbitration {
         ("phantom-canvas", "VisibleUiSurface.cs", "if (ContainsOwn(canvas, screen, camera)) return true;", "if (canvas != null) return true;", "transparent character frame does not clamp beam"),
         ("hidden-alpha", "VisibleUiSurface.cs", "graphic.color.a * graphic.canvasRenderer.GetAlpha() * graphic.canvasRenderer.GetInheritedAlpha() < .01f", "false", "transparent native hit image does not invent a surface"),
         ("decorative-ignored", "VisibleUiSurface.cs", "if (graphic.Raycast(screen, camera)) return true;", "if (graphic.raycastTarget && graphic.Raycast(screen, camera)) return true;", "visible decorative paper still occludes background UI"),
-        ("native-area-occluded", "EarlyPointer.cs", "if (best != null && !offeredCardInFront", "if (best != null", "the exact offered-card area survives its own physical-card occluder"),
+        ("native-area-occluded", "EarlyPointer.cs", "if (best != null && !offeredCardInFront\n            && _hand.Ray.SolidOccluderDistance", "if (best != null\n            && _hand.Ray.SolidOccluderDistance", "the exact offered-card area survives its own physical-card occluder"),
+        ("native-area-physics-occluded", "EarlyPointer.cs", "if (best != null && !offeredCardInFront\n            && pick.HasHit", "if (best != null\n            && pick.HasHit", "the exact offered-card area survives its own nearest physics hit"),
     ]
     manifest = {"result": str(out / "results.txt"), "cases": []}
     unity = Path(os.environ.get("UNITY_EDITOR", "/home/claw/unity-2021.3.5/Editor/Unity"))

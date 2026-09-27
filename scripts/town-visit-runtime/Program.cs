@@ -60,6 +60,11 @@ public static class InteractionProgram
             "ordinary solid object still blocks native UI behind it");
         Check(ReferenceEquals(BoundUiArbitration.Pick(hand, canvas, 1f, true), canvas),
             "the exact offered-card area survives its own physical-card occluder");
+        hand.Ray.SolidOccluderDistance = float.PositiveInfinity;
+        Check(BoundUiArbitration.Pick(hand, canvas, 1f, false, true, .5f) == null,
+            "nearest ordinary physics hit still blocks native UI behind it");
+        Check(ReferenceEquals(BoundUiArbitration.Pick(hand, canvas, 1f, true, true, .5f), canvas),
+            "the exact offered-card area survives its own nearest physics hit");
         Object.DestroyImmediate(go);
     }
     private static void OfferingPickup()
