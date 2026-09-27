@@ -110,7 +110,8 @@ internal static class Program
         TownServiceMirror.TempleTransitionAge=.14f;Tick(.01f);
         TownActivityPose donationState=TownServicePopulation.PublishedActivities.Temple;
         var donationExpected=TownServiceActivityMotion.Visual(2,in donationState);
-        TownServiceActivityMotion.ApplyTempleAvailability(ref donationExpected,false,.2f);
+        TownServiceActivityMotion.ApplyTempleAvailability(ref donationExpected,false,
+            .14f/TownServiceActivityMotion.TransitionSeconds);
         TownServiceActivityMotion.ApplyTempleBlessing(ref donationExpected,.14f);
         TownServiceActivityMotion.ApplyTempleBreath(ref donationExpected,
             TownServicePopulation.PublishedActivities.Clock);
@@ -121,7 +122,7 @@ internal static class Program
         TownServiceMirror.TempleReceived=true;TownServiceMirror.TempleOwner=10;
         TownServiceMirror.TempleSession=7;TownServiceMirror.TempleKnown=true;
         TownServiceMirror.TempleAvailable=false;TownServiceMirror.TempleRevision=9;
-        Tick(.01f);Tick(.7f);
+        Tick(.01f);Tick(TownServiceActivityMotion.TransitionSeconds);
         TownServiceStation temple=TownServiceStation.Live[2];
         Check(temple.Blessings==0,"unavailable hydration establishes a blessing baseline");
 
