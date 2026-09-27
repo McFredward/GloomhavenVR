@@ -175,6 +175,7 @@ public static class InteractionProgram
             handoff.Tick(); card.transform.position = handoff.Seat.position;
             Check(TownServiceEnhancementHandoff.TryOffer(card), "original card can be offered for physical aura test");
             var mask = printed.GetComponent<TownServiceNativeEnhancementCardMask>();
+            Check(mask != null, "same-frame handoff hides only duplicate art and reacts to the accepted offer");
             mask.SendMessage("OnBeforeCanvasRender");
             var corners = new Vector3[4]; ((RectTransform)ink.transform).GetWorldCorners(corners);
             float diameter = Vector3.Distance(corners[0], corners[1]);
