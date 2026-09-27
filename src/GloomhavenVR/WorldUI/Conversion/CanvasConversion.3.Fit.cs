@@ -3152,7 +3152,7 @@ internal static partial class CanvasConversion
 
     /// <summary>
     /// WHICH SUB-VIEWS THE GAME CURRENTLY HAS OPEN INSIDE THIS WINDOW — asked of the game's own
-    /// serialized references, never of the hierarchy and never by name.
+    /// serialized references, never by a hierarchy name.
     ///
     /// <para><c>NewPartyDisplayUI</c> holds all six of them as <c>[SerializeField]</c>s with public
     /// accessors (<c>AbilityCardsDisplay</c>, <c>EnhancementCardsDisplay</c>, <c>PerkManager</c>,
@@ -3166,8 +3166,11 @@ internal static partial class CanvasConversion
     /// alpha tween reaches zero — UIWindow.cs:746) plus a descendant test against the conversion
     /// target.</para>
     ///
-    /// <para>A candidate nested inside another candidate is dropped: the group transform must be
-    /// applied once per independent root or the inner one would be scaled twice.</para>
+    /// <para>Character creation is a seventh presentation root: its own UIWindow is serialized under the
+    /// campaign selector's CharacterCreator, and can remain shown while the selector's UIWindow is
+    /// hidden. The build-577 hardware log had a visible creator with zero fitted sub-views and a
+    /// cropped right edge. A candidate nested inside another candidate is dropped: the group
+    /// transform must be applied once per independent root or the inner one would be scaled twice.</para>
     /// </summary>
     private static void CollectActiveSubViews(ConvertedPanel panel, FixedFitState fx)
     {
@@ -3193,6 +3196,13 @@ internal static partial class CanvasConversion
             AddSubViewCandidate(panel, display.EnhancementCardsDisplay);
             AddSubViewCandidate(panel, display.PerkManager);
             AddSubViewCandidate(panel, display.CharacterSelector);
+            // Character creation uses its own UIWindow after hiding the party selector.
+            // The creator remains drawn inside this converted panel while the selector's
+            // UIWindow reports hidden, so treating the selector as the only candidate
+            // leaves the entire creation view unseated and clips its right edge in VR.
+            AddSubViewCandidate(panel,
+                (display.CharacterSelector as UICampaignAdventurePartyAssemblyWindow)?
+                    .CharacterCreator?.CreatorWindow);
             AddSubViewCandidate(panel, display.ItemInventoryDisplay);
             AddSubViewCandidate(panel, display.BattleGoalWindow);
         }
