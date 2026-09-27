@@ -41,6 +41,10 @@ public static class InteractionProgram
         Check(rect.sizeDelta == Vector2.zero && Mathf.Abs(rect.localScale.x - 1f) < .001f
             && !rect.GetComponent<Image>().raycastTarget,
             "world-space full-card frame occupies the card rather than a squeezed vertical strip and cannot steal native clicks");
+        rect.localScale = new Vector3(.02f, 1f, 1f); // native animation rewrites X after the initial mask
+        mask.SendMessage("LateUpdate");
+        Check(Mathf.Abs(rect.localScale.x - 1f) < .001f,
+            "native flat animation cannot resquash the physical frame before render");
         mask.Restore();
         Check(rect.sizeDelta == new Vector2(100f, 100f) && Mathf.Abs(rect.localScale.x - .02f) < .001f
             && rect.GetComponent<Image>().raycastTarget,

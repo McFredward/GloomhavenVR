@@ -93,6 +93,13 @@ internal sealed class TownServiceNativeEnhancementCardMask : MonoBehaviour
         _nativeFrame.anchoredPosition = Vector2.zero;
     }
 
+    // The game's LeanTweenGUIAnimator can write its flat-screen X squash after
+    // Ritual.Tick. Reassert the physical-card rect at the final render boundary.
+    private void LateUpdate()
+    {
+        if (_masked) AlignNativeFrame();
+    }
+
     private void OnDisable() => Restore();
     private void OnDestroy() => Restore();
 }

@@ -115,6 +115,9 @@ def mutations():
         ("squeezed-native-frame", "TownServiceNativeEnhancementCardMask.cs",
          "_nativeFrame.localScale = Vector3.one;", "_nativeFrame.localScale = _frameScale;",
          "world-space full-card frame occupies the card rather than a squeezed vertical strip and cannot steal native clicks"),
+        ("native-frame-resquash", "TownServiceNativeEnhancementCardMask.cs",
+         "if (_masked) AlignNativeFrame();", "if (!_masked) AlignNativeFrame();",
+         "native flat animation cannot resquash the physical frame before render"),
     ]
 
 
