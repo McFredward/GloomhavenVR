@@ -217,6 +217,12 @@ def main():
                 ("nonowner-author", "TownServiceMirror.cs", "|| InteractionOwner(service) != player", "|| false", "only the elected visitor session can author shared interaction state"),
                 ("ignore-temple-owner", "TownServiceMirror.cs", "int owner = InteractionOwner(2);", "int owner = VisitorSessions.Count > 0 ? 3 : 0;", "disconnect releases only that player's resident leases"),
             ]
+    if args.suite == "voice-relay":
+        variants = [("production", None, None, None, "")]
+        if not args.no_negative_controls:
+            variants.append(("missing-enchantress-inspection", "TownServiceMirror.Voice.cs",
+                "|| reaction == TownVoiceReaction.EnchantressInspect", "",
+                "accepted enchantment card inspections use the private synchronized voice relay"))
     print(f"Production binding: {args.source_root.resolve()}; evidence: {run}", flush=True)
     for name, filename, before, after, expected in variants:
         build = run / name; production = build / "production"; production.mkdir(parents=True)

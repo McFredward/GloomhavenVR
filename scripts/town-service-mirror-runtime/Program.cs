@@ -212,10 +212,10 @@ public static partial class MirrorProgram
         Check(!TownServiceVoiceRelayCodec.TryRead(unavailable, out _),
             "covered-bowl explanation cannot be forged as another resident");
         TownServiceFrame enchantmentOffer = TownServiceVoiceRelayCodec.Create(3, 44, 2,
-            GloomhavenVR.WorldUI.TownVoiceReaction.EnchantressOffer, Time.unscaledTime, 0f);
+            GloomhavenVR.WorldUI.TownVoiceReaction.EnchantressInspect, Time.unscaledTime, 0f);
         Check(TownServiceVoiceRelayCodec.TryRead(enchantmentOffer, out var enchantmentReaction)
-            && enchantmentReaction == GloomhavenVR.WorldUI.TownVoiceReaction.EnchantressOffer,
-            "accepted enchantment card offers use the private synchronized voice relay");
+            && enchantmentReaction == GloomhavenVR.WorldUI.TownVoiceReaction.EnchantressInspect,
+            "accepted enchantment card inspections use the private synchronized voice relay");
         enchantmentOffer.Service = 1;
         Check(!TownServiceVoiceRelayCodec.TryRead(enchantmentOffer, out _),
             "an enchantress card-offer cue cannot impersonate the merchant");

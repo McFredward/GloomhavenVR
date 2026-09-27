@@ -131,6 +131,13 @@ public static class InteractionProgram
         Check(activeInvite.At(3).Cue == 0 && activeInvite.At(3).PendingCue >= 61
             && activeInvite.At(3).PendingCue <= 65,
             "accepted card retires a spoken request to bring a card");
+        var activeGreeting = new TownServiceVoiceSchedule();
+        activeGreeting.Visit(3, true, 0f, 0f);
+        activeGreeting.Sample(3, duration, 0f, false);
+        activeGreeting.Request(3, 61, .1f);
+        Check(activeGreeting.At(3).Cue == 0 && activeGreeting.At(3).PendingCue >= 61
+            && activeGreeting.At(3).PendingCue <= 65,
+            "accepted card retires a greeting that still asks the visitor to approach");
 
         var inherited = new TownServiceVoiceSchedule();
         Check(inherited.Observe(1, 7, 16, 12, 1f, 10f), "observer adopts cue");
