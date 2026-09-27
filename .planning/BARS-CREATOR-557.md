@@ -5,7 +5,8 @@ The supplied local Player.log and LogOutput.log identify NPC feature ModBuild 57
 off. In the same session, `New Party display`'s supersample reports the campaign
 assembly view active, while every fixed-fit report says that no sub-view is open;
 the last report records zero sub-view seats. The game's `AdventureCharacterCreator`
-opens its own `UICharacterCreatorWindow` after the party selector's window hides.
+opens its own `UICharacterCreatorWindow` independently of the party selector's
+window state; the party display also hides during later creation steps.
 The fixed fit previously enumerated only the selector. It now includes the creator's
 original window in the fit, open-set signature and pre-seat visibility hold. The
 creator is placed beside the permanent character column without rescaling either.
