@@ -60,6 +60,8 @@ internal static class ActivityRender
         var faceRig=new TownServiceFaceRig(root);
         var gaze=default(TownFacePose);
         using var metrics=new StreamWriter(Path.Combine(folder,"service"+service+"-contacts.csv"));metrics.WriteLine("phase,handX,handY,handZ,gripX,gripY,gripZ,tipX,tipY,tipZ");
+        using var templeGeometry=service==2?new StreamWriter(Path.Combine(folder,"service2-geometry.csv")):null;
+        templeGeometry?.WriteLine("seconds,attention,leftRoll,leftShoulderX,leftShoulderY,leftShoulderZ,leftElbowX,leftElbowY,leftElbowZ,leftPalmX,leftPalmY,leftPalmZ,rightShoulderX,rightShoulderY,rightShoulderZ,rightElbowX,rightElbowY,rightElbowZ,rightPalmX,rightPalmY,rightPalmZ");
         using var particleCounts=templeBlessing&&service==2
             ?new StreamWriter(Path.Combine(folder,"service2-blessing-particles.csv")):null;
         particleCounts?.WriteLine("phase,system,time,count,worldX,worldY,worldZ,minZ,maxZ");
@@ -117,6 +119,17 @@ internal static class ActivityRender
             if(service==2&&templeBlessing)
                 TownServiceActivityMotion.ApplyTempleBlessing(ref rendered,phases[phase]-2f);
             rig.Apply(in rendered);props.Sample(in rendered);
+            if(templeGeometry!=null)
+            {
+                Transform[] bones=root.GetComponentsInChildren<Transform>(true);
+                var joints=new List<Vector3>();
+                foreach(string side in new[]{"L","R"})
+                    foreach(string name in new[]{"UpperArm.","Forearm.","PalmContact."})
+                        joints.Add(root.InverseTransformPoint(bones.Single(b=>b.name==name+side).position));
+                var values=new List<float>{phases[phase],rendered.Attention,rendered.LeftRoll};
+                foreach(Vector3 joint in joints){values.Add(joint.x);values.Add(joint.y);values.Add(joint.z);}
+                templeGeometry.WriteLine(string.Join(",",values.Select(v=>v.ToString("R",CultureInfo.InvariantCulture))));
+            }
             {
                 Vector3 focus=attentive?new Vector3(-.7f,1.9f,-.8f):root.Find("ActivityWorkFocus").position;
                 for(int frame=0;frame<(sequence?1:90);frame++)gaze=TownServiceFaceMotion.Aim(faceRig.OpticalRotation,root.lossyScale.x,
@@ -154,10 +167,14 @@ internal static class ActivityRender
             GameObject snapshot=Snapshot(root);
             foreach(MeshFilter skin in snapshot.GetComponentsInChildren<MeshFilter>())
             {if(!envelopeStarted){envelope=skin.sharedMesh.bounds;envelopeStarted=true;}else envelope.Encapsulate(skin.sharedMesh.bounds);}
-            foreach(int view in sequence&&!(service==2&&phase%12==0)?new[]{0}:new[]{0,1,2})
+            foreach(int view in sequence&&!(service==2&&phase%12==0)?new[]{0}
+                :service==2?new[]{0,1,2,3}:new[]{0,1,2})
             {
                 if(pen!=null)pen.gameObject.SetActive(view!=2);
-                camera.transform.position=view==0?new Vector3(-.7f,1.9f,-.8f):new Vector3(.5f,2.05f,.15f);camera.transform.LookAt(new Vector3(0,1.15f,.4f));camera.Render();RenderTexture.active=rt;
+                camera.transform.position=view==0?new Vector3(-.7f,1.9f,-.8f)
+                    :service!=2||view==1?new Vector3(.5f,2.05f,.15f)
+                    :view==2?new Vector3(0f,1.52f,-1.1f):new Vector3(-.8f,1.45f,-.15f);
+                camera.transform.LookAt(new Vector3(0,1.15f,.4f));camera.Render();RenderTexture.active=rt;
                 var image=new Texture2D(rt.width,rt.height,TextureFormat.RGB24,false);image.ReadPixels(new Rect(0,0,rt.width,rt.height),0,0);image.Apply();File.WriteAllBytes(Path.Combine(folder,"service"+service+"-phase"+phase+"-view"+view+".png"),image.EncodeToPNG());UnityEngine.Object.DestroyImmediate(image);
             }
             if(service==3&&!sequence)

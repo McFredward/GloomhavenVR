@@ -433,8 +433,8 @@ internal sealed class TownServiceActivityRig
                 // Preserve that exact curve; adding a second threshold compressed the
                 // turn into a few frames and recreated the visible cover/return pop.
                 float cover = Mathf.Clamp01(Mathf.Abs(roll) / 82f);
-                // A covered offering is a distinct anatomical contact: both palms face
-                // down and both relaxed fingers point toward the visitor. Interpolate
+                // A covered offering is a distinct anatomical contact: the covering
+                // palm faces down and its relaxed fingers point toward the visitor. Interpolate
                 // complete frames rather than projecting two moving vectors; the latter
                 // crossed a near-singularity and turned the wrist five degrees in one
                 // 90 Hz frame during both cover and return.
@@ -455,12 +455,17 @@ internal sealed class TownServiceActivityRig
                 Vector3 baseFinger = Vector3.Slerp(limitedFinger, naturalFinger, freeFinger).normalized;
                 Quaternion baseFrame = Quaternion.LookRotation(baseFinger,
                     Vector3.ProjectOnPlane(baseNormal, baseFinger).normalized);
-                // Each hand turns a little toward the common bowl centre. The former
-                // parallel fingers looked like two flat hands resting on the counter,
-                // even with both palm targets directly over the rim.
+                // The covering hand turns slightly toward the bowl centre. Its palm
+                // sits on the near rim so the fingers, rather than the wrist, cross
+                // the opening without pulling the elbow across the chest.
                 Vector3 inwardCover = (-_root.forward * .82f - side * _root.right * .20f).normalized;
-                Vector3 coverFinger = Vector3.RotateTowards(foreDirection, inwardCover,
-                    55f * Mathf.Deg2Rad, 0f).normalized;
+                // The cover is a fixed contact frame over the bowl. Recomputing its
+                // finger axis from the moving forearm made the wrist turn faster in
+                // the middle of a donation transition, even though the palm target
+                // and blend moved smoothly. The shortened reach leaves an actual
+                // elbow bend, so the fixed finger axis stays within anatomical
+                // flexion throughout cover and return.
+                Vector3 coverFinger = inwardCover;
                 Quaternion coverFrame = Quaternion.LookRotation(coverFinger,
                     Vector3.ProjectOnPlane(-_root.up, coverFinger).normalized);
                 palmFrame = Quaternion.Slerp(baseFrame, coverFrame, cover);

@@ -128,19 +128,25 @@ internal static class TownServiceActivityMotion
         // applying the fading pose until its authored blend has reached zero.
         if (donationAvailable && blend <= 0f) return;
         float t = Mathf.SmoothStep(0f, 1f, Mathf.Clamp01(blend)) * visual.Attention;
-        // Build 571 hardware video (2026-09-27, 00:53:56) showed both palms
-        // crowded into the 90 mm bowl. The imported forearms ran parallel across
-        // her torso and the fingers overlapped. Separating both hands to the outer
-        // rim removed the collision but left the bowl visibly open. Instead she
-        // covers its centre with her left palm while the right arm settles at her
-        // side. This also gives her a natural, asymmetric rest after a donation.
-        visual.Left = Vector3.Lerp(visual.Left, new Vector3(.005f, 1.115f, .18f), t);
-        visual.LeftElbow = Vector3.Lerp(visual.LeftElbow, new Vector3(.285f, 1.035f, .44f), t);
+        // Build 572 hardware video (2026-09-27, 07:46:52) showed a detour through
+        // the attended hip pose before the covering hand reached the bowl. Visual
+        // has already mixed prayer into the attended targets by Attention; a second
+        // Lerp toward the cover target weighted by Attention mixes that hip target
+        // in twice. Add the difference between attended and covered targets instead.
+        // At full cover this is exactly prayer -> cover throughout approach, and at
+        // full attention it is the ordinary hip -> cover donation transition.
+        // The palm sat at the bowl centre while its fingers ran past the far rim.
+        // That target nearly exhausted both arm bones, so the elbow guide had no
+        // authority: the real elbow folded inward under the breast. Seat the palm
+        // at the near rim and let the fingers cover the centre, leaving enough bend
+        // for the elbow to stay below and outside her shoulder.
+        visual.Left += (new Vector3(.025f, 1.115f, .27f) - new Vector3(.18f, .80f, .54f)) * t;
+        visual.LeftElbow += (new Vector3(.38f, .92f, .50f) - new Vector3(.11f, 1.02f, .54f)) * t;
         // The temple solver starts with an inward-facing left palm. A quarter turn
         // places its palmar surface down across the opening. The right hand keeps
         // its already relaxed attention pose rather than twisting over the bowl.
-        visual.LeftRoll = Mathf.Lerp(visual.LeftRoll, 82f, t);
-        visual.LeftCurl = Mathf.Lerp(visual.LeftCurl, .08f, t);
+        visual.LeftRoll += 82f * t;
+        visual.LeftCurl += (.08f - .06f) * t;
         visual.Curl = Mathf.Max(visual.LeftCurl, visual.RightCurl);
     }
 

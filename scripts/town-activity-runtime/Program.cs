@@ -191,10 +191,12 @@ public static class InteractionProgram
             &&receiving.LeftElbow.x>.10f&&receiving.RightElbow.x<-.10f,
             "attentive priestess lets both arms hang beside her robe behind the table edge");
         TownServiceActivityMotion.ApplyTempleAvailability(ref receiving,false,1f);
-        Check(Mathf.Abs(receiving.Left.x)<.025f&&receiving.Left.y>1.10f&&receiving.Left.y<1.13f
-            &&receiving.Left.z>.16f&&receiving.Left.z<.20f
+        // The palm stops near the actor-side rim; her fingers continue across the
+        // bowl. A centre-palm target straightened the whole arm against her chest.
+        Check(receiving.Left.x>.015f&&receiving.Left.x<.035f&&receiving.Left.y>1.10f&&receiving.Left.y<1.13f
+            &&receiving.Left.z>.25f&&receiving.Left.z<.29f
             &&receiving.Right.x<-.17f&&receiving.Right.y>.79f&&receiving.Right.y<.81f
-            &&receiving.LeftElbow.x>.27f&&receiving.RightElbow.x<-.10f,
+            &&receiving.LeftElbow.x>.35f&&receiving.RightElbow.x<-.10f,
             "unavailable donation covers the bowl with one hand while the other rests beside the robe "
             +receiving.Left+" / "+receiving.Right);
         var pause=new TownActivityPose{WorkClock=1.8f,TransitionAge=TownServiceActivityMotion.TransitionSeconds};
@@ -215,7 +217,7 @@ public static class InteractionProgram
         TownServiceActivityMotion.ApplyTempleBlessing(ref blessed,1.04f);
         Check(blessed.Left.y>receiving.Left.y+.13f&&blessed.Right.y>receiving.Right.y+.22f
             &&blessed.Left.x>.09f&&blessed.Right.x<-.11f
-            &&blessed.Left.z>receiving.Left.z+.10f,
+            &&blessed.Left.z>receiving.Left.z+.05f,
             "committed blessing lifts light with one hand at her heart and one extended toward the recipient");
         var completed=receiving;
         TownServiceActivityMotion.ApplyTempleBlessing(ref completed,2.45f);
@@ -466,6 +468,28 @@ public static class InteractionProgram
                     Check(maximumKneeStep<.006f,"planted knees do not twitch while the body changes weight: "+npc+" "+maximumKneeStep);
                     Check(maxFootDrift<.003f,"generated stance keeps actual imported feet planted: "+npc+" "+maxFootDrift);
                     Console.WriteLine("Actual additional continuity metrics "+npc+": left hand="+maxLeftStep+" support="+maxSupportStep+" degrees/90Hz frame");
+                    if(service==2)
+                    {
+                        // An authored pole can look wide in source while the real
+                        // two-bone arm straightens toward an over-distant palm.
+                        // Measure the imported shoulder and elbow after skinning.
+                        rig.BeforeBodySample();animation.Stop();var idle=animation["Idle"];
+                        idle.enabled=true;idle.weight=1;idle.time=4f;animation.Sample();idle.enabled=false;
+                        var attentive=new TownActivityPose{Engaged=true,FromBlend=1f,
+                            TransitionAge=TownServiceActivityMotion.TransitionSeconds,WorkClock=4f};
+                        var covered=TownServiceActivityMotion.Visual(2,in attentive);
+                        TownServiceActivityMotion.ApplyTempleAvailability(ref covered,false,1f);
+                        rig.Apply(in covered);
+                        Transform[] joints=root.GetComponentsInChildren<Transform>(true);
+                        Vector3 shoulder=root.InverseTransformPoint(joints.Single(t=>t.name=="UpperArm.L").position);
+                        Vector3 elbow=root.InverseTransformPoint(joints.Single(t=>t.name=="Forearm.L").position);
+                        Vector3 palm=root.InverseTransformPoint(joints.Single(t=>t.name=="PalmContact.L").position);
+                        Vector3 fingertip=root.InverseTransformPoint(joints.Single(t=>t.name=="IndexTip.L").position);
+                        Check(elbow.x>shoulder.x+.015f&&elbow.y<shoulder.y-.15f,
+                            "actual priestess covering elbow stays outside the chest: shoulder="+shoulder+" elbow="+elbow);
+                        Check(palm.z>.25f&&palm.z<.29f&&fingertip.z>.12f&&fingertip.z<.23f,
+                            "actual priestess fingers cover the bowl from its near rim: palm="+palm+" fingertip="+fingertip);
+                    }
                     grounding.Apply(0f,0f);ArmGeometry.Export(root, service, rig, animation);ActivityRender.Render(obj, service, rig);
                 }
                 finally{UnityEngine.Object.DestroyImmediate(obj);}

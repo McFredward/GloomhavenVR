@@ -225,6 +225,7 @@ internal static class HandContacts
                     rig.BeforeBodySample();rig.Apply(in visitVisual);
                     previousLeft=leftPalm.rotation;previousRight=rightPalm.rotation;
                     previousLeftPosition=leftPalm.position;previousRightPosition=rightPalm.position;
+                    float prayerDepth=root.InverseTransformPoint(leftPalm.position).z;
                     TownServiceActivityMotion.Engage(ref visit,true);
                     for(int frame=1;frame<=70;frame++)
                     {
@@ -245,6 +246,10 @@ internal static class HandContacts
                         if(leftLocal.x<-.01f||rightLocal.x>.01f||leftElbowLocal.x<.04f||rightElbowLocal.x>-.02f)
                             throw new Exception("priestess arms retain their anatomical sides without crossing frame="+frame
                                 +" palms="+leftLocal+" / "+rightLocal+" elbows="+leftElbowLocal+" / "+rightElbowLocal);
+                        float directDepth=Mathf.Lerp(prayerDepth,.27f,visitVisual.Attention);
+                        if(Mathf.Abs(leftLocal.z-directDepth)>.01f)
+                            throw new Exception("prayer-to-bowl hand never detours through hip frame="+frame
+                                +" directDepth="+directDepth+" currentDepth="+leftLocal.z);
                         previousLeft=leftPalm.rotation;previousRight=rightPalm.rotation;
                         previousLeftPosition=leftPalm.position;previousRightPosition=rightPalm.position;
                     }
