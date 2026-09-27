@@ -12,7 +12,7 @@ namespace GloomhavenVR.WorldUI;
 internal enum TownVoiceReaction : byte
 {
     MerchantOffer, MerchantBuy, MerchantSell, PriestessDonate, EnchantressEnhance,
-    PriestessUnavailable
+    PriestessUnavailable, EnchantressOffer
 }
 
 /// <summary>Original resident lines, baked offline with one consistent voice per
@@ -133,6 +133,7 @@ internal static class TownServiceVoice
             TownVoiceReaction.MerchantSell when service == 1 => 26,
             TownVoiceReaction.PriestessDonate when service == 2 => 36,
             TownVoiceReaction.EnchantressEnhance when service == 3 => 46,
+            TownVoiceReaction.EnchantressOffer when service == 3 => 51,
             TownVoiceReaction.PriestessUnavailable when service == 2 => 56,
             _ => 0
         };

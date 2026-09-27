@@ -110,8 +110,11 @@ internal sealed class TownServiceCloth : IDisposable
             if (filter.name.StartsWith("ClothRunner_", StringComparison.Ordinal)) filters.Add(filter);
         filters.Sort((a, b) => _station.InverseTransformPoint(a.transform.TransformPoint(a.sharedMesh.bounds.center)).x
             .CompareTo(_station.InverseTransformPoint(b.transform.TransformPoint(b.sharedMesh.bounds.center)).x));
-        if (filters.Count != (service == 2 ? 2 : 1))
+        // The merchant's experimental side drape is no longer part of the cabinet.
+        // Keep the two temple runners and the enchantress's runner physical.
+        if (filters.Count != (service == 1 ? 0 : service == 2 ? 2 : 1))
             throw new InvalidOperationException("Town cloth mesh count does not match the authored furniture for service " + service);
+        if (filters.Count == 0) return;
 
         try
         {
@@ -803,7 +806,7 @@ internal sealed class TownServiceCloth : IDisposable
 
     internal void TickAuthor(float age, float dt, bool visible)
     {
-        if (_disposed) return;
+        if (_disposed || _runners.Length == 0) return;
         UpdateHands();
         foreach (Runner runner in _runners)
         {
@@ -833,7 +836,7 @@ internal sealed class TownServiceCloth : IDisposable
     internal void TickObserver(float age, float elapsed, in TownClothRunnerState first,
         in TownClothRunnerState second, bool visible)
     {
-        if (_disposed) return;
+        if (_disposed || _runners.Length == 0) return;
         UpdateHands();
         for (int i = 0; i < _runners.Length; i++)
         {

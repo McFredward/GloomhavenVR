@@ -46,7 +46,8 @@ internal static class TownServiceVoiceRelayCodec
                  || reaction == TownVoiceReaction.MerchantSell,
             2 => reaction == TownVoiceReaction.PriestessDonate
                  || reaction == TownVoiceReaction.PriestessUnavailable,
-            3 => reaction == TownVoiceReaction.EnchantressEnhance,
+            3 => reaction == TownVoiceReaction.EnchantressEnhance
+                 || reaction == TownVoiceReaction.EnchantressOffer,
             _ => false
         };
     }

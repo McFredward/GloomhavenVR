@@ -28,9 +28,9 @@ internal sealed class TownServiceVoiceSchedule
         bool beginning = visiting && (!e.Visiting || age + .2f < e.VisitAge);
         e.Visiting = visiting; e.VisitAge = age;
         if (!visiting && e.Priority == 1) e.Pending = false;
-        // The enchantress invites a visitor as her hand opens, not before the
-        // shared gesture. This also avoids two back-to-back greetings on entry.
-        if (beginning && service != 3 && age <= 2f && now >= e.NextAllowed && e.Cue == 0)
+        // A real native visit is a more reliable edge than the animation's sampled
+        // attention value: the latter may already be above threshold when Work seeds.
+        if (beginning && age <= 2f && now >= e.NextAllowed && e.Cue == 0)
             QueueVariant(service, TownServiceVoice.GreetingFirstCue(service), 1, now + 5f, age + now);
     }
 
@@ -47,12 +47,8 @@ internal sealed class TownServiceVoiceSchedule
             if (service == 3 && e.LastCast <= .16f && cast > .16f)
                 QueueVariant(service, 41, 0, now + 3f, clock);
         }
-        // The hand-extension is authored in TLV81. Cue 12 is selected only by
-        // the elected face author from that shared edge, then TLV80 publishes its
-        // identity and age; proximity on each observer can never choose a line.
-        if (continuous && service == 3 && e.LastAttention < .35f && attention >= .35f
-            && now >= e.NextAllowed)
-            QueueVariant(service, 51, 1, now + 4f, clock);
+        // Native visit and card acceptance own the enchantress invitation. Sampling
+        // an attention crossing here missed visits that began before Work seeded.
         e.WorkSeeded = true; e.LastWorkClock = clock; e.LastCast = cast; e.LastAttention = attention;
     }
 
@@ -63,6 +59,11 @@ internal sealed class TownServiceVoiceSchedule
     internal void Request(byte service, ushort firstCue, float now)
     {
         Entry e = At(service);
+        if (service == 3 && firstCue == 51
+            && (e.Cue >= 11 && e.Cue <= 15 || e.Cue >= 51 && e.Cue <= 55
+                || e.Pending && (e.PendingCue >= 11 && e.PendingCue <= 15
+                    || e.PendingCue >= 51 && e.PendingCue <= 55)))
+            return;
         // A committed temple donation outranks an availability refresh. The latter is
         // expected immediately after payment and must never consume the first spoken
         // response. If a stale refusal was already queued or speaking, retire that

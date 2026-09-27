@@ -10,6 +10,7 @@ internal static class Program
     { _checks++; if (!value) throw new Exception(text); }
     private static void Main()
     {
+        TownVoiceScheduleCases.Run();
         TownServiceFrame original = Make(256);
         byte[] bytes = TownServiceCodec.Write(original);
         Check(Convert.ToHexString(bytes, 0, 6) == "315256470313", "independent canonical GVR1 little-endian header");

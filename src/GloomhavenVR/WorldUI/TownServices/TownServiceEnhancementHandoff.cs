@@ -84,6 +84,7 @@ internal sealed class TownServiceEnhancementHandoff : IDisposable
     private float _offeredHeight;
     internal VRCard? Card { get; private set; }
     internal AbilityCardUI? NativeSource { get; private set; }
+    internal AbilityCardUI? NativeHighlightedCard => _shop != null ? _shop.cardHolder.Card : null;
     internal UIEnhanceCardSlot? NativeSlot { get; private set; }
     internal Transform Zone { get; }
     internal Transform Seat => _seat;
@@ -432,6 +433,7 @@ internal sealed class TownServiceEnhancementHandoff : IDisposable
         card.Grabbable = true; card.InspectOnly = true; card.AllowsGateHand = true;
         if (displaced != null && !displaced.IsHeld && displacedPresentation != null)
             BeginReturn(displacedPresentation);
+        TownServiceVoice.RequestReaction(3, TownVoiceReaction.EnchantressOffer);
         VRLog.Debug("WorldUI", "TOWN ENHANCEMENT: actual owned hand card offered to resident palm.");
         return true;
     }

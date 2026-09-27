@@ -303,6 +303,7 @@ internal sealed class TownServiceRitual : IDisposable
     private readonly TownServiceOfferFeedback _templeFeedback = new();
     private readonly HashSet<(string Character, object Blessing)> _submittedOfferings = new();
     internal TownServiceEnhancementHandoff? Handoff { get; private set; }
+    private TownServiceNativeEnhancementCardMask? _nativeCardMask;
     internal TownServiceCardSlots CardSlots { get; } = new();
     internal Transform Root { get; }
     internal IEnumerable<Piece> Pieces => _pieces.Values;
@@ -403,6 +404,7 @@ internal sealed class TownServiceRitual : IDisposable
     {
         Handoff?.Tick();
         if (Handoff != null) CardSlots.Tick(Handoff);
+        MaskDuplicateNativeCard();
         if (_service == 3)
         {
             // An open shop controller can fill enhancement rows before any physical card
@@ -479,6 +481,29 @@ internal sealed class TownServiceRitual : IDisposable
             surface.SetVisibility(_service == 3 ? visibility * _enchantmentOptionsVisibility : visibility,
                 allowInput && cardOnPalm && visibility > .01f
                     && (_service != 3 || _enchantmentOptionsVisibility > .01f));
+    }
+
+    private void MaskDuplicateNativeCard()
+    {
+        AbilityCardUI? native = Handoff?.Card != null ? Handoff.NativeHighlightedCard : null;
+        if (_nativeCardMask != null && (native == null
+            || !ReferenceEquals(_nativeCardMask.gameObject, native.gameObject)))
+        { _nativeCardMask.Restore(); _nativeCardMask = null; }
+        if (native == null) return;
+        if (_nativeCardMask == null)
+        {
+            _nativeCardMask = native.GetComponent<TownServiceNativeEnhancementCardMask>()
+                ?? native.gameObject.AddComponent<TownServiceNativeEnhancementCardMask>();
+            if (VRLog.WantsDebug)
+            {
+                int areas = 0;
+                foreach (UIEnhancementButtonHighlight area in native.GetComponentsInChildren<UIEnhancementButtonHighlight>(true))
+                    if (area != null && area.gameObject.activeInHierarchy) areas++;
+                VRLog.Debug("TownServices", "Enchantment physical card uses " + areas
+                    + " original selectable area highlights; duplicate native print masked.");
+            }
+        }
+        _nativeCardMask.Mask();
     }
 
     private void RefreshPieces()
@@ -677,6 +702,7 @@ internal sealed class TownServiceRitual : IDisposable
     public void Dispose()
     {
         if (_disposed) return; _disposed = true;
+        if (_nativeCardMask != null) { _nativeCardMask.Restore(); _nativeCardMask = null; }
         CardSlots.Dispose();
         Handoff?.Dispose(); Handoff = null;
         foreach (Piece piece in _pieces.Values) piece.Dispose(); _pieces.Clear(); _samples.Clear();
