@@ -162,6 +162,8 @@ internal static class TownServiceVoice
         if (!_probed)
         {
             _probed = true;
+            int unavailable = 0;
+            var examples = new string[3];
             for (int i = 0; i < Names.Length; i++)
             {
                 try
@@ -174,12 +176,20 @@ internal static class TownServiceVoice
                     if (clip == null || Curves[i] == null || Mathf.Abs(clip.length - Curves[i]!.Duration) > .06f)
                     {
                         Clips[i] = null; Curves[i] = null;
-                        VRLog.Warn("TownServices", $"Resident speech unavailable: {Names[i]}; native service remains usable.");
+                        if (unavailable < examples.Length) examples[unavailable] = Names[i];
+                        unavailable++;
                     }
                 }
                 catch (Exception ex)
-                { VRLog.Warn("TownServices", $"Resident speech load failed: {Names[i]} ({ex.GetType().Name}); native service remains usable."); }
+                {
+                    if (unavailable < examples.Length) examples[unavailable] = Names[i] + " (" + ex.GetType().Name + ")";
+                    unavailable++;
+                }
             }
+            if (unavailable > 0)
+                VRLog.Warn("TownServices", "Resident speech unavailable for " + unavailable + "/" + Names.Length
+                    + " cues (first: " + string.Join(", ", examples, 0, Math.Min(unavailable, examples.Length))
+                    + "); native services remain usable.");
         }
         Refresh();
     }

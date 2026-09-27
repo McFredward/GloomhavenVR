@@ -323,6 +323,11 @@ public static class InteractionProgram
         UnityEngine.Object.DestroyImmediate(head); UnityEngine.Object.DestroyImmediate(frame);
         foreach (AudioClip clip in TownServiceAssets.Clips.Values) UnityEngine.Object.DestroyImmediate(clip);
         foreach (TextAsset curve in TownServiceAssets.Curves.Values) UnityEngine.Object.DestroyImmediate(curve);
+        TownServiceAssets.Clips.Clear(); TownServiceAssets.Curves.Clear();
+        VRLog.Warnings.Clear();
+        TownServiceVoice.Tick(1, 0f, true, default);
+        Check(VRLog.Warnings.Count == 1 && VRLog.Warnings[0].Contains("75/75"),
+            "a missing voice bank produces one bounded player-facing report");
         return _checks;
     }
 }

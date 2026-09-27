@@ -2,7 +2,10 @@ using System;
 using System.Collections.Generic;
 using UnityEngine;
 namespace GloomhavenVR.Core {
- internal static class VRLog { internal static void Warn(string s,string m) {} }
+ internal static class VRLog {
+  internal static readonly List<string> Warnings = new();
+  internal static void Warn(string s,string m) { Warnings.Add(m); }
+ }
  internal static class HeadEar {
   internal static bool Ready=true; internal static HashSet<string> Claims=new();
   internal static bool Claim(string name) { if(Ready) Claims.Add(name); return Ready; }
