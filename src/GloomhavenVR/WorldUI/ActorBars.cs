@@ -1211,8 +1211,12 @@ internal static class ActorBars
             $"{ReferenceScaleMultiplier:F2}x), {Adoptions.Count} bars." +
             (barFixedSize
                 ? string.Empty
-                : " [WorldUI] BarFixedSize is OFF, so each bar additionally grows up to 2.5x with " +
-                  "its own head distance; the numbers above are the distance-1 case."));
+                : followFigureScale
+                    ? " [WorldUI] BarFixedSize is OFF, so each bar additionally grows up to 2.5x " +
+                      "with its own head distance; the numbers above are the distance-1 case."
+                    : " [WorldUI] BarFixedSize is OFF, so each bar additionally grows up to 2.5x " +
+                      "with its own head distance THROUGH THE SAME CLAMP — the numbers above are " +
+                      "the distance-1 case, and the bounds hold for every bar."));
     }
 
     /// <summary>
