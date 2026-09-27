@@ -7,7 +7,7 @@ using UnityEngine;
 
 namespace GloomhavenVR.WorldUI;
 
-/// <summary>Separate optional-at-runtime art bank; an incomplete install retains native services.
+/// <summary>Separate optional-at-runtime art and voice banks; an incomplete install retains native services.
 /// The name deliberately avoids the historical main-bundle substring discovery contract.</summary>
 internal static class TownServiceAssets
 {
@@ -114,7 +114,7 @@ internal static class TownServiceAssets
         int loaded = Loaded.Count;
         Pending.Clear();
         _phase = LoadPhase.Ready;
-        VRLog.Debug("TownServices", "Town art async preload ready: " + loaded + " assets in "
+        VRLog.Debug("TownServices", "Town service assets async preload ready: " + loaded + " assets in "
             + (Time.realtimeSinceStartup - _started).ToString("0.00") + " s.");
     }
 
