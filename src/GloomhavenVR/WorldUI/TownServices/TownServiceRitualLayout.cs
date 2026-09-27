@@ -32,9 +32,11 @@ internal static class TownServiceRitualLayout
 
     /// <summary>Native printed-ability hotspots follow the real card in the resident's
     /// palm. Their original narrow cyan highlight is an interaction cue on that card,
-    /// never an unrelated strip on the worktop. Local negative Z is toward the visitor.</summary>
+    /// never an unrelated strip on the worktop. The physical card face lives at
+    /// local Z=-.0012; the original input ink sits another 0.8 mm toward the
+    /// visitor to avoid Z fighting without hovering 12 mm in front of the print.</summary>
     internal static Placement PalmHighlight(float cardWidth) => new(
-        new Vector3(0f, 0f, -.012f), Quaternion.identity,
+        new Vector3(0f, 0f, -.002f), Quaternion.identity,
         new Vector2(cardWidth, cardWidth * (88f / 63.5f)));
 
     internal static Placement Offering(int index, int count)

@@ -39,11 +39,11 @@ public static class InteractionProgram
                 "native enhancement options face the visitor upright");
         }
         var palmHighlight = TownServiceRitualLayout.PalmHighlight(.102f);
-        Check(palmHighlight.Position.z < -.005f && palmHighlight.Position.z > -.02f
+        Check(palmHighlight.Position.z < -.0015f && palmHighlight.Position.z > -.003f
             && Mathf.Abs(palmHighlight.Size.x - .102f) < .001f
             && Mathf.Abs(palmHighlight.Size.y - .141f) < .002f
             && Quaternion.Angle(palmHighlight.Rotation, Quaternion.identity) < .001f,
-            "native ability hotspots follow the selected physical card at its face scale, in front of its collider");
+            "native ability hotspots sit within 1.8 mm of the physical face while avoiding Z fighting");
         for (int count = 1; count <= TownServiceRitualLayout.MaxOfferings; count++)
         {
             var purseBounds = new List<Bounds>();

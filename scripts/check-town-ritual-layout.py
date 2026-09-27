@@ -84,7 +84,7 @@ def main():
         ('folio-under-table', 'TownServiceRitualLayout.cs', '.32f, .33f, -.16f', '.32f, .05f, -.16f', 'native folio stays above tabletop and below resident face'),
         ('folio-rear-decoration', 'TownServiceRitualLayout.cs', '.32f, .33f, -.16f', '.32f, .33f, .65f', 'native folio clears front edge and rear decoration'),
         ('folio-controls-overlap', 'TownServiceRitualLayout.cs', '.43f, .036f, -.20f', '.19f, .036f, -.20f', 'native folio content and original controls never overlap'),
-        ('holder-behind-card', 'TownServiceRitualLayout.cs', 'new Vector3(0f, 0f, -.012f)', 'new Vector3(0f, 0f, .012f)', 'native ability hotspots follow the selected physical card at its face scale, in front of its collider'),
+        ('holder-behind-card', 'TownServiceRitualLayout.cs', 'new Vector3(0f, 0f, -.002f)', 'new Vector3(0f, 0f, .012f)', 'native ability hotspots sit within 1.8 mm of the physical face while avoiding Z fighting'),
         ('detached-bowl', 'TownServiceTempleBowl.cs', 'frame.SetParent(priest, false);', 'frame.SetParent(null, false);', 'both owners donate into the actual shared priest bowl, never a relocated workspace'),
         ('detached-purse-seat', 'TownServiceTempleBowl.cs', 'PurseSeat = Center + Vector3.up * .018f', 'PurseSeat = Center + Vector3.up * .080f', 'physical purse and translucent guide share the exact bowl seat'),
         ('flat-purse', 'TownServiceRitualLayout.cs', 'Quaternion.identity, new Vector2(.125f, .15f)', 'Quaternion.Euler(90f, 0f, 0f), new Vector2(.125f, .15f)', 'purse rests upright above the hand rather than lying like a card'),

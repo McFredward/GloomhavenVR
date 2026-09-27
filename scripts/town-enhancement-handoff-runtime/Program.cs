@@ -18,6 +18,7 @@ public static class InteractionProgram
         count = 0;
         OfferFeedback();
         NativeFrame();
+        PhysicalCardAura();
         NativePhysicalPoke();
         FirstVisitCue();
         Approach();
@@ -39,13 +40,18 @@ public static class InteractionProgram
         ((RectTransform)aura.transform).sizeDelta = new Vector2(500f, 500f);
         var types = new GameObject("Types", typeof(RectTransform));
         types.transform.SetParent(aura.transform, false);
-        var buy = new GameObject("Buy", typeof(RectTransform), typeof(Image));
+        // Production can use a zero-sized Buy/Sell group with its actual drawing
+        // nested below it. The old test put Image on Buy and missed the headset oval.
+        var buy = new GameObject("Buy", typeof(RectTransform));
         buy.transform.SetParent(types.transform, false);
-        foreach (RectTransform stretch in new[] { (RectTransform)types.transform, (RectTransform)buy.transform })
+        foreach (RectTransform stretch in new[] { (RectTransform)types.transform })
         { stretch.anchorMin = Vector2.zero; stretch.anchorMax = Vector2.one; stretch.sizeDelta = Vector2.zero; }
+        var ink = new GameObject("Visible cyan ring", typeof(RectTransform), typeof(Image));
+        ink.transform.SetParent(buy.transform, false);
+        ((RectTransform)ink.transform).sizeDelta = new Vector2(500f, 500f);
         var auraRect = (RectTransform)aura.transform;
         auraRect.localScale = new Vector3(.36f, 1.42f, 1f);
-        var auraImage = buy.GetComponent<Image>();
+        var auraImage = ink.GetComponent<Image>();
         auraImage.raycastTarget = true;
         var nativeFrame = new GameObject("GUI_LevelUp_Frame", typeof(RectTransform), typeof(Image));
         nativeFrame.transform.SetParent(root.transform, false);
@@ -79,16 +85,24 @@ public static class InteractionProgram
             "grip-held fingertip projection reaches the original native ability button while aura pixels do not claim input");
         ExecuteEvents.Execute(area, pointer, ExecuteEvents.pointerClickHandler);
         Check(nativeClicks == 1, "physical area press follows the original native button callback exactly once");
-        Check(SquareInWorld((RectTransform)buy.transform),
-            "actual submitted enchantress aura ink is round around the physical card, not a narrow native effect");
+        float firstPulse = Diameter((RectTransform)ink.transform);
+        Check(SquareInWorld((RectTransform)ink.transform)
+            && Mathf.Abs(firstPulse - Mathf.Sqrt(500f * 500f * .36f * 1.42f) * 1.08f) < 1f,
+            "actual submitted enchantress aura ink is round and preserves the native pulse size");
         rect.localScale = new Vector3(.02f, 1f, 1f); // native animation rewrites X after the initial mask
         auraRect.localScale = new Vector3(.13f, 1.52f, 1f); // native effects can animate later than Ritual.Tick
         mask.SendMessage("LateUpdate");
         Check(Mathf.Abs(rect.localScale.x - 1f) < .001f,
             "native flat animation cannot resquash the physical frame before render");
         mask.SendMessage("OnBeforeCanvasRender");
-        Check(SquareInWorld((RectTransform)buy.transform),
-            "render boundary corrects the native aura after late animation instead of checking only local transform state");
+        float secondPulse = Diameter((RectTransform)ink.transform);
+        Check(SquareInWorld((RectTransform)ink.transform)
+            && Mathf.Abs(secondPulse - Mathf.Sqrt(500f * 500f * .13f * 1.52f) * 1.08f) < 1f
+            && secondPulse < firstPulse,
+            "render boundary corrects late native aura animation while retaining its pulse amplitude");
+        mask.SendMessage("OnBeforeCanvasRender");
+        Check(Mathf.Abs(Diameter((RectTransform)ink.transform) - secondPulse) < .01f,
+            "repeated canvas submissions do not inflate the native aura without a new animation write");
         mask.Restore();
         Check(rect.sizeDelta == new Vector2(100f, 100f) && Mathf.Abs(rect.localScale.x - .02f) < .001f
             && rect.GetComponent<Image>().raycastTarget,
@@ -108,6 +122,76 @@ public static class InteractionProgram
         float width = Vector3.Distance(corners[0], corners[3]);
         float height = Vector3.Distance(corners[0], corners[1]);
         return width > .001f && Mathf.Abs(width / height - 1f) < .01f;
+    }
+
+    private static bool DiameterAtLeast(RectTransform ink, RectTransform card, float fraction)
+    {
+        var ring = new Vector3[4]; var face = new Vector3[4];
+        ink.GetWorldCorners(ring); card.GetWorldCorners(face);
+        return Vector3.Distance(ring[0], ring[1]) >= Vector3.Distance(face[0], face[1]) * fraction;
+    }
+
+    private static float Diameter(RectTransform ink)
+    {
+        var corners = new Vector3[4]; ink.GetWorldCorners(corners);
+        return Vector3.Distance(corners[0], corners[1]);
+    }
+
+    private static void PhysicalCardAura()
+    {
+        var fixture = new GameObject("Physical aura fixture");
+        var native = new GameObject("Native", typeof(UIWindow), typeof(UINewEnhancementWindow));
+        native.transform.SetParent(fixture.transform, false);
+        var shop = native.GetComponent<UINewEnhancementWindow>();
+        var highlighter = new GameObject("CardHilight", typeof(RectTransform),
+            typeof(UIEnhancementCardHighlighter));
+        highlighter.transform.SetParent(native.transform, false);
+        ((RectTransform)highlighter.transform).sizeDelta = new Vector2(325f, 450f);
+        highlighter.transform.localScale = Vector3.one * .0004f;
+        shop.cardHolder = highlighter.GetComponent<UIEnhancementCardHighlighter>();
+        var aura = new GameObject("Aura", typeof(RectTransform)); aura.transform.SetParent(highlighter.transform, false);
+        var types = new GameObject("Types", typeof(RectTransform)); types.transform.SetParent(aura.transform, false);
+        var buy = new GameObject("Buy", typeof(RectTransform)); buy.transform.SetParent(types.transform, false);
+        var ink = new GameObject("Actual effect ink", typeof(RectTransform), typeof(Image));
+        ink.transform.SetParent(buy.transform, false);
+        ((RectTransform)ink.transform).sizeDelta = new Vector2(300f, 700f);
+        var printed = new GameObject("Original printed card", typeof(RectTransform), typeof(AbilityCardUI));
+        printed.transform.SetParent(highlighter.transform, false);
+        var station = new GameObject("Resident").transform; station.SetParent(fixture.transform, false);
+        var palm = new GameObject("ActivityOfferingPalm").transform; palm.SetParent(station, false);
+        var fan = new GameObject("Fan").transform; fan.SetParent(fixture.transform, false);
+        CardsDriver.FanRoot = fan;
+        var card = new GameObject("Physical card", typeof(VRCard)).GetComponent<VRCard>();
+        card.transform.SetParent(fan, false); card.Owner = shop.character; card.Model.ID = 573;
+        CardsDriver.OffScenarioFanCards = new[] { card };
+        var slot = new GameObject("Native slot", typeof(RectTransform), typeof(Button), typeof(UIEnhanceCardSlot))
+            .GetComponent<UIEnhanceCardSlot>();
+        slot.transform.SetParent(native.transform, false); slot.Selectable = slot.GetComponent<Button>();
+        slot.AbilityCard = printed.GetComponent<AbilityCardUI>(); slot.AbilityCard.AbilityCard = card.Model;
+        slot.Selected = () => { shop.selectedCard = slot.AbilityCard; shop.cardHolder.Card = slot.AbilityCard; };
+        shop.CardsDisplay.slotsPool.Add(slot);
+        using (var handoff = new TownServiceEnhancementHandoff(shop, station, () => true, () => true))
+        {
+            handoff.Tick(); card.transform.position = handoff.Seat.position;
+            Check(TownServiceEnhancementHandoff.TryOffer(card), "original card can be offered for physical aura test");
+            var mask = printed.GetComponent<TownServiceNativeEnhancementCardMask>();
+            mask.SendMessage("OnBeforeCanvasRender");
+            var corners = new Vector3[4]; ((RectTransform)ink.transform).GetWorldCorners(corners);
+            float diameter = Vector3.Distance(corners[0], corners[1]);
+            float physical = CardsConfig.CardHeight * card.transform.lossyScale.x;
+            Check(diameter >= physical * 1.03f && diameter <= physical * 1.13f
+                && SquareInWorld((RectTransform)ink.transform),
+                "rendered native aura follows the actual physical card, not the 325x450 highlighter root");
+            mask.SendMessage("OnBeforeCanvasRender");
+            Check(Mathf.Abs(Diameter((RectTransform)ink.transform) - diameter) < .0001f,
+                "physical-card mapping does not grow on repeated canvas submissions");
+            ((RectTransform)aura.transform).localScale = new Vector3(.7f, .7f, 1f);
+            mask.SendMessage("OnBeforeCanvasRender");
+            Check(SquareInWorld((RectTransform)ink.transform)
+                && Mathf.Abs(Diameter((RectTransform)ink.transform) - diameter * .7f) < .002f,
+                "later native aura pulse remains visible at the physical card's scale");
+        }
+        UnityEngine.Object.DestroyImmediate(fixture);
     }
 
     private static void NativePhysicalPoke()
@@ -207,6 +291,10 @@ public static class InteractionProgram
             CanvasGroup gate = handoff.Zone.GetComponent<CanvasGroup>();
             Check(gate.alpha > .3f && gate.alpha < .5f && hand.HoverTicks == 0 && hand.ClickPulses == 0,
                 "first opening shows neutral palm locator while native input remains blocked");
+            TownServicePresentation.SessionAge = 1.4f;
+            handoff.Tick();
+            Check(gate.alpha > .3f && gate.alpha < .5f,
+                "slow relocation keeps a visible noninteractive palm locator past the old 350 ms cutoff");
             card.IsHeld = false; hand.Grabber.Held = null;
             Check(!TownServiceEnhancementHandoff.TryOffer(card) && handoff.Card == null,
                 "first opening preview cannot commit native card selection");
@@ -214,6 +302,12 @@ public static class InteractionProgram
             input = true; handoff.Tick();
             Check(gate.alpha == 1f && hand.HoverTicks == 1 && hand.ClickPulses == 1,
                 "ready first visit turns the same locator into a haptic snap target");
+            slot.Selectable.interactable = false; handoff.Tick();
+            Check(gate.alpha > .3f && gate.alpha < .5f && !TownServiceEnhancementHandoff.TryOffer(card),
+                "native row refresh retains a visible locator without pretending the disabled slot accepts a card");
+            slot.Selectable.interactable = true; handoff.Tick();
+            Check(gate.alpha == 1f,
+                "restored native row resumes the actionable overlay on the same visit");
             CardsDriver.OffScenarioFanCards = Array.Empty<VRCard>(); handoff.Tick();
             Check(gate.alpha == 1f,
                 "held owned card remains offerable when the visible fan no longer lists its plucked card");
@@ -379,8 +473,9 @@ public static class InteractionProgram
             if (scenario == 1 || scenario == 3 || scenario == 4 || scenario == 8)
             {
                 handoff.Tick();
-                Check(handoff.Zone.GetComponent<CanvasGroup>().alpha == 0f,
-                    "foreign disabled or pending native selection never advertises a palm drop");
+                float alpha = handoff.Zone.GetComponent<CanvasGroup>().alpha;
+                Check(scenario == 3 ? alpha > .3f && alpha < .5f : alpha == 0f,
+                    "disabled owned row shows only the waiting preview; foreign or confirmation cards show no drop cue");
             }
             bool offered = TownServiceEnhancementHandoff.TryOffer(card);
             string reason = scenario == 1 ? "foreign native character refuses offering"

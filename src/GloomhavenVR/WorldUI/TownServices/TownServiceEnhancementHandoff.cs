@@ -20,6 +20,12 @@ internal sealed class TownServiceEnhancementHandoff : IDisposable
     internal static bool HasCurrentOffering => _current != null && !_current._disposed
         && _current.Card != null && _current._window != null && _current._window.IsOpen
         && TownServicePresentation.Active && TownServicePresentation.Service == 3;
+    internal static bool TryPhysicalCardHeight(out float height)
+    {
+        VRCard? card = _current != null && !_current._disposed ? _current.Card : null;
+        height = card != null ? CardsConfig.CardHeight * Mathf.Abs(card.transform.lossyScale.x) : 0f;
+        return height > .0001f;
+    }
     private static float _approachSearchAt;
     private static float _approachRetryAt;
     private static Transform? _approachPalm;
@@ -81,6 +87,8 @@ internal sealed class TownServiceEnhancementHandoff : IDisposable
     private float _palmSearchAt;
     private CAbilityCard? _model;
     private bool _disposed, _confirmationSeen, _cueRecorded, _lastCueShown, _labelReady = true;
+    private bool _stalledCueReported;
+    private float _cueHiddenSince = -1f;
     private float _offeredHeight;
     internal VRCard? Card { get; private set; }
     internal AbilityCardUI? NativeSource { get; private set; }
@@ -260,7 +268,8 @@ internal sealed class TownServiceEnhancementHandoff : IDisposable
             holder = (leftHeld!.transform.position - _seat.position).sqrMagnitude
                 <= (rightHeld!.transform.position - _seat.position).sqrMagnitude ? VRHands.Left : VRHands.Right;
         VRCard? held = holder?.Grabber.Held as VRCard;
-        bool availableCard = hasPalm && _window != null && _window.IsOpen && _alive()
+        bool nativeOpen = _window != null && _window.IsOpen;
+        bool availableCard = hasPalm && nativeOpen
             && !_shop._isConfirmationBoxOpened && (held != null || HasAvailableOwnedCard());
         // When the hand carries a card, the preview must describe THAT card. A different
         // valid card elsewhere in the fan cannot make an invalid held card look droppable.
@@ -268,17 +277,17 @@ internal sealed class TownServiceEnhancementHandoff : IDisposable
         bool heldEligible = leftHeld == null && rightHeld == null || held != null;
         bool candidate = availableCard && replacement && heldEligible;
         bool showCue = ready && candidate;
-        // Build 571 first-visit evidence: screenshot 005428 shows the outstretched empty
-        // hand; its one local Debug visit logged cue hidden with input=False, followed by
-        // cue shown/input=True and a successful actual owned-card offer. eligibleOwnedCard
-        // was false only because the old ready && ... expression short-circuited; it did
-        // not prove a late native card refresh. The first visit starts a 220 ms workspace
-        // relocation and opening fade, while the second visit often has no relocation.
-        // Show a quiet target outline on the stationary hand during that bounded opening,
-        // but keep Ready on the native accept path. An opening preview has no action text,
-        // no haptics and no permission to select a card. The bright green target means the
-        // native card slot and interaction are ready for the actual release callback.
-        bool preview = !ready && candidate && TownServicePresentation.SessionAge < .35f
+        // The build-575 headset still found an outstretched but blank hand. Its Debug log
+        // shows native-open/input-false during workspace relocation, and the previous
+        // preview expired after 350 ms even if that relocation or native row loading did
+        // not. Keep a neutral noninteractive locator for the entire wait, including when
+        // the owned physical card exists before its native row is populated. Never send
+        // haptics or accept a drop until the original slot AND input gates are ready.
+        bool provisionalCard = leftHeld != null || rightHeld != null
+            ? leftHeld != null && ValidOwner(leftHeld) || rightHeld != null && ValidOwner(rightHeld)
+            : HasPotentialOwnedCard();
+        bool preview = !showCue && hasPalm && nativeOpen && !_shop._isConfirmationBoxOpened
+            && (Card == null || leftHeld != null || rightHeld != null) && provisionalCard
             && TownServiceSync.LocalOwnsInteraction(3, TownServicePresentation.Session)
             && Core.Events.VRModeStateMachine.CurrentMode != Core.Events.VRMode.ModalUI;
         Vector3 local = held != null ? _seat.InverseTransformPoint(held.transform.position) : Vector3.zero;
@@ -288,6 +297,20 @@ internal sealed class TownServiceEnhancementHandoff : IDisposable
         _feedback.Paint(showCue, preview);
         if (_labelReady != showCue)
         { _labelReady = showCue; _zoneLabel.text = showCue ? Loc.Mod("town_enchant_card") : string.Empty; }
+        if (preview && !showCue)
+        {
+            if (_cueHiddenSince < 0f) _cueHiddenSince = Time.unscaledTime;
+            if (!_stalledCueReported && VRLog.WantsDebug && Time.unscaledTime - _cueHiddenSince >= 1f)
+            {
+                _stalledCueReported = true;
+                VRLog.Debug("WorldUI", "TOWN ENHANCEMENT waiting for native offer: session="
+                    + TownServicePresentation.Session + " nativeOpen=" + nativeOpen + " alive=" + _alive()
+                    + " input=" + _input() + " nativeSlot=" + availableCard
+                    + " owner=" + TownServiceSync.LocalOwnsInteraction(3, TownServicePresentation.Session)
+                    + " offered=" + (Card != null) + ".");
+            }
+        }
+        else _cueHiddenSince = -1f;
         if (VRLog.WantsDebug && (!_cueRecorded || _lastCueShown != showCue))
         {
             _cueRecorded = true; _lastCueShown = showCue;
@@ -354,6 +377,15 @@ internal sealed class TownServiceEnhancementHandoff : IDisposable
             if (!ValidOwner(card) || !MapRoomHand.TryOwnedTownCard(card, out _, out var model)) continue;
             if (FindAvailableSlot(model) != null) return true;
         }
+        return false;
+    }
+
+    private bool HasPotentialOwnedCard()
+    {
+        var cards = CardsDriver.OffScenarioFanCards;
+        if (cards == null || !Enabled) return false;
+        for (int i = 0; i < cards.Count; i++)
+            if (ValidOwner(cards[i])) return true;
         return false;
     }
 
