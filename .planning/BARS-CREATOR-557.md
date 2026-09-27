@@ -29,5 +29,9 @@ The new option and the clarified wall-visibility label have English and German
 product strings. This affects presentation only and adds no network record.
 
 Validation: strict Release build, focused actor-bar source contract with negative
-controls, options coverage, bilingual documentation and the full refactor guard.
+controls, options coverage and bilingual documentation. The full refactor guard's
+source, runtime, wire, bundle and surface gates passed; its compiled-form diff
+returns 1 because the stored baseline predates this change (115 changed and
+115 added/removed types). No config key, patch registration or log marker was
+removed.
 The visual shader result and creator edge require hardware confirmation.
