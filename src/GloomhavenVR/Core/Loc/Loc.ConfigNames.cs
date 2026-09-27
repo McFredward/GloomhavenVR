@@ -727,7 +727,8 @@ internal static partial class Loc
             ["WorldUI/BarSizeScale"] = Pair("Health bars: size", "Lebensbalken: Größe"),
             // "WorldUI/BarZoomMinScale" / "WorldUI/BarZoomMaxScale" ("Mindestgröße"/"Maximalgröße")
             // stood here. GONE with their dials (user ruling 2026-08-13, see ActorBars.ZoomFollowMin).
-            ["WorldUI/BarsOccluded"] = Pair("Health bars behind walls", "Lebensbalken hinter Wänden"),
+            ["WorldUI/BarFollowFigureScale"] = Pair("Scale bars with figures", "Balken mit Figuren skalieren"),
+            ["WorldUI/BarsOccluded"] = Pair("Hide bars behind walls", "Balken hinter Wänden verbergen"),
             ["WorldUI/PanelMipBake"] = Pair("Smooth panel textures", "Tafeltexturen glätten"),
             // ModBuild 191's answer to the window shimmer, and the reason it went untested for a
             // build: both dials were bound and wired, but neither had a name, so the only place

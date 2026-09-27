@@ -1213,8 +1213,9 @@ internal static partial class Loc
         ["vr_o_loading"] = Pair("Loading indicator", "Ladeanzeige"),
         ["h_vr_o_loading"] = Pair("A spinner in the headset while the game loads.", "Eine Ladeanzeige im Headset, während das Spiel lädt."),
         // Tafeln ▸ Lebensbalken
-        ["vr_o_barsoccluded"] = Pair("Health bars behind walls", "Lebensbalken hinter Wänden"),
-        ["h_vr_o_barsoccluded"] = Pair("Bars stay visible even when a wall stands between you and the figure.", "Balken bleiben sichtbar, auch wenn eine Wand zwischen dir und der Figur steht."),
+        ["vr_o_barfollowfigure"] = Pair("Scale bars with figures", "Balken mit Figuren skalieren"),
+        ["vr_o_barsoccluded"] = Pair("Hide bars behind walls", "Balken hinter Wänden verbergen"),
+        ["h_vr_o_barsoccluded"] = Pair("On: walls hide bars. Off: bars remain visible through walls.", "An: Wände verdecken Balken. Aus: Balken bleiben durch Wände sichtbar."),
         // Tafeln ▸ 2D-Schirm
         ["vr_o_showintro"] = Pair("Show intro in VR", "Intro in VR zeigen"),
         ["h_vr_o_showintro"] = Pair("Play the game's intro on the floating screen instead of skipping it.", "Das Intro des Spiels auf dem schwebenden Schirm zeigen statt es zu überspringen."),
@@ -1753,10 +1754,10 @@ internal static partial class Loc
             + "gemerkte Position und Größe."),
         ["vr_pt_bars"] = Pair("Health bars", "Lebensbalken"),
         ["h_vr_pt_bars"] = Pair(
-            "The bars above figures: on/off, size and its zoom clamp, distance behaviour, "
-            + "visibility behind walls.",
-            "Die Balken über den Figuren: an/aus, Größe samt Zoom-Klammer, "
-            + "Abstands-Verhalten, Sichtbarkeit hinter Wänden."),
+            "The bars above figures: size, whether they follow figure zoom, head-distance "
+            + "behavior, and visibility behind walls.",
+            "Die Balken über den Figuren: Größe, Mitwachsen beim Figurenzoom, "
+            + "Abstandsverhalten und Sichtbarkeit hinter Wänden."),
         ["vr_pt_screen"] = Pair("2D screen & 3D depth", "2D-Schirm & 3D-Tiefe"),
         ["h_vr_pt_screen"] = Pair(
             "The floating 2D screen the menus live on: its basics, the stereo-depth "

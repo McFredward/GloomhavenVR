@@ -14,6 +14,8 @@ Headset verification of the resulting presentation remains open. Historical NPC
 design: [research/TOWN-SERVICES-552.md](research/TOWN-SERVICES-552.md).
 Current evidence and implementation limits: [TOWN-577.md](TOWN-577.md).
 The feature remains isolated from `dev`, and NPC work belongs on this branch.
+It also incorporates the later `dev` ModBuild 557 actor-bar and character-creator
+corrections ([BARS-CREATOR-557.md](BARS-CREATOR-557.md)).
 
 The file this replaces had gone 168 builds
 stale while still saying "read this first"; it is kept as `STATE-ARCHIVE-through-2026-08.md` for
@@ -27,6 +29,12 @@ change per build) → this file (where things stand and what is owed) → the bu
 ---
 
 ## 1. Position
+
+- **Integrated dev / 1.0.9 / ModBuild 557:** character creation joins the
+  original character-screen fit; overhead bars honor the wall-visibility
+  setting and, by default, scale proportionally with figures. The old zoom
+  clamp remains a selectable setting. These source-backed corrections await
+  headset confirmation; see [BARS-CREATOR-557.md](BARS-CREATOR-557.md).
 
 - **NPC feature / 1.1.0 / ModBuild 577 (hardware candidate):** merchant offers
   keep a native confirmation throughout inspection, rebind lost controls and
