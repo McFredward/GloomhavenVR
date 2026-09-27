@@ -2,15 +2,15 @@
 
 **Updated 2026-09-27: feature/immersive-town-services, version 1.1.0 hardware candidate.**
 The feature includes released 1.0.8 / ModBuild 556 and the subsequent 1.0.9
-version bookkeeping on `dev`. ModBuild 574 follows build-573 headset evidence:
-merchant confirmation reuse, uninitialized cloth, animated skinned-arm intersections,
-enchantment-card laser/frame geometry, stale speech, and loose stand geometry.
+version bookkeeping on `dev`. ModBuild 575 follows build-574 headset evidence:
+merchant Cancel and stock swaps, cabinet clearance and sold-out communication,
+enchantment aura/input, priestess shoulders, and overactive cloth and incidental speech.
 ModBuild 560 introduced resident
 voices, shared merchant confirmation presentation, a visible temple donation
 target, cloth contact, cabinet detail and varied idle motion.
 Headset verification of the resulting presentation remains open. Historical NPC
 design: [research/TOWN-SERVICES-552.md](research/TOWN-SERVICES-552.md).
-Current evidence and implementation limits: [TOWN-574.md](TOWN-574.md).
+Current evidence and implementation limits: [TOWN-575.md](TOWN-575.md).
 The feature remains isolated from `dev`, and NPC work belongs on this branch.
 
 The file this replaces had gone 168 builds
@@ -25,6 +25,18 @@ change per build) → this file (where things stand and what is owed) → the bu
 ---
 
 ## 1. Position
+
+- **NPC feature / 1.1.0 / ModBuild 575 (hardware candidate):** the merchant's
+  Cancel click immediately returns the offered card; stock and owned cards can
+  replace one another with release feedback while cabinet controls remain usable.
+  Cabinet stock sits deeper, sold-out cards display a localized marker, and
+  unsuccessful stock inspection has contextual shared speech. The enchantress's
+  original aura spans the physical card, original enhancement areas accept a
+  physical grip poke, and the card no longer responds to laser pickup. Incidental
+  speech is less frequent. Full-quality town art and voice assets ship in two
+  separately loaded bundles. The priestess shoulder and cloth motion receive a
+  further rendered/solver review. Evidence and headset checks are in
+  [TOWN-575.md](TOWN-575.md).
 
 - **NPC feature / 1.1.0 / ModBuild 574 (hardware candidate):** immediate merchant
   buy/sell reuse preserves the native confirmation buttons. The actual Unity Cloth

@@ -541,7 +541,19 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 574;
+    public const ushort ModBuild = 575;
+
+    // ModBuild 575 — fifteenth NPC hardware follow-up on the feature branch
+    // (FULL INSTALL). Merchant Cancel returns the offered card on the first
+    // native click, while cabinet controls stay usable with a parked item and
+    // stock/owned replacement gives release feedback. Stock art is recessed
+    // into the cabinet; sold-out cards are marked, and unavailable stock has
+    // contextual shared speech. The enchantress retains a world-square native
+    // aura, accepts grip pokes on original enhancement areas, and no longer
+    // laser-reclaims the offered card. Priestess idle anatomy and native cloth
+    // response are further refined; incidental speech is less frequent. Full
+    // quality town art and voices load from separate bundles. No wire layout
+    // changes.
 
     // ModBuild 574 — fourteenth NPC hardware follow-up on the feature branch
     // (FULL INSTALL). Reused merchant confirmations retain their live native
