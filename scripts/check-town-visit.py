@@ -52,7 +52,7 @@ internal sealed partial class RayInteractor {
 }
 internal static class BoundUiArbitration {
  """ + epsilon.group() + """
- internal static Canvas? Pick(VRHand _hand, Canvas? best, float bestDist) {
+ internal static Canvas? Pick(VRHand _hand, Canvas? best, float bestDist, bool offeredCardInFront) {
  float scale = _hand.WorldScale;
 """ + ui.group() + """
  return best;
@@ -68,6 +68,7 @@ internal static class BoundUiArbitration {
         ("phantom-canvas", "VisibleUiSurface.cs", "if (ContainsOwn(canvas, screen, camera)) return true;", "if (canvas != null) return true;", "transparent character frame does not clamp beam"),
         ("hidden-alpha", "VisibleUiSurface.cs", "graphic.color.a * graphic.canvasRenderer.GetAlpha() * graphic.canvasRenderer.GetInheritedAlpha() < .01f", "false", "transparent native hit image does not invent a surface"),
         ("decorative-ignored", "VisibleUiSurface.cs", "if (graphic.Raycast(screen, camera)) return true;", "if (graphic.raycastTarget && graphic.Raycast(screen, camera)) return true;", "visible decorative paper still occludes background UI"),
+        ("native-area-occluded", "EarlyPointer.cs", "if (best != null && !offeredCardInFront", "if (best != null", "the exact offered-card area survives its own physical-card occluder"),
     ]
     manifest = {"result": str(out / "results.txt"), "cases": []}
     unity = Path(os.environ.get("UNITY_EDITOR", "/home/claw/unity-2021.3.5/Editor/Unity"))

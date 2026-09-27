@@ -46,8 +46,21 @@ public static class InteractionProgram
             WorldUIConfig.ImmersiveTownServices.Value = true;
         }
         VisibleCanvas();
+        NativeAreaOcclusion();
         OfferingPickup();
         return _assertions;
+    }
+    private static void NativeAreaOcclusion()
+    {
+        var go = new GameObject("offered-card area canvas", typeof(RectTransform), typeof(Canvas));
+        var canvas = go.GetComponent<Canvas>();
+        var hand = new VRHand();
+        hand.Ray.SolidOccluderDistance = .5f;
+        Check(BoundUiArbitration.Pick(hand, canvas, 1f, false) == null,
+            "ordinary solid object still blocks native UI behind it");
+        Check(ReferenceEquals(BoundUiArbitration.Pick(hand, canvas, 1f, true), canvas),
+            "the exact offered-card area survives its own physical-card occluder");
+        Object.DestroyImmediate(go);
     }
     private static void OfferingPickup()
     {

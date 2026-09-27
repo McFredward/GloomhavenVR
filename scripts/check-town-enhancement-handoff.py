@@ -106,7 +106,7 @@ def mutations():
          "TownServiceVoice.RequestReaction(3, TownVoiceReaction.EnchantressInspect);", "",
          "same-frame handoff hides only duplicate art and reacts to the accepted offer"),
         ("wrong-area-canvas", name,
-         "if (!onCardSurface) return false;", "if (false) return false;",
+         "if (!onCardSurface) return false;", "if (!onCardSurface && canvas == null) return false;",
          "unrelated canvas and non-ability card print never steal the physical reclaim trigger"),
         ("stale-area-selection", name,
          "if (current == null || current.Card == null || !current.Ready || hit == null)",

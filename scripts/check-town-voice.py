@@ -27,7 +27,7 @@ variants += [
  ('stale-enchantress-invitation','TownServiceVoiceSchedule.cs',
   'if (service == 3 && (firstCue == 61 || firstCue == 46))',
   'if (service == 3 && firstCue == ushort.MaxValue)',
-  'accepted card retires a spoken request to bring a card'),
+  'completed enhancement retires an obsolete inspection line'),
  ('duplicate-hand-invite','TownServiceVoiceSchedule.cs','e.WorkSeeded = true; e.LastWorkClock = clock;',
   'if (service == 3 && e.WorkSeeded && e.LastAttention < .35f && attention >= .35f) QueueVariant(service, 51, 1, now + 4f, clock); e.WorkSeeded = true; e.LastWorkClock = clock;',
   'hand extension never duplicates the native-visit greeting'),
