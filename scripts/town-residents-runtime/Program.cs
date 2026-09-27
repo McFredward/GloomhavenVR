@@ -18,6 +18,7 @@ internal static class Program
         TownServiceMirror.TempleReceived=false;TownServiceMirror.TempleKnown=false;TownServiceMirror.TempleAvailable=true;
         TownServiceMirror.TempleOwner=0;TownServiceMirror.TempleSession=TownServiceMirror.TempleRevision=0;
         TownServiceMirror.TempleTransitionAge=0;
+        TownServiceAvailability.Locked.Clear();
         WorldUIConfig.ImmersiveTownServices.Value=true;MapRoomDriver.Active=true;MapRoomDriver.FrameReady=true;
         StoryComposite.PointOfNoReturn=false;TownServiceVoice.Requests=0;
         MapRoomDriver.Center=new(10,20,30);MapRoomDriver.Scale=2;NetPlayerActors.Local=10;
@@ -33,6 +34,22 @@ internal static class Program
         return state;
     }
     private static void Observe(int peer,TownResidentsState state)=>RemoteTownResidents.Observe(peer,new PresenceState{HasTownResidents=true,TownResidents=state});
+    private static void LockedResidentLifetime()
+    {
+        Reset(); Tick(); AllVisible();
+        NativeTemplates.Invalidated.Clear();
+        TownServiceAvailability.Locked.Add(2); Tick();
+        Check(TownServiceStation.Live.Count == 2 && !TownServiceStation.Live.ContainsKey(2)
+            && !TownServiceVisitTarget.Live.ContainsKey(2),
+            "a native-locked temple retires its complete resident and interaction target");
+        Check(TownServiceStation.Live.ContainsKey(1) && TownServiceStation.Live.ContainsKey(3)
+            && TownServicePopulation.Published.Active,
+            "locking one service leaves independently unlocked town residents published");
+        Check(NativeTemplates.Invalidated.Contains(2),
+            "locked resident invalidates its native furniture template");
+        TownServiceAvailability.Locked.Clear(); Tick(); AllVisible();
+        Reset();
+    }
     private static void AllVisible()
     {
         Check(TownServiceStation.Live.Count==3,"all three permanent residents");
@@ -178,6 +195,7 @@ internal static class Program
         MerchantOffering();
         TemplePresentation();
         StoryCommitment();
+        LockedResidentLifetime();
         Reset();Tick();AllVisible();Check(TownServicePopulation.Published.Active,"ready population advertised");
         Check(TownServicePopulation.Published.HasCloth && TownServiceStation.Live[2].ClothAuthorTicks > 0,
             "elected owner advances and publishes priestess cloth contact");

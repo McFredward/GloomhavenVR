@@ -75,6 +75,14 @@ the same production sources before that fixture-only addition. The isolated
 cabinet and interaction fixtures were updated to model the newly required
 native availability boundary rather than failing to compile an otherwise
 successful production build.
+The complete 80-suite local run passed 78 suites directly; its only two failures
+were the old isolated resident and interaction fixture boundaries. Both were
+repaired and rerun successfully against the unchanged production sources. The
+resident suite now includes explicit whole-station retirement on a native lock:
+203 production assertions and 15 compiled negative controls passed. Byte-exact
+wire tests passed 286,578 assertions. The source guard passed all 14 suites;
+the surface census found no removed settings, patches or log markers. A full
+80-suite rerun was not necessary after only the two isolated fixtures changed.
 Unity 2021.3.5f1 rebuilt the voice bundle as an independent part; its UnityFS
 format check passed. The art bundle remained byte-identical. The Release source
 build passed with zero warnings and errors after integration. The local package

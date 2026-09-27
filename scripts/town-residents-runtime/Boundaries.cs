@@ -76,6 +76,14 @@ namespace GloomhavenVR.WorldUI.MapRoom
 namespace GloomhavenVR.WorldUI
 {
     using UnityEngine;
+    internal static class TownServiceAvailability
+    {
+        internal static readonly HashSet<byte> Locked = new();
+        internal static bool NativeUnlocked(byte service) => service is >= 1 and <= 3 && !Locked.Contains(service);
+        internal static bool ShouldPublish(bool nativeUnlocked, bool immersive, bool remoteVisitor)
+            => nativeUnlocked && (immersive || remoteVisitor);
+    }
+    internal static class TownServiceTutorialPatches { internal static void Tick() { } }
     internal static class StoryComposite { internal static bool PointOfNoReturn; }
     internal enum TownVoiceReaction : byte
     { MerchantOffer, MerchantBuy, MerchantSell, PriestessDonate, EnchantressEnhance, PriestessUnavailable }
