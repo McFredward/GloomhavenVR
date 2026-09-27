@@ -28,6 +28,10 @@ internal static class TownServicePhysicalRay
     // coupling that reclaimed the card when the player missed an ability area.
     private static bool OccludingTarget(IGrabbable candidate) => PhysicalTarget(candidate)
         || candidate is VRCard card && TownServiceEnhancementHandoff.CanReclaim(card);
+    // Both hand rays are processed on Unity's main thread. Reusing this scratch
+    // avoids a managed hit array on every frame aimed at the offered card.
+    private const int PhysicsScanCapacity = 64;
+    private static readonly RaycastHit[] PhysicsScanHits = new RaycastHit[PhysicsScanCapacity];
 
     /// <summary>Identify the offered card's own solid hit. The enhancement-area laser
     /// may cross this card to reach an original button on its face, but may not cross
@@ -56,12 +60,15 @@ internal static class TownServicePhysicalRay
         Vector3 direction, float maxDistance, LayerMask mask)
     {
         float nearest = float.PositiveInfinity;
-        RaycastHit[] hits = Physics.RaycastAll(origin, direction, maxDistance, mask);
-        for (int i = 0; i < hits.Length; i++)
+        int count = Physics.RaycastNonAlloc(origin, direction, PhysicsScanHits, maxDistance, mask);
+        // A full buffer may have omitted a later blocker. Deny the exception
+        // rather than letting the ray through an unexamined collider.
+        if (count == PhysicsScanHits.Length) return 0f;
+        for (int i = 0; i < count; i++)
         {
-            Collider collider = hits[i].collider;
+            Collider collider = PhysicsScanHits[i].collider;
             if (collider == null || collider.transform.IsChildOf(offered.transform)) continue;
-            if (hits[i].distance < nearest) nearest = hits[i].distance;
+            if (PhysicsScanHits[i].distance < nearest) nearest = PhysicsScanHits[i].distance;
         }
         return nearest;
     }

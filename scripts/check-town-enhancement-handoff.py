@@ -48,9 +48,13 @@ def sources(root):
     bound["NativeAreaOcclusionFixture.cs"] = "namespace GloomhavenVR.Hands.Interact { internal static class NativeAreaOcclusionFixture {\n" + arbitration + "\n} }"
     physical = (root / "src/GloomhavenVR/WorldUI/TownServices/TownServicePhysicalRay.cs").read_text()
     physics_scan = method(physical, "internal static float OtherPhysicsOccludingDistance(")
+    scratch = ("    private const int PhysicsScanCapacity = 64;\n"
+        "    private static readonly RaycastHit[] PhysicsScanHits = new RaycastHit[PhysicsScanCapacity];\n")
+    if scratch not in physical:
+        raise RuntimeError("Production physics ray scratch differs from the runtime fixture")
     bound["NativePhysicsOcclusionFixture.cs"] = ("using UnityEngine; using GloomhavenVR.Cards; "
         "namespace GloomhavenVR.WorldUI { internal static class NativePhysicsOcclusionFixture {\n"
-        + physics_scan + "\n} }")
+        + scratch + physics_scan + "\n} }")
     return bound, {name: hashlib.sha256(text.encode()).hexdigest() for name, text in bound.items()}
 
 
@@ -109,6 +113,8 @@ def check_laser_bridge(root):
             and "if (!ReferenceEquals(entries[i].Target, offered)" in physical_text
             and "|| candidate is VRCard card && TownServiceEnhancementHandoff.CanReclaim(card)" in physical_text
             and "collider.transform.IsChildOf(offered.transform)" in physical_text
+            and "Physics.RaycastNonAlloc(origin, direction, PhysicsScanHits, maxDistance, mask)" in physical_text
+            and "if (count == PhysicsScanHits.Length) return 0f;" in physical_text
             and "ignoreReversedGraphics" not in mask_text
             and "BoardOccluderDistance = liveBoard;" in state_text
             and "BoardOccluderDistance = float.PositiveInfinity;" in state_text)
@@ -117,6 +123,7 @@ def check_laser_bridge(root):
     for index, (broken_ray, broken_physical, broken_mask, broken_state) in enumerate((
         (ray.replace("TryNativeArea(best, checkedAreaTop.gameObject", "TryNativeArea(best, null", 1), physical, mask, ray_state),
         (ray, physical.replace("if (!ReferenceEquals(entries[i].Target, offered)", "if (entries[i].Target == null", 1), mask, ray_state),
+        (ray, physical.replace("if (count == PhysicsScanHits.Length) return 0f;", "if (count < 0) return 0f;", 1), mask, ray_state),
         (ray.replace("_hand.Ray.BoardOccluderDistance,", "float.PositiveInfinity,", 1), physical, mask, ray_state),
         (ray.replace("WorldUI.TownServicePhysicalRay.OtherOccludingDistance(offered,", "WorldUI.TownServicePhysicalRay.OccludingDistance(", 1), physical, mask, ray_state),
         (ray.replace("WorldUI.TownServicePhysicalRay.OtherPhysicsOccludingDistance(offered,", "WorldUI.TownServicePhysicalRay.OccludingDistance(", 1), physical, mask, ray_state),

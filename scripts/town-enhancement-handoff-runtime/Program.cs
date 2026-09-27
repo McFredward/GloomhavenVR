@@ -359,6 +359,24 @@ public static class InteractionProgram
         Check(float.IsPositiveInfinity(NativePhysicsOcclusionFixture.OtherPhysicsOccludingDistance(
             offered.GetComponent<VRCard>(), ray.origin, ray.direction, 2f, Physics.DefaultRaycastLayers)),
             "physics rescan excludes only the offered card's own collider");
+        var saturation = new GameObject("Offered-card collider saturation");
+        saturation.transform.SetParent(offered.transform, false);
+        for (int i = 0; i < 70; i++)
+        {
+            var child = new GameObject("Card child collider", typeof(BoxCollider));
+            child.transform.SetParent(saturation.transform, false);
+            child.transform.localPosition = new Vector3(0f, 0f, .06f);
+            child.GetComponent<BoxCollider>().size = new Vector3(.4f, .5f, .002f);
+        }
+        Physics.SyncTransforms();
+        Check(NativePhysicsOcclusionFixture.OtherPhysicsOccludingDistance(
+            offered.GetComponent<VRCard>(), ray.origin, ray.direction, 2f, Physics.DefaultRaycastLayers) == 0f,
+            "a full reusable physics hit buffer fails closed instead of missing a later blocker");
+        UnityEngine.Object.DestroyImmediate(saturation);
+        Physics.SyncTransforms();
+        Check(float.IsPositiveInfinity(NativePhysicsOcclusionFixture.OtherPhysicsOccludingDistance(
+            offered.GetComponent<VRCard>(), ray.origin, ray.direction, 2f, Physics.DefaultRaycastLayers)),
+            "reused physics scratch does not keep stale hits from a previous crowded frame");
         UnityEngine.Object.DestroyImmediate(offered);
         Check(NativeAreaOcclusionFixture.OfferedAreaClear(panel, card, card,
             none, none, none, none, none, epsilon),
