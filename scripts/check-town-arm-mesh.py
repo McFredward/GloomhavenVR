@@ -52,6 +52,7 @@ def main():
     parser.add_argument('--report', type=Path, required=True)
     parser.add_argument('--report-only', action='store_true')
     parser.add_argument('--service', type=int, choices=[1, 2, 3], help='Check one resident during contact fitting; default covers all three')
+    parser.add_argument('--last-frames', type=int, help='Inspect only the newest exported pose sequence during focused fitting')
     args = parser.parse_args(sys.argv[sys.argv.index('--') + 1:])
     reports = []
     for path in sorted(args.input.glob(f'service{args.service}-skin.bin' if args.service else 'service*-skin.bin')):
@@ -62,15 +63,20 @@ def main():
             seams = np.loadtxt(path.with_name(path.stem.replace('-skin', '-seams') + '.csv'), delimiter=',', ndmin=2)
             assert len(seams) >= 20, 'Actual cuff/skin seam coverage missing'
             seam_cloth, seam_skin = seams[:, 0].astype(int), seams[:, 1].astype(int)
+            first = max(0, frame_count - args.last_frames) if args.last_frames else 0
+            if first:
+                file.seek(first * (8 + vertex_count * 12), 1)
             report = {'file': path.name, 'vertices': vertex_count, 'faces': {str(k): len(v) for k, v in faces.items()},
-                      'frames': frame_count, 'intersecting_frames': 0, 'maximum_pairs': 0, 'worst': None, 'seam_pairs': len(seams), 'maximum_seam_growth': 0.}
-            for frame in range(frame_count):
+                      'frames': frame_count, 'scanned_frames': frame_count - first, 'first_frame': first,
+                      'intersecting_frames': 0, 'maximum_pairs': 0, 'worst': None, 'pair_counts': [], 'stage_pairs': {},
+                      'seam_pairs': len(seams), 'maximum_seam_growth': 0.}
+            for frame in range(first, frame_count):
                 clock, attention = struct.unpack('<ff', file.read(8))
                 positions = np.frombuffer(file.read(vertex_count * 12), dtype='<f4').reshape((-1, 3))
                 growth = np.linalg.norm(positions[seam_cloth] - positions[seam_skin], axis=1) - seams[:, 2]
                 report['maximum_seam_growth'] = max(report['maximum_seam_growth'], float(growth.max()))
                 pairs = intersections(positions, faces)
-                if frame == 0:
+                if frame == first:
                     # Deliberately drive the real left forearm into its own torso.
                     # A marker-only/disabled detector must not pass this control.
                     injected = False
@@ -90,13 +96,21 @@ def main():
                     report['seam_negative_control_detected'] = True
                 if pairs:
                     report['intersecting_frames'] += 1
+                    report['pair_counts'].append([frame, len(pairs)])
+                    if frame in {first, first + 20, first + 45, first + 70, first + 90,
+                                 first + 91 + 20, first + 91 + 60, first + 91 + 120,
+                                 first + 91 + 200, first + 91 + 221 + 45}:
+                        report['stage_pairs'][str(frame)] = {'count': len(pairs),
+                            'sides': {str(side): sum(a == side for a, _, _, _ in pairs) for side in (1, 2)},
+                            'first': {str(side): positions[faces[side][next(i for a, i, other, _ in pairs if a == side)]].mean(axis=0).tolist()
+                                for side in (1, 2) if any(a == side for a, _, _, _ in pairs)}}
                     if len(pairs) > report['maximum_pairs']:
                         report['maximum_pairs'] = len(pairs)
                         report['worst'] = {'frame': frame, 'clock': clock, 'attention': attention, 'pairs': pairs[:8],
                             'arm_centres': [positions[faces[s][a]].mean(axis=0).tolist() for s,a,other,b in pairs[:8]]}
             assert not file.read(1), 'Unexpected trailing geometry data'
             reports.append(report)
-            print('TOWN_ARM_MESH', json.dumps(report), flush=True)
+            print('TOWN_ARM_MESH', json.dumps({key: value for key, value in report.items() if key != 'pair_counts'}), flush=True)
     assert len(reports) == (1 if args.service else 3), 'Every requested resident must be sampled'
     args.report.write_text(json.dumps(reports, indent=2) + '\n')
     if not args.report_only and any(row['intersecting_frames'] or row['maximum_seam_growth'] > .012 for row in reports):

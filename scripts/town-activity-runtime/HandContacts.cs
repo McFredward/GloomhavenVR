@@ -105,7 +105,7 @@ internal static class HandContacts
                     else if(service==1&&side=="L")
                     {
                         Vector3 hip=root.InverseTransformPoint(contact.position);
-                        if(Mathf.Abs(hip.x)<.08f||hip.z<.42f||hip.z>.59f
+                        if(Mathf.Abs(hip.x)<.15f||hip.z<.31f||hip.z>.50f
                             ||hip.y<.88f||hip.y>1.04f)
                             throw new Exception("visitor attention settles merchant with hands at his hips without an unsolicited offering: "+side+" "+hip);
                         Vector3 inward=side=="L"?-root.right:root.right;
@@ -163,10 +163,10 @@ internal static class HandContacts
                         previousLeft=leftPalm.rotation;previousRight=rightPalm.rotation;
                     }
                     Vector3 left=root.InverseTransformPoint(leftPalm.position),right=root.InverseTransformPoint(rightPalm.position);
-                    // One palm closes the centre of the 90 mm radius bowl; the
-                    // other remains at her hip. Two palms at the centre produced
-                    // crossed sleeves and fingers in the build 571 headset video.
-                    if(Mathf.Abs(left.x)>.035f||left.y<1.09f||left.y>1.14f
+                    // The palm covers the near half of the bowl. Targeting the far
+                    // half draws the sleeve through her torso, which this marker
+                    // check alone cannot detect; the skin scan covers that case.
+                    if(left.x<.020f||left.x>.050f||left.y<1.09f||left.y>1.15f
                         ||right.x>-.16f||right.y<.77f||right.y>.90f)
                         throw new Exception("unavailable donation covers the bowl with one hand while the other rests beside the robe left="+left+" right="+right);
                     if(Vector3.Dot(leftPalm.forward,-root.up)<.72f
@@ -246,7 +246,7 @@ internal static class HandContacts
                         if(leftLocal.x<-.01f||rightLocal.x>.01f||leftElbowLocal.x<.04f||rightElbowLocal.x>-.02f)
                             throw new Exception("priestess arms retain their anatomical sides without crossing frame="+frame
                                 +" palms="+leftLocal+" / "+rightLocal+" elbows="+leftElbowLocal+" / "+rightElbowLocal);
-                        float directDepth=Mathf.Lerp(prayerDepth,.27f,visitVisual.Attention);
+                        float directDepth=Mathf.Lerp(prayerDepth,.20f,visitVisual.Attention);
                         if(Mathf.Abs(leftLocal.z-directDepth)>.01f)
                             throw new Exception("prayer-to-bowl hand never detours through hip frame="+frame
                                 +" directDepth="+directDepth+" currentDepth="+leftLocal.z);

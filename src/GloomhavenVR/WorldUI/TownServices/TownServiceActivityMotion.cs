@@ -75,35 +75,31 @@ internal static class TownServiceActivityMotion
         // Interruption stops the shared work clock smoothly. A pinched coin stays in
         // the hand while greeting; it never slides through space back onto the table.
         // Looking at a visitor is separate from offering an item hand to that visitor.
-        // Keep the merchant's hands against his waist and let the priestess's arms hang
-        // naturally beside her robe, behind the worktops. Station forward points from
-        // the visitor toward the actor: a larger Z
-        // is therefore closer to the body. Earlier targets used the opposite assumption;
-        // their unreachable forward position clamped the imported arms over the counter.
-        // The imported left arms have a different palm-surface offset from the
-        // generated reference. These side-specific guides resolve to mirrored
-        // *visible* palm positions on the actual skins; symmetric numeric wrist
-        // targets left the screen-right arm hanging away from the body.
-        work.Left = Vector3.Lerp(work.Left, service == 1 ? new Vector3(.17f, .94f, .45f)
-            : service == 2 ? new Vector3(.18f, .80f, .54f) : new Vector3(.22f, 1.13f, .23f), attention);
-        work.Right = Vector3.Lerp(work.Right, service == 1 ? new Vector3(-.24f, .98f, .50f)
-            : service == 3 ? new Vector3(-.18f, 1.17f, .23f) : new Vector3(-.18f, .80f, .54f), attention);
+        // Hands settle beside the silhouette, clear of the worktops. Larger Z is
+        // closer to the actor: the former priestess .54 and merchant .45/.50
+        // waist targets put *skinned* forearms and thumbs inside robe/belly while
+        // their palm markers and bone-angle tests still passed. The imported
+        // left/right arms require different guides. Verify these against the
+        // exported final skin, including every intermediate attention frame.
+        work.Left = Vector3.Lerp(work.Left, service == 1 ? new Vector3(.27f, .94f, .35f)
+            : service == 2 ? new Vector3(.28f, .80f, .42f) : new Vector3(.22f, 1.13f, .23f), attention);
+        work.Right = Vector3.Lerp(work.Right, service == 1 ? new Vector3(-.30f, .98f, .43f)
+            : service == 3 ? new Vector3(-.18f, 1.17f, .23f) : new Vector3(-.28f, .80f, .42f), attention);
         // Hand targets alone cannot lower an arm naturally. Author the matching elbow path as
         // part of the same blend so the upper arm leaves the shoulder downward instead of staying
         // abducted while the forearm reaches for a low hand target.
         if (service is 1 or 2)
         {
-            float side = service == 1 ? .41f : .11f;
             // The priestess upper arm must leave the real clavicle at shoulder height.
             // A low elbow target deformed the broad sleeve into a second, false shoulder
             // at chest height even though the hand itself reached the intended hip.
             float priestessElbowHeight = 1.02f;
             work.LeftElbow = Vector3.Lerp(work.LeftElbow,
-                new Vector3(service == 1 ? .35f : .11f, service == 1 ? 1.08f : priestessElbowHeight,
-                    service == 1 ? .45f : .54f), attention);
+                new Vector3(service == 1 ? .44f : .30f, service == 1 ? 1.08f : priestessElbowHeight,
+                    service == 1 ? .35f : .40f), attention);
             work.RightElbow = Vector3.Lerp(work.RightElbow,
-                new Vector3(-side, service == 1 ? 1.13f : priestessElbowHeight,
-                    service == 1 ? .50f : .54f), attention);
+                new Vector3(service == 1 ? -.43f : -.30f, service == 1 ? 1.13f : priestessElbowHeight,
+                    service == 1 ? .43f : .40f), attention);
         }
         work.RightRoll = Mathf.Lerp(work.RightRoll, service == 1 ? 65f : service == 3 ? 180f : 0f, attention);
         work.LeftRoll = Mathf.Lerp(work.LeftRoll, service == 1 ? -65f : service == 3 ? -65f : 0f, attention);
@@ -135,13 +131,14 @@ internal static class TownServiceActivityMotion
         // in twice. Add the difference between attended and covered targets instead.
         // At full cover this is exactly prayer -> cover throughout approach, and at
         // full attention it is the ordinary hip -> cover donation transition.
-        // The palm sat at the bowl centre while its fingers ran past the far rim.
-        // That target nearly exhausted both arm bones, so the elbow guide had no
-        // authority: the real elbow folded inward under the breast. Seat the palm
-        // at the near rim and let the fingers cover the centre, leaving enough bend
-        // for the elbow to stay below and outside her shoulder.
-        visual.Left += (new Vector3(.025f, 1.115f, .27f) - new Vector3(.18f, .80f, .54f)) * t;
-        visual.LeftElbow += (new Vector3(.38f, .92f, .50f) - new Vector3(.11f, 1.02f, .54f)) * t;
+        // Build 573's marker and final-pose render missed 243/403 actual-skin
+        // intersections across approach, donation, and departure. The right
+        // resting forearm was buried in the robe; the left cover target sent its
+        // sleeve across the torso. Put the palm over the near half of the bowl,
+        // with an outward elbow, and leave the other arm alongside the robe. The
+        // 403-frame imported-skin scan has zero intersections.
+        visual.Left += (new Vector3(.035f, 1.12f, .20f) - new Vector3(.28f, .80f, .42f)) * t;
+        visual.LeftElbow += (new Vector3(.44f, 1.10f, .33f) - new Vector3(.30f, 1.02f, .40f)) * t;
         // The temple solver starts with an inward-facing left palm. A quarter turn
         // places its palmar surface down across the opening. The right hand keeps
         // its already relaxed attention pose rather than twisting over the bowl.
@@ -315,10 +312,13 @@ internal static class TownServiceActivityMotion
         // Palm targets are actual skin surfaces, not wrist centres. The old +/-35 mm
         // targets left a visible 70 mm gap. Build 571 still put the joined hands at
         // z=.20, directly above the bowl, so both forearms projected straight across
-        // the chest in the headset video. Keep the palms together near the sternum
-        // (larger station Z is nearer her body) and let the elbows bend below them.
-        visual.Left = new Vector3(.012f,height,.36f);
-        visual.Right = new Vector3(-.012f,height,.36f);
+        // the chest in the headset video. The later z=.36 prayer target instead
+        // placed both forearms *inside* the chest during entry/exit. Keep the
+        // palms joined in front of the sternum and the elbows outside the robe.
+        visual.Left = new Vector3(.012f,height,.29f);
+        visual.Right = new Vector3(-.012f,height,.29f);
+        visual.LeftElbow = new Vector3(.38f,1.15f,.34f);
+        visual.RightElbow = new Vector3(-.38f,1.15f,.34f);
         visual.LeftCurl=0f; visual.RightCurl=0f;
         return visual;
     }

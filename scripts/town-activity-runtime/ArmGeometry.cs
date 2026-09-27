@@ -64,33 +64,77 @@ internal static class ArmGeometry
         }
         if(seams.Count<20)throw new InvalidOperationException("Imported cuff/skin seam was not covered: "+service+" pairs="+seams.Count);
         File.WriteAllLines(Path.Combine(args[arg+1],"service"+service+"-seams.csv"),seams.Select(p=>p.cloth+","+p.skin+","+p.gap.ToString("R",System.Globalization.CultureInfo.InvariantCulture)));
-        var poses=new List<TownActivityPose>();float duration=service==2?64f:96f;
+        var poses=new List<(TownActivityPose state,float cover,float blessingAge)>();float duration=service==2?64f:96f;
+        bool focused=Array.IndexOf(args,"-anatomyFocus")>=0;
         // Twelve samples per second plus every phase's complete greeting and departure.
-        for(float t=0;t<duration;t+=1f/12f)poses.Add(new TownActivityPose{WorkClock=t,TransitionAge=TownServiceActivityMotion.TransitionSeconds});
-        foreach(float start in new[]{0f,duration*.23f,duration*.51f,duration*.79f})
+        if(!focused)
         {
-            var pose=new TownActivityPose{WorkClock=start,TransitionAge=TownServiceActivityMotion.TransitionSeconds};
+            for(float t=0;t<duration;t+=1f/12f)poses.Add((new TownActivityPose{WorkClock=t,TransitionAge=TownServiceActivityMotion.TransitionSeconds},0f,-1f));
+            foreach(float start in new[]{0f,duration*.23f,duration*.51f,duration*.79f})
+            {
+                var pose=new TownActivityPose{WorkClock=start,TransitionAge=TownServiceActivityMotion.TransitionSeconds};
+                for(int frame=0;frame<90;frame++)
+                {
+                    if(frame==0)TownServiceActivityMotion.Engage(ref pose,true);
+                    if(frame==45)TownServiceActivityMotion.Engage(ref pose,false);
+                    pose=TownServiceActivityMotion.Advance(pose,1f/30f);poses.Add((pose,0f,-1f));
+                }
+            }
+            var interrupted=new TownActivityPose{WorkClock=duration*.51f,TransitionAge=TownServiceActivityMotion.TransitionSeconds};
             for(int frame=0;frame<90;frame++)
             {
-                if(frame==0)TownServiceActivityMotion.Engage(ref pose,true);
-                if(frame==45)TownServiceActivityMotion.Engage(ref pose,false);
-                pose=TownServiceActivityMotion.Advance(pose,1f/30f);poses.Add(pose);
+                if(frame==0||frame==16)TownServiceActivityMotion.Engage(ref interrupted,true);
+                if(frame==8||frame==44)TownServiceActivityMotion.Engage(ref interrupted,false);
+                interrupted=TownServiceActivityMotion.Advance(interrupted,1f/30f);poses.Add((interrupted,0f,-1f));
             }
         }
-        var interrupted=new TownActivityPose{WorkClock=duration*.51f,TransitionAge=TownServiceActivityMotion.TransitionSeconds};
-        for(int frame=0;frame<90;frame++)
+        if(service==2)
         {
-            if(frame==0||frame==16)TownServiceActivityMotion.Engage(ref interrupted,true);
-            if(frame==8||frame==44)TownServiceActivityMotion.Engage(ref interrupted,false);
-            interrupted=TownServiceActivityMotion.Advance(interrupted,1f/30f);poses.Add(interrupted);
+            // The earlier export covered prayer and attention but never sampled the
+            // unavailable bowl-cover modifier. An isolated final-pose screenshot
+            // cannot catch crossed sleeves halfway through the live transition.
+            var approach=new TownActivityPose{WorkClock=7f,TransitionAge=TownServiceActivityMotion.TransitionSeconds};
+            TownServiceActivityMotion.Engage(ref approach,true);
+            for(int frame=0;frame<=90;frame++)
+            {
+                approach=TownServiceActivityMotion.Advance(approach,1f/90f);
+                poses.Add((approach,1f,-1f));
+            }
+            var donation=new TownActivityPose{WorkClock=8f,TransitionAge=TownServiceActivityMotion.TransitionSeconds,Engaged=true,FromBlend=1f};
+            for(int frame=0;frame<=220;frame++)
+            {
+                float age=frame/90f;
+                poses.Add((donation,Mathf.Clamp01(age/TownServiceActivityMotion.TransitionSeconds),age));
+            }
+            var departure=new TownActivityPose{WorkClock=9f,TransitionAge=TownServiceActivityMotion.TransitionSeconds,Engaged=true,FromBlend=1f};
+            TownServiceActivityMotion.Engage(ref departure,false);
+            for(int frame=0;frame<=90;frame++)
+            {
+                departure=TownServiceActivityMotion.Advance(departure,1f/90f);
+                poses.Add((departure,1f,-1f));
+            }
+        }
+        if(service==1&&focused)
+        {
+            var visit=new TownActivityPose{WorkClock=2f,TransitionAge=TownServiceActivityMotion.TransitionSeconds};
+            TownServiceActivityMotion.Engage(ref visit,true);
+            for(int frame=0;frame<=90;frame++)
+            {
+                visit=TownServiceActivityMotion.Advance(visit,1f/90f);
+                poses.Add((visit,0f,-1f));
+            }
         }
         using var output=new BinaryWriter(File.Create(Path.Combine(args[arg+1],"service"+service+"-skin.bin")));
         output.Write(indices.Length);output.Write(labels.Count);output.Write(poses.Count);
         for(int i=0;i<labels.Count;i++){output.Write(labels[i]);for(int v=0;v<3;v++)output.Write(lookup[triangles[i*3+v]]);}
         var matrices=new Matrix4x4[skin.bones.Length];
-        foreach(var pose in poses)
+        foreach(var (pose,cover,blessingAge) in poses)
         {
-            rig.BeforeBodySample();animation.Stop();var idle=animation["Idle"];idle.enabled=true;idle.weight=1;idle.time=pose.WorkClock;animation.Sample();idle.enabled=false;rig.Apply(in pose);
+            rig.BeforeBodySample();animation.Stop();var idle=animation["Idle"];idle.enabled=true;idle.weight=1;idle.time=pose.WorkClock;animation.Sample();idle.enabled=false;
+            TownActivityVisual visual=TownServiceActivityMotion.Visual(service,in pose);
+            if(service==2&&cover>0f)TownServiceActivityMotion.ApplyTempleAvailability(ref visual,false,cover);
+            if(service==2&&blessingAge>=0f)TownServiceActivityMotion.ApplyTempleBlessing(ref visual,blessingAge);
+            rig.Apply(in visual);
             output.Write(pose.WorkClock);output.Write(TownServiceActivityMotion.Blend(in pose));
             for(int i=0;i<matrices.Length;i++)matrices[i]=root.worldToLocalMatrix*skin.bones[i].localToWorldMatrix*bind[i];
             foreach(int i in indices)

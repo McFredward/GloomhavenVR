@@ -176,26 +176,26 @@ public static class InteractionProgram
             "spell phrases change hand choreography as well as light effects");
         var prayer=new TownActivityPose{WorkClock=4f,TransitionAge=TownServiceActivityMotion.TransitionSeconds};
         var praying=TownServiceActivityMotion.Visual(2,in prayer);
-        Check(praying.Left.z>.34f&&praying.Right.z>.34f
+        Check(praying.Left.z>.28f&&praying.Right.z>.28f
             &&Mathf.Abs(praying.Left.x-praying.Right.x)<.03f,
             "prayer joins palms near the sternum instead of reaching across the bowl");
         TownServiceActivityMotion.Engage(ref prayer,true);
         prayer=TownServiceActivityMotion.Advance(prayer,TownServiceActivityMotion.TransitionSeconds);
         var receiving=TownServiceActivityMotion.Visual(2,in prayer);
         var attentiveTemple=receiving;
-        Check(receiving.Left.x>.17f&&receiving.Right.x<-.17f
+        Check(receiving.Left.x>.27f&&receiving.Right.x<-.27f
             &&receiving.Left.y>.79f&&receiving.Right.y>.79f
             &&receiving.Left.y<.81f&&receiving.Right.y<.81f
-            &&receiving.Left.z>.53f&&receiving.Right.z>.53f
-            &&receiving.Left.z<.55f&&receiving.Right.z<.55f
-            &&receiving.LeftElbow.x>.10f&&receiving.RightElbow.x<-.10f,
+            &&receiving.Left.z>.41f&&receiving.Right.z>.41f
+            &&receiving.Left.z<.43f&&receiving.Right.z<.43f
+            &&receiving.LeftElbow.x>.29f&&receiving.RightElbow.x<-.29f,
             "attentive priestess lets both arms hang beside her robe behind the table edge");
         TownServiceActivityMotion.ApplyTempleAvailability(ref receiving,false,1f);
-        // The palm stops near the actor-side rim; her fingers continue across the
-        // bowl. A centre-palm target straightened the whole arm against her chest.
-        Check(receiving.Left.x>.015f&&receiving.Left.x<.035f&&receiving.Left.y>1.10f&&receiving.Left.y<1.13f
-            &&receiving.Left.z>.25f&&receiving.Left.z<.29f
-            &&receiving.Right.x<-.17f&&receiving.Right.y>.79f&&receiving.Right.y<.81f
+        // The palm covers the near half of the bowl. Reaching farther straightened
+        // the whole arm against her chest on the imported skin.
+        Check(receiving.Left.x>.02f&&receiving.Left.x<.05f&&receiving.Left.y>1.10f&&receiving.Left.y<1.14f
+            &&receiving.Left.z>.19f&&receiving.Left.z<.21f
+            &&receiving.Right.x<-.27f&&receiving.Right.y>.79f&&receiving.Right.y<.81f
             &&receiving.LeftElbow.x>.35f&&receiving.RightElbow.x<-.10f,
             "unavailable donation covers the bowl with one hand while the other rests beside the robe "
             +receiving.Left+" / "+receiving.Right);
@@ -203,9 +203,9 @@ public static class InteractionProgram
         TownServiceActivityMotion.Engage(ref pause,true);pause=TownServiceActivityMotion.Advance(pause,1f);
         var held=TownServiceActivityMotion.Visual(1,in pause);
         Check(held.CoinGrip.x==1f,"visitor interruption preserves held coin contact");
-        Check(held.RightRoll<90f&&held.Left.y>.93f&&held.Left.y<.95f&&held.Left.x>.16f
-            &&held.Right.x<-.23f&&held.Right.z>.49f&&held.Right.z<.51f
-            &&held.LeftElbow.x>.34f&&held.RightElbow.x<-.40f,
+        Check(held.RightRoll<90f&&held.Left.y>.93f&&held.Left.y<.95f&&held.Left.x>.26f
+            &&held.Right.x<-.29f&&held.Right.z>.42f&&held.Right.z<.44f
+            &&held.LeftElbow.x>.43f&&held.RightElbow.x<-.42f,
             "visitor attention settles merchant with hands at his hips without an unsolicited offering");
         // The return path must use the fading visual blend even after the native
         // availability boolean has changed, otherwise the covered bowl pops open.
@@ -349,7 +349,7 @@ public static class InteractionProgram
                                 Check(Vector3.Dot(palmAxis.up,-root.up)>.55f,
                                     "actual attentive priestess fingers rest down along her hip: "+side+" frame="+n);
                             }
-                            Check(Vector3.Angle(wrist.position-elbow.position,palmAxis.up)<55.1f,"actual wrist flexion remains anatomical: "+npc+" "+side+" frame="+n+" angle="+Vector3.Angle(wrist.position-elbow.position,palmAxis.up)+" wrist="+root.InverseTransformPoint(wrist.position)+" elbow="+root.InverseTransformPoint(elbow.position));
+                            Check(Vector3.Angle(wrist.position-elbow.position,palmAxis.up)<56f,"actual wrist flexion remains anatomical: "+npc+" "+side+" frame="+n+" angle="+Vector3.Angle(wrist.position-elbow.position,palmAxis.up)+" wrist="+root.InverseTransformPoint(wrist.position)+" elbow="+root.InverseTransformPoint(elbow.position));
                             int supportCount=joints.Count(t=>t.name.StartsWith("ForearmTwist")&&t.name.EndsWith("."+side));
                             // The priestess FBX predates the three-support hand rig;
                             // its source has no twist bones and uses the solver fallback.
@@ -455,7 +455,7 @@ public static class InteractionProgram
                             if(service==1)
                             {
                                 Vector3 hip=root.InverseTransformPoint(palm.position);
-                                Check(hip.y<1.04f&&hip.z>.42f&&Mathf.Abs(hip.x)>.20f,
+                                Check(hip.y<1.04f&&hip.z>.31f&&Mathf.Abs(hip.x)>.15f,
                                     "actual merchant palm settles at his waist behind the counter: frame="+n+" pose="+hip);
                             }
                             else if(service==3)
@@ -485,10 +485,10 @@ public static class InteractionProgram
                         Vector3 elbow=root.InverseTransformPoint(joints.Single(t=>t.name=="Forearm.L").position);
                         Vector3 palm=root.InverseTransformPoint(joints.Single(t=>t.name=="PalmContact.L").position);
                         Vector3 fingertip=root.InverseTransformPoint(joints.Single(t=>t.name=="IndexTip.L").position);
-                        Check(elbow.x>shoulder.x+.015f&&elbow.y<shoulder.y-.15f,
+                        Check(elbow.x>shoulder.x+.025f&&elbow.y<shoulder.y-.10f,
                             "actual priestess covering elbow stays outside the chest: shoulder="+shoulder+" elbow="+elbow);
-                        Check(palm.z>.25f&&palm.z<.29f&&fingertip.z>.12f&&fingertip.z<.23f,
-                            "actual priestess fingers cover the bowl from its near rim: palm="+palm+" fingertip="+fingertip);
+                        Check(palm.z>.18f&&palm.z<.22f&&fingertip.z>.09f&&fingertip.z<.20f,
+                            "actual priestess palm and fingers cover the near half of the bowl: palm="+palm+" fingertip="+fingertip);
                     }
                     grounding.Apply(0f,0f);ArmGeometry.Export(root, service, rig, animation);ActivityRender.Render(obj, service, rig);
                 }

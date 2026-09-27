@@ -95,7 +95,11 @@ internal static class ActivityRender
                             mean.x,mean.y,mean.z,minZ,maxZ}.Select(v=>v.ToString("R",CultureInfo.InvariantCulture))));
                     }
             }
-            faceRig.BeforeBodySample();rig.BeforeBodySample();animation.Stop();var body=animation["Idle"];body.enabled=true;body.weight=1;body.time=0;animation.Sample();body.enabled=false;
+            faceRig.BeforeBodySample();rig.BeforeBodySample();animation.Stop();var body=animation["Idle"];body.enabled=true;body.weight=1;
+            // Station.Sample receives resident.Age, not a permanently frozen first
+            // clip frame. Freezing this diagnostic at zero hid pose-dependent skin
+            // intersections that the hardware player sees during later visits.
+            body.time=phases[phase];animation.Sample();body.enabled=false;
             bool attentive=!sequence&&phase==2;
             var state=new TownActivityPose{WorkClock=phases[phase],TransitionAge=TownServiceActivityMotion.TransitionSeconds,FromBlend=attentive?1:0,Engaged=attentive};
             if(attentionSequence)
@@ -168,12 +172,13 @@ internal static class ActivityRender
             foreach(MeshFilter skin in snapshot.GetComponentsInChildren<MeshFilter>())
             {if(!envelopeStarted){envelope=skin.sharedMesh.bounds;envelopeStarted=true;}else envelope.Encapsulate(skin.sharedMesh.bounds);}
             foreach(int view in sequence&&!(service==2&&phase%12==0)?new[]{0}
-                :service==2?new[]{0,1,2,3}:new[]{0,1,2})
+                :service==2?new[]{0,1,2,3,4}:new[]{0,1,2,4})
             {
                 if(pen!=null)pen.gameObject.SetActive(view!=2);
                 camera.transform.position=view==0?new Vector3(-.7f,1.9f,-.8f)
-                    :service!=2||view==1?new Vector3(.5f,2.05f,.15f)
-                    :view==2?new Vector3(0f,1.52f,-1.1f):new Vector3(-.8f,1.45f,-.15f);
+                    :view==1?new Vector3(.5f,2.05f,.15f)
+                    :view==2?new Vector3(0f,1.52f,-1.1f):view==3?new Vector3(-.8f,1.45f,-.15f)
+                    :new Vector3(0f,1.74f,-.60f);
                 camera.transform.LookAt(new Vector3(0,1.15f,.4f));camera.Render();RenderTexture.active=rt;
                 var image=new Texture2D(rt.width,rt.height,TextureFormat.RGB24,false);image.ReadPixels(new Rect(0,0,rt.width,rt.height),0,0);image.Apply();File.WriteAllBytes(Path.Combine(folder,"service"+service+"-phase"+phase+"-view"+view+".png"),image.EncodeToPNG());UnityEngine.Object.DestroyImmediate(image);
             }

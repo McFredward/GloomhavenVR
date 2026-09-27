@@ -46,7 +46,7 @@ def mutations():
         ("identical-spell-variation", "TownServiceActivityMotion.cs", ".55f + .45f * Variation(block, 11u)", ".80f", "spell experiment strength varies between shared clock blocks"),
         ("constant-spell", "TownServiceActivityMotion.cs", "Cast = cast, LeftCurl", "Cast = 1f, LeftCurl", "visible spell uses an upward-facing palm"),
         ("one-spell-pose", "TownServiceActivityMotion.cs", "int variant = (int)(block % 3u);", "int variant = 0;", "shared clock selects three distinct spell effect modes"),
-        ("separated-prayer", "TownServiceActivityMotion.cs", "new Vector3(.012f,height,.36f)", "new Vector3(.035f,height,.36f)", "prayer joins palms near the sternum instead of reaching across the bowl"),
+        ("separated-prayer", "TownServiceActivityMotion.cs", "new Vector3(.012f,height,.29f)", "new Vector3(.035f,height,.29f)", "prayer joins palms near the sternum instead of reaching across the bowl"),
         ("animated-knee-pole", "TownServiceActivityRig.cs", "Vector3.ProjectOnPlane(_root.TransformDirection(_kneePoles[upperIndex == 6 ? 0 : 1]),direction)", "Vector3.ProjectOnPlane(knee-hip,direction)", "planted knee keeps anatomical forward bend plane"),
         ("zero-weight-stance-snap", "TownServiceActivityRig.cs", "_bodyApplied=true;", "_bodyApplied=true; if(body.Weight<=0f)return;", "planted knee keeps anatomical forward bend plane"),
         ("vertical-casting-palm", "TownServiceActivityRig.cs", "palmFrame = Quaternion.AngleAxis(-roll, fingers) * palmFrame;", "palmFrame = Quaternion.AngleAxis(-roll * (_service == 3 ? .7f + .3f * attention : 1f), fingers) * palmFrame;", "actual casting palm supports the spell from below"),
@@ -59,11 +59,11 @@ def mutations():
         ("work-runs-while-engaged", "TownServiceActivityMotion.cs", "dt - Integral(in state, state.TransitionAge + dt) + Integral(in state, state.TransitionAge)", "dt", "engaged occupation remains paused"),
         ("ignore-ik", "TownServiceActivityRig.cs", "if (!Ready) return;", "if (Ready) return;", "anatomical palm contacts transformed counter surface"),
         ("thumb-overcurl", "TownServiceActivityRig.cs", "arm.Anatomical ? 38f : 5f", "arm.Anatomical ? 150f : 5f", "anatomical thumb stays inside natural grasp range"),
-        ("attentive-counter-bracing", "TownServiceActivityMotion.cs", "service == 2 ? new Vector3(.18f, .80f, .54f)", "service == 2 ? new Vector3(.18f, .959f, .337f)", "attentive priestess arms hang beside her robe and outside the donation bowl"),
+        ("attentive-counter-bracing", "TownServiceActivityMotion.cs", "service == 2 ? new Vector3(.28f, .80f, .42f)", "service == 2 ? new Vector3(.18f, .959f, .337f)", "attentive priestess arms hang beside her robe and outside the donation bowl"),
         ("low-priestess-shoulders", "TownServiceActivityMotion.cs", "float priestessElbowHeight = 1.02f;", "float priestessElbowHeight = .40f;", "actual priestess upper arms descend naturally from the clavicle"),
-        ("upturned-priestess-hip", "TownServiceActivityRig.cs", "-_root.up - _root.forward * .2f", "_root.up", "anatomical palm contacts transformed counter surface"),
+        ("upturned-priestess-hip", "TownServiceActivityRig.cs", "-_root.up - _root.forward * .2f", "_root.up", "attentive priestess arms hang beside her robe"),
         ("excessive-work-bow", "TownServiceActivityRig.cs", "-6f - terrainLean", "-35f - terrainLean", "work posture does not stack an extreme torso and neck bow"),
-        ("ignore-palm-offset", "TownServiceActivityRig.cs", "target -= palmOffset;", "target -= palmOffset * 0f;", "prayer-to-bowl hand never detours through hip"),
+        ("ignore-palm-offset", "TownServiceActivityRig.cs", "target -= palmOffset;", "target -= palmOffset * 0f;", "priestess arms retain their anatomical sides without crossing"),
         ("curl-contact-markers", "TownServiceActivityRig.cs", ' && !t.name.Contains("Tip")', "", "contact markers are not articulated finger joints"),
         ("returning-author-snap", "TownServiceActivityHandover.cs", "_age = 0f;", "_age = Duration;", "returning authority keeps displayed hands at first frame"),
         ("unpaired-sequences", "RemoteTownPerformance.cs", "if (!TownActivityCodec.Matches(in activity, in face)", "if (false", "mismatched sequence cannot partially advance pair"),
@@ -71,15 +71,15 @@ def mutations():
         ("magnetic-coin", "TownServiceActivityMotion.cs", "coin == index && t >= 1.04f && t < 2.86f ? 1f : 0f", "coin == index ? grip : 0f", "coin is resting or rigidly gripped, never magnetically attracted"),
         ("paused-coin-in-air", "TownServiceActivityMotion.cs", "float transferProgress = Soft(t, 1.05f, 2.84f);", "float transferProgress = Soft(t < 1.70f ? t : t < 2f ? 1.70f : 1.70f + (t - 2f) * (2.84f - 1.70f) / .84f, 1.05f, 2.84f);", "merchant never parks a pinched coin in midair"),
         ("mid-transfer-greeting", "TownServiceActivityMotion.cs", "return t < .50f || t >= 3.05f;", "return true;", "merchant only greets after releasing the current coin"),
-        ("prayer-blocks-bowl", "TownServiceActivityMotion.cs", "new Vector3(.025f, 1.115f, .27f)", "new Vector3(.025f, 1.19f, .27f)", "unavailable donation covers the bowl with one hand"),
-        ("splayed-bowl-cover", "TownServiceActivityMotion.cs", "new Vector3(.025f, 1.115f, .27f)", "new Vector3(.15f, 1.115f, .27f)", "unavailable donation covers the bowl with one hand"),
+        ("prayer-blocks-bowl", "TownServiceActivityMotion.cs", "new Vector3(.035f, 1.12f, .20f)", "new Vector3(.035f, 1.19f, .20f)", "unavailable donation covers the bowl with one hand"),
+        ("splayed-bowl-cover", "TownServiceActivityMotion.cs", "new Vector3(.035f, 1.12f, .20f)", "new Vector3(.18f, 1.12f, .20f)", "unavailable donation covers the bowl with one hand"),
         ("indirect-prayer-cover", "TownServiceActivityMotion.cs",
-         "visual.Left += (new Vector3(.025f, 1.115f, .27f) - new Vector3(.18f, .80f, .54f)) * t;",
-         "visual.Left = Vector3.Lerp(visual.Left, new Vector3(.025f, 1.115f, .27f), t);",
+         "visual.Left += (new Vector3(.035f, 1.12f, .20f) - new Vector3(.28f, .80f, .42f)) * t;",
+         "visual.Left = Vector3.Lerp(visual.Left, new Vector3(.035f, 1.12f, .20f), t);",
          "prayer-to-bowl hand never detours through hip"),
         ("availability-cover-pop", "TownServiceActivityMotion.cs", "if (donationAvailable && blend <= 0f) return;", "if (donationAvailable) return;", "available temple fades out the previous cover pose instead of dropping it in one frame"),
         ("upturned-bowl-cover", "TownServiceActivityRig.cs", "Vector3.ProjectOnPlane(-_root.up, coverFinger)", "Vector3.ProjectOnPlane(_root.up, coverFinger)", "unavailable donation keeps the covering palm down"),
-        ("merchant-stiff-greeting", "TownServiceActivityMotion.cs", "new Vector3(.17f, .94f, .45f)", "new Vector3(.20f, 1.09f, .20f)", "visitor attention settles merchant with hands at his hips without an unsolicited offering"),
+        ("merchant-stiff-greeting", "TownServiceActivityMotion.cs", "new Vector3(.27f, .94f, .35f)", "new Vector3(.20f, 1.09f, .20f)", "visitor attention settles merchant with hands at his hips without an unsolicited offering"),
         ("open-sleeve-hem", "TownServiceSleeveLining.cs", "row == 0 ? -.012f", "row == 0 ? -.050f", "inner cuff overlaps the anatomical wrist ahead of the cut"),
         ("open-sleeve-interior", "TownServiceSleeveLining.cs", "int a = i, b = (i + 1) % Segments, c = 4 * Segments + 1;", "int a = i, b = (i + 1) % Segments, c = 4 * Segments;", "shallow cuff diaphragm hides the severed forearm end"),
         ("downward-offering", "TownServiceActivityMotion.cs", "Mathf.Lerp(visual.RightRoll, 180f, t)", "Mathf.Lerp(visual.RightRoll, 0f, t)", "offering palm faces upward"),
@@ -97,6 +97,7 @@ def main():
     parser.add_argument("--render", type=Path, help="Optional output folder for actual rig/tool contact images")
     parser.add_argument("--anatomy-export", type=Path, help="Export actual skinned arm/torso triangles over complete cycles and visits")
     parser.add_argument("--anatomy-service", type=int, choices=[1, 2, 3], help="Export geometry for one resident; contact checks still cover all three")
+    parser.add_argument("--anatomy-focus", action="store_true", help="Export only the targeted transition sequence while fitting arm geometry")
     parser.add_argument("--attention-sequence", action="store_true", help="Render a24fps visitor-interruption transition instead of work cycle")
     parser.add_argument("--temple-unavailable-render", action="store_true", help="Render the attentive priestess covering the unavailable donation bowl")
     parser.add_argument("--temple-blessing-render", action="store_true", help="Render the committed donation gesture from the shared event age")
@@ -219,6 +220,7 @@ def main():
         args.anatomy_export.mkdir(parents=True, exist_ok=True)
         command += ["-anatomyExport", str(args.anatomy_export.resolve())]
         if args.anatomy_service: command += ["-anatomyService", str(args.anatomy_service)]
+        if args.anatomy_focus: command += ["-anatomyFocus"]
     if args.render:
         args.render.mkdir(parents=True, exist_ok=True)
         command.remove("-nographics")

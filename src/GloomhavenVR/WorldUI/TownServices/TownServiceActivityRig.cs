@@ -455,10 +455,9 @@ internal sealed class TownServiceActivityRig
                 Vector3 baseFinger = Vector3.Slerp(limitedFinger, naturalFinger, freeFinger).normalized;
                 Quaternion baseFrame = Quaternion.LookRotation(baseFinger,
                     Vector3.ProjectOnPlane(baseNormal, baseFinger).normalized);
-                // The covering hand turns slightly toward the bowl centre. Its palm
-                // sits on the near rim so the fingers, rather than the wrist, cross
-                // the opening without pulling the elbow across the chest.
-                Vector3 inwardCover = (-_root.forward * .82f - side * _root.right * .20f).normalized;
+                // The covering palm turns diagonally across the near half of the
+                // bowl opening without pulling the elbow across the chest.
+                Vector3 inwardCover = (-_root.forward * .80f - side * _root.right * .35f).normalized;
                 // The cover is a fixed contact frame over the bowl. Recomputing its
                 // finger axis from the moving forearm made the wrist turn faster in
                 // the middle of a donation transition, even though the palm target
