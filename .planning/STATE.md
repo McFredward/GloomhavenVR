@@ -2,15 +2,15 @@
 
 **Updated 2026-09-27: feature/immersive-town-services, version 1.1.0 hardware candidate.**
 The feature includes released 1.0.8 / ModBuild 556 and the subsequent 1.0.9
-version bookkeeping on `dev`. ModBuild 575 follows build-574 headset evidence:
-merchant Cancel and stock swaps, cabinet clearance and sold-out communication,
-enchantment aura/input, priestess shoulders, and overactive cloth and incidental speech.
+version bookkeeping on `dev`. ModBuild 576 follows build-575 headset evidence:
+native town unlock and first-map tutorial gates, merchant cassette depth and
+sold-out state, enchantress offer readiness, card effects and spoken voice.
 ModBuild 560 introduced resident
 voices, shared merchant confirmation presentation, a visible temple donation
 target, cloth contact, cabinet detail and varied idle motion.
 Headset verification of the resulting presentation remains open. Historical NPC
 design: [research/TOWN-SERVICES-552.md](research/TOWN-SERVICES-552.md).
-Current evidence and implementation limits: [TOWN-575.md](TOWN-575.md).
+Current evidence and implementation limits: [TOWN-576.md](TOWN-576.md).
 The feature remains isolated from `dev`, and NPC work belongs on this branch.
 
 The file this replaces had gone 168 builds
@@ -25,6 +25,18 @@ change per build) → this file (where things stand and what is owed) → the bu
 ---
 
 ## 1. Position
+
+- **NPC feature / 1.1.0 / ModBuild 576 (hardware candidate):** native saved
+  headquarters unlocks and first-map tutorial gates determine whether each
+  complete resident and stand exists. The immersive campaign's flat-only
+  merchant onboarding steps resolve via native tutorial callbacks; other modes
+  and setting-OFF retain their own flow. Merchant cassette/cards sit within the
+  cabinet, and sold-out stamps clear when lifted. The enchantress shows a
+  persistent neutral offer locator while native input initializes, fits the
+  original aura and selectable areas to the physical card, and returns to the
+  original usable VR window after a prolonged offer stall. Normal English
+  replies and whispered spells now share one voice. Evidence and remaining
+  headset checks are in [TOWN-576.md](TOWN-576.md).
 
 - **NPC feature / 1.1.0 / ModBuild 575 (hardware candidate):** the merchant's
   Cancel click immediately returns the offered card; stock and owned cards can

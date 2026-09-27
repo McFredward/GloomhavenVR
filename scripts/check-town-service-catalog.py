@@ -54,6 +54,9 @@ def sources(root):
     register = next(line for line in public.splitlines() if "UiScrollFocus.PhysicalHoverProbe = ProbeScrollHover;" in line)
     unregister = next(line for line in public.splitlines() if "UiScrollFocus.PhysicalHoverProbe == ProbeScrollHover" in line)
     bound["CabinetProbe.cs"] = "using GloomhavenVR.Hands; using GloomhavenVR.Hands.Interact; using GloomhavenVR.WorldUI.MapRoom; namespace GloomhavenVR.WorldUI; internal static partial class TownServicePublicMerchant { private static TownServiceCatalog? _catalog;\n" + method(public, "private static void ProbeScrollHover") + "\ninternal static void RegisterProbe(TownServiceCatalog catalog) { _catalog = catalog;\n" + register + "\n} internal static void DetachProbe() {\n" + unregister + "\n} }"
+    # Unlock behavior is covered by GloomhavenVR.TownAvailabilityTests. This isolated
+    # cabinet fixture keeps the native gate open to exercise only the scroll-hover route.
+    bound["CabinetAvailability.cs"] = "namespace GloomhavenVR.WorldUI; internal static class TownServiceAvailability { internal static bool NativeUnlocked(byte service) => service == 1; }"
     hashes = {name: hashlib.sha256(text.encode()).hexdigest() for name, text in bound.items()}
     return bound, hashes
 

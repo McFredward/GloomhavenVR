@@ -66,7 +66,6 @@ internal static class TownServicePresentation
         && _window != null && _window.IsOpen && _station != null;
     internal static bool OwnsInteraction => Active
         && TownServiceSync.LocalOwnsInteraction(Service, _session);
-
     internal static bool OwnsGrab(GrabbableModal holder)
     {
         foreach (TownServiceSurface surface in Surfaces)
@@ -103,6 +102,9 @@ internal static class TownServicePresentation
             return false;
         UIWindow? controller = GuildmasterDestinations.ModeWindow(mode);
         if (controller == null) return false;
+        // The same native controller is the explicit escape hatch for a failed town
+        // presentation. It must be eligible for the ordinary VR-window converter again.
+        if (ReferenceEquals(controller, _failedWindow)) return false;
         // The shop Scroll View is itself a UIWindow. The generic modal pass sees it before this
         // presentation tick and used to detach it as a second flat panel behind the merchant.
         // It is presentation owned by the same native controller, not another dialog.
@@ -169,6 +171,7 @@ internal static class TownServicePresentation
         {
             Reset();
             if (!MapRoomDriver.Active) DisposeCachedTempleWorkspace();
+            if (_failedWindow != null) _failedWindow.onHidden.RemoveListener(OnFallbackHidden);
             _failedWindow = null; return;
         }
         if (_window != null && !ReferenceEquals(_window, window)) Reset();
@@ -276,6 +279,29 @@ internal static class TownServicePresentation
         }
         _catalog?.Tick(_scale);
         _ritual?.Tick(_scale);
+        if (_ritual?.Handoff?.NativeOfferStalled == true)
+        {
+            // Preserve the original window and its native callbacks. A permanently blocked
+            // immersive offer becomes an ordinary usable VR window for this opening only;
+            // closing/reopening it clears the failure latch and permits a fresh attempt.
+            UIWindow? original = _window;
+            Vector3 originalPosition = _origin;
+            Quaternion originalYaw = _yaw;
+            if (original != null && original.IsOpen)
+            {
+                if (_failedWindow != null) _failedWindow.onHidden.RemoveListener(OnFallbackHidden);
+                _failedWindow = original;
+                Reset();
+                original.onHidden.AddListener(OnFallbackHidden);
+                ConvertedPanel? restored = ModalFallback.RestoreTownServiceContext(original,
+                    originalPosition, originalYaw);
+                if (restored != null)
+                    VRLog.Note("TownServices", "Enhancement offer remained unavailable for 3 s; restored the original VR window for this visit.");
+                else
+                    VRLog.Warn("TownServices", "Enhancement offer remained unavailable for 3 s; original window returned to the ordinary VR conversion path but conversion is still pending.");
+            }
+            return;
+        }
         if (_ritual?.TempleDonationAvailabilityKnown == true)
             TownServiceMirror.SetLocalTempleDonationAvailable(_ritual.TempleDonationAvailable);
         if (Time.unscaledTime >= _nextCensus)
@@ -451,6 +477,12 @@ internal static class TownServicePresentation
     {
         // A close/reopen within one frame must still retire the old gesture/session.
         Reset();
+        _failedWindow = null;
+    }
+
+    private static void OnFallbackHidden()
+    {
+        if (_failedWindow != null) _failedWindow.onHidden.RemoveListener(OnFallbackHidden);
         _failedWindow = null;
     }
 

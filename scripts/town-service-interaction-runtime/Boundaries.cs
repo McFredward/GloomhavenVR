@@ -280,8 +280,9 @@ namespace GloomhavenVR.WorldUI
     // production tokens and the presentation-supplied lifetime/context delegates.
     internal sealed partial class TownServiceRitual : IDisposable
     {
-        internal OfferingLate? Handoff => null;
-        internal sealed class OfferingLate { internal void LateTick() {} }
+        internal static bool TestOfferStalled;
+        internal OfferingLate? Handoff => TestOfferStalled ? new OfferingLate() : null;
+        internal sealed class OfferingLate { internal bool NativeOfferStalled => TestOfferStalled; internal void LateTick() {} }
         internal static bool Fail;
         private readonly List<TownServiceToken> _tokens = new();
         private readonly Dictionary<Transform, Transform> _parents = new();
@@ -330,6 +331,22 @@ namespace GloomhavenVR.WorldUI
     {
         internal static Transform? Frame => null;
         internal static TownServiceStation? Acquire(byte service) => TownServiceStation.Create(service, Vector3.zero, 1f);
+    }
+    // Native save/FTUE unlocks are exercised separately by TownAvailabilityTests. This
+    // interaction fixture keeps the service available while probing window ownership.
+    internal static class TownServiceAvailability
+    {
+        internal static bool NativeUnlocked(byte service) => service is >= 1 and <= 3;
+    }
+    internal static class TownServiceVisitTarget
+    {
+        internal static byte ServiceOf(EGuildmasterMode mode) => mode switch
+        {
+            EGuildmasterMode.Merchant => 1,
+            EGuildmasterMode.Temple => 2,
+            EGuildmasterMode.Enchantress => 3,
+            _ => 0,
+        };
     }
     internal static class TownServiceSync
     {

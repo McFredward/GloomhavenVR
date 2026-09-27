@@ -89,6 +89,8 @@ internal sealed class TownServiceEnhancementHandoff : IDisposable
     private bool _disposed, _confirmationSeen, _cueRecorded, _lastCueShown, _labelReady = true;
     private bool _stalledCueReported;
     private float _cueHiddenSince = -1f;
+    internal bool NativeOfferStalled => !_disposed && _cueHiddenSince >= 0f
+        && Time.unscaledTime - _cueHiddenSince >= 3f;
     private float _offeredHeight;
     internal VRCard? Card { get; private set; }
     internal AbilityCardUI? NativeSource { get; private set; }

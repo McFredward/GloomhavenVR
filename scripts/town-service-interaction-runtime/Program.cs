@@ -153,7 +153,8 @@ public static class InteractionProgram
     private static void Clean()
     {
         CanvasConversion.DeferParent = false; CanvasConversion.KeepActive = false;
-        TownServicePalmConfirmation.Clear(); TownServiceRitual.Fail = false; ModalFallback.FailConvert = false;
+        TownServicePalmConfirmation.Clear(); TownServiceRitual.Fail = false;
+        TownServiceRitual.TestOfferStalled = false; ModalFallback.FailConvert = false;
         // Model the map teardown boundary so the production presentation also disposes its
         // deliberately cached temple workspace before this fixture destroys scene roots.
         GloomhavenVR.WorldUI.MapRoom.MapRoomDriver.Active = false;
@@ -302,6 +303,22 @@ public static class InteractionProgram
         Check(!ModalFallback.ReleaseForTownService(window, previous), "null original parent refuses unrelated parent handoff");
         previous.Target.SetParent(null, false);
         Check(ModalFallback.ReleaseForTownService(window, previous), "restored scene-root target allows handoff"); Clean();
+    }
+
+    private static void StalledEnhancementRestoresNativeWindow()
+    {
+        var session = Open(3);
+        Check(TownServicePresentation.Active && TownServicePresentation.Ritual != null,
+            "enhancement begins as an immersive native-owned visit");
+        TownServiceRitual.TestOfferStalled = true;
+        TownServicePresentation.Tick();
+        Check(!TownServicePresentation.Active && ModalFallback.Converted.Exists(panel =>
+                ReferenceEquals(panel.Window, session.Window)),
+            "blocked native enhancement offer restores the original VR window for input");
+        session.Window.Hide();
+        Check(typeof(TownServicePresentation).GetField("_failedWindow", Static)!.GetValue(null) == null,
+            "closing the restored native window clears the per-visit fallback latch");
+        Clean();
     }
 
     private static void CancellationCompatibility()
@@ -991,7 +1008,7 @@ public static class InteractionProgram
     public static int Run()
     {
         _assertions = 0;
-        try { NativeFolioAndTeardown(); EnhancementDecisionLayout(); PalmConfirmationLifecycle(); ParkedStockRegrab(); PhysicalCommitCases(); PhysicalMerchantSamples(); WindowMaskLifecycle(); UnconvertedMerchantController(); MerchantContextLifecycle(); ConfirmationFadeLifecycle(); IdentityChanges(); HoverAndRelease(); CancellationCompatibility(); Handoff(); RollbackAndContinuation(); OptionalPresentation(); ManualTrayPlacement(); MapHandFallback(); PhysicalPurse(); PurseSettlement(); return _assertions; }
+        try { NativeFolioAndTeardown(); EnhancementDecisionLayout(); PalmConfirmationLifecycle(); ParkedStockRegrab(); PhysicalCommitCases(); PhysicalMerchantSamples(); WindowMaskLifecycle(); UnconvertedMerchantController(); MerchantContextLifecycle(); ConfirmationFadeLifecycle(); IdentityChanges(); HoverAndRelease(); CancellationCompatibility(); Handoff(); StalledEnhancementRestoresNativeWindow(); RollbackAndContinuation(); OptionalPresentation(); ManualTrayPlacement(); MapHandFallback(); PhysicalPurse(); PurseSettlement(); return _assertions; }
         finally { Clean(); }
     }
 }

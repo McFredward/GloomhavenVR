@@ -541,7 +541,19 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 575;
+    public const ushort ModBuild = 576;
+
+    // ModBuild 576 — sixteenth NPC hardware follow-up on the feature branch
+    // (FULL INSTALL). Native town unlock and first-map FTUE gates own the
+    // resident, stand and interaction lifetime. Flat merchant navigation-only
+    // tutorial steps complete through native callbacks when immersive services
+    // replace that route; classic and scenario lessons retain native flow.
+    // Merchant cards and cassette sit within the cabinet; sold-out stamps only
+    // appear on shelf. Enchantress offer locator survives native input waits,
+    // its original aura and enhancement areas fit the physical card, and a
+    // prolonged native offer stall restores the original usable VR window.
+    // Spoken enchantress replies and whispered spells use the same voice in
+    // a rebuilt voice bundle. No wire layout changes.
 
     // ModBuild 575 — fifteenth NPC hardware follow-up on the feature branch
     // (FULL INSTALL). Merchant Cancel returns the offered card on the first

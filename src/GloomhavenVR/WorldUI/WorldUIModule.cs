@@ -74,6 +74,8 @@ internal sealed class WorldUIModule : IVRModule
         VRSession.Harmony?.PatchAll(typeof(UITextInfoPanel_Show_Patch)); // test #18 attribution diagnostic
         VRSession.Harmony?.PatchAll(typeof(TownServiceRitualConfirmationCapture)); // preserve offering ownership through native confirmation fade
         VRSession.Harmony?.PatchAll(typeof(TownServiceEnhancementVoiceCapture)); // original confirmed enchantment drives resident speech
+        VRSession.Harmony?.PatchAll(typeof(TownServiceTutorialStepPatch));
+        VRSession.Harmony?.PatchAll(typeof(TownServiceTutorialSequencePatch));
         // Register before any map destination can open. Installing this from the town-service
         // Tick was one frame too late for UIWindow.Show itself, so the flat open cue survived.
         TownServiceNativeAudioSilence.EnsureInstalled();
