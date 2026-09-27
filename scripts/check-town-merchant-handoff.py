@@ -110,13 +110,18 @@ def mutations():
         ("return-terminal-settle", "ActualItemLifecycle.cs", "                transform.localRotation = _homeRot;\n", "", "repeated art-ready merchant reclaim settles at the canonical fan position rotation and scale"),
         ("offering-size", "TownServiceMerchantHandoff.cs", "float worldWidth = TownServiceMerchantLayout.CardWidth * stationScale * 1.5f;", "float worldWidth = chip.FaceWidth * stationScale * 2.5f;", "owned and cabinet cards have one merchant-palm size"),
         ("inspection-edge-sound", "MapRoomHand.5.Merchant.cs", "if (_townInspectionFanWasOpen) CardsDriver.SuppressNextOffScenarioFanEdgeSound(open: false);", "", "merchant inspection silences exactly the automatic open fan close edge"),
-        ("occupied-swap", "TownServiceMerchantHandoff.cs", "if (current != null && !replacing) return false;", "if (current != null) return false;", "second valid item atomically replaces merchant palm and returns old card to canonical fan"),
+        ("occupied-swap", "TownServiceMerchantHandoff.cs", "if (current != null && !replacing) return false;", "if (current != null) return false;", "accepted replacement pulses the releasing controller once"),
         ("transient-row-drop", "TownServiceMerchantHandoff.cs", "_nextCommitAt = Time.unscaledTime + .2f;\n        }", "_pending = null; ReleaseOffering();\n        }", "temporary native row refusal retains the replacement card and palm overlay"),
         ("lost-prompt-drop", "TownServiceMerchantHandoff.cs", "&& _decisionRetries < 2 && PendingCurrent()", "&& _decisionRetries < 0 && PendingCurrent()", "native hide without cancel or confirm requeues the retained merchant offer"),
-        ("cancel-reopens-prompt", "TownServiceMerchantHandoff.cs", "if (!_decisionConfirmed && !_decisionCancelled && _tradeItem != null", "if (_tradeItem != null", "explicit native cancellation returns the card and never reopens its prompt"),
+        ("cancel-reopens-prompt", "TownServiceMerchantHandoff.cs", "if (!_decisionConfirmed && !_decisionCancelled && _tradeItem != null", "if (_tradeItem != null", "direct native UIWindow close reconciles its stale active flag and permits the same item again"),
         ("confirm-reopens-prompt", "TownServiceMerchantHandoff.cs", "if (!_decisionConfirmed && !_decisionCancelled && _tradeItem != null", "if (!_decisionCancelled && _tradeItem != null", "explicit native confirmation never reopens the pending purchase"),
         ("direct-window-close-deadlock", "TownServiceMerchantHandoff.cs", "if (nativeWindow != null && (nativeWindow.IsOpen || nativeWindow.IsVisible)) return;", "if (confirmation.IsActive || nativeWindow != null && (nativeWindow.IsOpen || nativeWindow.IsVisible)) return;", "direct native UIWindow close reconciles its stale active flag and permits the same item again"),
         ("merchant-context-voice", "TownServiceMerchantHandoff.cs", "_selling ? TownVoiceReaction.MerchantSell : TownVoiceReaction.MerchantBuy", "TownVoiceReaction.MerchantOffer", "merchant chooses the seller voice family when a sale confirmation opens"),
+        ("merchant-no-funds-voice", "TownServiceMerchantHandoff.cs", "TownVoiceReaction.MerchantUnaffordable);", "TownVoiceReaction.MerchantOffer);", "physically inspecting unaffordable stock chooses the money explanation"),
+        ("merchant-soldout-voice", "TownServiceMerchantHandoff.cs", "TownVoiceReaction.MerchantSoldOut);", "TownVoiceReaction.MerchantOffer);", "physically inspecting exhausted stock chooses the availability explanation"),
+        ("merchant-cancel-intent", "TownServiceMerchantHandoff.cs", "box.cancelButton.onClick.AddListener(_cancelListener);", "", "first cancel click starts the owned card's return flight before native fade completes"),
+        ("merchant-cancel-flight", "TownServiceMerchantHandoff.cs", "_decisionCancelled = true;\n                        ReleaseOffering();", "_decisionCancelled = true;", "first cancel click starts the owned card's return flight before native fade completes"),
+        ("merchant-owned-swap-haptic", "TownServiceMerchantHandoff.cs", "if (hand.HasPose) hand.SendHaptic(HapticPreset.ClickPulse);", "", "accepted owned item offer pulses the actual releasing controller"),
         ("merchant-result-duplicate", "TownServiceMerchantHandoff.cs", "        // The contextual line ran when the confirmation opened. Repeating the same family after\n", "        TownServiceVoice.RequestReaction(1, _tradeSelling ? TownVoiceReaction.MerchantSell : TownVoiceReaction.MerchantBuy);\n        // The contextual line ran when the confirmation opened. Repeating the same family after\n", "confirmed native inventory change does not repeat the purchase prompt voice"),
     ]
 
@@ -164,6 +169,7 @@ def main():
                         method(bound["ItemsPile.Merchant.cs"], "internal void PrepareInspectionReclaim(ItemChip chip)")
                     text = text.replace("    private void RetireInspectionAt", return_methods + "\n    private void RetireInspectionAt")
                     text = text.replace("TickInspection(IReadOnlyList<CItem> items)", "TickInspection(IReadOnlyList<CItem> items, uint revision)")
+                    text = text.replace("Action<ItemChip, Vector3>", "Action<ItemChip, Vector3, VRHand>")
                     text = text.replace("chip.BeginEmerge(Vector3.zero, 0f, _chips.Count % 2 == 0 ? -1f : 1f);",
                                         "chip.BeginInspectionEmerge(Vector3.zero, _chips.Count % 2 == 0 ? -1f : 1f);")
                     # Compatibility-only field consumed by the unchanged release boundary.

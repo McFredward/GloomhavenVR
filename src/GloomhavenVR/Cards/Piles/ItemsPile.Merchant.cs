@@ -11,7 +11,7 @@ internal sealed partial class ItemsPile
 {
     // Inspection has a real ItemChip owner for the normal hold/transfer/return machinery,
     // but never publishes the scenario inventory or owns its use recess.
-    private readonly Action<ItemChip, Vector3>? _inspectionRelease;
+    private readonly Action<ItemChip, Vector3, VRHand>? _inspectionRelease;
     private VRHand? _inspectionGateHand;
     private readonly List<ItemChip> _inspectionRetiring = new();
     private readonly List<ItemChip> _inspectionPublished = new();
@@ -24,7 +24,7 @@ internal sealed partial class ItemsPile
     private (float Radius, float Step, float Split, float Falloff, float Scale) _inspectionLayout;
     internal static ItemsPile? InspectionCurrent { get; private set; }
     internal IReadOnlyList<ItemChip> InspectionChips => _inspectionPublished;
-    internal static ItemsPile CreateInspection(Action<ItemChip, Vector3> release)
+    internal static ItemsPile CreateInspection(Action<ItemChip, Vector3, VRHand> release)
     {
         var pile = new ItemsPile(release);
         pile.EnsureRoot();

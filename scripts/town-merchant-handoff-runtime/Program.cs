@@ -62,6 +62,8 @@ public static class InteractionProgram
   var window=native.GetComponent<UIShopItemWindow>();
   Singleton<UIGuildmasterHUD>.Instance=new UIGuildmasterHUD{shopWindow=window}; Singleton<UIItemConfirmationBox>.Instance=new();
   Singleton<UIItemConfirmationBox>.Instance.confirmButton=new GameObject("Native Confirm",typeof(RectTransform),typeof(Button)).GetComponent<Button>();
+  Singleton<UIItemConfirmationBox>.Instance.cancelButton=new GameObject("Native Cancel",typeof(RectTransform),typeof(Button)).GetComponent<Button>();
+  Singleton<UIItemConfirmationBox>.Instance.cancelButton.onClick.AddListener(Singleton<UIItemConfirmationBox>.Instance.OnCancel);
   var character=new CMapCharacter(); var duplicate=new CItem{ID=1};
   for(int i=0;i<30;i++) character.AllCharacterItems.Add(new CItem{ID=i}); character.AllCharacterItems.Add(duplicate);
   character.AllCharacterItems[4].Tradeable=false; MapCharacterSelection.Selected=character;
@@ -100,8 +102,10 @@ public static class InteractionProgram
   Check(first.Holder==VRHands.Right,"closing fan never tears a held card away");
   VRHands.Right.Grabber.Held=null; first.Holder=null;
   // Native window opening may complete on a subsequent frame; no hidden purchase is allowed.
+  int acceptedPulses=VRHands.Right.Haptics;
   first.Release(palm.position);
   Check(first.TownOffering && MapRoomDriver.Visits==1,"actual owned release parks the original card and requests merchant");
+  Check(VRHands.Right.Haptics==acceptedPulses+1,"accepted owned item offer pulses the actual releasing controller");
   object offering=typeof(TownServiceMerchantHandoff).GetField("_offering",System.Reflection.BindingFlags.NonPublic|System.Reflection.BindingFlags.Static)!.GetValue(null)!;
   float offeredScale=(float)offering.GetType().GetField("_scale",System.Reflection.BindingFlags.NonPublic|System.Reflection.BindingFlags.Instance)!.GetValue(offering)!;
   float offeredWorldWidth=first.FaceWidth*offeredScale*first.transform.parent.lossyScale.x;
@@ -131,7 +135,9 @@ public static class InteractionProgram
   VRHands.Left.PalmGate.IsOpen=true; TownServiceMerchantHandoff.Tick();
   int requestsBeforeSwap=TownServiceMerchantTransaction.Requests;
   int cancelsBeforeSwap=Singleton<UIItemConfirmationBox>.Instance.Cancels;
+  acceptedPulses=VRHands.Right.Haptics;
   second.Release(palm.position);
+  Check(VRHands.Right.Haptics==acceptedPulses+1,"accepted replacement pulses the releasing controller once");
   Check(!first.TownOffering && second.TownOffering && first.transform.parent.name=="GloomhavenVR.MerchantOwnedItems",
       "second valid item atomically replaces merchant palm and returns old card to canonical fan");
   Check(Singleton<UIItemConfirmationBox>.Instance.Cancels==cancelsBeforeSwap+1,
@@ -171,6 +177,13 @@ public static class InteractionProgram
   TownServiceMerchantHandoff.Tick(); TownServiceMerchantHandoff.LateTick();
   Check(TownServiceMerchantHandoff.Session!=session && TownServiceMerchantHandoff.OwnedChips.Count==1,"character switch replaces all fan contents and transaction scope");
   var stock=new CItem{ID=99}; AdventureState.MapState.MapParty.Stock.Add(stock); window.ItemInventory.character=replacement;
+  int rejectedFunds=TownServiceVoice.Unaffordable,rejectedStock=TownServiceVoice.SoldOut;
+  ShopService.Affordable=false;TownServiceMerchantHandoff.StockInspected(stock,true);
+  Check(TownServiceVoice.Unaffordable==rejectedFunds+1&&TownServiceVoice.SoldOut==rejectedStock,
+      "physically inspecting unaffordable stock chooses the money explanation");
+  ShopService.Affordable=true;TownServiceMerchantHandoff.StockInspected(new CItem{ID=102},false);
+  Check(TownServiceVoice.SoldOut==rejectedStock+1,
+      "physically inspecting exhausted stock chooses the availability explanation");
   Check(TownServiceMerchantHandoff.Offer(stock,false,palm.position),"cabinet release requests native buy");
   TownServiceMerchantHandoff.Tick(); Check(!TownServiceMerchantTransaction.LastSelling,"stock release dispatches buy confirmation");
   var ownedReplacement=TownServiceMerchantHandoff.OwnedChips[0];
@@ -199,7 +212,14 @@ public static class InteractionProgram
   Check(Singleton<UIItemConfirmationBox>.Instance.IsActive
       &&TownServiceMerchantTransaction.Requests==beforeRetry+2,
       "lost native prompt is restored once without losing the sale card");
-  Singleton<UIItemConfirmationBox>.Instance.OnCancel(); TownServiceMerchantHandoff.Tick();
+  int cancelRequests=TownServiceMerchantTransaction.Requests;
+  Singleton<UIItemConfirmationBox>.Instance.DeferCancelCallback=true;
+  Singleton<UIItemConfirmationBox>.Instance.cancelButton.onClick.Invoke();
+  Check(!ownedReplacement.TownOffering,"first cancel click starts the owned card's return flight before native fade completes");
+  TownServiceMerchantHandoff.Tick();
+  Check(TownServiceMerchantTransaction.Requests==cancelRequests,"closed native cancel never retries while its fade callback is pending");
+  Singleton<UIItemConfirmationBox>.Instance.CompleteCancel();
+  Singleton<UIItemConfirmationBox>.Instance.DeferCancelCallback=false;
   Check(!ownedReplacement.TownOffering&&!TownServiceMerchantHandoff.WantsOffering,
       "explicit native cancellation returns the card and never reopens its prompt");
   Check(TownServiceMerchantHandoff.Offer(stock,false,palm.position),"stock remains offerable after cancelled replacement");
@@ -246,6 +266,16 @@ public static class InteractionProgram
       &&Quaternion.Angle(bought.transform.localRotation,bought.HomeRotation)<.1f,
       "purchased item lands on the exact ordinary fan home pose and face rotation");
   ItemsPile.ItemChip.NewArtReady=true;
+  var newStock = new CItem{ID=101}; AdventureState.MapState.MapParty.Stock.Add(newStock);
+  ownedReplacement.Release(palm.position); TownServiceMerchantHandoff.Tick();
+  Check(TownServiceMerchantTransaction.LastSelling,"owned card can begin a new sale after prior cancellation");
+  int reverseCancels=Singleton<UIItemConfirmationBox>.Instance.Cancels;
+  Check(TownServiceMerchantHandoff.Offer(newStock,false,palm.position),"stock can replace an active owned-item sale");
+  TownServiceMerchantHandoff.Tick();
+  Check(Singleton<UIItemConfirmationBox>.Instance.Cancels==reverseCancels+1
+      && !ownedReplacement.TownOffering && !TownServiceMerchantTransaction.LastSelling
+      && ReferenceEquals(TownServiceMerchantTransaction.LastItem,newStock),
+      "sale-to-stock swap returns the owned card and opens the replacement buy prompt");
   Action foreign=()=>{}; Singleton<UIItemConfirmationBox>.Instance._onConfirmedCallback=foreign;
   Singleton<UIItemConfirmationBox>.Instance.IsActive=true;
   TownServiceMerchantHandoff.Reset();
@@ -254,7 +284,7 @@ public static class InteractionProgram
   UnityEngine.Object.DestroyImmediate(root);
  }
  private static void ProveInspectionReturnInvariant(Transform rigRoot,CItem item) {
-  var fan=ItemsPile.CreateInspection((chip,point)=>{});
+  var fan=ItemsPile.CreateInspection((chip,point,hand)=>{});
   fan.TickInspection(new[]{item},1);
   var chip=fan.InspectionChips[0];
   Transform fanParent=chip.transform.parent;
@@ -342,7 +372,7 @@ public static class InteractionProgram
   var stale=(RectTransform)pooledFace.transform;stale.anchorMin=Vector2.zero;stale.anchorMax=Vector2.one;
   stale.pivot=Vector2.zero;stale.anchoredPosition3D=new Vector3(41,-23,7);
   stale.localRotation=Quaternion.Euler(39,117,74);stale.localScale=new Vector3(.4f,1.7f,.2f);
-  var reopened=ItemsPile.CreateInspection((returned,point)=>{});reopened.TickInspection(new[]{item},2);
+  var reopened=ItemsPile.CreateInspection((returned,point,hand)=>{});reopened.TickInspection(new[]{item},2);
   var reused=reopened.InspectionChips[0];
   Check(ReferenceEquals(reused.NativeItemCard!.gameObject,pooledFace),
       "merchant leave and re-enter reuses the surviving native item widget rather than a stale destroyed entry");
@@ -374,7 +404,7 @@ public static class InteractionProgram
   VRHands.Left=new VRHand(); VRHands.Right=new VRHand(); VRHands.Primary=VRHands.Right;
   VRHands.Left.Rig.PalmCenter=root.transform; VRHands.Right.Rig.PalmCenter=root.transform;
   var items=new InventoryProbe(); for(int i=0;i<count;i++) items.Values.Add(new CItem{ID=i});
-  var fan=ItemsPile.CreateInspection((c,p)=>{});
+  var fan=ItemsPile.CreateInspection((c,p,h)=>{});
   var watch=Stopwatch.StartNew(); fan.TickInspection(items,1); watch.Stop();
   double creation=watch.Elapsed.TotalMilliseconds;
   int firstLayouts=fan.LayoutCalls;

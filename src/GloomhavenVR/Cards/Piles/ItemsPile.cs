@@ -516,7 +516,7 @@ internal sealed partial class ItemsPile
 
     internal ItemsPile() => RecessOwner = this;
 
-    private ItemsPile(System.Action<ItemChip, Vector3> inspectionRelease)
+    private ItemsPile(System.Action<ItemChip, Vector3, VRHand> inspectionRelease)
     { _inspectionRelease = inspectionRelease; }
 
     /// <summary>The chips the fan currently holds (read-only view — mirrored / counted, never mutated).</summary>
@@ -2489,7 +2489,7 @@ internal sealed partial class ItemsPile
         if (_inspectionRelease != null)
         {
             _inspectionCensusDirty = true;
-            _inspectionRelease(chip, dropWorldPos);
+            _inspectionRelease(chip, dropWorldPos, vrHand);
             if (!IsOpen && !chip.TownOffering) chip.BeginCollapse(_root != null ? _root.position : dropWorldPos);
             return;
         }

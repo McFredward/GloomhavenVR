@@ -56,12 +56,13 @@ public class UIShopItemInventory { public ShopService? service; public MapRuleLi
 public class UIShopItemWindow : MonoBehaviour { public UIShopItemInventory ItemInventory = new(); }
 public class UIGuildmasterHUD { public UIShopItemWindow shopWindow = null!; }
 public class UIItemConfirmationBox {
- public bool IsActive; public UnityEngine.UI.Button confirmButton=null!; public Action? _onConfirmedCallback, _onCancelCallback; public Action? OnCancelled; public int Cancels;
+ public bool IsActive; public UnityEngine.UI.Button confirmButton=null!,cancelButton=null!; public Action? _onConfirmedCallback, _onCancelCallback; public Action? OnCancelled; public int Cancels; public bool DeferCancelCallback;private Action? _deferredCancel;
  public readonly UIWindow Window = new GameObject("Native Item Confirmation",typeof(UIWindow)).GetComponent<UIWindow>();
  public T GetComponent<T>() where T:class => (T)(object)Window;
  public void NativeHide() { IsActive = false; Window.Hide(); }
  public void Hide() { NativeHide(); }
- public void OnCancel() { Cancels++; NativeHide(); _onCancelCallback?.Invoke(); OnCancelled?.Invoke(); _onConfirmedCallback = null; }
+ public void OnCancel() { Cancels++; NativeHide();if(DeferCancelCallback)_deferredCancel=_onCancelCallback;else _onCancelCallback?.Invoke(); OnCancelled?.Invoke(); _onConfirmedCallback = null; }
+ public void CompleteCancel(){_deferredCancel?.Invoke();_deferredCancel=null;}
 }
 namespace GloomhavenVR.Core {
  public static class Loc { public static string Mod(string s) => s; }
@@ -74,7 +75,7 @@ namespace GloomhavenVR.Core.Events {
 namespace GloomhavenVR.Hands {
  public enum HandSide { Left, Right }
  public enum HapticPreset { ClickPulse, HoverTick }
- public class VRHand { public bool HasPose = true; public float WorldScale = 1; public Holder Grabber = new(); public HandRig Rig = new(); public Gate PalmGate = new(); public HandSide Side; public void SendHaptic(HapticPreset preset) { } }
+ public class VRHand { public bool HasPose = true; public float WorldScale = 1; public int Haptics; public Holder Grabber = new(); public HandRig Rig = new(); public Gate PalmGate = new(); public HandSide Side; public void SendHaptic(HapticPreset preset) { if(preset==HapticPreset.ClickPulse)Haptics++; } }
  public class Holder { public object? Held; public void CancelAll() { if (Held is Cards.ItemsPile.ItemChip chip) chip.Holder = null; Held = null; } }
  public class HandRig { public Transform PalmCenter = null!; public Transform GrabAnchor = null!; }
  public class Gate { public bool IsOpen = true, Enabled, IgnoreWhenHandBusy; public float EnterDegrees, ExitDegrees; }
@@ -124,7 +125,7 @@ namespace GloomhavenVR.Cards {
   private const float MaxArcDegrees=110f,ChipScale=1.25f,ZStagger=.004f;
   private bool UseAnimationPending=>false; private int _splitPivotIndex;
   public bool IsOpen;
-  private ItemsPile(Action<ItemChip,Vector3> release) { _inspectionRelease = release; }
+  private ItemsPile(Action<ItemChip,Vector3,Hands.VRHand> release) { _inspectionRelease = release; }
   private void EnsureRoot() { _root = new GameObject("Fan").transform; }
   private void ClearHandSweep() { }
   private bool PlacedCardIsLocked(ItemChip chip)=>false;
@@ -133,7 +134,7 @@ namespace GloomhavenVR.Cards {
   internal bool IsTransferring(ItemChip chip)=>false;
   internal bool CompleteChipTransfer(ItemChip chip,Hands.VRHand from)=>false;
   internal void RefreshFanLayout() { if(IsOpen) Relayout(); }
-  internal void OnChipReleased(ItemChip chip,Vector3 point,Hands.VRHand hand) { if(_inspectionRelease!=null){_inspectionCensusDirty=true;_inspectionRelease(chip,point);if(!IsOpen&&!chip.TownOffering)chip.BeginCollapse(_root!=null?_root.position:point);} }
+  internal void OnChipReleased(ItemChip chip,Vector3 point,Hands.VRHand hand) { if(_inspectionRelease!=null){_inspectionCensusDirty=true;_inspectionRelease(chip,point,hand);if(!IsOpen&&!chip.TownOffering)chip.BeginCollapse(_root!=null?_root.position:point);} }
   private void Relayout() { LayoutCalls++; ProductionRelayout(); }
   private void ClearChips() { foreach(var c in _chips) UnityEngine.Object.DestroyImmediate(c.gameObject); _chips.Clear(); }
   internal partial class ItemChip : GrabbableBehaviour {
@@ -179,7 +180,7 @@ namespace GloomhavenVR.Cards {
    }
    private void OnDisable(){if(_cardGo!=null&&_cardUI!=null)ReturnHostedCardToPool(Item!.ID,_cardGo);_cardGo=null;_cardUI=null;NativeItemCard=null;}
    public void SetArtReady(bool ready) { _cardUI!.cardBackground.sprite=ready?Sprite.Create(Texture2D.whiteTexture,new Rect(0,0,1,1),Vector2.one*.5f):null; }
-   public void Release(Vector3 p) { Holder = null; Owner!._inspectionCensusDirty = true; Owner._inspectionRelease!(this,p); }
+   public void Release(Vector3 p) { Holder = null; Owner!.OnChipReleased(this,p,Hands.VRHands.Right!); }
    protected override HeldPose GetHeldPose(Hands.VRHand hand)=>new(new Vector3(.02f,.03f,.06f),Quaternion.Euler(5f,12f,3f),CardsConfig.InspectScale.Value);
    public float HomeScale=>_homeScale;
   }
@@ -202,8 +203,8 @@ namespace GloomhavenVR.WorldUI.MapRoom {
 namespace GloomhavenVR.WorldUI {
  internal static class CanvasConversion { internal static int Releases; internal static int ReleaseHiddenWindowVeilOwnership(Transform root) { Releases++; return 1; } }
  internal static class TownServiceMerchantLayout { internal const float CardWidth=.14f; }
- internal enum TownVoiceReaction : byte { MerchantOffer, MerchantBuy, MerchantSell }
- internal static class TownServiceVoice { internal static int Offers, Buys, Sells; internal static void RequestReaction(byte service, TownVoiceReaction reaction) { if(service!=1) return; if(reaction==TownVoiceReaction.MerchantOffer) Offers++; else if(reaction==TownVoiceReaction.MerchantBuy) Buys++; else if(reaction==TownVoiceReaction.MerchantSell) Sells++; } }
+ internal enum TownVoiceReaction : byte { MerchantOffer, MerchantBuy, MerchantSell, MerchantUnaffordable, MerchantSoldOut }
+ internal static class TownServiceVoice { internal static int Offers, Buys, Sells, Unaffordable, SoldOut; internal static void RequestReaction(byte service, TownVoiceReaction reaction) { if(service!=1) return; if(reaction==TownVoiceReaction.MerchantOffer) Offers++; else if(reaction==TownVoiceReaction.MerchantBuy) Buys++; else if(reaction==TownVoiceReaction.MerchantSell) Sells++; else if(reaction==TownVoiceReaction.MerchantUnaffordable) Unaffordable++; else if(reaction==TownVoiceReaction.MerchantSoldOut) SoldOut++; } }
  public static class WorldUIConfig { public static readonly Cards.Dial<bool> ImmersiveTownServices = new(true); }
  public static class TownServiceEnhancementHandoff { public static bool Enabled = true; }
  public static class StoryComposite { public static bool PointOfNoReturn; }

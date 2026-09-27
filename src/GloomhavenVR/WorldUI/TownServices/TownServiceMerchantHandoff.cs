@@ -39,7 +39,7 @@ internal static class TownServiceMerchantHandoff
     private static bool _decisionConfirmed, _decisionCancelled;
     private static int _decisionRetries;
     private static UIItemConfirmationBox? _tradeBox;
-    private static UnityAction? _tradeListener;
+    private static UnityAction? _tradeListener, _cancelListener;
     private static uint _pendingSession;
     private static Action? _ourConfirmation;
     private static ItemsPile.ItemChip? _offeredChip;
@@ -54,6 +54,7 @@ internal static class TownServiceMerchantHandoff
         || HeldOwned(VRHands.Left) || HeldOwned(VRHands.Right) || TownServiceCatalog.HeldOfferAvailable);
     internal static bool CanReclaim(TownServiceToken token) => Active && _near && ReferenceEquals(token, _offeredStock)
         && OwnsPendingDecision;
+    internal static bool IsParkedStock(TownServiceToken token) => ReferenceEquals(token, _offeredStock);
     internal static bool CanReclaim(ItemsPile.ItemChip chip) => Active && _near && ReferenceEquals(chip, _offeredChip)
         && OwnsPendingDecision;
     private static bool OwnsPendingDecision => _pending != null || _ourConfirmation != null
@@ -187,6 +188,19 @@ internal static class TownServiceMerchantHandoff
         return _shop;
     }
     internal static bool CanOffer(CItem item, bool selling) => Eligible(item, selling, cached: true);
+    internal static void StockInspected(CItem item, bool available)
+    {
+        // Inspection is always allowed, including an exhausted shelf or an item beyond
+        // this character's purse. The native shop still refuses an invalid purchase;
+        // speech explains that refusal at the first physical pickup, not after a dead drop.
+        if (!Active || !_near || item == null || StoryComposite.PointOfNoReturn) return;
+        ShopService? shop = Shop();
+        if (shop == null) return;
+        if (!available || !shop.GetItemsToBuy(_character).Exists(candidate => candidate.ID == item.ID))
+            TownServiceVoice.RequestReaction(1, TownVoiceReaction.MerchantSoldOut);
+        else if (!shop.IsAffordable(item, _character))
+            TownServiceVoice.RequestReaction(1, TownVoiceReaction.MerchantUnaffordable);
+    }
     private static bool Eligible(CItem item, bool selling, bool cached)
     {
         EGuildmasterMode mode = GuildmasterDestinations.CurrentDestinationMode();
@@ -214,10 +228,14 @@ internal static class TownServiceMerchantHandoff
             : shop.IsAffordable(item, _character) && shop.GetItemsToBuy(_character).Exists(candidate => candidate.ID == item.ID);
         return _eligibilityResult;
     }
-    private static void OnOwnedRelease(ItemsPile.ItemChip chip, Vector3 world)
+    private static void OnOwnedRelease(ItemsPile.ItemChip chip, Vector3 world, VRHand hand)
     {
         if (_resetting || _seat == null || chip.Item == null || !ReferenceEquals(chip.Owner, _fan)
             || !Offer(chip.Item, true, world)) return;
+        // The inspection fan passes through the actual releasing hand. Haptics belong to
+        // the accepted offer edge, including a buy-to-sell or sell-to-sell replacement;
+        // proximity alone cannot confirm that the native transaction accepted the card.
+        if (hand.HasPose) hand.SendHaptic(HapticPreset.ClickPulse);
         _offeredChip = chip;
         chip.TownOffering = true; chip.TownOfferingReclaimed = Reclaim;
         chip.CancelReleaseGlide();
@@ -285,6 +303,21 @@ internal static class TownServiceMerchantHandoff
                 _tradeBox = box;
                 _tradeListener = () => { if (ReferenceEquals(_tradeBox, box) && _tradeItem != null) _tradePressed = true; };
                 box.confirmButton.onClick.AddListener(_tradeListener);
+                if (box.cancelButton != null)
+                {
+                    // The native button starts UIWindow.Hide before its cancellation callback
+                    // runs at the end of the fade. TickConfirmation can observe the closed
+                    // window in that gap and mistake an explicit cancel for a lost prompt,
+                    // reopening it twice. Capture the intent on this same click and start
+                    // the physical return immediately; native OnCancel still owns the dialog.
+                    _cancelListener = () =>
+                    {
+                        if (!ReferenceEquals(_tradeBox, box) || _tradeItem == null) return;
+                        _decisionCancelled = true;
+                        ReleaseOffering();
+                    };
+                    box.cancelButton.onClick.AddListener(_cancelListener);
+                }
             }
             // The item identity already tells us which side of the counter this prompt belongs
             // to. Select that family now so the resident addresses a buyer and seller differently.
@@ -376,7 +409,9 @@ internal static class TownServiceMerchantHandoff
     {
         if (_tradeBox?.confirmButton != null && _tradeListener != null)
             _tradeBox.confirmButton.onClick.RemoveListener(_tradeListener);
-        _tradeBox = null; _tradeListener = null;
+        if (_tradeBox?.cancelButton != null && _cancelListener != null)
+            _tradeBox.cancelButton.onClick.RemoveListener(_cancelListener);
+        _tradeBox = null; _tradeListener = _cancelListener = null;
     }
 
     private static int ItemCount(CMapCharacter? character, CItem item)

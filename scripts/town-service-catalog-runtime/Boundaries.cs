@@ -128,7 +128,7 @@ namespace TMPro
 {
     public enum TextAlignmentOptions{Center}public class TMP_FontAsset:ScriptableObject{}
     public class TMP_Text:Graphic
-    {public TMP_FontAsset? font;public Material? fontSharedMaterial;public TextAlignmentOptions alignment;public float fontSize;public string text="";public bool enableWordWrapping;}
+    {public TMP_FontAsset? font;public Material? fontSharedMaterial;public TextAlignmentOptions alignment;public float fontSize,fontSizeMin,fontSizeMax;public string text="";public bool enableWordWrapping,enableAutoSizing;}
     public class TextMeshProUGUI:TMP_Text{}public class TextMeshPro:TMP_Text{}
 }
 namespace GloomhavenVR.Core
@@ -171,7 +171,7 @@ namespace GloomhavenVR.Hands
     {
         public Vector2 Thumbstick; public HandRig Rig=new();public float WorldScale=1;public bool HasPose=true,TriggerUp,TriggerDown;public HandSide Side;
         internal GrabberFixture Grabber=new();internal RayFixture Ray=new();internal RayUiFixture RayUgui=new();internal RayGrabFixture RayGrab=new();
-        public void SendHaptic(HapticPreset h){}
+        public int Haptics;public void SendHaptic(HapticPreset h){if(h==HapticPreset.ClickPulse)Haptics++;}
         public void GetAimRay(out Vector3 o,out Vector3 d){o=Rig.GrabAnchor.position;d=Rig.GrabAnchor.forward;}
     }
     public enum HapticPreset {ClickPulse,HoverTick}
@@ -215,7 +215,7 @@ namespace GloomhavenVR.Net
 }
 namespace GloomhavenVR.WorldUI
 {
-    internal static class TownServiceMerchantHandoff { internal static bool CanReclaim(TownServiceToken token) => false; }
+    internal static class TownServiceMerchantHandoff { internal static bool CanReclaim(TownServiceToken token) => false; internal static bool IsParkedStock(TownServiceToken token) => Parked == token;internal static TownServiceToken? Parked;internal static int InspectedCount;internal static bool LastAvailable;internal static void StockInspected(CItem item,bool available){InspectedCount++;LastAvailable=available;} }
 
     internal static class TownServiceCardBody{internal static GameObject Create(Transform p){var g=new GameObject("Body");g.transform.SetParent(p,false);return g;}internal static void SetVisibility(GameObject g,float v){}internal static void Dispose(GameObject g){}}
     internal static class NativeTemplates{internal static UnityEngine.UI.UITooltip? Tooltip;}

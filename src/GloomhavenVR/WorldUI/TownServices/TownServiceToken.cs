@@ -320,6 +320,11 @@ internal sealed class TownServiceToken : IGrabbable, ITriggerOnlyGrabbable, IGra
                     + " tracked=" + _heldTracked + " pose=" + hand.HasPose + " triggerUp=" + hand.TriggerUp
                     + " eligible=" + eligible + " identity=" + identity + " context=" + context
                     + " bowl=" + inZone + " point=" + dropPoint);
+            if (IsItemCard && VRLog.WantsDebug)
+                VRLog.Debug("TownServices", "Town item card release: " + (commit ? "palm eligible" : "returned")
+                    + " tracked=" + _heldTracked + " pose=" + hand.HasPose + " triggerUp=" + hand.TriggerUp
+                    + " eligible=" + eligible + " identity=" + identity + " context=" + context
+                    + " palm=" + inZone + " point=" + dropPoint);
             Hover(false);
             _physical.SetParent(_homeParent, true);
             _returnPosition = _physical.localPosition; _returnRotation = _physical.localRotation; _returnScale = _physical.localScale;
@@ -339,6 +344,8 @@ internal sealed class TownServiceToken : IGrabbable, ITriggerOnlyGrabbable, IGra
                     _shape.enabled = false;
                 }
                 bool accepted = _drop!();
+                if (accepted && IsItemCard && hand.HasPose)
+                    hand.SendHaptic(HapticPreset.ClickPulse);
                 if (_uprightProp && !accepted) CompletePhysicalOffering(false);
             }
             return;

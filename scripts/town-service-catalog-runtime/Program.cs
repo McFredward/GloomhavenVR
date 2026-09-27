@@ -159,7 +159,16 @@ public static class InteractionProgram
             entry.Sample.OnGrab(hand);entry.Tick(1f);entry.Sample.OnRelease(hand,Vector3.zero);
             entry.Sample.ParkOffering(seat.transform,()=>reclaimed++);entry.Tick(1f);
             Check(physical.parent==seat.transform&&entry.Sample.IsMoving&&!entry.Sample.IsHeld,
-                "actual stock card remains parked and blocks cassette turnover through confirmation");
+                "actual stock card remains parked through confirmation");
+            TownServiceMerchantHandoff.Parked=entry.Sample;
+            if(path==0)
+            {
+                var rack=catalog.Drawers[0];
+                Check(rack.Select(1,false),"category button remains usable while the merchant holds stock");
+                Set(rack,"_clock",TownRackState.TurnDuration);rack.Tick(1f);
+                Check(rack.Select(0,false),"return category button remains usable during the same offer");
+                Set(rack,"_clock",TownRackState.TurnDuration);rack.Tick(1f);
+            }
             Check(entry.Sample.CanGrab,"parked original stock card retains take-back input while native confirmation is open");
             if(path==0)
             {
@@ -176,7 +185,22 @@ public static class InteractionProgram
             }
             Check(physical.parent==home&&Vector3.Distance(physical.localPosition,position)<.0001f&&Quaternion.Angle(physical.localRotation,rotation)<.01f,
                 "parked stock take-back and authority loss return to the original cabinet slot");
+            TownServiceMerchantHandoff.Parked=null;
         }
+        TownServiceCatalog.CanOffer=(_,_)=>true;
+        TownServiceCatalog.InOfferingZone=_=>true;
+        TownServiceCatalog.Offer=(_,_,_)=>true;
+        TownServiceCatalog.RetainOffer=token=>token.ParkOffering(seat.transform,()=>{});
+        hand.TriggerUp=true;
+        hand.Rig.GrabAnchor.position=seat.transform.position;
+        entry.Sample.OnGrab(hand);entry.Tick(1f);
+        int hapticsBeforeRelease=hand.Haptics;
+        entry.Sample.OnRelease(hand,Vector3.zero);
+        Check(hand.Haptics==hapticsBeforeRelease+1 && physical.parent==seat.transform,
+            "accepted stock replacement pulses the releasing controller once and parks the real card");
+        entry.Sample.ReturnOffering();Set(entry.Sample,"_returnStarted",Time.unscaledTime-1f);entry.Tick(1f);
+        TownServiceCatalog.CanOffer=null;TownServiceCatalog.InOfferingZone=null;
+        TownServiceCatalog.Offer=null;TownServiceCatalog.RetainOffer=null;
         UnityEngine.Object.DestroyImmediate(seat);UnityEngine.Object.DestroyImmediate(hand.Rig.GrabAnchor.gameObject);
     }
     private static void ResetScroll()
@@ -425,12 +449,27 @@ public static class InteractionProgram
             }
         }
         var stable=catalog.Entries[0];var stableRoot=stable.CardRoot;
+        Vector3 stockInset=(Vector3)typeof(TownServiceCatalog.Entry).GetField("_displayHome",BindingFlags.Instance|BindingFlags.NonPublic)!.GetValue(stable)!;
+        Check(stockInset.z>.014f&&stockInset.z<.016f,
+            "physical card face and collider sit fifteen millimetres inside the cabinet frame");
         Census(catalog);Check(catalog.Entries[0].CardRoot==stableRoot,"unchanged census retains physical identity");
         var added=new CItem(999);added.YMLData.Slot=CItem.EItemSlot.Head;inventory.service.Buy.Add(added);Census(catalog);
         Check(catalog.Entries.Count==165,"late unlock adds card without dropping old stock");
         Check(catalog.Entries[0].CardRoot==stableRoot,"late unlock preserves existing card transforms");
+        CItem exhausted=inventory.service.Buy[0];inventory.service.Buy.RemoveAt(0);Census(catalog);catalog.Tick(1f);
+        var soldOut=catalog.Entries.FindEntry(0,false,0);
+        Check(soldOut!=null && soldOut.MountRoot.Find("Face/OriginalStockSoldOut")?.gameObject.activeSelf==true,
+            "exhausted stock announces itself on the original physical card face before inspection");
+        int inspections=TownServiceMerchantHandoff.InspectedCount;
+        var soldOutHand=new VRHand();soldOut.Sample.OnGrab(soldOutHand);
+        Check(TownServiceMerchantHandoff.InspectedCount==inspections+1&&!TownServiceMerchantHandoff.LastAvailable,
+            "sold-out speech hook runs on the actual physical pickup, not hover or frame updates");
+        soldOut.Sample.OnGrabCancelled(soldOutHand);UnityEngine.Object.DestroyImmediate(soldOutHand.Rig.GrabAnchor.gameObject);
+        inventory.service.Buy.Insert(0,exhausted);Census(catalog);catalog.Tick(1f);
+        Check(catalog.Entries.FindEntry(0,false,0).MountRoot.Find("Face/OriginalStockSoldOut")?.gameObject.activeSelf==false,
+            "restocked original card removes the sold-out marker without a stale overlay");
+        stable=catalog.Entries[0];
         HeldScale(catalog,anchor.transform);
-        OfferedStock(catalog);
         var crank=catalog.Drawers[0];
         WorldUIConfig.ImmersiveTownSoundEffects.Value=false;
         uint mutedEpoch=crank.TurnEpoch+1;
@@ -452,6 +491,7 @@ public static class InteractionProgram
         crank.Follow(RackState(crank,lateEpoch,.3f));
         Check(!observerAudio.isPlaying,"late observer does not replay an old cabinet start");
         crank.Follow(RackState(crank,lateEpoch,TownRackState.TurnDuration));
+        OfferedStock(catalog);
         stable.Tick(1f);var holder=new VRHand();stable.Sample.OnGrab(holder);stable.Tick(1f);
         Check(!crank.RequestTurn(),"held merchandise prevents rack motion");
         Check(stable.Exposed&&crank.Page==0,"held card cannot be swapped into a hidden tray");

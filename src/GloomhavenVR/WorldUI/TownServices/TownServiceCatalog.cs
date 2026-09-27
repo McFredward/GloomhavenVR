@@ -100,7 +100,11 @@ internal sealed class TownServiceCatalog : IDisposable
 
             _drawers.Add(new TownServiceMerchantDrawer(Root, 0, false, 0, "", font,
                 () => !_disposed && _alive() && _allowInput && TownServicePublicMerchant.CanClaim,
-                () => !_entries.Exists(entry => entry.Sample.IsMoving), drawer => ClearInspection()));
+                // A card parked in the merchant's palm is no longer on the rack. Keeping
+                // that sample's movement in this interlock disabled every category button
+                // and the crank throughout a buy decision, contrary to the physical scene.
+                () => !_entries.Exists(entry => entry.Sample.IsMoving
+                    && !TownServiceMerchantHandoff.IsParkedStock(entry.Sample)), drawer => ClearInspection()));
             for(int category=0;category<6;category++)
                 _categories.Add(new TownServiceCatalogCategory(Root,category,_drawers[0],()=>_allowInput&&_alive()&&_drawers[0].Accessible&&TownServicePublicMerchant.CanClaim));
             if(!persistent&&inventory.itemTooltip!=null)_preview=new TownServiceCatalogPreview(inventory.itemTooltip,Root,()=>_inspected!=null&&_inspected.Current&&_inspected.Sample.IsHeld);
@@ -225,9 +229,23 @@ internal sealed class TownServiceCatalog : IDisposable
         && (CanOffer?.Invoke(entry.Item, entry.Selling) ?? false);
     internal bool Drop(Entry entry)
     {
-        if (!Eligible(entry) || !(Offer?.Invoke(entry.Item, entry.Selling, entry.MountRoot.position) ?? false)) return false;
+        bool eligible = Eligible(entry);
+        bool accepted = eligible && (Offer?.Invoke(entry.Item, entry.Selling, entry.MountRoot.position) ?? false);
+        if (!accepted)
+        {
+            if (VRLog.WantsDebug)
+                VRLog.Debug("TownServices", "Merchant cabinet card drop refused: eligible=" + eligible
+                    + " input=" + _allowInput + " current=" + entry.Current
+                    + " nativeAvailable=" + entry.RowSource.IsAvailable + " selling=" + entry.Selling);
+            return false;
+        }
         RetainOffer?.Invoke(entry.Sample);
         return true;
+    }
+    private void OnStockGrabbed(Entry entry)
+    {
+        TownServicePublicMerchant.Claim();
+        if (!entry.Selling) TownServiceMerchantHandoff.StockInspected(entry.Item, entry.RowSource.IsAvailable);
     }
     internal void SetObserver(bool observer)
     {
@@ -264,6 +282,7 @@ internal sealed class TownServiceCatalog : IDisposable
         private readonly Canvas _canvas;
         private readonly CanvasGroup _pageGate;
         private readonly Transform _display;
+        private readonly GameObject _soldOutBand;
         private readonly float _presentedAt;
         private Vector3 _displayHome;
         private Transform? _body;
@@ -344,8 +363,36 @@ internal sealed class TownServiceCatalog : IDisposable
                 host.sizeDelta = size;
                 host.localScale = Vector3.one * Mathf.Min(TownServiceMerchantLayout.CardWidth / size.x, TownServiceMerchantLayout.CardHeight / size.y);
                 host.localPosition = new Vector3(0f, 0f, -.0012f);
+                _soldOutBand = new GameObject("OriginalStockSoldOut", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image));
+                RectTransform soldOutRect = (RectTransform)_soldOutBand.transform;
+                soldOutRect.SetParent(face.transform, false);
+                soldOutRect.sizeDelta = new Vector2(size.x * .92f, size.y * .18f);
+                soldOutRect.localPosition = new Vector3(0f, 0f, -.003f);
+                Image soldOutInk = _soldOutBand.GetComponent<Image>();
+                soldOutInk.color = new Color(.19f, .035f, .055f, .94f);
+                soldOutInk.raycastTarget = false;
+                var soldOutLabel = new GameObject("Caption", typeof(RectTransform), typeof(TextMeshProUGUI)).GetComponent<TextMeshProUGUI>();
+                soldOutLabel.transform.SetParent(soldOutRect, false);
+                soldOutLabel.rectTransform.anchorMin = Vector2.zero;
+                soldOutLabel.rectTransform.anchorMax = Vector2.one;
+                soldOutLabel.rectTransform.offsetMin = soldOutLabel.rectTransform.offsetMax = Vector2.zero;
+                TMP_Text? priceFont = source.GetComponentInChildren<TMP_Text>(true);
+                if (priceFont != null) { soldOutLabel.font = priceFont.font; soldOutLabel.fontSharedMaterial = priceFont.fontSharedMaterial; }
+                soldOutLabel.text = GLOOM.LocalizationManager.GetTranslation("GUI_ITEM_SOLDOUT");
+                soldOutLabel.fontSize = 38f;
+                soldOutLabel.enableAutoSizing = true;
+                soldOutLabel.fontSizeMin = 22f;
+                soldOutLabel.fontSizeMax = 38f;
+                soldOutLabel.alignment = TextAlignmentOptions.Center;
+                soldOutLabel.color = new Color(1f, .9f, .72f, 1f);
+                soldOutLabel.raycastTarget = false;
+                _soldOutBand.SetActive(!selling && !source.IsAvailable);
                 Vector2 physicalSize = size * host.localScale.x;
-                _displayHome = Vector3.zero;
+                // The headset side view shows the card glass standing proud of the
+                // cassette's carved front rail. Its native face, price and pickup
+                // collider travel together 15 mm into the cabinet (+local Z is inward
+                // from the player's front view); category buttons keep their sockets.
+                _displayHome = new Vector3(0f, 0f, .015f);
                 _display.localPosition = _displayHome + new Vector3(0f, 0f, .045f);
                 _body = TownServiceCardBody.Create(_display).transform;
                 _body.localScale = new Vector3(physicalSize.x, physicalSize.y, 1f);
@@ -367,7 +414,7 @@ internal sealed class TownServiceCatalog : IDisposable
                     zoneCenter: new Vector3(selling ? .078f : -.078f, .015f, -.20f),
                     inspect: () => owner._allowInput && Exposed && Rack.Accessible && TownServicePublicMerchant.CanClaim, zoneHalfWidth: .07f,
                     dropLocation: point => InOfferingZone?.Invoke(point) == true,
-                    grabbing: TownServicePublicMerchant.Claim);
+                    grabbing: () => owner.OnStockGrabbed(this));
                 _row.Refresh(source.transform);
                 foreach(RawImage background in source.GetComponentsInChildren<RawImage>(true))_rowBackgrounds.Add(background.transform);
                 TownServiceNativeAssets.PrepareItem(CardUI);
@@ -406,6 +453,7 @@ internal sealed class TownServiceCatalog : IDisposable
                 CardFaceMipBake.Rescan(CardUI);
                 _artWatch.Capture(CardUI);
             }
+            _soldOutBand.SetActive(!Selling && !RowSource.IsAvailable);
             _row.TickLive();
             // Preserve original stock/price/name glyphs but remove the flat list's backing.
             foreach(Transform original in _rowBackgrounds)
