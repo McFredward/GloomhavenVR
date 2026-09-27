@@ -421,6 +421,11 @@ internal sealed class RayInteractor : IPickProvider
     /// </summary>
     public float SolidOccluderDistance { get; private set; } = float.PositiveInfinity;
 
+    /// <summary>The current board contribution to solid occlusion, including the
+    /// existing pull-jerk hold. A native enhancement-area ray may skip its OWN
+    /// offered card but must still stop at a board behind that card.</summary>
+    internal float BoardOccluderDistance { get; private set; } = float.PositiveInfinity;
+
     /// <summary>True while <see cref="SolidOccluderDistance"/> comes from the control board
     /// rather than an open fan - drives the occlusion log's culprit naming only.</summary>
     public bool SolidOccluderIsBoard { get; private set; }
@@ -709,6 +714,7 @@ internal sealed class RayInteractor : IPickProvider
             _fanOccluderHoldUntil = 0f;
             FanOccluderHeld = false;
             SolidOccluderDistance = float.PositiveInfinity;
+            BoardOccluderDistance = float.PositiveInfinity;
             SolidOccluderIsBoard = false;
             _boardOccluderHoldUntil = 0f;
             // THE AIM POSE KEEPS TICKING, THE BEAM DOES NOT (ModBuild 422). Origin and direction
@@ -788,6 +794,7 @@ internal sealed class RayInteractor : IPickProvider
         }
         float resident = WorldUI.TownServiceVisitTarget.OccludingDistance(origin, direction, maxDistance);
         resident = Mathf.Min(resident, WorldUI.TownServicePhysicalRay.OccludingDistance(origin, direction, maxDistance));
+        BoardOccluderDistance = liveBoard;
         SolidOccluderDistance = Mathf.Min(Mathf.Min(FanOccluderDistance, liveBoard), resident);
         SolidOccluderIsBoard = liveBoard < FanOccluderDistance && liveBoard < resident;
 

@@ -19,6 +19,9 @@ internal sealed class TownServiceNativeEnhancementCardMask : MonoBehaviour
     private RectTransform? _aura;
     private RectTransform? _auraBuy, _auraSell;
     private Vector3 _auraOriginalScale;
+    private Quaternion _auraOriginalRotation;
+    private Quaternion _lastCorrectedAuraRotation;
+    private Quaternion _nativeAuraRotation;
     private Vector3 _lastCorrectedAuraScale;
     private bool _hasCorrectedAura;
     private bool _mappedPhysicalCard;
@@ -26,6 +29,7 @@ internal sealed class TownServiceNativeEnhancementCardMask : MonoBehaviour
     private readonly Vector3[] _auraCorners = new Vector3[4];
     private readonly Vector3[] _cardCorners = new Vector3[4];
     private readonly List<Graphic> _auraGraphics = new();
+    private readonly Dictionary<RectTransform, Vector3> _inkOriginalScales = new();
     private RectTransform? _highlighterRect;
     private Vector3 _frameScale;
     private Quaternion _frameRotation;
@@ -56,6 +60,7 @@ internal sealed class TownServiceNativeEnhancementCardMask : MonoBehaviour
         if (_aura != null)
         {
             _auraOriginalScale = _aura.localScale;
+            _auraOriginalRotation = _nativeAuraRotation = _aura.localRotation;
             _auraGraphics.AddRange(_aura.GetComponentsInChildren<Graphic>(true));
         }
         if (highlighter != null)
@@ -113,7 +118,11 @@ internal sealed class TownServiceNativeEnhancementCardMask : MonoBehaviour
             _nativeFrame.sizeDelta = _frameSize;
             _nativeFrame.anchoredPosition = _framePosition;
         }
-        if (_aura != null) _aura.localScale = _auraOriginalScale;
+        if (_aura != null)
+        { _aura.localScale = _auraOriginalScale; _aura.localRotation = _auraOriginalRotation; }
+        foreach (KeyValuePair<RectTransform, Vector3> ink in _inkOriginalScales)
+            if (ink.Key != null) ink.Key.localScale = ink.Value;
+        _inkOriginalScales.Clear();
         for (int i = 0; i < _frameGraphics.Count; i++)
             if (_frameGraphics[i] != null) _frameGraphics[i].raycastTarget = _frameRaycast[i];
         _frameGraphics.Clear(); _frameRaycast.Clear();
@@ -142,25 +151,15 @@ internal sealed class TownServiceNativeEnhancementCardMask : MonoBehaviour
             _nativeFrame.anchoredPosition = Vector2.zero;
         }
 
-        // The build-575 headset shows a tall narrow ring even after the old
-        // correction. Buy/Sell are grouping RectTransforms, not necessarily the
-        // rendered image: measuring a zero-size/stretch group can report a square
-        // while its descendant graphic is the 325x706 strip in the capture log.
-        // Measure the actual active graphic after native animation, then fit its
-        // two submitted edges to a circle slightly larger than the physical card.
-        // The original sprite, alpha, rotation and animation remain native.
+        // Build 576's video exposes the transform-space error in the older fit:
+        // it measured a ROTATED descendant's world corners, then changed X/Y scale
+        // on the Aura ANCESTOR. Those parent axes no longer coincide with the ink's
+        // axes, so rotating the descendant (or the card) squeezes the apparent ring
+        // differently. Preserve the native geometric-mean pulse on an isotropic
+        // world-space Aura basis; square the original active ink at its own
+        // RectTransform. Because the correction follows the ink's local axes,
+        // a native Z rotation cannot turn the world-space circle into an ellipse.
         if (_aura == null || _highlighterRect == null) return;
-        RectTransform? ink = ActiveAuraInk();
-        if (ink == null) return;
-        ink.GetWorldCorners(_auraCorners);
-        float width = Vector3.Distance(_auraCorners[0], _auraCorners[3]);
-        float height = Vector3.Distance(_auraCorners[0], _auraCorners[1]);
-        if (width < .00001f || height < .00001f) return;
-        // The CardHilight root is 325x450 px, while its drawn native effect spans
-        // 578..770 px in the build-575 log. Preserve that native pulse envelope:
-        // the geometric mean of the ink's two edges is its pre-correction size.
-        // Map that size from the highlighter's world height to the actual VRCard
-        // world height, rather than freezing every animation frame at one diameter.
         _highlighterRect.GetWorldCorners(_cardCorners);
         float rootHeight = Vector3.Distance(_cardCorners[0], _cardCorners[1]);
         if (rootHeight < .00001f) return;
@@ -181,14 +180,63 @@ internal sealed class TownServiceNativeEnhancementCardMask : MonoBehaviour
             correction = cardHeight / _lastPhysicalCardHeight;
         else if (!nativeRootWrite && physicalNow && !_mappedPhysicalCard)
             correction = cardHeight / rootHeight;
-        float diameter = Mathf.Sqrt(width * height) * correction;
-        scale.x *= Mathf.Clamp(diameter / width, .025f, 40f);
-        scale.y *= Mathf.Clamp(diameter / height, .025f, 40f);
-        _aura.localScale = scale;
-        _lastCorrectedAuraScale = scale;
+        float pulse = Mathf.Sqrt(Mathf.Abs(scale.x * scale.y));
+        float uniform = pulse * correction;
+        // The converted card-holder is normally uniformly scaled, but a native
+        // intermediate parent can stretch X and Y independently. Cancel that
+        // stretch BEFORE the ink's own rotation. A nonuniform ancestor followed
+        // by another rotation also creates SHEAR, so dividing by two edge lengths
+        // alone is insufficient: diagonalise the parent's 2D Gram matrix first,
+        // then invert its principal stretches. The ink's own rotation/animation
+        // is left intact on the now-isotropic world-space basis.
+        Transform parent = _aura.parent;
+        if (!_hasCorrectedAura
+            || Quaternion.Angle(_aura.localRotation, _lastCorrectedAuraRotation) > .05f)
+            _nativeAuraRotation = _aura.localRotation;
+        Vector3 basisRight = parent.TransformVector(Vector3.right);
+        Vector3 basisUp = parent.TransformVector(Vector3.up);
+        float gxx = Vector3.Dot(basisRight, basisRight);
+        float gxy = Vector3.Dot(basisRight, basisUp);
+        float gyy = Vector3.Dot(basisUp, basisUp);
+        float anisotropy = Mathf.Sqrt((gxx - gyy) * (gxx - gyy) + 4f * gxy * gxy);
+        float nativeAngle = _nativeAuraRotation.eulerAngles.z;
+        float angle = nativeAngle;
+        if (anisotropy > (gxx + gyy) * .0001f)
+        {
+            float principal = .5f * Mathf.Atan2(2f * gxy, gxx - gyy) * Mathf.Rad2Deg;
+            // Either principal axis can be X. Select the one nearest the native
+            // phase so even a textured native effect avoids a gratuitous 90° flip.
+            angle = Mathf.Abs(Mathf.DeltaAngle(nativeAngle, principal))
+                <= Mathf.Abs(Mathf.DeltaAngle(nativeAngle, principal + 90f))
+                ? principal : principal + 90f;
+        }
+        Quaternion correctedRotation = Quaternion.Euler(0f, 0f, angle);
+        Vector3 parentRight = parent.TransformVector(correctedRotation * Vector3.right);
+        Vector3 parentUp = parent.TransformVector(correctedRotation * Vector3.up);
+        float parentX = Mathf.Max(.00001f, parentRight.magnitude);
+        float parentY = Mathf.Max(.00001f, parentUp.magnitude);
+        float parentMean = Mathf.Sqrt(parentX * parentY);
+        _aura.localRotation = correctedRotation;
+        _aura.localScale = new Vector3(Mathf.Sign(scale.x) * uniform * parentMean / parentX,
+            Mathf.Sign(scale.y) * uniform * parentMean / parentY, scale.z);
+        _lastCorrectedAuraScale = _aura.localScale;
+        _lastCorrectedAuraRotation = correctedRotation;
         _hasCorrectedAura = true;
         _mappedPhysicalCard = physicalNow;
         _lastPhysicalCardHeight = cardHeight;
+
+        RectTransform? ink = ActiveAuraInk();
+        if (ink == null) return;
+        ink.GetWorldCorners(_auraCorners);
+        float width = Vector3.Distance(_auraCorners[0], _auraCorners[3]);
+        float height = Vector3.Distance(_auraCorners[0], _auraCorners[1]);
+        if (width < .00001f || height < .00001f) return;
+        if (!_inkOriginalScales.ContainsKey(ink)) _inkOriginalScales.Add(ink, ink.localScale);
+        float diameter = Mathf.Sqrt(width * height);
+        Vector3 inkScale = ink.localScale;
+        inkScale.x *= Mathf.Clamp(diameter / width, .025f, 40f);
+        inkScale.y *= Mathf.Clamp(diameter / height, .025f, 40f);
+        ink.localScale = inkScale;
     }
 
     private RectTransform? ActiveAuraInk()

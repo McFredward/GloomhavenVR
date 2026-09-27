@@ -135,22 +135,26 @@ internal sealed class TownServiceEnhancementHandoff : IDisposable
     /// <summary>The offered card is reclaimable by hand, never by laser. A laser on an
     /// original enhancement-area button belongs to that button; this narrow check also
     /// prevents the same near-hand trigger from grabbing the card behind that button.</summary>
-    internal static bool TryNativeArea(Canvas canvas, GameObject hit, out VRCard? offered)
+    internal static bool TryNativeAreaCanvas(Canvas canvas, out VRCard? offered)
     {
         offered = null;
         TownServiceEnhancementHandoff? current = _current;
-        if (current == null || current.Card == null || !current.Ready || hit == null)
-            return false;
+        if (current == null || current.Card == null || !current.Ready) return false;
         TownServiceRitual? ritual = TownServicePresentation.Ritual;
         if (ritual == null || !ReferenceEquals(ritual.Handoff, current)) return false;
-        bool onCardSurface = false;
         foreach (TownServiceSurface surface in ritual.Surfaces)
             if (surface.Id == 11 && ReferenceEquals(surface.Panel.HostCanvas, canvas))
-            { onCardSurface = true; break; }
-        if (!onCardSurface) return false;
+            { offered = current.Card; return true; }
+        return false;
+    }
+
+    internal static bool TryNativeArea(Canvas canvas, GameObject hit, out VRCard? offered)
+    {
+        offered = null;
+        if (hit == null || !TryNativeAreaCanvas(canvas, out VRCard? card)) return false;
         UIEnhancementButtonHighlight? area = hit.GetComponentInParent<UIEnhancementButtonHighlight>();
         if (area == null || !area.isActiveAndEnabled || area.Ability == null) return false;
-        offered = current.Card;
+        offered = card;
         return true;
     }
     internal static bool ReturnReclaimed(VRCard card)

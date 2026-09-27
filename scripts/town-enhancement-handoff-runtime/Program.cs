@@ -20,6 +20,7 @@ public static class InteractionProgram
         NativeFrame();
         PhysicalCardAura();
         NativePhysicalPoke();
+        NativeLaserOcclusion();
         FirstVisitCue();
         Approach();
         WalkAway();
@@ -103,6 +104,33 @@ public static class InteractionProgram
         mask.SendMessage("OnBeforeCanvasRender");
         Check(Mathf.Abs(Diameter((RectTransform)ink.transform) - secondPulse) < .01f,
             "repeated canvas submissions do not inflate the native aura without a new animation write");
+        // The headset video varies the card/head angle. The old correction measured
+        // this rotated child but scaled Aura's different parent axes, so the same
+        // native ring became a narrow oval as it turned. Exercise real Unity
+        // RectTransform world corners at several child + card rotations.
+        var shearingParent = new GameObject("Outer nonuniform parent", typeof(RectTransform));
+        shearingParent.transform.SetParent(root.transform, false);
+        shearingParent.transform.localScale = new Vector3(1.22f, .78f, 1f);
+        var scaledParent = new GameObject("Rotated nonuniform parent", typeof(RectTransform));
+        scaledParent.transform.SetParent(shearingParent.transform, false);
+        scaledParent.transform.localRotation = Quaternion.Euler(0f, 0f, 29f);
+        scaledParent.transform.localScale = new Vector3(1.4f, .65f, 1f);
+        aura.transform.SetParent(scaledParent.transform, false);
+        foreach (float angle in new[] { 0f, 24f, 47f, 81f, 135f })
+        {
+            auraRect.localScale = new Vector3(.31f, 1.65f, 1f);
+            auraRect.localRotation = Quaternion.Euler(0f, 0f, angle * .33f);
+            ink.transform.localRotation = Quaternion.Euler(0f, 0f, angle);
+            root.transform.rotation = Quaternion.Euler(17f, angle * .47f, -12f);
+            mask.SendMessage("OnBeforeCanvasRender");
+            Check(CircleInWorld((RectTransform)ink.transform),
+                "rotated native ink remains a world-space circle around the physical card");
+            float rotatedDiameter = Diameter((RectTransform)ink.transform);
+            mask.SendMessage("OnBeforeCanvasRender");
+            Check(CircleInWorld((RectTransform)ink.transform)
+                && Mathf.Abs(Diameter((RectTransform)ink.transform) - rotatedDiameter) < .001f,
+                "repeated render callbacks do not change a sheared-parent ring diameter");
+        }
         mask.Restore();
         Check(rect.sizeDelta == new Vector2(100f, 100f) && Mathf.Abs(rect.localScale.x - .02f) < .001f
             && rect.GetComponent<Image>().raycastTarget,
@@ -122,6 +150,15 @@ public static class InteractionProgram
         float width = Vector3.Distance(corners[0], corners[3]);
         float height = Vector3.Distance(corners[0], corners[1]);
         return width > .001f && Mathf.Abs(width / height - 1f) < .01f;
+    }
+
+    private static bool CircleInWorld(RectTransform rect)
+    {
+        var corners = new Vector3[4]; rect.GetWorldCorners(corners);
+        Vector3 right = corners[3] - corners[0], up = corners[1] - corners[0];
+        return right.magnitude > .001f
+            && Mathf.Abs(right.magnitude / up.magnitude - 1f) < .01f
+            && Mathf.Abs(Vector3.Dot(right.normalized, up.normalized)) < .01f;
     }
 
     private static bool DiameterAtLeast(RectTransform ink, RectTransform card, float fraction)
@@ -223,6 +260,8 @@ public static class InteractionProgram
         card.transform.SetParent(root.transform, false);
         var mask = card.AddComponent<TownServiceNativeEnhancementCardMask>();
         mask.Mask();
+        Check(root.GetComponent<GraphicRaycaster>().ignoreReversedGraphics,
+            "native card uses its original raycaster winding rule while masked");
         var tip = new GameObject("Tracked index tip");
         var hand = new VRHand();
         hand.Rig.IndexTip = tip.transform;
@@ -230,9 +269,23 @@ public static class InteractionProgram
         area.GetComponent<Button>().onClick.AddListener(() => nativeClicks++);
         var poke = new PokeInteractor(hand);
         UguiPokeSurfaces.Surfaces.Add(canvas);
+        var physical = new GameObject("Physical offered card", typeof(BoxCollider));
+        physical.transform.position = new Vector3(0f, 0f, -.025f);
+        physical.GetComponent<BoxCollider>().size = new Vector3(.3f, .4f, .006f);
         try
         {
             Canvas.ForceUpdateCanvases();
+            Physics.SyncTransforms();
+            Ray laser = new(camera.transform.position, Vector3.forward);
+            var cardHit = physical.GetComponent<BoxCollider>().Raycast(laser, out RaycastHit cardPoint, 5f);
+            Vector2 uiPoint = RectTransformUtility.WorldToScreenPoint(camera, area.transform.position);
+            // NullGfxDevice under -nographics yields no GraphicRaycaster output;
+            // Image.Raycast still exercises the original Unity Graphic geometry.
+            Check(cardHit && cardPoint.distance < Vector3.Distance(camera.transform.position, root.transform.position)
+                && area.GetComponent<Image>().raycastTarget
+                && area.GetComponent<Image>().Raycast(uiPoint, camera),
+                "original enhancement area remains laser-raycastable behind its physical card collider"
+                    + " (cardHit=" + cardHit + " cardDist=" + cardPoint.distance + ")");
             tip.transform.position = new Vector3(0f, 0f, -.03f);
             poke.Tick();
             tip.transform.position = new Vector3(0f, 0f, -.003f);
@@ -251,17 +304,89 @@ public static class InteractionProgram
                 "production fingertip plane/depth/grip route clicks the original ability Button once through the masked aura");
             poke.Tick();
             Check(nativeClicks == 1, "one continuous grip press cannot duplicate the native area callback");
+            if (SystemInfo.graphicsDeviceType != UnityEngine.Rendering.GraphicsDeviceType.Null)
+            {
+                // Use the unmodified canvas and its normal GraphicRaycaster
+                // winding rule. A synthetic reversed canvas is not evidence
+                // about the game's converted card orientation.
+                camera.Render();
+                Canvas.ForceUpdateCanvases();
+                var uiHits = new System.Collections.Generic.List<RaycastResult>();
+                root.GetComponent<GraphicRaycaster>().Raycast(
+                    new PointerEventData(events.GetComponent<EventSystem>()) { position = uiPoint }, uiHits);
+                Check(uiHits.Count > 0 && uiHits[0].gameObject == area,
+                    "rendered GraphicRaycaster chooses original ability area behind offered card"
+                    + " (hits=" + uiHits.Count + " top=" + (uiHits.Count > 0 ? uiHits[0].gameObject.name : "none")
+                    + " graphics=" + GraphicRegistry.GetGraphicsForCanvas(canvas).Count
+                    + " depth=" + area.GetComponent<Image>().depth
+                    + " reversed=" + root.GetComponent<GraphicRaycaster>().ignoreReversedGraphics
+                    + " camera=" + canvas.worldCamera + " screen=" + uiPoint + ")");
+            }
         }
         finally
         {
             UguiPokeSurfaces.Surfaces.Clear();
             poke.CancelAll();
             mask.Restore();
+            Check(root.GetComponent<GraphicRaycaster>().ignoreReversedGraphics,
+                "native card raycaster winding remains untouched after release");
             UnityEngine.Object.DestroyImmediate(tip);
             UnityEngine.Object.DestroyImmediate(root);
+            UnityEngine.Object.DestroyImmediate(physical);
             UnityEngine.Object.DestroyImmediate(events);
             UnityEngine.Object.DestroyImmediate(cameraGo);
         }
+    }
+
+    private static void NativeLaserOcclusion()
+    {
+        const float panel = 2f, card = 1.90f, epsilon = .005f;
+        float none = float.PositiveInfinity;
+        var offered = new GameObject("Exact offered card", typeof(VRCard), typeof(BoxCollider));
+        offered.transform.position = new Vector3(0f, 0f, -.1f);
+        offered.GetComponent<BoxCollider>().size = new Vector3(.4f, .5f, .02f);
+        var foreign = new GameObject("Foreign collider behind card", typeof(BoxCollider));
+        foreign.transform.position = new Vector3(0f, 0f, -.04f);
+        foreign.GetComponent<BoxCollider>().size = new Vector3(.4f, .5f, .02f);
+        Physics.SyncTransforms();
+        Ray ray = new(new Vector3(0f, 0f, -2f), Vector3.forward);
+        float blocked = NativePhysicsOcclusionFixture.OtherPhysicsOccludingDistance(
+            offered.GetComponent<VRCard>(), ray.origin, ray.direction, 2f, Physics.DefaultRaycastLayers);
+        Check(blocked > 1.9f && blocked < 2f,
+            "physics rescan finds a foreign collider between offered card and native area");
+        UnityEngine.Object.DestroyImmediate(foreign);
+        Physics.SyncTransforms();
+        Check(float.IsPositiveInfinity(NativePhysicsOcclusionFixture.OtherPhysicsOccludingDistance(
+            offered.GetComponent<VRCard>(), ray.origin, ray.direction, 2f, Physics.DefaultRaycastLayers)),
+            "physics rescan excludes only the offered card's own collider");
+        UnityEngine.Object.DestroyImmediate(offered);
+        Check(NativeAreaOcclusionFixture.OfferedAreaClear(panel, card, card,
+            none, none, none, none, none, epsilon),
+            "only the physical offered card in front of its native area allows the laser through");
+        Check(NativeAreaOcclusionFixture.OfferedAreaClear(panel, card, card,
+            none, none, none, none, none, epsilon),
+            "excluding the exact offered card from the second physics scan permits its original area");
+        Check(!NativeAreaOcclusionFixture.OfferedAreaClear(panel, card, card,
+            none, 1.95f, none, none, none, epsilon),
+            "a board behind the offered card still occludes the native button");
+        Check(!NativeAreaOcclusionFixture.OfferedAreaClear(panel, card, card,
+            1.95f, none, none, none, none, epsilon),
+            "a different raised fan card behind the offered card still occludes the button");
+        Check(!NativeAreaOcclusionFixture.OfferedAreaClear(panel, card, card,
+            none, none, none, 1.95f, none, epsilon),
+            "a second physical town prop behind the offered card still occludes the button");
+        Check(!NativeAreaOcclusionFixture.OfferedAreaClear(panel, card, card,
+            none, none, 1.95f, none, none, epsilon),
+            "a resident blocker behind the offered card still occludes the button");
+        Check(!NativeAreaOcclusionFixture.OfferedAreaClear(panel, card, card,
+            none, none, none, none, 1.95f, epsilon),
+            "an unrelated physics hit behind the offered card still occludes the button");
+        Check(!NativeAreaOcclusionFixture.OfferedAreaClear(panel, card, 1.80f,
+            none, none, none, none, none, epsilon),
+            "a nearer solid surface cannot masquerade as the offered card");
+        Check(!NativeAreaOcclusionFixture.OfferedAreaClear(panel, 2.10f, 2.10f,
+            none, none, none, none, none, epsilon),
+            "the offered card must actually lie between laser and native button");
     }
 
     private static void FirstVisitCue()

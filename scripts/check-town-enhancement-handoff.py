@@ -42,6 +42,15 @@ def sources(root):
     grab = (root / "src/GloomhavenVR/Hands/Interact/ProximityGrabber.cs").read_text()
     force = method(grab, "public bool ForceGrab(")
     bound["ActualGrabRoute.cs"] = "using System; using GloomhavenVR.Hands; using GloomhavenVR.Hands.Interact; namespace GloomhavenVR.Cards { public partial class VRCard { " + gate + " } } namespace GloomhavenVR.Hands { public partial class Holder { " + force + " } }"
+    ray = (root / "src/GloomhavenVR/Hands/Interact/RayUguiDriver.cs").read_text()
+    arbitration = method(ray, "private static bool OfferedAreaClear(").replace(
+        "private static bool OfferedAreaClear(", "internal static bool OfferedAreaClear(", 1)
+    bound["NativeAreaOcclusionFixture.cs"] = "namespace GloomhavenVR.Hands.Interact { internal static class NativeAreaOcclusionFixture {\n" + arbitration + "\n} }"
+    physical = (root / "src/GloomhavenVR/WorldUI/TownServices/TownServicePhysicalRay.cs").read_text()
+    physics_scan = method(physical, "internal static float OtherPhysicsOccludingDistance(")
+    bound["NativePhysicsOcclusionFixture.cs"] = ("using UnityEngine; using GloomhavenVR.Cards; "
+        "namespace GloomhavenVR.WorldUI { internal static class NativePhysicsOcclusionFixture {\n"
+        + physics_scan + "\n} }")
     return bound, {name: hashlib.sha256(text.encode()).hexdigest() for name, text in bound.items()}
 
 
@@ -70,6 +79,53 @@ def check_presentation_bridge(root):
         raise RuntimeError("Temple approach negative control was accepted")
     if has_mage_ownership(property_body.replace("_enhancementListMask != null", "true", 1)):
         raise RuntimeError("Mage ownership negative control was accepted")
+
+
+def check_laser_bridge(root):
+    """The runtime pointer test proves the real GraphicRaycaster hit; bind its
+    result to the far-ray arbitration seam without opening other card occlusion."""
+    ray = (root / "src/GloomhavenVR/Hands/Interact/RayUguiDriver.cs").read_text()
+    ray_state = (root / "src/GloomhavenVR/Hands/Interact/RayInteractor.cs").read_text()
+    physical = (root / "src/GloomhavenVR/WorldUI/TownServices/TownServicePhysicalRay.cs").read_text()
+    mask = (root / "src/GloomhavenVR/WorldUI/TownServices/TownServiceNativeEnhancementCardMask.cs").read_text()
+    def scoped(ray_text, physical_text, mask_text, state_text):
+        start = ray_text.index("bool nativeAreaThroughOfferedCard = false;")
+        end = ray_text.index("// Physics occlusion:", start)
+        bridge = ray_text[start:end]
+        arbitration = method(ray_text, "private static bool OfferedAreaClear(")
+        return ("TryNativeAreaCanvas(best, out VRCard? offered)" in bridge
+            and "TryOfferedCardDistance(offered" in bridge
+            and "TryNativeArea(best, checkedAreaTop.gameObject" in bridge
+            and "ReferenceEquals(areaCard, offered)" in bridge
+            and "OfferedAreaClear(bestDist, cardDist" in bridge
+            and "_hand.Ray.BoardOccluderDistance" in bridge
+            and "OtherOccludingDistance(offered" in bridge
+            and "OtherPhysicsOccludingDistance(offered" in bridge
+            and "nearestSolid >= card - epsilon" in arbitration
+            and "board >= panel - epsilon" in arbitration
+            and "otherTownObject >= panel - epsilon" in arbitration
+            and "otherPhysics >= panel - epsilon" in arbitration
+            and "if (best != null && !nativeAreaThroughOfferedCard" in ray_text[end:]
+            and "if (!ReferenceEquals(entries[i].Target, offered)" in physical_text
+            and "|| candidate is VRCard card && TownServiceEnhancementHandoff.CanReclaim(card)" in physical_text
+            and "collider.transform.IsChildOf(offered.transform)" in physical_text
+            and "ignoreReversedGraphics" not in mask_text
+            and "BoardOccluderDistance = liveBoard;" in state_text
+            and "BoardOccluderDistance = float.PositiveInfinity;" in state_text)
+    if not scoped(ray, physical, mask, ray_state):
+        raise RuntimeError("Native laser exception is not limited to the live area on its own offered card")
+    for index, (broken_ray, broken_physical, broken_mask, broken_state) in enumerate((
+        (ray.replace("TryNativeArea(best, checkedAreaTop.gameObject", "TryNativeArea(best, null", 1), physical, mask, ray_state),
+        (ray, physical.replace("if (!ReferenceEquals(entries[i].Target, offered)", "if (entries[i].Target == null", 1), mask, ray_state),
+        (ray.replace("_hand.Ray.BoardOccluderDistance,", "float.PositiveInfinity,", 1), physical, mask, ray_state),
+        (ray.replace("WorldUI.TownServicePhysicalRay.OtherOccludingDistance(offered,", "WorldUI.TownServicePhysicalRay.OccludingDistance(", 1), physical, mask, ray_state),
+        (ray.replace("WorldUI.TownServicePhysicalRay.OtherPhysicsOccludingDistance(offered,", "WorldUI.TownServicePhysicalRay.OccludingDistance(", 1), physical, mask, ray_state),
+        (ray, physical, mask.replace("_highlighterRect = highlighter != null",
+            "if (highlighter != null) highlighter.GetComponentInParent<GraphicRaycaster>().ignoreReversedGraphics = false;\n        _highlighterRect = highlighter != null", 1), ray_state),
+        (ray, physical, mask, ray_state.replace("BoardOccluderDistance = liveBoard;", "BoardOccluderDistance = float.PositiveInfinity;", 1)),
+    )):
+        if scoped(broken_ray, broken_physical, broken_mask, broken_state):
+            raise RuntimeError(f"Native laser bridge negative control {index} escaped")
 
 
 def mutations():
@@ -108,11 +164,12 @@ def mutations():
          "TownServiceVoice.RequestReaction(3, TownVoiceReaction.EnchantressInspect);", "",
          "same-frame handoff hides only duplicate art and reacts to the accepted offer"),
         ("wrong-area-canvas", name,
-         "if (!onCardSurface) return false;", "if (!onCardSurface && canvas == null) return false;",
+         "if (surface.Id == 11 && ReferenceEquals(surface.Panel.HostCanvas, canvas))",
+         "if (surface.Id == 11 || ReferenceEquals(surface.Panel.HostCanvas, canvas))",
          "unrelated canvas and non-ability card print never steal the physical reclaim trigger"),
         ("stale-area-selection", name,
-         "if (current == null || current.Card == null || !current.Ready || hit == null)",
-         "if (current == null || current.Card == null || hit == null)",
+         "if (current == null || current.Card == null || !current.Ready) return false;",
+         "if (current == null || current.Card == null) return false;",
          "native confirmation closes the area-selection laser gate"),
         ("squeezed-native-frame", "TownServiceNativeEnhancementCardMask.cs",
          "_nativeFrame.localScale = Vector3.one;", "_nativeFrame.localScale = _frameScale;",
@@ -122,8 +179,12 @@ def mutations():
          "private void LateUpdate()\n    {\n        if (!_masked) AlignNativeEffects();\n    }",
          "native flat animation cannot resquash the physical frame before render"),
         ("aura-render-squeeze", "TownServiceNativeEnhancementCardMask.cs",
-         "scale.x *= Mathf.Clamp(diameter / width, .025f, 40f);", "scale.x *= 1f;",
-         "actual submitted enchantress aura ink is round and preserves the native pulse size"),
+         "inkScale.x *= Mathf.Clamp(diameter / width, .025f, 40f);", "inkScale.x *= 1f;",
+         "rendered native aura follows the actual physical card, not the 325x450 highlighter root"),
+        ("aura-rotated-parent", "TownServiceNativeEnhancementCardMask.cs",
+         "_aura.localScale = new Vector3(Mathf.Sign(scale.x) * uniform * parentMean / parentX,",
+         "_aura.localScale = new Vector3(Mathf.Sign(scale.x) * uniform,",
+         "repeated render callbacks do not change a sheared-parent ring diameter"),
         ("aura-group-instead-of-ink", "TownServiceNativeEnhancementCardMask.cs",
          "return ink;", "return branch;",
          "rendered native aura follows the actual physical card, not the 325x450 highlighter root"),
@@ -152,6 +213,7 @@ def main():
     parser.add_argument("--no-negative-controls", action="store_true", help="Quick positive run; not complete validation")
     args = parser.parse_args()
     check_presentation_bridge(args.source_root)
+    check_laser_bridge(args.source_root)
     args.output_dir.mkdir(parents=True, exist_ok=True)
     run = Path(tempfile.mkdtemp(prefix="run-", dir=args.output_dir.resolve()))
     fixture = Path(__file__).resolve().parent / "town-enhancement-handoff-runtime"

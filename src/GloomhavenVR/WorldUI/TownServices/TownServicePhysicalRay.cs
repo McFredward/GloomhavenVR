@@ -29,6 +29,63 @@ internal static class TownServicePhysicalRay
     private static bool OccludingTarget(IGrabbable candidate) => PhysicalTarget(candidate)
         || candidate is VRCard card && TownServiceEnhancementHandoff.CanReclaim(card);
 
+    /// <summary>Identify the offered card's own solid hit. The enhancement-area laser
+    /// may cross this card to reach an original button on its face, but may not cross
+    /// another fan card, prop or window. Keep ordinary occlusion unchanged.</summary>
+    internal static bool TryOfferedCardDistance(VRCard offered, Vector3 origin, Vector3 direction,
+        float maxDistance, out float distance)
+    {
+        distance = float.PositiveInfinity;
+        if (offered == null || !TownServiceEnhancementHandoff.CanReclaim(offered)) return false;
+        Ray ray = new(origin, direction);
+        var entries = VRInteractables.Grabbables;
+        for (int i = 0; i < entries.Count; i++)
+        {
+            if (!ReferenceEquals(entries[i].Target, offered)
+                || !VRInteractables.IsUsablePickShape(entries[i].Collider)) continue;
+            if (entries[i].Collider.Raycast(ray, out RaycastHit hit, maxDistance)
+                && hit.distance < distance) distance = hit.distance;
+        }
+        return !float.IsPositiveInfinity(distance);
+    }
+
+    /// <summary>The ordinary physics pick reports only the first collider, which
+    /// can be the offered card. Preserve every later physics blocker before the
+    /// original area; this scan runs only for a live native-area candidate.</summary>
+    internal static float OtherPhysicsOccludingDistance(VRCard offered, Vector3 origin,
+        Vector3 direction, float maxDistance, LayerMask mask)
+    {
+        float nearest = float.PositiveInfinity;
+        RaycastHit[] hits = Physics.RaycastAll(origin, direction, maxDistance, mask);
+        for (int i = 0; i < hits.Length; i++)
+        {
+            Collider collider = hits[i].collider;
+            if (collider == null || collider.transform.IsChildOf(offered.transform)) continue;
+            if (hits[i].distance < nearest) nearest = hits[i].distance;
+        }
+        return nearest;
+    }
+
+    /// <summary>Rescan the short ray behind an offered card. The ordinary nearest
+    /// occluder is that card; without this second scan, a different prop between its
+    /// front and the native button would be silently skipped with it.</summary>
+    internal static float OtherOccludingDistance(VRCard offered, Vector3 origin, Vector3 direction,
+        float maxDistance)
+    {
+        float nearest = TownServiceCatalogCategory.OccludingDistance(origin, direction, maxDistance);
+        Ray ray = new(origin, direction);
+        var entries = VRInteractables.Grabbables;
+        for (int i = 0; i < entries.Count; i++)
+        {
+            IGrabbable candidate = entries[i].Target;
+            if (ReferenceEquals(candidate, offered) || !OccludingTarget(candidate)
+                || !candidate.CanGrab || !VRInteractables.IsUsablePickShape(entries[i].Collider)) continue;
+            if (entries[i].Collider.Raycast(ray, out RaycastHit hit, maxDistance)
+                && hit.distance < nearest) nearest = hit.distance;
+        }
+        return nearest;
+    }
+
     internal static float OccludingDistance(Vector3 origin,Vector3 direction,float maxDistance)
     {
         float nearest=TownServiceCatalogCategory.OccludingDistance(origin,direction,maxDistance);var ray=new Ray(origin,direction);

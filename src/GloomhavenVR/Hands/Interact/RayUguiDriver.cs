@@ -191,8 +191,45 @@ internal sealed class RayUguiDriver
         if (sawDead)
             UguiPokeSurfaces.Prune();
 
-        // Physics occlusion: something solid in front of the panel blocks the laser.
+        // The offered enhancement card is intentionally a solid shield for every
+        // unrelated window, yet its original ability buttons are a few millimetres
+        // BEHIND its physical collider. Build 576 therefore discarded Panel_TownService.11
+        // before asking GraphicRaycaster which button the beam actually covered
+        // (hardware log: card at 72.75 world units, panel at 75.69). Cross ONLY that
+        // exact card, ONLY for a live native area on its own converted canvas. A
+        // different closer physics/solid hit still wins, as does a miss on the card.
+        bool nativeAreaThroughOfferedCard = false;
+        Canvas? checkedAreaCanvas = null;
+        RaycastResult checkedAreaTop = default;
         if (best != null
+            && (_hand.Ray.SolidOccluderDistance < bestDist - OcclusionEpsilonMeters * scale
+                || pick.HasHit && pick.HitDistance < bestDist - OcclusionEpsilonMeters * scale)
+            && WorldUI.TownServiceEnhancementHandoff.TryNativeAreaCanvas(best, out VRCard? offered)
+            && offered != null
+            && WorldUI.TownServicePhysicalRay.TryOfferedCardDistance(offered,
+                pick.Origin, pick.Direction, bestDist, out float cardDist)
+            && _pointer.TryRaycast(best, ToScreen(best, bestPoint), out checkedAreaTop)
+            && WorldUI.TownServiceEnhancementHandoff.TryNativeArea(best, checkedAreaTop.gameObject,
+                out VRCard? areaCard)
+            && ReferenceEquals(areaCard, offered)
+            && OfferedAreaClear(bestDist, cardDist, _hand.Ray.SolidOccluderDistance,
+                _hand.Ray.FanOccluderDistance, _hand.Ray.BoardOccluderDistance,
+                WorldUI.TownServiceVisitTarget.OccludingDistance(pick.Origin, pick.Direction, bestDist),
+                WorldUI.TownServicePhysicalRay.OtherOccludingDistance(offered,
+                    pick.Origin, pick.Direction, bestDist),
+                WorldUI.TownServicePhysicalRay.OtherPhysicsOccludingDistance(offered,
+                    pick.Origin, pick.Direction, bestDist, _hand.Ray.Mask),
+                OcclusionEpsilonMeters * scale))
+        {
+            nativeAreaThroughOfferedCard = true;
+            checkedAreaCanvas = best;
+            if (_hand.TriggerDown && Core.VRLog.WantsDebug)
+                Core.VRLog.Debug("Interact", "TOWN ENHANCEMENT laser reached original area through its "
+                    + "offered card; card and area share the same ray. Other occluders remain active.");
+        }
+
+        // Physics occlusion: something solid in front of the panel blocks the laser.
+        if (best != null && !nativeAreaThroughOfferedCard
             && pick.HasHit && pick.HitDistance < bestDist - OcclusionEpsilonMeters * scale)
             best = null;
 
@@ -215,7 +252,7 @@ internal sealed class RayUguiDriver
         // surfaces (initiative track, control dock, slot-card faces — coplanar with or proud
         // of the board colliders) out of their own occluder's shadow.
         Canvas? solidOccluded = null;
-        if (best != null
+        if (best != null && !nativeAreaThroughOfferedCard
             && _hand.Ray.SolidOccluderDistance < bestDist - OcclusionEpsilonMeters * scale)
         {
             // [Optimize] LeanLogStrings: skip the per-frame string build when the note is throttled.
@@ -325,7 +362,9 @@ internal sealed class RayUguiDriver
                                            + "(RayUguiDriver — canvas plane, no press required)");
 
         Vector2 screenPos = ToScreen(_canvas, bestPoint);
-        bool hit = _pointer.TryRaycast(_canvas, screenPos, out RaycastResult top);
+        RaycastResult top = checkedAreaTop;
+        bool hit = nativeAreaThroughOfferedCard && ReferenceEquals(_canvas, checkedAreaCanvas)
+            || _pointer.TryRaycast(_canvas, screenPos, out top);
         VRCard? selectedCard = null;
         bool nativeAreaHit = hit
             && WorldUI.TownServiceEnhancementHandoff.TryNativeArea(_canvas, top.gameObject, out selectedCard);
@@ -378,6 +417,20 @@ internal sealed class RayUguiDriver
             _pointer.Press(screenPos);
             _hand.SendHaptic(HapticPreset.ClickPulse);
         }
+    }
+
+    private static bool OfferedAreaClear(float panel, float card, float nearestSolid,
+        float fan, float board, float resident, float otherTownObject,
+        float otherPhysics, float epsilon)
+    {
+        // The ordinary solid readback names only the NEAREST hit. The offered
+        // card itself owns that distance, so rescan every other source through
+        // the area plane. A bar, fan, board, second prop or game collider behind
+        // the card still blocks it. Only the exact card may be crossed.
+        return card <= panel + epsilon && nearestSolid >= card - epsilon
+            && fan >= panel - epsilon && board >= panel - epsilon
+            && resident >= panel - epsilon && otherTownObject >= panel - epsilon
+            && otherPhysics >= panel - epsilon;
     }
 
     /// <summary>Next unscaled time <see cref="LogPressYielded"/> may print, and what it swallowed.</summary>
