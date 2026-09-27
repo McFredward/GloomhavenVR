@@ -63,7 +63,7 @@ def mutations():
         ("low-priestess-shoulders", "TownServiceActivityMotion.cs", "float priestessElbowHeight = 1.02f;", "float priestessElbowHeight = .40f;", "actual priestess upper arms descend naturally from the clavicle"),
         ("upturned-priestess-hip", "TownServiceActivityRig.cs", "-_root.up - _root.forward * .2f", "_root.up", "attentive priestess arms hang beside her robe"),
         ("excessive-work-bow", "TownServiceActivityRig.cs", "-6f - terrainLean", "-35f - terrainLean", "work posture does not stack an extreme torso and neck bow"),
-        ("ignore-palm-offset", "TownServiceActivityRig.cs", "target -= palmOffset;", "target -= palmOffset * 0f;", "priestess arms retain their anatomical sides without crossing"),
+        ("ignore-palm-offset", "TownServiceActivityRig.cs", "target -= palmOffset;", "target -= palmOffset * 0f;", "unavailable donation covers the bowl with one hand"),
         ("curl-contact-markers", "TownServiceActivityRig.cs", ' && !t.name.Contains("Tip")', "", "contact markers are not articulated finger joints"),
         ("returning-author-snap", "TownServiceActivityHandover.cs", "_age = 0f;", "_age = Duration;", "returning authority keeps displayed hands at first frame"),
         ("unpaired-sequences", "RemoteTownPerformance.cs", "if (!TownActivityCodec.Matches(in activity, in face)", "if (false", "mismatched sequence cannot partially advance pair"),
