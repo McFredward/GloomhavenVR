@@ -1,8 +1,10 @@
 # State — where the project stands
 
-**Updated 2026-09-27: feature/immersive-town-services, version 1.1.0 hardware candidate.**
+**Updated 2026-09-28: feature/immersive-town-services, version 1.1.0 hardware candidate.**
 The feature includes released 1.0.8 / ModBuild 556 and the subsequent 1.0.9
-version bookkeeping on `dev`. ModBuild 577 follows build-576 headset evidence:
+corrections on `dev`. ModBuild 578 follows build-577 headset evidence and adds
+the native creator and actor-bar corrections from dev ModBuild 557. ModBuild 577
+followed build-576 headset evidence:
 merchant confirmation lifetime, enchantress laser and aura geometry, priestess
 transition anatomy and physical town cloth contact. ModBuild 576 established
 native town unlock and first-map tutorial gates, merchant cassette depth and
@@ -12,7 +14,7 @@ voices, shared merchant confirmation presentation, a visible temple donation
 target, cloth contact, cabinet detail and varied idle motion.
 Headset verification of the resulting presentation remains open. Historical NPC
 design: [research/TOWN-SERVICES-552.md](research/TOWN-SERVICES-552.md).
-Current evidence and implementation limits: [TOWN-577.md](TOWN-577.md).
+Current evidence and implementation limits: [TOWN-578.md](TOWN-578.md).
 The feature remains isolated from `dev`, and NPC work belongs on this branch.
 It also incorporates the later `dev` ModBuild 557 actor-bar and character-creator
 corrections ([BARS-CREATOR-557.md](BARS-CREATOR-557.md)).
@@ -29,6 +31,15 @@ change per build) → this file (where things stand and what is owed) → the bu
 ---
 
 ## 1. Position
+
+- **NPC feature / 1.1.0 / ModBuild 578 (hardware candidate):** the offered
+  enchantment card itself stops the laser while only original enhancement
+  areas respond to selection. Its pulsing aura retains full side bounds.
+  The priestess's prayer-to-neutral arm motion and the merchant's resting
+  hand contact were retested against the imported skins and rendered at
+  intermediate frames. Dev ModBuild 557 contributes native character-creator
+  fit and figure-proportional overhead bars with working wall visibility.
+  Evidence and headset limits are in [TOWN-578.md](TOWN-578.md).
 
 - **Integrated dev / 1.0.9 / ModBuild 557:** character creation joins the
   original character-screen fit; overhead bars honor the wall-visibility

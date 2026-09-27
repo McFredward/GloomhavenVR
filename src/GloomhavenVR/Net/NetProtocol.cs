@@ -541,7 +541,16 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 577;
+    public const ushort ModBuild = 578;
+
+    // ModBuild 578 — eighteenth NPC hardware follow-up on the feature branch.
+    // The offered enchantment card remains a physical laser hit without
+    // reintroducing card-wide trigger pickup; only its original enhancement
+    // areas accept selection. The native aura capture retains its full animated
+    // width. Imported-rig motion keeps the priestess's prayer-to-neutral arms
+    // anatomical and seats the merchant's resting hands against his belly.
+    // Integrates dev ModBuild 557 character-creator and overhead-bar fixes.
+    // No wire layout or town bundle change; headset presentation awaits review.
 
     // ModBuild 577 — seventeenth NPC hardware follow-up on the feature branch
     // (FULL INSTALL). Merchant offers retain their native decision for the full
