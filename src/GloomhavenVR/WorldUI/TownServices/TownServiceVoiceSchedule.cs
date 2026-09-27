@@ -8,7 +8,7 @@ internal sealed class TownServiceVoiceSchedule
     internal sealed class Entry
     {
         internal bool Visiting, Pending, Ended;
-        internal float VisitAge, Deadline, NextAllowed, Started, ObservedAge;
+        internal float VisitAge, Deadline, NextAllowed, NextAmbientAllowed, Started, ObservedAge;
         internal ushort Cue, PendingCue, LastRequestedCue, LastVariantCue;
         internal uint Generation, ObservedGeneration;
         internal int Author;
@@ -40,12 +40,23 @@ internal sealed class TownServiceVoiceSchedule
         if (!visible || !Finite(clock) || !Finite(cast)) { e.WorkSeeded = false; return; }
         float delta = clock - e.LastWorkClock;
         bool continuous = e.WorkSeeded && delta >= -.001f && delta <= .25f;
-        if (continuous && attention < .2f)
+        // Ambient prayer and casting are atmospheric, not a response to the
+        // visitor. The old cast edge occurred on every spell cycle and filled
+        // a long map visit with repeated lines. Keep the native activity and
+        // visual spell frequency unchanged, but allow at most one incidental
+        // utterance per several minutes on the elected speech author.
+        if (continuous && attention < .2f && now >= e.NextAmbientAllowed)
         {
             if (service == 2 && Crossed(e.LastWorkClock, clock, 64f, 6f))
+            {
                 QueueVariant(service, 31, 0, now + 3f, clock);
+                e.NextAmbientAllowed = now + 180f;
+            }
             if (service == 3 && e.LastCast <= .16f && cast > .16f)
+            {
                 QueueVariant(service, 41, 0, now + 3f, clock);
+                e.NextAmbientAllowed = now + 150f;
+            }
         }
         // Native visit and card acceptance own the enchantress invitation. Sampling
         // an attention crossing here missed visits that began before Work seeded.

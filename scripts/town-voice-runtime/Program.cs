@@ -80,6 +80,22 @@ public static class InteractionProgram
         Check(prayer.At(2).Cue == 0 && !prayer.At(2).Pending,
             "story commitment retires active and queued resident speech");
 
+        var ambientPrayer = new TownServiceVoiceSchedule();
+        ambientPrayer.Work(2, 5.9f, 0f, 0f, true, 0f);
+        ambientPrayer.Work(2, 6.01f, 0f, 0f, true, .11f);
+        ambientPrayer.Sample(2, duration, .11f, false);
+        ambientPrayer.Sample(2, duration, 3.1f, false);
+        ambientPrayer.Work(2, 69.9f, 0f, 0f, true, 64f);
+        ambientPrayer.Work(2, 70.01f, 0f, 0f, true, 64.11f);
+        ambientPrayer.Sample(2, duration, 64.11f, false);
+        Check(ambientPrayer.At(2).Cue == 0 && !ambientPrayer.At(2).Pending,
+            "incidental prayer stays quiet on the next short occupation cycle");
+        ambientPrayer.Work(2, 197.9f, 0f, 0f, true, 192f);
+        ambientPrayer.Work(2, 198.01f, 0f, 0f, true, 192.11f);
+        ambientPrayer.Sample(2, duration, 192.11f, false);
+        Check(ambientPrayer.At(2).Cue >= 31 && ambientPrayer.At(2).Cue <= 35,
+            "incidental prayer returns only after its longer quiet interval");
+
         var cast = new TownServiceVoiceSchedule();
         cast.Work(3, 13f, .1f, 0f, true, 0f);
         cast.Work(3, 13.03f, .3f, 0f, true, .03f); cast.Sample(3, duration, .03f, false);
@@ -88,10 +104,24 @@ public static class InteractionProgram
         cast.Sample(3, duration, 2.1f, false);
         cast.Work(3, 61f, .1f, 0f, true, 50f);
         cast.Work(3, 61.03f, .3f, 0f, true, 50.03f); cast.Sample(3, duration, 50.03f, false);
-        Check(cast.At(3).Cue >= 41 && cast.At(3).Cue <= 45 && cast.At(3).Cue != firstCast, "second shared experiment varies the spoken phrase without an immediate repeat");
+        Check(cast.At(3).Cue == 0 && !cast.At(3).Pending,
+            "repeated visual spells do not repeat incidental speech every cast");
+        cast.Work(3, 157f, .1f, 0f, true, 151f);
+        cast.Work(3, 157.03f, .3f, 0f, true, 151.03f); cast.Sample(3, duration, 151.03f, false);
+        Check(cast.At(3).Cue >= 41 && cast.At(3).Cue <= 45 && cast.At(3).Cue != firstCast,
+            "later shared experiment varies the spoken phrase without an immediate repeat");
         cast.Work(3, 70f, .3f, 0f, true, 60f);
         cast.Work(3, 70.03f, .3f, 0f, true, 60.03f);
         Check(!cast.At(3).Pending, "discontinuous seek does not replay historical cast");
+
+        var unavailableStock = new TownServiceVoiceSchedule();
+        unavailableStock.Request(1, 66, 0f); unavailableStock.Sample(1, duration, 0f, false);
+        Check(unavailableStock.At(1).Cue >= 66 && unavailableStock.At(1).Cue <= 70,
+            "unaffordable stock uses one of five context-specific merchant replies");
+        unavailableStock.Sample(1, duration, 2.1f, false);
+        unavailableStock.Request(1, 71, 3.2f); unavailableStock.Sample(1, duration, 3.2f, false);
+        Check(unavailableStock.At(1).Cue >= 71 && unavailableStock.At(1).Cue <= 75,
+            "sold-out stock uses its separate merchant reply family");
 
         var invitation = new TownServiceVoiceSchedule();
         invitation.Visit(3, true, 0f, 0f);
@@ -162,7 +192,10 @@ public static class InteractionProgram
             "enchantress-cast-ember", "enchantress-cast-echo", "enchantress-cast-spark", "enchantress-cast-veil", "enchantress-cast-rune",
             "enchantress-enhance", "enchantress-enhance-2", "enchantress-enhance-3", "enchantress-enhance-4", "enchantress-enhance-5",
             "enchantress-invite", "enchantress-invite-2", "enchantress-invite-3", "enchantress-invite-4", "enchantress-invite-5",
-            "priestess-unavailable", "priestess-unavailable-2", "priestess-unavailable-3", "priestess-unavailable-4", "priestess-unavailable-5" };
+            "priestess-unavailable", "priestess-unavailable-2", "priestess-unavailable-3", "priestess-unavailable-4", "priestess-unavailable-5",
+            "enchantress-inspect", "enchantress-inspect-2", "enchantress-inspect-3", "enchantress-inspect-4", "enchantress-inspect-5",
+            "merchant-unaffordable", "merchant-unaffordable-2", "merchant-unaffordable-3", "merchant-unaffordable-4", "merchant-unaffordable-5",
+            "merchant-sold-out", "merchant-sold-out-2", "merchant-sold-out-3", "merchant-sold-out-4", "merchant-sold-out-5" };
         for (ushort cue = 1; cue <= names.Length; cue++)
         {
             string json = File.ReadAllText(Path.Combine(assets, names[cue - 1] + ".json"));

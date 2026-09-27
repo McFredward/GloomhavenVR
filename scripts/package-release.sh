@@ -42,9 +42,11 @@ CONFIG=Release
 # request before building or replacing anything in dist/.
 BUNDLE="$ROOT/prebuilt/gloomhavenvr.bundle"
 TOWN_BUNDLE="$ROOT/prebuilt/ghvr-town.bundle"
+TOWN_VOICES_BUNDLE="$ROOT/prebuilt/ghvr-town-voices.bundle"
 if [[ "${GHVR_USE_LOCAL_BUNDLE:-0}" == "1" ]]; then
     BUNDLE="$ROOT/unity/GloomhavenVR.Assets/Build/Bundles/gloomhavenvr.bundle"
     TOWN_BUNDLE="$ROOT/unity/GloomhavenVR.Assets/Build/TownServices/ghvr-town.bundle"
+    TOWN_VOICES_BUNDLE="$ROOT/unity/GloomhavenVR.Assets/Build/TownServices/ghvr-town-voices.bundle"
     if [[ ! -f "$BUNDLE" ]]; then
         echo "error: GHVR_USE_LOCAL_BUNDLE=1 requested a missing local bundle: $BUNDLE" >&2
         exit 1
@@ -52,6 +54,10 @@ if [[ "${GHVR_USE_LOCAL_BUNDLE:-0}" == "1" ]]; then
 fi
 if [[ ! -f "$TOWN_BUNDLE" ]]; then
     echo "error: missing town-service asset bundle: $TOWN_BUNDLE" >&2
+    exit 1
+fi
+if [[ ! -f "$TOWN_VOICES_BUNDLE" ]]; then
+    echo "error: missing town-service voice bundle: $TOWN_VOICES_BUNDLE" >&2
     exit 1
 fi
 echo "Asset bundle source: $BUNDLE"
@@ -150,6 +156,7 @@ else
 fi
 
 cp "$TOWN_BUNDLE" "$PLUGDIR/ghvr-town.bundle"
+cp "$TOWN_VOICES_BUNDLE" "$PLUGDIR/ghvr-town-voices.bundle"
 
 # ---- INSTALL.txt / INSTALL-DEUTSCH.txt -------------------------------------------------------
 # ONE source of truth per language for the text a drag-and-drop user reads:
@@ -204,6 +211,7 @@ LISTING="$(unzip -l "$ZIP")"
 for path in \
     "BepInEx/plugins/GloomhavenVR/GloomhavenVR.dll" \
     "BepInEx/plugins/GloomhavenVR/ghvr-town.bundle" \
+    "BepInEx/plugins/GloomhavenVR/ghvr-town-voices.bundle" \
     "BepInEx/plugins/GloomhavenVR/LICENSE.txt" \
     "BepInEx/plugins/GloomhavenVR/Licenses/SOURCES.txt" \
     "BepInEx/plugins/GloomhavenVR/RuntimeDeps/Unity.XR.OpenXR.dll" \

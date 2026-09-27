@@ -39,7 +39,16 @@ variants += [
  ('stale-late-join','TownServiceVoice.cs',
   'if (_playingService == service)\n            {\n                if (_source != null) _source.Stop();',
   'if (_playingService == 255)\n            {\n                if (_source != null) _source.Stop();',
-  'late join skips expired shared cue and stops stale resident audio')]
+  'late join skips expired shared cue and stops stale resident audio'),
+ ('ambient-prayer-spam','TownServiceVoiceSchedule.cs',
+  'e.NextAmbientAllowed = now + 180f;', 'e.NextAmbientAllowed = now;',
+  'incidental prayer stays quiet on the next short occupation cycle'),
+ ('ambient-cast-spam','TownServiceVoiceSchedule.cs',
+  'e.NextAmbientAllowed = now + 150f;', 'e.NextAmbientAllowed = now;',
+  'repeated visual spells do not repeat incidental speech every cast'),
+ ('merchant-reply-service','TownServiceVoice.cs',
+  '|| cue >= 66 && cue <= 75 ? (byte)1', '? (byte)1',
+  'curve rejected cue=66')]
 if args.no_negative_controls: variants=variants[:1]
 manifest={'result':str(out/'results.txt'),'cases':[]}
 unity=Path('/home/claw/unity-2021.3.5/Editor/Unity'); managed=repo/'ressources/GH_Data/Managed'

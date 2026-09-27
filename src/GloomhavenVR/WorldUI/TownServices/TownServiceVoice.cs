@@ -12,7 +12,8 @@ namespace GloomhavenVR.WorldUI;
 internal enum TownVoiceReaction : byte
 {
     MerchantOffer, MerchantBuy, MerchantSell, PriestessDonate, EnchantressEnhance,
-    PriestessUnavailable, EnchantressOffer, EnchantressInspect
+    PriestessUnavailable, EnchantressOffer, EnchantressInspect,
+    MerchantUnaffordable, MerchantSoldOut
 }
 
 /// <summary>Original resident lines, baked offline with one consistent voice per
@@ -45,7 +46,11 @@ internal static class TownServiceVoice
         "priestess-unavailable", "priestess-unavailable-2", "priestess-unavailable-3",
         "priestess-unavailable-4", "priestess-unavailable-5",
         "enchantress-inspect", "enchantress-inspect-2", "enchantress-inspect-3",
-        "enchantress-inspect-4", "enchantress-inspect-5"
+        "enchantress-inspect-4", "enchantress-inspect-5",
+        "merchant-unaffordable", "merchant-unaffordable-2", "merchant-unaffordable-3",
+        "merchant-unaffordable-4", "merchant-unaffordable-5",
+        "merchant-sold-out", "merchant-sold-out-2", "merchant-sold-out-3",
+        "merchant-sold-out-4", "merchant-sold-out-5"
     };
     private static readonly AudioClip?[] Clips = new AudioClip?[Names.Length];
     private static readonly TownServiceVoiceCurve?[] Curves = new TownServiceVoiceCurve?[Names.Length];
@@ -65,7 +70,8 @@ internal static class TownServiceVoice
     private static float _volume;
     private static int _frame = -1;
 
-    internal static byte ServiceForCue(ushort cue) => cue >= 1 && cue <= 5 || cue >= 16 && cue <= 30 ? (byte)1
+    internal static byte ServiceForCue(ushort cue) => cue >= 1 && cue <= 5 || cue >= 16 && cue <= 30
+        || cue >= 66 && cue <= 75 ? (byte)1
         : cue >= 6 && cue <= 10 || cue >= 31 && cue <= 40 || cue >= 56 && cue <= 60 ? (byte)2
         : cue >= 11 && cue <= 15 || cue >= 41 && cue <= 55 || cue >= 61 && cue <= 65 ? (byte)3 : (byte)0;
 
@@ -133,6 +139,8 @@ internal static class TownServiceVoice
             TownVoiceReaction.MerchantOffer when service == 1 => 16,
             TownVoiceReaction.MerchantBuy when service == 1 => 21,
             TownVoiceReaction.MerchantSell when service == 1 => 26,
+            TownVoiceReaction.MerchantUnaffordable when service == 1 => 66,
+            TownVoiceReaction.MerchantSoldOut when service == 1 => 71,
             TownVoiceReaction.PriestessDonate when service == 2 => 36,
             TownVoiceReaction.EnchantressEnhance when service == 3 => 46,
             TownVoiceReaction.EnchantressOffer when service == 3 => 51,

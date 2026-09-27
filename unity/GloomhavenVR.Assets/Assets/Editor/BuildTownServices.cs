@@ -740,13 +740,14 @@ namespace GloomhavenVR
                         .Where(p => p.EndsWith(".wav", StringComparison.OrdinalIgnoreCase)
                             || p.EndsWith(".json", StringComparison.OrdinalIgnoreCase))
                     : Enumerable.Empty<string>();
-                var assets = Directory.GetFiles(Root + "/Prefabs", "*.prefab", SearchOption.AllDirectories)
+                var artAssets = Directory.GetFiles(Root + "/Prefabs", "*.prefab", SearchOption.AllDirectories)
                     .Concat(Directory.GetFiles(Root + "/Shaders", "*.shader"))
-                    .Concat(audio)
                     .Concat(new[] { Root + "/town-facial-rig-contract.json" })
                     .Select(p => p.Replace('\\', '/')).OrderBy(p => p).ToArray();
-                if (assets.Length == 0) throw new InvalidOperationException("No town assets to bundle");
-                foreach (string path in assets.Where(p => p.StartsWith(audioRoot + "/", StringComparison.Ordinal)))
+                var voiceAssets = audio.Select(p => p.Replace('\\', '/')).OrderBy(p => p).ToArray();
+                if (artAssets.Length == 0 || voiceAssets.Length == 0)
+                    throw new InvalidOperationException("Town art and voice bundles both require assets");
+                foreach (string path in voiceAssets)
                 {
                     if (path.EndsWith(".wav", StringComparison.OrdinalIgnoreCase)
                         && AssetDatabase.LoadAssetAtPath<AudioClip>(path) == null)
@@ -755,7 +756,7 @@ namespace GloomhavenVR
                         && AssetDatabase.LoadAssetAtPath<TextAsset>(path) == null)
                         throw new InvalidOperationException("Town voice metadata failed to import as TextAsset: " + path);
                 }
-                foreach (string path in assets.Where(p => p.EndsWith(".prefab", StringComparison.Ordinal)))
+                foreach (string path in artAssets.Where(p => p.EndsWith(".prefab", StringComparison.Ordinal)))
                 {
                     GameObject prefab = AssetDatabase.LoadAssetAtPath<GameObject>(path);
                     if (prefab == null) throw new InvalidOperationException("Town prefab failed to load: " + path);
@@ -776,13 +777,21 @@ namespace GloomhavenVR
                     }
                 }
                 Directory.CreateDirectory("Build/TownServices");
+                // The art and voice banks are independently loadable UnityFS files.
+                // Keeping each ordinary-Git blob below GitHub's file limit preserves
+                // full texture and voice detail as this feature grows.
                 var result = BuildPipeline.BuildAssetBundles("Build/TownServices", new[] {
-                    new AssetBundleBuild { assetBundleName = "ghvr-town.bundle", assetNames = assets }
+                    new AssetBundleBuild { assetBundleName = "ghvr-town.bundle", assetNames = artAssets },
+                    new AssetBundleBuild { assetBundleName = "ghvr-town-voices.bundle", assetNames = voiceAssets }
                 }, BuildAssetBundleOptions.None, BuildTarget.StandaloneWindows64);
                 if (result == null) throw new InvalidOperationException("Town bundle build failed");
                 var size = new FileInfo("Build/TownServices/ghvr-town.bundle").Length;
-                if (size >= 100L * 1024 * 1024) throw new InvalidOperationException("Town bundle exceeds 100 MiB: " + size);
-                Debug.Log("TOWN_BUNDLE_OK bytes=" + size + " assets=" + assets.Length + " TypeTrees=enabled target=StandaloneWindows64");
+                var voiceSize = new FileInfo("Build/TownServices/ghvr-town-voices.bundle").Length;
+                if (size >= 100L * 1024 * 1024 || voiceSize >= 100L * 1024 * 1024)
+                    throw new InvalidOperationException("Town bundle part exceeds 100 MiB: art=" + size + " voices=" + voiceSize);
+                Debug.Log("TOWN_BUNDLE_OK bytes=" + size + " assets=" + artAssets.Length
+                    + " voiceBytes=" + voiceSize + " voiceAssets=" + voiceAssets.Length
+                    + " TypeTrees=enabled target=StandaloneWindows64");
             }
             catch (Exception exception)
             {

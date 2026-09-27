@@ -219,6 +219,18 @@ public static partial class MirrorProgram
         enchantmentOffer.Service = 1;
         Check(!TownServiceVoiceRelayCodec.TryRead(enchantmentOffer, out _),
             "an enchantress card-offer cue cannot impersonate the merchant");
+        foreach (var reply in new[] { GloomhavenVR.WorldUI.TownVoiceReaction.MerchantUnaffordable,
+                     GloomhavenVR.WorldUI.TownVoiceReaction.MerchantSoldOut })
+        {
+            TownServiceFrame stockReply = TownServiceVoiceRelayCodec.Create(1, 910, 5,
+                reply, Time.unscaledTime, 0f);
+            Check(TownServiceVoiceRelayCodec.TryRead(stockReply, out var decoded)
+                && decoded == reply,
+                "stock refusal remains a synchronized merchant voice reaction");
+            stockReply.Service = 3;
+            Check(!TownServiceVoiceRelayCodec.TryRead(stockReply, out _),
+                "merchant stock refusal cannot impersonate the enchantress");
+        }
         TownServiceMirror.Shutdown();
     }
     private static IEnumerator PrivateClothLane()

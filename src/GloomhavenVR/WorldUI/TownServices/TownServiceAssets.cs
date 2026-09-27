@@ -12,6 +12,7 @@ namespace GloomhavenVR.WorldUI;
 internal static class TownServiceAssets
 {
     internal const string BundleName = "ghvr-town.bundle";
+    internal const string VoiceBundleName = "ghvr-town-voices.bundle";
 
     private enum LoadPhase { Idle, Bundle, Assets, Ready, Missing }
     private sealed class PendingAsset
@@ -22,7 +23,10 @@ internal static class TownServiceAssets
 
     private static LoadPhase _phase;
     private static AssetBundle? _bundle;
+    private static AssetBundle? _voiceBundle;
     private static AssetBundleCreateRequest? _bundleRequest;
+    private static AssetBundleCreateRequest? _voiceBundleRequest;
+    private static bool _voiceFileMissing;
     private static readonly List<PendingAsset> Pending = new();
     private static readonly Dictionary<string, UnityEngine.Object> Loaded = new(StringComparer.OrdinalIgnoreCase);
     private static float _started;
@@ -41,18 +45,28 @@ internal static class TownServiceAssets
         try
         {
             foreach (AssetBundle bundle in AssetBundle.GetAllLoadedAssetBundles())
-                if (bundle != null && String.Equals(bundle.name, BundleName, StringComparison.OrdinalIgnoreCase))
-                {
-                    _bundle = bundle;
-                    BeginAssetLoads();
-                    return;
-                }
+            {
+                if (bundle == null) continue;
+                if (String.Equals(bundle.name, BundleName, StringComparison.OrdinalIgnoreCase)) _bundle = bundle;
+                if (String.Equals(bundle.name, VoiceBundleName, StringComparison.OrdinalIgnoreCase)) _voiceBundle = bundle;
+            }
 
-            string path = Path.Combine(Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location)!, BundleName);
-            if (!File.Exists(path)) { _phase = LoadPhase.Missing; return; }
-            _bundleRequest = AssetBundle.LoadFromFileAsync(path);
-            _phase = LoadPhase.Bundle;
-            VRLog.Debug("TownServices", "Town art async preload started.");
+            string directory = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location)!;
+            string artPath = Path.Combine(directory, BundleName);
+            if (_bundle == null && !File.Exists(artPath)) { _phase = LoadPhase.Missing; return; }
+            if (_bundle == null) _bundleRequest = AssetBundle.LoadFromFileAsync(artPath);
+            string voicePath = Path.Combine(directory, VoiceBundleName);
+            _voiceFileMissing = _voiceBundle == null && !File.Exists(voicePath);
+            if (_voiceBundle == null && File.Exists(voicePath))
+                _voiceBundleRequest = AssetBundle.LoadFromFileAsync(voicePath);
+            else if (_voiceFileMissing)
+                VRLog.Warn("TownServices", "Town voice bundle is missing; resident art remains available without speech.");
+            if (_bundleRequest == null && _voiceBundleRequest == null) BeginAssetLoads();
+            else
+            {
+                _phase = LoadPhase.Bundle;
+                VRLog.Debug("TownServices", "Town art and voice async preload started.");
+            }
         }
         catch (Exception e)
         {
@@ -71,16 +85,21 @@ internal static class TownServiceAssets
         }
         if (_phase == LoadPhase.Bundle)
         {
-            if (_bundleRequest == null || !_bundleRequest.isDone) return;
+            if (_bundleRequest != null && !_bundleRequest.isDone
+                || _voiceBundleRequest != null && !_voiceBundleRequest.isDone) return;
             // Reading assetBundle before isDone blocks the Unity main thread.
-            _bundle = _bundleRequest.assetBundle;
+            if (_bundleRequest != null) _bundle = _bundleRequest.assetBundle;
+            if (_voiceBundleRequest != null) _voiceBundle = _voiceBundleRequest.assetBundle;
             _bundleRequest = null;
+            _voiceBundleRequest = null;
             if (_bundle == null)
             {
                 _phase = LoadPhase.Missing;
                 VRLog.Warn("TownServices", "Town art bundle could not be loaded; native service windows remain available.");
                 return;
             }
+            if (_voiceBundle == null && !_voiceFileMissing)
+                VRLog.Warn("TownServices", "Town voice bundle could not be loaded; resident art remains available without speech.");
             BeginAssetLoads();
         }
         if (_phase != LoadPhase.Assets) return;
@@ -105,14 +124,18 @@ internal static class TownServiceAssets
         {
             // Resolve by full bundle path, not Object.name: shader names are their
             // render-pipeline identifiers, not their filenames.
-            foreach (string path in _bundle!.GetAllAssetNames())
+            foreach (AssetBundle? bundle in new[] { _bundle, _voiceBundle })
             {
-                if (!path.StartsWith("assets/bundle/townservices/", StringComparison.OrdinalIgnoreCase)
-                    || !(path.EndsWith(".prefab", StringComparison.OrdinalIgnoreCase)
-                        || path.EndsWith(".shader", StringComparison.OrdinalIgnoreCase)
-                        || path.EndsWith(".wav", StringComparison.OrdinalIgnoreCase)
-                        || path.EndsWith(".json", StringComparison.OrdinalIgnoreCase))) continue;
-                Pending.Add(new PendingAsset { Path = path, Request = _bundle.LoadAssetAsync(path) });
+                if (bundle == null) continue;
+                foreach (string path in bundle.GetAllAssetNames())
+                {
+                    if (!path.StartsWith("assets/bundle/townservices/", StringComparison.OrdinalIgnoreCase)
+                        || !(path.EndsWith(".prefab", StringComparison.OrdinalIgnoreCase)
+                            || path.EndsWith(".shader", StringComparison.OrdinalIgnoreCase)
+                            || path.EndsWith(".wav", StringComparison.OrdinalIgnoreCase)
+                            || path.EndsWith(".json", StringComparison.OrdinalIgnoreCase))) continue;
+                    Pending.Add(new PendingAsset { Path = path, Request = bundle.LoadAssetAsync(path) });
+                }
             }
             _phase = Pending.Count > 0 ? LoadPhase.Assets : LoadPhase.Missing;
             if (_phase == LoadPhase.Missing)

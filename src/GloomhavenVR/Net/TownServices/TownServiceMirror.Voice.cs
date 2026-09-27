@@ -43,7 +43,9 @@ internal static class TownServiceVoiceRelayCodec
         return frame.Service switch
         {
             1 => reaction == TownVoiceReaction.MerchantOffer || reaction == TownVoiceReaction.MerchantBuy
-                 || reaction == TownVoiceReaction.MerchantSell,
+                 || reaction == TownVoiceReaction.MerchantSell
+                 || reaction == TownVoiceReaction.MerchantUnaffordable
+                 || reaction == TownVoiceReaction.MerchantSoldOut,
             2 => reaction == TownVoiceReaction.PriestessDonate
                  || reaction == TownVoiceReaction.PriestessUnavailable,
             3 => reaction == TownVoiceReaction.EnchantressEnhance

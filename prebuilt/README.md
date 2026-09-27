@@ -4,9 +4,10 @@
 real 3D visuals without a Unity install. Built for **StandaloneWindows64**,
 Unity **2021.3.5f1**, TypeTrees ON.
 
-`ghvr-town.bundle` separately contains the three town NPCs, body and facial rigs,
+`ghvr-town.bundle` contains the three town NPCs, body and facial rigs,
 separate articulated eyes, animation, station furniture, work tray and their shaders.
-Both archives ship beside the plugin DLL.
+`ghvr-town-voices.bundle` contains their voice clips and speech curves. All three
+archives ship beside the plugin DLL.
 Keeping town art separate avoids the GitHub file-size ceiling and leaves the reviewed
 existing board/hand/environment bank unchanged. Its name deliberately does not contain
 `gloomhavenvr`: historical main-bank discovery uses that substring.
@@ -59,7 +60,7 @@ The board prefab/material are assembled from the FBX by
 `Assets/Editor/BuildBoard.cs` (`-executeMethod GloomhavenVR.BoardBuilder.Build`).
 
 Pack the already-authored town sources with `scripts/build-bundles.sh town`, then promote
-`Build/TownServices/ghvr-town.bundle` here. This does not regenerate meshes or alter the main
+both `Build/TownServices/ghvr-town.bundle` and `ghvr-town-voices.bundle` here. This does not regenerate meshes or alter the main
 bank. Use the same exact Unity editor; on a headless Linux host wrap the command with
 `xvfb-run -a` so shader/import workers have a display. Full art reproduction and validation:
 [town runtime assets](../.planning/research/TOWN-SERVICES-RUNTIME-ASSETS.md).

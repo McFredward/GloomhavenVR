@@ -6,7 +6,7 @@
 #
 #   bundles  (default) build Assets/Bundle/** -> unity/GloomhavenVR.Assets/Build/Bundles/gloomhavenvr.bundle
 #   harvest  dummy Windows Mono player build + collect XR RuntimeDeps/natives -> libs/
-#   town     pack authored town assets -> Build/TownServices/ghvr-town.bundle
+#   town     pack authored town art and voices -> Build/TownServices/ghvr-town*.bundle
 #
 # Typical UNITY_PATH values:
 #   Windows (Git Bash): "/c/Program Files/Unity/Hub/Editor/2021.3.5f1/Editor/Unity.exe"
@@ -59,7 +59,7 @@ echo "[build-bundles] Unity exited with $STATUS"
 if [[ "$CMD" == "bundles" ]]; then
     echo "[build-bundles] output: $PROJECT_PATH/Build/Bundles/gloomhavenvr.bundle"
 elif [[ "$CMD" == "town" ]]; then
-    echo "[build-bundles] output: $PROJECT_PATH/Build/TownServices/ghvr-town.bundle"
+    echo "[build-bundles] output: $PROJECT_PATH/Build/TownServices/ghvr-town.bundle and ghvr-town-voices.bundle"
 else
     echo "[build-bundles] output: $REPO_ROOT/libs/RuntimeDeps + $REPO_ROOT/libs/Natives"
 fi
