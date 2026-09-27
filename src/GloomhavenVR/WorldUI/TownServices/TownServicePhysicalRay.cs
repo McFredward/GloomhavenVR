@@ -22,8 +22,12 @@ internal static class TownServicePhysicalRay
         ||(hand==_leftStamp&&_leftFrame==Time.frameCount)||(hand==_rightStamp&&_rightFrame==Time.frameCount);
     private static bool PhysicalTarget(IGrabbable candidate) => candidate is TownServiceToken { IsPhysical: true }
         or TownServiceMerchantDrawer
-        || candidate is VRCard card && TownServiceEnhancementHandoff.CanReclaim(card)
         || candidate is ItemsPile.ItemChip chip && TownServiceMerchantHandoff.CanReclaim(chip);
+    // The parked enhancement card must still shield unrelated windows behind it.
+    // Occlusion is a visibility rule; making it a laser pickup was the accidental
+    // coupling that reclaimed the card when the player missed an ability area.
+    private static bool OccludingTarget(IGrabbable candidate) => PhysicalTarget(candidate)
+        || candidate is VRCard card && TownServiceEnhancementHandoff.CanReclaim(card);
 
     internal static float OccludingDistance(Vector3 origin,Vector3 direction,float maxDistance)
     {
@@ -32,7 +36,7 @@ internal static class TownServicePhysicalRay
         for(int i=0;i<entries.Count;i++)
         {
             IGrabbable candidate=entries[i].Target;
-            if (!PhysicalTarget(candidate)) continue;
+            if (!OccludingTarget(candidate)) continue;
             if(!candidate.CanGrab||!VRInteractables.IsUsablePickShape(entries[i].Collider))continue;
             if(entries[i].Collider.Raycast(ray,out RaycastHit hit,maxDistance)&&hit.distance<nearest)nearest=hit.distance;
         }

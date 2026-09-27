@@ -34,6 +34,8 @@ def sources(root):
     mask = path.with_name("TownServiceNativeEnhancementCardMask.cs")
     bound = {path.name: source, pose.name: pose.read_text(), feedback.name: feedback.read_text(),
              mask.name: mask.read_text()}
+    poke = (root / "src/GloomhavenVR/Hands/Interact/PokeInteractor.cs").read_text()
+    bound["PokeInteractor.cs"] = poke
     card = (root / "src/GloomhavenVR/Cards/VRCard.cs").read_text()
     start = card.index("    public override bool CanGrab =>")
     gate = card[start:card.index(";", start) + 1]
@@ -116,8 +118,20 @@ def mutations():
          "_nativeFrame.localScale = Vector3.one;", "_nativeFrame.localScale = _frameScale;",
          "world-space full-card frame occupies the card rather than a squeezed vertical strip and cannot steal native clicks"),
         ("native-frame-resquash", "TownServiceNativeEnhancementCardMask.cs",
-         "if (_masked) AlignNativeFrame();", "if (!_masked) AlignNativeFrame();",
+         "private void LateUpdate()\n    {\n        if (_masked) AlignNativeEffects();\n    }",
+         "private void LateUpdate()\n    {\n        if (!_masked) AlignNativeEffects();\n    }",
          "native flat animation cannot resquash the physical frame before render"),
+        ("aura-render-squeeze", "TownServiceNativeEnhancementCardMask.cs",
+         "scale.x *= compensation;", "scale.x *= 1f;",
+         "actual submitted enchantress aura ink is round around the physical card, not a narrow native effect"),
+        ("aura-input-occlusion", "TownServiceNativeEnhancementCardMask.cs",
+         "_effectRaycast.Add(graphic.raycastTarget);\n                graphic.raycastTarget = false;",
+         "_effectRaycast.Add(graphic.raycastTarget);\n                graphic.raycastTarget = true;",
+         "original aura cannot intercept a grip-held fingertip or laser press on the native enhancement area"),
+        ("physical-grip-gate", "PokeInteractor.cs",
+         "private bool PressAllowed => _hand.GripPressed && _hand.Grabber.Held == null;",
+         "private bool PressAllowed => true;",
+         "physical fingertip without grip cannot select the native ability area"),
     ]
 
 

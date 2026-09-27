@@ -1,10 +1,12 @@
 using System;
 using GloomhavenVR.Cards;
 using GloomhavenVR.Hands;
+using GloomhavenVR.Hands.Interact;
 using GloomhavenVR.Rig;
 using GloomhavenVR.WorldUI;
 using GloomhavenVR.WorldUI.MapRoom;
 using UnityEngine;
+using UnityEngine.EventSystems;
 using UnityEngine.UI;
 
 public static class InteractionProgram
@@ -16,6 +18,7 @@ public static class InteractionProgram
         count = 0;
         OfferFeedback();
         NativeFrame();
+        NativePhysicalPoke();
         FirstVisitCue();
         Approach();
         WalkAway();
@@ -27,13 +30,35 @@ public static class InteractionProgram
 
     private static void NativeFrame()
     {
-        var root = new GameObject("CardHilight", typeof(RectTransform), typeof(UIEnhancementCardHighlighter));
+        var root = new GameObject("CardHilight", typeof(RectTransform), typeof(Canvas),
+            typeof(GraphicRaycaster), typeof(UIEnhancementCardHighlighter));
+        root.GetComponent<Canvas>().renderMode = RenderMode.ScreenSpaceOverlay;
+        ((RectTransform)root.transform).sizeDelta = new Vector2(325.1f, 449.5f);
+        var aura = new GameObject("Aura", typeof(RectTransform));
+        aura.transform.SetParent(root.transform, false);
+        ((RectTransform)aura.transform).sizeDelta = new Vector2(500f, 500f);
+        var types = new GameObject("Types", typeof(RectTransform));
+        types.transform.SetParent(aura.transform, false);
+        var buy = new GameObject("Buy", typeof(RectTransform), typeof(Image));
+        buy.transform.SetParent(types.transform, false);
+        foreach (RectTransform stretch in new[] { (RectTransform)types.transform, (RectTransform)buy.transform })
+        { stretch.anchorMin = Vector2.zero; stretch.anchorMax = Vector2.one; stretch.sizeDelta = Vector2.zero; }
+        var auraRect = (RectTransform)aura.transform;
+        auraRect.localScale = new Vector3(.36f, 1.42f, 1f);
+        var auraImage = buy.GetComponent<Image>();
+        auraImage.raycastTarget = true;
         var nativeFrame = new GameObject("GUI_LevelUp_Frame", typeof(RectTransform), typeof(Image));
         nativeFrame.transform.SetParent(root.transform, false);
         var rect = (RectTransform)nativeFrame.transform;
         rect.sizeDelta = new Vector2(100f, 100f);
         rect.localScale = new Vector3(.02f, 1f, 1f); // captured squeezed flat animation
         rect.GetComponent<Image>().raycastTarget = true;
+        var area = new GameObject("Native enhancement area", typeof(RectTransform), typeof(Image), typeof(Button),
+            typeof(UIEnhancementButtonHighlight));
+        area.transform.SetParent(root.transform, false);
+        var areaImage = area.GetComponent<Image>();
+        areaImage.raycastTarget = true;
+        ((RectTransform)area.transform).sizeDelta = new Vector2(150f, 80f);
         var card = new GameObject("Native print", typeof(RectTransform), typeof(AbilityCardUI), typeof(Image));
         card.transform.SetParent(root.transform, false);
         var mask = card.AddComponent<TownServiceNativeEnhancementCardMask>();
@@ -41,15 +66,117 @@ public static class InteractionProgram
         Check(rect.sizeDelta == Vector2.zero && Mathf.Abs(rect.localScale.x - 1f) < .001f
             && !rect.GetComponent<Image>().raycastTarget,
             "world-space full-card frame occupies the card rather than a squeezed vertical strip and cannot steal native clicks");
+        Check(!auraImage.raycastTarget && areaImage.raycastTarget,
+            "original aura cannot intercept a grip-held fingertip or laser press on the native enhancement area");
+        var events = new GameObject("EventSystem", typeof(EventSystem));
+        int nativeClicks = 0;
+        area.GetComponent<Button>().onClick.AddListener(() => nativeClicks++);
+        Canvas.ForceUpdateCanvases();
+        var pointer = new PointerEventData(events.GetComponent<EventSystem>())
+        { position = RectTransformUtility.WorldToScreenPoint(null, area.transform.position), button = PointerEventData.InputButton.Left };
+        bool areaHit = areaImage.Raycast(pointer.position, null);
+        Check(areaHit && areaImage.raycastTarget && !auraImage.raycastTarget,
+            "grip-held fingertip projection reaches the original native ability button while aura pixels do not claim input");
+        ExecuteEvents.Execute(area, pointer, ExecuteEvents.pointerClickHandler);
+        Check(nativeClicks == 1, "physical area press follows the original native button callback exactly once");
+        Check(SquareInWorld((RectTransform)buy.transform),
+            "actual submitted enchantress aura ink is round around the physical card, not a narrow native effect");
         rect.localScale = new Vector3(.02f, 1f, 1f); // native animation rewrites X after the initial mask
+        auraRect.localScale = new Vector3(.13f, 1.52f, 1f); // native effects can animate later than Ritual.Tick
         mask.SendMessage("LateUpdate");
         Check(Mathf.Abs(rect.localScale.x - 1f) < .001f,
             "native flat animation cannot resquash the physical frame before render");
+        mask.SendMessage("OnBeforeCanvasRender");
+        Check(SquareInWorld((RectTransform)buy.transform),
+            "render boundary corrects the native aura after late animation instead of checking only local transform state");
         mask.Restore();
         Check(rect.sizeDelta == new Vector2(100f, 100f) && Mathf.Abs(rect.localScale.x - .02f) < .001f
             && rect.GetComponent<Image>().raycastTarget,
             "native frame transform and input return to their original flat state");
+        Check(auraImage.raycastTarget && areaImage.raycastTarget
+            && Mathf.Abs(auraRect.localScale.x - .36f) < .001f
+            && Mathf.Abs(auraRect.localScale.y - 1.42f) < .001f,
+            "original aura input and transform return to native ownership when the card leaves the palm");
+        UnityEngine.Object.DestroyImmediate(events);
         UnityEngine.Object.DestroyImmediate(root);
+    }
+
+    private static bool SquareInWorld(RectTransform rect)
+    {
+        var corners = new Vector3[4];
+        rect.GetWorldCorners(corners);
+        float width = Vector3.Distance(corners[0], corners[3]);
+        float height = Vector3.Distance(corners[0], corners[1]);
+        return width > .001f && Mathf.Abs(width / height - 1f) < .01f;
+    }
+
+    private static void NativePhysicalPoke()
+    {
+        var cameraGo = new GameObject("Head camera", typeof(Camera));
+        var camera = cameraGo.GetComponent<Camera>();
+        cameraGo.transform.position = new Vector3(0f, 0f, -2f);
+        cameraGo.transform.rotation = Quaternion.identity;
+        camera.nearClipPlane = .01f;
+        camera.farClipPlane = 5f;
+        var events = new GameObject("EventSystem", typeof(EventSystem));
+        var root = new GameObject("Native palm card", typeof(RectTransform), typeof(Canvas),
+            typeof(GraphicRaycaster), typeof(UIEnhancementCardHighlighter));
+        var canvas = root.GetComponent<Canvas>();
+        canvas.renderMode = RenderMode.WorldSpace;
+        canvas.worldCamera = camera;
+        ((RectTransform)root.transform).sizeDelta = new Vector2(.4f, .5f);
+        var aura = new GameObject("Aura", typeof(RectTransform), typeof(Image));
+        aura.transform.SetParent(root.transform, false);
+        ((RectTransform)aura.transform).sizeDelta = new Vector2(.25f, .25f);
+        aura.GetComponent<Image>().raycastTarget = true;
+        var area = new GameObject("Original ability area", typeof(RectTransform), typeof(Image),
+            typeof(Button), typeof(UIEnhancementButtonHighlight));
+        area.transform.SetParent(root.transform, false);
+        ((RectTransform)area.transform).sizeDelta = new Vector2(.18f, .1f);
+        area.GetComponent<Image>().raycastTarget = true;
+        var card = new GameObject("Native print", typeof(RectTransform), typeof(AbilityCardUI));
+        card.transform.SetParent(root.transform, false);
+        var mask = card.AddComponent<TownServiceNativeEnhancementCardMask>();
+        mask.Mask();
+        var tip = new GameObject("Tracked index tip");
+        var hand = new VRHand();
+        hand.Rig.IndexTip = tip.transform;
+        int nativeClicks = 0;
+        area.GetComponent<Button>().onClick.AddListener(() => nativeClicks++);
+        var poke = new PokeInteractor(hand);
+        UguiPokeSurfaces.Surfaces.Add(canvas);
+        try
+        {
+            Canvas.ForceUpdateCanvases();
+            tip.transform.position = new Vector3(0f, 0f, -.03f);
+            poke.Tick();
+            tip.transform.position = new Vector3(0f, 0f, -.003f);
+            poke.Tick();
+            tip.transform.position = new Vector3(0f, 0f, .014f);
+            poke.Tick();
+            Check(nativeClicks == 0, "physical fingertip without grip cannot select the native ability area");
+            tip.transform.position = new Vector3(0f, 0f, -.03f);
+            hand.GripPressed = true;
+            poke.Tick();
+            tip.transform.position = new Vector3(0f, 0f, -.003f);
+            poke.Tick();
+            tip.transform.position = new Vector3(0f, 0f, .014f);
+            poke.Tick();
+            Check(nativeClicks == 1,
+                "production fingertip plane/depth/grip route clicks the original ability Button once through the masked aura");
+            poke.Tick();
+            Check(nativeClicks == 1, "one continuous grip press cannot duplicate the native area callback");
+        }
+        finally
+        {
+            UguiPokeSurfaces.Surfaces.Clear();
+            poke.CancelAll();
+            mask.Restore();
+            UnityEngine.Object.DestroyImmediate(tip);
+            UnityEngine.Object.DestroyImmediate(root);
+            UnityEngine.Object.DestroyImmediate(events);
+            UnityEngine.Object.DestroyImmediate(cameraGo);
+        }
     }
 
     private static void FirstVisitCue()

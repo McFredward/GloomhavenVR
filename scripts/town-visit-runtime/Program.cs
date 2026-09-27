@@ -56,15 +56,13 @@ public static class InteractionProgram
         var canvas = go.GetComponent<Canvas>();
         var hand = new VRHand();
         hand.Ray.SolidOccluderDistance = .5f;
-        Check(BoundUiArbitration.Pick(hand, canvas, 1f, false) == null,
+        Check(BoundUiArbitration.Pick(hand, canvas, 1f) == null,
             "ordinary solid object still blocks native UI behind it");
-        Check(ReferenceEquals(BoundUiArbitration.Pick(hand, canvas, 1f, true), canvas),
-            "the exact offered-card area survives its own physical-card occluder");
         hand.Ray.SolidOccluderDistance = float.PositiveInfinity;
-        Check(BoundUiArbitration.Pick(hand, canvas, 1f, false, true, .5f) == null,
+        Check(BoundUiArbitration.Pick(hand, canvas, 1f, true, .5f) == null,
             "nearest ordinary physics hit still blocks native UI behind it");
-        Check(ReferenceEquals(BoundUiArbitration.Pick(hand, canvas, 1f, true, true, .5f), canvas),
-            "the exact offered-card area survives its own nearest physics hit");
+        Check(ReferenceEquals(BoundUiArbitration.Pick(hand, canvas, 1f), canvas),
+            "unoccluded native card area remains reachable by laser");
         Object.DestroyImmediate(go);
     }
     private static void OfferingPickup()
@@ -79,15 +77,20 @@ public static class InteractionProgram
             VRInteractables.Grabbables.Add(new VRInteractables.Entry{Target=card,Collider=collider});Physics.SyncTransforms();
             try
             {
-                Check(TownServicePhysicalRay.TryPick(hand,out var target,out _,out _) && ReferenceEquals(target,card),
-                    mage?"offered mage card is physically taken by the same trigger ray route":"offered merchant card is physically taken by the same trigger ray route");
+                if (mage)
+                    Check(!float.IsPositiveInfinity(TownServicePhysicalRay.OccludingDistance(hand.Origin,hand.Direction,20f*scale)),
+                        "offered enchantment card shields windows behind it without laser pickup");
+                bool picked=TownServicePhysicalRay.TryPick(hand,out var target,out _,out _);
+                Check(mage?!picked:picked&&ReferenceEquals(target,card),
+                    mage?"offered enchantment card cannot be reclaimed with the laser":"offered merchant card is physically taken by the same trigger ray route");
                 card.Owned=false;
                 Check(!TownServicePhysicalRay.TryPick(hand,out _,out _,out _),"foreign offering never bypasses native ownership");
                 card.Owned=true;hand.RayUgui.HasHit=true;hand.RayUgui.HitDistance=.01f*scale;hand.TriggerDown=true;
                 TownServicePhysicalRay.Tick(hand);
                 Check(hand.Grabber.Held==null,"nearer visible native UI keeps its own trigger");
                 hand.RayUgui.HasHit=false;TownServicePhysicalRay.Tick(hand);
-                Check(ReferenceEquals(hand.Grabber.Held,card)&&card.Grabbed,"pickup retains physical offered identity in the hand");
+                Check(mage?hand.Grabber.Held==null:ReferenceEquals(hand.Grabber.Held,card)&&card.Grabbed,
+                    mage?"offered enchantment card remains in palm after laser trigger":"pickup retains physical offered identity in the hand");
             }
             finally {VRInteractables.Grabbables.Clear();Object.DestroyImmediate(go);}
         }

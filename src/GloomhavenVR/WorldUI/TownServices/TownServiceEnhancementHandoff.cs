@@ -122,9 +122,9 @@ internal sealed class TownServiceEnhancementHandoff : IDisposable
     internal static bool CanReclaim(VRCard card) => _current != null && ReferenceEquals(_current.Card, card) && _current.ReclaimReady
         && MapRoomHand.TryOwnedTownCard(card, out _, out _);
 
-    /// <summary>The offered card is still physically reclaimable, but a laser aimed at one
-    /// of the game's actual enhancement-area buttons belongs to that button. Do not grant
-    /// this priority to the rest of the card or to any unrelated world-space canvas.</summary>
+    /// <summary>The offered card is reclaimable by hand, never by laser. A laser on an
+    /// original enhancement-area button belongs to that button; this narrow check also
+    /// prevents the same near-hand trigger from grabbing the card behind that button.</summary>
     internal static bool TryNativeArea(Canvas canvas, GameObject hit, out VRCard? offered)
     {
         offered = null;

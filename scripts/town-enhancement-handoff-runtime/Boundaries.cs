@@ -45,7 +45,7 @@ namespace GloomhavenVR.Core
 {
     public static class Loc { public static string Mod(string key) => key; }
     public static class VRLayers { public static void Apply(GameObject root) { } }
-    public static class VRLog { public static bool WantsDebug => false; public static void Debug(string a, string b) { } public static void Warn(string a, string b) { } }
+    public static class VRLog { public static bool WantsDebug => false; public static void Debug(string a, string b) { } public static void Warn(string a, string b) { } public static void Info(string a, string b) { } public static void Note(string a, string b) { } public static void Error(string a, string b) { } }
 }
 namespace GloomhavenVR.WorldUI
 {
@@ -60,7 +60,8 @@ namespace GloomhavenVR.WorldUI
 namespace GloomhavenVR.Hands
 {
     public enum HapticPreset { HoverTick, ClickPulse }
-    public class VRHand { public string Side="Right"; public float WorldScale=1f; public bool HasPose = true; public Holder Grabber; public int HoverTicks, ClickPulses; public VRHand(){Grabber=new Holder(this);} public void SendHaptic(HapticPreset preset) { if (preset == HapticPreset.HoverTick) HoverTicks++; else ClickPulses++; } }
+    public class VRHand { public string Side="Right"; public float WorldScale=1f; public bool HasPose = true, GripPressed; public Holder Grabber; public HandRig Rig = new(); public int HoverTicks, ClickPulses; public VRHand(){Grabber=new Holder(this);} public void SendHaptic(HapticPreset preset) { if (preset == HapticPreset.HoverTick) HoverTicks++; else ClickPulses++; } }
+    public sealed class HandRig { public Transform IndexTip = null!; }
     public partial class Holder {
         public object? Held; private bool _enabled=true; private VRHand _hand; private string _grabLabel="fixture";
         public Holder(VRHand hand){_hand=hand;} private void LogRefusal(string text){}
@@ -137,8 +138,12 @@ namespace GloomhavenVR.WorldUI
     public static class WorldUIConfig
     {
         public static readonly ToggleValue ImmersiveTownServices = new(); public static ToggleValue? MapRoomHand = new();
+        public static ToggleValue? DecisionPokeDeliberate = new() { Value = false };
+        public static FloatValue? PokePressDepthMm = new() { Value = 12f };
         public class ToggleValue { public bool Value = true; }
+        public class FloatValue { public float Value; }
     }
+    public static class WindowMaterialise { public static bool IsPointerBlind(Canvas canvas) => false; }
     public static class StoryComposite { public static bool PointOfNoReturn; }
     public sealed class TownServiceStation { public Transform Root = null!; }
     public static class TownServicePopulation

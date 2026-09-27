@@ -55,7 +55,7 @@ internal static class BoundUiArbitration {
  """ + epsilon.group() + """
  private readonly struct PhysicalHit { internal readonly bool HasHit; internal readonly float HitDistance;
   internal PhysicalHit(bool hit, float distance) { HasHit=hit; HitDistance=distance; } }
- internal static Canvas? Pick(VRHand _hand, Canvas? best, float bestDist, bool offeredCardInFront,
+ internal static Canvas? Pick(VRHand _hand, Canvas? best, float bestDist,
      bool physicalHit=false, float physicalDistance=float.PositiveInfinity) {
  float scale = _hand.WorldScale;
  var pick = new PhysicalHit(physicalHit, physicalDistance);
@@ -68,14 +68,13 @@ internal static class BoundUiArbitration {
 """
     variants = [
         ("production", None, None, None, ""),
-        ("missing-mage-pickup", "TownServicePhysicalRay.cs", "candidate is VRCard card && TownServiceEnhancementHandoff.CanReclaim(card)", "false", "offered mage card is physically taken by the same trigger ray route"),
+        ("mage-laser-reclaim", "TownServicePhysicalRay.cs", "        or TownServiceMerchantDrawer\n", "        or TownServiceMerchantDrawer\n        || candidate is VRCard card && TownServiceEnhancementHandoff.CanReclaim(card)\n", "offered enchantment card cannot be reclaimed with the laser"),
+        ("mage-occluder-loss", "TownServicePhysicalRay.cs", "|| candidate is VRCard card && TownServiceEnhancementHandoff.CanReclaim(card);", "|| false;", "offered enchantment card shields windows behind it without laser pickup"),
         ("missing-sell-pickup", "TownServicePhysicalRay.cs", "candidate is ItemsPile.ItemChip chip && TownServiceMerchantHandoff.CanReclaim(chip)", "false", "offered merchant card is physically taken by the same trigger ray route"),
         ("phantom-resident", "TownServiceVisitTarget.cs", "=> float.PositiveInfinity;", "=> 2.45f;", "empty space beside resident never clamps the laser"),
         ("phantom-canvas", "VisibleUiSurface.cs", "if (ContainsOwn(canvas, screen, camera)) return true;", "if (canvas != null) return true;", "transparent character frame does not clamp beam"),
         ("hidden-alpha", "VisibleUiSurface.cs", "graphic.color.a * graphic.canvasRenderer.GetAlpha() * graphic.canvasRenderer.GetInheritedAlpha() < .01f", "false", "transparent native hit image does not invent a surface"),
         ("decorative-ignored", "VisibleUiSurface.cs", "if (graphic.Raycast(screen, camera)) return true;", "if (graphic.raycastTarget && graphic.Raycast(screen, camera)) return true;", "visible decorative paper still occludes background UI"),
-        ("native-area-occluded", "EarlyPointer.cs", "if (best != null && !offeredCardInFront\n            && _hand.Ray.SolidOccluderDistance", "if (best != null\n            && _hand.Ray.SolidOccluderDistance", "the exact offered-card area survives its own physical-card occluder"),
-        ("native-area-physics-occluded", "EarlyPointer.cs", "if (best != null && !offeredCardInFront\n            && pick.HasHit", "if (best != null\n            && pick.HasHit", "the exact offered-card area survives its own nearest physics hit"),
     ]
     manifest = {"result": str(out / "results.txt"), "cases": []}
     unity = Path(os.environ.get("UNITY_EDITOR", "/home/claw/unity-2021.3.5/Editor/Unity"))

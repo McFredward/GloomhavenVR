@@ -191,27 +191,14 @@ internal sealed class RayUguiDriver
         if (sawDead)
             UguiPokeSurfaces.Prune();
 
-        // The original enchantment-area buttons sit directly over the offered physical
-        // card. Build 573 let that card's reclaim collider win the same laser trigger,
-        // so selecting an ability area picked the card back up instead. Ask the real
-        // GraphicRaycaster first, then prefer ONLY a live native area on this exact
-        // offered card. Every other patch of the card remains physically reclaimable.
-        VRCard? nativeAreaCard = null;
-        bool offeredCardInFront = best != null
-            && _pointer.TryRaycast(best, ToScreen(best, bestPoint), out RaycastResult candidateHit)
-            && WorldUI.TownServiceEnhancementHandoff.TryNativeArea(best, candidateHit.gameObject, out nativeAreaCard)
-            && WorldUI.TownServicePhysicalRay.TryPick(_hand, out IGrabbable? physical, out _, out float physicalDistance)
-            && ReferenceEquals(physical, nativeAreaCard)
-            && physicalDistance <= bestDist + OcclusionEpsilonMeters * scale;
-
         // Physics occlusion: something solid in front of the panel blocks the laser.
-        if (best != null && !offeredCardInFront
+        if (best != null
             && pick.HasHit && pick.HitDistance < bestDist - OcclusionEpsilonMeters * scale)
             best = null;
 
         // A physical town object in front owns the gesture before native UI receives hover
         // or pointer-down. Its own artwork is presentation-only and never a second target.
-        if (best != null && !offeredCardInFront
+        if (best != null
             && WorldUI.TownServicePhysicalRay.TryPick(_hand, out _, out _, out float objectDistance)
             && objectDistance <= bestDist + OcclusionEpsilonMeters * scale)
             best = null;
@@ -228,7 +215,7 @@ internal sealed class RayUguiDriver
         // surfaces (initiative track, control dock, slot-card faces — coplanar with or proud
         // of the board colliders) out of their own occluder's shadow.
         Canvas? solidOccluded = null;
-        if (best != null && !offeredCardInFront
+        if (best != null
             && _hand.Ray.SolidOccluderDistance < bestDist - OcclusionEpsilonMeters * scale)
         {
             // [Optimize] LeanLogStrings: skip the per-frame string build when the note is throttled.
