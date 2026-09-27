@@ -61,12 +61,12 @@ xvfb-run -a /home/claw/unity-2021.3.5/Editor/Unity -batchmode -nographics \
 4. Inspect renders and import evidence, then copy only the generated
    `Assets/Bundle/TownServices` directory and its metadata into the companion Unity project.
    The builder does not rebuild the production bundle. `GloomhavenVR.TownServicesBuilder.BuildBundle`
-   explicitly builds only this folder into `Build/TownServices/ghvr-town.bundle` for
-   StandaloneWindows64 with TypeTrees enabled. While `prebuilt/ghvr-town.bundle` is
-   committed as an ordinary Git blob, GitHub's 100 MiB per-file push limit applies
-   to that artifact. This is a transport constraint, not an art-quality target;
-   retain the authored high-resolution sources and use a different delivery
-   strategy if the required runtime detail no longer fits.
+   explicitly builds only this folder into separate art and speech banks,
+   `Build/TownServices/ghvr-town.bundle` and `ghvr-town-voices.bundle`, for
+   StandaloneWindows64 with TypeTrees enabled. Both are committed as ordinary Git
+   blobs. GitHub's 100 MiB per-file push limit applies to each artifact; this is
+   a transport constraint, not an art-quality target. Keep full-quality authored
+   sources and add bundle parts when runtime detail needs more space.
    The separate name avoids the legacy loaders' broad `Contains("gloomhavenvr")` selection.
    The integrator excludes TownServices from the original bundle's asset collection.
 

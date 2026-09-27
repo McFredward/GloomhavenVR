@@ -125,6 +125,7 @@ BepInEx/plugins/GloomhavenVR/RuntimeDeps/*.dll
 BepInEx/plugins/GloomhavenVR/RuntimeDeps/versions.json
 BepInEx/plugins/GloomhavenVR/gloomhavenvr.bundle
 BepInEx/plugins/GloomhavenVR/ghvr-town.bundle
+BepInEx/plugins/GloomhavenVR/ghvr-town-voices.bundle
 BepInEx/plugins/GloomhavenVR/THIRD-PARTY.txt
 BepInEx/plugins/GloomhavenVR/LICENSE.txt
 BepInEx/plugins/GloomhavenVR/Licenses/*.txt
@@ -141,12 +142,13 @@ control boards, card backing, map tables, head avatars, environments and control
 file the mod starts, logs an Alert per subsystem and degrades to procedural placeholders everywhere.
 Both installation and packaging use the committed `prebuilt/gloomhavenvr.bundle` by default.
 The separate `prebuilt/ghvr-town.bundle` contains town NPCs, their rigs, stations and work trays.
-It is required by the installer and packager. An incomplete runtime installation retains the
+`prebuilt/ghvr-town-voices.bundle` contains their speech clips and mouth curves. Both are
+required by the installer and packager. An incomplete runtime installation retains the
 original service windows and reports the missing town assets once per attempted opening.
 An old ignored Unity output must not silently override the reviewed assets. To test a newly
 built local bundle, use `GHVR_USE_LOCAL_BUNDLE=1 bash scripts/package-release.sh` or
 `.\scripts\install.ps1 -UseLocalBundle`; explicit local selection fails if that file is missing.
-After asset validation, copy the new bundle into `prebuilt/` and commit it for the release.
+After asset validation, copy both rebuilt town bundles into `prebuilt/` and commit them for the release.
 If the default committed bundle is missing, the script warns on stderr and ships
 [`packaging/gloomhavenvr.bundle.README.txt`](../packaging/gloomhavenvr.bundle.README.txt) (English
 and German in one file) at the bundle's path, so the player who opens that zip is told what is
