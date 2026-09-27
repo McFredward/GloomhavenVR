@@ -306,9 +306,11 @@ def worn_crank_plate():
 def merchant_forged_lantern_bracket(cx):
     """A forged upper hook and lower saddle that carry the native lantern."""
     # The triangular web has a real negative-space opening. Its rear flange is
-    # seated on the cabinet cheek, and the last eye owns the native lamp hook.
-    outer = [(cx-.397, 1.720), (cx-.560, 1.685), (cx-.397, 1.600)]
-    inner = [(cx-.420, 1.681), (cx-.512, 1.671), (cx-.420, 1.632)]
+    # seated on the sculpted cabinet cheek at X=-1.314; the hook and lower cup
+    # stay at the native lantern's X=-1.51 seat. The former X=-1.336 flange
+    # stopped 22 mm short of the actual imported cheek surface.
+    outer = [(cx-.365, 1.720), (cx-.560, 1.685), (cx-.365, 1.600)]
+    inner = [(cx-.390, 1.681), (cx-.512, 1.671), (cx-.390, 1.632)]
     vertices = [(x,y,z) for z in (.075,.081) for loop in (outer,inner)
                 for x,y in loop]
     faces=[]
@@ -327,14 +329,14 @@ def merchant_forged_lantern_bracket(cx):
     for edge in (outer[:2], (outer[1],outer[2])):
         tube('Lantern worn web edge',[(x,y,.071) for x,y in edge],
              [.0048,.0042],'Brass',9)
-    plate=[(cx-.386,1.585,.10),(cx-.386,1.730,.10),
-           (cx-.386,1.733,.055),(cx-.386,1.584,.055)]
+    plate=[(cx-.362,1.585,.10),(cx-.362,1.730,.10),
+           (cx-.362,1.733,.075),(cx-.362,1.584,.075)]
     inset=[(x-.006,y,z) for x,y,z in plate]
     mesh('Lantern shaped mounting flange',plate+inset,
          [(0,1,2,3),(7,6,5,4)]+[(i,(i+1)%4,(i+1)%4+4,i+4) for i in range(4)],
          'ForgedIron',.001)
     for y in (1.602,1.711):
-        tube('Lantern flush brass rivet',[(cx-.393,y,.077),(cx-.399,y,.077)],
+        tube('Lantern flush brass rivet',[(cx-.369,y,.088),(cx-.375,y,.088)],
              [.0055,.0043],'Brass',10)
     ring('Lantern rolled tip eye',(cx-.550,1.677,.078),.018,.006,'ForgedIron',True)
     tube('Lantern short hanging link',[(cx-.550,1.665,.078),(cx-.556,1.634,.078)],
@@ -344,12 +346,12 @@ def merchant_forged_lantern_bracket(cx):
     # pendulum in MB571's side view. The actual bottom now sits in this forged
     # saddle at Y=1.27 while the original hook still meets the top eye. The
     # rear riser makes the two bearing points one continuous cabinet fixture.
-    tube('Lantern lower saddle arm',[(cx-.394,1.284,.142),
+    tube('Lantern lower saddle arm',[(cx-.398,1.284,.142),
          (cx-.475,1.265,.124),(cx-.560,1.265,.080)],
          [.012,.010,.010],'ForgedIron',12)
     ring('Lantern lower bearing cup',(cx-.560,1.263,.080),.078,.007,
          'ForgedIron')
-    tube('Lantern rear load-bearing riser',[(cx-.397,1.602,.155),
+    tube('Lantern rear load-bearing riser',[(cx-.362,1.602,.155),
          (cx-.492,1.594,.178),(cx-.560,1.485,.184),
          (cx-.560,1.275,.184)], [.008,.008,.007,.007],
          'ForgedIron',10)
@@ -462,55 +464,6 @@ def terrace(name, columns=24, origin=-1.32, curved=True):
         tube('Curved apron moulding',pts,[radius]*33)
 
 
-def merchant_side_cloth():
-    """A touchable crimson travelling banner on the outside left cabinet cheek.
-
-    Station-local, row-major 25x13 mesh for the runtime Cloth solver. Row 0 is
-    clamped to an offset crown rail; columns run Z=.205..460. The side wall is
-    6 cm behind the fabric so real fingertip contacts have room to displace it.
-    The side handle is a separate, rigid fixture in front of the fabric.
-    """
-    vertices, faces = [], []
-    for row in range(25):
-        t = row / 24
-        for col in range(13):
-            u = col / 12
-            x = -1.436 - .0025*math.sin(math.pi*t)*math.sin(math.tau*u)
-            y = 1.590 - .600*t + .002*math.sin(math.pi*t)*math.cos(3*math.pi*u)
-            z = .205 + .255*u + .004*math.sin(math.tau*t)*math.sin(math.pi*u)
-            vertices.append((x,y,z))
-    for row in range(24):
-        for col in range(12):
-            i = row*13+col
-            faces.append((i,i+13,i+14,i+1)) # outward normal is station -X
-    cloth = mesh('ClothRunner_MerchantSide_AltarCloth',vertices,faces,'AltarCloth')
-    for polygon in cloth.data.polygons: polygon.use_smooth = True
-    bpy.context.view_layer.objects.active = cloth
-    modifier = cloth.modifiers.new('Merchant woven cloth thickness','SOLIDIFY')
-    modifier.thickness = .003
-    bpy.ops.object.modifier_apply(modifier=modifier.name)
-    # An actual rod carries the pinned row. Only the fabric deforms on contact.
-    tube('Merchant cloth crown rod', [(-1.449,1.593,.198),(-1.449,1.593,.468)],
-         [.006,.006], 'ForgedIron', 10)
-    for z in (.201,.464):
-        tube('Merchant cloth rod ferrule', [(-1.453,1.593,z),(-1.443,1.593,z)],
-             [.010,.010], 'Brass', 10)
-        tube('Merchant cloth wall standoff', [(-1.356,1.593,z),(-1.449,1.593,z)],
-             [.006,.006], 'ForgedIron', 10)
-    # The sculpt's integral transport-grip silhouette is covered by the moving
-    # fabric. Rebuild it as a rigid, projecting fixture with real screw seats.
-    for y in (1.06,1.31):
-        tube('Merchant side carry eye', [(-1.355,y,.270),(-1.480,y,.270)],
-             [.008,.011], 'ForgedIron', 12)
-        tube('Merchant side cloth grommet',
-             [(-1.444,y+.014*math.cos(i*math.tau/32),
-               .270+.014*math.sin(i*math.tau/32)) for i in range(33)],
-             [.003]*33,'Brass',6)
-    tube('Merchant side leather grip', [(-1.477,1.06,.270),(-1.500,1.10,.270),
-         (-1.500,1.27,.270),(-1.477,1.31,.270)],
-         [.012,.018,.018,.012], 'Leather', 14)
-
-
 def merchant():
     # Approved build-549 concept: a chest-height travelling cabinet BESIDE the actor,
     # with a separate folding ledger stand. Metre-space contract is shared with runtime.
@@ -589,7 +542,6 @@ def merchant():
         tube('Top handle mount',[(x,1.665,.31),(x,1.716,.31)],[.009,.009],'ForgedIron',10)
     tube('Top leather carry bar',[(cx-.10,1.716,.31),(cx+.10,1.716,.31)], [.016,.016],'Leather',14)
     merchant_forged_lantern_bracket(cx)
-    merchant_side_cloth()
     # Small folding writing stand, with dovetail-like board ends and iron X braces.
     for i in range(5):
         # The merchant's coat reaches Z=.368 at table height across the work cycle.
@@ -732,8 +684,7 @@ def export(name, build):
         # prototype, not just its side cheeks. Keep only supports, live-cassette
         # guides, the native lantern's physical hook and the separate ledger.
         retained = ('Cabinet folding trestle', 'Trestle diagonal iron stay',
-                    'Iron foot shoe', 'Lantern ', 'ClothRunner_MerchantSide_',
-                    'Merchant cloth ', 'Merchant side ', 'Cabinet underside plank',
+                    'Iron foot shoe', 'Lantern ', 'Cabinet underside plank',
                     'Ledger ')
         for obj in tuple(parts):
             if not obj.name.startswith(retained):

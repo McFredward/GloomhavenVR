@@ -345,25 +345,35 @@ public static class ValidateTownAssets
         var crank = GloomhavenVR.WorldUI.TownServiceMerchantDrawer.CreateTemplate(null);
         Check(crank.transform.Find("Handle") != null, "Actual cabinet materials support a physical crank factory");
         var sculpt = root.transform.Find("Counter/CarvedCabinetShell");
-        var shellPoints = sculpt.GetComponentsInChildren<MeshFilter>(true)
-            .SelectMany(filter => filter.sharedMesh.vertices.Select(vertex =>
-                root.transform.InverseTransformPoint(filter.transform.TransformPoint(vertex)))).ToArray();
+        var shell = sculpt.GetComponentInChildren<MeshFilter>(true);
+        var shellCollider = shell.gameObject.AddComponent<MeshCollider>();
+        shellCollider.sharedMesh = shell.sharedMesh;
+        float[] socketCentres = { -1.214f, -1.108f, -.999f, -.883f, -.776f, -.672f };
         for (int category = 0; category < 6; category++)
         {
             var seat = GloomhavenVR.WorldUI.MerchantButtonSeat.Seat(category) + Vector3.up * .970f;
+            Check(Mathf.Abs(seat.x - socketCentres[category]) < .003f &&
+                Mathf.Abs(seat.y - .922f) < .003f && Mathf.Abs(seat.z - .118f) < .003f,
+                "Every category wheel is centred on the sculpt's actual socket row");
             var button = GloomhavenVR.WorldUI.TownServiceMerchantDrawer.Authored("MerchantButtonTemplate");
             button.transform.SetParent(root.transform, false); button.transform.localPosition = seat;
             var visible = button.GetComponentsInChildren<MeshFilter>(true)
                 .SelectMany(filter => filter.sharedMesh.vertices.Select(vertex =>
                     root.transform.InverseTransformPoint(filter.transform.TransformPoint(vertex)))).ToArray();
-            var front = shellPoints.Where(point => Math.Abs(point.x - seat.x) < .042f &&
-                Math.Abs(point.y - seat.y) < .045f).Min(point => point.z);
-            Check(visible.Min(point => point.z) >= front - .025f &&
-                visible.Min(point => point.z) <= front - .004f &&
-                visible.Max(point => point.z) >= front + .005f,
-                "Each category wheel projects less than 25 mm and seats its back inside the real sculpted fascia");
+            var origin = root.transform.TransformPoint(new Vector3(seat.x, seat.y, -.5f));
+            Check(shellCollider.Raycast(new Ray(origin, root.transform.forward), out RaycastHit socket, 2f),
+                "Each category wheel has a real sculpted socket behind its runtime centre");
+            float pit = root.transform.InverseTransformPoint(socket.point).z;
+            var rimOrigin = root.transform.TransformPoint(new Vector3(seat.x, .850f, -.5f));
+            Check(shellCollider.Raycast(new Ray(rimOrigin, root.transform.forward), out RaycastHit rimHit, 2f),
+                "Each category wheel has a raised timber rim below its sculpted socket");
+            float rim = root.transform.InverseTransformPoint(rimHit.point).z;
+            Check(Mathf.Abs(visible.Min(point => point.z) - rim) < .008f &&
+                visible.Max(point => point.z) > pit + .012f,
+                "Every wheel face is flush with the timber rim and its body reaches into the deeper socket");
             UnityEngine.Object.DestroyImmediate(button);
         }
+        UnityEngine.Object.DestroyImmediate(shellCollider);
         rack.transform.SetParent(root.transform, false);
         rack.transform.localPosition = new Vector3(-.95f, 1.22f, .035f);
         var colliders = FurnitureColliders(rack.transform.Find("Cassette"));
@@ -465,25 +475,9 @@ public static class ValidateTownAssets
         foreach (var material in renderer.sharedMaterials)
             Check(material != null && material.shader != null && material.HasProperty("_TownVisibility"), npc + " every authored detail uses the lit dissolving town material");
         if (npc != "merchant") return;
-        var cloths = furniture.GetComponentsInChildren<MeshFilter>(true)
-            .Where(filter => filter.gameObject.activeInHierarchy &&
-                filter.name.StartsWith("ClothRunner_", StringComparison.Ordinal)).ToArray();
-        Check(cloths.Length == 1 && cloths[0].name == "ClothRunner_MerchantSide_AltarCloth",
-            "Merchant has exactly one independently deformable side cloth");
-        var cloth = cloths[0];
-        var clothVertices = cloth.sharedMesh.vertices.Select(vertex =>
-            root.transform.InverseTransformPoint(cloth.transform.TransformPoint(vertex))).ToArray();
-        Check(clothVertices.Length >= 25 * 13 * 2, "Merchant side cloth has a solid 25x13 UV grid");
-        for (int row = 0; row < 25; row++) for (int col = 0; col < 13; col++)
-        {
-            float t = row / 24f, u = col / 12f;
-            var expected = new Vector3(
-                -1.436f - .0025f * Mathf.Sin(Mathf.PI * t) * Mathf.Sin(2f * Mathf.PI * u),
-                1.590f - .600f * t + .002f * Mathf.Sin(Mathf.PI * t) * Mathf.Cos(3f * Mathf.PI * u),
-                .205f + .255f * u + .004f * Mathf.Sin(2f * Mathf.PI * t) * Mathf.Sin(Mathf.PI * u));
-            Check(clothVertices.Any(vertex => (vertex - expected).sqrMagnitude <= .008f * .008f),
-                "Imported merchant cloth follows its runtime contact grid");
-        }
+        Check(!furniture.GetComponentsInChildren<MeshFilter>(true)
+                .Any(filter => filter.name.StartsWith("ClothRunner_MerchantSide_", StringComparison.Ordinal)),
+            "Merchant no longer contains the removed side cloth");
         ValidateSlots(root);
         var template = furniture.Find("CounterReturn");
         Check(template != null && !template.gameObject.activeSelf, "Open return template exists without drawing unused stock wings");

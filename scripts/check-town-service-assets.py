@@ -16,6 +16,8 @@ import tempfile
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument('--output', type=Path)
 parser.add_argument('--unity', type=Path, default=Path('/home/claw/unity-2021.3.5/Editor/Unity'))
+parser.add_argument('--category-source', type=Path,
+                    help='Use a separately integrated merchant category source while reviewing an asset worktree')
 args = parser.parse_args()
 root = Path(__file__).resolve().parents[1]
 output = (args.output or root / '.planning/debug/town-service-assets').resolve()
@@ -39,9 +41,10 @@ layout_end = layout_source.index('\n/// <summary>An authored', layout_start)
 # TMP font argument is substituted with object; the crank deliberately contains no UI.
 drawer = (root / 'src/GloomhavenVR/WorldUI/TownServices/TownServiceMerchantDrawer.cs').read_text()
 decor = (root / 'src/GloomhavenVR/WorldUI/TownServices/TownServiceDecor.cs').read_text()
-category_source = (root / 'src/GloomhavenVR/WorldUI/TownServices/TownServiceCatalogCategory.cs').read_text()
-button_line = next(line for line in category_source.splitlines() if '_home = new Vector3(' in line)
-button_expression = button_line.split('_home = ', 1)[1].split(';', 1)[0]
+category_path = (args.category_source or
+                 root / 'src/GloomhavenVR/WorldUI/TownServices/TownServiceCatalogCategory.cs').resolve()
+category_source = category_path.read_text()
+button_expression = category_source.split('_home = ', 1)[1].split(';', 1)[0]
 (assets / 'Editor/MerchantButtonSeat.cs').write_text(
     'using UnityEngine; namespace GloomhavenVR.WorldUI { internal static class MerchantButtonSeat { '
     'internal static Vector3 Seat(int category) => ' + button_expression + '; } }\n')
@@ -94,6 +97,8 @@ validation_sources = [root / path for path in (
     'unity/GloomhavenVR.Assets/Assets/Editor/BuildTownServices.cs')]
 inputs = {str(p.relative_to(root)): hashlib.sha256(p.read_bytes()).hexdigest()
           for p in list(source.rglob('*')) + validation_sources if p.is_file()}
+if category_path != root / 'src/GloomhavenVR/WorldUI/TownServices/TownServiceCatalogCategory.cs':
+    inputs['category-source-override'] = hashlib.sha256(category_path.read_bytes()).hexdigest()
 (project / 'source-hashes.json').write_text(json.dumps(inputs, indent=2) + '\n')
 evidence = project / 'evidence'
 refresh = ['xvfb-run', '-a', str(args.unity), '-batchmode', '-projectPath', str(project),
