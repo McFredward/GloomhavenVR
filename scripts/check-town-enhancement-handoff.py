@@ -55,6 +55,13 @@ def sources(root):
     bound["NativePhysicsOcclusionFixture.cs"] = ("using UnityEngine; using GloomhavenVR.Cards; "
         "namespace GloomhavenVR.WorldUI { internal static class NativePhysicsOcclusionFixture {\n"
         + scratch + physics_scan + "\n} }")
+    visual = (root / "src/GloomhavenVR/Hands/Interact/RayInteractor.cs").read_text()
+    visual_distance = method(visual, "private static float ResolveVisualHitDistance(").replace(
+        "private static float ResolveVisualHitDistance(",
+        "internal static float ResolveVisualHitDistance(", 1)
+    bound["NativeVisualDistanceFixture.cs"] = ("using UnityEngine; "
+        "namespace GloomhavenVR.Hands.Interact { internal static class NativeVisualDistanceFixture {\n"
+        + visual_distance + "\n} }")
     return bound, {name: hashlib.sha256(text.encode()).hexdigest() for name, text in bound.items()}
 
 
@@ -92,7 +99,9 @@ def check_laser_bridge(root):
     ray_state = (root / "src/GloomhavenVR/Hands/Interact/RayInteractor.cs").read_text()
     physical = (root / "src/GloomhavenVR/WorldUI/TownServices/TownServicePhysicalRay.cs").read_text()
     mask = (root / "src/GloomhavenVR/WorldUI/TownServices/TownServiceNativeEnhancementCardMask.cs").read_text()
-    def scoped(ray_text, physical_text, mask_text, state_text):
+    visual = (root / "src/GloomhavenVR/Hands/Interact/RayInteractor.cs").read_text()
+    capture = (root / "src/GloomhavenVR/WorldUI/Sharpness/PanelSupersample.4.Content.cs").read_text()
+    def scoped(ray_text, physical_text, mask_text, state_text, visual_text, capture_text):
         start = ray_text.index("bool nativeAreaThroughOfferedCard = false;")
         end = ray_text.index("// Physics occlusion:", start)
         bridge = ray_text[start:end]
@@ -109,29 +118,38 @@ def check_laser_bridge(root):
             and "board >= panel - epsilon" in arbitration
             and "otherTownObject >= panel - epsilon" in arbitration
             and "otherPhysics >= panel - epsilon" in arbitration
-            and "if (best != null && !nativeAreaThroughOfferedCard" in ray_text[end:]
+            and ray_text[end:].count("if (best != null && !nativeAreaThroughOfferedCard") == 2
             and "if (!ReferenceEquals(entries[i].Target, offered)" in physical_text
             and "|| candidate is VRCard card && TownServiceEnhancementHandoff.CanReclaim(card)" in physical_text
             and "collider.transform.IsChildOf(offered.transform)" in physical_text
             and "Physics.RaycastNonAlloc(origin, direction, PhysicsScanHits, maxDistance, mask)" in physical_text
             and "if (count == PhysicsScanHits.Length) return 0f;" in physical_text
+            and "return Mathf.Min(ordinary, solidDistance);" in visual_text
+            and "SolidOccluderDistance, maxDistance * 0.25f);" in visual_text
+            and "TownServiceNativeEnhancementCardMask.TryAuraCaptureBounds(host," in capture_text
+            and "float expansion = offeredAura ? 3f : MaxContentExpansion;" in capture_text
+            and "_hasCaptureBounds" in mask_text
             and "ignoreReversedGraphics" not in mask_text
             and "BoardOccluderDistance = liveBoard;" in state_text
             and "BoardOccluderDistance = float.PositiveInfinity;" in state_text)
-    if not scoped(ray, physical, mask, ray_state):
+    if not scoped(ray, physical, mask, ray_state, visual, capture):
         raise RuntimeError("Native laser exception is not limited to the live area on its own offered card")
-    for index, (broken_ray, broken_physical, broken_mask, broken_state) in enumerate((
-        (ray.replace("TryNativeArea(best, checkedAreaTop.gameObject", "TryNativeArea(best, null", 1), physical, mask, ray_state),
-        (ray, physical.replace("if (!ReferenceEquals(entries[i].Target, offered)", "if (entries[i].Target == null", 1), mask, ray_state),
-        (ray, physical.replace("if (count == PhysicsScanHits.Length) return 0f;", "if (count < 0) return 0f;", 1), mask, ray_state),
-        (ray.replace("_hand.Ray.BoardOccluderDistance,", "float.PositiveInfinity,", 1), physical, mask, ray_state),
-        (ray.replace("WorldUI.TownServicePhysicalRay.OtherOccludingDistance(offered,", "WorldUI.TownServicePhysicalRay.OccludingDistance(", 1), physical, mask, ray_state),
-        (ray.replace("WorldUI.TownServicePhysicalRay.OtherPhysicsOccludingDistance(offered,", "WorldUI.TownServicePhysicalRay.OccludingDistance(", 1), physical, mask, ray_state),
+    for index, (broken_ray, broken_physical, broken_mask, broken_state, broken_visual, broken_capture) in enumerate((
+        (ray.replace("TryNativeArea(best, checkedAreaTop.gameObject", "TryNativeArea(best, null", 1), physical, mask, ray_state, visual, capture),
+        (ray, physical.replace("if (!ReferenceEquals(entries[i].Target, offered)", "if (entries[i].Target == null", 1), mask, ray_state, visual, capture),
+        (ray, physical.replace("if (count == PhysicsScanHits.Length) return 0f;", "if (count < 0) return 0f;", 1), mask, ray_state, visual, capture),
+        (ray.replace("_hand.Ray.BoardOccluderDistance,", "float.PositiveInfinity,", 1), physical, mask, ray_state, visual, capture),
+        (ray.replace("WorldUI.TownServicePhysicalRay.OtherOccludingDistance(offered,", "WorldUI.TownServicePhysicalRay.OccludingDistance(", 1), physical, mask, ray_state, visual, capture),
+        (ray.replace("WorldUI.TownServicePhysicalRay.OtherPhysicsOccludingDistance(offered,", "WorldUI.TownServicePhysicalRay.OccludingDistance(", 1), physical, mask, ray_state, visual, capture),
         (ray, physical, mask.replace("_highlighterRect = highlighter != null",
-            "if (highlighter != null) highlighter.GetComponentInParent<GraphicRaycaster>().ignoreReversedGraphics = false;\n        _highlighterRect = highlighter != null", 1), ray_state),
-        (ray, physical, mask, ray_state.replace("BoardOccluderDistance = liveBoard;", "BoardOccluderDistance = float.PositiveInfinity;", 1)),
+            "if (highlighter != null) highlighter.GetComponentInParent<GraphicRaycaster>().ignoreReversedGraphics = false;\n        _highlighterRect = highlighter != null", 1), ray_state, visual, capture),
+        (ray, physical, mask, ray_state.replace("BoardOccluderDistance = liveBoard;", "BoardOccluderDistance = float.PositiveInfinity;", 1), visual, capture),
+        (ray, physical, mask, ray_state, visual.replace("SolidOccluderDistance, maxDistance * 0.25f);", "float.PositiveInfinity, maxDistance * 0.25f);", 1), capture),
+        (ray.replace("if (best != null && !nativeAreaThroughOfferedCard", "if (best != null && nativeAreaThroughOfferedCard", 1), physical, mask, ray_state, visual, capture),
+        (ray, physical, mask, ray_state, visual, capture.replace("TownServiceNativeEnhancementCardMask.TryAuraCaptureBounds(host,", "NoAuraBounds(host,", 1)),
+        (ray, physical, mask, ray_state, visual, capture.replace("float expansion = offeredAura ? 3f : MaxContentExpansion;", "float expansion = MaxContentExpansion;", 1)),
     )):
-        if scoped(broken_ray, broken_physical, broken_mask, broken_state):
+        if scoped(broken_ray, broken_physical, broken_mask, broken_state, broken_visual, broken_capture):
             raise RuntimeError(f"Native laser bridge negative control {index} escaped")
 
 
@@ -194,7 +212,18 @@ def mutations():
          "repeated render callbacks do not change a sheared-parent ring diameter"),
         ("aura-group-instead-of-ink", "TownServiceNativeEnhancementCardMask.cs",
          "return ink;", "return branch;",
-         "rendered native aura follows the actual physical card, not the 325x450 highlighter root"),
+         "native aura reserves its full width beyond CardHilight's narrow host for panel capture"),
+        ("aura-capture-shrink", "TownServiceNativeEnhancementCardMask.cs",
+         "mask._captureBounds = mask._hasCaptureBounds\n                    ? Rect.MinMaxRect(",
+         "mask._captureBounds = false\n                    ? Rect.MinMaxRect(",
+         "later smaller pulse cannot collapse the reserved capture frame across the cyan ring"),
+        ("solid-visual-miss", "NativeVisualDistanceFixture.cs",
+         "return Mathf.Min(ordinary, solidDistance);", "return ordinary;",
+         "laser ends at offered physical card even when the game physics ray mask excludes it"),
+        ("stale-ui-through-card", "NativeVisualDistanceFixture.cs",
+         "float ordinary = !float.IsPositiveInfinity(uiDistance) ? uiDistance",
+         "if (!float.IsPositiveInfinity(uiDistance)) return uiDistance;\n        float ordinary = !float.IsPositiveInfinity(uiDistance) ? uiDistance",
+         "native enhancement area can receive the pointer while its visible laser ends on the physical card"),
         ("aura-native-root-size", "TownServiceNativeEnhancementCardMask.cs",
          "bool physicalNow = TownServiceEnhancementHandoff.TryPhysicalCardHeight(out float cardHeight);",
          "bool physicalNow = false; float cardHeight = 0f;",

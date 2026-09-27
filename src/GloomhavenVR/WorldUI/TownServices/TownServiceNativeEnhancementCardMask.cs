@@ -9,6 +9,7 @@ namespace GloomhavenVR.WorldUI;
 /// Native input and selection still belong to UIEnhancementButtonHighlight.</summary>
 internal sealed class TownServiceNativeEnhancementCardMask : MonoBehaviour
 {
+    private static TownServiceNativeEnhancementCardMask? _active;
     private readonly List<Graphic> _art = new();
     private readonly List<bool> _wasEnabled = new();
     private readonly List<Graphic> _frameGraphics = new();
@@ -36,6 +37,48 @@ internal sealed class TownServiceNativeEnhancementCardMask : MonoBehaviour
     private Vector2 _frameSize;
     private Vector2 _framePosition;
     private bool _masked;
+    private Rect _captureBounds;
+    private bool _hasCaptureBounds;
+
+    /// <summary>The native cyan aura animates beyond CardHilight's 325 px host width.
+    /// The native effect can leave the generic drawable-ink census during a
+    /// capture-frame measurement while its ring is otherwise visible. Keep the largest
+    /// measured active-offer footprint until Restore, so supersampling never
+    /// reallocates to the narrow host and cuts off the ring's left/right arcs.</summary>
+    internal static bool TryAuraCaptureBounds(RectTransform host, out Rect bounds)
+    {
+        bounds = default;
+        TownServiceNativeEnhancementCardMask? mask = _active;
+        if (mask == null || !mask._masked || mask._aura == null
+            || !mask.transform.IsChildOf(host)) return false;
+        mask.AlignNativeEffects();
+        RectTransform? ink = mask.ActiveAuraInk();
+        if (ink != null)
+        {
+            ink.GetWorldCorners(mask._auraCorners);
+            Vector3 first = host.InverseTransformPoint(mask._auraCorners[0]);
+            float minX = first.x, maxX = first.x, minY = first.y, maxY = first.y;
+            for (int i = 1; i < 4; i++)
+            {
+                Vector3 point = host.InverseTransformPoint(mask._auraCorners[i]);
+                minX = Mathf.Min(minX, point.x); maxX = Mathf.Max(maxX, point.x);
+                minY = Mathf.Min(minY, point.y); maxY = Mathf.Max(maxY, point.y);
+            }
+            Rect current = Rect.MinMaxRect(minX, minY, maxX, maxY);
+            if (current.width > .01f && current.height > .01f)
+            {
+                mask._captureBounds = mask._hasCaptureBounds
+                    ? Rect.MinMaxRect(Mathf.Min(mask._captureBounds.xMin, current.xMin),
+                        Mathf.Min(mask._captureBounds.yMin, current.yMin),
+                        Mathf.Max(mask._captureBounds.xMax, current.xMax),
+                        Mathf.Max(mask._captureBounds.yMax, current.yMax))
+                    : current;
+                mask._hasCaptureBounds = true;
+            }
+        }
+        bounds = mask._captureBounds;
+        return mask._hasCaptureBounds;
+    }
 
     internal void Mask()
     {
@@ -105,6 +148,7 @@ internal sealed class TownServiceNativeEnhancementCardMask : MonoBehaviour
             graphic.enabled = false;
         }
         _masked = true;
+        _active = this;
         Canvas.willRenderCanvases += OnBeforeCanvasRender;
     }
 
@@ -139,6 +183,8 @@ internal sealed class TownServiceNativeEnhancementCardMask : MonoBehaviour
         for (int i = 0; i < _art.Count; i++)
             if (_art[i] != null) _art[i].enabled = _wasEnabled[i];
         _art.Clear(); _wasEnabled.Clear(); _masked = false;
+        _hasCaptureBounds = false;
+        if (ReferenceEquals(_active, this)) _active = null;
     }
 
     private void AlignNativeEffects()

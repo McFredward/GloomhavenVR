@@ -70,6 +70,9 @@ public static class InteractionProgram
         card.transform.SetParent(root.transform, false);
         var mask = card.AddComponent<TownServiceNativeEnhancementCardMask>();
         mask.Mask();
+        Check(TownServiceNativeEnhancementCardMask.TryAuraCaptureBounds((RectTransform)root.transform,
+                out Rect initialCapture) && initialCapture.width > 325f,
+            "native aura reserves its full width beyond CardHilight's narrow host for panel capture");
         Check(rect.sizeDelta == Vector2.zero && Mathf.Abs(rect.localScale.x - 1f) < .001f
             && !rect.GetComponent<Image>().raycastTarget,
             "world-space full-card frame occupies the card rather than a squeezed vertical strip and cannot steal native clicks");
@@ -101,6 +104,14 @@ public static class InteractionProgram
             && Mathf.Abs(secondPulse - Mathf.Sqrt(500f * 500f * .13f * 1.52f) * 1.08f) < 1f
             && secondPulse < firstPulse,
             "render boundary corrects late native aura animation while retaining its pulse amplitude");
+        Check(TownServiceNativeEnhancementCardMask.TryAuraCaptureBounds((RectTransform)root.transform,
+                out Rect settledCapture) && settledCapture.width >= initialCapture.width - .01f,
+            "later smaller pulse cannot collapse the reserved capture frame across the cyan ring");
+        ink.GetComponent<Image>().enabled = false;
+        Check(TownServiceNativeEnhancementCardMask.TryAuraCaptureBounds((RectTransform)root.transform,
+                out Rect culledCapture) && culledCapture.width >= settledCapture.width - .01f,
+            "transient native graphic absence keeps the offered ring's capture width");
+        ink.GetComponent<Image>().enabled = true;
         mask.SendMessage("OnBeforeCanvasRender");
         Check(Mathf.Abs(Diameter((RectTransform)ink.transform) - secondPulse) < .01f,
             "repeated canvas submissions do not inflate the native aura without a new animation write");
@@ -132,6 +143,8 @@ public static class InteractionProgram
                 "repeated render callbacks do not change a sheared-parent ring diameter");
         }
         mask.Restore();
+        Check(!TownServiceNativeEnhancementCardMask.TryAuraCaptureBounds((RectTransform)root.transform,
+                out _), "capture reservation ends with the physical offer");
         Check(rect.sizeDelta == new Vector2(100f, 100f) && Mathf.Abs(rect.localScale.x - .02f) < .001f
             && rect.GetComponent<Image>().raycastTarget,
             "native frame transform and input return to their original flat state");
@@ -342,6 +355,24 @@ public static class InteractionProgram
     {
         const float panel = 2f, card = 1.90f, epsilon = .005f;
         float none = float.PositiveInfinity;
+        Check(Mathf.Abs(NativeVisualDistanceFixture.ResolveVisualHitDistance(
+                none, none, card, 5f) - card) < .0001f,
+            "laser ends at offered physical card even when the game physics ray mask excludes it");
+        Check(Mathf.Abs(NativeVisualDistanceFixture.ResolveVisualHitDistance(
+                panel, none, card, 5f) - card) < .0001f,
+            "native enhancement area can receive the pointer while its visible laser ends on the physical card");
+        Check(Mathf.Abs(NativeVisualDistanceFixture.ResolveVisualHitDistance(
+                panel + 1f, none, card, 5f) - card) < .0001f,
+            "a fresh or one-frame-old background UI beam cannot extend past a nearer offered card");
+        Check(Mathf.Abs(NativeVisualDistanceFixture.ResolveVisualHitDistance(
+                panel, none, none, 5f) - panel) < .0001f,
+            "ordinary unobstructed UI beam still ends on its original panel");
+        Check(Mathf.Abs(NativeVisualDistanceFixture.ResolveVisualHitDistance(
+                none, 1.5f, card, 5f) - 1.5f) < .0001f,
+            "an unrelated nearer physics surface still stops the beam before the offered card");
+        Check(Mathf.Abs(NativeVisualDistanceFixture.ResolveVisualHitDistance(
+                none, none, none, 5f) - 5f) < .0001f,
+            "open laser remains unchanged away from solid occluders");
         var offered = new GameObject("Exact offered card", typeof(VRCard), typeof(BoxCollider));
         offered.transform.position = new Vector3(0f, 0f, -.1f);
         offered.GetComponent<BoxCollider>().size = new Vector3(.4f, .5f, .02f);
