@@ -364,7 +364,7 @@ public static class InteractionProgram
         inventory.buyTab=Rect("Buy",inventory.transform).gameObject.AddComponent<Tab>();inventory.buyTab.Changed=()=>inventory.Selling=false;
         inventory.sellTab=Rect("Sell",inventory.transform).gameObject.AddComponent<Tab>();inventory.sellTab.Changed=()=>inventory.Selling=true;
         var slot=Rect("NativeSlot",root.transform).gameObject.AddComponent<UIShopItemSlot>();slot.Selectable=slot.gameObject.AddComponent<Button>();inventory.slotPrefab=slot;
-        var confirmation=Rect("Confirmation",root.transform).gameObject.AddComponent<UIItemConfirmationBox>();confirmation.confirmButton=confirmation.gameObject.AddComponent<Button>();Singleton<UIItemConfirmationBox>.Instance=confirmation;
+        var confirmation=Rect("Confirmation",root.transform).gameObject.AddComponent<UIItemConfirmationBox>();confirmation.gameObject.AddComponent<UIWindow>();confirmation.confirmButton=confirmation.gameObject.AddComponent<Button>();Singleton<UIItemConfirmationBox>.Instance=confirmation;
         for(int failAt=1;failAt<=2;failAt++)
         {
             int sibling=inventory.transform.GetSiblingIndex();bool threw=false;
@@ -537,11 +537,12 @@ public static class InteractionProgram
         Check(!TownServiceMerchantTransaction.Commit(inventory,buy,false,()=>true),"native multiplayer lock refused");inventory.itemsCanvasGroup.interactable=true;
         FFSNet.FFSNetwork.IsOnline=true;FFSNet.PlayerRegistry.MyPlayer=new FFSNet.NetworkPlayer{IsParticipant=false};
         Check(!TownServiceMerchantTransaction.Commit(inventory,buy,false,()=>true),"spectator cannot trade");FFSNet.FFSNetwork.IsOnline=false;
-        confirmation.IsActive=true;Check(!TownServiceMerchantTransaction.Commit(inventory,buy,false,()=>true),"unrelated pending confirmation retained");confirmation.IsActive=false;
+        confirmation.IsActive=true;confirmation.GetComponent<UIWindow>().IsOpen=true;
+        Check(!TownServiceMerchantTransaction.Commit(inventory,buy,false,()=>true),"unrelated pending confirmation retained");confirmation.Hide();
         bool current=true;confirmation.BeforeShow=()=>current=false;
         Check(!TownServiceMerchantTransaction.Commit(inventory,buy,false,()=>current),"context race never confirms native callback");
         Check(!confirmation.IsActive && confirmation.Cancels==1,"own stale item prompt cancelled through native lifecycle");
-        Check(inventory.service.Commits==1,"refusals never spend");confirmation.BeforeShow=null;confirmation.IsActive=false;
+        Check(inventory.service.Commits==1,"refusals never spend");confirmation.BeforeShow=null;confirmation.Hide();
         CItem owned=inventory.service.Sell[0];
         Check(TownServiceMerchantTransaction.Commit(inventory,owned,true,()=>true),"owned item exact identity sells through native confirmation");
         Check(inventory.service.Commits==1&&confirmation.IsActive,"sale offering waits for explicit confirmation");

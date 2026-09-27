@@ -91,9 +91,10 @@ public class UIShopItemSlot:MonoBehaviour
 public class UIItemConfirmationBox:MonoBehaviour
 {
     public bool IsActive;public Button confirmButton=null!;public CItem? Item;public Action? BeforeShow;public Action? _onConfirmedCallback;public int Cancels;
-    public void Show(CItem item,Action confirm){BeforeShow?.Invoke();IsActive=true;Item=item;_onConfirmedCallback=confirm;confirmButton.onClick.RemoveAllListeners();confirmButton.onClick.AddListener(()=>{confirm();IsActive=false;});}
+    public void Show(CItem item,Action confirm){BeforeShow?.Invoke();IsActive=true;Item=item;_onConfirmedCallback=confirm;var window=GetComponent<UIWindow>();window.IsOpen=true;window.IsVisible=true;confirmButton.onClick.RemoveAllListeners();confirmButton.onClick.AddListener(()=>{confirm();Hide();});}
     public bool IsConfirmingItem(CItem item)=>ReferenceEquals(Item,item);
-    public void OnCancel(){IsActive=false;Cancels++;}
+    public void Hide(){IsActive=false;var window=GetComponent<UIWindow>();window.IsOpen=false;window.IsVisible=false;}
+    public void OnCancel(){Hide();Cancels++;}
 }
 public class UIEnhancementConfirmationBox:MonoBehaviour { }
 public class UIPartyItemInventoryTooltip:MonoBehaviour

@@ -91,7 +91,7 @@ def mutations():
         ("held-relocation", "TownServiceCatalog.cs", "if (sample.IsMoving) return false", "if (sample.IsMoving && _disposed) return false", "held or returning sample prevents station relocation"),
         ("held-return", "TownServiceToken.cs", "_physical.localPosition = _homePosition;", "_physical.localPosition = Vector3.zero;", "cancel restores the original counter pose"),
         ("context-race", "TownServiceMerchantTransaction.cs", "if (!stillCurrent() || !Eligible(inventory, item, selling)\n            || !created", "if (!Eligible(inventory, item, selling)\n            || !created", "context race never confirms native callback"),
-        ("confirmation-owner", "TownServiceMerchantTransaction.cs", "if (confirmation == null || confirmation.IsActive) return false;", "if (confirmation == null) return false;", "unrelated pending confirmation retained"),
+        ("confirmation-owner", "TownServiceMerchantTransaction.cs", "if (confirmation.IsActive || nativeWindow.IsOpen || nativeWindow.IsVisible) return false;", "if (confirmation == null) return false;", "unrelated pending confirmation retained"),
         ("sell-identity", "TownServiceMerchantTransaction.cs", "return inventory.service.GetItemsToSell(inventory.character).Contains(item)", "return true", "stale owned item is ineligible"),
         ("held-rack", "TownServiceCatalog.cs", "() => !_entries.Exists(entry => entry.Sample.IsMoving\n                    && !TownServiceMerchantHandoff.IsParkedStock(entry.Sample))", "() => true", "held merchandise prevents rack motion"),
         ("parked-rack-disabled", "TownServiceCatalog.cs", "&& !TownServiceMerchantHandoff.IsParkedStock(entry.Sample)", "&& true", "category button remains usable while the merchant holds stock"),
