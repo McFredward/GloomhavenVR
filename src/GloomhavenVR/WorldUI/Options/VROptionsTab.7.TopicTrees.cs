@@ -147,8 +147,10 @@ internal static partial class VROptionsTab
                         // SIZE: size and height are the two questions anyone asks about a bar.
                         new BoardRef("WorldUI", "BarHeightOffset", perBoard: false),
                         // BarZoomMinScale / BarZoomMaxScale stood here. Removed 2026-08-13 with
-                        // their bindings — the band is a constant now (ActorBars.ZoomFollowMin).
+                        // their bindings — the former band is a constant in ActorBars, selected
+                        // by BarFollowFigureScale=Off.
                         new BoardRef("WorldUI", "BarFixedSize", perBoard: false),
+                        new BoardRef("WorldUI", "BarFollowFigureScale", perBoard: false),
                         new BoardRef("WorldUI", "BarsOccluded", perBoard: false),
                     },
                 },

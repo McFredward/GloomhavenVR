@@ -2376,8 +2376,8 @@ internal static partial class Loc
                 + "dich vorbeugst oder zurücktrittst (Test #14: die alte Abstandskompensation ließ die Balken "
                 + "beim Zurücktreten auf bis zu 2.5x anwachsen, was als \"Wachsen\" der Balken wahrgenommen "
                 + "wurde). Aus = altes Verhalten: die Balken wachsen sanft mit dem Kopfabstand, um lesbar zu "
-                + "bleiben — begrenzt durch dasselbe feste Band 0.7-1.5 wie der Tischzoom. Über den ZOOM "
-                + "sagt dieser Schalter nichts; dafür ist BarSizeScale da.",
+                + "bleiben. Das Verhalten beim Tischzoom hat den eigenen Schalter 'Balken mit Figuren "
+                + "skalieren'; die Referenzgröße stellst du über 'Lebensbalken: Größe' ein.",
             ["WorldUI/BarSizeScale"] =
                 "GRÖSSE der LP-/Effekt-Balken über den Miniaturen, als Faktor der Größe, die sie seit jeher "
                 + "haben. Die Einheit hinter dem Faktor sind ECHTE MILLIMETER AM AUGE: 1.0 = CanvasScaleMm x "
@@ -2387,10 +2387,16 @@ internal static partial class Loc
                 + "Welteinheiten sähe auf jeder Zoomstufe anders groß aus. Der Faktor 1.0 ist genau die Größe "
                 + "von vor diesem Regler (beim ausgelieferten Tischzoom); der AUSGELIEFERTE Standard ist "
                 + "nicht 1.0 — er stammt aus einer eingestellten cfg und steht unter diesem Text. "
-                + "Die eingestellte Größe HÄLT auch beim Zoomen: die Balken folgen dem Tischzoom "
-                + "nur innerhalb eines festen Bandes von 0.7-1.5 um deine Größe herum, können also weder "
-                + "wegschrumpfen noch das Brett verschlucken. Live: schon das nächste Bild wird in der neuen "
-                + "Größe gezeichnet. Bereich 0.25-3.",
+                + "Bei der Standardoption 'Balken mit Figuren skalieren' bleibt diese Größe relativ zur "
+                + "Figur durch den gesamten Tischzoom erhalten. Ist sie aus, gilt wieder die frühere "
+                + "Begrenzung auf das 0.7- bis 1.5-Fache der sichtbaren Referenzgröße. Live: schon das "
+                + "nächste Bild wird in der neuen Größe gezeichnet. Bereich 0.25-3.",
+            ["WorldUI/BarFollowFigureScale"] =
+                "Skaliert LP-/Effekt-Balken über den Figuren durch den gesamten Tischzoom im gleichen "
+                + "Verhältnis wie ihre Miniaturen. Aus stellt das frühere Verhalten wieder her: Die "
+                + "Balken folgen dem Zoom nur innerhalb einer Begrenzung auf das 0.7- bis 1.5-Fache "
+                + "ihrer sichtbaren Referenzgröße. 'Lebensbalken: Größe' bestimmt weiterhin die Größe "
+                + "beim Referenzzoom. Wirkt sofort.",
             // "WorldUI/BarZoomMinScale" und "WorldUI/BarZoomMaxScale" standen hier. ENTFERNT mit
             // ihren Reglern (Nutzer-Entscheidung 2026-08-13, siehe ActorBars.ZoomFollowMin).
             ["WorldUI/WristHud"] =
@@ -3379,10 +3385,10 @@ internal static partial class Loc
             // ---- [WorldUI] ----
             ["WorldUI/BarsOccluded"] =
                 "Die LP-/Effektleisten der Figuren werden gegen die Welt tiefengetestet: Wände verdecken sie "
-                + "wie jedes andere Weltobjekt, statt dass die Leiste hindurchscheint. Optikerhaltend — die "
+                + "wie jedes andere Weltobjekt, statt dass die Leiste hindurchscheint. Die "
                 + "Leisten bleiben aktiv und zur Kamera ausgerichtet, sie werden lediglich Pixel für Pixel dort "
-                + "ausgeblendet, wo eine Wand davor steht. Ausschalten für die originalen, stets obenauf "
-                + "gezeichneten Leisten.",
+                + "ausgeblendet, wo eine Wand davor steht. Aus zeigt die Leisten ausdrücklich durch Wände "
+                + "hindurch; die Umstellung wirkt sofort.",
             // [WorldUI] BarsDepthStamp is gone with its binding (see ActorBars.BindConfig): the
             // bars take part in the panel-vs-panel compose again, unconditionally, per the user
             // ruling that perspective must be respected everywhere.

@@ -18,10 +18,10 @@ namespace GloomhavenVR.WorldUI;
 /// (UI-ARCH §3.3). In VR that plane is head-locked garbage. This class adopts every
 /// <c>WorldspacePanelUIController</c> (per-actor panel holding HealthBar/EffectsBar/
 /// ShieldBar/AttackModBar/InfoBar), moves it onto its own world-space host canvas
-/// above the miniature and billboards it to the HMD. Size is measured in REAL MILLIMETRES AT
-/// THE EYE and tuned by [WorldUI] BarSizeScale, following the table zoom inside the fixed
-/// <see cref="ZoomFollowMin"/>–<see cref="ZoomFollowMax"/> band (see <see cref="ResolveZoomFollow"/>);
-/// the legacy distance-growth is opt-in ([WorldUI] BarFixedSize, test #14 item 4).
+/// above the miniature and billboards it to the HMD. The size dial is measured in real
+/// millimetres at the reference zoom; by default the bar follows its figure through the whole
+/// table zoom. [WorldUI] BarFollowFigureScale restores the former 0.7–1.5 apparent-size band
+/// when disabled. The legacy distance-growth is opt-in ([WorldUI] BarFixedSize).
 /// The DATA flow (UpdateHealth/UpdateEffects/ShowDamage/...) is untouched — the game
 /// keeps feeding the very same components.
 ///
@@ -106,8 +106,8 @@ internal static class ActorBars
     private const float ReferenceScaleMultiplier = Defaults.SavedScaleMultiplier;
 
     /// <summary>
-    /// How far the table zoom may carry a bar BELOW / ABOVE the size <c>[WorldUI] BarSizeScale</c>
-    /// asks for. Constants, not dials — this pair used to be <c>[WorldUI] BarZoomMinScale</c> and
+    /// Former apparent-size band, retained verbatim when [WorldUI] BarFollowFigureScale is off.
+    /// Constants, not dials — this pair used to be <c>[WorldUI] BarZoomMinScale</c> and
     /// <c>BarZoomMaxScale</c>, and they are REMOVED (user ruling 2026-08-13: "Mindest und
     /// Maximalgröße der Lebensbalken haben keinen sehbaren einfluss. Es macht irgendwas, aber man
     /// versteht nicht wirklich was - ziemlich unintuitiv").
@@ -122,13 +122,13 @@ internal static class ActorBars
     /// single pixel moved. A dial whose effect is invisible at the setting it ships at is not a
     /// setting, and the standing settings ruling only allows optional content and comfort.</para>
     ///
-    /// <para>WHAT IS KEPT. The GUARANTEE he asked for ("ein minimum und maximum der Größe, damit
-    /// sie sich trotz zoomen nie über die Grenzen hinaus skalieren können") is exactly this band,
-    /// and it stays — unconditionally, on BOTH size paths, at the two values that shipped. At the
+    /// <para>WHAT IS KEPT. The former guarantee is available exactly as shipped when the new
+    /// follow-figure toggle is off. It applies to both fixed-distance and distance-growth paths. At the
     /// widest zoom the mod allows (0.1×…12× of base while [Comfort] FreeMovement is on) the raw
     /// follow runs 0.28…33.7; without the band the bars would be 3.6× too small when the table is
-    /// pushed away and 33× too large when it is pulled in. The band is what keeps them readable at
-    /// every zoom, which is why it is code and not configuration.</para>
+    /// pushed away and 33× too large when it is pulled in. The user now wants the bar-to-figure
+    /// ratio to stay constant at those extremes; that makes the unbounded follow the default.
+    /// The band remains code for the optional legacy presentation.</para>
     /// </summary>
     private const float ZoomFollowMin = 0.7f;
 
@@ -182,30 +182,24 @@ internal static class ActorBars
         public ActorBehaviour? Actor;
 
         // ---- depth-test state ([WorldUI] BarsOccluded gate) ----------------------------------
-        // Health bars are world-space UI: Unity's UI shaders declare `ZTest [unity_GUIZTestMode]`,
-        // which effectively resolves to Always, so bar pixels bleed through walls. The old fix
-        // CORRECTED ModBuild 396 — "effectively resolves to Always" IS WRONG, and the hardware
-        // settled it. Three other files in this mod (OnTopUiGraphics, HandGhost,
-        // WindowMaterialiseDebris) all state the global is LEqual, and the user's 2026-09-03
-        // ghost-hand report is the falsifier: BarsOccluded ships FALSE, so these bars run on the
-        // GLOBAL value — and they were being ERASED by a back-face depth stamp the ghost hand wrote
-        // at renderQueue 3099. A fragment can only be rejected by depth if it is depth-TESTED, so
-        // the global is LEqual, not Always. The per-instance LEqual copy described below is still
-        // correct and still the mechanism for the [WorldUI] BarsOccluded gate; what is wrong is only
-        // this sentence's claim about the DEFAULT. Left in place rather than reworded because the
-        // paragraph is quoted from elsewhere; read this clause as superseding it.
-        // (line-of-sight probe + SetActive hide) TOGGLED the bar and is retired per user mandate.
-        // Instead every Graphic under the adopted host gets a PER-INSTANCE copy of its material
-        // with unity_GUIZTestMode forced to LEqual — the per-material value beats the global, so
-        // bar pixels depth-test against walls while the bar stays enabled and billboarding
-        // (occluded naturally, no toggling). Rescanned on a slow cadence because HealthBar pools
-        // new division-mark Graphics after adopt.
+        // The game's UI materials resolve their global ZTest to LEqual in VR. Previously the
+        // BarsOccluded=false path restored those materials, so both positions of the setting hid
+        // the bar behind opaque walls. Every adopted Graphic now gets a per-instance material:
+        // LEqual when walls should hide it, Always when it should show through. We never deactivate
+        // the bar controller (that would kill native attack/health coroutines). Rescan on a slow
+        // cadence because HealthBar pools new division-mark Graphics after adoption.
 
-        /// <summary>Per-graphic (graphic, original material, our LEqual instance) for restore.</summary>
+        /// <summary>Per-graphic (graphic, original material, our LEqual/Always instance) for restore.</summary>
         public readonly List<(Graphic g, Material orig, Material inst)> DepthMats = new();
 
-        /// <summary>Instance IDs of graphics already given a depth-testing material.</summary>
+        /// <summary>Instance IDs of graphics already given the selected ZTest material.</summary>
         public readonly HashSet<int> DepthMatIds = new();
+
+        /// <summary>The material mode installed on this host. Both sides use explicit ZTest
+        /// overrides: restoring the game's material for the show-through mode left LEqual in
+        /// effect, so the old setting produced the same wall-hidden picture either way.</summary>
+        public bool HasMaterialMode;
+        public bool MaterialOccluded;
 
         /// <summary>Next unscaled time this bar is rescanned for new (pooled) graphics.</summary>
         public float NextDepthScan;
@@ -346,10 +340,9 @@ internal static class ActorBars
         a.x == b.x && a.y == b.y && a.z == b.z && a.w == b.w;
 
     // ---- BarsOccluded config (standalone binding) --------------------------------------------
-    // FRESH key in its OWN module file (dev.gloomhavenvr.bars.cfg) on purpose: the BepInEx
-    // persisted-config trap means flipping a default on an EXISTING key does nothing once a
-    // stale value is saved — a brand-new key name guarantees the default (true) actually
-    // applies on every rig. Not in WorldUIConfig because that file predates the trap lesson.
+    // This existing key lives in its own module file (dev.gloomhavenvr.bars.cfg). Keep its
+    // persisted true=occluded / false=show-through meaning when repairing the material path;
+    // renaming it would silently discard players' saved choices.
     private static ConfigFile? s_barsConfigFile;
     private static ConfigEntry<bool>? s_barsOccluded;
     private static ConfigEntry<float>? s_barHeightOffset;
@@ -377,9 +370,9 @@ internal static class ActorBars
                 new AcceptableValueRange<float>(-2f, 2f)));
         s_barsOccluded = s_barsConfigFile.Bind("WorldUI", "BarsOccluded", Defaults.BarsOccluded,
             "Actor HP/effect bars depth-test against the world: walls occlude them like "
-            + "any world object instead of the bar shining through. Look-preserving — "
-            + "bars stay enabled and billboarding, they are simply hidden pixel-by-pixel "
-            + "where a wall is in front. Disable to get the vanilla draw-on-top bars.");
+            + "any world object instead of the bar shining through. Bars stay enabled and "
+            + "billboarding, but pixels behind walls are hidden. Off explicitly draws the "
+            + "bars through walls. Takes effect immediately.");
         // NOTE: the short-lived [WorldUI] BarsDepthStamp key of an earlier round is GONE, not
         // re-defaulted. It gated the bars OUT of the panel-vs-panel compose, which the user overruled
         // ("Perspektive soll im gesamten Mod respektiert werden"), and the BepInEx persisted-config
@@ -539,9 +532,11 @@ internal static class ActorBars
         const float sizeLo = ZoomFollowMin;
         const float sizeHi = ZoomFollowMax;
         float zoomFollow = ResolveZoomFollow(worldScale);
-        // The default path's factor is frame-constant, so it is resolved once here rather than per
-        // bar; the legacy distance path re-clamps per bar because its growth term is per bar.
-        float fixedSizeFactor = barSizeScale * Mathf.Clamp(zoomFollow, sizeLo, sizeHi);
+        // The default path follows the miniature across the full zoom. Disabling that new toggle
+        // retains the previous clamped arithmetic; distance growth remains an independent opt-in.
+        bool followFigureScale = WorldUIConfig.BarFollowFigureScale.Value;
+        float fixedSizeFactor = barSizeScale *
+            (followFigureScale ? zoomFollow : Mathf.Clamp(zoomFollow, sizeLo, sizeHi));
 
         // One sampled bar's uGUI pixel height turns the factor into the MILLIMETRE number a
         // "still too big / too small" report can be answered with. Sampled only on a frame that
@@ -685,14 +680,20 @@ internal static class ActorBars
             // bar in front of the Infotafel occludes it, a bar behind it is occluded by it, and the
             // transparent space around the bar's segments shows the panel through it completely.
             //
-            // Wall occlusion ([WorldUI] BarsOccluded gate) is a DIFFERENT question and is unchanged:
-            // the bar's graphics run per-instance materials with unity_GUIZTestMode=LEqual so wall
-            // depth occludes them naturally — the bar itself stays enabled and billboarding (no
-            // toggling; the old linecast+hide probe is retired). Slow rescan catches graphics pooled
+            // Wall occlusion ([WorldUI] BarsOccluded gate) is a different question: the bar's
+            // graphics run per-instance materials with LEqual or Always, selected by the config.
+            // The bar itself stays enabled and billboarding. Slow rescan catches graphics pooled
             // after adopt (health marks). The SAME scan clears raycastTarget on every bar graphic
             // (see Adopted.RaycastOff) — that part is ungated: the bar's invisible band must not eat
             // picks whatever the occlusion setting is.
-            if (now >= adopted.NextDepthScan)
+            bool materialModeChanged = !adopted.HasMaterialMode || adopted.MaterialOccluded != barsOccluded;
+            if (materialModeChanged)
+            {
+                RestoreBarDepthTest(adopted);
+                adopted.HasMaterialMode = true;
+                adopted.MaterialOccluded = barsOccluded;
+            }
+            if (materialModeChanged || now >= adopted.NextDepthScan)
             {
                 // STAGGER (S2 defect 7). Every bar shipped with NextDepthScan = 0, and Tick adopts
                 // every controller of a freshly revealed room in ONE frame, so all ~20 bars did
@@ -700,7 +701,7 @@ internal static class ActorBars
                 // 2 s — stayed locked in the same frame for the rest of the session: a synchronised
                 // 20-bar walk (~178 graphics each) once every 2 s, self-inflicted.
                 //
-                // The first scan stays immediate (it installs the depth materials and clears
+                // The first scan stays immediate (it installs the selected materials and clears
                 // raycastTarget; delaying it would be visible). The stagger is SUBTRACTED from the
                 // first reschedule only, so this bar's next scan comes EARLIER than it does today,
                 // never later — no pooled graphic is picked up any later than in the shipped build,
@@ -717,11 +718,6 @@ internal static class ActorBars
                 }
                 ScanBarGraphics(adopted, controller.name, depthTest: barsOccluded);
                 s_barDepthScans++;
-            }
-            if (!barsOccluded && adopted.DepthMats.Count > 0)
-            {
-                // Live config-off: give every graphic its original material back.
-                RestoreBarDepthTest(adopted);
             }
 
             if (panel.HostGo.activeSelf == hide)
@@ -756,7 +752,9 @@ internal static class ActorBars
                 // Legacy: distance in HMD-relative REAL meters (world ÷ diorama scale).
                 float realDistance = fromHead.magnitude / worldScale;
                 float grow = Mathf.Clamp(realDistance / 0.6f, 1f, 2.5f);
-                sizeFactor = barSizeScale * Mathf.Clamp(zoomFollow * grow, sizeLo, sizeHi);
+                sizeFactor = barSizeScale * (followFigureScale
+                    ? zoomFollow * grow
+                    : Mathf.Clamp(zoomFollow * grow, sizeLo, sizeHi));
             }
 
             // CHANGE GATE (S2 defect 1). Both writes used to be unconditional, so every bar dirtied
@@ -771,14 +769,10 @@ internal static class ActorBars
             // metersPerPixel × worldScale × BarPixelSize × fixedSizeFactor — four frame-constant
             // factors — so the scale gate holds every frame the diorama is not being zoomed.
             //
-            // DURING a zoom it depends on which side of the clamp the follow is on, and the two
-            // cases are worth naming because they are the feature: while the follow is INSIDE its
-            // bounds the factor is ×(reference·base ÷ worldScale) and the worldScale in the term
-            // cancels exactly — the bar holds one WORLD size, which is what "it grows with the
-            // miniature" means, and the gate keeps holding through the whole pinch. Once the clamp
-            // bites, the factor freezes and the term is ∝ worldScale again — the bar holds one REAL
-            // size and the gate writes every frame of the pinch, which is correct: that is a bar
-            // whose size at the eye is genuinely being kept still while the world moves.
+            // With follow-figure enabled, factor = reference·base/worldScale and worldScale cancels
+            // exactly: the bar holds one WORLD size and remains proportional to its miniature
+            // through the entire pinch. With the toggle off, the former clamp freezes the factor
+            // beyond 0.7–1.5, so the bar holds one REAL size at those extremes.
             //
             // The pose gate, by contrast, only holds while the head is genuinely still (rot is
             // derived from the head position, and VR head tracking moves it by sub-millimetres
@@ -809,7 +803,7 @@ internal static class ActorBars
 
         if (wantSizeLog)
             LogSize(now, fixedSizeFactor, barSizeScale, zoomFollow, sizeLo, sizeHi,
-                    worldScale, metersPerPixel, sampleRectPx, barFixedSize);
+                    worldScale, metersPerPixel, sampleRectPx, barFixedSize, followFigureScale);
 
         PerfMonitor.Count("Bars.Bars", Adoptions.Count);
         PerfMonitor.Count("Bars.PoseWrites", s_barPoseWrites);
@@ -1115,8 +1109,8 @@ internal static class ActorBars
     // ==============================================================================================
 
     /// <summary>
-    /// How far the TABLE ZOOM is allowed to carry the bars away from the size the player set — the
-    /// raw follow factor, before <see cref="ZoomFollowMin"/>/<see cref="ZoomFollowMax"/> clamp it.
+    /// Raw table-zoom follow factor. The new default uses it directly; the optional legacy path
+    /// clamps it to <see cref="ZoomFollowMin"/>/<see cref="ZoomFollowMax"/>.
     ///
     /// <para>WHICH SIZE IS "THE SIZE". The mod's zoom is a scale on the RIG, not on the board
     /// (<c>VRRigDriver</c>: <c>rigRoot.localScale = baseScale × ClampedSavedMultiplier</c>), so a
@@ -1124,8 +1118,8 @@ internal static class ActorBars
     /// time the player pinches: <c>worldUnits = realMetres × WorldScale</c>. The bar is a
     /// READABILITY OVERLAY, so the size that matters is the one at the EYE, in real millimetres —
     /// it is the number the player judges ("too big"), the number this class logs, and the only one
-    /// a minimum and a maximum can be stated in without the bound itself moving when the player
-    /// zooms. The dial and both bounds here are therefore factors of a REAL-MILLIMETRE base
+    /// a legacy minimum and maximum can be stated in without the bound itself moving when the player
+    /// zooms. The dial and optional legacy bounds here are therefore factors of a REAL-MILLIMETRE base
     /// (<see cref="BarPixelSize"/>), and the existing <c>× worldScale</c> in the scale term is
     /// exactly the real-metres→world-units conversion, not a size decision.</para>
     ///
@@ -1138,13 +1132,14 @@ internal static class ActorBars
     /// is purely <c>reference ÷ live pinch multiplier</c>, i.e. it does not care which scenario's
     /// tile size set the base scale.</para>
     ///
-    /// <para>THE GUARANTEE the band then gives, in the same unit as the size: at ANY zoom the bar
+    /// <para>THE LEGACY GUARANTEE the band gives, in the same unit as the size: at ANY zoom the bar
     /// is between 0.7× and 1.5× of <c>BarSizeScale</c> of its shipped millimetres — 0.25 mm/px at
     /// the far end of zooming out and 0.53 mm/px at the near end, never more, never less. THIS IS
     /// THE ZOOM-READABILITY CHECK: the mod's pinch runs 0.1×…12× of the base scale while [Comfort]
     /// FreeMovement is on, i.e. a raw follow of 33.7 down to 0.28, so it is the band and nothing
     /// else that stops a pushed-away table from shrinking the bars to a quarter of legibility and a
-    /// pulled-in one from letting them swallow the board. It is therefore code, not a setting.</para>
+    /// pulled-in one from letting them swallow the board. It remains available when
+    /// [WorldUI] BarFollowFigureScale is off.</para>
     ///
     /// <para>Returns 1 (no follow) while no rig has published a base scale — the menu rig, the dev
     /// harness, the frames before <c>BuildRig</c>. A zoom factor derived from a scale nobody has
@@ -1188,7 +1183,7 @@ internal static class ActorBars
 
     private static void LogSize(float now, float sizeFactor, float dial, float follow,
                                 float lo, float hi, float worldScale, float metersPerPixel,
-                                float sampleRectPx, bool barFixedSize)
+                                float sampleRectPx, bool barFixedSize, bool followFigureScale)
     {
         s_loggedSizeFactor = sizeFactor;
         s_loggedWorldScale = worldScale;
@@ -1201,23 +1196,23 @@ internal static class ActorBars
         string bound = follow < lo ? " (held at the MINIMUM)"
                      : follow > hi ? " (held at the MAXIMUM)"
                      : string.Empty;
+        string zoomRule = followFigureScale
+            ? $"unclamped for figure-proportional size (legacy band [{lo:F2}, {hi:F2}] disabled)"
+            : $"clamped into the legacy band [{lo:F2}, {hi:F2}]{bound}";
         string sample = sampleRectPx > 0f
             ? $"a {sampleRectPx:F0} px bar is {sampleRectPx * mmPerPixel:F1} mm tall at the eye"
             : "no bar rect measured this frame";
 
         VRLog.Info("WorldUI",
             $"BAR SIZE: {mmPerPixel:F3} mm per uGUI px at the eye (shipped {shippedMmPerPixel:F3}) — " +
-            $"{sample}. Size dial [WorldUI] BarSizeScale {dial:F2}x, zoom follow {follow:F2} clamped " +
-            $"into the FIXED band [{lo:F2}, {hi:F2}]{bound} — the band is no longer configurable " +
-            $"(BarZoomMin/MaxScale removed 2026-08-13: at the shipped zoom the follow is 1.00 and " +
-            $"neither bound was ever reachable) ⇒ resolved {sizeFactor:F2}x. World scale {worldScale:F2} " +
+            $"{sample}. Size dial [WorldUI] BarSizeScale {dial:F2}x, zoom follow {follow:F2} " +
+            $"{zoomRule} ⇒ resolved {sizeFactor:F2}x. World scale {worldScale:F2} " +
             $"(base {baseScale:F2}, table zoom {liveMultiplier:F2}x, reference " +
             $"{ReferenceScaleMultiplier:F2}x), {Adoptions.Count} bars." +
             (barFixedSize
                 ? string.Empty
                 : " [WorldUI] BarFixedSize is OFF, so each bar additionally grows up to 2.5x with " +
-                  "its own head distance THROUGH THE SAME CLAMP — the numbers above are the " +
-                  "distance-1 case, and the bounds hold for every bar."));
+                  "its own head distance; the numbers above are the distance-1 case."));
     }
 
     /// <summary>
@@ -2412,13 +2407,11 @@ internal static class ActorBars
     /// ActorBars owns/adopts are ever touched.
     ///
     /// <para>1. DEPTH TEST (<paramref name="depthTest"/> = the [WorldUI] BarsOccluded gate): assign
-    /// a per-instance copy of the graphic's material with <c>unity_GUIZTestMode</c> = LEqual(4).
-    /// Unity's UI/Default shader declares <c>ZTest [unity_GUIZTestMode]</c> and the per-material
-    /// value beats the global, so world-space bar pixels are occluded by wall depth while the bar
-    /// stays enabled and billboarding — no toggling. TMP distance-field text: its SDF shaders use
-    /// the same <c>unity_GUIZTestMode</c> bracket in UI mode; some variants expose
-    /// <c>_ZTestMode</c> instead — both are set (unconditionally for the former, since it is a
-    /// bracket lookup and not a declared Property, HasProperty-guarded for the latter).</para>
+    /// a per-instance copy of the graphic's material with <c>unity_GUIZTestMode</c> = LEqual(4)
+    /// when walls hide bars, Always(8) when they show through. The game's original material uses
+    /// LEqual, so merely restoring it for the latter case made the setting ineffective. Unity's
+    /// UI/Default shader declares <c>ZTest [unity_GUIZTestMode]</c>; TMP variants may expose
+    /// <c>_ZTestMode</c> instead. Both spellings are written on the material clone.</para>
     ///
     /// <para>2. RAYCAST (always): clear <c>raycastTarget</c>. See <see cref="Adopted.RaycastOff"/> —
     /// the bar is display-only, but its host still carries the GraphicRaycaster every conversion
@@ -2461,7 +2454,7 @@ internal static class ActorBars
                 }
             }
 
-            if (!depthTest || adopted.DepthMatIds.Contains(id))
+            if (adopted.DepthMatIds.Contains(id))
                 continue;
             try
             {
@@ -2471,9 +2464,10 @@ internal static class ActorBars
                 var inst = new Material(src);
                 // Not a declared shader Property (bracket lookup only) ⇒ HasProperty is false;
                 // SetInt still creates the per-material override that wins over the global.
-                inst.SetInt("unity_GUIZTestMode", (int)CompareFunction.LessEqual);
+                CompareFunction mode = depthTest ? CompareFunction.LessEqual : CompareFunction.Always;
+                inst.SetInt("unity_GUIZTestMode", (int)mode);
                 if (inst.HasProperty("_ZTestMode"))
-                    inst.SetInt("_ZTestMode", (int)CompareFunction.LessEqual);
+                    inst.SetInt("_ZTestMode", (int)mode);
                 g.material = inst;
                 adopted.DepthMatIds.Add(id);
                 adopted.DepthMats.Add((g, src, inst));
@@ -2499,7 +2493,8 @@ internal static class ActorBars
             {
                 adopted.DepthLogged = true;
                 VRLog.Info("WorldUI",
-                    $"bar depth-test: forced unity_GUIZTestMode=LEqual on {added} graphics ('{barName}').");
+                    $"bar depth-test: forced unity_GUIZTestMode={(depthTest ? "LEqual" : "Always")} " +
+                    $"on {added} graphics ('{barName}').");
             }
             else
             {
@@ -2511,8 +2506,8 @@ internal static class ActorBars
 
     /// <summary>
     /// Mirror of the adopted-state restore: give every touched Graphic its original material back
-    /// and destroy our per-instance copies. Called on release, shutdown (ReleaseAll) and live
-    /// config-off.
+    /// and destroy our per-instance copies. Called on release, shutdown (ReleaseAll) and a live
+    /// BarsOccluded mode change.
     /// </summary>
     private static void RestoreBarDepthTest(Adopted adopted)
     {

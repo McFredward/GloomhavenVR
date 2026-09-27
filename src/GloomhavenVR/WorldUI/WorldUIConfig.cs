@@ -130,18 +130,19 @@ internal static class WorldUIConfig
     /// factor of the size they have always shipped at.
     ///
     /// <para>THE UNIT IS REAL MILLIMETRES AT THE EYE, not world units. A bar is a readability
-    /// overlay, and the only statement about "how big is it" that survives a pinch-zoom is its size
-    /// at the eye: the diorama scale is a scale on the RIG, so a world-unit size means a different
-    /// apparent size at every zoom while the same real-millimetre size looks identical at all of
-    /// them. 1.0 = the shipped size, which is <see cref="CanvasScaleMm"/> × 0.35 mm per uGUI pixel
-    /// at the eye (see <see cref="WorldUI.ActorBars"/>); 2.0 is a bar twice as tall and twice as
-    /// wide in front of your face at any table zoom.</para>
+    /// overlay, so its size is stated in millimetres at the reference zoom. The diorama scale is
+    /// on the rig: figure-proportional bars change apparent size as the player zooms. 1.0 is the
+    /// former shipped size at the reference zoom; 2.0 is twice that size at the same zoom.</para>
     ///
     /// <para>THE ONLY BAR-SIZE DIAL THERE IS. The zoom band the bars are allowed to move inside is
-    /// a CONSTANT now (<c>ActorBars.ZoomFollowMin/Max</c>, still 0.7–1.5), not two more sliders —
-    /// see the tombstone at the bind site.</para>
+    /// a CONSTANT on the optional legacy path (<c>ActorBars.ZoomFollowMin/Max</c>, 0.7–1.5),
+    /// not two more sliders — see the tombstone at the bind site.</para>
     /// </summary>
     internal static ConfigEntry<float> BarSizeScale = null!;
+
+    /// <summary>Keep actor bars at a constant size relative to their figures through the full
+    /// table zoom. Off restores the former 0.7–1.5 apparent-size clamp.</summary>
+    internal static ConfigEntry<bool> BarFollowFigureScale = null!;
 
     // [WorldUI] BarZoomMinScale / BarZoomMaxScale are GONE (user ruling 2026-08-13: "Mindest und
     // Maximalgröße der Lebensbalken haben keinen sehbaren einfluss. Es macht irgendwas, aber man
@@ -149,9 +150,9 @@ internal static class WorldUIConfig
     // the table-zoom FOLLOW factor, which is 1.0 at the shipped zoom by construction — so at the
     // zoom the player actually sits at, neither bound was reachable and moving either dial changed
     // nothing at all. The GUARANTEE he originally asked for ("ein minimum und maximum der Größe,
-    // damit sie sich trotz zoomen nie über die Grenzen hinaus skalieren können") is not lost: it is
-    // now the fixed 0.7–1.5 band in ActorBars, applied unconditionally on both size paths. What is
-    // gone is the ability to type numbers into a factor whose effect no player can see.
+    // damit sie sich trotz zoomen nie über die Grenzen hinaus skalieren können") remains on the
+    // optional legacy path as ActorBars' fixed 0.7–1.5 band. The default now follows figures
+    // across the full zoom per the later user ruling.
     internal static ConfigEntry<bool> WristHud = null!;
 
     /// <summary>
@@ -629,9 +630,8 @@ internal static class WorldUIConfig
             "Actor HP/effect bars ignore the HEAD DISTANCE — a bar the same size whether you " +
             "lean in or step back (test #14: the old distance compensation grew bars up to 2.5x " +
             "when stepping away, which read as the bars 'growing'). Off = legacy behavior: bars " +
-            "gently grow with head distance to stay readable, bounded by the same fixed 0.7-1.5 " +
-            "band the table zoom is bounded by. This dial says nothing about the TABLE zoom — " +
-            "that is BarSizeScale.");
+            "gently grow with head distance to stay readable. The table-zoom behavior has its " +
+            "own Scale bars with figures toggle; BarSizeScale sets the reference size.");
         BarSizeScale = _file.Bind("WorldUI", "BarSizeScale", Defaults.BarSizeScale,
             new ConfigDescription(
                 "SIZE of the actor HP/effect bars above the miniatures, as a factor of the size " +
@@ -644,11 +644,17 @@ internal static class WorldUIConfig
                 "this dial existed (at the shipped table zoom); the SHIPPED default is not " +
                 "1.0 - it was re-based from a tuned cfg and the menu prints it under this " +
                 "text. " +
-                "Whatever you set here HOLDS while you pinch-zoom the table: the bars follow the " +
-                "zoom only inside a fixed 0.7-1.5 band around the size you chose, so they can " +
-                "neither shrink away nor swallow the board. Live: the next frame is drawn at the " +
-                "new size. Range 0.25-3.",
+                "With Scale bars with figures enabled by default, this size stays proportional " +
+                "to each figure through the full table zoom. When disabled, the former 0.7-1.5 " +
+                "apparent-size band applies. Live: the next frame is drawn at the new size. " +
+                "Range 0.25-3.",
                 new AcceptableValueRange<float>(0.25f, 3f)));
+        BarFollowFigureScale = _file.Bind("WorldUI", "BarFollowFigureScale",
+            Defaults.BarFollowFigureScale,
+            "Scale actor HP/effect bars with their figures through the full table zoom, keeping " +
+            "their size proportional to each miniature. Off restores the previous behavior: " +
+            "the bars follow zoom only within a 0.7-1.5 apparent-size band. The BarSizeScale " +
+            "setting still controls their size at the reference zoom. Takes effect immediately.");
         // BarZoomMinScale / BarZoomMaxScale were bound HERE. REMOVED (user ruling 2026-08-13 —
         // see the tombstone at the fields above). The band they configured is the constant pair
         // ActorBars.ZoomFollowMin/Max, still 0.7 and 1.5, so nothing about the look changed; the

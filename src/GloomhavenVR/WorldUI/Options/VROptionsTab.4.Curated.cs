@@ -1179,9 +1179,8 @@ internal static partial class VROptionsTab
                         // 2026-08-13 ("Mindest und Maximalgröße der Lebensbalken haben keinen
                         // sehbaren einfluss … ziemlich unintuitiv"): they bounded the table-zoom
                         // FOLLOW factor, which is 1.0 at the shipped zoom, so neither row could
-                        // move a pixel where the player stands. The clamp itself is kept — as the
-                        // constants ActorBars.ZoomFollowMin/Max — so the size below still holds at
-                        // every zoom, which is what the original request actually asked for.
+                        // move a pixel where the player stands. Their former clamp survives behind
+                        // BarFollowFigureScale=Off; the default now follows figures at every zoom.
                         new("WorldUI", "BarSizeScale", "vr_o_barsize"),
                         // THE ROW HE COULD NOT FIND. Directly under the size, because "zu groß"
                         // and "zu hoch" are the same complaint arriving in two words.
@@ -1222,6 +1221,7 @@ internal static partial class VROptionsTab
                         // the argument this section was created with. Directly visible (bars stop
                         // shrinking with distance), harmless when wrong, one toggle back.
                         new("WorldUI", "BarFixedSize", ""),
+                        new("WorldUI", "BarFollowFigureScale", "vr_o_barfollowfigure"),
                         new("WorldUI", "BarsOccluded", "vr_o_barsoccluded"),
                     },
                 },
