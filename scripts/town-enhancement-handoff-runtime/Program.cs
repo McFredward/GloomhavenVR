@@ -15,6 +15,7 @@ public static class InteractionProgram
     {
         count = 0;
         OfferFeedback();
+        NativeFrame();
         FirstVisitCue();
         Approach();
         WalkAway();
@@ -22,6 +23,29 @@ public static class InteractionProgram
         for (int scenario = 0; scenario < 22; scenario++) RunCase(scale, scenario);
         SwapOffering();
         return count;
+    }
+
+    private static void NativeFrame()
+    {
+        var root = new GameObject("CardHilight", typeof(RectTransform), typeof(UIEnhancementCardHighlighter));
+        var nativeFrame = new GameObject("GUI_LevelUp_Frame", typeof(RectTransform), typeof(Image));
+        nativeFrame.transform.SetParent(root.transform, false);
+        var rect = (RectTransform)nativeFrame.transform;
+        rect.sizeDelta = new Vector2(100f, 100f);
+        rect.localScale = new Vector3(.02f, 1f, 1f); // captured squeezed flat animation
+        rect.GetComponent<Image>().raycastTarget = true;
+        var card = new GameObject("Native print", typeof(RectTransform), typeof(AbilityCardUI), typeof(Image));
+        card.transform.SetParent(root.transform, false);
+        var mask = card.AddComponent<TownServiceNativeEnhancementCardMask>();
+        mask.Mask();
+        Check(rect.sizeDelta == Vector2.zero && Mathf.Abs(rect.localScale.x - 1f) < .001f
+            && !rect.GetComponent<Image>().raycastTarget,
+            "world-space full-card frame occupies the card rather than a squeezed vertical strip and cannot steal native clicks");
+        mask.Restore();
+        Check(rect.sizeDelta == new Vector2(100f, 100f) && Mathf.Abs(rect.localScale.x - .02f) < .001f
+            && rect.GetComponent<Image>().raycastTarget,
+            "native frame transform and input return to their original flat state");
+        UnityEngine.Object.DestroyImmediate(root);
     }
 
     private static void FirstVisitCue()
@@ -196,7 +220,7 @@ public static class InteractionProgram
         nativeArea.transform.SetParent(slot.AbilityCard.fullAbilityCard.transform, false);
         shop.CardsDisplay.slotsPool.Add(slot);
         bool alive = true, input = true; int selected = 0;
-        int priorOfferLines = TownServiceVoice.Offers;
+        int priorOfferLines = TownServiceVoice.Inspections;
         slot.Selected = () =>
         {
             selected++; shop.selectedCard = slot.AbilityCard; shop.cardHolder.Card = slot.AbilityCard;
@@ -238,8 +262,28 @@ public static class InteractionProgram
                 if (scenario == 21) Check(!ReferenceEquals(card.Model, shop.selectedCard!.AbilityCard),
                     "same owned card ID survives a native enhancement-list model refresh");
                 Check(selected == 1 && ReferenceEquals(handoff.Card, card), "one native selection parks the original card");
+                var palmCanvas = new GameObject("Palm canvas", typeof(Canvas)).GetComponent<Canvas>();
+                var wrongCanvas = new GameObject("Other canvas", typeof(Canvas)).GetComponent<Canvas>();
+                var area = nativeArea.GetComponent<UIEnhancementButtonHighlight>();
+                area.Ability = new object();
+                TownServicePresentation.Ritual = new TownServiceRitual { Handoff = handoff };
+                TownServicePresentation.Ritual.Surfaces.Add(new TownServiceSurface
+                    { Id = 11, Panel = new ConvertedPanel { HostCanvas = palmCanvas } });
+                Check(TownServiceEnhancementHandoff.TryNativeArea(palmCanvas, nativeArea.gameObject, out VRCard? selectedCard)
+                    && ReferenceEquals(selectedCard, card),
+                    "laser over a live original ability-area button selects that native area on the offered card");
+                Check(!TownServiceEnhancementHandoff.TryNativeArea(wrongCanvas, nativeArea.gameObject, out _)
+                    && !TownServiceEnhancementHandoff.TryNativeArea(palmCanvas, nativePrint.gameObject, out _),
+                    "unrelated canvas and non-ability card print never steal the physical reclaim trigger");
+                shop._isConfirmationBoxOpened = true;
+                Check(!TownServiceEnhancementHandoff.TryNativeArea(palmCanvas, nativeArea.gameObject, out _),
+                    "native confirmation closes the area-selection laser gate");
+                shop._isConfirmationBoxOpened = false;
+                TownServicePresentation.Ritual = null;
+                UnityEngine.Object.DestroyImmediate(palmCanvas.gameObject);
+                UnityEngine.Object.DestroyImmediate(wrongCanvas.gameObject);
                 Check(!nativePrint.enabled && nativeArea.enabled
-                    && TownServiceVoice.Offers == priorOfferLines + 1,
+                    && TownServiceVoice.Inspections == priorOfferLines + 1,
                     "same-frame handoff hides only duplicate art and reacts to the accepted offer");
                 Check(TownServiceEnhancementHandoff.IsParked(card), "parked card excluded from fan adoption");
                 Check(handoff.Face == face.transform && handoff.CloneOf(originalTop) == face.transform.Find("Top"), "actual printed face retains native provenance");

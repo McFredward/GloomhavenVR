@@ -12,7 +12,7 @@ namespace GloomhavenVR.WorldUI;
 internal enum TownVoiceReaction : byte
 {
     MerchantOffer, MerchantBuy, MerchantSell, PriestessDonate, EnchantressEnhance,
-    PriestessUnavailable, EnchantressOffer
+    PriestessUnavailable, EnchantressOffer, EnchantressInspect
 }
 
 /// <summary>Original resident lines, baked offline with one consistent voice per
@@ -43,7 +43,9 @@ internal static class TownServiceVoice
         "enchantress-invite", "enchantress-invite-2", "enchantress-invite-3",
         "enchantress-invite-4", "enchantress-invite-5",
         "priestess-unavailable", "priestess-unavailable-2", "priestess-unavailable-3",
-        "priestess-unavailable-4", "priestess-unavailable-5"
+        "priestess-unavailable-4", "priestess-unavailable-5",
+        "enchantress-inspect", "enchantress-inspect-2", "enchantress-inspect-3",
+        "enchantress-inspect-4", "enchantress-inspect-5"
     };
     private static readonly AudioClip?[] Clips = new AudioClip?[Names.Length];
     private static readonly TownServiceVoiceCurve?[] Curves = new TownServiceVoiceCurve?[Names.Length];
@@ -65,7 +67,7 @@ internal static class TownServiceVoice
 
     internal static byte ServiceForCue(ushort cue) => cue >= 1 && cue <= 5 || cue >= 16 && cue <= 30 ? (byte)1
         : cue >= 6 && cue <= 10 || cue >= 31 && cue <= 40 || cue >= 56 && cue <= 60 ? (byte)2
-        : cue >= 11 && cue <= 15 || cue >= 41 && cue <= 55 ? (byte)3 : (byte)0;
+        : cue >= 11 && cue <= 15 || cue >= 41 && cue <= 55 || cue >= 61 && cue <= 65 ? (byte)3 : (byte)0;
 
     internal static ushort GreetingFirstCue(byte service) => service == 1 ? (ushort)1
         : service == 2 ? (ushort)6 : service == 3 ? (ushort)11 : (ushort)0;
@@ -135,6 +137,7 @@ internal static class TownServiceVoice
             TownVoiceReaction.EnchantressEnhance when service == 3 => 46,
             TownVoiceReaction.EnchantressOffer when service == 3 => 51,
             TownVoiceReaction.PriestessUnavailable when service == 2 => 56,
+            TownVoiceReaction.EnchantressInspect when service == 3 => 61,
             _ => 0
         };
 

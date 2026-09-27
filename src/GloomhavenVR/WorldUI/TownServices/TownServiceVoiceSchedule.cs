@@ -59,6 +59,17 @@ internal sealed class TownServiceVoiceSchedule
     internal void Request(byte service, ushort firstCue, float now)
     {
         Entry e = At(service);
+        // Native visits can queue an invitation while a visitor is carrying a card.
+        // Once the card is actually accepted, that invitation is stale. Likewise a
+        // completed enhancement must retire any still-speaking inspection prompt.
+        if (service == 3 && (firstCue == 61 || firstCue == 46))
+        {
+            ushort staleStart = firstCue == 61 ? (ushort)51 : (ushort)61;
+            if (e.Cue >= staleStart && e.Cue < staleStart + 5)
+            { e.Cue = 0; e.Ended = true; _nextWorld = now; }
+            if (e.Pending && e.PendingCue >= staleStart && e.PendingCue < staleStart + 5)
+                e.Pending = false;
+        }
         if (service == 3 && firstCue == 51
             && (e.Cue >= 11 && e.Cue <= 15 || e.Cue >= 51 && e.Cue <= 55
                 || e.Pending && (e.PendingCue >= 11 && e.PendingCue <= 15

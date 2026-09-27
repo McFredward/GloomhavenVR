@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using System.Text;
+using GloomhavenVR.Cards;
 using UnityEngine;
 using UnityEngine.EventSystems;
 using UnityEngine.UI;
@@ -190,13 +191,28 @@ internal sealed class RayUguiDriver
         if (sawDead)
             UguiPokeSurfaces.Prune();
 
+        // The original enchantment-area buttons sit directly over the offered physical
+        // card. Build 573 let that card's reclaim collider win the same laser trigger,
+        // so selecting an ability area picked the card back up instead. Ask the real
+        // GraphicRaycaster first, then prefer ONLY a live native area on this exact
+        // offered card. Every other patch of the card remains physically reclaimable.
+        VRCard? nativeAreaCard = null;
+        bool offeredCardInFront = best != null
+            && _pointer.TryRaycast(best, ToScreen(best, bestPoint), out RaycastResult candidateHit)
+            && WorldUI.TownServiceEnhancementHandoff.TryNativeArea(best, candidateHit.gameObject, out nativeAreaCard)
+            && WorldUI.TownServicePhysicalRay.TryPick(_hand, out IGrabbable? physical, out _, out float physicalDistance)
+            && ReferenceEquals(physical, nativeAreaCard)
+            && physicalDistance <= bestDist + OcclusionEpsilonMeters * scale;
+
         // Physics occlusion: something solid in front of the panel blocks the laser.
-        if (best != null && pick.HasHit && pick.HitDistance < bestDist - OcclusionEpsilonMeters * scale)
+        if (best != null && !offeredCardInFront
+            && pick.HasHit && pick.HitDistance < bestDist - OcclusionEpsilonMeters * scale)
             best = null;
 
         // A physical town object in front owns the gesture before native UI receives hover
         // or pointer-down. Its own artwork is presentation-only and never a second target.
-        if (best != null && WorldUI.TownServicePhysicalRay.TryPick(_hand, out _, out _, out float objectDistance)
+        if (best != null && !offeredCardInFront
+            && WorldUI.TownServicePhysicalRay.TryPick(_hand, out _, out _, out float objectDistance)
             && objectDistance <= bestDist + OcclusionEpsilonMeters * scale)
             best = null;
 
@@ -212,7 +228,8 @@ internal sealed class RayUguiDriver
         // surfaces (initiative track, control dock, slot-card faces — coplanar with or proud
         // of the board colliders) out of their own occluder's shadow.
         Canvas? solidOccluded = null;
-        if (best != null && _hand.Ray.SolidOccluderDistance < bestDist - OcclusionEpsilonMeters * scale)
+        if (best != null && !offeredCardInFront
+            && _hand.Ray.SolidOccluderDistance < bestDist - OcclusionEpsilonMeters * scale)
         {
             // [Optimize] LeanLogStrings: skip the per-frame string build when the note is throttled.
             if (RayInteractor.WantFanOcclusionNote)
@@ -322,6 +339,9 @@ internal sealed class RayUguiDriver
 
         Vector2 screenPos = ToScreen(_canvas, bestPoint);
         bool hit = _pointer.TryRaycast(_canvas, screenPos, out RaycastResult top);
+        VRCard? selectedCard = null;
+        bool nativeAreaHit = hit
+            && WorldUI.TownServiceEnhancementHandoff.TryNativeArea(_canvas, top.gameObject, out selectedCard);
         GameObject? previous = _pointer.Hovered;
         _pointer.SetHovered(hit ? top.gameObject : null);
         if (_pointer.Hovered != null && !ReferenceEquals(_pointer.Hovered, previous))
@@ -358,11 +378,15 @@ internal sealed class RayUguiDriver
             // by the hand ARRIVING and is held by a 0.20 s hover tail, so by the time a trigger
             // is pulled it has stood for many frames. The only unreachable-in-practice hole is a
             // highlight born in the very same 11 ms as the pull.
-            if (_hand.Grabber.TriggerGrabOffered)
+            if (_hand.Grabber.TriggerGrabOffered
+                && !(nativeAreaHit && _hand.Grabber.TriggerGrabOfferedFor(selectedCard!)))
             {
                 LogPressYielded();
                 return;
             }
+            // The subsequent proximity-grabber tick must see a real UI press claim,
+            // rather than the weaker canvas-hover clamp, or it takes this same card.
+            if (nativeAreaHit) _hand.Ray.SuppressFarClick();
             _pressing = true;
             _pointer.Press(screenPos);
             _hand.SendHaptic(HapticPreset.ClickPulse);

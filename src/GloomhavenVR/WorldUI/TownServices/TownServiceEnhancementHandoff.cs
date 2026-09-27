@@ -121,6 +121,28 @@ internal sealed class TownServiceEnhancementHandoff : IDisposable
     }
     internal static bool CanReclaim(VRCard card) => _current != null && ReferenceEquals(_current.Card, card) && _current.ReclaimReady
         && MapRoomHand.TryOwnedTownCard(card, out _, out _);
+
+    /// <summary>The offered card is still physically reclaimable, but a laser aimed at one
+    /// of the game's actual enhancement-area buttons belongs to that button. Do not grant
+    /// this priority to the rest of the card or to any unrelated world-space canvas.</summary>
+    internal static bool TryNativeArea(Canvas canvas, GameObject hit, out VRCard? offered)
+    {
+        offered = null;
+        TownServiceEnhancementHandoff? current = _current;
+        if (current == null || current.Card == null || !current.Ready || hit == null)
+            return false;
+        TownServiceRitual? ritual = TownServicePresentation.Ritual;
+        if (ritual == null || !ReferenceEquals(ritual.Handoff, current)) return false;
+        bool onCardSurface = false;
+        foreach (TownServiceSurface surface in ritual.Surfaces)
+            if (surface.Id == 11 && ReferenceEquals(surface.Panel.HostCanvas, canvas))
+            { onCardSurface = true; break; }
+        if (!onCardSurface) return false;
+        UIEnhancementButtonHighlight? area = hit.GetComponentInParent<UIEnhancementButtonHighlight>();
+        if (area == null || !area.isActiveAndEnabled || area.Ability == null) return false;
+        offered = current.Card;
+        return true;
+    }
     internal static bool ReturnReclaimed(VRCard card)
     {
         if (!Reclaimed.TryGetValue(card, out ReturnPresentation presentation)) return false;
@@ -440,7 +462,10 @@ internal sealed class TownServiceEnhancementHandoff : IDisposable
         card.Grabbable = true; card.InspectOnly = true; card.AllowsGateHand = true;
         if (displaced != null && !displaced.IsHeld && displacedPresentation != null)
             BeginReturn(displacedPresentation);
-        TownServiceVoice.RequestReaction(3, TownVoiceReaction.EnchantressOffer);
+        // The old post-offer reaction used invitation clips ("Give me your card")
+        // after this exact card had entered her hand. Inspect lines describe the
+        // native choice now visible on the card instead.
+        TownServiceVoice.RequestReaction(3, TownVoiceReaction.EnchantressInspect);
         VRLog.Debug("WorldUI", "TOWN ENHANCEMENT: actual owned hand card offered to resident palm.");
         return true;
     }

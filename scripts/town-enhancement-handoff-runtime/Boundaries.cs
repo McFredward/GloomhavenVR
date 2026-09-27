@@ -17,8 +17,8 @@ public class UIEnhancementConfirmationBox : MonoBehaviour {}
 public class UIWindow : MonoBehaviour { public bool IsOpen = true; }
 public class AbilityCardUI : MonoBehaviour { public ScenarioRuleLibrary.CAbilityCard AbilityCard = null!; public FullAbilityCard fullAbilityCard = null!; }
 public class FullAbilityCard : MonoBehaviour { }
-public class UIEnhancementButtonHighlight : MonoBehaviour { }
-public sealed class UIEnhancementCardHighlighter { public AbilityCardUI? Card; }
+public class UIEnhancementButtonHighlight : MonoBehaviour { public object? Ability; }
+public sealed class UIEnhancementCardHighlighter : MonoBehaviour { public AbilityCardUI? Card; }
 public class UIEnhanceCardSlot : MonoBehaviour
 {
     public AbilityCardUI AbilityCard = null!; public Selectable Selectable = null!; public Action? Selected;
@@ -26,9 +26,10 @@ public class UIEnhanceCardSlot : MonoBehaviour
 }
 public class UINewEnhancementWindow : MonoBehaviour
 {
+    private void Awake() => cardHolder = gameObject.AddComponent<UIEnhancementCardHighlighter>();
     public sealed class Display { public List<UIEnhanceCardSlot> slotsPool = new(); }
     public Display CardsDisplay = new(); public Owner character = new(); public AbilityCardUI? selectedCard;
-    public UIEnhancementCardHighlighter cardHolder = new();
+    public UIEnhancementCardHighlighter cardHolder = null!;
     public bool _isConfirmationBoxOpened; public int Clears;
     public void DeselectCurrentCard() { }
     public void OnSelectedCardToEnhance(AbilityCardUI? card) { selectedCard = card; if (card == null) Clears++; }
@@ -48,12 +49,12 @@ namespace GloomhavenVR.Core
 }
 namespace GloomhavenVR.WorldUI
 {
-    internal enum TownVoiceReaction : byte { EnchantressOffer }
+    internal enum TownVoiceReaction : byte { EnchantressInspect }
     internal static class TownServiceVoice
     {
-        internal static int Offers;
+        internal static int Inspections;
         internal static void RequestReaction(byte service, TownVoiceReaction reaction)
-        { if (service == 3 && reaction == TownVoiceReaction.EnchantressOffer) Offers++; }
+        { if (service == 3 && reaction == TownVoiceReaction.EnchantressInspect) Inspections++; }
     }
 }
 namespace GloomhavenVR.Hands
@@ -115,7 +116,23 @@ namespace GloomhavenVR.WorldUI.MapRoom
 namespace GloomhavenVR.WorldUI
 {
     public static class TownServicePalmConfirmation { public static bool Owned; public static bool OwnsCurrent(UIWindow? window)=>Owned && window!=null; public static void Begin(UIEnhancementConfirmationBox box,Transform seat){} public static void CancelOwned(UIWindow window){} }
-    public static class TownServicePresentation { public static uint Session = 22; public static float SessionAge = 3f; public static bool Active = true; public static byte Service = 3; }
+    internal sealed class TownServiceSurface
+    {
+        public ushort Id;
+        public ConvertedPanel Panel = new();
+    }
+    internal sealed class ConvertedPanel { public Canvas? HostCanvas; }
+    internal sealed class TownServiceRitual
+    {
+        public TownServiceEnhancementHandoff? Handoff;
+        public List<TownServiceSurface> Surfaces = new();
+    }
+    public static class TownServicePresentation
+    {
+        public static uint Session = 22; public static float SessionAge = 3f;
+        public static bool Active = true; public static byte Service = 3;
+        internal static TownServiceRitual? Ritual;
+    }
     public static class TownServiceSync { public static bool Owner = true; public static bool LocalOwnsInteraction(byte service, uint session) => Owner && service == 3 && session == TownServicePresentation.Session; }
     public static class WorldUIConfig
     {

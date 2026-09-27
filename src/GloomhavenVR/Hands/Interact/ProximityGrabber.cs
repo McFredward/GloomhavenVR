@@ -176,6 +176,11 @@ internal sealed class ProximityGrabber
     /// </summary>
     internal bool TriggerGrabOffered => _triggerGrabOffered;
 
+    /// <summary>Only a native control on this exact offered card may outrank its nearby
+    /// proximity trigger offer. A different near-field target retains ordinary priority.</summary>
+    internal bool TriggerGrabOfferedFor(IGrabbable target) => _triggerGrabOffered
+        && ReferenceEquals(_triggerCandidate, target);
+
     /// <summary>Fired when the highlight candidate changes (null = none).</summary>
     public event Action<VRHand, IGrabbable?>? HighlightChanged;
 

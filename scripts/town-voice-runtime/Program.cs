@@ -109,10 +109,28 @@ public static class InteractionProgram
         Check(Mathf.Abs(invitation.At(3).Started - .4f) < .001f,
             "shared invitation age survives handover");
         invitation.Sample(3, duration, 2.5f, false);
-        invitation.Request(3, 51, 3.6f); invitation.Sample(3, duration, 3.6f, false);
-        Check(invitation.At(3).Cue >= 51 && invitation.At(3).Cue <= 55
+        invitation.Request(3, 61, 3.6f); invitation.Sample(3, duration, 3.6f, false);
+        Check(invitation.At(3).Cue >= 61 && invitation.At(3).Cue <= 65
             && invitation.At(3).Generation == 2,
-            "later accepted card offer selects one author-owned invitation");
+            "accepted card offer selects one author-owned inspection line");
+        invitation.Request(3, 46, 3.7f);
+        Check(invitation.At(3).Cue == 0 && invitation.At(3).PendingCue >= 46
+            && invitation.At(3).PendingCue <= 50,
+            "completed enhancement retires an obsolete inspection line");
+        var staleInvite = new TownServiceVoiceSchedule();
+        staleInvite.Request(3, 51, 1f);
+        staleInvite.Request(3, 61, 1.1f);
+        Check(staleInvite.At(3).PendingCue >= 61 && staleInvite.At(3).PendingCue <= 65,
+            "accepted card replaces a pending request to bring a card");
+        var activeInvite = new TownServiceVoiceSchedule();
+        activeInvite.Request(3, 51, 1f);
+        activeInvite.Sample(3, duration, 1f, false);
+        Check(activeInvite.At(3).Cue >= 51 && activeInvite.At(3).Cue <= 55,
+            "live invitation is present before an offered-card context change");
+        activeInvite.Request(3, 61, 1.1f);
+        Check(activeInvite.At(3).Cue == 0 && activeInvite.At(3).PendingCue >= 61
+            && activeInvite.At(3).PendingCue <= 65,
+            "accepted card retires a spoken request to bring a card");
 
         var inherited = new TownServiceVoiceSchedule();
         Check(inherited.Observe(1, 7, 16, 12, 1f, 10f), "observer adopts cue");

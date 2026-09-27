@@ -103,8 +103,18 @@ def mutations():
          "if (highlighted != null) { }",
          "same-frame handoff hides only duplicate art and reacts to the accepted offer"),
         ("offer-voice", name,
-         "TownServiceVoice.RequestReaction(3, TownVoiceReaction.EnchantressOffer);", "",
+         "TownServiceVoice.RequestReaction(3, TownVoiceReaction.EnchantressInspect);", "",
          "same-frame handoff hides only duplicate art and reacts to the accepted offer"),
+        ("wrong-area-canvas", name,
+         "if (!onCardSurface) return false;", "if (false) return false;",
+         "unrelated canvas and non-ability card print never steal the physical reclaim trigger"),
+        ("stale-area-selection", name,
+         "if (current == null || current.Card == null || !current.Ready || hit == null)",
+         "if (current == null || current.Card == null || hit == null)",
+         "native confirmation closes the area-selection laser gate"),
+        ("squeezed-native-frame", "TownServiceNativeEnhancementCardMask.cs",
+         "_nativeFrame.localScale = Vector3.one;", "_nativeFrame.localScale = _frameScale;",
+         "world-space full-card frame occupies the card rather than a squeezed vertical strip and cannot steal native clicks"),
     ]
 
 
