@@ -189,11 +189,17 @@ public static class InteractionProgram
         slot.AbilityCard.fullAbilityCard.transform.SetParent(slot.AbilityCard.transform, false);
         var originalTop = new GameObject("Top").transform; originalTop.SetParent(slot.AbilityCard.fullAbilityCard.transform, false);
         var secondOriginalTop = new GameObject("Top").transform; secondOriginalTop.SetParent(slot.AbilityCard.fullAbilityCard.transform, false);
+        var nativePrint = new GameObject("Native print", typeof(RectTransform), typeof(Image)).GetComponent<Image>();
+        nativePrint.transform.SetParent(slot.AbilityCard.fullAbilityCard.transform, false);
+        var nativeArea = new GameObject("Native enhancement area", typeof(RectTransform),
+            typeof(Image), typeof(UIEnhancementButtonHighlight)).GetComponent<Image>();
+        nativeArea.transform.SetParent(slot.AbilityCard.fullAbilityCard.transform, false);
         shop.CardsDisplay.slotsPool.Add(slot);
         bool alive = true, input = true; int selected = 0;
+        int priorOfferLines = TownServiceVoice.Offers;
         slot.Selected = () =>
         {
-            selected++; shop.selectedCard = slot.AbilityCard;
+            selected++; shop.selectedCard = slot.AbilityCard; shop.cardHolder.Card = slot.AbilityCard;
             if (scenario == 5) shop.character = new Owner { CharacterID = "foreign" };
             if (scenario == 6) slot.AbilityCard.AbilityCard = new ScenarioRuleLibrary.CAbilityCard();
             if (scenario == 7) throw new Exception("native callback failed");
@@ -232,6 +238,9 @@ public static class InteractionProgram
                 if (scenario == 21) Check(!ReferenceEquals(card.Model, shop.selectedCard!.AbilityCard),
                     "same owned card ID survives a native enhancement-list model refresh");
                 Check(selected == 1 && ReferenceEquals(handoff.Card, card), "one native selection parks the original card");
+                Check(!nativePrint.enabled && nativeArea.enabled
+                    && TownServiceVoice.Offers == priorOfferLines + 1,
+                    "same-frame handoff hides only duplicate art and reacts to the accepted offer");
                 Check(TownServiceEnhancementHandoff.IsParked(card), "parked card excluded from fan adoption");
                 Check(handoff.Face == face.transform && handoff.CloneOf(originalTop) == face.transform.Find("Top"), "actual printed face retains native provenance");
                 Check(handoff.CloneOf(secondOriginalTop) == secondFaceTop, "same-named printed nodes retain distinct native provenance");
@@ -315,6 +324,12 @@ public static class InteractionProgram
                 Check(handoff.Card == null && !TownServiceEnhancementHandoff.IsParked(card), "rejection never steals card ownership");
                 if (scenario < 5 || scenario == 8 || scenario == 9) Check(selected == 0, reason);
             }
+        }
+        if (scenario == 0)
+        {
+            slot.AbilityCard.gameObject.SetActive(false);
+            Check(nativePrint.enabled && nativeArea.enabled,
+                "native pooled card restores its artwork when the game disables it");
         }
         Check(card != null, "disposing station never destroys actual map card");
         UnityEngine.Object.DestroyImmediate(root);

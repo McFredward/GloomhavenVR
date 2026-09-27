@@ -541,7 +541,16 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 572;
+    public const ushort ModBuild = 573;
+
+    // ModBuild 573 — thirteenth NPC hardware follow-up on the feature branch
+    // (FULL INSTALL). Merchant confirmation ownership recovers when the native
+    // window closes without updating its wrapper state, including stock-to-owned
+    // replacement. The red side banner is removed; the lantern support and
+    // category controls meet the authored cabinet. Priestess arm paths and
+    // transition blend follow the imported shoulder and bowl geometry. The
+    // enchantress retains native multi-area enhancement highlights over one
+    // physical card and speaks on genuine visits and accepted card offers.
 
     // ModBuild 572 — twelfth NPC hardware follow-up on the feature branch
     // (FULL INSTALL). Merchant and temple cloth retain visible finger contact;

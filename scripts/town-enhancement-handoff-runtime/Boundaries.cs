@@ -17,6 +17,8 @@ public class UIEnhancementConfirmationBox : MonoBehaviour {}
 public class UIWindow : MonoBehaviour { public bool IsOpen = true; }
 public class AbilityCardUI : MonoBehaviour { public ScenarioRuleLibrary.CAbilityCard AbilityCard = null!; public FullAbilityCard fullAbilityCard = null!; }
 public class FullAbilityCard : MonoBehaviour { }
+public class UIEnhancementButtonHighlight : MonoBehaviour { }
+public sealed class UIEnhancementCardHighlighter { public AbilityCardUI? Card; }
 public class UIEnhanceCardSlot : MonoBehaviour
 {
     public AbilityCardUI AbilityCard = null!; public Selectable Selectable = null!; public Action? Selected;
@@ -26,6 +28,7 @@ public class UINewEnhancementWindow : MonoBehaviour
 {
     public sealed class Display { public List<UIEnhanceCardSlot> slotsPool = new(); }
     public Display CardsDisplay = new(); public Owner character = new(); public AbilityCardUI? selectedCard;
+    public UIEnhancementCardHighlighter cardHolder = new();
     public bool _isConfirmationBoxOpened; public int Clears;
     public void DeselectCurrentCard() { }
     public void OnSelectedCardToEnhance(AbilityCardUI? card) { selectedCard = card; if (card == null) Clears++; }
@@ -42,6 +45,16 @@ namespace GloomhavenVR.Core
     public static class Loc { public static string Mod(string key) => key; }
     public static class VRLayers { public static void Apply(GameObject root) { } }
     public static class VRLog { public static bool WantsDebug => false; public static void Debug(string a, string b) { } public static void Warn(string a, string b) { } }
+}
+namespace GloomhavenVR.WorldUI
+{
+    internal enum TownVoiceReaction : byte { EnchantressOffer }
+    internal static class TownServiceVoice
+    {
+        internal static int Offers;
+        internal static void RequestReaction(byte service, TownVoiceReaction reaction)
+        { if (service == 3 && reaction == TownVoiceReaction.EnchantressOffer) Offers++; }
+    }
 }
 namespace GloomhavenVR.Hands
 {

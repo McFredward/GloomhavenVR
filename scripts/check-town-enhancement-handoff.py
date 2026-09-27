@@ -31,7 +31,9 @@ def sources(root):
     source = path.read_text()
     pose = path.with_name("TownServiceOfferingPose.cs")
     feedback = path.with_name("TownServiceOfferFeedback.cs")
-    bound = {path.name: source, pose.name: pose.read_text(), feedback.name: feedback.read_text()}
+    mask = path.with_name("TownServiceNativeEnhancementCardMask.cs")
+    bound = {path.name: source, pose.name: pose.read_text(), feedback.name: feedback.read_text(),
+             mask.name: mask.read_text()}
     card = (root / "src/GloomhavenVR/Cards/VRCard.cs").read_text()
     start = card.index("    public override bool CanGrab =>")
     gate = card[start:card.index(";", start) + 1]
@@ -96,6 +98,13 @@ def mutations():
         ("model-refresh", name, "a.ID == b.ID", "ReferenceEquals(a, b)", "same owned card ID survives a native enhancement-list model refresh"),
         ("occupied-swap", name, "|| card == null || card.IsHeld || ReferenceEquals(Card, card)", "|| card == null || card.IsHeld || Card != null", "second valid owned card atomically swaps into enchantress palm"),
         ("swap-rollback", name, "catch\n        {\n            RestoreSelection(existing, existingSlot);\n            throw;\n        }", "catch\n        {\n            throw;\n        }", "rejected replacement preserves prior enchantress card atomically"),
+        ("native-duplicate", name,
+         "if (highlighted != null)\n            (highlighted.GetComponent<TownServiceNativeEnhancementCardMask>()\n                ?? highlighted.gameObject.AddComponent<TownServiceNativeEnhancementCardMask>()).Mask();",
+         "if (highlighted != null) { }",
+         "same-frame handoff hides only duplicate art and reacts to the accepted offer"),
+        ("offer-voice", name,
+         "TownServiceVoice.RequestReaction(3, TownVoiceReaction.EnchantressOffer);", "",
+         "same-frame handoff hides only duplicate art and reacts to the accepted offer"),
     ]
 
 

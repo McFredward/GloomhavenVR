@@ -21,7 +21,8 @@ namespace GloomhavenVR.WorldUI
 {
     internal static class PanelMipBake { internal static Texture OriginalFor(Texture texture) => texture; }
     internal enum TownVoiceReaction : byte
-    { MerchantOffer, MerchantBuy, MerchantSell, PriestessDonate, EnchantressEnhance, PriestessUnavailable }
+    { MerchantOffer, MerchantBuy, MerchantSell, PriestessDonate, EnchantressEnhance, PriestessUnavailable,
+      EnchantressOffer }
     internal static class TownServiceVoice
     {
         internal static Action<byte, TownVoiceReaction>? RelayRequest;

@@ -409,6 +409,13 @@ internal sealed class TownServiceEnhancementHandoff : IDisposable
         if (!Ready || !ValidOwner(card) || _shop.selectedCard == null
             || !SameCard(_shop.selectedCard.AbilityCard, model))
         { RestoreSelection(existing, existingSlot); return false; }
+        // The native selection creates its pooled duplicate immediately. Suppress
+        // that print in the same release callback, before the first rendered frame;
+        // the original animated enhancement-area buttons remain active above it.
+        AbilityCardUI? highlighted = _shop.cardHolder.Card;
+        if (highlighted != null)
+            (highlighted.GetComponent<TownServiceNativeEnhancementCardMask>()
+                ?? highlighted.gameObject.AddComponent<TownServiceNativeEnhancementCardMask>()).Mask();
         // A second valid card replaces the first one in the same physical palm. The native
         // selection is changed before presentation ownership moves, so a rejected callback
         // cannot steal either card. Once accepted, the displaced original takes the ordinary

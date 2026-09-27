@@ -373,10 +373,10 @@ internal sealed class TownServiceRitual : IDisposable
                 // cards let child anchors escape their faces and obscured later options.
                 // This open folio is attached to the stand, not a separate movable window.
                 AddFolio(10, shop.enhancementShop);
-                // CardHilight carries the original printed-ability selection hotspots.
-                // It must survive, but the separate flat cyan strip on the left of the
-                // worktop was meaningless before a card was offered. Seat the native
-                // highlight on the actual offered card and share its hand animation.
+                // The original card holder owns HighlightButtons: one animated,
+                // selectable game button per enhanceable ability container. Its canvas
+                // stays on the offered card so the laser can choose every native area.
+                // Only the duplicate pooled card print is hidden while it is parked.
                 AddFolio(11, shop.cardHolder);
                 AddFolio(13, shop.CardsDisplay.enhancementPointsText.transform.parent);
                 AddFolio(14, shop.cardInformationText);

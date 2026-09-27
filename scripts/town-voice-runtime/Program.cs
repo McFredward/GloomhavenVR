@@ -96,18 +96,23 @@ public static class InteractionProgram
         var invitation = new TownServiceVoiceSchedule();
         invitation.Visit(3, true, 0f, 0f);
         invitation.Sample(3, duration, 0f, false);
-        Check(invitation.At(3).Cue == 0, "enchantress does not greet before the shared hand gesture");
+        Check(invitation.At(3).Cue >= 11 && invitation.At(3).Cue <= 15,
+            "enchantress native visit starts an invitation even if attention was already raised");
         invitation.Work(3, 1f, 0f, 0f, true, 0f);
         invitation.Work(3, 1.1f, 0f, .4f, true, .1f);
-        invitation.Sample(3, duration, .1f, false);
-        Check(invitation.At(3).Cue >= 51 && invitation.At(3).Cue <= 55 && invitation.At(3).Generation == 1,
-            "hand extension selects one author-owned invitation");
+        Check(!invitation.At(3).Pending && invitation.At(3).Generation == 1,
+            "hand extension never duplicates the native-visit greeting");
         invitation.Work(3, 1.2f, 0f, .6f, true, .2f);
         Check(!invitation.At(3).Pending, "continuous hand pose does not repeat invitation");
         ushort invitationCue = invitation.At(3).Cue;
         Check(invitation.Observe(3, 7, invitationCue, 1, .6f, 1f), "observer adopts author invitation age");
         Check(Mathf.Abs(invitation.At(3).Started - .4f) < .001f,
             "shared invitation age survives handover");
+        invitation.Sample(3, duration, 2.5f, false);
+        invitation.Request(3, 51, 3.6f); invitation.Sample(3, duration, 3.6f, false);
+        Check(invitation.At(3).Cue >= 51 && invitation.At(3).Cue <= 55
+            && invitation.At(3).Generation == 2,
+            "later accepted card offer selects one author-owned invitation");
 
         var inherited = new TownServiceVoiceSchedule();
         Check(inherited.Observe(1, 7, 16, 12, 1f, 10f), "observer adopts cue");

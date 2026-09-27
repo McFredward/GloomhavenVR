@@ -113,7 +113,7 @@ public sealed class TownClothProbe : MonoBehaviour
         float productionResetEdgePeak = 0f;
         float productionNearReturn = 0f;
         float productionDeepHold = 0f, productionRestGateDeepHold = 0f;
-        float merchantVisibleTouch = 0f, merchantVisibleReturn = 0f;
+        int merchantRunnerCount = -1;
         bool productionPathPass = false;
         bool actualReturnMonotone = true;
         int actualRunners = 0;
@@ -498,53 +498,21 @@ public sealed class TownClothProbe : MonoBehaviour
                     && productionVisibleContact > productionVisibleNull + .002f
                     && productionVisibleContact > productionDeadVisible + .002f;
 
-                // The hardware report touched the merchant cabinet's red side hanging.
-                // Exercise that exact imported mesh through the production component:
-                // a hand must produce a visible indentation, then the cloth must settle.
+                // The red side banner has been removed from the merchant cabinet.
+                // The production component must accept that authored absence without
+                // inventing a new hidden cloth driver or collidable geometry.
                 string merchantAsset = bundle.GetAllAssetNames().Single(n => n.EndsWith("/townmerchant.prefab"));
                 merchantStation = Instantiate(bundle.LoadAsset<GameObject>(merchantAsset));
-                merchantStation.name = "production-merchant-side-cloth";
+                merchantStation.name = "production-merchant-without-side-banner";
                 merchantStation.transform.SetPositionAndRotation(new Vector3(8000f, 0f, 1200f), Quaternion.identity);
                 merchantStation.transform.localScale = Vector3.one * 198f;
-                MeshFilter merchantRunner = merchantStation.GetComponentsInChildren<MeshFilter>(true)
-                    .Single(f => f.name == "ClothRunner_MerchantSide_AltarCloth");
+                merchantRunnerCount = merchantStation.GetComponentsInChildren<MeshFilter>(true)
+                    .Count(f => f.name.StartsWith("ClothRunner_", StringComparison.Ordinal));
                 merchantProduction = new TownServiceCloth(merchantStation.transform, 1);
                 merchantProduction.SetVisible(true);
-                Vector3[] merchantRest = merchantRunner.mesh.vertices;
-                int merchantIndex = Enumerable.Range(0, merchantRest.Length).OrderBy(i =>
-                {
-                    Vector3 p = merchantStation.transform.InverseTransformPoint(
-                        merchantRunner.transform.TransformPoint(merchantRest[i]));
-                    return Mathf.Abs(p.y - 1.12f) + Mathf.Abs(p.z - .33f) + Mathf.Abs(p.x + 1.436f);
-                }).First();
-                Vector3 merchantTarget = merchantRunner.transform.TransformPoint(merchantRest[merchantIndex]);
-                hand.HasPose = true;
-                Vector3 outward = merchantStation.transform.right;
-                for (int frame = 0; frame < 12; frame++)
-                {
-                    Vector3 away = merchantTarget - outward * (.12f * 198f);
-                    tipObject.transform.position = palmObject.transform.position = away;
-                    merchantProduction.TickAuthor(frame / 90f, 1f / 90f, true);
-                    yield return null;
-                }
-                for (int frame = 0; frame < 18; frame++)
-                {
-                    Vector3 touch = merchantTarget + outward * (Mathf.Lerp(-.055f, .035f, frame / 17f) * 198f);
-                    tipObject.transform.position = palmObject.transform.position = touch;
-                    merchantProduction.TickAuthor((12f + frame) / 90f, 1f / 90f, true);
-                    yield return null;
-                    merchantVisibleTouch = Mathf.Max(merchantVisibleTouch,
-                        VisibleMotion(merchantRunner, merchantRest, 198f));
-                }
-                Vector3 withdrawn = merchantTarget - outward * (.12f * 198f);
-                tipObject.transform.position = palmObject.transform.position = withdrawn;
-                for (int frame = 0; frame < 65; frame++)
-                {
-                    merchantProduction.TickAuthor((30f + frame) / 90f, 1f / 90f, true);
-                    yield return null;
-                }
-                merchantVisibleReturn = VisibleMotion(merchantRunner, merchantRest, 198f);
-                productionPathPass &= merchantVisibleTouch > .004f && merchantVisibleReturn < .001f;
+                merchantProduction.TickAuthor(0f, 1f / 90f, true);
+                merchantProduction.TickObserver(0f, 0f, default, default, true);
+                productionPathPass &= merchantRunnerCount == 0;
             }
             finally
             {
@@ -595,8 +563,7 @@ public sealed class TownClothProbe : MonoBehaviour
             + " actual_reentry_min=" + actualReentryMin.ToString("F5")
             + " actual_longterm_max=" + actualLongTermMax.ToString("F5")
             + " production_visible_path=" + (productionPathPass ? "PASS" : "FAIL")
-            + " merchant_visible_touch_m=" + merchantVisibleTouch.ToString("F5")
-            + " merchant_visible_return_m=" + merchantVisibleReturn.ToString("F5")
+            + " merchant_runner_count=" + merchantRunnerCount
             + " production_visible_contact_m=" + productionVisibleContact.ToString("F5")
             + " production_short_touch_peak_m=" + productionShortTouchPeak.ToString("F5")
             + " production_contact_edge_peak_m=" + productionContactEdgePeak.ToString("F5")

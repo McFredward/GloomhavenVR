@@ -52,10 +52,8 @@ def source_contract(source):
         'contact follows physical surface': ('runner.ContactSurface = simulated;' in source
                                              and 'Vector3[] surface = runner.ContactSurface' in source
                                              and 'DistanceSquaredToSegment(surface[i], localA, localB)' in source),
-        'merchant side cloth': ('MerchantAuthoredPoint(row, column)' in source
-                                and 'BuildMerchantSupports(runner)' in source
-                                and 'service == 2 ? 2 : 1' in source
-                                and '_service == 1 ? Vector3.up : Vector3.forward' in source),
+        'merchant side banner absent': ('service == 1 ? 0 : service == 2 ? 2 : 1' in source
+                                        and 'if (filters.Count == 0) return;' in source),
     }
     missing = [name for name, present in checks.items() if not present]
     if missing:
@@ -101,7 +99,8 @@ def validate_source():
         'fingertip': ('VRHands.Left.Rig.IndexTip.position', 'VRHands.Left.Rig.PalmCenter.forward'),
         'rest-surface-gate': ('Vector3[] surface = runner.ContactSurface',
                               'Vector3[] surface = runner.DriverRest'),
-        'merchant-driver': ('MerchantAuthoredPoint(row, column)', 'AuthoredPoint(row, column, minX, maxX)'),
+        'merchant-banner-reintroduced': ('service == 1 ? 0 : service == 2 ? 2 : 1',
+                                        'service == 1 ? 1 : service == 2 ? 2 : 1'),
     }
     for name, (before, after) in mutations.items():
         changed = source.replace(before, after) if name == 'raycast' else source.replace(before, after, 1)

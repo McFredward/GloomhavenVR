@@ -2,16 +2,16 @@
 
 **Updated 2026-09-27: feature/immersive-town-services, version 1.1.0 hardware candidate.**
 The feature includes released 1.0.8 / ModBuild 556 and the subsequent 1.0.9
-version bookkeeping on `dev`. ModBuild 572 follows the build-571 videos, screenshots and Debug log
-with visible merchant cloth contact and replication, joined cabinet hardware, a corrected
-priestess cover path, first-approach enchantress preview, eligible handoff haptics and
-asynchronous town-art loading before the first map.
+version bookkeeping on `dev`. ModBuild 573 follows the build-572 merchant confirmation,
+cabinet, priestess and enchantress evidence: native confirmation reconciliation,
+removal of the experimental side banner, imported-rig arm correction, and one
+physical enchantment card with original selectable game highlights.
 ModBuild 560 introduced resident
 voices, shared merchant confirmation presentation, a visible temple donation
 target, cloth contact, cabinet detail and varied idle motion.
 Headset verification of the resulting presentation remains open. Historical NPC
 design: [research/TOWN-SERVICES-552.md](research/TOWN-SERVICES-552.md).
-Current evidence and implementation limits: [TOWN-572.md](TOWN-572.md).
+Current evidence and implementation limits: [TOWN-573.md](TOWN-573.md).
 The feature remains isolated from `dev`, and NPC work belongs on this branch.
 
 The file this replaces had gone 168 builds
@@ -26,6 +26,14 @@ change per build) → this file (where things stand and what is owed) → the bu
 ---
 
 ## 1. Position
+
+- **NPC feature / 1.1.0 / ModBuild 573 (hardware candidate):** merchant confirmations
+  recover after a native window closes without updating its active wrapper; stock-to-owned
+  replacement retains its card through transient tab changes. The red cabinet side appendage
+  is gone and physical controls align with the imported sculpt. The priestess's shoulder and
+  bowl path are corrected at the actual rig. The enchantress shows one card under the game's
+  original selectable enhancement areas and speaks on native visits or accepted offers.
+  Evidence and headset checks are in [TOWN-573.md](TOWN-573.md).
 
 - **NPC feature / 1.1.0 / ModBuild 572 (hardware candidate):** the merchant's side cloth
   responds to finger contact and shares its movement with observers. Cabinet legs, braces,
