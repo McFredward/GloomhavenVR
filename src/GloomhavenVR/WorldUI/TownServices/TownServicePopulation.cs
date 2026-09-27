@@ -64,7 +64,8 @@ internal static class TownServicePopulation
     internal static bool IsFaceAuthor { get; private set; }
     private static uint _faceSequence, _faceEpoch;
     private static float _faceClock, _lastRemoteFaceTime = float.NegativeInfinity;
-    internal static bool Available(byte service) => Residents.TryGetValue(service, out Resident? resident)
+    internal static bool Available(byte service) => TownServiceAvailability.NativeUnlocked(service)
+        && Residents.TryGetValue(service, out Resident? resident)
         && resident.Station.IsReady;
     private static float _started, _retryAt;
     internal static bool HasRemoteVisitors
@@ -97,6 +98,7 @@ internal static class TownServicePopulation
 
     internal static TownServiceStation? Acquire(byte service)
     {
+        if (!TownServiceAvailability.NativeUnlocked(service)) return null;
         if (!Prepare()) return null;
         if (Residents.TryGetValue(service, out Resident? current)) return current.Station;
         TownServiceStation? station = TownServiceStation.Create(service, _frame!.transform.position, _frame.transform.localScale.x);
@@ -114,6 +116,7 @@ internal static class TownServicePopulation
         // elected author eases and publishes attention back to neutral for all peers.
         bool interactive = enabled && !StoryComposite.PointOfNoReturn;
         if (!MapRoomDriver.Active) { Reset(); return; }
+        TownServiceTutorialPatches.Tick();
         if (_frame == null && !enabled && !HasRemoteVisitors
             && TownServiceEnhancementHandoff.Returning.Count == 0) return;
         if (!Prepare()) { Reset(); return; }
@@ -155,7 +158,21 @@ internal static class TownServicePopulation
         {
             bool visiting = TownServiceMirror.TryInteractionOwner(service, out _, out _, out float ownerAge);
             float visitAge = visiting ? ownerAge : float.PositiveInfinity;
-            bool used = enabled || visiting;
+            bool unlocked = TownServiceAvailability.NativeUnlocked(service);
+            bool used = TownServiceAvailability.ShouldPublish(unlocked, enabled, visiting);
+            // An opt-in setting is not an unlock. The original modes read these saved
+            // headquarters flags (and their FTUE gate) before exposing their buttons. Keeping
+            // even an invisible locked station allocated left its table/props and ray surfaces
+            // in the room. Retire the whole resident at the same native availability boundary.
+            if (!unlocked)
+            {
+                if (Residents.TryGetValue(service, out Resident? locked))
+                {
+                    locked.Visit.Dispose(); locked.Station.Dispose(); Residents.Remove(service);
+                    NativeTemplates.InvalidateResident(service);
+                }
+                continue;
+            }
             if (used && retry) Acquire(service);
             if (!Residents.TryGetValue(service, out Resident? resident))
             { if (used) missing = true; published.Active = false; continue; }

@@ -26,6 +26,7 @@ internal static class TownServicePublicMerchant
     {
         get
         {
+            if (!TownServiceAvailability.NativeUnlocked(1)) return false;
             if (TownServiceMirror.IsPublicAuthor) return true;
             TownRackState? state = TownServiceMirror.PublicRack;
             // The observer's local cabinet is visually suppressed. Until the elected
@@ -52,7 +53,8 @@ internal static class TownServicePublicMerchant
     }
     internal static void Tick()
     {
-        if (!MapRoomDriver.Active || !WorldUIConfig.ImmersiveTownServices.Value)
+        if (!MapRoomDriver.Active || !WorldUIConfig.ImmersiveTownServices.Value
+            || !TownServiceAvailability.NativeUnlocked(1))
         { Reset(); Failures.Clear(); _failed = false; _retryAt = 0; return; }
         if (Time.unscaledTime < _retryAt) return;
         try
@@ -100,7 +102,8 @@ internal static class TownServicePublicMerchant
     private static void ProbeScrollHover(VRHand hand)
     {
         // A consumer may run before the presentation tick observes a mode/config edge.
-        if (MapRoomDriver.Active && WorldUIConfig.ImmersiveTownServices.Value && !StoryComposite.PointOfNoReturn)
+        if (MapRoomDriver.Active && WorldUIConfig.ImmersiveTownServices.Value
+            && TownServiceAvailability.NativeUnlocked(1) && !StoryComposite.PointOfNoReturn)
             _catalog?.Drawers[0].NoteScrollHover(hand);
     }
 

@@ -61,6 +61,7 @@ internal static class TownServicePresentation
         && _enhancementListMask != null
         && GuildmasterDestinations.CurrentDestinationMode() == EGuildmasterMode.Enchantress;
     internal static bool Active => WorldUIConfig.ImmersiveTownServices.Value
+        && TownServiceAvailability.NativeUnlocked(Service)
         && ((Service != 1 && Service != 3) || TownServiceEnhancementHandoff.Enabled)
         && _window != null && _window.IsOpen && _station != null;
     internal static bool OwnsInteraction => Active
@@ -94,6 +95,8 @@ internal static class TownServicePresentation
         EGuildmasterMode mode = GuildmasterDestinations.CurrentDestinationMode();
         if (mode != EGuildmasterMode.Merchant && mode != EGuildmasterMode.Temple
             && mode != EGuildmasterMode.Enchantress)
+            return false;
+        if (!TownServiceAvailability.NativeUnlocked(TownServiceVisitTarget.ServiceOf(mode)))
             return false;
         if ((mode == EGuildmasterMode.Merchant || mode == EGuildmasterMode.Enchantress)
             && !TownServiceEnhancementHandoff.Enabled)
@@ -143,6 +146,16 @@ internal static class TownServicePresentation
         byte service = mode == EGuildmasterMode.Merchant ? (byte)1 : mode == EGuildmasterMode.Temple ? (byte)2
             : mode == EGuildmasterMode.Enchantress ? (byte)3 : (byte)0;
         UIWindow? window = service != 0 ? GuildmasterDestinations.ModeWindow(mode) : null;
+        if (service != 0 && !TownServiceAvailability.NativeUnlocked(service))
+        {
+            // An old modal may still be retiring when a save or FTUE step changes. Do not
+            // present an inaccessible resident or capture a controller whose native mode is
+            // locked. The original window remains the fallback if it is already open.
+            UIWindow? restore = _window;
+            Reset(); _failedWindow = null;
+            if (restore != null && restore.IsOpen) ModalFallback.RestoreClassicTownService(restore);
+            return;
+        }
         if ((service == 1 || service == 3) && !TownServiceEnhancementHandoff.Enabled)
         {
             // Respect the explicit map-hand preference. Without real hand cards the native
