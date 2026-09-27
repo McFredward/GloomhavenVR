@@ -876,14 +876,46 @@ public static class InteractionProgram
             Check(!TownServicePalmConfirmation.Owns(window)&&TownServiceWindowMask.OwnsRetiring(window)
                 &&native.transform.parent!=null,
                 "closed native confirmation remains masked instead of returning a stale renderer to the converted panel");
+            Transform retiredWrapper=native.transform.parent!;
+            // Reopen the pooled native confirmation before its three-frame mask retirement.
+            // This is the real stock-card -> owned-card buy/sell replacement cadence. The
+            // old test waited for retirement first, so it never observed the nested-wrapper
+            // destruction that left a card in the merchant palm without usable buttons.
+            window.IsOpen=window.IsVisible=true;box._onConfirmedCallback=()=>commits+=100;
+            ((TMPro.TMP_Text)box.titleText).text="Sell";
+            TownServicePalmConfirmation.Begin(box,seat);TownServicePalmConfirmation.Tick();
+            Check(!TownServiceWindowMask.OwnsRetiring(window)
+                && !native.transform.IsChildOf(retiredWrapper),
+                "reopened sell confirmation escapes retiring buy wrapper before its buttons are built");
+            var replacement=new List<TownServicePalmConfirmation.Entry>(TownServicePalmConfirmation.Active)[0];
+            Check(replacement.Surfaces.Count==4 && replacement.Surfaces[2].Panel.Target==box.confirmButton.transform,
+                "replacement owns the actual native confirm button, not merely an active wrapper flag");
             TownServiceWindowMask.TickRetirements();
-            Check(TownServiceWindowMask.OwnsRetiring(window),"closed native confirmation remains masked through first render opportunity");
+            Check(replacement.Open && box.confirmButton.gameObject.activeInHierarchy
+                && !native.transform.IsChildOf(retiredWrapper),
+                "old buy retirement cannot remove the replacement sale button in its first frame");
             TownServiceWindowMask.TickRetirements();
-            Check(TownServiceWindowMask.OwnsRetiring(window),"closed native confirmation remains masked through two complete render opportunities");
+            TownServiceWindowMask.TickRetirements();
+            Check(replacement.Open && replacement.Surfaces[2].Panel.Target==box.confirmButton.transform
+                && box.confirmButton.gameObject.activeInHierarchy,
+                "replacement confirmation stays clickable after all three old retirement frames");
+            ExecuteEvents.Execute(box.confirmButton.gameObject,
+                new PointerEventData(EventSystem.current){button=PointerEventData.InputButton.Left},
+                ExecuteEvents.pointerClickHandler);
+            Check(commits==101,"replacement sale confirmation invokes the new native decision exactly once");
+            window.IsVisible=false;TownServicePalmConfirmation.Tick();
+            Check(TownServiceWindowMask.OwnsRetiring(window),
+                "closed replacement remains masked during its own render retirement");
+            TownServiceWindowMask.TickRetirements();
+            Check(TownServiceWindowMask.OwnsRetiring(window),
+                "closed native confirmation remains masked through first render opportunity");
+            TownServiceWindowMask.TickRetirements();
+            Check(TownServiceWindowMask.OwnsRetiring(window),
+                "closed native confirmation remains masked through two complete render opportunities");
             TownServiceWindowMask.TickRetirements();
             Check(!TownServiceWindowMask.OwnsRetiring(window)&&box.confirmButton.transform.parent==native.transform,
-                "settled confirmation restores original hierarchy without losing continuation");
-            window.IsOpen=window.IsVisible=true;box._onConfirmedCallback=()=>commits+=100;
+                "settled replacement restores the native button to its original hierarchy");
+            window.IsOpen=window.IsVisible=true;box._onConfirmedCallback=()=>commits+=500;
             TownServicePalmConfirmation.Begin(box,seat);TownServicePalmConfirmation.Tick();
             box._onConfirmedCallback=()=>commits+=1000;
             TownServicePalmConfirmation.CancelOwned(window);

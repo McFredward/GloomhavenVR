@@ -25,6 +25,12 @@ internal sealed class TownServiceWindowMask : IDisposable
 
     internal TownServiceWindowMask(RectTransform source)
     {
+        // A native confirmation is pooled. A replacement buy/sell prompt can reopen the
+        // very same UIWindow before the previous mask's three-frame retirement ends.
+        // If its new wrapper is parented under the retiring wrapper, retirement destroys
+        // the new prompt and its physical buttons. Restore the old source parent first.
+        UIWindow? reopening = source.GetComponent<UIWindow>();
+        if (reopening != null) RetireForReuse(reopening);
         _source = source; _parent = source.parent; _sibling = source.GetSiblingIndex();
         _window = source.GetComponent<UIWindow>();
         var host = new GameObject("GloomhavenVR.TownService.NativeWindowMask", typeof(RectTransform));
@@ -87,6 +93,14 @@ internal sealed class TownServiceWindowMask : IDisposable
         for (int i = 0; i < Retiring.Count; i++)
             if (ReferenceEquals(Retiring[i]._window, window)) return true;
         return false;
+    }
+
+    private static void RetireForReuse(UIWindow window)
+    {
+        // New presentation supersedes only retirement of this exact pooled native window.
+        // Dispose newest-first if an earlier interrupted replacement left nested wrappers.
+        for (int i = Retiring.Count - 1; i >= 0; i--)
+            if (ReferenceEquals(Retiring[i]._window, window)) Retiring[i].DisposeNow();
     }
 
     /// <summary>Advance from the ordinary presentation tick. An actually reopened pooled prompt
