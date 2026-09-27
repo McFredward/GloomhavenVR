@@ -27,6 +27,12 @@ internal sealed class TownServiceCloth : IDisposable
     private const float TipRadiusRealMeters = .010f;
     private const float FingerLengthRealMeters = .09f;
     private const float MaximumFreedomRealMeters = .11f;
+    // Unity 2021.3 refuses to initialize a Cloth whose *every* particle starts
+    // fixed. The headset log then says "All cloth particles are fixed so the
+    // Cloth component is not initialized" and every touch remains rigid even
+    // after SetFreedom expands the coefficients. Keep a sub-millimetre live
+    // envelope while idle so PhysX cooks the solver on its first enabled frame.
+    private const float IdleFreedomRealMeters = .0005f;
 
     private sealed class Decoration
     {
@@ -312,9 +318,11 @@ internal sealed class TownServiceCloth : IDisposable
             // deformation and the scale-correct gravity restores the hanging rest.
             runner.DriverMaximum[n] = runner.DriverFreedom[n]
                 * MaximumFreedomRealMeters * stationUnitInDriver;
-            // The authored mesh is already the exact rest drape. Begin pinned and
-            // expand the physical envelope only as a hand/head approaches.
-            coefficients[n].maxDistance = 0f;
+            // The authored mesh is already the exact rest drape. Start within a
+            // sub-millimetre envelope, then expand for a hand/head approach.
+            // An exact zero for every vertex leaves Unity's Cloth uninitialized.
+            coefficients[n].maxDistance = runner.DriverFreedom[n]
+                * IdleFreedomRealMeters * stationUnitInDriver;
             coefficients[n].collisionSphereDistance = .004f * stationUnitInDriver;
         }
         cloth.coefficients = coefficients;
@@ -710,7 +718,9 @@ internal sealed class TownServiceCloth : IDisposable
     {
         ClothSkinningCoefficient[] coefficients = runner.Cloth.coefficients;
         for (int n = 0; n < coefficients.Length; n++)
-            coefficients[n].maxDistance = runner.DriverMaximum[n] * scale;
+            coefficients[n].maxDistance = Mathf.Max(
+                runner.DriverFreedom[n] * IdleFreedomRealMeters * runner.StationUnitInDriver,
+                runner.DriverMaximum[n] * scale);
         runner.Cloth.coefficients = coefficients;
         runner.Cloth.ClearTransformMotion();
     }

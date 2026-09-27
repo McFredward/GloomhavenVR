@@ -45,6 +45,9 @@ def source_contract(source):
                                                and 'if (runner.CaptureOrigin && runner.ContactSurface.Length == runner.EpisodeOrigin.Length)' in source
                                                and 'Array.Copy(runner.ContactSurface, runner.EpisodeOrigin' in source
                                                and source.count('AddComponent<Cloth>()') == 1),
+        'solver initializes before first touch': ('IdleFreedomRealMeters = .0005f' in source
+                                                  and 'runner.DriverFreedom[n]\n                * IdleFreedomRealMeters * stationUnitInDriver' in source
+                                                  and 'runner.DriverFreedom[n] * IdleFreedomRealMeters * runner.StationUnitInDriver' in source),
         'real local fingertips': ('VRHands.Left.Rig.IndexTip.position' in source
                                   and 'VRHands.Right.Rig.IndexTip.position' in source
                                   and 'VRHands.Left.WorldScale' in source
@@ -101,6 +104,8 @@ def validate_source():
                               'Vector3[] surface = runner.DriverRest'),
         'merchant-banner-reintroduced': ('service == 1 ? 0 : service == 2 ? 2 : 1',
                                         'service == 1 ? 1 : service == 2 ? 2 : 1'),
+        'all-particles-fixed-at-start': ('IdleFreedomRealMeters = .0005f',
+                                         'IdleFreedomRealMeters = 0f'),
     }
     for name, (before, after) in mutations.items():
         changed = source.replace(before, after) if name == 'raycast' else source.replace(before, after, 1)
@@ -168,8 +173,15 @@ def main():
     played = subprocess.run(['xvfb-run', '-a', str(project / 'Build/towncloth'), '-batchmode',
         '--result=' + str(result), '--bundle=' + str(args.bundle.resolve()),
         '-logFile', str(player_log)], timeout=120)
-    if played.returncode or not result.exists() or 'PASS' not in result.read_text():
+    player_text = player_log.read_text(errors='replace') if player_log.exists() else ''
+    # Build 573 looked green in the simulated contact sweep while Unity refused
+    # to initialize the actual game driver at startup. This exact engine warning
+    # preceded every rigid headset cloth in the supplied Player.log. Do not
+    # allow another green metric with a dead native solver.
+    initialized = 'All cloth particles are fixed so the Cloth component is not initialized' not in player_text
+    if played.returncode or not result.exists() or 'PASS' not in result.read_text() or not initialized:
         raise SystemExit('Unity cloth probe failed: ' + str(player_log))
+    print('native_solver_initialization=PASS (no all-particles-fixed warning)')
     print(result.read_text().strip())
     print('evidence:', run)
 

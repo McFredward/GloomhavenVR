@@ -342,19 +342,14 @@ def merchant_forged_lantern_bracket(cx):
     tube('Lantern short hanging link',[(cx-.550,1.665,.078),(cx-.556,1.634,.078)],
          [.005,.004],'ForgedIron',10)
     ring('Lantern hanging link',(cx-.56,1.62,.078),.026,.005,'Brass',True)
-    # A top-only hook made the entire 32 cm native lamp read as a long dangling
-    # pendulum in MB571's side view. The actual bottom now sits in this forged
-    # saddle at Y=1.27 while the original hook still meets the top eye. The
-    # rear riser makes the two bearing points one continuous cabinet fixture.
-    tube('Lantern lower saddle arm',[(cx-.398,1.284,.142),
+    # The lower cup is a short bracket emerging from the cabinet cheek. The
+    # previous long rear riser was visible as an isolated, purposeless pole to
+    # the left of the lamp in the Build 573 headset side view.
+    tube('Lantern lower saddle arm',[(cx-.335,1.284,.142),
          (cx-.475,1.265,.124),(cx-.560,1.265,.080)],
          [.012,.010,.010],'ForgedIron',12)
     ring('Lantern lower bearing cup',(cx-.560,1.263,.080),.078,.007,
          'ForgedIron')
-    tube('Lantern rear load-bearing riser',[(cx-.362,1.602,.155),
-         (cx-.492,1.594,.178),(cx-.560,1.485,.184),
-         (cx-.560,1.275,.184)], [.008,.008,.007,.007],
-         'ForgedIron',10)
 
 
 def merchant_carved_cheek(cx, side):
@@ -646,7 +641,10 @@ def enchantress():
                 pts=[(x+.045*math.cos(t*5+strand*2),t*.91,z+.035*math.sin(t*5+strand*2)) for t in [j/24 for j in range(25)]]
                 tube('Twisted root support',pts,[.028+.012*math.sin(i/24*math.pi) for i in range(25)])
             for y in (.12,.74): ring('Root collar',(x,y,z),.071,.008)
-    tube('Bent root stretcher',[(-.64,.26,0),(-.3,.22,.04),(0,.30,0),(.3,.24,-.03),(.64,.26,0)],[.035]*5)
+    # The former crossbar ended at Z=0, while every root leg is at Z=-.24 or
+    # +.28. It therefore floated between them as an unattached branch when
+    # seen from underneath (Build 573 headset screenshot). The four root
+    # supports already bear the live-edge tabletop without that decorative bar.
     outline=[(.27*math.cos(i*math.tau/64),-.05+.27*math.sin(i*math.tau/64)) for i in range(64)]
     slab('Engraved slate inset',outline,.958,.012,'PaleStone',.004)
     for radius in (.225,.253): ring('Incised brass circle',(0,.960,-.05),radius,.0025)
