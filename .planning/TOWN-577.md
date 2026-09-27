@@ -83,4 +83,21 @@ mm maximum visible edge stretch, below the new 15 mm bound. The authored rest
 gap from the real root surface is 24.47 mm. The updated art bundle passed the
 UnityFS format check as Unity 2021.3.5f1 format 7; it is 101,845,184 bytes.
 This build therefore requires a full install with the updated `ghvr-town.bundle`.
-The integrated project checks and the next headset verification remain open.
+On the final integrated ModBuild-577 commit, the complete 80-suite runtime run
+passed 80/80 (538.1 s), including both merchant-catalog and workspace suites;
+the 14 source checks passed 14/14, and the byte-exact wire tests passed 286,578
+assertions. The strict Release build completed with zero warnings and errors,
+the English/German documentation check passed, and the rebuilt town bundle
+passed the UnityFS format check. `refactor-guard.sh check --summary` returns 1
+for the compiled-form comparison because the available baseline belongs to the
+older `dev` branch without the NPC feature: 129 changed and 218 added/removed
+types include the feature itself. The scoped source diff from ModBuild 576
+contains only the files listed for this round; no wire layout changed.
+
+The next headset run must still verify that long merchant inspections always
+keep a visible decision, Cancel/swap return or replace cards correctly, laser
+and physical enhancement-area selection work on every card orientation, the
+native ring remains round while pulsing, the priestess enters and leaves her
+neutral pose smoothly, and finger contact deforms the drape without holes or
+table/root penetration. Remote NPC presentation remains governed by the
+existing 1:1 rule; the supplied run had no remote log.
