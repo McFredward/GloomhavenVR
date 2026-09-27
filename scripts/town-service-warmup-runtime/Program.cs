@@ -10,9 +10,18 @@ if (args[0] == "missing")
     TownServiceAssets.BeginPreload();
     Check(!TownServiceAssets.IsLoading && AssetBundle.LoadCalls == 0, "optional missing bundle");
     File.WriteAllText(bundlePath, "fixture");
+    AssetBundle.Art = new AssetBundle(TownServiceAssets.BundleName);
+    AssetBundle.Art.Assets.Add("assets/bundle/townservices/prefabs/townmerchant.prefab", new GameObject());
     TownServiceAssets.Reset();
     TownServiceAssets.BeginPreload();
     Check(TownServiceAssets.IsLoading && AssetBundle.LoadCalls == 1, "hot reload retries installed bundle");
+    AssetBundle.ArtRequest!.isDone = true;
+    TownServiceAssets.Tick();
+    foreach (AssetBundleRequest request in AssetBundle.Art.Requests) request.isDone = true;
+    TownServiceAssets.Tick();
+    Check(TownServiceAssets.Prefab("townmerchant") != null
+        && TownServiceAssets.Audio("merchant-greet") == null,
+        "missing optional speech does not block resident art");
     File.Delete(bundlePath);
     Console.WriteLine("Town warmup missing/retry fixture passed");
     return;
