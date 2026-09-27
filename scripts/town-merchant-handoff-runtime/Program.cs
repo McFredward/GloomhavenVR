@@ -125,6 +125,18 @@ public static class InteractionProgram
   Check(ReferenceEquals(TownServiceMerchantTransaction.LastItem,first.Item),"sale preserves item copy identity");
   Check(Singleton<UIItemConfirmationBox>.Instance!.IsActive,"final native confirmation remains visibly pending (window="+Singleton<UIItemConfirmationBox>.Instance.Window.IsOpen+", visible="+Singleton<UIItemConfirmationBox>.Instance.Window.IsVisible+")");
   Check(TownServiceMerchantHandoff.WantsOffering && TownServiceMerchantHandoff.CanReclaim(first),"exact pending card keeps palm and can be reclaimed");
+  // A shopper can inspect an item far longer than the 8 s transaction-result watcher.
+  // Its deadline must not consume the unconfirmed offer or make a later swap/cancel inert.
+  typeof(TownServiceMerchantHandoff).GetField("_tradeUntil",System.Reflection.BindingFlags.NonPublic|System.Reflection.BindingFlags.Static)!.SetValue(null,Time.unscaledTime-1f);
+  TownServiceMerchantHandoff.Tick();
+  Check(TownServiceMerchantHandoff.CanReclaim(first)
+      && ReferenceEquals(typeof(TownServiceMerchantHandoff).GetField("_tradeItem",System.Reflection.BindingFlags.NonPublic|System.Reflection.BindingFlags.Static)!.GetValue(null),first.Item),
+      "expired result watcher never detaches a still-open merchant decision from its parked card");
+  int priorBindings=TownServicePalmConfirmation.Bindings;
+  TownServicePalmConfirmation.PhysicalControlsVisible=false;
+  TownServiceMerchantHandoff.Tick();
+  Check(TownServicePalmConfirmation.PhysicalControlsVisible && TownServicePalmConfirmation.Bindings>priorBindings,
+      "open native merchant decision restores its physical confirm/cancel presentation after a lost panel");
   Check(first.AllowsHand(VRHands.Left)&&first.AllowsHand(VRHands.Right),"parked owned item bypasses wrist fan election for both hands");
   first.Holder=VRHands.Left; first.TownOffering=false;
   Check(first.AllowsHand(VRHands.Left),"reclaimed item remains valid for its fan-owning holder");
@@ -184,16 +196,24 @@ public static class InteractionProgram
   ShopService.Affordable=true;TownServiceMerchantHandoff.StockInspected(new CItem{ID=102},false);
   Check(TownServiceVoice.SoldOut==rejectedStock+1,
       "physically inspecting exhausted stock chooses the availability explanation");
+  int beforeStockOffer=TownServiceMerchantTransaction.Requests;
   Check(TownServiceMerchantHandoff.Offer(stock,false,palm.position),"cabinet release requests native buy");
+  Check(TownServiceMerchantTransaction.Requests==beforeStockOffer+1
+      &&Singleton<UIItemConfirmationBox>.Instance!.IsActive,
+      "ready native merchant decision opens on the release edge before the physical card parks");
+  var acceptedStockToken=new TownServiceToken();
+  TownServiceCatalog.RetainOffer!(acceptedStockToken);
+  Check(acceptedStockToken.Parks==1,
+      "synchronous native buy confirmation still parks its exact physical stock card");
   TownServiceMerchantHandoff.Tick(); Check(!TownServiceMerchantTransaction.LastSelling,"stock release dispatches buy confirmation");
   var ownedReplacement=TownServiceMerchantHandoff.OwnedChips[0];
   int stockCancels=Singleton<UIItemConfirmationBox>.Instance!.Cancels;
+  TownServiceMerchantTransaction.CommitFailures=1;
   ownedReplacement.Release(palm.position);
   Check(Singleton<UIItemConfirmationBox>.Instance.Cancels==stockCancels+1
       &&ownedReplacement.TownOffering,
       "stock-to-owned swap cancels only the previous buy and parks the exact sale card");
   int beforeRetry=TownServiceMerchantTransaction.Requests;
-  TownServiceMerchantTransaction.CommitFailures=1;
   TownServiceMerchantHandoff.Tick();
   Check(ownedReplacement.TownOffering&&TownServiceMerchantHandoff.WantsOffering
       &&TownServiceMerchantTransaction.Requests==beforeRetry,

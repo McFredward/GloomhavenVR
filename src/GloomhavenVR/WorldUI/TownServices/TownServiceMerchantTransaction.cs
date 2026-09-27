@@ -4,6 +4,7 @@ using System.Reflection;
 using HarmonyLib;
 using ScenarioRuleLibrary;
 using UnityEngine.EventSystems;
+using UnityEngine.UI;
 
 namespace GloomhavenVR.WorldUI;
 
@@ -31,8 +32,19 @@ internal static class TownServiceMerchantTransaction
     {
         if (!stillCurrent() || !Eligible(inventory, item, selling) || EventSystem.current == null) return false;
         UIItemConfirmationBox confirmation = Singleton<UIItemConfirmationBox>.Instance;
-        // Do not replace a confirmation that another input or player action already owns.
-        if (confirmation == null || confirmation.IsActive) return false;
+        if (confirmation == null) return false;
+        UIWindow nativeWindow = confirmation.GetComponent<UIWindow>();
+        if (nativeWindow == null || !nativeWindow.gameObject.activeInHierarchy) return false;
+        // A rejected ShowConfirmation can set IsActive and its callback before UIWindow.Show
+        // refuses an inactive window. A prior direct hide can leave that wrapper stale too.
+        // Only a fully hidden native window can be reconciled; never steal a live prompt or
+        // open another one over the outgoing fade.
+        if (!nativeWindow.IsOpen && !nativeWindow.IsVisible && confirmation.IsActive)
+        {
+            if (Core.VRLog.WantsDebug) Core.VRLog.Debug("TownServices", "Merchant native confirmation had a stale active wrapper after its window closed; reconciling before the next offer.");
+            confirmation.Hide();
+        }
+        if (confirmation.IsActive || nativeWindow.IsOpen || nativeWindow.IsVisible) return false;
         if (selling) inventory.sellTab.isOn = true; else inventory.buyTab.isOn = true;
         inventory.RefreshView();
         inventory.FilterShownItems(ItemListingType.AllGear);
@@ -55,6 +67,14 @@ internal static class TownServiceMerchantTransaction
         bool created = confirmation.IsActive && confirmation.IsConfirmingItem(selectedItem)
             && confirmation._onConfirmedCallback != null
             && !ReferenceEquals(previous, confirmation._onConfirmedCallback);
+
+        // Native Show may refuse a deactivated confirmation box after installing its
+        // callback. Do not let that invisible IsActive wrapper block every later offer.
+        if (!created && confirmation.IsActive && !nativeWindow.IsOpen && !nativeWindow.IsVisible)
+        {
+            if (Core.VRLog.WantsDebug) Core.VRLog.Debug("TownServices", "Merchant native confirmation Show was refused after installing a callback; clearing its invisible active wrapper.");
+            confirmation.Hide();
+        }
 
         if (!stillCurrent() || !Eligible(inventory, item, selling)
             || !created || !confirmation.confirmButton.IsActive() || !confirmation.confirmButton.IsInteractable())

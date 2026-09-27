@@ -41,6 +41,7 @@ internal static class TownServiceMerchantHandoff
     private static UIItemConfirmationBox? _tradeBox;
     private static UnityAction? _tradeListener, _cancelListener;
     private static uint _pendingSession;
+    private static uint _lastPendingTimeoutSession;
     private static Action? _ourConfirmation;
     private static ItemsPile.ItemChip? _offeredChip;
     private static TownServiceToken? _offeredStock;
@@ -274,12 +275,29 @@ internal static class TownServiceMerchantHandoff
         _pending = item; _selling = selling; _pendingSession = Session;
         _pendingUntil = Time.unscaledTime + 3f;
         _nextCommitAt = 0f; _decisionRetries = 0;
-        return true;
+        // The native shop toggle is synchronous once its inventory is initialized. Install
+        // the original decision on this release edge when possible, before the physical
+        // card can finish settling on the palm. If the window is still coming up, the
+        // ordinary bounded TickPending retry retains the single offer.
+        TickPending();
+        return ReferenceEquals(_pending, item) || ReferenceEquals(_tradeItem, item) && _tradeSelling == selling;
     }
     private static void TickPending()
     {
         if (_pending == null) return;
-        if (!PendingCurrent() || Time.unscaledTime > _pendingUntil) { _pending = null; ReleaseOffering(); return; }
+        if (!PendingCurrent()) { _pending = null; ReleaseOffering(); return; }
+        if (Time.unscaledTime > _pendingUntil)
+        {
+            // The original game has not produced an actionable confirmation. Do not leave
+            // a physical card in the palm without controls. One report per visit is enough
+            // to diagnose this for ordinary players without logging every retry frame.
+            if (_lastPendingTimeoutSession != Session)
+            {
+                _lastPendingTimeoutSession = Session;
+                Core.VRLog.Warn("TownServices", "Merchant offer could not open its native confirmation within 3 s; returning the card to its source.");
+            }
+            _pending = null; ReleaseOffering(); return;
+        }
         if (Time.unscaledTime < _nextCommitAt) return;
         UIShopItemWindow? window = Singleton<UIGuildmasterHUD>.Instance?.shopWindow;
         if (window == null || !window.GetComponent<UIWindow>().IsOpen) return;
@@ -295,8 +313,11 @@ internal static class TownServiceMerchantHandoff
             if (box != null && _seat != null) TownServicePalmConfirmation.Begin(box, _seat);
             _tradeItem = item; _tradeSelling = _selling;
             _tradeBaseline = ItemCount(_character, item);
-            _tradeUntil = Time.unscaledTime + 8f;
+            _tradeUntil = 0f;
             _tradePressed = false;
+            if (Core.VRLog.WantsDebug)
+                Core.VRLog.Debug("TownServices", "Merchant native confirmation opened: session="
+                    + Session + " side=" + (_selling ? "sell" : "buy") + ".");
             DetachTradeListener();
             if (box?.confirmButton != null)
             {
@@ -344,7 +365,14 @@ internal static class TownServiceMerchantHandoff
         Action owned = null!;
         owned = () =>
         {
-            if (ReferenceEquals(_ourConfirmation, owned)) _decisionConfirmed = true;
+            if (ReferenceEquals(_ourConfirmation, owned))
+            {
+                _decisionConfirmed = true;
+                _tradePressed = true;
+                // The result deadline begins at the player's actual decision, never at
+                // the moment a card was set down for an arbitrarily long inspection.
+                _tradeUntil = Time.unscaledTime + 8f;
+            }
             nativeConfirm();
         };
         box._onConfirmedCallback = owned;
@@ -357,7 +385,9 @@ internal static class TownServiceMerchantHandoff
     }
     private static void RetainStock(TownServiceToken token)
     {
-        if (_pending == null || _seat == null) return;
+        // A synchronous native decision has already moved _pending to _tradeItem by the
+        // time the catalog transfers its physical token. Both states own that exact card.
+        if ((_pending == null && _tradeItem == null) || _seat == null) return;
         _offeredStock = token;
         token.ParkOffering(_seat, Reclaim);
     }
@@ -370,7 +400,16 @@ internal static class TownServiceMerchantHandoff
         if (confirmation != null && confirmation.IsActive
             && ReferenceEquals(confirmation._onConfirmedCallback, _ourConfirmation))
         {
-            if (nativeWindow != null && (nativeWindow.IsOpen || nativeWindow.IsVisible)) return;
+            if (nativeWindow != null && nativeWindow.IsOpen)
+            {
+                // The native dialog can outlive a converted surface: Unity may retire its
+                // detached child panel during a shop refresh while leaving the transaction
+                // itself open. Rebind from the authoritative callback every frame. Begin is
+                // idempotent while all four original controls remain alive.
+                if (_seat != null) TownServicePalmConfirmation.Begin(confirmation, _seat);
+                return;
+            }
+            if (nativeWindow != null && nativeWindow.IsVisible) return;
             // UIWindowManager.Escape and other native owners can call UIWindow.Hide
             // directly. That leaves UIItemConfirmationBox.IsActive true forever,
             // although its underlying window has closed. The old IsActive-only
@@ -427,7 +466,11 @@ internal static class TownServiceMerchantHandoff
     {
         CItem? item = _tradeItem;
         if (item == null) return;
-        if (Time.unscaledTime > _tradeUntil) { _tradeItem = null; DetachTradeListener(); return; }
+        // The eight-second deadline is for observing a *confirmed* network transaction,
+        // not the lifetime of an unconfirmed card in the merchant's palm. Expiring the
+        // latter left the physical card parked but severed its swap/cancel ownership.
+        if (_decisionConfirmed && Time.unscaledTime > _tradeUntil)
+        { _tradeItem = null; DetachTradeListener(); return; }
         int count = ItemCount(_character, item);
         if (!_tradePressed || (_tradeSelling ? count >= _tradeBaseline : count <= _tradeBaseline)) return;
         _tradeItem = null;

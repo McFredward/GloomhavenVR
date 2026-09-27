@@ -19,14 +19,27 @@ internal static class TownServicePalmConfirmation
         private readonly Func<object?> _identity;
         private readonly Action _cancel;
         private readonly object? _callback;
+        private readonly float _createdAt;
         private readonly Component[] _parts;
         private TownServiceWindowMask? _mask;
         private bool _prepared;
         private Transform? _frame, _palm;
         internal bool Current => Window != null && ReferenceEquals(_callback, _identity());
+        internal object? Callback => _callback;
         internal bool Open => Current && Window.IsOpen;
+        internal bool ControlsAlive
+        {
+            get
+            {
+                if (!_prepared) return true;
+                if (Surfaces.Count != _parts.Length) return false;
+                foreach (TownServiceSurface surface in Surfaces)
+                    if (!surface.Panel.IsAlive) return false;
+                return true;
+            }
+        }
         internal Entry(UIWindow window, Transform seat, byte service, Func<object?> identity, Action cancel, Component[] parts)
-        { Window = window; Seat = seat; Service = service; _identity = identity; _callback = identity(); _cancel = cancel; _parts = parts; }
+        { Window = window; Seat = seat; Service = service; _identity = identity; _callback = identity(); _cancel = cancel; _parts = parts; _createdAt = Time.unscaledTime; }
         private void Place()
         {
             if (_frame == null) return;
@@ -54,7 +67,15 @@ internal static class TownServicePalmConfirmation
             {
                 // A prior classic conversion must restore its descendants before their new
                 // owner records rollback state. Pending releases are retried, never destroyed.
-                if (!ModalFallback.ReleaseForComposite(Window)) return true;
+                if (!ModalFallback.ReleaseForComposite(Window))
+                {
+                    // A conversion rollback is normally a short fade. If it never yields,
+                    // the controls have no physical owner. Restore the complete original
+                    // dialog rather than waiting forever under an invisible mask.
+                    if (Service == 1 && Time.unscaledTime - _createdAt > 1f)
+                        throw new InvalidOperationException("Merchant confirmation controls remained owned by a previous conversion");
+                    return true;
+                }
                 _frame = new GameObject("GloomhavenVR.TownService.PalmDecision").transform;
                 _frame.SetParent(Seat.parent, false);
                 _palm = Seat.parent != null ? Seat.parent.Find("ActivityOfferingPalm") : null;
@@ -91,6 +112,7 @@ internal static class TownServicePalmConfirmation
         }
     }
     private static readonly Dictionary<UIWindow, Entry> Entries = new();
+    private static readonly Dictionary<UIWindow, object?> ClassicFallback = new();
     private static readonly List<UIWindow> Finished = new();
     internal static IEnumerable<Entry> Active => Entries.Values;
     internal static bool Owns(UIWindow window) => Entries.ContainsKey(window);
@@ -98,6 +120,11 @@ internal static class TownServicePalmConfirmation
     internal static void Begin(UIItemConfirmationBox box, Transform seat)
     {
         UIWindow window = box.GetComponent<UIWindow>();
+        if (ClassicFallback.TryGetValue(window, out object? callback))
+        {
+            if (ReferenceEquals(callback, box._onConfirmedCallback)) return;
+            ClassicFallback.Remove(window);
+        }
         if (Retains(window, seat)) return;
         Begin(new Entry(window, seat, 1, () => box._onConfirmedCallback, box.OnCancel,
             new Component[] { box.titleText, box.informationText, box.confirmButton, box.cancelButton }));
@@ -110,13 +137,13 @@ internal static class TownServicePalmConfirmation
             new Component[] { box.titleText, box.informationText, box.confirmButton, box.cancelButton, box.enhancementIcon, box.enhancementName }));
     }
     private static bool Retains(UIWindow window, Transform seat) => Entries.TryGetValue(window, out Entry? current)
-        && current.Current && current.Seat == seat;
+        && current.Current && current.Seat == seat && current.ControlsAlive;
     private static void Begin(Entry entry)
     {
         if (!entry.Open) return;
         if (Entries.TryGetValue(entry.Window, out Entry? previous))
         {
-            if (previous.Current && previous.Seat == entry.Seat) return;
+            if (previous.Current && previous.Seat == entry.Seat && previous.ControlsAlive) return;
             previous.Dispose(); Entries.Remove(entry.Window);
         }
         Entries.Add(entry.Window, entry);
@@ -133,6 +160,7 @@ internal static class TownServicePalmConfirmation
             {
                 // Fail open to the original usable dialog; never leave a payment hidden.
                 Core.VRLog.Warn("WorldUI", "TOWN PALM CONFIRMATION: restoring original decision controls: " + ex.Message);
+                if (pair.Value.Service == 1) ClassicFallback[pair.Key] = pair.Value.Callback;
                 Finished.Add(pair.Key);
             }
         }
@@ -149,7 +177,7 @@ internal static class TownServicePalmConfirmation
     internal static void Clear()
     {
         var closing = new List<Entry>(Entries.Values);
-        Entries.Clear(); Finished.Clear();
+        Entries.Clear(); Finished.Clear(); ClassicFallback.Clear();
         foreach (Entry entry in closing) { entry.Cancel(); entry.Dispose(); }
     }
 }

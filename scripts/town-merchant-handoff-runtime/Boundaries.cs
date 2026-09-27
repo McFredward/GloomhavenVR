@@ -67,7 +67,7 @@ public class UIItemConfirmationBox {
 namespace GloomhavenVR.Core {
  public static class Loc { public static string Mod(string s) => s; }
  public static class VRLayers { public const int ModLayer=27; public static void Apply(GameObject o) { } }
- public static class VRLog { public static void Warn(string scope,string message) { } public static void Info(string scope,string message) { } }
+ public static class VRLog { public static bool WantsDebug; public static void Debug(string scope,string message) { } public static void Warn(string scope,string message) { } public static void Info(string scope,string message) { } }
 }
 namespace GloomhavenVR.Core.Events {
  public enum VRMode { TableIdle, ModalUI } public static class VRModeStateMachine { public static VRMode CurrentMode; }
@@ -211,8 +211,14 @@ namespace GloomhavenVR.WorldUI {
  internal sealed class TownServiceStation { public Transform Root = null!; public bool Near = true; public bool IsLocalVisitorNear(bool previous)=>Near; }
  internal static class TownServicePopulation { public static TownServiceStation? Station; public static bool Available(byte s)=>Station!=null; public static TownServiceStation? Acquire(byte s)=>Station; }
  internal static class TownServiceCatalog { public static Func<ScenarioRuleLibrary.CItem,bool,bool>? CanOffer; public static Func<ScenarioRuleLibrary.CItem,bool,Vector3,bool>? Offer; public static Func<Vector3,bool>? InOfferingZone; public static bool HeldOfferAvailable; public static Action<TownServiceToken>? RetainOffer; public static bool TryHeldOffer(Vector3 target, out Vector3 position, out Hands.VRHand? hand, out bool selling) { position=default; hand=null; selling=false; return HeldOfferAvailable; } }
- internal sealed class TownServiceToken { public void ParkOffering(Transform seat,Action reclaim) {} public void ReturnOffering() {} }
- internal static class TownServicePalmConfirmation { internal static void Begin(UIItemConfirmationBox box, Transform seat) {} }
+ internal sealed class TownServiceToken { public int Parks,Returns; public void ParkOffering(Transform seat,Action reclaim) { Parks++; } public void ReturnOffering() { Returns++; } }
+ internal static class TownServicePalmConfirmation {
+  internal static int Bindings;
+  internal static bool PhysicalControlsVisible;
+  internal static void Begin(UIItemConfirmationBox box, Transform seat) {
+   Bindings++; PhysicalControlsVisible=box.IsActive && box.Window.IsOpen;
+  }
+ }
  internal static class TownServiceMerchantTransaction {
   public static int Requests, CommitFailures; public static ScenarioRuleLibrary.CItem? LastItem; public static bool LastSelling;
   public static bool Commit(UIShopItemInventory inventory, ScenarioRuleLibrary.CItem item, bool selling, Func<bool> current) {
