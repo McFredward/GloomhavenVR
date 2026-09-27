@@ -16,7 +16,7 @@ internal struct TownActivityVisual
 }
 internal static class TownServiceActivityMotion
 {
-    internal const float TransitionSeconds = .70f;
+    internal const float TransitionSeconds = .95f;
     internal static float Blend(in TownActivityPose state)
     {
         float t = Mathf.Clamp01(state.TransitionAge / TransitionSeconds);
@@ -79,23 +79,35 @@ internal static class TownServiceActivityMotion
         // target palms were level with the counter and the priestess's forward
         // elbow guide swung her arms out, creating the apparent shoulder kink. Keep
         // the merchant's free left hand on the convex belly above the counter;
-        // the right hand remains ready to open for a card. Place both priestess
-        // the priestess's hands beside her robe. The low target is intentionally
+        // the right hand remains ready to open for a card. Place the priestess's
+        // hands beside her robe. The low target is intentionally
         // limited by the imported arm length. Check actual skinned triangles over
         // the whole transition.
-        work.Left = Vector3.Lerp(work.Left, service == 1 ? new Vector3(.11f, 1.08f, .38f)
+        // The merchant's rounded coat is asymmetric under the satchel. Seat the
+        // palms near its surface and carry each elbow outside the waist; simply
+        // pushing the old hand targets inward made the actual skinned cuff cut
+        // through his torso during approach. These targets were checked against
+        // the imported skin across the complete attention transition.
+        float prayerLeftX = work.Left.x, prayerRightX = work.Right.x;
+        work.Left = Vector3.Lerp(work.Left, service == 1 ? new Vector3(.18f, 1.08f, .41f)
             : service == 2 ? new Vector3(.29f, .75f, .58f) : new Vector3(.22f, 1.13f, .23f), attention);
-        work.Right = Vector3.Lerp(work.Right, service == 1 ? new Vector3(-.20f, 1.10f, .41f)
+        work.Right = Vector3.Lerp(work.Right, service == 1 ? new Vector3(-.23f, 1.10f, .44f)
             : service == 3 ? new Vector3(-.18f, 1.17f, .23f) : new Vector3(-.29f, .75f, .58f), attention);
         if (service == 2)
         {
-            // The prayer palms start well forward of the shoulders. Moving them
-            // rearward at the same rate as they descend briefly folds the entire
-            // two-bone arm almost in half; its only IK solution is a sideways
-            // elbow wing. The visitor sees that kink even though both endpoints
-            // look sound. Keep the forearms extended in front until the hands
-            // have cleared the chest, then settle them beside the robe. The same
-            // closed curve runs backwards on departure and needs no new clock.
+            // The headset video on build 577 shows the palms descending through
+            // the centreline while each elbow stays outside the body: halfway
+            // through the approach the forearms briefly cross back toward the
+            // chest before the hands reach their neutral side. The imported-rig
+            // render reproduces this at attention .38 (elbow x=.30, palm x=.12).
+            // Separate the hands early, then lower them along their own sides.
+            // This leaves both the joined prayer and relaxed idle endpoints intact
+            // and runs along the same reversible owner-authored attention clock.
+            float separate = Mathf.SmoothStep(0f, 1f, Mathf.Min(1f, attention * 2f));
+            work.Left.x = Mathf.Lerp(prayerLeftX, .29f, separate);
+            work.Right.x = Mathf.Lerp(prayerRightX, -.29f, separate);
+            // Keep the forearms extended in front until the hands have cleared
+            // the chest; the last portion settles beside the robe.
             float settleDepth = attention * attention;
             // Ease down before moving back toward the shoulders. This keeps
             // reach close to its relaxed length throughout the transition,
@@ -115,11 +127,11 @@ internal static class TownServiceActivityMotion
             // forward guide forced a conspicuous diagonal from shoulder to elbow.
             float priestessElbowHeight = 1.08f;
             work.LeftElbow = Vector3.Lerp(work.LeftElbow,
-                new Vector3(service == 1 ? .39f : .29f, service == 1 ? 1.02f : priestessElbowHeight,
-                    service == 1 ? .38f : .66f), attention);
+                new Vector3(service == 1 ? .58f : .29f, service == 1 ? 1.02f : priestessElbowHeight,
+                    service == 1 ? .30f : .66f), attention);
             work.RightElbow = Vector3.Lerp(work.RightElbow,
-                new Vector3(service == 1 ? -.43f : -.29f, service == 1 ? 1.04f : priestessElbowHeight,
-                    service == 1 ? .38f : .66f), attention);
+                new Vector3(service == 1 ? -.55f : -.29f, service == 1 ? 1.04f : priestessElbowHeight,
+                    service == 1 ? .31f : .66f), attention);
             if (service == 2)
             {
                 float settleDepth = attention * attention;

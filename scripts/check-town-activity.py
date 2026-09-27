@@ -47,6 +47,7 @@ def mutations():
         ("constant-spell", "TownServiceActivityMotion.cs", "Cast = cast, LeftCurl", "Cast = 1f, LeftCurl", "visible spell uses an upward-facing palm"),
         ("one-spell-pose", "TownServiceActivityMotion.cs", "int variant = (int)(block % 3u);", "int variant = 0;", "shared clock selects three distinct spell effect modes"),
         ("separated-prayer", "TownServiceActivityMotion.cs", "new Vector3(.012f,height,.29f)", "new Vector3(.035f,height,.29f)", "prayer joins palms near the sternum instead of reaching across the bowl"),
+        ("priestess-delayed-separation", "TownServiceActivityMotion.cs", "attention * 2f", "attention", "priestess arms retain their anatomical sides without crossing"),
         ("animated-knee-pole", "TownServiceActivityRig.cs", "Vector3.ProjectOnPlane(_root.TransformDirection(_kneePoles[upperIndex == 6 ? 0 : 1]),direction)", "Vector3.ProjectOnPlane(knee-hip,direction)", "planted knee keeps anatomical forward bend plane"),
         ("zero-weight-stance-snap", "TownServiceActivityRig.cs", "_bodyApplied=true;", "_bodyApplied=true; if(body.Weight<=0f)return;", "planted knee keeps anatomical forward bend plane"),
         ("vertical-casting-palm", "TownServiceActivityRig.cs", "palmFrame = Quaternion.AngleAxis(-roll, fingers) * palmFrame;", "palmFrame = Quaternion.AngleAxis(-roll * (_service == 3 ? .7f + .3f * attention : 1f), fingers) * palmFrame;", "actual casting palm supports the spell from below"),
@@ -79,7 +80,7 @@ def mutations():
          "prayer-to-bowl hand never detours through hip"),
         ("availability-cover-pop", "TownServiceActivityMotion.cs", "if (donationAvailable && blend <= 0f) return;", "if (donationAvailable) return;", "available temple fades out the previous cover pose instead of dropping it in one frame"),
         ("upturned-bowl-cover", "TownServiceActivityRig.cs", "Vector3.ProjectOnPlane(-_root.up, coverFinger)", "Vector3.ProjectOnPlane(_root.up, coverFinger)", "unavailable donation keeps the covering palm down"),
-        ("merchant-stiff-greeting", "TownServiceActivityMotion.cs", "new Vector3(.11f, 1.08f, .38f)", "new Vector3(.20f, 1.09f, .20f)", "visitor attention settles merchant's free hand on his belly above the counter"),
+        ("merchant-stiff-greeting", "TownServiceActivityMotion.cs", "new Vector3(.18f, 1.08f, .41f)", "new Vector3(.20f, 1.09f, .20f)", "visitor attention settles merchant's free hand on his belly above the counter"),
         ("open-sleeve-hem", "TownServiceSleeveLining.cs", "row == 0 ? -.012f", "row == 0 ? -.050f", "inner cuff overlaps the anatomical wrist ahead of the cut"),
         ("open-sleeve-interior", "TownServiceSleeveLining.cs", "int a = i, b = (i + 1) % Segments, c = 4 * Segments + 1;", "int a = i, b = (i + 1) % Segments, c = 4 * Segments;", "shallow cuff diaphragm hides the severed forearm end"),
         ("downward-offering", "TownServiceActivityMotion.cs", "Mathf.Lerp(visual.RightRoll, 180f, t)", "Mathf.Lerp(visual.RightRoll, 0f, t)", "offering palm faces upward"),
@@ -99,6 +100,7 @@ def main():
     parser.add_argument("--anatomy-service", type=int, choices=[1, 2, 3], help="Export geometry for one resident; contact checks still cover all three")
     parser.add_argument("--anatomy-focus", action="store_true", help="Export only the targeted transition sequence while fitting arm geometry")
     parser.add_argument("--attention-sequence", action="store_true", help="Render a24fps visitor-interruption transition instead of work cycle")
+    parser.add_argument("--close-transition", action="store_true", help="Capture the priestess's critical attention transition at actual 90 Hz")
     parser.add_argument("--temple-unavailable-render", action="store_true", help="Render the attentive priestess covering the unavailable donation bowl")
     parser.add_argument("--temple-blessing-render", action="store_true", help="Render the committed donation gesture from the shared event age")
     parser.add_argument("--render-service", type=int, choices=[1,2,3], help="Render only one resident; all contact checks still run")
@@ -136,10 +138,10 @@ def main():
     variants = [("production", None, None, None, "")]
     if not args.no_negative_controls:
         # Portable validation omits Unity components exercised by these controls.
-        rig_only = ("audio-ignores-master", "audio-not-spatial", "audio-fixed-world-range", "audio-leaks-listener", "unmirrored-mage-pronation", "separated-prayer", "animated-knee-pole", "zero-weight-stance-snap", "raised-stage-gesture", "vertical-casting-palm", "wrapped-forearm-support", "unplanted-feet", "one-sided-merchant-hip", "upturned-priestess-hip", "upturned-bowl-cover", "low-priestess-shoulders", "ignore-ik", "thumb-overcurl", "attentive-counter-bracing", "excessive-work-bow", "ignore-palm-offset", "curl-contact-markers", "open-sleeve-hem", "open-sleeve-interior", "downward-offering", "coin-detached-from-grip")
+        rig_only = ("audio-ignores-master", "audio-not-spatial", "audio-fixed-world-range", "audio-leaks-listener", "unmirrored-mage-pronation", "separated-prayer", "priestess-delayed-separation", "animated-knee-pole", "zero-weight-stance-snap", "raised-stage-gesture", "vertical-casting-palm", "wrapped-forearm-support", "unplanted-feet", "one-sided-merchant-hip", "upturned-priestess-hip", "upturned-bowl-cover", "low-priestess-shoulders", "ignore-ik", "thumb-overcurl", "attentive-counter-bracing", "excessive-work-bow", "ignore-palm-offset", "curl-contact-markers", "open-sleeve-hem", "open-sleeve-interior", "downward-offering", "coin-detached-from-grip")
         # Source-only Unity has no imported resident prefab to observe. The explicit
         # imported-asset run supplies --bundle and executes every one of these controls.
-        bundle_only = ("unmirrored-mage-pronation", "attentive-counter-bracing", "unplanted-feet", "wrapped-forearm-support", "separated-prayer", "animated-knee-pole", "zero-weight-stance-snap", "raised-stage-gesture", "vertical-casting-palm", "one-sided-merchant-hip", "upturned-priestess-hip", "low-priestess-shoulders")
+        bundle_only = ("unmirrored-mage-pronation", "attentive-counter-bracing", "unplanted-feet", "wrapped-forearm-support", "separated-prayer", "priestess-delayed-separation", "animated-knee-pole", "zero-weight-stance-snap", "raised-stage-gesture", "vertical-casting-palm", "one-sided-merchant-hip", "upturned-priestess-hip", "low-priestess-shoulders")
         variants += [v for v in mutations() if (not args.portable or v[0] not in rig_only)
             and (args.bundle or v[0] not in bundle_only)]
     # A mutation of an absent production file is not an executable negative control.
@@ -225,8 +227,9 @@ def main():
         args.render.mkdir(parents=True, exist_ok=True)
         command.remove("-nographics")
         command += ["-activityRender", str(args.render.resolve())]
-        if args.sequence or args.attention_sequence: command += ["-activitySequence"]
+        if args.sequence or args.attention_sequence or args.close_transition: command += ["-activitySequence"]
         if args.attention_sequence: command += ["-activityAttentionSequence"]
+        if args.close_transition: command += ["-activityCloseTransition"]
         if args.temple_unavailable_render: command += ["-activityTempleUnavailable"]
         if args.temple_blessing_render: command += ["-activityTempleBlessing"]
         if args.render_service: command += ["-activityService", str(args.render_service)]

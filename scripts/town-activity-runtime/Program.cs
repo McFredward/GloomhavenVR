@@ -203,9 +203,9 @@ public static class InteractionProgram
         TownServiceActivityMotion.Engage(ref pause,true);pause=TownServiceActivityMotion.Advance(pause,1f);
         var held=TownServiceActivityMotion.Visual(1,in pause);
         Check(held.CoinGrip.x==1f,"visitor interruption preserves held coin contact");
-        Check(held.RightRoll<90f&&held.Left.y>1.07f&&held.Left.y<1.09f&&held.Left.x>.10f
-            &&held.Right.x<-.19f&&held.Right.y>1.09f&&held.Right.z>.40f&&held.Right.z<.42f
-            &&held.LeftElbow.x>.38f&&held.RightElbow.x<-.42f,
+        Check(held.RightRoll<90f&&held.Left.y>1.07f&&held.Left.y<1.09f&&held.Left.x>.17f
+            &&held.Right.x<-.22f&&held.Right.y>1.09f&&held.Right.z>.43f&&held.Right.z<.45f
+            &&held.LeftElbow.x>.57f&&held.RightElbow.x<-.54f,
             "visitor attention settles merchant with a hand on his belly, both hands above the counter");
         // The return path must use the fading visual blend even after the native
         // availability boolean has changed, otherwise the covered bowl pops open.
@@ -348,6 +348,17 @@ public static class InteractionProgram
                                     "actual attentive priestess palm rests inward at her hip: "+side+" frame="+n);
                                 Check(Vector3.Dot(palmAxis.up,-root.up)>.55f,
                                     "actual attentive priestess fingers rest down along her hip: "+side+" frame="+n);
+                            }
+                            float attention=TownServiceActivityMotion.Blend(in phase);
+                            if(service==2&&attention>.35f&&attention<.45f)
+                            {
+                                // At this point the old prayer-to-idle curve left
+                                // each elbow outside the chest while the palm moved
+                                // back through its centre, creating the headset kink.
+                                Vector3 palm=root.InverseTransformPoint(palmAxis.position);
+                                Check((side=="L"?palm.x:-palm.x)>.19f,
+                                    "priestess separates prayer palms before lowering forearms: "+side
+                                    +" frame="+n+" palm="+palm+" blend="+attention);
                             }
                             Check(Vector3.Angle(wrist.position-elbow.position,palmAxis.up)<60f,"actual wrist flexion remains anatomical: "+npc+" "+side+" frame="+n+" angle="+Vector3.Angle(wrist.position-elbow.position,palmAxis.up)+" wrist="+root.InverseTransformPoint(wrist.position)+" elbow="+root.InverseTransformPoint(elbow.position));
                             int supportCount=joints.Count(t=>t.name.StartsWith("ForearmTwist")&&t.name.EndsWith("."+side));

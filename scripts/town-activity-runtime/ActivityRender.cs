@@ -13,10 +13,11 @@ internal static class ActivityRender
         string[] args=Environment.GetCommandLineArgs();int output=Array.IndexOf(args,"-activityRender");if(output<0)return;
         int selected=Array.IndexOf(args,"-activityService");if(selected>=0&&int.Parse(args[selected+1])!=service)return;
         bool sequence=Array.IndexOf(args,"-activitySequence")>=0;
-        bool attentionSequence=Array.IndexOf(args,"-activityAttentionSequence")>=0;
+        bool closeTransition=Array.IndexOf(args,"-activityCloseTransition")>=0;
+        bool attentionSequence=Array.IndexOf(args,"-activityAttentionSequence")>=0||closeTransition;
         bool templeUnavailable=Array.IndexOf(args,"-activityTempleUnavailable")>=0;
         bool templeBlessing=Array.IndexOf(args,"-activityTempleBlessing")>=0;
-        float frameSeconds=attentionSequence?1f/24f:1f/8f;
+        float frameSeconds=closeTransition?1f/90f:attentionSequence?1f/24f:1f/8f;
         string folder=args[output+1];Transform root=obj.transform;rig.BeforeBodySample();root.SetPositionAndRotation(Vector3.zero,Quaternion.identity);root.localScale=Vector3.one;
         Shader shader=obj.GetComponentsInChildren<SkinnedMeshRenderer>(true)[0].sharedMaterial.shader;
         using var props=new TownServiceActivityProps(root,service,shader);props.SetVisibility(1);
@@ -51,7 +52,7 @@ internal static class ActivityRender
         var coin=GameObject.CreatePrimitive(PrimitiveType.Cylinder);coin.name="Diagnostic coin contact volume (not native asset)";coin.transform.SetParent(root,false);coin.transform.localScale=new Vector3(.026f,.0015f,.026f);coin.GetComponent<Renderer>().sharedMaterial=new Material(Shader.Find("Standard")){color=new Color(.6f,.4f,.1f)};
         if(service==1)props.BindCoin(coin.transform,Vector3.zero);else coin.SetActive(false);
         var camera=new GameObject("Activity diagnostic camera").AddComponent<Camera>();camera.clearFlags=CameraClearFlags.SolidColor;camera.backgroundColor=new Color(.12f,.14f,.17f);camera.fieldOfView=48;camera.nearClipPlane=.02f;
-        var rt=new RenderTexture(sequence?640:1000,sequence?576:900,24);camera.targetTexture=rt;
+        var rt=new RenderTexture(sequence&&!closeTransition?640:1000,sequence&&!closeTransition?576:900,24);camera.targetTexture=rt;
         var light=new GameObject("Diagnostic stand light").AddComponent<Light>();light.type=LightType.Point;light.transform.position=new Vector3(-.4f,2.2f,-.7f);light.intensity=3;light.range=6;light.color=new Color(1,.89f,.72f);
         TownServiceLightList.Claim(light); TownServiceLightList.Bind();
         RenderSettings.ambientLight=new Color(.25f,.28f,.32f);RenderSettings.ambientIntensity=1;
@@ -66,7 +67,7 @@ internal static class ActivityRender
             ?new StreamWriter(Path.Combine(folder,"service2-blessing-particles.csv")):null;
         particleCounts?.WriteLine("phase,system,time,count,worldX,worldY,worldZ,minZ,maxZ");
         float[] phases={.8f,1.8f,1.8f,22f,24f,26f,28f,32f};
-        if(sequence)phases=Enumerable.Range(0,attentionSequence?(templeBlessing?120:192):384).Select(n=>n*frameSeconds).ToArray();
+        if(sequence||closeTransition)phases=Enumerable.Range(0,closeTransition?190:attentionSequence?(templeBlessing?120:192):384).Select(n=>n*frameSeconds).ToArray();
         var transition=new TownActivityPose{WorkClock=5.3f,TransitionAge=TownServiceActivityMotion.TransitionSeconds};
         var envelope=new Bounds();bool envelopeStarted=false;
         for(int phase=0;phase<phases.Length;phase++)
@@ -166,6 +167,11 @@ internal static class ActivityRender
                 }
                 poses.Write("]}");
             }
+            // Keep the 90 Hz state/face history from t=0, but capture only the
+            // prayer-to-neutral middle and its release. A sampled screenshot at
+            // each 90 Hz step can expose a transient sleeve kink that a 24 fps
+            // sequence or a first/last pose misses.
+            if(closeTransition&&(phase<110||phase>171))continue;
             var originalSkins=root.GetComponentsInChildren<SkinnedMeshRenderer>(true);
             var enabledSkins=originalSkins.Select(r=>r.enabled).ToArray();
             GameObject snapshot=Snapshot(root);
