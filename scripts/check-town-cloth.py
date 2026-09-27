@@ -27,9 +27,10 @@ def source_contract(source):
                                     and 'shipping FBX importer reorders and splits' in source),
         'nested FBX scale converted': ('stationUnitInDriver = driver.InverseTransformVector' in source
                                       and 'Physics.gravity * runner.StationUnitInDriver' in source
-                                      and '* MaximumFreedomRealMeters * stationUnitInDriver' in source
+                                      and '* maximumFreedom * stationUnitInDriver' in source
                                       and '.004f * stationUnitInDriver' in source),
         'bounded smooth visible deformation': ('MaximumFreedomRealMeters = .08f' in source
+                                               and 'maximumFreedom = _service == 3 ? .065f : MaximumFreedomRealMeters' in source
                                                and 'ContactPresentationSeconds = .045f' in source
                                                and 'cloth.bendingStiffness = .94f' in source
                                                and 'cloth.damping = .55f' in source
@@ -58,6 +59,14 @@ def source_contract(source):
         'contact follows physical surface': ('runner.ContactSurface = simulated;' in source
                                              and 'Vector3[] surface = runner.ContactSurface' in source
                                              and 'DistanceSquaredToSegment(surface[i], localA, localB)' in source),
+        'continuous contact episode': ('ContactHoldSeconds = .09f' in source
+                                       and 'runner.ContactHold = rawContact ? ContactHoldSeconds' in source
+                                       and 'near && runner.Contacting && runner.ContactHold > 0f' in source),
+        'enchantress root backstop': ('if (_service == 3) BuildEnchantressRootSupport(runner)' in source
+                                      and 'new Vector3(-.62f, y, -.20f)' in source
+                                      and 'sphere.radius = .075f * runner.StationUnitInDriver;' in source),
+        'narrow drape filtered physical displacement': ('SmoothNarrowDrape(runner, simulated)' in source
+            and 'BlendedDelta(in runner.VisibleDriverMap[n], runner.VisualDelta)' in source),
         'merchant side banner absent': ('service == 1 ? 0 : service == 2 ? 2 : 1' in source
                                         and 'if (filters.Count == 0) return;' in source),
     }
@@ -85,6 +94,8 @@ def validate_source():
                                   'Physics.gravity'),
         'bounded-envelope': ('MaximumFreedomRealMeters = .08f',
                              'MaximumFreedomRealMeters = .34f'),
+        'enchantress-envelope': ('maximumFreedom = _service == 3 ? .065f : MaximumFreedomRealMeters',
+                                 'maximumFreedom = _service == 3 ? .34f : MaximumFreedomRealMeters'),
         'overloose-bending': ('cloth.bendingStiffness = .94f', 'cloth.bendingStiffness = .40f'),
         'smooth-map': ('DriverDelta(in runner.VisibleDriverMap[n]',
                        'simulated[runner.VisibleDriverVertex[n]] - runner.DriverRest[runner.VisibleDriverVertex[n]]'),
@@ -106,6 +117,11 @@ def validate_source():
         'fingertip': ('VRHands.Left.Rig.IndexTip.position', 'VRHands.Left.Rig.PalmCenter.forward'),
         'rest-surface-gate': ('Vector3[] surface = runner.ContactSurface',
                               'Vector3[] surface = runner.DriverRest'),
+        'contact-drop-on-solver-crossing': ('ContactHoldSeconds = .09f', 'ContactHoldSeconds = 0f'),
+        'missing-root-backstop': ('if (_service == 3) BuildEnchantressRootSupport(runner)',
+                                  'if (_service == 1) BuildEnchantressRootSupport(runner)'),
+        'missing-narrow-drape-filter': ('SmoothNarrowDrape(runner, simulated)',
+                                         'DisabledNarrowDrapeFilter(runner, simulated)'),
         'merchant-banner-reintroduced': ('service == 1 ? 0 : service == 2 ? 2 : 1',
                                         'service == 1 ? 1 : service == 2 ? 2 : 1'),
         'all-particles-fixed-at-start': ('IdleFreedomRealMeters = .0005f',

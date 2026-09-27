@@ -28,6 +28,10 @@ internal sealed class TownServiceCloth : IDisposable
     private const float FingerLengthRealMeters = .09f;
     private const float MaximumFreedomRealMeters = .08f;
     private const float ContactPresentationSeconds = .045f;
+    // The fingertip and the PhysX sheet can alternate sides of a thin surface
+    // between two 90 Hz presentation ticks. A contact episode must not fade out
+    // during that solver crossing while the hand remains in its approach volume.
+    private const float ContactHoldSeconds = .09f;
     // Unity 2021.3 refuses to initialize a Cloth whose *every* particle starts
     // fixed. The headset log then says "All cloth particles are fixed so the
     // Cloth component is not initialized" and every touch remains rigid even
@@ -54,6 +58,8 @@ internal sealed class TownServiceCloth : IDisposable
         internal float[] Side = Array.Empty<float>();
         internal int[] VisibleDriverVertex = Array.Empty<int>();
         internal Vector3[] DriverRest = Array.Empty<Vector3>();
+        internal Vector3[] VisualDelta = Array.Empty<Vector3>();
+        internal Vector3[] VisualScratch = Array.Empty<Vector3>();
         // Last PhysX surface sampled by Render. Contact has to follow this surface,
         // not the authored zero: once a fingertip has pushed the runner a few
         // centimetres, testing against DriverRest declares that same fingertip
@@ -77,6 +83,8 @@ internal sealed class TownServiceCloth : IDisposable
         internal float DeformationWeight;
         internal bool Interactive;
         internal bool Contacting;
+        internal float ContactHold;
+        internal int DebugSuppressedContactGaps;
         internal bool CaptureOrigin;
         internal bool DebugNear;
         internal bool DebugContact;
@@ -184,6 +192,7 @@ internal sealed class TownServiceCloth : IDisposable
         BuildDecorations(runner);
         if (_service == 1) BuildMerchantSupports(runner);
         else BuildTableSupports(runner, minX, maxX, maxY);
+        if (_service == 3) BuildEnchantressRootSupport(runner);
         RewriteColliders(runner);
         return runner;
     }
@@ -210,6 +219,8 @@ internal sealed class TownServiceCloth : IDisposable
         // every rendered thickness vertex to that physical sheet. A proximity
         // check below makes any future furniture-authoring change fail closed.
         runner.DriverRest = new Vector3[DriverVertexCount];
+        runner.VisualDelta = new Vector3[DriverVertexCount];
+        runner.VisualScratch = new Vector3[DriverVertexCount];
         runner.EpisodeOrigin = new Vector3[DriverVertexCount];
         for (int row = 0; row < DriverRows; row++)
         for (int column = 0; column < DriverColumns; column++)
@@ -316,10 +327,12 @@ internal sealed class TownServiceCloth : IDisposable
             // The original 34 cm envelope let one fingertip invert nearly the
             // complete runner. Build 574's 11 cm envelope remained too loose in
             // the headset: contact rapidly buckled several rows into sharp
-            // wrinkles. Eight centimetres leaves a tactile drape without letting
-            // a single finger turn the broad sheet inside out.
+            // wrinkles. The root-supported enchantress drape has less room to
+            // move than the broad altar cloth; keep its envelope correspondingly
+            // shorter while retaining a tactile impression under the fingertip.
+            float maximumFreedom = _service == 3 ? .065f : MaximumFreedomRealMeters;
             runner.DriverMaximum[n] = runner.DriverFreedom[n]
-                * MaximumFreedomRealMeters * stationUnitInDriver;
+                * maximumFreedom * stationUnitInDriver;
             // The authored mesh is already the exact rest drape. Start within a
             // sub-millimetre envelope, then expand for a hand/head approach.
             // An exact zero for every vertex leaves Unity's Cloth uninitialized.
@@ -417,6 +430,41 @@ internal sealed class TownServiceCloth : IDisposable
             + (current[map.D] - rest[map.D]) * map.Weight.w;
     }
 
+    private static Vector3 BlendedDelta(in DriverMap map, Vector3[] delta)
+    {
+        return delta[map.A] * map.Weight.x + delta[map.B] * map.Weight.y
+            + delta[map.C] * map.Weight.z + delta[map.D] * map.Weight.w;
+    }
+
+    private static void SmoothNarrowDrape(Runner runner, Vector3[] simulated)
+    {
+        // PhysX's sparse 25x13 surface has much wider triangles than the
+        // rendered solidified cloth. A fingertip against the narrow root could
+        // invert a single triangle, opening a dark pinhole in the visible
+        // sheet. Spatially filter only the presentation displacement, leaving
+        // native collision/contact and the table-pinned row untouched.
+        for (int n = 0; n < simulated.Length; n++)
+            runner.VisualDelta[n] = simulated[n] - runner.EpisodeOrigin[n];
+        for (int pass = 0; pass < 2; pass++)
+        {
+            Vector3[] from = pass == 0 ? runner.VisualDelta : runner.VisualScratch;
+            Vector3[] to = pass == 0 ? runner.VisualScratch : runner.VisualDelta;
+            for (int row = 0; row < DriverRows; row++)
+            for (int column = 0; column < DriverColumns; column++)
+            {
+                int n = row * DriverColumns + column;
+                if (row <= 10) { to[n] = from[n]; continue; }
+                Vector3 sum = from[n] * .4f;
+                float weight = .4f;
+                if (row > 0) { sum += from[n - DriverColumns] * .15f; weight += .15f; }
+                if (row + 1 < DriverRows) { sum += from[n + DriverColumns] * .15f; weight += .15f; }
+                if (column > 0) { sum += from[n - 1] * .15f; weight += .15f; }
+                if (column + 1 < DriverColumns) { sum += from[n + 1] * .15f; weight += .15f; }
+                to[n] = sum / weight;
+            }
+        }
+    }
+
     private void BuildTableSupports(Runner runner, float minX, float maxX, float topY)
     {
         // Unity Cloth intentionally collides only with spheres/capsules. A chain
@@ -439,6 +487,34 @@ internal sealed class TownServiceCloth : IDisposable
             SphereCollider rear = TableSupport(runner, i, "Rear", x, topY, .142f);
             runner.SupportPairs.Add(new ClothSphereColliderPair(front, rear));
         }
+    }
+
+    private void BuildEnchantressRootSupport(Runner runner)
+    {
+        // The narrow red runner hangs immediately in front of the enchantress's
+        // left woven root (authored around x=-.62, z=-.24). The table-top
+        // capsules stop at the lip: they cannot stop a fingertip pressing the
+        // lower hanging rows straight through that root. A single vertical
+        // capsule follows the root's actual height and breadth. Its near face
+        // remains behind the authored drape, leaving the visible resting sheet
+        // undisturbed while giving the moving cloth a solid backstop.
+        SphereCollider top = RootSupport(runner, "Top", .84f);
+        SphereCollider bottom = RootSupport(runner, "Bottom", .20f);
+        runner.SupportPairs.Add(new ClothSphereColliderPair(top, bottom));
+    }
+
+    private SphereCollider RootSupport(Runner runner, string end, float y)
+    {
+        var go = new GameObject("GloomhavenVR.TownCloth.EnchantressRoot." + end)
+            { layer = IgnoreRaycastLayer };
+        Transform driver = runner.DriverRoot.transform;
+        go.transform.SetParent(driver, false);
+        go.transform.localPosition = driver.InverseTransformPoint(_station.TransformPoint(
+            new Vector3(-.62f, y, -.20f)));
+        var sphere = go.AddComponent<SphereCollider>();
+        sphere.radius = .075f * runner.StationUnitInDriver;
+        runner.Supports.Add(go);
+        return sphere;
     }
 
     private void BuildMerchantSupports(Runner runner)
@@ -508,6 +584,11 @@ internal sealed class TownServiceCloth : IDisposable
         float surface = Mathf.Min(1f, t / .45f);
         float z = TableFront(x) + .145f * (1f - surface) - .004f * surface;
         z -= .012f * Mathf.Sin(u * Mathf.PI * 6f) * (Mathf.Max(0f, t - .45f) / .55f);
+        if (_service == 3)
+        {
+            float fall = Mathf.Clamp01((t - .35f) / .45f);
+            z -= .100f * fall * fall * (3f - 2f * fall);
+        }
         float y = .9575f + fold - .49f * Mathf.Max(0f, (t - .45f) / .55f);
         y -= .018f * Mathf.Max(0f, (t - .84f) / .16f) * (1f - Mathf.Abs(u * 2f - 1f));
         return new Vector3(x, y, z);
@@ -730,7 +811,12 @@ internal sealed class TownServiceCloth : IDisposable
     private void RestoreAfterContact(Runner runner, float dt)
     {
         bool near = AnyProbeWithin(runner, .16f, out float nearDistance);
-        bool contact = AnyProbeWithin(runner, .018f, out float contactDistance);
+        bool rawContact = AnyProbeWithin(runner, .018f, out float contactDistance);
+        runner.ContactHold = rawContact ? ContactHoldSeconds
+            : Mathf.Max(0f, runner.ContactHold - Mathf.Max(0f, dt));
+        bool contact = rawContact || (near && runner.Contacting && runner.ContactHold > 0f);
+        if (contact && !rawContact && VRLog.WantsDebug)
+            runner.DebugSuppressedContactGaps++;
         if (near && !runner.Interactive)
         {
             // Unity does not move its hidden particles back to the authored mesh when
@@ -800,8 +886,9 @@ internal sealed class TownServiceCloth : IDisposable
                 + " nearest=" + (nearest < float.MaxValue ? nearest.ToString("F3") + "m" : "parked")
                 + " driverEnabled=" + runner.Cloth.enabled + " interactive=" + runner.Interactive
                 + " visibleWeight=" + runner.DeformationWeight.ToString("F2")
-                + (endedContact ? " shownPeak=" + runner.DebugShownPeak.ToString("F3") + "m" : ""));
-            if (endedContact) runner.DebugShownPeak = 0f;
+                + (endedContact ? " shownPeak=" + runner.DebugShownPeak.ToString("F3") + "m"
+                    + " heldSolverGaps=" + runner.DebugSuppressedContactGaps : ""));
+            if (endedContact) { runner.DebugShownPeak = 0f; runner.DebugSuppressedContactGaps = 0; }
         }
     }
 
@@ -863,7 +950,7 @@ internal sealed class TownServiceCloth : IDisposable
         }
     }
 
-    private TownClothRunnerState Measure(Runner runner, Vector3[] vertices)
+    private TownClothRunnerState Measure(Runner runner, Vector3[] vertices, bool valuesAreDeltas = false)
     {
         TownClothRunnerState state = default;
         if (vertices.Length != runner.DriverRest.Length) return state;
@@ -877,7 +964,8 @@ internal sealed class TownServiceCloth : IDisposable
         {
             float weight = runner.DriverFreedom[n] * runner.DriverFreedom[n];
             if (weight < .1f) continue;
-            Vector3 delta = runner.DriverRoot.transform.TransformVector(vertices[n] - runner.EpisodeOrigin[n])
+            Vector3 delta = runner.DriverRoot.transform.TransformVector(valuesAreDeltas
+                ? vertices[n] : vertices[n] - runner.EpisodeOrigin[n])
                 * runner.DeformationWeight;
             var offset = new Vector2(Vector3.Dot(delta, worldX) / xx, Vector3.Dot(delta, worldZ) / zz);
             float side = runner.DriverSide[n];
@@ -908,7 +996,9 @@ internal sealed class TownServiceCloth : IDisposable
             runner.CaptureOrigin = false;
         }
 
-        TownClothRunnerState measured = Measure(runner, simulated);
+        if (_service == 3) SmoothNarrowDrape(runner, simulated);
+        TownClothRunnerState measured = Measure(runner,
+            _service == 3 ? runner.VisualDelta : simulated, _service == 3);
         Vector3 localX = runner.Filter.transform.InverseTransformVector(_station.TransformVector(Vector3.right));
         Vector3 localZ = runner.Filter.transform.InverseTransformVector(
             _station.TransformVector(_service == 1 ? Vector3.up : Vector3.forward));
@@ -917,8 +1007,10 @@ internal sealed class TownServiceCloth : IDisposable
             ? Mathf.Max(.0001f, _station.TransformVector(Vector3.right).magnitude) : 1f;
         for (int n = 0; n < runner.Rest.Length; n++)
         {
-            Vector3 worldDelta = runner.DriverRoot.transform.TransformVector(
-                DriverDelta(in runner.VisibleDriverMap[n], simulated, runner.EpisodeOrigin))
+            Vector3 driverDelta = _service == 3
+                ? BlendedDelta(in runner.VisibleDriverMap[n], runner.VisualDelta)
+                : DriverDelta(in runner.VisibleDriverMap[n], simulated, runner.EpisodeOrigin);
+            Vector3 worldDelta = runner.DriverRoot.transform.TransformVector(driverDelta)
                 * runner.DeformationWeight;
             Vector3 shown = runner.Rest[n] + runner.Filter.transform.InverseTransformVector(worldDelta);
             if (correctToOwner)
@@ -962,6 +1054,7 @@ internal sealed class TownServiceCloth : IDisposable
         foreach (Runner runner in _runners)
         {
             if (runner.Cloth != null) runner.Cloth.enabled = visible;
+            if (!visible) { runner.Contacting = false; runner.ContactHold = 0f; }
             foreach (GameObject support in runner.Supports)
                 if (support != null) support.SetActive(visible);
             if (visible && runner.Cloth != null) runner.Cloth.ClearTransformMotion();

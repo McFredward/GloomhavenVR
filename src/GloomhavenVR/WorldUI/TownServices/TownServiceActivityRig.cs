@@ -393,7 +393,15 @@ internal sealed class TownServiceActivityRig
                 guide = authoredElbow.sqrMagnitude > .01f ? authoredElbow
                     : new Vector3(side * .40f, 1.20f, .46f);
                 float outer = .11f + .15f * (1f - attention);
-                guide.x = side * Mathf.Max(outer, side * guide.x);
+                // Prayer and the final hanging-arm pose both have valid elbow
+                // seats. Between them, the two-bone solver's shorter reach
+                // otherwise swings the elbow out into a brief wing. Carry the
+                // pole slightly inward through the middle of the transition;
+                // preserve both original endpoints and keep the elbow outside
+                // the robe. This is evaluated at every actual animated frame,
+                // not inferred from the target marker alone.
+                float middle = 4f * attention * (1f - attention);
+                guide.x = side * Mathf.Max(outer, side * guide.x - .08f * middle);
             }
             else if (_service == 1 && attention > 0f)
                 guide = Vector3.Lerp(guide, authoredElbow.sqrMagnitude > .01f ? authoredElbow

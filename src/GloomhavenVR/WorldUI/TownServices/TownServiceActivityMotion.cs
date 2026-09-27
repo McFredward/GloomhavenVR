@@ -87,6 +87,25 @@ internal static class TownServiceActivityMotion
             : service == 2 ? new Vector3(.29f, .75f, .58f) : new Vector3(.22f, 1.13f, .23f), attention);
         work.Right = Vector3.Lerp(work.Right, service == 1 ? new Vector3(-.20f, 1.10f, .41f)
             : service == 3 ? new Vector3(-.18f, 1.17f, .23f) : new Vector3(-.29f, .75f, .58f), attention);
+        if (service == 2)
+        {
+            // The prayer palms start well forward of the shoulders. Moving them
+            // rearward at the same rate as they descend briefly folds the entire
+            // two-bone arm almost in half; its only IK solution is a sideways
+            // elbow wing. The visitor sees that kink even though both endpoints
+            // look sound. Keep the forearms extended in front until the hands
+            // have cleared the chest, then settle them beside the robe. The same
+            // closed curve runs backwards on departure and needs no new clock.
+            float settleDepth = attention * attention;
+            // Ease down before moving back toward the shoulders. This keeps
+            // reach close to its relaxed length throughout the transition,
+            // rather than parking a sharply folded wrist above the bowl.
+            float settleHeight = attention + .12f * Mathf.Sin(Mathf.PI * attention);
+            work.Left.y = Mathf.Lerp(1.34f, .75f, settleHeight);
+            work.Right.y = Mathf.Lerp(1.34f, .75f, settleHeight);
+            work.Left.z = Mathf.Lerp(.29f, .58f, settleDepth);
+            work.Right.z = Mathf.Lerp(.29f, .58f, settleDepth);
+        }
         // Hand targets alone cannot lower an arm naturally. Author the matching elbow path as
         // part of the same blend so the upper arm leaves the shoulder downward instead of staying
         // abducted while the forearm reaches for a low hand target.
@@ -101,6 +120,12 @@ internal static class TownServiceActivityMotion
             work.RightElbow = Vector3.Lerp(work.RightElbow,
                 new Vector3(service == 1 ? -.43f : -.29f, service == 1 ? 1.04f : priestessElbowHeight,
                     service == 1 ? .38f : .66f), attention);
+            if (service == 2)
+            {
+                float settleDepth = attention * attention;
+                work.LeftElbow.z = Mathf.Lerp(.34f, .66f, settleDepth);
+                work.RightElbow.z = Mathf.Lerp(.34f, .66f, settleDepth);
+            }
         }
         work.RightRoll = Mathf.Lerp(work.RightRoll, service == 1 ? 65f : service == 3 ? 180f : 0f, attention);
         work.LeftRoll = Mathf.Lerp(work.LeftRoll, service == 1 ? -65f : service == 3 ? -65f : 0f, attention);
@@ -125,6 +150,17 @@ internal static class TownServiceActivityMotion
         // applying the fading pose until its authored blend has reached zero.
         if (donationAvailable && blend <= 0f) return;
         float t = Mathf.SmoothStep(0f, 1f, Mathf.Clamp01(blend)) * visual.Attention;
+        // The ordinary attentive arm now takes a longer route in front of the
+        // torso. An unavailable visitor must still reach the bowl directly,
+        // without inheriting that route as a hidden detour toward the hip.
+        // Restore the original prayer-to-attention depth before applying the
+        // continuously blended cover displacement. No additional state/clock
+        // is required for the return trip.
+        float coverWeight = Mathf.SmoothStep(0f, 1f, Mathf.Clamp01(blend));
+        visual.Left.z = Mathf.Lerp(visual.Left.z,
+            Mathf.Lerp(.29f, .58f, visual.Attention), coverWeight);
+        visual.LeftElbow.z = Mathf.Lerp(visual.LeftElbow.z,
+            Mathf.Lerp(.34f, .66f, visual.Attention), coverWeight);
         // Build 572 hardware video (2026-09-27, 07:46:52) showed a detour through
         // the attended hip pose before the covering hand reached the bowl. Visual
         // has already mixed prayer into the attended targets by Attention; a second

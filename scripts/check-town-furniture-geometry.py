@@ -11,6 +11,7 @@ import sys
 from pathlib import Path
 
 import bpy
+from mathutils.bvhtree import BVHTree
 
 
 def station(vertex):
@@ -46,6 +47,18 @@ def check_cloth(folder, kind, count):
                 if 12 <= row <= 14:
                     assert z <= lip + .003, (kind, obj.name, 'hanging cloth buried in table', row, x, z, lip)
                 checked += 1
+    if kind == 'enchantress':
+        # The old lower drape began 28 mm inside the twisted left support.
+        # Check the authored mesh surface, rather than the matching formula,
+        # before asking Unity cloth to respond to a hand near that root.
+        roots = [obj for obj in bpy.data.objects if 'Twisted root support' in obj.name]
+        assert roots, 'missing physical root support'
+        trees = [BVHTree.FromObject(obj, bpy.context.evaluated_depsgraph_get()) for obj in roots]
+        clearance = min(tree.find_nearest(vertex.co)[3]
+                        for obj in runners for vertex in list(obj.data.vertices[:325])
+                        if vertex.co.z < .84 for tree in trees)
+        assert clearance > .010, ('cloth born inside twisted root support', clearance)
+        print('TOWN_CLOTH_ROOT_REST_CLEARANCE_M', round(clearance, 5))
     print('TOWN_CLOTH_GEOMETRY', kind, 'runners', count, 'tested_vertices', checked)
 
 

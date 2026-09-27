@@ -233,6 +233,14 @@ def drape(x, width, table, top=.955, material='AltarCloth'):
             surface = min(1, t/.45)
             zz = edge+.145*(1-surface)-.004*surface
             zz -= .012*math.sin(u*math.tau*3)*(max(0,t-.45)/.55)
+            if table == 'enchantress':
+                # The lower red runner used to start inside the three twisted
+                # left roots by up to 28 mm. A Cloth collider cannot recover a
+                # garment born within its own support. The first table rows stay
+                # on the lip; the hanging rows gradually fall in front of the
+                # real root surface with >=10 mm resting clearance.
+                fall = max(0, min(1, (t-.35)/.45))
+                zz -= .100*fall*fall*(3-2*fall)
             yy = top+.0025+fold - .49*max(0,(t-.45)/.55)
             yy -= .018*max(0,(t-.84)/.16)*(1-abs(u*2-1))
             vertices.append((xx,yy,zz))
@@ -252,7 +260,12 @@ def drape(x, width, table, top=.955, material='AltarCloth'):
     def stitched_z(xx, yy):
         u = max(0, min(1, (xx-(x-width/2))/width))
         drop = max(0, min(1, (top+.0025-yy)/.49))
-        return cloth_front(xx, table)-.007-.012*math.sin(u*math.tau*3)*drop
+        z = cloth_front(xx, table)-.007-.012*math.sin(u*math.tau*3)*drop
+        if table == 'enchantress':
+            t = .45 + .55*drop
+            fall = max(0, min(1, (t-.35)/.45))
+            z -= .100*fall*fall*(3-2*fall)
+        return z
 
     sun = [(x+width*.19*math.cos(i*math.tau/48),
             top-.31+width*.19*math.sin(i*math.tau/48)) for i in range(49)]
