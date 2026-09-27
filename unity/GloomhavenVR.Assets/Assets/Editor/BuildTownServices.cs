@@ -41,6 +41,7 @@ namespace GloomhavenVR
                 ? (Path.GetFileName(path).Contains("albedo") ? 2048 : 512) :
                 path.StartsWith(Root + "/Furniture/Textures/merchant_hardware_", StringComparison.Ordinal) ? 512 :
                 Path.GetFileName(path) == "hands545_albedo.png" ? 2048 :
+                Path.GetFileName(path) == "monastery_stone_floor_nrm.jpg" ? 512 :
                 path.StartsWith(Root + "/Textures/", StringComparison.Ordinal) ? 1024 :
                 Path.GetFileName(path).StartsWith("body_", StringComparison.Ordinal) && linear ? (normal ? 2048 : 1024) : 4096;
             importer.maxTextureSize = maxSize;

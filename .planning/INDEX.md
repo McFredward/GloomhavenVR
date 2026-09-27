@@ -1,6 +1,6 @@
 # Planning index
 
-Updated 2026-09-27 for the NPC feature's build-573 hardware candidate and the
+Updated 2026-09-27 for the NPC feature's build-574 hardware candidate and the
 released 1.0.8 / build-556 integration. This directory holds internal
 engineering evidence, historical decisions and current status; it is not the player manual.
 
@@ -12,6 +12,7 @@ engineering evidence, historical decisions and current status; it is not the pla
 | [../CLAUDE.md](../CLAUDE.md) | Technical contracts retained across agent tools |
 | [TEST-PARALLELISM.md](TEST-PARALLELISM.md) | Parallel local/CI execution, coverage and measured timing |
 | [STATE.md](STATE.md) | Current build, validation and outstanding hardware checks |
+| [TOWN-574.md](TOWN-574.md) | Build-573 hardware evidence, confirmation reuse, cloth initialization, skinned poses, native card selection and contextual speech |
 | [TOWN-573.md](TOWN-573.md) | Build-572 hardware evidence, merchant confirmation recovery, cabinet cleanup, priestess rig and native enchantment highlights |
 | [TOWN-572.md](TOWN-572.md) | Build-571 hardware evidence, moving merchant cloth, cabinet repair, priestess arm transitions and handoff feedback |
 | [TOWN-571.md](TOWN-571.md) | Build-570 hardware evidence, short cloth contacts, native donation poses and detailed merchant cabinet |

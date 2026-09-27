@@ -2,16 +2,15 @@
 
 **Updated 2026-09-27: feature/immersive-town-services, version 1.1.0 hardware candidate.**
 The feature includes released 1.0.8 / ModBuild 556 and the subsequent 1.0.9
-version bookkeeping on `dev`. ModBuild 573 follows the build-572 merchant confirmation,
-cabinet, priestess and enchantress evidence: native confirmation reconciliation,
-removal of the experimental side banner, imported-rig arm correction, and one
-physical enchantment card with original selectable game highlights.
+version bookkeeping on `dev`. ModBuild 574 follows build-573 headset evidence:
+merchant confirmation reuse, uninitialized cloth, animated skinned-arm intersections,
+enchantment-card laser/frame geometry, stale speech, and loose stand geometry.
 ModBuild 560 introduced resident
 voices, shared merchant confirmation presentation, a visible temple donation
 target, cloth contact, cabinet detail and varied idle motion.
 Headset verification of the resulting presentation remains open. Historical NPC
 design: [research/TOWN-SERVICES-552.md](research/TOWN-SERVICES-552.md).
-Current evidence and implementation limits: [TOWN-573.md](TOWN-573.md).
+Current evidence and implementation limits: [TOWN-574.md](TOWN-574.md).
 The feature remains isolated from `dev`, and NPC work belongs on this branch.
 
 The file this replaces had gone 168 builds
@@ -26,6 +25,17 @@ change per build) → this file (where things stand and what is owed) → the bu
 ---
 
 ## 1. Position
+
+- **NPC feature / 1.1.0 / ModBuild 574 (hardware candidate):** immediate merchant
+  buy/sell reuse preserves the native confirmation buttons. The actual Unity Cloth
+  solver initializes before hand contact. Imported-skin tests now scan every animated
+  priestess/merchant arm frame, correcting the crossing and thumb penetration missed
+  by static markers. Unconnected cabinet and enchantress stand geometry is removed.
+  Original enchantment-area buttons take laser selection over the offered card's
+  own reclaim collider, and the native full-card effect covers the card instead of
+  collapsing into a strip. Five contextual post-offer lines replace stale card
+  invitations and follow the existing shared speech channel. Evidence and headset
+  checks are in [TOWN-574.md](TOWN-574.md).
 
 - **NPC feature / 1.1.0 / ModBuild 573 (hardware candidate):** merchant confirmations
   recover after a native window closes without updating its active wrapper; stock-to-owned

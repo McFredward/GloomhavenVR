@@ -541,7 +541,18 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 573;
+    public const ushort ModBuild = 574;
+
+    // ModBuild 574 — fourteenth NPC hardware follow-up on the feature branch
+    // (FULL INSTALL). Reused merchant confirmations retain their live native
+    // buttons across immediate buy/sell replacement. Cloth cooks with a tiny
+    // nonzero resting freedom instead of remaining uninitialized. Imported-skin
+    // priestess/merchant arm paths avoid torso intersection throughout transitions;
+    // unused cabinet and enchantress support geometry is removed. The offered
+    // enchantment card retains a full native frame and its actual area buttons
+    // win laser selection over that same card's reclaim collider. Five new
+    // post-offer inspection lines replace stale invitations and relay unchanged
+    // through the existing presentation-only voice packet. No wire layout changes.
 
     // ModBuild 573 — thirteenth NPC hardware follow-up on the feature branch
     // (FULL INSTALL). Merchant confirmation ownership recovers when the native
