@@ -89,8 +89,9 @@ internal static class TownServiceActivityMotion
         // through his torso during approach. These targets were checked against
         // the imported skin across the complete attention transition.
         float prayerLeftX = work.Left.x, prayerRightX = work.Right.x;
-        work.Left = Vector3.Lerp(work.Left, service == 1 ? new Vector3(.18f, 1.08f, .41f)
-            : service == 2 ? new Vector3(.29f, .75f, .58f) : new Vector3(.22f, 1.13f, .23f), attention);
+        Vector3 leftRest = service == 1 ? new Vector3(.18f, 1.08f, .41f)
+            : service == 2 ? new Vector3(.29f, .75f, .58f) : new Vector3(.22f, 1.13f, .23f);
+        work.Left = Vector3.Lerp(work.Left, leftRest, attention);
         work.Right = Vector3.Lerp(work.Right, service == 1 ? new Vector3(-.23f, 1.10f, .44f)
             : service == 3 ? new Vector3(-.18f, 1.17f, .23f) : new Vector3(-.29f, .75f, .58f), attention);
         if (service == 2)
@@ -104,8 +105,8 @@ internal static class TownServiceActivityMotion
             // This leaves both the joined prayer and relaxed idle endpoints intact
             // and runs along the same reversible owner-authored attention clock.
             float separate = Mathf.SmoothStep(0f, 1f, Mathf.Min(1f, attention * 2f));
-            work.Left.x = Mathf.Lerp(prayerLeftX, .29f, separate);
-            work.Right.x = Mathf.Lerp(prayerRightX, -.29f, separate);
+            work.Left.x = Mathf.Lerp(prayerLeftX, leftRest.x, separate);
+            work.Right.x = Mathf.Lerp(prayerRightX, -leftRest.x, separate);
             // Keep the forearms extended in front until the hands have cleared
             // the chest; the last portion settles beside the robe.
             float settleDepth = attention * attention;
