@@ -523,7 +523,18 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 556;
+    public const ushort ModBuild = 557;
+
+    // ModBuild 557 — native character-creation fit and overhead actor bars.
+    // Build577 feature-branch hardware shows a visible character creator inside New Party
+    // display while the fixed fit reports zero open sub-views; its own UIWindow now joins
+    // the fit, open-set signature and pre-seat veil instead of remaining unseated at the
+    // right edge. Actor bars for characters and enemies now explicitly select LEqual or
+    // Always ZTest for the existing BarsOccluded setting; previously both settings used
+    // the engine's depth-tested material. A default-on BarFollowFigureScale setting
+    // removes the former zoom-end clamps, with the exact legacy clamp retained when off.
+    // No wire layout or asset change. Hardware presentation still needs confirmation.
+    // Evidence and validation: .planning/BARS-CREATOR-557.md.
 
     // ModBuild 556 — animated laser-release facing for combat log and control board.
     // Build555 hardware logs show the combat-log policy did request re-facing, but its

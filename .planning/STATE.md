@@ -1,9 +1,10 @@
 # State — where the project stands
 
-**Updated 2026-09-24: dev 1.0.8 / ModBuild 556, animated combat-log and control-board release facing.**
+**Updated 2026-09-28: dev 1.0.9 / ModBuild 557, character-creation fit and actor-bar presentation.**
 The complete NPC development is isolated on `feature/immersive-town-services` for a
 future release of at least 1.1.0. Builds 538–545 and 547–552 remain reserved for that branch.
-Current review and validation: [REFACE-556.md](REFACE-556.md), building on
+Current review and validation: [BARS-CREATOR-557.md](BARS-CREATOR-557.md), building on
+[REFACE-556.md](REFACE-556.md),
 [STORY-555.md](STORY-555.md) and
 [WINDOWS-553.md](WINDOWS-553.md). Released 1.0.7 / build 546
 was hardware-confirmed before publication; this new continuation review is not yet hardware-confirmed.
@@ -20,6 +21,14 @@ change per build) → this file (where things stand and what is owed) → the bu
 ---
 
 ## 1. Position
+
+- **dev / 1.0.9 / ModBuild 557:** the character creator's original UIWindow is
+  included in the character screen's native sub-view fit and seat timing. Enemy
+  and character overhead bars use explicit depth modes for the existing wall
+  visibility setting. A new default-on toggle makes bars scale with their figures
+  throughout table zoom; disabling it restores the prior clamped behavior.
+  Source and build checks are complete; headset pixels remain unverified. See
+  [BARS-CREATOR-557.md](BARS-CREATOR-557.md).
 
 - **dev / 1.0.8 / ModBuild 556:** combat-log and control-board laser releases
   turn toward the owner using the same short animation as other local windows.
