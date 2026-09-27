@@ -67,9 +67,12 @@ check and full release packaging passed; the ZIP contains both town bundles. A
 Release build reported zero errors and warnings. The imported-skin Unity motion
 fixture passed 629,160 positive assertions and all 46 negative controls. The
 actual Unity cloth solver passed with visible finger deformation and a zero-
-motion negative control; all 23 source mutations were rejected. Final integrated
-repository gates are being rerun after updating mutation-test expectations for
-the new pose, with no further production change.
+motion negative control; all 23 source mutations were rejected. The final
+repository run passed 14/14 source gates, 80/80 presentation/runtime suites,
+286,578 wire assertions and the format checks for all three bundles. Surface
+comparison removed no keys, patches or log markers. The compiled-form comparison
+against the older `dev` baseline still lists the expected broad NPC-feature
+additions and exits nonzero by that tool's design; it is not a failing test.
 
 The next headset test must confirm first-click cancel and visible return flight;
 both directions of cabinet/owned-card replacement and matching controller pulse;
