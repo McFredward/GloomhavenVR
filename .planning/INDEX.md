@@ -1,6 +1,6 @@
 # Planning index
 
-Updated 2026-09-27 for the NPC feature's build-576 hardware candidate and the
+Updated 2026-09-27 for the NPC feature's build-577 hardware candidate and the
 released 1.0.8 / build-556 integration. This directory holds internal
 engineering evidence, historical decisions and current status; it is not the player manual.
 
@@ -12,6 +12,7 @@ engineering evidence, historical decisions and current status; it is not the pla
 | [../CLAUDE.md](../CLAUDE.md) | Technical contracts retained across agent tools |
 | [TEST-PARALLELISM.md](TEST-PARALLELISM.md) | Parallel local/CI execution, coverage and measured timing |
 | [STATE.md](STATE.md) | Current build, validation and outstanding hardware checks |
+| [TOWN-577.md](TOWN-577.md) | Build-576 hardware evidence, merchant confirmation, enchantress laser/ring, priestess transition and physical cloth contact |
 | [TOWN-576.md](TOWN-576.md) | Build-575 hardware evidence, native town unlock and first-map FTUE gates, merchant cassette, enchantress offer and voice |
 | [TOWN-575.md](TOWN-575.md) | Build-574 hardware evidence, merchant offer/cabinet interaction, native enchantment input, rendered poses, cloth, contextual speech and split bundles |
 | [TOWN-574.md](TOWN-574.md) | Build-573 hardware evidence, confirmation reuse, cloth initialization, skinned poses, native card selection and contextual speech |

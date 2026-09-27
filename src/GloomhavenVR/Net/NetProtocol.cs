@@ -541,7 +541,16 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 576;
+    public const ushort ModBuild = 577;
+
+    // ModBuild 577 — seventeenth NPC hardware follow-up on the feature branch
+    // (FULL INSTALL). Merchant offers retain their native decision for the full
+    // inspection and recover lost physical controls. Original enchantment areas
+    // receive laser input through only their offered card; the native aura fits
+    // rotated/nonuniform card hierarchies. The priestess's transition no longer
+    // detours through an elbow wing; the enchantress cloth starts clear of its
+    // furniture root and keeps continuous, smoothed physical contact. Rebuilt
+    // town art bundle; no wire layout changes.
 
     // ModBuild 576 — sixteenth NPC hardware follow-up on the feature branch
     // (FULL INSTALL). Native town unlock and first-map FTUE gates own the

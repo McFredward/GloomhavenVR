@@ -2,7 +2,9 @@
 
 **Updated 2026-09-27: feature/immersive-town-services, version 1.1.0 hardware candidate.**
 The feature includes released 1.0.8 / ModBuild 556 and the subsequent 1.0.9
-version bookkeeping on `dev`. ModBuild 576 follows build-575 headset evidence:
+version bookkeeping on `dev`. ModBuild 577 follows build-576 headset evidence:
+merchant confirmation lifetime, enchantress laser and aura geometry, priestess
+transition anatomy and physical town cloth contact. ModBuild 576 established
 native town unlock and first-map tutorial gates, merchant cassette depth and
 sold-out state, enchantress offer readiness, card effects and spoken voice.
 ModBuild 560 introduced resident
@@ -10,7 +12,7 @@ voices, shared merchant confirmation presentation, a visible temple donation
 target, cloth contact, cabinet detail and varied idle motion.
 Headset verification of the resulting presentation remains open. Historical NPC
 design: [research/TOWN-SERVICES-552.md](research/TOWN-SERVICES-552.md).
-Current evidence and implementation limits: [TOWN-576.md](TOWN-576.md).
+Current evidence and implementation limits: [TOWN-577.md](TOWN-577.md).
 The feature remains isolated from `dev`, and NPC work belongs on this branch.
 
 The file this replaces had gone 168 builds
@@ -25,6 +27,17 @@ change per build) → this file (where things stand and what is owed) → the bu
 ---
 
 ## 1. Position
+
+- **NPC feature / 1.1.0 / ModBuild 577 (hardware candidate):** merchant offers
+  keep a native confirmation throughout inspection, rebind lost controls and
+  return cards when no native prompt can open. The offered enchantress card no
+  longer blocks the laser from its own original enhancement areas, while all
+  other physical occluders remain in force; its native ring stays round under
+  rotated, nonuniform transforms. The priestess's entry blend avoids the prior
+  elbow detour. The enchantress's cloth starts clear of its furniture root and
+  holds smooth physical contact. Full-install art bundle and source/visual
+  evidence are recorded in [TOWN-577.md](TOWN-577.md). Headset confirmation
+  remains open.
 
 - **NPC feature / 1.1.0 / ModBuild 576 (hardware candidate):** native saved
   headquarters unlocks and first-map tutorial gates determine whether each
