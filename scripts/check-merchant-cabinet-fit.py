@@ -47,6 +47,7 @@ bpy.ops.object.delete(use_global=False)
 furniture = imported(args.furniture)
 sculpt = imported(args.sculpt)
 buttons = imported(args.button)
+seat = imported(args.furniture.parent / "merchant_cassette.fbx")
 assert len(sculpt) == 1
 assert not any("ClothRunner_MerchantSide" in obj.name for obj in furniture)
 assert not any(material.name.startswith("AltarCloth") for obj in furniture
@@ -96,7 +97,20 @@ for x in centres:
     assert abs(face - rim) < .008, (x, face, rim)
     assert back > pit + .012, (x, back, pit)
 
+# Compare the actual headset card plane with the exported cheek and leather
+# rather than testing a C# offset in isolation. Imported Blender Y is -Unity Z;
+# the catalog runtime fixture pins the 78.8 mm native face position below.
+cheek_depth = -ray(sculpt[0], (.60, 1, 1.20), (0, -1, 0)).y
+leather = next(obj for obj in seat if "Row1_Leather" in obj.name)
+leather_front = min(-(leather.matrix_world @ Vector(corner)).y for corner in leather.bound_box)
+card_face = .0788
+leather_front += .075 # Runtime housing root translates the authored seat inward.
+assert cheek_depth + .005 < card_face < leather_front - .002, (
+    cheek_depth, card_face, leather_front)
+
 print("MERCHANT_CABINET_FIT_OK",
       "side_panel=absent", "flange_cheek_gap=%.4f" % (flange_outer - cheek),
-      "socket_centres=" + ",".join("%.3f" % value for value in centres))
+      "socket_centres=" + ",".join("%.3f" % value for value in centres),
+      "cheek/face/leather_depth=" + "/".join("%.4f" % depth for depth in (
+          cheek_depth, card_face, leather_front)))
 passed = True

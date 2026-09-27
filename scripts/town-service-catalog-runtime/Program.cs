@@ -450,8 +450,14 @@ public static class InteractionProgram
         }
         var stable=catalog.Entries[0];var stableRoot=stable.CardRoot;
         Vector3 stockInset=(Vector3)typeof(TownServiceCatalog.Entry).GetField("_displayHome",BindingFlags.Instance|BindingFlags.NonPublic)!.GetValue(stable)!;
-        Check(stockInset.z>.014f&&stockInset.z<.016f,
-            "physical card face and collider sit fifteen millimetres inside the cabinet frame");
+        Check(stockInset.z>.029f&&stockInset.z<.031f
+            &&catalog.Drawers[0].HousingRoot.localPosition.z>.074f
+            &&catalog.Drawers[0].HousingRoot.localPosition.z<.076f,
+            "the whole roller and card face are recessed into the imported cabinet, not only the face");
+        Set(stable,"_presentedAt",-1000f);stable.Tick(1f);
+        float cabinetFace=anchor.transform.InverseTransformPoint(stable.CardRoot.position).z;
+        Check(cabinetFace>.077f&&cabinetFace<.081f,
+            "native face, body and pickup mount rest just ahead of the imported leather seat inside the carved cheek");
         Census(catalog);Check(catalog.Entries[0].CardRoot==stableRoot,"unchanged census retains physical identity");
         var added=new CItem(999);added.YMLData.Slot=CItem.EItemSlot.Head;inventory.service.Buy.Add(added);Census(catalog);
         Check(catalog.Entries.Count==165,"late unlock adds card without dropping old stock");
@@ -462,9 +468,17 @@ public static class InteractionProgram
             "exhausted stock announces itself on the original physical card face before inspection");
         int inspections=TownServiceMerchantHandoff.InspectedCount;
         var soldOutHand=new VRHand();soldOut.Sample.OnGrab(soldOutHand);
+        Check(soldOut.MountRoot.Find("Face/OriginalStockSoldOut")?.gameObject.activeSelf==false,
+            "exhausted-stock banner disappears in the same frame the original card leaves the rack");
+        catalog.Tick(1f);
+        Check(soldOut.MountRoot.Find("Face/OriginalStockSoldOut")?.gameObject.activeSelf==false,
+            "exhausted-stock banner remains absent for every held or offered frame");
         Check(TownServiceMerchantHandoff.InspectedCount==inspections+1&&!TownServiceMerchantHandoff.LastAvailable,
             "sold-out speech hook runs on the actual physical pickup, not hover or frame updates");
         soldOut.Sample.OnGrabCancelled(soldOutHand);UnityEngine.Object.DestroyImmediate(soldOutHand.Rig.GrabAnchor.gameObject);
+        catalog.Tick(1f);
+        Check(soldOut.MountRoot.Find("Face/OriginalStockSoldOut")?.gameObject.activeSelf==true,
+            "exhausted-stock banner returns only after its original card is back on the rack");
         inventory.service.Buy.Insert(0,exhausted);Census(catalog);catalog.Tick(1f);
         Check(catalog.Entries.FindEntry(0,false,0).MountRoot.Find("Face/OriginalStockSoldOut")?.gameObject.activeSelf==false,
             "restocked original card removes the sold-out marker without a stale overlay");

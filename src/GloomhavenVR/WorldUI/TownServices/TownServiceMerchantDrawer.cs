@@ -61,7 +61,11 @@ internal sealed class TownServiceMerchantDrawer : IGrabbable, IGrabbableHandFilt
         _alive = alive; _mayClose = mayClose; _opening = opening;
         Page = category * 256 + (selling ? 2048 : 0);
         _housing = CreateHousingTemplate(); HousingRoot.SetParent(parent, false);
-        HousingRoot.localPosition = new Vector3(-.95f, .25f, .035f);
+        // The imported sculpt's front cheeks are 70-90 mm behind the cabinet's
+        // local origin at card height. The roller and its real retaining clips
+        // belong inside that opening; at 35 mm the entire cassette stood proud
+        // of the cheeks in a headset side view, even after the faces moved 15 mm.
+        HousingRoot.localPosition = new Vector3(-.95f, .25f, .075f);
         Content = new GameObject("PersistentCards").transform;
         Content.SetParent(HousingRoot.Find("Cassette"), false); ContentRoots.Add(Content);
         for (int row = 0; row < 3; row++)

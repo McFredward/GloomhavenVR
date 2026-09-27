@@ -244,6 +244,10 @@ internal sealed class TownServiceCatalog : IDisposable
     }
     private void OnStockGrabbed(Entry entry)
     {
+        // The native item card itself travels to the hand. Clear the cabinet-only
+        // availability stamp synchronously with the grab, before its first held
+        // frame; waiting for the next catalogue tick leaves a readable stamp in hand.
+        entry.RefreshSoldOutMarker(false);
         TownServicePublicMerchant.Claim();
         if (!entry.Selling) TownServiceMerchantHandoff.StockInspected(entry.Item, entry.RowSource.IsAvailable);
     }
@@ -386,13 +390,13 @@ internal sealed class TownServiceCatalog : IDisposable
                 soldOutLabel.alignment = TextAlignmentOptions.Center;
                 soldOutLabel.color = new Color(1f, .9f, .72f, 1f);
                 soldOutLabel.raycastTarget = false;
-                _soldOutBand.SetActive(!selling && !source.IsAvailable);
+                RefreshSoldOutMarker(true);
                 Vector2 physicalSize = size * host.localScale.x;
-                // The headset side view shows the card glass standing proud of the
-                // cassette's carved front rail. Its native face, price and pickup
-                // collider travel together 15 mm into the cabinet (+local Z is inward
-                // from the player's front view); category buttons keep their sockets.
-                _displayHome = new Vector3(0f, 0f, .015f);
+                // With the cassette inside the carved cheeks, seat the native face
+                // about 3 mm ahead of the imported leather backing. The former 15 mm
+                // inset left the glass 18 mm in front of its own seat, so the whole
+                // card plane still projected beyond the cabinet in a headset side view.
+                _displayHome = new Vector3(0f, 0f, .030f);
                 _display.localPosition = _displayHome + new Vector3(0f, 0f, .045f);
                 _body = TownServiceCardBody.Create(_display).transform;
                 _body.localScale = new Vector3(physicalSize.x, physicalSize.y, 1f);
@@ -438,6 +442,7 @@ internal sealed class TownServiceCatalog : IDisposable
                 foreach (Renderer renderer in _bodyRenderers ??= _body.GetComponentsInChildren<Renderer>(true)) renderer.forceRenderingOff = !exposed;
             }
             if (!Warm) { Sample.PickCollider.enabled = false; return; }
+            RefreshSoldOutMarker(!Sample.IsMoving);
             if (!Sample.IsMoving)
             {
                 float t = Mathf.Clamp01((Time.unscaledTime - _presentedAt) / .24f);
@@ -453,7 +458,6 @@ internal sealed class TownServiceCatalog : IDisposable
                 CardFaceMipBake.Rescan(CardUI);
                 _artWatch.Capture(CardUI);
             }
-            _soldOutBand.SetActive(!Selling && !RowSource.IsAvailable);
             _row.TickLive();
             // Preserve original stock/price/name glyphs but remove the flat list's backing.
             foreach(Transform original in _rowBackgrounds)
@@ -466,6 +470,11 @@ internal sealed class TownServiceCatalog : IDisposable
                 if (inline != null) inline.gameObject.SetActive(false);
             }
             if (exposed) Sample.Tick(scale); else Sample.PickCollider.enabled = false;
+        }
+        internal void RefreshSoldOutMarker(bool inCabinet)
+        {
+            bool shown = inCabinet && !Selling && !RowSource.IsAvailable;
+            if (_soldOutBand.activeSelf != shown) _soldOutBand.SetActive(shown);
         }
         public void Dispose()
         {
