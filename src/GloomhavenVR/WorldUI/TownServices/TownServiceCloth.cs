@@ -26,7 +26,8 @@ internal sealed class TownServiceCloth : IDisposable
     private const float PalmRadiusRealMeters = .035f;
     private const float TipRadiusRealMeters = .010f;
     private const float FingerLengthRealMeters = .09f;
-    private const float MaximumFreedomRealMeters = .11f;
+    private const float MaximumFreedomRealMeters = .08f;
+    private const float ContactPresentationSeconds = .045f;
     // Unity 2021.3 refuses to initialize a Cloth whose *every* particle starts
     // fixed. The headset log then says "All cloth particles are fixed so the
     // Cloth component is not initialized" and every touch remains rigid even
@@ -312,10 +313,11 @@ internal sealed class TownServiceCloth : IDisposable
         var coefficients = new ClothSkinningCoefficient[runner.DriverRest.Length];
         for (int n = 0; n < coefficients.Length; n++)
         {
-            // The previous 34 cm envelope let one fingertip invert almost the
-            // complete runner and pull its solidified sides apart. Eleven
-            // centimetres retains tactile folds while tethers bound the largest
-            // deformation and the scale-correct gravity restores the hanging rest.
+            // The original 34 cm envelope let one fingertip invert nearly the
+            // complete runner. Build 574's 11 cm envelope remained too loose in
+            // the headset: contact rapidly buckled several rows into sharp
+            // wrinkles. Eight centimetres leaves a tactile drape without letting
+            // a single finger turn the broad sheet inside out.
             runner.DriverMaximum[n] = runner.DriverFreedom[n]
                 * MaximumFreedomRealMeters * stationUnitInDriver;
             // The authored mesh is already the exact rest drape. Start within a
@@ -338,10 +340,10 @@ internal sealed class TownServiceCloth : IDisposable
         // while pinned or merely approached; one physical g is enabled during real
         // contact and its visible recovery below.
         cloth.externalAcceleration = Vector3.zero;
-        cloth.damping = .40f;
-        cloth.friction = .52f;
-        cloth.bendingStiffness = .82f;
-        cloth.stretchingStiffness = .94f;
+        cloth.damping = .55f;
+        cloth.friction = .32f;
+        cloth.bendingStiffness = .94f;
+        cloth.stretchingStiffness = .96f;
         // Match figure cloth's bounded high-quality rate. Raising this to 180 Hz
         // adds fifty percent solver work for three permanent runners without
         // improving the visible return authored below.
@@ -757,15 +759,14 @@ internal sealed class TownServiceCloth : IDisposable
         // Capture once on approach/contact, then show every solver displacement while the physical
         // capsule touches the cloth. Withdrawing a hand fades back to the authored drape even while
         // the player remains nearby; the wider margin only keeps the existing solver prepared.
-        // PhysX already supplies the smooth physical onset. Build 569 multiplied its
-        // first real collision frames by a second 120 ms presentation fade. The headset
-        // log proves short finger contacts crossed the gate, yet their physical response
-        // was attenuated before it reached the rendered sheet. Draw native displacement
-        // at full weight for every genuine collision; retain only the gradual, gravity-
-        // driven release after the probe leaves.
+        // Native collision still supplies the actual motion. Build 569's 120 ms
+        // visual fade hid brief fingertip contacts. Build 574's immediate jump
+        // showed every high-frequency buckle at once. A 45 ms onset makes the
+        // first 90 Hz contact frame visible, then reaches full physical motion
+        // before a typical touch ends; release keeps its slower return.
         float previousWeight = runner.DeformationWeight;
-        runner.DeformationWeight = contact ? 1f : Mathf.MoveTowards(runner.DeformationWeight, 0f,
-            Mathf.Max(0f, dt) / .48f);
+        runner.DeformationWeight = Mathf.MoveTowards(runner.DeformationWeight, contact ? 1f : 0f,
+            Mathf.Max(0f, dt) / (contact ? ContactPresentationSeconds : .48f));
         if (!contact && previousWeight > 0f && runner.DeformationWeight <= 0f
             && runner.ContactSurface.Length == runner.EpisodeOrigin.Length)
         {

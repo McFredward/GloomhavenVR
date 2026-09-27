@@ -29,7 +29,10 @@ def source_contract(source):
                                       and 'Physics.gravity * runner.StationUnitInDriver' in source
                                       and '* MaximumFreedomRealMeters * stationUnitInDriver' in source
                                       and '.004f * stationUnitInDriver' in source),
-        'bounded smooth visible deformation': ('MaximumFreedomRealMeters = .11f' in source
+        'bounded smooth visible deformation': ('MaximumFreedomRealMeters = .08f' in source
+                                               and 'ContactPresentationSeconds = .045f' in source
+                                               and 'cloth.bendingStiffness = .94f' in source
+                                               and 'cloth.damping = .55f' in source
                                                and 'VisibleDriverMap' in source
                                                and 'DriverDelta(in runner.VisibleDriverMap[n]' in source
                                                and 'RestoreAfterContact(runner, dt)' in source
@@ -41,7 +44,7 @@ def source_contract(source):
                                                and 'AnyProbeWithin(runner, .018f, out' in source
                                                and 'ProbeWithin(runner, probe' in source
                                                and 'DistanceSquaredToSegment(surface[i], localA, localB)' in source
-                                               and 'runner.DeformationWeight = contact ? 1f' in source
+                                               and 'runner.DeformationWeight = Mathf.MoveTowards(runner.DeformationWeight, contact ? 1f : 0f,' in source
                                                and 'if (runner.CaptureOrigin && runner.ContactSurface.Length == runner.EpisodeOrigin.Length)' in source
                                                and 'Array.Copy(runner.ContactSurface, runner.EpisodeOrigin' in source
                                                and source.count('AddComponent<Cloth>()') == 1),
@@ -80,8 +83,9 @@ def validate_source():
                          'missingScale = driver.InverseTransformVector'),
         'scale-correct-gravity': ('Physics.gravity * runner.StationUnitInDriver',
                                   'Physics.gravity'),
-        'bounded-envelope': ('MaximumFreedomRealMeters = .11f',
+        'bounded-envelope': ('MaximumFreedomRealMeters = .08f',
                              'MaximumFreedomRealMeters = .34f'),
+        'overloose-bending': ('cloth.bendingStiffness = .94f', 'cloth.bendingStiffness = .40f'),
         'smooth-map': ('DriverDelta(in runner.VisibleDriverMap[n]',
                        'simulated[runner.VisibleDriverVertex[n]] - runner.DriverRest[runner.VisibleDriverVertex[n]]'),
         'episode-zero': ('Array.Copy(simulated, runner.EpisodeOrigin, simulated.Length)',
@@ -93,10 +97,10 @@ def validate_source():
                                  'AnyProbeWithin(runner, .16f, out'),
         'point-aabb-contact': ('DistanceSquaredToSegment(surface[i], localA, localB)',
                                'broadphase.SqrDistance(a)'),
-        'invisible-contact-physics': ('runner.DeformationWeight = contact ? 1f',
-                                      'runner.DeformationWeight = false ? 1f'),
-        'attenuated-contact-physics': ('runner.DeformationWeight = contact ? 1f',
-            'runner.DeformationWeight = Mathf.MoveTowards(runner.DeformationWeight, contact ? 1f'),
+        'invisible-contact-physics': ('runner.DeformationWeight = Mathf.MoveTowards(runner.DeformationWeight, contact ? 1f : 0f,',
+                                      'runner.DeformationWeight = Mathf.MoveTowards(runner.DeformationWeight, false ? 1f : 0f,'),
+        'attenuated-contact-physics': ('ContactPresentationSeconds = .045f',
+            'ContactPresentationSeconds = .15f'),
         'short-touch-origin': ('if (runner.CaptureOrigin && runner.ContactSurface.Length == runner.EpisodeOrigin.Length)',
                                'if (runner.DeformationWeight <= 0f) runner.CaptureOrigin = true;'),
         'fingertip': ('VRHands.Left.Rig.IndexTip.position', 'VRHands.Left.Rig.PalmCenter.forward'),
@@ -141,8 +145,8 @@ def main():
                                     'namespace GloomhavenVR.WorldUI\n{\n', 1) + '\n}\n'
     (project / 'Assets/TownServiceCloth.cs').write_text(production)
     dead_visible = production.replace('TownServiceCloth', 'TownServiceClothDead')
-    dead_visible = dead_visible.replace('runner.DeformationWeight = contact ? 1f',
-                                        'runner.DeformationWeight = false ? 1f', 1)
+    dead_visible = dead_visible.replace('runner.DeformationWeight = Mathf.MoveTowards(runner.DeformationWeight, contact ? 1f : 0f,',
+                                        'runner.DeformationWeight = Mathf.MoveTowards(runner.DeformationWeight, false ? 1f : 0f,', 1)
     (project / 'Assets/TownServiceClothDead.cs').write_text(dead_visible)
     contact_reset = production.replace('TownServiceCloth', 'TownServiceClothContactReset')
     contact_reset = contact_reset.replace(

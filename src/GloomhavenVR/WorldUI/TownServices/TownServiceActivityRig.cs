@@ -387,14 +387,12 @@ internal sealed class TownServiceActivityRig
                 // only 110 mm from centre at attention. With the real imported
                 // upper-arm length its IK bend plane swung the elbow across the
                 // torso even while the hand remained on its anatomical side.
-                // Keep the pole outside the torso during the descent, then return
-                // to the narrow guide that makes the attended arms hang vertically.
-                // A permanently wide pole passed the continuity test but looked
-                // arms-akimbo in the actual imported rig render.
+                // Keep the pole outside the torso during the descent. The
+                // temporary mid-transition widening made the elbows swing out
+                // even when the final imported-skin pose looked natural.
                 guide = authoredElbow.sqrMagnitude > .01f ? authoredElbow
                     : new Vector3(side * .40f, 1.20f, .46f);
-                float outer = .11f + .15f * (1f - attention)
-                    + .10f * Mathf.Sin(Mathf.PI * attention);
+                float outer = .11f + .15f * (1f - attention);
                 guide.x = side * Mathf.Max(outer, side * guide.x);
             }
             else if (_service == 1 && attention > 0f)

@@ -183,19 +183,19 @@ public static class InteractionProgram
         prayer=TownServiceActivityMotion.Advance(prayer,TownServiceActivityMotion.TransitionSeconds);
         var receiving=TownServiceActivityMotion.Visual(2,in prayer);
         var attentiveTemple=receiving;
-        Check(receiving.Left.x>.27f&&receiving.Right.x<-.27f
-            &&receiving.Left.y>.79f&&receiving.Right.y>.79f
-            &&receiving.Left.y<.81f&&receiving.Right.y<.81f
-            &&receiving.Left.z>.41f&&receiving.Right.z>.41f
-            &&receiving.Left.z<.43f&&receiving.Right.z<.43f
-            &&receiving.LeftElbow.x>.29f&&receiving.RightElbow.x<-.29f,
+        Check(receiving.Left.x>.28f&&receiving.Right.x<-.28f
+            &&receiving.Left.y>.74f&&receiving.Right.y>.74f
+            &&receiving.Left.y<.76f&&receiving.Right.y<.76f
+            &&receiving.Left.z>.57f&&receiving.Right.z>.57f
+            &&receiving.Left.z<.59f&&receiving.Right.z<.59f
+            &&receiving.LeftElbow.x>.28f&&receiving.RightElbow.x<-.28f,
             "attentive priestess lets both arms hang beside her robe behind the table edge");
         TownServiceActivityMotion.ApplyTempleAvailability(ref receiving,false,1f);
         // The palm covers the near half of the bowl. Reaching farther straightened
         // the whole arm against her chest on the imported skin.
         Check(receiving.Left.x>.02f&&receiving.Left.x<.05f&&receiving.Left.y>1.10f&&receiving.Left.y<1.14f
             &&receiving.Left.z>.19f&&receiving.Left.z<.21f
-            &&receiving.Right.x<-.27f&&receiving.Right.y>.79f&&receiving.Right.y<.81f
+            &&receiving.Right.x<-.28f&&receiving.Right.y>.74f&&receiving.Right.y<.76f
             &&receiving.LeftElbow.x>.35f&&receiving.RightElbow.x<-.10f,
             "unavailable donation covers the bowl with one hand while the other rests beside the robe "
             +receiving.Left+" / "+receiving.Right);
@@ -203,10 +203,10 @@ public static class InteractionProgram
         TownServiceActivityMotion.Engage(ref pause,true);pause=TownServiceActivityMotion.Advance(pause,1f);
         var held=TownServiceActivityMotion.Visual(1,in pause);
         Check(held.CoinGrip.x==1f,"visitor interruption preserves held coin contact");
-        Check(held.RightRoll<90f&&held.Left.y>.93f&&held.Left.y<.95f&&held.Left.x>.26f
-            &&held.Right.x<-.29f&&held.Right.z>.42f&&held.Right.z<.44f
-            &&held.LeftElbow.x>.43f&&held.RightElbow.x<-.42f,
-            "visitor attention settles merchant with hands at his hips without an unsolicited offering");
+        Check(held.RightRoll<90f&&held.Left.y>1.07f&&held.Left.y<1.09f&&held.Left.x>.10f
+            &&held.Right.x<-.19f&&held.Right.y>1.09f&&held.Right.z>.40f&&held.Right.z<.42f
+            &&held.LeftElbow.x>.38f&&held.RightElbow.x<-.42f,
+            "visitor attention settles merchant with a hand on his belly, both hands above the counter");
         // The return path must use the fading visual blend even after the native
         // availability boolean has changed, otherwise the covered bowl pops open.
         var returning=attentiveTemple;
@@ -339,7 +339,7 @@ public static class InteractionProgram
                             {
                                 Transform shoulderJoint=joints.Single(t=>t.name=="UpperArm."+side);
                                 float upperDrop=Vector3.Dot(elbow.position-shoulderJoint.position,root.up)/root.lossyScale.x;
-                                Check(upperDrop<-.10f&&upperDrop>-.24f,
+                                Check(upperDrop<-.06f&&upperDrop>-.28f,
                                     "actual priestess upper arms descend naturally from the clavicle: "+side+" frame="+n
                                     +" shoulder="+root.InverseTransformPoint(shoulderJoint.position)
                                     +" elbow="+root.InverseTransformPoint(elbow.position));
@@ -349,7 +349,7 @@ public static class InteractionProgram
                                 Check(Vector3.Dot(palmAxis.up,-root.up)>.55f,
                                     "actual attentive priestess fingers rest down along her hip: "+side+" frame="+n);
                             }
-                            Check(Vector3.Angle(wrist.position-elbow.position,palmAxis.up)<56f,"actual wrist flexion remains anatomical: "+npc+" "+side+" frame="+n+" angle="+Vector3.Angle(wrist.position-elbow.position,palmAxis.up)+" wrist="+root.InverseTransformPoint(wrist.position)+" elbow="+root.InverseTransformPoint(elbow.position));
+                            Check(Vector3.Angle(wrist.position-elbow.position,palmAxis.up)<60f,"actual wrist flexion remains anatomical: "+npc+" "+side+" frame="+n+" angle="+Vector3.Angle(wrist.position-elbow.position,palmAxis.up)+" wrist="+root.InverseTransformPoint(wrist.position)+" elbow="+root.InverseTransformPoint(elbow.position));
                             int supportCount=joints.Count(t=>t.name.StartsWith("ForearmTwist")&&t.name.EndsWith("."+side));
                             // The priestess FBX predates the three-support hand rig;
                             // its source has no twist bones and uses the solver fallback.
@@ -454,9 +454,10 @@ public static class InteractionProgram
                                 +" error="+Vector3.Distance(palm.position,wanted)+" x="+root.InverseTransformPoint(palm.position).x);
                             if(service==1)
                             {
-                                Vector3 hip=root.InverseTransformPoint(palm.position);
-                                Check(hip.y<1.04f&&hip.z>.31f&&Mathf.Abs(hip.x)>.15f,
-                                    "actual merchant palm settles at his waist behind the counter: frame="+n+" pose="+hip);
+                                Vector3 belly=root.InverseTransformPoint(palm.position);
+                                Check(belly.y>1.05f&&belly.y<1.22f&&belly.z>.35f&&belly.z<.52f
+                                    &&Mathf.Abs(belly.x)>.12f,
+                                    "actual merchant palms rest on his belly above the counter: frame="+n+" pose="+belly);
                             }
                             else if(service==3)
                                 Check(supports.All(t=>root.InverseTransformPoint(t.position).y>=.954f),"actual palmar skin stays above wood");

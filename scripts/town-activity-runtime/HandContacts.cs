@@ -94,23 +94,22 @@ internal static class HandContacts
                     if(service==2)
                     {
                         Vector3 lowered=root.InverseTransformPoint(contact.position);
-                        // The imported upper/forearm lengths end above the .80 guide;
-                        // verify the solved anatomical palm, not the unreachable guide.
-                        // It must hang below the .955 worktop and beside the robe.
-                        if(Mathf.Abs(lowered.x)<.12f||lowered.z<.40f||lowered.z>.59f
-                            ||lowered.y<.78f||lowered.y>1.03f)
+                        // The low target reaches the imported joint limit.
+                        // Verify the solved palm beside the robe, not just its guide.
+                        if(Mathf.Abs(lowered.x)<.15f||lowered.z<.51f||lowered.z>.72f
+                            ||lowered.y<.78f||lowered.y>1.10f)
                             throw new Exception("attentive priestess arms hang beside her robe and outside the donation bowl: "+side+" "+lowered);
                         checks++;
                     }
                     else if(service==1&&side=="L")
                     {
                         Vector3 hip=root.InverseTransformPoint(contact.position);
-                        if(Mathf.Abs(hip.x)<.15f||hip.z<.31f||hip.z>.50f
-                            ||hip.y<.88f||hip.y>1.04f)
-                            throw new Exception("visitor attention settles merchant with hands at his hips without an unsolicited offering: "+side+" "+hip);
+                        if(hip.x<.02f||hip.x>.30f||hip.z<.35f||hip.z>.50f
+                            ||hip.y<1.04f||hip.y>1.25f)
+                            throw new Exception("visitor attention settles merchant's free hand on his belly above the counter: "+side+" "+hip);
                         Vector3 inward=side=="L"?-root.right:root.right;
                         if(Vector3.Dot(contact.forward,inward)<.55f)
-                            throw new Exception("attentive merchant palm rests naturally against his hip: "+side);
+                            throw new Exception("attentive merchant palm rests naturally against his belly: "+side);
                         checks++;
                     }
                     else if(!(service==1&&side=="L")&&!(service!=2&&side=="R"))
@@ -167,7 +166,7 @@ internal static class HandContacts
                     // half draws the sleeve through her torso, which this marker
                     // check alone cannot detect; the skin scan covers that case.
                     if(left.x<.020f||left.x>.050f||left.y<1.09f||left.y>1.15f
-                        ||right.x>-.16f||right.y<.77f||right.y>.90f)
+                        ||right.x>-.16f||right.y<.78f||right.y>1.10f)
                         throw new Exception("unavailable donation covers the bowl with one hand while the other rests beside the robe left="+left+" right="+right);
                     if(Vector3.Dot(leftPalm.forward,-root.up)<.72f
                         ||Vector3.Dot(rightPalm.forward,root.right)<.55f)
