@@ -124,6 +124,7 @@ internal sealed class TownServiceAssets
         // descriptor is sufficient; a GPU readback hash would vary by API and
         // stall the headset. A same-named unknown size still fails closed.
         return texture.name == "T_noise_shards" && texture.width == 512 && texture.height == 512
+            && texture.format == TextureFormat.DXT1 && texture.mipmapCount == 10
             || texture.name.StartsWith("sactx-", StringComparison.Ordinal)
                && texture.name.Contains("BattleOverlayCanvas-");
     }

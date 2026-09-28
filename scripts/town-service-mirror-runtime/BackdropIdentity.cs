@@ -111,8 +111,8 @@ public static partial class MirrorProgram
 
     private static void DuplicateNativeTextures()
     {
-        var red = new Texture2D(512, 512, TextureFormat.RGBA32, false) { name = "T_noise_shards" };
-        var redTwin = new Texture2D(512, 512, TextureFormat.RGBA32, false) { name = "T_noise_shards" };
+        var red = new Texture2D(512, 512, TextureFormat.DXT1, true) { name = "T_noise_shards" };
+        var redTwin = new Texture2D(512, 512, TextureFormat.DXT1, true) { name = "T_noise_shards" };
         var owner = new TownServiceAssets(); var observer = new TownServiceAssets();
         string redKey = owner.Key(red);
         Check(owner.Key(redTwin) == redKey && observer.Key(redTwin) == redKey,
@@ -123,6 +123,16 @@ public static partial class MirrorProgram
         bool refused = false;
         try { owner.Key(unknownTwin); } catch (InvalidDataException) { refused = true; }
         Check(refused, "same-named noise textures outside the verified native resource size still fail closed");
+        var wrongFormat = new Texture2D(512, 512, TextureFormat.RGBA32, true) { name = "T_noise_shards" };
+        var wrongFormatTwin = new Texture2D(512, 512, TextureFormat.RGBA32, true) { name = "T_noise_shards" };
+        owner.Key(wrongFormat); refused = false;
+        try { owner.Key(wrongFormatTwin); } catch (InvalidDataException) { refused = true; }
+        Check(refused, "same-named noise textures with a different native format still fail closed");
+        var wrongMips = new Texture2D(512, 512, TextureFormat.DXT1, false) { name = "T_noise_shards" };
+        var wrongMipsTwin = new Texture2D(512, 512, TextureFormat.DXT1, false) { name = "T_noise_shards" };
+        owner.Key(wrongMips); refused = false;
+        try { owner.Key(wrongMipsTwin); } catch (InvalidDataException) { refused = true; }
+        Check(refused, "same-named noise textures without ten native mip levels still fail closed");
         var atlas = new Texture2D(2, 2, TextureFormat.RGBA32, false)
             { name = "sactx-0-4096x4096-DXT5|BC3-BattleOverlayCanvas-811e9640" };
         var atlasTwin = new Texture2D(2, 2, TextureFormat.RGBA32, false) { name = atlas.name };
@@ -131,6 +141,7 @@ public static partial class MirrorProgram
         Check(owner.Key(atlas) == owner.Key(atlasTwin),
             "native atlas wrappers sharing the embedded content ID retain one asset identity");
         Object.Destroy(red); Object.Destroy(redTwin); Object.Destroy(unknown); Object.Destroy(unknownTwin);
+        Object.Destroy(wrongFormat); Object.Destroy(wrongFormatTwin); Object.Destroy(wrongMips); Object.Destroy(wrongMipsTwin);
         Object.Destroy(atlas); Object.Destroy(atlasTwin);
     }
 }
