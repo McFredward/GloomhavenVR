@@ -30,19 +30,22 @@ def sources(root):
 def inspect_presentation_contract(root):
     source = (root / "src/GloomhavenVR/WorldUI/TownServices/TownServicePresentation.cs").read_text()
     required = (
-        "_workspace = AcquireWorkspace(_station.Root, service);",
-        "_workspace?.Root ?? _station.Root",
-        "return TownServiceWorkspace.CreateForLocalVisitor(station, service);",
-        "if (!RetainTempleWorkspace()) { _workspace?.Dispose(); _workspace = null; }",
-        "if (!MapRoomDriver.Active) DisposeCachedTempleWorkspace();",
+        "_workspace = null;",
+        "new TownServiceRitual(window, service, _station.Root,",
+        "_mat.transform.SetParent(_station.Root, false);",
+        "_workspace?.Dispose(); _workspace = null;",
     )
     missing = [entry for entry in required if entry not in source]
     if missing:
-        raise RuntimeError("Workspace entry/reuse contract is incomplete: " + ", ".join(missing))
-    broken = replace_once(source, "_workspace = AcquireWorkspace(_station.Root, service);",
-                          "_workspace = new TownServiceWorkspace(_station.Root, service);")
-    if all(entry in broken for entry in required):
-        raise RuntimeError("Workspace entry/reuse negative control did not fail")
+        raise RuntimeError("Shared station contract is incomplete: " + ", ".join(missing))
+    forbidden = ("AcquireWorkspace(", "CreateForLocalVisitor(", "new TownServiceWorkspace(",
+                 "_cachedTempleWorkspace", "_cachedTempleStation")
+    if any(entry in source for entry in forbidden):
+        raise RuntimeError("A per-visitor station clone remains reachable from presentation")
+    broken = replace_once(source, "            _workspace = null;\n            BuildMat();",
+                          "            _workspace = TownServiceWorkspace.CreateForLocalVisitor(_station.Root, service);\n            BuildMat();")
+    if not any(entry in broken for entry in forbidden):
+        raise RuntimeError("Shared station negative control did not fail")
 
 
 def mutations():
@@ -61,7 +64,7 @@ def mutations():
         ("materials", "TownServiceWorkspace.cs", "copy = new Material(original)", "copy = original", "each workspace owns its materials"),
         ("held-relocation", "TownServiceWorkspace.cs", "_pending && mayRelocate && !_relocating", "_pending && !_relocating", "held or returning card defers relocation"),
         ("floor", "TownServiceWorkspace.cs", "TownServicePlacement.GroundHeight(room, _target)", "room.position.y", "workspace rests on original sloped floor at its own target"),
-        ("primary-entry-cost", "TownServiceWorkspace.cs", "return slot == 0 ? null : new TownServiceWorkspace(station, service, slot);", "return slot < 0 ? null : new TownServiceWorkspace(station, service, slot);", "primary service entry never constructs a hidden private workspace"),
+        ("primary-entry-cost", "TownServiceWorkspace.cs", "return null;\n    }\n\n    internal TownServiceWorkspace(Transform station", "return NetPlayerActors.LocalPlayerId() == 1 ? null : new TownServiceWorkspace(station, service);\n    }\n\n    internal TownServiceWorkspace(Transform station", "second visitor shares the permanent priestess stand"),
     ]
 
 

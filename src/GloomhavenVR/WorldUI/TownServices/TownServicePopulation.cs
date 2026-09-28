@@ -219,14 +219,11 @@ internal static class TownServicePopulation
                     // The face starts looking at this visitor immediately. The merchant's
                     // coin hand may finish a transfer before body attention begins.
                     lookingAtVisitor = engaged;
-                    // The enchantress's offered hand is not a generic greeting pose. An
-                    // overlapping visitor can receive her gaze while their native hand/fan
-                    // belongs to another resident. Only an actual owner cue (or a fresh
-                    // remote native enchantress visit) may author the hand extension; the
-                    // shared activity stream then gives every observer the same transition.
-                    if (service == 3 && interactive)
-                        engaged &= TownServiceEnhancementHandoff.HasVisibleCue
-                            || TownServiceMirror.HasVisibleRemoteEnhancementCue();
+                    // The same elected face attention owns the enchantress's offered hand.
+                    // It sees local and remote visitors in her actual approach volume;
+                    // a native-window cue can arrive later, or belong to a different
+                    // resident while both attention volumes overlap. Requiring that cue
+                    // left her looking at a visitor with no hand to accept a card.
                     // Finish the current coin contact before greeting. Immediate
                     // attention could strand a gripped coin in midair; this authored
                     // decision is carried in the ordinary occupation stream.

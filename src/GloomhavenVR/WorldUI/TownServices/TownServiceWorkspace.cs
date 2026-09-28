@@ -7,9 +7,8 @@ using UnityEngine;
 
 namespace GloomhavenVR.WorldUI;
 
-/// <summary>One owner's full-size merchant workspace. The primary visitor uses the shared
-/// counter; additional visitors receive full-size furniture on the free southern clearing ring.
-/// Only the owner resolves its position. Mirrors consume its actual pose/material output.</summary>
+/// <summary>Legacy visitor-workspace geometry. The live three services use their permanent
+/// resident stands; constructing this furniture for a second visitor creates a fourth table.</summary>
 internal sealed class TownServiceWorkspace : IDisposable
 {
     internal const float MoveSeconds = .22f;
@@ -53,10 +52,10 @@ internal sealed class TownServiceWorkspace : IDisposable
 
     internal static TownServiceWorkspace? CreateForLocalVisitor(Transform station, byte service)
     {
-        int slot = ResolveLocalSlot(new List<(int Id, string? Account, string? Name)>(), new List<int>());
-        // Ordinal zero already uses the permanent resident stand. Do not create
-        // a second invisible furniture set for the same visitor.
-        return slot == 0 ? null : new TownServiceWorkspace(station, service, slot);
+        // A second player can browse the same NPC, but the native transaction claim
+        // serializes only an actual handoff. Browsing never creates another Shrine or
+        // Workbench. Retain this factory as a guarded seam for old callers and tests.
+        return null;
     }
 
     internal TownServiceWorkspace(Transform station, byte service = 1)

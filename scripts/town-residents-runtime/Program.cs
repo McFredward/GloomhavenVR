@@ -75,14 +75,14 @@ internal static class Program
         TownServiceMirror.RemoteMerchantOffering=false;Tick();
         Check(!TownServicePopulation.PublishedActivities.Merchant.Engaged,"last offer withdrawal releases merchant arm");
     }
-    private static void EnchantressCue()
+    private static void EnchantressApproach()
     {
         Reset(); TownServiceStation.NearVisitor=true; Tick(.7f);
-        Check(!TownServicePopulation.PublishedActivities.Enchantress.Engaged,
-            "remote visit without an actionable original cue cannot extend the enchantress hand");
+        Check(TownServicePopulation.PublishedActivities.Enchantress.Engaged,
+            "approach extends the enchantress hand before any native window cue");
         TownServiceMirror.RemoteEnhancementCue=true; Tick(.7f);
         Check(TownServicePopulation.PublishedActivities.Enchantress.Engaged,
-            "visible remote native cue can author the offering pose");
+            "a subsequent remote native cue cannot withdraw the offering pose");
     }
     private static void TemplePresentation()
     {
@@ -261,7 +261,7 @@ internal static class Program
     private static void Main()
     {
         MerchantOffering();
-        EnchantressCue();
+        EnchantressApproach();
         TemplePresentation();
         TempleConcurrentVisitors();
         StoryCommitment();

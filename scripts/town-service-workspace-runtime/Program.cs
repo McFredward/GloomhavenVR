@@ -288,13 +288,10 @@ public static class InteractionProgram
             Roster(1,7);NetPlayerActors.Local=7;
             using(var visitor=TownServiceWorkspace.CreateForLocalVisitor(station.transform,2))
             {
-                Check(visitor!=null,"multiplayer visitor keeps a private service workspace");
-                visitor!.SetVisibility(1f);
-                Check(visitor.FurnitureRoot.gameObject.activeSelf,
-                    "multiplayer visitor workspace retains visible furniture");
-                Check(visitor.FurnitureRoot.GetComponentsInChildren<Cloth>(true).Length==0,
-                    "visitor furniture has no stand-fabric solver");
+                Check(visitor==null,"second visitor shares the permanent priestess stand");
             }
+            Check(TownServiceWorkspace.CreateForLocalVisitor(station.transform,3)==null,
+                "second visitor shares the permanent enchantress stand");
         }
         finally{UnityEngine.Object.DestroyImmediate(station);}
     }

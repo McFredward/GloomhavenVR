@@ -27,8 +27,6 @@ internal static class TownServicePresentation
     private static TownServiceCatalog? _catalog;
     private static TownServiceRitual? _ritual;
     private static TownServiceWorkspace? _workspace;
-    private static TownServiceWorkspace? _cachedTempleWorkspace;
-    private static Transform? _cachedTempleStation;
     private static Transform? _counter;
     private static TownServiceWindowMask? _contextMask, _enhancementListMask;
     private static Vector3 _origin;
@@ -142,7 +140,6 @@ internal static class TownServicePresentation
             // native controller: its character, selection and pending confirmation stay intact.
             UIWindow? restore = _window;
             Reset();
-            DisposeCachedTempleWorkspace();
             _failedWindow = null;
             if (restore != null && restore.IsOpen)
                 ModalFallback.RestoreClassicTownService(restore);
@@ -177,7 +174,6 @@ internal static class TownServicePresentation
         if (!MapRoomDriver.Active || window == null || !window.IsOpen)
         {
             Reset();
-            if (!MapRoomDriver.Active) DisposeCachedTempleWorkspace();
             if (_failedWindow != null) _failedWindow.onHidden.RemoveListener(OnFallbackHidden);
             _failedWindow = null; return;
         }
@@ -223,7 +219,13 @@ internal static class TownServicePresentation
             window.onHidden.AddListener(OnNativeHidden);
             if (context != null && !ModalFallback.ReleaseForTownService(window, context))
                 throw new InvalidOperationException("Previous service conversion has not restored its native hierarchy");
-            _workspace = AcquireWorkspace(_station.Root, service);
+            // One permanent station belongs to each NPC, regardless of how many players
+            // browse it. The former visitor workspace cloned the complete Shrine or
+            // Workbench for every non-primary roster slot and published that furniture
+            // to everyone: two temple visitors therefore saw a fourth table. The
+            // transaction coordinator still admits independent visitors and serializes
+            // only an actual card/purse offer; it never needs a second stand.
+            _workspace = null;
             BuildMat();
             try
             {
@@ -238,7 +240,7 @@ internal static class TownServicePresentation
                 else
                 {
                     uint session = _session;
-                    _ritual = new TownServiceRitual(window, service, _workspace?.Root ?? _station.Root,
+                    _ritual = new TownServiceRitual(window, service, _station.Root,
                         () => Active && _session == session, SelectionContext);
                     if (service == 3)
                     {
@@ -360,40 +362,6 @@ internal static class TownServicePresentation
         // only establishes permission/confirmation context; it never builds a second cabinet.
     }
 
-    private static TownServiceWorkspace? AcquireWorkspace(Transform station, byte service)
-    {
-        if (service == 1) return null;
-        if (service == 2 && _cachedTempleWorkspace != null)
-        {
-            if (_cachedTempleStation == station && _cachedTempleWorkspace.Root != null)
-            {
-                TownServiceWorkspace workspace = _cachedTempleWorkspace;
-                _cachedTempleWorkspace = null; _cachedTempleStation = null;
-                return workspace;
-            }
-            _cachedTempleWorkspace.Dispose();
-            _cachedTempleWorkspace = null; _cachedTempleStation = null;
-        }
-        return TownServiceWorkspace.CreateForLocalVisitor(station, service);
-    }
-
-    private static bool RetainTempleWorkspace()
-    {
-        if (Service != 2 || _workspace == null || _station == null) return false;
-        if (_cachedTempleWorkspace != null) _cachedTempleWorkspace.Dispose();
-        _workspace.SetVisibility(0f);
-        _cachedTempleWorkspace = _workspace;
-        _cachedTempleStation = _station.Root;
-        _workspace = null;
-        return true;
-    }
-
-    private static void DisposeCachedTempleWorkspace()
-    {
-        _cachedTempleWorkspace?.Dispose();
-        _cachedTempleWorkspace = null; _cachedTempleStation = null;
-    }
-
     private static void BuildSections(UIWindow window, byte service)
     {
         if (service == 1)
@@ -427,7 +395,7 @@ internal static class TownServicePresentation
     {
         if (_station == null) throw new InvalidOperationException("Town station is unavailable");
         _mat = new GameObject("GloomhavenVR.TownService.InspectionFrame");
-        _mat.transform.SetParent(_workspace != null ? _workspace.Root : _station.Root, false);
+        _mat.transform.SetParent(_station.Root, false);
         _mat.transform.localPosition = new Vector3(0f, .970f, 0f);
     }
 
@@ -559,7 +527,7 @@ internal static class TownServicePresentation
         Portraits.Clear();
         if (_tray == null && _mat != null) UnityEngine.Object.Destroy(_mat);
         _tray?.Dispose(); _tray = null; _mat = null;
-        if (!RetainTempleWorkspace()) { _workspace?.Dispose(); _workspace = null; }
+        _workspace?.Dispose(); _workspace = null;
         _station = null; // Population retains a station while another visitor still uses it.
         _window = null; _context = null; Service = 0;
         _selectionOwner = null; _selectionCard = null; _selectionKey = null;
