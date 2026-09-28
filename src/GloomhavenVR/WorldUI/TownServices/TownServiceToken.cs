@@ -164,6 +164,20 @@ internal sealed class TownServiceToken : IGrabbable, ITriggerOnlyGrabbable, IGra
                 _physical.localPosition = _settledPosition - Vector3.up * (.04f * ease);
                 _physical.localRotation = Quaternion.Slerp(_settledRotation, Quaternion.identity, ease);
                 PhysicalVisibility = 1f - ease;
+                if (t >= 1f)
+                {
+                    // A completed donation consumes the offered purse visual at the bowl,
+                    // not the player's ability to inspect a purse again. Restore the
+                    // physical fan prop only after the sink is fully invisible; the
+                    // original native blessing still rejects any second payment.
+                    _settling = _settlementDecided = false;
+                    _settledIdentity = _settledContext = null;
+                    _physical.SetParent(_homeParent, false);
+                    _physical.localPosition = _homePosition;
+                    _physical.localRotation = _homeRotation;
+                    _physical.localScale = _homeScale;
+                    PhysicalVisibility = 1f;
+                }
             }
             if (_settling) { _shape.enabled = false; return; }
         }

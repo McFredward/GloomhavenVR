@@ -127,6 +127,7 @@ def mutations():
     return [
         ("purse-return-before-payment", "Token.cs", "_physical.SetParent(_mat, true);", "_physical.SetParent(_homeParent, true);", "accepted purse waits at actual bowl instead of returning to moving hand before native payment"),
         ("purse-restart-completion", "Token.cs", "if (_settlementDecided) return;", "", "confirmed purse sinks and fades once at bowl without restarting on duplicate completion"),
+        ("paid-purse-never-returns", "Token.cs", "_physical.SetParent(_homeParent, false);", "_physical.SetParent(_mat, false);", "paid purse restores the inspectable fan prop only after its completed bowl sink"),
         ("purse-own-hand", "Token.cs", "(_handAllowed?.Invoke(hand) ?? true)", "true", "unowned or unavailable purse cannot be grabbed or donated"),
         ("purse-visible-body", "Token.cs", "_physical.TransformPoint(Vector3.up * .0625f)", "_physical.position", "visible purse body can enter the bowl while its normalized base remains below the rim"),
         ("flat-purse", "Token.cs", "if (_uprightProp)", "if (!_uprightProp)", "physical original follows either tracked hand"),
@@ -194,6 +195,7 @@ def main():
     parser.add_argument("--unity", type=Path, default=Path(os.environ.get("UNITY_PATH", "/home/claw/unity-2021.3.5/Editor/Unity")))
     parser.add_argument("--unity-ui", type=Path, help="Real UnityEngine.UI.dll (never metadata-only RefAsm)")
     parser.add_argument("--no-negative-controls", action="store_true", help="Quick positive run; not complete validation")
+    parser.add_argument("--only-mutation", help="Run production and one named negative control")
     args = parser.parse_args()
     args.output_dir.mkdir(parents=True, exist_ok=True)
     run = Path(tempfile.mkdtemp(prefix="run-", dir=args.output_dir.resolve()))
@@ -210,7 +212,11 @@ def main():
     (run / "source-hashes.json").write_text(json.dumps({"root": str(args.source_root.resolve()), "sha256": hashes}, indent=2) + "\n")
     manifest = {"result": str(run / "results.txt"), "cases": []}
     variants = [("production", None, None, None, "")]
-    if not args.no_negative_controls:
+    if args.only_mutation:
+        selected = [case for case in mutations() if case[0] == args.only_mutation]
+        if not selected: parser.error("unknown mutation: " + args.only_mutation)
+        variants += selected
+    elif not args.no_negative_controls:
         variants += mutations()
     print(f"Binding production from {args.source_root.resolve()}; evidence: {run}", flush=True)
     for name, filename, before, after, expected in variants:

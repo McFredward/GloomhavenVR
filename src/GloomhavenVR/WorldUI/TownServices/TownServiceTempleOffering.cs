@@ -192,7 +192,8 @@ internal sealed class TownServiceTempleOffering : IDisposable
         // Keep the exact card-fan reveal gesture, including RevealAlways, while separating that
         // presentation from payment eligibility. An unaffordable/already-used purse therefore
         // still appears whenever the player turns the free palm up, with its original status
-        // inscription, but its collider and bowl guide remain disabled.
+        // inscription. Its collider remains usable; only the donation bowl guide and
+        // native callback are withheld when that selected character cannot donate.
         bool shown = _inspectionNear && hand != null && hand.HasPose && hand.Grabber.Held == null
             && (CardsConfig.RevealAlways || hand.PalmGate.IsOpen);
         if (hand != null)

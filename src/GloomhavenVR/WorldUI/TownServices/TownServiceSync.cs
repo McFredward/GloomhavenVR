@@ -187,7 +187,11 @@ internal sealed class TownServiceSync
                         if (piece.Content != null) PriorityRoots.Add(piece.Content);
                     }
                     Publish(piece.Key, piece.Content, piece.Source.transform, piece.CloneOf);
-                    Publish(piece.BodyKey, piece.Body);
+                    // The priestess has one shared stand but each visitor can hold their
+                    // own purse. A distinct held address lets observers keep that prop
+                    // from a non-elected visitor without cloning the rest of the stand.
+                    Publish(service == 2 && piece.Token.IsHeld ? "ritual.purse.held" : piece.BodyKey,
+                        piece.Body);
                     if (piece.DetailContent != null && piece.DetailSource != null)
                         Publish(piece.DetailKey, piece.DetailContent, piece.DetailSource, piece.DetailCloneOf);
                 }

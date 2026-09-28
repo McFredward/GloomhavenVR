@@ -133,7 +133,7 @@ def inspect_shared_blessing_contract(root):
         raise RuntimeError("Temple blessing play-on-create negative control did not fail")
 
 
-def inspect_purse_contract(source, offering, sync):
+def inspect_purse_contract(source, offering, sync, mirror, templates):
     required = (
         "private readonly Func<bool> _available;",
         "bool visible = !_offering || _visible() || Token?.IsMoving == true;",
@@ -153,10 +153,16 @@ def inspect_purse_contract(source, offering, sync):
         missing.append("physical purse hand filter is coupled to donation availability")
     if "Token.PickCollider.enabled = false" in source or "&& _available()" in source[source.index("inspect: () =>"):source.index("zoneHalfWidth:")]:
         missing.append("physical purse pickup is disabled by native row eligibility")
-    if "Publish(piece.BodyKey, piece.Body);" not in sync \
+    if "Publish(service == 2 && piece.Token.IsHeld ? \"ritual.purse.held\" : piece.BodyKey," not in sync \
             or "if (piece.Token.IsMoving)" not in sync \
             or "PriorityRoots.Add(piece.Body);" not in sync:
         missing.append("held physical purse does not publish its owner-authored pose")
+    if "secondaryTempleVisitor && !IndependentTemplePurse(received)" not in mirror \
+            or "RetainHeldTemplePurseOnly(standing);" not in mirror \
+            or "frame.TemplateAddress.StartsWith(\"ritual.purse.held|\"" not in mirror:
+        missing.append("secondary temple visitor loses their independent held purse")
+    if 'key == "ritual.purse" || key == "ritual.purse.held"' not in templates:
+        missing.append("remote held purse has no inert original template")
     if missing:
         raise RuntimeError("Temple purse inspection/drop/synchronization contract failed: " + ", ".join(missing))
 
@@ -165,10 +171,12 @@ def sources(root):
     raw = (root / "src/GloomhavenVR/WorldUI/TownServices/TownServiceRitual.cs").read_text()
     offering_raw = (root / "src/GloomhavenVR/WorldUI/TownServices/TownServiceTempleOffering.cs").read_text()
     sync_raw = (root / "src/GloomhavenVR/WorldUI/TownServices/TownServiceSync.cs").read_text()
-    inspect_purse_contract(raw, offering_raw, sync_raw)
+    mirror_raw = (root / "src/GloomhavenVR/Net/TownServices/TownServiceMirror.cs").read_text()
+    templates_raw = (root / "src/GloomhavenVR/WorldUI/TownServices/NativeTemplates.cs").read_text()
+    inspect_purse_contract(raw, offering_raw, sync_raw, mirror_raw, templates_raw)
     coupled = replace_once(raw, "() => TemplePurseVisible(temple, slot)", "() => TempleVisibleEligible(temple, slot)")
     try:
-        inspect_purse_contract(coupled, offering_raw, sync_raw)
+        inspect_purse_contract(coupled, offering_raw, sync_raw, mirror_raw, templates_raw)
     except RuntimeError:
         pass
     else:
@@ -177,7 +185,7 @@ def sources(root):
         "inspect: () => owner._templeOffering?.CanInspectPurse ?? true,",
         "inspect: () => (owner._templeOffering?.Available ?? true) && _available(),")
     try:
-        inspect_purse_contract(coupled_inspection, offering_raw, sync_raw)
+        inspect_purse_contract(coupled_inspection, offering_raw, sync_raw, mirror_raw, templates_raw)
     except RuntimeError:
         pass
     else:
@@ -186,18 +194,29 @@ def sources(root):
         "internal bool AllowsHand(VRHand hand) => CanInspectPurse",
         "internal bool AllowsHand(VRHand hand) => Available && TownServiceMirror.CanLocalBeginTransaction(2)")
     try:
-        inspect_purse_contract(raw, blocked_hand, sync_raw)
+        inspect_purse_contract(raw, blocked_hand, sync_raw, mirror_raw, templates_raw)
     except RuntimeError:
         pass
     else:
         raise RuntimeError("Temple purse busy-visitor grab negative control did not fail")
-    muted_pose = replace_once(sync_raw, "Publish(piece.BodyKey, piece.Body);", "// physical purse pose not published")
+    muted_pose = replace_once(sync_raw,
+        'Publish(service == 2 && piece.Token.IsHeld ? "ritual.purse.held" : piece.BodyKey,',
+        'Publish(piece.BodyKey,')
     try:
-        inspect_purse_contract(raw, offering_raw, muted_pose)
+        inspect_purse_contract(raw, offering_raw, muted_pose, mirror_raw, templates_raw)
     except RuntimeError:
         pass
     else:
         raise RuntimeError("Temple purse held-pose publication negative control did not fail")
+    elected_only = replace_once(mirror_raw,
+        "if (secondaryTempleVisitor && !IndependentTemplePurse(received)) continue;",
+        "if (secondaryTempleVisitor) continue;")
+    try:
+        inspect_purse_contract(raw, offering_raw, sync_raw, elected_only, templates_raw)
+    except RuntimeError:
+        pass
+    else:
+        raise RuntimeError("Secondary visitor purse playback negative control did not fail")
     methods = method(raw, "private bool Confirm(") + "\n" + method(raw, "private static bool Click(")
     methods = methods.replace("private bool Confirm(", "internal bool Confirm(")
     start = raw.index("    private bool OfferingEligible(")

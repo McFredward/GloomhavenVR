@@ -210,8 +210,6 @@ internal sealed class TownServiceRitual : IDisposable
                 }
             }
             SetVisibility(_requestedVisibility);
-            // Native eligibility is checked only at release into the bowl. Disabling
-            // this collider made an unaffordable/already-used purse visible but inert.
             TickDetails();
         }
 

@@ -824,7 +824,9 @@ internal static partial class TownServiceMirror
             // The NPC has one physical rack/workspace, not a separate copy per visitor.
             // Browsing input stays independent, while one elected presentation author
             // supplies the shared native widgets. A placed offer takes authorship.
-            if (entry.Key > 0 && InteractionOwner(session.Service) != entry.Key)
+            bool electedVisitor = entry.Key > 0 && InteractionOwner(session.Service) == entry.Key;
+            bool secondaryTempleVisitor = entry.Key > 0 && !electedVisitor && session.Service == 2;
+            if (entry.Key > 0 && !electedVisitor && !secondaryTempleVisitor)
             { ClearRemoteModules(entry.Key); continue; }
             if (entry.Key < 0 && -entry.Key != PublicAuthor)
             { ClearRemoteModules(entry.Key); continue; }
@@ -832,13 +834,15 @@ internal static partial class TownServiceMirror
             if (parent == null || !Pending.TryGetValue(entry.Key, out Dictionary<ushort, TownServiceFrame>? pending)) continue;
             if (!Remote.TryGetValue(entry.Key, out Dictionary<ushort, RemoteModule>? standing))
             { standing = new Dictionary<ushort, RemoteModule>(); Remote.Add(entry.Key, standing); }
+            if (secondaryTempleVisitor) RetainHeldTemplePurseOnly(standing);
             foreach (RemoteModule visible in standing.Values)
             { visible.Motion.Tick(now); visible.Binding.TickAnimation(now); }
-            UpdateRackClocks(entry.Key, pending, now);
+            if (!secondaryTempleVisitor) UpdateRackClocks(entry.Key, pending, now);
             bool reorder = false;
             foreach (var packet in pending)
             {
                 TownServiceFrame received = packet.Value;
+                if (secondaryTempleVisitor && !IndependentTemplePurse(received)) continue;
                 long retryKey = ((long)entry.Key << 16) | received.Module;
                 if (RemoteRetry.TryGetValue(retryKey, out float retryAt) && now < retryAt) continue;
                 standing.TryGetValue(received.Module, out RemoteModule? module);
@@ -915,8 +919,24 @@ internal static partial class TownServiceMirror
                 }
             }
             if (reorder) OrderOriginalSiblings(standing);
-            TickRackClocks(entry.Key, standing, now);
+            if (!secondaryTempleVisitor) TickRackClocks(entry.Key, standing, now);
         }
+    }
+
+    // The stand and original UI have one elected author. An unselected visitor may
+    // still inspect a personal purse; only that held physical prop crosses this
+    // election boundary. No donation control or native callback is mirrored here.
+    private static bool IndependentTemplePurse(TownServiceFrame frame) => frame.Service == 2
+        && frame.TemplateAddress.StartsWith("ritual.purse.held|", StringComparison.Ordinal);
+
+    private static readonly List<ushort> SecondaryTempleRetire = new();
+    private static void RetainHeldTemplePurseOnly(Dictionary<ushort, RemoteModule> modules)
+    {
+        SecondaryTempleRetire.Clear();
+        foreach (var pair in modules)
+            if (!pair.Value.Address.StartsWith("ritual.purse.held|", StringComparison.Ordinal))
+                SecondaryTempleRetire.Add(pair.Key);
+        foreach (ushort id in SecondaryTempleRetire) { modules[id].Dispose(); modules.Remove(id); }
     }
 
     private readonly struct SiblingRank

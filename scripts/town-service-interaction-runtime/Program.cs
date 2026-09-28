@@ -781,8 +781,8 @@ public static class InteractionProgram
                 Check(token.PhysicalVisibility>.1f&&token.PhysicalVisibility<.9f&&physical.position.y<released.y,
                     "confirmed purse sinks and fades once at bowl without restarting on duplicate completion");
                 typeof(TownServiceToken).GetField("_settledAt",BindingFlags.Instance|BindingFlags.NonPublic)!.SetValue(token,Time.unscaledTime-1f);token.Tick(1f);
-                Check(token.PhysicalVisibility==0f&&!token.CanGrab&&!token.IsMoving&&requests==1,
-                    "paid purse stays consumed and creates neither another callback nor invisible pickup");
+                Check(physical.parent==home&&token.PhysicalVisibility==1f&&token.CanGrab&&!token.IsMoving&&requests==1,
+                    "paid purse restores the inspectable fan prop only after its completed bowl sink");
                 if(scenario==2)
                 {
                     context=new object();token.Tick(1f);

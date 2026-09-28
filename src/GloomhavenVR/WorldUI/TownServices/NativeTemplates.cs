@@ -254,7 +254,8 @@ internal static class NativeTemplates
             }
         }
         if (key == "ritual.coin") source = TownServiceDecor.CoinTemplate;
-        else if (key == "ritual.purse") source = TownServiceDecor.MoneyBagTemplate;
+        else if (key == "ritual.purse" || key == "ritual.purse.held")
+            source = TownServiceDecor.MoneyBagTemplate;
         else if (key == "map.cardbody") source = GloomhavenVR.Cards.CardsDriver.CardBackingPrefab?.transform;
         else if (key.StartsWith("decor.", StringComparison.Ordinal))
         {
@@ -379,7 +380,8 @@ internal static class NativeTemplates
         string prefix = "decor." + service + ".";
         var removed = new List<string>();
         foreach (string key in Entries.Keys)
-            if (key.StartsWith(prefix, StringComparison.Ordinal) || service == 2 && (key == "ritual.coin" || key == "ritual.purse")) removed.Add(key);
+            if (key.StartsWith(prefix, StringComparison.Ordinal) || service == 2
+                && (key == "ritual.coin" || key == "ritual.purse" || key == "ritual.purse.held")) removed.Add(key);
         foreach (string key in removed)
         {
             Entry entry = Entries[key]; Roots.Remove(entry.Original);
