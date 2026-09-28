@@ -217,7 +217,6 @@ internal sealed class TownServiceEnhancementHandoff : IDisposable
             || !TownServiceGrantSync.CanUseImmersive
             || !TownServicePopulation.Available(3))
         {
-            if (!MapRoomDriver.Active) _approachBlockReports = 0;
             _headInside = _cardInside = _pendingApproach = _magePreferredInside = _abilityFanFocused = false;
             _approachCard = null;
             return;
@@ -343,8 +342,8 @@ internal sealed class TownServiceEnhancementHandoff : IDisposable
     private static void ReportApproachBlock(string reason)
     {
         // This branch is hit only by a pending, deliberate approach, never in the
-        // ordinary no-visitor frame loop. Debug evidence is capped for the entire
-        // map session so a broken native cap cannot flood a maintainer log.
+        // ordinary no-visitor frame loop. Debug evidence is capped for this
+        // process so a broken native cap cannot flood a maintainer log.
         if (!VRLog.WantsDebug || _approachBlockReports >= 8 || Time.unscaledTime < _approachBlockReportAt) return;
         _approachBlockReports++;
         _approachBlockReportAt = Time.unscaledTime + 2f;
