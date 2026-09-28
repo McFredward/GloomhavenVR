@@ -89,7 +89,7 @@ def mutations():
         ("stale-prompt", "TownServiceMerchantTransaction.cs", "if (created) confirmation.OnCancel();", "if (created) { }", "own stale item prompt cancelled through native lifecycle"),
         ("cap", "TownServiceCatalog.cs", "foreach(var row in _backend.Rows)", "foreach(var row in _backend.Rows.GetRange(0, Math.Min(6,_backend.Rows.Count)))", "all 164 stock identities remain available in the persistent cabinet"),
         ("held-relocation", "TownServiceCatalog.cs", "if (sample.IsMoving) return false", "if (sample.IsMoving && _disposed) return false", "held or returning sample prevents station relocation"),
-        ("held-return", "TownServiceToken.cs", "_physical.localPosition = _homePosition;", "_physical.localPosition = Vector3.zero;", "cancel restores the original counter pose"),
+        ("held-return", "TownServiceToken.cs", "_physical.localPosition = _homePosition; _physical.localRotation = _homeRotation;", "_physical.localPosition = Vector3.zero; _physical.localRotation = _homeRotation;", "cancel restores the original counter pose"),
         ("context-race", "TownServiceMerchantTransaction.cs", "if (!stillCurrent() || !Eligible(inventory, item, selling)\n            || !created", "if (!Eligible(inventory, item, selling)\n            || !created", "context race never confirms native callback"),
         ("confirmation-owner", "TownServiceMerchantTransaction.cs", "if (confirmation.IsActive || nativeWindow.IsOpen || nativeWindow.IsVisible) return false;", "if (confirmation == null) return false;", "unrelated pending confirmation retained"),
         ("sell-identity", "TownServiceMerchantTransaction.cs", "return inventory.service.GetItemsToSell(inventory.character).Contains(item)", "return true", "stale owned item is ineligible"),
@@ -115,6 +115,7 @@ def main():
     parser.add_argument("--unity", type=Path, default=Path(os.environ.get("UNITY_PATH", "/home/claw/unity-2021.3.5/Editor/Unity")))
     parser.add_argument("--unity-ui", type=Path, help="Real UnityEngine.UI.dll (never metadata-only RefAsm)")
     parser.add_argument("--no-negative-controls", action="store_true", help="Quick positive run; not complete validation")
+    parser.add_argument("--only-mutation", help="Run production and one named negative control after a targeted fixture fix")
     args = parser.parse_args()
     args.output_dir.mkdir(parents=True, exist_ok=True)
     run = Path(tempfile.mkdtemp(prefix="run-", dir=args.output_dir.resolve()))
@@ -133,6 +134,11 @@ def main():
     variants = [("production", None, None, None, "")]
     if not args.no_negative_controls:
         variants += mutations()
+    if args.only_mutation:
+        selected = [case for case in variants if case[0] == args.only_mutation]
+        if len(selected) != 1 or args.only_mutation == "production":
+            parser.error("--only-mutation must name an enabled negative control")
+        variants = variants[:1] + selected
     print(f"Binding production from {args.source_root.resolve()}; evidence: {run}", flush=True)
     for name, filename, before, after, expected in variants:
         build = run / name
