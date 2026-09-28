@@ -75,3 +75,17 @@ their own purse or card, and parking an offer claims only that NPC.
 Automated checks can establish packet and source behavior, not headset pixels.
 The next two-client hardware run must compare the same cabinet/page, held item,
 item fan, enchantress hand/card/options/hover and Temple furniture on both views.
+
+## Validation
+
+The 2026-09-29 source gate passed 14/14 checks after the diagnostic-counter
+correction. Its 80-suite Unity/wire run completed and identified five fixtures
+whose former private-catalog, visitor-workspace, immediate-voice or single-purpose
+visitor filter assumptions were obsolete. Each was corrected and rerun as its
+targeted suite, including its negative controls: merchant mirror `full`, merchant
+handoff (1,452 production assertions), shared-stand interaction (1,355),
+enchantress handoff (1,236), and Temple transaction (239). The merchant public
+catalog fixture separately exercised four simulated roles, author handover and
+late join. Strict Release build passed with zero errors and warnings. Bundle
+format, surface inventory, patch inventory and documentation localisation passed.
+No fixture replaces the two-client headset comparison above.
