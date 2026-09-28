@@ -114,11 +114,24 @@ public static class InteractionProgram
             Check(VisibleUiSurface.Contains(canvas, center, null), "visible decorative paper still occludes background UI");
             image.color = Color.clear; Canvas.ForceUpdateCanvases();
             Check(!VisibleUiSurface.Contains(canvas, center, null), "transparent native hit image does not invent a surface");
+            image.raycastTarget = true;
+            var action = imageGo.AddComponent<Button>();
+            action.targetGraphic = image;
+            Check(VisibleUiSurface.Contains(canvas, center, null),
+                "transparent native story/close control remains a laser surface");
+            action.enabled = false;
+            Check(!VisibleUiSurface.Contains(canvas, center, null),
+                "disabled transparent control does not invent a laser surface");
+            action.enabled = true;
             image.color = Color.white;
             var group = imageGo.AddComponent<CanvasGroup>(); group.alpha=0f; Canvas.ForceUpdateCanvases();
             Check(!VisibleUiSurface.Contains(canvas, center, null), "hidden CanvasGroup cannot retain an invisible laser surface");
             group.alpha=1f; group.interactable=false; Canvas.ForceUpdateCanvases();
             Check(VisibleUiSurface.Contains(canvas, center, null), "disabled but visible control still blocks UI behind it");
+            image.color=Color.clear; Canvas.ForceUpdateCanvases();
+            Check(!VisibleUiSurface.Contains(canvas,center,null),
+                "CanvasGroup rejecting pointer input also rejects an invisible interactive plate");
+            image.color=Color.white;group.interactable=true;
             image.enabled=false; Canvas.ForceUpdateCanvases();
             Check(!VisibleUiSurface.Contains(canvas, center, null), "disabled graphic is no laser surface");
             image.enabled=true;
@@ -127,6 +140,9 @@ public static class InteractionProgram
             imageGo.transform.SetParent(childGo.transform,false); UguiPokeSurfaces.Children=new(){nested}; Canvas.ForceUpdateCanvases();
             center=RectTransformUtility.WorldToScreenPoint(null,rect.position);
             Check(VisibleUiSurface.Contains(canvas,center,null),"nested original canvas remains part of visible surface");
+            image.color=Color.clear; Canvas.ForceUpdateCanvases();
+            Check(VisibleUiSurface.Contains(canvas,center,null),
+                "nested transparent close-X hit plane remains part of its host surface");
             nested.enabled=false; Canvas.ForceUpdateCanvases();
             Check(!VisibleUiSurface.Contains(canvas,center,null),"disabled nested canvas does not leave a ghost surface");
         }

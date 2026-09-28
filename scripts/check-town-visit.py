@@ -59,6 +59,7 @@ internal static class BoundUiArbitration {
      bool physicalHit=false, float physicalDistance=float.PositiveInfinity) {
  float scale = _hand.WorldScale;
  var pick = new PhysicalHit(physicalHit, physicalDistance);
+ bool nativeAreaThroughOfferedCard = false;
 """ + physics.group() + """
 """ + ui.group() + """
  return best;
@@ -73,9 +74,15 @@ internal static class BoundUiArbitration {
         ("missing-sell-pickup", "TownServicePhysicalRay.cs", "candidate is ItemsPile.ItemChip chip && TownServiceMerchantHandoff.CanReclaim(chip)", "false", "offered merchant card is physically taken by the same trigger ray route"),
         ("phantom-resident", "TownServiceVisitTarget.cs", "=> float.PositiveInfinity;", "=> 2.45f;", "empty space beside resident never clamps the laser"),
         ("phantom-canvas", "VisibleUiSurface.cs", "if (ContainsOwn(canvas, screen, camera)) return true;", "if (canvas != null) return true;", "transparent character frame does not clamp beam"),
-        ("hidden-alpha", "VisibleUiSurface.cs", "graphic.color.a * graphic.canvasRenderer.GetAlpha() * graphic.canvasRenderer.GetInheritedAlpha() < .01f", "false", "transparent native hit image does not invent a surface"),
-        ("decorative-ignored", "VisibleUiSurface.cs", "if (graphic.Raycast(screen, camera)) return true;", "if (graphic.raycastTarget && graphic.Raycast(screen, camera)) return true;", "visible decorative paper still occludes background UI"),
+        ("hidden-alpha", "VisibleUiSurface.cs", "if (inheritedAlpha < .01f) continue;", "if (false) continue;", "hidden CanvasGroup cannot retain an invisible laser surface"),
+        ("decorative-ignored", "VisibleUiSurface.cs", "if (painted) return true;", "if (painted && graphic.raycastTarget) return true;", "visible decorative paper still occludes background UI"),
+        ("transparent-control-loss", "VisibleUiSurface.cs", "if (graphic.raycastTarget && HasLivePointerHandler(graphic.gameObject))", "if (false && HasLivePointerHandler(graphic.gameObject))", "transparent native story/close control remains a laser surface"),
     ]
+    only_case = os.environ.get("TOWN_VISIT_CASE")
+    if only_case:
+        variants = [variant for variant in variants if variant[0] == only_case]
+        if not variants:
+            raise RuntimeError(f"Unknown TOWN_VISIT_CASE={only_case}")
     manifest = {"result": str(out / "results.txt"), "cases": []}
     unity = Path(os.environ.get("UNITY_EDITOR", "/home/claw/unity-2021.3.5/Editor/Unity"))
     dotnet = os.environ.get("DOTNET", str(Path.home() / ".dotnet/dotnet"))

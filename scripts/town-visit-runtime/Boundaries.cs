@@ -58,7 +58,8 @@ namespace GloomhavenVR.Hands.Interact
         internal PickPose Current;
         internal void SetPanelUiHit(Vector3 point,string source){UiHitOverride=point;}
 
-        internal float FanOccluderDistance = float.PositiveInfinity, SolidOccluderDistance = float.PositiveInfinity;
+        internal float FanOccluderDistance = float.PositiveInfinity, SolidOccluderDistance = float.PositiveInfinity,
+            BoardOccluderDistance = float.PositiveInfinity;
         internal bool SolidOccluderIsBoard;
         internal Vector3? UiHitOverride;
         internal int Suppressions;
