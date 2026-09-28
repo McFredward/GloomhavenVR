@@ -199,6 +199,14 @@ public static class InteractionProgram
             &&receiving.LeftElbow.x>.35f&&receiving.RightElbow.x<-.10f,
             "unavailable donation covers the bowl with one hand while the other rests beside the robe "
             +receiving.Left+" / "+receiving.Right);
+        var midPrayer=new TownActivityPose{WorkClock=4f,
+            TransitionAge=TownServiceActivityMotion.TransitionSeconds};
+        TownServiceActivityMotion.Engage(ref midPrayer,true);
+        midPrayer=TownServiceActivityMotion.Advance(midPrayer,TownServiceActivityMotion.TransitionSeconds*.5f);
+        var midCover=TownServiceActivityMotion.Visual(2,in midPrayer);
+        TownServiceActivityMotion.ApplyTempleAvailability(ref midCover,false,1f);
+        Check(midCover.Left.y>1.12f&&midCover.Left.y<1.34f,
+            "prayer-to-bowl hand never detours through hip");
         var pause=new TownActivityPose{WorkClock=1.8f,TransitionAge=TownServiceActivityMotion.TransitionSeconds};
         TownServiceActivityMotion.Engage(ref pause,true);pause=TownServiceActivityMotion.Advance(pause,1f);
         var held=TownServiceActivityMotion.Visual(1,in pause);
