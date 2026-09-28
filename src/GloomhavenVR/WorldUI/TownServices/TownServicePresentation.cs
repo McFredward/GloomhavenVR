@@ -66,6 +66,14 @@ internal static class TownServicePresentation
         && _window != null && _window.IsOpen && _station != null;
     internal static bool OwnsInteraction => Active
         && TownServiceSync.LocalOwnsInteraction(Service, _session);
+    internal static bool NativeFallbackFor(byte service)
+    {
+        if (_failedWindow == null || !_failedWindow.IsOpen || service < 1 || service > 3)
+            return false;
+        EGuildmasterMode mode = GuildmasterDestinations.CurrentDestinationMode();
+        return TownServiceVisitTarget.ServiceOf(mode) == service
+            && ReferenceEquals(_failedWindow, GuildmasterDestinations.ModeWindow(mode));
+    }
     internal static bool OwnsGrab(GrabbableModal holder)
     {
         foreach (TownServiceSurface surface in Surfaces)
@@ -291,27 +299,17 @@ internal static class TownServicePresentation
         }
         _catalog?.Tick(_scale);
         _ritual?.Tick(_scale);
-        if (_ritual?.Handoff?.NativeOfferStalled == true)
+        bool enhancementStalled = _ritual?.Handoff?.NativeOfferStalled == true;
+        bool templeStalled = _ritual?.TempleGrantStalled == true;
+        bool grantUnavailable = TownServiceMirror.LocalTransactionUnavailable(Service);
+        if (enhancementStalled || templeStalled || grantUnavailable)
         {
             // Preserve the original window and its native callbacks. A permanently blocked
             // immersive offer becomes an ordinary usable VR window for this opening only;
             // closing/reopening it clears the failure latch and permits a fresh attempt.
-            UIWindow? original = _window;
-            Vector3 originalPosition = _origin;
-            Quaternion originalYaw = _yaw;
-            if (original != null && original.IsOpen)
-            {
-                if (_failedWindow != null) _failedWindow.onHidden.RemoveListener(OnFallbackHidden);
-                _failedWindow = original;
-                Reset();
-                original.onHidden.AddListener(OnFallbackHidden);
-                ConvertedPanel? restored = ModalFallback.RestoreTownServiceContext(original,
-                    originalPosition, originalYaw);
-                if (restored != null)
-                    VRLog.Note("TownServices", "Enhancement offer remained unavailable for 3 s; restored the original VR window for this visit.");
-                else
-                    VRLog.Warn("TownServices", "Enhancement offer remained unavailable for 3 s; original window returned to the ordinary VR conversion path but conversion is still pending.");
-            }
+            RestoreNativeForOpening(enhancementStalled ? "Enhancement offer unavailable"
+                : templeStalled ? "Temple donation unavailable"
+                : "Town transaction coordinator unavailable");
             return;
         }
         if (_ritual?.TempleDonationAvailabilityKnown == true)
@@ -324,6 +322,30 @@ internal static class TownServicePresentation
         _tray?.Tick();
         _tray?.SetVisibility(localVisibility);
         foreach (TownServiceToken token in Tokens.Values) token.Tick(_scale);
+    }
+
+    private static void RestoreNativeForOpening(string reason)
+    {
+        UIWindow? original = _window;
+        if (original == null || !original.IsOpen) return;
+        Vector3 originalPosition = _origin;
+        Quaternion originalYaw = _yaw;
+        byte service = Service;
+        if (_failedWindow != null) _failedWindow.onHidden.RemoveListener(OnFallbackHidden);
+        _failedWindow = original;
+        // The independent merchant hand must release its parked item before the
+        // native shop becomes a conventional VR window again. Otherwise its hidden
+        // card would remain in front of the restored original confirmation.
+        if (service == 1) TownServiceMerchantHandoff.Reset();
+        Reset();
+        original.onHidden.AddListener(OnFallbackHidden);
+        ConvertedPanel? restored = ModalFallback.RestoreTownServiceContext(original,
+            originalPosition, originalYaw);
+        if (restored != null)
+            VRLog.Note("TownServices", reason + "; restored the original VR window for this visit.");
+        else
+            VRLog.Warn("TownServices", reason
+                + "; original window returned to the ordinary VR conversion path but conversion is still pending.");
     }
 
     private static ConvertedPanel? FindContext(UIWindow window)

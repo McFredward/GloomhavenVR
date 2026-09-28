@@ -54,7 +54,8 @@ internal static class TownServicePublicMerchant
     internal static void Tick()
     {
         if (!MapRoomDriver.Active || !WorldUIConfig.ImmersiveTownServices.Value
-            || !TownServiceAvailability.NativeUnlocked(1))
+            || !TownServiceAvailability.NativeUnlocked(1)
+            || TownServicePresentation.NativeFallbackFor(1))
         { Reset(); Failures.Clear(); _failed = false; _retryAt = 0; return; }
         if (Time.unscaledTime < _retryAt) return;
         try
@@ -81,7 +82,8 @@ internal static class TownServicePublicMerchant
             if (!TownServiceMirror.IsPublicAuthor && TownServiceMirror.PublicRack is TownRackState remote)
                 _catalog.Drawers[0].Follow(remote);
             _catalog.SetVisibility(Mathf.Clamp01((Time.unscaledTime - _opened) / .22f),
-                allowInput: !StoryComposite.PointOfNoReturn);
+                allowInput: !StoryComposite.PointOfNoReturn
+                    && TownServiceMirror.CanLocalBeginTransaction(1));
             _catalog.Tick(_station.Root.lossyScale.x);
             bool observer = !TownServiceMirror.IsPublicAuthor;
             if (observer) foreach (TownServiceToken sample in _catalog.Samples) if (sample.IsMoving) sample.CancelInspection();

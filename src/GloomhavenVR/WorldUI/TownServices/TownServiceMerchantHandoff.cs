@@ -85,6 +85,7 @@ internal static class TownServiceMerchantHandoff
         EGuildmasterMode mode = GuildmasterDestinations.CurrentDestinationMode();
         bool context = MapRoomDriver.Active && WorldUIConfig.ImmersiveTownServices.Value
             && TownServiceEnhancementHandoff.Enabled && !StoryComposite.PointOfNoReturn
+            && !TownServicePresentation.NativeFallbackFor(1)
             && selected != null && TownServicePopulation.Available(1)
             && (mode == EGuildmasterMode.None || mode == EGuildmasterMode.Merchant
                 || mode == EGuildmasterMode.Temple || mode == EGuildmasterMode.Enchantress)
@@ -214,7 +215,8 @@ internal static class TownServiceMerchantHandoff
     {
         EGuildmasterMode mode = GuildmasterDestinations.CurrentDestinationMode();
         if (!Active || item == null || !item.Tradeable
-            || !ReferenceEquals(MapRoomHand.OwnedMerchantCharacter(), _character)) return false;
+            || !ReferenceEquals(MapRoomHand.OwnedMerchantCharacter(), _character)
+            || !TownServiceMirror.CanLocalBeginTransaction(1)) return false;
         if (mode != EGuildmasterMode.Merchant
             && (mode != EGuildmasterMode.None && mode != EGuildmasterMode.Temple
                 && mode != EGuildmasterMode.Enchantress
@@ -325,6 +327,12 @@ internal static class TownServiceMerchantHandoff
                 _lastPendingTimeoutSession = Session;
                 Core.VRLog.Warn("TownServices", "Merchant offer could not open its native confirmation within 3 s; returning the card to its source.");
             }
+            _pending = null; ReleaseOffering(); return;
+        }
+        if (TownServiceMirror.LocalTransactionDenied(1))
+        {
+            // Another visitor acquired this NPC first. Keep the original shop
+            // untouched and return only our physical card to its source.
             _pending = null; ReleaseOffering(); return;
         }
         if (Time.unscaledTime < _nextCommitAt) return;
