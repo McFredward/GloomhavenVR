@@ -14,6 +14,7 @@ namespace GloomhavenVR.Hands
 {
     internal sealed class ProbeRig
     {
+        internal Transform Wrist = null!;
         internal Transform PalmCenter = null!;
         internal Transform IndexTip = null!;
     }
@@ -56,17 +57,20 @@ namespace GloomhavenVR.Net
     {
         internal static void CollectTownFacePeers(List<int> peers) { }
         internal static bool TryGetTownClothHandProbes(int peer, out Vector3 left,
-            out Vector3 leftDirection, out Vector3 right, out Vector3 rightDirection,
-            out bool leftValid, out bool rightValid)
+            out Vector3 leftWrist, out Vector3 leftTip, out Vector3 right,
+            out Vector3 rightWrist, out Vector3 rightTip,
+            out bool leftValid, out bool rightValid, out float peerScale)
         {
-            left = leftDirection = right = rightDirection = default;
+            left = leftWrist = leftTip = right = rightWrist = rightTip = default;
             leftValid = rightValid = false;
+            peerScale = 1f;
             return false;
         }
 
-        internal static bool TryGetTownFaceHead(int peer, out Vector3 head)
+        internal static bool TryGetTownClothHead(int peer, out Vector3 head, out float scale)
         {
             head = default;
+            scale = 1f;
             return false;
         }
     }

@@ -22,7 +22,9 @@ def source_contract(source):
                                            and 'TableSupport(runner, i, "Rear"' in source),
         'all native colliders attached': 'runner.SupportPairs.Count + _hands.Length + _heads.Length' in source,
         'no ray interception': source.count('layer = IgnoreRaycastLayer') >= 5,
-        'single vertex snapshot': source.count('runner.Cloth.vertices;') == 1,
+        'idle-gated vertex snapshots': (source.count('runner.Cloth.vertices;') == 2
+            and 'runner.ContactSurface = runner.Cloth.vertices;' in source
+            and '!runner.Interactive && runner.DeformationWeight <= 0f' in source),
         'single-layer physical driver': 'DriverRows = 25' in source and 'DriverColumns = 13' in source,
         'FBX reorder independent': ('AuthoredPoint(row, column, minX, maxX)' in source
                                     and 'shipping FBX importer reorders and splits' in source),
@@ -36,20 +38,20 @@ def source_contract(source):
                                                and 'cloth.bendingStiffness = .94f' in source
                                                and 'cloth.damping = .55f' in source
                                                and 'VisibleDriverMap' in source
-                                               and 'DriverDelta(in runner.VisibleDriverMap[n]' in source
+                                               and 'BlendedDelta(in runner.VisibleDriverMap[n], runner.VisualDelta)' in source
                                                and 'RestoreAfterContact(runner, dt)' in source
+                                               and 'PrepareProjection(runner)' in source
+                                               and 'bool updateClearance = runner.ProjectionCount != 0 || runner.ActiveClearance' in source
+                                               and 'toStation.MultiplyPoint3x4(shown), runner.Freedom[n])' in source
                                                and 'runner.EpisodeOrigin' in source
                                                and 'SetFreedom(runner, 0f)' in source
-                                               and 'runner.CaptureOrigin = true' in source
-                                               and 'Array.Copy(simulated, runner.EpisodeOrigin' in source
+                                               and source.count('Array.Copy(runner.ContactSurface, runner.EpisodeOrigin') == 2
                                                and 'AnyProbeWithin(runner, .16f, out' in source
                                                and 'AnyProbeWithin(runner, .018f, out' in source
                                                and 'ProbeWithin(runner, probe' in source
                                                and 'DistanceSquaredToSegment(surface[i], localA, localB, out float t)' in source
                                                and 'DistanceSquaredSegmentTriangle(a, b, p, q, r, out float t)' in source
-                                               and 'runner.DeformationWeight = Mathf.MoveTowards(runner.DeformationWeight, contact ? 1f : 0f,' in source
-                                               and 'if (runner.CaptureOrigin && runner.ContactSurface.Length == runner.EpisodeOrigin.Length)' in source
-                                               and 'Array.Copy(runner.ContactSurface, runner.EpisodeOrigin' in source
+                                               and 'runner.DeformationWeight = Mathf.MoveTowards(runner.DeformationWeight, near ? 1f : 0f,' in source
                                                and source.count('AddComponent<Cloth>()') == 1),
         'solver initializes before first touch': ('IdleFreedomRealMeters = .0005f' in source
                                                   and 'runner.DriverFreedom[n]\n                * IdleFreedomRealMeters * stationUnitInDriver' in source
@@ -132,10 +134,10 @@ def validate_source():
         'enchantress-envelope': ('maximumFreedom = _service == 3 ? .065f : MaximumFreedomRealMeters',
                                  'maximumFreedom = _service == 3 ? .34f : MaximumFreedomRealMeters'),
         'overloose-bending': ('cloth.bendingStiffness = .94f', 'cloth.bendingStiffness = .40f'),
-        'smooth-map': ('DriverDelta(in runner.VisibleDriverMap[n]',
+        'smooth-map': ('BlendedDelta(in runner.VisibleDriverMap[n]',
                        'simulated[runner.VisibleDriverVertex[n]] - runner.DriverRest[runner.VisibleDriverVertex[n]]'),
-        'episode-zero': ('Array.Copy(simulated, runner.EpisodeOrigin, simulated.Length)',
-                         'Array.Copy(runner.DriverRest, runner.EpisodeOrigin, simulated.Length)'),
+        'episode-zero': ('Array.Copy(runner.ContactSurface, runner.EpisodeOrigin, runner.EpisodeOrigin.Length)',
+                         'Array.Copy(runner.DriverRest, runner.EpisodeOrigin, runner.EpisodeOrigin.Length)'),
         'idle-pin': ('SetFreedom(runner, 0f)', 'SetFreedom(runner, 1f)'),
         'component-rebuild': ('SetFreedom(runner, 0f);',
                               'SetFreedom(runner, 0f); runner.Cloth = runner.DriverRoot.AddComponent<Cloth>();'),
@@ -150,12 +152,12 @@ def validate_source():
                               'NoSurfaceTest(localA, localB, topLeft, bottomLeft, topRight'),
         'tapered-radius': ('Mathf.Lerp(probe.PalmSphere.radius, probe.TipSphere.radius, t)',
                             'probe.PalmSphere.radius'),
-        'invisible-contact-physics': ('runner.DeformationWeight = Mathf.MoveTowards(runner.DeformationWeight, contact ? 1f : 0f,',
+        'invisible-contact-physics': ('runner.DeformationWeight = Mathf.MoveTowards(runner.DeformationWeight, near ? 1f : 0f,',
                                       'runner.DeformationWeight = Mathf.MoveTowards(runner.DeformationWeight, false ? 1f : 0f,'),
         'attenuated-contact-physics': ('ContactPresentationSeconds = .045f',
             'ContactPresentationSeconds = .15f'),
-        'short-touch-origin': ('if (runner.CaptureOrigin && runner.ContactSurface.Length == runner.EpisodeOrigin.Length)',
-                               'if (runner.DeformationWeight <= 0f) runner.CaptureOrigin = true;'),
+        'short-touch-origin': ('if (runner.ContactSurface.Length == runner.EpisodeOrigin.Length)\n                Array.Copy(runner.ContactSurface, runner.EpisodeOrigin, runner.EpisodeOrigin.Length);',
+                               'runner.EpisodeOrigin = runner.DriverRest;'),
         'fingertip': ('VRHands.Left.Rig.IndexTip.position', 'VRHands.Left.Rig.PalmCenter.forward'),
         'rest-surface-gate': ('Vector3[] surface = runner.ContactSurface',
                               'Vector3[] surface = runner.DriverRest'),
@@ -204,22 +206,28 @@ def main():
     shutil.copyfile(fixture / 'Builder.cs', project / 'Assets/Editor/Builder.cs')
     shutil.copyfile(fixture / 'TownClothProbe.cs', project / 'Assets/TownClothProbe.cs')
     shutil.copyfile(fixture / 'ProductionBoundaries.cs', project / 'Assets/ProductionBoundaries.cs')
+    (project / 'Assets/Resources').mkdir(parents=True)
+    shutil.copyfile(fixture / 'TownClothEvidence.shader', project / 'Assets/Resources/TownClothEvidence.shader')
+    shutil.copyfile(fixture / 'TownClothEvidenceHand.shader', project / 'Assets/Resources/TownClothEvidenceHand.shader')
     production = (ROOT / 'src/GloomhavenVR/WorldUI/TownServices/TownServiceCloth.cs').read_text()
     production = production.replace('namespace GloomhavenVR.WorldUI;\n',
                                     'namespace GloomhavenVR.WorldUI\n{\n', 1) + '\n}\n'
     (project / 'Assets/TownServiceCloth.cs').write_text(production)
+    projection_expression = ('ProjectClearance(runner,\n'
+        '                    toStation.MultiplyPoint3x4(shown), runner.Freedom[n])')
+    if projection_expression not in production:
+        raise AssertionError('negative controls must disable the real visible projection')
     dead_visible = production.replace('TownServiceCloth', 'TownServiceClothDead')
-    dead_visible = dead_visible.replace('runner.DeformationWeight = Mathf.MoveTowards(runner.DeformationWeight, contact ? 1f : 0f,',
+    dead_visible = dead_visible.replace('runner.DeformationWeight = Mathf.MoveTowards(runner.DeformationWeight, near ? 1f : 0f,',
                                         'runner.DeformationWeight = Mathf.MoveTowards(runner.DeformationWeight, false ? 1f : 0f,', 1)
+    dead_visible = dead_visible.replace(projection_expression, '0f', 1)
     (project / 'Assets/TownServiceClothDead.cs').write_text(dead_visible)
     contact_reset = production.replace('TownServiceCloth', 'TownServiceClothContactReset')
     contact_reset = contact_reset.replace(
-        'if (runner.CaptureOrigin && runner.ContactSurface.Length == runner.EpisodeOrigin.Length)\n'
-        '            {\n'
-        '                Array.Copy(runner.ContactSurface, runner.EpisodeOrigin, runner.EpisodeOrigin.Length);\n'
-        '                runner.CaptureOrigin = false;\n'
-        '            }',
-        'if (runner.DeformationWeight <= 0f) runner.CaptureOrigin = true;', 1)
+        'runner.ContactSurface = simulated;',
+        'runner.ContactSurface = simulated;\n'
+        '        if (runner.Contacting) Array.Copy(simulated, runner.EpisodeOrigin, simulated.Length);', 1)
+    contact_reset = contact_reset.replace(projection_expression, '0f', 1)
     (project / 'Assets/TownServiceClothContactReset.cs').write_text(contact_reset)
     rest_gate = production.replace('TownServiceCloth', 'TownServiceClothRestGate')
     rest_gate = rest_gate.replace(
@@ -227,8 +235,13 @@ def main():
         '            ? runner.ContactSurface : runner.DriverRest;',
         'Vector3[] surface = runner.DriverRest;', 1)
     (project / 'Assets/TownServiceClothRestGate.cs').write_text(rest_gate)
+    no_contact_gate = production.replace('TownServiceCloth', 'TownServiceClothNoContactGate')
+    no_contact_gate = no_contact_gate.replace(
+        'bool rawContact = near && AnyProbeWithin(runner, .018f, out contactDistance);',
+        'bool rawContact = false;', 1)
+    (project / 'Assets/TownServiceClothNoContactGate.cs').write_text(no_contact_gate)
     (project / 'Packages/manifest.json').write_text(
-        '{"dependencies":{"com.unity.modules.assetbundle":"1.0.0","com.unity.modules.cloth":"1.0.0","com.unity.modules.physics":"1.0.0"}}')
+        '{"dependencies":{"com.unity.modules.assetbundle":"1.0.0","com.unity.modules.cloth":"1.0.0","com.unity.modules.imageconversion":"1.0.0","com.unity.modules.physics":"1.0.0"}}')
     (project / 'ProjectSettings/ProjectVersion.txt').write_text('m_EditorVersion: 2021.3.5f1\n')
     editor_log = run / 'editor.log'
     built = subprocess.run(['xvfb-run', '-a', str(args.unity), '-batchmode', '-nographics',

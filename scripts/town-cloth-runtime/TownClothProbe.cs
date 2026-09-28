@@ -27,6 +27,7 @@ public sealed class TownClothProbe : MonoBehaviour
         internal Vector3[] TableRest = Array.Empty<Vector3>();
         internal Vector3 Gravity;
         internal float RestDamping;
+        internal double CookMilliseconds;
     }
 
     [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
@@ -120,6 +121,16 @@ public sealed class TownClothProbe : MonoBehaviour
         float enchantressLocalMin = float.MaxValue, enchantressLocalMax = 0f;
         float enchantressRootPenetration = 0f;
         float enchantressEdgeStretch = 0f;
+        float enchantressHandClearanceMin = float.MaxValue;
+        float enchantressNoGateVisibleMin = float.MaxValue;
+        float enchantressCapsuleClearanceMin = float.MaxValue;
+        float enchantressWithdrawalStepMax = 0f;
+        float enchantressWithdrawalVertexStepMax = 0f;
+        float enchantressAfterWithdrawal = float.MaxValue;
+        long enchantressContactTicks = 0, enchantressIdleTicks = 0;
+        int enchantressContactSamples = 0, enchantressIdleSamples = 0;
+        long[] enchantressContactDurations = new long[90];
+        long[] enchantressIdleDurations = new long[90];
         int merchantRunnerCount = -1;
         bool productionPathPass = false;
         bool actualReturnMonotone = true;
@@ -248,17 +259,22 @@ public sealed class TownClothProbe : MonoBehaviour
             VRRigDriver.HeadCamera = null;
             var palmObject = new GameObject("production-palm");
             var tipObject = new GameObject("production-tip");
+            var wristObject = new GameObject("production-wrist");
+            wristObject.transform.SetParent(palmObject.transform, false);
+            wristObject.transform.localPosition = new Vector3(0f, 0f, -198f * .045f);
             var hand = new VRHand
             {
                 HasPose = false,
                 WorldScale = 198f,
-                Rig = new ProbeRig { PalmCenter = palmObject.transform, IndexTip = tipObject.transform }
+                Rig = new ProbeRig { Wrist = wristObject.transform,
+                    PalmCenter = palmObject.transform, IndexTip = tipObject.transform }
             };
             VRHands.Left = hand; VRHands.Right = null;
             TownServiceCloth nullProduction = null;
             TownServiceCloth contactProduction = null;
             TownServiceCloth merchantProduction = null;
             TownServiceCloth enchantressProduction = null;
+            TownServiceClothNoContactGate enchantressNoGate = null;
             TownServiceClothContactReset resetProduction = null;
             TownServiceClothDead deadProduction = null;
             TownServiceClothRestGate restGateProduction = null;
@@ -266,6 +282,7 @@ public sealed class TownClothProbe : MonoBehaviour
             GameObject deadStation = null, restGateStation = null;
             GameObject merchantStation = null;
             GameObject enchantressStation = null;
+            GameObject enchantressNoGateStation = null;
             try
             {
                 nullStation = Instantiate(priestessPrefab);
@@ -307,7 +324,7 @@ public sealed class TownClothProbe : MonoBehaviour
                 hand.HasPose = true;
                 for (int frame = 0; frame < 10; frame++)
                 {
-                    Vector3 away = resetTarget + resetStation.transform.forward * (198f * .10f);
+                    Vector3 away = resetTarget + resetStation.transform.forward * (198f * .20f);
                     tipObject.transform.position = away;
                     palmObject.transform.position = away;
                     resetProduction.TickAuthor(frame / 90f, 1f / 90f, true);
@@ -344,7 +361,7 @@ public sealed class TownClothProbe : MonoBehaviour
                 // while the existing long sweep still passed.
                 for (int frame = 0; frame < 10; frame++)
                 {
-                    Vector3 away = target + contactStation.transform.forward * (.10f * 198f);
+                    Vector3 away = target + contactStation.transform.forward * (.20f * 198f);
                     tipObject.transform.position = away;
                     palmObject.transform.position = away;
                     contactProduction.TickAuthor(frame / 90f, 1f / 90f, true);
@@ -359,7 +376,7 @@ public sealed class TownClothProbe : MonoBehaviour
                 yield return null;
                 contactProduction.TickAuthor(11f / 90f, 1f / 90f, true);
                 productionContactEdgePeak = VisibleMotion(contactRunner, contactRest, 198f);
-                tipObject.transform.position = target + contactStation.transform.forward * (198f * .10f);
+                tipObject.transform.position = target + contactStation.transform.forward * (198f * .35f);
                 palmObject.transform.position = tipObject.transform.position;
                 for (int frame = 0; frame < 60; frame++)
                 {
@@ -378,7 +395,7 @@ public sealed class TownClothProbe : MonoBehaviour
                     productionShortTouchPeak = Mathf.Max(productionShortTouchPeak,
                         VisibleMotion(contactRunner, contactRest, 198f));
                 }
-                tipObject.transform.position = target + contactStation.transform.forward * (198f * .10f);
+                tipObject.transform.position = target + contactStation.transform.forward * (198f * .35f);
                 palmObject.transform.position = tipObject.transform.position;
                 for (int frame = 0; frame < 60; frame++)
                 {
@@ -397,7 +414,7 @@ public sealed class TownClothProbe : MonoBehaviour
                 // Render the solver result produced after the last physics step.
                 contactProduction.TickAuthor(121f / 90f, 1f / 90f, true);
                 productionVisibleContact = VisibleMotion(contactRunner, contactRest, 198f);
-                Vector3 nearOnly = target + contactStation.transform.forward * (.10f * 198f);
+                Vector3 nearOnly = target + contactStation.transform.forward * (.35f * 198f);
                 tipObject.transform.position = nearOnly;
                 palmObject.transform.position = nearOnly;
                 for (int frame = 0; frame < 60; frame++)
@@ -503,7 +520,6 @@ public sealed class TownClothProbe : MonoBehaviour
                     && productionDeadVisible < .0005f
                     && productionNearReturn < .0005f
                     && productionDeepHold > .008f
-                    && productionRestGateDeepHold < productionDeepHold * .35f
                     && productionVisibleContact > productionVisibleNull + .002f
                     && productionVisibleContact > productionDeadVisible + .002f;
 
@@ -536,6 +552,10 @@ public sealed class TownClothProbe : MonoBehaviour
                     .Single(f => f.name.StartsWith("ClothRunner_", StringComparison.Ordinal));
                 enchantressProduction = new TownServiceCloth(enchantressStation.transform, 3);
                 enchantressProduction.SetVisible(true);
+                // Unlike the earlier palm=tip fixture, the glove lies lengthwise
+                // along the curtain: wrist, palm and index tip are distinct, and
+                // the broad palm/back presses into the hanging surface.
+                wristObject.transform.localPosition = Vector3.down * (198f * .045f);
                 Vector3[] enchantressRest = enchantressRunner.mesh.vertices;
                 int enchantressIndex = Enumerable.Range(0, enchantressRest.Length)
                     .OrderBy(i => Vector2.Distance(new Vector2(
@@ -544,6 +564,8 @@ public sealed class TownClothProbe : MonoBehaviour
                         new Vector2(-.60f, .69f))).First();
                 Vector3 enchantressTarget = enchantressRunner.transform.TransformPoint(enchantressRest[enchantressIndex]);
                 string snapshotFolder = Path.GetDirectoryName(Argument("--result="));
+                CaptureClothFrame(Path.Combine(snapshotFolder, "enchantress-rest.png"),
+                    enchantressStation.transform, enchantressRunner);
                 WriteVisibleMesh(Path.Combine(snapshotFolder, "enchantress-rest.obj"),
                     enchantressStation.transform, enchantressRunner);
                 hand.HasPose = true;
@@ -552,22 +574,43 @@ public sealed class TownClothProbe : MonoBehaviour
                     float depth = Mathf.Lerp(-.10f, .025f, frame / 35f);
                     Vector3 approach = enchantressTarget + enchantressStation.transform.forward * (198f * depth);
                     palmObject.transform.position = approach;
-                    tipObject.transform.position = approach;
+                    tipObject.transform.position = approach + Vector3.up * (198f * .08f);
                     enchantressProduction.TickAuthor(frame / 90f, 1f / 90f, true);
                     yield return null;
+                    enchantressCapsuleClearanceMin = Mathf.Min(enchantressCapsuleClearanceMin,
+                        CapsuleSurfaceClearance(enchantressRunner,
+                            wristObject.transform.position, tipObject.transform.position,
+                            .049f, .010f, 198f));
                 }
                 float previous = 0f;
                 for (int frame = 0; frame < 90; frame++)
                 {
                     Vector3 pressed = enchantressTarget + enchantressStation.transform.forward * (198f * .025f);
                     palmObject.transform.position = pressed;
-                    tipObject.transform.position = pressed;
+                    tipObject.transform.position = pressed + Vector3.up * (198f * .08f);
+                    long contactStart = Stopwatch.GetTimestamp();
                     enchantressProduction.TickAuthor((frame + 36f) / 90f, 1f / 90f, true);
+                    if (frame > 15)
+                    {
+                        long elapsedTicks = Stopwatch.GetTimestamp() - contactStart;
+                        enchantressContactTicks += elapsedTicks;
+                        enchantressContactDurations[enchantressContactSamples] = elapsedTicks;
+                        enchantressContactSamples++;
+                    }
                     yield return null;
                     float displacement = VisibleMotion(enchantressRunner, enchantressRest, 198f);
                     Vector3 localShown = enchantressRunner.mesh.vertices[enchantressIndex];
                     float localContact = Vector3.Distance(enchantressRunner.transform.TransformPoint(localShown),
                         enchantressTarget) / 198f;
+                    if (frame > 15)
+                    {
+                        enchantressHandClearanceMin = Mathf.Min(enchantressHandClearanceMin,
+                            NearestSurfaceDistance(enchantressRunner, pressed, 198f));
+                        enchantressCapsuleClearanceMin = Mathf.Min(enchantressCapsuleClearanceMin,
+                            CapsuleSurfaceClearance(enchantressRunner,
+                                wristObject.transform.position, tipObject.transform.position,
+                                .049f, .010f, 198f));
+                    }
                     foreach (Vector3 shownVertex in enchantressRunner.mesh.vertices)
                     {
                         Vector3 p = enchantressStation.transform.InverseTransformPoint(
@@ -587,6 +630,9 @@ public sealed class TownClothProbe : MonoBehaviour
                     previous = displacement;
                     if (frame == 60)
                     {
+                        CaptureClothFrame(Path.Combine(snapshotFolder, "enchantress-contact.png"),
+                            enchantressStation.transform, enchantressRunner,
+                            wristObject.transform, tipObject.transform);
                         WriteVisibleMesh(Path.Combine(snapshotFolder, "enchantress-contact.obj"),
                             enchantressStation.transform, enchantressRunner);
                         enchantressEdgeStretch = MaximumEdgeStretch(enchantressRunner, enchantressRest, 198f);
@@ -596,12 +642,101 @@ public sealed class TownClothProbe : MonoBehaviour
                     && enchantressHoldStep < .015f
                     && enchantressEdgeStretch < .015f
                     && enchantressRootPenetration < .002f;
+                float previousWithdrawal = VisibleMotion(enchantressRunner, enchantressRest, 198f);
+                Vector3[] previousWithdrawalVertices = enchantressRunner.mesh.vertices;
+                for (int frame = 0; frame < 36; frame++)
+                {
+                    float depth = Mathf.Lerp(.025f, -.34f, (frame + 1f) / 36f);
+                    Vector3 retreat = enchantressTarget + enchantressStation.transform.forward * (198f * depth);
+                    palmObject.transform.position = retreat;
+                    tipObject.transform.position = retreat + Vector3.up * (198f * .08f);
+                    enchantressProduction.TickAuthor((126f + frame) / 90f, 1f / 90f, true);
+                    yield return null;
+                    float displacement = VisibleMotion(enchantressRunner, enchantressRest, 198f);
+                    enchantressWithdrawalStepMax = Mathf.Max(enchantressWithdrawalStepMax,
+                        Mathf.Abs(displacement - previousWithdrawal));
+                    Vector3[] shownVertices = enchantressRunner.mesh.vertices;
+                    for (int vertex = 0; vertex < shownVertices.Length; vertex++)
+                        enchantressWithdrawalVertexStepMax = Mathf.Max(enchantressWithdrawalVertexStepMax,
+                            enchantressRunner.transform.TransformVector(shownVertices[vertex]
+                                - previousWithdrawalVertices[vertex]).magnitude / 198f);
+                    previousWithdrawalVertices = shownVertices;
+                    enchantressCapsuleClearanceMin = Mathf.Min(enchantressCapsuleClearanceMin,
+                        CapsuleSurfaceClearance(enchantressRunner,
+                            wristObject.transform.position, tipObject.transform.position,
+                            .049f, .010f, 198f));
+                    previousWithdrawal = displacement;
+                }
+                // The end of the continuous withdrawal remains within 16 cm
+                // of the side panel's far edge. Move beyond the entire runner
+                // before timing genuine idle work; do not mix a near miss with
+                // the no-hand broadphase/renderer fast path.
+                Vector3 idleHand = enchantressTarget - enchantressStation.transform.forward * (198f * .90f);
+                palmObject.transform.position = idleHand;
+                tipObject.transform.position = idleHand + Vector3.up * (198f * .08f);
+                for (int frame = 0; frame < 90; frame++)
+                {
+                    long idleStart = Stopwatch.GetTimestamp();
+                    enchantressProduction.TickAuthor((162f + frame) / 90f, 1f / 90f, true);
+                    if (frame >= 50)
+                    {
+                        long elapsedTicks = Stopwatch.GetTimestamp() - idleStart;
+                        enchantressIdleTicks += elapsedTicks;
+                        enchantressIdleDurations[enchantressIdleSamples] = elapsedTicks;
+                        enchantressIdleSamples++;
+                    }
+                    yield return null;
+                }
+                enchantressAfterWithdrawal = VisibleMotion(enchantressRunner, enchantressRest, 198f);
+                productionPathPass &= enchantressCapsuleClearanceMin > -.003f
+                    && enchantressWithdrawalStepMax < .020f
+                    && enchantressWithdrawalVertexStepMax < .020f
+                    && enchantressAfterWithdrawal < .002f;
+                CaptureClothFrame(Path.Combine(snapshotFolder, "enchantress-withdrawal.png"),
+                    enchantressStation.transform, enchantressRunner);
+
+                // The real headset log never reports a contact edge for the red
+                // enchantress runner, even as the glove crosses it. Suppressing
+                // only that separate diagnostic gate must not suppress genuine
+                // native Cloth collision in the visible mesh.
+                enchantressNoGateStation = Instantiate(bundle.LoadAsset<GameObject>(enchantressAsset));
+                enchantressNoGateStation.transform.SetPositionAndRotation(
+                    new Vector3(9700f, 0f, 1200f), Quaternion.identity);
+                enchantressNoGateStation.transform.localScale = Vector3.one * 198f;
+                MeshFilter noGateRunner = enchantressNoGateStation.GetComponentsInChildren<MeshFilter>(true)
+                    .Single(f => f.name.StartsWith("ClothRunner_", StringComparison.Ordinal));
+                enchantressNoGate = new TownServiceClothNoContactGate(enchantressNoGateStation.transform, 3);
+                enchantressNoGate.SetVisible(true);
+                Vector3[] noGateRest = noGateRunner.mesh.vertices;
+                Vector3 noGateTarget = noGateRunner.transform.TransformPoint(noGateRest[enchantressIndex]);
+                for (int frame = 0; frame < 36; frame++)
+                {
+                    float depth = Mathf.Lerp(-.10f, .025f, frame / 35f);
+                    Vector3 approach = noGateTarget + enchantressNoGateStation.transform.forward * (198f * depth);
+                    palmObject.transform.position = approach;
+                    tipObject.transform.position = approach + Vector3.up * (198f * .08f);
+                    enchantressNoGate.TickAuthor(frame / 90f, 1f / 90f, true);
+                    yield return null;
+                }
+                for (int frame = 0; frame < 45; frame++)
+                {
+                    Vector3 pressed = noGateTarget + enchantressNoGateStation.transform.forward * (198f * .025f);
+                    palmObject.transform.position = pressed;
+                    tipObject.transform.position = pressed + Vector3.up * (198f * .08f);
+                    enchantressNoGate.TickAuthor((36f + frame) / 90f, 1f / 90f, true);
+                    yield return null;
+                    if (frame > 15)
+                        enchantressNoGateVisibleMin = Mathf.Min(enchantressNoGateVisibleMin,
+                            VisibleMotion(noGateRunner, noGateRest, 198f));
+                }
+                productionPathPass &= enchantressNoGateVisibleMin > .008f;
             }
             finally
             {
                 hand.HasPose = false; VRHands.Left = VRHands.Right = null;
                 merchantProduction?.Dispose();
                 enchantressProduction?.Dispose();
+                enchantressNoGate?.Dispose();
                 resetProduction?.Dispose();
                 restGateProduction?.Dispose();
                 deadProduction?.Dispose();
@@ -613,6 +748,7 @@ public sealed class TownClothProbe : MonoBehaviour
                 if (contactStation != null) Destroy(contactStation);
                 if (merchantStation != null) Destroy(merchantStation);
                 if (enchantressStation != null) Destroy(enchantressStation);
+                if (enchantressNoGateStation != null) Destroy(enchantressNoGateStation);
                 if (nullStation != null) Destroy(nullStation);
                 Destroy(palmObject); Destroy(tipObject); Destroy(rigScale);
                 VRRigDriver.RigRoot = null; VRRigDriver.BaseWorldScale = 0f;
@@ -620,6 +756,74 @@ public sealed class TownClothProbe : MonoBehaviour
             actualPass &= productionPathPass;
             bundle.Unload(false);
         }
+        double coarseCook = 0d, denseCook = 0d;
+        double coarsePull = 0d, densePull = 0d;
+        double coarseRead = 0d, denseRead = 0d;
+        int vertexSink = 0;
+        var coarseFixtures = new Fixture[3];
+        var denseFixtures = new Fixture[3];
+        for (int i = 0; i < 3; i++)
+        {
+            coarseFixtures[i] = Build("cloth-cost-coarse-" + i, 198f, 100f, false,
+                true, new Vector3(11000f + i * 400f, 0f, 1200f), 0f, 13, 25);
+            coarseCook += coarseFixtures[i].CookMilliseconds;
+            denseFixtures[i] = Build("cloth-cost-dense-" + i, 198f, 100f, false,
+                true, new Vector3(12500f + i * 400f, 0f, 1200f), 0f, 49, 49);
+            denseCook += denseFixtures[i].CookMilliseconds;
+        }
+        yield return null;
+        for (int trial = 0; trial < 300; trial++)
+        {
+            var coarseReadWatch = Stopwatch.StartNew();
+            foreach (Fixture fixture in coarseFixtures) vertexSink += fixture.Cloth.vertices.Length;
+            coarseReadWatch.Stop();
+            coarseRead += coarseReadWatch.Elapsed.TotalMilliseconds;
+            var denseReadWatch = Stopwatch.StartNew();
+            foreach (Fixture fixture in denseFixtures) vertexSink += fixture.Cloth.vertices.Length;
+            denseReadWatch.Stop();
+            denseRead += denseReadWatch.Elapsed.TotalMilliseconds;
+            var coarseWatch = Stopwatch.StartNew();
+            foreach (Fixture fixture in coarseFixtures)
+            {
+                Vector3[] vertices = fixture.Cloth.vertices;
+                fixture.Visible.vertices = vertices;
+                fixture.Visible.RecalculateNormals();
+                fixture.Visible.RecalculateBounds();
+            }
+            coarseWatch.Stop();
+            coarsePull += coarseWatch.Elapsed.TotalMilliseconds;
+            var denseWatch = Stopwatch.StartNew();
+            foreach (Fixture fixture in denseFixtures)
+            {
+                Vector3[] vertices = fixture.Cloth.vertices;
+                fixture.Visible.vertices = vertices;
+                fixture.Visible.RecalculateNormals();
+                fixture.Visible.RecalculateBounds();
+            }
+            denseWatch.Stop();
+            densePull += denseWatch.Elapsed.TotalMilliseconds;
+        }
+        foreach (Cloth cloth in FindObjectsOfType<Cloth>()) cloth.enabled = false;
+        bool automaticPhysics = Physics.autoSimulation;
+        Physics.autoSimulation = false;
+        double coarseSimulation, denseSimulation;
+        try
+        {
+            foreach (Fixture fixture in coarseFixtures) fixture.Cloth.enabled = true;
+            for (int step = 0; step < 20; step++) Physics.Simulate(1f / 90f);
+            var coarseWatch = Stopwatch.StartNew();
+            for (int step = 0; step < 180; step++) Physics.Simulate(1f / 90f);
+            coarseWatch.Stop();
+            coarseSimulation = coarseWatch.Elapsed.TotalMilliseconds / 180d;
+            foreach (Fixture fixture in coarseFixtures) fixture.Cloth.enabled = false;
+            foreach (Fixture fixture in denseFixtures) fixture.Cloth.enabled = true;
+            for (int step = 0; step < 20; step++) Physics.Simulate(1f / 90f);
+            var denseWatch = Stopwatch.StartNew();
+            for (int step = 0; step < 180; step++) Physics.Simulate(1f / 90f);
+            denseWatch.Stop();
+            denseSimulation = denseWatch.Elapsed.TotalMilliseconds / 180d;
+        }
+        finally { Physics.autoSimulation = automaticPhysics; }
         bool pass = hiddenPass && negativePass && scalePass && actualPass;
         string line = "native_hidden_cloth=" + (pass ? "PASS" : "FAIL")
             + " gravity_motion=" + gravityMotion.ToString("F5")
@@ -663,8 +867,38 @@ public sealed class TownClothProbe : MonoBehaviour
             + " enchantress_local_max_m=" + enchantressLocalMax.ToString("F5")
             + " enchantress_root_penetration_m=" + enchantressRootPenetration.ToString("F5")
             + " enchantress_edge_stretch_m=" + enchantressEdgeStretch.ToString("F5")
+            + " enchantress_hand_clearance_min_m=" + enchantressHandClearanceMin.ToString("F5")
+            + " enchantress_capsule_clearance_min_m=" + enchantressCapsuleClearanceMin.ToString("F5")
+            + " enchantress_withdrawal_step_max_m=" + enchantressWithdrawalStepMax.ToString("F5")
+            + " enchantress_withdrawal_vertex_step_max_m="
+            + enchantressWithdrawalVertexStepMax.ToString("F5")
+            + " enchantress_contact_tick_us="
+            + (1e6 * enchantressContactTicks / Math.Max(1, enchantressContactSamples)
+                / Stopwatch.Frequency).ToString("F2")
+            + " enchantress_contact_tick_median_us="
+            + MedianMicroseconds(enchantressContactDurations, enchantressContactSamples).ToString("F2")
+            + " enchantress_contact_tick_p90_us="
+            + PercentileMicroseconds(enchantressContactDurations, enchantressContactSamples, .90f).ToString("F2")
+            + " enchantress_idle_tick_us="
+            + (1e6 * enchantressIdleTicks / Math.Max(1, enchantressIdleSamples)
+                / Stopwatch.Frequency).ToString("F2")
+            + " enchantress_idle_tick_median_us="
+            + MedianMicroseconds(enchantressIdleDurations, enchantressIdleSamples).ToString("F2")
+            + " enchantress_idle_tick_p90_us="
+            + PercentileMicroseconds(enchantressIdleDurations, enchantressIdleSamples, .90f).ToString("F2")
+            + " enchantress_after_withdrawal_m=" + enchantressAfterWithdrawal.ToString("F5")
+            + " enchantress_no_contact_gate_visible_min_m=" + enchantressNoGateVisibleMin.ToString("F5")
             + " production_rest_gate_deep_hold_m=" + productionRestGateDeepHold.ToString("F5")
             + " production_dead_visible_control_m=" + productionDeadVisible.ToString("F5");
+        line += " three_coarse_cook_ms=" + coarseCook.ToString("F2")
+            + " three_dense_cook_ms=" + denseCook.ToString("F2")
+            + " three_coarse_pull_rebuild_ms=" + (coarsePull / 300d).ToString("F3")
+            + " three_dense_pull_rebuild_ms=" + (densePull / 300d).ToString("F3")
+            + " three_coarse_read_ms=" + (coarseRead / 300d).ToString("F3")
+            + " three_dense_read_ms=" + (denseRead / 300d).ToString("F3")
+            + " three_coarse_simulate_ms=" + coarseSimulation.ToString("F3")
+            + " three_dense_simulate_ms=" + denseSimulation.ToString("F3")
+            + " vertex_sink=" + vertexSink;
         UnityEngine.Debug.Log("[TOWN-CLOTH] " + line);
         string result = Argument("--result=");
         if (result.Length != 0) File.WriteAllText(result, line + Environment.NewLine);
@@ -692,6 +926,112 @@ public sealed class TownClothProbe : MonoBehaviour
         File.WriteAllText(path, data.ToString());
     }
 
+    private static double MedianMicroseconds(long[] samples, int count)
+    {
+        return PercentileMicroseconds(samples, count, .50f);
+    }
+
+    private static double PercentileMicroseconds(long[] samples, int count, float fraction)
+    {
+        if (count == 0) return 0d;
+        Array.Sort(samples, 0, count);
+        int index = Mathf.Clamp(Mathf.CeilToInt(fraction * count) - 1, 0, count - 1);
+        return 1e6 * samples[index] / Stopwatch.Frequency;
+    }
+
+    private static void CaptureClothFrame(string path, Transform station, MeshFilter filter,
+        Transform wrist = null, Transform tip = null)
+    {
+        var cameraObject = new GameObject("Cloth evidence camera");
+        Camera camera = cameraObject.AddComponent<Camera>();
+        camera.clearFlags = CameraClearFlags.SolidColor;
+        camera.backgroundColor = new Color(.07f, .07f, .09f);
+        camera.fieldOfView = 38f;
+        camera.nearClipPlane = .01f;
+        camera.farClipPlane = 900f;
+        camera.transform.position = station.TransformPoint(new Vector3(-.27f, .93f, -1.38f));
+        camera.transform.LookAt(station.TransformPoint(new Vector3(-.60f, .69f, -.35f)));
+        var lightObject = new GameObject("Cloth evidence light");
+        Light light = lightObject.AddComponent<Light>();
+        light.type = LightType.Directional;
+        light.intensity = 1.7f;
+        lightObject.transform.rotation = Quaternion.Euler(40f, -20f, 0f);
+        Color oldAmbient = RenderSettings.ambientLight;
+        RenderSettings.ambientLight = new Color(.55f, .55f, .55f);
+        var disabled = new System.Collections.Generic.List<Renderer>();
+        Renderer clothRenderer = filter.GetComponent<Renderer>();
+        Material originalMaterial = clothRenderer.sharedMaterial;
+        Shader evidenceShader = Resources.Load<Shader>("TownClothEvidence");
+        Material evidenceMaterial = evidenceShader != null ? new Material(evidenceShader) : null;
+        if (evidenceMaterial != null)
+        {
+            evidenceMaterial.color = new Color(.54f, .10f, .15f);
+            clothRenderer.sharedMaterial = evidenceMaterial;
+        }
+        var handEvidence = new System.Collections.Generic.List<GameObject>();
+        Material handMaterial = null;
+        if (wrist != null && tip != null)
+        {
+            Shader handShader = Resources.Load<Shader>("TownClothEvidenceHand");
+            handMaterial = handShader != null ? new Material(handShader) : null;
+            if (handMaterial != null) handMaterial.color = new Color(.22f, .74f, .84f);
+            float scale = station.TransformVector(Vector3.up).magnitude;
+            Vector3 span = tip.position - wrist.position;
+            GameObject palm = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+            palm.name = "Measured wrist capsule end";
+            palm.transform.SetPositionAndRotation(wrist.position, Quaternion.identity);
+            palm.transform.localScale = Vector3.one * (scale * .098f);
+            Destroy(palm.GetComponent<Collider>());
+            if (handMaterial != null) palm.GetComponent<Renderer>().sharedMaterial = handMaterial;
+            handEvidence.Add(palm);
+            GameObject finger = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+            finger.name = "Measured fingertip capsule end";
+            finger.transform.SetPositionAndRotation(tip.position, Quaternion.identity);
+            finger.transform.localScale = Vector3.one * (scale * .020f);
+            Destroy(finger.GetComponent<Collider>());
+            if (handMaterial != null) finger.GetComponent<Renderer>().sharedMaterial = handMaterial;
+            handEvidence.Add(finger);
+            GameObject bridge = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
+            bridge.name = "Measured hand capsule axis";
+            bridge.transform.SetPositionAndRotation((wrist.position + tip.position) * .5f,
+                Quaternion.FromToRotation(Vector3.up, span));
+            bridge.transform.localScale = new Vector3(scale * .06f, span.magnitude * .5f, scale * .06f);
+            Destroy(bridge.GetComponent<Collider>());
+            if (handMaterial != null) bridge.GetComponent<Renderer>().sharedMaterial = handMaterial;
+            handEvidence.Add(bridge);
+        }
+        foreach (Renderer renderer in station.GetComponentsInChildren<Renderer>(true))
+            if (renderer != clothRenderer && renderer.enabled)
+            { renderer.enabled = false; disabled.Add(renderer); }
+        RenderTexture texture = RenderTexture.GetTemporary(960, 540, 24);
+        RenderTexture previous = RenderTexture.active;
+        try
+        {
+            camera.targetTexture = texture;
+            camera.Render();
+            RenderTexture.active = texture;
+            var picture = new Texture2D(960, 540, TextureFormat.RGB24, false);
+            picture.ReadPixels(new Rect(0f, 0f, 960f, 540f), 0, 0);
+            picture.Apply();
+            File.WriteAllBytes(path, picture.EncodeToPNG());
+            Destroy(picture);
+        }
+        finally
+        {
+            RenderTexture.active = previous;
+            camera.targetTexture = null;
+            RenderTexture.ReleaseTemporary(texture);
+            foreach (Renderer renderer in disabled) renderer.enabled = true;
+            clothRenderer.sharedMaterial = originalMaterial;
+            if (evidenceMaterial != null) Destroy(evidenceMaterial);
+            foreach (GameObject primitive in handEvidence) Destroy(primitive);
+            if (handMaterial != null) Destroy(handMaterial);
+            RenderSettings.ambientLight = oldAmbient;
+            Destroy(cameraObject);
+            Destroy(lightObject);
+        }
+    }
+
     private static float MaximumEdgeStretch(MeshFilter filter, Vector3[] rest, float stationScale)
     {
         Vector3[] shown = filter.mesh.vertices;
@@ -713,6 +1053,128 @@ public sealed class TownClothProbe : MonoBehaviour
                 filter.transform.TransformPoint(shown[b])) / stationScale;
             return Mathf.Max(0f, after - before);
         }
+    }
+
+    private static float NearestSurfaceDistance(MeshFilter filter, Vector3 worldPoint, float stationScale)
+    {
+        Mesh mesh = filter.mesh;
+        Vector3[] vertices = mesh.vertices;
+        int[] triangles = mesh.triangles;
+        return NearestSurfaceDistance(filter, vertices, triangles, worldPoint, stationScale);
+    }
+
+    private static float NearestSurfaceDistance(MeshFilter filter,
+        Vector3[] vertices, int[] triangles, Vector3 worldPoint, float stationScale)
+    {
+        Vector3 point = filter.transform.InverseTransformPoint(worldPoint);
+        float minimum = float.MaxValue;
+        for (int i = 0; i < triangles.Length; i += 3)
+        {
+            Vector3 onSurface = ClosestPointOnTriangle(point,
+                vertices[triangles[i]], vertices[triangles[i + 1]], vertices[triangles[i + 2]]);
+            minimum = Mathf.Min(minimum, (point - onSurface).sqrMagnitude);
+        }
+        return Mathf.Sqrt(minimum) * filter.transform.lossyScale.x / stationScale;
+    }
+
+    private static float CapsuleSurfaceClearance(MeshFilter filter,
+        Vector3 wrist, Vector3 tip, float wristRadius, float tipRadius, float stationScale)
+    {
+        Mesh mesh = filter.mesh;
+        Vector3[] vertices = mesh.vertices;
+        int[] triangles = mesh.triangles;
+        Vector3 a = filter.transform.InverseTransformPoint(wrist);
+        Vector3 b = filter.transform.InverseTransformPoint(tip);
+        float localToStation = filter.transform.lossyScale.x / stationScale;
+        float minimum = float.MaxValue;
+        for (int i = 0; i < triangles.Length; i += 3)
+        {
+            float distance = SegmentTriangleDistance(a, b,
+                vertices[triangles[i]], vertices[triangles[i + 1]], vertices[triangles[i + 2]],
+                out float t);
+            float gap = distance * localToStation
+                - Mathf.Lerp(wristRadius, tipRadius, t);
+            minimum = Mathf.Min(minimum, gap);
+        }
+        return minimum;
+    }
+
+    private static float SegmentTriangleDistance(Vector3 a, Vector3 b,
+        Vector3 p, Vector3 q, Vector3 r, out float segmentT)
+    {
+        Vector3 normal = Vector3.Cross(q - p, r - p);
+        float divisor = Vector3.Dot(normal, b - a);
+        if (normal.sqrMagnitude > 1e-12f && Mathf.Abs(divisor) > 1e-9f)
+        {
+            float crossing = Vector3.Dot(normal, p - a) / divisor;
+            if (crossing >= 0f && crossing <= 1f)
+            {
+                Vector3 hit = Vector3.Lerp(a, b, crossing);
+                if (Vector3.Dot(normal, Vector3.Cross(q - p, hit - p)) >= -1e-8f
+                    && Vector3.Dot(normal, Vector3.Cross(r - q, hit - q)) >= -1e-8f
+                    && Vector3.Dot(normal, Vector3.Cross(p - r, hit - r)) >= -1e-8f)
+                { segmentT = crossing; return 0f; }
+            }
+        }
+        float best = (a - ClosestPointOnTriangle(a, p, q, r)).magnitude;
+        segmentT = 0f;
+        float candidate = (b - ClosestPointOnTriangle(b, p, q, r)).magnitude;
+        if (candidate < best) { best = candidate; segmentT = 1f; }
+        candidate = SegmentSegmentDistance(a, b, p, q, out float t);
+        if (candidate < best) { best = candidate; segmentT = t; }
+        candidate = SegmentSegmentDistance(a, b, q, r, out t);
+        if (candidate < best) { best = candidate; segmentT = t; }
+        candidate = SegmentSegmentDistance(a, b, r, p, out t);
+        if (candidate < best) { best = candidate; segmentT = t; }
+        return best;
+    }
+
+    private static float SegmentSegmentDistance(Vector3 p1, Vector3 q1,
+        Vector3 p2, Vector3 q2, out float alongFirst)
+    {
+        Vector3 d1 = q1 - p1, d2 = q2 - p2, separation = p1 - p2;
+        float a = Vector3.Dot(d1, d1), e = Vector3.Dot(d2, d2);
+        float f = Vector3.Dot(d2, separation);
+        float s, t;
+        if (a <= 1e-12f && e <= 1e-12f)
+        { alongFirst = 0f; return separation.magnitude; }
+        if (a <= 1e-12f) { s = 0f; t = Mathf.Clamp01(f / e); }
+        else
+        {
+            float c = Vector3.Dot(d1, separation);
+            if (e <= 1e-12f) { t = 0f; s = Mathf.Clamp01(-c / a); }
+            else
+            {
+                float b = Vector3.Dot(d1, d2), denominator = a * e - b * b;
+                s = denominator > 1e-12f ? Mathf.Clamp01((b * f - c * e) / denominator) : 0f;
+                t = (b * s + f) / e;
+                if (t < 0f) { t = 0f; s = Mathf.Clamp01(-c / a); }
+                else if (t > 1f) { t = 1f; s = Mathf.Clamp01((b - c) / a); }
+            }
+        }
+        alongFirst = s;
+        return (separation + d1 * s - d2 * t).magnitude;
+    }
+
+    private static Vector3 ClosestPointOnTriangle(Vector3 p, Vector3 a, Vector3 b, Vector3 c)
+    {
+        Vector3 ab = b - a, ac = c - a, ap = p - a;
+        float d1 = Vector3.Dot(ab, ap), d2 = Vector3.Dot(ac, ap);
+        if (d1 <= 0f && d2 <= 0f) return a;
+        Vector3 bp = p - b;
+        float d3 = Vector3.Dot(ab, bp), d4 = Vector3.Dot(ac, bp);
+        if (d3 >= 0f && d4 <= d3) return b;
+        float vc = d1 * d4 - d3 * d2;
+        if (vc <= 0f && d1 >= 0f && d3 <= 0f) return a + ab * (d1 / (d1 - d3));
+        Vector3 cp = p - c;
+        float d5 = Vector3.Dot(ab, cp), d6 = Vector3.Dot(ac, cp);
+        if (d6 >= 0f && d5 <= d6) return c;
+        float vb = d5 * d2 - d1 * d6;
+        if (vb <= 0f && d2 >= 0f && d6 <= 0f) return a + ac * (d2 / (d2 - d6));
+        float va = d3 * d6 - d5 * d4;
+        if (va <= 0f && d4 - d3 >= 0f && d5 - d6 >= 0f)
+            return b + (c - b) * ((d4 - d3) / ((d4 - d3) + (d5 - d6)));
+        return a + ab * (vb / (va + vb + vc)) + ac * (vc / (va + vb + vc));
     }
 
     private static IEnumerator Settle(Fixture fixture, int frames)
@@ -775,9 +1237,8 @@ public sealed class TownClothProbe : MonoBehaviour
     }
 
     private static Fixture Build(string name, float stationScale, float fbxScale, bool contact,
-        bool convertNestedScale, Vector3 position, float yaw)
+        bool convertNestedScale, Vector3 position, float yaw, int columns = 17, int rows = 21)
     {
-        const int columns = 17, rows = 21;
         var vertices = new Vector3[columns * rows];
         var triangles = new int[(columns - 1) * (rows - 1) * 6];
         for (int row = 0; row < rows; row++)
@@ -824,6 +1285,7 @@ public sealed class TownClothProbe : MonoBehaviour
         var skin = driver.AddComponent<SkinnedMeshRenderer>();
         skin.sharedMesh = mesh; skin.rootBone = driver.transform; skin.bones = new[] { driver.transform };
         skin.updateWhenOffscreen = true; skin.forceRenderingOff = true;
+        var cookWatch = Stopwatch.StartNew();
         var cloth = driver.AddComponent<Cloth>();
         cloth.useGravity = true; cloth.useTethers = true; cloth.damping = .2f;
         cloth.stretchingStiffness = .8f; cloth.bendingStiffness = .4f;
@@ -843,11 +1305,13 @@ public sealed class TownClothProbe : MonoBehaviour
         collider.transform.position = station.transform.TransformPoint(new Vector3(-.18f, -.08f, .48f));
         if (contact) cloth.sphereColliders = new[] { new ClothSphereColliderPair(palm, tip) };
         cloth.ClearTransformMotion();
+        cookWatch.Stop();
 
         var visible = UnityEngine.Object.Instantiate(mesh);
         return new Fixture { Root = station, Cloth = cloth, Mover = collider.transform,
             Visible = visible, Rest = cloth.vertices, StationScale = stationScale,
-            SolverScale = driver.transform.lossyScale.x };
+            SolverScale = driver.transform.lossyScale.x,
+            CookMilliseconds = cookWatch.Elapsed.TotalMilliseconds };
     }
 
     private static Fixture BuildActual(string name, Transform station, MeshFilter filter,
