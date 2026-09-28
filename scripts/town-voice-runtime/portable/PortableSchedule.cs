@@ -54,6 +54,24 @@ internal static class PortableSchedule
         Check(approach.At(1).Generation == 2 && approach.At(1).Cue is >= 1 and <= 5,
             "a later distinct look-at may greet again after cooldown");
 
+        var handover = new TownServiceVoiceSchedule();
+        handover.FollowerAttention(1, .4f, true);
+        handover.Work(1, 70f, 0f, .4f, true, 70f);
+        handover.Sample(1, Duration, 70f, false);
+        Check(!handover.At(1).Pending && handover.At(1).Generation == 0,
+            "a new author does not greet an already-watched visitor again after cooldown");
+        handover.Work(1, 70.1f, 0f, 0f, true, 70.1f);
+        handover.Work(1, 70.2f, 0f, .2f, true, 70.2f);
+        handover.Sample(1, Duration, 70.2f, false);
+        Check(handover.At(1).Cue is >= 1 and <= 5 && handover.At(1).Generation == 1,
+            "the same author greets a later new gaze edge");
+
+        var joinedDuringAbsence = new TownServiceVoiceSchedule();
+        joinedDuringAbsence.FollowerAttention(1, .4f, false);
+        joinedDuringAbsence.Work(1, 1f, 0f, .2f, true, 1f);
+        Check(joinedDuringAbsence.At(1).PendingCue is >= 1 and <= 5,
+            "an author may greet a genuinely new visitor after an unseen interval");
+
         var nativeOnly = new TownServiceVoiceSchedule();
         nativeOnly.Visit(1, true, 0f, 0f);
         nativeOnly.Work(1, 1f, 0f, 0f, true, 0f);

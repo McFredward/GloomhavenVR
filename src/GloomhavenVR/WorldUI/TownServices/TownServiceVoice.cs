@@ -85,8 +85,11 @@ internal static class TownServiceVoice
     {
         Ensure();
         if (StoryComposite.PointOfNoReturn) { SilenceForStory(); return; }
-        if (TownServicePopulation.IsFaceAuthor && service >= 1 && service <= 3)
+        if (service < 1 || service > 3) return;
+        if (TownServicePopulation.IsFaceAuthor)
             _schedule.Work(service, workClock, shown.Cast, shown.Attention, visible, Time.unscaledTime);
+        else
+            _schedule.FollowerAttention(service, shown.Attention, visible);
     }
 
     /// <summary>Called for a real native interaction: an opened merchant offer, a

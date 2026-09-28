@@ -15,7 +15,7 @@ internal sealed class TownServiceVoiceSchedule
         internal bool Observed;
         internal float LastRequestedAt, LastWorkClock, LastCast, LastAttention;
         internal uint VariantState;
-        internal bool WorkSeeded;
+        internal bool WorkSeeded, FollowerAttentionKnown;
         internal byte Priority;
     }
     private readonly Entry[] _entries = { new(), new(), new() };
@@ -39,6 +39,18 @@ internal sealed class TownServiceVoiceSchedule
             QueueVariant(service, TownServiceVoice.GreetingFirstCue(service), 1, now + 5f, age + now);
     }
 
+    /// <summary>Remember the shared gaze while this client observes another face
+    /// author. A handover during an uninterrupted look must not invent a second
+    /// greeting when the former observer takes its first author sample.</summary>
+    internal void FollowerAttention(byte service, float attention, bool visible)
+    {
+        Entry e = At(service);
+        if (!Finite(attention)) { e.FollowerAttentionKnown = false; return; }
+        e.LastAttention = visible ? attention : 0f;
+        e.FollowerAttentionKnown = true;
+        e.WorkSeeded = false;
+    }
+
     internal void Work(byte service, float clock, float cast, float attention, bool visible, float now)
     {
         Entry e = At(service);
@@ -47,6 +59,7 @@ internal sealed class TownServiceVoiceSchedule
             if (service == 1 && e.Pending && e.Priority == 1 && e.PendingCue >= 1 && e.PendingCue <= 5)
                 e.Pending = false;
             e.WorkSeeded = false;
+            e.FollowerAttentionKnown = false;
             return;
         }
         float delta = clock - e.LastWorkClock;
@@ -57,7 +70,8 @@ internal sealed class TownServiceVoiceSchedule
         // first seeds into an already-started turn), not on the closer shop window.
         // The existing 45-second cooldown and shared cue generation bound repeat
         // speech while the player moves around that range.
-        if (service == 1 && attention >= .08f && (!e.WorkSeeded || e.LastAttention < .08f)
+        bool newLook = e.LastAttention < .08f || !e.WorkSeeded && !e.FollowerAttentionKnown;
+        if (service == 1 && attention >= .08f && newLook
             && now >= e.NextAllowed && e.Cue == 0)
             QueueVariant(service, TownServiceVoice.GreetingFirstCue(service), 1, now + 5f, now + clock);
         else if (service == 1 && attention < .08f && e.Pending && e.Priority == 1
@@ -86,7 +100,8 @@ internal sealed class TownServiceVoiceSchedule
         }
         // Native visit and card acceptance own the enchantress invitation. Sampling
         // an attention crossing here missed visits that began before Work seeded.
-        e.WorkSeeded = true; e.LastWorkClock = clock; e.LastCast = cast; e.LastAttention = attention;
+        e.WorkSeeded = true; e.FollowerAttentionKnown = false;
+        e.LastWorkClock = clock; e.LastCast = cast; e.LastAttention = attention;
     }
 
     private static bool Crossed(float before, float after, float period, float threshold)
@@ -150,6 +165,7 @@ internal sealed class TownServiceVoiceSchedule
             entry.Cue = 0;
             entry.Ended = true;
             entry.WorkSeeded = false;
+            entry.FollowerAttentionKnown = false;
         }
         _nextWorld = Math.Max(_nextWorld, now + 1f);
     }
