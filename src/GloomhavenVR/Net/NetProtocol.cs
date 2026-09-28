@@ -541,7 +541,18 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 579;
+    public const ushort ModBuild = 580;
+
+    // ModBuild 580 — twentieth NPC hardware follow-up on the feature branch.
+    // The merchant greets at the shared gaze edge rather than waiting for the
+    // shorter native shop-visit range, with follower attention retained through
+    // a face-author handover. The priestess's staggered prayer release is
+    // replaced by a continuous, reversible arm route. Town cloth presents its
+    // native motion whenever a tracked hand is near and constrains visible
+    // triangle interiors against hand passage, including remote hands and
+    // station visibility changes. Imported-skin tests now reject false merchant
+    // contact, but the hovering hand-to-belly pose remains open. No wire layout
+    // changes; headset presentation awaits review.
 
     // ModBuild 579 — nineteenth NPC hardware follow-up on the feature branch.
     // A visitor entering the enchantress's area while another town service

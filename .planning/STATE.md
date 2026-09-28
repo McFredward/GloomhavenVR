@@ -2,10 +2,11 @@
 
 **Updated 2026-09-28: feature/immersive-town-services, version 1.1.0 hardware candidate.**
 The feature includes released 1.0.8 / ModBuild 556 and the subsequent 1.0.9
-corrections on `dev`. ModBuild 579 follows build-578 headset evidence: deferred
-enchantress entry, full hand cloth contact, and the priestess's prayer release.
-The merchant's visible hand-to-belly gap remains open; the current sandbox
-cannot launch Unity for the new imported-skin scan needed to release a safe pose.
+corrections on `dev`. ModBuild 580 is a partial follow-up to build-579 headset
+evidence: merchant greeting distance, priestess arm transition, and town cloth
+hand contact. The merchant's visible hand-to-belly gap remains open. The new
+motion and cloth candidates have been checked in executable Unity; headset
+review of their appearance remains open.
 ModBuild 578 followed build-577 headset evidence and added the native creator
 and actor-bar corrections from dev ModBuild 557. ModBuild 577
 followed build-576 headset evidence:
@@ -18,7 +19,7 @@ voices, shared merchant confirmation presentation, a visible temple donation
 target, cloth contact, cabinet detail and varied idle motion.
 Headset verification of the resulting presentation remains open. Historical NPC
 design: [research/TOWN-SERVICES-552.md](research/TOWN-SERVICES-552.md).
-Current evidence and implementation limits: [TOWN-579.md](TOWN-579.md).
+Current evidence and implementation limits: [TOWN-580.md](TOWN-580.md).
 The feature remains isolated from `dev`, and NPC work belongs on this branch.
 It also incorporates the later `dev` ModBuild 557 actor-bar and character-creator
 corrections ([BARS-CREATOR-557.md](BARS-CREATOR-557.md)).
@@ -35,6 +36,19 @@ change per build) → this file (where things stand and what is owed) → the bu
 ---
 
 ## 1. Position
+
+- **NPC feature / 1.1.0 / ModBuild 580 (partial hardware candidate):** the elected
+  face author greets a visitor when the merchant first turns to look at them,
+  including consistent behavior after a multiplayer author handover. The
+  priestess's build-579 staggered arm clocks have been removed in favor of a
+  continuous prayer release and return. Native town cloth stays visibly
+  deformed near a tracked hand and protects its sparse triangle interiors
+  against hand passage; local/peer identity changes, withdrawal and station
+  visibility reset its contact state. The merchant's attended hands still hover
+  above the coat: the imported-skin pose candidate was rejected after a full
+  motion scan found visible sleeve/coat intersections. Source and executable
+  Unity evidence, together with remaining headset limits, are in
+  [TOWN-580.md](TOWN-580.md).
 
 - **NPC feature / 1.1.0 / ModBuild 579 (partial hardware candidate):** a
   visitor who enters the enchantress's area while another native town service
