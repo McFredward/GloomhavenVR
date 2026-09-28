@@ -195,9 +195,9 @@ internal sealed class TownServiceActivityRig
             _sampledNeck = _neck.localRotation; _applied = true;
             _neck.rotation = Quaternion.AngleAxis(4f * (1f - visual.Attention) * (1f - visual.Body.Weight), -_root.right) * _neck.rotation;
         }
-        Solve(_left!, visual.Left, 1f, visual.LeftCurl, _service == 2 ? visual.LeftMotion : visual.Attention,
+        Solve(_left!, visual.Left, 1f, visual.LeftCurl, visual.Attention,
             visual.LeftRoll, _service == 1, visual.LeftElbow);
-        Solve(_right!, visual.Right, -1f, visual.RightCurl, _service == 2 ? visual.RightMotion : visual.Attention,
+        Solve(_right!, visual.Right, -1f, visual.RightCurl, visual.Attention,
             visual.RightRoll, false, visual.RightElbow);
         if (OfferingPalm != null)
         {
@@ -351,9 +351,17 @@ internal sealed class TownServiceActivityRig
                     if (support != null) lowest = Mathf.Min(lowest, Vector3.Dot(support.position - arm.Hand.position, _root.up));
                 // A relaxed hand has an arched palm. Place its actual lowest palmar pad on
                 // the wood, rather than driving the whole central palm into the surface.
-                float tableContact = (1f - Mathf.SmoothStep(0f, 1f, (localTarget.y - .960f) / .025f))
-                    * (1f - Mathf.SmoothStep(0f, 1f, Mathf.Abs(roll) / 25f));
-                target += _root.up * (Vector3.Dot(palmOffset, _root.up) - lowest) * tableContact;
+                // The low hanging hand needs the same support allowance as the
+                // imported skin, but the former 25-mm world-height ramp switched
+                // that allowance on within a single 90-Hz frame during prayer
+                // release. Fade it in over the authored attention motion instead.
+                // The covered offering stays near its bowl contact surface.
+                float supportWeight = _service == 2
+                    ? Mathf.SmoothStep(0f, 1f, (attention - .70f) / .30f)
+                        * (1f - Mathf.SmoothStep(0f, 1f, Mathf.Abs(roll) / 100f))
+                    : (1f - Mathf.SmoothStep(0f, 1f, (localTarget.y - .960f) / .025f))
+                        * (1f - Mathf.SmoothStep(0f, 1f, Mathf.Abs(roll) / 25f));
+                target += _root.up * (Vector3.Dot(palmOffset, _root.up) - lowest) * supportWeight;
             }
             Vector3 delta = target - shoulder;
             float distance = Mathf.Clamp(delta.magnitude, Mathf.Abs(upper - lower) + .001f, upper + lower - .001f);
@@ -394,20 +402,12 @@ internal sealed class TownServiceActivityRig
                 // even when the final imported-skin pose looked natural.
                 guide = authoredElbow.sqrMagnitude > .01f ? authoredElbow
                     : new Vector3(side * .40f, 1.20f, .46f);
-                float outer = .11f + .15f * (1f - attention);
-                // Prayer and hanging idle both have valid elbow seats. The
-                // lowered intermediate guide needs an outward component too:
-                // without it, the actual right upper arm cuts through the
-                // robe at attention .4-.8 even though the front render looks
-                // natural. Keep the elbow outside the torso as it descends.
-                float middle = 4f * attention * (1f - attention);
-                guide.x = side * Mathf.Max(outer, side * guide.x + .16f * middle);
-                // The previous large pole dip lowered the *upper* arm while the
-                // prayer forearm stayed nearly level. In the headset this read as
-                // two mechanical elbows driving both arms down at once. Let the
-                // wrist descend first and carry the elbow on its own side's
-                // delayed, smaller arc instead.
-                guide.y = Mathf.Lerp(guide.y, 1.02f, middle * .35f);
+                // The elbow descends beside the robe with the wrist. A mid-arc
+                // lateral bulge kept the actual elbow near shoulder height as
+                // the hand reached the hip, making a rigid right angle in both
+                // approach and departure. The authored pole now remains on
+                // its own side without that detour.
+                guide.x = side * Mathf.Max(.24f, side * guide.x);
             }
             else if (_service == 1 && attention > 0f)
                 guide = Vector3.Lerp(guide, authoredElbow.sqrMagnitude > .01f ? authoredElbow
@@ -451,12 +451,9 @@ internal sealed class TownServiceActivityRig
                 Quaternion baseHand = Quaternion.LookRotation(_root.up, -side * _root.right)
                     * Quaternion.Inverse(Quaternion.LookRotation(arm.PalmForward, arm.PalmNormal));
                 Vector3 baseNormal = baseHand * arm.PalmNormal;
-                // The 577 headset transition enters a different forearm bend
-                // plane while its hands separate. Limiting fingers against the
-                // *moving* forearm can then switch side midway through approach,
-                // despite continuous palm targets. Use a stable body-space
-                // frame across that crossing, returning to the forearm-limited
-                // frames at both endpoints so prayer and idle remain anatomical.
+                // The imported forearm changes bend plane as joined hands separate.
+                // The stable body-space frame supports the middle of the gesture;
+                // the anatomically limited frame protects both endpoints.
                 Vector3 prayerFinger = (_root.up - _root.forward * .8f).normalized;
                 Vector3 restFinger = (-_root.up - _root.forward * .2f).normalized;
                 Quaternion prayerFrame = Quaternion.LookRotation(prayerFinger,
@@ -466,10 +463,10 @@ internal sealed class TownServiceActivityRig
                 Quaternion bodyFrame = Quaternion.Slerp(prayerFrame, restFrame, attention);
                 Vector3 naturalFinger = bodyFrame * Vector3.forward;
                 Vector3 limitedFinger = Vector3.RotateTowards(foreDirection, naturalFinger,
-                    55f * Mathf.Deg2Rad, 0f).normalized;
+                    50f * Mathf.Deg2Rad, 0f).normalized;
                 Quaternion limitedFrame = Quaternion.LookRotation(limitedFinger,
                     Vector3.ProjectOnPlane(baseNormal, limitedFinger).normalized);
-                float stableWindow = .75f * Mathf.SmoothStep(0f, 1f, (attention - .15f) / .25f)
+                float stableWindow = .50f * Mathf.SmoothStep(0f, 1f, (attention - .15f) / .25f)
                     * (1f - Mathf.SmoothStep(0f, 1f, (attention - .75f) / .25f));
                 Quaternion baseFrame = Quaternion.Slerp(limitedFrame, bodyFrame, stableWindow);
                 // The covering palm turns diagonally across the near half of the

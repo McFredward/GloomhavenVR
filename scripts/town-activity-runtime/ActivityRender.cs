@@ -67,7 +67,7 @@ internal static class ActivityRender
             ?new StreamWriter(Path.Combine(folder,"service2-blessing-particles.csv")):null;
         particleCounts?.WriteLine("phase,system,time,count,worldX,worldY,worldZ,minZ,maxZ");
         float[] phases={.8f,1.8f,1.8f,22f,24f,26f,28f,32f};
-        if(sequence||closeTransition)phases=Enumerable.Range(0,closeTransition?190:attentionSequence?(templeBlessing?120:192):384).Select(n=>n*frameSeconds).ToArray();
+        if(sequence||closeTransition)phases=Enumerable.Range(0,closeTransition?450:attentionSequence?(templeBlessing?120:192):384).Select(n=>n*frameSeconds).ToArray();
         var transition=new TownActivityPose{WorkClock=5.3f,TransitionAge=TownServiceActivityMotion.TransitionSeconds};
         var envelope=new Bounds();bool envelopeStarted=false;
         for(int phase=0;phase<phases.Length;phase++)
@@ -171,7 +171,7 @@ internal static class ActivityRender
             // prayer-to-neutral middle and its release. A sampled screenshot at
             // each 90 Hz step can expose a transient sleeve kink that a 24 fps
             // sequence or a first/last pose misses.
-            if(closeTransition&&(phase<110||phase>171))continue;
+            if(closeTransition&&!((phase>=110&&phase<=171)||(phase>=380&&phase<=441)))continue;
             var originalSkins=root.GetComponentsInChildren<SkinnedMeshRenderer>(true);
             var enabledSkins=originalSkins.Select(r=>r.enabled).ToArray();
             GameObject snapshot=Snapshot(root);

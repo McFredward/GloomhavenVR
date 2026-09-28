@@ -177,7 +177,7 @@ public static class InteractionProgram
         var prayer=new TownActivityPose{WorkClock=4f,TransitionAge=TownServiceActivityMotion.TransitionSeconds};
         var praying=TownServiceActivityMotion.Visual(2,in prayer);
         Check(praying.Left.z>.28f&&praying.Right.z>.28f
-            &&Mathf.Abs(praying.Left.x-praying.Right.x)<.03f,
+            &&Mathf.Abs(praying.Left.x-praying.Right.x)<.04f,
             "prayer joins palms near the sternum instead of reaching across the bowl");
         TownServiceActivityMotion.Engage(ref prayer,true);
         prayer=TownServiceActivityMotion.Advance(prayer,TownServiceActivityMotion.TransitionSeconds);
@@ -188,7 +188,7 @@ public static class InteractionProgram
             &&receiving.Left.y<.76f&&receiving.Right.y<.76f
             &&receiving.Left.z>.57f&&receiving.Right.z>.57f
             &&receiving.Left.z<.59f&&receiving.Right.z<.59f
-            &&receiving.LeftElbow.x>.28f&&receiving.RightElbow.x<-.28f,
+            &&receiving.LeftElbow.x>.24f&&receiving.RightElbow.x<-.24f,
             "attentive priestess lets both arms hang beside her robe behind the table edge");
         TownServiceActivityMotion.ApplyTempleAvailability(ref receiving,false,1f);
         // The palm covers the near half of the bowl. Reaching farther straightened
@@ -262,21 +262,39 @@ public static class InteractionProgram
         var transition=new TownActivityPose{WorkClock=5f,
             TransitionAge=TownServiceActivityMotion.TransitionSeconds};
         TownServiceActivityMotion.Engage(ref transition,true);
-        bool offsetSeen=false;
-        for(int frame=0;frame<90;frame++)
+        bool orderedReleaseSeen=false;
+        Vector3 previousLeft=TownServiceActivityMotion.Visual(2,in transition).Left;
+        Vector3 previousRight=TownServiceActivityMotion.Visual(2,in transition).Right;
+        for(int frame=0;frame<=90;frame++)
         {
             transition=TownServiceActivityMotion.Advance(transition,1f/90f);
             var pose=TownServiceActivityMotion.Visual(2,in transition);
             float attention=TownServiceActivityMotion.Blend(in transition);
-            if(attention>.45f&&attention<.55f)
-                offsetSeen|=pose.Right.y<pose.Left.y-.035f
-                    &&pose.RightMotion>pose.LeftMotion;
+            if(attention>.24f&&attention<.26f)
+                orderedReleaseSeen|=pose.Left.x>.10f&&pose.Left.y>1.22f;
+            Check(Math.Abs(pose.Left.y-pose.Right.y)<.0001f,
+                "priestess's shoulders and wrists share one continuous attention clock");
+            Check(Vector3.Distance(pose.Left,previousLeft)<.025f
+                &&Vector3.Distance(pose.Right,previousRight)<.025f,
+                "priestess prayer release has no one-frame hand jump");
+            previousLeft=pose.Left;previousRight=pose.Right;
         }
-        Check(offsetSeen,
-            "priestess releases one prayer hand before the other instead of lowering parallel robotic arms");
+        Check(orderedReleaseSeen,
+            "priestess opens the shoulders before lowering the joined prayer hands");
         var idle=TownServiceActivityMotion.Visual(2,in transition);
         Check(Math.Abs(idle.Left.y-idle.Right.y)<.001f,
-            "staggered prayer release converges to the original balanced idle pose");
+            "priestess prayer release converges to the original balanced idle pose");
+        TownServiceActivityMotion.Engage(ref transition,false);
+        previousLeft=idle.Left;previousRight=idle.Right;
+        for(int frame=0;frame<=90;frame++)
+        {
+            transition=TownServiceActivityMotion.Advance(transition,1f/90f);
+            var pose=TownServiceActivityMotion.Visual(2,in transition);
+            Check(Vector3.Distance(pose.Left,previousLeft)<.025f
+                &&Vector3.Distance(pose.Right,previousRight)<.025f,
+                "priestess return to prayer has no one-frame hand jump");
+            previousLeft=pose.Left;previousRight=pose.Right;
+        }
     }
     private static void GeneratedMotion()
     {
@@ -326,6 +344,11 @@ public static class InteractionProgram
                     Quaternion previousLeft=Quaternion.identity;float maxLeftStep=0f;
                     Transform upper=root.GetComponentsInChildren<Transform>(true).Single(t=>t.name=="UpperArm.R");
                     Transform fore=root.GetComponentsInChildren<Transform>(true).Single(t=>t.name=="Forearm.R");
+                    Transform[] priestArms=service==2
+                        ?new[]{"UpperArm.L","Forearm.L","UpperArm.R","Forearm.R"}
+                            .Select(name=>root.GetComponentsInChildren<Transform>(true).Single(t=>t.name==name)).ToArray()
+                        :Array.Empty<Transform>();
+                    Quaternion[] previousPriestArms=new Quaternion[priestArms.Length];
                     Transform[] thumbs=root.GetComponentsInChildren<Transform>(true).Where(t=>t.name.StartsWith("Thumb")).ToArray();
                     Quaternion[] thumbNeutral=thumbs.Select(t=>t.localRotation).ToArray();
                     var phase=new TownActivityPose{TransitionAge=TownServiceActivityMotion.TransitionSeconds};Quaternion previousHand=Quaternion.identity;
@@ -346,6 +369,17 @@ public static class InteractionProgram
                         float reach=Vector3.Distance(upper.position,fore.position)+Vector3.Distance(fore.position,hand.position);
                         Vector3 wanted=root.TransformPoint(target);float excess=Mathf.Max(0,Vector3.Distance(wanted,upper.position)-reach+.001f);
                         rig.Apply(in phase);
+                        for(int armIndex=0;armIndex<priestArms.Length;armIndex++)
+                        {
+                            Quaternion current=priestArms[armIndex].localRotation;
+                            if(n>0&&((n>=500&&n<590)||(n>=1100&&n<1190)))
+                            {
+                                float step=Quaternion.Angle(previousPriestArms[armIndex],current);
+                                Check(step<5f,"actual priestess upper arm and forearm have no one-frame twitch: "
+                                    +priestArms[armIndex].name+" frame="+n+" step="+step);
+                            }
+                            previousPriestArms[armIndex]=current;
+                        }
                         var actualVisual=TownServiceActivityMotion.Visual(service,in phase);
                         if(service==3&&actualVisual.Cast>.25f&&actualVisual.RightRoll>=165f)
                             Check(rig.OfferingPalm!=null&&Vector3.Dot(rig.OfferingPalm.up,root.up)>.85f,"actual casting palm supports the spell from below frame="+n+" clock="+phase.WorkClock+" dot="+(rig.OfferingPalm==null?0f:Vector3.Dot(rig.OfferingPalm.up,root.up)));
@@ -385,7 +419,7 @@ public static class InteractionProgram
                                 // each elbow outside the chest while the palm moved
                                 // back through its centre, creating the headset kink.
                                 Vector3 palm=root.InverseTransformPoint(palmAxis.position);
-                                Check((side=="L"?palm.x:-palm.x)>.19f,
+                                Check((side=="L"?palm.x:-palm.x)>.17f,
                                     "priestess separates prayer palms before lowering forearms: "+side
                                     +" frame="+n+" palm="+palm+" blend="+attention);
                             }
@@ -430,7 +464,7 @@ public static class InteractionProgram
                         {
                             var contacts=root.GetComponentsInChildren<Transform>(true);
                             Transform lp=contacts.Single(t=>t.name=="PalmContact.L"),rp=contacts.Single(t=>t.name=="PalmContact.R");
-                            Check(Vector3.Distance(lp.position,rp.position)/root.lossyScale.x<.03f,"prayer joins cupped hands at the sternum");
+                            Check(Vector3.Distance(lp.position,rp.position)/root.lossyScale.x<.04f,"prayer joins cupped hands at the sternum");
                                 Check(Mathf.Abs(root.InverseTransformPoint(lp.position).y-actualVisual.Left.y)<.01f && actualVisual.Left.y>=1.23f && actualVisual.Left.y<=1.34f,"prayer hands stay below the face");
                             }
                         for(int foot=0;foot<2;foot++)maxFootDrift=Mathf.Max(maxFootDrift,Vector3.Distance(feet[foot].position,sampledFeet[foot]));

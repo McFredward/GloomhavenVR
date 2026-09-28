@@ -94,10 +94,11 @@ internal static class HandContacts
                     if(service==2)
                     {
                         Vector3 lowered=root.InverseTransformPoint(contact.position);
-                        // The low target reaches the imported joint limit.
-                        // Verify the solved palm beside the robe, not just its guide.
+                        // The temple hand hangs beside the robe. It has no wood
+                        // contact: the former counter correction lifted this
+                        // endpoint above the authored 0.75 m target.
                         if(Mathf.Abs(lowered.x)<.15f||lowered.z<.51f||lowered.z>.72f
-                            ||lowered.y<.78f||lowered.y>1.10f)
+                            ||lowered.y<.72f||lowered.y>1.10f)
                             throw new Exception("attentive priestess arms hang beside her robe and outside the donation bowl: "+side+" "+lowered);
                         checks++;
                     }
@@ -166,7 +167,7 @@ internal static class HandContacts
                     // half draws the sleeve through her torso, which this marker
                     // check alone cannot detect; the skin scan covers that case.
                     if(left.x<.020f||left.x>.050f||left.y<1.09f||left.y>1.15f
-                        ||right.x>-.16f||right.y<.78f||right.y>1.10f)
+                        ||right.x>-.16f||right.y<.72f||right.y>1.10f)
                         throw new Exception("unavailable donation covers the bowl with one hand while the other rests beside the robe left="+left+" right="+right);
                     if(Vector3.Dot(leftPalm.forward,-root.up)<.72f
                         ||Vector3.Dot(rightPalm.forward,root.right)<.55f)
