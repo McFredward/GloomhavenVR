@@ -167,6 +167,10 @@ namespace GloomhavenVR.WorldUI
         internal static int AllocatedIds => Private._nextId;
         internal static ushort ModuleId(Transform source) => Private.Sources[source].Parts[0].Id;
         internal static int ModuleCount => Private.Modules.Count;
+        internal static int PublicAllocatedIds => Public._nextId;
+        internal static ushort PublicModuleId(Transform source) => Public.Sources[source].Parts[0].Id;
+        internal static int PublicModuleCount => Public.Modules.Count;
+        internal static int PublicSourceCount => Public.Sources.Count;
         private bool Visible(SourceEntry source) => true;
         private void CollectDynamic(Transform source) { }
         private void CollectHeldBoundaries(Transform source,Func<Transform,Transform?> clone,HashSet<Transform> excluded) { }

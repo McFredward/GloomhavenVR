@@ -15,6 +15,7 @@ public static partial class MirrorProgram
         foreach(float scale in new[]{.05f,1f,2f,198.12f})
         {
             TownServiceMirror.Shutdown();TownServiceMirror.ResetNetwork();Baselines.Clear();
+            using var publicLane = TownServiceMirror.UsePublicLane();
             var owner=new GameObject("rack owner").transform;Objects.Add(owner.gameObject);owner.localScale=Vector3.one*scale;
             var observer=new GameObject("rack observer").transform;Objects.Add(observer.gameObject);
             observer.localScale=Vector3.one*scale;observer.rotation=Quaternion.Euler(0,37,0);
@@ -62,20 +63,20 @@ public static partial class MirrorProgram
             TownServiceMirror.SetRack(1,clock);
             List<byte[]> first=Capture();
             byte[] withheld=first.Single(bytes=>TownServiceCodec.TryRead(bytes,bytes.Length,out var frame)&&frame!.Module==98);
-            Receive(2,first.Where(bytes=>!ReferenceEquals(bytes,withheld)));TownServiceMirror.InteractionOwner(1);
+            Receive(2,first.Where(bytes=>!ReferenceEquals(bytes,withheld)));
             for(float settle=Time.unscaledTime+.13f;Time.unscaledTime<settle;)
             {TownServiceMirror.TickRemote(_=>observer);yield return null;}
-            Check(Remote(2,1)!=null&&Remote(2,3)!=null,"actual rack and original warm modules instantiate");
-            for(ushort id=3;id<98;id++)Check(RemoteGate(2,id).alpha==(id<51?1f:0f),"hidden prewarm never leaks a face or price");
-            Check(Remote(2,52)!.Root.GetComponent<MeshRenderer>().forceRenderingOff,"hidden physical body uses its explicit page gate");
+            Check(Remote(-2,1)!=null&&Remote(-2,3)!=null,"actual rack and original warm modules instantiate");
+            for(ushort id=3;id<98;id++)Check(RemoteGate(-2,id).alpha==(id<51?1f:0f),"hidden prewarm never leaks a face or price");
+            Check(Remote(-2,52)!.Root.GetComponent<MeshRenderer>().forceRenderingOff,"hidden physical body uses its explicit page gate");
             clock=new TownRackState{Crank=2,Turn=1,Elapsed=.1f,Page=0,From=0,To=1,Members=members.ToArray()};
             rack.localRotation=Quaternion.Euler(0,15+360*TownRackState.Progress(.1f),0);
             TownServiceMirror.SetRack(1,clock);var beginning=Capture();Receive(2,beginning);TownServiceMirror.TickRemote(_=>observer);
             Receive(3,first);Receive(3,beginning);TownServiceMirror.TickRemote(_=>observer);
-            Check(Remote(3,1)==null,"second visitor cannot replace the active shared rack owner");
+            Check(Remote(-3,1)==null,"second visitor cannot replace the active shared rack owner");
             TownServiceMirror.RemovePeer(3);
             for(float wait=Time.unscaledTime+.08f;Time.unscaledTime<wait;)yield return null;TownServiceMirror.TickRemote(_=>observer);
-            Check(Quaternion.Angle(Quaternion.Inverse(observer.rotation)*Remote(2,1)!.Root.rotation,Quaternion.Euler(0,15,0))<.1f,"missing one dependency keeps the complete outgoing page at rest");
+            Check(Quaternion.Angle(Quaternion.Inverse(observer.rotation)*Remote(-2,1)!.Root.rotation,Quaternion.Euler(0,15,0))<.1f,"missing one dependency keeps the complete outgoing page at rest");
             Receive(2,new[]{withheld});TownServiceMirror.TickRemote(_=>observer);
             float started=Time.unscaledTime;bool sawQuarter=false,sawBack=false;
             while(Time.unscaledTime-started<.96f)
@@ -85,23 +86,23 @@ public static partial class MirrorProgram
                 if(!sawQuarter&&elapsed>.20f)
                 {
                     sawQuarter=true;
-                    Check(Quaternion.Angle(Quaternion.Inverse(observer.rotation)*Remote(2,1)!.Root.rotation,Quaternion.Euler(0,15,0))>15f,"clock reconstructs the full revolution after coalesced owner poses");
-                    Check(RemoteGate(2,3).alpha==1f&&RemoteGate(2,51).alpha==0f,"outgoing page remains whole before the opaque halfway point");
+                    Check(Quaternion.Angle(Quaternion.Inverse(observer.rotation)*Remote(-2,1)!.Root.rotation,Quaternion.Euler(0,15,0))>15f,"clock reconstructs the full revolution after coalesced owner poses");
+                    Check(RemoteGate(-2,3).alpha==1f&&RemoteGate(-2,51).alpha==0f,"outgoing page remains whole before the opaque halfway point");
                     Vector3 corner = new Vector3(.07f,.08f,0);
                     Vector3 rackCorner = rack.InverseTransformPoint(cards[6].TransformPoint(corner));
-                    Check(Vector3.Distance(Remote(2,6)!.Root.TransformPoint(corner),Remote(2,1)!.Root.TransformPoint(rackCorner))/scale<.001f,
+                    Check(Vector3.Distance(Remote(-2,6)!.Root.TransformPoint(corner),Remote(-2,1)!.Root.TransformPoint(rackCorner))/scale<.001f,
                         "native card corners inherit the rotating rack at every world scale");
                 }
                 if(!sawBack&&elapsed>.46f)
                 {
                     sawBack=true;
-                    for(ushort id=3;id<=98;id++)Check(RemoteGate(2,id).alpha==(id<51?0f:1f),"all forty-eight face body price modules switch atomically");
-                    Check(!Remote(2,52)!.Root.GetComponent<MeshRenderer>().forceRenderingOff,"incoming physical body appears with its face");
+                    for(ushort id=3;id<=98;id++)Check(RemoteGate(-2,id).alpha==(id<51?0f:1f),"all forty-eight face body price modules switch atomically");
+                    Check(!Remote(-2,52)!.Root.GetComponent<MeshRenderer>().forceRenderingOff,"incoming physical body appears with its face");
                 }
                 yield return null;
             }
             // Owner end clock may be delayed, but the explicit one-shot never repeats.
-            Check(Quaternion.Angle(Quaternion.Inverse(observer.rotation)*Remote(2,1)!.Root.rotation,Quaternion.Euler(0,15,0))<.1f,"full revolution finishes at the exact authored rest pose at every rig scale");
+            Check(Quaternion.Angle(Quaternion.Inverse(observer.rotation)*Remote(-2,1)!.Root.rotation,Quaternion.Euler(0,15,0))<.1f,"full revolution finishes at the exact authored rest pose at every rig scale");
             // Finish the owner clock, then verify a subsequent manual crank pull remains authored.
             rack.localRotation=Quaternion.Euler(0,15,0);
             clock=new TownRackState{Crank=2,Turn=1,Elapsed=.85f,Page=1,From=0,To=1,Members=members.ToArray()};
@@ -109,7 +110,7 @@ public static partial class MirrorProgram
             crank.localRotation=Quaternion.Euler(0,15,0)*Quaternion.Euler(0,0,-25);
             Receive(2,Capture());TownServiceMirror.TickRemote(_=>observer);
             for(float wait=Time.unscaledTime+.12f;Time.unscaledTime<wait;)yield return null;TownServiceMirror.TickRemote(_=>observer);
-            Check(Quaternion.Angle(Quaternion.Inverse(observer.rotation)*Remote(2,2)!.Root.rotation,crank.localRotation)<.1f,"idle manual lead pull is not overwritten by the previous clock: got "+(Quaternion.Inverse(observer.rotation)*Remote(2,2)!.Root.rotation).eulerAngles+" expected "+crank.localEulerAngles);
+            Check(Quaternion.Angle(Quaternion.Inverse(observer.rotation)*Remote(-2,2)!.Root.rotation,crank.localRotation)<.1f,"idle manual lead pull is not overwritten by the previous clock: got "+(Quaternion.Inverse(observer.rotation)*Remote(-2,2)!.Root.rotation).eulerAngles+" expected "+crank.localEulerAngles);
             var fade=content.gameObject.AddComponent<CanvasGroup>();fade.alpha=.37f;
             // The mirror publishes unchanged modules on a bounded cadence. A
             // newly added native ancestor fade can be captured on the next
@@ -119,13 +120,13 @@ public static partial class MirrorProgram
             do
             {
                 Receive(2,Capture());TownServiceMirror.TickRemote(_=>observer);
-                if(Mathf.Abs(RemoteGate(2,51).alpha-.37f)<.001f)break;
+                if(Mathf.Abs(RemoteGate(-2,51).alpha-.37f)<.001f)break;
                 yield return null;
             }
             while(Time.unscaledTime<fadeDeadline);
-            Check(Mathf.Abs(RemoteGate(2,51).alpha-.37f)<.001f,"page gate preserves independent native ancestor fades");
+            Check(Mathf.Abs(RemoteGate(-2,51).alpha-.37f)<.001f,"page gate preserves independent native ancestor fades");
             cards[51].gameObject.SetActive(false);Receive(2,Capture());TownServiceMirror.TickRemote(_=>observer);
-            Check(!Remote(2,51)!.Root.gameObject.activeInHierarchy,"page playback cannot revive a native-hidden card");
+            Check(!Remote(-2,51)!.Root.gameObject.activeInHierarchy,"page playback cannot revive a native-hidden card");
             cards[51].gameObject.SetActive(true);fade.alpha=1f;Receive(2,Capture());TownServiceMirror.TickRemote(_=>observer);
             clock=new TownRackState{Crank=2,Turn=2,Elapsed=.03f,Page=1,From=1,To=0,Members=members.ToArray()};
             rack.localRotation=Quaternion.Euler(0,15+360*TownRackState.Progress(.03f),0);TownServiceMirror.SetRack(1,clock);
@@ -139,36 +140,36 @@ public static partial class MirrorProgram
             TownServiceMirror.SetRackMember(4,new TownRackStamp{Rack=1,Page=0,Turn=2,Detached=true},gates[4]);
             var held=Capture().Where(bytes=>TownServiceCodec.TryRead(bytes,bytes.Length,out var f)&&(f!.Module==3||f.Module==4)).ToArray();
             Receive(2,held);TownServiceMirror.TickRemote(_=>observer);
-            Check(RemoteGate(2,3).alpha==1f,"overtaking held sample cannot inherit a hidden page gate");
-            Check(!Remote(2,4)!.Root.GetComponent<MeshRenderer>().forceRenderingOff&&!Remote(2,4)!.Root.GetComponent<MeshRenderer>().enabled,
+            Check(RemoteGate(-2,3).alpha==1f,"overtaking held sample cannot inherit a hidden page gate");
+            Check(!Remote(-2,4)!.Root.GetComponent<MeshRenderer>().forceRenderingOff&&!Remote(-2,4)!.Root.GetComponent<MeshRenderer>().enabled,
                 "hidden prewarm body detaches immediately without replacing native renderer enablement");
-            Check(Quaternion.Angle(Quaternion.Inverse(observer.rotation)*Remote(2,1)!.Root.rotation,Quaternion.Euler(0,15,0))<.1f,"newer held epoch supersedes delayed rack motion");
-            Vector3 handPosition=observer.InverseTransformPoint(Remote(2,3)!.Root.position);
+            Check(Quaternion.Angle(Quaternion.Inverse(observer.rotation)*Remote(-2,1)!.Root.rotation,Quaternion.Euler(0,15,0))<.1f,"newer held epoch supersedes delayed rack motion");
+            Vector3 handPosition=observer.InverseTransformPoint(Remote(-2,3)!.Root.position);
             Check(Vector3.Distance(handPosition,owner.InverseTransformPoint(cards[3].position))<.001f,"held card keeps the owner hand pose through rack recovery at every scale: "+scale+" got "+handPosition+" wanted "+owner.InverseTransformPoint(cards[3].position));
             foreach(ushort id in new ushort[]{3,4})TownServiceMirror.SetRackMember(id,new TownRackStamp{Rack=1,Page=0,Turn=2},gates[id]);
             clock=new TownRackState{Crank=2,Turn=3,Elapsed=.1f,Page=0,From=0,To=1,Members=members.ToArray()};
             rack.localRotation=Quaternion.Euler(0,15+360*TownRackState.Progress(.1f),0);TownServiceMirror.SetRack(1,clock);
             var turnThree=Capture();Receive(2,turnThree);TownServiceMirror.TickRemote(_=>observer);
             for(float wait=Time.unscaledTime+.2f;Time.unscaledTime<wait;)yield return null;TownServiceMirror.TickRemote(_=>observer);
-            Quaternion quarter=Remote(2,1)!.Root.rotation;
+            Quaternion quarter=Remote(-2,1)!.Root.rotation;
             // Coalesced owner packets represent two valid consecutive .85-second turns.
             // The observer is still catching up, and must finish the displayed revolution.
             clock=new TownRackState{Crank=2,Turn=4,Elapsed=.85f,Page=0,From=1,To=0,Members=members.ToArray()};
             rack.localRotation=Quaternion.Euler(0,15,0);TownServiceMirror.SetRack(1,clock);
             Receive(2,Capture());Receive(2,turnThree);TownServiceMirror.TickRemote(_=>observer);
-            Check(Quaternion.Angle(quarter,Remote(2,1)!.Root.rotation)<8f,"newer queued turn and reordered old packet do not reset an in-flight rack");
+            Check(Quaternion.Angle(quarter,Remote(-2,1)!.Root.rotation)<8f,"newer queued turn and reordered old packet do not reset an in-flight rack");
             for(float wait=Time.unscaledTime+.30f;Time.unscaledTime<wait;)yield return null;TownServiceMirror.TickRemote(_=>observer);
-            Check(RemoteGate(2,51).alpha==1f&&RemoteGate(2,3).alpha==0f,"first queued revolution reveals its own destination behind the back");
+            Check(RemoteGate(-2,51).alpha==1f&&RemoteGate(-2,3).alpha==0f,"first queued revolution reveals its own destination behind the back");
             float drain=Time.unscaledTime;
             while(Time.unscaledTime-drain<1.35f){TownServiceMirror.TickRemote(_=>observer);yield return null;}
-            Check(RemoteGate(2,3).alpha==1f&&RemoteGate(2,51).alpha==0f,"bounded replay completes consecutive turns in causal order");
-            Check(Quaternion.Angle(Quaternion.Inverse(observer.rotation)*Remote(2,1)!.Root.rotation,Quaternion.Euler(0,15,0))<.1f,"queued completed clocks do not alias a full revolution or leave a rotated rack");
+            Check(RemoteGate(-2,3).alpha==1f&&RemoteGate(-2,51).alpha==0f,"bounded replay completes consecutive turns in causal order");
+            Check(Quaternion.Angle(Quaternion.Inverse(observer.rotation)*Remote(-2,1)!.Root.rotation,Quaternion.Euler(0,15,0))<.1f,"queued completed clocks do not alias a full revolution or leave a rotated rack");
             // Two owner epochs were entirely coalesced; their intermediate from-page
             // must not suddenly replace the currently visible tray at the front.
             clock=new TownRackState{Crank=2,Turn=7,Elapsed=.15f,Page=1,From=1,To=0,Members=members.ToArray()};
             rack.localRotation=Quaternion.Euler(0,15+360*TownRackState.Progress(.15f),0);TownServiceMirror.SetRack(1,clock);
             Receive(2,Capture());TownServiceMirror.TickRemote(_=>observer);
-            Check(RemoteGate(2,3).alpha==1f&&RemoteGate(2,51).alpha==0f,"skipped owner epochs preserve the actual outgoing front until the opaque midpoint");
+            Check(RemoteGate(-2,3).alpha==1f&&RemoteGate(-2,51).alpha==0f,"skipped owner epochs preserve the actual outgoing front until the opaque midpoint");
             TownServiceMirror.EndSession();TownServiceMirror.ResetNetwork();
             UnityEngine.Object.DestroyImmediate(owner.gameObject);UnityEngine.Object.DestroyImmediate(observer.gameObject);
         }

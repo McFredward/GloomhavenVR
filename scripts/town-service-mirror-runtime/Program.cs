@@ -913,6 +913,8 @@ public static partial class MirrorProgram
     private static void PublisherRouting()
     {
         // Sink/provenance mapping are fixtures; production Tick chooses every published input.
+        TownServiceMirror.ResetNetwork();
+        GloomhavenVR.WorldUI.TownServiceSync.ResetNetwork();
         var shared = Go("publisher-frame").transform;
         var window = Go("suppressed-native-merchant").AddComponent<GloomhavenVR.WorldUI.PublisherWindow>();
         var catalog = new GloomhavenVR.WorldUI.TownServiceCatalog();
@@ -944,6 +946,10 @@ public static partial class MirrorProgram
         var calls = GloomhavenVR.WorldUI.TownServiceSync.Calls;
         Check(!calls.Exists(c => c.Key == "merchant" || c.Key == "merchant.inventory" || c.Source == window.transform),
             "physical counter does not publish suppressed flat merchant window");
+        Check(!calls.Exists(c => c.Key.StartsWith("item.") || c.Key == "merchant.rack"
+            || c.Key == "merchant.cardmount" || c.Key == "merchant.cardbody" || c.Key == "merchant.row"),
+            "private merchant visitor never publishes duplicate public cabinet cards");
+        calls.Clear(); GloomhavenVR.WorldUI.TownServiceSync.TickPublic(shared, shared, catalog, 801, 0f);
         Check(calls.FindAll(c => c.Key.StartsWith("item.")).Count == 6 && !calls.Exists(c => c.Key == "item.107"),
             "physical counter publishes only six current item cards");
         Check(calls.FindAll(c => c.Key == "merchant.cardbody").Count == 6, "every original face retains its physical body remotely");
@@ -967,13 +973,13 @@ public static partial class MirrorProgram
         Check(calls.Exists(c => c.Key == "merchant.zone" && c.Source == zone.Root),
             "deliberate purchase zone is published");
         catalog.Entries[5].Exposed = false;
-        calls.Clear(); GloomhavenVR.WorldUI.TownServiceSync.Tick(shared, shared);
+        calls.Clear(); GloomhavenVR.WorldUI.TownServiceSync.TickPublic(shared, shared, catalog, 801, 0f);
         Check(!calls.Exists(c => c.Key == "item.106"), "unexposed retired stock omits hidden card modules");
         catalog.Entries[5].Exposed = true;
         catalog.Entries.RemoveRange(2, 5);
         GloomhavenVR.WorldUI.TownServiceSync.Calls.Clear();
-        GloomhavenVR.WorldUI.TownServiceSync.Tick(shared, shared);
-        Check(GloomhavenVR.WorldUI.TownServiceSync.ModuleCount == 12 && GloomhavenVR.WorldUI.TownServiceSync.SourceCount == 12,
+        GloomhavenVR.WorldUI.TownServiceSync.TickPublic(shared, shared, catalog, 801, 0f);
+        Check(GloomhavenVR.WorldUI.TownServiceSync.PublicModuleCount == 12 && GloomhavenVR.WorldUI.TownServiceSync.PublicSourceCount == 12,
             "publisher stock shrink retires old cards and price modules");
         var physical = new GloomhavenVR.WorldUI.TownServiceToken { IsPhysical = true,
             Source = Go("duplicate-physical-source").AddComponent<GloomhavenVR.WorldUI.ItemCardUI>().transform,
@@ -986,6 +992,9 @@ public static partial class MirrorProgram
         GloomhavenVR.WorldUI.TownServiceSync.Calls.Clear();
         GloomhavenVR.WorldUI.TownServiceSync.Tick(shared, shared);
         Check(!calls.Exists(c => c.Key == "item.999"), "physical original is not duplicated by generic held publication");
+        Check(!calls.Exists(c => c.Key == "item.101" || c.Key == "merchant.cardbody"),
+            "physical stock never leaks into its visitor's private lane");
+        calls.Clear(); GloomhavenVR.WorldUI.TownServiceSync.TickPublic(shared, shared, catalog, 801, 0f);
         Check(calls.Exists(c => c.Key == "item.101" && c.Source == catalog.Entries[0].CardRoot)
             && calls.Exists(c => c.Key == "merchant.cardbody" && c.Source == catalog.Entries[0].BodyRoot),
             "moving a physical card keeps its original face and body publication");
@@ -1030,8 +1039,8 @@ public static partial class MirrorProgram
             "global hint publishes its nested pooled item card");
         Check(calls.Exists(c => c.Key == "card.777" && c.Source == heldCopy && c.Provenance == heldSource.transform),
             "held cards retain production recursive publication");
-        Check(calls.Exists(c => c.Key == "merchant.counter" && c.Source == furniture),
-            "extra visitor furniture is published in its owner workspace pose");
+        Check(!calls.Exists(c => c.Key == "merchant.counter" && c.Source == furniture),
+            "visitor never creates a second copy of the locally resident public merchant furniture");
         GloomhavenVR.WorldUI.TownServicePresentation.Samples.Clear();
         GloomhavenVR.WorldUI.NativeTemplates.Tooltip = null;
         GloomhavenVR.WorldUI.NativeTemplates.Originals.Clear();
