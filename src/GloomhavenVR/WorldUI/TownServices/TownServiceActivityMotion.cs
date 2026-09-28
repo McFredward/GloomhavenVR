@@ -87,8 +87,9 @@ internal static class TownServiceActivityMotion
         // The merchant's rounded coat is asymmetric under the satchel. Seat the
         // palms near its surface and carry each elbow outside the waist; simply
         // pushing the old hand targets inward made the actual skinned cuff cut
-        // through his torso during approach. These targets were checked against
-        // the imported skin across the complete attention transition.
+        // through his torso during approach. The imported-skin check found no
+        // intersections, but build-578 hardware showed the palm still hovering.
+        // Target coordinates and clearance alone do not establish contact.
         float prayerLeftX = work.Left.x, prayerRightX = work.Right.x;
         if (service == 2)
         {

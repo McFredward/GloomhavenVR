@@ -44,7 +44,8 @@ change per build) → this file (where things stand and what is owed) → the bu
   portable motion tests cover the intermediate visit. The merchant hands
   still visibly hover above the belly in build-578 hardware. Attempts to
   close that gap caused real skin intersections and were rejected; no merchant
-  pose correction is claimed in this build. See [TOWN-579.md](TOWN-579.md).
+  pose correction is claimed in this build. Successful generated Town suite
+  runs now retain one marked result per suite. See [TOWN-579.md](TOWN-579.md).
 
 - **NPC feature / 1.1.0 / ModBuild 578 (hardware candidate):** the offered
   enchantment card itself stops the laser while only original enhancement

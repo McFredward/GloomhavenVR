@@ -81,7 +81,7 @@ def mutations():
          "prayer-to-bowl hand never detours through hip"),
         ("availability-cover-pop", "TownServiceActivityMotion.cs", "if (donationAvailable && blend <= 0f) return;", "if (donationAvailable) return;", "available temple fades out the previous cover pose instead of dropping it in one frame"),
         ("upturned-bowl-cover", "TownServiceActivityRig.cs", "Vector3.ProjectOnPlane(-_root.up, coverFinger)", "Vector3.ProjectOnPlane(_root.up, coverFinger)", "unavailable donation keeps the covering palm down"),
-        ("merchant-stiff-greeting", "TownServiceActivityMotion.cs", "new Vector3(.18f, 1.08f, .41f)", "new Vector3(.20f, 1.09f, .20f)", "visitor attention settles merchant with a hand on his belly, both hands above the counter"),
+        ("merchant-stiff-greeting", "TownServiceActivityMotion.cs", "new Vector3(.18f, 1.08f, .41f)", "new Vector3(.20f, 1.09f, .20f)", "visitor attention aims merchant's free hand toward his belly, both hands above the counter; target coordinates do not prove skin contact"),
         ("open-sleeve-hem", "TownServiceSleeveLining.cs", "row == 0 ? -.012f", "row == 0 ? -.050f", "inner cuff overlaps the anatomical wrist ahead of the cut"),
         ("open-sleeve-interior", "TownServiceSleeveLining.cs", "int a = i, b = (i + 1) % Segments, c = 4 * Segments + 1;", "int a = i, b = (i + 1) % Segments, c = 4 * Segments;", "shallow cuff diaphragm hides the severed forearm end"),
         ("downward-offering", "TownServiceActivityMotion.cs", "Mathf.Lerp(visual.RightRoll, 180f, t)", "Mathf.Lerp(visual.RightRoll, 0f, t)", "offering palm faces upward"),

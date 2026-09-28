@@ -79,3 +79,13 @@ The current restricted Linux sandbox does not allow Unity Editor to start its
 device monitor: it fails with `cannot bind socket` before project import. An
 offline rig render and source-level tests can check deterministic geometry and
 state transitions but cannot establish headset appearance or interaction.
+
+## Test artifact retention
+
+Repeated Town harness runs had accumulated about 284 GiB of generated output
+in the old NPC integration worktree. The local suite runner now marks a run
+only after its process exits successfully and retains the latest marked run
+for each known Town suite. Failed, incomplete, manually pinned and legacy
+unmarked evidence remains available. This does not touch hardware logs.
+The target-coordinate check for the merchant has also been relabelled: it
+does not prove that the rendered palm contacts the coat.

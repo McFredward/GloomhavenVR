@@ -214,7 +214,7 @@ public static class InteractionProgram
         Check(held.RightRoll<90f&&held.Left.y>1.07f&&held.Left.y<1.09f&&held.Left.x>.17f
             &&held.Right.x<-.22f&&held.Right.y>1.09f&&held.Right.z>.43f&&held.Right.z<.45f
             &&held.LeftElbow.x>.57f&&held.RightElbow.x<-.54f,
-            "visitor attention settles merchant with a hand on his belly, both hands above the counter");
+            "visitor attention aims merchant's free hand toward his belly, both hands above the counter; target coordinates do not prove skin contact");
         // The return path must use the fading visual blend even after the native
         // availability boolean has changed, otherwise the covered bowl pops open.
         var returning=attentiveTemple;
