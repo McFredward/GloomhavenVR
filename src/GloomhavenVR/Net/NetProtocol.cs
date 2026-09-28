@@ -78,6 +78,9 @@ internal static class NetProtocol
     /// <summary>Owner-authored temple availability and blessing revision inside the
     /// town-service manifest. This contains no character, card or transaction identity.</summary>
     public const byte ExtIdTownInteraction = 91;
+    /// <summary>Private town-service manifest reservation after a physical card or purse
+    /// handoff. Absence means that the visitor is browsing and does not own the NPC.</summary>
+    public const byte ExtIdTownTransaction = 92;
     public const byte ExtIdTownRack = 85;
     public const byte ExtIdTownCassette = 86;
     public const byte ExtIdTownResidents = 79;
@@ -546,12 +549,15 @@ internal static class NetProtocol
     // ModBuild 581 — town interaction and shared-window laser follow-up.
     // The face author's actual visitor target now starts merchant greeting
     // before the coin hand is free to enter body attention. An enchantress
-    // physical approach can switch an idle Merchant/Temple native destination,
-    // while preserving a live modal and the selected character; overlapping
-    // approach volumes cannot replace the new visit in the same frame.
+    // hand-focused physical approach can switch an idle Merchant/Temple native
+    // destination, while preserving a live modal and the selected character.
+    // Simultaneous proximity keeps all residents active; each NPC reserves only
+    // when a card or purse is physically parked, never merely on approach.
+    // TLV92 adds that per-NPC private transaction claim; the temple's cover pose
+    // considers every current visitor and blessing revision follows native commit.
     // Active transparent native click targets and mod close hit planes are
     // laser surfaces again, including scenario story and combat-log X. Empty
-    // transparent layout remains pass-through. No wire layout change. Build
+    // transparent layout remains pass-through. Wire v3 remains unchanged. Build
     // 580 logs prove the missing input; headset confirmation of 581 is open.
 
     // ModBuild 580 — twentieth NPC hardware follow-up on the feature branch.

@@ -24,13 +24,29 @@ the line starts cancels it. Event-bounded Debug records expose queue and start.
 The second approach in the Build 580 log occurred while Merchant remained the
 native guildmaster destination. The enhancement handoff retained intent but
 required destination `None`, so it never opened the native enchantress service.
-The physical approach now switches between idle town service destinations via
-the existing native path, while preserving the selected character and deferring
-to a live modal confirmation. The narrow temple/enchantress approach overlap
-uses one stable nearest-resident decision so a later same-frame temple tick
-cannot immediately steal the visit. Its 12 cm tie preference applies only when
-Temple or Enchantress already owns the destination; an unrelated Merchant/None
-destination picks the nearer resident without bias.
+The physical hand approaching the enchantress switches the local native
+destination through the existing path, preserving the selected character and
+deferring to a live modal confirmation. Head proximity alone does not switch
+away from another stand. The map hand changes from merchant items or temple
+purse to owned ability cards only when that physical focus moves to the
+enchantress. The merchant cabinet and all three resident bodies remain active.
+
+The same rule applies to a visitor standing between two NPCs or to different
+players visiting different NPCs: proximity at one station never reserves another
+station. Each NPC's private transaction reservation begins when a card or purse
+is physically parked. Multiple visitors can inspect one NPC before that edge;
+after it, only the claimant has the local controls until the offer is withdrawn,
+confirmed, the visitor leaves, or the session expires. A single local player
+still has one native guildmaster destination at a time. Physical hand focus
+selects which station's original controller supplies that player's hand, while
+the other stations remain present. This is a native game constraint, not a
+shared NPC proximity lock.
+
+The priestess covers the bowl only when every currently known temple visitor's
+original controller reports donation unavailable. An unknown/late sample leaves
+it open; each player's own controller independently denies an invalid purse.
+The blessing revision now advances only from native donation success, not a
+character switch or affordability change.
 
 ## Transparent controls
 

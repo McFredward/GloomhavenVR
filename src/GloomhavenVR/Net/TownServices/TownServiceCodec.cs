@@ -11,7 +11,7 @@ internal static class TownServiceCodec
     internal const byte MessageType = 19, FragmentType = 20, RecordId = 78;
     internal const byte WorkspaceClothRecordId = NetProtocol.ExtIdTownWorkspaceCloth;
     internal const byte TempleInteractionRecordId = NetProtocol.ExtIdTownInteraction;
-    internal const byte TransactionRecordId = 92;
+    internal const byte TransactionRecordId = NetProtocol.ExtIdTownTransaction;
     private static readonly UTF8Encoding Utf8 = new(false, true);
 
     internal static byte[] Write(TownServiceFrame frame)
