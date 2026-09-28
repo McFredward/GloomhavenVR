@@ -257,6 +257,18 @@ internal static class TownServicePresentation
             VRLog.Note("WorldUI", "TOWN SERVICE OPEN: service=" + service + " session=" + _session + " native sections=" + Surfaces.Count);
         }
         float visibility = Mathf.Clamp01(SessionAge / .22f);
+        // A visitor does not reserve a resident by walking up to the stand or
+        // opening its original window. Publish the physical handoff before the
+        // local input gate samples ownership, so separate NPCs remain independently
+        // usable and a second visitor is blocked only during a parked transaction.
+        bool parkedOffer = Service switch
+        {
+            1 => TownServiceMerchantHandoff.HasParkedOffer,
+            2 => _ritual?.HasParkedTempleOffer == true,
+            3 => _ritual?.Handoff?.Card != null,
+            _ => false
+        };
+        TownServiceMirror.SetLocalTransactionActive(Service, parkedOffer);
         bool ownsInteraction = TownServiceSync.LocalOwnsInteraction(Service, _session);
         float localVisibility = ownsInteraction ? visibility : 0f;
         // Once carried, the tray keeps the player's chosen placement. A participant joining

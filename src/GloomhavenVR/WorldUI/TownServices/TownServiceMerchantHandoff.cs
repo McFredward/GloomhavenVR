@@ -53,6 +53,10 @@ internal static class TownServiceMerchantHandoff
     private static float _eligibilityUntil;
     internal static bool WantsOffering => Active && _near && (_offeredChip != null || _offeredStock != null
         || HeldOwned(VRHands.Left) || HeldOwned(VRHands.Right) || TownServiceCatalog.HeldOfferAvailable);
+    // A visitor's proximity is not a transaction. Other town services may keep their
+    // own local fan and native destination until a card actually occupies this palm.
+    internal static bool HasParkedOffer => _offeredChip != null || _offeredStock != null
+        || _pending != null || _tradeItem != null || OwnsPendingDecision;
     internal static bool CanReclaim(TownServiceToken token) => Active && _near && ReferenceEquals(token, _offeredStock)
         && OwnsPendingDecision;
     internal static bool IsParkedStock(TownServiceToken token) => ReferenceEquals(token, _offeredStock);
@@ -81,7 +85,10 @@ internal static class TownServiceMerchantHandoff
         bool context = MapRoomDriver.Active && WorldUIConfig.ImmersiveTownServices.Value
             && TownServiceEnhancementHandoff.Enabled && !StoryComposite.PointOfNoReturn
             && selected != null && TownServicePopulation.Available(1)
-            && (mode == EGuildmasterMode.None || mode == EGuildmasterMode.Merchant);
+            && (mode == EGuildmasterMode.None || mode == EGuildmasterMode.Merchant
+                || mode == EGuildmasterMode.Temple || mode == EGuildmasterMode.Enchantress)
+            && !TownServiceEnhancementHandoff.WantsAbilityFan
+            && !TownServiceTempleOffering.WantsPurseFocus;
         if (!context) { Reset(); return; }
         TownServiceStation? station = TownServicePopulation.Acquire(1);
         if (!ReferenceEquals(station, _station))
@@ -207,9 +214,15 @@ internal static class TownServiceMerchantHandoff
         EGuildmasterMode mode = GuildmasterDestinations.CurrentDestinationMode();
         if (!Active || item == null || !item.Tradeable
             || !ReferenceEquals(MapRoomHand.OwnedMerchantCharacter(), _character)) return false;
-        if (mode != EGuildmasterMode.Merchant && (mode != EGuildmasterMode.None
-            || !MapRoomDriver.CanVisitTownService(EGuildmasterMode.Merchant)
-            || Core.Events.VRModeStateMachine.CurrentMode == Core.Events.VRMode.ModalUI)) return false;
+        if (mode != EGuildmasterMode.Merchant
+            && (mode != EGuildmasterMode.None && mode != EGuildmasterMode.Temple
+                && mode != EGuildmasterMode.Enchantress
+                || !MapRoomDriver.CanVisitTownService(EGuildmasterMode.Merchant)
+                || Core.Events.VRModeStateMachine.CurrentMode == Core.Events.VRMode.ModalUI
+                || mode == EGuildmasterMode.Enchantress
+                && TownServicePresentation.Ritual?.Handoff?.Card != null
+                || mode == EGuildmasterMode.Temple
+                && TownServicePresentation.Ritual?.HasParkedTempleOffer == true)) return false;
         UIItemConfirmationBox? confirmation = Singleton<UIItemConfirmationBox>.Instance;
         bool ownsConfirmation = confirmation != null && confirmation.IsActive && _ourConfirmation != null
             && ReferenceEquals(confirmation._onConfirmedCallback, _ourConfirmation);
@@ -256,10 +269,25 @@ internal static class TownServiceMerchantHandoff
         EGuildmasterMode mode = GuildmasterDestinations.CurrentDestinationMode();
         if (mode != EGuildmasterMode.Merchant)
         {
-            if (mode != EGuildmasterMode.None || !MapRoomDriver.CanVisitTownService(EGuildmasterMode.Merchant)
-                || Core.Events.VRModeStateMachine.CurrentMode == Core.Events.VRMode.ModalUI) return false;
-            MapRoomDriver.PressGuildmasterMode(EGuildmasterMode.Merchant, "item offered to merchant",
-                suppressNativeSound: true);
+            if (mode != EGuildmasterMode.None && mode != EGuildmasterMode.Temple
+                && mode != EGuildmasterMode.Enchantress
+                || !MapRoomDriver.CanVisitTownService(EGuildmasterMode.Merchant)
+                || Core.Events.VRModeStateMachine.CurrentMode == Core.Events.VRMode.ModalUI
+                || mode == EGuildmasterMode.Enchantress
+                && TownServicePresentation.Ritual?.Handoff?.Card != null
+                || mode == EGuildmasterMode.Temple
+                && TownServicePresentation.Ritual?.HasParkedTempleOffer == true) return false;
+            NewPartyDisplayUI? display = NewPartyDisplayUI.PartyDisplay;
+            NewPartyCharacterUI? selectedSlot = display?.SelectedUISlot;
+            if (!MapRoomDriver.PressGuildmasterMode(EGuildmasterMode.Merchant,
+                "item offered to merchant", suppressNativeSound: true)) return false;
+            if (GuildmasterDestinations.CurrentDestinationMode() != EGuildmasterMode.Merchant)
+                return false;
+            // Native destination changes can select the first character. A physical
+            // offering belongs to the exact original slot the visitor was inspecting.
+            if (selectedSlot != null && selectedSlot.State == PartySlotState.Assigned
+                && display != null && !ReferenceEquals(display.SelectedUISlot, selectedSlot))
+                selectedSlot.OnClick();
         }
         if (_pending != null || _tradeItem != null || _offering != null || _offeredStock != null)
         {
