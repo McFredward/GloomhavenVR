@@ -33,10 +33,11 @@ gaze information, not a shading-rate change.
 
 Valve's Unity foveation utility requires **Unity 2022.3+, URP and Vulkan** even
 though its OpenXR package minimum is 1.9.1. Unity's current foveation manual
-also requires Unity 2022.3 or newer, URP, and D3D12 or Vulkan for PC XR; it
-states that Unity does not support foveated rendering in the Built-in Rendering
-Pipeline. The OpenXR plugin version number alone therefore does not make this
-game eligible.
+also requires Unity 2022.3 or newer, URP, and D3D12 or Vulkan for PC XR in its
+standard path. It notes that some XR provider plug-ins offer a separate
+Built-in Pipeline implementation in Unity 2022.3; that exception still does
+not cover this Unity 2021 player. The OpenXR plugin version number alone
+therefore does not make this game eligible.
 [Valve Unity guide](https://partner.steamgames.com/doc/steamhardware/steamframe/engines/unity),
 [Unity foveated-rendering manual](https://docs.unity3d.com/6000.2/Documentation/Manual/xr-foveated-rendering.html).
 
