@@ -17,6 +17,7 @@ internal sealed partial class NetAvatarDriver
     private float _nextFaceSend;
     private void SendTownServices()
     {
+        TownServiceGrantSync.Tick(_transport, UnityEngine.Time.unscaledTime);
         try { TownServiceMirror.Capture((bytes, length, identity) => _transport.Send(bytes, length, identity)); }
         catch (Exception error) { LogPhaseError("Sample native town services", error); }
         // Native widget capture is independent of resident facial motion.
@@ -75,6 +76,6 @@ internal sealed partial class NetAvatarDriver
         }
         if (TownServiceMirror.SharedFrameForRemote != null) TownServiceMirror.TickRemote(TownServiceMirror.SharedFrameForRemote);
     }
-    private void ForgetTownServices(int peer) { _pendingTown.Remove(peer); _pendingTownVoice.Remove(peer); TownServiceMirror.RemovePeer(peer); RemoteTownResidents.Forget(peer); RemoteTownFaces.Forget(peer); RemoteTownActivities.Forget(peer); }
-    private void ResetTownServices() { _pendingTown.Clear(); _pendingTownVoice.Clear(); TownServiceMirror.ResetNetwork(); RemoteTownResidents.Reset(); RemoteTownFaces.Reset(); RemoteTownActivities.Reset(); _nextFaceSend = 0f; }
+    private void ForgetTownServices(int peer) { _pendingTown.Remove(peer); _pendingTownVoice.Remove(peer); TownServiceGrantSync.ForgetPeer(peer); TownServiceMirror.RemovePeer(peer); RemoteTownResidents.Forget(peer); RemoteTownFaces.Forget(peer); RemoteTownActivities.Forget(peer); }
+    private void ResetTownServices() { _pendingTown.Clear(); _pendingTownVoice.Clear(); TownServiceGrantSync.Reset(); TownServiceMirror.ResetNetwork(); RemoteTownResidents.Reset(); RemoteTownFaces.Reset(); RemoteTownActivities.Reset(); _nextFaceSend = 0f; }
 }

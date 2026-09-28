@@ -155,6 +155,11 @@ internal static partial class TownServiceMirror
     internal static int TransactionOwner(byte service)
     {
         if (service < 1 || service > 3) return 0;
+        // The host's ReliableOrdered grant outranks the lossy visual claim manifest.
+        // Under two simultaneous drops the older browsing session may not be the first
+        // granted physical offer, so TLV92 cannot decide who can use original callbacks.
+        int granted = TownServiceGrantSync.GrantedOwner(service);
+        if (granted != 0) return granted;
         float now = Time.unscaledTime;
         InteractionLease lease = TransactionLeases[service];
         if (LiveInteraction(lease.Player, service, lease.Session, now, requireTransaction: true))
@@ -207,14 +212,32 @@ internal static partial class TownServiceMirror
     {
         if (session == 0 || !PrivateLane.Active || PrivateLane.Service != service
             || PrivateLane.Session != session) return false;
-        int owner = TransactionOwner(service);
-        if (owner != 0) return owner == LocalPeer;
-        // During the bounded acquisition window a foreign parked offer already blocks a
-        // second local drop. Browsing at this NPC and all other NPCs stays available.
+        // Every visitor at the same NPC may browse until a physical offer is placed.
+        // The elected shared-animation author is not an exclusive interaction lock.
+        int granted = TownServiceGrantSync.GrantedOwner(service);
+        if (granted != 0) return granted == LocalPeer;
         foreach (TownServiceSessionInfo remote in VisitorSessions.Values)
             if (remote.Active && remote.Service == service && remote.TransactionActive
                 && Time.unscaledTime - remote.LastSeenTime <= NetProtocol.StaleTimeoutSeconds
                 && !PrivateLane.TransactionActive) return false;
+        return true;
+    }
+
+    /// <summary>Pre-drop affordance for one NPC. A local visitor may browse all three
+    /// residents at once; only a different visitor's already parked transaction at this
+    /// exact resident suppresses a second offer. Simultaneous first drops are resolved by
+    /// the host grant before either original native callback may execute.</summary>
+    internal static bool CanLocalBeginTransaction(byte service)
+    {
+        if (service < 1 || service > 3) return false;
+        int granted = TownServiceGrantSync.GrantedOwner(service);
+        if (granted != 0) return granted == LocalPeer;
+        float now = Time.unscaledTime;
+        foreach (var pair in VisitorSessions)
+            if (pair.Key > 0 && pair.Key != LocalPeer && pair.Value.Active
+                && pair.Value.Service == service && pair.Value.TransactionActive
+                && now - pair.Value.LastSeenTime <= NetProtocol.StaleTimeoutSeconds)
+                return false;
         return true;
     }
 
@@ -223,18 +246,22 @@ internal static partial class TownServiceMirror
         if (!PrivateLane.Active || PrivateLane.Service != service || PrivateLane.Session == 0) return;
         if (PrivateLane.TransactionActive == active) return;
         PrivateLane.TransactionActive = active;
+        TownServiceGrantSync.SetOffer(service, PrivateLane.Session, active);
         PrivateLane.NextManifest = 0f;
         if (!active) TransactionOwner(service); // retire a released local lease immediately
     }
 
     /// <summary>Local pre-native gate for an already parked card or purse. It stays false
     /// during the bounded claim election and whenever another visitor owns this NPC.
-    /// This is a peer-convergent presentation lease, not a host acknowledgement: a native
-    /// transaction requiring hard simultaneous-drop arbitration must wait for a reliable
-    /// host grant before invoking its original callback.</summary>
+    /// The original native callback must wait for a matching ReliableOrdered host grant.
+    /// The lossy manifest claim remains presentation-only.</summary>
     internal static bool LocalTransactionSettled(byte service) => PrivateLane.Active
         && PrivateLane.Service == service && PrivateLane.TransactionActive
-        && TransactionOwner(service) == LocalPeer;
+        && TownServiceGrantSync.MayCommit(service, PrivateLane.Session);
+
+    internal static bool LocalTransactionUnavailable(byte service) => PrivateLane.Active
+        && PrivateLane.Service == service && PrivateLane.TransactionActive
+        && TownServiceGrantSync.Unavailable(service, PrivateLane.Session);
 
     internal static bool IsInteractionOwner(int player, byte service, uint session)
     {
@@ -588,7 +615,9 @@ internal static partial class TownServiceMirror
         || ReferenceEquals(_local, PrivateLane) && _service == 1 && module.Address == MerchantOfferingAddress;
 
     internal static void EndSession()
-    { _active = false; _closedUntil = Time.unscaledTime + 5; _nextManifest = 0;
+    { if (ReferenceEquals(_local, PrivateLane) && _local.TransactionActive)
+          TownServiceGrantSync.SetOffer(_local.Service, _local.Session, false);
+      _active = false; _closedUntil = Time.unscaledTime + 5; _nextManifest = 0;
       _local.TempleDonationKnown = _local.TempleDonationAvailable = false;
       _local.TempleDonationRevision = 0; _local.TempleDonationChangedTime = 0f;
       _local.TransactionActive = false;
@@ -997,6 +1026,8 @@ internal static partial class TownServiceMirror
       foreach (LocalModule module in PublicLane.Modules.Values) yield return module; }
     internal static void ResetNetwork()
     {
+        if (PrivateLane.TransactionActive)
+            TownServiceGrantSync.SetOffer(PrivateLane.Service, PrivateLane.Session, false);
         foreach (int peer in new List<int>(Remote.Keys)) ClearRemoteModules(peer);
         MerchantOfferings.Clear(); ClearVoiceNetwork(); Pending.Clear(); ReceivedBaselines.Clear(); Sessions.Clear(); VisitorSessions.Clear(); RemoteRetry.Clear(); foreach (LocalModule module in AllLocalModules())
         { module.Last = null; module.Baseline = null; module.NextRefresh = module.NextBaseline = 0; }

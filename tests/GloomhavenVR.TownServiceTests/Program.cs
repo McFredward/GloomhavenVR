@@ -11,6 +11,7 @@ internal static class Program
     private static void Main()
     {
         TownVoiceScheduleCases.Run();
+        TownGrantCases.Run();
         TownServiceFrame original = Make(256);
         byte[] bytes = TownServiceCodec.Write(original);
         Check(Convert.ToHexString(bytes, 0, 6) == "315256470313", "independent canonical GVR1 little-endian header");

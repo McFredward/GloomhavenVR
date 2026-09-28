@@ -78,6 +78,7 @@ internal sealed class FfsNetTransport : INetTransport
         NetProtocol.MsgUseBarAnimation, NetProtocol.MsgUseBarAnimationFragments);
     private byte[]? _versionAnnouncement;
     private double _nextVersionAnnouncement;
+    private float _nextTownGrantFailureLog;
     private double _nextFragmentReport;
     private int _sentFragments, _receivedFragments, _completedSnapshots, _fragmentBytes;
 
@@ -289,6 +290,39 @@ internal sealed class FfsNetTransport : INetTransport
         {
             // Never let a transport hiccup bubble into game code.
             VRLog.Error("Net", $"SendSideAction failed (suppressed): {e.Message}");
+        }
+    }
+
+    /// <summary>Town gameplay grants use Bolt ReliableOrdered. This deliberately bypasses
+    /// the lossy/coalescing presentation queue; a lost cosmetic manifest is harmless, a
+    /// guessed purchase permission is not. Requests/releases go to the native host and
+    /// grants are broadcast from that host to every modded observer.</summary>
+    internal bool SendTownGrant(byte[] payload, int length, bool hostOnly)
+    {
+        if (_degraded || !_installed || _sendSideAction == null || _customDataCtor == null
+            || !IsOnline || NetSession.FlatNetMode || length != TownServices.TownServiceGrantCodec.Size
+            || length > payload.Length || NetPacket.PeekType(payload, length) != TownServices.TownServiceGrantCodec.MessageType)
+            return false;
+        try
+        {
+            var bytes = new byte[length];
+            Buffer.BlockCopy(payload, 0, bytes, 0, length);
+            object token = _customDataCtor.Invoke(new object[] { bytes, false });
+            _sendArgs[1] = token;
+            _sendArgs[2] = false; // ReliableOrdered, not the presentation lane's Unreliable.
+            _sendArgs[3] = hostOnly;
+            try { _sendSideAction.Invoke(null, _sendArgs); }
+            finally { _sendArgs[2] = true; _sendArgs[3] = false; }
+            return true;
+        }
+        catch (Exception e)
+        {
+            if (UnityEngine.Time.unscaledTime >= _nextTownGrantFailureLog)
+            {
+                _nextTownGrantFailureLog = UnityEngine.Time.unscaledTime + 10f;
+                VRLog.Warn("Net", "Town-service ReliableOrdered side action failed: " + e.Message);
+            }
+            return false;
         }
     }
 
