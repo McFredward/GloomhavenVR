@@ -1,6 +1,6 @@
 # Planning index
 
-Updated 2026-09-28 for the NPC feature's build-582 hardware candidate and the
+Updated 2026-09-29 for the NPC feature's build-583 hardware candidate and the
 released 1.0.8 / build-556 integration. This directory holds internal
 engineering evidence, historical decisions and current status; it is not the player manual.
 
@@ -12,6 +12,7 @@ engineering evidence, historical decisions and current status; it is not the pla
 | [../CLAUDE.md](../CLAUDE.md) | Technical contracts retained across agent tools |
 | [TEST-PARALLELISM.md](TEST-PARALLELISM.md) | Parallel local/CI execution, coverage and measured timing |
 | [STATE.md](STATE.md) | Current build, validation and outstanding hardware checks |
+| [TOWN-MP-583.md](TOWN-MP-583.md) | Build-582 multiplayer evidence, source causes and build-583 acceptance scope |
 | [TOWN-CLOTH-RETIREMENT-582.md](TOWN-CLOTH-RETIREMENT-582.md) | Static town fabric and the documented retirement of runtime cloth interaction |
 | [TOWN-VOICE-582.md](TOWN-VOICE-582.md) | Independent resident voice playback at the face-target gaze edge |
 | [TOWN-PURSE-582.md](TOWN-PURSE-582.md) | Grabbable temple purse, native donation gate and multi-visitor visibility |

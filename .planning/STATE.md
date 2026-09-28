@@ -1,8 +1,13 @@
 # State — where the project stands
 
-**Updated 2026-09-28: feature/immersive-town-services, version 1.1.0 hardware candidate.**
+**Updated 2026-09-29: feature/immersive-town-services, version 1.1.0 hardware candidate.**
 The feature includes released 1.0.8 / ModBuild 556 and the subsequent 1.0.9
-corrections on `dev`. ModBuild 582 retires town cloth interaction pending a
+corrections on `dev`. ModBuild 583 addresses the build-582 multiplayer town-service
+report: the missing remote merchant cards and held/fan presentation, the enchantress's
+missing offered hand and native approach, a duplicate temple stand, and pickup speech
+outside the shorter native visit range. See [TOWN-MP-583.md](TOWN-MP-583.md).
+The source-level corrections and automated checks do not establish headset pixels;
+two-client hardware verification is still required. ModBuild 582 retires town cloth interaction pending a
 working runtime design, gives each resident independent voice playback, keeps
 priestess purses grabbable while native donation is unavailable, and moves the
 immersive presentation toggle beside the 2D-map switch. See
@@ -51,6 +56,18 @@ change per build) → this file (where things stand and what is owed) → the bu
 ---
 
 ## 1. Position
+
+- **NPC feature / 1.1.0 / ModBuild 583 (hardware candidate):** merchant
+  original-card capture accepts observed shader-property counts and resolves
+  the small texture identity collisions recorded on both peers. The shared
+  cabinet remains public, while each visitor's held item and item fan may be
+  mirrored independently of the stand's elected author. Pickup speech works
+  through the merchant's gaze range. The enchantress's native handoff range now
+  agrees with her gaze range; her offered hand follows visitor attention even
+  before a cue is available. Only the three permanent resident stands remain;
+  visiting a second NPC cannot spawn a fourth table. The current hardware
+  evidence is build 582, so these build-583 outcomes still need a two-client
+  headset comparison. See [TOWN-MP-583.md](TOWN-MP-583.md).
 
 - **NPC feature / 1.1.0 / ModBuild 582 (hardware candidate):** cloth meshes remain
   static while their solver, hand interaction and publication/replay are removed;

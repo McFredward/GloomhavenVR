@@ -547,7 +547,19 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 582;
+    public const ushort ModBuild = 583;
+
+    // ModBuild 583 — multiplayer town-service presentation repair. Original merchant
+    // card materials fit within the existing byte-count property encoding, and
+    // ambiguous source texture wrappers resolve by small-content identity. The
+    // public cabinet keeps one author while each visiting player retains their
+    // own physical held item and original item fan on observers. Stock-pickup
+    // speech uses the merchant's gaze range. The enchantress's native handoff
+    // range matches her gaze, including overlapping resident approach volumes;
+    // her offered-hand pose no longer waits for the native cue to appear.
+    // Visitor presentations use each resident's permanent stand instead of
+    // cloning a second shrine or workbench for another player. Existing wire
+    // records and their grammar remain unchanged.
 
     // ModBuild 582 — town cloth retirement, independent voice, purse and options.
     // Keep the authored static fabric meshes but remove their runtime solver,
