@@ -54,7 +54,7 @@ public static class InteractionProgram
         RemoteTownActivities.ObservePresence(2,in state);Check(RemoteTownActivities.Sample(2,out _,out _),"same epoch recovers after networkstall");
         var changed=state;changed.Epoch=2;changed.Sequence=1;RemoteTownActivities.ObservePresence(2,in changed);
         state.Sequence=7;RemoteTownActivities.ObservePresence(2,in state);RemoteTownActivities.Sample(2,out observed,out _);Check(observed.Epoch==2,"retired activity epoch cannot return");
-        Paired();Handover();Choreography();GeneratedMotion();count+=AudioClockChecks.Run();
+        Paired();Handover();Choreography();PrayerRelease();GeneratedMotion();count+=AudioClockChecks.Run();
         string[] args=Environment.GetCommandLineArgs();int at=Array.IndexOf(args,"-faceBundle");
         if(at>=0)Actual(args[at+1]);
         return count;
@@ -248,6 +248,27 @@ public static class InteractionProgram
             Check(Vector3.Distance(settled.CoinGrip,Vector3.zero)==0f,
                 "visitor transition begins with each counted coin supported by the counter");
         }
+    }
+    private static void PrayerRelease()
+    {
+        var transition=new TownActivityPose{WorkClock=5f,
+            TransitionAge=TownServiceActivityMotion.TransitionSeconds};
+        TownServiceActivityMotion.Engage(ref transition,true);
+        bool offsetSeen=false;
+        for(int frame=0;frame<90;frame++)
+        {
+            transition=TownServiceActivityMotion.Advance(transition,1f/90f);
+            var pose=TownServiceActivityMotion.Visual(2,in transition);
+            float attention=TownServiceActivityMotion.Blend(in transition);
+            if(attention>.45f&&attention<.55f)
+                offsetSeen|=pose.Right.y<pose.Left.y-.035f
+                    &&pose.RightMotion>pose.LeftMotion;
+        }
+        Check(offsetSeen,
+            "priestess releases one prayer hand before the other instead of lowering parallel robotic arms");
+        var idle=TownServiceActivityMotion.Visual(2,in transition);
+        Check(Math.Abs(idle.Left.y-idle.Right.y)<.001f,
+            "staggered prayer release converges to the original balanced idle pose");
     }
     private static void GeneratedMotion()
     {

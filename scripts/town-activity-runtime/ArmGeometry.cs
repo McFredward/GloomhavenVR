@@ -90,6 +90,24 @@ internal static class ArmGeometry
         }
         if(service==2)
         {
+            // The unavailable bowl path was covered, but the ordinary
+            // prayer-to-hanging-arm visit reported in the headset was missing
+            // from the focused skin export. Scan both directions at 90 Hz too;
+            // a pair of clean endpoints cannot establish a clean descent.
+            var available=new TownActivityPose{WorkClock=5f,
+                TransitionAge=TownServiceActivityMotion.TransitionSeconds};
+            TownServiceActivityMotion.Engage(ref available,true);
+            for(int frame=0;frame<=90;frame++)
+            {
+                available=TownServiceActivityMotion.Advance(available,1f/90f);
+                poses.Add((available,0f,-1f));
+            }
+            TownServiceActivityMotion.Engage(ref available,false);
+            for(int frame=0;frame<=90;frame++)
+            {
+                available=TownServiceActivityMotion.Advance(available,1f/90f);
+                poses.Add((available,0f,-1f));
+            }
             // The earlier export covered prayer and attention but never sampled the
             // unavailable bowl-cover modifier. An isolated final-pose screenshot
             // cannot catch crossed sleeves halfway through the live transition.

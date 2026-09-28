@@ -9,7 +9,7 @@ internal struct TownActivityVisual
 {
     internal Vector3 Left, Right, LeftElbow, RightElbow;
     internal TownMotionBody Body;
-    internal float Curl, Attention, Writing, Cast, CastSway;
+    internal float Curl, Attention, LeftMotion, RightMotion, Writing, Cast, CastSway;
     internal float LeftCurl, RightCurl, LeftRoll, RightRoll;
     internal Vector3 Chest, Coin0, Coin1, Coin2, CoinGrip;
     internal float EffectClock;
@@ -72,6 +72,7 @@ internal static class TownServiceActivityMotion
         float attention = Blend(in state);
         var work = service == 1 ? Merchant(state.WorkClock) : service == 3 ? Enchantress(state.WorkClock) : Prayer(state.WorkClock);
         work.Attention = attention;
+        work.LeftMotion = work.RightMotion = attention;
         // Interruption stops the shared work clock smoothly. A pinched coin stays in
         // the hand while greeting; it never slides through space back onto the table.
         // Looking at a visitor is separate from offering an item hand to that visitor.
@@ -89,6 +90,17 @@ internal static class TownServiceActivityMotion
         // through his torso during approach. These targets were checked against
         // the imported skin across the complete attention transition.
         float prayerLeftX = work.Left.x, prayerRightX = work.Right.x;
+        if (service == 2)
+        {
+            // In the headset the joined hands parted as one rigid pair: both
+            // upper arms dropped together while the forearms remained horizontal.
+            // Release one hand first, then let the second follow. Each hand,
+            // elbow pole and wrist frame uses its own phase so the forearm does
+            // not keep a prayer orientation after that hand starts descending.
+            float stagger = .10f * attention * (1f - attention);
+            work.RightMotion = attention + stagger;
+            work.LeftMotion = attention - stagger;
+        }
         Vector3 leftRest = service == 1 ? new Vector3(.18f, 1.08f, .41f)
             : service == 2 ? new Vector3(.29f, .75f, .58f) : new Vector3(.22f, 1.13f, .23f);
         work.Left = Vector3.Lerp(work.Left, leftRest, attention);
@@ -104,20 +116,24 @@ internal static class TownServiceActivityMotion
             // Separate the hands early, then lower them along their own sides.
             // This leaves both the joined prayer and relaxed idle endpoints intact
             // and runs along the same reversible owner-authored attention clock.
-            float separate = Mathf.SmoothStep(0f, 1f, Mathf.Min(1f, attention * 2f));
-            work.Left.x = Mathf.Lerp(prayerLeftX, leftRest.x, separate);
-            work.Right.x = Mathf.Lerp(prayerRightX, -leftRest.x, separate);
+            float leftSeparate = Mathf.SmoothStep(0f, 1f, Mathf.Min(1f, work.LeftMotion * 2f));
+            float rightSeparate = Mathf.SmoothStep(0f, 1f, Mathf.Min(1f, work.RightMotion * 2f));
+            work.Left.x = Mathf.Lerp(prayerLeftX, leftRest.x, leftSeparate);
+            work.Right.x = Mathf.Lerp(prayerRightX, -leftRest.x, rightSeparate);
             // Keep the forearms extended in front until the hands have cleared
             // the chest; the last portion settles beside the robe.
-            float settleDepth = attention * attention;
+            float leftDepth = work.LeftMotion * work.LeftMotion;
+            float rightDepth = work.RightMotion * work.RightMotion;
             // Ease down before moving back toward the shoulders. This keeps
             // reach close to its relaxed length throughout the transition,
             // rather than parking a sharply folded wrist above the bowl.
-            float settleHeight = attention + .12f * Mathf.Sin(Mathf.PI * attention);
-            work.Left.y = Mathf.Lerp(1.34f, .75f, settleHeight);
-            work.Right.y = Mathf.Lerp(1.34f, .75f, settleHeight);
-            work.Left.z = Mathf.Lerp(.29f, .58f, settleDepth);
-            work.Right.z = Mathf.Lerp(.29f, .58f, settleDepth);
+            float releaseArc = .04f * Mathf.Sin(Mathf.PI * attention);
+            float leftHeight = work.LeftMotion + .06f * Mathf.Sin(Mathf.PI * work.LeftMotion) - releaseArc;
+            float rightHeight = work.RightMotion + .06f * Mathf.Sin(Mathf.PI * work.RightMotion) + releaseArc;
+            work.Left.y = Mathf.Lerp(1.34f, .75f, leftHeight);
+            work.Right.y = Mathf.Lerp(1.34f, .75f, rightHeight);
+            work.Left.z = Mathf.Lerp(.29f, .58f, leftDepth);
+            work.Right.z = Mathf.Lerp(.29f, .58f, rightDepth);
         }
         // Hand targets alone cannot lower an arm naturally. Author the matching elbow path as
         // part of the same blend so the upper arm leaves the shoulder downward instead of staying
@@ -129,15 +145,14 @@ internal static class TownServiceActivityMotion
             float priestessElbowHeight = 1.08f;
             work.LeftElbow = Vector3.Lerp(work.LeftElbow,
                 new Vector3(service == 1 ? .58f : .29f, service == 1 ? 1.02f : priestessElbowHeight,
-                    service == 1 ? .30f : .66f), attention);
+                    service == 1 ? .30f : .66f), work.LeftMotion);
             work.RightElbow = Vector3.Lerp(work.RightElbow,
                 new Vector3(service == 1 ? -.55f : -.29f, service == 1 ? 1.04f : priestessElbowHeight,
-                    service == 1 ? .31f : .66f), attention);
+                    service == 1 ? .31f : .66f), work.RightMotion);
             if (service == 2)
             {
-                float settleDepth = attention * attention;
-                work.LeftElbow.z = Mathf.Lerp(.34f, .66f, settleDepth);
-                work.RightElbow.z = Mathf.Lerp(.34f, .66f, settleDepth);
+                work.LeftElbow.z = Mathf.Lerp(.34f, .66f, work.LeftMotion * work.LeftMotion);
+                work.RightElbow.z = Mathf.Lerp(.34f, .66f, work.RightMotion * work.RightMotion);
             }
         }
         work.RightRoll = Mathf.Lerp(work.RightRoll, service == 1 ? 65f : service == 3 ? 180f : 0f, attention);
@@ -246,6 +261,7 @@ internal static class TownServiceActivityMotion
         LeftElbow = Vector3.Lerp(from.LeftElbow, to.LeftElbow, t), RightElbow = Vector3.Lerp(from.RightElbow, to.RightElbow, t),
         Body = TownMotionBody.Lerp(in from.Body, in to.Body, t),
         Curl = Mathf.Lerp(from.Curl, to.Curl, t), Attention = Mathf.Lerp(from.Attention, to.Attention, t),
+        LeftMotion = Mathf.Lerp(from.LeftMotion, to.LeftMotion, t), RightMotion = Mathf.Lerp(from.RightMotion, to.RightMotion, t),
         Writing = Mathf.Lerp(from.Writing, to.Writing, t), Cast = Mathf.Lerp(from.Cast, to.Cast, t),
         CastSway = Mathf.Lerp(from.CastSway, to.CastSway, t),
         LeftCurl = Mathf.Lerp(from.LeftCurl, to.LeftCurl, t), RightCurl = Mathf.Lerp(from.RightCurl, to.RightCurl, t),
