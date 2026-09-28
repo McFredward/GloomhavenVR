@@ -189,6 +189,7 @@ internal static class TownServiceGrantSync
         offer.LastResponse = now;
         if (message.Kind == TownGrantKind.Grant)
         {
+            if (offer.LastGrant > sentAt) return true; // an older reply cannot shorten a newer grant
             if (offer.Epoch != 0 && offer.Epoch != message.Epoch) offer.LastGrant = 0f;
             // The coordinator's eight-second clock started no later than this request.
             // Measuring our four-second validity from SEND, not receive, prevents a
@@ -198,7 +199,10 @@ internal static class TownServiceGrantSync
             offer.Denied = false;
         }
         else if (message.Kind == TownGrantKind.Busy)
-        { offer.LastGrant = 0f; offer.Denied = true; }
+        {
+            if (offer.LastGrant <= sentAt)
+            { offer.LastGrant = 0f; offer.Denied = true; }
+        }
         return true;
     }
 
