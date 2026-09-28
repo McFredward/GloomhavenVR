@@ -25,6 +25,13 @@ import tempfile
 import time
 import uuid
 
+# Also support the source-bound test loader, which imports this hyphenated file
+# directly without adding its directory to sys.path.
+SCRIPT_DIR = str(Path(__file__).resolve().parent)
+if SCRIPT_DIR not in sys.path:
+    sys.path.insert(0, SCRIPT_DIR)
+from town_run_retention import record_success
+
 ROOT = Path(__file__).resolve().parent.parent
 MANIFEST = ROOT / 'scripts/test-suites.json'
 
@@ -251,6 +258,13 @@ def execute(suites, jobs, output, root, manifest_hash, group, shard):
                                  'duration_seconds': round(duration, 3), 'log': entry['log_path'].name,
                                  'compiler_id': entry['compiler_id']}
                 print(f'[{status}] {name}: {duration:.1f}s', flush=True)
+                if status == 'passed':
+                    try:
+                        retained, removed = record_success(name, code, entry['log_path'], root)
+                        if retained is not None and removed:
+                            print(f'[retention] {name}: removed {removed} older successful runs; kept {retained}', flush=True)
+                    except (OSError, ValueError) as exc:
+                        print(f'[retention] {name}: could not prune generated runs: {exc}', flush=True)
                 del running[name]
             if pending or running:
                 time.sleep(.05)
