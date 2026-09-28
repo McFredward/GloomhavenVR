@@ -244,11 +244,16 @@ internal static partial class TownServiceMirror
     internal static void SetLocalTransactionActive(byte service, bool active)
     {
         if (!PrivateLane.Active || PrivateLane.Service != service || PrivateLane.Session == 0) return;
-        if (PrivateLane.TransactionActive == active) return;
-        PrivateLane.TransactionActive = active;
+        bool changed = PrivateLane.TransactionActive != active;
+        if (changed)
+        {
+            PrivateLane.TransactionActive = active;
+            PrivateLane.NextManifest = 0f;
+        }
+        // Reassert idempotently even when the visual state did not change: a transport
+        // reset can retire the grant while the same physical card remains parked.
         TownServiceGrantSync.SetOffer(service, PrivateLane.Session, active);
-        PrivateLane.NextManifest = 0f;
-        if (!active) TransactionOwner(service); // retire a released local lease immediately
+        if (changed && !active) TransactionOwner(service); // retire a released local lease immediately
     }
 
     /// <summary>Local pre-native gate for an already parked card or purse. It stays false
@@ -262,6 +267,10 @@ internal static partial class TownServiceMirror
     internal static bool LocalTransactionUnavailable(byte service) => PrivateLane.Active
         && PrivateLane.Service == service && PrivateLane.TransactionActive
         && TownServiceGrantSync.Unavailable(service, PrivateLane.Session);
+
+    internal static bool LocalTransactionDenied(byte service) => PrivateLane.Active
+        && PrivateLane.Service == service && PrivateLane.TransactionActive
+        && TownServiceGrantSync.Denied(service, PrivateLane.Session);
 
     internal static bool IsInteractionOwner(int player, byte service, uint session)
     {

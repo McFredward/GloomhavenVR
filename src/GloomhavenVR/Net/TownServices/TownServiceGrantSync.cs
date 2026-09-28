@@ -19,7 +19,7 @@ internal static class TownServiceGrantSync
     private struct Offer
     {
         internal uint Session, Nonce, Epoch;
-        internal bool Active;
+        internal bool Active, Denied;
         internal float Started, LastRequest, LastResponse, LastGrant;
     }
     private struct VisibleGrant
@@ -89,6 +89,12 @@ internal static class TownServiceGrantSync
         return !CoordinatorReady || offer.LastResponse <= 0f
             && Time.unscaledTime - offer.Started >= UnavailableSeconds;
     }
+
+    /// <summary>A different visitor was granted this resident before this simultaneous
+    /// drop. The caller should return its own parked item or purse, not reveal a native
+    /// fallback which could bypass the still-active lease.</summary>
+    internal static bool Denied(byte service, uint session) => service >= 1 && service <= 3
+        && Offers[service].Active && Offers[service].Session == session && Offers[service].Denied;
 
     internal static int GrantedOwner(byte service)
     {
@@ -167,9 +173,10 @@ internal static class TownServiceGrantSync
         if (message.Kind == TownGrantKind.Grant)
         {
             if (offer.Epoch != 0 && offer.Epoch != message.Epoch) offer.LastGrant = 0f;
-            offer.Epoch = message.Epoch; offer.LastGrant = now;
+            offer.Epoch = message.Epoch; offer.LastGrant = now; offer.Denied = false;
         }
-        else if (message.Kind == TownGrantKind.Busy) offer.LastGrant = 0f;
+        else if (message.Kind == TownGrantKind.Busy)
+        { offer.LastGrant = 0f; offer.Denied = true; }
         return true;
     }
 

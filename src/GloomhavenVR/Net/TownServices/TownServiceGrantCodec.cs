@@ -19,7 +19,7 @@ internal readonly struct TownGrantMessage
 internal static class TownServiceGrantCodec
 {
     // 23/24 belong to map-button tooltips. Keep this packet distinct from all cosmetic lanes.
-    internal const byte MessageType = 25;
+    internal const byte MessageType = NetProtocol.MsgTownGrant;
     internal const int Size = 24;
     internal static byte[] Write(in TownGrantMessage message)
     {

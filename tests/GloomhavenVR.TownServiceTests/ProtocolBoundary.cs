@@ -4,6 +4,7 @@ namespace GloomhavenVR.Net
 {
     internal static class NetProtocol
     {
+        internal const byte MsgTownGrant = 25;
         internal const byte ExtIdTownWorkspaceCloth = 90;
         internal const byte ExtIdTownInteraction = 91;
         internal const byte ExtIdTownTransaction = 92;
