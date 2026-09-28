@@ -2,8 +2,12 @@
 
 **Updated 2026-09-28: feature/immersive-town-services, version 1.1.0 hardware candidate.**
 The feature includes released 1.0.8 / ModBuild 556 and the subsequent 1.0.9
-corrections on `dev`. ModBuild 578 follows build-577 headset evidence and adds
-the native creator and actor-bar corrections from dev ModBuild 557. ModBuild 577
+corrections on `dev`. ModBuild 579 follows build-578 headset evidence: deferred
+enchantress entry, full hand cloth contact, and the priestess's prayer release.
+The merchant's visible hand-to-belly gap remains open; the current sandbox
+cannot launch Unity for the new imported-skin scan needed to release a safe pose.
+ModBuild 578 followed build-577 headset evidence and added the native creator
+and actor-bar corrections from dev ModBuild 557. ModBuild 577
 followed build-576 headset evidence:
 merchant confirmation lifetime, enchantress laser and aura geometry, priestess
 transition anatomy and physical town cloth contact. ModBuild 576 established
@@ -14,7 +18,7 @@ voices, shared merchant confirmation presentation, a visible temple donation
 target, cloth contact, cabinet detail and varied idle motion.
 Headset verification of the resulting presentation remains open. Historical NPC
 design: [research/TOWN-SERVICES-552.md](research/TOWN-SERVICES-552.md).
-Current evidence and implementation limits: [TOWN-578.md](TOWN-578.md).
+Current evidence and implementation limits: [TOWN-579.md](TOWN-579.md).
 The feature remains isolated from `dev`, and NPC work belongs on this branch.
 It also incorporates the later `dev` ModBuild 557 actor-bar and character-creator
 corrections ([BARS-CREATOR-557.md](BARS-CREATOR-557.md)).
@@ -32,12 +36,23 @@ change per build) → this file (where things stand and what is owed) → the bu
 
 ## 1. Position
 
+- **NPC feature / 1.1.0 / ModBuild 579 (partial hardware candidate):** a
+  visitor who enters the enchantress's area while another native town service
+  is active no longer loses the only approach event. Local and remote cloth
+  use each rendered hand's wrist and index-tip anchors, with contact across
+  triangle interiors. The priestess releases prayer with separate arm phases;
+  portable motion tests cover the intermediate visit. The merchant hands
+  still visibly hover above the belly in build-578 hardware. Attempts to
+  close that gap caused real skin intersections and were rejected; no merchant
+  pose correction is claimed in this build. See [TOWN-579.md](TOWN-579.md).
+
 - **NPC feature / 1.1.0 / ModBuild 578 (hardware candidate):** the offered
   enchantment card itself stops the laser while only original enhancement
   areas respond to selection. Its pulsing aura retains full side bounds.
   The priestess's prayer-to-neutral arm motion and the merchant's resting
-  hand contact were retested against the imported skins and rendered at
-  intermediate frames. Dev ModBuild 557 contributes native character-creator
+  hands were retested against the imported skins and rendered at
+  intermediate frames. Build-578 hardware subsequently disproved the claim
+  that the merchant's hands visibly touch the belly. Dev ModBuild 557 contributes native character-creator
   fit and figure-proportional overhead bars with working wall visibility.
   Evidence and headset limits are in [TOWN-578.md](TOWN-578.md).
 

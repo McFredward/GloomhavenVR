@@ -541,7 +541,17 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 578;
+    public const ushort ModBuild = 579;
+
+    // ModBuild 579 — nineteenth NPC hardware follow-up on the feature branch.
+    // A visitor entering the enchantress's area while another town service
+    // owns the native destination now retains the approach until that service
+    // exits. Town cloth samples actual wrist-to-index-tip geometry on local
+    // and synchronized remote hands and checks triangle interiors for contact.
+    // The priestess releases prayer with separate arm/wrist/elbow phases.
+    // Build-578 hardware disproved the merchant belly-contact claim: the hands
+    // still visibly hover. That pose is unchanged pending a new imported-skin
+    // contact and intersection scan. No wire layout or town bundle change.
 
     // ModBuild 578 — eighteenth NPC hardware follow-up on the feature branch.
     // The offered enchantment card remains a physical laser hit without
