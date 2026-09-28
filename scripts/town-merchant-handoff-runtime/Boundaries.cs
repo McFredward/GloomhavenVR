@@ -23,7 +23,13 @@ public class ShopService {
  public List<ScenarioRuleLibrary.CItem> GetItemsToSell(MapRuleLibrary.Party.CMapCharacter? c) => c!.AllCharacterItems;
 }
 public class Singleton<T> { public static T? Instance; }
-public enum EGuildmasterMode { None, Merchant, Enchantress }
+public enum EGuildmasterMode { None, Merchant, Temple, Enchantress }
+public enum PartySlotState { Assigned }
+public class NewPartyCharacterUI { public PartySlotState State = PartySlotState.Assigned; public void OnClick() { } }
+public class NewPartyDisplayUI {
+ public static NewPartyDisplayUI? PartyDisplay;
+ public NewPartyCharacterUI? SelectedUISlot;
+}
 public class UIWindow : MonoBehaviour { public bool IsOpen, IsVisible; public void Hide() { IsOpen=false; IsVisible=false; } }
 public class ItemCardUI : MonoBehaviour { public UnityEngine.UI.Image cardBackground=null!; }
 public class ObjectPool : MonoBehaviour {
@@ -206,7 +212,17 @@ namespace GloomhavenVR.WorldUI {
  internal enum TownVoiceReaction : byte { MerchantOffer, MerchantBuy, MerchantSell, MerchantUnaffordable, MerchantSoldOut }
  internal static class TownServiceVoice { internal static int Offers, Buys, Sells, Unaffordable, SoldOut; internal static void RequestReaction(byte service, TownVoiceReaction reaction) { if(service!=1) return; if(reaction==TownVoiceReaction.MerchantOffer) Offers++; else if(reaction==TownVoiceReaction.MerchantBuy) Buys++; else if(reaction==TownVoiceReaction.MerchantSell) Sells++; else if(reaction==TownVoiceReaction.MerchantUnaffordable) Unaffordable++; else if(reaction==TownVoiceReaction.MerchantSoldOut) SoldOut++; } }
  public static class WorldUIConfig { public static readonly Cards.Dial<bool> ImmersiveTownServices = new(true); }
- public static class TownServiceEnhancementHandoff { public static bool Enabled = true; }
+ public static class TownServiceEnhancementHandoff { public static bool Enabled = true, WantsAbilityFan; }
+ public static class TownServiceTempleOffering { public static bool WantsPurseFocus; }
+ public sealed class TownServiceRitual {
+  public bool HasParkedTempleOffer;
+  public TownServiceEnhancementOffer? Handoff;
+ }
+ public sealed class TownServiceEnhancementOffer { public Cards.VRCard? Card; }
+ public static class TownServicePresentation {
+  public static TownServiceRitual? Ritual;
+  public static bool NativeFallbackFor(byte service) => false;
+ }
  public static class StoryComposite { public static bool PointOfNoReturn; }
  internal sealed class TownServiceStation { public Transform Root = null!; public bool Near = true; public bool IsLocalVisitorNear(bool previous)=>Near; }
  internal static class TownServicePopulation { public static TownServiceStation? Station; public static bool Available(byte s)=>Station!=null; public static TownServiceStation? Acquire(byte s)=>Station; }
@@ -220,13 +236,13 @@ namespace GloomhavenVR.WorldUI {
   }
  }
  internal static class TownServiceMerchantTransaction {
-  public static int Requests, CommitFailures; public static ScenarioRuleLibrary.CItem? LastItem; public static bool LastSelling;
+  public static int Requests, CommitFailures, NativeCommits; public static ScenarioRuleLibrary.CItem? LastItem; public static bool LastSelling;
   public static bool Commit(UIShopItemInventory inventory, ScenarioRuleLibrary.CItem item, bool selling, Func<bool> current) {
    if(!current()) return false;
    if(CommitFailures>0) { CommitFailures--; return false; }
    Requests++; LastItem=item; LastSelling=selling;
    var box=Singleton<UIItemConfirmationBox>.Instance!;
-   box.IsActive=true; box.Window.IsOpen=box.Window.IsVisible=true; box._onConfirmedCallback=()=>{}; box._onCancelCallback=()=>{};
+   box.IsActive=true; box.Window.IsOpen=box.Window.IsVisible=true; box._onConfirmedCallback=()=>NativeCommits++; box._onCancelCallback=()=>{};
    box.confirmButton.onClick.RemoveAllListeners();
    box.confirmButton.onClick.AddListener(()=>{ box._onConfirmedCallback?.Invoke(); box.NativeHide(); });
    return true;
@@ -238,5 +254,14 @@ namespace GloomhavenVR.WorldUI {
    new GameObject("Border",typeof(RectTransform)).transform.SetParent(go.transform,false);
    new GameObject("Caption",typeof(RectTransform),typeof(TMPro.TMP_Text)).transform.SetParent(go.transform,false); return go;
   }
+ }
+}
+namespace GloomhavenVR.Net.TownServices {
+ internal static class TownServiceGrantSync { internal static bool CanUseImmersive = true; }
+ internal static class TownServiceMirror {
+  internal static bool GrantSettled = true;
+  internal static bool CanLocalBeginTransaction(byte service) => true;
+  internal static bool LocalTransactionDenied(byte service) => false;
+  internal static bool LocalTransactionSettled(byte service) => GrantSettled;
  }
 }

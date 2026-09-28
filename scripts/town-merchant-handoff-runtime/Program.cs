@@ -296,6 +296,14 @@ public static class InteractionProgram
       && !ownedReplacement.TownOffering && !TownServiceMerchantTransaction.LastSelling
       && ReferenceEquals(TownServiceMerchantTransaction.LastItem,newStock),
       "sale-to-stock swap returns the owned card and opens the replacement buy prompt");
+  int committedBeforeRevocation=TownServiceMerchantTransaction.NativeCommits;
+  GloomhavenVR.Net.TownServices.TownServiceMirror.GrantSettled=false;
+  Singleton<UIItemConfirmationBox>.Instance.confirmButton.onClick.Invoke();
+  TownServiceMerchantHandoff.Tick();
+  Check(TownServiceMerchantTransaction.NativeCommits==committedBeforeRevocation
+      && !TownServiceMerchantHandoff.HasParkedOffer,
+      "revoked host grant cancels the original merchant callback and returns its parked card");
+  GloomhavenVR.Net.TownServices.TownServiceMirror.GrantSettled=true;
   Action foreign=()=>{}; Singleton<UIItemConfirmationBox>.Instance._onConfirmedCallback=foreign;
   Singleton<UIItemConfirmationBox>.Instance.IsActive=true;
   TownServiceMerchantHandoff.Reset();

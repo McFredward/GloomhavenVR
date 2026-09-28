@@ -73,6 +73,7 @@ internal sealed class WorldUIModule : IVRModule
         VRSession.Harmony?.PatchAll(typeof(InputManager_AssignGamepadBindings_Patch));
         VRSession.Harmony?.PatchAll(typeof(UITextInfoPanel_Show_Patch)); // test #18 attribution diagnostic
         VRSession.Harmony?.PatchAll(typeof(TownServiceRitualConfirmationCapture)); // preserve offering ownership through native confirmation fade
+        VRSession.Harmony?.PatchAll(typeof(TownServiceEnhancementGrantGuard)); // recheck host ownership at native enhancement confirmation
         VRSession.Harmony?.PatchAll(typeof(TownServiceEnhancementVoiceCapture)); // original confirmed enchantment drives resident speech
         VRSession.Harmony?.PatchAll(typeof(TownServiceTutorialStepPatch));
         VRSession.Harmony?.PatchAll(typeof(TownServiceTutorialSequencePatch));
