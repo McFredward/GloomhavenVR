@@ -9,6 +9,7 @@ headset image check.
 
 from pathlib import Path
 import os
+import shutil
 import subprocess
 import tempfile
 
@@ -161,12 +162,14 @@ def main():
         (project / 'NuGet.Config').write_text('<configuration><packageSources><clear /></packageSources></configuration>\n')
         environment = os.environ.copy()
         environment['DOTNET_CLI_HOME'] = os.environ.get('DOTNET_CLI_HOME',
-                                                      '/tmp/ghvr-town-cloth-dotnet')
+            str(Path(tempfile.gettempdir()) / 'ghvr-town-cloth-dotnet'))
         environment['DOTNET_SKIP_FIRST_TIME_EXPERIENCE'] = '1'
         environment['DOTNET_CLI_TELEMETRY_OPTOUT'] = '1'
         environment['DOTNET_NOLOGO'] = '1'
-        dotnet = Path('/home/claw/.dotnet/dotnet')
-        subprocess.run([str(dotnet), 'run', '--project', str(project / 'TownClothGeometry.csproj'),
+        dotnet = shutil.which('dotnet') or str(Path.home() / '.dotnet/dotnet')
+        if not Path(dotnet).is_file():
+            raise RuntimeError('dotnet SDK not found on PATH or in ~/.dotnet')
+        subprocess.run([dotnet, 'run', '--project', str(project / 'TownClothGeometry.csproj'),
                         '--configuration', 'Release', '--nologo'], check=True, env=environment)
 
 
