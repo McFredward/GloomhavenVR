@@ -23,7 +23,7 @@ public static class InteractionProgram
     {
         Func<ushort, float> duration = cue => cue >= 31 && cue <= 35 ? 2.69f : 2f;
         var schedule = new TownServiceVoiceSchedule();
-        schedule.Work(1, 0f, 0f, .1f, true, 0f); schedule.Sample(1, duration, 0f, false);
+        schedule.Work(1, 0f, 0f, .1f, true, true, 0f); schedule.Sample(1, duration, 0f, false);
         Check(schedule.At(1).Cue >= 1 && schedule.At(1).Cue <= 5 && schedule.At(1).Generation == 1,
             "first gaze starts one of five merchant greetings before native shop opens");
         schedule.Visit(1, true, 0f, .1f);
@@ -52,10 +52,10 @@ public static class InteractionProgram
         }
 
         var prayer = new TownServiceVoiceSchedule();
-        prayer.Work(2, 5.9f, 0f, 0f, true, 0f);
-        prayer.Work(2, 6.01f, 0f, 0f, true, .11f); prayer.Sample(2, duration, .11f, false);
+        prayer.Work(2, 5.9f, 0f, 0f, false, true, 0f);
+        prayer.Work(2, 6.01f, 0f, 0f, false, true, .11f); prayer.Sample(2, duration, .11f, false);
         Check(prayer.At(2).Cue >= 31 && prayer.At(2).Cue <= 35, "quiet prayer chooses one of five performances at a shared occupation phase");
-        prayer.Work(2, 6.02f, 0f, 0f, true, .12f);
+        prayer.Work(2, 6.02f, 0f, 0f, false, true, .12f);
         Check(!prayer.At(2).Pending, "prayer cannot requeue each frame");
         prayer.Sample(2, duration, 3.1f, false);
         prayer.Request(2, 36, 4.2f); prayer.Request(2, 36, 4.25f);
@@ -85,37 +85,37 @@ public static class InteractionProgram
             "story commitment retires active and queued resident speech");
 
         var ambientPrayer = new TownServiceVoiceSchedule();
-        ambientPrayer.Work(2, 5.9f, 0f, 0f, true, 0f);
-        ambientPrayer.Work(2, 6.01f, 0f, 0f, true, .11f);
+        ambientPrayer.Work(2, 5.9f, 0f, 0f, false, true, 0f);
+        ambientPrayer.Work(2, 6.01f, 0f, 0f, false, true, .11f);
         ambientPrayer.Sample(2, duration, .11f, false);
         ambientPrayer.Sample(2, duration, 3.1f, false);
-        ambientPrayer.Work(2, 69.9f, 0f, 0f, true, 64f);
-        ambientPrayer.Work(2, 70.01f, 0f, 0f, true, 64.11f);
+        ambientPrayer.Work(2, 69.9f, 0f, 0f, false, true, 64f);
+        ambientPrayer.Work(2, 70.01f, 0f, 0f, false, true, 64.11f);
         ambientPrayer.Sample(2, duration, 64.11f, false);
         Check(ambientPrayer.At(2).Cue == 0 && !ambientPrayer.At(2).Pending,
             "incidental prayer stays quiet on the next short occupation cycle");
-        ambientPrayer.Work(2, 197.9f, 0f, 0f, true, 192f);
-        ambientPrayer.Work(2, 198.01f, 0f, 0f, true, 192.11f);
+        ambientPrayer.Work(2, 197.9f, 0f, 0f, false, true, 192f);
+        ambientPrayer.Work(2, 198.01f, 0f, 0f, false, true, 192.11f);
         ambientPrayer.Sample(2, duration, 192.11f, false);
         Check(ambientPrayer.At(2).Cue >= 31 && ambientPrayer.At(2).Cue <= 35,
             "incidental prayer returns only after its longer quiet interval");
 
         var cast = new TownServiceVoiceSchedule();
-        cast.Work(3, 13f, .1f, 0f, true, 0f);
-        cast.Work(3, 13.03f, .3f, 0f, true, .03f); cast.Sample(3, duration, .03f, false);
+        cast.Work(3, 13f, .1f, 0f, false, true, 0f);
+        cast.Work(3, 13.03f, .3f, 0f, false, true, .03f); cast.Sample(3, duration, .03f, false);
         ushort firstCast = cast.At(3).Cue;
         Check(firstCast >= 41 && firstCast <= 45, "spell phrase follows actual cast edge");
         cast.Sample(3, duration, 2.1f, false);
-        cast.Work(3, 61f, .1f, 0f, true, 50f);
-        cast.Work(3, 61.03f, .3f, 0f, true, 50.03f); cast.Sample(3, duration, 50.03f, false);
+        cast.Work(3, 61f, .1f, 0f, false, true, 50f);
+        cast.Work(3, 61.03f, .3f, 0f, false, true, 50.03f); cast.Sample(3, duration, 50.03f, false);
         Check(cast.At(3).Cue == 0 && !cast.At(3).Pending,
             "repeated visual spells do not repeat incidental speech every cast");
-        cast.Work(3, 157f, .1f, 0f, true, 151f);
-        cast.Work(3, 157.03f, .3f, 0f, true, 151.03f); cast.Sample(3, duration, 151.03f, false);
+        cast.Work(3, 157f, .1f, 0f, false, true, 151f);
+        cast.Work(3, 157.03f, .3f, 0f, false, true, 151.03f); cast.Sample(3, duration, 151.03f, false);
         Check(cast.At(3).Cue >= 41 && cast.At(3).Cue <= 45 && cast.At(3).Cue != firstCast,
             "later shared experiment varies the spoken phrase without an immediate repeat");
-        cast.Work(3, 70f, .3f, 0f, true, 60f);
-        cast.Work(3, 70.03f, .3f, 0f, true, 60.03f);
+        cast.Work(3, 70f, .3f, 0f, false, true, 60f);
+        cast.Work(3, 70.03f, .3f, 0f, false, true, 60.03f);
         Check(!cast.At(3).Pending, "discontinuous seek does not replay historical cast");
 
         var unavailableStock = new TownServiceVoiceSchedule();
@@ -132,11 +132,11 @@ public static class InteractionProgram
         invitation.Sample(3, duration, 0f, false);
         Check(invitation.At(3).Cue >= 11 && invitation.At(3).Cue <= 15,
             "enchantress native visit starts an invitation even if attention was already raised");
-        invitation.Work(3, 1f, 0f, 0f, true, 0f);
-        invitation.Work(3, 1.1f, 0f, .4f, true, .1f);
+        invitation.Work(3, 1f, 0f, 0f, false, true, 0f);
+        invitation.Work(3, 1.1f, 0f, .4f, false, true, .1f);
         Check(!invitation.At(3).Pending && invitation.At(3).Generation == 1,
             "hand extension never duplicates the native-visit greeting");
-        invitation.Work(3, 1.2f, 0f, .6f, true, .2f);
+        invitation.Work(3, 1.2f, 0f, .6f, false, true, .2f);
         Check(!invitation.At(3).Pending, "continuous hand pose does not repeat invitation");
         ushort invitationCue = invitation.At(3).Cue;
         Check(invitation.Observe(3, 7, invitationCue, 1, .6f, 1f), "observer adopts author invitation age");
@@ -244,7 +244,7 @@ public static class InteractionProgram
         TownServicePopulation.Frame = frame.transform; frame.transform.localScale = Vector3.one * 198.12f;
         head.transform.position = new Vector3(1f, 2f, 3f);
         HeadEar.Claims.Add("ExistingEnvironment");
-        TownServiceVoice.Tick(1, 0f, true, default);
+        TownServiceVoice.Tick(1, 0f, true, default, false);
         Check(TownServiceFaceSpeech.Sampler != null && TownServiceFaceSpeech.Observer != null,
             "station audio tick binds shared face adapter");
         int requests = 0;
@@ -305,7 +305,7 @@ public static class InteractionProgram
         TownServiceFaceSpeech.Observer(2, 7, 31, 2, .15f, head.transform);
         Check(Source.isPlaying, "new authored generation can start after a previous cue");
         StoryComposite.PointOfNoReturn = true;
-        TownServiceVoice.Tick(2, 0f, true, default);
+        TownServiceVoice.Tick(2, 0f, true, default, false);
         Check(!Source.isPlaying && !HeadEar.Claims.Contains("TownResidents"),
             "point of no return immediately stops active resident speech");
         int storyRequests = requests;
@@ -329,7 +329,7 @@ public static class InteractionProgram
         foreach (TextAsset curve in TownServiceAssets.Curves.Values) UnityEngine.Object.DestroyImmediate(curve);
         TownServiceAssets.Clips.Clear(); TownServiceAssets.Curves.Clear();
         VRLog.Warnings.Clear();
-        TownServiceVoice.Tick(1, 0f, true, default);
+        TownServiceVoice.Tick(1, 0f, true, default, false);
         Check(VRLog.Warnings.Count == 1 && VRLog.Warnings[0].Contains("75/75"),
             "a missing voice bank produces one bounded player-facing report");
         return _checks;

@@ -224,7 +224,7 @@ namespace GloomhavenVR.WorldUI
     }
     internal static class TownServiceVoice
     {
-        internal static void Tick(byte service,float clock,bool visible,in TownActivityVisual shown){}
+        internal static void Tick(byte service,float clock,bool visible,in TownActivityVisual shown,bool lookingAtVisitor){}
     }
     internal sealed class TownServiceActivityRig
     {

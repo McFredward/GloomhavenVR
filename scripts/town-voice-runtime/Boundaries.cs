@@ -4,6 +4,8 @@ using UnityEngine;
 namespace GloomhavenVR.Core {
  internal static class VRLog {
   internal static readonly List<string> Warnings = new();
+  internal static bool WantsDebug;
+  internal static void Debug(string s,string m) { }
   internal static void Warn(string s,string m) { Warnings.Add(m); }
  }
  internal static class HeadEar {

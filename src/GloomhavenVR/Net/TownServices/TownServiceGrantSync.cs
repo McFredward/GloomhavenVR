@@ -74,6 +74,13 @@ internal static class TownServiceGrantSync
             Broadcast(new TownGrantMessage(TownGrantKind.Grant, service, LocalPlayer,
                 session, offer.Nonce, _epoch, offer.RequestSequence));
         }
+        else if (Host)
+        {
+            // The host is also a visitor. A peer's lease must reject its local offer
+            // like any other Busy reply, never route it through the flat fallback.
+            offer.Denied = true;
+            offer.LastResponse = Time.unscaledTime;
+        }
     }
 
     internal static bool MayCommit(byte service, uint session)
@@ -93,7 +100,7 @@ internal static class TownServiceGrantSync
         if (!FFSNetwork.IsOnline || service < 1 || service > 3) return false;
         if (NetSession.FlatNetMode) return true;
         Offer offer = Offers[service];
-        if (!offer.Active || offer.Session != session) return false;
+        if (!offer.Active || offer.Session != session || offer.Denied) return false;
         return !CoordinatorReady || offer.LastResponse <= 0f
             && Time.unscaledTime - offer.Started >= UnavailableSeconds;
     }
@@ -130,9 +137,14 @@ internal static class TownServiceGrantSync
             {
                 if (Ledger.Request(service, LocalPlayer, offer.Session, offer.Nonce, now))
                 {
-                    offer.Epoch = _epoch; offer.LastGrant = now;
+                    offer.Epoch = _epoch; offer.LastGrant = now; offer.Denied = false;
                     Broadcast(new TownGrantMessage(TownGrantKind.Grant, service, LocalPlayer,
                         offer.Session, offer.Nonce, _epoch, offer.RequestSequence));
+                }
+                else
+                {
+                    offer.Denied = true;
+                    offer.LastResponse = now;
                 }
                 continue;
             }

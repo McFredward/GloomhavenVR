@@ -240,7 +240,7 @@ def mutations():
         ("delayed-cancel", "RitualGuard.cs", "else cancel?.Invoke();", "else if (!requested) cancel?.Invoke();", "delayed owner change cancels original transaction"),
         ("duplicate-completion", "RitualGuard.cs", "if (_completed) return;", "", "duplicate hidden completion is one shot"),
         ("scope-boundary", "RitualGuard.cs", " || !ReferenceEquals(scope._box, box)", "", "unrelated box retains its native callbacks"),
-        ("affordability-race", "RitualTransactions.cs", "Func<bool> stillValid = () => _sessionAlive() && pendingEligible()", "Func<bool> stillValid = () => _sessionAlive()", "post-selection affordability refused"),
+        ("affordability-race", "RitualTransactions.cs", "Func<bool> stillValid = () => _sessionAlive() && TownServiceMirror.LocalTransactionSettled(2)\n            && pendingEligible()", "Func<bool> stillValid = () => _sessionAlive() && TownServiceMirror.LocalTransactionSettled(2)", "post-selection affordability refused"),
         ("owner-race", "RitualTransactions.cs", "&& ReferenceEquals(context, _context()) && ReferenceEquals(selected, identity());", "&& ReferenceEquals(selected, identity());", "post-selection owner change refused"),
         ("item-race", "RitualTransactions.cs", "&& ReferenceEquals(context, _context()) && ReferenceEquals(selected, identity());", "&& ReferenceEquals(context, _context());", "post-selection selected item change refused"),
         ("existing-prompt", "RitualTransactions.cs", " || box.GetComponent<UIWindow>().IsOpen || !button.IsInteractable()", " || !button.IsInteractable()", "existing unrelated prompt untouched"),
