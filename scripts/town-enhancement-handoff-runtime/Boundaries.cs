@@ -142,10 +142,13 @@ namespace GloomhavenVR.WorldUI.MapRoom
     {
         public static Owner? LocalCharacter = new();
         public static int InspectionReleases;
+        public static int TempleInspectionReleases;
         public static bool InspectionBlocked;
         public static Owner? OwnedMerchantCharacter() => LocalCharacter;
         public static void SetMerchantInspection(bool active)
         { if (!active) { InspectionReleases++; InspectionBlocked = false; } }
+        public static void SetTempleInspection(bool active)
+        { if (!active) { TempleInspectionReleases++; InspectionBlocked = false; } }
         public static bool TryOwnedTownCard(Cards.VRCard card, out Owner? owner, out ScenarioRuleLibrary.CAbilityCard? model)
         { owner = card.Owner; model = card.Model; return !InspectionBlocked && MapRoomDriver.Active && card.Owned && card.InLoadout && card.CurrentCharacter; }
     }

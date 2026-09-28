@@ -274,11 +274,14 @@ internal sealed class TownServiceEnhancementHandoff : IDisposable
         float now = Time.realtimeSinceStartup;
         if (!headEntered && !cardEntered && now < _approachRetryAt) return;
         _approachRetryAt = now + .1f;
-        // The item-inspection fan masks the owned ability fan. Relinquish only this
-        // player's fan after the physical Mage focus wins; Merchant's body, cabinet
-        // and any other player's stand remain active. Rebuild is synchronous here.
+        // The item fan and temple purse both mask the owned ability fan. Relinquish
+        // only this player's current hand mode after physical Mage focus wins;
+        // other residents and visitors retain their independent presentation.
+        // Rebuild is synchronous before the native card census below.
         if (destination == EGuildmasterMode.Merchant && magePreferred)
             MapRoomHand.SetMerchantInspection(false);
+        if (destination == EGuildmasterMode.Temple && magePreferred)
+            MapRoomHand.SetTempleInspection(false);
         if (!HasOwnedMapCard() || !MapRoomDriver.CanVisitTownService(EGuildmasterMode.Enchantress)) return;
         NewPartyDisplayUI? display = NewPartyDisplayUI.PartyDisplay;
         NewPartyCharacterUI? selectedSlot = display?.SelectedUISlot;
@@ -652,15 +655,7 @@ internal sealed class TownServiceEnhancementHandoff : IDisposable
         Card = card; NativeSource = _shop.selectedCard; NativeSlot = found; _model = model;
         CardFan.Current?.Remove(card);
         card.Grabbed += OnGrabbed;
-        // Preserve the physical reading size instead of inheriting the resident's model scale.
-        // A 0.9 local scale made the ability card a postage stamp on scaled map residents.
-        float handScale = VRHands.Primary?.WorldScale ?? Mathf.Abs(card.transform.lossyScale.x);
-        float size = CardsConfig.InspectScale.Value * handScale / Mathf.Max(.0001f, Mathf.Abs(_seat.lossyScale.x));
-        _offeredHeight = CardsConfig.CardHeight * CardsConfig.InspectScale.Value * handScale;
-        card.SetHome(_seat, Vector3.zero, Quaternion.identity, size);
-        card.SetHandPopSuppressed(false);
-        card.ResetColliderRegion();
-        card.Grabbable = true; card.InspectOnly = true; card.AllowsGateHand = true;
+        SeatPhysicalCard(card);
         if (displaced != null && !displaced.IsHeld && displacedPresentation != null)
             BeginReturn(displacedPresentation);
         // The old post-offer reaction used invitation clips ("Give me your card")
@@ -671,6 +666,19 @@ internal sealed class TownServiceEnhancementHandoff : IDisposable
         return true;
     }
 
+    private void SeatPhysicalCard(VRCard card)
+    {
+        // Preserve the physical reading size instead of inheriting the resident's model scale.
+        // A 0.9 local scale made the ability card a postage stamp on scaled map residents.
+        float handScale = VRHands.Primary?.WorldScale ?? Mathf.Abs(card.transform.lossyScale.x);
+        float size = CardsConfig.InspectScale.Value * handScale / Mathf.Max(.0001f, Mathf.Abs(_seat.lossyScale.x));
+        _offeredHeight = CardsConfig.CardHeight * CardsConfig.InspectScale.Value * handScale;
+        card.SetHome(_seat, Vector3.zero, Quaternion.identity, size);
+        card.SetHandPopSuppressed(false);
+        card.ResetColliderRegion();
+        card.Grabbable = true; card.InspectOnly = true; card.AllowsGateHand = true;
+    }
+
     private bool ParkAwaitingClaim(VRCard card, CAbilityCard model, UIEnhanceCardSlot slot)
     {
         Reclaimed.Remove(card);
@@ -679,13 +687,7 @@ internal sealed class TownServiceEnhancementHandoff : IDisposable
         _claimDeadline = Time.unscaledTime + 3f;
         CardFan.Current?.Remove(card);
         card.Grabbed += OnGrabbed;
-        float handScale = VRHands.Primary?.WorldScale ?? Mathf.Abs(card.transform.lossyScale.x);
-        float size = CardsConfig.InspectScale.Value * handScale / Mathf.Max(.0001f, Mathf.Abs(_seat.lossyScale.x));
-        _offeredHeight = CardsConfig.CardHeight * CardsConfig.InspectScale.Value * handScale;
-        card.SetHome(_seat, Vector3.zero, Quaternion.identity, size);
-        card.SetHandPopSuppressed(false);
-        card.ResetColliderRegion();
-        card.Grabbable = true; card.InspectOnly = true; card.AllowsGateHand = true;
+        SeatPhysicalCard(card);
         VRLog.Debug("WorldUI", "TOWN ENHANCEMENT: physical card parked while resident claim settles.");
         return true;
     }

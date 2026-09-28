@@ -984,10 +984,13 @@ public static class InteractionProgram
         head.transform.position = palm.position; TownServiceEnhancementHandoff.TickApproach();
         Check(MapRoomDriver.Visits == 9 && GuildmasterDestinations.Mode == EGuildmasterMode.Temple,
             "head-only temple and enchantress overlap keeps the temple transaction available");
+        MapRoomHand.InspectionBlocked = true;
         System.Threading.Thread.Sleep(125);
         fanPalm.position = palm.position; TownServiceEnhancementHandoff.TickApproach();
         Check(MapRoomDriver.Visits == 10 && GuildmasterDestinations.Mode == EGuildmasterMode.Enchantress,
             "deliberate fan-hand focus switches from a completed temple visit");
+        Check(MapRoomHand.TempleInspectionReleases == 1 && !MapRoomHand.InspectionBlocked,
+            "temple purse is released before the enchantress reads the owned ability fan");
         Outside(); GuildmasterDestinations.Mode = EGuildmasterMode.Merchant;
         var confirmation = new GameObject("Trade confirmation", typeof(UIWindow), typeof(UIItemConfirmationBox))
             .GetComponent<UIItemConfirmationBox>();
