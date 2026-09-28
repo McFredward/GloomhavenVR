@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using GloomhavenVR.Cards;
 using GloomhavenVR.Core;
 using GloomhavenVR.Hands;
+using GloomhavenVR.Net.TownServices;
 using GloomhavenVR.WorldUI.MapRoom;
 using MapRuleLibrary.Party;
 using MapRuleLibrary.Adventure;
@@ -327,6 +328,11 @@ internal static class TownServiceMerchantHandoff
             _pending = null; ReleaseOffering(); return;
         }
         if (Time.unscaledTime < _nextCommitAt) return;
+        // A card may be parked before its private reservation reaches the other
+        // clients. Never open the native purchase/sale callback while another
+        // visitor could still win this NPC's bounded claim window. The physical
+        // card and original item stay pending; cancellation/timeout returns it.
+        if (!TownServiceMirror.LocalTransactionSettled(1)) return;
         UIShopItemWindow? window = Singleton<UIGuildmasterHUD>.Instance?.shopWindow;
         if (window == null || !window.GetComponent<UIWindow>().IsOpen) return;
         UIShopItemInventory inventory = window.ItemInventory;

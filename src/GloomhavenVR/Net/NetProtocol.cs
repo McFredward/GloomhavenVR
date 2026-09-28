@@ -90,6 +90,9 @@ internal static class NetProtocol
     public const byte MsgTownActivity = 22;
     public const byte MsgMapButtonTooltip = 23;
     public const byte MsgMapButtonTooltipFragments = 24;
+    /// <summary>Reliable per-resident transaction request/grant/release, never a gameplay
+    /// command. A native service callback waits for the matching grant.</summary>
+    public const byte MsgTownGrant = 25;
     public const byte ExtIdMapButtonTooltip = 82;
     /// <summary>Native map story opening history; pages/completion retain predecessor identity.</summary>
     public const byte ExtIdMapStoryLifecycle = 83;

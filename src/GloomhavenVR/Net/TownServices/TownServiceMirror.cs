@@ -110,12 +110,11 @@ internal static partial class TownServiceMirror
     };
     private const float InteractionClaimSettleSeconds = .12f;
 
-    /// <summary>The single presentation owner for one resident interaction. The native
-    /// service manifests already carry a bounded heartbeat, close edge, player identity and
-    /// session generation, so a second claim stream would only introduce split-brain state.
-    /// A short acquisition window makes simultaneously arriving claims deterministic; once
-    /// granted, a later visitor can never preempt the active owner. A close, walk-away,
-    /// disconnect, scene reset or timeout releases the lease without a gameplay RPC.</summary>
+    /// <summary>The single author of one resident's shared presentation. Every visitor
+    /// may browse before placing an offer; this election only decides whose original
+    /// modules are copied at the physical stand. A transaction claimant temporarily
+    /// takes authorship so the offered card and confirmation have one shared source.
+    /// Session close, walk-away, disconnect or timeout releases this visual lease.</summary>
     internal static int InteractionOwner(byte service)
     {
         if (service < 1 || service > 3) return 0;
