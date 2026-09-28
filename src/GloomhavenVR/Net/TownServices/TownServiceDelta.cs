@@ -82,6 +82,8 @@ internal static class TownServiceDelta
     {
         PublicCatalog = f.PublicCatalog, PublicClaim = f.PublicClaim, Rack = f.Rack?.Copy(), RackMember = f.RackMember?.Copy(), Service = f.Service, Session = f.Session, Sequence = f.Sequence, BaseSequence = f.BaseSequence,
         WorkspaceCloth = f.WorkspaceCloth == null ? null : (byte[])f.WorkspaceCloth.Clone(),
+        TempleDonationKnown = f.TempleDonationKnown, TempleDonationAvailable = f.TempleDonationAvailable,
+        TempleDonationRevision = f.TempleDonationRevision, TransactionActive = f.TransactionActive,
         Module = f.Module, Template = f.Template, TemplateAddress = f.TemplateAddress, Structure = f.Structure, Visible = f.Visible,
         SampleTime = f.SampleTime, SessionAge = f.SessionAge, ParentModule = f.ParentModule, ParentBinding = f.ParentBinding,
         ParentAlpha = f.ParentAlpha, HasCanvasFrame = f.HasCanvasFrame, CanvasPose = (float[])f.CanvasPose.Clone(),

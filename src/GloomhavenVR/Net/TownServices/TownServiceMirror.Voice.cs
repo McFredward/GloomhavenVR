@@ -97,10 +97,10 @@ internal static partial class TownServiceMirror
         if (VisitorSessions.TryGetValue(peer, out TownServiceSessionInfo? session)
             && session.Session == frame.Session && session.Service == frame.Service)
         {
-            int owner = InteractionOwner(frame.Service);
-            if (owner == peer)
+            int owner = TransactionOwner(frame.Service);
+            if (owner == 0 && !AnyTransactionClaim(frame.Service) || owner == peer)
                 DeliverVoice(peer, frame, session, Time.unscaledTime);
-            if (owner != 0) return;
+            if (owner != 0 || !AnyTransactionClaim(frame.Service)) return;
         }
         if (!VoicePending.TryGetValue(peer, out List<PendingVoice>? pending))
         {
@@ -115,10 +115,10 @@ internal static partial class TownServiceMirror
     {
         if (!VoicePending.TryGetValue(peer, out List<PendingVoice>? pending)
             || !VisitorSessions.TryGetValue(peer, out TownServiceSessionInfo? session)) return;
-        int owner = InteractionOwner(session.Service);
-        if (owner == 0) return; // acquisition settle window: keep reordered requests bounded
+        int owner = TransactionOwner(session.Service);
+        if (owner == 0 && AnyTransactionClaim(session.Service)) return;
         VoicePending.Remove(peer);
-        if (owner != peer) return;
+        if (owner != 0 && owner != peer) return;
         pending.Sort((a, b) => a.Frame.Sequence.CompareTo(b.Frame.Sequence));
         foreach (PendingVoice queued in pending)
             if (Time.unscaledTime - queued.Received <= 3f)
@@ -128,7 +128,7 @@ internal static partial class TownServiceMirror
     private static void DeliverVoice(int peer, TownServiceFrame frame, TownServiceSessionInfo session, float received)
     {
         if (!session.Active || session.Service != frame.Service || session.Session != frame.Session
-            || !IsInteractionOwner(peer, frame.Service, frame.Session)
+            || (TransactionOwner(frame.Service) is int owner && owner != 0 && owner != peer)
             || !TownServiceVoiceRelayCodec.TryRead(frame, out TownVoiceReaction reaction)
             || Time.unscaledTime - received > 3f
             || Mathf.Abs((frame.SampleTime - session.SampleTime)

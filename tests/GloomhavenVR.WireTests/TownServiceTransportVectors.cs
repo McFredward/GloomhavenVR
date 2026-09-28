@@ -13,6 +13,7 @@ internal static class TownServiceTransportVectors
         PublicCatalogLanes(t);
         PrivateWorkspaceCloth(t);
         SharedTempleAvailability(t);
+        PrivateTransactionReservations(t);
         t.Case("Town service original widgets use the real wire header and loss-safe module lanes");
         var frame = Frame(62000, 1);
         byte[] raw = TownServiceCodec.Write(frame);
@@ -66,6 +67,42 @@ internal static class TownServiceTransportVectors
         ColdService(t, 8, false); ColdService(t, 24, false); ColdService(t, 24, true); ColdService(t, 64, true);
         LateGameCatalog(t, false, 191 * 3 + 64); LateGameCatalog(t, false); LateGameCatalog(t, true);
         BundleBounds(t); UrgentBundleDependency(t); DelayedFragmentCensus(t);
+    }
+    private static void PrivateTransactionReservations(Harness t)
+    {
+        t.Case("TLV92 reserves only the offered NPC while private browsing remains unclaimed");
+        for (byte service = 1; service <= 3; service++)
+        {
+            var manifest = Frame(TownServiceFrame.ManifestModule, 17, 0);
+            manifest.Service = service; manifest.Template = 0; manifest.Structure = 0;
+            byte[] browsing = TownServiceCodec.Write(manifest);
+            t.True(TownServiceCodec.TryRead(browsing, browsing.Length, out TownServiceFrame? visitor)
+                && !visitor!.TransactionActive, "an approached service remains available before an offer");
+            manifest.TransactionActive = true;
+            byte[] reserved = TownServiceCodec.Write(manifest);
+            t.Wire(browsing, reserved, browsing.Length, "a reservation leaves the original private manifest prefix intact");
+            t.Wire(Hex.Bytes("5C 01 01"), Slice(reserved, reserved.Length - 3, 3), 3,
+                "only this service session carries its explicit reservation");
+            t.True(TownServiceCodec.TryRead(reserved, reserved.Length, out TownServiceFrame? claimed)
+                && claimed!.Service == service && claimed.TransactionActive,
+                "each service can reserve independently without a global NPC lock");
+            var released = TownServiceDelta.Copy(manifest); released.TransactionActive = false;
+            t.True(TownServiceCodec.TryRead(TownServiceCodec.Write(released),
+                    TownServiceCodec.Write(released).Length, out TownServiceFrame? open)
+                && !open!.TransactionActive, "reclaiming the offer releases this service");
+            byte[] duplicate = new byte[reserved.Length + 3];
+            Array.Copy(reserved, duplicate, reserved.Length);
+            Array.Copy(reserved, reserved.Length - 3, duplicate, reserved.Length, 3);
+            t.True(!TownServiceCodec.TryRead(duplicate, duplicate.Length, out _),
+                "duplicate reservation records are rejected");
+            byte[] malformed = (byte[])reserved.Clone(); malformed[^1] = 2;
+            t.True(!TownServiceCodec.TryRead(malformed, malformed.Length, out _),
+                "invalid reservation grammar is rejected");
+        }
+        var foreign = Frame(4, 17, 1); foreign.TransactionActive = true;
+        bool rejected = false;
+        try { TownServiceCodec.Write(foreign); } catch (System.IO.InvalidDataException) { rejected = true; }
+        t.True(rejected, "module data cannot forge a transaction reservation");
     }
     private static void PrivateWorkspaceCloth(Harness t)
     {

@@ -36,6 +36,9 @@ internal sealed class TownServiceFrame
     internal bool TempleDonationKnown;
     internal bool TempleDonationAvailable;
     internal uint TempleDonationRevision;
+    // Additive TLV92 belongs only to a private active manifest. A visitor may browse a
+    // service without reserving it; the claim begins only after an offer is placed.
+    internal bool TransactionActive;
     // Local transport scheduling only; never serialized or interpreted as gameplay authority.
     internal bool HighPriority;
     internal float SampleTime;

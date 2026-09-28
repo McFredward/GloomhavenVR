@@ -11,6 +11,7 @@ internal static class TownServiceCodec
     internal const byte MessageType = 19, FragmentType = 20, RecordId = 78;
     internal const byte WorkspaceClothRecordId = NetProtocol.ExtIdTownWorkspaceCloth;
     internal const byte TempleInteractionRecordId = NetProtocol.ExtIdTownInteraction;
+    internal const byte TransactionRecordId = 92;
     private static readonly UTF8Encoding Utf8 = new(false, true);
 
     internal static byte[] Write(TownServiceFrame frame)
@@ -64,7 +65,7 @@ internal static class TownServiceCodec
         int mechanismBytes = frame.Rack?.Cassette == true || frame.PublicCatalog ? 8 : 0;
         int rollerBytes = frame.Rack?.Cassette == true ? 6 : 0;
         int clothBytes = frame.WorkspaceCloth == null ? 0 : frame.WorkspaceCloth.Length + 4;
-        int interactionBytes = frame.TempleDonationKnown ? 8 : 0;
+        int interactionBytes = (frame.TempleDonationKnown ? 8 : 0) + (frame.TransactionActive ? 3 : 0);
         int size = rollerBytes + mechanismBytes + clothBytes + interactionBytes + 6 + raw.Length + 2 * ((raw.Length + 254) / 255) + rack.Length + 2 * ((rack.Length + 254) / 255);
         if (size > TownServiceFrame.MaxBytes) throw new InvalidDataException("Town-service module exceeds the bounded snapshot size.");
         var packet = new byte[size];
@@ -102,6 +103,15 @@ internal static class TownServiceCodec
             packet[at++] = frame.TempleDonationAvailable ? (byte)1 : (byte)0;
             for (int i = 0; i < 4; i++) packet[at + i] = (byte)(frame.TempleDonationRevision >> (8 * i));
         }
+        if (frame.TransactionActive)
+        {
+            int at = 6 + raw.Length + 2 * ((raw.Length + 254) / 255)
+                + rack.Length + 2 * ((rack.Length + 254) / 255) + clothBytes
+                + (frame.TempleDonationKnown ? 8 : 0);
+            packet[at++] = TransactionRecordId;
+            packet[at++] = 1;
+            packet[at] = 1; // active reservation grammar
+        }
         if (mechanismBytes != 0)
         { packet[size - rollerBytes - 8] = TownCassetteMotion.RecordId; packet[size - rollerBytes - 7] = 6; packet[size - rollerBytes - 6] = 1; packet[size - rollerBytes - 5] = (byte)((frame.Rack?.Cassette == true ? 1 : 0) | (frame.PublicCatalog ? 2 : 0));
           for (int i = 0; i < 4; i++) packet[size - rollerBytes - 4 + i] = (byte)(frame.PublicClaim >> (8 * i)); }
@@ -124,6 +134,7 @@ internal static class TownServiceCodec
             using var rack = new MemoryStream();
             byte[]? workspaceCloth = null;
             bool templeDonationKnown = false, templeDonationAvailable = false; uint templeDonationRevision = 0;
+            bool transactionActive = false;
             bool rollerSeen = false; sbyte scrollDirection = 0; ushort pageCount = 1;
             bool cassette = false, publicCatalog = false, mechanismSeen = false; uint publicClaim = 0;
             for (int at = 6; at < length;)
@@ -152,6 +163,11 @@ internal static class TownServiceCodec
                     templeDonationRevision = (uint)(packet[at + 2] | packet[at + 3] << 8
                         | packet[at + 4] << 16 | packet[at + 5] << 24);
                 }
+                if (record == TransactionRecordId)
+                {
+                    if (transactionActive || count != 1 || packet[at] != 1) return false;
+                    transactionActive = true;
+                }
                 if (record == TownCassetteMotion.RecordId)
                 {
                     if (mechanismSeen || count != 6 || packet[at] != 1 || (packet[at + 1] == 0 || packet[at + 1] > 3)) return false;
@@ -176,6 +192,7 @@ internal static class TownServiceCodec
             result.TempleDonationKnown = templeDonationKnown;
             result.TempleDonationAvailable = templeDonationAvailable;
             result.TempleDonationRevision = templeDonationRevision;
+            result.TransactionActive = transactionActive;
             byte shown = r.ReadByte(); if (shown > 1) return false;
             result.Visible = shown != 0; result.ParentModule = r.ReadUInt16(); result.ParentBinding = r.ReadUInt32();
             result.ParentAlpha = r.ReadSingle(); result.SampleTime = r.ReadSingle(); result.SessionAge = r.ReadSingle();
@@ -354,6 +371,9 @@ internal static class TownServiceCodec
             throw new InvalidDataException("Temple donation availability is missing its known-state marker.");
         if (!frame.TempleDonationKnown && frame.TempleDonationRevision != 0)
             throw new InvalidDataException("Temple donation revision is missing its known-state marker.");
+        if (frame.TransactionActive && (frame.PublicCatalog
+            || frame.Module != TownServiceFrame.ManifestModule || !frame.Visible))
+            throw new InvalidDataException("Transaction reservation belongs to an active private service manifest.");
 
         if (frame.Module == TownServiceFrame.BundleStream || frame.Service < 1 || frame.Service > 3 || frame.Session == 0 || frame.Sequence == 0
             || frame.BaseSequence >= frame.Sequence && frame.BaseSequence != 0

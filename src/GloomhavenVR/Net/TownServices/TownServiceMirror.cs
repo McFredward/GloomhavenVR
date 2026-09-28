@@ -20,9 +20,23 @@ internal sealed class TownServiceSessionInfo
     internal bool TempleDonationKnown, TempleDonationAvailable;
     internal uint TempleDonationRevision;
     internal float TempleDonationChangedTime;
+    internal bool TransactionActive;
     internal Vector3 Position, Scale;
     internal Quaternion Rotation;
     internal ushort[] Modules = Array.Empty<ushort>();
+}
+
+internal readonly struct TownTempleDonationState
+{
+    internal readonly int Peer;
+    internal readonly uint Session;
+    internal readonly bool Known, Available;
+    internal readonly uint Revision;
+    internal readonly float TransitionAge;
+    internal TownTempleDonationState(int peer, uint session, bool known, bool available,
+        uint revision, float transitionAge)
+    { Peer = peer; Session = session; Known = known; Available = available;
+      Revision = revision; TransitionAge = transitionAge; }
 }
 
 /// <summary>
@@ -90,6 +104,10 @@ internal static partial class TownServiceMirror
     {
         new(), new(), new(), new()
     };
+    private static readonly InteractionLease[] TransactionLeases =
+    {
+        new(), new(), new(), new()
+    };
     private const float InteractionClaimSettleSeconds = .12f;
 
     /// <summary>The single presentation owner for one resident interaction. The native
@@ -101,6 +119,8 @@ internal static partial class TownServiceMirror
     internal static int InteractionOwner(byte service)
     {
         if (service < 1 || service > 3) return 0;
+        int transactionOwner = TransactionOwner(service);
+        if (transactionOwner != 0) return transactionOwner;
         float now = Time.unscaledTime;
         InteractionLease lease = InteractionLeases[service];
         if (LiveInteraction(lease.Player, service, lease.Session, now)) return lease.Player;
@@ -130,19 +150,83 @@ internal static partial class TownServiceMirror
         return owner;
     }
 
-    private static bool LiveInteraction(int player, byte service, uint session, float now)
+    /// <summary>Reservation of one NPC after a physical offer is placed. The three leases are
+    /// independent. Mere proximity and native window opening never claim a transaction.
+    /// A lost peer, closed native session, reclaimed offer or scene reset releases it.</summary>
+    internal static int TransactionOwner(byte service)
+    {
+        if (service < 1 || service > 3) return 0;
+        float now = Time.unscaledTime;
+        InteractionLease lease = TransactionLeases[service];
+        if (LiveInteraction(lease.Player, service, lease.Session, now, requireTransaction: true))
+            return lease.Player;
+        lease.Player = 0; lease.Session = 0;
+        int owner = 0; uint sessionId = 0; float oldestAge = float.NegativeInfinity;
+        if (PrivateLane.Active && PrivateLane.Service == service && PrivateLane.TransactionActive)
+        { owner = LocalPeer; sessionId = PrivateLane.Session; oldestAge = Mathf.Max(0f, now - PrivateLane.Started); }
+        foreach (var pair in VisitorSessions)
+        {
+            TownServiceSessionInfo session = pair.Value;
+            if (pair.Key <= 0 || !session.Active || !session.TransactionActive
+                || session.Service != service || now - session.LastSeenTime > NetProtocol.StaleTimeoutSeconds) continue;
+            float age = session.SessionAge + Mathf.Max(0f, now - session.ReceivedTime);
+            if (owner == 0 || age > oldestAge + .05f
+                || Mathf.Abs(age - oldestAge) <= .05f && pair.Key < owner)
+            { owner = pair.Key; sessionId = session.Session; oldestAge = age; }
+        }
+        if (owner == 0) { lease.PendingSince = float.NegativeInfinity; return 0; }
+        if (float.IsNegativeInfinity(lease.PendingSince)) { lease.PendingSince = now; return 0; }
+        if (now - lease.PendingSince < InteractionClaimSettleSeconds) return 0;
+        lease.Player = owner; lease.Session = sessionId;
+        lease.PendingSince = float.NegativeInfinity;
+        return owner;
+    }
+
+    private static bool AnyTransactionClaim(byte service)
+    {
+        if (PrivateLane.Active && PrivateLane.Service == service && PrivateLane.TransactionActive) return true;
+        float now = Time.unscaledTime;
+        foreach (TownServiceSessionInfo remote in VisitorSessions.Values)
+            if (remote.Active && remote.Service == service && remote.TransactionActive
+                && now - remote.LastSeenTime <= NetProtocol.StaleTimeoutSeconds) return true;
+        return false;
+    }
+
+    private static bool LiveInteraction(int player, byte service, uint session, float now,
+        bool requireTransaction = false)
     {
         if (player <= 0 || session == 0) return false;
         if (player == LocalPeer) return PrivateLane.Active && PrivateLane.Service == service
-            && PrivateLane.Session == session;
+            && PrivateLane.Session == session && (!requireTransaction || PrivateLane.TransactionActive);
         return VisitorSessions.TryGetValue(player, out TownServiceSessionInfo? remote)
             && remote.Active && remote.Service == service && remote.Session == session
+            && (!requireTransaction || remote.TransactionActive)
             && now - remote.LastSeenTime <= NetProtocol.StaleTimeoutSeconds;
     }
 
-    internal static bool LocalOwnsInteraction(byte service, uint session) => session != 0
-        && PrivateLane.Active && PrivateLane.Service == service && PrivateLane.Session == session
-        && InteractionOwner(service) == LocalPeer;
+    internal static bool LocalOwnsInteraction(byte service, uint session)
+    {
+        if (session == 0 || !PrivateLane.Active || PrivateLane.Service != service
+            || PrivateLane.Session != session) return false;
+        int owner = TransactionOwner(service);
+        if (owner != 0) return owner == LocalPeer;
+        // During the bounded acquisition window a foreign parked offer already blocks a
+        // second local drop. Browsing at this NPC and all other NPCs stays available.
+        foreach (TownServiceSessionInfo remote in VisitorSessions.Values)
+            if (remote.Active && remote.Service == service && remote.TransactionActive
+                && Time.unscaledTime - remote.LastSeenTime <= NetProtocol.StaleTimeoutSeconds
+                && !PrivateLane.TransactionActive) return false;
+        return true;
+    }
+
+    internal static void SetLocalTransactionActive(byte service, bool active)
+    {
+        if (!PrivateLane.Active || PrivateLane.Service != service || PrivateLane.Session == 0) return;
+        if (PrivateLane.TransactionActive == active) return;
+        PrivateLane.TransactionActive = active;
+        PrivateLane.NextManifest = 0f;
+        if (!active) TransactionOwner(service); // retire a released local lease immediately
+    }
 
     internal static bool IsInteractionOwner(int player, byte service, uint session)
     {
@@ -175,17 +259,45 @@ internal static partial class TownServiceMirror
     /// merely because the owner's first eligibility sample has not arrived yet.</summary>
     internal static void SetLocalTempleDonationAvailable(bool available)
     {
-        if (!LocalOwnsInteraction(2, PrivateLane.Session)) return;
+        if (!PrivateLane.Active || PrivateLane.Service != 2) return;
         if (PrivateLane.TempleDonationKnown && PrivateLane.TempleDonationAvailable == available) return;
-        if (PrivateLane.TempleDonationKnown && PrivateLane.TempleDonationAvailable && !available)
-        {
-            PrivateLane.TempleDonationRevision++;
-            if (PrivateLane.TempleDonationRevision == 0) PrivateLane.TempleDonationRevision = 1;
-            PrivateLane.TempleDonationChangedTime = Time.unscaledTime;
-        }
         PrivateLane.TempleDonationKnown = true;
         PrivateLane.TempleDonationAvailable = available;
         PrivateLane.NextManifest = 0f;
+    }
+
+    /// <summary>Only the original native donation success callback may advance this revision.
+    /// A change of selected character or affordability is merely availability, not a blessing.</summary>
+    internal static void MarkLocalTempleDonationCommitted()
+    {
+        if (!PrivateLane.Active || PrivateLane.Service != 2) return;
+        unchecked { PrivateLane.TempleDonationRevision++; }
+        if (PrivateLane.TempleDonationRevision == 0) PrivateLane.TempleDonationRevision = 1;
+        PrivateLane.TempleDonationChangedTime = Time.unscaledTime;
+        PrivateLane.TempleDonationKnown = true;
+        PrivateLane.TempleDonationAvailable = false;
+        PrivateLane.NextManifest = 0f;
+    }
+
+    internal static void CollectTempleDonationStates(List<TownTempleDonationState> destination)
+    {
+        destination.Clear();
+        float now = Time.unscaledTime;
+        if (PrivateLane.Active && PrivateLane.Service == 2)
+            destination.Add(new TownTempleDonationState(LocalPeer, PrivateLane.Session,
+                PrivateLane.TempleDonationKnown, PrivateLane.TempleDonationAvailable,
+                PrivateLane.TempleDonationRevision,
+                PrivateLane.TempleDonationRevision == 0 ? 0f : Mathf.Max(0f, now - PrivateLane.TempleDonationChangedTime)));
+        foreach (var pair in VisitorSessions)
+        {
+            TownServiceSessionInfo visitor = pair.Value;
+            if (pair.Key <= 0 || !visitor.Active || visitor.Service != 2
+                || now - visitor.LastSeenTime > NetProtocol.StaleTimeoutSeconds) continue;
+            destination.Add(new TownTempleDonationState(pair.Key, visitor.Session,
+                visitor.TempleDonationKnown, visitor.TempleDonationAvailable,
+                visitor.TempleDonationRevision,
+                visitor.TempleDonationRevision == 0 ? 0f : Mathf.Max(0f, now - visitor.TempleDonationChangedTime)));
+        }
     }
 
     internal static bool TempleDonationAvailable
@@ -197,6 +309,31 @@ internal static partial class TownServiceMirror
             return owner == 0 || !VisitorSessions.TryGetValue(owner, out TownServiceSessionInfo? remote)
                 || !remote.TempleDonationKnown || remote.TempleDonationAvailable;
         }
+    }
+
+    /// <summary>Presentation availability across all current temple visitors. The bowl is
+    /// covered only if every visitor has a fresh, known native denial. An unopened or delayed
+    /// native sample cannot deny another player's valid donation. This does not authorize a
+    /// transaction: each visitor's original temple controller still validates their purse.</summary>
+    internal static bool TryTemplePresentationState(out bool hasVisitor, out bool anyCanDonate)
+    {
+        float now = Time.unscaledTime;
+        hasVisitor = false;
+        anyCanDonate = false;
+        if (PrivateLane.Active && PrivateLane.Service == 2)
+        {
+            hasVisitor = true;
+            anyCanDonate = !PrivateLane.TempleDonationKnown || PrivateLane.TempleDonationAvailable;
+        }
+        foreach (TownServiceSessionInfo visitor in VisitorSessions.Values)
+        {
+            if (!visitor.Active || visitor.Service != 2
+                || now - visitor.LastSeenTime > NetProtocol.StaleTimeoutSeconds) continue;
+            hasVisitor = true;
+            if (!visitor.TempleDonationKnown || visitor.TempleDonationAvailable)
+                anyCanDonate = true;
+        }
+        return hasVisitor;
     }
 
     internal static bool TryTempleDonationState(out int owner, out uint session, out bool known,
@@ -285,6 +422,7 @@ internal static partial class TownServiceMirror
         internal bool TempleDonationKnown, TempleDonationAvailable;
         internal uint TempleDonationRevision;
         internal float TempleDonationChangedTime;
+        internal bool TransactionActive;
     }
     private static readonly LocalLane PrivateLane = new(), PublicLane = new();
     private static LocalLane _local = PrivateLane;
@@ -381,7 +519,8 @@ internal static partial class TownServiceMirror
         if (_session != session || _service != service)
         { ClearLocalModules(); ClearVoiceOutgoing(); _nextManifest = 0; _sessionStarted = Time.unscaledTime - Mathf.Max(0f, ownerAge);
           _local.TempleDonationKnown = _local.TempleDonationAvailable = false;
-          _local.TempleDonationRevision = 0; _local.TempleDonationChangedTime = 0f; }
+          _local.TempleDonationRevision = 0; _local.TempleDonationChangedTime = 0f;
+          _local.TransactionActive = false; }
         _service = service; _session = session; _sharedFrame = sharedFrame; _station = stationAnchor; _active = true;
     }
 
@@ -444,6 +583,7 @@ internal static partial class TownServiceMirror
     { _active = false; _closedUntil = Time.unscaledTime + 5; _nextManifest = 0;
       _local.TempleDonationKnown = _local.TempleDonationAvailable = false;
       _local.TempleDonationRevision = 0; _local.TempleDonationChangedTime = 0f;
+      _local.TransactionActive = false;
       ClearVoiceOutgoing(); ClearLocalModules(); }
 
     /// <summary>Call in the owner's final presentation pass. Immutable packets go to the existing transport.</summary>
@@ -533,6 +673,8 @@ internal static partial class TownServiceMirror
                 if (ReferenceEquals(_local, PrivateLane) && _service == 2 && _active && _local.TempleDonationKnown)
                 { manifest.TempleDonationKnown = true; manifest.TempleDonationAvailable = _local.TempleDonationAvailable;
                   manifest.TempleDonationRevision = _local.TempleDonationRevision; }
+                if (ReferenceEquals(_local, PrivateLane) && _active)
+                    manifest.TransactionActive = _local.TransactionActive;
                 byte[] packet = TownServiceCodec.Write(manifest); send(packet, packet.Length, manifest);
                 // Private manifests are also the deterministic interaction lease heartbeat.
                 // Keep it below the stale timeout even when a service currently has no modules.
@@ -562,6 +704,7 @@ internal static partial class TownServiceMirror
                 SessionAge = frame.SessionAge, TempleDonationKnown = frame.TempleDonationKnown,
                 TempleDonationAvailable = frame.TempleDonationAvailable, TempleDonationRevision = frame.TempleDonationRevision,
                 TempleDonationChangedTime = donationAdvanced ? Time.unscaledTime : previous?.TempleDonationChangedTime ?? 0f,
+                TransactionActive = frame.TransactionActive,
                 Modules = frame.Modules, Position = Position(frame.Pose), Rotation = Rotation(frame.Pose), Scale = Scale(frame.Pose) };
             if (peer > 0) VisitorSessions[peer] = Sessions[peer];
             if (peer > 0) InteractionOwner(frame.Service); // start/advance the bounded claim window
@@ -625,6 +768,9 @@ internal static partial class TownServiceMirror
             float staleSeconds = entry.Key > 0 ? NetProtocol.StaleTimeoutSeconds : 10f;
             if (!session.Active || now - session.LastSeenTime > staleSeconds)
             { ClearRemoteModules(entry.Key); session.Active = false; continue; }
+            // The NPC has one physical rack/workspace, not a separate copy per visitor.
+            // Browsing input stays independent, while one elected presentation author
+            // supplies the shared native widgets. A placed offer takes authorship.
             if (entry.Key > 0 && InteractionOwner(session.Service) != entry.Key)
             { ClearRemoteModules(entry.Key); continue; }
             if (entry.Key < 0 && -entry.Key != PublicAuthor)
@@ -849,6 +995,7 @@ internal static partial class TownServiceMirror
         PrivateLane.NextManifest = PublicLane.NextManifest = 0;
         PrivateLane.TempleDonationKnown = PrivateLane.TempleDonationAvailable = false;
         PrivateLane.TempleDonationRevision = 0; PrivateLane.TempleDonationChangedTime = 0f;
+        PrivateLane.TransactionActive = false;
         ResetInteractionLeases();
     }
     internal static void Shutdown()
@@ -859,6 +1006,7 @@ internal static partial class TownServiceMirror
         _templateHost = null; _session = 0; _service = 0; _active = false; _station = _sharedFrame = null; ClearVoiceOutgoing();
         PrivateLane.TempleDonationKnown = PrivateLane.TempleDonationAvailable = false;
         PrivateLane.TempleDonationRevision = 0; PrivateLane.TempleDonationChangedTime = 0f;
+        PrivateLane.TransactionActive = false;
         ResetInteractionLeases();
         SourceParents.Clear(); ParentGroups.Clear(); TownServiceMaterial.Reset(); Assets.Clear();
         ReportReset();
@@ -868,7 +1016,8 @@ internal static partial class TownServiceMirror
     private static void ResetInteractionLeases()
     {
         for (int i = 1; i < InteractionLeases.Length; i++)
-        { InteractionLeases[i].Player = 0; InteractionLeases[i].Session = 0; InteractionLeases[i].PendingSince = float.NegativeInfinity; }
+        { InteractionLeases[i].Player = 0; InteractionLeases[i].Session = 0; InteractionLeases[i].PendingSince = float.NegativeInfinity;
+          TransactionLeases[i].Player = 0; TransactionLeases[i].Session = 0; TransactionLeases[i].PendingSince = float.NegativeInfinity; }
     }
     private static void ClearRemoteModules(int peer)
     { RemoteRacks.Remove(peer); if (!Remote.TryGetValue(peer, out Dictionary<ushort, RemoteModule>? modules)) return;
