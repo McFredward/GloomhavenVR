@@ -649,11 +649,14 @@ internal sealed class TownServiceRitual : IDisposable
             && ReferenceEquals(pending.Context, _context())
             && temple != null && slot != null && slot.Blessing != null
             && ReferenceEquals(pending.Offering.Blessing, slot.Blessing);
+        bool denied = TownServiceMirror.LocalTransactionDenied(2);
+        bool unavailable = TownServiceMirror.LocalTransactionUnavailable(2);
         bool timedOut = Time.unscaledTime - pending.Started > 2f;
-        if (!valid || timedOut)
+        if (!valid || denied || unavailable || timedOut)
         {
             _pendingTempleDonation = null;
-            if (timedOut && valid && !TownServiceMirror.LocalTransactionSettled(2))
+            if (valid && !denied && (unavailable || timedOut)
+                && !TownServiceMirror.LocalTransactionSettled(2))
             {
                 // The original window is a usable escape hatch when no host grant
                 // arrives. Presentation restores it for this opening after the purse
@@ -663,7 +666,7 @@ internal sealed class TownServiceRitual : IDisposable
             }
             TownServiceMirror.SetLocalTransactionActive(2, false);
             CompleteTempleDonation(pending, false);
-            if (VRLog.WantsDebug) VRLog.Debug("TownServices", "Temple purse: returned before native selection because the visitor, blessing or transaction claim was unavailable.");
+            if (VRLog.WantsDebug) VRLog.Debug("TownServices", "Temple purse: returned before native selection because the visitor, blessing or transaction grant was unavailable or denied.");
             return;
         }
         if (!TownServiceMirror.LocalTransactionSettled(2)) return;

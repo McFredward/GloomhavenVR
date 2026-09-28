@@ -35,6 +35,7 @@ public static class TownServiceEnhancementHandoff
 {
     public static bool Enabled=true,HasCurrentOffering;
 }
+public static class TownServiceGrantSync { public static bool CanUseImmersive=true; }
 public static class TownServiceMerchantHandoff { public static bool WantsOffering; }
 public static class StoryComposite { public static bool PointOfNoReturn; }
 public static class VRHands
@@ -168,6 +169,16 @@ internal static class TempleApproachProof
         GuildmasterDestinations.Mode=EGuildmasterMode.Merchant;
         Check(!BoundTempleApproach.WantsPurseFocus,
             "mere nearby priestess head gaze does not replace the merchant item fan");
+        GuildmasterDestinations.Mode=EGuildmasterMode.None;
+        TownServiceGrantSync.CanUseImmersive=false;
+        typeof(BoundTempleApproach).GetField("_approachInside",BindingFlags.Static|BindingFlags.NonPublic)!.SetValue(null,false);
+        typeof(BoundTempleApproach).GetField("_approachAt",BindingFlags.Static|BindingFlags.NonPublic)!.SetValue(null,0f);
+        Check(!BoundTempleApproach.WantsPurseFocus,
+            "incompatible host cannot replace the original Temple window with a purse");
+        BoundTempleApproach.TickApproach();
+        Check(MapRoomDriver.TemplePresses==4,
+            "incompatible host leaves the original Temple entry path available");
+        TownServiceGrantSync.CanUseImmersive=true;
         Object.DestroyImmediate(root);Object.DestroyImmediate(head);
         Object.DestroyImmediate(merchantRoot);
         TownServicePopulation.Station=TownServicePopulation.MerchantStation=null;VRRigDriver.HeadCamera=null;MapRoomHand.Selected=null;NewPartyDisplayUI.PartyDisplay=null;

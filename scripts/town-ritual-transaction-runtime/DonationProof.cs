@@ -27,7 +27,7 @@ internal static class DonationProof
     internal static int Run()
     {
         int checks=0;void Check(bool value,string why){checks++;if(!value)throw new Exception(why);}
-        for(int scenario=0;scenario<11;scenario++)
+        for(int scenario=0;scenario<13;scenario++)
         {
             var root=new GameObject("Native temple",typeof(CanvasGroup),typeof(UITempleWindow));
             var events=new GameObject("Events",typeof(EventSystem));
@@ -52,6 +52,7 @@ internal static class DonationProof
             var ritual=new BoundRitual(()=>true,()=>temple.character);
             offering=ritual._templeOffering;
             TownServiceMirror.TransactionActive=TownServiceMirror.Settled=false;
+            TownServiceMirror.Denied=TownServiceMirror.Unavailable=false;
             TownServiceMirror.CanBegin=scenario!=9;
             int voiceBefore=TownServiceVoice.Donations;
             int revisionBefore=TownServiceMirror.Commits;
@@ -74,6 +75,19 @@ internal static class DonationProof
                     ritual.TickPendingTempleDonation();
                     Check(ritual.TempleGrantStalled&&!TownServiceMirror.TransactionActive&&selections==0&&commits==0,
                         "missing host grant returns the purse and exposes native Temple fallback before selection");
+                    Object.DestroyImmediate(prompt);Object.DestroyImmediate(root);Object.DestroyImmediate(events);
+                    continue;
+                }
+                if(scenario==11||scenario==12)
+                {
+                    TownServiceMirror.Denied=scenario==11;
+                    TownServiceMirror.Unavailable=scenario==12;
+                    ritual.TickPendingTempleDonation();
+                    Check(!TownServiceMirror.TransactionActive&&selections==0&&commits==0
+                        && ritual.TempleGrantStalled==(scenario==12),
+                        scenario==11
+                            ? "host Busy returns only this purse without reopening the original window"
+                            : "unreachable host returns purse and restores the original VR Temple window");
                     Object.DestroyImmediate(prompt);Object.DestroyImmediate(root);Object.DestroyImmediate(events);
                     continue;
                 }

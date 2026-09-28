@@ -38,6 +38,7 @@ internal sealed class TownServiceTempleOffering : IDisposable
         get
         {
             if (!MapRoomDriver.Active || !WorldUIConfig.ImmersiveTownServices.Value
+                || !TownServiceGrantSync.CanUseImmersive
                 || !TownServicePopulation.Available(2) || StoryComposite.PointOfNoReturn)
             { _purseFocus = false; return false; }
             TownServiceStation? station = TownServicePopulation.Acquire(2);
@@ -66,7 +67,8 @@ internal sealed class TownServiceTempleOffering : IDisposable
     internal static void TickApproach()
     {
         if (!MapRoomDriver.Active || !WorldUIConfig.ImmersiveTownServices.Value
-            || !TownServiceEnhancementHandoff.Enabled || StoryComposite.PointOfNoReturn
+            || !TownServiceGrantSync.CanUseImmersive || !TownServiceEnhancementHandoff.Enabled
+            || StoryComposite.PointOfNoReturn
             || MapRoomHand.OwnedMerchantCharacter() == null || !TownServicePopulation.Available(2))
         { _approachInside = _purseFocus = false; return; }
         TownServiceStation? station = TownServicePopulation.Acquire(2);
