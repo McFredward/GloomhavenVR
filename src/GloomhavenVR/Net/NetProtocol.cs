@@ -523,7 +523,16 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 557;
+    public const ushort ModBuild = 558;
+
+    // ModBuild 558 — Steam Frame tutorial identity and feasibility follow-up.
+    // Explicit Frame HMD/controller identity wins over SteamVR's Touch emulation;
+    // ambiguous SteamVR Touch input uses the neutral tutorial diagram rather
+    // than incorrectly claiming Quest hardware. The first controls lesson logs
+    // controller, HMD, runtime and chosen diagram once. The actual Frame model
+    // and game-side foveated rendering remain feasibility work, not shipped
+    // features. No wire layout or asset change; hardware identity awaits review.
+    // Evidence: .planning/STEAM-FRAME.md and STEAM-FRAME-FOVEATION.md.
 
     // ModBuild 557 — native character-creation fit and overhead actor bars.
     // Build577 feature-branch hardware shows a visible character creator inside New Party

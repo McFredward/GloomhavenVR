@@ -1,9 +1,14 @@
 # State — where the project stands
 
-**Updated 2026-09-28: dev 1.0.9 / ModBuild 557, character-creation fit and actor-bar presentation.**
+**Updated 2026-09-28: dev 1.0.9 / ModBuild 558, Steam Frame tutorial identity.**
 The complete NPC development is isolated on `feature/immersive-town-services` for a
 future release of at least 1.1.0. Builds 538–545 and 547–552 remain reserved for that branch.
-Current review and validation: [BARS-CREATOR-557.md](BARS-CREATOR-557.md), building on
+The tutorial now distinguishes an explicit Steam Frame identity from SteamVR's
+Oculus Touch compatibility mapping; the true Frame controller model and
+foveated rendering remain unimplemented. Feasibility:
+[STEAM-FRAME.md](STEAM-FRAME.md),
+[STEAM-FRAME-FOVEATION.md](STEAM-FRAME-FOVEATION.md).
+Earlier review and validation: [BARS-CREATOR-557.md](BARS-CREATOR-557.md), building on
 [REFACE-556.md](REFACE-556.md),
 [STORY-555.md](STORY-555.md) and
 [WINDOWS-553.md](WINDOWS-553.md). Released 1.0.7 / build 546
@@ -21,6 +26,13 @@ change per build) → this file (where things stand and what is owed) → the bu
 ---
 
 ## 1. Position
+
+- **dev / 1.0.9 / ModBuild 558:** the controls tutorial prioritizes an explicitly
+  identified Steam Frame HMD/controller over Touch-compatible bindings and avoids
+  showing a Quest model when SteamVR reports Touch for an unknown HMD. Its
+  one-shot identity log supports the first Frame hardware test. The original
+  Frame controller model and render foveation are not yet available on this
+  Unity 2021/D3D11 mod path; their feasibility gates are documented above.
 
 - **dev / 1.0.9 / ModBuild 557:** the character creator's original UIWindow is
   included in the character screen's native sub-view fit and seat timing. Enemy
