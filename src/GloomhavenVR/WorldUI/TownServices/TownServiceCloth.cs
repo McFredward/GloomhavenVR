@@ -11,8 +11,8 @@ namespace GloomhavenVR.WorldUI;
 /// <summary>Native Unity cloth for the three town-service stations.
 /// The original visible mesh and materials remain in place; an invisible
 /// <see cref="Cloth"/> driver supplies their simulated vertices. This is the
-/// same PhysX cloth and tapered palm-to-fingertip collider mechanism used by
-/// figure garments, with an authored chain along the real curved table lip.</summary>
+/// same PhysX cloth and tapered hand collider mechanism used by figure
+/// garments, extended to the glove's wrist and fitted to the real table lip.</summary>
 internal sealed class TownServiceCloth : IDisposable
 {
     private const int DriverColumns = 13;
@@ -25,7 +25,12 @@ internal sealed class TownServiceCloth : IDisposable
     private const int MaximumHeads = 4;
     private const float PalmRadiusRealMeters = .035f;
     private const float TipRadiusRealMeters = .010f;
-    private const float FingerLengthRealMeters = .09f;
+    // The video at ModBuild 578 shows the back of the glove crossing the red
+    // enchantress drape while the original palm-to-index capsule is outside it.
+    // Extend the same tapered capsule to the wrist. At the real palm its
+    // interpolated radius is still ~35 mm; at the cuff it covers the visible
+    // hand instead of allowing that half of the glove to pass through the sheet.
+    private const float WristRadiusRealMeters = PalmRadiusRealMeters + .020f;
     private const float MaximumFreedomRealMeters = .08f;
     private const float ContactPresentationSeconds = .045f;
     // The fingertip and the PhysX sheet can alternate sides of a thin surface
@@ -651,7 +656,7 @@ internal sealed class TownServiceCloth : IDisposable
         tip.transform.SetParent(root.transform, false);
         var palmSphere = palm.AddComponent<SphereCollider>();
         var tipSphere = tip.AddComponent<SphereCollider>();
-        palmSphere.radius = PalmRadiusRealMeters;
+        palmSphere.radius = WristRadiusRealMeters;
         tipSphere.radius = TipRadiusRealMeters;
         var probe = new HandProbe
         {
@@ -672,18 +677,21 @@ internal sealed class TownServiceCloth : IDisposable
         probe.Tip.position = probe.Palm.position;
     }
 
-    private static void Place(HandProbe probe, Vector3 palm, Vector3 tip, float scale)
+    private static void Place(HandProbe probe, Vector3 palm, Vector3 tip,
+        Vector3 wrist, float scale)
     {
-        probe.Palm.position = palm;
+        probe.Palm.position = wrist;
         probe.Tip.position = tip;
-        probe.PalmSphere.radius = PalmRadiusRealMeters * scale;
+        // Preserve the original 35 mm radius AT the palm rather than making
+        // the newly included cuff a uniformly oversized collision ball.
+        // The two endpoints use the same taper as PhysX ClothSphereColliderPair.
+        float backLength = Vector3.Distance(wrist, palm);
+        float fingerLength = Mathf.Max(.015f * scale, Vector3.Distance(palm, tip));
+        float wristRadius = PalmRadiusRealMeters
+            + (PalmRadiusRealMeters - TipRadiusRealMeters) * backLength / fingerLength;
+        probe.PalmSphere.radius = Mathf.Clamp(wristRadius,
+            PalmRadiusRealMeters, WristRadiusRealMeters * 1.2f) * scale;
         probe.TipSphere.radius = TipRadiusRealMeters * scale;
-    }
-
-    private static void PlaceDirection(HandProbe probe, Vector3 palm, Vector3 direction, float scale)
-    {
-        if (direction.sqrMagnitude < .001f) direction = Vector3.forward;
-        Place(probe, palm, palm + direction.normalized * (FingerLengthRealMeters * scale), scale);
     }
 
     private static void PlaceHead(HandProbe probe, Vector3 center, float scale)
@@ -702,9 +710,11 @@ internal sealed class TownServiceCloth : IDisposable
             : Mathf.Max(.0001f, VRRigDriver.BaseWorldScale);
         if (VRHands.Left?.HasPose == true && at < _hands.Length)
             Place(_hands[at++], VRHands.Left.Rig.PalmCenter.position, VRHands.Left.Rig.IndexTip.position,
+                VRHands.Left.Rig.Wrist.position,
                 Mathf.Max(.0001f, VRHands.Left.WorldScale));
         if (VRHands.Right?.HasPose == true && at < _hands.Length)
             Place(_hands[at++], VRHands.Right.Rig.PalmCenter.position, VRHands.Right.Rig.IndexTip.position,
+                VRHands.Right.Rig.Wrist.position,
                 Mathf.Max(.0001f, VRHands.Right.WorldScale));
 
         _peers.Clear();
@@ -712,10 +722,13 @@ internal sealed class TownServiceCloth : IDisposable
         foreach (int peer in _peers)
         {
             if (at >= _hands.Length) break;
-            if (!NetAvatarDriver.TryGetTownClothHandProbes(peer, out Vector3 left, out Vector3 leftDirection,
-                    out Vector3 right, out Vector3 rightDirection, out bool leftValid, out bool rightValid)) continue;
-            if (leftValid && at < _hands.Length) PlaceDirection(_hands[at++], left, leftDirection, sharedScale);
-            if (rightValid && at < _hands.Length) PlaceDirection(_hands[at++], right, rightDirection, sharedScale);
+            if (!NetAvatarDriver.TryGetTownClothHandProbes(peer, out Vector3 left, out Vector3 leftWrist,
+                    out Vector3 leftTip, out Vector3 right, out Vector3 rightWrist, out Vector3 rightTip,
+                    out bool leftValid, out bool rightValid, out float peerScale)) continue;
+            if (leftValid && at < _hands.Length)
+                Place(_hands[at++], left, leftTip, leftWrist, peerScale);
+            if (rightValid && at < _hands.Length)
+                Place(_hands[at++], right, rightTip, rightWrist, peerScale);
         }
         while (at < _hands.Length) Park(_hands[at++]);
 
@@ -725,8 +738,8 @@ internal sealed class TownServiceCloth : IDisposable
         foreach (int peer in _peers)
         {
             if (headAt >= _heads.Length) break;
-            if (NetAvatarDriver.TryGetTownFaceHead(peer, out Vector3 head))
-                PlaceHead(_heads[headAt++], head, sharedScale);
+            if (NetAvatarDriver.TryGetTownClothHead(peer, out Vector3 head, out float headScale))
+                PlaceHead(_heads[headAt++], head, headScale);
         }
         while (headAt < _heads.Length) Park(_heads[headAt++]);
     }
@@ -753,48 +766,202 @@ internal sealed class TownServiceCloth : IDisposable
         float radius = Mathf.Max(probe.PalmSphere.radius, probe.TipSphere.radius);
         Bounds expanded = broadphase;
         expanded.Expand(radius * 2f);
-        if (expanded.SqrDistance(probe.Palm.position) > 0f
-            && expanded.SqrDistance(probe.Tip.position) > 0f) return false;
+        // Both endpoints may be outside a narrow side drape while the back of
+        // the hand passes through it. Endpoint-only broadphase dropped exactly
+        // those contacts in the headset clip. Test the capsule's whole swept
+        // AABB before the narrow-phase surface query.
+        Vector3 span = probe.Tip.position - probe.Palm.position;
+        var probeBounds = new Bounds((probe.Palm.position + probe.Tip.position) * .5f,
+            new Vector3(Mathf.Abs(span.x), Mathf.Abs(span.y), Mathf.Abs(span.z)));
+        probeBounds.Expand(radius * 2f);
+        if (!expanded.Intersects(probeBounds)) return false;
 
         // Build 566 used only a point-in-AABB test. PhysX could already push a runner with the
         // probe's sphere/capsule while that separate test still said "no contact"; the render path
         // then captured the displaced sheet as its new zero every frame, making real physics wholly
-        // invisible. Measure the capsule (including its radius) against the authored physical sheet.
-        // The 25x13 points are at most ~20 mm apart down the drape, so this remains both bounded and
-        // substantially tighter than the old box test. Broadphase rejects parked/distant probes.
+        // invisible. Measure the tapered capsule against the current physical
+        // sheet. A broad altar runner has over 10 cm between adjacent columns,
+        // so a fingertip can hit a triangle while every particle is far away.
+        // Check vertices first; only a miss visits nearby triangles.
         Vector3 a = probe.Palm.position, b = probe.Tip.position;
-        float limit = radius + margin;
         Transform driver = runner.DriverRoot.transform;
         float driverScale = UniformScale(driver);
         Vector3 localA = driver.InverseTransformPoint(a), localB = driver.InverseTransformPoint(b);
-        float localLimit = limit / driverScale;
-        float limitSquared = localLimit * localLimit;
-        float best = float.MaxValue;
+        float localLimit = (radius + margin) / driverScale;
+        float bestGap = float.MaxValue;
         Vector3[] surface = runner.ContactSurface.Length == runner.DriverRest.Length
             ? runner.ContactSurface : runner.DriverRest;
         for (int i = 0; i < surface.Length; i++)
         {
-            float distance = DistanceSquaredToSegment(surface[i], localA, localB);
-            if (distance < best) best = distance;
-            if (distance <= limitSquared)
+            float distance = DistanceSquaredToSegment(surface[i], localA, localB, out float t);
+            float gap = Mathf.Sqrt(distance) * driverScale
+                - Mathf.Lerp(probe.PalmSphere.radius, probe.TipSphere.radius, t);
+            bestGap = Mathf.Min(bestGap, gap);
+            if (gap <= margin)
             {
                 closestReal = Mathf.Min(closestReal,
-                    Mathf.Max(0f, Mathf.Sqrt(distance) * driverScale - radius) / stationScale);
+                    Mathf.Max(0f, gap) / stationScale);
                 return true;
             }
         }
+        Vector3 lower = Vector3.Min(localA, localB) - Vector3.one * localLimit;
+        Vector3 upper = Vector3.Max(localA, localB) + Vector3.one * localLimit;
+        for (int row = 0; row < DriverRows - 1; row++)
+        for (int column = 0; column < DriverColumns - 1; column++)
+        {
+            int vertex = row * DriverColumns + column;
+            Vector3 topLeft = surface[vertex], topRight = surface[vertex + 1];
+            Vector3 bottomLeft = surface[vertex + DriverColumns];
+            Vector3 bottomRight = surface[vertex + DriverColumns + 1];
+            if (!OverlapsProbeBox(topLeft, topRight, bottomLeft, bottomRight, lower, upper))
+                continue;
+            if (TriangleWithin(localA, localB, topLeft, bottomLeft, topRight,
+                    probe.PalmSphere.radius, probe.TipSphere.radius,
+                    driverScale, margin, stationScale, ref closestReal, ref bestGap)
+                || TriangleWithin(localA, localB, topRight, bottomLeft, bottomRight,
+                    probe.PalmSphere.radius, probe.TipSphere.radius,
+                    driverScale, margin, stationScale, ref closestReal, ref bestGap)) return true;
+        }
         closestReal = Mathf.Min(closestReal,
-            Mathf.Max(0f, Mathf.Sqrt(best) * driverScale - radius) / stationScale);
+            Mathf.Max(0f, bestGap) / stationScale);
         return false;
     }
 
-    private static float DistanceSquaredToSegment(Vector3 point, Vector3 a, Vector3 b)
+    private static bool TriangleWithin(Vector3 a, Vector3 b, Vector3 p, Vector3 q, Vector3 r,
+        float backRadius, float tipRadius, float driverScale, float margin, float stationScale,
+        ref float closestReal, ref float bestGap)
+    {
+        float distance = DistanceSquaredSegmentTriangle(a, b, p, q, r, out float t);
+        float gap = Mathf.Sqrt(distance) * driverScale - Mathf.Lerp(backRadius, tipRadius, t);
+        bestGap = Mathf.Min(bestGap, gap);
+        if (gap > margin) return false;
+        closestReal = Mathf.Min(closestReal, Mathf.Max(0f, gap) / stationScale);
+        return true;
+    }
+
+    private static float DistanceSquaredToSegment(Vector3 point, Vector3 a, Vector3 b, out float t)
     {
         Vector3 edge = b - a;
         float length = edge.sqrMagnitude;
-        if (length < .000001f) return (point - a).sqrMagnitude;
-        float t = Mathf.Clamp01(Vector3.Dot(point - a, edge) / length);
+        if (length < .000001f) { t = 0f; return (point - a).sqrMagnitude; }
+        t = Mathf.Clamp01(Vector3.Dot(point - a, edge) / length);
         return (point - (a + edge * t)).sqrMagnitude;
+    }
+
+    private static bool OverlapsProbeBox(Vector3 a, Vector3 b, Vector3 c, Vector3 d,
+        Vector3 lower, Vector3 upper)
+    {
+        return Mathf.Max(Mathf.Max(a.x, b.x), Mathf.Max(c.x, d.x)) >= lower.x
+            && Mathf.Min(Mathf.Min(a.x, b.x), Mathf.Min(c.x, d.x)) <= upper.x
+            && Mathf.Max(Mathf.Max(a.y, b.y), Mathf.Max(c.y, d.y)) >= lower.y
+            && Mathf.Min(Mathf.Min(a.y, b.y), Mathf.Min(c.y, d.y)) <= upper.y
+            && Mathf.Max(Mathf.Max(a.z, b.z), Mathf.Max(c.z, d.z)) >= lower.z
+            && Mathf.Min(Mathf.Min(a.z, b.z), Mathf.Min(c.z, d.z)) <= upper.z;
+    }
+
+    private static float DistanceSquaredSegmentTriangle(Vector3 a, Vector3 b,
+        Vector3 p, Vector3 q, Vector3 r, out float segmentT)
+    {
+        Vector3 normal = Vector3.Cross(q - p, r - p);
+        Vector3 direction = b - a;
+        float divisor = Vector3.Dot(normal, direction);
+        if (normal.sqrMagnitude > 1e-10f && Mathf.Abs(divisor) > 1e-8f)
+        {
+            float t = Vector3.Dot(normal, p - a) / divisor;
+            if (t >= 0f && t <= 1f)
+            {
+                Vector3 hit = a + direction * t;
+                if (Vector3.Dot(normal, Vector3.Cross(q - p, hit - p)) >= -1e-7f
+                    && Vector3.Dot(normal, Vector3.Cross(r - q, hit - q)) >= -1e-7f
+                    && Vector3.Dot(normal, Vector3.Cross(p - r, hit - r)) >= -1e-7f)
+                { segmentT = t; return 0f; }
+            }
+        }
+
+        // Endpoint faces and the three edge pairs cover the closest features
+        // of two convex primitives even when the segment misses the plane.
+        float best = (a - ClosestPointOnTriangle(a, p, q, r)).sqrMagnitude;
+        segmentT = 0f;
+        float candidate = (b - ClosestPointOnTriangle(b, p, q, r)).sqrMagnitude;
+        if (candidate < best) { best = candidate; segmentT = 1f; }
+        candidate = DistanceSquaredSegments(a, b, p, q, out float edgeT);
+        if (candidate < best) { best = candidate; segmentT = edgeT; }
+        candidate = DistanceSquaredSegments(a, b, q, r, out edgeT);
+        if (candidate < best) { best = candidate; segmentT = edgeT; }
+        candidate = DistanceSquaredSegments(a, b, r, p, out edgeT);
+        if (candidate < best) { best = candidate; segmentT = edgeT; }
+        return best;
+    }
+
+    private static Vector3 ClosestPointOnTriangle(Vector3 point, Vector3 a, Vector3 b, Vector3 c)
+    {
+        // Barycentric Voronoi regions, used only after the cheap particle gate
+        // missed a collision with the interior of a rendered cloth triangle.
+        Vector3 ab = b - a, ac = c - a, ap = point - a;
+        if (Vector3.Cross(ab, ac).sqrMagnitude <= 1e-12f)
+        {
+            // Native cloth can collapse a triangle temporarily at a pin or
+            // table lip. Treat that geometry as three edges, never divide by
+            // a zero barycentric denominator during the contact gate.
+            Vector3 best = a + ab * ClosestFraction(point, a, b);
+            float distance = (point - best).sqrMagnitude;
+            Vector3 candidate = b + (c - b) * ClosestFraction(point, b, c);
+            if ((point - candidate).sqrMagnitude < distance)
+            { best = candidate; distance = (point - candidate).sqrMagnitude; }
+            candidate = c + (a - c) * ClosestFraction(point, c, a);
+            if ((point - candidate).sqrMagnitude < distance) best = candidate;
+            return best;
+        }
+        float d1 = Vector3.Dot(ab, ap), d2 = Vector3.Dot(ac, ap);
+        if (d1 <= 0f && d2 <= 0f) return a;
+        Vector3 bp = point - b;
+        float d3 = Vector3.Dot(ab, bp), d4 = Vector3.Dot(ac, bp);
+        if (d3 >= 0f && d4 <= d3) return b;
+        float vc = d1 * d4 - d3 * d2;
+        if (vc <= 0f && d1 >= 0f && d3 <= 0f) return a + ab * (d1 / (d1 - d3));
+        Vector3 cp = point - c;
+        float d5 = Vector3.Dot(ab, cp), d6 = Vector3.Dot(ac, cp);
+        if (d6 >= 0f && d5 <= d6) return c;
+        float vb = d5 * d2 - d1 * d6;
+        if (vb <= 0f && d2 >= 0f && d6 <= 0f) return a + ac * (d2 / (d2 - d6));
+        float va = d3 * d6 - d5 * d4;
+        if (va <= 0f && d4 - d3 >= 0f && d5 - d6 >= 0f)
+            return b + (c - b) * ((d4 - d3) / ((d4 - d3) + (d5 - d6)));
+        float denominator = 1f / (va + vb + vc);
+        return a + ab * (vb * denominator) + ac * (vc * denominator);
+    }
+
+    private static float ClosestFraction(Vector3 point, Vector3 a, Vector3 b)
+    {
+        Vector3 edge = b - a;
+        float length = edge.sqrMagnitude;
+        return length > 1e-12f ? Mathf.Clamp01(Vector3.Dot(point - a, edge) / length) : 0f;
+    }
+
+    private static float DistanceSquaredSegments(Vector3 p1, Vector3 q1,
+        Vector3 p2, Vector3 q2, out float alongFirst)
+    {
+        Vector3 d1 = q1 - p1, d2 = q2 - p2, separation = p1 - p2;
+        float a = Vector3.Dot(d1, d1), e = Vector3.Dot(d2, d2);
+        float f = Vector3.Dot(d2, separation);
+        float s, t;
+        if (a <= 1e-10f && e <= 1e-10f) { alongFirst = 0f; return separation.sqrMagnitude; }
+        if (a <= 1e-10f) { s = 0f; t = Mathf.Clamp01(f / e); }
+        else
+        {
+            float c = Vector3.Dot(d1, separation);
+            if (e <= 1e-10f) { t = 0f; s = Mathf.Clamp01(-c / a); }
+            else
+            {
+                float b = Vector3.Dot(d1, d2), denominator = a * e - b * b;
+                s = denominator > 1e-10f ? Mathf.Clamp01((b * f - c * e) / denominator) : 0f;
+                t = (b * s + f) / e;
+                if (t < 0f) { t = 0f; s = Mathf.Clamp01(-c / a); }
+                else if (t > 1f) { t = 1f; s = Mathf.Clamp01((b - c) / a); }
+            }
+        }
+        alongFirst = s;
+        return (separation + d1 * s - d2 * t).sqrMagnitude;
     }
 
     private static void SetFreedom(Runner runner, float scale)

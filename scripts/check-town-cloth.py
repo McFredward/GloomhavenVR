@@ -4,6 +4,7 @@ import argparse
 from pathlib import Path
 import shutil
 import subprocess
+import sys
 import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -15,7 +16,7 @@ def source_contract(source):
                              and 'if (VRHands.Right?.HasPose == true' in source),
         'six remote hands': 'MaximumPeerHands = 6' in source and 'TryGetTownClothHandProbes' in source,
         'local head mask': 'VRRigDriver.HeadCamera' in source and 'PlaceHead(_heads[headAt++]' in source,
-        'three remote heads': 'MaximumHeads = 4' in source and 'TryGetTownFaceHead' in source,
+        'three remote heads': 'MaximumHeads = 4' in source and 'TryGetTownClothHead' in source,
         'particle-aligned table support': ('const int samples = DriverColumns' in source
                                            and 'TableSupport(runner, i, "Front"' in source
                                            and 'TableSupport(runner, i, "Rear"' in source),
@@ -44,7 +45,8 @@ def source_contract(source):
                                                and 'AnyProbeWithin(runner, .16f, out' in source
                                                and 'AnyProbeWithin(runner, .018f, out' in source
                                                and 'ProbeWithin(runner, probe' in source
-                                               and 'DistanceSquaredToSegment(surface[i], localA, localB)' in source
+                                               and 'DistanceSquaredToSegment(surface[i], localA, localB, out float t)' in source
+                                               and 'DistanceSquaredSegmentTriangle(a, b, p, q, r, out float t)' in source
                                                and 'runner.DeformationWeight = Mathf.MoveTowards(runner.DeformationWeight, contact ? 1f : 0f,' in source
                                                and 'if (runner.CaptureOrigin && runner.ContactSurface.Length == runner.EpisodeOrigin.Length)' in source
                                                and 'Array.Copy(runner.ContactSurface, runner.EpisodeOrigin' in source
@@ -56,9 +58,22 @@ def source_contract(source):
                                   and 'VRHands.Right.Rig.IndexTip.position' in source
                                   and 'VRHands.Left.WorldScale' in source
                                   and 'VRHands.Right.WorldScale' in source),
+        'wrist through fingertip': ('VRHands.Left.Rig.Wrist.position' in source
+                                   and 'VRHands.Right.Rig.Wrist.position' in source
+                                   and 'WristRadiusRealMeters = PalmRadiusRealMeters + .020f' in source
+                                   and 'float backLength = Vector3.Distance(wrist, palm)' in source
+                                   and 'Place(_hands[at++], left, leftTip, leftWrist, peerScale)' in source),
+        'whole capsule broadphase': ('expanded.Intersects(probeBounds)' in source
+                                     and 'Vector3 span = probe.Tip.position - probe.Palm.position' in source),
+        'triangle interior contact': ('OverlapsProbeBox(topLeft, topRight, bottomLeft, bottomRight' in source
+                                      and 'TriangleWithin(localA, localB, topLeft, bottomLeft, topRight' in source
+                                      and 'TriangleWithin(localA, localB, topRight, bottomLeft, bottomRight' in source),
+        'tapered contact radius': ('Mathf.Lerp(probe.PalmSphere.radius, probe.TipSphere.radius, t)' in source
+                                   and 'Mathf.Lerp(backRadius, tipRadius, t)' in source
+                                   and 'DistanceSquaredToSegment(surface[i], localA, localB, out float t)' in source),
         'contact follows physical surface': ('runner.ContactSurface = simulated;' in source
                                              and 'Vector3[] surface = runner.ContactSurface' in source
-                                             and 'DistanceSquaredToSegment(surface[i], localA, localB)' in source),
+                                             and 'DistanceSquaredToSegment(surface[i], localA, localB, out float t)' in source),
         'continuous contact episode': ('ContactHoldSeconds = .09f' in source
                                        and 'runner.ContactHold = rawContact ? ContactHoldSeconds' in source
                                        and 'near && runner.Contacting && runner.ContactHold > 0f' in source),
@@ -78,12 +93,32 @@ def source_contract(source):
 def validate_source():
     source = (ROOT / 'src/GloomhavenVR/WorldUI/TownServices/TownServiceCloth.cs').read_text()
     source_contract(source)
+    avatar_source = (ROOT / 'src/GloomhavenVR/Net/Avatar/NetAvatarDriver.cs').read_text()
+    remote_source = (ROOT / 'src/GloomhavenVR/Net/Remote/RemoteAvatar.cs').read_text()
+    remote_contract = ('avatar.WristAnchorFor(l)' in avatar_source
+                       and 'avatar.IndexTipAnchorFor(l)' in avatar_source
+                       and 'avatar.WristAnchorFor(r)' in avatar_source
+                       and 'avatar.IndexTipAnchorFor(r)' in avatar_source
+                       and 'peerScale = avatar.AppliedScale' in avatar_source
+                       and 'scale = avatar.AppliedScale' in avatar_source
+                       and 'rig != null ? rig.Wrist : null' in remote_source
+                       and 'rig != null ? rig.IndexTip : null' in remote_source)
+    assert remote_contract, 'peer cloth anchors must come from the mirrored owner rig'
+    for before, after in (
+        ('avatar.WristAnchorFor(l)', 'avatar.PalmAnchorFor(l)'),
+        ('avatar.IndexTipAnchorFor(r)', 'avatar.PalmAnchorFor(r)'),
+        ('peerScale = avatar.AppliedScale', 'peerScale = 1f'),
+    ):
+        changed = avatar_source.replace(before, after, 1)
+        assert not ('avatar.WristAnchorFor(l)' in changed
+                    and 'avatar.IndexTipAnchorFor(r)' in changed
+                    and 'peerScale = avatar.AppliedScale' in changed), 'remote anchor negative control escaped'
     figure_cloth = (ROOT / 'src/GloomhavenVR/Board/FigureGrab/FigureCloth.cs').read_text()
     assert 'next[v].maxDistance = m >= float.MaxValue ? m : m * factor;' in figure_cloth
     mutations = {
         'local-hand': ('if (VRHands.Left?.HasPose == true', 'if (VRHands.Left == null'),
         'remote-hand': ('TryGetTownClothHandProbes', 'DisabledRemoteHandProbe'),
-        'head-mask': ('TryGetTownFaceHead', 'DisabledRemoteHeadProbe'),
+        'head-mask': ('TryGetTownClothHead', 'DisabledRemoteHeadProbe'),
         'table': ('const int samples = DriverColumns', 'const int samples = 0'),
         'raycast': ('layer = IgnoreRaycastLayer', 'layer = 0'),
         'extra-frame-snapshot': ('Vector3[] simulated = runner.Cloth.vertices;',
@@ -106,8 +141,15 @@ def validate_source():
                               'SetFreedom(runner, 0f); runner.Cloth = runner.DriverRoot.AddComponent<Cloth>();'),
         'proximity-is-contact': ('AnyProbeWithin(runner, .018f, out',
                                  'AnyProbeWithin(runner, .16f, out'),
-        'point-aabb-contact': ('DistanceSquaredToSegment(surface[i], localA, localB)',
+        'point-aabb-contact': ('DistanceSquaredToSegment(surface[i], localA, localB, out float t)',
                                'broadphase.SqrDistance(a)'),
+        'wrist-coverage': ('VRHands.Left.Rig.Wrist.position', 'VRHands.Left.Rig.PalmCenter.position'),
+        'whole-capsule-broadphase': ('expanded.Intersects(probeBounds)',
+                                     'expanded.SqrDistance(probe.Palm.position) > 0f'),
+        'triangle-interior': ('TriangleWithin(localA, localB, topLeft, bottomLeft, topRight',
+                              'NoSurfaceTest(localA, localB, topLeft, bottomLeft, topRight'),
+        'tapered-radius': ('Mathf.Lerp(probe.PalmSphere.radius, probe.TipSphere.radius, t)',
+                            'probe.PalmSphere.radius'),
         'invisible-contact-physics': ('runner.DeformationWeight = Mathf.MoveTowards(runner.DeformationWeight, contact ? 1f : 0f,',
                                       'runner.DeformationWeight = Mathf.MoveTowards(runner.DeformationWeight, false ? 1f : 0f,'),
         'attenuated-contact-physics': ('ContactPresentationSeconds = .045f',
@@ -134,18 +176,24 @@ def validate_source():
         except AssertionError:
             continue
         raise AssertionError('negative control escaped: ' + name)
-    print('source_contract=PASS negative_controls=' + str(len(mutations)))
+    print('source_contract=PASS negative_controls=' + str(len(mutations) + 3))
+    subprocess.run([sys.executable, str(ROOT / 'scripts/town_cloth_geometry_runtime.py')],
+                   check=True)
 
 
 def main():
     validate_source()
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--source-only', action='store_true',
+                        help='Run source and negative controls without starting Unity')
     parser.add_argument('--unity', type=Path,
                         default=Path('/home/claw/unity-2021.3.5/Editor/Unity'))
     parser.add_argument('--output-dir', type=Path,
                         default=ROOT / '.planning/debug/town-cloth-native')
     parser.add_argument('--bundle', type=Path, default=ROOT / 'prebuilt/ghvr-town.bundle')
     args = parser.parse_args()
+    if args.source_only:
+        return
     args.output_dir.mkdir(parents=True, exist_ok=True)
     run = Path(tempfile.mkdtemp(prefix='run-', dir=args.output_dir.resolve()))
     project = run / 'project'

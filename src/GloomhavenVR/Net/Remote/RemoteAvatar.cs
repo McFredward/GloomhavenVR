@@ -296,6 +296,27 @@ internal sealed class RemoteAvatar
         return palm != null ? palm : null; // Unity-null collapse: a destroyed anchor reads as null
     }
 
+    /// <summary>The same prefab's actual wrist and index tip used by the
+    /// owner's town-cloth collider. Hand styles place the wrist at different
+    /// distances from the palm, so a fixed palm-forward guess is not 1:1.
+    /// Both lookups are direct rig references, including after a style rebuild;
+    /// no hierarchy search or extra wire data is needed per frame.</summary>
+    public Transform? WristAnchorFor(Transform holder)
+    {
+        HandRig? rig = ReferenceEquals(holder, _leftHolder) ? _leftRig
+            : ReferenceEquals(holder, _rightHolder) ? _rightRig : null;
+        Transform? wrist = rig != null ? rig.Wrist : null;
+        return wrist != null ? wrist : null;
+    }
+
+    public Transform? IndexTipAnchorFor(Transform holder)
+    {
+        HandRig? rig = ReferenceEquals(holder, _leftHolder) ? _leftRig
+            : ReferenceEquals(holder, _rightHolder) ? _rightRig : null;
+        Transform? tip = rig != null ? rig.IndexTip : null;
+        return tip != null ? tip : null;
+    }
+
     /// <summary>Stable per-player tint (matches the head/hand tint).</summary>
     public Color Tint => _tint;
 

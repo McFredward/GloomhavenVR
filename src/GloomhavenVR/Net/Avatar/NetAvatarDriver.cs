@@ -806,6 +806,17 @@ internal sealed partial class NetAvatarDriver : MonoBehaviour
             && avatar.TryGetHeadWorld(out head);
     }
 
+    internal static bool TryGetTownClothHead(int player, out Vector3 head, out float scale)
+    {
+        head = Vector3.zero; scale = 1f;
+        NetAvatarDriver? driver = _instance;
+        if (driver == null || !driver._avatars.TryGetValue(player, out RemoteAvatar avatar)
+            || avatar == null || avatar.TimeSinceUpdate > NetProtocol.StaleTimeoutSeconds
+            || !avatar.TryGetHeadWorld(out head)) return false;
+        scale = avatar.AppliedScale;
+        return true;
+    }
+
     /// <summary>Current visible peer hand centres for owner-authored town cloth contact.
     /// Only live, active hand holders are eligible; an absent tracked side must never
     /// reuse the previous holder position as a phantom collision.</summary>
@@ -822,26 +833,31 @@ internal sealed partial class NetAvatarDriver : MonoBehaviour
         return leftValid || rightValid;
     }
 
-    /// <summary>Peer palm positions and finger directions for the same native
-    /// conic cloth capsule used by the local hands. The remote hand prefab is
-    /// built from the same <c>HandRig</c>; its PalmCenter therefore carries the
-    /// sender's +Z along the fingers without adding anything to the wire.</summary>
+    /// <summary>Peer palm, wrist and index tip positions for the SAME native
+    /// tapered cloth capsule as the local hand. The old palm-forward 9 cm tip
+    /// and fixed wrist extension differed by glove style and finger curl. The
+    /// existing mirrored HandRig already has the exact anchors; read them
+    /// directly, without a hierarchy scan or extra wire data.</summary>
     internal static bool TryGetTownClothHandProbes(int player, out Vector3 left,
-        out Vector3 leftDirection, out Vector3 right, out Vector3 rightDirection,
-        out bool leftValid, out bool rightValid)
+        out Vector3 leftWrist, out Vector3 leftTip, out Vector3 right,
+        out Vector3 rightWrist, out Vector3 rightTip,
+        out bool leftValid, out bool rightValid, out float peerScale)
     {
-        left = right = Vector3.zero;
-        leftDirection = rightDirection = Vector3.forward;
+        left = leftWrist = leftTip = right = rightWrist = rightTip = Vector3.zero;
         leftValid = rightValid = false;
+        peerScale = 1f;
         NetAvatarDriver? driver = _instance;
         if (driver == null || !driver._avatars.TryGetValue(player, out RemoteAvatar avatar)
             || avatar == null || avatar.TimeSinceUpdate > NetProtocol.StaleTimeoutSeconds) return false;
         Transform l = avatar.LeftHandHolder, r = avatar.RightHandHolder;
         Transform? lp = avatar.PalmAnchorFor(l), rp = avatar.PalmAnchorFor(r);
-        if (l.gameObject.activeInHierarchy && lp != null)
-        { left = lp.position; leftDirection = lp.forward; leftValid = true; }
-        if (r.gameObject.activeInHierarchy && rp != null)
-        { right = rp.position; rightDirection = rp.forward; rightValid = true; }
+        Transform? lw = avatar.WristAnchorFor(l), rw = avatar.WristAnchorFor(r);
+        Transform? lt = avatar.IndexTipAnchorFor(l), rt = avatar.IndexTipAnchorFor(r);
+        if (l.gameObject.activeInHierarchy && lp != null && lw != null && lt != null)
+        { left = lp.position; leftWrist = lw.position; leftTip = lt.position; leftValid = true; }
+        if (r.gameObject.activeInHierarchy && rp != null && rw != null && rt != null)
+        { right = rp.position; rightWrist = rw.position; rightTip = rt.position; rightValid = true; }
+        peerScale = avatar.AppliedScale;
         return leftValid || rightValid;
     }
 
