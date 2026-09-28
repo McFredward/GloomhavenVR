@@ -60,8 +60,16 @@ public class Collider : Component {}
 public enum PrimitiveType { Sphere }
 }
 namespace UnityEngine.Rendering { public enum ShadowCastingMode { Off } }
-namespace UnityEngine.XR { public enum XRNode { LeftHand, RightHand } public struct InputDevice { public bool isValid=>true; public string name=>"Oculus Touch Controller OpenXR"; } public static class InputDevices { public static InputDevice GetDeviceAtXRNode(XRNode node)=>new(); } }
+namespace UnityEngine.XR {
+public enum XRNode { LeftHand, RightHand, Head }
+public struct InputDevice(string deviceName) { public bool isValid=>true; public string name=>deviceName; }
+public static class InputDevices {
+    public static string ControllerName="Oculus Touch Controller OpenXR", HmdName="Quest 3";
+    public static InputDevice GetDeviceAtXRNode(XRNode node)=>new(node==XRNode.Head?HmdName:ControllerName);
+}
+}
 namespace GloomhavenVR.Core {
+internal static class VRSession { public static string? RuntimeName="VDXR"; }
 internal static class VRLog { public static void Note(string tag,string text) {} public static void Warn(string tag,string text) {} }
 internal static class VRLayers { public static void Apply(GameObject go) { go.layer=31; foreach(var t in go.transform) Apply(t.gameObject); } }
 }

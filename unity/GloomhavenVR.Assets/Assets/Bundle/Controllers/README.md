@@ -51,7 +51,7 @@ factors have to be applied rather than ignored.
 
 ## Valve's Steam Frame
 
-**Recognised, named, and wearing the generic model — there is no other honest option.**
+**Recognised and named, currently wearing the generic model.**
 
 * The profiles registry has no Valve entry beyond the Index.
 * Valve's own Unity package, [`ValveSoftware/Unity`](https://github.com/ValveSoftware/Unity),
@@ -68,8 +68,13 @@ Its four top inputs are a **D-pad**, so the lesson words those steps for it: Val
 Touch-compatibility mapping sends A/X to the *bottom* of the D-pad and B/Y to all three of the
 others ([Steamworks](https://partner.steamgames.com/doc/steamhardware/steamframe/controllers)).
 
-The clean upgrade, when a runtime that exposes it is in the loop, is runtime retrieval — which
-would cover the Frame and every device after it.
+The accurate upgrade is runtime retrieval. It needs a Unity-2021-compatible
+OpenXR feature/native bridge and glTF importer plus animated component mapping;
+Valve's current Unity sample requires Unity 6. The mod does not ship that bridge
+yet. SteamVR may report Frame controllers as Oculus Touch: the tutorial now checks
+an explicit Frame HMD identity first, and uses a neutral diagram if the HMD is
+unknown under SteamVR/Touch mapping. See `.planning/STEAM-FRAME.md` for the
+feasibility result and hardware gates.
 
 ## Pipeline
 

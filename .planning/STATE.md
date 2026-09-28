@@ -28,6 +28,10 @@ Current evidence and implementation limits: [TOWN-581.md](TOWN-581.md),
 The feature remains isolated from `dev`, and NPC work belongs on this branch.
 It also incorporates the later `dev` ModBuild 557 actor-bar and character-creator
 corrections ([BARS-CREATOR-557.md](BARS-CREATOR-557.md)).
+The integrated `dev` ModBuild 558 distinguishes explicit Steam Frame identity
+from SteamVR Touch emulation in the controls tutorial. The real Frame model and
+game-side foveation remain unimplemented; see [STEAM-FRAME.md](STEAM-FRAME.md)
+and [STEAM-FRAME-FOVEATION.md](STEAM-FRAME-FOVEATION.md).
 
 The file this replaces had gone 168 builds
 stale while still saying "read this first"; it is kept as `STATE-ARCHIVE-through-2026-08.md` for

@@ -566,6 +566,10 @@ internal static class NetProtocol
     // laser surfaces again, including scenario story and combat-log X. Empty
     // transparent layout remains pass-through. Wire v3 remains unchanged. Build
     // 580 logs prove the missing input; headset confirmation of 581 is open.
+    // The later dev ModBuild 558 Steam Frame tutorial identity fix is integrated
+    // here. That 558 belongs to the separate dev line; the NPC branch retains
+    // its own monotonic feature ModBuild and does not ship a Frame controller
+    // model or game-side foveated rendering yet.
 
     // ModBuild 580 — twentieth NPC hardware follow-up on the feature branch.
     // The merchant greets at the shared gaze edge rather than waiting for the
