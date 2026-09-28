@@ -14,6 +14,7 @@ namespace ScenarioRuleLibrary { public sealed class CAbilityCard { public int ID
 public sealed class Owner { public string CharacterID = "owner"; }
 public class Singleton<T> { public static T? Instance; }
 public class UIEnhancementConfirmationBox : MonoBehaviour {}
+public class UIItemConfirmationBox : MonoBehaviour { public bool IsActive; }
 public class UIWindow : MonoBehaviour { public bool IsOpen = true; }
 public class AbilityCardUI : MonoBehaviour { public ScenarioRuleLibrary.CAbilityCard AbilityCard = null!; public FullAbilityCard fullAbilityCard = null!; }
 public class FullAbilityCard : MonoBehaviour { }
@@ -34,7 +35,20 @@ public class UINewEnhancementWindow : MonoBehaviour
     public void DeselectCurrentCard() { }
     public void OnSelectedCardToEnhance(AbilityCardUI? card) { selectedCard = card; if (card == null) Clears++; }
 }
-public enum EGuildmasterMode { None, Enchantress, Merchant }
+public enum EGuildmasterMode { None, Enchantress, Merchant, Temple, Trainer }
+public enum PartySlotState { Empty, Assigned }
+public sealed class NewPartyCharacterUI
+{
+    public PartySlotState State = PartySlotState.Assigned;
+    public int Clicks;
+    public void OnClick() { Clicks++; NewPartyDisplayUI.PartyDisplay!.SelectedUISlot = this; }
+}
+public sealed class NewPartyDisplayUI
+{
+    public static NewPartyDisplayUI? PartyDisplay;
+    public NewPartyCharacterUI? SelectedUISlot;
+    public NewPartyCharacterUI? FirstSlot;
+}
 namespace GloomhavenVR { public static class Defaults { public const bool MapRoomHand = true; } }
 namespace GloomhavenVR.Core.Events
 {
@@ -103,9 +117,15 @@ namespace GloomhavenVR.WorldUI.MapRoom
 {
     public static class MapRoomDriver
     {
-        public static bool Active = true, CanVisit = true, LastSuppressed; public static int Visits;
+        public static bool Active = true, CanVisit = true, LastSuppressed, SwitchForcesFirst; public static int Visits;
         public static bool CanVisitTownService(EGuildmasterMode mode) => CanVisit;
-        public static bool PressGuildmasterMode(EGuildmasterMode mode, string reason, bool suppressNativeSound = false) { Visits++; LastSuppressed=suppressNativeSound; GuildmasterDestinations.Mode = mode; return true; }
+        public static bool PressGuildmasterMode(EGuildmasterMode mode, string reason, bool suppressNativeSound = false)
+        {
+            Visits++; LastSuppressed = suppressNativeSound; GuildmasterDestinations.Mode = mode;
+            if (SwitchForcesFirst && NewPartyDisplayUI.PartyDisplay is { } display)
+                display.SelectedUISlot = display.FirstSlot;
+            return true;
+        }
     }
     public static class GuildmasterDestinations { public static EGuildmasterMode Mode; public static EGuildmasterMode CurrentDestinationMode() => Mode; }
     public static class MapRoomHand
@@ -149,8 +169,10 @@ namespace GloomhavenVR.WorldUI
     public static class TownServicePopulation
     {
         public static TownServiceStation? Station;
-        public static bool Available(byte service) => Station != null;
-        public static TownServiceStation? Acquire(byte service) => Station;
+        public static TownServiceStation? MageStation, TempleStation;
+        public static bool Available(byte service) => Acquire(service) != null;
+        public static TownServiceStation? Acquire(byte service) => service == 3 ? MageStation ?? Station
+            : service == 2 ? TempleStation ?? Station : Station;
     }
     public static class TownServiceMerchantZone
     {

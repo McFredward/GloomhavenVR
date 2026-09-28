@@ -201,6 +201,10 @@ def mutations():
     return [
         ("temple-approach-hysteresis", "TempleApproach.cs", "TownServiceOfferingPose.VisitorWithin(station.Root, 1.4f)", "TownServiceOfferingPose.VisitorWithin(station.Root, _approachInside ? 1.65f : 1.4f)", "return from larger attention radius creates a fresh priestess approach"),
         ("merchant-approach-latch", "TempleApproach.cs", "if (destination != EGuildmasterMode.None) _approachInside = false;", "if (destination != EGuildmasterMode.None) _approachInside = true;", "blocked foreign service cannot preserve a stale temple latch"),
+        ("temple-approach-overlap", "TempleApproach.cs",
+         "&& TownServiceEnhancementHandoff.PrefersEnchantress(",
+         "&& false && TownServiceEnhancementHandoff.PrefersEnchantress(",
+         "same-frame overlapping temple tick cannot steal the nearer enchantress destination"),
         ("temple-character-restore", "TempleApproach.cs", "selectedSlot.OnClick();", "if (selectedSlot.State == PartySlotState.Empty) selectedSlot.OnClick();", "temple entry preserves the exact previously selected native slot"),
         ("temple-close-missing", "TempleExit.cs", "ModalFallback.CloseFloatedWindow(_window);", "", "physical departure closes native temple before visiting another resident"),
         ("repeat-donation", "RitualTransactions.cs", "_submittedOfferings.Add(offering);", "", "a delayed online stock refresh never permits a duplicate donation"),

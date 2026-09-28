@@ -30,7 +30,7 @@ internal sealed class TownServiceEnhancementHandoff : IDisposable
     private static float _approachRetryAt;
     private static Transform? _approachPalm;
     private static VRCard? _approachCard;
-    private static bool _headInside, _cardInside, _pendingApproach;
+    private static bool _headInside, _cardInside, _pendingApproach, _magePreferredInside;
     internal static bool Enabled => WorldUIConfig.MapRoomHand == null ? Defaults.MapRoomHand : WorldUIConfig.MapRoomHand.Value;
     private static System.Runtime.CompilerServices.ConditionalWeakTable<VRCard, ReturnPresentation> Reclaimed = new();
     private static bool _hasReclaimed;
@@ -174,7 +174,7 @@ internal sealed class TownServiceEnhancementHandoff : IDisposable
     {
         if (!MapRoomDriver.Active || !WorldUIConfig.ImmersiveTownServices.Value || !Enabled
             || !TownServicePopulation.Available(3))
-        { _headInside = _cardInside = _pendingApproach = false; _approachCard = null; return; }
+        { _headInside = _cardInside = _pendingApproach = _magePreferredInside = false; _approachCard = null; return; }
         if (_approachPalm == null && Time.unscaledTime >= _approachSearchAt)
         {
             _approachSearchAt = Time.unscaledTime + .5f;
@@ -183,7 +183,7 @@ internal sealed class TownServiceEnhancementHandoff : IDisposable
         }
         Transform? palm = _current?._palm ?? _approachPalm;
         if (palm == null)
-        { _headInside = _cardInside = _pendingApproach = false; return; }
+        { _headInside = _cardInside = _pendingApproach = _magePreferredInside = false; return; }
         Camera? head = VRRigDriver.HeadCamera;
         // Leaving is the same native destination exit as its former X, including selection
         // and confirmation cleanup. Returning a card alone left an empty service open forever.
@@ -202,14 +202,12 @@ internal sealed class TownServiceEnhancementHandoff : IDisposable
         if (held == null || !Near(palm, held.transform.position, 1.05f)) _cardInside = false;
         bool cardEntered = held != null && !_cardInside && Near(palm, held.transform.position, .85f);
         if (cardEntered) _cardInside = true;
-        // A previous native town service can still own the guildmaster destination as the
-        // visitor reaches this resident. The old None gate consumed the physical entry edge:
-        // _headInside became true while Merchant/Temple was open, but _pendingApproach stayed
-        // false after its exit. In build 578's log, the visitor touched the enchantress's
-        // cloth well before the first enchantress window press. Preserve that one entry until
-        // the foreign destination closes; never switch the game's native mode underneath an
-        // active transaction. A successful press clears the intent, so explicitly closing
-        // this shop while still near does not cause a second automatic open.
+        // The entry edge may arrive before native cards, the rail, or an unrelated
+        // modal confirmation becomes ready. Retain it for a bounded retry, but hand
+        // the native destination from another idle town resident to this one as soon
+        // as the physical approach wins. Build 580's hardware log showed Merchant
+        // still selected after arrival at the enchantress; preserving intent alone
+        // left her palm permanently without a usable cue.
         if ((headEntered || cardEntered) && !StoryComposite.PointOfNoReturn)
         {
             if (!_pendingApproach && VRLog.WantsDebug)
@@ -218,9 +216,40 @@ internal sealed class TownServiceEnhancementHandoff : IDisposable
                     + " heldCard=" + cardEntered + " head=" + headEntered + ".");
             _pendingApproach = true;
         }
+        EGuildmasterMode destination = GuildmasterDestinations.CurrentDestinationMode();
+        // When Temple won the earlier overlap, crossing the physical midpoint
+        // toward the enchantress need not cross her 1.4 m boundary again. Record
+        // only the preference EDGE: a later deliberate Temple button press while
+        // stationary must not be undone on the next frame.
+        bool magePreferred = _headInside && head != null
+            && PrefersEnchantress(head.transform.position, destination);
+        if (destination == EGuildmasterMode.Temple && magePreferred && !_magePreferredInside)
+            _pendingApproach = true;
+        _magePreferredInside = magePreferred;
         if (!_headInside && !_cardInside || StoryComposite.PointOfNoReturn) _pendingApproach = false;
-        if (!_pendingApproach || GuildmasterDestinations.CurrentDestinationMode() != EGuildmasterMode.None
-            || Core.Events.VRModeStateMachine.CurrentMode == Core.Events.VRMode.ModalUI) return;
+        if (destination == EGuildmasterMode.Enchantress)
+        {
+            // A held card can enter the palm volume after the head opened this native
+            // destination. That is not a second visit. Keeping it pending reopened the
+            // shop after an explicit close while the visitor was still standing here.
+            _pendingApproach = false;
+            return;
+        }
+        if (!_pendingApproach || Core.Events.VRModeStateMachine.CurrentMode == Core.Events.VRMode.ModalUI)
+            return;
+        // Build 580 hardware: the visitor reached the outstretched enchantress with the
+        // Merchant destination still selected. The old None-only test held the approach
+        // forever, so no native shop, palm cue or card handoff could exist. Another
+        // physical resident visit must use the game's own destination switch, just as
+        // Temple already does. Preserve non-service destinations (trainer/story/etc.).
+        if (destination != EGuildmasterMode.None && destination != EGuildmasterMode.Merchant
+            && destination != EGuildmasterMode.Temple) return;
+        if (head != null && !PrefersEnchantress(head.transform.position, destination)) return;
+        UIItemConfirmationBox? tradeConfirmation = Singleton<UIItemConfirmationBox>.Instance;
+        // IsActive can remain set after the original window has closed. Only a live
+        // native confirmation may defer a new resident visit.
+        if (tradeConfirmation != null && tradeConfirmation.IsActive
+            && tradeConfirmation.GetComponent<UIWindow>() is UIWindow tradeWindow && tradeWindow.IsOpen) return;
         // A new physical entry gets its first attempt immediately. While waiting for cards
         // or the native rail, sample those more expensive predicates at 10 Hz instead of
         // traversing the map fan and rail every VR frame.
@@ -228,9 +257,19 @@ internal sealed class TownServiceEnhancementHandoff : IDisposable
         if (!headEntered && !cardEntered && now < _approachRetryAt) return;
         _approachRetryAt = now + .1f;
         if (!HasOwnedMapCard() || !MapRoomDriver.CanVisitTownService(EGuildmasterMode.Enchantress)) return;
+        NewPartyDisplayUI? display = NewPartyDisplayUI.PartyDisplay;
+        NewPartyCharacterUI? selectedSlot = display?.SelectedUISlot;
         if (MapRoomDriver.PressGuildmasterMode(EGuildmasterMode.Enchantress,
             cardEntered ? "owned card offered to enchantress" : "approached enchantress",
-            suppressNativeSound: true)) _pendingApproach = false;
+            suppressNativeSound: true))
+        {
+            _pendingApproach = false;
+            // Changing native guildmaster destinations can select the first assigned
+            // character. Keep the exact native slot the visitor was inspecting.
+            if (selectedSlot != null && selectedSlot.State == PartySlotState.Assigned
+                && display != null && !ReferenceEquals(display.SelectedUISlot, selectedSlot))
+                selectedSlot.OnClick();
+        }
     }
 
     private static bool HasOwnedMapCard()
@@ -262,6 +301,28 @@ internal sealed class TownServiceEnhancementHandoff : IDisposable
         Vector3 local = frame.InverseTransformPoint(position);
         local.y = 0f;
         return local.sqrMagnitude <= distance * distance;
+    }
+
+    /// <summary>Choose one physical resident in the small area where the temple and
+    /// enchantress approach volumes overlap. Prefer the already open destination within
+    /// a 12 cm tie band, so sequential approach ticks cannot toggle two native modes
+    /// during one frame or flicker back and forth at the midpoint.</summary>
+    internal static bool PrefersEnchantress(Vector3 visitor, EGuildmasterMode destination)
+    {
+        if (!TownServicePopulation.Available(2)) return true;
+        TownServiceStation? mage = TownServicePopulation.Acquire(3);
+        TownServiceStation? temple = TownServicePopulation.Acquire(2);
+        if (mage == null) return false;
+        if (temple == null || ReferenceEquals(mage, temple)) return true;
+        Vector3 fromMage = visitor - mage.Root.position;
+        Vector3 fromTemple = visitor - temple.Root.position;
+        fromMage.y = fromTemple.y = 0f;
+        float mageDistance = fromMage.magnitude;
+        float templeDistance = fromTemple.magnitude;
+        float tie = .12f * Mathf.Max(.01f, Mathf.Abs(mage.Root.lossyScale.x));
+        return destination == EGuildmasterMode.Enchantress
+            ? mageDistance <= templeDistance + tie
+            : mageDistance + tie < templeDistance;
     }
 
     internal void Tick()

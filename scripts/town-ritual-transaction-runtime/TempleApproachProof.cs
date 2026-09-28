@@ -31,7 +31,11 @@ public static class MapRoomDriver
 }
 public sealed class ToggleFlag { public bool Value=true; }
 public static class WorldUIConfig { public static ToggleFlag ImmersiveTownServices=new(); }
-public static class TownServiceEnhancementHandoff { public static bool Enabled=true; }
+public static class TownServiceEnhancementHandoff
+{
+    public static bool Enabled=true, PreferMage=true;
+    public static bool PrefersEnchantress(Vector3 visitor, EGuildmasterMode destination)=>PreferMage;
+}
 public static class StoryComposite { public static bool PointOfNoReturn; }
 public static class VRHands
 {
@@ -118,8 +122,14 @@ internal static class TempleApproachProof
 
         GuildmasterDestinations.Mode=EGuildmasterMode.Enchantress;
         typeof(BoundTempleApproach).GetField("_approachAt",BindingFlags.Static|BindingFlags.NonPublic)!.SetValue(null,0f);
+        TownServiceEnhancementHandoff.PreferMage=true;
+        BoundTempleApproach.TickApproach();
+        Check(MapRoomDriver.TemplePresses==2,
+            "same-frame overlapping temple tick cannot steal the nearer enchantress destination");
+        TownServiceEnhancementHandoff.PreferMage=false;
         BoundTempleApproach.TickApproach();
         Check(MapRoomDriver.TemplePresses==3,"physical priestess approach replaces an idle foreign town service");
+        TownServiceEnhancementHandoff.PreferMage=true;
         TownServicePopulation.Station.Near=false;
         BoundTempleApproach.TickApproach();
         TownServicePopulation.Station.Near=true;

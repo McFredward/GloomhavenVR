@@ -808,6 +808,11 @@ public static class InteractionProgram
         var root = new GameObject("Approach");
         var palm = new GameObject("ActivityOfferingPalm").transform; palm.SetParent(root.transform, false);
         TownServicePopulation.Station = new TownServiceStation { Root = root.transform };
+        var firstSlot = new NewPartyCharacterUI();
+        var selectedSlot = new NewPartyCharacterUI();
+        NewPartyDisplayUI.PartyDisplay = new NewPartyDisplayUI
+        { FirstSlot = firstSlot, SelectedUISlot = selectedSlot };
+        MapRoomDriver.SwitchForcesFirst = true;
         var card = new GameObject("OwnedCard", typeof(VRCard)).GetComponent<VRCard>(); card.transform.SetParent(root.transform, false);
         var hand = new VRHand(); hand.Grabber.Held = card; VRHands.Left = hand;
         CardsDriver.OffScenarioFanCards = new[] { card };
@@ -832,6 +837,9 @@ public static class InteractionProgram
         TownServiceEnhancementHandoff.TickApproach(); Check(MapRoomDriver.Visits == 0, "distant card never opens service");
         Offer();
         Check(MapRoomDriver.Visits == 1, "owned card approach opens through original native visit");
+        Check(ReferenceEquals(NewPartyDisplayUI.PartyDisplay.SelectedUISlot, selectedSlot)
+            && selectedSlot.Clicks == 1,
+            "native destination change preserves the visitor's exact selected character slot");
         Check(MapRoomDriver.LastSuppressed, "automatic enchantress entry suppresses the flat button sound");
         TownServiceEnhancementHandoff.TickApproach(); Check(MapRoomDriver.Visits == 1, "repeated approach cannot toggle native service");
         GuildmasterDestinations.Mode = EGuildmasterMode.None;
@@ -848,10 +856,12 @@ public static class InteractionProgram
         Check(MapRoomDriver.Visits == 3, "leaving and returning re-arms proximity greeting");
         GuildmasterDestinations.Mode = EGuildmasterMode.Merchant;
         Outside(); head.transform.position = palm.position; TownServiceEnhancementHandoff.TickApproach();
-        Check(MapRoomDriver.Visits == 3, "proximity never takes over another open service");
+        Check(MapRoomDriver.Visits == 4 && GuildmasterDestinations.Mode == EGuildmasterMode.Enchantress,
+            "physical enchantress approach switches a stale merchant destination through the native rail");
         GuildmasterDestinations.Mode = EGuildmasterMode.None;
         System.Threading.Thread.Sleep(125); TownServiceEnhancementHandoff.TickApproach();
-        Check(MapRoomDriver.Visits == 4, "an enchantress approach blocked by another service opens after that service closes without requiring a second physical entry");
+        Check(MapRoomDriver.Visits == 4,
+            "closing a visit switched from merchant does not reopen it while still near");
         GuildmasterDestinations.Mode = EGuildmasterMode.None;
         TownServiceEnhancementHandoff.TickApproach();
         Check(MapRoomDriver.Visits == 4, "explicitly closing the deferred enchantress visit stays closed while still near");
@@ -889,6 +899,56 @@ public static class InteractionProgram
         Outside(); head.transform.position = palm.position; Offer();
         Check(!TownServiceEnhancementHandoff.Enabled && MapRoomDriver.Visits == 9, "disabled map hand prevents automatic immersive opening");
         WorldUIConfig.MapRoomHand.Value = true;
+        Outside(); GuildmasterDestinations.Mode = EGuildmasterMode.Temple;
+        head.transform.position = palm.position; TownServiceEnhancementHandoff.TickApproach();
+        Check(MapRoomDriver.Visits == 10 && GuildmasterDestinations.Mode == EGuildmasterMode.Enchantress,
+            "approaching the enchantress also switches a completed temple visit");
+        Outside(); GuildmasterDestinations.Mode = EGuildmasterMode.Merchant;
+        var confirmation = new GameObject("Trade confirmation", typeof(UIWindow), typeof(UIItemConfirmationBox))
+            .GetComponent<UIItemConfirmationBox>();
+        Singleton<UIItemConfirmationBox>.Instance = confirmation;
+        confirmation.IsActive = true;
+        head.transform.position = palm.position; TownServiceEnhancementHandoff.TickApproach();
+        Check(MapRoomDriver.Visits == 10 && GuildmasterDestinations.Mode == EGuildmasterMode.Merchant,
+            "a live merchant purchase confirmation is never interrupted by resident approach");
+        confirmation.GetComponent<UIWindow>().IsOpen = false;
+        System.Threading.Thread.Sleep(125); TownServiceEnhancementHandoff.TickApproach();
+        Check(MapRoomDriver.Visits == 11 && GuildmasterDestinations.Mode == EGuildmasterMode.Enchantress,
+            "closed merchant confirmation cannot strand a physical visit behind stale IsActive");
+        Singleton<UIItemConfirmationBox>.Instance = null;
+        UnityEngine.Object.DestroyImmediate(confirmation.gameObject);
+        Outside(); GuildmasterDestinations.Mode = EGuildmasterMode.Trainer;
+        head.transform.position = palm.position; TownServiceEnhancementHandoff.TickApproach();
+        Check(MapRoomDriver.Visits == 11 && GuildmasterDestinations.Mode == EGuildmasterMode.Trainer,
+            "physical enchantress approach cannot interrupt a non-service destination");
+        var templeRoot = new GameObject("Temple competitor");
+        templeRoot.transform.position = root.transform.position + Vector3.right * 2.65f;
+        TownServicePopulation.MageStation = new TownServiceStation { Root = root.transform };
+        TownServicePopulation.TempleStation = new TownServiceStation { Root = templeRoot.transform };
+        Outside(); GuildmasterDestinations.Mode = EGuildmasterMode.Temple;
+        head.transform.position = root.transform.position + Vector3.right * 1.35f;
+        TownServiceEnhancementHandoff.TickApproach();
+        Check(MapRoomDriver.Visits == 11 && GuildmasterDestinations.Mode == EGuildmasterMode.Temple,
+            "overlapping approach cannot switch away from the physically nearer temple");
+        head.transform.position = root.transform.position + Vector3.right * 1.1f;
+        System.Threading.Thread.Sleep(125); TownServiceEnhancementHandoff.TickApproach();
+        Check(MapRoomDriver.Visits == 12 && GuildmasterDestinations.Mode == EGuildmasterMode.Enchantress,
+            "moving closer to the enchantress switches without crossing her approach boundary again");
+        GuildmasterDestinations.Mode = EGuildmasterMode.Temple;
+        System.Threading.Thread.Sleep(125);
+        TownServiceEnhancementHandoff.TickApproach();
+        Check(MapRoomDriver.Visits == 12 && GuildmasterDestinations.Mode == EGuildmasterMode.Temple,
+            "a deliberate temple destination press is not undone while the visitor stands still");
+        Vector3 midpoint = root.transform.position + Vector3.right * 1.3f;
+        Check(TownServiceEnhancementHandoff.PrefersEnchantress(midpoint, EGuildmasterMode.Enchantress)
+            && !TownServiceEnhancementHandoff.PrefersEnchantress(midpoint, EGuildmasterMode.Temple),
+            "overlapping resident approach keeps the current destination inside the stable tie band");
+        Check(TownServiceEnhancementHandoff.PrefersEnchantress(midpoint - Vector3.right * .2f, EGuildmasterMode.Temple)
+            && !TownServiceEnhancementHandoff.PrefersEnchantress(midpoint + Vector3.right * .2f, EGuildmasterMode.Enchantress),
+            "moving decisively toward either stand assigns the native destination to the nearer resident");
+        UnityEngine.Object.DestroyImmediate(templeRoot);
+        TownServicePopulation.MageStation = TownServicePopulation.TempleStation = null;
         UnityEngine.Object.DestroyImmediate(root); VRHands.Left = null; VRRigDriver.HeadCamera = null; TownServicePopulation.Station = null;
+        NewPartyDisplayUI.PartyDisplay = null; MapRoomDriver.SwitchForcesFirst = false;
     }
 }

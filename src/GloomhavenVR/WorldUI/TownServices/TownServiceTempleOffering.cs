@@ -42,6 +42,14 @@ internal sealed class TownServiceTempleOffering : IDisposable
         if (!near) { _approachInside = false; return; }
         EGuildmasterMode destination = GuildmasterDestinations.CurrentDestinationMode();
         if (destination == EGuildmasterMode.Temple) return;
+        // The enchantress's physical approach tick runs just before ours. Both small
+        // visitor volumes overlap near their midpoint; without one distance decision,
+        // this tick can immediately replace the native shop and remove its palm cue in
+        // the same frame. Keep a 12 cm preference for the resident already serving us.
+        if (destination == EGuildmasterMode.Enchantress && VRRigDriver.HeadCamera != null
+            && TownServiceEnhancementHandoff.PrefersEnchantress(
+                VRRigDriver.HeadCamera.transform.position, destination))
+        { _approachInside = false; return; }
         // A foreign service owns a different hand/fan mode. Clear any earlier Temple latch before
         // considering a physical switch, so a blocked switch (modal confirmation, held card, or
         // native refusal) can be retried and a later return can never inherit stale Temple state.
