@@ -220,7 +220,7 @@ def mutations():
          "another visitor's parked card blocks this Mage only before local physical offer"),
         ("claim-before-native", name,
          "if (Card == null && !TownServiceMirror.LocalTransactionSettled(3))",
-         "if (false)",
+         "if (Card != null && !TownServiceMirror.LocalTransactionSettled(3))",
          "physical card parks and keeps offering hand visible before resident claim settles"),
         ("pending-native-release", name,
          "if (!TownServiceMirror.LocalTransactionSettled(3)) return;",
