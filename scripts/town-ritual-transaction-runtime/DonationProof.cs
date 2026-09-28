@@ -1,4 +1,5 @@
 using System;
+using System.Reflection;
 using Object=UnityEngine.Object;
 using UnityEngine;
 using UnityEngine.EventSystems;
@@ -26,7 +27,7 @@ internal static class DonationProof
     internal static int Run()
     {
         int checks=0;void Check(bool value,string why){checks++;if(!value)throw new Exception(why);}
-        for(int scenario=0;scenario<9;scenario++)
+        for(int scenario=0;scenario<11;scenario++)
         {
             var root=new GameObject("Native temple",typeof(CanvasGroup),typeof(UITempleWindow));
             var events=new GameObject("Events",typeof(EventSystem));
@@ -51,6 +52,7 @@ internal static class DonationProof
             var ritual=new BoundRitual(()=>true,()=>temple.character);
             offering=ritual._templeOffering;
             TownServiceMirror.TransactionActive=TownServiceMirror.Settled=false;
+            TownServiceMirror.CanBegin=scenario!=9;
             int voiceBefore=TownServiceVoice.Donations;
             int revisionBefore=TownServiceMirror.Commits;
             if(scenario==1)temple.service.Affordable=false;
@@ -59,12 +61,22 @@ internal static class DonationProof
             if(scenario==4)ritual._templeOffering.Available=false;
             if(scenario==5)slot.IsAvailable=false;
             bool accepted=ritual.Donate(temple,slot);
-            bool eligible=scenario==0||scenario>=6;
+            bool eligible=scenario==0||scenario>=6&&scenario!=9;
             Check(accepted==eligible && commits==0&&selections==0,"purse parks without running native selection before transaction arbitration");
             if(accepted)
             {
                 ritual.TickPendingTempleDonation();
                 Check(selections==0&&commits==0,"unsettled transaction claim never enters the native donation callback");
+                if(scenario==10)
+                {
+                    object pending=typeof(BoundRitual).GetField("_pendingTempleDonation",BindingFlags.Instance|BindingFlags.NonPublic)!.GetValue(ritual)!;
+                    pending.GetType().GetField("Started",BindingFlags.Instance|BindingFlags.NonPublic)!.SetValue(pending,Time.unscaledTime-2.1f);
+                    ritual.TickPendingTempleDonation();
+                    Check(ritual.TempleGrantStalled&&!TownServiceMirror.TransactionActive&&selections==0&&commits==0,
+                        "missing host grant returns the purse and exposes native Temple fallback before selection");
+                    Object.DestroyImmediate(prompt);Object.DestroyImmediate(root);Object.DestroyImmediate(events);
+                    continue;
+                }
                 TownServiceMirror.Settled=true;
                 ritual.TickPendingTempleDonation();
             }
@@ -92,6 +104,8 @@ internal static class DonationProof
             Check(TownServiceVoice.Donations-voiceBefore==commits,"resident speaks only after each guarded native donation callback");
             Check(TownServiceMirror.Commits-revisionBefore==commits,
                 "shared blessing revision advances only after each native donation callback, never on availability changes");
+            if(scenario==9)Check(!accepted&&selections==0,
+                "another player's same-priestess claim blocks this purse before it can be parked");
             Object.DestroyImmediate(prompt);Object.DestroyImmediate(root);Object.DestroyImmediate(events);
         }
         MapRoomHand.Selected=null;

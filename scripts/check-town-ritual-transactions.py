@@ -31,7 +31,8 @@ def inspect_fan_contract(source):
     # at the priestess. The ordinary ability fan must stay suppressed then.
     tick = method(source, "internal void Tick(bool input)")
     if "MapRoomHand.SetTempleInspection(_inspectionNear && !holdingCard);" not in tick \
-            or "_near = input && _inspectionNear && !holdingCard;" not in tick:
+            or "_near = input && _inspectionNear && !holdingCard;" not in tick \
+            or "&& WantsPurseFocus;" not in tick:
         raise RuntimeError("Temple fan suppression is coupled to transient native input")
     if "bool shown = _inspectionNear && hand != null && hand.HasPose && hand.Grabber.Held == null" not in tick \
             or "&& (CardsConfig.RevealAlways || hand.PalmGate.IsOpen);" not in tick:
@@ -88,7 +89,7 @@ def inspect_shared_blessing_contract(root):
         "bool committed = known && unchecked((int)(revision - previous)) > 0;",
         "if (unavailable && !resident.TempleAvailabilityObserved)",
         "resident.TempleUnavailableBlend = 1f;",
-        "transitionAge / TownServiceActivityMotion.TransitionSeconds",
+        "committedAge / TownServiceActivityMotion.TransitionSeconds",
         "resident.TempleUnavailableBlend = Mathf.MoveTowards(resident.TempleUnavailableBlend,\n                        0f,",
         "TownServiceActivityMotion.ApplyTempleAvailability(ref displayedActivity,\n                    !unavailable, resident.TempleUnavailableBlend)",
     )
@@ -100,7 +101,7 @@ def inspect_shared_blessing_contract(root):
             "if (unavailable && !resident.TempleAvailabilityObserved)",
             "if (unavailable && false)"),
         replace_once(population,
-            "transitionAge / TownServiceActivityMotion.TransitionSeconds",
+            "committedAge / TownServiceActivityMotion.TransitionSeconds",
             "Time.unscaledDeltaTime / TownServiceActivityMotion.TransitionSeconds"),
     )
     for snap_control in cover_controls:
@@ -163,7 +164,7 @@ def sources(root):
         "private void TickPendingTempleDonation(", "internal void TickPendingTempleDonation(")
     text = "using System;using System.Collections.Generic;using UnityEngine;using UnityEngine.UI;using UnityEngine.EventSystems;using GloomhavenVR.WorldUI;using GloomhavenVR.Core;using GloomhavenVR.Net.TownServices;\n" + \
         "internal sealed class BoundRitual {private readonly Func<bool> _alive;private readonly Func<bool> _sessionAlive;private readonly Func<object?> _context;" + \
-        "private readonly HashSet<(string Character,object Blessing)> _submittedOfferings=new();internal FakeTempleOffering _templeOffering=new();private PendingTempleDonation? _pendingTempleDonation;private bool _nativeTempleDonationActive;" + \
+        "private readonly HashSet<(string Character,object Blessing)> _submittedOfferings=new();internal FakeTempleOffering _templeOffering=new();private PendingTempleDonation? _pendingTempleDonation;private bool _nativeTempleDonationActive;internal bool TempleGrantStalled {get;private set;}" + \
         "internal BoundRitual(Func<bool> alive,Func<object?> context){_alive=alive;_sessionAlive=alive;_context=context;}" + \
         "internal BoundRitual(Func<bool> alive,Func<bool> sessionAlive,Func<object?> context){_alive=alive;_sessionAlive=sessionAlive;_context=context;}\n" + method(raw, "private sealed class PendingTempleDonation") + "\n" + methods + "\n}"
     guard_path = root / "src/GloomhavenVR/WorldUI/TownServices/TownServiceRitualConfirmationGuard.cs"
@@ -181,6 +182,13 @@ def sources(root):
         pass
     else:
         raise RuntimeError("Temple fan suppression negative control did not fail")
+    coupled_focus = replace_once(offering_raw, "&& WantsPurseFocus;", "&& true;")
+    try:
+        inspect_fan_contract(coupled_focus)
+    except RuntimeError:
+        pass
+    else:
+        raise RuntimeError("Temple-to-merchant hand-focus negative control did not fail")
     coupled_visibility = replace_once(offering_raw,
         "&& (CardsConfig.RevealAlways || hand.PalmGate.IsOpen);",
         "&& Available;")
@@ -198,6 +206,8 @@ def sources(root):
     exit_source += "internal static class TownServiceOfferingPose {" + method(pose_raw, "internal static bool VisitorWithin(") + "}"
     approach = method(offering_raw, "internal static void TickApproach()")
     approach += method(offering_raw, "private static bool WantsPurseAtBowl(")
+    approach += method(offering_raw, "private static bool WantsMerchantFanAtCounter(")
+    approach += method(offering_raw, "internal static bool WantsPurseFocus")
     approach_source = "using UnityEngine;using VRHand=FakeHand;namespace GloomhavenVR.WorldUI { internal static class BoundTempleApproach { private static bool _approachInside,_purseFocus;private static float _approachAt;" + approach + "} }"
     return {"RitualTransactions.cs": text, "RitualGuard.cs": guard, "TempleExit.cs": exit_source, "TempleApproach.cs": approach_source}, {"TownServiceRitual.cs": hashlib.sha256(raw.encode()).hexdigest(), "TownServiceRitualConfirmationGuard.cs": hashlib.sha256(guard_raw.encode()).hexdigest(), "TownServiceTempleOffering.cs": hashlib.sha256(offering_raw.encode()).hexdigest()}
 
@@ -214,8 +224,11 @@ def mutations():
         ("temple-close-missing", "TempleExit.cs", "ModalFallback.CloseFloatedWindow(_window);", "", "physical departure closes native temple before visiting another resident"),
         ("repeat-donation", "RitualTransactions.cs", "_submittedOfferings.Add(offering);", "", "a delayed online stock refresh never permits a duplicate donation"),
         ("donation-revision-missing", "RitualTransactions.cs", "TownServiceMirror.MarkLocalTempleDonationCommitted();", "", "shared blessing revision advances only after each native donation callback"),
-        ("visitor-departure", "RitualTransactions.cs", "_templeOffering?.VisitorPresent == true && TemplePendingEligible(temple, slot)", "TemplePendingEligible(temple, slot)", "walking away before native completion cancels the donation"),
-        ("modal-input-gate", "RitualTransactions.cs", "_templeOffering?.VisitorPresent == true && TemplePendingEligible(temple, slot)", "_templeOffering?.Available == true && TemplePendingEligible(temple, slot)", "native modal input lock does not invalidate its own donation"),
+        ("visitor-departure", "RitualTransactions.cs", "_templeOffering?.VisitorPresent == true && TemplePendingEligible(temple!, slot!)", "TemplePendingEligible(temple!, slot!)", "walking away before native completion cancels the donation"),
+        ("modal-input-gate", "RitualTransactions.cs", "_templeOffering?.VisitorPresent == true && TemplePendingEligible(temple!, slot!)", "_templeOffering?.Available == true && TemplePendingEligible(temple!, slot!)", "deliberate purse drop invokes exactly one native payment callback"),
+        ("occupied-temple-accepted", "RitualTransactions.cs", "&& TownServiceMirror.CanLocalBeginTransaction(2)", "&& true", "purse parks without running native selection before transaction arbitration"),
+        ("unsettled-donation-direct", "RitualTransactions.cs", "if (!TownServiceMirror.LocalTransactionSettled(2)) return;", "", "unsettled transaction claim never enters the native donation callback"),
+        ("grant-timeout-disabled", "RitualTransactions.cs", "Time.unscaledTime - pending.Started > 2f", "false", "missing host grant returns the purse and exposes native Temple fallback before selection"),
         ("delayed-validation", "RitualGuard.cs", "_box != null && _valid()", "_box != null", "delayed owner change cancels original transaction"),
         ("delayed-cancel", "RitualGuard.cs", "else cancel?.Invoke();", "else if (!requested) cancel?.Invoke();", "delayed owner change cancels original transaction"),
         ("duplicate-completion", "RitualGuard.cs", "if (_completed) return;", "", "duplicate hidden completion is one shot"),

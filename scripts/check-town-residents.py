@@ -53,7 +53,7 @@ def main():
             ("late unavailable hydration snaps the cover pose", "Population.cs",
                 "resident.TempleDirectCover = displayedActivity.Attention <= .05f;",
                 "resident.TempleDirectCover = true;"),
-            ("temple cover follows packet arrival", "Population.cs", "transitionAge / TownServiceActivityMotion.TransitionSeconds", "Time.unscaledDeltaTime / TownServiceActivityMotion.TransitionSeconds"),
+            ("temple cover follows packet arrival", "Population.cs", "committedAge / TownServiceActivityMotion.TransitionSeconds", "Time.unscaledDeltaTime / TownServiceActivityMotion.TransitionSeconds"),
             ("stale author never expires", "Remote.cs", "now - pair.Value.Received <= NetProtocol.StaleTimeoutSeconds", "true"),
         ]
         for label, file, before, after in variants:

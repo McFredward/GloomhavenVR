@@ -1,6 +1,7 @@
 using System;
 using GloomhavenVR.Cards;
 using GloomhavenVR.Hands;
+using GloomhavenVR.Net.TownServices;
 using GloomhavenVR.Rig;
 using GloomhavenVR.WorldUI.MapRoom;
 using UnityEngine;
@@ -41,6 +42,12 @@ internal sealed class TownServiceTempleOffering : IDisposable
             { _purseFocus = false; return false; }
             TownServiceStation? station = TownServicePopulation.Acquire(2);
             if (station == null) { _purseFocus = false; return false; }
+            // Once physically picked up or deposited, this very purse still owns its
+            // local hand/confirmation presentation. Moving the empty fan hand toward
+            // another stand may change focus only after that interaction finishes.
+            if (TownServicePresentation.Ritual is TownServiceRitual ritual
+                && (ritual.HasTemplePurseInHand || ritual.HasParkedTempleOffer))
+            { _purseFocus = true; return true; }
             bool deliberate = WantsPurseAtBowl(station.Root);
             bool templeOpen = GuildmasterDestinations.CurrentDestinationMode() == EGuildmasterMode.Temple
                 && station.IsLocalVisitorNear(_purseFocus)
@@ -53,6 +60,7 @@ internal sealed class TownServiceTempleOffering : IDisposable
     }
 
     internal bool AllowsHand(VRHand hand) => Available
+        && TownServiceMirror.CanLocalBeginTransaction(2)
         && hand != (VRHands.Primary == VRHands.Left ? VRHands.Right : VRHands.Left);
 
     internal static void TickApproach()
@@ -160,7 +168,8 @@ internal sealed class TownServiceTempleOffering : IDisposable
         _inspectionNear = selected != null && _temple.character != null
             && selected.CharacterID == _temple.character.CharacterID && priest != null
             && priest.IsLocalVisitorNear(_inspectionNear)
-            && TownServiceOfferingPose.VisitorWithin(_station, _inspectionNear ? 1.65f : 1.4f);
+            && TownServiceOfferingPose.VisitorWithin(_station, _inspectionNear ? 1.65f : 1.4f)
+            && WantsPurseFocus;
         // Native modal focus temporarily disables ritual input. That must not rebuild
         // the ordinary ability-card fan over the physical purse and shared bowl.
         // A card already held by a hand retains its normal return path first.

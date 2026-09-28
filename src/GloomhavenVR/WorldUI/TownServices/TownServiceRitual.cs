@@ -310,7 +310,7 @@ internal sealed class TownServiceRitual : IDisposable
         internal readonly (string Character, object Blessing) Offering;
         internal readonly object? Context;
         internal readonly Action<bool>? Settled;
-        internal readonly float Started;
+        internal float Started;
         internal bool Completed;
         internal PendingTempleDonation(UITempleWindow temple, UITempleShopSlot slot,
             (string Character, object Blessing) offering, object? context, Action<bool>? settled)
@@ -319,6 +319,7 @@ internal sealed class TownServiceRitual : IDisposable
     }
     private PendingTempleDonation? _pendingTempleDonation;
     private bool _nativeTempleDonationActive;
+    internal bool TempleGrantStalled { get; private set; }
     internal TownServiceEnhancementHandoff? Handoff { get; private set; }
     private TownServiceNativeEnhancementCardMask? _nativeCardMask;
     internal TownServiceCardSlots CardSlots { get; } = new();
@@ -610,6 +611,7 @@ internal sealed class TownServiceRitual : IDisposable
     }
 
     private bool OfferingEligible(UITempleWindow temple, UITempleShopSlot slot) => _templeOffering?.Available == true
+        && TownServiceMirror.CanLocalBeginTransaction(2)
         && TempleQuietAvailable(temple, slot);
 
     private bool TemplePurseVisible(UITempleWindow temple, UITempleShopSlot slot) => temple.character != null
@@ -647,9 +649,18 @@ internal sealed class TownServiceRitual : IDisposable
             && ReferenceEquals(pending.Context, _context())
             && temple != null && slot != null && slot.Blessing != null
             && ReferenceEquals(pending.Offering.Blessing, slot.Blessing);
-        if (!valid || Time.unscaledTime - pending.Started > 2f)
+        bool timedOut = Time.unscaledTime - pending.Started > 2f;
+        if (!valid || timedOut)
         {
             _pendingTempleDonation = null;
+            if (timedOut && valid && !TownServiceMirror.LocalTransactionSettled(2))
+            {
+                // The original window is a usable escape hatch when no host grant
+                // arrives. Presentation restores it for this opening after the purse
+                // has returned; this flag is one-shot per ritual instance.
+                TempleGrantStalled = true;
+                VRLog.Warn("TownServices", "Temple transaction grant did not settle within two seconds; restoring the original VR window for this visit.");
+            }
             TownServiceMirror.SetLocalTransactionActive(2, false);
             CompleteTempleDonation(pending, false);
             if (VRLog.WantsDebug) VRLog.Debug("TownServices", "Temple purse: returned before native selection because the visitor, blessing or transaction claim was unavailable.");
@@ -658,9 +669,9 @@ internal sealed class TownServiceRitual : IDisposable
         if (!TownServiceMirror.LocalTransactionSettled(2)) return;
         _pendingTempleDonation = null;
         _nativeTempleDonationActive = true;
-        bool submitted = Confirm(slot.button, () => slot.Blessing, temple,
-            () => _templeOffering?.Available == true && TempleEligible(temple, slot),
-            () => _templeOffering?.VisitorPresent == true && TemplePendingEligible(temple, slot),
+        bool submitted = Confirm(slot!.button, () => slot!.Blessing, temple!,
+            () => _templeOffering?.Available == true && TempleEligible(temple!, slot!),
+            () => _templeOffering?.VisitorPresent == true && TemplePendingEligible(temple!, slot!),
             committed => CompleteTempleDonation(pending, committed));
         if (submitted) return;
         TownServiceMirror.SetLocalTransactionActive(2, false);

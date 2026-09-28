@@ -12,6 +12,7 @@ namespace GloomhavenVR.WorldUI
 {
     public sealed class TownServiceRitual
     {
+        public bool HasTemplePurseInHand,HasParkedTempleOffer;
         public sealed class Piece{public readonly CancelToken Token=new();}
         public sealed class CancelToken{public bool Cancelled;public void CancelInspection()=>Cancelled=true;}
         public readonly List<Piece> Pieces=new(){new Piece()};

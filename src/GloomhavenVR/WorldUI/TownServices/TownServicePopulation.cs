@@ -344,12 +344,17 @@ internal static class TownServicePopulation
                         1f, Time.unscaledDeltaTime / TownServiceActivityMotion.TransitionSeconds);
                 else if (unavailable)
                 {
-                    // A donation made while the priestess is already attentive follows
-                    // the owner's replicated transition age. All peers therefore cover
-                    // the bowl on the same analytic frame instead of integrating packet
-                    // arrival jitter independently.
-                    resident.TempleUnavailableBlend = Mathf.Clamp01(
-                        transitionAge / TownServiceActivityMotion.TransitionSeconds);
+                    // Only a native committed donation has a shared author timestamp.
+                    // Character selection, affordability and saved state can change
+                    // availability without a donation revision. Those changes must
+                    // ease from the visible pose rather than treating an absent age
+                    // as infinity and snapping the arm onto the bowl in one frame.
+                    float committedAge = now - resident.TempleBlessingStartedAt;
+                    resident.TempleUnavailableBlend = committedAge >= 0f
+                        && committedAge <= TownServiceActivityMotion.TransitionSeconds + .15f
+                            ? Mathf.Clamp01(committedAge / TownServiceActivityMotion.TransitionSeconds)
+                            : Mathf.MoveTowards(resident.TempleUnavailableBlend, 1f,
+                                Time.unscaledDeltaTime / TownServiceActivityMotion.TransitionSeconds);
                 }
                 else if (received || displayedActivity.Attention <= .001f)
                 {

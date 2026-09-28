@@ -166,6 +166,16 @@ internal static class Program
     {
         Reset();TownServiceStation.NearVisitor=true;
         TownServiceMirror.TempleStates.Add(new TownTempleDonationState(10,1,true,true,4,0f));
+        Tick(.7f);
+        TownServiceStation single=TownServiceStation.Live[2];
+        Vector3 beforeEligibilityChange=single.LastActivity.Left;
+        TownServiceMirror.TempleStates[0]=new TownTempleDonationState(10,1,true,false,4,0f);
+        Tick(.01f);
+        Check(single.Blessings==0 && Vector3.Distance(beforeEligibilityChange,single.LastActivity.Left)<.02f,
+            "non-donation eligibility loss eases the bowl cover instead of snapping the arm");
+
+        Reset();TownServiceStation.NearVisitor=true;
+        TownServiceMirror.TempleStates.Add(new TownTempleDonationState(10,1,true,true,4,0f));
         TownServiceMirror.TempleStates.Add(new TownTempleDonationState(11,2,true,true,7,0f));
         Tick(.7f);
         TownServiceStation temple=TownServiceStation.Live[2];

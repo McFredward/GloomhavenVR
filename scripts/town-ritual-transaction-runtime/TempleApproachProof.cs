@@ -73,9 +73,12 @@ public sealed class TownServiceStation
 public static class TownServicePopulation
 {
     public static TownServiceStation? Station;
-    public static bool Available(int service)=>Station!=null;
-    public static TownServiceStation? Acquire(int service)=>Station;
+    public static TownServiceStation? MerchantStation;
+    public static bool Available(int service)=>Acquire(service)!=null;
+    public static TownServiceStation? Acquire(int service)=>service==1?MerchantStation:Station;
 }
+public static class TownServicePresentation
+{ public static TownServiceRitual? Ritual; }
 namespace GloomhavenVR.Core.Events
 {
     public enum VRMode { TableIdle, ModalUI }
@@ -150,8 +153,24 @@ internal static class TempleApproachProof
         typeof(BoundTempleApproach).GetField("_approachAt",BindingFlags.Static|BindingFlags.NonPublic)!.SetValue(null,0f);
         BoundTempleApproach.TickApproach();
         Check(MapRoomDriver.TemplePresses==4,"leaving and returning permits a fresh physical approach");
+        var merchantRoot=new GameObject("Merchant counter");merchantRoot.transform.position=root.transform.position+Vector3.right*2f;
+        TownServicePopulation.MerchantStation=new TownServiceStation{Root=merchantRoot.transform};
+        GuildmasterDestinations.Mode=EGuildmasterMode.Temple;
+        VRHands.Right!.Rig.PalmCenter.position=root.transform.TransformPoint(TownServiceTempleBowl.Center);
+        Check(BoundTempleApproach.WantsPurseFocus,"revealed offhand at priestess bowl selects purse focus");
+        VRHands.Right.Rig.PalmCenter.position=merchantRoot.transform.position;
+        Check(!BoundTempleApproach.WantsPurseFocus,
+            "moving free fan hand to merchant counter releases Temple focus inside overlapping head volumes");
+        TownServicePresentation.Ritual=new TownServiceRitual{HasParkedTempleOffer=true};
+        Check(BoundTempleApproach.WantsPurseFocus,
+            "a parked purse retains Temple hand focus through its native confirmation");
+        TownServicePresentation.Ritual=null;
+        GuildmasterDestinations.Mode=EGuildmasterMode.Merchant;
+        Check(!BoundTempleApproach.WantsPurseFocus,
+            "mere nearby priestess head gaze does not replace the merchant item fan");
         Object.DestroyImmediate(root);Object.DestroyImmediate(head);
-        TownServicePopulation.Station=null;VRRigDriver.HeadCamera=null;MapRoomHand.Selected=null;NewPartyDisplayUI.PartyDisplay=null;
+        Object.DestroyImmediate(merchantRoot);
+        TownServicePopulation.Station=TownServicePopulation.MerchantStation=null;VRRigDriver.HeadCamera=null;MapRoomHand.Selected=null;NewPartyDisplayUI.PartyDisplay=null;
         Object.DestroyImmediate(VRHands.Left!.Rig.PalmCenter.gameObject);Object.DestroyImmediate(VRHands.Right!.Rig.PalmCenter.gameObject);
         VRHands.Left=VRHands.Right=VRHands.Primary=null;
         return checks;
