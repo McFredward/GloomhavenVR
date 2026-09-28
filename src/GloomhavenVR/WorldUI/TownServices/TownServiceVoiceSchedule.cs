@@ -8,7 +8,7 @@ internal sealed class TownServiceVoiceSchedule
     internal sealed class Entry
     {
         internal bool Visiting, Pending, Ended;
-        internal float VisitAge, Deadline, NextAllowed, NextAmbientAllowed, Started, ObservedAge;
+        internal float VisitAge, Deadline, NextAllowed, NextAmbientAllowed, NextSpeechAt, Started, ObservedAge;
         internal ushort Cue, PendingCue, LastRequestedCue, LastVariantCue;
         internal uint Generation, ObservedGeneration;
         internal int Author;
@@ -19,7 +19,6 @@ internal sealed class TownServiceVoiceSchedule
         internal byte Priority;
     }
     private readonly Entry[] _entries = { new(), new(), new() };
-    private float _nextWorld;
     internal Entry At(byte service) => _entries[service - 1];
 
     internal void Visit(byte service, bool visiting, float age, float now)
@@ -132,7 +131,7 @@ internal sealed class TownServiceVoiceSchedule
         // cosmetic line before choosing one of the five grateful performances.
         if (service == 2 && firstCue == 36)
         {
-            if (e.Cue >= 56 && e.Cue <= 60) { e.Cue = 0; e.Ended = true; _nextWorld = now; }
+            if (e.Cue >= 56 && e.Cue <= 60) { e.Cue = 0; e.Ended = true; e.NextSpeechAt = now; }
             if (e.Pending && e.PendingCue >= 56 && e.PendingCue <= 60) e.Pending = false;
         }
         else if (service == 2 && firstCue == 56
@@ -148,7 +147,7 @@ internal sealed class TownServiceVoiceSchedule
     private void RetireRange(Entry entry, ushort firstCue, float now)
     {
         if (entry.Cue >= firstCue && entry.Cue < firstCue + 5)
-        { entry.Cue = 0; entry.Ended = true; _nextWorld = now; }
+        { entry.Cue = 0; entry.Ended = true; entry.NextSpeechAt = now; }
         if (entry.Pending && entry.PendingCue >= firstCue && entry.PendingCue < firstCue + 5)
             entry.Pending = false;
     }
@@ -168,7 +167,7 @@ internal sealed class TownServiceVoiceSchedule
             entry.WorkSeeded = false;
             entry.FollowerAttentionKnown = false;
         }
-        _nextWorld = Math.Max(_nextWorld, now + 1f);
+        foreach (Entry entry in _entries) entry.NextSpeechAt = Math.Max(entry.NextSpeechAt, now + 1f);
     }
 
     private void QueueVariant(byte service, ushort firstCue, byte priority, float deadline, float entropy)
@@ -206,10 +205,12 @@ internal sealed class TownServiceVoiceSchedule
     {
         Entry e = At(service);
         if (e.Cue != 0 && (narration || now - e.Started >= duration(e.Cue)))
-        { e.Cue = 0; e.Ended = true; _nextWorld = now + 1f; }
+        { e.Cue = 0; e.Ended = true; e.NextSpeechAt = now + 1f; }
         if (e.Pending && now > e.Deadline) e.Pending = false;
-        if (!e.Pending || e.Cue != 0 || narration || now < _nextWorld || duration(e.PendingCue) <= 0f) return;
-        foreach (Entry other in _entries) if (other.Cue != 0) return;
+        // Each resident is a separate physical speaker. A prayer or spell at a
+        // different stand must not delay this resident's visitor greeting or
+        // transaction response. Keep the gap and one active cue per resident.
+        if (!e.Pending || e.Cue != 0 || narration || now < e.NextSpeechAt || duration(e.PendingCue) <= 0f) return;
         e.Pending = false;
         if (e.Generation == uint.MaxValue) return; // Never wrap an utterance identity.
         e.Generation++; e.Cue = e.PendingCue; e.Started = now; e.Ended = false;

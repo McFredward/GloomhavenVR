@@ -22,7 +22,7 @@ internal enum TownVoiceReaction : byte
 /// Speech never opens, closes or continues a native gameplay dialog.</summary>
 internal static class TownServiceVoice
 {
-    private const string Ear = "TownResidents";
+    private static readonly string[] Ears = { "TownResidents.1", "TownResidents.2", "TownResidents.3" };
     // Each event owns five complete, separately recorded performances. The elected
     // face author chooses one member of the event pool; the exact cue then travels
     // in TLV80, so a random choice can never make peers hear or articulate different
@@ -61,11 +61,15 @@ internal static class TownServiceVoice
     internal static Action<byte, TownVoiceReaction>? RelayRequest;
     private static bool _missingRelayReported;
     private static TownServiceVoiceSchedule _schedule = new();
-    private static AudioSource? _source;
-    private static byte _playingService;
-    private static ushort _playingCue;
-    private static uint _playingGeneration;
-    private static float _lastSeek, _nextContext;
+    private sealed class Playback
+    {
+        internal AudioSource? Source;
+        internal ushort Cue;
+        internal uint Generation;
+        internal float LastSeek;
+    }
+    private static readonly Playback[] Playbacks = { new(), new(), new() };
+    private static float _nextContext;
     private static bool _bound, _probed, _narration, _disabled;
     private static float _volume;
     private static int _frame = -1;
@@ -289,11 +293,12 @@ internal static class TownServiceVoice
         if (StoryComposite.PointOfNoReturn) { SilenceForStory(); return; }
         Refresh();
         if (!_schedule.Observe(service, author, cue, generation, age, Time.unscaledTime)) return;
+        Playback playback = Playbacks[service - 1];
+        string ear = Ears[service - 1];
         if (cue == 0)
         {
-            if (_playingService == service && _source != null) _source.Stop();
-            if (_playingService == service)
-            { _playingService = 0; _playingCue = 0; _playingGeneration = 0; HeadEar.Release(Ear); }
+            if (playback.Cue != 0 && playback.Source != null) playback.Source.Stop();
+            playback.Cue = 0; playback.Generation = 0; HeadEar.Release(ear);
             return;
         }
         AudioClip? clip = Clips[cue - 1];
@@ -301,60 +306,61 @@ internal static class TownServiceVoice
         {
             // A late join can receive an already-finished authored cue. Do not
             // leave an older utterance audible while the shared mouth is silent.
-            if (_playingService == service)
-            {
-                if (_source != null) _source.Stop();
-                _playingService = 0; _playingCue = 0; _playingGeneration = 0;
-                HeadEar.Release(Ear);
-            }
+            if (playback.Cue != 0 && playback.Source != null) playback.Source.Stop();
+            playback.Cue = 0; playback.Generation = 0; HeadEar.Release(ear);
             return;
         }
-        if (!HeadEar.Claim(Ear)) return;
-        if (_source == null)
+        if (!HeadEar.Claim(ear)) return;
+        if (playback.Source == null)
         {
             var host = new GameObject("GloomhavenVR.TownResident.Voice");
-            _source = host.AddComponent<AudioSource>();
-            _source.playOnAwake = false; _source.loop = false; _source.ignoreListenerPause = true; _source.spatialBlend = 1f;
-            _source.dopplerLevel = 0f; _source.spread = 0f; _source.rolloffMode = AudioRolloffMode.Linear;
+            playback.Source = host.AddComponent<AudioSource>();
+            playback.Source.playOnAwake = false; playback.Source.loop = false; playback.Source.ignoreListenerPause = true; playback.Source.spatialBlend = 1f;
+            playback.Source.dopplerLevel = 0f; playback.Source.spread = 0f; playback.Source.rolloffMode = AudioRolloffMode.Linear;
         }
         float scale = TownServicePopulation.Frame != null ? Mathf.Abs(TownServicePopulation.Frame.lossyScale.x) : 1f;
-        _source.transform.position = head.position;
+        AudioSource source = playback.Source;
+        source.transform.position = head.position;
         // The source remains continuously audible across the whole approach to a
         // stand. The previous 4.2 m edge was easy to cross between two headset
         // samples and sounded like a switch even with Unity's linear rolloff.
-        _source.minDistance = Mathf.Max(.01f, .45f * scale);
-        _source.maxDistance = Mathf.Max(.02f, 7f * scale);
+        source.minDistance = Mathf.Max(.01f, .45f * scale);
+        source.maxDistance = Mathf.Max(.02f, 7f * scale);
         // The final priestess performances measure -26.84 LUFS on average, 2.24 LU below the
         // merchant set and with a softer spectral balance. Compensate at the source rather than
         // rewriting/limiting the WAVs: dynamics and shared cue timing stay intact. Prayer keeps
         // the same relative murmur-to-speech ratio.
         float speechGain = IsPrayerCue(cue) ? .12f : IsWhisperedCastCue(cue) ? .22f : .42f;
         if (service == 2) speechGain *= 1.30f;
-        _source.volume = _disabled || _narration || !WorldUIConfig.ImmersiveTownSpeech.Value
+        source.volume = _disabled || _narration || !WorldUIConfig.ImmersiveTownSpeech.Value
             ? 0f : _volume * speechGain;
-        bool different = _playingService != service || _playingCue != cue || _playingGeneration != generation;
+        bool different = playback.Cue != cue || playback.Generation != generation;
         if (different)
         {
-            _source.Stop(); _source.clip = clip;
-            _source.time = Mathf.Clamp(age, 0f, Mathf.Max(0f, clip.length - .001f));
-            _source.Play();
-            _playingService = service; _playingCue = cue; _playingGeneration = generation;
-            _lastSeek = Time.unscaledTime;
+            source.Stop(); source.clip = clip;
+            source.time = Mathf.Clamp(age, 0f, Mathf.Max(0f, clip.length - .001f));
+            source.Play();
+            playback.Cue = cue; playback.Generation = generation;
+            playback.LastSeek = Time.unscaledTime;
         }
-        else if (_source.isPlaying && Time.unscaledTime - _lastSeek >= .5f && Mathf.Abs(_source.time - age) > .15f)
+        else if (source.isPlaying && Time.unscaledTime - playback.LastSeek >= .5f && Mathf.Abs(source.time - age) > .15f)
         {
-            _source.time = Mathf.Clamp(age, 0f, Mathf.Max(0f, clip.length - .001f));
-            _lastSeek = Time.unscaledTime;
+            source.time = Mathf.Clamp(age, 0f, Mathf.Max(0f, clip.length - .001f));
+            playback.LastSeek = Time.unscaledTime;
         }
     }
 
     internal static void Reset()
     {
-        if (_source != null) { _source.Stop(); Object.Destroy(_source.gameObject); _source = null; }
-        HeadEar.Release(Ear);
+        for (int i = 0; i < Playbacks.Length; i++)
+        {
+            Playback playback = Playbacks[i];
+            if (playback.Source != null) { playback.Source.Stop(); Object.Destroy(playback.Source.gameObject); playback.Source = null; }
+            playback.Cue = 0; playback.Generation = 0; playback.LastSeek = 0f;
+            HeadEar.Release(Ears[i]);
+        }
         _schedule = new TownServiceVoiceSchedule();
-        _playingService = 0; _playingCue = 0; _playingGeneration = 0;
-        _lastSeek = _nextContext = 0f; _frame = -1;
+        _nextContext = 0f; _frame = -1;
         // Bundled immutable clips/curves survive scene changes. Bundle teardown itself
         // invalidates Unity objects; Ensure detects that on the next map lifecycle.
         _probed = false;
@@ -365,11 +371,12 @@ internal static class TownServiceVoice
     private static void SilenceForStory()
     {
         _schedule.Silence(Time.unscaledTime);
-        if (_source != null && _source.isPlaying) _source.Stop();
-        if (_playingService != 0)
+        for (int i = 0; i < Playbacks.Length; i++)
         {
-            _playingService = 0; _playingCue = 0; _playingGeneration = 0;
-            HeadEar.Release(Ear);
+            Playback playback = Playbacks[i];
+            if (playback.Source != null && playback.Source.isPlaying) playback.Source.Stop();
+            playback.Cue = 0; playback.Generation = 0;
+            HeadEar.Release(Ears[i]);
         }
     }
 }

@@ -38,6 +38,10 @@ internal static class PortableSchedule
         approach.Sample(1, Duration, .11f, false);
         Check(approach.At(1).Cue is >= 1 and <= 5 && approach.At(1).Generation == 1,
             "look-at greeting is one shared authored cue");
+        approach.Visit(2, true, 0f, .11f);
+        approach.Sample(2, Duration, .11f, false);
+        Check(approach.At(2).Cue is >= 6 and <= 10 && approach.At(1).Cue is >= 1 and <= 5,
+            "separate visitors at merchant and priestess hear independent shared cues");
         approach.Visit(1, true, 0f, .2f);
         approach.Work(1, 10.2f, 0f, .3f, true, true, .2f);
         approach.Sample(1, Duration, .2f, false);

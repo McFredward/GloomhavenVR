@@ -11,7 +11,14 @@ public static class InteractionProgram
     private static void Check(bool okay, string message) { _checks++; if (!okay) throw new Exception(message); }
     private static FieldInfo Field(string name) => typeof(TownServiceVoice)
         .GetField(name, BindingFlags.NonPublic | BindingFlags.Static)!;
-    private static AudioSource? Source => (AudioSource?)Field("_source").GetValue(null);
+    private static byte _testedService = 1;
+    private static AudioSource? SourceFor(byte service)
+    {
+        Array playbacks = (Array)Field("Playbacks").GetValue(null)!;
+        object playback = playbacks.GetValue(service - 1)!;
+        return (AudioSource?)playback.GetType().GetField("Source", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(playback);
+    }
+    private static AudioSource? Source => SourceFor(_testedService);
     private static void Refresh()
     {
         Field("_frame").SetValue(null, -1);
@@ -30,13 +37,14 @@ public static class InteractionProgram
         Check(!schedule.At(1).Pending && schedule.At(1).Generation == 1,
             "later native merchant visit cannot queue a duplicate greeting");
         schedule.Visit(2, true, 0f, 0f); schedule.Sample(2, duration, 0f, false);
-        Check(schedule.At(2).Cue == 0, "only one resident speaks at a time");
+        Check(schedule.At(2).Cue >= 6 && schedule.At(2).Cue <= 10,
+            "a priestess greeting cannot block the merchant's simultaneous visitor greeting");
         schedule.Sample(1, duration, 1f, false);
         Check(schedule.At(1).Generation == 1 && schedule.At(1).Started == 0f, "frame tick does not restart cue");
         schedule.Sample(1, duration, 1.5f, true);
         Check(schedule.At(1).Cue == 0, "native narration interrupts resident speech");
-        schedule.Sample(2, duration, 2f, false); Check(schedule.At(2).Cue == 0, "global speech gap");
-        schedule.Sample(2, duration, 3f, false); Check(schedule.At(2).Cue >= 6 && schedule.At(2).Cue <= 10, "waiting greeting follows gap");
+        schedule.Sample(2, duration, 2f, false); Check(schedule.At(2).Cue == 0, "a resident's own cue ends normally");
+        schedule.Sample(2, duration, 3f, false); Check(schedule.At(2).Cue == 0, "completed greeting does not repeat");
 
         var variantEntry = new TownServiceVoiceSchedule.Entry();
         MethodInfo picker = typeof(TownServiceVoiceSchedule).GetMethod("Pick",
@@ -280,7 +288,11 @@ public static class InteractionProgram
             && Mathf.Abs(Source.minDistance - 89.154f) < .01f
             && Mathf.Abs(Source.maxDistance - 1386.84f) < .01f,
             "voice has continuous linear falloff across the map and follows map scale");
-        Check(HeadEar.Claims.Contains("TownResidents"), "voice shares existing head listener");
+        float gazeEdge = 2.4f * frame.transform.lossyScale.x;
+        float gazeGain = (Source.maxDistance - gazeEdge) / (Source.maxDistance - Source.minDistance);
+        Check(gazeGain >= .69f && gazeGain <= 1f,
+            "merchant speech retains audible spatial gain at the full visitor-gaze range");
+        Check(HeadEar.Claims.Contains("TownResidents.1"), "merchant voice shares existing head listener");
         Source.time = .5f; TownServiceFaceSpeech.Observer(1, 7, 1, 1, .4f, head.transform);
         Check(Mathf.Abs(Source.time - .5f) < .02f, "same cue packet never restarts audio");
         TownServiceFaceSpeech.Observer(1, 8, 1, 1, .45f, head.transform);
@@ -289,16 +301,22 @@ public static class InteractionProgram
         TownServiceFaceSpeech.Observer(1, 8, 1, 1, .55f, head.transform);
         Check(Source.volume == 0f, "story mute silences resident speech");
         TownServiceFaceSpeech.Observer(2, 7, 31, 1, .1f, head.transform);
+        Check(SourceFor(1)!.isPlaying && SourceFor(2)!.isPlaying
+            && HeadEar.Claims.Contains("TownResidents.1") && HeadEar.Claims.Contains("TownResidents.2"),
+            "different residents keep independent spatial sources and listener claims");
+        _testedService = 2;
         SaveData.Instance.Global.StoryVolume = 100; Refresh();
         TownServiceFaceSpeech.Observer(2, 7, 31, 1, .2f, head.transform);
         Check(Mathf.Abs(Source.volume - .078f) < .0001f,
             "priestess source gain compensates measured integrated loudness");
         TownServiceFaceSpeech.Observer(3, 7, 41, 2, .2f, head.transform);
+        _testedService = 3;
         Check(Mathf.Abs(Source.volume - .11f) < .0001f,
             "mystical incantation stays below ordinary speech");
         AudioController.Playing.Add(new ClockStone.AudioObject
             { category = new ClockStone.AudioCategory { Name = "VONarrationCampaign" } });
         Refresh(); TownServiceFaceSpeech.Observer(2, 7, 31, 1, .3f, head.transform);
+        _testedService = 2;
         Check(Source.volume == 0f && AudioController.Playing.Count == 1,
             "native narration ducks only NPC-owned speech");
         AudioController.Playing.Clear(); Refresh();
@@ -306,7 +324,8 @@ public static class InteractionProgram
         Check(Source.isPlaying, "new authored generation can start after a previous cue");
         StoryComposite.PointOfNoReturn = true;
         TownServiceVoice.Tick(2, 0f, true, default, false);
-        Check(!Source.isPlaying && !HeadEar.Claims.Contains("TownResidents"),
+        Check(!Source.isPlaying && !HeadEar.Claims.Contains("TownResidents.1")
+            && !HeadEar.Claims.Contains("TownResidents.2") && !HeadEar.Claims.Contains("TownResidents.3"),
             "point of no return immediately stops active resident speech");
         int storyRequests = requests;
         TownServicePopulation.IsFaceAuthor = false;
@@ -318,10 +337,11 @@ public static class InteractionProgram
         Check(Source.isPlaying, "resident audio can resume after leaving story commitment");
         TownServiceFaceSpeech.Observer(2, 7, 31, 5,
             TownServiceAssets.Clips["priestess-prayer"].length + .1f, head.transform);
-        Check(!Source.isPlaying && !HeadEar.Claims.Contains("TownResidents"),
+        Check(!Source.isPlaying && !HeadEar.Claims.Contains("TownResidents.2"),
             "late join skips expired shared cue and stops stale resident audio");
         TownServiceVoice.Reset();
-        Check(!HeadEar.Claims.Contains("TownResidents") && HeadEar.Claims.Contains("ExistingEnvironment"),
+        Check(!HeadEar.Claims.Contains("TownResidents.1") && !HeadEar.Claims.Contains("TownResidents.2")
+            && !HeadEar.Claims.Contains("TownResidents.3") && HeadEar.Claims.Contains("ExistingEnvironment"),
             "teardown releases only own listener claim");
         AudioController.Playing.Clear();
         UnityEngine.Object.DestroyImmediate(head); UnityEngine.Object.DestroyImmediate(frame);
