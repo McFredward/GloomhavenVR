@@ -72,6 +72,8 @@ internal static partial class TownServiceMirror
             {
                 if (module.Session != visit.Session || module.Address != "merchant.zone"
                     || !module.Host.activeInHierarchy) continue;
+                CanvasGroup? parent = module.Host.GetComponent<CanvasGroup>();
+                if (parent != null && parent.alpha <= .01f) continue;
                 CanvasGroup? cue = module.Binding.Root.GetComponent<CanvasGroup>();
                 if (cue != null && cue.alpha > .01f) return true;
             }
