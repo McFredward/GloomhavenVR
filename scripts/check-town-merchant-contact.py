@@ -47,6 +47,16 @@ def contact(vertices, coat, indices):
     return float(np.median(signed)), float(np.mean(exterior)), signed
 
 
+def pad_gaps(frame, side, coat, digits):
+    result = {}
+    for digit in ('Index', 'Middle', 'Ring', 'Little', 'Thumb'):
+        row = digits[(frame, side, digit + 'Pad.' + side)]
+        point = np.array([float(row[axis]) for axis in 'xyz'])
+        location, normal, _, _ = coat.find_nearest(tuple(point))
+        result[digit] = float(np.dot(point - np.asarray(location), np.asarray(normal)) * 1000)
+    return result
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--anatomy', required=True, type=Path)
@@ -131,13 +141,16 @@ def main():
                                   'inside_beyond_1mm': int(np.sum(signed < -1)),
                                   'hover_control': {'median_gap_mm': hover_median,
                                                     'exterior_within_5mm': hover_coverage}}
-                pad_gaps = {}
-                for digit in ('Index', 'Middle', 'Ring', 'Little', 'Thumb'):
-                    row = digits[(frame, side, digit + 'Pad.' + side)]
-                    point = np.array([float(row[axis]) for axis in 'xyz'])
-                    location, normal, _, _ = coat.find_nearest(tuple(point))
-                    pad_gaps[digit] = float(np.dot(point - np.asarray(location), np.asarray(normal)) * 1000)
-                contacts[side]['pad_gaps_mm'] = pad_gaps
+                contacts[side]['pad_gaps_mm'] = pad_gaps(frame, side, coat, digits)
+                index_row = digits[(frame, side, 'IndexPad.' + side)]
+                index_point = np.array([float(index_row[axis]) for axis in 'xyz'])
+                _, index_normal, _, _ = coat.find_nearest(tuple(index_point))
+                hovered_index = index_point + np.asarray(index_normal) * .015
+                location, normal, _, _ = coat.find_nearest(tuple(hovered_index))
+                hovered_gap = float(np.dot(hovered_index - np.asarray(location), np.asarray(normal)) * 1000)
+                if hovered_gap <= 6:
+                    raise AssertionError(f'{side} finger-pad hover negative control did not fail')
+                contacts[side]['pad_hover_control_mm'] = hovered_gap
         if phase_start <= frame <= phase_end and frame in facts:
             fact = facts[frame]
             if fact['merchantCanAttend'] == '1' and float(fact['coinGrip']) < .001:
@@ -154,6 +167,7 @@ def main():
                         'median_gap_mm': median, 'exterior_within_5mm': coverage,
                         'inside_fraction': float(np.mean(signed < 0)),
                         'inside_beyond_1mm': int(np.sum(signed < -1)),
+                        'pad_gaps_mm': pad_gaps(frame, side, coat, digits),
                     })
 
     summary = {'frames': frames, 'endpoint': int(segments[0]['end']), 'contact': contacts,
@@ -180,6 +194,8 @@ def main():
                 'minimum_exterior_within_5mm': min(samples, key=lambda row: row['exterior_within_5mm']),
                 'maximum_median_gap': max(samples, key=lambda row: row['median_gap_mm']),
                 'maximum_inside_fraction': max(samples, key=lambda row: row['inside_fraction']),
+                'maximum_finger_pad_gap': max(samples, key=lambda row: max(row['pad_gaps_mm'].values())),
+                'minimum_finger_pad_gap': min(samples, key=lambda row: min(row['pad_gaps_mm'].values())),
             }
     allowed = np.ones(frames, dtype=bool)
     if phase_segment and facts:
@@ -201,14 +217,16 @@ def main():
         raise AssertionError('Imported merchant arms intersect the coat or each other')
     for side, result in contacts.items():
         if (result['median_gap_mm'] > 5 or result['exterior_within_5mm'] < .60
-                or result['inside_beyond_1mm'] > 0 or result['inside_fraction'] > .02):
+                or result['inside_beyond_1mm'] > 0 or result['inside_fraction'] > .02
+                or any(gap < -1 or gap > 6 for gap in result['pad_gaps_mm'].values())):
             raise AssertionError(f'{side} palmar skin still floats above the coat')
     if not facts or any(len(samples) < 20 for samples in phase_contacts.values()):
         raise AssertionError('Legal merchant Idle phase coverage is missing')
     for side, samples in phase_contacts.items():
         for sample in samples:
             if (sample['median_gap_mm'] > 5 or sample['exterior_within_5mm'] < .60
-                    or sample['inside_beyond_1mm'] > 0 or sample['inside_fraction'] > .02):
+                    or sample['inside_beyond_1mm'] > 0 or sample['inside_fraction'] > .02
+                    or any(gap < -1 or gap > 6 for gap in sample['pad_gaps_mm'].values())):
                 raise AssertionError(f'{side} loses palmar contact at WorkClock {sample["work_clock"]}')
 
 
