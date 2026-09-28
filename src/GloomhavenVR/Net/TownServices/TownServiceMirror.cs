@@ -228,6 +228,15 @@ internal static partial class TownServiceMirror
         if (!active) TransactionOwner(service); // retire a released local lease immediately
     }
 
+    /// <summary>Local pre-native gate for an already parked card or purse. It stays false
+    /// during the bounded claim election and whenever another visitor owns this NPC.
+    /// This is a peer-convergent presentation lease, not a host acknowledgement: a native
+    /// transaction requiring hard simultaneous-drop arbitration must wait for a reliable
+    /// host grant before invoking its original callback.</summary>
+    internal static bool LocalTransactionSettled(byte service) => PrivateLane.Active
+        && PrivateLane.Service == service && PrivateLane.TransactionActive
+        && TransactionOwner(service) == LocalPeer;
+
     internal static bool IsInteractionOwner(int player, byte service, uint session)
     {
         if (player <= 0 || session == 0 || InteractionOwner(service) != player) return false;
