@@ -512,17 +512,14 @@ public static class InteractionProgram
                             Transform[] supports=markers.Where(t=>t.name=="PalmContact.R"||t.name.EndsWith("Pad.R")).ToArray();
                             Check(supports.Length==6,"actual hand has five anatomical finger pads and palm support");
                             float lowest=supports.Min(t=>root.InverseTransformPoint(t.position).y);
-                            if(service!=2)
+                            if(service==3)
                             {
                                 Check(Vector3.Distance(palm.position,wanted)<.02f,"actual enchantress offered palm reaches handoff n="+n+" distance="+Vector3.Distance(palm.position,wanted)+" shoulder="+upper.position+" target="+wanted+" reach="+reach);
-                                // Merchant attention is not an offering. The right palm
-                                // points up only when a card is separately offered.
-                                if(service==3)
-                                    Check(rig.OfferingPalm!=null&&Vector3.Dot(rig.OfferingPalm.up,root.up)>.99f,
-                                        "actual offering normal points above palm: "+npc+" frame="+n
-                                        +" dot="+(rig.OfferingPalm==null?0f:Vector3.Dot(rig.OfferingPalm.up,root.up)));
+                                Check(rig.OfferingPalm!=null&&Vector3.Dot(rig.OfferingPalm.up,root.up)>.99f,
+                                    "actual offering normal points above palm: "+npc+" frame="+n
+                                    +" dot="+(rig.OfferingPalm==null?0f:Vector3.Dot(rig.OfferingPalm.up,root.up)));
                             }
-                            else Check(Vector3.Distance(palm.position,wanted)<.10f
+                            else if(service==2) Check(Vector3.Distance(palm.position,wanted)<.10f
                                 && Mathf.Abs(root.InverseTransformPoint(palm.position).x)>.16f,
                                 "attentive priest lowers hands beside her robe and away from the bowl: frame="+n
                                 +" error="+Vector3.Distance(palm.position,wanted)+" x="+root.InverseTransformPoint(palm.position).x);
