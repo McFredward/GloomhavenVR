@@ -9,10 +9,54 @@ injects Unity OpenXR 1.10.0, uses D3D11 and MultiPass, and distributes Windows
 native DLLs. The asset bundle must be built with the game's exact Unity editor.
 These properties cannot be changed by updating the mod's separate asset project.
 
-The controls tutorial already recognizes a `frame_controller` device name, but
-renders the neutral controller. It currently recognizes Oculus Touch earlier in
-the table, so SteamVR's compatibility mapping can obscure that recognition.
+The controls tutorial recognizes a `frame_controller` device name, but renders
+the neutral controller. At the start of this pass it recognized Oculus Touch
+earlier in the table, so SteamVR's compatibility mapping could obscure Frame.
 The existing eye-resolution control is uniform scaling, not foveated rendering.
+
+### Tutorial controller model feasibility, 2026-09-28
+
+The Unity 2021.3/OpenXR 1.10 mod has no safe managed call that returns a runtime
+controller GameObject. Valve's official render-model sample requires Unity 6.
+`XR_EXT_render_model` returns glTF asset data and animated node state, not a Unity
+prefab. The companion `XR_EXT_interaction_render_model` supplies model IDs for
+the current session and hands. Implementing either here requires an OpenXR
+feature registered in `OpenXRBootstrap.CreateSettings()` before `xrCreateInstance`,
+a version-matched native or managed function bridge using that same instance and
+session, a glTF importer/material path compatible with the game's Unity 2021
+renderer, model-space/grip-pose verification, and a mapping from runtime node
+names to the tutorial's trigger/squeeze/thumbstick/face-key highlights. The
+existing `ControllerVisual` only consumes authored bundle prefabs. Loading the
+glTF without its runtime node state would also lose physical key motion.
+
+An OpenVR `IVRRenderModels` fallback needs its own verified SteamVR device
+association and model/component/texture loading path. Starting a second OpenVR
+session beside Unity's OpenXR session is not established as safe, so it is not a
+drop-in fallback. No Frame controller model or native bridge was shipped by
+this feasibility pass; headset appearance is unverified.
+
+The small source change in this pass prioritizes an explicitly named Steam Frame
+HMD or controller over a Touch-compatible input name. An unknown HMD with Touch
+input under SteamVR now gets the neutral tutorial diagram, since that input name
+alone cannot prove Quest hardware. Quest HMD identity retains its authored model.
+The normal-level one-shot tutorial log records controller name, HMD name,
+runtime, selected identity and model, making a real Frame session diagnosable.
+If SteamVR also hides the HMD's physical identity, this code cannot establish
+the Frame-specific D-pad wording; a runtime system query or controller-type API
+is required. That limitation must be checked on actual hardware.
+
+Before an actual runtime model ships, record `xrEnumerateInstanceExtensionProperties`
+for both extensions on SteamVR and the headset runtime, verify the same-session
+hand IDs after `xrSyncActions`, retrieve and parse both GLBs, inspect node names
+and component poses, and compare model/grip alignment and every highlighted key
+in the headset. Confirm the existing 0.22-second hand swap and fallback on model
+loss with both tracked hands. Steam Frame streaming and standalone remain separate
+hardware outcomes.
+
+Sources: [Khronos render-model specification](https://registry.khronos.org/OpenXR/specs/1.1/html/xrspec.html#XR_EXT_render_model),
+[Khronos interaction render-model specification](https://registry.khronos.org/OpenXR/specs/1.1/html/xrspec.html#XR_EXT_interaction_render_model),
+[Valve Unity utilities](https://github.com/ValveSoftware/Unity/blob/main/com.valvesoftware.openxr.utils/Documentation~/index.md),
+[Valve controller compatibility](https://partner.steamgames.com/doc/steamframe/controllers).
 
 ## Execution modes
 

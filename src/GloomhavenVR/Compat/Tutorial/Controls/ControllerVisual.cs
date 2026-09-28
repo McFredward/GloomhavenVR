@@ -88,22 +88,20 @@ internal sealed class ControllerVisual
 
     /// <summary>Substring → device, FIRST MATCH WINS, matched case-insensitively against
     /// <c>InputDevice.name</c>. The names are what OpenXR runtimes report ("Oculus Touch
-    /// Controller OpenXR", "Index Controller OpenXR", …); the REAL name is logged once per
-    /// session either way, so an unrecognised device names itself in the next hardware log
-    /// rather than being guessed at from here.
+    /// Controller OpenXR", "Index Controller OpenXR", …). SteamVR can expose a physical
+    /// Frame controller as Oculus Touch, so <see cref="RecognizeDevice"/> checks an explicit
+    /// Frame HMD identity before this compatibility-profile table.
     ///
-    /// <para>THE STEAM FRAME IS RECOGNISED BUT WEARS THE GENERIC MODEL, and that is a decision
-    /// rather than a gap. No openly-licensed model of its controllers exists anywhere: the
-    /// webxr-input-profiles registry has no Valve entry beyond the Index, Valve's own Unity
-    /// package ships the interaction profile
-    /// (<c>/interaction_profiles/valve/frame_controller_valve</c>) and no art at all, and
-    /// Valve's guidance is to fetch the model from the RUNTIME (<c>XR_EXT_render_model</c> /
-    /// OpenVR's <c>IVRRenderModel</c>) instead of shipping one. Dressing it in a Meta controller
-    /// because the two are shaped alike would show a Valve owner someone else's hardware —
-    /// exactly what the upstream trademark note asks nobody to do. So it gets the neutral model,
-    /// its own NAME, and wording that matches its real keys.</para></summary>
+    /// <para>THE STEAM FRAME CURRENTLY WEARS THE GENERIC MODEL. The bundled WebXR assets have
+    /// no Frame model and Valve's Unity package provides an interaction profile, not prefab art.
+    /// The accurate model must come from the runtime, but this Unity 2021/OpenXR 1.10 mod has no
+    /// bridge for its glTF asset and animated node state. A Quest prefab would misrepresent the
+    /// physical controller. The neutral diagram remains until that bridge is built and verified
+    /// on hardware; see .planning/STEAM-FRAME.md.</para></summary>
     private static readonly (string Needle, Device Device)[] DeviceTable =
     {
+        ("frame_controller", new Device("steamframe", Generic, "Steam Frame", dpad: true)),
+        ("steam frame", new Device("steamframe", Generic, "Steam Frame", dpad: true)),
         ("quest touch plus", new Device("quest3", "quest3", "Quest 3")),
         ("touch plus", new Device("quest3", "quest3", "Quest 3")),
         ("meta quest", new Device("quest3", "quest3", "Quest")),
@@ -112,9 +110,6 @@ internal sealed class ControllerVisual
         ("pico", new Device("pico4", "pico4", "Pico 4")),
         ("knuckles", new Device("index", "index", "Valve Index")),
         ("index", new Device("index", "index", "Valve Index")),
-        ("frame_controller", new Device("steamframe", Generic, "Steam Frame", dpad: true)),
-        ("steam frame", new Device("steamframe", Generic, "Steam Frame", dpad: true)),
-        ("frame", new Device("steamframe", Generic, "Steam Frame", dpad: true)),
     };
 
     private const float PulseHz = 1.6f;
@@ -203,35 +198,30 @@ internal sealed class ControllerVisual
 
     /// <summary>
     /// Which recognised controller is connected. Falls back to a neutral generic device for
-    /// anything the table does not know — and the Steam Frame reaches the generic MODEL by a
-    /// different route: it IS recognised, but no openly licensed model of it exists (see the
-    /// Controllers README and the device table above).
+    /// anything the table does not know. Valve documents that SteamVR presents Frame controllers
+    /// as Oculus Touch by default; the actual HMD identity must win over that input binding.
     /// </summary>
     private static Device ResolveDevice(VRHand hand)
     {
         if (_resolved.HasValue)
             return _resolved.Value;
         string name;
+        string hmdName;
         try
         {
             InputDevice xr = InputDevices.GetDeviceAtXRNode(
                 hand.Side == HandSide.Left ? XRNode.LeftHand : XRNode.RightHand);
             name = xr.isValid ? xr.name ?? string.Empty : string.Empty;
+            InputDevice hmd = InputDevices.GetDeviceAtXRNode(XRNode.Head);
+            hmdName = hmd.isValid ? hmd.name ?? string.Empty : string.Empty;
         }
         catch (Exception)
         {
             name = string.Empty;
+            hmdName = string.Empty;
         }
-        string lower = name.ToLowerInvariant();
-        var device = new Device(Generic, Generic, "VR");
-        foreach ((string needle, Device candidate) in DeviceTable)
-        {
-            if (lower.Contains(needle))
-            {
-                device = candidate;
-                break;
-            }
-        }
+        string runtimeName = VRSession.RuntimeName ?? string.Empty;
+        Device device = RecognizeDevice(name, hmdName, runtimeName);
         if (!_loggedDevice)
         {
             _loggedDevice = true;
@@ -239,16 +229,50 @@ internal sealed class ControllerVisual
             // the DEFAULT log level prints (Note/Alert/Error). scripts/check-hw-verify.py enforces it.
             VRLog.Note("Tutorial", $"Controls lesson: controller reported as '{name}' → "
                 + $"'{device.Id}' ({device.Label}), showing the '{device.Model}' model"
-                + (device.Model == Generic
-                    ? " — no vendor model of this device is publicly licensed, so the neutral one "
-                      + "is used; its keys are in the same places and every instruction names the "
-                      + "key in words."
-                    : ".")
-                + (device.Dpad ? " Face inputs are a D-PAD; the steps are worded for it." : ""));
+                + (device.Id == "steamframe"
+                    ? " — Steam Frame identity came from the controller or HMD; this build has no "
+                      + "runtime render-model bridge, so the neutral tutorial diagram is used."
+                    : device.Model == Generic
+                        ? " — no matching authored model is available; the neutral tutorial "
+                          + "diagram is used."
+                        : ".")
+                + (device.Dpad ? " Face inputs are a D-PAD; the steps are worded for it." : "")
+                + $" HMD reported as '{hmdName}', runtime '{runtimeName}'.");
         }
         _resolved = device;
         return device;
     }
+
+    private static Device RecognizeDevice(string controllerName, string hmdName, string runtimeName)
+    {
+        // SteamVR's Touch compatibility mapping changes the controller's input identity, not
+        // the physical headset. Only an explicit Frame name is enough to override a Touch name;
+        // a generic "SteamVR" runtime or another Valve HMD does not prove Frame hardware.
+        if (IsFrameIdentity(controllerName) || IsFrameIdentity(hmdName))
+            return new Device("steamframe", Generic, "Steam Frame", dpad: true);
+        string lower = controllerName.ToLowerInvariant();
+        if (lower.Contains("oculus touch")
+            && runtimeName.IndexOf("steamvr", StringComparison.OrdinalIgnoreCase) >= 0
+            && !ContainsQuestIdentity(hmdName))
+        {
+            // The actual headset is unknown here. SteamVR can supply Touch input for Frame
+            // hardware, so a Quest 3 prefab would make an unsupported physical claim.
+            return new Device(Generic, Generic, "VR");
+        }
+        foreach ((string needle, Device candidate) in DeviceTable)
+        {
+            if (lower.Contains(needle))
+                return candidate;
+        }
+        return new Device(Generic, Generic, "VR");
+    }
+
+    private static bool IsFrameIdentity(string value) =>
+        value.IndexOf("steam frame", StringComparison.OrdinalIgnoreCase) >= 0
+        || value.IndexOf("frame_controller", StringComparison.OrdinalIgnoreCase) >= 0;
+
+    private static bool ContainsQuestIdentity(string value) =>
+        value.IndexOf("quest", StringComparison.OrdinalIgnoreCase) >= 0;
 
     /// <summary>True while a swap is part-way through, so the driver knows the model is still
     /// on its way in or out.</summary>

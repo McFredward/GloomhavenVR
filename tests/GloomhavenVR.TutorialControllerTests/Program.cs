@@ -2,6 +2,7 @@ using GloomhavenVR.Compat;
 using GloomhavenVR.Hands;
 using GloomhavenVR.Rig;
 using UnityEngine;
+using UnityEngine.XR;
 static class Program {
     static int count;
     static void Check(bool value,string message) { count++; if(!value) throw new Exception(message); }
@@ -45,6 +46,23 @@ static class Program {
         }
     }
     static int Index(ControlAction action)=>Array.FindIndex(ControlsLesson.Steps,s=>s.Action==action);
+    static void DeviceIdentity() {
+        var resolved=typeof(ControllerVisual).GetField("_resolved",System.Reflection.BindingFlags.Static|System.Reflection.BindingFlags.NonPublic)!;
+        void Case(string controller,string hmd,string runtime,string id,bool dpad) {
+            resolved.SetValue(null,null);
+            InputDevices.ControllerName=controller;InputDevices.HmdName=hmd;
+            GloomhavenVR.Core.VRSession.RuntimeName=runtime;
+            ControllerVisual.EnsureResolved(VRHands.Right);
+            Check(ControllerVisual.DeviceId==id && ControllerVisual.HasDpad==dpad,
+                $"Controller identity mismatch: {controller} / {hmd} / {runtime}");
+        }
+        Case("Oculus Touch Controller OpenXR","Steam Frame HMD","SteamVR/OpenXR","steamframe",true);
+        Case("Oculus Touch frame_controller","OpenXR HMD","SteamVR/OpenXR","steamframe",true);
+        Case("Oculus Touch Controller OpenXR","OpenXR HMD","SteamVR/OpenXR","generic",false);
+        Case("Oculus Touch Controller OpenXR","Quest 3","SteamVR/OpenXR","quest3",false);
+        Case("Index Controller OpenXR","Valve Index","SteamVR/OpenXR","index",false);
+        Case("Oculus Touch Controller OpenXR","Quest 3","VDXR","quest3",false);
+    }
     static void Single(ControlAction action,HandSide side,string key) {
         ControlsTutorial.Apply(Index(action));Frames(15);VisiblePair();
         Key(VRHands.Left,side==HandSide.Left?key:null);Key(VRHands.Right,side==HandSide.Right?key:null);
@@ -78,6 +96,7 @@ static class Program {
         }
     }
     static void Main() {
+        DeviceIdentity();
         ControlsTutorial.Apply(0); Frames(15);HandPair();
         ControlsTutorial.Apply(Index(ControlAction.WorldDrag)); Frames(1);VisiblePair();
         Check(Model(VRHands.Left)!.transform.localScale.x<1, "Controller entry must remain animated");
