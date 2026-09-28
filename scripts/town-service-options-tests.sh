@@ -32,7 +32,9 @@ s += method(content, 'private static int BuildItem(ConfigCatalog.ConfigItem item
 start = rows.index('    private static void BuildRow(')
 end = rows.index('        // …and a couple', start)
 s += rows[start:end]
-s += '        if (item.Kind == ConfigCatalog.ConfigKind.Bool && BuildBoolRow(parent, item, caption, hintKey)) return;\n'
+bool_start = rows.index('        if (item.Kind == ConfigCatalog.ConfigKind.Bool', end)
+bool_end = rows.index('\n        if (item.Kind == ConfigCatalog.ConfigKind.Choice', bool_start)
+s += rows[bool_start:bool_end] + '\n'
 s += '        GenericRows++;\n    }\n'
 s += method(rows, 'private static bool BuildBoolRow(Transform parent, ConfigCatalog.ConfigItem item, string? caption, string? hintKey)') + '\n'
 start = curated.index('    private static bool TryBuildSpecialRow(')
