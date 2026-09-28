@@ -146,7 +146,9 @@ def mutations():
         ("narrow-physical-zone", "Token.cs", "Mathf.Abs(point.x) < _zoneHalfWidth", "true", "physical drop eligibility identity pose zone and cancellation fence 8"),
         ("physical-zone-drop", "Token.cs", "WithinDropZone(_mat.InverseTransformPoint(dropPoint) - _zoneCenter)", "InDropZone(Vector3.zero)", "physical drop eligibility identity pose zone and cancellation fence 2"),
         ("physical-tracked-drop", "Token.cs", "bool gesture = _heldTracked && hand.HasPose", "bool gesture = hand.HasPose", "physical drop eligibility identity pose zone and cancellation fence 7"),
-        ("held-workspace", "Presentation.cs", "_workspace.Tick(_catalog?.CanRelocate != false && _ritual?.CanRelocate != false);", "_workspace.Tick(true);", "presentation defers workspace relocation while original card is held"),
+        ("visitor-workspace", "Presentation.cs", "            _workspace = null;\n            BuildMat();", "            _workspace = service == 1 ? null : new TownServiceWorkspace(_station.Root, service);\n            BuildMat();", "additional visitor never constructs a tray or cloned furniture"),
+        ("ritual-off-stand", "Presentation.cs", "new TownServiceRitual(window, service, _station.Root,", "new TownServiceRitual(window, service, _mat!.transform,", "native ritual belongs to the same permanent resident stand"),
+        ("inspection-off-stand", "Presentation.cs", "_mat.transform.SetParent(_station.Root, false);", "_mat.transform.SetParent(null, false);", "physical inspection frame belongs to the one permanent resident stand"),
         ("physical-inspect-permission", "Token.cs", "(IsPhysical || (_button != null && _button.IsActive() && _button.IsInteractable()))", "(_button != null && _button.IsActive() && _button.IsInteractable())", "displayed physical prop remains grabbable with hidden native button"),
         ("physical-no-purchase", "Token.cs", "if (_physical != null)\n        {\n            // A deliberate trigger release", "if (_physical != null && _disposed)\n        {\n            // A deliberate trigger release", "physical drop eligibility identity pose zone and cancellation fence 0"),
         ("mask-wrapper-alpha", "WindowMask.cs", "mask.alpha = 0f;", "mask.alpha = 1f;", "mask suppresses rendering and raycasts on its own wrapper"),
@@ -161,7 +163,6 @@ def mutations():
         ("service-preclaim", "Presentation.cs", "        || WantsNativeController(window)\n", "", "immersive service controller is claimed before generic full-window conversion"),
         ("service-child-preclaim", "Presentation.cs", "            && window.transform.IsChildOf(controller.transform);", "            && false;", "merchant Scroll View is claimed before it can become the flat panel seen behind the build 568 NPC"),
         ("service-child-retirement", "Presentation.cs", "            if (service == 1 && !ModalFallback.ReleaseTownServiceAuxiliaries(window)) return;", "", "direct immersive merchant restores detached shop children and masks its controller without a flat window"),
-        ("manual-tray", "Presentation.cs", "_tray.Root.SetParent(null, true);", "{ }", "manual tray grab detaches before workspace movement"),
         ("option-open", "Presentation.cs", "        if (!WorldUIConfig.ImmersiveTownServices.Value || !TownServiceGrantSync.CanUseImmersive)", "        if (!TownServiceGrantSync.CanUseImmersive)", "opting out restores the ordinary converted flat merchant lifecycle"),
         ("option-release", "Presentation.cs", "internal static bool Active => WorldUIConfig.ImmersiveTownServices.Value\n        &&", "internal static bool Active =>", "disabled option immediately fences a held release before next tick"),
         ("option-classic-lifecycle", "Handoff.cs", "        if (window != null && window.IsOpen) TryConvertWindow(window);", "        if (window != null && window.IsOpen) RestoreTownServiceContext(window, Vector3.zero, Quaternion.identity);", "disabled window retains ordinary placement and fitting lifecycle"),
@@ -195,7 +196,7 @@ def main():
     parser.add_argument("--unity", type=Path, default=Path(os.environ.get("UNITY_PATH", "/home/claw/unity-2021.3.5/Editor/Unity")))
     parser.add_argument("--unity-ui", type=Path, help="Real UnityEngine.UI.dll (never metadata-only RefAsm)")
     parser.add_argument("--no-negative-controls", action="store_true", help="Quick positive run; not complete validation")
-    parser.add_argument("--only-mutation", help="Run production and one named negative control")
+    parser.add_argument("--only-mutation", action="append", help="Run production and selected negative controls")
     args = parser.parse_args()
     args.output_dir.mkdir(parents=True, exist_ok=True)
     run = Path(tempfile.mkdtemp(prefix="run-", dir=args.output_dir.resolve()))
@@ -213,8 +214,10 @@ def main():
     manifest = {"result": str(run / "results.txt"), "cases": []}
     variants = [("production", None, None, None, "")]
     if args.only_mutation:
-        selected = [case for case in mutations() if case[0] == args.only_mutation]
-        if not selected: parser.error("unknown mutation: " + args.only_mutation)
+        requested = set(args.only_mutation)
+        selected = [case for case in mutations() if case[0] in requested]
+        missing = requested - {case[0] for case in selected}
+        if missing: parser.error("unknown mutation: " + ", ".join(sorted(missing)))
         variants += selected
     elif not args.no_negative_controls:
         variants += mutations()

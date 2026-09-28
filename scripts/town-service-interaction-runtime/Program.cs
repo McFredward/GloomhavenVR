@@ -155,8 +155,7 @@ public static class InteractionProgram
         CanvasConversion.DeferParent = false; CanvasConversion.KeepActive = false;
         TownServicePalmConfirmation.Clear(); TownServiceRitual.Fail = false;
         TownServiceRitual.TestOfferStalled = false; ModalFallback.FailConvert = false;
-        // Model the map teardown boundary so the production presentation also disposes its
-        // deliberately cached temple workspace before this fixture destroys scene roots.
+        // Model map teardown before this fixture destroys the shared resident stand.
         GloomhavenVR.WorldUI.MapRoom.MapRoomDriver.Active = false;
         TownServicePresentation.Tick();
         GloomhavenVR.WorldUI.MapRoom.MapRoomDriver.Active = true;
@@ -605,38 +604,30 @@ public static class InteractionProgram
         Clean();
     }
 
-    private static void ManualTrayPlacement()
+    private static void SharedRitualPlacement()
     {
-        var session = Open(2);
-        Check(TownServicePresentation.Tray == null, "physical ritual has no legacy transaction drop tray");
-        session.Grab();
-        Vector3 waiting = TownServicePresentation.WorkMat!.parent.position;
-        TownServicePresentation.Tick();
-        Check(Vector3.Distance(waiting, TownServicePresentation.WorkMat.parent.position) < .001f,
-            "presentation defers workspace relocation while original card is held");
-        session.Token.OnGrabCancelled(session.Hand);
-        Check(session.Clicks == 0, "waiting for relocation never confirms native selection");
-        // The shipping merchant uses an invisible inspection frame. Exercise the retained
-        // generic manual-tray lifetime branch with an explicitly supplied boundary fixture.
-        var tray = new TownServiceTray(null, Vector3.zero, Quaternion.identity, 1f);
-        tray.Root.SetParent(TownServicePresentation.WorkMat!.parent, false);
-        typeof(TownServicePresentation).GetField("_tray", Static)!.SetValue(null, tray);
-        Check(tray.Root.parent != null, "unmoved generic tray belongs to its workspace");
-        Vector3 before = tray.Root.position;
-        TownServicePresentation.Tick();
-        Check(Vector3.Distance(tray.Root.position, before) > .001f, "unmoved tray follows owner workspace rearrangement");
-        tray.IsGrabbed = true;
-        Vector3 chosen = tray.Root.position + new Vector3(.3f, .2f, .4f);
-        tray.Root.position = chosen;
-        TownServicePresentation.Tick();
-        Check(tray.Root.parent == null && Vector3.Distance(tray.Root.position, chosen) < .001f,
-            "manual tray grab detaches before workspace movement");
-        tray.IsGrabbed = false;
-        TownServicePresentation.Tick();
-        Check(tray.Root.parent == null && Vector3.Distance(tray.Root.position, chosen) < .001f,
-            "released tray retains the player's chosen placement");
-        Check(session.Clicks == 0, "workspace rearrangement never confirms an item");
-        Clean();
+        foreach (byte service in new byte[] { 2, 3 })
+        {
+            var session = Open(service);
+            Transform station = TownServicePresentation.StationRoot!;
+            Check(station != null && TownServicePresentation.WorkMat!.parent == station,
+                "physical inspection frame belongs to the one permanent resident stand");
+            Check(TownServicePresentation.Ritual!.Root.parent == station,
+                "native ritual belongs to the same permanent resident stand");
+            Check(TownServicePresentation.Tray == null && TownServicePresentation.WorkspaceProps == null
+                  && TownServicePresentation.CounterFurniture == null,
+                "additional visitor never constructs a tray or cloned furniture");
+            Vector3 stationPose = station.position;
+            session.Grab();
+            TownServicePresentation.Tick();
+            Check(TownServicePresentation.WorkMat!.parent == station
+                  && TownServicePresentation.Ritual!.Root.parent == station
+                  && Vector3.Distance(station.position, stationPose) < .001f,
+                "held original sample cannot relocate or duplicate the resident stand");
+            session.Token.OnGrabCancelled(session.Hand);
+            Check(session.Clicks == 0, "cancelling held sample never confirms native selection");
+            Clean();
+        }
     }
 
     private static void PhysicalMerchantSamples()
@@ -1011,7 +1002,7 @@ public static class InteractionProgram
     public static int Run()
     {
         _assertions = 0;
-        try { NativeFolioAndTeardown(); EnhancementDecisionLayout(); PalmConfirmationLifecycle(); ParkedStockRegrab(); PhysicalCommitCases(); PhysicalMerchantSamples(); WindowMaskLifecycle(); UnconvertedMerchantController(); MerchantContextLifecycle(); ConfirmationFadeLifecycle(); IdentityChanges(); HoverAndRelease(); CancellationCompatibility(); Handoff(); StalledEnhancementRestoresNativeWindow(); RollbackAndContinuation(); OptionalPresentation(); ManualTrayPlacement(); MapHandFallback(); PhysicalPurse(); PurseSettlement(); return _assertions; }
+        try { NativeFolioAndTeardown(); EnhancementDecisionLayout(); PalmConfirmationLifecycle(); ParkedStockRegrab(); PhysicalCommitCases(); PhysicalMerchantSamples(); WindowMaskLifecycle(); UnconvertedMerchantController(); MerchantContextLifecycle(); ConfirmationFadeLifecycle(); IdentityChanges(); HoverAndRelease(); CancellationCompatibility(); Handoff(); StalledEnhancementRestoresNativeWindow(); RollbackAndContinuation(); OptionalPresentation(); SharedRitualPlacement(); MapHandFallback(); PhysicalPurse(); PurseSettlement(); return _assertions; }
         finally { Clean(); }
     }
 }

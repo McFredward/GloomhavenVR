@@ -360,20 +360,17 @@ namespace GloomhavenVR.WorldUI
         internal static bool LocalOwnsInteraction(byte service, uint sourceSession) =>
             GloomhavenVR.Net.TownServices.TownServiceMirror.LocalOwnsInteraction(service, sourceSession);
     }
-    // Workspace geometry/roster interpolation has its own production-bound Unity suite.
-    // Here only the presentation owner's child lifetime and manual-tray ownership matter.
+    // Legacy workspace geometry has its own production-bound Unity suite. The current
+    // presentation owns one resident stand, so this boundary must never allocate a
+    // visitor workspace unless a negative control reintroduces that regression.
     internal sealed class TownServiceWorkspace : IDisposable
     {
         internal Transform Root { get; }
         internal Transform? FurnitureRoot => Root;
         internal sealed class Prop { }
         internal IReadOnlyList<Prop> Props => Array.Empty<Prop>();
-        // This suite deliberately models a non-primary multiplayer ordinal because its
-        // ManualTrayPlacement case owns the relocation branch. The dedicated workspace
-        // suite binds the production slot resolver and proves that ordinal zero returns
-        // null without constructing furniture or Cloth.
         internal static TownServiceWorkspace? CreateForLocalVisitor(Transform station, byte service) =>
-            new TownServiceWorkspace(station, service);
+            null;
         internal TownServiceWorkspace(Transform station, byte service = 1)
         { Root = Probe.Go("workspace", station).transform; }
         internal void Tick(bool mayRelocate = true) { if (mayRelocate) Root.localPosition += new Vector3(.01f, 0f, 0f); }
