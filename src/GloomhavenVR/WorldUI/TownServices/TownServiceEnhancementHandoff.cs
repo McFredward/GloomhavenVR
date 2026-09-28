@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using GloomhavenVR.Cards;
 using GloomhavenVR.Core;
 using GloomhavenVR.Hands;
+using GloomhavenVR.Net.TownServices;
 using GloomhavenVR.Rig;
 using GloomhavenVR.WorldUI.MapRoom;
 using TMPro;
@@ -35,11 +36,12 @@ internal sealed class TownServiceEnhancementHandoff : IDisposable
     /// <summary>The local fan hand is deliberately aimed at this resident. This affects
     /// only the player's hand contents; other nearby residents retain their own attention.</summary>
     internal static bool WantsAbilityFan => RefreshAbilityFanFocus();
-    /// <summary>The authored offering pose may extend only when its actual native
-    /// palm mark is visible. Gaze attention alone has no card destination.</summary>
+    /// <summary>The authored offering pose may extend only with a visible native
+    /// palm mark or a real parked card. Gaze attention alone has no destination.</summary>
     internal static bool HasVisibleCue => _current != null && !_current._disposed
         && _current._window != null && _current._window.IsOpen
-        && _current._zoneGate.alpha > 0f && TownServicePresentation.Active
+        && (_current._zoneGate.alpha > 0f || _current.Card != null)
+        && TownServicePresentation.Active
         && TownServicePresentation.Service == 3;
     internal static bool Enabled => WorldUIConfig.MapRoomHand == null ? Defaults.MapRoomHand : WorldUIConfig.MapRoomHand.Value;
     private static System.Runtime.CompilerServices.ConditionalWeakTable<VRCard, ReturnPresentation> Reclaimed = new();
@@ -97,6 +99,8 @@ internal sealed class TownServiceEnhancementHandoff : IDisposable
     private float _palmSearchAt;
     private CAbilityCard? _model;
     private bool _disposed, _confirmationSeen, _cueRecorded, _lastCueShown, _labelReady = true;
+    private bool _claimPending;
+    private float _claimDeadline;
     private bool _stalledCueReported;
     private float _cueHiddenSince = -1f;
     internal bool NativeOfferStalled => !_disposed && _cueHiddenSince >= 0f
@@ -149,7 +153,7 @@ internal sealed class TownServiceEnhancementHandoff : IDisposable
     {
         offered = null;
         TownServiceEnhancementHandoff? current = _current;
-        if (current == null || current.Card == null || !current.Ready) return false;
+        if (current == null || current.Card == null || current._claimPending || !current.Ready) return false;
         TownServiceRitual? ritual = TownServicePresentation.Ritual;
         if (ritual == null || !ReferenceEquals(ritual.Handoff, current)) return false;
         foreach (TownServiceSurface surface in ritual.Surfaces)
@@ -178,7 +182,8 @@ internal sealed class TownServiceEnhancementHandoff : IDisposable
         && (!_shop._isConfirmationBoxOpened || TownServicePalmConfirmation.OwnsCurrent(
             Singleton<UIEnhancementConfirmationBox>.Instance?.GetComponent<UIWindow>()));
     private bool Ready => !_disposed && _shop != null && _window != null && _window.IsOpen
-        && !_shop._isConfirmationBoxOpened && _alive() && _input();
+        && !_shop._isConfirmationBoxOpened && _alive() && _input()
+        && (Card != null || TownServiceMirror.CanLocalBeginTransaction(3));
 
     internal static void TickApproach()
     {
@@ -219,10 +224,9 @@ internal sealed class TownServiceEnhancementHandoff : IDisposable
         if (cardEntered) _cardInside = true;
         // The entry edge may arrive before native cards, the rail, or an unrelated
         // modal confirmation becomes ready. Retain it for a bounded retry, but hand
-        // the native destination from another idle town resident to this one as soon
-        // as the physical approach wins. Build 580's hardware log showed Merchant
-        // still selected after arrival at the enchantress; preserving intent alone
-        // left her palm permanently without a usable cue.
+        // the native destination from another idle town resident only when the
+        // visitor focuses the ability fan or brings an owned card to her palm.
+        // A head-only overlap must leave the other resident usable.
         if ((headEntered || cardEntered) && !StoryComposite.PointOfNoReturn)
         {
             if (!_pendingApproach && VRLog.WantsDebug)
@@ -251,11 +255,10 @@ internal sealed class TownServiceEnhancementHandoff : IDisposable
         }
         if (!_pendingApproach || Core.Events.VRModeStateMachine.CurrentMode == Core.Events.VRMode.ModalUI)
             return;
-        // Build 580 hardware: the visitor reached the outstretched enchantress with the
-        // Merchant destination still selected. The old None-only test held the approach
-        // forever, so no native shop, palm cue or card handoff could exist. Another
-        // physical resident visit must use the game's own destination switch, just as
-        // Temple already does. Preserve non-service destinations (trainer/story/etc.).
+        // Build 580 hardware: Merchant remained the destination at the enchantress's
+        // palm. A deliberate ability-fan focus must select the native enhancement
+        // service; passive gaze leaves other nearby resident interactions intact.
+        // Preserve non-service destinations (trainer/story/etc.).
         if (destination != EGuildmasterMode.None && destination != EGuildmasterMode.Merchant
             && destination != EGuildmasterMode.Temple) return;
         if (destination != EGuildmasterMode.None && !magePreferred) return;
@@ -356,10 +359,8 @@ internal sealed class TownServiceEnhancementHandoff : IDisposable
         return local.sqrMagnitude <= distance * distance;
     }
 
-    /// <summary>Choose one physical resident in the small area where the temple and
-    /// enchantress approach volumes overlap. Prefer the already open destination within
-    /// a 12 cm tie band, so sequential approach ticks cannot toggle two native modes
-    /// during one frame or flicker back and forth at the midpoint.</summary>
+    /// <summary>Resolve the player's one native destination in the narrow Temple/Mage
+    /// overlap. This never controls whether either NPC looks at or speaks to visitors.</summary>
     internal static bool PrefersEnchantress(Vector3 visitor, EGuildmasterMode destination)
     {
         if (!TownServicePopulation.Available(2)) return true;
@@ -411,7 +412,7 @@ internal sealed class TownServiceEnhancementHandoff : IDisposable
         // valid card elsewhere in the fan cannot make an invalid held card look droppable.
         bool replacement = Card == null || held != null;
         bool heldEligible = leftHeld == null && rightHeld == null || held != null;
-        bool candidate = availableCard && replacement && heldEligible;
+        bool candidate = availableCard && replacement && heldEligible && !_claimPending;
         bool showCue = ready && candidate;
         // The build-575 headset still found an outstretched but blank hand. Its Debug log
         // shows native-open/input-false during workspace relocation, and the previous
@@ -462,6 +463,35 @@ internal sealed class TownServiceEnhancementHandoff : IDisposable
             // offering arrives, no remote stock proxy may silently choose on the player's behalf.
             if (_shop != null && _shop.selectedCard != null) ClearNativeSelection();
             return;
+        }
+        if (_claimPending)
+        {
+            // The card itself starts the resident-specific multiplayer claim. Native
+            // selection must wait until that claim settles; otherwise two simultaneous
+            // visitors could both invoke the original enhancement callback. Keep the
+            // original card parked and reclaimable while waiting, then return it if
+            // the claim never becomes ours. No gameplay callback runs on timeout.
+            if (!ValidOwner(Card) || !_alive() || _palm == null || _shop == null
+                || _window == null || !_window.IsOpen || Time.unscaledTime >= _claimDeadline)
+            { Return(); return; }
+            if (!TownServiceMirror.LocalTransactionSettled(3)) return;
+            UIEnhanceCardSlot? pendingSlot = FindAvailableSlot(_model);
+            if (pendingSlot == null) { Return(); return; }
+            try { pendingSlot.Select(); }
+            catch (Exception e)
+            {
+                VRLog.Warn("WorldUI", "TOWN ENHANCEMENT: native selection failed after the offering claim: " + e.Message);
+                Return(); return;
+            }
+            if (_shop.selectedCard == null || !SameCard(_shop.selectedCard.AbilityCard, _model))
+            { Return(); return; }
+            NativeSource = _shop.selectedCard;
+            NativeSlot = pendingSlot;
+            AbilityCardUI? selected = _shop.cardHolder.Card;
+            if (selected != null)
+                (selected.GetComponent<TownServiceNativeEnhancementCardMask>()
+                    ?? selected.gameObject.AddComponent<TownServiceNativeEnhancementCardMask>()).Mask();
+            _claimPending = false;
         }
         if (!ValidOwner(Card) || !_alive() || _palm == null || _shop == null || _window == null || !_window.IsOpen
             || _shop.selectedCard == null || !SameCard(_shop.selectedCard.AbilityCard, _model)
@@ -586,6 +616,9 @@ internal sealed class TownServiceEnhancementHandoff : IDisposable
             || !MapRoomHand.TryOwnedTownCard(card, out _, out var model)) return false;
         UIEnhanceCardSlot? found = FindAvailableSlot(model);
         if (found == null) return false;
+        if (_claimPending) return false;
+        if (Card == null && !TownServiceMirror.LocalTransactionSettled(3))
+            return ParkAwaitingClaim(card, model!, found);
         VRCard? existing = Card;
         UIEnhanceCardSlot? existingSlot = NativeSlot;
         // Original selection changes only the candidate; gold and enhancements still require
@@ -638,6 +671,25 @@ internal sealed class TownServiceEnhancementHandoff : IDisposable
         return true;
     }
 
+    private bool ParkAwaitingClaim(VRCard card, CAbilityCard model, UIEnhanceCardSlot slot)
+    {
+        Reclaimed.Remove(card);
+        Card = card; NativeSource = slot.AbilityCard; NativeSlot = slot; _model = model;
+        _claimPending = true;
+        _claimDeadline = Time.unscaledTime + 3f;
+        CardFan.Current?.Remove(card);
+        card.Grabbed += OnGrabbed;
+        float handScale = VRHands.Primary?.WorldScale ?? Mathf.Abs(card.transform.lossyScale.x);
+        float size = CardsConfig.InspectScale.Value * handScale / Mathf.Max(.0001f, Mathf.Abs(_seat.lossyScale.x));
+        _offeredHeight = CardsConfig.CardHeight * CardsConfig.InspectScale.Value * handScale;
+        card.SetHome(_seat, Vector3.zero, Quaternion.identity, size);
+        card.SetHandPopSuppressed(false);
+        card.ResetColliderRegion();
+        card.Grabbable = true; card.InspectOnly = true; card.AllowsGateHand = true;
+        VRLog.Debug("WorldUI", "TOWN ENHANCEMENT: physical card parked while resident claim settles.");
+        return true;
+    }
+
     private void RestoreSelection(VRCard? existing, UIEnhanceCardSlot? slot)
     {
         if (existing == null || slot == null || !ValidOwner(existing) || slot.Selectable == null
@@ -659,7 +711,8 @@ internal sealed class TownServiceEnhancementHandoff : IDisposable
     private VRCard? Detach()
     {
         VRCard? card = Card;
-        Card = null; NativeSource = null; NativeSlot = null; _model = null; _confirmationSeen = false;
+        Card = null; NativeSource = null; NativeSlot = null; _model = null;
+        _claimPending = _confirmationSeen = false;
         if (card != null) card.Grabbed -= OnGrabbed;
         return card;
     }

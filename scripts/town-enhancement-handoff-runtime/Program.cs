@@ -462,10 +462,14 @@ public static class InteractionProgram
         TownServicePresentation.SessionAge = .08f;
         using (var handoff = new TownServiceEnhancementHandoff(shop, station, () => true, () => input))
         {
+            Check(!TownServiceEnhancementHandoff.HasVisibleCue,
+                "offering hand remains lowered until a native locator has been painted");
             handoff.Tick(); card.transform.position = handoff.Seat.position; handoff.Tick();
             CanvasGroup gate = handoff.Zone.GetComponent<CanvasGroup>();
             Check(gate.alpha > .3f && gate.alpha < .5f && hand.HoverTicks == 0 && hand.ClickPulses == 0,
                 "first opening shows neutral palm locator while native input remains blocked");
+            Check(TownServiceEnhancementHandoff.HasVisibleCue,
+                "resident offering pose has a visible native locator while card input initializes");
             TownServicePresentation.SessionAge = 1.4f;
             handoff.Tick();
             Check(gate.alpha > .3f && gate.alpha < .5f,
@@ -487,11 +491,65 @@ public static class InteractionProgram
             Check(gate.alpha == 1f,
                 "held owned card remains offerable when the visible fan no longer lists its plucked card");
         }
+        Check(!TownServiceEnhancementHandoff.HasVisibleCue,
+            "disposed enhancement visit never leaves an unbacked offering-hand pose");
         CardsDriver.OffScenarioFanCards = new[] { card };
         TownServicePresentation.SessionAge = 3f;
         using (var revisit = new TownServiceEnhancementHandoff(shop, station, () => true, () => true))
         { revisit.Tick(); Check(revisit.Zone.GetComponent<CanvasGroup>().alpha == 1f,
             "later visit is ready without inheriting a stale preview latch"); }
+        int nativeSelections = 0;
+        slot.Selected = () => { nativeSelections++; shop.selectedCard = slot.AbilityCard; };
+        GloomhavenVR.Net.TownServices.TownServiceMirror.Settled = false;
+        using (var claim = new TownServiceEnhancementHandoff(shop, station, () => true, () => true))
+        {
+            claim.Tick(); card.IsHeld = false; hand.Grabber.Held = null;
+            card.transform.position = claim.Seat.position;
+            GloomhavenVR.Net.TownServices.TownServiceMirror.CanBegin = false;
+            claim.Tick();
+            Check(!TownServiceEnhancementHandoff.TryOffer(card) && claim.Card == null
+                && nativeSelections == 0,
+                "another visitor's parked card blocks this Mage only before local physical offer");
+            GloomhavenVR.Net.TownServices.TownServiceMirror.CanBegin = true;
+            claim.Tick();
+            Check(TownServiceEnhancementHandoff.TryOffer(card) && ReferenceEquals(claim.Card, card)
+                && nativeSelections == 0 && TownServiceEnhancementHandoff.HasVisibleCue,
+                "physical card parks and keeps offering hand visible before resident claim settles");
+            GloomhavenVR.Net.TownServices.TownServiceMirror.CanBegin = false;
+            Check(TownServiceEnhancementHandoff.CanReclaim(card),
+                "an existing physical offer remains manually reclaimable while a peer claim changes");
+            claim.Tick();
+            Check(nativeSelections == 0 && ReferenceEquals(claim.Card, card),
+                "unsettled competing visitor claim cannot invoke original native selection");
+            GloomhavenVR.Net.TownServices.TownServiceMirror.CanBegin = true;
+            GloomhavenVR.Net.TownServices.TownServiceMirror.Settled = true;
+            claim.Tick();
+            Check(nativeSelections == 1 && ReferenceEquals(claim.Card, card),
+                "settled resident claim selects the original native enhancement card exactly once");
+        }
+        var timeoutCard = new GameObject("Claim timeout card", typeof(VRCard)).GetComponent<VRCard>();
+        timeoutCard.transform.SetParent(root.transform, false);
+        timeoutCard.Owner = shop.character; timeoutCard.Model.ID = card.Model.ID;
+        CardsDriver.OffScenarioFanCards = new[] { timeoutCard };
+        GloomhavenVR.Net.TownServices.TownServiceMirror.Settled = false;
+        using (var claim = new TownServiceEnhancementHandoff(shop, station, () => true, () => true))
+        {
+            claim.Tick(); timeoutCard.transform.position = claim.Seat.position;
+            Check(TownServiceEnhancementHandoff.TryOffer(timeoutCard),
+                "second physical card can park during a new claim");
+            typeof(TownServiceEnhancementHandoff).GetField("_claimDeadline",
+                System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!
+                .SetValue(claim, -1f);
+            claim.Tick();
+            Check(claim.Card == null && CardsDriver.LastReturned == timeoutCard && nativeSelections == 1,
+                "lost resident claim returns the real card without invoking native selection");
+        }
+        GloomhavenVR.Net.TownServices.TownServiceMirror.Settled = true;
+        CardsDriver.Complete();
+        CardsDriver.OffScenarioFanActive = false;
+        _ = TownServiceEnhancementHandoff.Returning;
+        CardsDriver.OffScenarioFanActive = true;
+        CardsDriver.Returned = 0; CardsDriver.LastReturned = null; CardsDriver.Completed = null;
         VRHands.Left = null; card.IsHeld = false;
         UnityEngine.Object.DestroyImmediate(root);
     }
@@ -935,6 +993,7 @@ public static class InteractionProgram
             .GetComponent<UIItemConfirmationBox>();
         Singleton<UIItemConfirmationBox>.Instance = confirmation;
         confirmation.IsActive = true;
+        fanPalm.position = palm.position;
         head.transform.position = palm.position; TownServiceEnhancementHandoff.TickApproach();
         Check(MapRoomDriver.Visits == 10 && GuildmasterDestinations.Mode == EGuildmasterMode.Merchant,
             "a live merchant purchase confirmation is never interrupted by resident approach");

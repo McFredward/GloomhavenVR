@@ -85,6 +85,16 @@ namespace GloomhavenVR.Hands
     public static class VRHands { public static VRHand? Left, Right, Primary; }
 }
 namespace GloomhavenVR.Rig { public static class VRRigDriver { public static Camera? HeadCamera; } }
+namespace GloomhavenVR.Net.TownServices
+{
+    public static class TownServiceMirror
+    {
+        public static bool Settled = true;
+        public static bool CanBegin = true;
+        public static bool CanLocalBeginTransaction(byte service) => service == 3 && CanBegin;
+        public static bool LocalTransactionSettled(byte service) => service == 3 && Settled;
+    }
+}
 namespace GloomhavenVR.Cards
 {
     public static class CardsConfig { public static float CardHeight=.24f; public static Config InspectScale=new(); public class Config { public float Value=1f; } }
