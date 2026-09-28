@@ -205,17 +205,6 @@ namespace GloomhavenVR.WorldUI
         internal void Tick() { }
         public void Dispose() { }
     }
-    internal sealed class TownServiceCloth : IDisposable
-    {
-        internal TownServiceCloth(UnityEngine.Transform root, byte service) { }
-        internal void TickAuthor(float age, float dt, bool visible) { }
-        internal void TickObserver(float age, float elapsed, in GloomhavenVR.Net.TownClothRunnerState first,
-            in GloomhavenVR.Net.TownClothRunnerState second, bool visible) { }
-        internal GloomhavenVR.Net.TownClothRunnerState First => default;
-        internal GloomhavenVR.Net.TownClothRunnerState Second => default;
-        internal void SetVisible(bool visible) { }
-        public void Dispose() { }
-    }
     internal sealed class TownServiceActivityAudio
     {
         internal TownServiceActivityAudio(UnityEngine.Transform root,byte service){}

@@ -127,12 +127,6 @@ namespace GloomhavenVR.WorldUI
         internal bool LastActivityAudioVisible;
         internal void SampleActivityAudio(int author,uint epoch,float clock,bool visible,in TownActivityVisual shown,bool lookingAtVisitor)
         { LastActivityAudioVisible=visible; }
-        internal int ClothAuthorTicks, ClothObserverTicks;
-        internal GloomhavenVR.Net.TownClothRunnerState ClothFirst, ClothSecond;
-        internal void TickClothAuthor(float age,float dt) { ClothAuthorTicks++; }
-        internal void TickClothObserver(float age,float elapsed,
-            in GloomhavenVR.Net.TownClothRunnerState first,in GloomhavenVR.Net.TownClothRunnerState second)
-        { ClothObserverTicks++; ClothFirst=first; ClothSecond=second; }
         internal int FaceSeeds;internal bool FaceAuthor,FaceReceived;internal GloomhavenVR.Net.TownFacePose FacePose;
         internal void SeedFace(GloomhavenVR.Net.TownFacePose pose,int author,float elapsed){FaceSeeds++;FacePose=pose;}
         internal GloomhavenVR.Net.TownFacePose SampleFace(bool author,bool received,int authorId,in GloomhavenVR.Net.TownFacePose remote,float elapsed,float clock){FaceAuthor=author;FaceReceived=received;if(received)FacePose=remote;return FacePose;}

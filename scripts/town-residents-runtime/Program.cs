@@ -267,8 +267,8 @@ internal static class Program
         StoryCommitment();
         LockedResidentLifetime();
         Reset();Tick();AllVisible();Check(TownServicePopulation.Published.Active,"ready population advertised");
-        Check(TownServicePopulation.Published.HasCloth && TownServiceStation.Live[2].ClothAuthorTicks > 0,
-            "elected owner advances and publishes priestess cloth contact");
+        Check(!TownServicePopulation.Published.HasCloth,
+            "resident authors no retired stand-cloth controls");
         for(int i=0;i<8;i++)Tick(1);AllVisible();Check(TownServiceStation.Creates==3,"no visitor-dependent respawn or repeated create");
         Check(TownServiceStation.Live.Values.All(s=>s.Clip=="Idle"),"no greeting without a visit");
         TownServicePresentation.Active=true;TownServicePresentation.Service=2;TownServicePresentation.SessionAge=.4f;Tick(.1f);
@@ -287,19 +287,14 @@ internal static class Program
         Reset();MapRoomDriver.FrameReady=false;Tick();Check(TownServiceStation.Live.Count==0,"unavailable map frame cannot spawn");MapRoomDriver.FrameReady=true;Tick();AllVisible();
 
         Reset();Observe(5,State(5));
-        var clothOwner = State(2); clothOwner.HasCloth = true;
-        clothOwner.MerchantCloth = new TownClothRunnerState { Left = new Vector2(-.018f, .012f) };
-        clothOwner.TempleLeft = new TownClothRunnerState { Left = new Vector2(.02f, -.01f) };
-        Observe(2,clothOwner);
+        var formerClothOwner = State(2); formerClothOwner.HasCloth = true;
+        formerClothOwner.MerchantCloth = new TownClothRunnerState { Left = new Vector2(-.018f, .012f) };
+        formerClothOwner.TempleLeft = new TownClothRunnerState { Left = new Vector2(.02f, -.01f) };
+        Observe(2,formerClothOwner);
         Check(RemoteTownResidents.TryAuthor(out var chosen,out var elapsed),"remote author elected");Near(chosen.Merchant.Age,2,"lowest fresh player wins");Near(elapsed,0,"new packet elapsed zero");
         Tick(.5f);Near(TownServiceStation.Live[1].Root.position.y,24,"author pose mapped through shared frame");Near(TownServiceStation.Live[1].Age,2.5f,"author animation extrapolated");
-        Check(TownServiceStation.Live[2].ClothObserverTicks > 0 && TownServiceStation.Live[2].ClothAuthorTicks == 0,
-            "remote priestess cloth replays owner state without local contact sampling");
-        Near(TownServicePopulation.Published.TempleLeft.Left.x,.02f,"observer republishes the same cloth edge");
-        Near(TownServiceStation.Live[1].ClothFirst.Left.x,-.018f,
-            "remote merchant side cloth replays the elected owner's contact");
-        Near(TownServicePopulation.Published.MerchantCloth.Left.y,.012f,
-            "remote merchant side cloth remains published through the resident author");
+        Check(!TownServicePopulation.Published.HasCloth,
+            "legacy cloth tail is ignored when a remote resident pose is republished");
         for(byte s=1;s<=3;s++)
         {
             Near(TownServiceStation.Live[s].ActorFloorOffset,-.03f*s,"observer applies author's sole height");

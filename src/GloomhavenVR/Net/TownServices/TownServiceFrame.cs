@@ -26,8 +26,8 @@ internal sealed class TownServiceFrame
     internal bool Visible;
     internal TownRackState? Rack;
     internal TownRackStamp? RackMember;
-    // Quantized 8-byte edge controls per runner. Private furniture uses one
-    // merchant/enchantress runner or two temple runners; null means no cloth record.
+    // Reserved TLV90 legacy grammar. Build 582 authors null, so ordinary furniture
+    // snapshots contain no simulated fabric controls; old vectors remain parseable.
     internal byte[]? WorkspaceCloth;
     internal bool HasWorkspaceCloth => WorkspaceCloth != null;
     // Additive TLV91 lives on a private service manifest. It carries no

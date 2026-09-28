@@ -30,7 +30,6 @@ internal sealed class TownServiceWorkspace : IDisposable
     private readonly List<int> _ids = new();
     private readonly Transform _station;
     private readonly TownServiceGrounding _grounding;
-    private TownServiceCloth? _cloth;
     private Vector3 _target, _center, _stationPosition;
     private Quaternion _targetRotation, _stationRotation;
     private Transform? _room;
@@ -44,9 +43,6 @@ internal sealed class TownServiceWorkspace : IDisposable
     private bool _disposed;
     internal Transform Root => _root.transform;
     internal Transform FurnitureRoot { get; }
-    internal TownClothRunnerState ClothFirst => _shownPrimary ? default : _cloth?.First ?? default;
-    internal TownClothRunnerState ClothSecond => _shownPrimary ? default : _cloth?.Second ?? default;
-    internal bool HasCloth => !_shownPrimary && _cloth != null && _appliedVisibility > 0f;
     internal IReadOnlyList<Prop> Props => _props;
     internal IReadOnlyList<Material> Materials => _materials;
     internal static Transform? CounterTemplate => FurnitureTemplate(1);
@@ -58,9 +54,8 @@ internal sealed class TownServiceWorkspace : IDisposable
     internal static TownServiceWorkspace? CreateForLocalVisitor(Transform station, byte service)
     {
         int slot = ResolveLocalSlot(new List<(int Id, string? Account, string? Name)>(), new List<int>());
-        // Ordinal zero already uses the permanent resident stand. Constructing an invisible
-        // duplicate used to cook two Unity Cloth meshes here and accounted for hundreds of
-        // milliseconds on every temple entry.
+        // Ordinal zero already uses the permanent resident stand. Do not create
+        // a second invisible furniture set for the same visitor.
         return slot == 0 ? null : new TownServiceWorkspace(station, service, slot);
     }
 
@@ -87,7 +82,6 @@ internal sealed class TownServiceWorkspace : IDisposable
             if (!RefreshTarget(slot, true))
                 throw new InvalidOperationException("Merchant workspace map frame is unavailable");
             ApplyTarget();
-            if (!_shownPrimary) _cloth = new TownServiceCloth(Root, service);
             _pending = false; RefreshProps();
             _nextRoster = Time.unscaledTime + .25f;
             ApplyVisibility();
@@ -200,8 +194,6 @@ internal sealed class TownServiceWorkspace : IDisposable
             }
         }
         ApplyVisibility();
-        if (_appliedVisibility > 0f)
-            _cloth?.TickAuthor(TownServicePresentation.SessionAge, Time.unscaledDeltaTime, true);
     }
 
     internal void SetVisibility(float value)
@@ -219,7 +211,6 @@ internal sealed class TownServiceWorkspace : IDisposable
         _appliedVisibility = value;
         foreach (Material material in _materials) material.SetFloat(VisibilityId, value);
         FurnitureRoot.gameObject.SetActive(value > 0f);
-        _cloth?.SetVisible(value > 0f);
         foreach (Prop prop in _props) prop.Root.gameObject.SetActive(value > 0f);
         // Mesh property blocks are deliberately absent: the native presentation stream captures
         // these owned material values, including every intermediate dissolve value.
@@ -270,7 +261,6 @@ internal sealed class TownServiceWorkspace : IDisposable
         if (_disposed) return;
         _disposed = true;
         _grounding?.Dispose();
-        _cloth?.Dispose();
         if (_root != null) { _root.SetActive(false); UnityEngine.Object.Destroy(_root); }
         foreach (Material material in _materials) UnityEngine.Object.Destroy(material);
         _materials.Clear(); _materialCopies.Clear(); _animatedMaterials.Clear(); _props.Clear();

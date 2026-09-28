@@ -271,7 +271,7 @@ public static class InteractionProgram
         var station=new GameObject("Primary service station");PlaceStation(station.transform,2);
         try
         {
-            Roster(1);NetPlayerActors.Local=1;TownServiceCloth.Constructions=0;
+            Roster(1);NetPlayerActors.Local=1;
             var firstTimer=Stopwatch.StartNew();
             var first=TownServiceWorkspace.CreateForLocalVisitor(station.transform,2);
             firstTimer.Stop();
@@ -280,21 +280,21 @@ public static class InteractionProgram
             for(int i=0;i<1000;i++)repeat=TownServiceWorkspace.CreateForLocalVisitor(station.transform,2);
             repeatTimer.Stop();
             Check(first==null&&repeat==null,"primary service entry never constructs a hidden private workspace");
-            Check(TownServiceCloth.Constructions==0,"first and repeated primary entry skip Unity cloth cooking");
             Check(firstTimer.ElapsedMilliseconds<20&&repeatTimer.ElapsedMilliseconds<20,
                 "primary workspace decision remains outside the interactive-frame budget");
             Debug.Log("TOWN_WORKSPACE_ENTRY firstMs="+firstTimer.Elapsed.TotalMilliseconds.ToString("F3")
-                +" repeat1000Ms="+repeatTimer.Elapsed.TotalMilliseconds.ToString("F3")+" cloth=0");
+                +" repeat1000Ms="+repeatTimer.Elapsed.TotalMilliseconds.ToString("F3"));
 
             Roster(1,7);NetPlayerActors.Local=7;
             using(var visitor=TownServiceWorkspace.CreateForLocalVisitor(station.transform,2))
             {
                 Check(visitor!=null,"multiplayer visitor keeps a private service workspace");
                 visitor!.SetVisibility(1f);
-                Check(visitor.FurnitureRoot.gameObject.activeSelf&&visitor.HasCloth,
-                    "multiplayer visitor workspace retains visible furniture and cloth");
+                Check(visitor.FurnitureRoot.gameObject.activeSelf,
+                    "multiplayer visitor workspace retains visible furniture");
+                Check(visitor.FurnitureRoot.GetComponentsInChildren<Cloth>(true).Length==0,
+                    "visitor furniture has no stand-fabric solver");
             }
-            Check(TownServiceCloth.Constructions==1,"only the visible visitor workspace constructs cloth");
         }
         finally{UnityEngine.Object.DestroyImmediate(station);}
     }

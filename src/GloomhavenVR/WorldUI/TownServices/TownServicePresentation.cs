@@ -45,9 +45,6 @@ internal static class TownServicePresentation
     internal static Transform? WorkMat => _mat != null ? _mat.transform : null;
     internal static TownServiceTray? Tray => _tray;
     internal static Transform? CounterFurniture => _workspace?.FurnitureRoot;
-    internal static bool HasWorkspaceCloth => _workspace?.HasCloth ?? false;
-    internal static TownClothRunnerState WorkspaceClothFirst => _workspace?.ClothFirst ?? default;
-    internal static TownClothRunnerState WorkspaceClothSecond => _workspace?.ClothSecond ?? default;
     internal static IReadOnlyCollection<TownServiceToken> Samples => _catalog != null ? _catalog.Samples
         : _ritual != null ? _ritual.Samples : Tokens.Values;
     internal static TownServiceCatalog? Catalog => _catalog;

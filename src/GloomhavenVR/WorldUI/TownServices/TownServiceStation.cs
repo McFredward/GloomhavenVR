@@ -18,7 +18,6 @@ internal sealed class TownServiceStation : IDisposable
     private readonly TownServiceFace _face;
     private readonly TownServiceActivityRig _activity;
     private readonly TownServiceActivityAudio _audio;
-    private readonly TownServiceCloth _cloth;
     private readonly TownServiceSleeveLining _sleeves;
     private TownServiceTempleBowlMarker? _templeBlessing;
     private bool _faceFailed, _activityFailed;
@@ -58,13 +57,12 @@ internal sealed class TownServiceStation : IDisposable
         _audio = new TownServiceActivityAudio(root.transform, service);
         _lighting = new TownServiceLighting(root.transform, service);
         try { _decor = new TownServiceDecor(root.transform, service, _lighting);
-            _cloth = new TownServiceCloth(root.transform, service);
             _sleeves = new TownServiceSleeveLining(root.transform,
                 root.transform.Find("Actor") ?? throw new InvalidOperationException("Town actor missing"), service);
             if (service == 2) _templeBlessing = new TownServiceTempleBowlMarker(root.transform, stationSpace: true); }
         catch
         {
-            _templeBlessing?.Dispose(); _sleeves?.Dispose(); _cloth?.Dispose(); _decor?.Dispose();
+            _templeBlessing?.Dispose(); _sleeves?.Dispose(); _decor?.Dispose();
             _lighting.Dispose(); _grounding.Dispose(); throw;
         }
     }
@@ -122,7 +120,6 @@ internal sealed class TownServiceStation : IDisposable
     {
         if (_visibility == value) return;
         _visibility = value;
-        _cloth.SetVisible(value > .01f);
         _lighting.SetVisibility(value);
         _decor.SetVisibility(value);
         foreach (Renderer renderer in _renderers)
@@ -187,12 +184,6 @@ internal sealed class TownServiceStation : IDisposable
         _sleeves.Tick();
     }
 
-    internal void TickClothAuthor(float age, float dt) => _cloth.TickAuthor(age, dt, _visibility > .01f);
-    internal void TickClothObserver(float age, float elapsed, in TownClothRunnerState first,
-        in TownClothRunnerState second) => _cloth.TickObserver(age, elapsed, in first, in second, _visibility > .01f);
-    internal TownClothRunnerState ClothFirst => _cloth.First;
-    internal TownClothRunnerState ClothSecond => _cloth.Second;
-
     internal bool IsLocalVisitorNear(bool wasNear) => _face.IsLocalVisitorNear(wasNear);
 
     internal void PlayTempleBlessing(float elapsed) => _templeBlessing?.Bless(elapsed);
@@ -256,7 +247,6 @@ internal sealed class TownServiceStation : IDisposable
     {
         _templeBlessing?.Dispose(); _templeBlessing = null;
         _sleeves.Dispose();
-        _cloth.Dispose();
         _audio.Dispose();
         _grounding.Dispose();
         _decor.Dispose();

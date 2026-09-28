@@ -11,8 +11,8 @@ internal struct TownResidentPose
     internal byte Visibility, Clip;
 }
 
-/// <summary>Two edge control points of one anchored cloth runner. Metres and metres/second
-/// in the station frame. The owner integrates contact; observers only replay these values.</summary>
+/// <summary>Reserved legacy edge controls for pre-retirement town cloth packets.
+/// Build 582 senders leave the tail absent; readers retain the additive grammar.</summary>
 internal struct TownClothRunnerState
 {
     internal Vector2 Left, Right, LeftVelocity, RightVelocity;
@@ -30,11 +30,11 @@ internal struct TownResidentsState
 }
 
 /// <summary>Additive79: active1; when active, three pose20/scale4/age4/visibility1/clip1/actorFloor4/furnitureBottom4 entries.
-/// An optional 30-byte tail holds four cloth runners. The merchant's 6-byte runner
+/// A legacy optional 30-byte tail holds four cloth runners. The merchant's 6-byte runner
 /// keeps millimetre positions and packs its predictive velocities into signed nibbles;
 /// the other three retain their 8-byte encoding. The 115-byte prefix and previous
-/// 24-byte cloth tail remain readable. The 6-byte former packet margin is consumed
-/// exactly in the maximum fragmented snapshot.
+/// 24-byte cloth tail remain readable. Build 582 residents author only the 115-byte
+/// pose prefix; the retained tail writer/reader preserves historical wire vectors.
 /// Idle0 and greeting1 are sampled from the same authored clips on all clients.</summary>
 internal static class TownResidentsCodec
 {
