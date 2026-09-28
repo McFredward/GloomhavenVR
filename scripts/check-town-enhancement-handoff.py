@@ -188,7 +188,7 @@ def mutations():
         ("trade-confirmation", name, "&& tradeConfirmation.GetComponent<UIWindow>() is UIWindow tradeWindow && tradeWindow.IsOpen) return;", "&& false) return;", "a live merchant purchase confirmation is never interrupted by resident approach"),
         ("head-overlap-steal", name,
          "if (!magePreferred) return;",
-         "if (false) return;",
+         "",
          "head-only overlap keeps the nearer idle merchant destination and its item hand intact"),
         ("nearest-resident", name,
          "|| head != null && NearestResidentForHead(approachRoot, head.transform.position);",
