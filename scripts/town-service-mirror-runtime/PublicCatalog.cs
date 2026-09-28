@@ -79,6 +79,107 @@ public static partial class MirrorProgram
         Check(TownServiceMirror.PublicAuthor==int.MaxValue,"departed public owner leaves no stale invisible authority");
         TownServiceMirror.Shutdown();NetPlayerActors.Peer=1;
         RollerLateJoin();
+        IEnumerator secondary = SecondaryMerchantInspection();
+        while (secondary.MoveNext()) yield return secondary.Current;
+    }
+
+    private static IEnumerator SecondaryMerchantInspection()
+    {
+        // Four simulated players: one elected merchant visitor, a second visitor
+        // opening/holding their own original item fan, a public stock author, and
+        // an observer. The observer must see all three without a duplicate stand.
+        TownServiceMirror.Shutdown(); Baselines.Clear(); NetPlayerActors.Peer = 2;
+        Transform electedFrame = Go("merchant first visitor frame").transform;
+        Transform electedZone = Rect("elected palm", electedFrame, Vector2.zero, new Vector2(80, 90));
+        TownServiceMirror.RegisterTemplate(1, 1, electedZone, address:"merchant.offering|");
+        TownServiceMirror.BeginSession(1, 1102, electedFrame, electedFrame, 6f);
+        TownServiceMirror.RegisterModule(10, 1, electedZone, address:"merchant.offering|");
+        List<byte[]> electedPackets = Capture();
+
+        TownServiceMirror.Shutdown(); Baselines.Clear(); NetPlayerActors.Peer = 4;
+        Transform visitorFrame = Go("merchant second visitor frame").transform;
+        Transform heldFace = Rect("original held item face", visitorFrame, new Vector2(12, 35), new Vector2(65, 95));
+        heldFace.gameObject.AddComponent<UnityEngine.UI.Image>().color = new Color(.25f, .72f, .84f);
+        Transform heldBody = Rect("original held item backing", visitorFrame, new Vector2(12, 35), new Vector2(65, 95));
+        Transform fanFace = Rect("original second item in open fan", visitorFrame, new Vector2(-45, 30), new Vector2(65, 95));
+        fanFace.gameObject.AddComponent<UnityEngine.UI.Image>().color = new Color(.84f, .47f, .25f);
+        Transform secondZone = Rect("second palm", visitorFrame, Vector2.zero, new Vector2(80, 90));
+        Transform duplicateMount = Rect("private catalog mount", visitorFrame, Vector2.zero, new Vector2(80, 90));
+        Transform duplicateStockFace = Rect("private catalog card", duplicateMount, Vector2.zero, new Vector2(65, 95));
+        TownServiceMirror.RegisterTemplate(1, 1, heldFace, address:"item.41|");
+        TownServiceMirror.RegisterTemplate(1, 1, heldBody, address:"inspectionbody.3dcccccd.3e99999a.p|");
+        TownServiceMirror.RegisterTemplate(1, 1, fanFace, address:"item.42|");
+        TownServiceMirror.RegisterTemplate(1, 1, secondZone, address:"merchant.offering|");
+        TownServiceMirror.RegisterTemplate(1, 1, duplicateMount, address:"merchant.cardmount|");
+        TownServiceMirror.RegisterTemplate(1, 1, duplicateStockFace, address:"item.43|");
+        TownServiceMirror.BeginSession(1, 1104, visitorFrame, visitorFrame, 1f);
+        TownServiceMirror.RegisterModule(11, 1, heldFace, address:"item.41|");
+        TownServiceMirror.RegisterModule(12, 1, heldBody, address:"inspectionbody.3dcccccd.3e99999a.p|");
+        TownServiceMirror.RegisterModule(13, 1, secondZone, address:"merchant.offering|");
+        TownServiceMirror.RegisterModule(14, 1, fanFace, address:"item.42|");
+        TownServiceMirror.RegisterModule(15, 1, duplicateMount, address:"merchant.cardmount|");
+        TownServiceMirror.RegisterModule(16, 1, duplicateStockFace, address:"item.43|");
+        List<byte[]> visitorPackets = Capture();
+
+        TownServiceMirror.Shutdown(); Baselines.Clear(); NetPlayerActors.Peer = 5;
+        Transform stockFrame = Go("merchant stock author frame").transform;
+        Transform stock = Rect("public original cabinet", stockFrame, Vector2.zero, new Vector2(270, 180));
+        TownServiceMirror.RegisterTemplate(1, 1, stock, address:"merchant.rack|");
+        using (TownServiceMirror.UsePublicLane())
+        {
+            TownServiceMirror.BeginSession(1, 1205, stockFrame, stockFrame);
+            TownServiceMirror.RegisterModule(10, 1, stock, address:"merchant.rack|");
+        }
+        List<byte[]> stockPackets = Capture();
+
+        TownServiceMirror.Shutdown(); Baselines.Clear(); NetPlayerActors.Peer = 3;
+        Transform observer = Go("merchant three-peer observer").transform;
+        TownServiceMirror.RegisterTemplate(1, 1, electedZone, address:"merchant.offering|");
+        TownServiceMirror.RegisterTemplate(1, 1, heldFace, address:"item.41|");
+        TownServiceMirror.RegisterTemplate(1, 1, heldBody, address:"inspectionbody.3dcccccd.3e99999a.p|");
+        TownServiceMirror.RegisterTemplate(1, 1, fanFace, address:"item.42|");
+        TownServiceMirror.RegisterTemplate(1, 1, stock, address:"merchant.rack|");
+        Receive(2, electedPackets); Receive(4, visitorPackets); Receive(5, stockPackets);
+        TownServiceMirror.InteractionOwner(1);
+        for (float until = Time.unscaledTime + .13f; Time.unscaledTime < until;) yield return null;
+        Check(TownServiceMirror.InteractionOwner(1) == 2, "older merchant visitor authors the one shared palm");
+        TownServiceMirror.TickRemote(_ => observer);
+        Check(Remote(-5, 10) != null && Remote(2, 10) != null,
+            "observer retains public cabinet and elected shared merchant interaction");
+        Check(Remote(4, 11) != null && Remote(4, 12) != null,
+            "non-elected visitor's original held item face and backing remain visible to third player");
+        Check(Remote(4, 14) != null,
+            "non-elected visitor's opened original item fan remains visible to third player");
+        Check(Remote(4, 13) == null && Remote(4, 15) == null && Remote(4, 16) == null,
+            "non-elected visitor does not create a second palm or duplicate private cabinet cards");
+        TownServiceMirror.RemovePeer(2); TownServiceMirror.InteractionOwner(1);
+        for (float until = Time.unscaledTime + .13f; Time.unscaledTime < until;) yield return null;
+        Check(TownServiceMirror.InteractionOwner(1) == 4,
+            "merchant interaction authorship transfers to the remaining visitor");
+        TownServiceMirror.TickRemote(_ => observer);
+        Check(Remote(4, 11) != null && Remote(4, 12) != null && Remote(4, 14) != null
+            && Remote(4, 13) != null && Remote(-5, 10) != null,
+            "handover keeps the visitor's held original item, open fan and one public cabinet");
+        Check(Remote(4, 15) == null && Remote(4, 16) == null,
+            "handover never exposes a second private cabinet over public stock");
+
+        TownServiceMirror.Shutdown(); Baselines.Clear(); NetPlayerActors.Peer = 6;
+        Transform late = Go("late merchant observer").transform;
+        TownServiceMirror.RegisterTemplate(1, 1, secondZone, address:"merchant.offering|");
+        TownServiceMirror.RegisterTemplate(1, 1, heldFace, address:"item.41|");
+        TownServiceMirror.RegisterTemplate(1, 1, heldBody, address:"inspectionbody.3dcccccd.3e99999a.p|");
+        TownServiceMirror.RegisterTemplate(1, 1, fanFace, address:"item.42|");
+        TownServiceMirror.RegisterTemplate(1, 1, stock, address:"merchant.rack|");
+        Receive(4, visitorPackets); Receive(5, stockPackets);
+        TownServiceMirror.InteractionOwner(1);
+        for (float until = Time.unscaledTime + .13f; Time.unscaledTime < until;) yield return null;
+        TownServiceMirror.TickRemote(_ => late);
+        Check(Remote(4, 11) != null && Remote(4, 12) != null && Remote(4, 14) != null
+            && Remote(4, 13) != null && Remote(-5, 10) != null,
+            "late fourth observer reconstructs current cabinet, held item, fan and merchant palm");
+        Check(Remote(4, 15) == null && Remote(4, 16) == null,
+            "late observer never reconstructs a duplicate visitor cabinet");
+        TownServiceMirror.Shutdown(); NetPlayerActors.Peer = 1;
     }
     private static void RollerLateJoin()
     {

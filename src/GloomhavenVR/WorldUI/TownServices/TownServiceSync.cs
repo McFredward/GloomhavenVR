@@ -153,10 +153,11 @@ internal sealed class TownServiceSync
             foreach (TownServiceSurface surface in TownServicePresentation.LocalSurfaces)
                 Publish(surface.Id == 40 ? "merchant.exit" : surface.Id == 10 ? prefix + ".inventory"
                     : surface.Id == 11 ? "enchant.holder" : "enchant.scroll", surface.Panel.Target);
-            if (catalog != null)
-            {
-                PublishCatalog(catalog, TownServicePresentation.CounterFurniture);
-            }
+            // The counter and every stock card are authored by TickPublic's one
+            // elected public lane. Publishing the same catalog in each visitor's
+            // private lane duplicates shelves and lets a visitor's locally
+            // filtered page leak over the shared cabinet during handover. This
+            // lane contains only that visitor's fan, held card and decision.
             TownServiceRitual? ritual = TownServicePresentation.Ritual;
             if (ritual != null)
             {

@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
-using System.Security.Cryptography;
 using GloomhavenVR.Cards;
 using TMPro;
 using UnityEngine;
@@ -17,12 +16,11 @@ internal sealed class TownServiceAssets
     private readonly HashSet<string> _ambiguous = new(StringComparer.Ordinal);
     private readonly Dictionary<int, string> _keys = new();
     private readonly Dictionary<int, string> _originalKeys = new();
-    private readonly Dictionary<int, string> _contentKeys = new();
     private float _nextScan;
     internal uint Generation { get; private set; }
 
     internal void Clear()
-    { _assets.Clear(); _keys.Clear(); _originalKeys.Clear(); _contentKeys.Clear(); _ambiguous.Clear(); _nextScan = 0; Generation++; }
+    { _assets.Clear(); _keys.Clear(); _originalKeys.Clear(); _ambiguous.Clear(); _nextScan = 0; Generation++; }
 
     /// <summary>Immutable native-template provenance, installed in deterministic order before
     /// descriptor discovery. Reusing one original in another window retains its first identity;
@@ -60,15 +58,9 @@ internal sealed class TownServiceAssets
                     pivot.x, pivot.y, border.x, border.y, border.z, border.w, sprite.pixelsPerUnit);
                 break;
             case Texture2D texture:
-                // imageContentsHash is editor-only. Player assets use a unique native descriptor;
-                // collisions are refused, and generated RenderTextures require an explicit binding.
+                // Player assets use a unique native descriptor; unverified collisions
+                // are refused, and generated RenderTextures require an explicit binding.
                 key = "texture|" + texture.name + "|" + texture.width + "|" + texture.height + "|" + (int)texture.format + "|" + texture.mipmapCount;
-                // BattleOverlayCanvas's native atlas name already ends in its asset
-                // content ID. CardFaceMipBake uses that exact identity to coalesce
-                // duplicate wrappers. T_noise_shards has no such ID: only that small
-                // effect texture gets a complete rendered-pixel digest. Unknown
-                // descriptor collisions still fail closed instead of choosing art.
-                if (NeedsContentKey(texture)) key += "|pixels:" + ContentKey(texture);
                 break;
             case TMP_SpriteAsset sprites:
                 key = "tmpsprite|" + sprites.name + "|" + Key(sprites.spriteSheet) + "|" + sprites.spriteCharacterTable.Count;
@@ -92,7 +84,7 @@ internal sealed class TownServiceAssets
                 throw new InvalidDataException("Unsupported town-service asset: " + asset.GetType().Name + " " + asset.name);
         }
         if (_assets.TryGetValue(key, out Object? other) && other != null && !ReferenceEquals(other, asset)
-            && asset is Texture2D && !SameNativeAtlasIdentity((Texture2D)asset))
+            && asset is Texture2D && !SameKnownNativeIdentity((Texture2D)asset))
         { _ambiguous.Add(key); throw new InvalidDataException("Ambiguous native town-service texture requires an explicit binding: " + asset.name); }
         Register(key, asset); return key;
     }
@@ -124,35 +116,16 @@ internal sealed class TownServiceAssets
     }
     private void TryKey(Object asset)
     { try { Key(asset); } catch (InvalidDataException) { /* Unrelated transient assets are not part of this service. */ } }
-    private static bool NeedsContentKey(Texture2D texture) => texture.name == "T_noise_shards";
-    private static bool SameNativeAtlasIdentity(Texture2D texture) =>
-        texture.name.StartsWith("sactx-", StringComparison.Ordinal)
-        && texture.name.Contains("BattleOverlayCanvas-");
-    private string ContentKey(Texture2D texture)
+    private static bool SameKnownNativeIdentity(Texture2D texture)
     {
-        int id = texture.GetInstanceID();
-        if (_contentKeys.TryGetValue(id, out string? known)) return known;
-        RenderTexture target = RenderTexture.GetTemporary(texture.width, texture.height, 0,
-            RenderTextureFormat.ARGB32, RenderTextureReadWrite.sRGB);
-        RenderTexture previous = RenderTexture.active;
-        Texture2D? pixels = null;
-        try
-        {
-            Graphics.Blit(texture, target);
-            RenderTexture.active = target;
-            pixels = new Texture2D(texture.width, texture.height, TextureFormat.RGBA32, false);
-            pixels.ReadPixels(new Rect(0f, 0f, texture.width, texture.height), 0, 0);
-            using SHA256 digest = SHA256.Create();
-            known = BitConverter.ToString(digest.ComputeHash(pixels.GetRawTextureData())).Replace("-", string.Empty);
-            _contentKeys.Add(id, known);
-            return known;
-        }
-        finally
-        {
-            RenderTexture.active = previous;
-            RenderTexture.ReleaseTemporary(target);
-            if (pixels != null) Object.Destroy(pixels);
-        }
+        // The original game reference has exactly one 512x512 T_noise_shards
+        // Texture2D in GH_Data/resources.assets (path ID 405). Runtime Unity may
+        // expose several wrappers for that same serialized asset. Its stable
+        // descriptor is sufficient; a GPU readback hash would vary by API and
+        // stall the headset. A same-named unknown size still fails closed.
+        return texture.name == "T_noise_shards" && texture.width == 512 && texture.height == 512
+            || texture.name.StartsWith("sactx-", StringComparison.Ordinal)
+               && texture.name.Contains("BattleOverlayCanvas-");
     }
     private static string Numbers(params float[] values)
     {

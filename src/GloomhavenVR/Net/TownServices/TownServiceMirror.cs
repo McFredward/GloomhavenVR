@@ -825,8 +825,9 @@ internal static partial class TownServiceMirror
             // Browsing input stays independent, while one elected presentation author
             // supplies the shared native widgets. A placed offer takes authorship.
             bool electedVisitor = entry.Key > 0 && InteractionOwner(session.Service) == entry.Key;
-            bool secondaryTempleVisitor = entry.Key > 0 && !electedVisitor && session.Service == 2;
-            if (entry.Key > 0 && !electedVisitor && !secondaryTempleVisitor)
+            bool secondaryVisitor = entry.Key > 0 && !electedVisitor
+                && (session.Service == 1 || session.Service == 2);
+            if (entry.Key > 0 && !electedVisitor && !secondaryVisitor)
             { ClearRemoteModules(entry.Key); continue; }
             if (entry.Key < 0 && -entry.Key != PublicAuthor)
             { ClearRemoteModules(entry.Key); continue; }
@@ -834,15 +835,18 @@ internal static partial class TownServiceMirror
             if (parent == null || !Pending.TryGetValue(entry.Key, out Dictionary<ushort, TownServiceFrame>? pending)) continue;
             if (!Remote.TryGetValue(entry.Key, out Dictionary<ushort, RemoteModule>? standing))
             { standing = new Dictionary<ushort, RemoteModule>(); Remote.Add(entry.Key, standing); }
-            if (secondaryTempleVisitor) RetainHeldTemplePurseOnly(standing);
+            if (secondaryVisitor) RetainIndependentVisitorOnly(standing, session.Service);
+            else if (entry.Key > 0 && session.Service == 1) RetirePrivateMerchantCatalog(standing);
             foreach (RemoteModule visible in standing.Values)
             { visible.Motion.Tick(now); visible.Binding.TickAnimation(now); }
-            if (!secondaryTempleVisitor) UpdateRackClocks(entry.Key, pending, now);
+            if (!secondaryVisitor) UpdateRackClocks(entry.Key, pending, now);
             bool reorder = false;
             foreach (var packet in pending)
             {
                 TownServiceFrame received = packet.Value;
-                if (secondaryTempleVisitor && !IndependentTemplePurse(received)) continue;
+                if (secondaryVisitor && !IndependentVisitorModule(received)) continue;
+                if (entry.Key > 0 && PrivateMerchantCatalogModule(received.Service,
+                    received.TemplateAddress, received.ParentModule)) continue;
                 long retryKey = ((long)entry.Key << 16) | received.Module;
                 if (RemoteRetry.TryGetValue(retryKey, out float retryAt) && now < retryAt) continue;
                 standing.TryGetValue(received.Module, out RemoteModule? module);
@@ -919,24 +923,69 @@ internal static partial class TownServiceMirror
                 }
             }
             if (reorder) OrderOriginalSiblings(standing);
-            if (!secondaryTempleVisitor) TickRackClocks(entry.Key, standing, now);
+            if (!secondaryVisitor) TickRackClocks(entry.Key, standing, now);
         }
     }
 
     // The stand and original UI have one elected author. An unselected visitor may
     // still inspect a personal purse; only that held physical prop crosses this
     // election boundary. No donation control or native callback is mirrored here.
-    private static bool IndependentTemplePurse(TownServiceFrame frame) => frame.Service == 2
-        && frame.TemplateAddress.StartsWith("ritual.purse.held|", StringComparison.Ordinal);
-
-    private static readonly List<ushort> SecondaryTempleRetire = new();
-    private static void RetainHeldTemplePurseOnly(Dictionary<ushort, RemoteModule> modules)
+    private static bool IndependentVisitorModule(TownServiceFrame frame) =>
+        IndependentVisitorModule(frame.Service, frame.TemplateAddress, frame.ParentModule);
+    private static bool IndependentVisitorModule(byte service, string address, ushort parentModule)
     {
-        SecondaryTempleRetire.Clear();
+        if (service == 2)
+            return address.StartsWith("ritual.purse.held|", StringComparison.Ordinal);
+        if (service != 1) return false;
+        // The public cabinet has a separate elected lane. A visitor's original
+        // item fan and physically held card remain visible even while another
+        // visitor authors the merchant's shared palm and purchase controls.
+        // Cabinet cards have a published cardmount parent; the fan has none.
+        if (address.StartsWith("inspectionbody.", StringComparison.Ordinal)) return true;
+        if (!address.StartsWith("item.", StringComparison.Ordinal)
+            || address.StartsWith("item.confirm", StringComparison.Ordinal)
+            || parentModule != TownServiceFrame.ManifestModule) return false;
+        int end = address.IndexOf('|');
+        if (end <= 5) return false;
+        for (int i = 5; i < end; i++) if (address[i] < '0' || address[i] > '9') return false;
+        return true;
+    }
+
+    private static readonly List<ushort> SecondaryVisitorRetire = new();
+    private static void RetainIndependentVisitorOnly(Dictionary<ushort, RemoteModule> modules, byte service)
+    {
+        SecondaryVisitorRetire.Clear();
         foreach (var pair in modules)
-            if (!pair.Value.Address.StartsWith("ritual.purse.held|", StringComparison.Ordinal))
-                SecondaryTempleRetire.Add(pair.Key);
-        foreach (ushort id in SecondaryTempleRetire) { modules[id].Dispose(); modules.Remove(id); }
+            if (!IndependentVisitorModule(service, pair.Value.Address,
+                    pair.Value.LastFrame?.ParentModule ?? TownServiceFrame.ManifestModule))
+                SecondaryVisitorRetire.Add(pair.Key);
+        foreach (ushort id in SecondaryVisitorRetire) { modules[id].Dispose(); modules.Remove(id); }
+    }
+
+    private static bool PrivateMerchantCatalogModule(byte service, string address, ushort parentModule)
+    {
+        if (service != 1) return false;
+        if (address.StartsWith("item.", StringComparison.Ordinal)
+            && !address.StartsWith("item.confirm", StringComparison.Ordinal)
+            && parentModule != TownServiceFrame.ManifestModule) return true;
+        return address.StartsWith("merchant.cardmount|", StringComparison.Ordinal)
+            || address.StartsWith("merchant.cardbody|", StringComparison.Ordinal)
+            || address.StartsWith("merchant.row|", StringComparison.Ordinal)
+            || address.StartsWith("merchant.rack|", StringComparison.Ordinal)
+            || address.StartsWith("merchant.crank|", StringComparison.Ordinal)
+            || address.StartsWith("merchant.category.", StringComparison.Ordinal)
+            || address.StartsWith("merchant.counter|", StringComparison.Ordinal)
+            || address.StartsWith("merchant.return|", StringComparison.Ordinal);
+    }
+
+    private static void RetirePrivateMerchantCatalog(Dictionary<ushort, RemoteModule> modules)
+    {
+        SecondaryVisitorRetire.Clear();
+        foreach (var pair in modules)
+            if (PrivateMerchantCatalogModule(1, pair.Value.Address,
+                    pair.Value.LastFrame?.ParentModule ?? TownServiceFrame.ManifestModule))
+                SecondaryVisitorRetire.Add(pair.Key);
+        foreach (ushort id in SecondaryVisitorRetire) { modules[id].Dispose(); modules.Remove(id); }
     }
 
     private readonly struct SiblingRank

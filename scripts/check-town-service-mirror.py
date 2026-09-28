@@ -196,6 +196,7 @@ def main():
                 ("inactive-author", "TownServiceMirror.cs", "int author = PublicLane.Active ? LocalPeer : int.MaxValue;", "int author = LocalPeer;", "departed public owner leaves no stale invisible authority"),
                 ("roller-missing-direction", "TownServiceMirror.Racks.cs", "TownCassetteMotion.Apply(rack.Binding.Root, clock.Turning ? clock.Elapsed / TownRackState.TurnDuration : 1f, state.ScrollDirection);", "TownCassetteMotion.Apply(rack.Binding.Root, clock.Turning ? clock.Elapsed / TownRackState.TurnDuration : 1f, 0);", "late observer reconstructs exact owner holder translation and hinge angle in either scroll direction"),
                 ("cassette-skip-motion", "TownServiceMirror.Racks.cs", "TownCassetteMotion.Apply(rack.Binding.Root, clock.Turning ? clock.Elapsed / TownRackState.TurnDuration : 1f, state.ScrollDirection);", "TownCassetteMotion.Apply(rack.Binding.Root, 1f, 0);", "late public observer reconstructs cassette withdrawal from explicit clock"),
+                ("secondary-item-erasure", "TownServiceMirror.cs", "(session.Service == 1 || session.Service == 2);", "session.Service == 2;", "non-elected visitor's original held item face and backing remain visible to third player"),
             ]
     if args.suite == "item-transfer":
         variants = [("production", None, None, None, "")]

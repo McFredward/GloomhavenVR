@@ -111,16 +111,18 @@ public static partial class MirrorProgram
 
     private static void DuplicateNativeTextures()
     {
-        var red = new Texture2D(2, 2, TextureFormat.RGBA32, false) { name = "T_noise_shards" };
-        var blue = new Texture2D(2, 2, TextureFormat.RGBA32, false) { name = "T_noise_shards" };
-        var redTwin = new Texture2D(2, 2, TextureFormat.RGBA32, false) { name = "T_noise_shards" };
-        red.SetPixels(new[] { Color.red, Color.red, Color.red, Color.red }); red.Apply();
-        blue.SetPixels(new[] { Color.blue, Color.blue, Color.blue, Color.blue }); blue.Apply();
-        redTwin.SetPixels(new[] { Color.red, Color.red, Color.red, Color.red }); redTwin.Apply();
+        var red = new Texture2D(512, 512, TextureFormat.RGBA32, false) { name = "T_noise_shards" };
+        var redTwin = new Texture2D(512, 512, TextureFormat.RGBA32, false) { name = "T_noise_shards" };
         var owner = new TownServiceAssets(); var observer = new TownServiceAssets();
-        string redKey = owner.Key(red), blueKey = owner.Key(blue);
-        Check(redKey != blueKey, "same-name noise textures with different pixels never alias");
-        Check(observer.Key(redTwin) == redKey, "independent client resolves same original noise pixels without instance IDs");
+        string redKey = owner.Key(red);
+        Check(owner.Key(redTwin) == redKey && observer.Key(redTwin) == redKey,
+            "duplicate wrappers of the one original 512x512 noise resource share a GPU-independent identity");
+        var unknown = new Texture2D(2, 2, TextureFormat.RGBA32, false) { name = "T_noise_shards" };
+        var unknownTwin = new Texture2D(2, 2, TextureFormat.RGBA32, false) { name = "T_noise_shards" };
+        owner.Key(unknown);
+        bool refused = false;
+        try { owner.Key(unknownTwin); } catch (InvalidDataException) { refused = true; }
+        Check(refused, "same-named noise textures outside the verified native resource size still fail closed");
         var atlas = new Texture2D(2, 2, TextureFormat.RGBA32, false)
             { name = "sactx-0-4096x4096-DXT5|BC3-BattleOverlayCanvas-811e9640" };
         var atlasTwin = new Texture2D(2, 2, TextureFormat.RGBA32, false) { name = atlas.name };
@@ -128,7 +130,7 @@ public static partial class MirrorProgram
         atlasTwin.SetPixels(new[] { Color.green, Color.green, Color.green, Color.green }); atlasTwin.Apply();
         Check(owner.Key(atlas) == owner.Key(atlasTwin),
             "native atlas wrappers sharing the embedded content ID retain one asset identity");
-        Object.Destroy(red); Object.Destroy(blue); Object.Destroy(redTwin);
+        Object.Destroy(red); Object.Destroy(redTwin); Object.Destroy(unknown); Object.Destroy(unknownTwin);
         Object.Destroy(atlas); Object.Destroy(atlasTwin);
     }
 }
