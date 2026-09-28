@@ -547,7 +547,19 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 581;
+    public const ushort ModBuild = 582;
+
+    // ModBuild 582 — town cloth retirement, independent voice, purse and options.
+    // Keep the authored static fabric meshes but remove their runtime solver,
+    // hand-contact surfaces and TLV90 publication/replay. Legacy TLV90 decoding
+    // remains for old vectors; no Build 582 peer emits cloth state. Each resident
+    // has its own spatial voice channel so one NPC cannot delay the merchant's
+    // face-target greeting. A priestess purse remains grabbable regardless of
+    // donation eligibility, returns after the completed sink animation, and its
+    // held body is visible from every visiting peer independently of the stand's
+    // elected presentation author. Donation itself still uses native eligibility
+    // and the per-service host grant. The immersive NPC preference is a default-on
+    // toggle under Environment/Campaign map, folded entirely under the 2D map.
 
     // ModBuild 581 — town interaction and shared-window laser follow-up.
     // The face author's actual visitor target now starts merchant greeting

@@ -2,7 +2,13 @@
 
 **Updated 2026-09-28: feature/immersive-town-services, version 1.1.0 hardware candidate.**
 The feature includes released 1.0.8 / ModBuild 556 and the subsequent 1.0.9
-corrections on `dev`. ModBuild 581 addresses build-580 headset evidence:
+corrections on `dev`. ModBuild 582 retires town cloth interaction pending a
+working runtime design, gives each resident independent voice playback, keeps
+priestess purses grabbable while native donation is unavailable, and moves the
+immersive presentation toggle beside the 2D-map switch. See
+[TOWN-CLOTH-RETIREMENT-582.md](TOWN-CLOTH-RETIREMENT-582.md),
+[TOWN-VOICE-582.md](TOWN-VOICE-582.md), [TOWN-PURSE-582.md](TOWN-PURSE-582.md)
+and [TOWN-OPTIONS-582.md](TOWN-OPTIONS-582.md). ModBuild 581 addresses build-580 headset evidence:
 merchant greeting delay, enchantress approach without native handoff, and
 laser pass-through on scenario story and close controls. Build 580's priestess
 motion and cloth candidates still await headset review. The merchant's visible
@@ -45,6 +51,15 @@ change per build) → this file (where things stand and what is owed) → the bu
 ---
 
 ## 1. Position
+
+- **NPC feature / 1.1.0 / ModBuild 582 (hardware candidate):** cloth meshes remain
+  static while their solver, hand interaction and publication/replay are removed;
+  historic TLV90 decoding remains for compatibility. Merchant gaze greetings now
+  use a voice channel independent of other residents. Every temple visitor can
+  take and display their own purse; only valid native donation may place it in
+  the bowl. The original immersive setting is a default-on Environment toggle
+  that disappears with all NPC-specific audio options under the 2D map. Build
+  580 logs do not verify these new headset outcomes.
 
 - **NPC feature / 1.1.0 / ModBuild 581 (hardware candidate):** merchant speech
   follows the face's visitor target ahead of delayed coin-hand attention;

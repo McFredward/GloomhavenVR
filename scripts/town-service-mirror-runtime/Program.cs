@@ -21,14 +21,15 @@ public sealed class GameplayFixture : MonoBehaviour
 public static partial class MirrorProgram
 {
     private static byte[] InteractionManifest(int peer, byte service, uint session, ulong sequence,
-        bool active = true, bool donationKnown = false, bool donationAvailable = false)
+        bool active = true, bool donationKnown = false, bool donationAvailable = false,
+        ushort[]? modules = null)
     {
         var frame = new TownServiceFrame
         {
             Service = service, Session = session, Sequence = sequence,
             Module = TownServiceFrame.ManifestModule, Visible = active,
             SampleTime = Time.unscaledTime, SessionAge = 1f,
-            Modules = Array.Empty<ushort>(),
+            Modules = modules ?? Array.Empty<ushort>(),
             Pose = new[] { 0f, 0f, 0f, 0f, 0f, 0f, 1f, 1f, 1f, 1f },
             TempleDonationKnown = donationKnown,
             TempleDonationAvailable = donationAvailable
@@ -135,6 +136,59 @@ public static partial class MirrorProgram
             "local interaction ownership uses the current wire generation after service switches");
         TownServiceMirror.Shutdown();
         GloomhavenVR.Net.NetPlayerActors.Peer = 1;
+        IEnumerator purses = SecondaryTemplePurses();
+        while (purses.MoveNext()) yield return purses.Current;
+    }
+
+    private static IEnumerator SecondaryTemplePurses()
+    {
+        TownServiceMirror.Shutdown();
+        GloomhavenVR.Net.NetPlayerActors.Peer = 10;
+        Transform shared = Go("Temple purse author frame").transform;
+        Transform observer = Go("Temple purse observer frame").transform;
+        Transform purse = GameObject.CreatePrimitive(PrimitiveType.Cube).transform;
+        purse.SetParent(shared, false); purse.name = "Held purse";
+        Transform counter = GameObject.CreatePrimitive(PrimitiveType.Cube).transform;
+        counter.SetParent(shared, false); counter.name = "Temple counter";
+        TownServiceMirror.RegisterTemplate(2, 1, purse, address: "ritual.purse.held|");
+        TownServiceMirror.RegisterTemplate(2, 2, counter, address: "temple.counter|");
+        TownServiceMirror.BeginSession(2, 600, shared, shared);
+        TownServiceMirror.RegisterModule(7, 1, purse, address: "ritual.purse.held|");
+        TownServiceMirror.RegisterModule(8, 2, counter, address: "temple.counter|");
+        List<byte[]> captured = Capture();
+        TownServiceMirror.EndSession();
+        Check(captured.Exists(bytes => TownServiceCodec.TryRead(bytes, bytes.Length, out TownServiceFrame? f)
+            && f!.Module == 7 && f.TemplateAddress == "ritual.purse.held|"),
+            "held purse has a distinct physical module address");
+        foreach (int peer in new[] { 2, 3 })
+        {
+            uint session = (uint)(700 + peer);
+            InteractionManifest(peer, 2, session, 100, modules: new ushort[] { 7, 8 });
+            foreach (byte[] bytes in captured)
+            {
+                Check(TownServiceCodec.TryRead(bytes, bytes.Length, out TownServiceFrame? f),
+                    "captured temple source decodes");
+                if (f!.Module == TownServiceFrame.ManifestModule) continue;
+                f.Session = session; f.Sequence = 101; f.SampleTime = Time.unscaledTime;
+                byte[] packet = TownServiceCodec.Write(f);
+                Check(TownServiceMirror.Receive(peer, packet, packet.Length),
+                    "simultaneous held-purse module accepted");
+            }
+        }
+        for (float until = Time.unscaledTime + .13f; Time.unscaledTime < until;) yield return null;
+        TownServiceMirror.TickRemote(_ => observer);
+        Check(TownServiceMirror.InteractionOwner(2) == 2,
+            "lowest temple visitor remains shared-stand author");
+        Check(Remote(2, 8) != null && Remote(3, 8) == null,
+            "secondary visitor cannot create a second temple counter");
+        Check(Remote(2, 7) != null && Remote(3, 7) != null,
+            "both visitors' held purses remain visible simultaneously");
+        InteractionManifest(3, 2, 703, 102, modules: new ushort[] { 8 });
+        TownServiceMirror.TickRemote(_ => observer);
+        Check(Remote(3, 7) == null && Remote(2, 7) != null,
+            "releasing one visitor's purse retires only that held module");
+        TownServiceMirror.Shutdown();
+        GloomhavenVR.Net.NetPlayerActors.Peer = 1;
     }
 
     private static IEnumerator VoiceRelay()
@@ -237,53 +291,11 @@ public static partial class MirrorProgram
         }
         TownServiceMirror.Shutdown();
     }
-    private static IEnumerator PrivateClothLane()
-    {
-        // This single-process fixture models an owner and an observer together. Give
-        // the replayed peer the lower network ID so its private lease is authoritative.
-        GloomhavenVR.Net.NetPlayerActors.Peer = 3;
-        var owner = Go("Private cloth owner").transform;
-        var furniture = Go("Private cloth furniture", owner).transform;
-        var observer = Go("Private cloth observer").transform;
-        const string address = "temple.counter|root";
-        TownServiceMirror.RegisterTemplate(2, 1, furniture, address: address);
-        TownServiceMirror.BeginSession(2, 700, owner, furniture);
-        TownServiceMirror.RegisterModule(7, 1, furniture, address: address);
-        byte[] controls = new byte[16]; controls[0] = 12;
-        TownServiceMirror.SetWorkspaceCloth(7, controls, controls.Length);
-        List<byte[]> initial = Capture();
-        Check(initial.Exists(bytes => TownServiceCodec.TryRead(bytes, bytes.Length, out TownServiceFrame? frame)
-            && frame!.Module == 7 && frame.WorkspaceCloth?.Length == 16),
-            "private furniture packet carries both cloth runners");
-        Receive(2, initial); TownServiceMirror.InteractionOwner(2);
-        for (float until = Time.unscaledTime + .13f; Time.unscaledTime < until;) yield return null;
-        TownServiceMirror.TickRemote(_ => observer);
-        Check(GloomhavenVR.WorldUI.TownServiceCloth.Created == 1
-            && GloomhavenVR.WorldUI.TownServiceCloth.Ticks > 0
-            && GloomhavenVR.WorldUI.TownServiceCloth.Last?.Visible == true,
-            "private observer builds one inert cloth replay on its furniture clone");
-        Check(Mathf.Abs(GloomhavenVR.WorldUI.TownServiceCloth.LastFirst.Left.x - .012f) < .0001f,
-            "observer decodes the owner's signed edge control");
-        int replayed = GloomhavenVR.WorldUI.TownServiceCloth.Ticks;
-        yield return null;
-        TownServiceMirror.TickRemote(_ => observer);
-        Check(GloomhavenVR.WorldUI.TownServiceCloth.Ticks > replayed,
-            "private cloth keeps its intermediate motion between owner packets");
-        furniture.gameObject.SetActive(false);
-        Receive(2, Capture()); TownServiceMirror.TickRemote(_ => observer);
-        Check(GloomhavenVR.WorldUI.TownServiceCloth.Last?.Visible == false,
-            "hidden private furniture retires its cloth contact surface");
-        TownServiceMirror.Shutdown();
-        GloomhavenVR.Net.NetPlayerActors.Peer = 1;
-        Check(GloomhavenVR.WorldUI.TownServiceCloth.Disposed == 1,
-            "private cloth replay is disposed with the observer session");
-        yield return null;
-    }
-    private static void PublisherPrivateCloth()
+    private static void PublisherNoCloth()
     {
         GloomhavenVR.WorldUI.TownServiceSync.Reset();
         GloomhavenVR.WorldUI.TownServiceSync.BindModules = true;
-        var shared = Go("Publisher cloth frame").transform;
+        var shared = Go("Publisher static furniture frame").transform;
         for (byte service = 2; service <= 3; service++)
         {
             GloomhavenVR.WorldUI.TownServicePresentation.Active = true;
@@ -291,19 +303,14 @@ public static partial class MirrorProgram
             GloomhavenVR.WorldUI.TownServicePresentation.Session = (uint)(800 + service);
             GloomhavenVR.WorldUI.TownServicePresentation.Ritual = new GloomhavenVR.WorldUI.TownServiceRitual();
             GloomhavenVR.WorldUI.TownServicePresentation.CounterFurniture = Go("Publisher furniture " + service, shared).transform;
-            GloomhavenVR.WorldUI.TownServicePresentation.HasWorkspaceCloth = true;
-            GloomhavenVR.WorldUI.TownServicePresentation.WorkspaceClothFirst = new TownClothRunnerState { Left = new Vector2(.019f, 0) };
-            GloomhavenVR.WorldUI.TownServicePresentation.WorkspaceClothSecond = new TownClothRunnerState { Right = new Vector2(-.011f, 0) };
             GloomhavenVR.WorldUI.TownServiceSync.Tick(shared, shared);
             List<byte[]> packets = Capture();
             Check(packets.Exists(bytes => TownServiceCodec.TryRead(bytes, bytes.Length, out TownServiceFrame? frame)
                 && frame!.TemplateAddress == (service == 2 ? "temple.counter|" : "enchant.counter|")
-                && frame.WorkspaceCloth?.Length == (service == 2 ? 16 : 8)
-                && frame.WorkspaceCloth[0] == 19),
-                "source publisher attaches private cloth controls to the actual furniture module");
+                && frame.WorkspaceCloth == null),
+                "static furniture is still published without retired cloth controls");
             GloomhavenVR.WorldUI.TownServiceSync.Reset();
         }
-        GloomhavenVR.WorldUI.TownServicePresentation.HasWorkspaceCloth = false;
         GloomhavenVR.WorldUI.TownServicePresentation.CounterFurniture = null;
         GloomhavenVR.WorldUI.TownServicePresentation.Ritual = null;
         GloomhavenVR.WorldUI.TownServiceSync.BindModules = false;
@@ -1327,14 +1334,7 @@ public static partial class MirrorProgram
             _camera.orthographic = true; _camera.nearClipPlane = .01f; _camera.farClipPlane = 100;
             _camera.clearFlags = CameraClearFlags.SolidColor; _camera.backgroundColor = new Color(.025f, .03f, .04f, 1);
             GloomhavenVR.Rig.VRRigDriver.HeadCamera = _camera;
-            // The early-awake mutation deliberately breaks template inertness;
-            // leave its historical gameplay callback proof as the first target.
-            if (variant != "early-awake" && suite != "shared-interaction")
-            {
-                IEnumerator privateCloth = PrivateClothLane();
-                while (privateCloth.MoveNext()) yield return privateCloth.Current;
-            }
-            if (variant == "production") PublisherPrivateCloth();
+            if (variant == "production") PublisherNoCloth();
             if (suite == "item-transfer")
             {
                 ItemTransferDetector();

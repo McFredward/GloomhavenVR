@@ -101,7 +101,7 @@ namespace GloomhavenVR.WorldUI
     }
     internal sealed class TownServiceToken
     {
-        internal bool IsPhysical, IsMoving;
+        internal bool IsPhysical, IsMoving, IsHeld;
         internal Transform? HeldContent;
         internal Transform Source = null!;
         internal readonly Dictionary<Transform, Transform> HeldMap = new();
@@ -133,9 +133,6 @@ namespace GloomhavenVR.WorldUI
         internal static byte Service = 1;
         internal static uint Session = 1200;
         internal static float SessionAge;
-        internal static bool HasWorkspaceCloth;
-        internal static GloomhavenVR.Net.TownClothRunnerState WorkspaceClothFirst;
-        internal static GloomhavenVR.Net.TownClothRunnerState WorkspaceClothSecond;
         internal static ulong RelocationRevision;
         internal static float RelocationVisibility = 1f;
         internal static PublisherWindow? Window;

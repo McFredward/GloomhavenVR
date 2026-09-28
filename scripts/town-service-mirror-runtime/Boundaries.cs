@@ -35,21 +35,7 @@ namespace GloomhavenVR.WorldUI
         }
     }
     internal static class TownServicePopulation { internal static bool IsFaceAuthor = true; }
-    // The cloth mesh/contact solver has its own furniture fixture. This mirror
-    // fixture observes only the network lane and the inert clone's lifecycle.
-    internal sealed class TownServiceCloth : IDisposable
-    {
-        internal static int Created, Ticks, Disposed;
-        internal static TownServiceCloth? Last;
-        internal static GloomhavenVR.Net.TownClothRunnerState LastFirst;
-        internal bool Visible;
-        internal TownServiceCloth(Transform station, byte service) { Created++; Last = this; }
-        internal void SetVisible(bool visible) { Visible = visible; }
-        internal void TickObserver(float age, float elapsed, in GloomhavenVR.Net.TownClothRunnerState first,
-            in GloomhavenVR.Net.TownClothRunnerState second, bool visible)
-        { Ticks++; LastFirst = first; }
-        public void Dispose() { Disposed++; }
-    }
+
 }
 namespace GloomhavenVR.Net
 {

@@ -43,8 +43,7 @@ def sources(root):
         "private void PublishCatalog(TownServiceCatalog catalog, Transform? furniture)",
         "private void TickCatalog(Transform frame, Transform station, TownServiceCatalog catalog, uint session, float age)",
         "private void PruneSources()", "private void ResetCore()")
-    declarations = ("private uint _generation", "private ulong _relocationRevision", "private bool _generationExhausted",
-        "private readonly byte[] _workspaceClothBytes")
+    declarations = ("private uint _generation", "private ulong _relocationRevision", "private bool _generationExhausted")
     wrappers = publisher[publisher.index("    private static readonly TownServiceSync Private"):publisher.index("    private sealed class Published")]
     wrappers = wrappers.replace("internal static void Prepare() => Private.PrepareCore();", "")
     network = next(line for line in publisher.splitlines() if "internal static void ResetNetwork()" in line)
