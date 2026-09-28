@@ -408,6 +408,14 @@ internal static class TownServiceMerchantHandoff
         Action owned = null!;
         owned = () =>
         {
+            // The host lease may expire while the original confirmation remains open.
+            // Check again at its callback, not only when the card first opened it.
+            if (!TownServiceMirror.LocalTransactionSettled(1))
+            {
+                _decisionCancelled = true;
+                nativeCancel?.Invoke();
+                return;
+            }
             if (ReferenceEquals(_ourConfirmation, owned))
             {
                 _decisionConfirmed = true;
@@ -438,6 +446,7 @@ internal static class TownServiceMerchantHandoff
     private static void TickConfirmation()
     {
         if (_pending != null || _ourConfirmation == null) return;
+        if (!TownServiceMirror.LocalTransactionSettled(1)) { Reclaim(); return; }
         UIItemConfirmationBox? confirmation = Singleton<UIItemConfirmationBox>.Instance;
         UIWindow? nativeWindow = confirmation?.GetComponent<UIWindow>();
         if (confirmation != null && confirmation.IsActive

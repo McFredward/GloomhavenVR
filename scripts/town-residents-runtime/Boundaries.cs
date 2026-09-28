@@ -172,6 +172,8 @@ namespace GloomhavenVR.Net.TownServices
     internal static class TownServiceMirror
     {
         internal static bool RemoteMerchantOffering;
+        internal static bool RemoteEnhancementCue;
+        internal static bool HasVisibleRemoteEnhancementCue() => RemoteEnhancementCue;
         internal static bool TempleReceived,TempleKnown,TempleAvailable=true;
         internal static int TempleOwner;
         internal static uint TempleSession,TempleRevision;

@@ -49,7 +49,8 @@ internal static class TownServiceGrantSync
     private static bool Online => !NetSession.FlatNetMode && FFSNetwork.IsOnline;
     private static bool TransportReady => _transport is FfsNetTransport && _transport.IsOnline;
     private static bool Host => Online && LocalPlayer > 0 && LocalPlayer == HostPlayer;
-    internal static bool CoordinatorReady => !Online || TransportReady && (Host
+    internal static bool CoordinatorReady => !FFSNetwork.IsOnline || !NetSession.FlatNetMode
+        && TransportReady && (Host
         || HostPlayer > 0 && VersionGuard.PeerBuild(HostPlayer) == NetProtocol.ModBuild);
     internal static bool CanUseImmersive => CoordinatorReady;
 
@@ -78,7 +79,8 @@ internal static class TownServiceGrantSync
     internal static bool MayCommit(byte service, uint session)
     {
         if (service < 1 || service > 3 || session == 0) return false;
-        if (!Online) return true;
+        if (!FFSNetwork.IsOnline) return true;
+        if (NetSession.FlatNetMode) return false;
         Offer offer = Offers[service];
         if (!offer.Active || offer.Session != session || !CoordinatorReady) return false;
         float now = Time.unscaledTime;
@@ -88,7 +90,8 @@ internal static class TownServiceGrantSync
 
     internal static bool Unavailable(byte service, uint session)
     {
-        if (!Online || service < 1 || service > 3) return false;
+        if (!FFSNetwork.IsOnline || service < 1 || service > 3) return false;
+        if (NetSession.FlatNetMode) return true;
         Offer offer = Offers[service];
         if (!offer.Active || offer.Session != session) return false;
         return !CoordinatorReady || offer.LastResponse <= 0f

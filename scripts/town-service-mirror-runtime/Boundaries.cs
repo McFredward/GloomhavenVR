@@ -57,6 +57,7 @@ namespace GloomhavenVR.Net
     {
         internal const byte ExtIdTownWorkspaceCloth = 90;
         internal const byte ExtIdTownInteraction = 91;
+        internal const byte ExtIdTownTransaction = 92;
         internal const float StaleTimeoutSeconds = 3f;
     }
     internal struct TownClothRunnerState { internal Vector2 Left, Right, LeftVelocity, RightVelocity; }
@@ -81,6 +82,21 @@ namespace GloomhavenVR.Net
                 LeftVelocity = new Vector2(Velocity(buffer[at++]), Velocity(buffer[at++])),
                 RightVelocity = new Vector2(Velocity(buffer[at++]), Velocity(buffer[at++])) };
         }
+    }
+}
+namespace GloomhavenVR.Net.TownServices
+{
+    // Network grants are exercised by TownGrantCases. This Unity fixture isolates
+    // original-widget publication and playback with no Bolt transport attached.
+    internal static class TownServiceGrantSync
+    {
+        internal static int GrantedOwner(byte service) => 0;
+        internal static void SetOffer(byte service, uint session, bool active) { }
+        internal static bool MayCommit(byte service, uint session) => true;
+        internal static bool Unavailable(byte service, uint session) => false;
+        internal static bool Denied(byte service, uint session) => false;
+        internal static void ForgetPeer(int player) { }
+        internal static void Reset() { }
     }
 }
 namespace GloomhavenVR.Core

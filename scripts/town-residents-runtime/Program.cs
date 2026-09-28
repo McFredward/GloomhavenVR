@@ -19,6 +19,7 @@ internal static class Program
         TownServiceMirror.TempleOwner=0;TownServiceMirror.TempleSession=TownServiceMirror.TempleRevision=0;
         TownServiceMirror.TempleTransitionAge=0;
         TownServiceMirror.TempleStates.Clear();TownServiceEnhancementHandoff.HasVisibleCue=false;
+        TownServiceMirror.RemoteEnhancementCue=false;
         TownServiceAvailability.Locked.Clear();
         WorldUIConfig.ImmersiveTownServices.Value=true;MapRoomDriver.Active=true;MapRoomDriver.FrameReady=true;
         StoryComposite.PointOfNoReturn=false;TownServiceVoice.Requests=0;
@@ -73,6 +74,15 @@ internal static class Program
         Check(TownServicePopulation.PublishedActivities.Merchant.Engaged,"remote owner offering requests the same authoritative palm");
         TownServiceMirror.RemoteMerchantOffering=false;Tick();
         Check(!TownServicePopulation.PublishedActivities.Merchant.Engaged,"last offer withdrawal releases merchant arm");
+    }
+    private static void EnchantressCue()
+    {
+        Reset(); TownServiceStation.NearVisitor=true; Tick(.7f);
+        Check(!TownServicePopulation.PublishedActivities.Enchantress.Engaged,
+            "remote visit without an actionable original cue cannot extend the enchantress hand");
+        TownServiceMirror.RemoteEnhancementCue=true; Tick(.7f);
+        Check(TownServicePopulation.PublishedActivities.Enchantress.Engaged,
+            "visible remote native cue can author the offering pose");
     }
     private static void TemplePresentation()
     {
@@ -251,6 +261,7 @@ internal static class Program
     private static void Main()
     {
         MerchantOffering();
+        EnchantressCue();
         TemplePresentation();
         TempleConcurrentVisitors();
         StoryCommitment();

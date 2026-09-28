@@ -81,15 +81,6 @@ internal static class TownServicePopulation
         }
     }
 
-    private static bool HasFreshRemoteEnchantressVisit()
-    {
-        float now = Time.unscaledTime;
-        foreach (TownServiceSessionInfo visitor in TownServiceMirror.RemoteSessions.Values)
-            if (visitor.Active && visitor.Service == 3
-                && now - visitor.LastSeenTime <= NetProtocol.StaleTimeoutSeconds) return true;
-        return false;
-    }
-
     internal static bool Prepare()
     {
         if (!MapRoomDriver.Active || !MapRoomDriver.TryGetParchmentFrame(out Vector3 center, out float scale)) return false;
@@ -251,7 +242,7 @@ internal static class TownServicePopulation
                     // shared activity stream then gives every observer the same transition.
                     if (service == 3 && interactive)
                         engaged &= TownServiceEnhancementHandoff.HasVisibleCue
-                            || HasFreshRemoteEnchantressVisit();
+                            || TownServiceMirror.HasVisibleRemoteEnhancementCue();
                     // Finish the current coin contact before greeting. Immediate
                     // attention could strand a gripped coin in midair; this authored
                     // decision is carried in the ordinary occupation stream.

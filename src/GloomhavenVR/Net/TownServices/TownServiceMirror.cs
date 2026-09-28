@@ -55,6 +55,29 @@ internal static partial class TownServiceMirror
     private static readonly Dictionary<int, TownServiceSessionInfo> Sessions = new();
     private static readonly Dictionary<int, TownServiceSessionInfo> VisitorSessions = new();
     internal static IReadOnlyDictionary<int, TownServiceSessionInfo> RemoteSessions => VisitorSessions;
+    /// <summary>A remote visit alone does not prove that the enchantress's native card
+    /// destination is ready. Author her offered-hand pose only after the original cue
+    /// is visible, or while that visitor has actually parked a card.</summary>
+    internal static bool HasVisibleRemoteEnhancementCue()
+    {
+        float now = Time.unscaledTime;
+        foreach (var pair in VisitorSessions)
+        {
+            TownServiceSessionInfo visit = pair.Value;
+            if (pair.Key <= 0 || !visit.Active || visit.Service != 3
+                || now - visit.LastSeenTime > NetProtocol.StaleTimeoutSeconds) continue;
+            if (visit.TransactionActive && TransactionOwner(3) == pair.Key) return true;
+            if (!Remote.TryGetValue(pair.Key, out Dictionary<ushort, RemoteModule>? modules)) continue;
+            foreach (RemoteModule module in modules.Values)
+            {
+                if (module.Session != visit.Session || module.Address != "merchant.zone"
+                    || !module.Host.activeInHierarchy) continue;
+                CanvasGroup? cue = module.Binding.Root.GetComponent<CanvasGroup>();
+                if (cue != null && cue.alpha > .01f) return true;
+            }
+        }
+        return false;
+    }
     internal static IReadOnlyDictionary<int, TownServiceSessionInfo> PublicSessions => Sessions;
     internal static event Action<string>? PresentationUnavailable;
     internal static Func<int, Transform?>? SharedFrameForRemote { get; set; }

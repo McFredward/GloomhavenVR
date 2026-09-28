@@ -727,7 +727,8 @@ internal sealed class TownServiceRitual : IDisposable
         object? context = _context(), selected = identity();
         Action? previous = box._onConfirmCallback;
         using var confirmation = TownServiceRitualConfirmationGuard.Begin(box,
-            () => _sessionAlive() && pendingEligible() && button != null
+            () => _sessionAlive() && TownServiceMirror.LocalTransactionSettled(2)
+                && pendingEligible() && button != null
                 && ReferenceEquals(context, _context()) && ReferenceEquals(selected, identity()), completed);
         if (!Click(button)) return false;
         // The native selection synchronously installs its callback. Refusal or an unrelated
@@ -738,7 +739,8 @@ internal sealed class TownServiceRitual : IDisposable
         bool created = owns && box.GetComponent<UIWindow>().IsOpen && box._onConfirmCallback != null
             && !ReferenceEquals(previous, box._onConfirmCallback);
         if (created) TownServiceConfirmationMask.Begin(box.GetComponent<UIWindow>(), () => box._onConfirmCallback);
-        Func<bool> stillValid = () => _sessionAlive() && pendingEligible()
+        Func<bool> stillValid = () => _sessionAlive() && TownServiceMirror.LocalTransactionSettled(2)
+            && pendingEligible()
             && ReferenceEquals(context, _context()) && ReferenceEquals(selected, identity());
         bool valid = stillValid();
         if (!valid || !created)

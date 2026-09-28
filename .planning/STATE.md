@@ -7,6 +7,10 @@ merchant greeting delay, enchantress approach without native handoff, and
 laser pass-through on scenario story and close controls. Build 580's priestess
 motion and cloth candidates still await headset review. The merchant's visible
 hand-to-belly gap remains open; no unverified asset pose was shipped.
+Build 581 also separates overlapping NPC attention from per-NPC physical
+transactions. A matching host grant now precedes each original immersive
+purchase, donation or enhancement callback. Flat/unreachable hosts retain the
+original native window, and temple bowl cover aggregates visitor eligibility.
 ModBuild 578 followed build-577 headset evidence and added the native creator
 and actor-bar corrections from dev ModBuild 557. ModBuild 577
 followed build-576 headset evidence:
@@ -43,7 +47,9 @@ change per build) → this file (where things stand and what is owed) → the bu
   enchantress approach switches idle resident destinations and resolves the
   narrow temple overlap; active transparent story/close targets once again
   receive laser input. The last two fixes address a scenario progression
-  deadlock and a card handoff deadlock observed in Build 580. Automated checks
+  deadlock and a card handoff deadlock observed in Build 580. Independent
+  per-resident host grants allow simultaneous visits to different NPCs while
+  serializing offers at the same one. Automated checks
   verify the intended gates; headset behavior remains to be confirmed. See
   [TOWN-581.md](TOWN-581.md). The merchant hand/coat asset remains open.
 

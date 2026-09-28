@@ -101,8 +101,12 @@ public static partial class MirrorProgram
         Check(!TownServiceMirror.TempleDonationAvailable,
             "local owner publishes explicit temple unavailability");
         Check(TownServiceMirror.TryTempleDonationState(out _, out _, out bool known, out _, out uint revision, out _)
+            && known && revision == 0,
+            "an availability change alone cannot invent a shared blessing");
+        TownServiceMirror.MarkLocalTempleDonationCommitted();
+        Check(TownServiceMirror.TryTempleDonationState(out _, out _, out known, out _, out revision, out _)
             && known && revision == 1,
-            "one available-to-unavailable edge advances exactly one shared blessing revision");
+            "only the original committed donation advances the shared blessing revision");
         List<byte[]> packets = Capture();
         Check(packets.Exists(bytes => TownServiceCodec.TryRead(bytes, bytes.Length, out TownServiceFrame? frame)
             && frame!.Module == TownServiceFrame.ManifestModule && frame.TempleDonationKnown

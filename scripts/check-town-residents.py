@@ -38,6 +38,7 @@ def main():
             ("baseline", None, None, None),
             ("merchant offer misses its resident", "Population.cs", "if (service == 1 && interactive) engaged |=", "if (service == 0 && interactive) engaged |="),
             ("remote owner offer ignored", "Population.cs", "|| TownServiceMirror.RemoteMerchantOffering", "|| false"),
+            ("remote mage cue ignored", "Population.cs", "|| TownServiceMirror.HasVisibleRemoteEnhancementCue()", "|| false"),
             ("visitor-only regression", "Population.cs",
              "bool used = TownServiceAvailability.ShouldPublish(unlocked, enabled, visiting);",
              "bool used = TownServiceAvailability.ShouldPublish(unlocked, false, visiting);"),

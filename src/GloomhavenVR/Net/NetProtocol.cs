@@ -556,8 +556,12 @@ internal static class NetProtocol
     // destination, while preserving a live modal and the selected character.
     // Simultaneous proximity keeps all residents active; each NPC reserves only
     // when a card or purse is physically parked, never merely on approach.
-    // TLV92 adds that per-NPC private transaction claim; the temple's cover pose
-    // considers every current visitor and blessing revision follows native commit.
+    // TLV92 adds a presentation-only per-NPC transaction claim. ReliableOrdered
+    // message 25 carries an independent host grant: no local native purchase,
+    // donation or enhancement callback may start without its matching grant.
+    // An incompatible or unreachable host restores the original native window.
+    // The temple's cover pose considers every current visitor and blessing
+    // revision follows native commit.
     // Active transparent native click targets and mod close hit planes are
     // laser surfaces again, including scenario story and combat-log X. Empty
     // transparent layout remains pass-through. Wire v3 remains unchanged. Build

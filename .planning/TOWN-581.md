@@ -42,6 +42,19 @@ selects which station's original controller supplies that player's hand, while
 the other stations remain present. This is a native game constraint, not a
 shared NPC proximity lock.
 
+The visual transaction bit in TLV92 only selects the shared presentation author.
+The native host independently grants a short reservation through ReliableOrdered
+message 25; the original merchant, temple and enchantress callbacks wait for that
+grant. A late or reordered reply cannot extend an expired reservation. A second
+visitor at the same NPC receives a busy response and recovers their parked item,
+while transactions at either other NPC remain independent. An unreachable,
+unmodded or deliberately flat-network host does not authorize the immersive
+transaction; the original native VR window is restored for that opening.
+
+The enchantress's offered-hand pose follows the visible local or replicated
+original placement cue, or a parked card. A remote visit manifest alone no
+longer extends her hand before the overlay is ready.
+
 The priestess covers the bowl only when every currently known temple visitor's
 original controller reports donation unavailable. An unknown/late sample leaves
 it open; each player's own controller independently denies an invalid purse.
@@ -67,9 +80,12 @@ ray path rather than a story-only exception.
 - Transparent-control Unity 2021.3.5f1 harness: 101 assertions and eight
   negative controls pass, including story/close hit planes and hidden/decorative
   geometry.
-- Enchantress Unity runtime: 1,208 assertions and 43 mutation controls pass;
-  temple transaction Unity runtime: 201 assertions and 20 mutation controls
-  pass. Both cover cross-service approach and modal safeguards.
+- Enchantress and temple Unity runtimes cover cross-service hand focus, native
+  callback gating, overlapping visitors and modal safeguards. The grant codec
+  and ledger have 145 assertions; the town-service codec has 50,241.
+- The shared-interaction Unity mirror suite passes after its fixture was updated
+  for TLV92 and the native-only blessing revision. The resident runtime checks
+  the visible enhancement cue rather than inferring readiness from proximity.
 - Full Release build succeeds with zero warnings and errors. The remaining
   repository-wide source/wire guard is recorded separately after integration.
 
