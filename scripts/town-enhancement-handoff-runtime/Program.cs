@@ -526,6 +526,14 @@ public static class InteractionProgram
             claim.Tick();
             Check(nativeSelections == 1 && ReferenceEquals(claim.Card, card),
                 "settled resident claim selects the original native enhancement card exactly once");
+            int inactiveConfirm = 0;
+            TownServicePresentation.Active = false;
+            Action inactiveNative = () => inactiveConfirm++;
+            TownServiceEnhancementGrantGuard.Prefix(ref inactiveNative);
+            inactiveNative();
+            Check(inactiveConfirm == 1 && claim.Card == card,
+                "an inactive immersive service leaves the original confirmation callback untouched");
+            TownServicePresentation.Active = true;
             var replacement = new GameObject("Ungrantable replacement", typeof(VRCard)).GetComponent<VRCard>();
             replacement.transform.SetParent(root.transform, false);
             replacement.Owner = shop.character; replacement.Model.ID = card.Model.ID;
@@ -534,8 +542,34 @@ public static class InteractionProgram
             Check(!TownServiceEnhancementHandoff.TryOffer(replacement)
                 && ReferenceEquals(claim.Card, card) && nativeSelections == 1,
                 "expired resident grant refuses replacement without evicting the parked original");
+            var confirmation = new GameObject("Revoked rune confirmation", typeof(UIWindow),
+                typeof(UIEnhancementConfirmationBox));
+            confirmation.transform.SetParent(root.transform, false);
+            Singleton<UIEnhancementConfirmationBox>.Instance = confirmation.GetComponent<UIEnhancementConfirmationBox>();
+            shop._isConfirmationBoxOpened = true;
+            TownServicePalmConfirmation.Owned = true;
+            int priorCancels = TownServicePalmConfirmation.Cancels;
+            int priorClears = shop.Clears;
+            int committed = 0;
+            Action nativeConfirm = () => committed++;
+            TownServiceEnhancementGrantGuard.Prefix(ref nativeConfirm);
+            nativeConfirm();
+            Check(claim.Card == null && CardsDriver.LastReturned == card
+                && shop.selectedCard == null && shop.Clears == priorClears + 1
+                && TownServicePalmConfirmation.Cancels == priorCancels + 1
+                && !confirmation.GetComponent<UIWindow>().IsOpen && nativeSelections == 1 && committed == 0,
+                "revoked grant at native callback dispatch closes confirmation without committing or waiting for Tick");
+            shop._isConfirmationBoxOpened = false;
+            Singleton<UIEnhancementConfirmationBox>.Instance = null;
             GloomhavenVR.Net.TownServices.TownServiceMirror.Settled = true;
         }
+        int ordinaryConfirm = 0;
+        TownServicePresentation.Active = false;
+        Action fallbackConfirm = () => ordinaryConfirm++;
+        TownServiceEnhancementGrantGuard.Prefix(ref fallbackConfirm);
+        fallbackConfirm();
+        Check(ordinaryConfirm == 1, "flat or inactive service confirmation keeps its original callback");
+        TownServicePresentation.Active = true;
         var deniedCard = new GameObject("Denied claim card", typeof(VRCard)).GetComponent<VRCard>();
         deniedCard.transform.SetParent(root.transform, false);
         deniedCard.Owner = shop.character; deniedCard.Model.ID = card.Model.ID;
@@ -568,6 +602,33 @@ public static class InteractionProgram
             claim.Tick();
             Check(claim.Card == null && CardsDriver.LastReturned == timeoutCard && nativeSelections == 1,
                 "lost resident claim returns the real card without invoking native selection");
+        }
+        var tickRevokedCard = new GameObject("Post-selection revoked card", typeof(VRCard)).GetComponent<VRCard>();
+        tickRevokedCard.transform.SetParent(root.transform, false);
+        tickRevokedCard.Owner = shop.character; tickRevokedCard.Model.ID = card.Model.ID;
+        CardsDriver.OffScenarioFanCards = new[] { tickRevokedCard };
+        GloomhavenVR.Net.TownServices.TownServiceMirror.Settled = true;
+        using (var claim = new TownServiceEnhancementHandoff(shop, station, () => true, () => true))
+        {
+            claim.Tick(); tickRevokedCard.transform.position = claim.Seat.position;
+            Check(TownServiceEnhancementHandoff.TryOffer(tickRevokedCard)
+                && nativeSelections == 2 && claim.Card == tickRevokedCard,
+                "settled new Mage offer invokes the original native selector");
+            var fastConfirmation = new GameObject("Unconverted rune confirmation", typeof(UIWindow),
+                typeof(UIEnhancementConfirmationBox));
+            fastConfirmation.transform.SetParent(root.transform, false);
+            var fastBox = fastConfirmation.GetComponent<UIEnhancementConfirmationBox>();
+            Singleton<UIEnhancementConfirmationBox>.Instance = fastBox;
+            shop._isConfirmationBoxOpened = true;
+            TownServicePalmConfirmation.Owned = false;
+            GloomhavenVR.Net.TownServices.TownServiceMirror.Settled = false;
+            claim.Tick();
+            Check(claim.Card == null && CardsDriver.LastReturned == tickRevokedCard
+                && shop.selectedCard == null && nativeSelections == 2
+                && fastBox.Hides == 1 && !fastConfirmation.GetComponent<UIWindow>().IsOpen,
+                "revoked selected grant closes even an unconverted prompt and returns card on Tick");
+            shop._isConfirmationBoxOpened = false;
+            Singleton<UIEnhancementConfirmationBox>.Instance = null;
         }
         GloomhavenVR.Net.TownServices.TownServiceMirror.Settled = true;
         CardsDriver.Complete();

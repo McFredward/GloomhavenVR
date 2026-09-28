@@ -6,6 +6,17 @@ using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.UI;
 
+namespace HarmonyLib
+{
+    [AttributeUsage(AttributeTargets.Class)]
+    public sealed class HarmonyPatch : Attribute
+    { public HarmonyPatch(Type type, string method, Type[] parameters) { } }
+    [AttributeUsage(AttributeTargets.Method)]
+    public sealed class HarmonyPriority : Attribute
+    { public HarmonyPriority(int priority) { } }
+    public static class Priority { public const int Last = 0; }
+}
+
 namespace TMPro
 {
     public class TMP_Text : MonoBehaviour { public string text = ""; public float fontSize; public RectTransform rectTransform => (RectTransform)transform; }
@@ -13,7 +24,13 @@ namespace TMPro
 namespace ScenarioRuleLibrary { public sealed class CAbilityCard { public int ID; } }
 public sealed class Owner { public string CharacterID = "owner"; }
 public class Singleton<T> { public static T? Instance; }
-public class UIEnhancementConfirmationBox : MonoBehaviour {}
+public class UIEnhancementConfirmationBox : MonoBehaviour
+{
+    public int Hides;
+    public void Hide() { Hides++; GetComponent<UIWindow>().IsOpen = false; }
+    public void ShowConfirmation(string title, string information, Sprite icon, string name,
+        Action onConfirm, string confirmLabel, string cancelLabel, Action onCancel) { }
+}
 public class UIItemConfirmationBox : MonoBehaviour { public bool IsActive; }
 public class UIWindow : MonoBehaviour { public bool IsOpen = true; }
 public class AbilityCardUI : MonoBehaviour { public ScenarioRuleLibrary.CAbilityCard AbilityCard = null!; public FullAbilityCard fullAbilityCard = null!; }
@@ -158,7 +175,14 @@ namespace GloomhavenVR.WorldUI.MapRoom
 }
 namespace GloomhavenVR.WorldUI
 {
-    public static class TownServicePalmConfirmation { public static bool Owned; public static bool OwnsCurrent(UIWindow? window)=>Owned && window!=null; public static void Begin(UIEnhancementConfirmationBox box,Transform seat){} public static void CancelOwned(UIWindow window){} }
+    public static class TownServicePalmConfirmation
+    {
+        public static bool Owned; public static int Cancels;
+        public static bool OwnsCurrent(UIWindow? window) => Owned && window != null && window.IsOpen;
+        public static void Begin(UIEnhancementConfirmationBox box, Transform seat) { }
+        public static void CancelOwned(UIWindow window)
+        { if (!Owned || window == null || !window.IsOpen) return; Cancels++; window.IsOpen = false; Owned = false; }
+    }
     internal sealed class TownServiceSurface
     {
         public ushort Id;

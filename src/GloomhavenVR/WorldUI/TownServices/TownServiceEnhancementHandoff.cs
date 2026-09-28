@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using HarmonyLib;
 using GloomhavenVR.Cards;
 using GloomhavenVR.Core;
 using GloomhavenVR.Hands;
@@ -21,6 +22,26 @@ internal sealed class TownServiceEnhancementHandoff : IDisposable
     internal static bool HasCurrentOffering => _current != null && !_current._disposed
         && _current.Card != null && _current._window != null && _current._window.IsOpen
         && TownServicePresentation.Active && TownServicePresentation.Service == 3;
+    internal static Action GuardNativeConfirmation(Action original)
+    {
+        TownServiceEnhancementHandoff? owner = _current;
+        if (owner == null || !HasCurrentOffering) return original;
+        VRCard? offered = owner.Card;
+        uint session = TownServicePresentation.Session;
+        return () =>
+        {
+            // Host grants can be revoked between the frame that drew an original
+            // rune button and its click. Validate at callback dispatch, not just
+            // in Tick. The flat fallback and unrelated prompts are never wrapped.
+            bool sameOffer = ReferenceEquals(_current, owner) && !owner._disposed
+                && ReferenceEquals(owner.Card, offered);
+            if (sameOffer && TownServicePresentation.Active && TownServicePresentation.Service == 3
+                && TownServicePresentation.Session == session
+                && TownServiceMirror.LocalTransactionSettled(3))
+            { original(); return; }
+            if (sameOffer) owner.Return();
+        };
+    }
     internal static bool TryPhysicalCardHeight(out float height)
     {
         VRCard? card = _current != null && !_current._disposed ? _current.Card : null;
@@ -501,7 +522,14 @@ internal sealed class TownServiceEnhancementHandoff : IDisposable
                     ?? selected.gameObject.AddComponent<TownServiceNativeEnhancementCardMask>()).Mask();
             _claimPending = false;
         }
-        if (TownServiceMirror.LocalTransactionDenied(3)) { Return(); return; }
+        // Native Select has only staged an enhancement; it has not committed one.
+        // A later host revocation must close the still-open confirmation before its
+        // callback can run, then return the original physical card. Unity dispatches
+        // the callback and this tick on one thread, so a callback already executing
+        // cannot be interrupted or rolled back here.
+        if (TownServiceMirror.LocalTransactionDenied(3)
+            || !TownServiceMirror.LocalTransactionSettled(3))
+        { Return(); return; }
         if (!ValidOwner(Card) || !_alive() || _palm == null || _shop == null || _window == null || !_window.IsOpen
             || _shop.selectedCard == null || !SameCard(_shop.selectedCard.AbilityCard, _model)
             || VRRigDriver.HeadCamera != null && !NearVisitor(_seat, VRRigDriver.HeadCamera.transform.position, 2.25f))
@@ -739,7 +767,14 @@ internal sealed class TownServiceEnhancementHandoff : IDisposable
     private void CancelConfirmation()
     {
         UIEnhancementConfirmationBox? box = Singleton<UIEnhancementConfirmationBox>.Instance;
-        if (box != null) TownServicePalmConfirmation.CancelOwned(box.GetComponent<UIWindow>());
+        if (Card == null || box == null) return;
+        UIWindow window = box.GetComponent<UIWindow>();
+        if (TownServicePalmConfirmation.OwnsCurrent(window))
+            TownServicePalmConfirmation.CancelOwned(window);
+        else if (_shop._isConfirmationBoxOpened && window.IsOpen)
+            // A fast native click can precede palm-control conversion. It is still
+            // this shop's original prompt, so close it before dropping selection.
+            box.Hide();
     }
 
     private void Return()
@@ -789,4 +824,15 @@ internal sealed class TownServiceEnhancementHandoff : IDisposable
         if (ReferenceEquals(_current, this)) _current = null;
         if (_seat != null) UnityEngine.Object.Destroy(_seat.gameObject);
     }
+}
+
+/// <summary>Recheck the per-resident host grant at the native enhancement callback
+/// itself. Runs after other prefixes have captured their normal presentation hooks.</summary>
+[HarmonyPatch(typeof(UIEnhancementConfirmationBox), nameof(UIEnhancementConfirmationBox.ShowConfirmation),
+    new[] { typeof(string), typeof(string), typeof(Sprite), typeof(string), typeof(Action), typeof(string), typeof(string), typeof(Action) })]
+internal static class TownServiceEnhancementGrantGuard
+{
+    [HarmonyPriority(Priority.Last)]
+    internal static void Prefix(ref Action onActionConfirmed) =>
+        onActionConfirmed = TownServiceEnhancementHandoff.GuardNativeConfirmation(onActionConfirmed);
 }
