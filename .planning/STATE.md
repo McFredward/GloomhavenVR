@@ -11,7 +11,7 @@ immersive presentation toggle beside the 2D-map switch. See
 and [TOWN-OPTIONS-582.md](TOWN-OPTIONS-582.md). ModBuild 581 addresses build-580 headset evidence:
 merchant greeting delay, enchantress approach without native handoff, and
 laser pass-through on scenario story and close controls. Build 580's priestess
-motion and cloth candidates still await headset review. The merchant's visible
+motion still awaits headset review; its cloth candidate was retired in 582. The merchant's visible
 hand-to-belly gap remains open; no unverified asset pose was shipped.
 Build 581 also separates overlapping NPC attention from per-NPC physical
 transactions. A matching host grant now precedes each original immersive
