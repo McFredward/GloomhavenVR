@@ -926,10 +926,7 @@ internal static partial class Loc
         // are gone with their dials, because the pair clamped a factor that is 1.0 at the shipped
         // zoom and therefore did nothing a player could see (ActorBars.ZoomFollowMin has the proof).
         ["vr_o_barsize"] = Pair("Health bars: size", "Lebensbalken: Größe"),
-        ["vr_sec_townservices"] = Pair("Merchant, temple & enchantress", "Händler, Tempel & Verzauberin"),
-        ["town_mode_npcs"] = Pair("Immersive NPCs", "Immersive NPCs"),
-        ["town_mode_windows"] = Pair("Original windows", "Originale Fenster"),
-        ["vr_o_immersivetown"] = Pair("Town service mode", "Stadtbesuch-Modus"),
+        ["vr_o_immersivetown"] = Pair("Immersive town NPCs", "Immersive Stadt-NPCs"),
         ["vr_o_townspeech"] = Pair("NPC speech", "NPC-Sprachausgabe"),
         ["vr_o_townsfx"] = Pair("NPC sound effects", "NPC-Soundeffekte"),
         ["vr_o_dialogs"] = Pair("Dialogs in VR", "Dialoge in VR"),
@@ -1280,10 +1277,10 @@ internal static partial class Loc
         // bars follow the table zoom only inside a fixed band, so this one number is the whole size.
         ["h_vr_o_barsize"] = Pair("How large the bars are in front of your eyes. 1.0 is the size they have always had, and it holds however far you zoom the table.", "Wie groß die Balken vor deinen Augen sind. 1.0 ist die Größe, die sie immer hatten — und sie bleibt es, wie weit du den Tisch auch zoomst."),
         ["h_vr_o_immersivetown"] = Pair(
-            "Choose immersive NPC stations or the original service windows. Applies immediately, "
-            + "including an open visit. Other players retain their chosen presentation.",
-            "Wähle immersive NPC-Stationen oder die bisherigen Fenster. Gilt sofort, auch während "
-            + "eines offenen Besuchs. Andere Spieler behalten ihre gewählte Darstellung."),
+            "On shows physical residents in the 3D map room. Off restores the original service windows. "
+            + "Applies immediately; other players retain their chosen presentation.",
+            "An zeigt die NPCs in der 3D-Kartenumgebung. Aus stellt die bisherigen Fenster wieder her. "
+            + "Gilt sofort; andere Spieler behalten ihre gewählte Darstellung."),
         ["h_vr_o_townspeech"] = Pair(
             "English resident speech. This affects only what you hear; shared lines and facial animation stay synchronized.",
             "Englische Sprachausgabe der NPCs. Das betrifft nur deinen Ton; Satz und Gesichtsanimation bleiben synchron."),
