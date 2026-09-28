@@ -1011,9 +1011,9 @@ public static class InteractionProgram
         TownServicePopulation.MerchantStation = new TownServiceStation { Root = merchantRoot.transform };
         GuildmasterDestinations.Mode = EGuildmasterMode.Merchant;
         VRHands.Left = hand;
-        Outside(); head.transform.position = palm.position; TownServiceEnhancementHandoff.TickApproach();
+        Outside(); head.transform.position = palm.position - Vector3.right * 2.35f; TownServiceEnhancementHandoff.TickApproach();
         Check(MapRoomDriver.Visits == 3 && GuildmasterDestinations.Mode == EGuildmasterMode.Merchant,
-            "head-only overlap leaves an active merchant destination and its item hand intact");
+            "head-only overlap keeps the nearer idle merchant destination and its item hand intact");
         MapRoomHand.InspectionBlocked = true;
         fanPalm.position = palm.position;
         Check(TownServiceEnhancementHandoff.WantsAbilityFan,
@@ -1071,11 +1071,16 @@ public static class InteractionProgram
         Outside(); head.transform.position = palm.position; Offer();
         Check(!TownServiceEnhancementHandoff.Enabled && MapRoomDriver.Visits == 9, "disabled map hand prevents automatic immersive opening");
         WorldUIConfig.MapRoomHand.Value = true;
+        var templeRoot = new GameObject("Temple competitor");
+        templeRoot.transform.position = root.transform.position + Vector3.right * 2.65f;
+        TownServicePopulation.TempleStation = new TownServiceStation { Root = templeRoot.transform };
         Outside(); GuildmasterDestinations.Mode = EGuildmasterMode.Temple;
         VRHands.Left = hand;
-        head.transform.position = palm.position; TownServiceEnhancementHandoff.TickApproach();
+        fanPalm.position = palm.position + Vector3.right * 2.35f;
+        head.transform.position = palm.position + Vector3.right * 2.35f; TownServiceEnhancementHandoff.TickApproach();
         Check(MapRoomDriver.Visits == 9 && GuildmasterDestinations.Mode == EGuildmasterMode.Temple,
-            "head-only temple and enchantress overlap keeps the temple transaction available");
+            "head-only overlap keeps the nearer idle temple destination available: visits="
+            + MapRoomDriver.Visits + " mode=" + GuildmasterDestinations.Mode);
         MapRoomHand.InspectionBlocked = true;
         System.Threading.Thread.Sleep(125);
         fanPalm.position = palm.position; TownServiceEnhancementHandoff.TickApproach();
@@ -1103,10 +1108,7 @@ public static class InteractionProgram
         head.transform.position = palm.position; TownServiceEnhancementHandoff.TickApproach();
         Check(MapRoomDriver.Visits == 11 && GuildmasterDestinations.Mode == EGuildmasterMode.Trainer,
             "physical enchantress approach cannot interrupt a non-service destination");
-        var templeRoot = new GameObject("Temple competitor");
-        templeRoot.transform.position = root.transform.position + Vector3.right * 2.65f;
         TownServicePopulation.MageStation = new TownServiceStation { Root = root.transform };
-        TownServicePopulation.TempleStation = new TownServiceStation { Root = templeRoot.transform };
         Outside(); GuildmasterDestinations.Mode = EGuildmasterMode.Temple;
         fanPalm.position = root.transform.position + Vector3.right * 1.35f;
         head.transform.position = root.transform.position + Vector3.right * 1.35f;
@@ -1133,6 +1135,19 @@ public static class InteractionProgram
         Check(TownServiceEnhancementHandoff.PrefersEnchantress(midpoint - Vector3.right * .2f, EGuildmasterMode.Temple)
             && !TownServiceEnhancementHandoff.PrefersEnchantress(midpoint + Vector3.right * .2f, EGuildmasterMode.Enchantress),
             "moving decisively toward either stand assigns the native destination to the nearer resident");
+        GuildmasterDestinations.Mode = EGuildmasterMode.None;
+        VRHands.Left = null;
+        Outside();
+        head.transform.position = root.transform.position + Vector3.forward * 2.30f;
+        TownServiceEnhancementHandoff.TickApproach();
+        Check(MapRoomDriver.Visits == 13,
+            "gaze-edge visitor opens the native enchantress before stepping into the old 1.4 m palm zone");
+        GuildmasterDestinations.Mode = EGuildmasterMode.Merchant;
+        Outside();
+        head.transform.position = root.transform.position + Vector3.forward * 2.30f;
+        TownServiceEnhancementHandoff.TickApproach();
+        Check(MapRoomDriver.Visits == 14 && GuildmasterDestinations.Mode == EGuildmasterMode.Enchantress,
+            "nearest enchantress opens for an idle visitor even while the prior native destination is merchant");
         UnityEngine.Object.DestroyImmediate(templeRoot);
         UnityEngine.Object.DestroyImmediate(merchantRoot);
         UnityEngine.Object.DestroyImmediate(fanPalm.gameObject);

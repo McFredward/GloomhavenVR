@@ -217,7 +217,8 @@ namespace GloomhavenVR.WorldUI
     {
         public static TownServiceStation? Station;
         public static TownServiceStation? MageStation, TempleStation, MerchantStation;
-        public static bool Available(byte service) => service == 2 ? TempleStation != null : Acquire(service) != null;
+        public static bool Available(byte service) => service == 1 ? MerchantStation != null
+            : service == 2 ? TempleStation != null : Acquire(service) != null;
         public static TownServiceStation? Acquire(byte service) => service == 3 ? MageStation ?? Station
             : service == 2 ? TempleStation : MerchantStation ?? Station;
     }

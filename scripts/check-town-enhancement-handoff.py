@@ -168,14 +168,18 @@ def mutations():
         ("return-life", name, "finally { presentation.Started = true; PruneReturns(); }", "finally { presentation.Started = true; Returns.Remove(presentation); PruneReturns(); }", "return presentation survives ritual disposal with actual face and fixed identity"),
         ("reclaim", name, "Detach(); ClearNativeSelection();", "Detach();", "manual reclaim clears native options"),
         ("startup", name,
-         "if (!ValidOwner(Card) || !_alive() || _palm == null || _shop == null || _window == null || !_window.IsOpen\n            || _shop.selectedCard",
-         "if (!ValidOwner(Card) || !_alive() || !_input() || _palm == null || _shop == null || _window == null || !_window.IsOpen\n            || _shop.selectedCard",
+         "if (!ValidOwner(Card) || !_alive() || _palm == null || _station == null || _shop == null || _window == null || !_window.IsOpen\n            || _shop.selectedCard",
+         "if (!ValidOwner(Card) || !_alive() || !_input() || _palm == null || _station == null || _shop == null || _window == null || !_window.IsOpen\n            || _shop.selectedCard",
          "opening input fade retains offering"),
         ("preview-commit", name,
          "&& !_shop._isConfirmationBoxOpened && _alive() && _input()\n        && (Card == null ? TownServiceMirror.CanLocalBeginTransaction(3)\n            : !_claimPending && TownServiceMirror.LocalTransactionSettled(3));",
          "&& !_shop._isConfirmationBoxOpened && _alive()\n        && (Card == null ? TownServiceMirror.CanLocalBeginTransaction(3)\n            : !_claimPending && TownServiceMirror.LocalTransactionSettled(3));",
          "first opening shows neutral palm locator while native input remains blocked"),
-        ("head-proximity", name, "bool headEntered = head != null && !_headInside && NearVisitor(palm, head.transform.position, 1.4f);", "bool headEntered = false;", "head proximity opens original service without a held card"),
+        ("head-proximity", name, "bool headEntered = head != null && !_headInside && NearVisitor(approachRoot, head.transform.position, 2.4f);", "bool headEntered = false;", "head proximity opens original service throughout the resident attention volume"),
+        ("gaze-reach", name,
+         "bool headEntered = head != null && !_headInside && NearVisitor(approachRoot, head.transform.position, 2.4f);",
+         "bool headEntered = head != null && !_headInside && NearVisitor(approachRoot, head.transform.position, 1.4f);",
+         "intentional fan-hand focus switches the local native destination from merchant to enchantress"),
         ("deferred-approach", name, "if (!_pendingApproach || Core.Events.VRModeStateMachine.CurrentMode == Core.Events.VRMode.ModalUI)", "if (!_pendingApproach || !headEntered && !cardEntered || Core.Events.VRModeStateMachine.CurrentMode == Core.Events.VRMode.ModalUI)", "intentional fan-hand focus switches the local native destination from merchant to enchantress"),
         ("bounded-retry", name, "if (!headEntered && !cardEntered && now < _approachRetryAt) return;", "if (now < -1f) return;", "pending native rail retries are rate-limited between frames"),
         ("head-edge", name, "if (headEntered) _headInside = true;", "", "head proximity opens original service without a held card"),
@@ -183,9 +187,13 @@ def mutations():
         ("selected-slot", name, "                selectedSlot.OnClick();", "                { }", "native destination change preserves the visitor's exact selected character slot"),
         ("trade-confirmation", name, "&& tradeConfirmation.GetComponent<UIWindow>() is UIWindow tradeWindow && tradeWindow.IsOpen) return;", "&& false) return;", "a live merchant purchase confirmation is never interrupted by resident approach"),
         ("head-overlap-steal", name,
-         "if (destination != EGuildmasterMode.None && !magePreferred) return;",
-         "if (destination != EGuildmasterMode.None && false) return;",
-         "head-only overlap leaves an active merchant destination and its item hand intact"),
+         "if (!magePreferred) return;",
+         "if (false) return;",
+         "head-only overlap keeps the nearer idle merchant destination and its item hand intact"),
+        ("nearest-resident", name,
+         "|| head != null && NearestResidentForHead(approachRoot, head.transform.position);",
+         ";",
+         "head proximity opens original service without a held card"),
         ("fan-release", name,
          "MapRoomHand.SetMerchantInspection(false);",
          "{ }",
@@ -325,6 +333,8 @@ def main():
     parser.add_argument("--unity", type=Path, default=Path(os.environ.get("UNITY_PATH", "/home/claw/unity-2021.3.5/Editor/Unity")))
     parser.add_argument("--unity-ui", type=Path, help="Real UnityEngine.UI.dll (never metadata-only RefAsm)")
     parser.add_argument("--no-negative-controls", action="store_true", help="Quick positive run; not complete validation")
+    parser.add_argument("--only-mutation", action="append", metavar="NAME",
+                        help="Run production and the named negative control only; may be repeated")
     args = parser.parse_args()
     check_presentation_bridge(args.source_root)
     check_laser_bridge(args.source_root)
@@ -344,7 +354,12 @@ def main():
     manifest = {"result": str(run / "results.txt"), "cases": []}
     variants = [("production", None, None, None, "")]
     if not args.no_negative_controls:
-        variants += mutations()
+        selected = set(args.only_mutation or [])
+        available = mutations()
+        unknown = selected - {case[0] for case in available}
+        if unknown:
+            parser.error("Unknown mutation(s): " + ", ".join(sorted(unknown)))
+        variants += [case for case in available if not selected or case[0] in selected]
     print(f"Binding production from {args.source_root.resolve()}; evidence: {run}", flush=True)
     for name, filename, before, after, expected in variants:
         build = run / name

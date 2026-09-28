@@ -50,6 +50,8 @@ internal sealed class TownServiceEnhancementHandoff : IDisposable
     }
     private static float _approachSearchAt;
     private static float _approachRetryAt;
+    private static float _approachBlockReportAt;
+    private static int _approachBlockReports;
     private static Transform? _approachPalm;
     private static VRCard? _approachCard;
     private static bool _headInside, _cardInside, _pendingApproach, _magePreferredInside;
@@ -57,8 +59,9 @@ internal sealed class TownServiceEnhancementHandoff : IDisposable
     /// <summary>The local fan hand is deliberately aimed at this resident. This affects
     /// only the player's hand contents; other nearby residents retain their own attention.</summary>
     internal static bool WantsAbilityFan => RefreshAbilityFanFocus();
-    /// <summary>The authored offering pose may extend only with a visible native
-    /// palm mark or a real parked card. Gaze attention alone has no destination.</summary>
+    /// <summary>Whether this local player has a native palm cue or parked card.
+    /// The resident's hand extension follows independent proximity attention;
+    /// this property describes only the local native handoff presentation.</summary>
     internal static bool HasVisibleCue => _current != null && !_current._disposed
         && _current._window != null && _current._window.IsOpen
         && (_current._zoneGate.alpha > 0f || _current.Card != null)
@@ -214,6 +217,7 @@ internal sealed class TownServiceEnhancementHandoff : IDisposable
             || !TownServiceGrantSync.CanUseImmersive
             || !TownServicePopulation.Available(3))
         {
+            if (!MapRoomDriver.Active) _approachBlockReports = 0;
             _headInside = _cardInside = _pendingApproach = _magePreferredInside = _abilityFanFocused = false;
             _approachCard = null;
             return;
@@ -225,21 +229,28 @@ internal sealed class TownServiceEnhancementHandoff : IDisposable
             _approachPalm = station != null ? FindPalm(station.Root) : null;
         }
         Transform? palm = _current?._palm ?? _approachPalm;
-        if (palm == null)
+        TownServiceStation? mageStation = TownServicePopulation.Acquire(3);
+        Transform? approachRoot = mageStation?.Root;
+        if (palm == null || approachRoot == null)
         { _headInside = _cardInside = _pendingApproach = _magePreferredInside = _abilityFanFocused = false; return; }
         Camera? head = VRRigDriver.HeadCamera;
         bool abilityFanFocused = RefreshAbilityFanFocus();
         // Leaving is the same native destination exit as its former X, including selection
         // and confirmation cleanup. Returning a card alone left an empty service open forever.
-        if (_current != null && _current._window.IsOpen && head != null && !NearVisitor(palm, head.transform.position, 1.8f))
+        if (_current != null && _current._window.IsOpen && head != null && !NearVisitor(approachRoot, head.transform.position, 2.6f))
         {
             TownServiceEnhancementHandoff current = _current;
             current.Return();
             ModalFallback.CloseFloatedWindow(current._window);
         }
-        if (head == null || !NearVisitor(palm, head.transform.position, 1.8f))
+        if (head == null || !NearVisitor(approachRoot, head.transform.position, 2.6f))
             _headInside = false;
-        bool headEntered = head != null && !_headInside && NearVisitor(palm, head.transform.position, 1.4f);
+        // The face solver attends visitors within 2.4 m of the resident. The old
+        // 1.4/1.8 m gate was measured from her moving palm, so Build 582 showed an
+        // attentive enchantress with neither native visit nor palm target in the
+        // outer part of that very same attention volume. Use the station root and
+        // the same entrance radius, with a small exit hysteresis.
+        bool headEntered = head != null && !_headInside && NearVisitor(approachRoot, head.transform.position, 2.4f);
         if (headEntered) _headInside = true;
         VRCard? held = HeldOwnedCard(VRHands.Left) ?? HeldOwnedCard(VRHands.Right);
         if (held != _approachCard) { _approachCard = held; _cardInside = false; }
@@ -248,9 +259,9 @@ internal sealed class TownServiceEnhancementHandoff : IDisposable
         if (cardEntered) _cardInside = true;
         // The entry edge may arrive before native cards, the rail, or an unrelated
         // modal confirmation becomes ready. Retain it for a bounded retry, but hand
-        // the native destination from another idle town resident only when the
-        // visitor focuses the ability fan or brings an owned card to her palm.
-        // A head-only overlap must leave the other resident usable.
+        // the native destination from another idle town resident when this visitor
+        // is nearest the enchantress, focuses the ability fan, or brings an owned
+        // card to her palm. Every NPC keeps its own attention independently.
         if ((headEntered || cardEntered) && !StoryComposite.PointOfNoReturn)
         {
             if (!_pendingApproach && VRLog.WantsDebug)
@@ -260,11 +271,11 @@ internal sealed class TownServiceEnhancementHandoff : IDisposable
             _pendingApproach = true;
         }
         EGuildmasterMode destination = GuildmasterDestinations.CurrentDestinationMode();
-        // A resident can look at the visitor while another stand is active. Do not
-        // replace that stand on a head-only overlap. The fan hand entering this
-        // resident's workspace is the local choice; a held card near her palm is
-        // an even stronger explicit choice. Neither gate suppresses either NPC.
-        bool magePreferred = abilityFanFocused || cardEntered;
+        // A resident can look at the visitor while another stand is active. Head
+        // proximity elects only the nearest native destination; fan/card focus is
+        // the explicit local choice at an overlap. Neither suppresses NPC attention.
+        bool magePreferred = abilityFanFocused || cardEntered
+            || head != null && NearestResidentForHead(approachRoot, head.transform.position);
         if (magePreferred && !_magePreferredInside)
             _pendingApproach = true;
         _magePreferredInside = magePreferred;
@@ -285,7 +296,7 @@ internal sealed class TownServiceEnhancementHandoff : IDisposable
         // Preserve non-service destinations (trainer/story/etc.).
         if (destination != EGuildmasterMode.None && destination != EGuildmasterMode.Merchant
             && destination != EGuildmasterMode.Temple) return;
-        if (destination != EGuildmasterMode.None && !magePreferred) return;
+        if (!magePreferred) return;
         UIItemConfirmationBox? tradeConfirmation = Singleton<UIItemConfirmationBox>.Instance;
         // IsActive can remain set after the original window has closed. Only a live
         // native confirmation may defer a new resident visit.
@@ -306,7 +317,13 @@ internal sealed class TownServiceEnhancementHandoff : IDisposable
             MapRoomHand.SetMerchantInspection(false);
         if (destination == EGuildmasterMode.Temple && magePreferred)
             MapRoomHand.SetTempleInspection(false);
-        if (!HasOwnedMapCard() || !MapRoomDriver.CanVisitTownService(EGuildmasterMode.Enchantress)) return;
+        bool hasCard = HasOwnedMapCard();
+        bool canVisit = hasCard && MapRoomDriver.CanVisitTownService(EGuildmasterMode.Enchantress);
+        if (!hasCard || !canVisit)
+        {
+            ReportApproachBlock(hasCard ? "native service cap unavailable" : "no owned map card in active fan");
+            return;
+        }
         NewPartyDisplayUI? display = NewPartyDisplayUI.PartyDisplay;
         NewPartyCharacterUI? selectedSlot = display?.SelectedUISlot;
         if (MapRoomDriver.PressGuildmasterMode(EGuildmasterMode.Enchantress,
@@ -320,6 +337,19 @@ internal sealed class TownServiceEnhancementHandoff : IDisposable
                 && display != null && !ReferenceEquals(display.SelectedUISlot, selectedSlot))
                 selectedSlot.OnClick();
         }
+        else ReportApproachBlock("native cap refused press");
+    }
+
+    private static void ReportApproachBlock(string reason)
+    {
+        // This branch is hit only by a pending, deliberate approach, never in the
+        // ordinary no-visitor frame loop. Debug evidence is capped for the entire
+        // map session so a broken native cap cannot flood a maintainer log.
+        if (!VRLog.WantsDebug || _approachBlockReports >= 8 || Time.unscaledTime < _approachBlockReportAt) return;
+        _approachBlockReports++;
+        _approachBlockReportAt = Time.unscaledTime + 2f;
+        VRLog.Debug("WorldUI", "TOWN ENHANCEMENT native visit pending: " + reason
+            + " destination=" + GuildmasterDestinations.CurrentDestinationMode() + ".");
     }
 
     private static bool HasOwnedMapCard()
@@ -344,7 +374,7 @@ internal sealed class TownServiceEnhancementHandoff : IDisposable
         if (mage == null || head == null || MapRoomHand.OwnedMerchantCharacter() == null
             || fanHand == null || !fanHand.HasPose || wrist == null
             || fanHand.Grabber.Held != null && fanHand.Grabber.Held is not VRCard
-            || !NearVisitor(mage.Root, head.transform.position, 1.8f)
+            || !NearVisitor(mage.Root, head.transform.position, 2.4f)
             || !NearVisitor(mage.Root, wrist.position, 1.05f))
             return _abilityFanFocused = false;
         Vector3 mageDelta = wrist.position - mage.Root.position;
@@ -385,6 +415,25 @@ internal sealed class TownServiceEnhancementHandoff : IDisposable
         Vector3 local = frame.InverseTransformPoint(position);
         local.y = 0f;
         return local.sqrMagnitude <= distance * distance;
+    }
+
+    private static bool NearestResidentForHead(Transform mage, Vector3 head)
+    {
+        Vector3 mageLocal = mage.InverseTransformPoint(head);
+        mageLocal.y = 0f;
+        float distance = mageLocal.magnitude;
+        for (byte service = 1; service <= 2; service++)
+        {
+            if (!TownServicePopulation.Available(service)) continue;
+            TownServiceStation? other = TownServicePopulation.Acquire(service);
+            if (other == null) continue;
+            Vector3 local = other.Root.InverseTransformPoint(head);
+            local.y = 0f;
+            // A tie preserves the incumbent native destination. Explicit fan or
+            // card focus above can still select the enchantress at that boundary.
+            if (distance + .12f >= local.magnitude) return false;
+        }
+        return true;
     }
 
     /// <summary>Resolve the player's one native destination in the narrow Temple/Mage
@@ -530,9 +579,9 @@ internal sealed class TownServiceEnhancementHandoff : IDisposable
         if (TownServiceMirror.LocalTransactionDenied(3)
             || !TownServiceMirror.LocalTransactionSettled(3))
         { Return(); return; }
-        if (!ValidOwner(Card) || !_alive() || _palm == null || _shop == null || _window == null || !_window.IsOpen
+        if (!ValidOwner(Card) || !_alive() || _palm == null || _station == null || _shop == null || _window == null || !_window.IsOpen
             || _shop.selectedCard == null || !SameCard(_shop.selectedCard.AbilityCard, _model)
-            || VRRigDriver.HeadCamera != null && !NearVisitor(_seat, VRRigDriver.HeadCamera.transform.position, 2.25f))
+            || VRRigDriver.HeadCamera != null && !NearVisitor(_station, VRRigDriver.HeadCamera.transform.position, 2.6f))
             Return();
         else
         {
