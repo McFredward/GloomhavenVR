@@ -170,7 +170,7 @@ def mutations():
         ("startup", name, "if (!ValidOwner(Card) || !_alive()", "if (!ValidOwner(Card) || !_alive() || !_input()", "opening input fade retains offering"),
         ("preview-commit", name, "&& !_shop._isConfirmationBoxOpened && _alive() && _input();", "&& !_shop._isConfirmationBoxOpened && _alive();", "first opening shows neutral palm locator while native input remains blocked"),
         ("head-proximity", name, "bool headEntered = head != null && !_headInside && NearVisitor(palm, head.transform.position, 1.4f);", "bool headEntered = false;", "head proximity opens original service without a held card"),
-        ("deferred-approach", name, "if (!_pendingApproach || GuildmasterDestinations.CurrentDestinationMode()", "if (!_pendingApproach || !headEntered && !cardEntered || GuildmasterDestinations.CurrentDestinationMode()", "pending approach opens when original native rail becomes ready"),
+        ("deferred-approach", name, "if (!_pendingApproach || GuildmasterDestinations.CurrentDestinationMode()", "if (!_pendingApproach || !headEntered && !cardEntered || GuildmasterDestinations.CurrentDestinationMode()", "an enchantress approach blocked by another service opens after that service closes without requiring a second physical entry"),
         ("bounded-retry", name, "if (!headEntered && !cardEntered && now < _approachRetryAt) return;", "if (now < -1f) return;", "pending native rail retries are rate-limited between frames"),
         ("head-edge", name, "if (headEntered) _headInside = true;", "", "head proximity opens original service without a held card"),
         ("card-edge", name, "if (cardEntered) _cardInside = true;", "", "owned card approach opens through original native visit"),
