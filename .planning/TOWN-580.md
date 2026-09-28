@@ -87,3 +87,11 @@ work phases and the animation between them. No merchant geometry candidate has
 yet passed that full gate; the asset remains under revision. Build 580 retains
 the previous merchant hand pose so the verified speech, priestess and cloth
 changes can be tested without introducing the candidate's visible intersections.
+
+The separate topology probe in `scripts/merchant-visitor/` preserves the source
+FBX while measuring the P9 contact pose. Subdividing its sleeve surfaces leaves
+visible sleeve/coat intersections. A local sleeve-only corrective inverted thin
+faces, and a closed replacement fan preserved the boundary but reversed face
+orientation across the twisted inner profile. Neither candidate was shipped.
+The next asset candidate needs a constrained inner-sleeve and cuff profile,
+followed by the same signed-palm, triangle-intersection and animation sweep.
