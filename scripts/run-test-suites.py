@@ -10,7 +10,6 @@ reuse is disabled, and the scheduler cleans all descendants on completion or can
 from __future__ import annotations
 
 import argparse
-import fcntl
 import hashlib
 import json
 import math
@@ -30,7 +29,7 @@ import uuid
 SCRIPT_DIR = str(Path(__file__).resolve().parent)
 if SCRIPT_DIR not in sys.path:
     sys.path.insert(0, SCRIPT_DIR)
-from town_run_retention import record_success
+from town_run_retention import acquire_file_lock, record_success, release_file_lock
 
 ROOT = Path(__file__).resolve().parent.parent
 MANIFEST = ROOT / 'scripts/test-suites.json'
@@ -211,9 +210,9 @@ def execute(suites, jobs, output, root, manifest_hash, group, shard):
                 if len(running) >= jobs or cancelled[0]:
                     break
                 name = suite['id']
-                lock = (locks / f'{name}.lock').open('w')
+                lock = (locks / f'{name}.lock').open('a+b')
                 try:
-                    fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    acquire_file_lock(lock, blocking=False)
                 except BlockingIOError:
                     lock.close()
                     continue
@@ -235,6 +234,7 @@ def execute(suites, jobs, output, root, manifest_hash, group, shard):
                 except OSError as exc:
                     log.write(f'Could not launch suite: {exc}\n'.encode())
                     log.close()
+                    release_file_lock(lock)
                     lock.close()
                     shutil.rmtree(scratch)
                     results[name] = {'id': name, 'status': 'failed', 'exit_code': 127,
@@ -250,6 +250,7 @@ def execute(suites, jobs, output, root, manifest_hash, group, shard):
                 # Prevent a completed shell from leaving fixture descendants behind.
                 terminate_group(entry['process'], signal.SIGKILL)
                 entry['log'].close()
+                release_file_lock(entry['lock'])
                 entry['lock'].close()
                 shutil.rmtree(entry['scratch'], ignore_errors=True)
                 duration = time.monotonic() - entry['started']
@@ -273,6 +274,7 @@ def execute(suites, jobs, output, root, manifest_hash, group, shard):
             terminate_group(entry['process'], signal.SIGKILL)
             entry['process'].wait()
             entry['log'].close()
+            release_file_lock(entry['lock'])
             entry['lock'].close()
             shutil.rmtree(entry['scratch'], ignore_errors=True)
         for sig, handler in previous.items():

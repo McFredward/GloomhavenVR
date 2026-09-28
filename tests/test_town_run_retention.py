@@ -1,12 +1,15 @@
 """Small end-to-end checks for generated town test evidence retention."""
 
+import builtins
 from contextlib import redirect_stdout
+import errno
 import importlib.util
 from io import StringIO
 from pathlib import Path
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -19,6 +22,58 @@ spec.loader.exec_module(runner)
 
 
 class TownRunRetentionTests(unittest.TestCase):
+    def test_windows_import_and_lock_fallback_without_fcntl(self):
+        class FakeMsvcrt:
+            LK_NBLCK = 1
+            LK_UNLCK = 2
+
+            def __init__(self):
+                self.busy = 2
+                self.calls = []
+
+            def locking(self, fd, mode, length):
+                self.calls.append((mode, length))
+                if mode == self.LK_NBLCK and self.busy:
+                    self.busy -= 1
+                    raise OSError(errno.EACCES, 'held by another process')
+
+        fake = FakeMsvcrt()
+        original_import = builtins.__import__
+
+        def windows_import(name, *args, **kwargs):
+            if name == 'fcntl':
+                raise ImportError('Windows has no fcntl')
+            if name == 'msvcrt':
+                return fake
+            return original_import(name, *args, **kwargs)
+
+        win_spec = importlib.util.spec_from_file_location('town_run_retention_windows',
+                                                         ROOT / 'scripts/town_run_retention.py')
+        win_retention = importlib.util.module_from_spec(win_spec)
+        with patch.object(builtins, '__import__', side_effect=windows_import):
+            win_spec.loader.exec_module(win_retention)
+        self.assertIsNone(win_retention._fcntl)
+        self.assertIs(win_retention._msvcrt, fake)
+        with tempfile.TemporaryFile(mode='w+b') as stream:
+            with patch.object(win_retention.time, 'sleep') as sleep:
+                with self.assertRaises(BlockingIOError):
+                    win_retention.acquire_file_lock(stream, blocking=False)
+                win_retention.acquire_file_lock(stream)
+                win_retention.release_file_lock(stream)
+                sleep.assert_called_once_with(.05)
+            self.assertEqual([(fake.LK_NBLCK, 1)] * 3 + [(fake.LK_UNLCK, 1)], fake.calls)
+            self.assertEqual(b'\0', stream.read(1))
+
+        # The hyphenated runner is also imported by source-bound tests. Neither
+        # import may require fcntl when the fallback is active.
+        runner_spec = importlib.util.spec_from_file_location('run_test_suites_windows_import',
+                                                             ROOT / 'scripts/run-test-suites.py')
+        win_runner = importlib.util.module_from_spec(runner_spec)
+        with patch.dict(sys.modules, town_run_retention=win_retention):
+            with patch.object(builtins, '__import__', side_effect=windows_import):
+                runner_spec.loader.exec_module(win_runner)
+        self.assertIs(win_runner.acquire_file_lock, win_retention.acquire_file_lock)
+
     def test_successful_suite_replaces_only_its_previous_success(self):
         with tempfile.TemporaryDirectory() as temp:
             checkout = Path(temp) / 'checkout'
