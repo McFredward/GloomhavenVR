@@ -51,7 +51,8 @@ internal sealed class TownServiceVoiceSchedule
         e.WorkSeeded = false;
     }
 
-    internal void Work(byte service, float clock, float cast, float attention, bool visible, float now)
+    internal void Work(byte service, float clock, float cast, float attention, bool lookingAtVisitor,
+        bool visible, float now)
     {
         Entry e = At(service);
         if (!visible || !Finite(clock) || !Finite(cast) || !Finite(attention))
@@ -64,20 +65,19 @@ internal sealed class TownServiceVoiceSchedule
         }
         float delta = clock - e.LastWorkClock;
         bool continuous = e.WorkSeeded && delta >= -.001f && delta <= .25f;
-        // Only the elected face author reaches Work. Attention is its published,
-        // eased response to a head inside the resident's real gaze range, including
-        // remote visitors. Greet on the first visible rising edge (also when Work
-        // first seeds into an already-started turn), not on the closer shop window.
-        // The existing 45-second cooldown and shared cue generation bound repeat
-        // speech while the player moves around that range.
+        // Only the elected face author reaches Work. The merchant's face can
+        // look at a visitor before the coin hand is free to enter body attention.
+        // Voice must follow that same face target, not the delayed body blend or
+        // the still smaller native shop range. The cue remains one shared take.
+        float merchantLook = lookingAtVisitor ? 1f : 0f;
         bool newLook = e.LastAttention < .08f || !e.WorkSeeded && !e.FollowerAttentionKnown;
-        if (service == 1 && attention >= .08f && newLook
+        if (service == 1 && merchantLook >= .08f && newLook
             && now >= e.NextAllowed && e.Cue == 0)
             QueueVariant(service, TownServiceVoice.GreetingFirstCue(service), 1, now + 5f, now + clock);
-        else if (service == 1 && attention < .08f && e.Pending && e.Priority == 1
+        else if (service == 1 && merchantLook < .08f && e.Pending && e.Priority == 1
             && e.PendingCue >= 1 && e.PendingCue <= 5)
             e.Pending = false; // The visitor left before a blocked greeting could start.
-        if (service == 1 && attention >= .08f && e.Pending && e.Priority == 1
+        if (service == 1 && merchantLook >= .08f && e.Pending && e.Priority == 1
             && e.PendingCue >= 1 && e.PendingCue <= 5)
             e.Deadline = now + 5f; // Narration or another NPC cannot consume the gaze edge.
         // Ambient prayer and casting are atmospheric, not a response to the
@@ -101,7 +101,8 @@ internal sealed class TownServiceVoiceSchedule
         // Native visit and card acceptance own the enchantress invitation. Sampling
         // an attention crossing here missed visits that began before Work seeded.
         e.WorkSeeded = true; e.FollowerAttentionKnown = false;
-        e.LastWorkClock = clock; e.LastCast = cast; e.LastAttention = attention;
+        e.LastWorkClock = clock; e.LastCast = cast;
+        e.LastAttention = service == 1 ? merchantLook : attention;
     }
 
     private static bool Crossed(float before, float after, float period, float threshold)

@@ -156,6 +156,7 @@ internal static class TownServicePopulation
         bool missing = false;
         for (byte service = 1; service <= 3; service++)
         {
+            bool lookingAtVisitor = false;
             bool visiting = TownServiceMirror.TryInteractionOwner(service, out _, out _, out float ownerAge);
             float visitAge = visiting ? ownerAge : float.PositiveInfinity;
             bool unlocked = TownServiceAvailability.NativeUnlocked(service);
@@ -229,6 +230,9 @@ internal static class TownServicePopulation
                 if (IsFaceAuthor)
                 {
                     bool engaged = resident.Station.PrepareActivityAttention(resident.Activity.Engaged);
+                    // The face starts looking at this visitor immediately. The merchant's
+                    // coin hand may finish a transfer before body attention begins.
+                    lookingAtVisitor = engaged;
                     // Finish the current coin contact before greeting. Immediate
                     // attention could strand a gripped coin in midair; this authored
                     // decision is carried in the ordinary occupation stream.
@@ -357,7 +361,8 @@ internal static class TownServicePopulation
             }
             resident.Station.SampleActivity(in displayedActivity);
             resident.Station.SampleActivityAudio(faceAuthor, sourceEpoch, resident.Activity.WorkClock,
-                interactive && used && ready && resident.Visibility >= .99f, in displayedActivity);
+                interactive && used && ready && resident.Visibility >= .99f, in displayedActivity,
+                lookingAtVisitor);
             activities.Set(service - 1, resident.Activity);
             remotePose = displayedFace;
             if (seedAuthority) resident.Station.SeedFace(seed.At(service - 1), seedAuthor, seedElapsed);

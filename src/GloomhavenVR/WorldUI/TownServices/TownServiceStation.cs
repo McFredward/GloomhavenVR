@@ -223,11 +223,12 @@ internal sealed class TownServiceStation : IDisposable
         }
     }
 
-    internal void SampleActivityAudio(int author, uint epoch, float clock, bool visible, in TownActivityVisual shown)
+    internal void SampleActivityAudio(int author, uint epoch, float clock, bool visible, in TownActivityVisual shown,
+        bool lookingAtVisitor)
     {
         bool audible = visible && !_activityFailed;
         _audio.Tick(author, epoch, clock, Time.unscaledDeltaTime, audible, in shown);
-        TownServiceVoice.Tick(_service, clock, audible, in shown);
+        TownServiceVoice.Tick(_service, clock, audible, in shown, lookingAtVisitor);
     }
 
     internal void SeedFace(TownFacePose pose, int author, float elapsed)

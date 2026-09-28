@@ -81,13 +81,21 @@ internal static class TownServiceVoice
     internal static bool IsPrayerCue(ushort cue) => cue >= 31 && cue <= 35;
     internal static bool IsWhisperedCastCue(ushort cue) => cue >= 41 && cue <= 45;
 
-    internal static void Tick(byte service, float workClock, bool visible, in TownActivityVisual shown)
+    internal static void Tick(byte service, float workClock, bool visible, in TownActivityVisual shown,
+        bool lookingAtVisitor)
     {
         Ensure();
         if (StoryComposite.PointOfNoReturn) { SilenceForStory(); return; }
         if (service < 1 || service > 3) return;
         if (TownServicePopulation.IsFaceAuthor)
-            _schedule.Work(service, workClock, shown.Cast, shown.Attention, visible, Time.unscaledTime);
+        {
+            bool wasPending = service == 1 && _schedule.At(service).Pending;
+            _schedule.Work(service, workClock, shown.Cast, shown.Attention, lookingAtVisitor,
+                visible, Time.unscaledTime);
+            if (service == 1 && !wasPending && _schedule.At(service).Pending && VRLog.WantsDebug)
+                VRLog.Debug("TownServices", "Merchant gaze queued speech: bodyAttention="
+                    + shown.Attention.ToString("F2") + ", visible=" + visible);
+        }
         else
             _schedule.FollowerAttention(service, shown.Attention, visible);
     }
@@ -251,7 +259,11 @@ internal static class TownServiceVoice
         TownServiceVoiceSchedule.Entry entry = _schedule.At(service);
         // Only the author gates new speech on bundled clip readiness. Once chosen,
         // observer face curves remain independent of local volume and narration.
+        uint previousGeneration = entry.Generation;
         _schedule.Sample(service, Duration, Time.unscaledTime, _narration || _disabled);
+        if (service == 1 && entry.Generation != previousGeneration && VRLog.WantsDebug)
+            VRLog.Debug("TownServices", "Merchant speech started: cue=" + entry.Cue
+                + ", narration=" + _narration + ", audioDisabled=" + _disabled);
         cue = entry.Cue; generation = entry.Generation;
         if (cue == 0) return false;
         age = Mathf.Max(0f, Time.unscaledTime - entry.Started);
