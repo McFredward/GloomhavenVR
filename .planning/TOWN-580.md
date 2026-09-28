@@ -95,3 +95,9 @@ faces, and a closed replacement fan preserved the boundary but reversed face
 orientation across the twisted inner profile. Neither candidate was shipped.
 The next asset candidate needs a constrained inner-sleeve and cuff profile,
 followed by the same signed-palm, triangle-intersection and animation sweep.
+An independent bounded flank-pose search tested 60 palm targets per side at
+several heights and exterior offsets. Its best bilateral contact still had
+visible hand/coat cuts on both sides; the left-side zero-cut targets hovered
+at least 9.9 mm from the coat, and no zero-cut right-side target was found.
+Finger articulation reduced but did not remove the cuts. This rules out those
+pose-only candidates, not every conceivable pose.
