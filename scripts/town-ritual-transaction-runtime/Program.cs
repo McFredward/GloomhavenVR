@@ -5,6 +5,7 @@
 // prefix dispatch; real patch installation is a separate integration requirement.
 using System;
 using GloomhavenVR.Core;
+using GloomhavenVR.Net.TownServices;
 using GloomhavenVR.WorldUI;
 using UnityEngine;
 using UnityEngine.UI;
@@ -47,6 +48,9 @@ public static class InteractionProgram
             var confirm=new GameObject("Confirm",typeof(RectTransform),typeof(Button));confirm.transform.SetParent(boxObject.transform,false);box.confirmButton=confirm.GetComponent<Button>();
             var cancel=new GameObject("Cancel",typeof(RectTransform),typeof(Button));cancel.transform.SetParent(boxObject.transform,false);box.cancelButton=cancel.GetComponent<Button>();
             Component controller=temple?root.AddComponent<UITempleWindow>():root.AddComponent<UINewEnhancementWindow>();
+            // The generic confirmation matrix starts after a physical offer has received
+            // its host grant. DonationProof separately exercises the unsettled path.
+            TownServiceMirror.TransactionActive=TownServiceMirror.Settled=true;
             object owner=new(),item=new();bool eligible=true,alive=true,input=true;int selections=0,commits=0,cancels=0;
             Action previous=()=>{};box._onConfirmCallback=previous;
             void Own(bool value){if(controller is UITempleWindow t)t._isConfirmationBoxOpened=value;else ((UINewEnhancementWindow)controller)._isConfirmationBoxOpened=value;}

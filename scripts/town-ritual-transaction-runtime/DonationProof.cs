@@ -27,7 +27,7 @@ internal static class DonationProof
     internal static int Run()
     {
         int checks=0;void Check(bool value,string why){checks++;if(!value)throw new Exception(why);}
-        for(int scenario=0;scenario<13;scenario++)
+        for(int scenario=0;scenario<14;scenario++)
         {
             var root=new GameObject("Native temple",typeof(CanvasGroup),typeof(UITempleWindow));
             var events=new GameObject("Events",typeof(EventSystem));
@@ -93,10 +93,13 @@ internal static class DonationProof
                 }
                 TownServiceMirror.Settled=true;
                 ritual.TickPendingTempleDonation();
+                if(scenario==13)TownServiceMirror.Settled=false;
             }
             if(scenario==8)Check(accepted,"native modal input lock does not invalidate its own donation");
             if(scenario==6)ritual._templeOffering.Available=ritual._templeOffering.VisitorPresent=false;
             if(accepted)box.Complete();
+            if(scenario==13)Check(commits==0&&cancels==1,
+                "revoked host grant cancels the original donation callback at hidden completion");
             if(scenario==6)
             {
                 Check(commits==0&&cancels==1,"walking away before native completion cancels the donation");
