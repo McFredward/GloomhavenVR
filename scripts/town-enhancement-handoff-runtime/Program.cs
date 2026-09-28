@@ -943,6 +943,9 @@ public static class InteractionProgram
         Check(TownServiceEnhancementHandoff.PrefersEnchantress(midpoint, EGuildmasterMode.Enchantress)
             && !TownServiceEnhancementHandoff.PrefersEnchantress(midpoint, EGuildmasterMode.Temple),
             "overlapping resident approach keeps the current destination inside the stable tie band");
+        Check(TownServiceEnhancementHandoff.PrefersEnchantress(midpoint, EGuildmasterMode.Merchant)
+            && TownServiceEnhancementHandoff.PrefersEnchantress(midpoint, EGuildmasterMode.None),
+            "an unrelated destination cannot bias a nearer enchantress toward the temple");
         Check(TownServiceEnhancementHandoff.PrefersEnchantress(midpoint - Vector3.right * .2f, EGuildmasterMode.Temple)
             && !TownServiceEnhancementHandoff.PrefersEnchantress(midpoint + Vector3.right * .2f, EGuildmasterMode.Enchantress),
             "moving decisively toward either stand assigns the native destination to the nearer resident");

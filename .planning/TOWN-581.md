@@ -28,7 +28,9 @@ The physical approach now switches between idle town service destinations via
 the existing native path, while preserving the selected character and deferring
 to a live modal confirmation. The narrow temple/enchantress approach overlap
 uses one stable nearest-resident decision so a later same-frame temple tick
-cannot immediately steal the visit.
+cannot immediately steal the visit. Its 12 cm tie preference applies only when
+Temple or Enchantress already owns the destination; an unrelated Merchant/None
+destination picks the nearer resident without bias.
 
 ## Transparent controls
 
@@ -49,8 +51,11 @@ ray path rather than a story-only exception.
 - Transparent-control Unity 2021.3.5f1 harness: 101 assertions and eight
   negative controls pass, including story/close hit planes and hidden/decorative
   geometry.
-- Enhancement and temple runtime checks: see final integration result below.
-- Full Release build, wire and source gates: see final integration result below.
+- Enchantress Unity runtime: 1,208 assertions and 43 mutation controls pass;
+  temple transaction Unity runtime: 201 assertions and 20 mutation controls
+  pass. Both cover cross-service approach and modal safeguards.
+- Full Release build succeeds with zero warnings and errors. The remaining
+  repository-wide source/wire guard is recorded separately after integration.
 
 The merchant's visible hand-to-belly gap remains open. Its geometry findings
 are documented in [TOWN-580.md](TOWN-580.md); this input/voice build does not

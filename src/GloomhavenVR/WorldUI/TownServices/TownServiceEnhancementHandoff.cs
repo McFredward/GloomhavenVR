@@ -320,9 +320,15 @@ internal sealed class TownServiceEnhancementHandoff : IDisposable
         float mageDistance = fromMage.magnitude;
         float templeDistance = fromTemple.magnitude;
         float tie = .12f * Mathf.Max(.01f, Mathf.Abs(mage.Root.lossyScale.x));
+        // Hysteresis applies only when one of these two residents already owns
+        // the native destination. Merchant/None has no incumbent in this pair:
+        // biasing that tie toward Temple can leave the nearer enchantress with
+        // an outstretched hand but no native placement cue at the midpoint.
         return destination == EGuildmasterMode.Enchantress
             ? mageDistance <= templeDistance + tie
-            : mageDistance + tie < templeDistance;
+            : destination == EGuildmasterMode.Temple
+                ? mageDistance + tie < templeDistance
+                : mageDistance <= templeDistance;
     }
 
     internal void Tick()
