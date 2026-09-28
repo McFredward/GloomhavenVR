@@ -31,6 +31,16 @@ internal sealed class TownServiceEnhancementHandoff : IDisposable
     private static Transform? _approachPalm;
     private static VRCard? _approachCard;
     private static bool _headInside, _cardInside, _pendingApproach, _magePreferredInside;
+    private static bool _abilityFanFocused;
+    /// <summary>The local fan hand is deliberately aimed at this resident. This affects
+    /// only the player's hand contents; other nearby residents retain their own attention.</summary>
+    internal static bool WantsAbilityFan => RefreshAbilityFanFocus();
+    /// <summary>The authored offering pose may extend only when its actual native
+    /// palm mark is visible. Gaze attention alone has no card destination.</summary>
+    internal static bool HasVisibleCue => _current != null && !_current._disposed
+        && _current._window != null && _current._window.IsOpen
+        && _current._zoneGate.alpha > 0f && TownServicePresentation.Active
+        && TownServicePresentation.Service == 3;
     internal static bool Enabled => WorldUIConfig.MapRoomHand == null ? Defaults.MapRoomHand : WorldUIConfig.MapRoomHand.Value;
     private static System.Runtime.CompilerServices.ConditionalWeakTable<VRCard, ReturnPresentation> Reclaimed = new();
     private static bool _hasReclaimed;
@@ -174,7 +184,11 @@ internal sealed class TownServiceEnhancementHandoff : IDisposable
     {
         if (!MapRoomDriver.Active || !WorldUIConfig.ImmersiveTownServices.Value || !Enabled
             || !TownServicePopulation.Available(3))
-        { _headInside = _cardInside = _pendingApproach = _magePreferredInside = false; _approachCard = null; return; }
+        {
+            _headInside = _cardInside = _pendingApproach = _magePreferredInside = _abilityFanFocused = false;
+            _approachCard = null;
+            return;
+        }
         if (_approachPalm == null && Time.unscaledTime >= _approachSearchAt)
         {
             _approachSearchAt = Time.unscaledTime + .5f;
@@ -183,8 +197,9 @@ internal sealed class TownServiceEnhancementHandoff : IDisposable
         }
         Transform? palm = _current?._palm ?? _approachPalm;
         if (palm == null)
-        { _headInside = _cardInside = _pendingApproach = _magePreferredInside = false; return; }
+        { _headInside = _cardInside = _pendingApproach = _magePreferredInside = _abilityFanFocused = false; return; }
         Camera? head = VRRigDriver.HeadCamera;
+        bool abilityFanFocused = RefreshAbilityFanFocus();
         // Leaving is the same native destination exit as its former X, including selection
         // and confirmation cleanup. Returning a card alone left an empty service open forever.
         if (_current != null && _current._window.IsOpen && head != null && !NearVisitor(palm, head.transform.position, 1.8f))
@@ -217,13 +232,12 @@ internal sealed class TownServiceEnhancementHandoff : IDisposable
             _pendingApproach = true;
         }
         EGuildmasterMode destination = GuildmasterDestinations.CurrentDestinationMode();
-        // When Temple won the earlier overlap, crossing the physical midpoint
-        // toward the enchantress need not cross her 1.4 m boundary again. Record
-        // only the preference EDGE: a later deliberate Temple button press while
-        // stationary must not be undone on the next frame.
-        bool magePreferred = _headInside && head != null
-            && PrefersEnchantress(head.transform.position, destination);
-        if (destination == EGuildmasterMode.Temple && magePreferred && !_magePreferredInside)
+        // A resident can look at the visitor while another stand is active. Do not
+        // replace that stand on a head-only overlap. The fan hand entering this
+        // resident's workspace is the local choice; a held card near her palm is
+        // an even stronger explicit choice. Neither gate suppresses either NPC.
+        bool magePreferred = abilityFanFocused || cardEntered;
+        if (magePreferred && !_magePreferredInside)
             _pendingApproach = true;
         _magePreferredInside = magePreferred;
         if (!_headInside && !_cardInside || StoryComposite.PointOfNoReturn) _pendingApproach = false;
@@ -244,18 +258,24 @@ internal sealed class TownServiceEnhancementHandoff : IDisposable
         // Temple already does. Preserve non-service destinations (trainer/story/etc.).
         if (destination != EGuildmasterMode.None && destination != EGuildmasterMode.Merchant
             && destination != EGuildmasterMode.Temple) return;
-        if (head != null && !PrefersEnchantress(head.transform.position, destination)) return;
+        if (destination != EGuildmasterMode.None && !magePreferred) return;
         UIItemConfirmationBox? tradeConfirmation = Singleton<UIItemConfirmationBox>.Instance;
         // IsActive can remain set after the original window has closed. Only a live
         // native confirmation may defer a new resident visit.
         if (tradeConfirmation != null && tradeConfirmation.IsActive
             && tradeConfirmation.GetComponent<UIWindow>() is UIWindow tradeWindow && tradeWindow.IsOpen) return;
+        if (destination == EGuildmasterMode.Merchant && TownServiceMerchantHandoff.WantsOffering) return;
         // A new physical entry gets its first attempt immediately. While waiting for cards
         // or the native rail, sample those more expensive predicates at 10 Hz instead of
         // traversing the map fan and rail every VR frame.
         float now = Time.realtimeSinceStartup;
         if (!headEntered && !cardEntered && now < _approachRetryAt) return;
         _approachRetryAt = now + .1f;
+        // The item-inspection fan masks the owned ability fan. Relinquish only this
+        // player's fan after the physical Mage focus wins; Merchant's body, cabinet
+        // and any other player's stand remain active. Rebuild is synchronous here.
+        if (destination == EGuildmasterMode.Merchant && magePreferred)
+            MapRoomHand.SetMerchantInspection(false);
         if (!HasOwnedMapCard() || !MapRoomDriver.CanVisitTownService(EGuildmasterMode.Enchantress)) return;
         NewPartyDisplayUI? display = NewPartyDisplayUI.PartyDisplay;
         NewPartyCharacterUI? selectedSlot = display?.SelectedUISlot;
@@ -279,6 +299,39 @@ internal sealed class TownServiceEnhancementHandoff : IDisposable
         for (int i = 0; i < cards.Count; i++)
             if (MapRoomHand.TryOwnedTownCard(cards[i], out _, out _)) return true;
         return false;
+    }
+
+    private static bool RefreshAbilityFanFocus()
+    {
+        if (!MapRoomDriver.Active || !WorldUIConfig.ImmersiveTownServices.Value || !Enabled
+            || StoryComposite.PointOfNoReturn || !TownServicePopulation.Available(3))
+            return _abilityFanFocused = false;
+        TownServiceStation? mage = TownServicePopulation.Acquire(3);
+        Camera? head = VRRigDriver.HeadCamera;
+        VRHand? fanHand = VRHands.Primary == VRHands.Left ? VRHands.Right : VRHands.Left;
+        Transform? wrist = fanHand?.Rig.PalmCenter;
+        if (mage == null || head == null || MapRoomHand.OwnedMerchantCharacter() == null
+            || fanHand == null || !fanHand.HasPose || wrist == null
+            || fanHand.Grabber.Held != null && fanHand.Grabber.Held is not VRCard
+            || !NearVisitor(mage.Root, head.transform.position, 1.8f)
+            || !NearVisitor(mage.Root, wrist.position, 1.05f))
+            return _abilityFanFocused = false;
+        Vector3 mageDelta = wrist.position - mage.Root.position;
+        mageDelta.y = 0f;
+        float mageDistance = mageDelta.magnitude;
+        float tie = .12f * Mathf.Max(.01f, Mathf.Abs(mage.Root.lossyScale.x));
+        for (byte service = 1; service <= 2; service++)
+        {
+            if (!TownServicePopulation.Available(service)) continue;
+            TownServiceStation? other = TownServicePopulation.Acquire(service);
+            if (other == null) continue;
+            Vector3 otherDelta = wrist.position - other.Root.position;
+            otherDelta.y = 0f;
+            float otherDistance = otherDelta.magnitude;
+            if (_abilityFanFocused ? mageDistance > otherDistance + tie
+                : mageDistance + tie >= otherDistance) return _abilityFanFocused = false;
+        }
+        return _abilityFanFocused = true;
     }
 
     private static VRCard? HeldOwnedCard(VRHand? hand) => hand != null && hand.HasPose

@@ -75,7 +75,7 @@ namespace GloomhavenVR.Hands
 {
     public enum HapticPreset { HoverTick, ClickPulse }
     public class VRHand { public string Side="Right"; public float WorldScale=1f; public bool HasPose = true, GripPressed; public Holder Grabber; public HandRig Rig = new(); public int HoverTicks, ClickPulses; public VRHand(){Grabber=new Holder(this);} public void SendHaptic(HapticPreset preset) { if (preset == HapticPreset.HoverTick) HoverTicks++; else ClickPulses++; } }
-    public sealed class HandRig { public Transform IndexTip = null!; }
+    public sealed class HandRig { public Transform IndexTip = null!; public Transform PalmCenter = null!; }
     public partial class Holder {
         public object? Held; private bool _enabled=true; private VRHand _hand; private string _grabLabel="fixture";
         public Holder(VRHand hand){_hand=hand;} private void LogRefusal(string text){}
@@ -130,8 +130,14 @@ namespace GloomhavenVR.WorldUI.MapRoom
     public static class GuildmasterDestinations { public static EGuildmasterMode Mode; public static EGuildmasterMode CurrentDestinationMode() => Mode; }
     public static class MapRoomHand
     {
+        public static Owner? LocalCharacter = new();
+        public static int InspectionReleases;
+        public static bool InspectionBlocked;
+        public static Owner? OwnedMerchantCharacter() => LocalCharacter;
+        public static void SetMerchantInspection(bool active)
+        { if (!active) { InspectionReleases++; InspectionBlocked = false; } }
         public static bool TryOwnedTownCard(Cards.VRCard card, out Owner? owner, out ScenarioRuleLibrary.CAbilityCard? model)
-        { owner = card.Owner; model = card.Model; return MapRoomDriver.Active && card.Owned && card.InLoadout && card.CurrentCharacter; }
+        { owner = card.Owner; model = card.Model; return !InspectionBlocked && MapRoomDriver.Active && card.Owned && card.InLoadout && card.CurrentCharacter; }
     }
 }
 namespace GloomhavenVR.WorldUI
@@ -155,6 +161,7 @@ namespace GloomhavenVR.WorldUI
         internal static TownServiceRitual? Ritual;
     }
     public static class TownServiceSync { public static bool Owner = true; public static bool LocalOwnsInteraction(byte service, uint session) => Owner && service == 3 && session == TownServicePresentation.Session; }
+    public static class TownServiceMerchantHandoff { public static bool WantsOffering; }
     public static class WorldUIConfig
     {
         public static readonly ToggleValue ImmersiveTownServices = new(); public static ToggleValue? MapRoomHand = new();
@@ -169,10 +176,10 @@ namespace GloomhavenVR.WorldUI
     public static class TownServicePopulation
     {
         public static TownServiceStation? Station;
-        public static TownServiceStation? MageStation, TempleStation;
-        public static bool Available(byte service) => Acquire(service) != null;
+        public static TownServiceStation? MageStation, TempleStation, MerchantStation;
+        public static bool Available(byte service) => service == 2 ? TempleStation != null : Acquire(service) != null;
         public static TownServiceStation? Acquire(byte service) => service == 3 ? MageStation ?? Station
-            : service == 2 ? TempleStation ?? Station : Station;
+            : service == 2 ? TempleStation : MerchantStation ?? Station;
     }
     public static class TownServiceMerchantZone
     {

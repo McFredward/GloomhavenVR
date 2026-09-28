@@ -815,6 +815,7 @@ public static class InteractionProgram
         MapRoomDriver.SwitchForcesFirst = true;
         var card = new GameObject("OwnedCard", typeof(VRCard)).GetComponent<VRCard>(); card.transform.SetParent(root.transform, false);
         var hand = new VRHand(); hand.Grabber.Held = card; VRHands.Left = hand;
+        var fanPalm = new GameObject("FanPalm").transform; hand.Rig.PalmCenter = fanPalm;
         CardsDriver.OffScenarioFanCards = new[] { card };
         var head = new GameObject("Head", typeof(Camera)).GetComponent<Camera>(); head.transform.SetParent(root.transform, false);
         VRRigDriver.HeadCamera = head;
@@ -822,6 +823,7 @@ public static class InteractionProgram
         {
             head.transform.position = palm.position + Vector3.forward * 3f;
             card.transform.position = palm.position + Vector3.forward * 3f;
+            fanPalm.position = palm.position + Vector3.forward * 3f;
             TownServiceEnhancementHandoff.TickApproach();
         }
         void Offer() { card.transform.position = palm.position; TownServiceEnhancementHandoff.TickApproach(); }
@@ -854,10 +856,30 @@ public static class InteractionProgram
         Check(MapRoomDriver.Visits == 2, "head hysteresis avoids boundary reopen");
         Outside(); head.transform.position = palm.position; TownServiceEnhancementHandoff.TickApproach();
         Check(MapRoomDriver.Visits == 3, "leaving and returning re-arms proximity greeting");
+        var merchantRoot = new GameObject("Merchant competitor");
+        merchantRoot.transform.position = root.transform.position - Vector3.right * 2.65f;
+        TownServicePopulation.MerchantStation = new TownServiceStation { Root = merchantRoot.transform };
         GuildmasterDestinations.Mode = EGuildmasterMode.Merchant;
+        VRHands.Left = hand;
         Outside(); head.transform.position = palm.position; TownServiceEnhancementHandoff.TickApproach();
+        Check(MapRoomDriver.Visits == 3 && GuildmasterDestinations.Mode == EGuildmasterMode.Merchant,
+            "head-only overlap leaves an active merchant destination and its item hand intact");
+        MapRoomHand.InspectionBlocked = true;
+        fanPalm.position = palm.position;
+        Check(TownServiceEnhancementHandoff.WantsAbilityFan,
+            "fan hand toward the enchantress requests ability cards while both residents remain near");
+        TownServiceMerchantHandoff.WantsOffering = true;
+        System.Threading.Thread.Sleep(125);
+        TownServiceEnhancementHandoff.TickApproach();
+        Check(MapRoomDriver.Visits == 3 && MapRoomHand.InspectionReleases == 0,
+            "parked merchant item is not interrupted by a competing mage hand focus");
+        TownServiceMerchantHandoff.WantsOffering = false;
+        System.Threading.Thread.Sleep(125);
+        TownServiceEnhancementHandoff.TickApproach();
         Check(MapRoomDriver.Visits == 4 && GuildmasterDestinations.Mode == EGuildmasterMode.Enchantress,
-            "physical enchantress approach switches a stale merchant destination through the native rail");
+            "intentional fan-hand focus switches the local native destination from merchant to enchantress");
+        Check(MapRoomHand.InspectionReleases == 1,
+            "merchant item fan is released before the native enchantress reads owned ability cards");
         GuildmasterDestinations.Mode = EGuildmasterMode.None;
         System.Threading.Thread.Sleep(125); TownServiceEnhancementHandoff.TickApproach();
         Check(MapRoomDriver.Visits == 4,
@@ -900,9 +922,14 @@ public static class InteractionProgram
         Check(!TownServiceEnhancementHandoff.Enabled && MapRoomDriver.Visits == 9, "disabled map hand prevents automatic immersive opening");
         WorldUIConfig.MapRoomHand.Value = true;
         Outside(); GuildmasterDestinations.Mode = EGuildmasterMode.Temple;
+        VRHands.Left = hand;
         head.transform.position = palm.position; TownServiceEnhancementHandoff.TickApproach();
+        Check(MapRoomDriver.Visits == 9 && GuildmasterDestinations.Mode == EGuildmasterMode.Temple,
+            "head-only temple and enchantress overlap keeps the temple transaction available");
+        System.Threading.Thread.Sleep(125);
+        fanPalm.position = palm.position; TownServiceEnhancementHandoff.TickApproach();
         Check(MapRoomDriver.Visits == 10 && GuildmasterDestinations.Mode == EGuildmasterMode.Enchantress,
-            "approaching the enchantress also switches a completed temple visit");
+            "deliberate fan-hand focus switches from a completed temple visit");
         Outside(); GuildmasterDestinations.Mode = EGuildmasterMode.Merchant;
         var confirmation = new GameObject("Trade confirmation", typeof(UIWindow), typeof(UIItemConfirmationBox))
             .GetComponent<UIItemConfirmationBox>();
@@ -912,6 +939,7 @@ public static class InteractionProgram
         Check(MapRoomDriver.Visits == 10 && GuildmasterDestinations.Mode == EGuildmasterMode.Merchant,
             "a live merchant purchase confirmation is never interrupted by resident approach");
         confirmation.GetComponent<UIWindow>().IsOpen = false;
+        fanPalm.position = palm.position;
         System.Threading.Thread.Sleep(125); TownServiceEnhancementHandoff.TickApproach();
         Check(MapRoomDriver.Visits == 11 && GuildmasterDestinations.Mode == EGuildmasterMode.Enchantress,
             "closed merchant confirmation cannot strand a physical visit behind stale IsActive");
@@ -926,11 +954,13 @@ public static class InteractionProgram
         TownServicePopulation.MageStation = new TownServiceStation { Root = root.transform };
         TownServicePopulation.TempleStation = new TownServiceStation { Root = templeRoot.transform };
         Outside(); GuildmasterDestinations.Mode = EGuildmasterMode.Temple;
+        fanPalm.position = root.transform.position + Vector3.right * 1.35f;
         head.transform.position = root.transform.position + Vector3.right * 1.35f;
         TownServiceEnhancementHandoff.TickApproach();
         Check(MapRoomDriver.Visits == 11 && GuildmasterDestinations.Mode == EGuildmasterMode.Temple,
             "overlapping approach cannot switch away from the physically nearer temple");
-        head.transform.position = root.transform.position + Vector3.right * 1.1f;
+        head.transform.position = root.transform.position + Vector3.right * .9f;
+        fanPalm.position = root.transform.position + Vector3.right * .9f;
         System.Threading.Thread.Sleep(125); TownServiceEnhancementHandoff.TickApproach();
         Check(MapRoomDriver.Visits == 12 && GuildmasterDestinations.Mode == EGuildmasterMode.Enchantress,
             "moving closer to the enchantress switches without crossing her approach boundary again");
@@ -950,7 +980,10 @@ public static class InteractionProgram
             && !TownServiceEnhancementHandoff.PrefersEnchantress(midpoint + Vector3.right * .2f, EGuildmasterMode.Enchantress),
             "moving decisively toward either stand assigns the native destination to the nearer resident");
         UnityEngine.Object.DestroyImmediate(templeRoot);
+        UnityEngine.Object.DestroyImmediate(merchantRoot);
+        UnityEngine.Object.DestroyImmediate(fanPalm.gameObject);
         TownServicePopulation.MageStation = TownServicePopulation.TempleStation = null;
+        TownServicePopulation.MerchantStation = null;
         UnityEngine.Object.DestroyImmediate(root); VRHands.Left = null; VRRigDriver.HeadCamera = null; TownServicePopulation.Station = null;
         NewPartyDisplayUI.PartyDisplay = null; MapRoomDriver.SwitchForcesFirst = false;
     }
