@@ -52,6 +52,8 @@ internal static class TownServiceMerchantHandoff
     private static CItem? _eligibilityItem;
     private static bool _eligibilitySelling, _eligibilityResult;
     private static float _eligibilityUntil;
+    private static TownVoiceReaction? _inspectedReaction;
+    private static int _inspectedFrame;
     internal static bool WantsOffering => Active && _near && (_offeredChip != null || _offeredStock != null
         || HeldOwned(VRHands.Left) || HeldOwned(VRHands.Right) || TownServiceCatalog.HeldOfferAvailable);
     // A visitor's proximity is not a transaction. Other town services may keep their
@@ -98,8 +100,12 @@ internal static class TownServiceMerchantHandoff
         {
             ResetSession(); _station = station; _palm = null; _near = false;
         }
-        bool near = _station != null && _station.IsLocalVisitorNear(_near)
-            && TownServiceOfferingPose.VisitorWithin(_station.Root, 1.4f);
+        // The resident already turns toward a visitor at 2.4 m. Keep the private
+        // presentation session alive throughout that same volume: stock inspection
+        // can start at the cabinet's outer edge, and the visitor's reaction must
+        // have a session to relay to the elected face author there. The palm's
+        // own containment test still governs actual card placement.
+        bool near = _station != null && _station.IsLocalVisitorNear(_near);
         if (!near) { Reset(); return; }
         _near = true;
         if (!ReferenceEquals(_character, selected))
@@ -122,6 +128,13 @@ internal static class TownServiceMerchantHandoff
             { Items.Clear(); Items.AddRange(current); unchecked { _itemRevision++; } }
         }
         _fan!.TickInspection(Items, _itemRevision);
+        // The first card can be lifted in the same frame the outer gaze volume
+        // opens. Publication establishes the private visitor session in LateTick;
+        // relaying on the pickup callback itself would discard the event before
+        // that session exists. One frame later the elected author gets exactly
+        // one reaction, including a stock card taken at the far cabinet edge.
+        if (_inspectedReaction is TownVoiceReaction reaction && Time.frameCount > _inspectedFrame)
+        { _inspectedReaction = null; TownServiceVoice.RequestReaction(1, reaction); }
         TickTradeOutcome();
         TickPending();
         TickConfirmation();
@@ -207,10 +220,11 @@ internal static class TownServiceMerchantHandoff
         if (!Active || !_near || item == null || StoryComposite.PointOfNoReturn) return;
         ShopService? shop = Shop();
         if (shop == null) return;
-        if (!available || !shop.GetItemsToBuy(_character).Exists(candidate => candidate.ID == item.ID))
-            TownServiceVoice.RequestReaction(1, TownVoiceReaction.MerchantSoldOut);
-        else if (!shop.IsAffordable(item, _character))
-            TownServiceVoice.RequestReaction(1, TownVoiceReaction.MerchantUnaffordable);
+        _inspectedReaction = !available || !shop.GetItemsToBuy(_character).Exists(candidate => candidate.ID == item.ID)
+            ? TownVoiceReaction.MerchantSoldOut
+            : !shop.IsAffordable(item, _character)
+                ? TownVoiceReaction.MerchantUnaffordable : TownVoiceReaction.MerchantOffer;
+        _inspectedFrame = Time.frameCount;
     }
     private static bool Eligible(CItem item, bool selling, bool cached)
     {
@@ -589,7 +603,8 @@ internal static class TownServiceMerchantHandoff
         ItemsPile? fan = _fan; _fan = null;
         Transform? seat = _seat; _seat = _zone = null; _zoneGate = null; _caption = null; _feedback = null;
         _pending = null; _tradeItem = null; _decisionConfirmed = _decisionCancelled = false;
-        _decisionRetries = 0; DetachTradeListener(); _eligibilityItem = null; Items.Clear(); _character = null;
+        _decisionRetries = 0; DetachTradeListener(); _eligibilityItem = null; _inspectedReaction = null;
+        Items.Clear(); _character = null;
         try
         {
             UIItemConfirmationBox? confirmation = Singleton<UIItemConfirmationBox>.Instance;

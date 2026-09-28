@@ -247,6 +247,10 @@ def main():
     # Exercise the actual dissolve/material contract, with no replacement test shader.
     shader = args.source_root / "unity/GloomhavenVR.Assets/Assets/Bundle/TownServices/Shaders/TownNpc.shader"
     shutil.copyfile(shader, project / "Assets/TownNpc.shader")
+    many = 'Shader "GVR/TownManyProps" { Properties {\n' + ''.join(
+        f'_P{i:02d} ("P{i:02d}", Float) = 0\n' for i in range(65))
+    many += '} SubShader { Pass { Color (1,1,1,1) } } }\n'
+    (project / "Assets/TownManyProps.shader").write_text(many)
     (run / "town-shader.sha256").write_text(hashlib.sha256(shader.read_bytes()).hexdigest() + "\n")
     (project / "Packages/manifest.json").write_text('{"dependencies":{"com.unity.ugui":"1.0.0","com.unity.textmeshpro":"3.0.6"}}\n')
     (project / "ProjectSettings/ProjectVersion.txt").write_text("m_EditorVersion: 2021.3.5f1\n")

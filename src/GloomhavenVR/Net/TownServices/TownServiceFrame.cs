@@ -8,7 +8,11 @@ internal sealed class TownServiceFrame
 {
     // A complete late-game stock uses independent native card, price and physical-body
     // modules. Keep payloads bounded; only the manifest's ushort ID census grows (8 KiB).
-    internal const int MaxBytes = 60000, MaxNodes = 256, MaxProperties = 128, MaxModules = 4096;
+    // A material records each shader property as a name/texture pair. The former 128-text
+    // limit admitted only 63 shader properties and silently excluded real item-card
+    // materials from every multiplayer snapshot. The codec stores the count in a byte;
+    // 254 entries permit 126 complete properties without changing its wire grammar.
+    internal const int MaxBytes = 60000, MaxNodes = 256, MaxProperties = 254, MaxModules = 4096;
     internal bool PublicCatalog;
     internal uint PublicClaim;
     internal byte Service;

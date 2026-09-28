@@ -32,7 +32,9 @@ internal static class TownServiceMaterial
         if (sample.Frame == Time.frameCount) return sample.Published;
         Shader shader = material.shader;
         int count = shader.GetPropertyCount();
-        if (count > 60) throw new InvalidDataException("Town-service material exceeds the property budget.");
+        if (count > (TownServiceFrame.MaxProperties - 2) / 2)
+            throw new InvalidDataException("Town-service material exceeds the wire property budget: "
+                + shader.name + " has " + count + " properties.");
         if (sample.Shader != shader || sample.Names.Length != count)
         {
             sample.Shader = shader; sample.Names = new string[count]; sample.Types = new ShaderPropertyType[count];
