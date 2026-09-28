@@ -36,7 +36,8 @@ hardware trace.
 The merchant's original material capture now admits the observed shader
 property count within the existing byte-count wire format; atlas wrappers with
 native content IDs share their identity, and the small effect texture that
-collided is distinguished by content. The cabinet remains on its independently
+collided resolves to its verified original `resources.assets` identity without
+GPU pixel readback. The cabinet remains on its independently
 elected public stream. Each private visitor stream retains original item-fan
 and held-card modules, while shared cabinet geometry and purchase controls
 still have one author. The merchant's stock-pickup reaction uses the same

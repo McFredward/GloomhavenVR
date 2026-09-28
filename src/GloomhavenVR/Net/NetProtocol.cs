@@ -551,7 +551,8 @@ internal static class NetProtocol
 
     // ModBuild 583 — multiplayer town-service presentation repair. Original merchant
     // card materials fit within the existing byte-count property encoding, and
-    // ambiguous source texture wrappers resolve by small-content identity. The
+    // the duplicated small effect-texture wrappers resolve by the verified
+    // original resources.assets identity without GPU pixel readback. The
     // public cabinet keeps one author while each visiting player retains their
     // own physical held item and original item fan on observers. Stock-pickup
     // speech uses the merchant's gaze range. The enchantress's native handoff
