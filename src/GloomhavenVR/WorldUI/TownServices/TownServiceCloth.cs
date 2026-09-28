@@ -61,12 +61,16 @@ internal sealed class TownServiceCloth : IDisposable
         internal MeshFilter Filter = null!;
         internal Renderer? VisibleRenderer;
         internal Mesh VisibleMesh = null!;
+        internal bool VisibleDirty;
+        internal bool? Visible;
         internal Vector3[] Rest = Array.Empty<Vector3>();
         internal Vector3[] Shown = Array.Empty<Vector3>();
+        internal Vector3[] PriorShown = Array.Empty<Vector3>();
         internal float[] Freedom = Array.Empty<float>();
         internal float[] Side = Array.Empty<float>();
         internal float[] Clearance = Array.Empty<float>();
         internal readonly int[] ProbeSide = new int[MaximumHands];
+        internal readonly int[] ProbeFarFrames = new int[MaximumHands];
         internal readonly ProjectionProbe[] Projection = new ProjectionProbe[MaximumHands];
         internal int ProjectionCount;
         internal bool ActiveClearance;
@@ -130,6 +134,7 @@ internal sealed class TownServiceCloth : IDisposable
         internal ClothSphereColliderPair Pair;
         internal Vector3 PreviousPalm;
         internal Vector3 PreviousTip;
+        internal long SourceKey;
     }
 
     private readonly Transform _station;
@@ -186,6 +191,7 @@ internal sealed class TownServiceCloth : IDisposable
             VisibleMesh = visible,
             Rest = rest,
             Shown = new Vector3[rest.Length],
+            PriorShown = new Vector3[rest.Length],
             Freedom = new float[rest.Length],
             Side = new float[rest.Length],
             Clearance = new float[rest.Length],
@@ -193,6 +199,7 @@ internal sealed class TownServiceCloth : IDisposable
             VisibleDriverMap = new DriverMap[rest.Length]
         };
         Array.Copy(rest, runner.Shown, rest.Length);
+        Array.Copy(rest, runner.PriorShown, rest.Length);
 
         float minX = float.MaxValue, maxX = float.MinValue, minY = float.MaxValue, maxY = float.MinValue;
         float minZ = float.MaxValue, maxZ = float.MinValue;
@@ -692,6 +699,38 @@ internal sealed class TownServiceCloth : IDisposable
         probe.Tip.position = probe.Palm.position;
     }
 
+    private void PlaceBoundHand(int slot, long sourceKey, Vector3 palm, Vector3 tip,
+        Vector3 wrist, float scale)
+    {
+        HandProbe probe = _hands[slot];
+        bool newSource = probe.SourceKey != sourceKey;
+        Place(probe, palm, tip, wrist, scale);
+        if (!newSource) return;
+        probe.SourceKey = sourceKey;
+        probe.PreviousPalm = probe.Palm.position;
+        probe.PreviousTip = probe.Tip.position;
+        foreach (Runner runner in _runners)
+        {
+            runner.ProbeSide[slot] = 0;
+            runner.ProbeFarFrames[slot] = 0;
+        }
+    }
+
+    private void ParkBoundHand(int slot)
+    {
+        HandProbe probe = _hands[slot];
+        if (probe.SourceKey != 0)
+        {
+            probe.SourceKey = 0;
+            foreach (Runner runner in _runners)
+            {
+                runner.ProbeSide[slot] = 0;
+                runner.ProbeFarFrames[slot] = 0;
+            }
+        }
+        Park(probe);
+    }
+
     private static void Place(HandProbe probe, Vector3 palm, Vector3 tip,
         Vector3 wrist, float scale)
     {
@@ -726,11 +765,11 @@ internal sealed class TownServiceCloth : IDisposable
             ? Mathf.Max(.0001f, Mathf.Abs(VRRigDriver.RigRoot.lossyScale.x))
             : Mathf.Max(.0001f, VRRigDriver.BaseWorldScale);
         if (VRHands.Left?.HasPose == true && at < _hands.Length)
-            Place(_hands[at++], VRHands.Left.Rig.PalmCenter.position, VRHands.Left.Rig.IndexTip.position,
+            PlaceBoundHand(at++, -1, VRHands.Left.Rig.PalmCenter.position, VRHands.Left.Rig.IndexTip.position,
                 VRHands.Left.Rig.Wrist.position,
                 Mathf.Max(.0001f, VRHands.Left.WorldScale));
         if (VRHands.Right?.HasPose == true && at < _hands.Length)
-            Place(_hands[at++], VRHands.Right.Rig.PalmCenter.position, VRHands.Right.Rig.IndexTip.position,
+            PlaceBoundHand(at++, -2, VRHands.Right.Rig.PalmCenter.position, VRHands.Right.Rig.IndexTip.position,
                 VRHands.Right.Rig.Wrist.position,
                 Mathf.Max(.0001f, VRHands.Right.WorldScale));
 
@@ -743,11 +782,11 @@ internal sealed class TownServiceCloth : IDisposable
                     out Vector3 leftTip, out Vector3 right, out Vector3 rightWrist, out Vector3 rightTip,
                     out bool leftValid, out bool rightValid, out float peerScale)) continue;
             if (leftValid && at < _hands.Length)
-                Place(_hands[at++], left, leftTip, leftWrist, peerScale);
+                PlaceBoundHand(at++, ((long)(uint)peer << 2) | 1L, left, leftTip, leftWrist, peerScale);
             if (rightValid && at < _hands.Length)
-                Place(_hands[at++], right, rightTip, rightWrist, peerScale);
+                PlaceBoundHand(at++, ((long)(uint)peer << 2) | 2L, right, rightTip, rightWrist, peerScale);
         }
-        while (at < _hands.Length) Park(_hands[at++]);
+        while (at < _hands.Length) ParkBoundHand(at++);
 
         int headAt = 0;
         if (VRRigDriver.HeadCamera != null)
@@ -1093,6 +1132,7 @@ internal sealed class TownServiceCloth : IDisposable
         if (!handAtStation)
         {
             Array.Clear(runner.ProbeSide, 0, runner.ProbeSide.Length);
+            Array.Clear(runner.ProbeFarFrames, 0, runner.ProbeFarFrames.Length);
             return;
         }
         Renderer? renderer = runner.VisibleRenderer;
@@ -1105,29 +1145,50 @@ internal sealed class TownServiceCloth : IDisposable
         {
             HandProbe hand = _hands[i];
             Vector3 wrist = hand.Palm.position, tip = hand.Tip.position;
-            if (wrist.y < -1000f) { runner.ProbeSide[i] = 0; continue; }
+            if (wrist.y < -1000f)
+            { runner.ProbeSide[i] = 0; runner.ProbeFarFrames[i] = 0; continue; }
             Vector3 span = tip - wrist;
             var capsuleBounds = new Bounds((wrist + tip) * .5f,
                 new Vector3(Mathf.Abs(span.x), Mathf.Abs(span.y), Mathf.Abs(span.z)));
             capsuleBounds.Expand(2f * Mathf.Max(hand.PalmSphere.radius, hand.TipSphere.radius));
-            if (!nearby.Intersects(capsuleBounds)) { runner.ProbeSide[i] = 0; continue; }
+            if (!nearby.Intersects(capsuleBounds))
+            { runner.ProbeSide[i] = 0; runner.ProbeFarFrames[i] = 0; continue; }
+            Vector3 current = toStation.MultiplyPoint3x4((wrist + tip) * .5f);
+            float closest = float.MaxValue;
+            Vector3 nearest = Vector3.zero;
+            for (int n = 0; n < runner.DriverRest.Length; n++)
+            {
+                Vector3 p = driverToStation.MultiplyPoint3x4(runner.DriverRest[n]);
+                float distance = (p - current).sqrMagnitude;
+                if (distance >= closest) continue;
+                closest = distance;
+                nearest = p;
+            }
+            // Re-arm only after nine truly separated display frames. A single
+            // push through the sheet retains its approach side; a hand that
+            // withdrew beyond the cloth and then approaches from the opposite
+            // side acquires that new side even while still inside the generous
+            // renderer AABB used for broadphase.
+            if (Mathf.Abs(current.z - nearest.z) > .24f)
+            {
+                if (++runner.ProbeFarFrames[i] >= 9) runner.ProbeSide[i] = 0;
+                // Keep the same-side withdrawal in the projection set: its
+                // target naturally approaches zero, so the sheet can relax
+                // smoothly. Only a hand truly separated on the opposite side
+                // should stop exerting its old approach-side correction.
+                if (runner.ProbeSide[i] == 0
+                    || (current.z - nearest.z) * runner.ProbeSide[i] > 0f)
+                    continue;
+            }
+            else runner.ProbeFarFrames[i] = 0;
             if (runner.ProbeSide[i] == 0)
             {
-                Vector3 sample = (wrist + tip) * .5f;
+                if (Mathf.Abs(current.z - nearest.z) > .18f) continue;
                 Vector3 previous = (hand.PreviousPalm + hand.PreviousTip) * .5f;
-                if (previous.y > -1000f && (previous - sample).sqrMagnitude <
-                    stationScale * stationScale * .4f * .4f) sample = previous;
-                sample = toStation.MultiplyPoint3x4(sample);
-                float closest = float.MaxValue;
-                Vector3 nearest = Vector3.zero;
-                for (int n = 0; n < runner.DriverRest.Length; n++)
-                {
-                    Vector3 p = driverToStation.MultiplyPoint3x4(runner.DriverRest[n]);
-                    float distance = (p - sample).sqrMagnitude;
-                    if (distance >= closest) continue;
-                    closest = distance;
-                    nearest = p;
-                }
+                Vector3 sample = current;
+                if (previous.y > -1000f && (previous - (wrist + tip) * .5f).sqrMagnitude <
+                    stationScale * stationScale * .4f * .4f)
+                    sample = toStation.MultiplyPoint3x4(previous);
                 runner.ProbeSide[i] = sample.z <= nearest.z ? 1 : -1;
             }
             runner.Projection[runner.ProjectionCount++] = new ProjectionProbe
@@ -1199,7 +1260,7 @@ internal sealed class TownServiceCloth : IDisposable
             RestoreAfterContact(runner, dt);
             PrepareProjection(runner);
             TownClothRunnerState previous = runner.State;
-            TownClothRunnerState measured = Render(runner, default, false);
+            TownClothRunnerState measured = Render(runner, default, false, dt);
             float inverse = dt > .0001f ? 1f / dt : 0f;
             measured.LeftVelocity = Vector2.ClampMagnitude((measured.Left - previous.Left) * inverse, .25f);
             measured.RightVelocity = Vector2.ClampMagnitude((measured.Right - previous.Right) * inverse, .25f);
@@ -1222,12 +1283,29 @@ internal sealed class TownServiceCloth : IDisposable
             float prediction = Mathf.Clamp(elapsed, 0f, .12f);
             state.Left += state.LeftVelocity * prediction;
             state.Right += state.RightVelocity * prediction;
-            if (visible) Render(runner, state, true);
+            if (visible) Render(runner, state, true, Time.unscaledDeltaTime);
             runner.State = state;
         }
     }
 
-    private TownClothRunnerState Render(Runner runner, in TownClothRunnerState owner, bool correctToOwner)
+    private static Vector3 SmoothReturn(Runner runner, int vertex, Vector3 shown,
+        in Matrix4x4 toStation, in Matrix4x4 fromStation, float dt, out bool capped)
+    {
+        capped = false;
+        Vector3 previous = runner.PriorShown[vertex];
+        Vector3 rest = runner.Rest[vertex];
+        if ((shown - rest).sqrMagnitude >= (previous - rest).sqrMagnitude)
+            return shown;
+        Vector3 travel = toStation.MultiplyVector(shown - previous);
+        float limit = .015f * Mathf.Clamp(dt * 90f, .5f, 3f);
+        float length = travel.magnitude;
+        if (length <= limit) return shown;
+        capped = true;
+        return previous + fromStation.MultiplyVector(travel * (limit / length));
+    }
+
+    private TownClothRunnerState Render(Runner runner, in TownClothRunnerState owner,
+        bool correctToOwner, float dt)
     {
         if (Time.unscaledTime < runner.NextRender) return runner.State;
         runner.NextRender = Time.unscaledTime + 1f / 90f;
@@ -1235,7 +1313,10 @@ internal sealed class TownServiceCloth : IDisposable
             + (correctToOwner ? owner.Left.sqrMagnitude + owner.Right.sqrMagnitude : 0f)) > 1e-8f;
         if (!runner.Interactive && runner.DeformationWeight <= 0f
             && runner.ProjectionCount == 0 && !runner.ActiveClearance && !ownerMoving)
+        {
+            ResetVisibleMesh(runner);
             return default;
+        }
         // Cloth.vertices allocates. Capture it exactly once and use the same
         // solver snapshot for rendering, owner measurement and peer correction.
         Vector3[] simulated = runner.Cloth.vertices;
@@ -1263,6 +1344,7 @@ internal sealed class TownServiceCloth : IDisposable
         runner.ActiveClearance = false;
         for (int n = 0; n < runner.Rest.Length; n++)
         {
+            runner.PriorShown[n] = runner.Shown[n];
             Vector3 driverDelta = BlendedDelta(in runner.VisibleDriverMap[n], runner.VisualDelta);
             Vector3 worldDelta = runner.DriverRoot.transform.TransformVector(driverDelta)
                 * runner.DeformationWeight;
@@ -1281,6 +1363,14 @@ internal sealed class TownServiceCloth : IDisposable
                 runner.ActiveClearance |= Mathf.Abs(clearance) > .00001f;
                 if (clearance != 0f)
                     shown += fromStation.MultiplyVector(Vector3.forward * clearance);
+            }
+            shown = SmoothReturn(runner, n, shown, toStation, fromStation, dt,
+                out bool cappedReturn);
+            if (cappedReturn && runner.ProjectionCount != 0)
+            {
+                float safe = ProjectClearance(runner,
+                    toStation.MultiplyPoint3x4(shown), runner.Freedom[n]);
+                if (safe != 0f) shown += fromStation.MultiplyVector(Vector3.forward * safe);
             }
             runner.Shown[n] = shown;
             Vector3 offset = toStation.MultiplyVector(shown - runner.Rest[n]);
@@ -1320,10 +1410,20 @@ internal sealed class TownServiceCloth : IDisposable
                     if (peerClearance != 0f)
                         runner.Shown[n] += fromStation.MultiplyVector(Vector3.forward * peerClearance);
                 }
+                runner.Shown[n] = SmoothReturn(runner, n, runner.Shown[n],
+                    toStation, fromStation, dt, out bool cappedPeerReturn);
+                if (cappedPeerReturn && runner.ProjectionCount != 0)
+                {
+                    float safe = ProjectClearance(runner,
+                        toStation.MultiplyPoint3x4(runner.Shown[n]), runner.Freedom[n]);
+                    if (safe != 0f)
+                        runner.Shown[n] += fromStation.MultiplyVector(Vector3.forward * safe);
+                }
             }
         runner.VisibleMesh.vertices = runner.Shown;
         runner.VisibleMesh.RecalculateNormals();
         runner.VisibleMesh.RecalculateBounds();
+        runner.VisibleDirty = true;
 
         foreach (Decoration decoration in runner.Decorations)
         {
@@ -1340,6 +1440,24 @@ internal sealed class TownServiceCloth : IDisposable
         return measured;
     }
 
+    private static void ResetVisibleMesh(Runner runner)
+    {
+        if (!runner.VisibleDirty) return;
+        Array.Copy(runner.Rest, runner.Shown, runner.Rest.Length);
+        Array.Copy(runner.Rest, runner.PriorShown, runner.Rest.Length);
+        runner.VisibleMesh.vertices = runner.Rest;
+        runner.VisibleMesh.RecalculateNormals();
+        runner.VisibleMesh.RecalculateBounds();
+        foreach (Decoration decoration in runner.Decorations)
+        {
+            Array.Copy(decoration.Rest, decoration.Deformed, decoration.Rest.Length);
+            decoration.Mesh.vertices = decoration.Rest;
+            decoration.Mesh.RecalculateNormals();
+            decoration.Mesh.RecalculateBounds();
+        }
+        runner.VisibleDirty = false;
+    }
+
     internal TownClothRunnerState First => _runners.Length > 0 ? _runners[0].State : default;
     internal TownClothRunnerState Second => _runners.Length > 1 ? _runners[1].State : default;
 
@@ -1347,15 +1465,28 @@ internal sealed class TownServiceCloth : IDisposable
     {
         foreach (Runner runner in _runners)
         {
+            if (runner.Visible == visible) continue;
+            runner.Visible = visible;
+            runner.NextRender = 0f;
             if (runner.Cloth != null) runner.Cloth.enabled = visible;
             if (!visible)
             {
+                ResetVisibleMesh(runner);
+                runner.State = default;
+                runner.DeformationWeight = 0f;
+                runner.Interactive = false;
                 runner.Contacting = false;
                 runner.ContactHold = 0f;
                 runner.ProjectionCount = 0;
                 runner.ActiveClearance = false;
                 Array.Clear(runner.ProbeSide, 0, runner.ProbeSide.Length);
+                Array.Clear(runner.ProbeFarFrames, 0, runner.ProbeFarFrames.Length);
                 Array.Clear(runner.Clearance, 0, runner.Clearance.Length);
+                if (runner.Cloth != null)
+                {
+                    runner.Cloth.externalAcceleration = Vector3.zero;
+                    SetFreedom(runner, 0f);
+                }
             }
             foreach (GameObject support in runner.Supports)
                 if (support != null) support.SetActive(visible);

@@ -44,7 +44,7 @@ def source_contract(source):
                                                and 'bool updateClearance = runner.ProjectionCount != 0 || runner.ActiveClearance' in source
                                                and 'toStation.MultiplyPoint3x4(shown), runner.Freedom[n])' in source
                                                and 'runner.EpisodeOrigin' in source
-                                               and 'SetFreedom(runner, 0f)' in source
+                                               and source.count('SetFreedom(runner, 0f)') == 2
                                                and source.count('Array.Copy(runner.ContactSurface, runner.EpisodeOrigin') == 2
                                                and 'AnyProbeWithin(runner, .16f, out' in source
                                                and 'AnyProbeWithin(runner, .018f, out' in source
@@ -64,7 +64,7 @@ def source_contract(source):
                                    and 'VRHands.Right.Rig.Wrist.position' in source
                                    and 'WristRadiusRealMeters = PalmRadiusRealMeters + .020f' in source
                                    and 'float backLength = Vector3.Distance(wrist, palm)' in source
-                                   and 'Place(_hands[at++], left, leftTip, leftWrist, peerScale)' in source),
+                                   and 'PlaceBoundHand(at++, ((long)(uint)peer << 2) | 1L, left, leftTip, leftWrist, peerScale)' in source),
         'whole capsule broadphase': ('expanded.Intersects(probeBounds)' in source
                                      and 'Vector3 span = probe.Tip.position - probe.Palm.position' in source),
         'triangle interior contact': ('OverlapsProbeBox(topLeft, topRight, bottomLeft, bottomRight' in source
@@ -213,21 +213,20 @@ def main():
     production = production.replace('namespace GloomhavenVR.WorldUI;\n',
                                     'namespace GloomhavenVR.WorldUI\n{\n', 1) + '\n}\n'
     (project / 'Assets/TownServiceCloth.cs').write_text(production)
-    projection_expression = ('ProjectClearance(runner,\n'
-        '                    toStation.MultiplyPoint3x4(shown), runner.Freedom[n])')
-    if projection_expression not in production:
+    projection_guard = 'if (freedom > .12f)'
+    if projection_guard not in production:
         raise AssertionError('negative controls must disable the real visible projection')
     dead_visible = production.replace('TownServiceCloth', 'TownServiceClothDead')
     dead_visible = dead_visible.replace('runner.DeformationWeight = Mathf.MoveTowards(runner.DeformationWeight, near ? 1f : 0f,',
                                         'runner.DeformationWeight = Mathf.MoveTowards(runner.DeformationWeight, false ? 1f : 0f,', 1)
-    dead_visible = dead_visible.replace(projection_expression, '0f', 1)
+    dead_visible = dead_visible.replace(projection_guard, 'if (false)', 1)
     (project / 'Assets/TownServiceClothDead.cs').write_text(dead_visible)
     contact_reset = production.replace('TownServiceCloth', 'TownServiceClothContactReset')
     contact_reset = contact_reset.replace(
         'runner.ContactSurface = simulated;',
         'runner.ContactSurface = simulated;\n'
-        '        if (runner.Contacting) Array.Copy(simulated, runner.EpisodeOrigin, simulated.Length);', 1)
-    contact_reset = contact_reset.replace(projection_expression, '0f', 1)
+        '        Array.Copy(simulated, runner.EpisodeOrigin, simulated.Length);', 1)
+    contact_reset = contact_reset.replace(projection_guard, 'if (false)', 1)
     (project / 'Assets/TownServiceClothContactReset.cs').write_text(contact_reset)
     rest_gate = production.replace('TownServiceCloth', 'TownServiceClothRestGate')
     rest_gate = rest_gate.replace(

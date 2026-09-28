@@ -4,8 +4,10 @@ using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Reflection;
 using System.Text;
 using GloomhavenVR.Hands;
+using GloomhavenVR.Net;
 using GloomhavenVR.Rig;
 using GloomhavenVR.WorldUI;
 using UnityEngine;
@@ -126,12 +128,22 @@ public sealed class TownClothProbe : MonoBehaviour
         float enchantressCapsuleClearanceMin = float.MaxValue;
         float enchantressWithdrawalStepMax = 0f;
         float enchantressWithdrawalVertexStepMax = 0f;
+        int enchantressWithdrawalVertexStepFrame = -1;
+        int enchantressWithdrawalVertexStepIndex = -1;
         float enchantressAfterWithdrawal = float.MaxValue;
         long enchantressContactTicks = 0, enchantressIdleTicks = 0;
         int enchantressContactSamples = 0, enchantressIdleSamples = 0;
         long[] enchantressContactDurations = new long[90];
         long[] enchantressIdleDurations = new long[90];
         int merchantRunnerCount = -1;
+        bool compactedLocalHandPass = false, compactedPeerHandPass = false;
+        bool oppositeSideReentryPass = false, hideRestPass = false, zeroMeanRestPass = false;
+        int firstApproachSide = 0, throughPushSide = 0, oppositeReentrySide = 0;
+        int sideBeforeSeparation = 0, sideAfterSeparation = 0;
+        bool sideStableThroughHold = true;
+        bool oppositeFarInExpandedAabb = false;
+        float oppositeFarDepthRecorded = 0f;
+        int farCountMid = 0, farCountEnd = 0;
         bool productionPathPass = false;
         bool actualReturnMonotone = true;
         int actualRunners = 0;
@@ -262,6 +274,11 @@ public sealed class TownClothProbe : MonoBehaviour
             var wristObject = new GameObject("production-wrist");
             wristObject.transform.SetParent(palmObject.transform, false);
             wristObject.transform.localPosition = new Vector3(0f, 0f, -198f * .045f);
+            var rightPalmObject = new GameObject("production-right-palm");
+            var rightTipObject = new GameObject("production-right-tip");
+            var rightWristObject = new GameObject("production-right-wrist");
+            rightWristObject.transform.SetParent(rightPalmObject.transform, false);
+            rightWristObject.transform.localPosition = Vector3.down * (198f * .045f);
             var hand = new VRHand
             {
                 HasPose = false,
@@ -270,6 +287,13 @@ public sealed class TownClothProbe : MonoBehaviour
                     PalmCenter = palmObject.transform, IndexTip = tipObject.transform }
             };
             VRHands.Left = hand; VRHands.Right = null;
+            var rightHand = new VRHand
+            {
+                HasPose = false,
+                WorldScale = 198f,
+                Rig = new ProbeRig { Wrist = rightWristObject.transform,
+                    PalmCenter = rightPalmObject.transform, IndexTip = rightTipObject.transform }
+            };
             TownServiceCloth nullProduction = null;
             TownServiceCloth contactProduction = null;
             TownServiceCloth merchantProduction = null;
@@ -301,9 +325,9 @@ public sealed class TownClothProbe : MonoBehaviour
                 }
                 productionVisibleNull = VisibleMotion(nullRunner, nullRest, 198f);
 
-                // Control from the shipped implementation before this fix: it
-                // re-captures the solver after the first physical contact and
-                // therefore hides that contact's entire displacement.
+                // Negative control that continually re-captures the solver as
+                // its visible zero. If this control moves like production, the
+                // harness no longer detects the reported invisible-cloth bug.
                 resetStation = Instantiate(priestessPrefab);
                 resetStation.name = "production-contact-reset-negative-control";
                 resetStation.transform.SetPositionAndRotation(new Vector3(5100f, 0f, 1200f),
@@ -577,6 +601,8 @@ public sealed class TownClothProbe : MonoBehaviour
                     tipObject.transform.position = approach + Vector3.up * (198f * .08f);
                     enchantressProduction.TickAuthor(frame / 90f, 1f / 90f, true);
                     yield return null;
+                    if (firstApproachSide == 0 && frame >= 5)
+                        firstApproachSide = Field<int[]>(FirstRunner(enchantressProduction), "ProbeSide")[0];
                     enchantressCapsuleClearanceMin = Mathf.Min(enchantressCapsuleClearanceMin,
                         CapsuleSurfaceClearance(enchantressRunner,
                             wristObject.transform.position, tipObject.transform.position,
@@ -597,6 +623,8 @@ public sealed class TownClothProbe : MonoBehaviour
                         enchantressContactDurations[enchantressContactSamples] = elapsedTicks;
                         enchantressContactSamples++;
                     }
+                    sideStableThroughHold &= firstApproachSide != 0
+                        && Field<int[]>(FirstRunner(enchantressProduction), "ProbeSide")[0] == firstApproachSide;
                     yield return null;
                     float displacement = VisibleMotion(enchantressRunner, enchantressRest, 198f);
                     Vector3 localShown = enchantressRunner.mesh.vertices[enchantressIndex];
@@ -630,6 +658,7 @@ public sealed class TownClothProbe : MonoBehaviour
                     previous = displacement;
                     if (frame == 60)
                     {
+                        throughPushSide = Field<int[]>(FirstRunner(enchantressProduction), "ProbeSide")[0];
                         CaptureClothFrame(Path.Combine(snapshotFolder, "enchantress-contact.png"),
                             enchantressStation.transform, enchantressRunner,
                             wristObject.transform, tipObject.transform);
@@ -657,10 +686,22 @@ public sealed class TownClothProbe : MonoBehaviour
                         Mathf.Abs(displacement - previousWithdrawal));
                     Vector3[] shownVertices = enchantressRunner.mesh.vertices;
                     for (int vertex = 0; vertex < shownVertices.Length; vertex++)
-                        enchantressWithdrawalVertexStepMax = Mathf.Max(enchantressWithdrawalVertexStepMax,
-                            enchantressRunner.transform.TransformVector(shownVertices[vertex]
-                                - previousWithdrawalVertices[vertex]).magnitude / 198f);
+                    {
+                        float vertexStep = enchantressRunner.transform.TransformVector(shownVertices[vertex]
+                            - previousWithdrawalVertices[vertex]).magnitude / 198f;
+                        if (vertexStep > enchantressWithdrawalVertexStepMax)
+                        {
+                            enchantressWithdrawalVertexStepMax = vertexStep;
+                            enchantressWithdrawalVertexStepFrame = frame;
+                            enchantressWithdrawalVertexStepIndex = vertex;
+                        }
+                    }
                     previousWithdrawalVertices = shownVertices;
+                    if (frame >= 2 && frame <= 4)
+                        CaptureClothFrame(Path.Combine(snapshotFolder,
+                            "enchantress-withdrawal-frame-" + frame + ".png"),
+                            enchantressStation.transform, enchantressRunner,
+                            wristObject.transform, tipObject.transform);
                     enchantressCapsuleClearanceMin = Mathf.Min(enchantressCapsuleClearanceMin,
                         CapsuleSurfaceClearance(enchantressRunner,
                             wristObject.transform.position, tipObject.transform.position,
@@ -694,6 +735,159 @@ public sealed class TownClothProbe : MonoBehaviour
                     && enchantressAfterWithdrawal < .002f;
                 CaptureClothFrame(Path.Combine(snapshotFolder, "enchantress-withdrawal.png"),
                     enchantressStation.transform, enchantressRunner);
+
+                // A deep pass keeps the original side through the continuous
+                // gesture. Then remain on the opposite side, still within the
+                // renderer's expanded broadphase, until a genuinely separate
+                // approach starts. The old latch never released in that case.
+                // Re-prime this same source after the preceding genuine idle
+                // interval; the original contact-side assertion above remains
+                // independent of this re-entry assertion.
+                for (int frame = 0; frame < 16; frame++)
+                {
+                    float depth = Mathf.Lerp(-.08f, .025f, frame / 15f);
+                    Vector3 point = enchantressTarget
+                        + enchantressStation.transform.forward * (198f * depth);
+                    palmObject.transform.position = point;
+                    tipObject.transform.position = point + Vector3.up * (198f * .08f);
+                    enchantressProduction.TickAuthor((252f + frame) / 90f, 1f / 90f, true);
+                    yield return null;
+                }
+                Bounds oppositeBroadphase = enchantressRunner.GetComponent<Renderer>().bounds;
+                oppositeBroadphase.Expand(198f * .72f);
+                Vector3 oppositeFar = enchantressTarget;
+                oppositeFar.z = oppositeBroadphase.max.z - 198f * .10f;
+                float oppositeFarDepth = Vector3.Dot(oppositeFar - enchantressTarget,
+                    enchantressStation.transform.forward) / 198f;
+                oppositeFarDepthRecorded = oppositeFarDepth;
+                oppositeFarInExpandedAabb = oppositeBroadphase.Contains(oppositeFar);
+                for (int frame = 0; frame < 12; frame++)
+                {
+                    palmObject.transform.position = oppositeFar;
+                    tipObject.transform.position = oppositeFar + Vector3.up * (198f * .08f);
+                    enchantressProduction.TickAuthor((268f + frame) / 90f, 1f / 90f, true);
+                    yield return null;
+                    if (frame == 5)
+                    {
+                        sideBeforeSeparation = Field<int[]>(FirstRunner(enchantressProduction), "ProbeSide")[0];
+                        farCountMid = Field<int[]>(FirstRunner(enchantressProduction), "ProbeFarFrames")[0];
+                    }
+                    if (frame == 11)
+                    {
+                        sideAfterSeparation = Field<int[]>(FirstRunner(enchantressProduction), "ProbeSide")[0];
+                        farCountEnd = Field<int[]>(FirstRunner(enchantressProduction), "ProbeFarFrames")[0];
+                    }
+                }
+                for (int frame = 0; frame < 25; frame++)
+                {
+                    float depth = Mathf.Lerp(oppositeFarDepth, .18f, frame / 24f);
+                    Vector3 point = enchantressTarget
+                        + enchantressStation.transform.forward * (198f * depth);
+                    palmObject.transform.position = point;
+                    tipObject.transform.position = point + Vector3.up * (198f * .08f);
+                    enchantressProduction.TickAuthor((280f + frame) / 90f, 1f / 90f, true);
+                    yield return null;
+                }
+                oppositeReentrySide = Field<int[]>(FirstRunner(enchantressProduction), "ProbeSide")[0];
+                oppositeSideReentryPass = firstApproachSide != 0
+                    && sideStableThroughHold
+                    && oppositeFarInExpandedAabb
+                    && throughPushSide == firstApproachSide
+                    && sideBeforeSeparation == firstApproachSide
+                    && sideAfterSeparation == 0
+                    && oppositeReentrySide == -firstApproachSide;
+
+                // Hiding a moving runner must restore its actual renderer and
+                // decorations immediately. Otherwise a zero owner mean enters
+                // the idle fast path with a stale, still-bent visible mesh.
+                float beforeHide = VisibleMotion(enchantressRunner, enchantressRest, 198f);
+                enchantressProduction.SetVisible(false);
+                float afterHide = VisibleMotion(enchantressRunner, enchantressRest, 198f);
+                object runnerObject = FirstRunner(enchantressProduction);
+                hideRestPass = beforeHide > .005f && afterHide < .001f
+                    && !Field<bool>(runnerObject, "VisibleDirty")
+                    && Field<int[]>(runnerObject, "ProbeSide")[0] == 0;
+                enchantressProduction.SetVisible(true);
+                Vector3 beyondStation = enchantressTarget
+                    - enchantressStation.transform.forward * (198f * .90f);
+                palmObject.transform.position = beyondStation;
+                tipObject.transform.position = beyondStation + Vector3.up * (198f * .08f);
+                for (int frame = 0; frame < 20; frame++)
+                {
+                    enchantressProduction.TickAuthor((305f + frame) / 90f, 1f / 90f, true);
+                    yield return null;
+                }
+                hideRestPass &= VisibleMotion(enchantressRunner, enchantressRest, 198f) < .001f;
+
+                // Force only the renderer dirty while the replicated mean is
+                // zero. The fast path must clean this exact stale-mesh case.
+                Vector3[] dirtyVertices = enchantressRunner.mesh.vertices;
+                dirtyVertices[enchantressIndex] += enchantressRunner.transform.InverseTransformVector(
+                    enchantressStation.transform.TransformVector(Vector3.forward * .035f));
+                enchantressRunner.mesh.vertices = dirtyVertices;
+                SetField(runnerObject, "VisibleDirty", true);
+                SetField(runnerObject, "State", default(TownClothRunnerState));
+                yield return null;
+                enchantressProduction.TickAuthor(325f / 90f, 1f / 90f, true);
+                zeroMeanRestPass = VisibleMotion(enchantressRunner, enchantressRest, 198f) < .001f
+                    && !Field<bool>(runnerObject, "VisibleDirty");
+
+                // Local tracking compacts right into slot zero when left goes
+                // invalid. The new source must not inherit left's side or pose.
+                Vector3 leftPoint = enchantressTarget
+                    - enchantressStation.transform.forward * (198f * .08f);
+                Vector3 rightPoint = enchantressTarget
+                    + enchantressStation.transform.forward * (198f * .08f);
+                palmObject.transform.position = leftPoint;
+                tipObject.transform.position = leftPoint + Vector3.up * (198f * .08f);
+                rightPalmObject.transform.position = rightPoint;
+                rightTipObject.transform.position = rightPoint + Vector3.up * (198f * .08f);
+                rightHand.HasPose = true;
+                VRHands.Right = rightHand;
+                enchantressProduction.TickAuthor(326f / 90f, 1f / 90f, true);
+                yield return null;
+                int leftSideBeforeCompaction = Field<int[]>(runnerObject, "ProbeSide")[0];
+                int rightSideBeforeCompaction = Field<int[]>(runnerObject, "ProbeSide")[1];
+                hand.HasPose = false;
+                enchantressProduction.TickAuthor(327f / 90f, 1f / 90f, true);
+                yield return null;
+                object compactedLocal = HandAt(enchantressProduction, 0);
+                compactedLocalHandPass = leftSideBeforeCompaction != 0
+                    && rightSideBeforeCompaction == -leftSideBeforeCompaction
+                    && Field<long>(compactedLocal, "SourceKey") == -2L
+                    && Field<int[]>(runnerObject, "ProbeSide")[0] == rightSideBeforeCompaction
+                    && Vector3.Distance(Field<Vector3>(compactedLocal, "PreviousPalm"),
+                        rightWristObject.transform.position) < .001f;
+                rightHand.HasPose = false;
+                VRHands.Right = null;
+
+                // The same compaction must work when a remote player leaves.
+                var firstPeer = new GloomhavenVR.Net.NetAvatarDriver.PeerProbe
+                { Left = leftPoint, LeftWrist = leftPoint + Vector3.down * (198f * .045f),
+                    LeftTip = leftPoint + Vector3.up * (198f * .08f), LeftValid = true, Scale = 198f };
+                var secondPeer = new GloomhavenVR.Net.NetAvatarDriver.PeerProbe
+                { Left = rightPoint, LeftWrist = rightPoint + Vector3.down * (198f * .045f),
+                    LeftTip = rightPoint + Vector3.up * (198f * .08f), LeftValid = true, Scale = 198f };
+                GloomhavenVR.Net.NetAvatarDriver.TestPeerProbes[101] = firstPeer;
+                GloomhavenVR.Net.NetAvatarDriver.TestPeerProbes[202] = secondPeer;
+                enchantressProduction.TickAuthor(328f / 90f, 1f / 90f, true);
+                yield return null;
+                int firstPeerSide = Field<int[]>(runnerObject, "ProbeSide")[0];
+                int secondPeerSide = Field<int[]>(runnerObject, "ProbeSide")[1];
+                GloomhavenVR.Net.NetAvatarDriver.TestPeerProbes.Remove(101);
+                enchantressProduction.TickAuthor(329f / 90f, 1f / 90f, true);
+                yield return null;
+                object compactedPeer = HandAt(enchantressProduction, 0);
+                compactedPeerHandPass = firstPeerSide != 0
+                    && secondPeerSide == -firstPeerSide
+                    && Field<long>(compactedPeer, "SourceKey") == (((long)202 << 2) | 1L)
+                    && Field<int[]>(runnerObject, "ProbeSide")[0] == secondPeerSide
+                    && Vector3.Distance(Field<Vector3>(compactedPeer, "PreviousPalm"),
+                        secondPeer.LeftWrist) < .001f;
+                GloomhavenVR.Net.NetAvatarDriver.TestPeerProbes.Clear();
+                hand.HasPose = true;
+                productionPathPass &= oppositeSideReentryPass && hideRestPass
+                    && zeroMeanRestPass && compactedLocalHandPass && compactedPeerHandPass;
 
                 // The real headset log never reports a contact edge for the red
                 // enchantress runner, even as the glove crosses it. Suppressing
@@ -734,6 +928,7 @@ public sealed class TownClothProbe : MonoBehaviour
             finally
             {
                 hand.HasPose = false; VRHands.Left = VRHands.Right = null;
+                GloomhavenVR.Net.NetAvatarDriver.TestPeerProbes.Clear();
                 merchantProduction?.Dispose();
                 enchantressProduction?.Dispose();
                 enchantressNoGate?.Dispose();
@@ -751,6 +946,7 @@ public sealed class TownClothProbe : MonoBehaviour
                 if (enchantressNoGateStation != null) Destroy(enchantressNoGateStation);
                 if (nullStation != null) Destroy(nullStation);
                 Destroy(palmObject); Destroy(tipObject); Destroy(rigScale);
+                Destroy(rightPalmObject); Destroy(rightTipObject);
                 VRRigDriver.RigRoot = null; VRRigDriver.BaseWorldScale = 0f;
             }
             actualPass &= productionPathPass;
@@ -852,6 +1048,21 @@ public sealed class TownClothProbe : MonoBehaviour
             + " actual_reentry_min=" + actualReentryMin.ToString("F5")
             + " actual_longterm_max=" + actualLongTermMax.ToString("F5")
             + " production_visible_path=" + (productionPathPass ? "PASS" : "FAIL")
+            + " cloth_local_slot_compaction=" + compactedLocalHandPass
+            + " cloth_peer_slot_compaction=" + compactedPeerHandPass
+            + " cloth_opposite_side_reentry=" + oppositeSideReentryPass
+            + " cloth_initial_side=" + firstApproachSide
+            + " cloth_through_side=" + throughPushSide
+            + " cloth_side_stable_during_hold=" + sideStableThroughHold
+            + " cloth_reentry_side=" + oppositeReentrySide
+            + " cloth_side_before_separation=" + sideBeforeSeparation
+            + " cloth_side_after_separation=" + sideAfterSeparation
+            + " cloth_far_inside_expanded_aabb=" + oppositeFarInExpandedAabb
+            + " cloth_far_depth_m=" + oppositeFarDepthRecorded.ToString("F3")
+            + " cloth_far_frames_mid=" + farCountMid
+            + " cloth_far_frames_end=" + farCountEnd
+            + " cloth_hide_rest=" + hideRestPass
+            + " cloth_zero_mean_rest=" + zeroMeanRestPass
             + " merchant_runner_count=" + merchantRunnerCount
             + " production_visible_contact_m=" + productionVisibleContact.ToString("F5")
             + " production_short_touch_peak_m=" + productionShortTouchPeak.ToString("F5")
@@ -872,6 +1083,8 @@ public sealed class TownClothProbe : MonoBehaviour
             + " enchantress_withdrawal_step_max_m=" + enchantressWithdrawalStepMax.ToString("F5")
             + " enchantress_withdrawal_vertex_step_max_m="
             + enchantressWithdrawalVertexStepMax.ToString("F5")
+            + " enchantress_withdrawal_vertex_step_frame=" + enchantressWithdrawalVertexStepFrame
+            + " enchantress_withdrawal_vertex_step_index=" + enchantressWithdrawalVertexStepIndex
             + " enchantress_contact_tick_us="
             + (1e6 * enchantressContactTicks / Math.Max(1, enchantressContactSamples)
                 / Stopwatch.Frequency).ToString("F2")
@@ -929,6 +1142,30 @@ public sealed class TownClothProbe : MonoBehaviour
     private static double MedianMicroseconds(long[] samples, int count)
     {
         return PercentileMicroseconds(samples, count, .50f);
+    }
+
+    private static object FirstRunner(TownServiceCloth cloth)
+    {
+        var field = typeof(TownServiceCloth).GetField("_runners", BindingFlags.Instance | BindingFlags.NonPublic);
+        return ((Array)field.GetValue(cloth)).GetValue(0);
+    }
+
+    private static T Field<T>(object target, string name)
+    {
+        var field = target.GetType().GetField(name, BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+        return (T)field.GetValue(target);
+    }
+
+    private static void SetField<T>(object target, string name, T value)
+    {
+        var field = target.GetType().GetField(name, BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+        field.SetValue(target, value);
+    }
+
+    private static object HandAt(TownServiceCloth cloth, int slot)
+    {
+        var field = typeof(TownServiceCloth).GetField("_hands", BindingFlags.Instance | BindingFlags.NonPublic);
+        return ((Array)field.GetValue(cloth)).GetValue(slot);
     }
 
     private static double PercentileMicroseconds(long[] samples, int count, float fraction)

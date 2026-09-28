@@ -55,16 +55,37 @@ namespace GloomhavenVR.Net
 
     internal static class NetAvatarDriver
     {
-        internal static void CollectTownFacePeers(List<int> peers) { }
+        internal sealed class PeerProbe
+        {
+            internal Vector3 Left, LeftWrist, LeftTip, Right, RightWrist, RightTip;
+            internal bool LeftValid, RightValid;
+            internal float Scale = 1f;
+        }
+
+        internal static readonly Dictionary<int, PeerProbe> TestPeerProbes = new();
+
+        internal static void CollectTownFacePeers(List<int> peers)
+        {
+            foreach (int peer in TestPeerProbes.Keys) peers.Add(peer);
+            peers.Sort();
+        }
         internal static bool TryGetTownClothHandProbes(int peer, out Vector3 left,
             out Vector3 leftWrist, out Vector3 leftTip, out Vector3 right,
             out Vector3 rightWrist, out Vector3 rightTip,
             out bool leftValid, out bool rightValid, out float peerScale)
         {
-            left = leftWrist = leftTip = right = rightWrist = rightTip = default;
-            leftValid = rightValid = false;
-            peerScale = 1f;
-            return false;
+            if (!TestPeerProbes.TryGetValue(peer, out PeerProbe probe))
+            {
+                left = leftWrist = leftTip = right = rightWrist = rightTip = default;
+                leftValid = rightValid = false;
+                peerScale = 1f;
+                return false;
+            }
+            left = probe.Left; leftWrist = probe.LeftWrist; leftTip = probe.LeftTip;
+            right = probe.Right; rightWrist = probe.RightWrist; rightTip = probe.RightTip;
+            leftValid = probe.LeftValid; rightValid = probe.RightValid;
+            peerScale = probe.Scale;
+            return true;
         }
 
         internal static bool TryGetTownClothHead(int peer, out Vector3 head, out float scale)
