@@ -33,17 +33,23 @@ public sealed class ToggleFlag { public bool Value=true; }
 public static class WorldUIConfig { public static ToggleFlag ImmersiveTownServices=new(); }
 public static class TownServiceEnhancementHandoff
 {
-    public static bool Enabled=true, PreferMage=true;
-    public static bool PrefersEnchantress(Vector3 visitor, EGuildmasterMode destination)=>PreferMage;
+    public static bool Enabled=true,HasCurrentOffering;
 }
+public static class TownServiceMerchantHandoff { public static bool WantsOffering; }
 public static class StoryComposite { public static bool PointOfNoReturn; }
 public static class VRHands
 {
-    public static FakeHand? Left,Right;
+    public static FakeHand? Left,Right,Primary;
 }
-public sealed class FakeHand { public FakeGrabber Grabber=new(); }
+public sealed class FakeHand
+{ public FakeGrabber Grabber=new(); public FakePalmGate PalmGate=new();public FakeRig Rig=new();public bool HasPose=true; }
+public sealed class FakePalmGate { public bool IsOpen; }
+public sealed class FakeRig { public Transform PalmCenter=new GameObject("PalmCenter").transform; }
 public sealed class FakeGrabber { public object? Held; }
 public sealed class VRCard { }
+public static class CardsConfig { public static bool RevealAlways; }
+public static class TownServiceRitualLayout { public static readonly Vector3 Origin=Vector3.zero; }
+public static class TownServiceTempleBowl { public static readonly Vector3 Center=new(0f,.16f,.26f); }
 public enum PartySlotState { Empty, Assigned }
 public sealed class NewPartyCharacterUI
 {
@@ -86,7 +92,9 @@ internal static class TempleApproachProof
         head.transform.position=root.transform.position;
         VRRigDriver.HeadCamera=head.GetComponent<Camera>();
         TownServicePopulation.Station=new TownServiceStation{Root=root.transform};
-        VRHands.Left=new FakeHand();VRHands.Right=new FakeHand();
+        VRHands.Left=new FakeHand();VRHands.Right=new FakeHand();VRHands.Primary=VRHands.Left;
+        VRHands.Right.PalmGate.IsOpen=true;
+        VRHands.Right.Rig.PalmCenter.position=root.transform.TransformPoint(TownServiceTempleBowl.Center);
         var first=new NewPartyCharacterUI{Data=new FakeCharacter{CharacterID="first"}};
         var selected=new NewPartyCharacterUI{Data=new FakeCharacter{CharacterID="selected"}};
         NewPartyDisplayUI.PartyDisplay=new NewPartyDisplayUI{Slots=new[]{first,selected},SelectedUISlot=selected};
@@ -122,14 +130,18 @@ internal static class TempleApproachProof
 
         GuildmasterDestinations.Mode=EGuildmasterMode.Enchantress;
         typeof(BoundTempleApproach).GetField("_approachAt",BindingFlags.Static|BindingFlags.NonPublic)!.SetValue(null,0f);
-        TownServiceEnhancementHandoff.PreferMage=true;
+        VRHands.Right.Rig.PalmCenter.position=root.transform.TransformPoint(Vector3.forward*2f);
         BoundTempleApproach.TickApproach();
         Check(MapRoomDriver.TemplePresses==2,
-            "same-frame overlapping temple tick cannot steal the nearer enchantress destination");
-        TownServiceEnhancementHandoff.PreferMage=false;
+            "head-only overlap cannot steal the enchantress destination");
+        VRHands.Right.Rig.PalmCenter.position=root.transform.TransformPoint(TownServiceTempleBowl.Center);
         BoundTempleApproach.TickApproach();
-        Check(MapRoomDriver.TemplePresses==3,"physical priestess approach replaces an idle foreign town service");
-        TownServiceEnhancementHandoff.PreferMage=true;
+        Check(MapRoomDriver.TemplePresses==3,"revealed offhand at bowl intentionally selects Temple from a foreign service");
+        GuildmasterDestinations.Mode=EGuildmasterMode.Enchantress;
+        TownServiceEnhancementHandoff.HasCurrentOffering=true;
+        BoundTempleApproach.TickApproach();
+        Check(MapRoomDriver.TemplePresses==3,"live enchantress offering is never displaced by temple approach");
+        TownServiceEnhancementHandoff.HasCurrentOffering=false;
         TownServicePopulation.Station.Near=false;
         BoundTempleApproach.TickApproach();
         TownServicePopulation.Station.Near=true;
@@ -140,6 +152,8 @@ internal static class TempleApproachProof
         Check(MapRoomDriver.TemplePresses==4,"leaving and returning permits a fresh physical approach");
         Object.DestroyImmediate(root);Object.DestroyImmediate(head);
         TownServicePopulation.Station=null;VRRigDriver.HeadCamera=null;MapRoomHand.Selected=null;NewPartyDisplayUI.PartyDisplay=null;
+        Object.DestroyImmediate(VRHands.Left!.Rig.PalmCenter.gameObject);Object.DestroyImmediate(VRHands.Right!.Rig.PalmCenter.gameObject);
+        VRHands.Left=VRHands.Right=VRHands.Primary=null;
         return checks;
     }
 }

@@ -4,6 +4,7 @@ using GloomhavenVR.Cards;
 using GloomhavenVR.Core;
 using GloomhavenVR.Hands;
 using GloomhavenVR.Net;
+using GloomhavenVR.Net.TownServices;
 using GloomhavenVR.Rig;
 using GloomhavenVR.WorldUI.MapRoom;
 using TMPro;
@@ -302,6 +303,22 @@ internal sealed class TownServiceRitual : IDisposable
     private TownServiceTempleOffering? _templeOffering;
     private readonly TownServiceOfferFeedback _templeFeedback = new();
     private readonly HashSet<(string Character, object Blessing)> _submittedOfferings = new();
+    private sealed class PendingTempleDonation
+    {
+        internal readonly UITempleWindow Temple;
+        internal readonly UITempleShopSlot Slot;
+        internal readonly (string Character, object Blessing) Offering;
+        internal readonly object? Context;
+        internal readonly Action<bool>? Settled;
+        internal readonly float Started;
+        internal bool Completed;
+        internal PendingTempleDonation(UITempleWindow temple, UITempleShopSlot slot,
+            (string Character, object Blessing) offering, object? context, Action<bool>? settled)
+        { Temple = temple; Slot = slot; Offering = offering; Context = context;
+          Settled = settled; Started = Time.unscaledTime; }
+    }
+    private PendingTempleDonation? _pendingTempleDonation;
+    private bool _nativeTempleDonationActive;
     internal TownServiceEnhancementHandoff? Handoff { get; private set; }
     private TownServiceNativeEnhancementCardMask? _nativeCardMask;
     internal TownServiceCardSlots CardSlots { get; } = new();
@@ -316,6 +333,21 @@ internal sealed class TownServiceRitual : IDisposable
     internal bool TempleDonationAvailabilityKnown => _service == 2
         && _templeOffering?.VisitorPresent == true && _visibility >= .99f;
     internal bool TempleDonationAvailable { get; private set; }
+    /// <summary>The purse has been placed into the bowl and a native transaction is
+    /// waiting for arbitration or its original callback. Merely inspecting or holding
+    /// the purse never reserves the priestess against another visitor.</summary>
+    internal bool HasParkedTempleOffer => _service == 2
+        && (_pendingTempleDonation != null || _nativeTempleDonationActive);
+    internal bool HasTemplePurseInHand
+    {
+        get
+        {
+            if (_service != 2) return false;
+            foreach (Piece piece in _pieces.Values)
+                if (piece.Token.IsHeld) return true;
+            return false;
+        }
+    }
     internal bool CanRelocate
     { get { if (Handoff?.Card != null) return false; foreach (Piece piece in _pieces.Values) if (piece.Token.IsMoving) return false; return true; } }
 
@@ -402,6 +434,7 @@ internal sealed class TownServiceRitual : IDisposable
 
     internal void Tick(float scale)
     {
+        TickPendingTempleDonation();
         Handoff?.Tick();
         if (Handoff != null) CardSlots.Tick(Handoff);
         MaskDuplicateNativeCard();
@@ -440,7 +473,9 @@ internal sealed class TownServiceRitual : IDisposable
         bool donationAvailable = false;
         if (_service == 2)
             foreach (Piece piece in _pieces.Values)
-                if (piece.Source is UITempleShopSlot && piece.NativeAvailable)
+                if (piece.Source is UITempleShopSlot slot && (piece.NativeAvailable
+                    || _pendingTempleDonation is PendingTempleDonation pending
+                        && ReferenceEquals(pending.Slot, slot) && TempleEligible(pending.Temple, slot)))
                 { donationAvailable = true; break; }
         TempleDonationAvailable = donationAvailable;
         bool purseHeld = false, purseEligible = false;
@@ -587,37 +622,68 @@ internal sealed class TownServiceRitual : IDisposable
 
     private bool Donate(UITempleWindow temple, UITempleShopSlot slot, Action<bool>? settled = null)
     {
-        if (!OfferingEligible(temple, slot))
+        if (_pendingTempleDonation != null || !OfferingEligible(temple, slot))
         {
             if (VRLog.WantsDebug) VRLog.Debug("TownServices", "Temple purse entered bowl but native blessing is unavailable; confirmation was not opened.");
             return false;
         }
         var offering = (temple.character.CharacterID, (object)slot.Blessing);
         _submittedOfferings.Add(offering);
+        _pendingTempleDonation = new PendingTempleDonation(temple, slot, offering, _context(), settled);
+        // Park the actual purse first. Browsing visitors never reserve this NPC; only this
+        // physical deposit publishes a claim. The original native selection waits for the
+        // bounded lease to settle instead of racing another player's simultaneous drop.
+        TownServiceMirror.SetLocalTransactionActive(2, true);
+        return true;
+    }
+
+    private void TickPendingTempleDonation()
+    {
+        PendingTempleDonation? pending = _pendingTempleDonation;
+        if (pending == null) return;
+        UITempleWindow temple = pending.Temple;
+        UITempleShopSlot slot = pending.Slot;
+        bool valid = _sessionAlive() && _templeOffering?.VisitorPresent == true
+            && ReferenceEquals(pending.Context, _context())
+            && temple != null && slot != null && slot.Blessing != null
+            && ReferenceEquals(pending.Offering.Blessing, slot.Blessing);
+        if (!valid || Time.unscaledTime - pending.Started > 2f)
+        {
+            _pendingTempleDonation = null;
+            TownServiceMirror.SetLocalTransactionActive(2, false);
+            CompleteTempleDonation(pending, false);
+            if (VRLog.WantsDebug) VRLog.Debug("TownServices", "Temple purse: returned before native selection because the visitor, blessing or transaction claim was unavailable.");
+            return;
+        }
+        if (!TownServiceMirror.LocalTransactionSettled(2)) return;
+        _pendingTempleDonation = null;
+        _nativeTempleDonationActive = true;
         bool submitted = Confirm(slot.button, () => slot.Blessing, temple,
             () => _templeOffering?.Available == true && TempleEligible(temple, slot),
             () => _templeOffering?.VisitorPresent == true && TemplePendingEligible(temple, slot),
-            committed =>
-            {
-                if (!committed) _submittedOfferings.Remove(offering);
-                // This confirms execution of the original callback, not a later host
-                // inventory/currency acknowledgement. Keep those distinct in bug logs.
-                if (committed)
-                {
-                    VRLog.Note("TownServices", "Temple purse: original donation callback executed for the selected blessing.");
-                    TownServiceVoice.RequestReaction(2, TownVoiceReaction.PriestessDonate);
-                }
-                else if (VRLog.WantsDebug) VRLog.Debug("TownServices", "Temple purse: native confirmation cancelled or stale before donation callback.");
-                settled?.Invoke(committed);
-            });
-        // Online clients wait for the original host action before stock refreshes. A second
-        // release during that interval must never send the same donation twice.
-        if (!submitted)
+            committed => CompleteTempleDonation(pending, committed));
+        if (submitted) return;
+        TownServiceMirror.SetLocalTransactionActive(2, false);
+        CompleteTempleDonation(pending, false);
+        if (VRLog.WantsDebug) VRLog.Debug("TownServices", "Temple purse: native confirmation could not be submitted after transaction claim.");
+    }
+
+    private void CompleteTempleDonation(PendingTempleDonation pending, bool committed)
+    {
+        if (pending.Completed) return;
+        pending.Completed = true;
+        _nativeTempleDonationActive = false;
+        if (!committed) _submittedOfferings.Remove(pending.Offering);
+        // This edge is the guarded original callback, not a change in affordability,
+        // character selection or an observer's aggregate bowl state.
+        if (committed)
         {
-            _submittedOfferings.Remove(offering);
-            if (VRLog.WantsDebug) VRLog.Debug("TownServices", "Temple purse: native confirmation could not be submitted.");
+            VRLog.Note("TownServices", "Temple purse: original donation callback executed for the selected blessing.");
+            TownServiceMirror.MarkLocalTempleDonationCommitted();
+            TownServiceVoice.RequestReaction(2, TownVoiceReaction.PriestessDonate);
         }
-        return submitted;
+        else if (VRLog.WantsDebug) VRLog.Debug("TownServices", "Temple purse: native confirmation cancelled or stale before donation callback.");
+        pending.Settled?.Invoke(committed);
     }
 
     private static bool TempleEligible(UITempleWindow temple, UITempleShopSlot slot) => temple.character != null
@@ -702,6 +768,13 @@ internal sealed class TownServiceRitual : IDisposable
     public void Dispose()
     {
         if (_disposed) return; _disposed = true;
+        if (_pendingTempleDonation != null)
+        {
+            PendingTempleDonation pending = _pendingTempleDonation;
+            _pendingTempleDonation = null;
+            TownServiceMirror.SetLocalTransactionActive(2, false);
+            CompleteTempleDonation(pending, false);
+        }
         if (_nativeCardMask != null) { _nativeCardMask.Restore(); _nativeCardMask = null; }
         CardSlots.Dispose();
         Handoff?.Dispose(); Handoff = null;

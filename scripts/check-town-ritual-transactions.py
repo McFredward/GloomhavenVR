@@ -66,12 +66,15 @@ def inspect_shared_blessing_contract(root):
     population = (town / "TownServicePopulation.cs").read_text()
     station = (town / "TownServiceStation.cs").read_text()
     marker = (town / "TownServiceTempleBowlMarker.cs").read_text()
-    donate = method(ritual, "private bool Donate(")
+    donate = method(ritual, "private bool Donate(") + method(ritual, "private void CompleteTempleDonation(")
     if ".Bless(" in donate:
         raise RuntimeError("Private ritual plays a duplicate local blessing")
+    if "TownServiceMirror.MarkLocalTempleDonationCommitted();" not in donate:
+        raise RuntimeError("Temple blessing revision is not bound to the guarded native donation callback")
     required = (
         "TownServiceMirror.SetLocalTempleDonationAvailable(_ritual.TempleDonationAvailable)",
-        "resident.TempleBlessing.Observe(received, owner, session, known, available, revision)",
+        "resident.TempleBlessing.Observe(true, state.Peer, state.Session,",
+        "TownServiceMirror.TryTemplePresentationState(out bool received, out bool anyCanDonate)",
         "resident.Station.PlayTempleBlessing(transitionAge)",
         "new TownServiceTempleBowlMarker(root.transform, stationSpace: true)",
     )
@@ -81,8 +84,8 @@ def inspect_shared_blessing_contract(root):
         raise RuntimeError("Shared temple blessing seam is incomplete: " + ", ".join(missing))
     inspect_particle_contract(marker)
     gate = (
-        "if (!received) return false; // Keep the baseline across transient close/reopen gaps.",
-        "bool play = sameSession && known && !available && advanced;",
+        "if (!received || owner <= 0 || session == 0) return false;",
+        "bool committed = known && unchecked((int)(revision - previous)) > 0;",
         "if (unavailable && !resident.TempleAvailabilityObserved)",
         "resident.TempleUnavailableBlend = 1f;",
         "transitionAge / TownServiceActivityMotion.TransitionSeconds",
@@ -135,7 +138,7 @@ def inspect_purse_contract(source):
         "bool visible = !_offering || _visible() || Token?.IsMoving == true;",
         "if (_offering && !_available() && !Token.IsMoving) Token.PickCollider.enabled = false;",
         "() => TemplePurseVisible(temple, slot)",
-        "if (piece.Source is UITempleShopSlot && piece.NativeAvailable)",
+        "piece.Source is UITempleShopSlot slot && (piece.NativeAvailable",
     )
     missing = [entry for entry in required if entry not in source]
     if missing:
@@ -156,12 +159,13 @@ def sources(root):
     methods = methods.replace("private bool Confirm(", "internal bool Confirm(")
     start = raw.index("    private bool OfferingEligible(")
     end = raw.index("    private bool Confirm(", start)
-    methods += raw[start:end].replace("private bool Donate(", "internal bool Donate(")
-    text = "using System;using System.Collections.Generic;using UnityEngine;using UnityEngine.UI;using UnityEngine.EventSystems;using GloomhavenVR.WorldUI;using GloomhavenVR.Core;\n" + \
+    methods += raw[start:end].replace("private bool Donate(", "internal bool Donate(").replace(
+        "private void TickPendingTempleDonation(", "internal void TickPendingTempleDonation(")
+    text = "using System;using System.Collections.Generic;using UnityEngine;using UnityEngine.UI;using UnityEngine.EventSystems;using GloomhavenVR.WorldUI;using GloomhavenVR.Core;using GloomhavenVR.Net.TownServices;\n" + \
         "internal sealed class BoundRitual {private readonly Func<bool> _alive;private readonly Func<bool> _sessionAlive;private readonly Func<object?> _context;" + \
-        "private readonly HashSet<(string Character,object Blessing)> _submittedOfferings=new();internal FakeTempleOffering _templeOffering=new();" + \
+        "private readonly HashSet<(string Character,object Blessing)> _submittedOfferings=new();internal FakeTempleOffering _templeOffering=new();private PendingTempleDonation? _pendingTempleDonation;private bool _nativeTempleDonationActive;" + \
         "internal BoundRitual(Func<bool> alive,Func<object?> context){_alive=alive;_sessionAlive=alive;_context=context;}" + \
-        "internal BoundRitual(Func<bool> alive,Func<bool> sessionAlive,Func<object?> context){_alive=alive;_sessionAlive=sessionAlive;_context=context;}\n" + methods + "\n}"
+        "internal BoundRitual(Func<bool> alive,Func<bool> sessionAlive,Func<object?> context){_alive=alive;_sessionAlive=sessionAlive;_context=context;}\n" + method(raw, "private sealed class PendingTempleDonation") + "\n" + methods + "\n}"
     guard_path = root / "src/GloomhavenVR/WorldUI/TownServices/TownServiceRitualConfirmationGuard.cs"
     if not guard_path.exists():
         guard_path = Path(__file__).resolve().parent.parent / "src/GloomhavenVR/WorldUI/TownServices/TownServiceRitualConfirmationGuard.cs"
@@ -193,21 +197,23 @@ def sources(root):
     pose_raw = (root / "src/GloomhavenVR/WorldUI/TownServices/TownServiceOfferingPose.cs").read_text()
     exit_source += "internal static class TownServiceOfferingPose {" + method(pose_raw, "internal static bool VisitorWithin(") + "}"
     approach = method(offering_raw, "internal static void TickApproach()")
-    approach_source = "using UnityEngine;namespace GloomhavenVR.WorldUI { internal static class BoundTempleApproach { private static bool _approachInside;private static float _approachAt;" + approach + "} }"
+    approach += method(offering_raw, "private static bool WantsPurseAtBowl(")
+    approach_source = "using UnityEngine;using VRHand=FakeHand;namespace GloomhavenVR.WorldUI { internal static class BoundTempleApproach { private static bool _approachInside,_purseFocus;private static float _approachAt;" + approach + "} }"
     return {"RitualTransactions.cs": text, "RitualGuard.cs": guard, "TempleExit.cs": exit_source, "TempleApproach.cs": approach_source}, {"TownServiceRitual.cs": hashlib.sha256(raw.encode()).hexdigest(), "TownServiceRitualConfirmationGuard.cs": hashlib.sha256(guard_raw.encode()).hexdigest(), "TownServiceTempleOffering.cs": hashlib.sha256(offering_raw.encode()).hexdigest()}
 
 
 def mutations():
     return [
         ("temple-approach-hysteresis", "TempleApproach.cs", "TownServiceOfferingPose.VisitorWithin(station.Root, 1.4f)", "TownServiceOfferingPose.VisitorWithin(station.Root, _approachInside ? 1.65f : 1.4f)", "return from larger attention radius creates a fresh priestess approach"),
-        ("merchant-approach-latch", "TempleApproach.cs", "if (destination != EGuildmasterMode.None) _approachInside = false;", "if (destination != EGuildmasterMode.None) _approachInside = true;", "blocked foreign service cannot preserve a stale temple latch"),
-        ("temple-approach-overlap", "TempleApproach.cs",
-         "&& TownServiceEnhancementHandoff.PrefersEnchantress(",
-         "&& false && TownServiceEnhancementHandoff.PrefersEnchantress(",
-         "same-frame overlapping temple tick cannot steal the nearer enchantress destination"),
+        ("merchant-approach-latch", "TempleApproach.cs", "if (foreign) _approachInside = false;", "if (foreign) _approachInside = true;", "blocked foreign service cannot preserve a stale temple latch"),
+        ("temple-approach-foreign-intent", "TempleApproach.cs",
+         "foreign && !WantsPurseAtBowl(station!.Root)",
+         "foreign && false && !WantsPurseAtBowl(station!.Root)",
+         "head-only overlap cannot steal the enchantress destination"),
         ("temple-character-restore", "TempleApproach.cs", "selectedSlot.OnClick();", "if (selectedSlot.State == PartySlotState.Empty) selectedSlot.OnClick();", "temple entry preserves the exact previously selected native slot"),
         ("temple-close-missing", "TempleExit.cs", "ModalFallback.CloseFloatedWindow(_window);", "", "physical departure closes native temple before visiting another resident"),
         ("repeat-donation", "RitualTransactions.cs", "_submittedOfferings.Add(offering);", "", "a delayed online stock refresh never permits a duplicate donation"),
+        ("donation-revision-missing", "RitualTransactions.cs", "TownServiceMirror.MarkLocalTempleDonationCommitted();", "", "shared blessing revision advances only after each native donation callback"),
         ("visitor-departure", "RitualTransactions.cs", "_templeOffering?.VisitorPresent == true && TemplePendingEligible(temple, slot)", "TemplePendingEligible(temple, slot)", "walking away before native completion cancels the donation"),
         ("modal-input-gate", "RitualTransactions.cs", "_templeOffering?.VisitorPresent == true && TemplePendingEligible(temple, slot)", "_templeOffering?.Available == true && TemplePendingEligible(temple, slot)", "native modal input lock does not invalidate its own donation"),
         ("delayed-validation", "RitualGuard.cs", "_box != null && _valid()", "_box != null", "delayed owner change cancels original transaction"),

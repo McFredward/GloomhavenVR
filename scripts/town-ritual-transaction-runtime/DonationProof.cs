@@ -4,6 +4,7 @@ using UnityEngine;
 using UnityEngine.EventSystems;
 using UnityEngine.UI;
 using GloomhavenVR.WorldUI;
+using GloomhavenVR.Net.TownServices;
 
 public sealed class FakeCharacter { public string CharacterID="owned"; }
 public static class MapRoomHand { public static FakeCharacter? Selected; public static FakeCharacter? OwnedMerchantCharacter()=>Selected;public static bool TempleInspection;public static void SetTempleInspection(bool value)=>TempleInspection=value; }
@@ -49,7 +50,9 @@ internal static class DonationProof
             });
             var ritual=new BoundRitual(()=>true,()=>temple.character);
             offering=ritual._templeOffering;
+            TownServiceMirror.TransactionActive=TownServiceMirror.Settled=false;
             int voiceBefore=TownServiceVoice.Donations;
+            int revisionBefore=TownServiceMirror.Commits;
             if(scenario==1)temple.service.Affordable=false;
             if(scenario==2)MapRoomHand.Selected=new FakeCharacter{CharacterID="observer"};
             if(scenario==3)temple.service.Permission=false;
@@ -57,15 +60,22 @@ internal static class DonationProof
             if(scenario==5)slot.IsAvailable=false;
             bool accepted=ritual.Donate(temple,slot);
             bool eligible=scenario==0||scenario>=6;
+            Check(accepted==eligible && commits==0&&selections==0,"purse parks without running native selection before transaction arbitration");
+            if(accepted)
+            {
+                ritual.TickPendingTempleDonation();
+                Check(selections==0&&commits==0,"unsettled transaction claim never enters the native donation callback");
+                TownServiceMirror.Settled=true;
+                ritual.TickPendingTempleDonation();
+            }
             if(scenario==8)Check(accepted,"native modal input lock does not invalidate its own donation");
-            Check(accepted==eligible && commits==0,"purse drop preserves native ownership, availability and affordability before delayed payment");
             if(scenario==6)ritual._templeOffering.Available=ritual._templeOffering.VisitorPresent=false;
             if(accepted)box.Complete();
             if(scenario==6)
             {
                 Check(commits==0&&cancels==1,"walking away before native completion cancels the donation");
                 ritual._templeOffering.Available=ritual._templeOffering.VisitorPresent=true;
-                Check(ritual.Donate(temple,slot),"cancelled offering can be presented again after returning");box.Complete();
+                Check(ritual.Donate(temple,slot),"cancelled offering can be presented again after returning");ritual.TickPendingTempleDonation();box.Complete();
                 Check(commits==1,"retry after cancelled purse creates one native donation");
             }
             if(scenario==0||scenario==7||scenario==8)
@@ -75,11 +85,13 @@ internal static class DonationProof
                 if(scenario==7)
                 {
                     temple.character=new FakeCharacter{CharacterID="other-owned"};MapRoomHand.Selected=temple.character;
-                    Check(ritual.Donate(temple,slot),"another owned character retains its independent donation choice");box.Complete();
+                    Check(ritual.Donate(temple,slot),"another owned character retains its independent donation choice");ritual.TickPendingTempleDonation();box.Complete();
                     Check(commits==2,"character-specific donation latch does not consume another character's money");
                 }
             }
             Check(TownServiceVoice.Donations-voiceBefore==commits,"resident speaks only after each guarded native donation callback");
+            Check(TownServiceMirror.Commits-revisionBefore==commits,
+                "shared blessing revision advances only after each native donation callback, never on availability changes");
             Object.DestroyImmediate(prompt);Object.DestroyImmediate(root);Object.DestroyImmediate(events);
         }
         MapRoomHand.Selected=null;

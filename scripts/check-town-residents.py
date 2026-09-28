@@ -47,7 +47,7 @@ def main():
             ("viewer retains ahead facial clock", "Population.cs", "_faceClock = remoteFace.Clock;", "_faceClock = Mathf.Max(_faceClock, remoteFace.Clock);"),
             ("follower elects local facial target", "Population.cs", "IsFaceAuthor = !follows && enabled;", "IsFaceAuthor = enabled;"),
             ("opted out observer authors faces", "Population.cs", "SampleFace(IsFaceAuthor, hasFace", "SampleFace(!follows, hasFace"),
-            ("temple reopen replays blessing", "Population.cs", "bool play = sameSession && known && !available && advanced;", "bool play = _initialized && known && !available;"),
+            ("temple unchanged revision replays blessing", "Population.cs", "bool committed = known && unchecked((int)(revision - previous)) > 0;", "bool committed = known;"),
             ("story commitment leaves resident input", "Population.cs", "bool interactive = enabled && !StoryComposite.PointOfNoReturn;", "bool interactive = enabled;"),
             ("unavailable approach passes through available pose", "Population.cs", "!resident.TempleAvailabilityObserved", "false"),
             ("late unavailable hydration snaps the cover pose", "Population.cs",

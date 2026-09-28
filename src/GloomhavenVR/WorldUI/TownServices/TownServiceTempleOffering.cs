@@ -13,6 +13,7 @@ namespace GloomhavenVR.WorldUI;
 internal sealed class TownServiceTempleOffering : IDisposable
 {
     private static bool _approachInside;
+    private static bool _purseFocus;
     private static float _approachAt;
     private readonly TownServiceRitual _ritual;
     private readonly UITempleWindow _temple;
@@ -27,6 +28,30 @@ internal sealed class TownServiceTempleOffering : IDisposable
     internal bool Available { get; private set; }
     internal bool VisitorPresent => !_disposed && TownServiceOfferingPose.VisitorWithin(_station, 1.65f);
 
+    /// <summary>Map-hand focus for the local purse. Head-volume overlap by itself never
+    /// takes the item fan away from a visitor at another resident. Once the original
+    /// Temple service is actually open, retain its purse through the larger visit radius;
+    /// a deliberate revealed hand at the bowl can request that service from elsewhere.</summary>
+    internal static bool WantsPurseFocus
+    {
+        get
+        {
+            if (!MapRoomDriver.Active || !WorldUIConfig.ImmersiveTownServices.Value
+                || !TownServicePopulation.Available(2) || StoryComposite.PointOfNoReturn)
+            { _purseFocus = false; return false; }
+            TownServiceStation? station = TownServicePopulation.Acquire(2);
+            if (station == null) { _purseFocus = false; return false; }
+            bool deliberate = WantsPurseAtBowl(station.Root);
+            bool templeOpen = GuildmasterDestinations.CurrentDestinationMode() == EGuildmasterMode.Temple
+                && station.IsLocalVisitorNear(_purseFocus)
+                && TownServiceOfferingPose.VisitorWithin(station.Root, _purseFocus ? 1.65f : 1.4f);
+            _purseFocus = (deliberate || templeOpen && !WantsMerchantFanAtCounter(station.Root))
+                && !TownServiceMerchantHandoff.WantsOffering
+                && !TownServiceEnhancementHandoff.HasCurrentOffering;
+            return _purseFocus;
+        }
+    }
+
     internal bool AllowsHand(VRHand hand) => Available
         && hand != (VRHands.Primary == VRHands.Left ? VRHands.Right : VRHands.Left);
 
@@ -35,25 +60,22 @@ internal sealed class TownServiceTempleOffering : IDisposable
         if (!MapRoomDriver.Active || !WorldUIConfig.ImmersiveTownServices.Value
             || !TownServiceEnhancementHandoff.Enabled || StoryComposite.PointOfNoReturn
             || MapRoomHand.OwnedMerchantCharacter() == null || !TownServicePopulation.Available(2))
-        { _approachInside = false; return; }
+        { _approachInside = _purseFocus = false; return; }
         TownServiceStation? station = TownServicePopulation.Acquire(2);
         bool near = station != null && station.IsLocalVisitorNear(_approachInside)
             && TownServiceOfferingPose.VisitorWithin(station.Root, 1.4f);
         if (!near) { _approachInside = false; return; }
         EGuildmasterMode destination = GuildmasterDestinations.CurrentDestinationMode();
         if (destination == EGuildmasterMode.Temple) return;
-        // The enchantress's physical approach tick runs just before ours. Both small
-        // visitor volumes overlap near their midpoint; without one distance decision,
-        // this tick can immediately replace the native shop and remove its palm cue in
-        // the same frame. Keep a 12 cm preference for the resident already serving us.
-        if (destination == EGuildmasterMode.Enchantress && VRRigDriver.HeadCamera != null
-            && TownServiceEnhancementHandoff.PrefersEnchantress(
-                VRRigDriver.HeadCamera.transform.position, destination))
+        // The residents' attention volumes intentionally overlap. A head position is not a
+        // request to replace another service's native hand mode: Build 581 could otherwise
+        // close the enchantress's palm while she was visibly offering it. A free, revealed
+        // offhand placed at the priestess's actual bowl is a deliberate temple interaction.
+        // It is independent of which other resident is also looking at this visitor.
+        bool foreign = destination != EGuildmasterMode.None;
+        if (foreign && !WantsPurseAtBowl(station!.Root))
         { _approachInside = false; return; }
-        // A foreign service owns a different hand/fan mode. Clear any earlier Temple latch before
-        // considering a physical switch, so a blocked switch (modal confirmation, held card, or
-        // native refusal) can be retried and a later return can never inherit stale Temple state.
-        if (destination != EGuildmasterMode.None) _approachInside = false;
+        if (foreign) _approachInside = false;
         // The latch describes the small physical APPROACH volume, not the resident's larger
         // attention/exit hysteresis. Build 561 kept it armed through 1.65 m. The three stands are
         // close enough that walking from the priestess to another resident can remain inside that
@@ -64,6 +86,8 @@ internal sealed class TownServiceTempleOffering : IDisposable
         // returning creates one fresh edge. A foreign destination clears the latch separately.
         if (_approachInside || Time.unscaledTime < _approachAt
             || VRHands.Left?.Grabber.Held is VRCard || VRHands.Right?.Grabber.Held is VRCard) return;
+        if (foreign && (TownServiceMerchantHandoff.WantsOffering
+            || TownServiceEnhancementHandoff.HasCurrentOffering)) return;
         if (Core.Events.VRModeStateMachine.CurrentMode == Core.Events.VRMode.ModalUI
             || !MapRoomDriver.CanVisitTownService(EGuildmasterMode.Temple)) return;
         _approachInside = true;
@@ -82,6 +106,37 @@ internal sealed class TownServiceTempleOffering : IDisposable
             // equivalent character records and the slot is the identity the player selected.
             selectedSlot.OnClick();
         }
+    }
+
+    private static bool WantsPurseAtBowl(Transform station)
+    {
+        VRHand? hand = VRHands.Primary == VRHands.Left ? VRHands.Right : VRHands.Left;
+        if (hand == null || !hand.HasPose || hand.Grabber.Held != null
+            || !(CardsConfig.RevealAlways || hand.PalmGate.IsOpen)) return false;
+        // Use the same shared physical bowl as the accepted purse drop. A head-only
+        // overlap cannot switch services; a hand in front of the altar can.
+        Vector3 bowl = station.TransformPoint(TownServiceRitualLayout.Origin + TownServiceTempleBowl.Center);
+        float scale = Mathf.Max(.01f, Mathf.Abs(station.lossyScale.x));
+        return Vector3.Distance(hand.Rig.PalmCenter.position, bowl) <= .40f * scale;
+    }
+
+    private static bool WantsMerchantFanAtCounter(Transform temple)
+    {
+        VRHand? hand = VRHands.Primary == VRHands.Left ? VRHands.Right : VRHands.Left;
+        if (hand == null || !hand.HasPose || hand.Grabber.Held != null
+            || !(CardsConfig.RevealAlways || hand.PalmGate.IsOpen)
+            || !TownServicePopulation.Available(1)) return false;
+        TownServiceStation? merchant = TownServicePopulation.Acquire(1);
+        if (merchant == null) return false;
+        Vector3 palm = hand.Rig.PalmCenter.position;
+        Vector3 toMerchant = palm - merchant.Root.position;
+        Vector3 toTemple = palm - temple.position;
+        toMerchant.y = toTemple.y = 0f;
+        float scale = Mathf.Max(.01f, Mathf.Abs(merchant.Root.lossyScale.x));
+        // Move the free fan hand toward the neighboring physical counter, rather
+        // than forcing the visitor to walk outside both overlapping head volumes.
+        return toMerchant.magnitude < 1.05f * scale
+            && toMerchant.magnitude + .16f * scale < toTemple.magnitude;
     }
 
     internal TownServiceTempleOffering(TownServiceRitual ritual, UITempleWindow temple, Transform station)

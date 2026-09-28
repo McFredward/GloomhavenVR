@@ -125,7 +125,7 @@ namespace GloomhavenVR.WorldUI
         internal TownActivityVisual LastActivity;
         internal void SampleActivity(in TownActivityVisual pose) { LastActivity=pose; }
         internal bool LastActivityAudioVisible;
-        internal void SampleActivityAudio(int author,uint epoch,float clock,bool visible,in TownActivityVisual shown)
+        internal void SampleActivityAudio(int author,uint epoch,float clock,bool visible,in TownActivityVisual shown,bool lookingAtVisitor)
         { LastActivityAudioVisible=visible; }
         internal int ClothAuthorTicks, ClothObserverTicks;
         internal GloomhavenVR.Net.TownClothRunnerState ClothFirst, ClothSecond;
@@ -155,7 +155,18 @@ namespace GloomhavenVR.WorldUI
 }
 namespace GloomhavenVR.Net.TownServices
 {
+    using System.Collections.Generic;
     using UnityEngine;
+    internal readonly struct TownTempleDonationState
+    {
+        internal readonly int Peer;
+        internal readonly uint Session;
+        internal readonly bool Known, Available;
+        internal readonly uint Revision;
+        internal readonly float TransitionAge;
+        internal TownTempleDonationState(int peer,uint session,bool known,bool available,uint revision,float transitionAge)
+        { Peer=peer;Session=session;Known=known;Available=available;Revision=revision;TransitionAge=transitionAge; }
+    }
     internal sealed class TownServiceSessionInfo
     { internal bool Active;internal byte Service;internal float ReceivedTime,LastSeenTime,SessionAge;internal int Peer; }
     internal static class TownServiceMirror
@@ -165,6 +176,7 @@ namespace GloomhavenVR.Net.TownServices
         internal static int TempleOwner;
         internal static uint TempleSession,TempleRevision;
         internal static float TempleTransitionAge;
+        internal static readonly List<TownTempleDonationState> TempleStates=new();
         internal static readonly Dictionary<int,TownServiceSessionInfo> RemoteSessions=new();
         internal static Func<int,Transform?>? SharedFrameForRemote;
         internal static bool TryInteractionOwner(byte service,out int player,out uint session,out float age)
@@ -186,6 +198,22 @@ namespace GloomhavenVR.Net.TownServices
         {
             owner=TempleOwner;session=TempleSession;known=TempleKnown;available=TempleAvailable;
             revision=TempleRevision;transitionAge=TempleTransitionAge;return TempleReceived;
+        }
+        internal static bool TryTemplePresentationState(out bool hasVisitor,out bool anyCanDonate)
+        {
+            hasVisitor=TempleStates.Count>0||TempleReceived;
+            anyCanDonate=!hasVisitor;
+            if(TempleStates.Count>0)
+            {foreach(var state in TempleStates)if(!state.Known||state.Available)anyCanDonate=true;}
+            else if(TempleReceived)anyCanDonate=!TempleKnown||TempleAvailable;
+            return hasVisitor;
+        }
+        internal static void CollectTempleDonationStates(List<TownTempleDonationState> destination)
+        {
+            destination.Clear();
+            if(TempleStates.Count>0)destination.AddRange(TempleStates);
+            else if(TempleReceived)destination.Add(new TownTempleDonationState(TempleOwner,TempleSession,
+                TempleKnown,TempleAvailable,TempleRevision,TempleTransitionAge));
         }
     }
 }
@@ -268,7 +296,7 @@ namespace GloomhavenVR.WorldUI
 
 // Actual return lifetime has its own production-bound Unity suite.
 namespace GloomhavenVR.WorldUI {
- internal static class TownServiceEnhancementHandoff { internal static readonly System.Collections.Generic.List<object> Returning = new(); }
+ internal static class TownServiceEnhancementHandoff { internal static readonly System.Collections.Generic.List<object> Returning = new(); internal static bool HasVisibleCue; }
 }
 
 namespace GloomhavenVR.WorldUI { internal static class TownServiceMerchantHandoff { internal static bool WantsOffering; } }

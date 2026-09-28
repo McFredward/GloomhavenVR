@@ -18,6 +18,7 @@ internal static class Program
         TownServiceMirror.TempleReceived=false;TownServiceMirror.TempleKnown=false;TownServiceMirror.TempleAvailable=true;
         TownServiceMirror.TempleOwner=0;TownServiceMirror.TempleSession=TownServiceMirror.TempleRevision=0;
         TownServiceMirror.TempleTransitionAge=0;
+        TownServiceMirror.TempleStates.Clear();TownServiceEnhancementHandoff.HasVisibleCue=false;
         TownServiceAvailability.Locked.Clear();
         WorldUIConfig.ImmersiveTownServices.Value=true;MapRoomDriver.Active=true;MapRoomDriver.FrameReady=true;
         StoryComposite.PointOfNoReturn=false;TownServiceVoice.Requests=0;
@@ -161,6 +162,52 @@ internal static class Program
             "temple cover wrist rotation releases continuously on departure: "
             + beforeRoll + " -> " + temple.LastActivity.LeftRoll);
     }
+    private static void TempleConcurrentVisitors()
+    {
+        Reset();TownServiceStation.NearVisitor=true;
+        TownServiceMirror.TempleStates.Add(new TownTempleDonationState(10,1,true,true,4,0f));
+        TownServiceMirror.TempleStates.Add(new TownTempleDonationState(11,2,true,true,7,0f));
+        Tick(.7f);
+        TownServiceStation temple=TownServiceStation.Live[2];
+        TownActivityPose pose=TownServicePopulation.PublishedActivities.Temple;
+        var open=TownServiceActivityMotion.Visual(2,in pose);
+        TownServiceActivityMotion.ApplyTempleBreath(ref open,TownServicePopulation.PublishedActivities.Clock);
+        Check(Vector3.Distance(temple.LastActivity.Left,open.Left)<.0001f,
+            "two eligible visitors retain the shared open bowl");
+
+        TownServiceMirror.TempleStates[0]=new TownTempleDonationState(10,1,true,false,4,0f);
+        Tick(.01f);
+        Check(temple.Blessings==0,"eligibility change without a native commit cannot play a blessing");
+        pose=TownServicePopulation.PublishedActivities.Temple;
+        open=TownServiceActivityMotion.Visual(2,in pose);
+        TownServiceActivityMotion.ApplyTempleBreath(ref open,TownServicePopulation.PublishedActivities.Clock);
+        Check(Vector3.Distance(temple.LastActivity.Left,open.Left)<.0001f,
+            "one ineligible visitor cannot cover the bowl while another can donate");
+
+        TownServiceMirror.TempleStates[1]=new TownTempleDonationState(11,2,true,true,8,.12f);
+        Tick(.01f);
+        Check(temple.Blessings==1,"non-elected eligible visitor's explicit donation plays one blessing");
+        Tick(.01f);Check(temple.Blessings==1,"unchanged revision cannot replay for either visitor");
+        TownServiceMirror.TempleStates.RemoveAt(1);Tick(.01f);
+        TownServiceMirror.TempleStates.Add(new TownTempleDonationState(11,2,true,true,8,.14f));Tick(.01f);
+        Check(temple.Blessings==1,"transient visitor manifest gap preserves per-session donation baseline");
+
+        TownServiceMirror.TempleStates[1]=new TownTempleDonationState(11,2,true,false,8,.14f);
+        Tick(3f);
+        pose=TownServicePopulation.PublishedActivities.Temple;
+        var closed=TownServiceActivityMotion.Visual(2,in pose);
+        TownServiceActivityMotion.ApplyTempleAvailability(ref closed,false,1f);
+        TownServiceActivityMotion.ApplyTempleBreath(ref closed,TownServicePopulation.PublishedActivities.Clock);
+        Check(Vector3.Distance(temple.LastActivity.Left,closed.Left)<.001f,
+            "bowl cover begins only after every nearby Temple visitor is ineligible");
+        TownServiceMirror.TempleStates.Add(new TownTempleDonationState(12,3,false,false,0,0f));
+        Tick(TownServiceActivityMotion.TransitionSeconds);
+        pose=TownServicePopulation.PublishedActivities.Temple;
+        open=TownServiceActivityMotion.Visual(2,in pose);
+        TownServiceActivityMotion.ApplyTempleBreath(ref open,TownServicePopulation.PublishedActivities.Clock);
+        Check(Vector3.Distance(temple.LastActivity.Left,open.Left)<.001f,
+            "new unknown visitor opens bowl until native eligibility is known");
+    }
     private static void StoryCommitment()
     {
         Reset();TownServiceStation.NearVisitor=true;
@@ -195,6 +242,7 @@ internal static class Program
     {
         MerchantOffering();
         TemplePresentation();
+        TempleConcurrentVisitors();
         StoryCommitment();
         LockedResidentLifetime();
         Reset();Tick();AllVisible();Check(TownServicePopulation.Published.Active,"ready population advertised");

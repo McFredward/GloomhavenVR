@@ -10,28 +10,31 @@ namespace GloomhavenVR.WorldUI;
 /// The canonical parchment frame never uses a visitor's zoom, head pose or environment choice.</summary>
 internal static class TownServicePopulation
 {
-    /// <summary>Tracks the committed temple edge independently of the temporary native
-    /// window lifetime. Losing a manifest for a frame, rebuilding the private ritual, or
-    /// hydrating an already-unavailable session must never replay a blessing. A new owner or
-    /// session establishes a baseline; only a later revision in that same session is live.</summary>
-    internal struct TempleBlessingGate
+    /// <summary>Track explicit committed donation revisions per visitor session. A character
+    /// change can alter eligibility without a donation, and the elected interaction owner
+    /// need not be the visitor who donated. Reopening or a one-frame manifest gap retains
+    /// each baseline. Old sessions are bounded because their manifests cannot return after
+    /// dozens of later openings in the same map.</summary>
+    internal sealed class TempleBlessingGate
     {
-        private int _owner;
-        private uint _session, _revision;
-        private bool _initialized;
+        private readonly Dictionary<(int Owner, uint Session), uint> _seen = new();
+        private readonly Queue<(int Owner, uint Session)> _order = new();
 
         internal bool Observe(bool received, int owner, uint session, bool known,
             bool available, uint revision)
         {
-            if (!received) return false; // Keep the baseline across transient close/reopen gaps.
-            bool sameSession = _initialized && _owner == owner && _session == session;
-            bool advanced = unchecked((int)(revision - _revision)) > 0;
-            bool play = sameSession && known && !available && advanced;
-            _owner = owner;
-            _session = session;
-            _revision = revision;
-            _initialized = true;
-            return play;
+            if (!received || owner <= 0 || session == 0) return false;
+            var key = (owner, session);
+            if (!_seen.TryGetValue(key, out uint previous))
+            {
+                _seen.Add(key, revision);
+                _order.Enqueue(key);
+                if (_order.Count > 64) _seen.Remove(_order.Dequeue());
+                return false;
+            }
+            bool committed = known && unchecked((int)(revision - previous)) > 0;
+            if (committed) _seen[key] = revision;
+            return committed;
         }
     }
 
@@ -42,20 +45,19 @@ internal static class TownServicePopulation
         internal byte Clip;
         internal TownActivityPose Activity = new TownActivityPose { TransitionAge = TownServiceActivityMotion.TransitionSeconds };
         internal float MerchantOfferingBlend;
-        internal TempleBlessingGate TempleBlessing;
+        internal readonly TempleBlessingGate TempleBlessing = new();
         internal float TempleUnavailableBlend;
         internal bool TempleDirectCover;
         internal bool TempleHydratingCover;
         internal bool TempleUnavailableSpoken;
         internal bool TempleAvailabilityObserved;
         internal float TempleBlessingStartedAt = float.NegativeInfinity;
-        internal int TempleVoiceOwner;
-        internal uint TempleVoiceSession;
         internal bool ObservedActivity;
         internal readonly TownServiceActivityHandover Handover = new();
         internal TownServiceVisitTarget Visit = null!;
     }
     private static readonly Dictionary<byte, Resident> Residents = new();
+    private static readonly List<TownTempleDonationState> TempleDonationStates = new(4);
     private static GameObject? _frame;
     internal static Transform? Frame => _frame != null ? _frame.transform : null;
     internal static TownResidentsState Published { get; private set; }
@@ -77,6 +79,15 @@ internal static class TownServicePopulation
                 if (remote.Active && now - remote.LastSeenTime <= NetProtocol.StaleTimeoutSeconds) return true;
             return false;
         }
+    }
+
+    private static bool HasFreshRemoteEnchantressVisit()
+    {
+        float now = Time.unscaledTime;
+        foreach (TownServiceSessionInfo visitor in TownServiceMirror.RemoteSessions.Values)
+            if (visitor.Active && visitor.Service == 3
+                && now - visitor.LastSeenTime <= NetProtocol.StaleTimeoutSeconds) return true;
+        return false;
     }
 
     internal static bool Prepare()
@@ -233,6 +244,14 @@ internal static class TownServicePopulation
                     // The face starts looking at this visitor immediately. The merchant's
                     // coin hand may finish a transfer before body attention begins.
                     lookingAtVisitor = engaged;
+                    // The enchantress's offered hand is not a generic greeting pose. An
+                    // overlapping visitor can receive her gaze while their native hand/fan
+                    // belongs to another resident. Only an actual owner cue (or a fresh
+                    // remote native enchantress visit) may author the hand extension; the
+                    // shared activity stream then gives every observer the same transition.
+                    if (service == 3 && interactive)
+                        engaged &= TownServiceEnhancementHandoff.HasVisibleCue
+                            || HasFreshRemoteEnchantressVisit();
                     // Finish the current coin contact before greeting. Immediate
                     // attention could strand a gripped coin in midair; this authored
                     // decision is carried in the ordinary occupation stream.
@@ -271,17 +290,17 @@ internal static class TownServicePopulation
             }
             else if (service == 2)
             {
-                bool received = TownServiceMirror.TryTempleDonationState(out int owner, out uint session,
-                    out bool known, out bool available, out uint revision, out float transitionAge);
-                if (received && (owner != resident.TempleVoiceOwner || session != resident.TempleVoiceSession))
-                {
-                    resident.TempleVoiceOwner = owner;
-                    resident.TempleVoiceSession = session;
-                    resident.TempleUnavailableSpoken = false;
-                    resident.TempleAvailabilityObserved = false;
-                    resident.TempleHydratingCover = false;
-                }
-                bool donationCommitted = resident.TempleBlessing.Observe(received, owner, session, known, available, revision);
+                TownServiceMirror.TryTemplePresentationState(out bool received, out bool anyCanDonate);
+                TownServiceMirror.CollectTempleDonationStates(TempleDonationStates);
+                bool donationCommitted = false;
+                float transitionAge = float.PositiveInfinity;
+                foreach (TownTempleDonationState state in TempleDonationStates)
+                    if (resident.TempleBlessing.Observe(true, state.Peer, state.Session,
+                        state.Known, state.Available, state.Revision))
+                    {
+                        donationCommitted = true;
+                        transitionAge = Mathf.Min(transitionAge, state.TransitionAge);
+                    }
                 if (donationCommitted)
                 {
                     // The native donation callback requests her gratitude. Availability also
@@ -298,7 +317,11 @@ internal static class TownServicePopulation
                 // temporary interaction record must release it over the same analytic transition
                 // as attention. Resetting this value to zero produced the recorded one-frame
                 // bowl-cover -> prayer snap every time the visitor walked away.
-                bool unavailable = interactive && received && known && !available;
+                // All visitors see one bowl. It stays open while any visitor's character
+                // can donate; a different local character's purse remains individually
+                // disabled by the original native TempleEligible check in TownServiceRitual.
+                // Unknown fresh eligibility is treated as open until its owner publishes.
+                bool unavailable = interactive && received && !anyCanDonate;
                 // If the first state seen on approach is already unavailable, attention must
                 // travel directly from prayer to the covered bowl. Ramping a second blend from
                 // zero made the first half of the entrance visibly pass through the available
@@ -313,7 +336,7 @@ internal static class TownServicePopulation
                     resident.TempleDirectCover = displayedActivity.Attention <= .05f;
                     resident.TempleHydratingCover = !resident.TempleDirectCover;
                 }
-                if (received && known) resident.TempleAvailabilityObserved = true;
+                if (received) resident.TempleAvailabilityObserved = true;
                 if (unavailable && resident.TempleDirectCover)
                     resident.TempleUnavailableBlend = 1f;
                 else if (unavailable && resident.TempleHydratingCover)
