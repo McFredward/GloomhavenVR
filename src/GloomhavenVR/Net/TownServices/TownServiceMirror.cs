@@ -66,14 +66,15 @@ internal static partial class TownServiceMirror
             TownServiceSessionInfo visit = pair.Value;
             if (pair.Key <= 0 || !visit.Active || visit.Service != 3
                 || now - visit.LastSeenTime > NetProtocol.StaleTimeoutSeconds) continue;
-            if (visit.TransactionActive && TransactionOwner(3) == pair.Key) return true;
             if (!Remote.TryGetValue(pair.Key, out Dictionary<ushort, RemoteModule>? modules)) continue;
             foreach (RemoteModule module in modules.Values)
             {
-                if (module.Session != visit.Session || module.Address != "merchant.zone"
-                    || !module.Host.activeInHierarchy) continue;
+                if (module.Session != visit.Session || !module.Host.activeInHierarchy) continue;
                 CanvasGroup? parent = module.Host.GetComponent<CanvasGroup>();
                 if (parent != null && parent.alpha <= .01f) continue;
+                if (visit.TransactionActive && module.Address.StartsWith("face.", StringComparison.Ordinal))
+                    return true;
+                if (module.Address != "merchant.zone") continue;
                 CanvasGroup? cue = module.Binding.Root.GetComponent<CanvasGroup>();
                 if (cue != null && cue.alpha > .01f) return true;
             }

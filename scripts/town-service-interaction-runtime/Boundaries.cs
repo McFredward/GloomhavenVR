@@ -157,7 +157,10 @@ namespace GloomhavenVR.Net.TownServices
     {
         internal static bool LocalOwnsInteraction(byte service, uint session) => true;
         internal static void SetLocalTempleDonationAvailable(bool available) { }
+        internal static void SetLocalTransactionActive(byte service, bool active) { }
+        internal static bool LocalTransactionUnavailable(byte service) => false;
     }
+    internal static class TownServiceGrantSync { internal static bool CanUseImmersive = true; }
 }
 namespace GloomhavenVR.WorldUI.MapRoom
 {
@@ -282,7 +285,9 @@ namespace GloomhavenVR.WorldUI
     {
         internal static bool TestOfferStalled;
         internal OfferingLate? Handoff => TestOfferStalled ? new OfferingLate() : null;
-        internal sealed class OfferingLate { internal bool NativeOfferStalled => TestOfferStalled; internal void LateTick() {} }
+        internal sealed class OfferingLate { internal bool NativeOfferStalled => TestOfferStalled; internal object? Card; internal void LateTick() {} }
+        internal bool HasParkedTempleOffer => false;
+        internal bool TempleGrantStalled => false;
         internal static bool Fail;
         private readonly List<TownServiceToken> _tokens = new();
         private readonly Dictionary<Transform, Transform> _parents = new();
@@ -403,7 +408,7 @@ namespace GloomhavenVR.WorldUI { internal static class TownServiceEnhancementHan
 
 namespace GloomhavenVR.WorldUI {internal static class TownServicePublicMerchant {internal static void Tick(){}internal static void LateTick(){}internal static void Reset(){} }}
 
-namespace GloomhavenVR.WorldUI { internal static class TownServiceMerchantHandoff {internal static bool Reclaim; internal static bool CanReclaim(TownServiceToken token)=>Reclaim; internal static void LateTick(){} } }
+namespace GloomhavenVR.WorldUI { internal static class TownServiceMerchantHandoff {internal static bool Reclaim; internal static bool HasParkedOffer; internal static bool CanReclaim(TownServiceToken token)=>Reclaim; internal static void LateTick(){} internal static void Reset(){} } }
 
 public class UIItemConfirmationBox : MonoBehaviour {
  public Component titleText=null!,informationText=null!; public Button confirmButton=null!,cancelButton=null!;

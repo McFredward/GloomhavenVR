@@ -196,7 +196,7 @@ def mutations():
          "deliberate fan-hand focus switches from a completed temple visit"),
         ("held-merchant-offer", name,
          "if (destination == EGuildmasterMode.Merchant && TownServiceMerchantHandoff.WantsOffering) return;",
-         "if (false) return;",
+         "if (destination == EGuildmasterMode.Temple && TownServiceMerchantHandoff.WantsOffering) return;",
          "parked merchant item is not interrupted by a competing mage hand focus"),
         ("hand-focus-radius", name,
          "|| !NearVisitor(mage.Root, wrist.position, 1.05f)",
