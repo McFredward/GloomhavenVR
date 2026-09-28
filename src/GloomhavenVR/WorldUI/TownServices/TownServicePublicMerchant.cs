@@ -54,6 +54,7 @@ internal static class TownServicePublicMerchant
     internal static void Tick()
     {
         if (!MapRoomDriver.Active || !WorldUIConfig.ImmersiveTownServices.Value
+            || !TownServiceGrantSync.CanUseImmersive
             || !TownServiceAvailability.NativeUnlocked(1)
             || TownServicePresentation.NativeFallbackFor(1))
         { Reset(); Failures.Clear(); _failed = false; _retryAt = 0; return; }

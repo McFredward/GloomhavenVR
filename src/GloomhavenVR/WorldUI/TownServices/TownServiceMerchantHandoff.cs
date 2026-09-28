@@ -84,6 +84,7 @@ internal static class TownServiceMerchantHandoff
         CMapCharacter? selected = MapRoomHand.OwnedMerchantCharacter();
         EGuildmasterMode mode = GuildmasterDestinations.CurrentDestinationMode();
         bool context = MapRoomDriver.Active && WorldUIConfig.ImmersiveTownServices.Value
+            && TownServiceGrantSync.CanUseImmersive
             && TownServiceEnhancementHandoff.Enabled && !StoryComposite.PointOfNoReturn
             && !TownServicePresentation.NativeFallbackFor(1)
             && selected != null && TownServicePopulation.Available(1)

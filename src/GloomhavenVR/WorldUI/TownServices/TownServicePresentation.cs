@@ -61,6 +61,7 @@ internal static class TownServicePresentation
         && _enhancementListMask != null
         && GuildmasterDestinations.CurrentDestinationMode() == EGuildmasterMode.Enchantress;
     internal static bool Active => WorldUIConfig.ImmersiveTownServices.Value
+        && TownServiceGrantSync.CanUseImmersive
         && TownServiceAvailability.NativeUnlocked(Service)
         && ((Service != 1 && Service != 3) || TownServiceEnhancementHandoff.Enabled)
         && _window != null && _window.IsOpen && _station != null;
@@ -99,6 +100,7 @@ internal static class TownServicePresentation
     {
         if (window == null || !MapRoomDriver.Active || !WorldUIConfig.ImmersiveTownServices.Value)
             return false;
+        if (!TownServiceGrantSync.CanUseImmersive) return false;
         EGuildmasterMode mode = GuildmasterDestinations.CurrentDestinationMode();
         if (mode != EGuildmasterMode.Merchant && mode != EGuildmasterMode.Temple
             && mode != EGuildmasterMode.Enchantress)
@@ -137,7 +139,7 @@ internal static class TownServicePresentation
 
     private static void TickCore()
     {
-        if (!WorldUIConfig.ImmersiveTownServices.Value)
+        if (!WorldUIConfig.ImmersiveTownServices.Value || !TownServiceGrantSync.CanUseImmersive)
         {
             // Cancel samples before restoring their source widgets. Never close/reopen the
             // native controller: its character, selection and pending confirmation stay intact.
