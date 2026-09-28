@@ -182,12 +182,15 @@ internal sealed class TownServiceEnhancementHandoff : IDisposable
         && (!_shop._isConfirmationBoxOpened || TownServicePalmConfirmation.OwnsCurrent(
             Singleton<UIEnhancementConfirmationBox>.Instance?.GetComponent<UIWindow>()));
     private bool Ready => !_disposed && _shop != null && _window != null && _window.IsOpen
+        && TownServiceGrantSync.CanUseImmersive
         && !_shop._isConfirmationBoxOpened && _alive() && _input()
-        && (Card != null || TownServiceMirror.CanLocalBeginTransaction(3));
+        && (Card == null ? TownServiceMirror.CanLocalBeginTransaction(3)
+            : !_claimPending && TownServiceMirror.LocalTransactionSettled(3));
 
     internal static void TickApproach()
     {
         if (!MapRoomDriver.Active || !WorldUIConfig.ImmersiveTownServices.Value || !Enabled
+            || !TownServiceGrantSync.CanUseImmersive
             || !TownServicePopulation.Available(3))
         {
             _headInside = _cardInside = _pendingApproach = _magePreferredInside = _abilityFanFocused = false;
@@ -310,6 +313,7 @@ internal sealed class TownServiceEnhancementHandoff : IDisposable
     private static bool RefreshAbilityFanFocus()
     {
         if (!MapRoomDriver.Active || !WorldUIConfig.ImmersiveTownServices.Value || !Enabled
+            || !TownServiceGrantSync.CanUseImmersive
             || StoryComposite.PointOfNoReturn || !TownServicePopulation.Available(3))
             return _abilityFanFocused = false;
         TownServiceStation? mage = TownServicePopulation.Acquire(3);
@@ -475,7 +479,8 @@ internal sealed class TownServiceEnhancementHandoff : IDisposable
             // original card parked and reclaimable while waiting, then return it if
             // the claim never becomes ours. No gameplay callback runs on timeout.
             if (!ValidOwner(Card) || !_alive() || _palm == null || _shop == null
-                || _window == null || !_window.IsOpen || Time.unscaledTime >= _claimDeadline)
+                || _window == null || !_window.IsOpen || TownServiceMirror.LocalTransactionDenied(3)
+                || Time.unscaledTime >= _claimDeadline)
             { Return(); return; }
             if (!TownServiceMirror.LocalTransactionSettled(3)) return;
             UIEnhanceCardSlot? pendingSlot = FindAvailableSlot(_model);
@@ -496,6 +501,7 @@ internal sealed class TownServiceEnhancementHandoff : IDisposable
                     ?? selected.gameObject.AddComponent<TownServiceNativeEnhancementCardMask>()).Mask();
             _claimPending = false;
         }
+        if (TownServiceMirror.LocalTransactionDenied(3)) { Return(); return; }
         if (!ValidOwner(Card) || !_alive() || _palm == null || _shop == null || _window == null || !_window.IsOpen
             || _shop.selectedCard == null || !SameCard(_shop.selectedCard.AbilityCard, _model)
             || VRRigDriver.HeadCamera != null && !NearVisitor(_seat, VRRigDriver.HeadCamera.transform.position, 2.25f))
@@ -622,6 +628,10 @@ internal sealed class TownServiceEnhancementHandoff : IDisposable
         if (_claimPending) return false;
         if (Card == null && !TownServiceMirror.LocalTransactionSettled(3))
             return ParkAwaitingClaim(card, model!, found);
+        // A replacement may not call the original native selector after this
+        // resident's grant expires. Refuse the new card and retain the first one;
+        // its independent reclaim/return path remains available.
+        if (Card != null && !TownServiceMirror.LocalTransactionSettled(3)) return false;
         VRCard? existing = Card;
         UIEnhanceCardSlot? existingSlot = NativeSlot;
         // Original selection changes only the candidate; gold and enhancements still require

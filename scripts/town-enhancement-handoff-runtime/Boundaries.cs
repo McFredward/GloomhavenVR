@@ -87,12 +87,15 @@ namespace GloomhavenVR.Hands
 namespace GloomhavenVR.Rig { public static class VRRigDriver { public static Camera? HeadCamera; } }
 namespace GloomhavenVR.Net.TownServices
 {
+    public static class TownServiceGrantSync { public static bool CanUseImmersive = true; }
     public static class TownServiceMirror
     {
         public static bool Settled = true;
         public static bool CanBegin = true;
+        public static bool Denied;
         public static bool CanLocalBeginTransaction(byte service) => service == 3 && CanBegin;
         public static bool LocalTransactionSettled(byte service) => service == 3 && Settled;
+        public static bool LocalTransactionDenied(byte service) => service == 3 && Denied;
     }
 }
 namespace GloomhavenVR.Cards

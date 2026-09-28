@@ -526,6 +526,31 @@ public static class InteractionProgram
             claim.Tick();
             Check(nativeSelections == 1 && ReferenceEquals(claim.Card, card),
                 "settled resident claim selects the original native enhancement card exactly once");
+            var replacement = new GameObject("Ungrantable replacement", typeof(VRCard)).GetComponent<VRCard>();
+            replacement.transform.SetParent(root.transform, false);
+            replacement.Owner = shop.character; replacement.Model.ID = card.Model.ID;
+            replacement.transform.position = claim.Seat.position;
+            GloomhavenVR.Net.TownServices.TownServiceMirror.Settled = false;
+            Check(!TownServiceEnhancementHandoff.TryOffer(replacement)
+                && ReferenceEquals(claim.Card, card) && nativeSelections == 1,
+                "expired resident grant refuses replacement without evicting the parked original");
+            GloomhavenVR.Net.TownServices.TownServiceMirror.Settled = true;
+        }
+        var deniedCard = new GameObject("Denied claim card", typeof(VRCard)).GetComponent<VRCard>();
+        deniedCard.transform.SetParent(root.transform, false);
+        deniedCard.Owner = shop.character; deniedCard.Model.ID = card.Model.ID;
+        CardsDriver.OffScenarioFanCards = new[] { deniedCard };
+        GloomhavenVR.Net.TownServices.TownServiceMirror.Settled = false;
+        using (var claim = new TownServiceEnhancementHandoff(shop, station, () => true, () => true))
+        {
+            claim.Tick(); deniedCard.transform.position = claim.Seat.position;
+            Check(TownServiceEnhancementHandoff.TryOffer(deniedCard),
+                "physical card starts a new per-resident grant request");
+            GloomhavenVR.Net.TownServices.TownServiceMirror.Denied = true;
+            claim.Tick();
+            Check(claim.Card == null && CardsDriver.LastReturned == deniedCard && nativeSelections == 1,
+                "host Busy returns the parked Mage card immediately without native selection");
+            GloomhavenVR.Net.TownServices.TownServiceMirror.Denied = false;
         }
         var timeoutCard = new GameObject("Claim timeout card", typeof(VRCard)).GetComponent<VRCard>();
         timeoutCard.transform.SetParent(root.transform, false);
@@ -895,6 +920,12 @@ public static class InteractionProgram
         Check(MapRoomDriver.Visits == 0, "native unavailable service never opens");
         MapRoomDriver.CanVisit = true; Outside();
         TownServiceEnhancementHandoff.TickApproach(); Check(MapRoomDriver.Visits == 0, "distant card never opens service");
+        GloomhavenVR.Net.TownServices.TownServiceGrantSync.CanUseImmersive = false;
+        Offer();
+        Check(MapRoomDriver.Visits == 0,
+            "an incompatible multiplayer host leaves the original native service path available");
+        GloomhavenVR.Net.TownServices.TownServiceGrantSync.CanUseImmersive = true;
+        Outside();
         Offer();
         Check(MapRoomDriver.Visits == 1, "owned card approach opens through original native visit");
         Check(ReferenceEquals(NewPartyDisplayUI.PartyDisplay.SelectedUISlot, selectedSlot)
