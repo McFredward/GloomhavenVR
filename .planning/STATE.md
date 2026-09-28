@@ -2,11 +2,11 @@
 
 **Updated 2026-09-28: feature/immersive-town-services, version 1.1.0 hardware candidate.**
 The feature includes released 1.0.8 / ModBuild 556 and the subsequent 1.0.9
-corrections on `dev`. ModBuild 580 is a partial follow-up to build-579 headset
-evidence: merchant greeting distance, priestess arm transition, and town cloth
-hand contact. The merchant's visible hand-to-belly gap remains open. The new
-motion and cloth candidates have been checked in executable Unity; headset
-review of their appearance remains open.
+corrections on `dev`. ModBuild 581 addresses build-580 headset evidence:
+merchant greeting delay, enchantress approach without native handoff, and
+laser pass-through on scenario story and close controls. Build 580's priestess
+motion and cloth candidates still await headset review. The merchant's visible
+hand-to-belly gap remains open; no unverified asset pose was shipped.
 ModBuild 578 followed build-577 headset evidence and added the native creator
 and actor-bar corrections from dev ModBuild 557. ModBuild 577
 followed build-576 headset evidence:
@@ -19,7 +19,8 @@ voices, shared merchant confirmation presentation, a visible temple donation
 target, cloth contact, cabinet detail and varied idle motion.
 Headset verification of the resulting presentation remains open. Historical NPC
 design: [research/TOWN-SERVICES-552.md](research/TOWN-SERVICES-552.md).
-Current evidence and implementation limits: [TOWN-580.md](TOWN-580.md).
+Current evidence and implementation limits: [TOWN-581.md](TOWN-581.md),
+[TOWN-580.md](TOWN-580.md).
 The feature remains isolated from `dev`, and NPC work belongs on this branch.
 It also incorporates the later `dev` ModBuild 557 actor-bar and character-creator
 corrections ([BARS-CREATOR-557.md](BARS-CREATOR-557.md)).
@@ -36,6 +37,15 @@ change per build) → this file (where things stand and what is owed) → the bu
 ---
 
 ## 1. Position
+
+- **NPC feature / 1.1.0 / ModBuild 581 (hardware candidate):** merchant speech
+  follows the face's visitor target ahead of delayed coin-hand attention;
+  enchantress approach switches idle resident destinations and resolves the
+  narrow temple overlap; active transparent story/close targets once again
+  receive laser input. The last two fixes address a scenario progression
+  deadlock and a card handoff deadlock observed in Build 580. Automated checks
+  verify the intended gates; headset behavior remains to be confirmed. See
+  [TOWN-581.md](TOWN-581.md). The merchant hand/coat asset remains open.
 
 - **NPC feature / 1.1.0 / ModBuild 580 (partial hardware candidate):** the elected
   face author greets a visitor when the merchant first turns to look at them,

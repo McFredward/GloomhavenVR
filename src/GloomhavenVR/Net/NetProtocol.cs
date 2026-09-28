@@ -541,7 +541,18 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 580;
+    public const ushort ModBuild = 581;
+
+    // ModBuild 581 — town interaction and shared-window laser follow-up.
+    // The face author's actual visitor target now starts merchant greeting
+    // before the coin hand is free to enter body attention. An enchantress
+    // physical approach can switch an idle Merchant/Temple native destination,
+    // while preserving a live modal and the selected character; overlapping
+    // approach volumes cannot replace the new visit in the same frame.
+    // Active transparent native click targets and mod close hit planes are
+    // laser surfaces again, including scenario story and combat-log X. Empty
+    // transparent layout remains pass-through. No wire layout change. Build
+    // 580 logs prove the missing input; headset confirmation of 581 is open.
 
     // ModBuild 580 — twentieth NPC hardware follow-up on the feature branch.
     // The merchant greets at the shared gaze edge rather than waiting for the

@@ -92,7 +92,9 @@ internal static class TownServiceVoice
             bool wasPending = service == 1 && _schedule.At(service).Pending;
             _schedule.Work(service, workClock, shown.Cast, shown.Attention, lookingAtVisitor,
                 visible, Time.unscaledTime);
-            if (service == 1 && !wasPending && _schedule.At(service).Pending && VRLog.WantsDebug)
+            if (service == 1 && !wasPending && _schedule.At(service).Pending
+                && _schedule.At(service).PendingCue >= 1 && _schedule.At(service).PendingCue <= 5
+                && VRLog.WantsDebug)
                 VRLog.Debug("TownServices", "Merchant gaze queued speech: bodyAttention="
                     + shown.Attention.ToString("F2") + ", visible=" + visible);
         }
