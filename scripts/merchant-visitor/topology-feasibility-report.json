@@ -1,0 +1,85 @@
+{
+  "source": "unity/GloomhavenVR.Assets/Assets/Bundle/TownServices/Actors/merchant/merchant_rig.fbx",
+  "seed_polygons": 32,
+  "ring_polygons": 77,
+  "split_edge_instances": 165,
+  "physical_split_edges": 165,
+  "before": {
+    "vertices": 68701,
+    "polygons": 98717,
+    "physical_boundary_edges": 903,
+    "physical_nonmanifold_edges": 292,
+    "degenerate_polygons": 0,
+    "shape_keys": [
+      "Basis",
+      "BlinkLeft",
+      "BlinkRight",
+      "JawOpen",
+      "MouthWide",
+      "MouthRound",
+      "Smile",
+      "BrowRaise",
+      "LidUpLeft",
+      "LidDownLeft",
+      "LidUpRight",
+      "LidDownRight"
+    ],
+    "uv_layers": [
+      "FaceAtlas",
+      "RigContract"
+    ]
+  },
+  "after": {
+    "vertices": 68877,
+    "polygons": 98959,
+    "physical_boundary_edges": 921,
+    "physical_nonmanifold_edges": 292,
+    "degenerate_polygons": 0,
+    "shape_keys": [
+      "Basis",
+      "BlinkLeft",
+      "BlinkRight",
+      "JawOpen",
+      "MouthWide",
+      "MouthRound",
+      "Smile",
+      "BrowRaise",
+      "LidUpLeft",
+      "LidDownLeft",
+      "LidUpRight",
+      "LidDownRight"
+    ],
+    "uv_layers": [
+      "FaceAtlas",
+      "RigContract"
+    ]
+  },
+  "shape_key_lengths": {
+    "Basis": 68877,
+    "BlinkLeft": 68877,
+    "BlinkRight": 68877,
+    "JawOpen": 68877,
+    "MouthWide": 68877,
+    "MouthRound": 68877,
+    "Smile": 68877,
+    "BrowRaise": 68877,
+    "LidUpLeft": 68877,
+    "LidDownLeft": 68877,
+    "LidUpRight": 68877,
+    "LidDownRight": 68877
+  },
+  "underweighted_vertices": 0,
+  "maximum_weight_sum_error": 8.055940270423889e-07,
+  "new_vertex_faces": 378,
+  "minimum_rest_normal_dot": 0.9999998174607754,
+  "maximum_rest_surface_error_m": 1.4057727071303816e-07,
+  "minimum_posed_normal_dot": 0.9986453950405121,
+  "minimum_parent_posed_normal_dot": 0.9986454546451569,
+  "bad_posed_faces": [],
+  "maximum_posed_surface_error_m": 5.9494552260730416e-05,
+  "boundary_delta": 18,
+  "boundary_length_delta_m": 2.9530042116920896e-05,
+  "unexplained_new_boundary_edges": 0,
+  "nonmanifold_delta": 0,
+  "degenerate_delta": 0
+}
