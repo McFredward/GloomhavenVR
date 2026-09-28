@@ -191,9 +191,12 @@ public static class InteractionProgram
   var stock=new CItem{ID=99}; AdventureState.MapState.MapParty.Stock.Add(stock); window.ItemInventory.character=replacement;
   int rejectedFunds=TownServiceVoice.Unaffordable,rejectedStock=TownServiceVoice.SoldOut;
   ShopService.Affordable=false;TownServiceMerchantHandoff.StockInspected(stock,true);
+  Check(TownServiceVoice.Unaffordable==rejectedFunds,"stock inspection waits for the published visitor session before speaking");
+  FlushNextFrameInspectionReaction();
   Check(TownServiceVoice.Unaffordable==rejectedFunds+1&&TownServiceVoice.SoldOut==rejectedStock,
       "physically inspecting unaffordable stock chooses the money explanation");
   ShopService.Affordable=true;TownServiceMerchantHandoff.StockInspected(new CItem{ID=102},false);
+  FlushNextFrameInspectionReaction();
   Check(TownServiceVoice.SoldOut==rejectedStock+1,
       "physically inspecting exhausted stock chooses the availability explanation");
   int beforeStockOffer=TownServiceMerchantTransaction.Requests;
@@ -310,6 +313,16 @@ public static class InteractionProgram
   Check(Singleton<UIItemConfirmationBox>.Instance.IsActive && ReferenceEquals(Singleton<UIItemConfirmationBox>.Instance._onConfirmedCallback,foreign),"reset cannot cancel somebody else's confirmation");
   Check(TownServiceCatalog.Offer==null && TownServiceCatalog.CanOffer==null && TownServiceCatalog.InOfferingZone==null,"reset clears callback lifetime");
   UnityEngine.Object.DestroyImmediate(root);
+ }
+ private static void FlushNextFrameInspectionReaction() {
+  // The production caller publishes its private visit in LateTick and relays a
+  // pickup reaction on the following frame. This synchronous Unity fixture
+  // advances only that frame fence before exercising the real Tick path.
+  var frame=typeof(TownServiceMerchantHandoff).GetField("_inspectedFrame",
+      System.Reflection.BindingFlags.NonPublic|System.Reflection.BindingFlags.Static)!;
+  Check((int)frame.GetValue(null)! == Time.frameCount,"stock pickup queues a next-frame reaction");
+  frame.SetValue(null,Time.frameCount-1);
+  TownServiceMerchantHandoff.Tick();
  }
  private static void ProveInspectionReturnInvariant(Transform rigRoot,CItem item) {
   var fan=ItemsPile.CreateInspection((chip,point,hand)=>{});

@@ -157,9 +157,9 @@ def inspect_purse_contract(source, offering, sync, mirror, templates):
             or "if (piece.Token.IsMoving)" not in sync \
             or "PriorityRoots.Add(piece.Body);" not in sync:
         missing.append("held physical purse does not publish its owner-authored pose")
-    if "secondaryTempleVisitor && !IndependentTemplePurse(received)" not in mirror \
-            or "RetainHeldTemplePurseOnly(standing);" not in mirror \
-            or "frame.TemplateAddress.StartsWith(\"ritual.purse.held|\"" not in mirror:
+    if "secondaryVisitor && !IndependentVisitorModule(received)" not in mirror \
+            or "RetainIndependentVisitorOnly(standing, session.Service);" not in mirror \
+            or "address.StartsWith(\"ritual.purse.held|\"" not in mirror:
         missing.append("secondary temple visitor loses their independent held purse")
     if 'key == "ritual.purse" || key == "ritual.purse.held"' not in templates:
         missing.append("remote held purse has no inert original template")
@@ -209,8 +209,8 @@ def sources(root):
     else:
         raise RuntimeError("Temple purse held-pose publication negative control did not fail")
     elected_only = replace_once(mirror_raw,
-        "if (secondaryTempleVisitor && !IndependentTemplePurse(received)) continue;",
-        "if (secondaryTempleVisitor) continue;")
+        "if (secondaryVisitor && !IndependentVisitorModule(received)) continue;",
+        "if (secondaryVisitor) continue;")
     try:
         inspect_purse_contract(raw, offering_raw, sync_raw, elected_only, templates_raw)
     except RuntimeError:
