@@ -182,7 +182,8 @@ internal sealed class TownServiceEnhancementHandoff : IDisposable
             _approachPalm = station != null ? FindPalm(station.Root) : null;
         }
         Transform? palm = _current?._palm ?? _approachPalm;
-        if (palm == null) return;
+        if (palm == null)
+        { _headInside = _cardInside = _pendingApproach = false; return; }
         Camera? head = VRRigDriver.HeadCamera;
         // Leaving is the same native destination exit as its former X, including selection
         // and confirmation cleanup. Returning a card alone left an empty service open forever.
@@ -201,13 +202,22 @@ internal sealed class TownServiceEnhancementHandoff : IDisposable
         if (held == null || !Near(palm, held.transform.position, 1.05f)) _cardInside = false;
         bool cardEntered = held != null && !_cardInside && Near(palm, held.transform.position, .85f);
         if (cardEntered) _cardInside = true;
-        // The resident can notice the visitor before the map fan finishes loading or while a
-        // modal/rail briefly blocks a native visit. Hold only that initial intent until the
-        // original shop can open. A successfully dispatched press clears it; explicitly
-        // closing the shop while still near therefore never reopens it automatically.
-        if ((headEntered || cardEntered)
-            && GuildmasterDestinations.CurrentDestinationMode() == EGuildmasterMode.None
-            && !StoryComposite.PointOfNoReturn) _pendingApproach = true;
+        // A previous native town service can still own the guildmaster destination as the
+        // visitor reaches this resident. The old None gate consumed the physical entry edge:
+        // _headInside became true while Merchant/Temple was open, but _pendingApproach stayed
+        // false after its exit. In build 578's log, the visitor touched the enchantress's
+        // cloth well before the first enchantress window press. Preserve that one entry until
+        // the foreign destination closes; never switch the game's native mode underneath an
+        // active transaction. A successful press clears the intent, so explicitly closing
+        // this shop while still near does not cause a second automatic open.
+        if ((headEntered || cardEntered) && !StoryComposite.PointOfNoReturn)
+        {
+            if (!_pendingApproach && VRLog.WantsDebug)
+                VRLog.Debug("WorldUI", "TOWN ENHANCEMENT approach pending: destination="
+                    + GuildmasterDestinations.CurrentDestinationMode()
+                    + " heldCard=" + cardEntered + " head=" + headEntered + ".");
+            _pendingApproach = true;
+        }
         if (!_headInside && !_cardInside || StoryComposite.PointOfNoReturn) _pendingApproach = false;
         if (!_pendingApproach || GuildmasterDestinations.CurrentDestinationMode() != EGuildmasterMode.None
             || Core.Events.VRModeStateMachine.CurrentMode == Core.Events.VRMode.ModalUI) return;
