@@ -18,9 +18,11 @@ internal static class TownServiceGrantSync
 {
     private struct Offer
     {
-        internal uint Session, Nonce, Epoch;
+        internal uint Session, Nonce, Epoch, RequestSequence;
         internal bool Active, Denied;
         internal float Started, LastRequest, LastResponse, LastGrant;
+        internal uint[]? SentSequences;
+        internal float[]? SentAt;
     }
     private struct VisibleGrant
     {
@@ -62,11 +64,14 @@ internal static class TownServiceGrantSync
         }
         if (!active || session == 0 || offer.Active) return;
         offer = new Offer { Active = true, Session = session, Nonce = NextNonce(),
-            Started = Time.unscaledTime, LastRequest = float.NegativeInfinity };
+            Started = Time.unscaledTime, LastRequest = float.NegativeInfinity,
+            SentSequences = new uint[8], SentAt = new float[8] };
         if (Host && Ledger.Request(service, LocalPlayer, session, offer.Nonce, Time.unscaledTime))
         {
             offer.Epoch = _epoch; offer.LastGrant = Time.unscaledTime;
-            Broadcast(new TownGrantMessage(TownGrantKind.Grant, service, LocalPlayer, session, offer.Nonce, _epoch));
+            offer.RequestSequence = 1;
+            Broadcast(new TownGrantMessage(TownGrantKind.Grant, service, LocalPlayer,
+                session, offer.Nonce, _epoch, offer.RequestSequence));
         }
     }
 
@@ -114,19 +119,23 @@ internal static class TownServiceGrantSync
             ref Offer offer = ref Offers[service];
             if (!offer.Active || now - offer.LastRequest < RequestInterval) continue;
             offer.LastRequest = now;
+            unchecked { offer.RequestSequence++; if (offer.RequestSequence == 0) offer.RequestSequence++; }
+            int requestSlot = (int)(offer.RequestSequence & 7);
+            offer.SentSequences![requestSlot] = offer.RequestSequence;
+            offer.SentAt![requestSlot] = now;
             if (Host)
             {
                 if (Ledger.Request(service, LocalPlayer, offer.Session, offer.Nonce, now))
                 {
                     offer.Epoch = _epoch; offer.LastGrant = now;
                     Broadcast(new TownGrantMessage(TownGrantKind.Grant, service, LocalPlayer,
-                        offer.Session, offer.Nonce, _epoch));
+                        offer.Session, offer.Nonce, _epoch, offer.RequestSequence));
                 }
                 continue;
             }
             if (!CoordinatorReady) continue;
             Send(new TownGrantMessage(TownGrantKind.Request, service, LocalPlayer,
-                offer.Session, offer.Nonce, 0), hostOnly: true);
+                offer.Session, offer.Nonce, 0, offer.RequestSequence), hostOnly: true);
         }
     }
 
@@ -145,12 +154,12 @@ internal static class TownServiceGrantSync
                 // Session + nonce identify the exact offer even if its first grant was lost.
                 Ledger.Release(message.Service, sender, message.Session, message.Nonce);
                 Broadcast(new TownGrantMessage(TownGrantKind.Release, message.Service,
-                    sender, message.Session, message.Nonce, _epoch));
+                    sender, message.Session, message.Nonce, _epoch, 0));
                 return true;
             }
             bool granted = Ledger.Request(message.Service, sender, message.Session, message.Nonce, now);
             Broadcast(new TownGrantMessage(granted ? TownGrantKind.Grant : TownGrantKind.Busy,
-                message.Service, sender, message.Session, message.Nonce, _epoch));
+                message.Service, sender, message.Session, message.Nonce, _epoch, message.Sequence));
             return true;
         }
         // Only the native host may author grants or denials. A broadcast grant is visible
@@ -169,11 +178,24 @@ internal static class TownServiceGrantSync
         if (message.Player != LocalPlayer) return true;
         ref Offer offer = ref Offers[message.Service];
         if (!offer.Active || offer.Session != message.Session || offer.Nonce != message.Nonce) return true;
+        float sentAt = 0f;
+        if (message.Kind != TownGrantKind.Release)
+        {
+            int slot = (int)(message.Sequence & 7);
+            if (offer.SentSequences == null || offer.SentAt == null
+                || offer.SentSequences[slot] != message.Sequence) return true;
+            sentAt = offer.SentAt[slot];
+        }
         offer.LastResponse = now;
         if (message.Kind == TownGrantKind.Grant)
         {
             if (offer.Epoch != 0 && offer.Epoch != message.Epoch) offer.LastGrant = 0f;
-            offer.Epoch = message.Epoch; offer.LastGrant = now; offer.Denied = false;
+            // The coordinator's eight-second clock started no later than this request.
+            // Measuring our four-second validity from SEND, not receive, prevents a
+            // delayed ReliableOrdered response from outliving the host's reservation.
+            offer.Epoch = message.Epoch;
+            offer.LastGrant = now - sentAt < ClientGrantSeconds ? sentAt : 0f;
+            offer.Denied = false;
         }
         else if (message.Kind == TownGrantKind.Busy)
         { offer.LastGrant = 0f; offer.Denied = true; }
@@ -182,7 +204,11 @@ internal static class TownServiceGrantSync
 
     internal static void ForgetPeer(int player)
     {
-        Ledger.ForgetPeer(player);
+        // Avatar staleness is not a native disconnect. A brief presentation gap can
+        // forget this peer at the 3 s rig timeout while its last client grant is still
+        // valid for 4 s. Revoking the coordinator lease here could grant somebody else
+        // the NPC during that overlap. Let its 8 s coordinator deadline or an exact
+        // offer Release retire it instead.
         for (int service = 1; service <= 3; service++)
             if (Visible[service].Player == player) Visible[service] = default;
         if (player == HostPlayer)
@@ -206,11 +232,11 @@ internal static class TownServiceGrantSync
         {
             Ledger.Release(service, LocalPlayer, offer.Session, offer.Nonce);
             Broadcast(new TownGrantMessage(TownGrantKind.Release, service, LocalPlayer,
-                offer.Session, offer.Nonce, _epoch));
+                offer.Session, offer.Nonce, _epoch, 0));
         }
         else
             Send(new TownGrantMessage(TownGrantKind.Release, service, LocalPlayer,
-                offer.Session, offer.Nonce, offer.Epoch), hostOnly: true);
+                offer.Session, offer.Nonce, offer.Epoch, 0), hostOnly: true);
     }
 
     private static void Broadcast(in TownGrantMessage message) => Send(in message, hostOnly: false);

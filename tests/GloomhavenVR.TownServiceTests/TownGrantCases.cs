@@ -11,13 +11,14 @@ internal static class TownGrantCases
         foreach (TownGrantKind kind in Enum.GetValues<TownGrantKind>())
         {
             var message = new TownGrantMessage(kind, 2, 17, 0x01020304, 0x12345678,
-                kind == TownGrantKind.Request ? 0u : 0xABCDEF01u);
+                kind == TownGrantKind.Request ? 0u : 0xABCDEF01u,
+                kind == TownGrantKind.Release ? 0u : 0x01234567u);
             byte[] bytes = TownServiceGrantCodec.Write(in message);
-            Check(bytes.Length == 24 && Convert.ToHexString(bytes, 0, 6) == "315256470319", "stable GVR1 type25 header");
+            Check(bytes.Length == 28 && Convert.ToHexString(bytes, 0, 6) == "315256470319", "stable GVR1 type25 header");
             Check(TownServiceGrantCodec.TryRead(bytes, bytes.Length, out TownGrantMessage result), "round trip " + kind);
             Check(result.Kind == kind && result.Service == 2 && result.Player == 17
                 && result.Session == 0x01020304 && result.Nonce == 0x12345678
-                && result.Epoch == message.Epoch, "identity preserved " + kind);
+                && result.Epoch == message.Epoch && result.Sequence == message.Sequence, "identity preserved " + kind);
             for (int length = 0; length < bytes.Length; length++)
                 Check(!TownServiceGrantCodec.TryRead(bytes, length, out _), "truncated grant rejected");
             byte[] corrupted = (byte[])bytes.Clone(); corrupted[5] = 19;
