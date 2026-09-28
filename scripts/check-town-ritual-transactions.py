@@ -133,29 +133,71 @@ def inspect_shared_blessing_contract(root):
         raise RuntimeError("Temple blessing play-on-create negative control did not fail")
 
 
-def inspect_purse_contract(source):
+def inspect_purse_contract(source, offering, sync):
     required = (
         "private readonly Func<bool> _available;",
         "bool visible = !_offering || _visible() || Token?.IsMoving == true;",
-        "if (_offering && !_available() && !Token.IsMoving) Token.PickCollider.enabled = false;",
+        "inspect: () => owner._templeOffering?.CanInspectPurse ?? true,",
         "() => TemplePurseVisible(temple, slot)",
         "piece.Source is UITempleShopSlot slot && (piece.NativeAvailable",
+        "private bool OfferingEligible(UITempleWindow temple, UITempleShopSlot slot) => _templeOffering?.Available == true",
+        "&& TownServiceMirror.CanLocalBeginTransaction(2)",
+        "&& TempleQuietAvailable(temple, slot);",
     )
     missing = [entry for entry in required if entry not in source]
+    hand = offering[offering.index("internal bool AllowsHand("):offering.index("\n\n", offering.index("internal bool AllowsHand("))]
+    if "internal bool CanInspectPurse => _inspectionNear;" not in offering \
+            or "CanInspectPurse" not in hand \
+            or "TownServiceMirror.CanLocalBeginTransaction" in hand \
+            or "Available" in hand:
+        missing.append("physical purse hand filter is coupled to donation availability")
+    if "Token.PickCollider.enabled = false" in source or "&& _available()" in source[source.index("inspect: () =>"):source.index("zoneHalfWidth:")]:
+        missing.append("physical purse pickup is disabled by native row eligibility")
+    if "Publish(piece.BodyKey, piece.Body);" not in sync \
+            or "if (piece.Token.IsMoving)" not in sync \
+            or "PriorityRoots.Add(piece.Body);" not in sync:
+        missing.append("held physical purse does not publish its owner-authored pose")
     if missing:
-        raise RuntimeError("Temple purse visibility is still coupled to payment eligibility: " + ", ".join(missing))
+        raise RuntimeError("Temple purse inspection/drop/synchronization contract failed: " + ", ".join(missing))
 
 
 def sources(root):
     raw = (root / "src/GloomhavenVR/WorldUI/TownServices/TownServiceRitual.cs").read_text()
-    inspect_purse_contract(raw)
+    offering_raw = (root / "src/GloomhavenVR/WorldUI/TownServices/TownServiceTempleOffering.cs").read_text()
+    sync_raw = (root / "src/GloomhavenVR/WorldUI/TownServices/TownServiceSync.cs").read_text()
+    inspect_purse_contract(raw, offering_raw, sync_raw)
     coupled = replace_once(raw, "() => TemplePurseVisible(temple, slot)", "() => TempleVisibleEligible(temple, slot)")
     try:
-        inspect_purse_contract(coupled)
+        inspect_purse_contract(coupled, offering_raw, sync_raw)
     except RuntimeError:
         pass
     else:
         raise RuntimeError("Temple purse visibility negative control did not fail")
+    coupled_inspection = replace_once(raw,
+        "inspect: () => owner._templeOffering?.CanInspectPurse ?? true,",
+        "inspect: () => (owner._templeOffering?.Available ?? true) && _available(),")
+    try:
+        inspect_purse_contract(coupled_inspection, offering_raw, sync_raw)
+    except RuntimeError:
+        pass
+    else:
+        raise RuntimeError("Temple purse ineligible-grab negative control did not fail")
+    blocked_hand = replace_once(offering_raw,
+        "internal bool AllowsHand(VRHand hand) => CanInspectPurse",
+        "internal bool AllowsHand(VRHand hand) => Available && TownServiceMirror.CanLocalBeginTransaction(2)")
+    try:
+        inspect_purse_contract(raw, blocked_hand, sync_raw)
+    except RuntimeError:
+        pass
+    else:
+        raise RuntimeError("Temple purse busy-visitor grab negative control did not fail")
+    muted_pose = replace_once(sync_raw, "Publish(piece.BodyKey, piece.Body);", "// physical purse pose not published")
+    try:
+        inspect_purse_contract(raw, offering_raw, muted_pose)
+    except RuntimeError:
+        pass
+    else:
+        raise RuntimeError("Temple purse held-pose publication negative control did not fail")
     methods = method(raw, "private bool Confirm(") + "\n" + method(raw, "private static bool Click(")
     methods = methods.replace("private bool Confirm(", "internal bool Confirm(")
     start = raw.index("    private bool OfferingEligible(")
@@ -172,7 +214,6 @@ def sources(root):
         guard_path = Path(__file__).resolve().parent.parent / "src/GloomhavenVR/WorldUI/TownServices/TownServiceRitualConfirmationGuard.cs"
     guard_raw = guard_path.read_text()
     guard = guard_raw[:guard_raw.index("\n[HarmonyPatch")].replace("using HarmonyLib;\n", "")
-    offering_raw = (root / "src/GloomhavenVR/WorldUI/TownServices/TownServiceTempleOffering.cs").read_text()
     inspect_fan_contract(offering_raw)
     coupled = replace_once(offering_raw, "MapRoomHand.SetTempleInspection(_inspectionNear && !holdingCard);",
                            "MapRoomHand.SetTempleInspection(input && _inspectionNear && !holdingCard);")

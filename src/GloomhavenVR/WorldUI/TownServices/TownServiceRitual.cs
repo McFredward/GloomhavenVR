@@ -151,7 +151,7 @@ internal sealed class TownServiceRitual : IDisposable
                 Token = new TownServiceToken(_reach, button, identity, owner._context,
                     () => owner._alive() && Current, owner._templeOffering?.DropFrame ?? owner.Root, Root, drop, eligible,
                     owner._service == 2 ? TownServiceTempleBowl.Center : Vector3.zero,
-                    inspect: () => (owner._templeOffering?.Available ?? true) && _available(),
+                    inspect: () => owner._templeOffering?.CanInspectPurse ?? true,
                     zoneHalfWidth: owner._service == 2 ? .095f : .20f,
                     dropLocation: owner._service == 2 ? world => owner._templeOffering?.InBowl(world) ?? false : null, reachDepth: offering ? .10f : .009f, uprightProp: offering,
                     handAllowed: hand => owner._templeOffering?.AllowsHand(hand) ?? true);
@@ -210,7 +210,8 @@ internal sealed class TownServiceRitual : IDisposable
                 }
             }
             SetVisibility(_requestedVisibility);
-            if (_offering && !_available() && !Token.IsMoving) Token.PickCollider.enabled = false;
+            // Native eligibility is checked only at release into the bowl. Disabling
+            // this collider made an unaffordable/already-used purse visible but inert.
             TickDetails();
         }
 
@@ -492,8 +493,8 @@ internal sealed class TownServiceRitual : IDisposable
                       pursePoint = piece.Token.OfferingPoint; }
                     break;
                 }
-        // A purse stays readable in the wrist fan when payment is unavailable, but a held
-        // rejected purse must not illuminate the bowl as though its release could commit.
+        // Holding a purse is always inspectable. Only an eligible drop illuminates the
+        // bowl or starts the original native donation confirmation.
         bool bowlShown = donationAvailable && (purseHeld ? purseEligible
             : _templeOffering?.Available == true);
         Vector3 bowlLocal = purseHand != null && _templeOffering != null

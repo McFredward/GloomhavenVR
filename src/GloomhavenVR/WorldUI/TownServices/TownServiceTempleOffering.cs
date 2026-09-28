@@ -60,8 +60,12 @@ internal sealed class TownServiceTempleOffering : IDisposable
         }
     }
 
-    internal bool AllowsHand(VRHand hand) => Available
-        && TownServiceMirror.CanLocalBeginTransaction(2)
+    // A visible purse is an inspectable physical prop even when this character cannot
+    // afford a blessing, has already donated, or another visitor owns the priestess's
+    // current transaction. Those rules belong to the bowl drop and native callback.
+    internal bool CanInspectPurse => _inspectionNear;
+
+    internal bool AllowsHand(VRHand hand) => CanInspectPurse
         && hand != (VRHands.Primary == VRHands.Left ? VRHands.Right : VRHands.Left);
 
     internal static void TickApproach()

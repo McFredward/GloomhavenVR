@@ -513,8 +513,6 @@ internal static partial class TownServiceMirror
         internal float NextBaseline;
         internal float NextRefresh;
         internal float RetryAfter;
-        internal float NextClothSample;
-        internal byte[]? WorkspaceCloth;
         internal bool HighPriority, WasPriority;
         internal ulong LastSent;
         internal readonly TownServiceFrame Probe = new();
@@ -532,10 +530,8 @@ internal static partial class TownServiceMirror
         internal TownServiceFrame? LastFrame;
         internal Renderer[]? RackBodyRenderers;
         internal TownServiceMotion Motion = null!;
-        internal GloomhavenVR.WorldUI.TownServiceCloth? Cloth;
-        internal float ClothReceivedAt;
         public void Dispose()
-        { Cloth?.Dispose(); Binding.Dispose(); if (Host != null) { Host.SetActive(false); Object.Destroy(Host); } }
+        { Binding.Dispose(); if (Host != null) { Host.SetActive(false); Object.Destroy(Host); } }
     }
 
     internal static void RegisterTemplate(byte service, ushort template, Transform original,
@@ -620,15 +616,6 @@ internal static partial class TownServiceMirror
     internal static void SetPriority(ushort module, bool highPriority)
     { if (Local.TryGetValue(module, out LocalModule? current)) current.HighPriority = highPriority; }
 
-    internal static void SetWorkspaceCloth(ushort module, byte[] controls, int length)
-    {
-        if (!Local.TryGetValue(module, out LocalModule? current) || controls == null
-            || (length != 8 && length != 16) || controls.Length < length) return;
-        if (current.WorkspaceCloth == null || current.WorkspaceCloth.Length != length)
-            current.WorkspaceCloth = new byte[length];
-        Buffer.BlockCopy(controls, 0, current.WorkspaceCloth, 0, length);
-    }
-
     private static void SnapshotSent(TownServiceFrame frame)
     {
         using var lane = new LaneScope(frame.PublicCatalog ? PublicLane : PrivateLane);
@@ -701,7 +688,7 @@ internal static partial class TownServiceMirror
                     frame.Pose = ReadPose(source, _sharedFrame, frame.Pose); frame.Nodes = nodes;
                     frame.RackMember = LocalRackMembers.TryGetValue(module.Id, out TownRackStamp? rackMember) ? rackMember : null;
                     frame.Rack = LocalRacks.TryGetValue(module.Id, out TownRackState? rackState) ? rackState : null;
-                    frame.WorkspaceCloth = module.WorkspaceCloth;
+                    frame.WorkspaceCloth = null;
                     frame.SessionAge = Mathf.Max(0f, now - _sessionStarted);
                     frame.ParentModule = TownServiceFrame.ManifestModule; frame.ParentBinding = 0;
                     ResetCanvasFrame(frame);
@@ -712,20 +699,14 @@ internal static partial class TownServiceMirror
                         if (frame.RackMember.Alpha != alpha) { frame.RackMember = frame.RackMember.Copy(); frame.RackMember.Alpha = alpha; }
                     }
                     bool sameSurface = SamePresentation(module.Last, frame);
-                    bool sameCloth = SameWorkspaceCloth(module.Last?.WorkspaceCloth, frame.WorkspaceCloth);
-                    if (sameSurface && sameCloth
+                    if (sameSurface
                         && (now < module.NextRefresh || module.Last != null && module.LastSent < module.Last.Sequence)) continue;
-                    // Cloth is a small physical intermediate state, never a 90 Hz
-                    // furniture-module stream. Send quantized changes at most 15 Hz;
-                    // native content, visibility and card changes retain priority.
-                    if (sameSurface && !sameCloth && now < module.NextClothSample) continue;
-                    if (!sameCloth) module.NextClothSample = now + 1f / 15f;
                     frame.Sequence = NextSequence();
                     TownServiceFrame emitted;
                     if (module.Baseline == null || now >= module.NextBaseline || !TownServiceDelta.Compatible(module.Baseline, frame))
                     { emitted = TownServiceDelta.Retain(frame); module.Baseline = emitted; module.NextBaseline = float.PositiveInfinity; }
                     else emitted = TownServiceDelta.Create(module.Baseline, frame);
-                    emitted.HighPriority = module.HighPriority || module.WasPriority || NeedsHeartbeat(module) || !sameCloth;
+                    emitted.HighPriority = module.HighPriority || module.WasPriority || NeedsHeartbeat(module);
                     module.WasPriority = module.HighPriority;
                     byte[] packet = TownServiceCodec.Write(emitted);
                     send(packet, packet.Length, emitted); module.Last = TownServiceDelta.Retain(frame); module.NextRefresh = now + .75f + module.Id % 7 * .03f;
@@ -852,7 +833,7 @@ internal static partial class TownServiceMirror
             if (!Remote.TryGetValue(entry.Key, out Dictionary<ushort, RemoteModule>? standing))
             { standing = new Dictionary<ushort, RemoteModule>(); Remote.Add(entry.Key, standing); }
             foreach (RemoteModule visible in standing.Values)
-            { visible.Motion.Tick(now); visible.Binding.TickAnimation(now); TickRemoteCloth(visible, now); }
+            { visible.Motion.Tick(now); visible.Binding.TickAnimation(now); }
             UpdateRackClocks(entry.Key, pending, now);
             bool reorder = false;
             foreach (var packet in pending)
@@ -871,7 +852,7 @@ internal static partial class TownServiceMirror
                 try
                 {
                     if (!frame.Visible)
-                    { if (module != null) { module.Cloth?.SetVisible(false); module.Host.SetActive(false); module.Motion.Reset(); module.Sequence = frame.Sequence; module.LastFrame = frame; } continue; }
+                    { if (module != null) { module.Host.SetActive(false); module.Motion.Reset(); module.Sequence = frame.Sequence; module.LastFrame = frame; } continue; }
                     Transform mount = parent;
                     if (frame.ParentModule != TownServiceFrame.ManifestModule)
                     {
@@ -883,7 +864,7 @@ internal static partial class TownServiceMirror
                             throw new InvalidDataException("Cyclic town-service module parent.");
                     }
                     if (module == null || module.Template != frame.Template || module.Address != frame.TemplateAddress || module.Session != frame.Session
-                        || (module.AddedCanvas != null) != NeedsCanvas(frame) || (module.Cloth != null) != frame.HasWorkspaceCloth)
+                        || (module.AddedCanvas != null) != NeedsCanvas(frame))
                     {
                         RemoteModule candidate = BuildRemote(frame, mount);
                         try { candidate.Binding.Validate(frame, Assets); candidate.Binding.Apply(frame, Assets); }
@@ -923,14 +904,11 @@ internal static partial class TownServiceMirror
                         module.Motion.AfterApply(now, frame.SampleTime - module.LastFrame.SampleTime);
                     RemoteRetry.Remove(retryKey); module.Sequence = frame.Sequence; module.LastFrame = frame; reorder = true;
                     module.Host.SetActive(true); root.gameObject.SetActive(true);
-                    module.ClothReceivedAt = now;
-                    module.Cloth?.SetVisible(true);
-                    TickRemoteCloth(module, now);
                     FinishInertPresentation?.Invoke(frame.TemplateAddress, root, parent);
                 }
                 catch (Exception e)
                 {
-                    if (module != null) { module.Cloth?.SetVisible(false); module.Host.SetActive(false); module.Motion.Reset(); }
+                    if (module != null) { module.Host.SetActive(false); module.Motion.Reset(); }
                     if (RemoteRetry.Count >= 8 * TownServiceFrame.MaxModules && !RemoteRetry.ContainsKey(retryKey)) RemoteRetry.Clear();
                     RemoteRetry[retryKey] = now + .25f;
                     Report("remote module " + entry.Key + "/" + frame.Module, e);
@@ -939,18 +917,6 @@ internal static partial class TownServiceMirror
             if (reorder) OrderOriginalSiblings(standing);
             TickRackClocks(entry.Key, standing, now);
         }
-    }
-
-    private static void TickRemoteCloth(RemoteModule module, float now)
-    {
-        TownServiceFrame? frame = module.LastFrame;
-        byte[]? controls = frame?.WorkspaceCloth;
-        if (module.Cloth == null || controls == null || !frame!.Visible || !module.Host.activeSelf) return;
-        int at = 0;
-        TownClothRunnerState first = TownResidentsCodec.ReadCloth(controls, ref at);
-        TownClothRunnerState second = controls.Length > at ? TownResidentsCodec.ReadCloth(controls, ref at) : default;
-        float elapsed = Mathf.Max(0f, now - module.ClothReceivedAt);
-        module.Cloth.TickObserver(frame.SessionAge + elapsed, elapsed, in first, in second, true);
     }
 
     private readonly struct SiblingRank
@@ -1003,7 +969,6 @@ internal static partial class TownServiceMirror
             canvas.worldCamera = Rig.VRRigDriver.HeadCamera != null ? Rig.VRRigDriver.HeadCamera : Camera.main;
         }
         CanvasGroup group = host.AddComponent<CanvasGroup>(); group.interactable = false; group.blocksRaycasts = false;
-        TownServiceCloth? cloth = null;
         try
         {
             GameObject clone = Object.Instantiate(template, host.transform, false);
@@ -1011,21 +976,15 @@ internal static partial class TownServiceMirror
             TownServiceNeutralize.Apply(clone);
             PrepareInertGeometry?.Invoke(frame.TemplateAddress, clone);
             VRLayers.Apply(host);
-            if (frame.HasWorkspaceCloth)
-            {
-                cloth = new TownServiceCloth(clone.transform, frame.Service);
-                cloth.SetVisible(false);
-            }
             foreach (Canvas originalCanvas in clone.GetComponentsInChildren<Canvas>(true))
                 originalCanvas.worldCamera = Rig.VRRigDriver.HeadCamera != null ? Rig.VRRigDriver.HeadCamera : Camera.main;
             var binding = new TownServiceBinding(clone.transform);
             return new RemoteModule { Host = host, AddedCanvas = canvas, Binding = binding,
                 Motion = new TownServiceMotion(host.transform, binding.Nodes), Session = frame.Session,
-                Template = frame.Template, Address = frame.TemplateAddress, Cloth = cloth };
+                Template = frame.Template, Address = frame.TemplateAddress };
         }
         catch
         {
-            cloth?.Dispose();
             Object.Destroy(host);
             throw;
         }
@@ -1113,13 +1072,6 @@ internal static partial class TownServiceMirror
     private static Vector3 Position(float[] pose) => new(pose[0], pose[1], pose[2]);
     private static Quaternion Rotation(float[] pose) => new(pose[3], pose[4], pose[5], pose[6]);
     private static Vector3 Scale(float[] pose) => new(pose[7], pose[8], pose[9]);
-    private static bool SameWorkspaceCloth(byte[]? a, byte[]? b)
-    {
-        if (ReferenceEquals(a, b)) return true;
-        if (a == null || b == null || a.Length != b.Length) return false;
-        for (int i = 0; i < a.Length; i++) if (a[i] != b[i]) return false;
-        return true;
-    }
     private static bool SamePresentation(TownServiceFrame? a, TownServiceFrame b)
     {
         if ((a?.RackMember == null) != (b.RackMember == null) || a?.RackMember != null && !a.RackMember.Same(b.RackMember)) return false;

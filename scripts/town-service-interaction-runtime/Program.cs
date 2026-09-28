@@ -695,7 +695,7 @@ public static class InteractionProgram
     private static void PhysicalPurse()
     {
         foreach (float scale in new[] { 1f, 2f })
-        for (int scenario = 0; scenario < 7; scenario++)
+        for (int scenario = 0; scenario < 8; scenario++)
         {
             var counter = Probe.Go("PurseCounter").transform;
             counter.localScale = Vector3.one * scale;
@@ -704,12 +704,13 @@ public static class InteractionProgram
             var source = (RectTransform)Probe.Go("PurseReach", physical).transform;
             source.sizeDelta = new Vector2(.1f, .13f);
             var button = Probe.Go("NativeDonate").AddComponent<Button>();
-            object identity = new object(); bool inspect = scenario != 4; int commits = 0;
+            object identity = new object(); bool inspect = scenario != 4;
+            bool eligible = scenario != 7; int commits = 0;
             var hand = new VRHand { WorldScale = scale, TriggerUp = true };
             hand.Rig.GrabAnchor.localScale = Vector3.one * scale;
             hand.Rig.GrabAnchor.rotation = Quaternion.Euler(32f, 70f, 10f);
             using var token = new TownServiceToken(source, button, () => identity, () => identity, () => true,
-                counter, physical, drop: () => { commits++; return true; }, eligible: () => true,
+                counter, physical, drop: () => { commits++; return true; }, eligible: () => eligible,
                 inspect: () => inspect, reachDepth: .10f, uprightProp: true, handAllowed: candidate => scenario != 5,
                 dropLocation: scenario == 6 ? world => world.y > counter.TransformPoint(new Vector3(0f, .09f, 0f)).y : null);
             token.Tick(scale);
@@ -722,7 +723,7 @@ public static class InteractionProgram
                 Clean(); continue;
             }
             Quaternion initial = physical.rotation;
-            Check(hand.Grabber.ForceGrab(token, true), "available purse uses actual routed grab");
+            Check(hand.Grabber.ForceGrab(token, true), "visible purse can be grabbed regardless of donation eligibility");
             token.Tick(scale);
             Check(Quaternion.Angle(initial, physical.rotation) < .05f, "purse pickup preserves upright physical orientation");
             Vector3 pinch = new Vector3(0f, CardsConfig.HeldOffPalm.Value, CardsConfig.HeldForward.Value);
@@ -740,6 +741,8 @@ public static class InteractionProgram
             hand.Grabber.ReleaseTick(); token.OnRelease(hand, Vector3.zero);
             Check(commits == (scenario == 0 || scenario == 6 ? 1 : 0),
                 "visible purse body can enter the bowl while its normalized base remains below the rim " + scenario);
+            if (scenario == 7) Check(token.HeldRoot == null && token.IsMoving,
+                "ineligible physical purse returns without parking or requesting native donation");
             Clean();
         }
     }
