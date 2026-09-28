@@ -23,8 +23,12 @@ public static class InteractionProgram
     {
         Func<ushort, float> duration = cue => cue >= 31 && cue <= 35 ? 2.69f : 2f;
         var schedule = new TownServiceVoiceSchedule();
-        schedule.Visit(1, true, 0f, 0f); schedule.Sample(1, duration, 0f, false);
-        Check(schedule.At(1).Cue >= 1 && schedule.At(1).Cue <= 5 && schedule.At(1).Generation == 1, "first visit starts one of five merchant greetings");
+        schedule.Work(1, 0f, 0f, .1f, true, 0f); schedule.Sample(1, duration, 0f, false);
+        Check(schedule.At(1).Cue >= 1 && schedule.At(1).Cue <= 5 && schedule.At(1).Generation == 1,
+            "first gaze starts one of five merchant greetings before native shop opens");
+        schedule.Visit(1, true, 0f, .1f);
+        Check(!schedule.At(1).Pending && schedule.At(1).Generation == 1,
+            "later native merchant visit cannot queue a duplicate greeting");
         schedule.Visit(2, true, 0f, 0f); schedule.Sample(2, duration, 0f, false);
         Check(schedule.At(2).Cue == 0, "only one resident speaks at a time");
         schedule.Sample(1, duration, 1f, false);

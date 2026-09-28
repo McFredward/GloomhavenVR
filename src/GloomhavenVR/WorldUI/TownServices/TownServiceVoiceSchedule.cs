@@ -27,19 +27,45 @@ internal sealed class TownServiceVoiceSchedule
         Entry e = At(service);
         bool beginning = visiting && (!e.Visiting || age + .2f < e.VisitAge);
         e.Visiting = visiting; e.VisitAge = age;
-        if (!visiting && e.Priority == 1) e.Pending = false;
-        // A real native visit is a more reliable edge than the animation's sampled
-        // attention value: the latter may already be above threshold when Work seeds.
-        if (beginning && age <= 2f && now >= e.NextAllowed && e.Cue == 0)
+        // A merchant's gaze can start outside native visiting range. Closing or
+        // not yet opening the shop must not cancel that wider-range greeting.
+        if (service != 1 && !visiting && e.Priority == 1) e.Pending = false;
+        // The merchant starts looking at a visitor before the native shop visit
+        // begins. Work owns that greeting at the actual shared attention edge;
+        // queuing it here waited for the smaller native interaction range and
+        // could replace a pending gaze greeting with a second random take.
+        // Priestess and enchantress still use their original native visit edge.
+        if (service != 1 && beginning && age <= 2f && now >= e.NextAllowed && e.Cue == 0)
             QueueVariant(service, TownServiceVoice.GreetingFirstCue(service), 1, now + 5f, age + now);
     }
 
     internal void Work(byte service, float clock, float cast, float attention, bool visible, float now)
     {
         Entry e = At(service);
-        if (!visible || !Finite(clock) || !Finite(cast)) { e.WorkSeeded = false; return; }
+        if (!visible || !Finite(clock) || !Finite(cast) || !Finite(attention))
+        {
+            if (service == 1 && e.Pending && e.Priority == 1 && e.PendingCue >= 1 && e.PendingCue <= 5)
+                e.Pending = false;
+            e.WorkSeeded = false;
+            return;
+        }
         float delta = clock - e.LastWorkClock;
         bool continuous = e.WorkSeeded && delta >= -.001f && delta <= .25f;
+        // Only the elected face author reaches Work. Attention is its published,
+        // eased response to a head inside the resident's real gaze range, including
+        // remote visitors. Greet on the first visible rising edge (also when Work
+        // first seeds into an already-started turn), not on the closer shop window.
+        // The existing 45-second cooldown and shared cue generation bound repeat
+        // speech while the player moves around that range.
+        if (service == 1 && attention >= .08f && (!e.WorkSeeded || e.LastAttention < .08f)
+            && now >= e.NextAllowed && e.Cue == 0)
+            QueueVariant(service, TownServiceVoice.GreetingFirstCue(service), 1, now + 5f, now + clock);
+        else if (service == 1 && attention < .08f && e.Pending && e.Priority == 1
+            && e.PendingCue >= 1 && e.PendingCue <= 5)
+            e.Pending = false; // The visitor left before a blocked greeting could start.
+        if (service == 1 && attention >= .08f && e.Pending && e.Priority == 1
+            && e.PendingCue >= 1 && e.PendingCue <= 5)
+            e.Deadline = now + 5f; // Narration or another NPC cannot consume the gaze edge.
         // Ambient prayer and casting are atmospheric, not a response to the
         // visitor. The old cast edge occurred on every spell cycle and filled
         // a long map visit with repeated lines. Keep the native activity and

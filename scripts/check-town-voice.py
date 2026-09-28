@@ -6,6 +6,11 @@ repo=Path(__file__).resolve().parent.parent
 parser=argparse.ArgumentParser(description=__doc__)
 parser.add_argument('--no-negative-controls',action='store_true')
 args=parser.parse_args()
+dotnet=shutil.which('dotnet') or str(Path.home()/'.dotnet/dotnet')
+portable=subprocess.run([dotnet,'run','--project',str(repo/'scripts/town-voice-runtime/PortableSchedule.csproj'),
+                         '-c','Release','--nologo'],text=True,stdout=subprocess.PIPE,stderr=subprocess.STDOUT)
+if portable.returncode: raise SystemExit(portable.stdout)
+print(portable.stdout.strip(),flush=True)
 output=repo/'.planning/debug/town-voice';output.mkdir(parents=True,exist_ok=True)
 out=Path(tempfile.mkdtemp(prefix='run-',dir=output))
 fixture=repo/'scripts/town-voice-runtime';base=repo/'src/GloomhavenVR/WorldUI/TownServices'
@@ -59,7 +64,7 @@ for name,target,before,after,expected in variants:
    assert text.count(before)==1,(name,text.count(before));text=text.replace(before,after)
   (prod/filename).write_text(text)
  project=run/'Speech.csproj';shutil.copyfile(repo/'scripts/town-service-mirror-runtime/Mirror.csproj',project)
- cmd=[str(Path.home()/'.dotnet/dotnet'),'build',str(project),'-c','Release','-v','quiet','--nologo',
+ cmd=[dotnet,'build',str(project),'-c','Release','-v','quiet','--nologo',
       '-p:CaseName=Speech_'+name.replace('-','_'),f'-p:FixtureDir={fixture}',f'-p:ProductionDir={prod}',
       f'-p:UnityManaged={unity.parent/"Data/Managed"}',f'-p:UnityUi={managed/"UnityEngine.UI.dll"}',f'-p:UnityTmp={managed/"Unity.TextMeshPro.dll"}']
  done=subprocess.run(cmd,text=True,stdout=subprocess.PIPE,stderr=subprocess.STDOUT);(run/'build.log').write_text(done.stdout)
