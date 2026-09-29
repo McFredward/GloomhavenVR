@@ -70,3 +70,24 @@ Release build, release-package layout, 14 source checks, all 80 runtime suites,
 tree. The compiled-form difference against Build 587 consists of the opt-in
 gate and expected build constants. None of these checks proves Steam Game Mode
 argument forwarding or headset library artwork.
+
+## Setup archive follow-up (2026-09-29)
+
+The maintainer's first direct `./install-steam-frame.sh` attempt on Frame failed
+before any installer code ran: `/usr/bin/env: 'bash\r': No such file or directory`.
+The tracked Linux source had LF, so a Windows checkout or packaging path had
+changed the shebang to CRLF. `.gitattributes` now fixes shell/desktop files to
+LF. Both archive builders normalize these two launcher files explicitly. The
+Linux packager and Windows packager also encode Unix 0755 ZIP permissions;
+`scripts/check-frame-launchers.py` rejects an archive that loses either the
+line endings or the executable attributes. `GloomhavenVR-Setup.desktop` runs
+the existing helper from its own directory through Dolphin and pauses its
+terminal on exit. The shell fallback remains `bash ./install-steam-frame.sh`.
+The desktop entry's relative path was exercised with spaces in the folder name;
+Frame's own Dolphin trust prompt and Steam shortcut behavior still need a
+hardware check.
+
+The Build 591 singleplayer trace did not establish a new functional failure:
+all 85 selected-character censuses were valid and the +100 gold cheat applied
+twice. The enchantress Visit hitch remains measurable (up to 152 ms in this
+run); no claim of smoothness follows from the absence of a noticed glitch.

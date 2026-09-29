@@ -80,11 +80,17 @@ the same installed game, Steam account and Proton game profile.
 
 ## 4. Add GloomhavenVR to the VR library
 
-Open a terminal in the Gloomhaven folder in Dolphin and run:
+In Dolphin, open the Gloomhaven folder and double-click **`GloomhavenVR-Setup.desktop`**.
+Choose **Execute** if Dolphin asks. The setup opens a terminal and keeps its instructions visible;
+you do not need to change file permissions. If your desktop does not offer Execute, open a terminal
+in that folder and run:
 
 ```bash
 bash ./install-steam-frame.sh
 ```
+
+Use `bash`, not `./install-steam-frame.sh`, when running the helper directly: this also works if
+your ZIP extractor did not preserve its executable permission.
 
 This creates the Frame-only VR opt-in file and a small launcher in your home folder. It does not
 edit Steam's configuration. In Steam Desktop Mode, choose **Games → Add a Non-Steam Game → Browse**
@@ -145,6 +151,7 @@ All VR players in a multiplayer session need the same mod build.
 | GloomhavenVR opens flat | Steam may not have forwarded the VR flag. Check that the shortcut targets `launch-steam-frame.sh`, then keep `BepInEx/LogOutput.log` for a report. |
 | The first VR launch closes | Start GloomhavenVR a second time manually. |
 | The game will not start | Copy `GH_Data/boot.config.gloomhavenvr-backup` over `GH_Data/boot.config`. |
+| The helper reports `bash\r: No such file or directory` | Extract the latest mod ZIP again. Its SteamOS launchers have Unix line endings. With an older archive, run `sed -i 's/\r$//' install-steam-frame.sh` in the Gloomhaven folder, then `bash ./install-steam-frame.sh`. |
 
 To report a problem, keep `BepInEx/LogOutput.log` from the affected run and describe what you
 were doing. For a reproducible issue, set `[General] LogLevel = Debug` in

@@ -83,11 +83,17 @@ Spielinstallation, denselben Steam-Account und dasselbe Proton-Spielprofil.
 
 ## 4. GloomhavenVR zur VR-Bibliothek hinzufügen
 
-Öffne in Dolphin ein Terminal im Gloomhaven-Ordner und führe aus:
+Öffne den Gloomhaven-Ordner in Dolphin und doppelklicke auf
+**`GloomhavenVR-Setup.desktop`**. Falls Dolphin nachfragt, wähle **Ausführen**. Das Terminal bleibt
+mit den Anweisungen geöffnet; du musst keine Dateiberechtigungen ändern. Bietet dein Desktop
+kein Ausführen an, öffne in diesem Ordner ein Terminal und gib ein:
 
 ```bash
 bash ./install-steam-frame.sh
 ```
+
+Starte das Hilfsskript im Terminal mit `bash`, nicht mit `./install-steam-frame.sh`. So funktioniert
+es auch, falls das Entpackprogramm die Ausführungsberechtigung nicht erhalten hat.
 
 Das erstellt die Frame-spezifische VR-Freigabe und einen kleinen Starter im Home-Ordner. Die
 Steam-Konfiguration wird dabei nicht verändert. Wähle in Steam im Desktop-Modus **Spiele →
@@ -153,6 +159,7 @@ neue Release-ZIP herunterladen und wieder in denselben Gloomhaven-Ordner entpack
 | GloomhavenVR startet flat | Steam hat das VR-Argument möglicherweise nicht weitergereicht. Prüfe, ob die Verknüpfung auf `launch-steam-frame.sh` zeigt, und bewahre `BepInEx/LogOutput.log` für eine Fehlermeldung auf. |
 | Der erste VR-Start schließt sich | Starte GloomhavenVR selbst ein zweites Mal. |
 | Das Spiel startet nicht mehr | Kopiere `GH_Data/boot.config.gloomhavenvr-backup` über `GH_Data/boot.config`. |
+| Das Hilfsskript meldet `bash\r: No such file or directory` | Entpacke das aktuelle Mod-ZIP erneut. Dessen SteamOS-Starter haben Unix-Zeilenenden. Bei einem älteren Archiv kannst du im Gloomhaven-Ordner `sed -i 's/\r$//' install-steam-frame.sh` ausführen und danach `bash ./install-steam-frame.sh`. |
 
 Für eine Fehlermeldung bewahre `BepInEx/LogOutput.log` vom betroffenen Durchlauf auf und
 beschreibe, was du gerade gemacht hast. Bei einem reproduzierbaren Problem setz

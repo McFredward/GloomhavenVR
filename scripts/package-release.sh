@@ -185,10 +185,12 @@ done
 stage_text "$TEMPLATE"    "$STAGE/INSTALL.txt"
 stage_text "$TEMPLATE_DE" "$STAGE/INSTALL-DEUTSCH.txt"
 
-# The Steam Frame opt-in is deliberately not an archive marker: extraction on a
-# Windows PC must not change its existing launch behavior. Frame users run this
-# helper once, then add its generated launcher through Steam's own shortcut UI.
-cp "$ROOT/scripts/install-steam-frame.sh" "$STAGE/install-steam-frame.sh"
+# The Frame helper and KDE launcher must survive even a Windows CRLF checkout.
+# Unlike the Windows-readable .txt files above, they need LF and executable ZIP modes.
+# The opt-in marker is never included: extraction on a PC stays unaffected.
+sed 's/\r$//' "$ROOT/scripts/install-steam-frame.sh" > "$STAGE/install-steam-frame.sh"
+sed 's/\r$//' "$ROOT/GloomhavenVR-Setup.desktop" > "$STAGE/GloomhavenVR-Setup.desktop"
+chmod 0755 "$STAGE/install-steam-frame.sh" "$STAGE/GloomhavenVR-Setup.desktop"
 cp "$ROOT/src/GloomhavenVR/Assets/GloomhavenVR_logo.png" "$STAGE/GloomhavenVR-steam-logo.png"
 cp "$ROOT/unity/GloomhavenVR.Assets/Assets/Bundle/UI/VRMenuIcon.png" "$STAGE/GloomhavenVR-steam-icon.png"
 
@@ -231,6 +233,7 @@ for path in \
     "INSTALL.txt" \
     "INSTALL-DEUTSCH.txt" \
     "install-steam-frame.sh" \
+    "GloomhavenVR-Setup.desktop" \
     "GloomhavenVR-steam-logo.png" \
     "GloomhavenVR-steam-icon.png"; do
     if ! grep -qF -- "$path" <<<"$LISTING"; then
@@ -242,6 +245,7 @@ done
 # Every text file in the archive must open cleanly on Windows: valid UTF-8, BOM, CRLF, and no
 # double-encoded umlauts. Fails the run — a zip that renders "raumgroÃŸes" is not a release.
 python3 "$ROOT/scripts/check-package-text.py" "$ZIP"
+python3 "$ROOT/scripts/check-frame-launchers.py" "$ZIP"
 
 echo
 echo "Layout verified (plugin, RuntimeDeps, preloader, natives, INSTALL.txt + INSTALL-DEUTSCH.txt)."

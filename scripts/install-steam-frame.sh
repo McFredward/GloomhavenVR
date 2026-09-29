@@ -5,7 +5,7 @@ set -euo pipefail
 
 usage() {
     cat <<'EOF'
-Usage: bash install-steam-frame.sh [--game-path PATH] [--dry-run]
+Usage: bash install-steam-frame.sh [--game-path PATH] [--dry-run] [--pause]
 
 Run this from the Gloomhaven folder after extracting BepInEx and GloomhavenVR.
 The generated launcher must be added to Steam as a non-Steam game named GloomhavenVR.
@@ -15,6 +15,7 @@ EOF
 script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 game_dir=""
 dry_run=false
+pause_on_exit=false
 while (($#)); do
     case "$1" in
         --game-path)
@@ -24,6 +25,10 @@ while (($#)); do
             ;;
         --dry-run)
             dry_run=true
+            shift
+            ;;
+        --pause)
+            pause_on_exit=true
             shift
             ;;
         -h|--help)
@@ -37,6 +42,20 @@ while (($#)); do
             ;;
     esac
 done
+
+# The desktop launcher opens a terminal. Keep it visible so setup instructions
+# and validation failures do not disappear when the terminal closes.
+pause_before_exit() {
+    local status=$?
+    if [[ -t 0 ]]; then
+        printf '\nPress Enter to close this window...'
+        read -r _ || true
+    fi
+    return "$status"
+}
+if $pause_on_exit; then
+    trap pause_before_exit EXIT
+fi
 
 if [[ -z "$game_dir" ]]; then
     game_dir="$script_dir"
