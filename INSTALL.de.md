@@ -87,7 +87,7 @@ es zurück über `boot.config`.
 Die Mod prüft einmal pro Sitzung im VR-Hauptmenü auf Updates. Bei einer neueren Version wählst
 du im Update-Fenster **Ignorieren** oder **Update**.
 
-Drückst du Update, lädt sie herunter (~70 MB), tauscht die Dateien, schließt das Spiel und startet es
+Drückst du Update, lädt sie das Release herunter, tauscht die Dateien, schließt das Spiel und startet es
 wieder. **Deine Spielstände, deine Kampagne und deine Einstellungen bleiben unangetastet.**
 
 - **Scheitert der Download oder die Prüfung, bleiben die installierten Dateien unverändert.**
@@ -103,9 +103,8 @@ wieder. **Deine Spielstände, deine Kampagne und deine Einstellungen bleiben una
 
 ## Einstellungen
 
-Du kannst alles im Headset einstellen. Öffne das **Optionen**-Fenster des Spiels, aus dem Hauptmenü
-oder dem Pausenmenü, und geh auf den Reiter **VR Optionen**. Änderungen wirken sofort und werden
-gespeichert.
+Du kannst alles im Headset einstellen. Wähle **VR Optionen** im Haupt- oder Pausenmenü, um das
+eigenständige Fenster zu öffnen. Änderungen wirken sofort und werden gespeichert.
 
 | Reiter | Was drinsteht |
 |---|---|

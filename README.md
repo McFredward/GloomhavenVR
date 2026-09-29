@@ -63,8 +63,8 @@ Drop it and it settles back onto a hex.
   all on one desk that hangs off a rod you can put wherever you like.
 - Reach into the scenario. Lift a miniature to read the turn it is about to take, or grab the whole
   board with both hands to drag, turn and zoom it.
-- The campaign map. Between scenarios you stand in a cellar over the map of Gloomhaven,
-  with the quests on the wall next to you.
+- A 3D campaign map. The map lies on a table in the cellar; the quest list floats above the
+  table's right edge.
 - Full VR multiplayer. Masks, hands, boards and pointing fingers are visible to everyone, and people
   without a headset can play in the same game on a flat screen.
 - Two environments built for the mod: an indoor cellar and an outdoor night forest, both reacting
@@ -117,8 +117,32 @@ pick a hex, an enemy, a door or a chest. Or hold grip and touch it with a finger
   <video src="https://github.com/user-attachments/assets/dadbad52-bde7-48bc-9518-b3a831096550" width="720" controls muted loop></video>
 </p>
 
-Between scenarios you stand in a cellar with the map of Gloomhaven spread out on the table in front
-of you. The quests hang on the wall where you can read them, and unlocking one lights up the room.
+With the 3D campaign map enabled, Gloomhaven's map lies on the table in the cellar. The quest list
+floats above the table's right edge.
+
+<p align="center">
+  <img src="docs/img/divider-small.png" width="340" alt="">
+</p>
+
+## Town services in VR
+
+With immersive NPCs enabled, unlocked townsfolk stay at their stands around the 3D map.
+
+<table>
+<tr>
+<td width="33%" align="center"><img src="docs/img/town-merchant.png" width="230" alt="Merchant and item cabinet"></td>
+<td width="33%" align="center"><img src="docs/img/town-enchantress.png" width="230" alt="Enchantress at her stand"></td>
+<td width="33%" align="center"><img src="docs/img/town-priestess.png" width="230" alt="Priestess at her altar"></td>
+</tr>
+<tr>
+<td><b>Merchant:</b> Take an item from his cabinet to buy, or from your item fan to sell. Place it in his hand and confirm.</td>
+<td><b>Enchantress:</b> Place an ability card in her hand, then choose the part to enhance.</td>
+<td><b>Priestess:</b> Offer the coin purse from your hand to her bowl to donate.</td>
+</tr>
+</table>
+
+Immersive town NPCs are on by default. To use the original windows, switch them off under
+**VR Options ▸ World & sound ▸ Campaign map**. This setting is hidden when the original 2D map is on.
 
 <p align="center">
   <img src="docs/img/divider-small.png" width="340" alt="">
@@ -126,9 +150,9 @@ of you. The quests hang on the wall where you can read them, and unlocking one l
 
 ## Environments
 
-An indoor cellar and an outdoor night forest, both built for the mod. They have firelight, ambient
-sound, a star field taken from a real catalogue, and the odd thing that happens if you stand around
-long enough.
+An indoor cellar and an outdoor night forest, both built for the mod. Both have firelight and
+ambient sound; the night forest has a star field taken from a real catalogue. You may notice
+something else if you stand around long enough.
 
 There is one setting for this, with five options. Same table, same scenario in all of them. The two
 rooms above are the ones built for the mod. The other three are the game's own sky, no sky at all,
@@ -194,8 +218,9 @@ with two tracked controllers · room-scale. It was developed on a Quest 3 over V
 - **Demeo** (Resolution Games), whose interaction model this mod follows. No assets or code from it
   are used.
 
-**Licence: GPL-3.0**, see [LICENSE](LICENSE). The mod ships only its own code and its own licensed
-artwork. No game files, no game assets, no decompiled sources.
+**Licence: GPL-3.0**, see [LICENSE](LICENSE). The mod ships its own code and licensed assets;
+third-party terms are listed in [packaging/THIRD-PARTY.txt](packaging/THIRD-PARTY.txt). No game
+files, game assets or decompiled sources are included.
 
 Not affiliated with Flaming Fowl Studios, Twin Sails Interactive, Asmodee or Cephalofair Games.
 Gloomhaven and its artwork belong to their owners.

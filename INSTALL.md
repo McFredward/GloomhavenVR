@@ -86,7 +86,7 @@ The mod changes the rendering settings in `GH_Data/boot.config` and keeps the or
 The mod checks for updates once per session in the VR main menu. If a newer release is available,
 choose **Ignore** or **Update** in the update panel.
 
-Press Update and it downloads (~70 MB), swaps the files, closes the game and starts it again.
+Press Update and it downloads the release, swaps the files, closes the game and starts it again.
 **Your saves, your campaign and your settings are not touched.**
 
 - **If the download or validation fails, installed files are unchanged.**
@@ -102,9 +102,8 @@ Press Update and it downloads (~70 MB), swaps the files, closes the game and sta
 
 ## Settings
 
-You can change everything from inside the headset. Open the game's own **Options** window, from the
-main menu or the pause menu, and pick the **VR Options** tab. Changes apply straight away and are
-saved for you.
+You can change everything from inside the headset. Select **VR Options** in the main or pause menu
+to open its own window. Changes apply straight away and are saved for you.
 
 | Tab | What is in it |
 |---|---|
