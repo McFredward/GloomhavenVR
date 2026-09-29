@@ -1,6 +1,6 @@
 # State — where the project stands
 
-**Updated 2026-09-29: dev 1.1.0 / ModBuild 586, extended Frame hardware log.**
+**Updated 2026-09-29: dev 1.1.0 / ModBuild 587, Frame CPU follow-up.**
 The complete immersive NPC work through Build 583 and the Steam Frame changes
 through dev Build 559 now share the sole `dev` integration branch. Future NPC and
 Frame work belongs on `dev`. The NPC presentation remains a two-client hardware
@@ -25,6 +25,13 @@ both Steam Frame overlay counters on the map, and the late logs put about
 headset, so the two snapshots do not isolate GPU busy time. See
 [STEAM-FRAME-THIRD-HARDWARE.md](STEAM-FRAME-THIRD-HARDWARE.md) and
 [STEAM-FRAME-FOURTH-HARDWARE.md](STEAM-FRAME-FOURTH-HARDWARE.md).
+The Build 586 run at 1728x1728 per eye gives roughly the same late-map
+59-62 ms/frame as Build 585 at 3408x3408, despite 74% fewer submitted pixels;
+the measured map work remains predominantly main-thread logic. Keep 3408 fixed
+for the Build 587 CPU optimization comparison. Build 587 reduces hidden merchant
+page work and adds bounded Debug attribution of the remaining town, veil and
+modal-conversion cost; its headset gain remains unmeasured. See
+[STEAM-FRAME-FIFTH-HARDWARE.md](STEAM-FRAME-FIFTH-HARDWARE.md).
 
 The file this replaces had gone 168 builds
 stale while still saying "read this first"; it is kept as `STATE-ARCHIVE-through-2026-08.md` for
@@ -38,6 +45,17 @@ change per build) → this file (where things stand and what is owed) → the bu
 ---
 
 ## 1. Position
+
+- **dev / 1.1.0 / ModBuild 587 (Frame CPU candidate):** hidden merchant pages
+  defer their native price and body-material mirrors until the first exposed
+  frame, before local render and multiplayer publication. Stable merchant
+  observer election no longer repeats body-visibility checks. Hidden-window
+  veil discovery remains complete every frame; one impossible hierarchy test
+  is removed. Bounded Debug timing splits town visits, public catalog,
+  observer state, veil discovery/reassert and slow modal-conversion stages.
+  No UI timing, gameplay, wire or asset change. Focused suites and the strict
+  build passed in workers; full integrated validation and headset measurement
+  are still required. See [STEAM-FRAME-FIFTH-HARDWARE.md](STEAM-FRAME-FIFTH-HARDWARE.md).
 
 - **dev / 1.1.0 / ModBuild 586 (Frame CPU candidate):** reuse the wall-cache
   material snapshot, avoid repeated hidden-veil component lookups, apply town

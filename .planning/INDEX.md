@@ -67,6 +67,9 @@ engineering evidence, historical decisions and current status; it is not the pla
 
 ## Latest measured work
 
+- [STEAM-FRAME-FIFTH-HARDWARE.md](STEAM-FRAME-FIFTH-HARDWARE.md): Build 586
+  1728-per-eye retest versus recorded Build 585 at 3408, current CPU bottlenecks,
+  controlled configuration trial and Steam library VR-metadata limit.
 - [STEAM-FRAME-FOURTH-HARDWARE.md](STEAM-FRAME-FOURTH-HARDWARE.md): Build 585
   extended run with two Steam Frame overlay screenshots, map CPU attribution,
   catalog-construction stalls and scenario comparison.

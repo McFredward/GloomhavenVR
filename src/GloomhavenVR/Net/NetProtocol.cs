@@ -547,7 +547,21 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 586;
+    public const ushort ModBuild = 587;
+
+    // ModBuild 587 — the Build 586 Frame retest still measured about 59-62 ms
+    // per late map frame at 1728 pixels/eye, close to Build 585 at 3408;
+    // lowering eye-target pixels did not remove the dominant CPU cost. The
+    // merchant catalog now refreshes hidden-page price/card-body mirrors only
+    // when the page becomes exposed, before the local render and shared
+    // snapshot; stable observer election avoids a second body-visibility pass.
+    // Hidden-window veils retain complete per-frame discovery but drop an
+    // impossible ancestor check. Bounded Debug timing separates town catalog,
+    // hidden-window discovery/reassert and slow modal-conversion stages for
+    // the next 3408-pixel hardware comparison. Native content, intermediate
+    // visible animation, input, multiplayer state and wire format are unchanged.
+    // Headset performance and presentation remain unverified. Evidence:
+    // .planning/STEAM-FRAME-FIFTH-HARDWARE.md.
 
     // ModBuild 586 — remove source-proven duplicate work in the Steam Frame's
     // measured map/scenario paths. The wall cache reuses its already-collected
