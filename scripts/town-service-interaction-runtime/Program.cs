@@ -956,6 +956,33 @@ public static class InteractionProgram
         }
     }
 
+    private static void MerchantConfirmationPreparationFailure()
+    {
+        var native = Probe.Go("BrokenNativeMerchantDecision");
+        var window = native.AddComponent<UIWindow>();
+        var box = native.AddComponent<UIItemConfirmationBox>();
+        box._onConfirmedCallback = () => { };
+        box.titleText = Probe.Go("NativeTitle", native.transform).AddComponent<TMPro.TMP_Text>();
+        var invalid = new GameObject("NonRectInformation", typeof(Transform));
+        Probe.Roots.Add(invalid);
+        box.informationText = invalid.AddComponent<CanvasGroup>();
+        var station = Probe.Go("MerchantStand").transform;
+        var seat = Probe.Go("MerchantPalm", station).transform;
+        TownServiceMerchantHandoff.HasParkedOffer = true;
+        int priorFailures = TownServiceMerchantHandoff.FailedPresentations;
+        WorldUIConfig.ImmersiveTownServices.Value = true;
+        TownServicePalmConfirmation.Begin(box, seat);
+        TownServicePalmConfirmation.Tick();
+        Check(!TownServicePalmConfirmation.Owns(window)
+              && TownServiceConfirmationMask.Owns(window)
+              && !TownServiceMerchantHandoff.HasParkedOffer
+              && TownServiceMerchantHandoff.FailedPresentations == priorFailures + 1,
+            "unpresentable merchant controls stay masked and return the physical offer for retry");
+        window.Hide(); window.IsVisible = false;
+        TownServiceConfirmationMask.Clear();
+        Clean();
+    }
+
     private static void NativeFolioAndTeardown()
     {
         var parent=Probe.Go("NativeFolio").transform;
@@ -1023,7 +1050,7 @@ public static class InteractionProgram
     public static int Run()
     {
         _assertions = 0;
-        try { NativeFolioAndTeardown(); EnhancementDecisionLayout(); PalmConfirmationLifecycle(); ParkedStockRegrab(); PhysicalCommitCases(); PhysicalMerchantSamples(); WindowMaskLifecycle(); UnconvertedMerchantController(); MerchantContextLifecycle(); MerchantCoordinatorTimeout(); ConfirmationFadeLifecycle(); IdentityChanges(); HoverAndRelease(); CancellationCompatibility(); Handoff(); StalledEnhancementRestoresNativeWindow(); RollbackAndContinuation(); OptionalPresentation(); SharedRitualPlacement(); MapHandFallback(); PhysicalPurse(); PurseSettlement(); return _assertions; }
+        try { NativeFolioAndTeardown(); EnhancementDecisionLayout(); PalmConfirmationLifecycle(); MerchantConfirmationPreparationFailure(); ParkedStockRegrab(); PhysicalCommitCases(); PhysicalMerchantSamples(); WindowMaskLifecycle(); UnconvertedMerchantController(); MerchantContextLifecycle(); MerchantCoordinatorTimeout(); ConfirmationFadeLifecycle(); IdentityChanges(); HoverAndRelease(); CancellationCompatibility(); Handoff(); StalledEnhancementRestoresNativeWindow(); RollbackAndContinuation(); OptionalPresentation(); SharedRitualPlacement(); MapHandFallback(); PhysicalPurse(); PurseSettlement(); return _assertions; }
         finally { Clean(); }
     }
 }

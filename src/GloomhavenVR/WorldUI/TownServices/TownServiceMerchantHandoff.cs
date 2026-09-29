@@ -54,7 +54,7 @@ internal static class TownServiceMerchantHandoff
     private static float _eligibilityUntil;
     private static TownVoiceReaction? _inspectedReaction;
     private static int _inspectedFrame;
-    private static float _coordinatorUnavailableUntil, _nextCoordinatorWarning;
+    private static float _offerRetryUntil, _nextOfferFailureWarning;
     internal static bool WantsOffering => Active && _near && (_offeredChip != null || _offeredStock != null
         || HeldOwned(VRHands.Left) || HeldOwned(VRHands.Right) || TownServiceCatalog.HeldOfferAvailable);
     // A visitor's proximity is not a transaction. Other town services may keep their
@@ -171,7 +171,7 @@ internal static class TownServiceMerchantHandoff
         Vector3 ownedPosition = heldOwned ? ((ItemsPile.ItemChip)ownedHand!.Grabber.Held!).transform.position : default;
         bool useOwned = heldOwned && (!heldStock || (ownedPosition - _seat.position).sqrMagnitude
             <= (stockPosition - _seat.position).sqrMagnitude);
-        bool retryFeedback = Time.unscaledTime < _coordinatorUnavailableUntil
+        bool retryFeedback = Time.unscaledTime < _offerRetryUntil
             && !heldOwned && !heldStock && !HasParkedOffer;
         _caption!.text = Loc.Mod(retryFeedback ? "town_merchant_retry"
             : useOwned || stockSelling ? "town_merchant_sell" : "town_merchant_buy");
@@ -563,15 +563,19 @@ internal static class TownServiceMerchantHandoff
     /// <summary>A missing host response cannot turn a physical merchant offer into a flat
     /// shop while immersive mode is enabled. Return only this visitor's card, release its
     /// grant claim, and leave the native controller masked so the next offer can retry.</summary>
-    internal static void AbortUnavailable()
+    internal static void AbortUnavailable() => AbortFailedOffer("transaction coordinator did not answer");
+    internal static void AbortUnpresentableConfirmation() => AbortFailedOffer("native confirmation controls could not be presented");
+
+    private static void AbortFailedOffer(string reason)
     {
         if (!HasParkedOffer) return;
         Reclaim();
-        _coordinatorUnavailableUntil = Time.unscaledTime + 2.5f;
-        if (Time.unscaledTime >= _nextCoordinatorWarning)
+        _offerRetryUntil = Time.unscaledTime + 2.5f;
+        if (Time.unscaledTime >= _nextOfferFailureWarning)
         {
-            _nextCoordinatorWarning = Time.unscaledTime + 30f;
-            Core.VRLog.Warn("TownServices", "Merchant transaction coordinator did not answer; returned the offered card and kept the immersive stand active for retry.");
+            _nextOfferFailureWarning = Time.unscaledTime + 30f;
+            Core.VRLog.Warn("TownServices", "Merchant " + reason
+                + "; returned the offered card and kept the immersive stand active for retry.");
         }
     }
 
@@ -622,7 +626,7 @@ internal static class TownServiceMerchantHandoff
         Transform? seat = _seat; _seat = _zone = null; _zoneGate = null; _caption = null; _feedback = null;
         _pending = null; _tradeItem = null; _decisionConfirmed = _decisionCancelled = false;
         _decisionRetries = 0; DetachTradeListener(); _eligibilityItem = null; _inspectedReaction = null;
-        _coordinatorUnavailableUntil = 0f;
+        _offerRetryUntil = 0f;
         Items.Clear(); _character = null;
         try
         {

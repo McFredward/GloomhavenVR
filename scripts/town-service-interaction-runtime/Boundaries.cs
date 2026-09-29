@@ -408,7 +408,7 @@ namespace GloomhavenVR.WorldUI { internal static class TownServiceEnhancementHan
 
 namespace GloomhavenVR.WorldUI {internal static class TownServicePublicMerchant {internal static void Tick(){}internal static void LateTick(){}internal static void Reset(){} }}
 
-namespace GloomhavenVR.WorldUI { internal static class TownServiceMerchantHandoff {internal static bool Reclaim; internal static bool HasParkedOffer; internal static bool CanReclaim(TownServiceToken token)=>Reclaim; internal static void LateTick(){} internal static void Reset(){} internal static void AbortUnavailable(){HasParkedOffer=false;} } }
+namespace GloomhavenVR.WorldUI { internal static class TownServiceMerchantHandoff {internal static bool Reclaim; internal static bool HasParkedOffer; internal static int FailedPresentations; internal static bool CanReclaim(TownServiceToken token)=>Reclaim; internal static void LateTick(){} internal static void Reset(){} internal static void AbortUnavailable(){HasParkedOffer=false;} internal static void AbortUnpresentableConfirmation(){HasParkedOffer=false;FailedPresentations++;} } }
 
 public class UIItemConfirmationBox : MonoBehaviour {
  public Component titleText=null!,informationText=null!; public Button confirmButton=null!,cancelButton=null!;

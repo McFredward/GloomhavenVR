@@ -23,6 +23,7 @@ internal static class TownServicePalmConfirmation
         private readonly Component[] _parts;
         private TownServiceWindowMask? _mask;
         private bool _prepared;
+        internal bool FailedMerchant;
         private Transform? _frame, _palm;
         private int _lastRotationFrame = -1;
         internal bool Current => Window != null && ReferenceEquals(_callback, _identity());
@@ -114,6 +115,11 @@ internal static class TownServicePalmConfirmation
         }
         internal void LateTick() { Place(); foreach (TownServiceSurface surface in Surfaces) surface.Tick(Vector3.zero, Quaternion.identity, 1f); }
         internal void Cancel() { if (Open) _cancel(); }
+        internal void MaskFailedDecision()
+        {
+            if (Window != null && Window.IsOpen)
+                TownServiceConfirmationMask.Begin(Window, _identity);
+        }
         internal void Dispose()
         {
             // The mask remains until descendants are home, so teardown cannot flash a native
@@ -125,7 +131,6 @@ internal static class TownServicePalmConfirmation
         }
     }
     private static readonly Dictionary<UIWindow, Entry> Entries = new();
-    private static readonly Dictionary<UIWindow, object?> ClassicFallback = new();
     private static readonly List<UIWindow> Finished = new();
     internal static IEnumerable<Entry> Active => Entries.Values;
     internal static bool Owns(UIWindow window) => Entries.ContainsKey(window);
@@ -133,11 +138,6 @@ internal static class TownServicePalmConfirmation
     internal static void Begin(UIItemConfirmationBox box, Transform seat)
     {
         UIWindow window = box.GetComponent<UIWindow>();
-        if (ClassicFallback.TryGetValue(window, out object? callback))
-        {
-            if (ReferenceEquals(callback, box._onConfirmedCallback)) return;
-            ClassicFallback.Remove(window);
-        }
         if (Retains(window, seat)) return;
         Begin(new Entry(window, seat, 1, () => box._onConfirmedCallback, box.OnCancel,
             new Component[] { box.titleText, box.informationText, box.confirmButton, box.cancelButton }));
@@ -171,9 +171,22 @@ internal static class TownServicePalmConfirmation
             try { if (!pair.Value.Tick()) Finished.Add(pair.Key); }
             catch (Exception ex)
             {
-                // Fail open to the original usable dialog; never leave a payment hidden.
-                Core.VRLog.Warn("WorldUI", "TOWN PALM CONFIRMATION: restoring original decision controls: " + ex.Message);
-                if (pair.Value.Service == 1) ClassicFallback[pair.Key] = pair.Value.Callback;
+                // In immersive merchant mode, a failed physical presentation must return
+                // the offered card and keep the flat native dialog concealed. A separate
+                // mask owns its fade while the native cancel callback retires the prompt.
+                // Other services retain their original usable-dialog fallback.
+                if (pair.Value.Service == 1 && WorldUIConfig.ImmersiveTownServices.Value)
+                {
+                    pair.Value.FailedMerchant = true;
+                    try { pair.Value.MaskFailedDecision(); }
+                    catch (Exception maskError)
+                    {
+                        Core.VRLog.Warn("WorldUI", "TOWN PALM CONFIRMATION: emergency mask failed while cancelling merchant offer: " + maskError.Message);
+                    }
+                    Core.VRLog.Warn("WorldUI", "TOWN PALM CONFIRMATION: cancelling unpresentable merchant offer: " + ex.Message);
+                }
+                else
+                    Core.VRLog.Warn("WorldUI", "TOWN PALM CONFIRMATION: restoring original decision controls: " + ex.Message);
                 Finished.Add(pair.Key);
             }
         }
@@ -181,6 +194,11 @@ internal static class TownServicePalmConfirmation
         {
             if (!Entries.TryGetValue(window, out Entry? entry)) continue;
             Entries.Remove(window); entry.Dispose();
+            if (entry.FailedMerchant)
+            {
+                TownServiceMerchantHandoff.AbortUnpresentableConfirmation();
+                continue;
+            }
             if (entry.Seat == null) entry.Cancel();
             if (window != null && window.IsOpen) ModalFallback.RestoreClassicTownService(window);
         }
@@ -190,7 +208,7 @@ internal static class TownServicePalmConfirmation
     internal static void Clear()
     {
         var closing = new List<Entry>(Entries.Values);
-        Entries.Clear(); Finished.Clear(); ClassicFallback.Clear();
+        Entries.Clear(); Finished.Clear();
         foreach (Entry entry in closing) { entry.Cancel(); entry.Dispose(); }
     }
 }
