@@ -65,7 +65,9 @@ change per build) → this file (where things stand and what is owed) → the bu
   longer requires a purse that is not yet available. A guarded template
   mismatch now reports its actual address and structural difference. The
   original Build 587 peer trace was supplied after Build 589 and is analyzed
-  in [TOWN-MP-590.md](TOWN-MP-590.md). Headset parity remains open.
+  in [TOWN-MP-590.md](TOWN-MP-590.md). Integrated validation passed 14/14
+  source checks, 80/80 runtime suites, 286609 wire assertions, strict Release
+  build and EN/DE docs. Headset parity remains open.
 
 - **dev / 1.1.0 / ModBuild 589 (town multiplayer repair candidate):** the
   merchant remains immersive across transaction failures; valid host grants

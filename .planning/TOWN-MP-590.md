@@ -77,8 +77,14 @@ the basis of a source check alone.
 ## Verification and next hardware pass
 
 Focused Unity negative controls cover destroyed rack descendants and both
-overlapping NPC handoff cases. Record the complete integrated source/runtime/
-wire counts and strict build result after all changes are merged. Test the final
-build on both clients: switch every cabinet category, inspect the card fronts
-and page animation from both sides, take and offer a card, then move between all
-three residents. Preserve both logs if the new template diagnostic appears.
+overlapping NPC handoff cases. The final integrated tree passed 14/14 source
+checks, 80/80 runtime suites, 286,609 wire assertions, the strict Release build
+with zero warnings/errors, and the EN/DE documentation check. The compiled-form
+guard's exit code 1 records expected changes against its older pre-NPC baseline;
+all test groups passed. These checks do not verify headset pixels.
+
+Test Build 590 on both clients: switch every cabinet category, inspect card
+fronts and page animation from both sides, take and offer a card, then move
+between all three residents. Preserve both logs if the new template diagnostic
+appears. Compare the offered item's world position from both viewpoints; it
+remains unproven by the Build 587 trace.
