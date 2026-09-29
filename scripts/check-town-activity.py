@@ -151,6 +151,12 @@ def main():
     for label, filename, *_ in variants:
         if filename is not None and filename not in bound:
             raise SystemExit(f"Negative control {label} targets an unbound production file: {filename}")
+    # Portable checks can catch a mutant before the Unity scene reaches its
+    # later, asset-bound assertion. Keep both expected failures explicit.
+    portable_expected = {
+        "phase-jump": "interrupted transition keeps current pose",
+        "merchant-stiff-greeting": "visitor attention aims merchant's free hand toward his belly, both hands above the counter",
+    }
     print(f"Binding production from {args.source_root.resolve()}; evidence: {run}", flush=True)
     for name, filename, before, after, expected in variants:
         build = run / name
@@ -187,6 +193,8 @@ def main():
         if compiled.returncode:
             print(compiled.stdout)
             raise SystemExit(f"FAIL: {name} did not compile (not a successful negative control)")
+        if args.portable:
+            expected = portable_expected.get(name, expected)
         manifest["cases"].append({"name": name, "dll": str(build / "bin/Release" / framework / (assembly + ".dll")), "expected": expected})
         print(f"Compiled {name}", flush=True)
     if args.portable:
