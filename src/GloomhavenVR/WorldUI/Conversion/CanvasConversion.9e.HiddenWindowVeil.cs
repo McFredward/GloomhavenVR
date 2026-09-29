@@ -313,6 +313,11 @@ internal static partial class CanvasConversion
                 continue;
             if (w.IsOpen || w.IsVisible)
                 continue;
+            // The lift pass above already checked every existing veil's live window state.
+            // Discovery cannot take a second hold, so avoid resolving its CanvasGroup again
+            // on every frame it remains veiled.
+            if (IsVeiled(st, w))
+                continue;
             // A window with no CanvasGroup reports IsVisible=false FOREVER (it reads a null
             // group) — that is a window driven by something else, not a hidden one. Skip.
             CanvasGroup? group = w.GetComponent<CanvasGroup>();
@@ -325,8 +330,6 @@ internal static partial class CanvasConversion
             // and enforcing it here would cull content the effect is deliberately showing. Left
             // to whoever switched the group off; it becomes a candidate again when the group is.
             if (!group.enabled)
-                continue;
-            if (IsVeiled(st, w))
                 continue;
             Veil(panel, st, w, group);
         }
