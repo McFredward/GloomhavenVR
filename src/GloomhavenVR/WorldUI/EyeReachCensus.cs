@@ -131,9 +131,11 @@ namespace GloomhavenVR.WorldUI;
 ///
 /// <para><b>COST.</b> This is a scene sweep, and this project has been bitten repeatedly by per-frame
 /// <c>FindObjectsOfType</c> ([[findobjectsoftype-is-the-default-suspect]],
-/// [[one-line-owned-the-frame]]). It is therefore TRIGGERED and BOUNDED: it never runs from a
-/// per-frame path, it runs at most <see cref="MaxRuns"/> times per session, and every run states its
-/// own measured milliseconds on the verdict line rather than asserting it is cheap.</para>
+/// [[one-line-owned-the-frame]]). It is therefore DEBUG-ONLY, TRIGGERED and BOUNDED: ordinary player
+/// logs must not spend tens of milliseconds scanning and formatting obsolete rim diagnostics on an
+/// options tap. The Steam Frame build-556 normal log measured 89.7, 55.5 and 42.1 ms for its three
+/// runs from one tap, with no matching artifact. Debug retains the full census, at most
+/// <see cref="MaxRuns"/> times per session, and every run states its own measured milliseconds.</para>
 ///
 /// <para><b>MULTIPLAYER.</b> Local diagnostics only. It reads the scene and writes nothing but its own
 /// trigger counters — no wire field, no game-state write, no config key.</para>
@@ -270,13 +272,17 @@ internal static class EyeReachCensus
     private static readonly Dictionary<System.Type, bool> ImageEffectTypes = new(32);
 
     /// <summary>
-    /// One options-key tap edge. Called from <see cref="OptionsToggle"/> on EVERY short-tap
-    /// edge — including a press the toggle then refuses as "spent" — because a spent press is still a
-    /// press the player made, and "schnell hintereinander gedrückt" is a statement about his thumb,
-    /// not about which taps the mod chose to act on.
+    /// One options-key tap edge at Debug level. Called from <see cref="OptionsToggle"/> on EVERY
+    /// short-tap edge — including a press the toggle then refuses as "spent" — because a spent press
+    /// is still a press the player made, and "schnell hintereinander gedrückt" is a statement about
+    /// his thumb, not about which taps the mod chose to act on. The guard must precede all counter,
+    /// timer and string work, so ordinary player sessions never arm a scene sweep.
     /// </summary>
     internal static void NoteOptionsTap()
     {
+        if (!VRLog.WantsDebug)
+            return;
+
         float now = Time.unscaledTime;
         bool chained = now - s_lastTapTime <= BurstChainSeconds;
         s_lastTapTime = now;
@@ -317,12 +323,19 @@ internal static class EyeReachCensus
     }
 
     /// <summary>
-    /// Per-frame pump, called from <see cref="OptionsToggle.Tick"/>. Two float compares and a
-    /// return when nothing is armed — the sweep itself only ever runs from here on a DUE settle, or
-    /// from <see cref="NoteOptionsTap"/> on a tap edge. It is never on a per-frame path.
+    /// Per-frame pump, called from <see cref="OptionsToggle.Tick"/>. At ordinary log levels this
+    /// disarms any pending Debug settles and returns without reading the scene. At Debug level two
+    /// float compares decide whether a settle is due. The sweep never runs every frame.
     /// </summary>
     internal static void Tick()
     {
+        if (!VRLog.WantsDebug)
+        {
+            s_settleFirstDue = float.PositiveInfinity;
+            s_settleSecondDue = float.PositiveInfinity;
+            return;
+        }
+
         if (float.IsPositiveInfinity(s_settleFirstDue) && float.IsPositiveInfinity(s_settleSecondDue))
             return;
 
@@ -369,7 +382,7 @@ internal static class EyeReachCensus
     /// </summary>
     private static void Fire(string why)
     {
-        if (s_runs >= MaxRuns)
+        if (!VRLog.WantsDebug || s_runs >= MaxRuns)
             return;
         s_runs++;
         try
@@ -443,9 +456,9 @@ internal static class EyeReachCensus
         }
 
         // ---- HEADER (printed first, so the rows below always have their context) ----------------
-        // HW-VERIFY: the run header. If a burst is reported and no EYE CENSUS RUN line exists, the
+        // DEBUG DIAGNOSTIC: the run header. If a burst is reported and no EYE CENSUS RUN line exists, the
         // trigger never fired and nothing below it means anything — check this before anything else.
-        VRLog.Note("WorldUI", $"EYE CENSUS RUN {run}/{MaxRuns} — {why}. HEAD CAMERA: "
+        VRLog.Info("WorldUI", $"EYE CENSUS RUN {run}/{MaxRuns} — {why}. HEAD CAMERA: "
             + (head != null
                 ? $"'{head.name}' fov={head.fieldOfView:F1} stereoEnabled={head.stereoEnabled} "
                   + $"mask=0x{head.cullingMask:X8} rect=({head.rect.x:F3},{head.rect.y:F3},{head.rect.width:F3},"
@@ -465,10 +478,10 @@ internal static class EyeReachCensus
             + "not in conflict and never were (survey row R25).");
 
         for (int i = 0; i < camLines.Count; i++)
-            VRLog.Note("WorldUI", camLines[i]);
+            VRLog.Info("WorldUI", camLines[i]);
         if (cameras.Length > camRows)
         {
-            VRLog.Note("WorldUI", $"EYE CENSUS CAM +{cameras.Length - camRows} further camera(s) NOT NAMED "
+            VRLog.Info("WorldUI", $"EYE CENSUS CAM +{cameras.Length - camRows} further camera(s) NOT NAMED "
                 + $"(row cap {MaxCameraRows}).");
         }
 
@@ -624,7 +637,7 @@ internal static class EyeReachCensus
                 continue;
             }
             canvasRows++;
-            VRLog.Note("WorldUI", $"EYE CENSUS CANVAS '{c.name}'{(c.isRootCanvas ? " ROOT" : " nested")} "
+            VRLog.Info("WorldUI", $"EYE CENSUS CANVAS '{c.name}'{(c.isRootCanvas ? " ROOT" : " nested")} "
                 + $"path={ScenePath(c.transform)} mode={root.renderMode} enabled={c.enabled} "
                 + $"active={c.gameObject.activeInHierarchy} cam='{(drawer != null ? drawer.name : "<none>")}' "
                 + $"camTarget='{(drawer != null && drawer.targetTexture != null ? drawer.targetTexture.name : "backbuffer/none")}' "
@@ -634,15 +647,15 @@ internal static class EyeReachCensus
                 + $"{(IsModOwned(c.transform) ? " [MOD]" : " [GAME]")} "
                 + $"→ REACHES AN EYE: {reach}. ITS RECT MATCHES THE PICTURE: {canvasShape}");
         }
-        VRLog.Note("WorldUI", $"EYE CENSUS CANVAS SUMMARY {canvases.Length} canvas(es) in the scene, "
+        VRLog.Info("WorldUI", $"EYE CENSUS CANVAS SUMMARY {canvases.Length} canvas(es) in the scene, "
             + $"{canvasRows} named above, {quietCanvases} not named (disabled, inactive, every graphic below "
             + $"alpha {MinVisibleAlpha:F2}, drawn into a RenderTexture, culled by layer, or past the row cap "
             + $"of {MaxCanvasRows}). GRAPHICS: {graphicsExamined} examined under the painting root canvases, "
             + $"{tallGraphics} of them full-height, {graphicRows} MATCHING the picture.");
         for (int i = 0; i < graphicLines.Count; i++)
         {
-            // HW-VERIFY: a UI band. A row here names the Image that IS the rim, with its scene path.
-            VRLog.Note("WorldUI", graphicLines[i]);
+            // DEBUG DIAGNOSTIC: a UI band. A row here names the Image that IS the rim, with its scene path.
+            VRLog.Info("WorldUI", graphicLines[i]);
         }
 
         // ---- RENDERERS ---------------------------------------------------------------------------
@@ -650,7 +663,7 @@ internal static class EyeReachCensus
         int renderersExamined = 0;
         if (head == null)
         {
-            VRLog.Note("WorldUI", "EYE CENSUS RENDERER SUMMARY skipped — VRRigDriver.HeadCamera is null, so "
+            VRLog.Info("WorldUI", "EYE CENSUS RENDERER SUMMARY skipped — VRRigDriver.HeadCamera is null, so "
                 + "nothing can be projected into an eye's viewport. That is itself a finding if VR is running.");
         }
         else
@@ -711,16 +724,16 @@ internal static class EyeReachCensus
             }
             for (int i = 0; i < rendererLines.Count; i++)
             {
-                // HW-VERIFY: a 3D band. A row here names an object the head camera draws whose projected
+                // DEBUG DIAGNOSTIC: a 3D band. A row here names an object the head camera draws whose projected
                 // bounds ARE the photographed rim, and prints its LEFT and RIGHT eye rects separately —
                 // the direct test of the user's "aus dem linken augenwinkel".
-                VRLog.Note("WorldUI", rendererLines[i]);
+                VRLog.Info("WorldUI", rendererLines[i]);
             }
             // "active" in the first term is the RAW array length from FindObjectsOfType(true) — it
             // counts renderers whose `enabled` is false, and the SECOND term is the enabled count.
             // The word is kept because a shipped log string is never reworded; the appended clause is
             // what makes the population unambiguous (survey row R25).
-            VRLog.Note("WorldUI", $"EYE CENSUS RENDERER SUMMARY {renderers.Length} active renderer(s), "
+            VRLog.Info("WorldUI", $"EYE CENSUS RENDERER SUMMARY {renderers.Length} active renderer(s), "
                 + $"{renderersExamined} enabled, {rejectedByMask} excluded by the head camera's culling mask "
                 + $"0x{head.cullingMask:X8}, {rejectedByAngularSize} rejected by the angular-size prefilter "
                 + "(their bounding sphere cannot subtend the frame height from here — a necessary condition, "
@@ -746,7 +759,7 @@ internal static class EyeReachCensus
                     .Append(ch.GetComponent<Canvas>() != null ? " HAS-CANVAS" : string.Empty)
                     .Append(ch.GetComponent<Camera>() != null ? " HAS-CAMERA" : string.Empty);
             }
-            VRLog.Note("WorldUI", $"EYE CENSUS HEADCHILD {ht.childCount} direct child(ren) of '{head.name}'"
+            VRLog.Info("WorldUI", $"EYE CENSUS HEADCHILD {ht.childCount} direct child(ren) of '{head.name}'"
                 + (ht.childCount > shown ? $" ({shown} named, row cap {MaxHeadChildRows})" : string.Empty)
                 + (Sb.Length == 0 ? ": none." : ":" + Sb));
             Sb.Clear();
@@ -811,21 +824,21 @@ internal static class EyeReachCensus
             if (effectRows >= MaxCameraRows)
                 continue;
             effectRows++;
-            // HW-VERIFY: a blind-spot row. A camera listed here draws something that is NOT a camera,
+            // DEBUG DIAGNOSTIC: a blind-spot row. A camera listed here draws something that is NOT a camera,
             // canvas, graphic or renderer, so no other section of this census can account for it. If a
             // verdict says 0 rows matched while the band is reported on screen, the answer is on one
             // of these lines.
-            VRLog.Note("WorldUI", $"EYE CENSUS EFFECT '{cam.name}' path={ScenePath(cam.transform)} "
+            VRLog.Info("WorldUI", $"EYE CENSUS EFFECT '{cam.name}' path={ScenePath(cam.transform)} "
                 + $"active={cam.gameObject.activeInHierarchy} enabled={cam.enabled} "
                 + $"target={(cam.targetTexture != null ? $"'{cam.targetTexture.name}'" : "BACKBUFFER (null)")} "
                 + $"commandBufferCount={bufferCount} imageEffects={effectsHere}"
                 + $"{(IsModOwned(cam.transform) ? " [MOD]" : " [GAME]")}:{Sb}");
         }
         Sb.Clear();
-        // HW-VERIFY: the blind-spot summary. Two ZEROS here on a run whose header reports the band on
+        // DEBUG DIAGNOSTIC: the blind-spot summary. Two ZEROS here on a run whose header reports the band on
         // screen eliminate BOTH leading blind spots at once and promote the XR compositor overlay to
         // first place.
-        VRLog.Note("WorldUI", $"EYE CENSUS EFFECT SUMMARY {camerasWithBuffers} of {cameras.Length} camera(s) "
+        VRLog.Info("WorldUI", $"EYE CENSUS EFFECT SUMMARY {camerasWithBuffers} of {cameras.Length} camera(s) "
             + $"carry a CommandBuffer and {effectComponents} MonoBehaviour(s) on a camera implement "
             + $"OnRenderImage ({effectRows} row(s) named above, cap {MaxCameraRows}). "
             + "XR COMPOSITOR OVERLAY LAYERS: NOT ENUMERABLE in this runtime, stated rather than guessed. "
@@ -840,11 +853,10 @@ internal static class EyeReachCensus
             + "standing check that it still is not.");
 
         double ms = (Stopwatch.GetTimestamp() - t0) * 1000.0 / Stopwatch.Frequency;
-        // HW-VERIFY: THE VERDICT. This is the line the next hardware round is decided on. If it says 0
-        // rows matched while the user reports the rim on screen, then the rim is drawn by something NONE
-        // of the four sections above can see, and the blind spots named on this line are the entire
-        // remaining search space.
-        VRLog.Note("WorldUI", $"EYE CENSUS VERDICT run {run}/{MaxRuns}: {matches} row(s) MATCH the "
+        // DEBUG DIAGNOSTIC: THE VERDICT. During a deliberate rim reproduction, zero matching rows
+        // while the band is visible means the four scene sections cannot name its source; the
+        // remaining blind spots are listed on this line.
+        VRLog.Info("WorldUI", $"EYE CENSUS VERDICT run {run}/{MaxRuns}: {matches} row(s) MATCH the "
             + $"photographed shape — a full-height, left-anchored band with its right edge between "
             + $"{ShapeRightEdgeMin:F2} and {ShapeRightEdgeMax:F2} of the frame. {camPaints} camera(s) paint to "
             + $"a display, {cameras.Length} camera(s), {canvases.Length} canvas(es), {graphicsExamined} "
