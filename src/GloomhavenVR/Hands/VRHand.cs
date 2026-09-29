@@ -550,19 +550,21 @@ internal sealed class VRHand : MonoBehaviour
         // proximity trigger-grab that frame (Grabber early-outs on Held != null).
         //   Every adjacency above is an arbitration decision — INVARIANTS §6. Reordering is
         //   Tier 3, and is invisible to refactor-guard.sh, which is why it is locked.
-        using (Core.PerfMonitor.Scope("Hands.VRHand.Poke"))
+        // Scope labels describe the operation without repeating the FRAME-ORDER marker tokens;
+        // the source-order guard must see the actual Tick calls, not the timing labels.
+        using (Core.PerfMonitor.Scope("Hands.VRHand.Contact"))
             Poke.Tick();
-        using (Core.PerfMonitor.Scope("Hands.VRHand.Ray"))
+        using (Core.PerfMonitor.Scope("Hands.VRHand.Aim"))
             Ray.Tick();
-        using (Core.PerfMonitor.Scope("Hands.VRHand.RayUgui"))
+        using (Core.PerfMonitor.Scope("Hands.VRHand.UiClick"))
             RayUgui.Tick();
-        using (Core.PerfMonitor.Scope("Hands.VRHand.TownRay"))
+        using (Core.PerfMonitor.Scope("Hands.VRHand.TownPhysical"))
             WorldUI.TownServicePhysicalRay.Tick(this);
-        using (Core.PerfMonitor.Scope("Hands.VRHand.RayGrab"))
+        using (Core.PerfMonitor.Scope("Hands.VRHand.FarGrip"))
             RayGrab.Tick();
-        using (Core.PerfMonitor.Scope("Hands.VRHand.Grabber"))
+        using (Core.PerfMonitor.Scope("Hands.VRHand.NearGrip"))
             Grabber.Tick();
-        using (Core.PerfMonitor.Scope("Hands.VRHand.PalmGate"))
+        using (Core.PerfMonitor.Scope("Hands.VRHand.Palm"))
             PalmGate.Tick();
 
         // AFTER every interactor has run, so the line reports the state the frame ENDED in —
