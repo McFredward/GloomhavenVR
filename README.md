@@ -124,30 +124,6 @@ floats above the table's right edge.
   <img src="docs/img/divider-small.png" width="340" alt="">
 </p>
 
-## Town services in VR
-
-With immersive NPCs enabled, unlocked townsfolk stay at their stands around the 3D map.
-
-<table>
-<tr>
-<td width="33%" align="center"><img src="docs/img/town-merchant.png" width="230" alt="Merchant and item cabinet"></td>
-<td width="33%" align="center"><img src="docs/img/town-enchantress.png" width="230" alt="Enchantress at her stand"></td>
-<td width="33%" align="center"><img src="docs/img/town-priestess.png" width="230" alt="Priestess at her altar"></td>
-</tr>
-<tr>
-<td><b>Merchant:</b> Take an item from his cabinet to buy, or from your item fan to sell. Place it in his hand and confirm.</td>
-<td><b>Enchantress:</b> Place an ability card in her hand, then choose the part to enhance.</td>
-<td><b>Priestess:</b> Offer the coin purse from your hand to her bowl to donate.</td>
-</tr>
-</table>
-
-Immersive town NPCs are on by default. To use the original windows, switch them off under
-**VR Options ▸ World & sound ▸ Campaign map**. This setting is hidden when the original 2D map is on.
-
-<p align="center">
-  <img src="docs/img/divider-small.png" width="340" alt="">
-</p>
-
 ## Environments
 
 An indoor cellar and an outdoor night forest, both built for the mod. Both have firelight and
@@ -172,6 +148,30 @@ ambient level, Dark eclipses the moon.
   <img src="docs/img/env-elements.jpg" width="720" alt="The same camera with the element off and on"><br>
   <i>Same camera, element off left and on right.</i>
 </p>
+
+<p align="center">
+  <img src="docs/img/divider-small.png" width="340" alt="">
+</p>
+
+## Immersive NPC interactions
+
+With immersive NPCs enabled, unlocked townsfolk stay at their stands around the 3D map.
+
+<table>
+<tr>
+<td width="33%" align="center"><img src="docs/img/town-merchant.png" width="230" alt="Merchant and item cabinet"></td>
+<td width="33%" align="center"><img src="docs/img/town-enchantress.png" width="230" alt="Enchantress at her stand"></td>
+<td width="33%" align="center"><img src="docs/img/town-priestess.png" width="230" alt="Priestess at her altar"></td>
+</tr>
+<tr>
+<td><b>Merchant:</b> Take an item from his cabinet to buy, or from your item fan to sell. Place it in his hand and confirm.</td>
+<td><b>Enchantress:</b> Place an ability card in her hand, then choose the part to enhance.</td>
+<td><b>Priestess:</b> Offer the coin purse from your hand to her bowl to donate.</td>
+</tr>
+</table>
+
+Immersive town NPCs are on by default. To use the original windows, switch them off under
+**VR Options ▸ World & sound ▸ Campaign map**. This setting is hidden when the original 2D map is on.
 
 <p align="center">
   <img src="docs/img/divider-small.png" width="340" alt="">

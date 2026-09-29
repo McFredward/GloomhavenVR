@@ -126,31 +126,6 @@ dir. Die Questliste schwebt über der rechten Tischkante.
   <img src="docs/img/divider-small.png" width="340" alt="">
 </p>
 
-## Stadtbesuche in VR
-
-Bei aktiven immersiven NPCs stehen freigeschaltete Stadtbewohner dauerhaft an ihren Ständen um
-die 3D-Karte.
-
-<table>
-<tr>
-<td width="33%" align="center"><img src="docs/img/town-merchant.png" width="230" alt="Händler und Warenschrank"></td>
-<td width="33%" align="center"><img src="docs/img/town-enchantress.png" width="230" alt="Verzauberin an ihrem Stand"></td>
-<td width="33%" align="center"><img src="docs/img/town-priestess.png" width="230" alt="Priesterin an ihrem Altar"></td>
-</tr>
-<tr>
-<td><b>Händler:</b> Nimm eine Ware aus seinem Schrank zum Kaufen oder aus deinem Gegenstandsfächer zum Verkaufen. Leg sie in seine Hand und bestätige.</td>
-<td><b>Verzauberin:</b> Gib ihr eine Fähigkeitenkarte in die Hand und wähle die Stelle aus, die du verbessern möchtest.</td>
-<td><b>Priesterin:</b> Leg den Geldbeutel aus deiner Hand zum Spenden in ihre Schale.</td>
-</tr>
-</table>
-
-Die immersiven Stadt-NPCs sind standardmäßig aktiv. Für die ursprünglichen Fenster schalte sie unter
-**VR Optionen ▸ Umgebung & Ton ▸ Kampagnenkarte** aus. Bei aktiver 2D-Karte ist diese Einstellung ausgeblendet.
-
-<p align="center">
-  <img src="docs/img/divider-small.png" width="340" alt="">
-</p>
-
 ## Umgebungen
 
 Ein Keller drinnen und ein Nachtwald draußen, beide für die Mod gebaut. Beide haben Feuerschein
@@ -176,6 +151,31 @@ Bewuchs hervor, Licht hebt die Grundhelligkeit, Dunkelheit verfinstert den Mond.
   <img src="docs/img/env-elements.jpg" width="720" alt="Dieselbe Kamera mit ausgeschaltetem und mit eingeschaltetem Element"><br>
   <i>Dieselbe Kamera, links Element aus, rechts an.</i>
 </p>
+
+<p align="center">
+  <img src="docs/img/divider-small.png" width="340" alt="">
+</p>
+
+## Immersive NPC-Interaktionen
+
+Bei aktiven immersiven NPCs stehen freigeschaltete Stadtbewohner dauerhaft an ihren Ständen um
+die 3D-Karte.
+
+<table>
+<tr>
+<td width="33%" align="center"><img src="docs/img/town-merchant.png" width="230" alt="Händler und Warenschrank"></td>
+<td width="33%" align="center"><img src="docs/img/town-enchantress.png" width="230" alt="Verzauberin an ihrem Stand"></td>
+<td width="33%" align="center"><img src="docs/img/town-priestess.png" width="230" alt="Priesterin an ihrem Altar"></td>
+</tr>
+<tr>
+<td><b>Händler:</b> Nimm eine Ware aus seinem Schrank zum Kaufen oder aus deinem Gegenstandsfächer zum Verkaufen. Leg sie in seine Hand und bestätige.</td>
+<td><b>Verzauberin:</b> Gib ihr eine Fähigkeitenkarte in die Hand und wähle die Stelle aus, die du verbessern möchtest.</td>
+<td><b>Priesterin:</b> Leg den Geldbeutel aus deiner Hand zum Spenden in ihre Schale.</td>
+</tr>
+</table>
+
+Die immersiven Stadt-NPCs sind standardmäßig aktiv. Für die ursprünglichen Fenster schalte sie unter
+**VR Optionen ▸ Umgebung & Ton ▸ Kampagnenkarte** aus. Bei aktiver 2D-Karte ist diese Einstellung ausgeblendet.
 
 <p align="center">
   <img src="docs/img/divider-small.png" width="340" alt="">
