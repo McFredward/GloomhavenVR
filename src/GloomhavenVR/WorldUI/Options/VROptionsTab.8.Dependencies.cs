@@ -158,6 +158,12 @@ internal static partial class VROptionsTab
         //      the whole map-room family away for every player on the NEW DEFAULT, i.e. for almost
         //      everyone, and it would have looked like the rows had simply been deleted.
         ["WorldUI/MapRoomHand"] = new("Rig", "Vanilla2DMap", Off),
+        // All three residents and their audio exist only in the 3D map room.
+        // The audio controls additionally fold under the immersive master below,
+        // so the entire family disappears with the original 2D map.
+        ["WorldUI/ImmersiveTownServices"] = new("Rig", "Vanilla2DMap", Off),
+        ["WorldUI/ImmersiveTownSpeech"] = new("WorldUI", "ImmersiveTownServices", On),
+        ["WorldUI/ImmersiveTownSoundEffects"] = new("WorldUI", "ImmersiveTownServices", On),
         // The travel-confirm button is parked only inside the 3D map room: MapTravelConfirm
         // .Reconcile is called from exactly one place (MapRoomDriver, guarded by
         // MapRoomDriver.Active) and its own first branch unparks whenever !Active — so with the

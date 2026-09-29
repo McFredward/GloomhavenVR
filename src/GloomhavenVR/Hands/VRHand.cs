@@ -547,6 +547,7 @@ internal sealed class VRHand : MonoBehaviour
         Poke.Tick();
         Ray.Tick();
         RayUgui.Tick();
+        WorldUI.TownServicePhysicalRay.Tick(this);
         RayGrab.Tick();
         Grabber.Tick();
         PalmGate.Tick();

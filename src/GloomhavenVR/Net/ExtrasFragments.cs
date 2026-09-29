@@ -62,7 +62,7 @@ internal sealed class ExtrasFragments
         if (snapshot == null || length < 6 || length > snapshot.Length
             || length > snapshotLimit || NetPacket.PeekType(snapshot, length) != payloadType)
             throw new ArgumentException("Invalid presentation snapshot.", nameof(snapshot));
-        if (compress && PresentationCompression.TryCompress(snapshot, length) is byte[] packed)
+        if (compress && PresentationCompression.TryCompress(snapshot, length, payloadType == TownServices.TownServiceCodec.MessageType) is byte[] packed)
             return EncodeCompressed(snapshot, length, sequence, payloadType, packed);
         int chunkCount = (length + ChunkBytes - 1) / ChunkBytes;
         var packets = new byte[(chunkCount + 3) / 4][];
@@ -247,6 +247,7 @@ internal sealed class ExtrasFragments
     }
 
     private static bool PayloadAllowed(int type) => type == NetProtocol.MsgExtras
+        || type == TownServices.TownServiceCodec.MessageType
         || type == NetProtocol.MsgUseBarAnimation || type == NetProtocol.MsgCardPlume
         || type == NetProtocol.MsgNativeUseBar || type == NetProtocol.MsgNativeBoard
         || type == NetProtocol.MsgCardAppearance || type == NetProtocol.MsgNativeDecisionPrompt || type == NetProtocol.MsgItemAppearance

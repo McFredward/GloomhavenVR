@@ -1612,6 +1612,17 @@ internal sealed partial class CardsDriver
 
     /// <summary>Throttle for the FAN SOUND proof lines (gate chatter can flip edges fast).</summary>
     private float _lastFanSoundLog = -10f;
+    private float _suppressFanOpenSoundUntil = -1f, _suppressFanCloseSoundUntil = -1f;
+
+    /// <summary>Silence one automatic map inspection fan edge without changing manual wrist audio.</summary>
+    internal static void SuppressNextOffScenarioFanEdgeSound(bool open, float seconds = 2f)
+    {
+        CardsDriver? driver = Instance;
+        if (driver == null) return;
+        float until = Time.unscaledTime + Mathf.Max(.1f, seconds);
+        if (open) driver._suppressFanOpenSoundUntil = until;
+        else driver._suppressFanCloseSoundUntil = until;
+    }
 
     /// <summary>
     /// Fan reveal/hide sound — the ROOT-CAUSE fix for "sound on close but never on open"
@@ -1645,6 +1656,18 @@ internal sealed partial class CardsDriver
     /// </summary>
     private void PlayFanEdgeSound(bool open)
     {
+        float now = Time.unscaledTime;
+        float suppressedUntil = open ? _suppressFanOpenSoundUntil : _suppressFanCloseSoundUntil;
+        if (now <= suppressedUntil)
+        {
+            if (open) _suppressFanOpenSoundUntil = -1f;
+            else _suppressFanCloseSoundUntil = -1f;
+            VRLog.Debug("Cards", "Automatic town inspection fan " + (open ? "open" : "close")
+                + " edge kept silent; manual fan sounds remain enabled.");
+            return;
+        }
+        if (open) _suppressFanOpenSoundUntil = -1f;
+        else _suppressFanCloseSoundUntil = -1f;
         // [Cards] CardSoundsEnabled is the everyday master switch over ALL mod card sounds
         // (menu overhaul ruling 6). An AND on top of the configured item strings — never a
         // rewrite of them — so a hand-picked audio item survives toggling the switch.
@@ -1656,7 +1679,6 @@ internal sealed partial class CardsDriver
         bool played = GameAudio.PlayListenerAnchored(configured, fallbacks,
             out string item, out bool valid, out string note);
 
-        float now = Time.unscaledTime;
         if (now - _lastFanSoundLog >= 0.25f)
         {
             _lastFanSoundLog = now;

@@ -1358,7 +1358,15 @@ internal static class GuildmasterDestinations
     private static bool ReturnHome(string source, string what)
     {
         EGuildmasterMode home = HomeMode();
-        bool pressed = MapRoomDriver.PressGuildmasterMode(home, source);
+        // An immersive resident is left by proximity, not by touching the map rail. Sending the
+        // synthetic pointer sequence here used to play ExtendedToggle.mouseDownAudioItem
+        // (PlaySound_UIMapOpen in the shipped map prefab) before UIWindow.Hide was ever reached.
+        // Muting the destination window therefore could never silence the cue the player heard on
+        // every departure. Keep the complete native mode transition, including every Toggle
+        // listener and tutorial callback, but take MapButtonRail's existing no-pointer route so an
+        // automatic body movement cannot impersonate a physical UI press. A real cap press reaches
+        // MapButtonRail without this flag and retains its authored hover/press sounds.
+        bool pressed = MapRoomDriver.PressGuildmasterMode(home, source, suppressNativeSound: true);
         VRLog.Info(Scope, $"GUILDMASTER WINDOW: {what} ({source}) by RETURNING TO "
                           + $"{home} on the game's own bar{(pressed ? "" : " — but no such button is on the bar")}. "
                           + "Hiding the window alone would leave the guildmaster mode active, and with it the "

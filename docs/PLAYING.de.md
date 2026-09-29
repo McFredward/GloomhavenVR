@@ -96,6 +96,13 @@ die Belohnung; der Spieler des betroffenen Characters bestätigt für die Gruppe
 Auf einen Ort zeigen, um dessen Auftragsschild einzublenden. Die Gildenmeister-Tasten liegen am
 Tischrand. Für die originale flache Karte **Umgebung & Ton ▸ Kampagnenkarte ▸ Originale 2D-Karte** aktivieren.
 
+**Stadtbesuche:** Bei aktiven immersiven NPCs stehen freigeschaltete Stadtbewohner dauerhaft an
+ihren Ständen. Geh zu ihnen, um zu interagieren. Gib dem Händler eine Ware aus dem Schrank oder
+deinem Gegenstandsfächer zum Kaufen oder Verkaufen in die Hand, der Verzauberin eine Fähigkeitenkarte
+zum Verbessern und der Priesterin den Geldbeutel zum Spenden. Für die ursprünglichen Fenster schalte
+**Immersive Stadt-NPCs** unter **VR Optionen ▸ Umgebung & Ton ▸ Kampagnenkarte** aus. Bei aktiver
+2D-Karte ist diese Einstellung ausgeblendet.
+
 ## Umgebungen
 
 <p align="center">

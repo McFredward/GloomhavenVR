@@ -196,6 +196,17 @@ internal static partial class Loc
 
     private static Dictionary<string, Dictionary<string, string>> Build() => new(64)
     {
+        ["town_merchant_buy"] = Pair("Buy", "Kaufen"),
+        ["town_merchant_sell"] = Pair("Sell", "Verkaufen"),
+        ["town_merchant_stock"] = Pair("Shop stock", "Warenbestand"),
+        ["town_merchant_inventory"] = Pair("Owned items", "Eigene Gegenstände"),
+        ["town_offering"] = Pair("Place the purse in the bowl to donate", "Geldbeutel zum Spenden in die Schale legen"),
+        ["town_inscribe"] = Pair("Place a rune here", "Rune hier ablegen"),
+        ["town_enchant_card"] = Pair("Place a card here", "Karte hier ablegen"),
+        ["town_enchant_seal"] = Pair("Seal the purchase", "Kauf besiegeln"),
+        ["town_enchant_remove"] = Pair("Remove an enhancement", "Verbesserung entfernen"),
+        ["town_sample_hint"] = Pair("Place a sample here to select it.\nConfirm in the prompt.",
+            "Lege eine Vorschau hier ab, um sie auszuwählen.\nBestätige anschließend im Dialog."),
         // ---- the controls lesson (Compat/Tutorial/Controls) ----
         // Each taught control is a {id}_t title and a {id}_b body. The wording names the KEY
         // in words as well as lighting it, because two of the shipped controller models cannot
@@ -915,6 +926,9 @@ internal static partial class Loc
         // are gone with their dials, because the pair clamped a factor that is 1.0 at the shipped
         // zoom and therefore did nothing a player could see (ActorBars.ZoomFollowMin has the proof).
         ["vr_o_barsize"] = Pair("Health bars: size", "Lebensbalken: Größe"),
+        ["vr_o_immersivetown"] = Pair("Immersive town NPCs", "Immersive Stadt-NPCs"),
+        ["vr_o_townspeech"] = Pair("NPC speech", "NPC-Sprachausgabe"),
+        ["vr_o_townsfx"] = Pair("NPC sound effects", "NPC-Soundeffekte"),
         ["vr_o_dialogs"] = Pair("Dialogs in VR", "Dialoge in VR"),
         ["vr_o_decisiondock"] = Pair("Decision dock", "Entscheidungsleiste"),
         // The board family on the "Objekt: Wirkung" colon pattern (2026-08 naming pass, audit
@@ -1262,6 +1276,17 @@ internal static partial class Loc
         // The hint now carries what the two removed bound-dials used to claim to configure: the
         // bars follow the table zoom only inside a fixed band, so this one number is the whole size.
         ["h_vr_o_barsize"] = Pair("How large the bars are in front of your eyes. 1.0 is the size they have always had, and it holds however far you zoom the table.", "Wie groß die Balken vor deinen Augen sind. 1.0 ist die Größe, die sie immer hatten — und sie bleibt es, wie weit du den Tisch auch zoomst."),
+        ["h_vr_o_immersivetown"] = Pair(
+            "On shows physical residents in the 3D map room. Off restores the original service windows. "
+            + "Applies immediately; other players retain their chosen presentation.",
+            "An zeigt die NPCs in der 3D-Kartenumgebung. Aus stellt die bisherigen Fenster wieder her. "
+            + "Gilt sofort; andere Spieler behalten ihre gewählte Darstellung."),
+        ["h_vr_o_townspeech"] = Pair(
+            "English resident speech. This affects only what you hear; shared lines and facial animation stay synchronized.",
+            "Englische Sprachausgabe der NPCs. Das betrifft nur deinen Ton; Satz und Gesichtsanimation bleiben synchron."),
+        ["h_vr_o_townsfx"] = Pair(
+            "Physical sounds from residents and their furniture. Ordinary game, card and interface sounds remain enabled.",
+            "Physische Geräusche der NPCs und ihrer Stände. Normale Spiel-, Karten- und Menügeräusche bleiben aktiv."),
         ["h_vr_o_dialogs"] = Pair("Show the game's dialogs as panels in front of you.", "Zeigt die Dialoge des Spiels als Tafeln vor dir."),
         ["h_vr_o_decisiondock"] = Pair("A bar within reach for choices you have to make.", "Eine Leiste in Reichweite für Entscheidungen."),
         ["h_control_board"] = Pair("Which control board model sits in front of you.", "Welches Kontrollbrett-Modell vor dir steht."),

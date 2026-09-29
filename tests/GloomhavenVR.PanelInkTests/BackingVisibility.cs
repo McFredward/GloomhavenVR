@@ -1,11 +1,20 @@
 using System;
 using System.Collections.Generic;
+using System.Runtime.CompilerServices;
 using GloomhavenVR.WorldUI;
 using UnityEngine;
 using UnityEngine.UI;
 
 static partial class Program
 {
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static long MeasureVisibilityAllocations(MrBackingVisibility visibility)
+    {
+        long before=GC.GetAllocatedBytesForCurrentThread();
+        for(int i=0;i<10000;i++) _=visibility.AlphaNow;
+        return GC.GetAllocatedBytesForCurrentThread()-before;
+    }
+
     private static void TestBackingVisibility()
     {
         // Run the same native-picture contract for the local owner and the inert remote clone.
@@ -76,11 +85,13 @@ static partial class Program
             Check(!visibility.VisibleNow,"cleared legacy label immediately removes its backing");
             picture.enabled=true;picture.color=new Color{a=.35f};label.text="Present";label.color=new Color{a=.6f};
             Check(Math.Abs(visibility.AlphaNow-.6f)<.0001f,"backing follows the most visible admitted native contributor");
-            // Warm the actual path before checking steady-state allocation, including all witnesses.
-            _=visibility.AlphaNow;
-            long before=GC.GetAllocatedBytesForCurrentThread();
-            for(int i=0;i<10000;i++) _=visibility.AlphaNow;
-            Check(GC.GetAllocatedBytesForCurrentThread()==before,"cached live visibility allocates nothing per frame");
+            // Warm the entire measurement boundary, not only one getter call. This fixture
+            // runs under tiered .NET, unlike the game's Mono runtime; first-use/runtime
+            // bookkeeping must not be charged to a steady-state visibility frame.
+            // Fixed warmup only: never retry a failed measurement or tolerate allocated bytes.
+            for(int warmup=0;warmup<3;warmup++) _=MeasureVisibilityAllocations(visibility);
+            long allocated=MeasureVisibilityAllocations(visibility);
+            Check(allocated==0,"cached live visibility allocates nothing per frame: "+allocated+" bytes");
             Check(picture.enabled && scope.activeSelf && canvas.enabled && label.text=="Present"
                 && picture.color.a==.35f && picture.canvasRenderer.Alpha==1,
                 "backing visibility never writes native content or interaction state");

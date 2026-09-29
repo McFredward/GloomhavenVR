@@ -78,11 +78,21 @@ if ($FakeVersion) {
 # Ignored Unity output can be stale. Select the committed asset set by default and
 # reject a missing explicitly requested local build before any installation writes.
 $bundle = Join-Path $root "prebuilt\gloomhavenvr.bundle"
+$townBundle = Join-Path $root "prebuilt\ghvr-town.bundle"
+$townVoicesBundle = Join-Path $root "prebuilt\ghvr-town-voices.bundle"
 if ($UseLocalBundle) {
     $bundle = Join-Path $root "unity\GloomhavenVR.Assets\Build\Bundles\gloomhavenvr.bundle"
+    $townBundle = Join-Path $root "unity\GloomhavenVR.Assets\Build\TownServices\ghvr-town.bundle"
+    $townVoicesBundle = Join-Path $root "unity\GloomhavenVR.Assets\Build\TownServices\ghvr-town-voices.bundle"
     if (-not (Test-Path -LiteralPath $bundle -PathType Leaf)) {
         Write-Error "-UseLocalBundle requested a missing local bundle: $bundle"
     }
+}
+if (-not (Test-Path -LiteralPath $townBundle -PathType Leaf)) {
+    Write-Error "Missing town-service asset bundle: $townBundle"
+}
+if (-not (Test-Path -LiteralPath $townVoicesBundle -PathType Leaf)) {
+    Write-Error "Missing town-service voice bundle: $townVoicesBundle"
 }
 Write-Host "Asset bundle source: $bundle"
 if (-not (Test-Path -LiteralPath $bundle -PathType Leaf)) { $bundle = $null }
@@ -363,6 +373,8 @@ if (-not $bundle) {
                    "flat board, no environments. Shipping packaging\gloomhavenvr.bundle.README.txt in its place.")
     Write-WindowsText (Join-Path $root "packaging\gloomhavenvr.bundle.README.txt") (Join-Path $pluginDir "gloomhavenvr.bundle.README.txt")
 }
+Copy-Item -LiteralPath $townBundle -Destination (Join-Path $pluginDir "ghvr-town.bundle") -Force
+Copy-Item -LiteralPath $townVoicesBundle -Destination (Join-Path $pluginDir "ghvr-town-voices.bundle") -Force
 if ($bundle) {
     Copy-Item $bundle -Destination (Join-Path $pluginDir "gloomhavenvr.bundle") -Force
     # A STALE README FROM AN EARLIER INSTALL MUST GO (2026-09-03). The zip is built from this
@@ -546,6 +558,8 @@ if (-not $NoPackage) {
     # missing one of these looks fine and fails at the stranger's machine.
     $required = @(
         "BepInEx/plugins/GloomhavenVR/GloomhavenVR.dll",
+        "BepInEx/plugins/GloomhavenVR/ghvr-town.bundle",
+        "BepInEx/plugins/GloomhavenVR/ghvr-town-voices.bundle",
         "BepInEx/plugins/GloomhavenVR/LICENSE.txt",
         "BepInEx/plugins/GloomhavenVR/Licenses/SOURCES.txt",
         "BepInEx/plugins/GloomhavenVR/RuntimeDeps/Unity.XR.OpenXR.dll",

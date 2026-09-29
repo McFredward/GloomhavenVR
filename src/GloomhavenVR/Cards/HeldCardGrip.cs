@@ -303,5 +303,5 @@ internal static class HeldCardGrip
     /// <c>HandGhosts.IsHeldCard</c> for the root cause of that shape.</summary>
     private static bool IsCard(VRHand? hand) =>
         hand != null && hand.Grabber != null
-        && hand.Grabber.Held is VRCard or ItemsPile.ItemChip;
+        && hand.Grabber.Held is VRCard or ItemsPile.ItemChip or IItemCardHold { IsItemCard: true };
 }

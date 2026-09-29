@@ -4090,7 +4090,12 @@ internal static partial class ModalFallback
         for (int i = GrabbableModal.LiveHolders.Count - 1; i >= 0; i--)
         {
             GrabbableModal holder = GrabbableModal.LiveHolders[i];
-            bool owned = NativeVideoWindow.OwnsGrab(holder);
+            // Build 539: town sections and the native global error float have real owners
+            // outside Converted. Destroying their frames every five seconds made Tick rebuild
+            // the handles at a new pose. Keep the orphan check about ownership, not membership
+            // in just the UIWindow list; genuinely abandoned holders still get collected.
+            bool owned = NativeVideoWindow.OwnsGrab(holder) || TownServicePresentation.OwnsGrab(holder)
+                || (_errorPanel != null && _errorPanel.IsAlive && ReferenceEquals(_errorGrab, holder));
             for (int j = 0; j < Converted.Count; j++)
             {
                 if (ReferenceEquals(Converted[j].Grab, holder))

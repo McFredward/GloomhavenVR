@@ -421,6 +421,11 @@ internal sealed class RayInteractor : IPickProvider
     /// </summary>
     public float SolidOccluderDistance { get; private set; } = float.PositiveInfinity;
 
+    /// <summary>The current board contribution to solid occlusion, including the
+    /// existing pull-jerk hold. A native enhancement-area ray may skip its OWN
+    /// offered card but must still stop at a board behind that card.</summary>
+    internal float BoardOccluderDistance { get; private set; } = float.PositiveInfinity;
+
     /// <summary>True while <see cref="SolidOccluderDistance"/> comes from the control board
     /// rather than an open fan - drives the occlusion log's culprit naming only.</summary>
     public bool SolidOccluderIsBoard { get; private set; }
@@ -709,6 +714,7 @@ internal sealed class RayInteractor : IPickProvider
             _fanOccluderHoldUntil = 0f;
             FanOccluderHeld = false;
             SolidOccluderDistance = float.PositiveInfinity;
+            BoardOccluderDistance = float.PositiveInfinity;
             SolidOccluderIsBoard = false;
             _boardOccluderHoldUntil = 0f;
             // THE AIM POSE KEEPS TICKING, THE BEAM DOES NOT (ModBuild 422). Origin and direction
@@ -786,8 +792,11 @@ internal sealed class RayInteractor : IPickProvider
         {
             liveBoard = _boardOccluderHeldDistance;
         }
-        SolidOccluderDistance = Mathf.Min(FanOccluderDistance, liveBoard);
-        SolidOccluderIsBoard = liveBoard < FanOccluderDistance;
+        float resident = WorldUI.TownServiceVisitTarget.OccludingDistance(origin, direction, maxDistance);
+        resident = Mathf.Min(resident, WorldUI.TownServicePhysicalRay.OccludingDistance(origin, direction, maxDistance));
+        BoardOccluderDistance = liveBoard;
+        SolidOccluderDistance = Mathf.Min(Mathf.Min(FanOccluderDistance, liveBoard), resident);
+        SolidOccluderIsBoard = liveBoard < FanOccluderDistance && liveBoard < resident;
 
         // The physics pick ALWAYS runs — in every mode, under every modal (user ruling
         // 2026-08: the laser must exist and collide without exception). The former modal
@@ -934,6 +943,21 @@ internal sealed class RayInteractor : IPickProvider
 
     // ---- visuals -----------------------------------------------------------------------
 
+    /// <summary>A registered solid can shield a panel without appearing in the
+    /// game's physics ray mask. The offered enchantress card is such a surface:
+    /// its nearest solid distance is known, but the old open-ended beam passed
+    /// through it outside native enhancement areas. Even when the native area
+    /// receives a uGUI pointer a few millimetres behind the card, its visible
+    /// beam ends on the card. Applying the same minimum to a one-frame-old UI
+    /// override prevents that stale hit from drawing through a nearer solid.</summary>
+    private static float ResolveVisualHitDistance(float uiDistance, float physicsDistance,
+        float solidDistance, float openDistance)
+    {
+        float ordinary = !float.IsPositiveInfinity(uiDistance) ? uiDistance
+            : !float.IsPositiveInfinity(physicsDistance) ? physicsDistance : openDistance;
+        return Mathf.Min(ordinary, solidDistance);
+    }
+
     private void UpdateVisuals(Vector3 origin, Vector3 direction, float maxDistance, float scale)
     {
         if (_laser == null)
@@ -969,11 +993,11 @@ internal sealed class RayInteractor : IPickProvider
         // it by construction; FlatScreen's latched press point may drift off it, and
         // only its along-ray distance may influence the visuals.
         bool uiHit = _uiHitOverride.HasValue && Time.frameCount - _uiHitOverrideFrame <= 1;
-        float length = uiHit
-            ? Mathf.Max(0.02f * scale, Vector3.Dot(_uiHitOverride!.Value - origin, direction))
-            : _current.HasHit
-                ? _current.HitDistance
-                : maxDistance * 0.25f;
+        float length = ResolveVisualHitDistance(
+            uiHit ? Mathf.Max(0.02f * scale, Vector3.Dot(_uiHitOverride!.Value - origin, direction))
+                  : float.PositiveInfinity,
+            _current.HasHit ? _current.HitDistance : float.PositiveInfinity,
+            SolidOccluderDistance, maxDistance * 0.25f);
         Vector3 end = origin + direction * length;
 
         // Visual origin (test #7 + #14): the beam reads as leaving the pointing finger. It now

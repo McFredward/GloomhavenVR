@@ -146,6 +146,8 @@ internal sealed partial class CardsDriver
             TransferHeldCard(card, holder, free);
         else if (held is ItemsPile.ItemChip chip)
             chip.Owner?.TransferHeldChip(chip, holder, free);
+        else if (held is IItemCardHold sample)
+            sample.Transfer(holder, free);
     }
 
     /// <summary>The held object of <paramref name="hand"/> when it is a card the player may hand to
@@ -155,7 +157,7 @@ internal sealed partial class CardsDriver
     private static IFanSweepTarget? HeldTransferable(VRHand? hand)
     {
         IGrabbable? held = hand != null ? hand.Grabber.Held : null;
-        return held is VRCard or ItemsPile.ItemChip ? held as IFanSweepTarget : null;
+        return held is VRCard or ItemsPile.ItemChip or IItemCardHold { IsItemCard: true } ? held as IFanSweepTarget : null;
     }
 
     /// <summary>
@@ -354,6 +356,17 @@ internal sealed partial class CardsDriver
         // release branch below to commit into a gap or cancel to origin).
         bool fanOrigin = _fanOriginCards.Remove(card);
 
+        // A town card can be held by trigger or by grip after a forced adoption/transfer.
+        // TriggerUp alone skipped that valid grip release. Keep an actual button-up edge:
+        // synthetic cancel/teardown releases must never select an enhancement card.
+        if (hand.HasPose && (hand.TriggerUp || hand.GripUp)
+            && WorldUI.TownServiceEnhancementHandoff.TryOffer(card))
+        {
+            ClearFanInsertion();
+            RequestRebuild();
+            return;
+        }
+
         if (_fakeActive)
         {
             RouteFakeRelease(card, hand);
@@ -431,6 +444,7 @@ internal sealed partial class CardsDriver
         if (card.InspectOnly)
         {
             ClearFanInsertion();
+            if (WorldUI.TownServiceEnhancementHandoff.ReturnReclaimed(card)) return;
             _fan.Add(card); // animated return HOME — the same glide every refused drop uses
             VRLog.Info("Cards", $"Inspect release ({hand.Side}): '{card.name}' returns HOME to the hand fan — " +
                                 $"the GRAB was allowed, the PLACEMENT is refused by: {_placementRefusal}. " +

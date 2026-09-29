@@ -252,8 +252,62 @@ case "${1:-check}" in
         ;;
     check)
         [[ -d "$BASE" ]] || { echo "error: no baseline — run 'refactor-guard.sh baseline' first" >&2; exit 1; }
-        # The fourteen read-only source gates have independent outputs and run concurrently.
-        # A failing gate stops the complete check before wire vectors or the compiled snapshot.
+        # --- the blind spots (CHARTER §3b) -------------------------------------------
+        # These fourteen read-only gates share no generated outputs. The source group in
+        # test-suites.json runs them with bounded concurrency and retains each full log;
+        # any failed gate prevents wire tests, surface comparison and compiled snapshot.
+        # Historical reasons for the individual gates remain below. Build/snapshot and
+        # baseline writes are deliberately outside the parallel group.
+        # These run BEFORE the build, because they check things the compiled form
+        # cannot show: a patch class nobody registers still compiles and ships inert,
+        # and a reordered per-frame step is an ordinary in-type diff. Both are text
+        # checks; neither reaches the DLL, so neither affects the snapshot below.
+        # A file RENAME can change a value. Static field initialisers run in declaration order,
+        # which across the parts of a partial type is COMPILE order — and MSBuild sorts the glob
+        # OrdinalIgnoreCase, so WallSegmentFade.cs compiles in the MIDDLE of its own fifteen
+        # parts. This asserts no initialiser depends on another part, which makes the order
+        # irrelevant instead of merely stable.
+        # Instrumentation is ~9.5 % of all method code here and grows every hardware round. A
+        # diagnostic that WRITES state something non-diagnostic READS cannot be switched off or
+        # deleted — deleting one such Log* method once nearly latched the wall fade off forever.
+        # The 66 that exist today are accepted in a baseline and are Phase 5's work list; this
+        # fails only on a NEW one.
+        # The OTHER half of the same guarantee. check-remote-defaults.py catches a mirrored
+        # constant drifting from the default it copies; this catches a board-affecting dial being
+        # ADDED with no wire coverage and no annotated opt-out — the failure that actually kept
+        # happening, because from inside your own headset your board is always right.
+        # …and the THIRD half of it, which the first two could not see: a dial that IS wired, to an
+        # id outside every width range or out of the sampler's ascending order. Neither is visible
+        # in a build, a golden vector or the config surface, and the first one silently stops the
+        # WHOLE board-tuning record — see NetProtocol.TuneNeverLive248 for the build it shipped on.
+        # An exception thrown from a mod patch that sits on a type the game dispatches NETWORK
+        # ACTIONS into is not logged as a mod bug: ActionProcessor catches it and shows the player
+        # the GAME's "Desynchronization occurred" dialog, then kills the session. The mod patches
+        # the five heaviest receivers in that table. Every such patch must carry a recorded verdict
+        # in docs/NET-ACTION-SURFACE.md; this fails on a NEW one nobody has read.
+        # ModBuild 331 made the log quiet, correctly, by moving VRLog.Info to the DEBUG tier. The
+        # first hardware test after it (334) came back with FIFTEEN mod lines and answered NOTHING:
+        # every question in the backlog was written with VRLog.Info. A line a hardware round is
+        # waiting on must survive the DEFAULT level, and nothing noticed that it no longer did.
+        # ModBuild 339 built the bar-height dial the user asked for; his report after ModBuild
+        # 347 was that he COULD NOT FIND IT. It had gone in uncurated, so it fell through to the
+        # raw Erweitert list among five hundred others. A setting that exists and cannot be
+        # reached is not a shipped setting. This fails on a curated key nothing binds, a caption
+        # Loc.cs lacks, an unargued duplicate, and -- the actual 339 defect -- a key joining a
+        # curated family WITHOUT joining its heading. That last one is a frozen backlog gated on
+        # the DELTA, the same idiom check-instrument-writes.py uses.
+        # "May a peer SEE this card's face" and "may a prompt NAME it in words" must never
+        # become one predicate again. The lint existed — in tests/GloomhavenVR.WireTests, which
+        # is compile-only in both workflows because its NEIGHBOURS need the game's real
+        # UnityEngine.CoreModule.dll. This one is a pure text lint over two files and runs
+        # anywhere; it now runs in ci.yml and release.yml too. See review R1 F2, 2026-09-07.
+        # The 1:1 question none of the three existing guards can express. They ask "is this
+        # value declared once" and "is it on the wire"; this asks WHOSE COPY the mirror reads at
+        # runtime. Review R2, 2026-09-07, ran a 1:1 audit with all three green and found four
+        # confirmed viewer-dial reads on the mirror side that no gate had any shape for.
+        # An enum grew by two members and the latch arrays keyed by it kept their literal size.
+        # The index throws, a catch swallows it and logs at the DEBUG tier, and two of six
+        # card-FX surfaces were dead with nothing in the log at the shipped level (R2 F1, 479).
         python3 "$ROOT/scripts/run-test-suites.py" --group source \
             || { echo "error: a source gate failed (see per-suite logs above)" >&2; exit 1; }
         "$ROOT/scripts/wire-tests.sh" \

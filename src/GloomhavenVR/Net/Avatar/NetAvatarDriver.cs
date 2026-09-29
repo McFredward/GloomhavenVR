@@ -797,6 +797,79 @@ internal sealed partial class NetAvatarDriver : MonoBehaviour
         return mm > 0f;
     }
 
+    internal static bool TryGetTownFaceHead(int player, out Vector3 head)
+    {
+        head = Vector3.zero;
+        NetAvatarDriver? driver = _instance;
+        return driver != null && driver._avatars.TryGetValue(player, out RemoteAvatar avatar)
+            && avatar != null && avatar.TimeSinceUpdate <= NetProtocol.StaleTimeoutSeconds
+            && avatar.TryGetHeadWorld(out head);
+    }
+
+    internal static bool TryGetTownClothHead(int player, out Vector3 head, out float scale)
+    {
+        head = Vector3.zero; scale = 1f;
+        NetAvatarDriver? driver = _instance;
+        if (driver == null || !driver._avatars.TryGetValue(player, out RemoteAvatar avatar)
+            || avatar == null || avatar.TimeSinceUpdate > NetProtocol.StaleTimeoutSeconds
+            || !avatar.TryGetHeadWorld(out head)) return false;
+        scale = avatar.AppliedScale;
+        return true;
+    }
+
+    /// <summary>Current visible peer hand centres for owner-authored town cloth contact.
+    /// Only live, active hand holders are eligible; an absent tracked side must never
+    /// reuse the previous holder position as a phantom collision.</summary>
+    internal static bool TryGetTownClothHands(int player, out Vector3 left, out Vector3 right,
+        out bool leftValid, out bool rightValid)
+    {
+        left = right = Vector3.zero; leftValid = rightValid = false;
+        NetAvatarDriver? driver = _instance;
+        if (driver == null || !driver._avatars.TryGetValue(player, out RemoteAvatar avatar)
+            || avatar == null || avatar.TimeSinceUpdate > NetProtocol.StaleTimeoutSeconds) return false;
+        Transform l = avatar.LeftHandHolder, r = avatar.RightHandHolder;
+        if (l.gameObject.activeInHierarchy) { left = l.position; leftValid = true; }
+        if (r.gameObject.activeInHierarchy) { right = r.position; rightValid = true; }
+        return leftValid || rightValid;
+    }
+
+    /// <summary>Peer palm, wrist and index tip positions for the SAME native
+    /// tapered cloth capsule as the local hand. The old palm-forward 9 cm tip
+    /// and fixed wrist extension differed by glove style and finger curl. The
+    /// existing mirrored HandRig already has the exact anchors; read them
+    /// directly, without a hierarchy scan or extra wire data.</summary>
+    internal static bool TryGetTownClothHandProbes(int player, out Vector3 left,
+        out Vector3 leftWrist, out Vector3 leftTip, out Vector3 right,
+        out Vector3 rightWrist, out Vector3 rightTip,
+        out bool leftValid, out bool rightValid, out float peerScale)
+    {
+        left = leftWrist = leftTip = right = rightWrist = rightTip = Vector3.zero;
+        leftValid = rightValid = false;
+        peerScale = 1f;
+        NetAvatarDriver? driver = _instance;
+        if (driver == null || !driver._avatars.TryGetValue(player, out RemoteAvatar avatar)
+            || avatar == null || avatar.TimeSinceUpdate > NetProtocol.StaleTimeoutSeconds) return false;
+        Transform l = avatar.LeftHandHolder, r = avatar.RightHandHolder;
+        Transform? lp = avatar.PalmAnchorFor(l), rp = avatar.PalmAnchorFor(r);
+        Transform? lw = avatar.WristAnchorFor(l), rw = avatar.WristAnchorFor(r);
+        Transform? lt = avatar.IndexTipAnchorFor(l), rt = avatar.IndexTipAnchorFor(r);
+        if (l.gameObject.activeInHierarchy && lp != null && lw != null && lt != null)
+        { left = lp.position; leftWrist = lw.position; leftTip = lt.position; leftValid = true; }
+        if (r.gameObject.activeInHierarchy && rp != null && rw != null && rt != null)
+        { right = rp.position; rightWrist = rw.position; rightTip = rt.position; rightValid = true; }
+        peerScale = avatar.AppliedScale;
+        return leftValid || rightValid;
+    }
+
+    internal static void CollectTownFacePeers(List<int> into)
+    {
+        NetAvatarDriver? driver = _instance;
+        if (driver == null) return;
+        foreach (var pair in driver._avatars)
+            if (pair.Value != null && pair.Value.TimeSinceUpdate <= NetProtocol.StaleTimeoutSeconds
+                && pair.Value.TryGetHeadWorld(out _)) into.Add(pair.Key);
+    }
+
     /// <summary>
     /// Append every peer's last RECEIVED head world position to <paramref name="into"/> and return
     /// how many were added.
@@ -2095,6 +2168,11 @@ internal sealed partial class NetAvatarDriver : MonoBehaviour
         }
 
         extras.HandCardCount = (byte)Mathf.Clamp(handNow, 0, 255);
+        if (RevealGate.ShowMapPhaseHandFronts && CardsDriver.OffScenarioFanActive
+            && CardsDriver.OffScenarioFanCards is { Count: > 0 } mapLoadout
+            && mapLoadout.Count <= NetProtocol.MaxMapLoadoutCount)
+            extras.MapLoadoutCount = (byte)mapLoadout.Count;
+
         extras.HasFanInsertionGap = true;
         extras.FanInsertionGap = fanInsertionGap;
         // …AND THE ORDER THOSE SLABS GO IN (record 44). Written beside the count it permutes, from
@@ -3777,6 +3855,7 @@ internal sealed partial class NetAvatarDriver : MonoBehaviour
         // and every player who has the 3D map switched off is byte-identical to build 221's. Full
         // contracts in RemoteMapRoom / RemoteMapStory and NetProtocol.ExtIdMapRoom /
         // NetProtocol.ExtIdSharedWindow.
+        RemoteTownResidents.Sample(ref extras);
         RemoteMapRoom.Sample(ref extras);
         RemoteMapStory.Sample(ref extras);
     }
@@ -3977,6 +4056,26 @@ internal sealed partial class NetAvatarDriver : MonoBehaviour
             case NetProtocol.MsgCardAppearance:
             case NetProtocol.MsgNativeDecisionPrompt:
                 parsed = QueueNativePresentation(senderId, buffer, length);
+                if (parsed) VersionGuard.NotePacket(senderId);
+                break;
+
+            case NetProtocol.MsgTownActivity:
+                parsed = TownActivityCodec.ReadPacket(buffer, length, out TownActivityState activity, out TownFaceState pairedFace);
+                if (parsed) { VersionGuard.NotePacket(senderId); RemoteTownPerformance.Observe(senderId, in activity, in pairedFace, false); }
+                break;
+
+            case NetProtocol.MsgTownFace:
+                parsed = TownFaceCodec.ReadPacket(buffer, length, out TownFaceState face);
+                if (parsed) { VersionGuard.NotePacket(senderId); RemoteTownPerformance.ObserveLegacyFace(senderId, in face); }
+                break;
+
+            case TownServices.TownServiceCodec.MessageType:
+                parsed = QueueTownService(senderId, buffer, length);
+                if (parsed) VersionGuard.NotePacket(senderId);
+                break;
+
+            case TownServices.TownServiceGrantCodec.MessageType:
+                parsed = TownServices.TownServiceGrantSync.Receive(senderId, buffer, length);
                 if (parsed) VersionGuard.NotePacket(senderId);
                 break;
 
@@ -4185,6 +4284,7 @@ internal sealed partial class NetAvatarDriver : MonoBehaviour
                     // peer's body. A packet WITHOUT either record forgets that peer's entry, which
                     // is what every player who is not in the 3D map room — and every pre-record
                     // build — transmits, and "forgotten" is exactly "not standing at this table".
+                    RemoteTownResidents.Observe(kv.Key, in p);
                     RemoteMapRoom.Observe(kv.Key, in p);
                     RemoteMapStory.Observe(kv.Key, in p);
                     RemoteVideoPlayback.Observe(kv.Key, in p);
@@ -4405,6 +4505,7 @@ internal sealed partial class NetAvatarDriver : MonoBehaviour
         {
             var avatar = new RemoteAvatar(playerId);
             _avatars[playerId] = avatar;
+            TownServices.TownServiceMirror.RequestFullRefresh();
             _createRetryAt.Remove(playerId);
             return avatar;
         }

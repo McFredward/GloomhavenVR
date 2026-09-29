@@ -122,18 +122,6 @@
       "weight": 45
     },
     {
-      "id": "vr-options",
-      "command": [
-        "bash",
-        "scripts/vr-options-tests.sh"
-      ],
-      "groups": [
-        "local",
-        "ci"
-      ],
-      "weight": 112
-    },
-    {
       "id": "scenario-win-cheat",
       "command": [
         "bash",
@@ -146,6 +134,18 @@
       "weight": 30
     },
     {
+      "id": "vr-options",
+      "command": [
+        "bash",
+        "scripts/vr-options-tests.sh"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 112
+    },
+    {
       "id": "vr-options-close",
       "command": [
         "bash",
@@ -156,6 +156,134 @@
         "ci"
       ],
       "weight": 58
+    },
+    {
+      "id": "town-service-options",
+      "command": [
+        "bash",
+        "scripts/town-service-options-tests.sh"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 92
+    },
+    {
+      "id": "town-service-setting",
+      "command": [
+        "python3",
+        "scripts/check-town-service-setting.py"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 12
+    },
+    {
+      "id": "town-service-lighting",
+      "command": [
+        "python3",
+        "scripts/check-town-service-lighting.py"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 15
+    },
+    {
+      "id": "town-service-warmup",
+      "command": [
+        "bash",
+        "scripts/check-town-service-warmup.sh"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 5
+    },
+    {
+      "id": "town-activity",
+      "command": [
+        "python3",
+        "scripts/check-town-activity.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 80
+    },
+    {
+      "id": "town-cloth",
+      "command": [
+        "python3",
+        "scripts/check-town-cloth.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 55
+    },
+    {
+      "id": "town-voice",
+      "command": [
+        "python3",
+        "scripts/check-town-voice.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 35
+    },
+    {
+      "id": "town-native-audio",
+      "command": [
+        "python3",
+        "scripts/check-town-native-audio.py"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 3
+    },
+    {
+      "id": "town-activity-portable",
+      "command": [
+        "python3",
+        "scripts/check-town-activity.py",
+        "--portable"
+      ],
+      "groups": [
+        "ci"
+      ],
+      "weight": 15
+    },
+    {
+      "id": "town-face",
+      "command": [
+        "python3",
+        "scripts/check-town-face.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 80
+    },
+    {
+      "id": "town-residents",
+      "command": [
+        "python3",
+        "scripts/check-town-residents.py"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 20
     },
     {
       "id": "reward-pose",
@@ -348,54 +476,6 @@
         "ci"
       ],
       "weight": 39
-    },
-    {
-      "id": "aoe-control",
-      "command": [
-        "python3",
-        "tests/GloomhavenVR.AoeControlTests/run.py"
-      ],
-      "groups": [
-        "local",
-        "ci"
-      ],
-      "weight": 50
-    },
-    {
-      "id": "map-tooltip-transport",
-      "command": [
-        "python3",
-        "tests/GloomhavenVR.MapTooltipTransportTests/run.py"
-      ],
-      "groups": [
-        "local",
-        "ci"
-      ],
-      "weight": 50
-    },
-    {
-      "id": "map-tooltip",
-      "command": [
-        "python3",
-        "tests/GloomhavenVR.MapTooltipTests/run.py"
-      ],
-      "groups": [
-        "local",
-        "ci"
-      ],
-      "weight": 50
-    },
-    {
-      "id": "city-event-button",
-      "command": [
-        "python3",
-        "tests/GloomhavenVR.CityEventButtonTests/run.py"
-      ],
-      "groups": [
-        "local",
-        "ci"
-      ],
-      "weight": 50
     },
     {
       "id": "round-card",
@@ -833,6 +913,223 @@
       "groups": [
         "source"
       ]
+    },
+    {
+      "id": "town-ritual-transactions",
+      "command": [
+        "python3",
+        "scripts/check-town-ritual-transactions.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 35
+    },
+    {
+      "id": "town-service-catalog",
+      "command": [
+        "python3",
+        "scripts/check-town-service-catalog.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 80
+    },
+    {
+      "id": "town-service-interaction",
+      "command": [
+        "python3",
+        "scripts/check-town-service-interaction.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 100
+    },
+    {
+      "id": "town-service-mirror",
+      "command": [
+        "python3",
+        "scripts/check-town-service-mirror.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 100
+    },
+    {
+      "id": "town-service-workspace",
+      "command": [
+        "python3",
+        "scripts/check-town-service-workspace.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 65
+    },
+    {
+      "id": "town-service-decor",
+      "command": [
+        "python3",
+        "scripts/check-town-decor.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 35
+    },
+    {
+      "id": "town-flame",
+      "command": [
+        "python3",
+        "scripts/check-town-flame.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 35
+    },
+    {
+      "id": "town-ritual-layout",
+      "command": [
+        "python3",
+        "scripts/check-town-ritual-layout.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 35
+    },
+    {
+      "id": "aoe-control",
+      "command": [
+        "python3",
+        "tests/GloomhavenVR.AoeControlTests/run.py"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 50
+    },
+    {
+      "id": "map-tooltip-transport",
+      "command": [
+        "python3",
+        "tests/GloomhavenVR.MapTooltipTransportTests/run.py"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 50
+    },
+    {
+      "id": "map-tooltip",
+      "command": [
+        "python3",
+        "tests/GloomhavenVR.MapTooltipTests/run.py"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 50
+    },
+    {
+      "id": "city-event-button",
+      "command": [
+        "python3",
+        "tests/GloomhavenVR.CityEventButtonTests/run.py"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 50
+    },
+    {
+      "id": "town-enhancement-handoff",
+      "command": [
+        "python3",
+        "scripts/check-town-enhancement-handoff.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 80
+    },
+    {
+      "id": "town-facial-landmarks",
+      "command": [
+        "python3",
+        "scripts/check-town-facial-landmarks.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 5
+    },
+    {
+      "id": "town-service-clearance",
+      "command": [
+        "python3",
+        "scripts/check-town-service-clearance.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 80
+    },
+    {
+      "id": "town-merchant-handoff",
+      "command": [
+        "python3",
+        "scripts/check-town-merchant-handoff.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 80
+    },
+    {
+      "id": "town-public-catalog",
+      "command": [
+        "python3",
+        "scripts/check-town-service-mirror.py",
+        "--suite",
+        "public-catalog"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 90
+    },
+    {
+      "id": "town-item-transfer",
+      "command": [
+        "python3",
+        "scripts/check-town-service-mirror.py",
+        "--suite",
+        "item-transfer"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 90
+    },
+    {
+      "id": "town-card-slots",
+      "command": [
+        "python3",
+        "scripts/check-town-card-slots.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 20
     }
   ]
 }

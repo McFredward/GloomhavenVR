@@ -1,0 +1,113 @@
+# Town resident speech and foley
+
+The 60 resident voice cues, quiet coin contact, merchant cabinet mechanism and five
+subtle spell performances are original mod assets, not
+recordings extracted from Gloomhaven. They are generated offline; the shipped
+mod makes no paid API request. Source WAVs are mono 24 kHz PCM for deterministic
+Rhubarb analysis; Unity stores every imported clip as quality-0.45 mono Vorbis
+so the expanded set stays within the release bundle limit. `coin-soft.wav` is
+a 0.48-second single subdued coin touch with a -49.5 dB mean and -27.8 dB peak;
+the resident foley player applies a further 0.065 gain and the game's master/SFX
+sliders. `cabinet-cycle.wav` is a 0.84-second subdued wooden latch, card cassette
+and stop performance with a -41.0 dB mean and -18.5 dB peak; its spatial source
+applies a further 0.55 gain and the same master/SFX controls.
+
+| Resident | Voice source | Cues |
+| --- | --- | --- |
+| Merchant | MiniMax Speech 2.8 HD preset `English_Deep-VoicedGentleman` | five each: greet, offer, buy, sell |
+| Priestess | MiniMax Speech 2.8 HD preset `Wise_Woman` | five each: greet, prayer, donate, unavailable |
+| Enchantress | MiniMax Speech 2.8 HD preset `English_Whispering_girl` | five each: greet, cast, enhance, invite |
+
+Build 570 moves the merchant and enchantress to the same MiniMax Speech 2.8 HD
+renderer approved for the priestess. The merchant preset is a close, deep gentleman;
+the enchantress keeps one whispering preset across every family. Her five cast takes
+replace English dialogue with original Latin-like fantasy syllables and play below
+ordinary speech. A 35 Hz offline high-pass removes the preset's small fixed DC offset
+without changing its audible range. All forty replacement clips are mono 24 kHz PCM,
+contain no clipped samples, and have regenerated Rhubarb curves. Their measured durations
+are 2.00-5.07 seconds, with speech means near -27 dBFS after the common import pass.
+
+The same build replaces the repeated native augment/UI effect with five original 1.28-second
+spell foley clips: ember shimmer, sigil hum, rune dust, veil ripple and a restrained crystalline
+pulse. They are normalized below speech and receive a 0.075 spatial-source gain. The shared
+48-second occupation clock selects the take, so all multiplayer observers hear the same sound
+without adding a wire field.
+
+The revised merchant design asks for a close-miked, deep, clear and warm
+middle-aged baritone speaking calmly to one nearby customer. It explicitly
+excludes shouting, announcer projection and distant or processed sound. An
+independent audio-model review heard a man in his 40s-50s, low-to-mid pitch,
+exceptionally clear, warm, close and conversational, with only slight room
+reverb and no shouting. Build 564 replaces the hardware-rejected Qwen priestess
+with MiniMax Speech 2.8 HD's age-specific `Wise_Woman` preset, shared by all fifteen
+lines. Three bounded previews compared its direct performance with two modified
+pitch/timbre variants. The direct preset was selected to avoid adding an artificial
+filter to the named older-woman source. A random web recording was not cloned because
+speaker consent and reuse rights could not be established. The
+rejected merchant-sell-2 take uses a new close, calm merchant reference. No pitch
+or formant post-process is applied.
+Local tiny.en ASR recovered the intended sentence structure for every newly
+generated line, with occasional expected homophones. One first merchant-buy
+take stretched two short sentences to 17.98 seconds; it was rejected and
+replaced once with a bounded-token take lasting 3.43 seconds. ASR and model
+reviews do not replace human listening in the headset.
+
+The final build-564 audio review heard the replacement merchant sentence in full
+and described it as close, clean, natural, middle-aged and calmly conversational,
+without glitches. A final priestess performance was described as close, elderly,
+feminine, smoky, hoarse, gentle and devotional, with no room echo, processing or
+cut words. An analysis attempt on the raw priestess design reference returned
+`Invalid audio`; the repeated check used the final shipped greeting instead.
+
+The paired JSON files are baked from these exact WAVs by Rhubarb Lip Sync 1.14.
+Their validated cue, resident, duration and phoneme intervals let the elected
+multiplayer face author choose one of five event variants, then broadcast that
+exact cue/generation/age to all observers. The
+voice playback seeks to that shared age; mouth curves use it directly. Neither
+the voice API nor Rhubarb runs at game runtime. Build 564 regenerated the fifteen
+priestess curves from the replacement WAVs. Local tiny.en ASR recovered every
+sentence; one ambiguous `boughs` take was deliberately replaced with the clearer
+authored wording `ancient branches` under a separate paid intent.
+
+The variant plan in `scripts/generate-town-voices.py` records immutable paid
+intents and estimated per-call prices. Its 51 planned one-shot calls total about
+USD 0.2021 at fal's 2026-09-25 listed rates. The one bounded replacement raises
+the displayed-price estimate to about USD 0.2057. A separate coin-review request
+returned HTTP 403 and was not retried; actual account billing was not independently
+reconciled. Sources: [Qwen voice design](https://fal.ai/models/fal-ai/qwen-3-tts/voice-design/1.7b),
+[Qwen TTS](https://fal.ai/models/fal-ai/qwen-3-tts/text-to-speech/0.6b),
+[MiniMax Speech 2.8 HD](https://fal.ai/models/fal-ai/minimax/speech-2.8-hd),
+[ElevenLabs v3](https://fal.ai/models/fal-ai/elevenlabs/tts/eleven-v3),
+[ElevenLabs SFX](https://fal.ai/models/fal-ai/elevenlabs/sound-effects/v2).
+Private receipts and source MP3s stay gitignored under
+`.planning/debug/town562-speech/`; the API key is never written there.
+
+The build-570 plan contains forty MiniMax voice renders, five ElevenLabs sound-effect
+renders and three bounded audio-model reviews. Its maximum listed-price estimate is
+USD 0.1781, including a conservative USD 0.004 allowance for two review requests which
+the provider rejected before inference because its live endpoint required reasoning.
+The final merchant and enchantress previews were also checked locally for duration,
+loudness, silence, DC offset, pitch range and clipping before the remaining immutable
+intents were submitted. Private plans, receipts, source MP3s and review output remain
+gitignored under `.planning/debug/town570-speech/`; provider billing was not independently
+reconciled.
+
+The cabinet performance was generated through ElevenLabs Sound Effects v2 in
+the bounded build-563 revision. The final speech pass ships two accessible voice
+references, their fixed cloned embeddings, all fifteen priestess performances and
+the replacement merchant-sell-2 performance. One completed priestess reference and
+one completed donation result became inaccessible while the original account was
+locked; both receipts were retained privately and only those outputs were regenerated
+under the replacement key. Provider billing was not independently reconciled. The
+complete original revision plan had a USD 0.0704 listed-price estimate. Private
+intents, receipts, source MP3s and local ASR output remain gitignored under
+`.planning/debug/town563-speech/` and `.planning/debug/town563-whisper/`.
+
+The build-564 MiniMax pass planned nineteen one-shot requests at the displayed
+USD 0.0900 estimate: three short previews, fifteen final lines and one explicit
+clarity replacement. The first three preview submissions were rejected by input
+schema validation before speech generation because the live endpoint required
+integer audio enums where the documentation examples exposed string values. Their
+receipts are retained as rejected evidence and were resubmitted only after this
+failure was unambiguous. Private intents, receipts, preview MP3s and ASR output stay
+gitignored under `.planning/debug/town564-speech/`.

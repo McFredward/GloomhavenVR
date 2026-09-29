@@ -4,6 +4,7 @@ using GloomhavenVR.Core;
 using GloomhavenVR.Hands;
 using GloomhavenVR.Hands.Interact;
 using GloomhavenVR.Rig;
+using GloomhavenVR.WorldUI;
 using ScenarioRuleLibrary;
 using TMPro;
 using UnityEngine;
@@ -86,7 +87,7 @@ namespace GloomhavenVR.Cards;
 /// throttled cue naming the items stack. Any future "this flow needs the fan up" requirement must
 /// raise a CUE on the stack, never call Open.
 /// </summary>
-internal sealed class ItemsPile
+internal sealed partial class ItemsPile
 {
     // Arc geometry — same family as PileBrowser (reading, not picking).
     private const float RadiusFactor = 1.7f;
@@ -514,6 +515,9 @@ internal sealed class ItemsPile
     internal static ItemsPile? RecessOwner { get; private set; }
 
     internal ItemsPile() => RecessOwner = this;
+
+    private ItemsPile(System.Action<ItemChip, Vector3, VRHand> inspectionRelease)
+    { _inspectionRelease = inspectionRelease; }
 
     /// <summary>The chips the fan currently holds (read-only view — mirrored / counted, never mutated).</summary>
     internal IReadOnlyList<ItemChip> Chips => _chips;
@@ -1242,7 +1246,7 @@ internal sealed class ItemsPile
             // (SetCards stamping AllowsGateHand onto a HELD card): while a card is HELD — or, here,
             // while it is CLIPPED — write nothing its hold depends on. Belt at the far end too:
             // SetHome itself refuses to move a PendingUse chip.
-            if (chip == null || chip.Holder != null || chip.PendingUse)
+            if (chip == null || chip.Holder != null || chip.PendingUse || chip.TownOffering)
                 continue;
 
             float angle = start + step * i;
@@ -1251,8 +1255,11 @@ internal sealed class ItemsPile
                                   (Mathf.Cos(rad) - 1f) * radius * PileFanShape.ArchFactor,
                                   -ZStagger * i);
             Quaternion rot = Quaternion.Euler(0f, 0f, -angle * PileFanShape.TiltFactor);
-            // SPENT items lie "tapped": roll the chip 90° in its slot (requirement 3).
-            if (chip.State == ItemChip.Visual.Spent)
+            // Scenario spent items lie tapped. The merchant's owned-item fan is an
+            // inspection surface: a native Spent state can survive the map handover,
+            // but it must not turn one sale card sideways on the first reveal.
+            // Keep the native spent face/effect; only its reading pose stays upright.
+            if (chip.State == ItemChip.Visual.Spent && _inspectionRelease == null)
                 rot *= Quaternion.Euler(0f, 0f, 90f);
             // Split the arc around the highlighted chip (hand-fan parity): the pivot holds still,
             // its neighbours slide along their OWN local right so the winner reads unmistakably.
@@ -1575,7 +1582,8 @@ internal sealed class ItemsPile
     {
         worldScale = 1f;
         FanSweepPick<ItemChip> pick = FanSweepPick<ItemChip>.Empty;
-        if (hand == null || !hand.HasPose || hand.Grabber.Held != null)
+        if (hand == null || !hand.HasPose || hand.Grabber.Held != null
+            || _inspectionRelease != null && ReferenceEquals(hand, _inspectionGateHand))
             return pick;
 
         Vector3 tip = hand.Rig.IndexTip.position;
@@ -2478,6 +2486,13 @@ internal sealed class ItemsPile
     /// </summary>
     internal void OnChipReleased(ItemChip chip, Vector3 dropWorldPos, VRHand vrHand)
     {
+        if (_inspectionRelease != null)
+        {
+            _inspectionCensusDirty = true;
+            _inspectionRelease(chip, dropWorldPos, vrHand);
+            if (!IsOpen && !chip.TownOffering) chip.BeginCollapse(_root != null ? _root.position : dropWorldPos);
+            return;
+        }
         Transform? slot = PlayTray.Current?.ItemUseSlotTransform;
         if (chip == null)
             return;
@@ -4912,6 +4927,21 @@ internal sealed class ItemsPile
         private float _tightArtPollUntil;
         private bool _artBaked;
 
+        // Merchant inventory additions (most visibly a just-purchased item) are created while the
+        // fan is already open. The native ItemCardUI loads its front asynchronously. Letting the
+        // ordinary emergence start immediately therefore dealt a fully readable card-sized BACKING
+        // into the arc for several frames — the brown "wrongly oriented" card in the build-561
+        // screenshot — before the original front arrived. Keep the live widget active at zero scale
+        // so its loader continues, then use the normal ItemChip emergence from the normal fan home
+        // on the first frame the original background exists. The deadline is only a fail-open for a
+        // broken/missing addressable; it prevents one failed art request from leaving an invisible,
+        // ungrabbable inventory entry forever.
+        private bool _inspectionArtPending;
+        private Vector3 _inspectionArtConverge;
+        private float _inspectionArtSpinSign;
+        private float _inspectionArtDeadline;
+        internal bool InspectionArtPending => _inspectionArtPending;
+
         // USABLE HIGHLIGHT (replaces the former de-emphasis dim — see ROOT CAUSE below).
         //
         // WHAT CHANGED AND WHY: the first two attempts at this cue worked the NEGATIVE way round —
@@ -5021,6 +5051,9 @@ internal sealed class ItemsPile
         private bool _useFxActive;
         private bool _useFxConsumed;
         internal ItemCardUI? NativeItemCard => _cardUI;
+        internal bool IsTownInspection => _owner?._inspectionRelease != null;
+        internal Transform InspectionMount => transform;
+        internal Transform? InspectionBody => transform.Find("Backing");
         internal bool BurnPresentationPending => _useFxActive && _useFxConsumed;
         private System.Action? _useFxCompleted;
         private float _useFxTime;
@@ -5068,7 +5101,7 @@ internal sealed class ItemsPile
             // CardMesh fallback) so the item card's back matches the others instead of a plain black
             // slab — cropped to the item card's near-square shape. The legacy colored cube slab is kept
             // ONLY for the fallback (pool-unavailable) face so its icon/name still read on a tinted body.
-            GameObject? backing = realCard ? chip.BuildCardBacking(go.transform, cw, ch) : null;
+            GameObject? backing = realCard ? BuildCardBacking(go.transform, cw, ch) : null;
             if (backing == null)
             {
                 // Thin cube slab, sized to the ACTUAL card (item aspect): dark for a real card whose
@@ -5143,11 +5176,16 @@ internal sealed class ItemsPile
         /// card's near-square <paramref name="cw"/>×<paramref name="ch"/> shape (the same back, just
         /// cropped). Returns null only if neither path can build (caller draws the legacy cube slab).
         /// </summary>
-        private GameObject? BuildCardBacking(Transform parent, float cw, float ch)
+        internal static GameObject? CreateInspectionBodyTemplate(Transform parent, float cw, float ch, bool? prefabTemplate = null)
+            => BuildCardBacking(parent, cw, ch, prefabTemplate);
+
+        private static GameObject? BuildCardBacking(Transform parent, float cw, float ch, bool? prefabTemplate = null)
         {
             try
             {
-                GameObject? prefab = PlayTray.Current?.CardBackingPrefab;
+                GameObject? prefab = prefabTemplate == false ? null : PlayTray.Current?.CardBackingPrefab;
+                if (prefabTemplate == true && prefab == null) prefab = CardsDriver.CardBackingPrefab;
+                if (prefabTemplate == true && prefab == null) return null;
                 GameObject backing;
                 string source;
                 if (prefab != null)
@@ -5349,8 +5387,12 @@ internal sealed class ItemsPile
                 // keeps its authored UI layer; SpawnCard's reparent does not change the card's layer).
                 Core.VRLayers.Apply(canvasGo);
 
-                GameObject cardGo = ObjectPool.SpawnCard(item.ID, ObjectPool.ECardType.Item,
-                    canvasRect, resetLocalScale: true);
+                // Ask the pool to clear every top-level pose channel before the widget is
+                // activated. RecycleCard resets these today, but pooled ItemCardUI instances have
+                // also lived below inventory layouts which write them after the return call. The
+                // explicit request keeps the first frame honest; CanonicalizeHostedFace below is
+                // the continuing ownership boundary once this physical card has adopted it.
+                GameObject cardGo = SpawnHostedItemCard(item.ID, canvasRect);
                 if (cardGo == null)
                 {
                     Object.Destroy(canvasGo);
@@ -5363,6 +5405,10 @@ internal sealed class ItemsPile
                     Object.Destroy(canvasGo);
                     return false;
                 }
+                // ObjectPool can return the exact renderer hierarchy previously culled below a
+                // hidden flat inventory/confirmation window. It now belongs to this physical
+                // card, so release that former window's ownership before Show draws the front.
+                CanvasConversion.ReleaseHiddenWindowVeilOwnership(cardGo.transform);
                 cardUI.item = item;
                 // A newly hosted consumed item is historical presentation, not another use.
                 // Capture that initial state before Show requests the native effect so it paints
@@ -5392,13 +5438,7 @@ internal sealed class ItemsPile
                 // body is the same as the other cards, just cropped to the item card's shape).
                 _faceWidth = native.x * fit;
                 _faceHeight = native.y * fit;
-                if (cardRect != null)
-                {
-                    cardRect.anchorMin = cardRect.anchorMax = cardRect.pivot = new Vector2(0.5f, 0.5f);
-                    cardRect.anchoredPosition3D = Vector3.zero;
-                    cardRect.localRotation = Quaternion.identity;
-                    cardRect.localScale = Vector3.one;
-                }
+                CanonicalizeHostedFace(cardGo.transform, canvasRect);
 
                 // Bound the ONE part of the state FX that is NOT uGUI (see ClampCardEffectSmoke).
                 // Runs AFTER the fit above so the clamp can measure the card's final world scale;
@@ -5430,6 +5470,60 @@ internal sealed class ItemsPile
                 VRLog.Warn("Cards", $"ITEM CARD host failed ({e.Message}) — falling back to the colored slab.");
                 return false;
             }
+        }
+
+        private static GameObject SpawnHostedItemCard(int itemId, Transform parent)
+        {
+            return ObjectPool.SpawnCard(itemId, ObjectPool.ECardType.Item, parent,
+                resetLocalScale: true, resetToMiddle: true, resetLocalRotation: true);
+        }
+
+        /// <summary>
+        /// Keep the game-owned item widget in the one frame a physical item card supports. The
+        /// native pool resets most of these fields, but inventory/confirmation layouts can write a
+        /// pooled widget again after that reset. A card adopted by this chip has no licensed child
+        /// pose: its outer chip owns fan/hand motion and its FaceCanvas owns scale. Change-gating the
+        /// writes makes this safe to call from face maintenance while closing the stale-layout path
+        /// that presented a brown backing or a rotated picture after leaving and revisiting the
+        /// merchant.
+        /// </summary>
+        private static void CanonicalizeHostedFace(Transform face, RectTransform canvas)
+        {
+            if (face == null || canvas == null)
+                return;
+            if (!ReferenceEquals(face.parent, canvas))
+                face.SetParent(canvas, worldPositionStays: false);
+            if (face is not RectTransform rect)
+            {
+                if (face.localPosition != Vector3.zero) face.localPosition = Vector3.zero;
+                if (face.localRotation != Quaternion.identity) face.localRotation = Quaternion.identity;
+                if (face.localScale != Vector3.one) face.localScale = Vector3.one;
+                return;
+            }
+            Vector2 middle = new(0.5f, 0.5f);
+            if (rect.anchorMin != middle) rect.anchorMin = middle;
+            if (rect.anchorMax != middle) rect.anchorMax = middle;
+            if (rect.pivot != middle) rect.pivot = middle;
+            if (rect.anchoredPosition3D != Vector3.zero) rect.anchoredPosition3D = Vector3.zero;
+            if (rect.localRotation != Quaternion.identity) rect.localRotation = Quaternion.identity;
+            if (rect.localScale != Vector3.one) rect.localScale = Vector3.one;
+        }
+
+        /// <summary>
+        /// Item widgets are the one native card type whose <c>ObjectPool.RecycleCard</c> does not
+        /// reparent them to the pool. Leaving one below the ItemChip's FaceCanvas therefore adds it
+        /// to the pool and then destroys it with the chip. Detach first, exactly as the remote item
+        /// borrow path does, so a later merchant visit receives a living clean widget instead of a
+        /// destroyed/stale hierarchy entry.
+        /// </summary>
+        internal static void ReturnHostedCardToPool(int cardId, GameObject card)
+        {
+            if (card == null)
+                return;
+            card.SetActive(false);
+            card.transform.SetParent(ObjectPool.instance != null ? ObjectPool.instance.transform : null,
+                worldPositionStays: false);
+            ObjectPool.RecycleCard(cardId, ObjectPool.ECardType.Item, card);
         }
 
         /// <summary>One clamped game emitter + the module values it had before we touched it. The start
@@ -5704,6 +5798,83 @@ internal sealed class ItemsPile
             transform.localPosition = localConverge;
             transform.localRotation = _homeRot * _emergeSpin;
             transform.localScale = Vector3.one * (_homeScale * SeedScale());
+        }
+
+        /// <summary>Start an inspection-card arrival only after its original async front exists.</summary>
+        internal void BeginInspectionEmerge(Vector3 localConverge, float spinSign)
+        {
+            Image? background = _cardUI != null ? _cardUI.cardBackground : null;
+            if (_cardUI == null || background != null && background.sprite != null)
+            {
+                BeginEmerge(localConverge, 0f, spinSign);
+                return;
+            }
+            _inspectionArtPending = true;
+            _inspectionArtConverge = localConverge;
+            _inspectionArtSpinSign = spinSign;
+            _inspectionArtDeadline = Time.unscaledTime + TightArtPollSeconds;
+            _emerging = false;
+            _releaseGlide = 0f;
+            transform.localPosition = localConverge;
+            transform.localRotation = _homeRot;
+            transform.localScale = Vector3.zero;
+            if (_box != null) _box.enabled = false;
+        }
+
+        /// <summary>Release a hidden merchant addition into the normal fan animation when ready.</summary>
+        internal bool TickInspectionArtArrival()
+        {
+            if (!_inspectionArtPending) return false;
+            Image? background = _cardUI != null ? _cardUI.cardBackground : null;
+            bool ready = background != null && background.sprite != null;
+            if (!ready && Time.unscaledTime < _inspectionArtDeadline) return true;
+            if (!ready)
+                VRLog.Warn("Cards", $"Merchant inspection art did not arrive within {TightArtPollSeconds:F0}s for "
+                                    + $"'{name}' — revealing the original hosted card fail-open.");
+            _inspectionArtPending = false;
+            if (_box != null) _box.enabled = true;
+            BeginEmerge(_inspectionArtConverge, 0f, _inspectionArtSpinSign);
+            return false;
+        }
+
+        /// <summary>Re-enter the ordinary owned-item fan after any merchant offering outcome.</summary>
+        internal void PrepareInspectionReturn(Transform fanRoot)
+        {
+            if (Holder != null || fanRoot == null) return;
+            transform.SetParent(fanRoot, true);
+            RestoreHostedFaceFrame();
+            // The merchant palm can outlive the flat confirmation that supplied this pooled
+            // ItemCardUI. Give its front back synchronously, before this return frame renders.
+            CanvasConversion.ReleaseHiddenWindowVeilOwnership(transform);
+            Image? background = _cardUI != null ? _cardUI.cardBackground : null;
+            if (_cardUI == null || background != null && background.sprite != null)
+            {
+                _inspectionArtPending = false;
+                if (_box != null) _box.enabled = true;
+                return;
+            }
+
+            // A native inventory refresh can temporarily clear the async front even for a card
+            // object that already existed. Keep the backing unrendered/ungrabbable until the same
+            // original-art arrival seam used by newly purchased cards is ready.
+            _inspectionArtPending = true;
+            _inspectionArtConverge = transform.localPosition;
+            _inspectionArtSpinSign = transform.localPosition.x >= 0f ? 1f : -1f;
+            _inspectionArtDeadline = Time.unscaledTime + TightArtPollSeconds;
+            _emerging = false;
+            _releaseGlide = 0f;
+            transform.localRotation = _homeRot;
+            transform.localScale = Vector3.zero;
+            if (_box != null) _box.enabled = false;
+        }
+
+        /// <summary>Restore the native face at a merchant ownership boundary, before the next frame
+        /// can present it in the wrist fan or a physical hand. This is separate from the steady-state
+        /// maintenance because a reclaim can reparent the chip and render in the same frame.</summary>
+        internal void RestoreHostedFaceFrame()
+        {
+            if (_cardGo != null && _faceCanvas?.transform is RectTransform faceCanvas)
+                CanonicalizeHostedFace(_cardGo.transform, faceCanvas);
         }
 
         /// <summary>
@@ -6033,6 +6204,7 @@ internal sealed class ItemsPile
         /// <summary>Requirement 6 — cancel the post-release glide-home (used when a drop CLIPS into the
         /// use slot instead of returning to the fan).</summary>
         internal void CancelReleaseGlide() => _releaseGlide = 0f;
+        internal void ResumeInspectionGlide() => _releaseGlide = ReleaseGlideSeconds;
 
         /// <summary>Requirement 6 — return the chip to its fan home (the "return to deck" path on cancel):
         /// clear the clip state and start the same glide the post-release home uses.</summary>
@@ -6122,7 +6294,7 @@ internal sealed class ItemsPile
             _homePos = pos;
             _homeRot = rot;
             _homeScale = scale;
-            // RECORD the home, but do NOT move a chip whose pose somebody else owns. Four owners,
+            // RECORD the home, but do NOT move a chip whose pose somebody else owns. Five owners,
             // and the two rounds of 2026-08-08/09 found them from opposite ends — the presence pass
             // (fly-out) and the item-area pass (clip/glide) each discovered one half of the same
             // rule, so they are stated together here rather than as two guards that could drift:
@@ -6142,9 +6314,13 @@ internal sealed class ItemsPile
             //     winner change, and the presence pass made the flight long enough (a 12-item fan
             //     deals for ~0.64 s) that a fingertip easily arrives inside it. TickEmerge re-reads
             //     _homePos/_homeRot/_homeScale every frame precisely so this costs nothing.
+            //   • WAITING FOR INSPECTION ART — the live native widget remains active at zero scale
+            //     until its async original front exists. A hover/layout change in that interval must
+            //     update the destination fields without exposing the brown backing at that destination.
             // In every case the animation keeps converging on the NEW home, which is what a
             // relayout mid-flight should mean anyway.
-            if (Holder != null || PendingUse || _releaseGlide > 0f || _emerging)
+            if (Holder != null || PendingUse || TownOffering || _releaseGlide > 0f || _emerging
+                || _inspectionArtPending)
                 return;
             transform.localPosition = pos;
             transform.localRotation = rot;
@@ -6166,54 +6342,10 @@ internal sealed class ItemsPile
         protected override HeldPose GetHeldPose(VRHand hand)
         {
             float scale = CardsConfig.InspectScale.Value;
-            // Item cards are near-square — use the chip's OWN measured held height (not the tall ability
-            // CardHeight) so the grip offset lifts the card the right amount out of the pinch.
-            float cardH = (_faceHeight > 0.001f ? _faceHeight : CardsConfig.CardHeight) * scale;
-
-            Vector3 pinchLocal;
-            FingerJoints thumb = hand.Rig.GetFinger(Finger.Thumb);
-            FingerJoints index = hand.Rig.GetFinger(Finger.Index);
-            if (thumb.IsValid && index.IsValid)
-            {
-                Vector3 pinchWorld = (thumb.Tip.position + index.Tip.position) * 0.5f;
-                pinchLocal = hand.Rig.GrabAnchor.InverseTransformPoint(pinchWorld);
-            }
-            else
-            {
-                pinchLocal = new Vector3(0f, CardsConfig.HeldOffPalm.Value, CardsConfig.HeldForward.Value);
-            }
-            // LEFT-HAND MIRROR (user report 2026-08-09: "Die Position der Item-Karte in der linken
-            // Hand ist falsch — das selbe Problem hattest du auch schonmal bei der linken Hand mit den
-            // anderen Karten und dort behoben, wende bei den Item Karten den selben Fix an").
-            //
-            // ROOT CAUSE, and it is literally the ability cards' bug a second time: this method was
-            // copied from VRCard.GetHeldPose BEFORE ba70e43 fixed it there, and it kept adding the
-            // tuned [Cards] HeldPinchOffset RAW on both hands. That offset is authored on the RIGHT
-            // hand (default X = −5.5 cm), but the two GrabAnchor frames are ANATOMICAL MIRRORS — +Y
-            // out of the palm and +Z along the fingers on BOTH hands — so the lateral ±X axis
-            // necessarily points to the THUMB side on the right hand and to the PINKY side on the
-            // left (which is exactly why `thumbSide` above already flips sign per hand). Added raw,
-            // the same X therefore shifted the card toward the thumb on one hand and toward the
-            // pinky on the other: the left-hand item card missed the thumb/index pinch spot by
-            // TWICE the tuned lateral offset, i.e. ~11 cm at the shipped value.
-            //
-            // Flip ONLY the X term for the left hand (Y and Z are anatomically symmetric): one tuned
-            // value set, mirrored by construction — the same authored-right-mirrored-left convention
-            // as VRCard.GetHeldPose, FigureGrabConfig.HeldFaceYawFor and VRHand's grip roll/yaw.
-            //
-            // THE SIGN IS THE PROJECT'S ONE DEFINITION OF IT — Board.FigureGrab.HeldPoseMirror.
-            // OffsetSign, the same call the figure and prop grabs make and the same one VRCard now
-            // makes, rather than a third hand-spelled `if (left) x = -x`. Every one of the three
-            // times this rule has been broken in this codebase, it was broken in a COPY of the
-            // ternary.
-            float thumbSide = Board.FigureGrab.HeldPoseMirror.OffsetSign(hand.Side == HandSide.Left);
-            Vector3 pinchOffset = CardsConfig.HeldPinchOffset.Value;
-            pinchOffset.x *= thumbSide;
-            pinchLocal += pinchOffset;
-
-            CardGripPose.ReadingPose(CardsConfig.HeldFaceBias.Value, thumbSide, pinchLocal,
-                                     cardH, PinchGripFraction, out Vector3 pos, out Quaternion rot);
-            return new HeldPose(pos, rot, scale);
+            ItemCardHold.ReadingPose(hand,
+                (_faceHeight > .001f ? _faceHeight : CardsConfig.CardHeight) * scale,
+                PinchGripFraction, out Vector3 position, out Quaternion rotation);
+            return new HeldPose(position, rotation, scale);
         }
 
         public override void OnGrab(VRHand hand)
@@ -6231,6 +6363,10 @@ internal sealed class ItemsPile
             // root first (world pose preserved) keeps the whole grab/release path in one frame of
             // reference, so a cancel really does return the card to the deck.
             _owner?.UnclipChip(this);
+            // A merchant offering is parented to the resident's palm. Reclaim it into the fan
+            // frame before GrabbableBehaviour records its original parent; otherwise a later hand
+            // release restores the palm parent and interprets fan-local homes in merchant space.
+            if (TownOffering) _owner?.PrepareInspectionReclaim(this);
             // PendingUse means EXACTLY "this card is lying in the board's recess". A card in a hand
             // is not, so the flag drops at the grab rather than one tick later, when the owner's
             // per-tick service notices Holder != null and backs the decision out through its game
@@ -6259,6 +6395,13 @@ internal sealed class ItemsPile
             Quaternion worldRot = transform.rotation;
             Vector3 worldScale = transform.localScale;
             base.OnGrab(hand); // snaps to the reading pose at GetHeldPose
+            if (TownOffering)
+            {
+                TownOffering = false;
+                System.Action? reclaimed = TownOfferingReclaimed;
+                TownOfferingReclaimed = null;
+                reclaimed?.Invoke();
+            }
             _heldPos = transform.localPosition;
             _heldScale = transform.localScale.x;
             transform.position = worldPos;
@@ -6361,6 +6504,12 @@ internal sealed class ItemsPile
         /// </summary>
         private void TickFaceMaintenance()
         {
+            // The top-level native ItemCardUI is presentation content, not another pose owner.
+            // Flat inventory layout and pooled-window teardown can otherwise leave its RectTransform
+            // rotated or offset after a merchant leave/re-enter roundtrip. Correct only drifted
+            // channels; the steady state performs comparisons and no Transform writes.
+            RestoreHostedFaceFrame();
+
             // ITEM #5 — keep the WorldSpace face canvas bound to the head camera (mirror of
             // VRCard.UpdateCanvasCamera). A WorldSpace canvas renders on its LAYER regardless of
             // worldCamera, so this alone can't decide mirror visibility — the deep diagnostic below logs
@@ -6636,10 +6785,13 @@ internal sealed class ItemsPile
         /// <see cref="ItemsPile.RefuseLockedBonusRemoval"/>, which is where the player is TOLD why.
         /// It stops refusing on its own the moment the game resolves the bonus.</para></summary>
         public bool AllowsHand(VRHand hand) =>
-            (_owner == null || !_owner.PlacedCardIsLocked(this))
+            ReferenceEquals(Holder, hand) ||
+            (TownOffering && WorldUI.TownServiceMerchantHandoff.CanReclaim(this)) ||
+            (!TownOffering && (_owner == null || (!_owner.PlacedCardIsLocked(this)
+                && (_owner._inspectionRelease == null || !ReferenceEquals(hand, _owner._inspectionGateHand))))
             && (PendingUse
                 || (!ReferenceEquals(hand, _suppressedForHand)
-                    && !ReferenceEquals(hand, _suppressedForHand2)));
+                    && !ReferenceEquals(hand, _suppressedForHand2))));
 
         /// <summary>
         /// Shrink this chip's grab box to its VISIBLE strip in FAN-local metres (see
@@ -6656,7 +6808,7 @@ internal sealed class ItemsPile
                 return;
             float fullW = FaceWidth + ColliderMargin;
             float fullH = FaceHeight + ColliderMargin;
-            bool tapped = State == Visual.Spent; // rolled 90°: the arc runs along local Y
+            bool tapped = State == Visual.Spent && !IsTownInspection; // only the scenario arc rolls 90°
             float along = tapped ? fullH : fullW;
             float strip = Mathf.Clamp(stripFanLocal, along * 0.25f, along);
             float offset = -(along - strip) * 0.5f;
@@ -6675,7 +6827,7 @@ internal sealed class ItemsPile
         /// <summary>A held chip rides a hand and a chip clipped into the use slot is awaiting a
         /// decision (#6) — neither may win the sweep, or a dead chip would suppress the lift of a
         /// live one beside it.</summary>
-        bool IFanSweepTarget.SweepEligible => Holder == null && !PendingUse;
+        bool IFanSweepTarget.SweepEligible => Holder == null && !PendingUse && !TownOffering;
 
         /// <summary>The chip's rendered face width in WORLD units. This is the number that makes
         /// the reach board-scale-invariant: an item fan on a 0,32× board reports ~2,5 real cm here
@@ -6727,7 +6879,7 @@ internal sealed class ItemsPile
             if (resting)
             {
                 Transform? parent = t.parent;
-                if (parent == null || Holder != null || PendingUse)
+                if (parent == null || Holder != null || PendingUse || TownOffering)
                     return false;
                 center = parent.TransformPoint(_homePos);
                 Quaternion rot = parent.rotation * _homeRot;
@@ -6748,6 +6900,9 @@ internal sealed class ItemsPile
             halfHeight = FaceHeight * 0.5f * lossy;
             return halfWidth > 1e-5f && halfHeight > 1e-5f;
         }
+
+        internal bool TownOffering { get; set; }
+        internal System.Action? TownOfferingReclaimed;
 
         private void Update()
         {
@@ -6786,6 +6941,8 @@ internal sealed class ItemsPile
 
             TickFaceMaintenance(); // ITEM #1 (de-shimmer) + live usable-highlight frame — held or not
 
+            if (TickInspectionArtArrival()) return;
+
             if (Holder != null)
             {
                 // A grab mid-fly-out CANCELS the fly-out (it does not pause it): the held pose owns
@@ -6797,6 +6954,9 @@ internal sealed class ItemsPile
                 TickHeldPose(); // FIX 1 — track the wrist + billboard the face every frame while held
                 return;
             }
+
+            // The town handoff owns the visible pose until confirmation or physical take-back.
+            if (TownOffering) return;
 
             // Req #6 — clipped into the use slot, waiting for the decision: nothing to do ONCE the
             // settle has landed. The chip is a child of the slot at an exact zero local pose, so it
@@ -6868,9 +7028,12 @@ internal sealed class ItemsPile
             }
             else
             {
-                // Settled: apply the pop directly on the arc home (unchanged steady-state behavior).
+                // The merchant offering may return from a palm frame facing the opposite way.
+                // The timed glide only approaches home, so settle rotation as well: leaving its
+                // residual angle here made a reopened item fan show a card's blank back forever.
                 transform.localScale = Vector3.one * scaleTarget;
                 transform.localPosition = posTarget;
+                transform.localRotation = _homeRot;
             }
         }
 
@@ -6888,47 +7051,10 @@ internal sealed class ItemsPile
         /// </summary>
         private void TickHeldPose()
         {
-            float t = 1f - Mathf.Exp(-CardsConfig.CardLerpSpeed.Value * 1.5f * Time.deltaTime);
-            float cardW = (_faceWidth > 0.001f ? _faceWidth : CardsConfig.CardWidth.Value) * _heldScale;
-            float cardH = (_faceHeight > 0.001f ? _faceHeight : CardsConfig.CardHeight) * _heldScale;
-            // THE GRASP, blended — the card travels between the two poses on the SAME eased progress
-            // the fingers travel on, so it arrives in the hand exactly as the hand closes on it. At
-            // blend 0 this branch does not run at all and the original billboard path below is
-            // byte-for-byte what it always was.
-            //
-            // WORKED IN THE PARENT'S FRAME (the hand's grab socket), which is why the billboard target
-            // is converted INTO it rather than the grip target out of it: the billboard is a world
-            // rotation and the grip pose is hand-local, and interpolating a hand-local pair while the
-            // wrist moves is the thing that tracks the wrist. Converting the other way would blend two
-            // world poses and the card would lag the hand for the length of the animation.
-            float grasp = HeldCardGrip.Blend(Holder);
-            Transform? socket = transform.parent;
-            if (grasp > 0f && socket != null
-                && HeldCardGrip.TryPose(Holder, cardW, cardH, out Vector3 gripPos, out Quaternion gripRot))
-            {
-                Vector3 wantPos = gripPos;
-                Quaternion wantRot = gripRot;
-                if (grasp < 1f)
-                {
-                    Quaternion readRot = LocalBillboard(socket);
-                    wantPos = Vector3.Lerp(_heldPos, gripPos, grasp);
-                    wantRot = Quaternion.Slerp(readRot, gripRot, grasp);
-                }
-                transform.localPosition = Vector3.Lerp(transform.localPosition, wantPos, t);
-                transform.localRotation = Quaternion.Slerp(transform.localRotation, wantRot, t);
-                transform.localScale = Vector3.Lerp(transform.localScale, Vector3.one * _heldScale, t);
-                return;
-            }
-            transform.localPosition = Vector3.Lerp(transform.localPosition, _heldPos, t);
-            Camera? head = VRRigDriver.HeadCamera != null ? VRRigDriver.HeadCamera : Camera.main;
-            if (head != null)
-            {
-                Vector3 away = transform.position - head.transform.position; // card +Z away from viewer
-                if (away.sqrMagnitude > 1e-6f)
-                    transform.rotation = Quaternion.Slerp(transform.rotation,
-                        Quaternion.LookRotation(away.normalized, head.transform.up), t);
-            }
-            transform.localScale = Vector3.Lerp(transform.localScale, Vector3.one * _heldScale, t);
+            if (Holder == null || transform.parent == null) return;
+            ItemCardHold.Tick(transform, Holder, transform.parent, _heldPos, _heldScale,
+                (_faceWidth > .001f ? _faceWidth : CardsConfig.CardWidth.Value) * _heldScale,
+                (_faceHeight > .001f ? _faceHeight : CardsConfig.CardHeight) * _heldScale);
         }
 
         // ---- IPokeable (laser hover + pluck; the board laser drives these) ----------
@@ -7065,7 +7191,7 @@ internal sealed class ItemsPile
                     // face it is given, item faces included; the pooled widget must go back with the
                     // game's own colours. No-op on a face that was never muted.
                     CardFace.ReleaseFaceBlackout(_cardUI);
-                    ObjectPool.RecycleCard(_cardUI.CardID, ObjectPool.ECardType.Item, _cardGo);
+                    ReturnHostedCardToPool(_cardUI.CardID, _cardGo);
                 }
                 catch (System.Exception e)
                 {

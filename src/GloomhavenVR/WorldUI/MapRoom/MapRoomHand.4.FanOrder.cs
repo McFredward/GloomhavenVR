@@ -1,10 +1,22 @@
 using GloomhavenVR.Cards;
 using GloomhavenVR.Net;
+using MapRuleLibrary.Party;
+using ScenarioRuleLibrary;
 
 namespace GloomhavenVR.WorldUI.MapRoom;
 
 internal sealed partial class MapRoomHand
 {
+    /// <summary>The offering is the player's actual loadout card, never an observer's copy.</summary>
+    internal static bool TryOwnedTownCard(VRCard card, out CMapCharacter? character, out CAbilityCard? model)
+    {
+        character = null; model = null;
+        if (card == null || !MapRoomDriver.Active || !CanReorderLocalFan(card)
+            || !MapCardSources.TryGetValue(card, out MapCardSource source)) return false;
+        character = source.Character; model = source.Model;
+        return character != null && model != null;
+    }
+
     // MB497 supersedes the original map inspection-only ordering restriction. This address stays
     // local and survives scene reconstruction; only positional loadout seats travel to peers.
     internal static bool TryFanOrderKey(VRCard card, out string character, out int id)

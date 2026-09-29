@@ -50,6 +50,7 @@ internal sealed class FfsNetTransport : INetTransport
     private bool _resolved;
     private bool _degraded;
     private readonly ExtrasFragments _fragments = new();
+    private readonly TownServices.TownServiceFragments _townFragments = new();
     private readonly ExtrasFragments _animationFragments = new(NetProtocol.MsgUseBarAnimation,
         NetProtocol.MsgUseBarAnimationFragments, assemblyLifetime: ExtrasFragments.PresentationAssemblyLifetime);
     private readonly ExtrasFragments _plumeFragments = new(NetProtocol.MsgCardPlume,
@@ -77,6 +78,7 @@ internal sealed class FfsNetTransport : INetTransport
         NetProtocol.MsgUseBarAnimation, NetProtocol.MsgUseBarAnimationFragments);
     private byte[]? _versionAnnouncement;
     private double _nextVersionAnnouncement;
+    private float _nextTownGrantFailureLog;
     private double _nextFragmentReport;
     private int _sentFragments, _receivedFragments, _completedSnapshots, _fragmentBytes;
 
@@ -84,6 +86,7 @@ internal sealed class FfsNetTransport : INetTransport
     {
         _fragments.Forget(senderId);
         _animationFragments.Forget(senderId);
+        _townFragments.Forget(senderId);
         _plumeFragments.Forget(senderId);
         _boardFragments.Forget(senderId);
         _appearanceFragments.Forget(senderId);
@@ -96,6 +99,7 @@ internal sealed class FfsNetTransport : INetTransport
     {
         _fragments.Clear();
         _animationFragments.Clear();
+        _townFragments.Clear();
         _plumeFragments.Clear();
         _boardFragments.Clear();
         _appearanceFragments.Clear(); _itemAppearanceFragments.Clear(); _mapTooltipFragments.Clear();
@@ -260,7 +264,7 @@ internal sealed class FfsNetTransport : INetTransport
         {
             if (length < 6 || length > payload.Length) return;
             int type = NetPacket.PeekType(payload, length);
-            if (type == NetProtocol.MsgExtras || type == NetProtocol.MsgUseBarAnimation || type == NetProtocol.MsgCardPlume || type == NetProtocol.MsgNativeBoard || type == NetProtocol.MsgCardAppearance || type == NetProtocol.MsgNativeDecisionPrompt || type == NetProtocol.MsgItemAppearance || type == NetProtocol.MsgMapButtonTooltip)
+            if (type == NetProtocol.MsgExtras || type == NetProtocol.MsgUseBarAnimation || type == NetProtocol.MsgCardPlume || type == NetProtocol.MsgNativeBoard || type == NetProtocol.MsgCardAppearance || type == NetProtocol.MsgNativeDecisionPrompt || type == NetProtocol.MsgItemAppearance || type == NetProtocol.MsgMapButtonTooltip || type == TownServices.TownServiceCodec.MessageType)
             {
                 // Native writers already hold the immutable snapshot which produced these bytes.
                 // Re-decoding it here allocated a second complete card/widget graph per send.
@@ -286,6 +290,39 @@ internal sealed class FfsNetTransport : INetTransport
         {
             // Never let a transport hiccup bubble into game code.
             VRLog.Error("Net", $"SendSideAction failed (suppressed): {e.Message}");
+        }
+    }
+
+    /// <summary>Town gameplay grants use Bolt ReliableOrdered. This deliberately bypasses
+    /// the lossy/coalescing presentation queue; a lost cosmetic manifest is harmless, a
+    /// guessed purchase permission is not. Requests/releases go to the native host and
+    /// grants are broadcast from that host to every modded observer.</summary>
+    internal bool SendTownGrant(byte[] payload, int length, bool hostOnly)
+    {
+        if (_degraded || !_installed || _sendSideAction == null || _customDataCtor == null
+            || !IsOnline || NetSession.FlatNetMode || length != TownServices.TownServiceGrantCodec.Size
+            || length > payload.Length || NetPacket.PeekType(payload, length) != TownServices.TownServiceGrantCodec.MessageType)
+            return false;
+        try
+        {
+            var bytes = new byte[length];
+            Buffer.BlockCopy(payload, 0, bytes, 0, length);
+            object token = _customDataCtor.Invoke(new object[] { bytes, false });
+            _sendArgs[1] = token;
+            _sendArgs[2] = false; // ReliableOrdered, not the presentation lane's Unreliable.
+            _sendArgs[3] = hostOnly;
+            try { _sendSideAction.Invoke(null, _sendArgs); }
+            finally { _sendArgs[2] = true; _sendArgs[3] = false; }
+            return true;
+        }
+        catch (Exception e)
+        {
+            if (UnityEngine.Time.unscaledTime >= _nextTownGrantFailureLog)
+            {
+                _nextTownGrantFailureLog = UnityEngine.Time.unscaledTime + 10f;
+                VRLog.Warn("Net", "Town-service ReliableOrdered side action failed: " + e.Message);
+            }
+            return false;
         }
     }
 
@@ -424,8 +461,22 @@ internal sealed class FfsNetTransport : INetTransport
                 NetProtocol.MsgItemAppearance => NetProtocol.MsgItemAppearanceFragments,
                 NetProtocol.MsgMapButtonTooltip => NetProtocol.MsgMapButtonTooltipFragments,
                 NetProtocol.MsgNativeDecisionPrompt => NetProtocol.MsgNativeDecisionPromptFragments,
+                TownServices.TownServiceCodec.MessageType => TownServices.TownServiceCodec.FragmentType,
                 _ => -1,
             } : type;
+            if (routedType == TownServices.TownServiceCodec.FragmentType)
+            {
+                _receivedFragments++;
+                byte[]? complete = _townFragments.Accept(senderId, buffer, length,
+                    System.Diagnostics.Stopwatch.GetTimestamp() / (double)System.Diagnostics.Stopwatch.Frequency);
+                if (complete != null)
+                {
+                    if (TownServices.TownServiceCodec.TryReadBundle(complete, complete.Length, out byte[][]? modules))
+                    { foreach (byte[] module in modules!) { _completedSnapshots++; PacketReceived?.Invoke(senderId, module, module.Length); } }
+                    else { _completedSnapshots++; PacketReceived?.Invoke(senderId, complete, complete.Length); }
+                }
+                return;
+            }
             if (routedType == NetProtocol.MsgExtrasFragments || routedType == NetProtocol.MsgUseBarAnimationFragments
                 || routedType == NetProtocol.MsgCardPlumeFragments || routedType == NetProtocol.MsgNativeUseBarFragments
                 || routedType == NetProtocol.MsgNativeBoardFragments || routedType == NetProtocol.MsgCardAppearanceFragments || routedType == NetProtocol.MsgNativeDecisionPromptFragments || routedType == NetProtocol.MsgItemAppearanceFragments || routedType == NetProtocol.MsgMapButtonTooltipFragments)

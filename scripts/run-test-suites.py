@@ -10,7 +10,6 @@ reuse is disabled, and the scheduler cleans all descendants on completion or can
 from __future__ import annotations
 
 import argparse
-import errno
 import hashlib
 import json
 import math
@@ -25,49 +24,15 @@ import tempfile
 import time
 import uuid
 
-try:
-    import fcntl
-except ImportError:  # Windows
-    fcntl = None
-try:
-    import msvcrt
-except ImportError:  # POSIX
-    msvcrt = None
+# Also support the source-bound test loader, which imports this hyphenated file
+# directly without adding its directory to sys.path.
+SCRIPT_DIR = str(Path(__file__).resolve().parent)
+if SCRIPT_DIR not in sys.path:
+    sys.path.insert(0, SCRIPT_DIR)
+from town_run_retention import acquire_file_lock, record_success, release_file_lock
 
 ROOT = Path(__file__).resolve().parent.parent
 MANIFEST = ROOT / 'scripts/test-suites.json'
-
-
-def acquire_file_lock(stream, *, blocking=True):
-    if fcntl is not None:
-        fcntl.flock(stream, fcntl.LOCK_EX | (0 if blocking else fcntl.LOCK_NB))
-        return
-    if msvcrt is None:
-        raise OSError('No file locking implementation is available')
-    stream.seek(0, 2)
-    if stream.tell() == 0:
-        stream.write(b'\0')
-        stream.flush()
-    stream.seek(0)
-    while True:
-        try:
-            msvcrt.locking(stream.fileno(), msvcrt.LK_NBLCK, 1)
-            return
-        except OSError as exc:
-            busy = exc.errno in (errno.EACCES, errno.EAGAIN, errno.EDEADLK) or getattr(exc, 'winerror', None) in (33, 36)
-            if not busy:
-                raise
-            if not blocking:
-                raise BlockingIOError(errno.EAGAIN, 'File lock is held') from exc
-            time.sleep(.05)
-
-
-def release_file_lock(stream):
-    if fcntl is not None:
-        fcntl.flock(stream, fcntl.LOCK_UN)
-    else:
-        stream.seek(0)
-        msvcrt.locking(stream.fileno(), msvcrt.LK_UNLCK, 1)
 
 
 def read_limit(path):
@@ -306,6 +271,13 @@ def execute(suites, jobs, output, root, manifest_hash, group, shard, *, partial=
                                  'duration_seconds': round(duration, 3), 'log': entry['log_path'].name,
                                  'compiler_id': entry['compiler_id']}
                 print(f'[{status}] {name}: {duration:.1f}s', flush=True)
+                if status == 'passed':
+                    try:
+                        retained, removed = record_success(name, code, entry['log_path'], root)
+                        if retained is not None and removed:
+                            print(f'[retention] {name}: removed {removed} older successful runs; kept {retained}', flush=True)
+                    except (OSError, ValueError) as exc:
+                        print(f'[retention] {name}: could not prune generated runs: {exc}', flush=True)
                 del running[name]
             if pending or running:
                 time.sleep(.05)

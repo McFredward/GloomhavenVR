@@ -1,0 +1,46 @@
+[
+  {
+    "name": "merchant-count",
+    "frames": 108,
+    "source_sha256": "4f2bde0982c7b27e91470f5721e1fa29780273fe509af982041b67ffce1d504f",
+    "baked_sha256": "68e6f5571a686616522d8ec75629957af60b32c207e5c67d1a9a1b4f5656a531",
+    "root_range": [
+      0.01727566309273243,
+      0.008431077003479004,
+      0.024432161822915077
+    ]
+  },
+  {
+    "name": "merchant-return",
+    "frames": 108,
+    "source_sha256": "9a5dd91013058e03860001c61a9465224aad591b25c39260f14bfc43dc4b48dc",
+    "baked_sha256": "e68709db567164a99f57ea2efab2d279167520eead0b19fd43fc50a8a2ad87ce",
+    "root_range": [
+      0.05122320353984833,
+      0.007884740829467773,
+      0.02244121953845024
+    ]
+  },
+  {
+    "name": "enchantress",
+    "frames": 306,
+    "source_sha256": "e1ab09f8e340ba077d889093c074a5fcecc2b64b975e95835327e3aff0b83f7a",
+    "baked_sha256": "623cd729c0666a5a58cb882a82c9f9faa1eac96128e3d0cb26694c7d775dcfb4",
+    "root_range": [
+      0.033062517642974854,
+      0.015058577060699463,
+      0.03287249058485031
+    ]
+  },
+  {
+    "name": "priestess",
+    "frames": 240,
+    "source_sha256": "3b314835097074452fd0a55dbee618d1822376fbd27096a934b3c7c5635ff2bb",
+    "baked_sha256": "137cabe19687dfb027f980324e064c117e1b7cf86afde5bf4df0051d143aaa4e",
+    "root_range": [
+      0.013809769414365292,
+      0.00826573371887207,
+      0.010865779593586922
+    ]
+  }
+]

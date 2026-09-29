@@ -83,6 +83,13 @@ internal interface ITriggerOnlyGrabbable
 {
 }
 
+/// <summary>Optional explicit cancellation route. A policy change, tracking loss or teardown is
+/// not a deliberate drop, even if it happens on the same frame as the trigger-up edge.</summary>
+internal interface IGrabCancellation
+{
+    void OnGrabCancelled(VRHand hand);
+}
+
 /// <summary>
 /// Optional companion to <see cref="IGrabbable"/> (additive, ModBuild 473): THIS TARGET MEASURES
 /// ITS OWN REACH, and the election must ask it instead of its collider.

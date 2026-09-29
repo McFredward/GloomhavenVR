@@ -11,6 +11,14 @@ namespace GloomhavenVR.Net;
 /// </summary>
 internal struct PresenceState
 {
+    /// <summary>Facial stream recovery from the elected resident author; never viewer-authored.</summary>
+    public bool TownActivityRecordSeen; // Distinguish malformed81 from an absent legacy extension.
+    public bool HasTownActivity;
+    public TownActivityState TownActivity;
+    public bool HasTownFace;
+    public TownFaceState TownFace;
+    public bool HasTownResidents;
+    public TownResidentsState TownResidents;
     /// <summary>Explicit ownership statement for shared map windows, including an all-zero release.
     /// A missing statement cannot establish that a remote player's stationary grip ended.</summary>
     public bool HasSharedWindowMotion;
@@ -40,6 +48,10 @@ internal struct PresenceState
 
     /// <summary>How many cards are in the sender's hand fan (0..255). Rendered as backs only.</summary>
     public byte HandCardCount;
+
+    /// <summary>Complete public map loadout size, including cards offered to a town resident.
+    /// Zero means absent. Record44 still names the exact visible fan subset.</summary>
+    public byte MapLoadoutCount;
 
     /// <summary>True when the sender's dominant hand is the RIGHT hand (mirror of the rig flag).
     /// Defaults true (right-dominant) when unknown.</summary>
@@ -1624,8 +1636,16 @@ internal static class PresenceSerializer
     /// + 56 (HELD PROPS: 2 + its two-slot form, 2 x <c>NetProtocol.HeldPropSlotBytes</c>)
     /// = 1726.
     ///
-    /// <para>Native opening histories83/84 add510 bytes: worst7379, buffer7636 retains
-    /// a257-byte margin; bounded7680 reassembly retains the existing chunk grammar.</para>
+    /// <para>Native opening histories83/84 and town records79/80/81/88 coexist: worst7674
+    /// with the optional cloth tail, buffer7931 retains a257-byte margin; bounded7680
+    /// reassembly has6 bytes spare.</para>
+    /// <para>Before the opening histories, public map loadout88 adds3 bytes: worst7139,
+    /// allocation7396 keeps257 spare bytes.</para>
+    /// <para>Town activity81 adds55 bytes: worst7137, allocation7394 keeps257 spare; reassembly7168 has31 bytes remaining.</para>
+    /// <para>Town faces80 adds96 bytes: 6986 ->7082 worst case, buffer7339 preserves257 spare
+    /// bytes and the actual snapshot still fits unchanged7168-byte reassembly.</para>
+    /// <para>Permanent residents79 adds at most117 bytes: 6869 -> 6986 worst case; buffer7243
+    /// retains257 spare bytes. The7168-byte reassembly bound remains sufficient.</para>
     ///
     /// <para>Shared window motion77 adds four bytes: 6865 -> 6869 worst case; buffer 7126
     /// retains 257 spare bytes, within the unchanged 7168-byte reassembly bound.</para>
@@ -1878,9 +1898,11 @@ internal static class PresenceSerializer
     /// ITS OWN COMMIT, and keeps a margin of at least one record's worth. Record 27 (track order)
     /// took the worst case 859 → 887 on 2026-08-08; the margin is 393 bytes, i.e. still more than
     /// every optional record on the tail put together.</para></summary>
-    // Story83 and reward84 add at most 255 bytes each: 6869 + 510 = 7379.
-    // Keep the 257-byte largest-record margin; fragment envelope supports this bound.
-    public const int MaxSize = 7636;
+    // Base6869 + residents79(141 including anchored cloth controls) + faces80(96)
+    // + activity81(55) + public map loadout88(3) + native opening histories83/84(510)
+    // = 7674. The 7680-byte fragment envelope retains six bytes; the local send
+    // buffer still keeps the 257-byte largest-record margin.
+    public const int MaxSize = 7931;
 
     // ---- write --------------------------------------------------------------------------
 
@@ -1955,6 +1977,10 @@ internal static class PresenceSerializer
                           // The sampler already returns 0 outside the online card-selection phase,
                           // which is what keeps every packet of every other phase byte-identical
                           // to a pre-record-27 sender's.
+                          || state.MapLoadoutCount > 0
+                          || state.HasTownActivity
+                          || state.HasTownFace
+                          || state.HasTownResidents
                           || state.HasSharedWindowMotion
                           || state.HasVideoWindow
                           || state.HasRewardPoseHandshake
@@ -2685,6 +2711,14 @@ internal static class PresenceSerializer
                 records++;
             }
         }
+        if (state.MapLoadoutCount > 0 && state.MapLoadoutCount <= NetProtocol.MaxMapLoadoutCount
+            && i + 3 <= buffer.Length)
+        {
+            buffer[i++] = NetProtocol.ExtIdMapLoadoutCount;
+            buffer[i++] = 1;
+            buffer[i++] = state.MapLoadoutCount;
+            records++;
+        }
         if (state.HasFanArcOrder && state.FanArcOrder != null && state.FanArcOrderCount > 0)
         {
             // FAN ARC ORDER (44): [count][ceil(count/2) packed nibbles] — the left-to-right
@@ -2722,6 +2756,14 @@ internal static class PresenceSerializer
                 records++;
             }
         }
+        if (state.HasTownActivity && TownActivityCodec.Write(buffer, ref i, in state.TownActivity))
+            records++;
+
+        if (state.HasTownFace && TownFaceCodec.Write(buffer, ref i, in state.TownFace))
+            records++;
+
+        if (state.HasTownResidents && TownResidentsCodec.Write(buffer, ref i, in state.TownResidents))
+            records++;
         // A zero mask is a positive release statement, not an omitted default. Stationary
         // grips must remain distinguishable from silence and from automatic layout movement.
         if (state.HasSharedWindowMotion && i + 2 + NetProtocol.SharedWindowMotionRecordBytes <= buffer.Length)
@@ -4006,6 +4048,9 @@ internal static class PresenceSerializer
                 int records = buffer[i++];
                 for (int r = 0; r < records; r++)
                 {
+                    // Remember the extension identity even when its length/payload is truncated.
+                    // Otherwise valid79/80 followed by broken81 could masquerade as legacy face-only.
+                    if (length > i && buffer[i] == NetProtocol.ExtIdTownActivity) state.TownActivityRecordSeen = true;
                     if (length < i + 2)
                     {
                         if (length > i && buffer[i] == NetProtocol.ExtIdFanInsertionGap) return false;
@@ -4060,6 +4105,28 @@ internal static class PresenceSerializer
     private static void ReadExtensionRecord(byte[] buffer, int i, byte id, int len,
                                             ref PresenceState state)
     {
+        if (id == NetProtocol.ExtIdMapLoadoutCount)
+        {
+            if (len >= 1 && buffer[i] <= NetProtocol.MaxMapLoadoutCount)
+                state.MapLoadoutCount = buffer[i];
+            return;
+        }
+        if (id == NetProtocol.ExtIdTownActivity)
+        {
+            state.TownActivityRecordSeen = true;
+            state.HasTownActivity = TownActivityCodec.TryRead(buffer, i, len, out state.TownActivity);
+            return;
+        }
+        if (id == NetProtocol.ExtIdTownFace)
+        {
+            state.HasTownFace = TownFaceCodec.TryRead(buffer, i, len, out state.TownFace);
+            return;
+        }
+        if (id == NetProtocol.ExtIdTownResidents)
+        {
+            state.HasTownResidents = TownResidentsCodec.TryRead(buffer, i, len, out state.TownResidents);
+            return;
+        }
         if (id == NetProtocol.ExtIdSharedWindowMotion)
         {
             if (len >= NetProtocol.SharedWindowMotionRecordBytes)

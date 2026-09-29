@@ -36,7 +36,7 @@ pairs = {
     'scenario-omitted': ('NativeStoryWindow', '|| (Singleton<StoryController>.IsInitialized', '|| (false && Singleton<StoryController>.IsInitialized'),
     'reopen-lost': ('NativeStoryWindow', '&& !window.IsOpen', ''),
     'poll-resurrection': ('Lifecycle', 'if (NativeStoryWindow.IsCompleted(window))\n            return;', ''),
-    'reconversion': ('Lifecycle', 'if (NativeStoryWindow.IsCompleted(window))\n                return false;', ''),
+    'reconversion': ('Lifecycle', '|| NativeStoryWindow.IsCompleted(window)', '|| false'),
     'stale-anchor': ('StorySpawnAnchor', 'SharedAnchorSpent.Remove(kind);', ''),
     'live-anchor': ('StorySpawnAnchor', 'existing.Panel.IsAlive', '!existing.Panel.IsAlive'),
     'unrelated-anchor': ('StorySpawnAnchor', 'SharedAnchorSpent.Remove(kind);', 'SharedAnchorSpent.Clear();'),

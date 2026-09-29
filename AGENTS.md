@@ -1,5 +1,13 @@
 # Working on GloomhavenVR
 
+## Unified development workflow (2026-09-29)
+
+The maintainer requested integration of `feature/immersive-town-services` into
+`dev`. All subsequent NPC, Steam Frame, and other development now integrates and
+pushes to `dev`; create worker worktrees from the current `dev` commit. The NPC
+feature still targets a release of at least 1.1.0, but it no longer has a separate
+active integration branch. The former NPC branch remains historical ancestry.
+
 Read `CLAUDE.md`, `.planning/STATE.md`, and the newest build notes beside
 `NetProtocol.ModBuild` before implementation. `CLAUDE.md` retains the project's
 technical contracts and historical reasoning; the rules below adapt its workflow

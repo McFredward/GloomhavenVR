@@ -171,16 +171,32 @@ expect_refused 'merge from unrelated same-tree source' "$wrong_parent" "$wrong_p
 
 # Keep the same-version race refusal pinned to the workflow's early existing-tag gate.
 check 'first release tag exists for duplicate-version refusal' test -n "$(git -C "$runner" rev-parse --verify refs/tags/v0.1.0)"
-python3 - "$repo_root/.github/workflows/release.yml" "$repo_root/.github/workflows/ci.yml" <<'PY'
+python3 - "$repo_root/.github/workflows/release.yml" "$repo_root/.github/workflows/ci.yml" "$repo_root/scripts/test-suites.json" <<'PY'
 from pathlib import Path
+import json
+import re
 import sys
-release, ci = (Path(p).read_text() for p in sys.argv[1:])
+release, ci = (Path(p).read_text() for p in sys.argv[1:3])
+manifest = json.loads(Path(sys.argv[3]).read_text())
 assert release.index('refs/tags/v$VERSION') < release.index('name: Build ('), 'duplicate tag must fail before build'
 assert 'scripts/release-provenance.sh check' in release
 assert '"$PROVENANCE_SCRIPT" prepare' in release
-assert ci.index('install --no-install-recommends --yes ripgrep') < ci.index('bash scripts/map-button-tests.sh')
+# Runtime suites now execute through the shared manifest in a matrix job. Ensure
+# ripgrep is installed IN THAT JOB before its runner, not merely somewhere earlier
+# in the workflow, and preserve the original map-button coverage requirement.
+match = re.search(r'^  runtime_checks:\n(.*?)(?=^  \w+:\n|\Z)', ci, re.M | re.S)
+assert match, 'CI must retain the independent runtime job'
+runtime = match.group(1)
+tools = 'install --no-install-recommends --yes ripgrep'
+runner = 'python3 scripts/run-test-suites.py --group ci'
+assert tools in runtime and runner in runtime, 'runtime shard must install tools and execute the CI suite group'
+assert runtime.index(tools) < runtime.index(runner), 'runtime tools must precede suite execution'
+map_suites = [suite for suite in manifest['suites']
+              if suite['command'] == ['bash', 'scripts/map-button-tests.sh'] and 'ci' in suite['groups']]
+assert len(map_suites) == 1, 'map-button regression must run exactly once in the CI inventory'
 assert release.index('scripts/ci-proof-reuse.py --mode release') < release.index('name: Build (')
 assert 'bash scripts/map-button-tests.sh' not in release, 'release reuses verified exact-tree full CI'
+assert 'run-test-suites.py --group ci' not in release, 'release must not repeat the CI matrix'
 assert 'scripts/ci-build.sh Release' in release and 'scripts/package-release.sh' in release
 assert 'git push origin HEAD:dev' in release and 'git push --force' not in release
 PY

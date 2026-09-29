@@ -588,7 +588,10 @@ internal static class LightStabiliser
         for (int i = 0; i < found.Length; i++)
         {
             Light l = found[i];
-            if (l == null || IndexOfLight(l) >= 0)
+            // Town practicals already have a deterministic owner-controlled fade. Adopting
+            // them would delay that fade and pin late-loaded candles toward a zero baseline.
+            // Exact ownership only: native torches and other lights retain the existing policy.
+            if (l == null || WorldUI.TownServiceLighting.Owns(l) || IndexOfLight(l) >= 0)
                 continue;
 
             Transform t = l.transform;

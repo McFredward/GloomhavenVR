@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using System.Text;
+using GloomhavenVR.Cards;
 using UnityEngine;
 using UnityEngine.EventSystems;
 using UnityEngine.UI;
@@ -190,8 +191,53 @@ internal sealed class RayUguiDriver
         if (sawDead)
             UguiPokeSurfaces.Prune();
 
+        // The offered enhancement card is intentionally a solid shield for every
+        // unrelated window, yet its original ability buttons are a few millimetres
+        // BEHIND its physical collider. Build 576 therefore discarded Panel_TownService.11
+        // before asking GraphicRaycaster which button the beam actually covered
+        // (hardware log: card at 72.75 world units, panel at 75.69). Cross ONLY that
+        // exact card, ONLY for a live native area on its own converted canvas. A
+        // different closer physics/solid hit still wins, as does a miss on the card.
+        bool nativeAreaThroughOfferedCard = false;
+        Canvas? checkedAreaCanvas = null;
+        RaycastResult checkedAreaTop = default;
+        if (best != null
+            && (_hand.Ray.SolidOccluderDistance < bestDist - OcclusionEpsilonMeters * scale
+                || pick.HasHit && pick.HitDistance < bestDist - OcclusionEpsilonMeters * scale)
+            && WorldUI.TownServiceEnhancementHandoff.TryNativeAreaCanvas(best, out VRCard? offered)
+            && offered != null
+            && WorldUI.TownServicePhysicalRay.TryOfferedCardDistance(offered,
+                pick.Origin, pick.Direction, bestDist, out float cardDist)
+            && _pointer.TryRaycast(best, ToScreen(best, bestPoint), out checkedAreaTop)
+            && WorldUI.TownServiceEnhancementHandoff.TryNativeArea(best, checkedAreaTop.gameObject,
+                out VRCard? areaCard)
+            && ReferenceEquals(areaCard, offered)
+            && OfferedAreaClear(bestDist, cardDist, _hand.Ray.SolidOccluderDistance,
+                _hand.Ray.FanOccluderDistance, _hand.Ray.BoardOccluderDistance,
+                WorldUI.TownServiceVisitTarget.OccludingDistance(pick.Origin, pick.Direction, bestDist),
+                WorldUI.TownServicePhysicalRay.OtherOccludingDistance(offered,
+                    pick.Origin, pick.Direction, bestDist),
+                WorldUI.TownServicePhysicalRay.OtherPhysicsOccludingDistance(offered,
+                    pick.Origin, pick.Direction, bestDist, _hand.Ray.Mask),
+                OcclusionEpsilonMeters * scale))
+        {
+            nativeAreaThroughOfferedCard = true;
+            checkedAreaCanvas = best;
+            if (_hand.TriggerDown && Core.VRLog.WantsDebug)
+                Core.VRLog.Debug("Interact", "TOWN ENHANCEMENT laser reached original area through its "
+                    + "offered card; card and area share the same ray. Other occluders remain active.");
+        }
+
         // Physics occlusion: something solid in front of the panel blocks the laser.
-        if (best != null && pick.HasHit && pick.HitDistance < bestDist - OcclusionEpsilonMeters * scale)
+        if (best != null && !nativeAreaThroughOfferedCard
+            && pick.HasHit && pick.HitDistance < bestDist - OcclusionEpsilonMeters * scale)
+            best = null;
+
+        // A physical town object in front owns the gesture before native UI receives hover
+        // or pointer-down. Its own artwork is presentation-only and never a second target.
+        if (best != null
+            && WorldUI.TownServicePhysicalRay.TryPick(_hand, out _, out _, out float objectDistance)
+            && objectDistance <= bestDist + OcclusionEpsilonMeters * scale)
             best = null;
 
         // Solid-occluder rule (fan cards AND the control board, user report 2026-08-04): a
@@ -206,7 +252,8 @@ internal sealed class RayUguiDriver
         // surfaces (initiative track, control dock, slot-card faces — coplanar with or proud
         // of the board colliders) out of their own occluder's shadow.
         Canvas? solidOccluded = null;
-        if (best != null && _hand.Ray.SolidOccluderDistance < bestDist - OcclusionEpsilonMeters * scale)
+        if (best != null && !nativeAreaThroughOfferedCard
+            && _hand.Ray.SolidOccluderDistance < bestDist - OcclusionEpsilonMeters * scale)
         {
             // [Optimize] LeanLogStrings: skip the per-frame string build when the note is throttled.
             if (RayInteractor.WantFanOcclusionNote)
@@ -315,7 +362,12 @@ internal sealed class RayUguiDriver
                                            + "(RayUguiDriver — canvas plane, no press required)");
 
         Vector2 screenPos = ToScreen(_canvas, bestPoint);
-        bool hit = _pointer.TryRaycast(_canvas, screenPos, out RaycastResult top);
+        RaycastResult top = checkedAreaTop;
+        bool hit = nativeAreaThroughOfferedCard && ReferenceEquals(_canvas, checkedAreaCanvas)
+            || _pointer.TryRaycast(_canvas, screenPos, out top);
+        VRCard? selectedCard = null;
+        bool nativeAreaHit = hit
+            && WorldUI.TownServiceEnhancementHandoff.TryNativeArea(_canvas, top.gameObject, out selectedCard);
         GameObject? previous = _pointer.Hovered;
         _pointer.SetHovered(hit ? top.gameObject : null);
         if (_pointer.Hovered != null && !ReferenceEquals(_pointer.Hovered, previous))
@@ -352,15 +404,33 @@ internal sealed class RayUguiDriver
             // by the hand ARRIVING and is held by a 0.20 s hover tail, so by the time a trigger
             // is pulled it has stood for many frames. The only unreachable-in-practice hole is a
             // highlight born in the very same 11 ms as the pull.
-            if (_hand.Grabber.TriggerGrabOffered)
+            if (_hand.Grabber.TriggerGrabOffered
+                && !(nativeAreaHit && _hand.Grabber.TriggerGrabOfferedFor(selectedCard!)))
             {
                 LogPressYielded();
                 return;
             }
+            // The subsequent proximity-grabber tick must see a real UI press claim,
+            // rather than the weaker canvas-hover clamp, or it takes this same card.
+            if (nativeAreaHit) _hand.Ray.SuppressFarClick();
             _pressing = true;
             _pointer.Press(screenPos);
             _hand.SendHaptic(HapticPreset.ClickPulse);
         }
+    }
+
+    private static bool OfferedAreaClear(float panel, float card, float nearestSolid,
+        float fan, float board, float resident, float otherTownObject,
+        float otherPhysics, float epsilon)
+    {
+        // The ordinary solid readback names only the NEAREST hit. The offered
+        // card itself owns that distance, so rescan every other source through
+        // the area plane. A bar, fan, board, second prop or game collider behind
+        // the card still blocks it. Only the exact card may be crossed.
+        return card <= panel + epsilon && nearestSolid >= card - epsilon
+            && fan >= panel - epsilon && board >= panel - epsilon
+            && resident >= panel - epsilon && otherTownObject >= panel - epsilon
+            && otherPhysics >= panel - epsilon;
     }
 
     /// <summary>Next unscaled time <see cref="LogPressYielded"/> may print, and what it swallowed.</summary>
@@ -853,7 +923,8 @@ internal sealed class RayUguiDriver
         Vector3 d = point - Corners[0];
         float u = Vector3.Dot(d, right) / rightLen2;
         float v = Vector3.Dot(d, up) / upLen2;
-        return u >= 0f && u <= 1f && v >= 0f && v <= 1f;
+        return u >= 0f && u <= 1f && v >= 0f && v <= 1f
+            && VisibleUiSurface.Contains(canvas, ToScreen(canvas, point), canvas.worldCamera != null ? canvas.worldCamera : Camera.main);
     }
 
     /// <summary>

@@ -2286,6 +2286,8 @@ internal static partial class ModalFallback
         {
             if (window == null)
                 continue;
+            if (TownServicePresentation.OwnsWindow(window))
+                continue;
             // Test #21/#22: while the decision dock claims this window, it is NOT
             // part of the generic modal path — no float, no screen, no ModalUI
             // (still tracked in Open: the claim is re-checked every tick, so a
@@ -2835,9 +2837,10 @@ internal static partial class ModalFallback
         for (int i = 0; i < OpenWindows.Count; i++)
         {
             UIWindow window = OpenWindows[i];
-            // A native callback can finish the story after the poll was sampled.
-            // Do not re-float it in the same pass that released its closed last page.
-            if (NativeStoryWindow.IsCompleted(window))
+            // Town services keep their original interaction surface, and a native
+            // story completion must not be re-floated from this tick's stale poll.
+            if (TownServicePresentation.OwnsWindow(window)
+                || NativeStoryWindow.IsCompleted(window))
                 continue;
             // Composite adoption runs after OpenWindows was sampled. Recheck the live
             // hierarchy here: a newly parked hint must not be converted again this tick.

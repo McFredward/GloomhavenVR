@@ -1,0 +1,223 @@
+#!/usr/bin/env python3
+"""Exercise the production merchant palm handoff and owned-item inspection inside Unity 2021.3.5.
+
+No game launch, network service, source mutation or generated tracked files.
+Explicit fixture boundaries are documented in town-merchant-handoff-runtime/Boundaries.cs.
+"""
+import argparse
+import hashlib
+import json
+import os
+from pathlib import Path
+import shutil
+import subprocess
+import tempfile
+
+
+def method(source, signature):
+    start = source.index(signature)
+    opening = source.index("{", start)
+    depth = 1
+    end = opening + 1
+    while depth:
+        if source[end] == "{": depth += 1
+        if source[end] == "}": depth -= 1
+        end += 1
+    return source[start:end]
+
+
+def replace_once(source, before, after):
+    if source.count(before) != 1:
+        raise RuntimeError(f"Production binding drift: expected one occurrence of {before!r}, got {source.count(before)}")
+    return source.replace(before, after, 1)
+
+
+def sources(root):
+    paths = ["src/GloomhavenVR/WorldUI/TownServices/TownServiceMerchantHandoff.cs",
+             "src/GloomhavenVR/WorldUI/TownServices/TownServiceOfferingPose.cs",
+             "src/GloomhavenVR/Cards/Piles/ItemsPile.Merchant.cs",
+             "src/GloomhavenVR/WorldUI/MapRoom/MapRoomHand.5.Merchant.cs"]
+    bound = {Path(p).name: (root / p).read_text() for p in paths}
+    feedback = root / "src/GloomhavenVR/WorldUI/TownServices/TownServiceOfferFeedback.cs"
+    bound[feedback.name] = feedback.read_text()
+    face = (root / "src/GloomhavenVR/WorldUI/TownServices/TownServiceFace.cs").read_text()
+    attention = method(face, "internal bool IsLocalVisitorNear(bool wasNear)")
+    reach = next(line.strip() for line in face.splitlines() if "private const float VisitorReachMetres =" in line)
+    bound["ActualAttention.cs"] = "using UnityEngine; namespace GloomhavenVR.WorldUI { internal class ActualAttention { " + reach + " public Transform _root = null!; public Eye _rig = new(); public class Eye { public Vector3 EyePosition; public Quaternion OpticalRotation = Quaternion.identity; } " + attention + " } }"
+    pile = (root / "src/GloomhavenVR/Cards/Piles/ItemsPile.cs").read_text()
+    veil_release = "CanvasConversion.ReleaseHiddenWindowVeilOwnership"
+    if pile.count(veil_release) < 2 or bound["ItemsPile.Merchant.cs"].count(veil_release) < 1:
+        raise RuntimeError("pooled item cards do not explicitly leave hidden-window veil ownership on host and every merchant return path")
+    start = pile.index("        public bool AllowsHand(VRHand hand) =>")
+    gate = pile[start:pile.index(";", start) + 1]
+    bound["ActualItemGate.cs"] = "using System; using GloomhavenVR.Hands; namespace GloomhavenVR.Cards { internal sealed partial class ItemsPile { internal partial class ItemChip { " + gate + " } } }"
+    layout = method(pile, "private void Relayout()")
+    # Rename only the symbol so the boundary wrapper can count actual production layout calls.
+    layout = layout.replace("private void Relayout()", "private void ProductionRelayout()", 1)
+    lifecycle = "\n".join(method(pile, signature) for signature in [
+        "internal void SetHome(Vector3 pos, Quaternion rot, float scale)",
+        "internal void BeginEmerge(Vector3 localConverge, float delay, float spinSign)",
+        "internal void BeginInspectionEmerge(Vector3 localConverge, float spinSign)",
+        "internal bool TickInspectionArtArrival()",
+        "internal void PrepareInspectionReturn(Transform fanRoot)",
+        "internal void RestoreHostedFaceFrame()",
+        "private static GameObject SpawnHostedItemCard(int itemId, Transform parent)",
+        "private static void CanonicalizeHostedFace(Transform face, RectTransform canvas)",
+        "internal static void ReturnHostedCardToPool(int cardId, GameObject card)",
+        "internal void BeginCollapse(Vector3 worldConverge, float delay = 0f, float spinSign = 1f)",
+        "private void TickEmerge(float dt, Vector3 posTarget, float scaleTarget)",
+        "private static float EaseOutBack(float t, float s)",
+        "public override void OnGrab(VRHand hand)",
+        "public override void OnRelease(VRHand hand, Vector3 velocity)"])
+    # Bind the exact production return-glide and terminal settle branches without importing the
+    # unrelated 200-line item Update state machine. This keeps the regression test sensitive to
+    # both the animated approach and the final canonical pose write.
+    return_start = pile.index("            else if (_releaseGlide > 0f)")
+    return_end_marker = "                transform.localRotation = _homeRot;\n            }"
+    return_end = pile.index(return_end_marker, return_start) + len(return_end_marker)
+    return_branch = pile[return_start:return_end].replace("            else if", "            if", 1)
+    lifecycle += ("\ninternal void AdvanceInspectionReturn(float udt) {\n"
+                  "            Vector3 posTarget = _homePos;\n"
+                  "            float scaleTarget = _homeScale;\n"
+                  + return_branch + "\n        }")
+    bound["ActualItemLifecycle.cs"] = "using UnityEngine;using UnityEngine.UI;using GloomhavenVR.Core;using GloomhavenVR.Hands;using GloomhavenVR.WorldUI; namespace GloomhavenVR.Cards { internal sealed partial class ItemsPile { " + layout + " internal partial class ItemChip { " + lifecycle + " } } }"
+    hashes = {p: hashlib.sha256(s.encode()).hexdigest() for p, s in bound.items()}
+    return bound, hashes
+
+
+def mutations():
+    return [
+        ("inspection-tapped-item", "ActualItemLifecycle.cs", "chip.State == ItemChip.Visual.Spent && _inspectionRelease == null", "chip.State == ItemChip.Visual.Spent", "merchant inspection keeps a native spent item upright on first reveal"),
+        ("purchase-placeholder", "ItemsPile.Merchant.cs", "chip.BeginInspectionEmerge(Vector3.zero, chip.transform.localPosition.x >= 0f ? 1f : -1f);", "chip.BeginEmerge(Vector3.zero, 0f, chip.transform.localPosition.x >= 0f ? 1f : -1f);", "purchased item never exposes a brown backing while original art is pending"),
+        ("offering-flat", "TownServiceOfferingPose.cs", "facing * Quaternion.Euler(0f, 1.5f * Mathf.Sin(age * .9f), 0f)", "palm.rotation * Quaternion.Euler(90f, 0f, 0f)", "offering overlay is upright over the palm"),
+        ("offering-static", "TownServiceOfferingPose.cs", ".006f * Mathf.Sin(age * 1.8f)", "0f", "offering suspension has visible gentle continuous motion"),
+        ("offering-retirement", "ItemsPile.Merchant.cs", "!chip.TownOffering &&", "", "closed wrist fan retains actual pending offering"),
+        ("remote-owner", "MapRoomHand.5.Merchant.cs", "(!FFSNetwork.IsOnline || character.IsUnderMyControl)", "true", "remote character cannot open an owned-item fan"),
+        ("palm-bypass", "TownServiceMerchantHandoff.cs", "!Eligible(item, selling, cached: false) || !InOfferingZone(world)", "!Eligible(item, selling, cached: false)", "release outside palm cannot open merchant"),
+        ("inventory-cap", "TownServiceMerchantHandoff.cs", "Items.AddRange(current);", "Items.AddRange(current.GetRange(0, 1));", "all equipped and bound copies become actual inspection cards"),
+        ("stale-native", "TownServiceMerchantHandoff.cs", "!ReferenceEquals(inventory.character, _character)", "false", "native inventory for another character cannot receive offer"),
+        ("auto-approach", "TownServiceMerchantHandoff.cs", "_nextItems = 0f;", "_nextItems = 0f; MapRoomDriver.PressGuildmasterMode(EGuildmasterMode.Merchant, \"mutant\");", "approach never opens a native service"),
+        ("return-dropped", "ItemsPile.Merchant.cs", "_inspectionPublished.AddRange(_inspectionRetiring);", "", "closing animation remains published until completion"),
+        ("return-parent", "ItemsPile.Merchant.cs", "chip.PrepareInspectionReturn(_root);", "", "every free merchant return restores the item fan parent"),
+        ("reclaim-parent", "ItemsPile.Merchant.cs", "chip.transform.SetParent(_root, true);", "", "reclaimed merchant item records the item fan as its release parent"),
+        ("reclaim-renderer-veil", "ItemsPile.Merchant.cs", "        WorldUI.CanvasConversion.ReleaseHiddenWindowVeilOwnership(chip.transform);\n", "", "reclaimed merchant item explicitly releases its former flat-window renderer veil"),
+        ("return-renderer-veil", "ActualItemLifecycle.cs", "            CanvasConversion.ReleaseHiddenWindowVeilOwnership(transform);\n", "", "every free merchant return releases its former flat-window renderer veil before rendering"),
+        ("spawn-pose-reset", "ActualItemLifecycle.cs", "resetLocalScale: true, resetToMiddle: true, resetLocalRotation: true", "resetLocalScale: true, resetToMiddle: false, resetLocalRotation: false", "merchant native item spawn requests every pool pose reset before activation"),
+        ("pool-return-parent", "ActualItemLifecycle.cs", "            card.transform.SetParent(ObjectPool.instance != null ? ObjectPool.instance.transform : null,\n                worldPositionStays: false);\n", "", "destroyed merchant fan returns its native item widget to the pool hierarchy before destroying its chip"),
+        ("hosted-face-rotation", "ActualItemLifecycle.cs", "            if (rect.localRotation != Quaternion.identity) rect.localRotation = Quaternion.identity;\n", "", "physical merchant reclaim repairs its native face before the hand sees it"),
+        ("return-face-canonical", "ActualItemLifecycle.cs", "            RestoreHostedFaceFrame();\n", "", "free merchant return repairs its native face before that return frame renders"),
+        ("reclaim-face-canonical", "ItemsPile.Merchant.cs", "        chip.RestoreHostedFaceFrame();\n", "", "physical merchant reclaim repairs its native face before the hand sees it"),
+        ("return-terminal-settle", "ActualItemLifecycle.cs", "                transform.localRotation = _homeRot;\n", "", "repeated art-ready merchant reclaim settles at the canonical fan position rotation and scale"),
+        ("offering-size", "TownServiceMerchantHandoff.cs", "float worldWidth = TownServiceMerchantLayout.CardWidth * stationScale * 1.5f;", "float worldWidth = chip.FaceWidth * stationScale * 2.5f;", "owned and cabinet cards have one merchant-palm size"),
+        ("inspection-edge-sound", "MapRoomHand.5.Merchant.cs", "if (_townInspectionFanWasOpen) CardsDriver.SuppressNextOffScenarioFanEdgeSound(open: false);", "", "merchant inspection silences exactly the automatic open fan close edge"),
+        ("occupied-swap", "TownServiceMerchantHandoff.cs", "if (current != null && !replacing) return false;", "if (current != null) return false;", "accepted replacement pulses the releasing controller once"),
+        ("transient-row-drop", "TownServiceMerchantHandoff.cs", "_nextCommitAt = Time.unscaledTime + .2f;\n        }", "_pending = null; ReleaseOffering();\n        }", "stock-to-owned swap cancels only the previous buy and parks the exact sale card"),
+        ("lost-prompt-drop", "TownServiceMerchantHandoff.cs", "&& _decisionRetries < 2 && PendingCurrent()", "&& _decisionRetries < 0 && PendingCurrent()", "native hide without cancel or confirm requeues the retained merchant offer"),
+        ("expired-undecided-offer", "TownServiceMerchantHandoff.cs", "if (_decisionConfirmed && Time.unscaledTime > _tradeUntil)", "if (Time.unscaledTime > _tradeUntil)", "expired result watcher never detaches a still-open merchant decision from its parked card"),
+        ("delayed-first-decision", "TownServiceMerchantHandoff.cs", "        TickPending();\n        return ReferenceEquals(_pending, item)", "        return ReferenceEquals(_pending, item)", "ready native merchant decision opens on the release edge before the physical card parks"),
+        ("instant-buy-token-loss", "TownServiceMerchantHandoff.cs", "if ((_pending == null && _tradeItem == null) || _seat == null) return;", "if (_pending == null || _seat == null) return;", "synchronous native buy confirmation still parks its exact physical stock card"),
+        ("lost-physical-controls", "TownServiceMerchantHandoff.cs", "if (_seat != null) TownServicePalmConfirmation.Begin(confirmation, _seat);", "", "open native merchant decision restores its physical confirm/cancel presentation after a lost panel"),
+        ("cancel-reopens-prompt", "TownServiceMerchantHandoff.cs", "if (!_decisionConfirmed && !_decisionCancelled && _tradeItem != null", "if (_tradeItem != null", "direct native UIWindow close reconciles its stale active flag and permits the same item again"),
+        ("confirm-reopens-prompt", "TownServiceMerchantHandoff.cs", "if (!_decisionConfirmed && !_decisionCancelled && _tradeItem != null", "if (!_decisionCancelled && _tradeItem != null", "explicit native confirmation never reopens the pending purchase"),
+        ("direct-window-close-deadlock", "TownServiceMerchantHandoff.cs", "if (nativeWindow != null && nativeWindow.IsVisible) return;", "if (confirmation.IsActive || nativeWindow != null && nativeWindow.IsVisible) return;", "direct native UIWindow close reconciles its stale active flag and permits the same item again"),
+        ("merchant-context-voice", "TownServiceMerchantHandoff.cs", "_selling ? TownVoiceReaction.MerchantSell : TownVoiceReaction.MerchantBuy", "TownVoiceReaction.MerchantOffer", "merchant chooses the seller voice family when a sale confirmation opens"),
+        ("merchant-no-funds-voice", "TownServiceMerchantHandoff.cs", "? TownVoiceReaction.MerchantUnaffordable : TownVoiceReaction.MerchantOffer;", "? TownVoiceReaction.MerchantOffer : TownVoiceReaction.MerchantOffer;", "physically inspecting unaffordable stock chooses the money explanation"),
+        ("merchant-soldout-voice", "TownServiceMerchantHandoff.cs", "? TownVoiceReaction.MerchantSoldOut", "? TownVoiceReaction.MerchantOffer", "physically inspecting exhausted stock chooses the availability explanation"),
+        ("merchant-cancel-intent", "TownServiceMerchantHandoff.cs", "box.cancelButton.onClick.AddListener(_cancelListener);", "", "first cancel click starts the owned card's return flight before native fade completes"),
+        ("merchant-cancel-flight", "TownServiceMerchantHandoff.cs", "_decisionCancelled = true;\n                        ReleaseOffering();", "_decisionCancelled = true;", "first cancel click starts the owned card's return flight before native fade completes"),
+        ("merchant-owned-swap-haptic", "TownServiceMerchantHandoff.cs", "if (hand.HasPose) hand.SendHaptic(HapticPreset.ClickPulse);", "", "accepted owned item offer pulses the actual releasing controller"),
+        ("merchant-result-duplicate", "TownServiceMerchantHandoff.cs", "        // The contextual line ran when the confirmation opened. Repeating the same family after\n", "        TownServiceVoice.RequestReaction(1, _tradeSelling ? TownVoiceReaction.MerchantSell : TownVoiceReaction.MerchantBuy);\n        // The contextual line ran when the confirmation opened. Repeating the same family after\n", "confirmed native inventory change does not repeat the purchase prompt voice"),
+    ]
+
+
+def main():
+    repo = Path(__file__).resolve().parent.parent
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--source-root", type=Path, default=repo, help="Production checkout to bind (read only)")
+    parser.add_argument("--output-dir", type=Path, default=repo / ".planning/debug/town-merchant-handoff")
+    parser.add_argument("--unity", type=Path, default=Path(os.environ.get("UNITY_PATH", "/home/claw/unity-2021.3.5/Editor/Unity")))
+    parser.add_argument("--unity-ui", type=Path, help="Real UnityEngine.UI.dll (never metadata-only RefAsm)")
+    parser.add_argument("--no-negative-controls", action="store_true", help="Quick positive run; not complete validation")
+    args = parser.parse_args()
+    args.output_dir.mkdir(parents=True, exist_ok=True)
+    run = Path(tempfile.mkdtemp(prefix="run-", dir=args.output_dir.resolve()))
+    fixture = Path(__file__).resolve().parent / "town-merchant-handoff-runtime"
+    ui_candidates = [
+        args.source_root / "unity/GloomhavenVR.Assets/Library/ScriptAssemblies/UnityEngine.UI.dll",
+        args.source_root / "ressources/GH_Data/Managed/UnityEngine.UI.dll",
+    ]
+    ui = args.unity_ui or next((path for path in ui_candidates if path.is_file()), None)
+    if not args.unity.is_file() or ui is None:
+        parser.error("Unity 2021.3.5 and a real UnityEngine.UI.dll are required; pass --unity / --unity-ui")
+    dotnet = shutil.which("dotnet") or str(Path.home() / ".dotnet/dotnet")
+    bound, hashes = sources(args.source_root)
+    (run / "source-hashes.json").write_text(json.dumps({"root": str(args.source_root.resolve()), "sha256": hashes}, indent=2) + "\n")
+    manifest = {"result": str(run / "results.txt"), "cases": []}
+    variants = [("production", None, None, None, "")]
+    if not args.no_negative_controls:
+        variants += [("historical-census", "ItemsPile.Merchant.cs", None, None, "stable membership never rereads the inventory census")]
+    if not args.no_negative_controls:
+        variants += mutations()
+    print(f"Binding production from {args.source_root.resolve()}; evidence: {run}", flush=True)
+    for name, filename, before, after, expected in variants:
+        build = run / name
+        production = build / "production"
+        production.mkdir(parents=True)
+        for path, text in bound.items():
+            if path == filename:
+                if name == "historical-census":
+                    text = (fixture / "ItemsPile.Merchant.pre-optimization.fixture").read_text()
+                    # Preserve the historical quadratic census, adapting only its new parked-card API.
+                    text = text.replace("if (chip.Holder == null && (", "if (chip.Holder == null && !chip.TownOffering && (")
+                    return_methods = method(bound["ItemsPile.Merchant.cs"], "internal void ResumeInspection(ItemChip chip)") + "\n" + \
+                        method(bound["ItemsPile.Merchant.cs"], "internal void PrepareInspectionReclaim(ItemChip chip)")
+                    text = text.replace("    private void RetireInspectionAt", return_methods + "\n    private void RetireInspectionAt")
+                    text = text.replace("TickInspection(IReadOnlyList<CItem> items)", "TickInspection(IReadOnlyList<CItem> items, uint revision)")
+                    text = text.replace("Action<ItemChip, Vector3>", "Action<ItemChip, Vector3, VRHand>")
+                    text = text.replace("chip.BeginEmerge(Vector3.zero, 0f, _chips.Count % 2 == 0 ? -1f : 1f);",
+                                        "chip.BeginInspectionEmerge(Vector3.zero, _chips.Count % 2 == 0 ? -1f : 1f);")
+                    # Compatibility-only field consumed by the unchanged release boundary.
+                    text = text.replace("private VRHand? _inspectionGateHand;", "private VRHand? _inspectionGateHand; private bool _inspectionCensusDirty;")
+                else:
+                    text = replace_once(text, before, after)
+            (production / path).write_text(text)
+        project = build / "Interaction.csproj"
+        shutil.copyfile(fixture / "Interaction.csproj", project)
+        assembly = "TownInteraction_" + name.replace("-", "_")
+        command = [dotnet, "build", str(project), "--configuration", "Release", "--nologo", "--verbosity", "quiet",
+                   f"-p:CaseName={assembly}", f"-p:FixtureDir={fixture}", f"-p:ProductionDir={production}",
+                   f"-p:UnityManaged={args.unity.parent / 'Data/Managed'}", f"-p:UnityUi={ui.resolve()}"]
+        compiled = subprocess.run(command, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        (build / "build.log").write_text(compiled.stdout)
+        if compiled.returncode:
+            print(compiled.stdout)
+            raise SystemExit(f"FAIL: {name} did not compile (not a successful negative control)")
+        manifest["cases"].append({"name": name, "dll": str(build / "bin/Release/netstandard2.1" / (assembly + ".dll")), "expected": expected})
+        print(f"Compiled {name}", flush=True)
+    manifest_path = run / "manifest.json"
+    manifest_path.write_text(json.dumps(manifest, indent=2) + "\n")
+    project = run / "unity"
+    (project / "Assets/Editor").mkdir(parents=True)
+    (project / "Packages").mkdir()
+    (project / "ProjectSettings").mkdir()
+    shutil.copyfile(fixture / "Editor/InteractionRunner.cs", project / "Assets/Editor/InteractionRunner.cs")
+    (project / "Packages/manifest.json").write_text('{"dependencies":{"com.unity.ugui":"1.0.0"}}\n')
+    (project / "ProjectSettings/ProjectVersion.txt").write_text("m_EditorVersion: 2021.3.5f1\n")
+    log = run / "unity.log"
+    command = [str(args.unity), "-batchmode", "-nographics", "-projectPath", str(project),
+               "-executeMethod", "InteractionRunner.Start", "-interactionManifest", str(manifest_path), "-logFile", str(log)]
+    completed = subprocess.run(command, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT, timeout=240)
+    result = Path(manifest["result"])
+    if result.exists():
+        print(result.read_text(), end="")
+    if log.exists():
+        for line in log.read_text(errors="replace").splitlines():
+            if line.startswith("MERCHANT_HOST "): print(line)
+    if completed.returncode or not result.exists():
+        print(f"FAIL: Unity exit {completed.returncode}; log: {log}")
+        raise SystemExit(1)
+    print(f"PASS: {len(variants)} production/negative variants; evidence: {run}")
+
+
+if __name__ == "__main__":
+    main()

@@ -507,6 +507,7 @@ internal sealed partial class MapRoomHand
     /// </summary>
     private void RebuildFan()
     {
+        if (TownInspection) return;
         // THE SWAP EDGE. Same three conditions the scenario derives from
         // CharacterFocus.PresentedActorId (CardsDriver.4.Rebuild.cs:257-260): a character was
         // already being shown, a different one is being shown now, and there is something to move.
@@ -586,6 +587,7 @@ internal sealed partial class MapRoomHand
     /// </summary>
     private void UpdateFanCards()
     {
+        if (TownInspection) return;
         _deferredLeave = false;
 
         // THE LOCKSTEP THE WHOLE PASS ASSUMES, checked BEFORE anything has a side effect. Every
@@ -675,7 +677,7 @@ internal sealed partial class MapRoomHand
                 face?.Destroy();
                 continue;
             }
-            if (card.IsHeld)
+            if (card.IsHeld || TownServiceEnhancementHandoff.IsParked(card))
             {
                 // NEVER OUT OF HIS HAND. He lifted this card to read it (CardFan.FanMode.Inspect)
                 // and the menu behind him just deselected it; taking it away mid-look is the one
@@ -1186,7 +1188,7 @@ internal sealed partial class MapRoomHand
                 _retired.RemoveAt(i);
                 continue;
             }
-            if (card.IsHeld)
+            if (card.IsHeld || TownServiceEnhancementHandoff.IsParked(card) || card.IsFlying)
             {
                 _retired[i] = new Retired(card, entry.Face, now + RetireGraceSeconds);
                 continue;

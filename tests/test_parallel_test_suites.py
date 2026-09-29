@@ -19,22 +19,105 @@ spec = importlib.util.spec_from_file_location('suite_runner', ROOT / 'scripts/ru
 runner = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(runner)
 
-# Inventories frozen from dev 631cb864 before replacing the sequential gate lists.
+# Inventories frozen from dev 0e84862c before replacing the sequential gate lists.
 LOCAL_INVENTORY = set("""
-card-bindings native-playback native-video reward-showcase modal-close
-story-completion map-story-lifecycle message-continuation announcement dialog-surface
-vr-options scenario-win-cheat vr-options-close reward-pose conversion-rollback
-panel-material panel-ink video-playback hint quest-hint tutorial-scope
-tutorial-controller retry-start window-reflow shared-window-reflow board-refresh
-card-loss-modal map-flow map-button aoe-control map-tooltip-transport map-tooltip
-city-event-button round-card burn-layout burn-replay pick-tray mr-backing
-mr-backing-materialise mr-backing-animation card-scene-lifetime card-pool-lifetime
-burn-material-ownership permanent-quest-log guildmaster-table mr-scenario
-guildmaster-room map-icon-picking remote-burn-sequencing burn-completion
-item-burn item-appearance flight-timing figure-hold presentation-send
+card-bindings
+native-playback
+native-video
+reward-showcase
+modal-close
+vr-options
+vr-options-close
+town-service-options
+reward-pose
+conversion-rollback
+panel-material
+panel-ink
+video-playback
+hint
+quest-hint
+tutorial-scope
+tutorial-controller
+retry-start
+window-reflow
+shared-window-reflow
+board-refresh
+card-loss-modal
+map-flow
+map-button
+round-card
+burn-layout
+burn-replay
+pick-tray
+mr-backing
+mr-backing-materialise
+mr-backing-animation
+card-scene-lifetime
+card-pool-lifetime
+burn-material-ownership
+permanent-quest-log
+guildmaster-table
+mr-scenario
+guildmaster-room
+map-icon-picking
+remote-burn-sequencing
+burn-completion
+item-burn
+item-appearance
+flight-timing
+figure-hold
+presentation-send
 """.split())
-CI_INVENTORY = (LOCAL_INVENTORY - {'presentation-send'}) | {
-    'self-update-dialog', 'banner-pose', 'quest-seat'}
+CI_INVENTORY = set("""
+card-bindings
+native-playback
+board-refresh
+card-loss-modal
+map-flow
+map-button
+round-card
+burn-layout
+burn-replay
+pick-tray
+mr-backing
+mr-backing-materialise
+mr-backing-animation
+card-scene-lifetime
+card-pool-lifetime
+burn-material-ownership
+permanent-quest-log
+guildmaster-table
+mr-scenario
+guildmaster-room
+map-icon-picking
+remote-burn-sequencing
+burn-completion
+item-burn
+item-appearance
+flight-timing
+figure-hold
+self-update-dialog
+native-video
+reward-showcase
+modal-close
+vr-options
+vr-options-close
+town-service-options
+reward-pose
+conversion-rollback
+panel-material
+panel-ink
+banner-pose
+video-playback
+hint
+quest-hint
+tutorial-scope
+tutorial-controller
+retry-start
+quest-seat
+window-reflow
+shared-window-reflow
+""".split())
 SOURCE_INVENTORY = set("""
 patch-inventory
 frame-order
@@ -112,19 +195,56 @@ class ParallelSuitesTests(unittest.TestCase):
         suites, _ = runner.load_manifest(runner.MANIFEST)
         local = {s['id'] for s in runner.selected_suites(suites, 'local', (0, 1))}
         ci = {s['id'] for s in runner.selected_suites(suites, 'ci', (0, 1))}
-        self.assertEqual(local, LOCAL_INVENTORY)
-        self.assertEqual(ci, CI_INVENTORY)
+        physical_town = {'town-service-catalog', 'town-service-mirror', 'town-service-interaction',
+                         'town-service-decor', 'town-ritual-transactions', 'town-flame',
+                         'town-service-workspace', 'town-ritual-layout', 'town-enhancement-handoff',
+                         'town-facial-landmarks', 'town-service-clearance', 'town-merchant-handoff',
+                         'town-public-catalog', 'town-item-transfer', 'town-card-slots', 'town-cloth'}
+        map_hotfix = {'aoe-control', 'city-event-button', 'map-tooltip', 'map-tooltip-transport'}
+        story_continuation = {'story-completion', 'map-story-lifecycle', 'message-continuation',
+                              'announcement', 'dialog-surface', 'scenario-win-cheat'}
+        self.assertEqual(local, LOCAL_INVENTORY | map_hotfix | story_continuation | {"town-service-setting", "town-service-warmup", "town-residents", "town-service-lighting", "town-face", "town-activity", "town-voice", "town-native-audio"} | physical_town)
+        self.assertEqual(ci, CI_INVENTORY | map_hotfix | story_continuation | {"town-service-setting", "town-service-warmup", "town-residents", "town-service-lighting", "town-activity-portable", "town-native-audio"})
         self.assertEqual({s['id'] for s in runner.selected_suites(suites, 'source', (0, 1))}, SOURCE_INVENTORY)
-        self.assertEqual(len(local), 55)
-        self.assertEqual(len(ci), 57)
-        self.assertEqual(local-ci, {'presentation-send'})
-        self.assertEqual(ci-local, {'self-update-dialog', 'banner-pose', 'quest-seat'})
+        self.assertEqual(len(local), 80)
+        self.assertEqual(len(ci), 64)
+        self.assertEqual(local-ci, {'presentation-send', 'town-face', 'town-activity', 'town-voice'} | physical_town)
+        self.assertEqual(ci-local, {'self-update-dialog', 'banner-pose', 'quest-seat', 'town-activity-portable'})
         self.assertEqual(len(runner.selected_suites(suites, 'source', (0, 1))), 14)
         partition = [s['id'] for i in range(4) for s in runner.selected_suites(suites, 'ci', (i, 4))]
         self.assertEqual(len(partition), len(set(partition)))
         self.assertEqual(set(partition), ci)
         for suite in suites:
             self.assertTrue((ROOT / suite['command'][1]).is_file())
+
+    def test_evidence_rejects_missing_duplicate_failed_and_modified_logs(self):
+        suites = [self.suite('first', 'print("12 assertions")'), self.suite('second', 'print("13 assertions")')]
+        for index in range(2):
+            self.run_suites([suites[index]], name=f'shard-{index}', shard=(index, 2))
+        paths = [str(self.root / f'shard-{i}') for i in range(2)]
+        with contextlib.redirect_stdout(io.StringIO()):
+            runner.verify_results(paths, suites, 'hash', 'local', 2)
+        for bad in [paths[:1], [paths[0], paths[0]]]:
+            with self.assertRaises(ValueError):
+                runner.verify_results(bad, suites, 'hash', 'local', 2)
+        report_path = self.root / 'shard-0/results.json'
+        original = report_path.read_text()
+        data = json.loads(original)
+        for mutation in ['missing', 'failed', 'stale']:
+            altered = json.loads(original)
+            if mutation == 'missing':
+                altered['results'] = []
+            elif mutation == 'failed':
+                altered['results'][0]['exit_code'] = 3
+            else:
+                altered['manifest_sha256'] = 'other'
+            report_path.write_text(json.dumps(altered))
+            with self.assertRaises(ValueError):
+                runner.verify_results(paths, suites, 'hash', 'local', 2)
+        report_path.write_text(original)
+        (self.root / 'shard-0/first.log').write_text('tampered')
+        with self.assertRaises(ValueError):
+            runner.verify_results(paths, suites, 'hash', 'local', 2)
 
     def test_repeatable_suite_selection_is_manifest_ordered_and_partial(self):
         suites, _ = runner.load_manifest(runner.MANIFEST)
@@ -155,35 +275,6 @@ class ParallelSuitesTests(unittest.TestCase):
         self.assertIn('Test suite result (PARTIAL): PASS', stdout.getvalue())
         with self.assertRaises(ValueError):
             runner.verify_results([str(output)], suites, 'hash', 'local', 1)
-
-    def test_evidence_rejects_missing_duplicate_failed_and_modified_logs(self):
-        suites = [self.suite('first', 'print("12 assertions")'), self.suite('second', 'print("13 assertions")')]
-        for index in range(2):
-            self.run_suites([suites[index]], name=f'shard-{index}', shard=(index, 2))
-        paths = [str(self.root / f'shard-{i}') for i in range(2)]
-        with contextlib.redirect_stdout(io.StringIO()):
-            runner.verify_results(paths, suites, 'hash', 'local', 2)
-        for bad in [paths[:1], [paths[0], paths[0]]]:
-            with self.assertRaises(ValueError):
-                runner.verify_results(bad, suites, 'hash', 'local', 2)
-        report_path = self.root / 'shard-0/results.json'
-        original = report_path.read_text()
-        data = json.loads(original)
-        for mutation in ['missing', 'failed', 'stale']:
-            altered = json.loads(original)
-            if mutation == 'missing':
-                altered['results'] = []
-            elif mutation == 'failed':
-                altered['results'][0]['exit_code'] = 3
-            else:
-                altered['manifest_sha256'] = 'other'
-            report_path.write_text(json.dumps(altered))
-            with self.assertRaises(ValueError):
-                runner.verify_results(paths, suites, 'hash', 'local', 2)
-        report_path.write_text(original)
-        (self.root / 'shard-0/first.log').write_text('tampered')
-        with self.assertRaises(ValueError):
-            runner.verify_results(paths, suites, 'hash', 'local', 2)
 
     def start_worker(self, suites, output):
         # A real separate runner lets signals and cross-invocation locks be exercised.
@@ -237,7 +328,7 @@ raise SystemExit(r.execute({suites!r}, 1, pathlib.Path({str(output)!r}), pathlib
             self.assertEqual(process.returncode, 0, error.decode())
 
     def test_full_wire_gate_rejects_partial_inventory_options(self):
-        for option in ['--group=ci', '--shard=0/4', '--list', '--verify-results=x', '--help', '--unknown']:
+        for option in ['--group=ci', '--shard=0/4', '--suite=item-burn', '--list', '--verify-results=x', '--help', '--unknown']:
             result = subprocess.run(['bash', str(ROOT / 'scripts/wire-tests.sh'), option],
                                     capture_output=True, text=True)
             self.assertEqual(result.returncode, 2)

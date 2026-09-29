@@ -94,6 +94,12 @@ the reward; the player controlling that character confirms for the group.
 Point at a location to show its quest placard. Guildmaster buttons sit on the table rim.
 For the original flat map, enable **World & sound ▸ Campaign map ▸ Original 2D map**.
 
+**Town visits:** with immersive town NPCs enabled, unlocked residents remain at their stands.
+Approach them to interact. Put a cabinet item or one from your item fan in the merchant's hand to
+buy or sell it; give the enchantress an ability card to choose an enhancement; offer the priestess
+your coin purse to donate. To use the original windows, turn off **Immersive town NPCs** under
+**VR Options ▸ World & sound ▸ Campaign map**. This setting is hidden when the original 2D map is on.
+
 ## Environments
 
 <p align="center">

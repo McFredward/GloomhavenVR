@@ -9,11 +9,11 @@ internal static class PresentationCompression
 {
     internal const int MinimumInput = 512, MinimumSaving = 64;
 
-    internal static byte[]? TryCompress(byte[] original, int length)
+    internal static byte[]? TryCompress(byte[] original, int length, bool optimal = false)
     {
         if (original == null || length < MinimumInput || length > original.Length) return null;
         using var output = new MemoryStream();
-        using (var compressor = new DeflateStream(output, CompressionLevel.Fastest, true))
+        using (var compressor = new DeflateStream(output, optimal ? CompressionLevel.Optimal : CompressionLevel.Fastest, true))
             compressor.Write(original, 0, length);
         // The checksum guards corruption independently of the presentation codec. Its bytes
         // are part of the declared compressed length and must arrive before any UI can apply.
@@ -51,14 +51,23 @@ internal static class PresentationCompression
             && NetPacket.PeekType(result, result.Length) == payloadType ? result : null;
     }
 
+    private static readonly uint[] CrcTable = CreateCrcTable();
+    private static uint[] CreateCrcTable()
+    {
+        var table = new uint[256];
+        for (uint i = 0; i < table.Length; i++)
+        {
+            uint value = i;
+            for (int bit = 0; bit < 8; bit++) value = (value >> 1) ^ ((value & 1) != 0 ? 0xedb88320u : 0u);
+            table[i] = value;
+        }
+        return table;
+    }
     private static uint Checksum(byte[] bytes, int length)
     {
         uint crc = 0xffffffff;
         for (int i = 0; i < length; i++)
-        {
-            crc ^= bytes[i];
-            for (int b = 0; b < 8; b++) crc = (crc >> 1) ^ ((crc & 1) != 0 ? 0xedb88320u : 0u);
-        }
+            crc = CrcTable[(crc ^ bytes[i]) & 255] ^ (crc >> 8);
         return ~crc;
     }
 }

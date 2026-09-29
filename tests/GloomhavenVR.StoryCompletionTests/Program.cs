@@ -19,6 +19,9 @@ internal static class Program
         Check(!ModalFallback.Poll(null), "missing window never enters polling");
         var orphan = new UIWindow();
         Check(!NativeStoryWindow.IsStory(orphan), "uninitialized singleton never claims an unrelated window");
+        var town = new UIWindow { IsTownService = true };
+        Check(!ModalFallback.WouldConvert(town),
+            "immersive town service window remains owned by its native presentation");
         var map = new UIWindow();
         var scenario = new UIWindow();
         Singleton<MapStoryController>.Instance = new MapStoryController { window = map };
@@ -159,11 +162,16 @@ namespace UnityEngine.UI
         internal float Alpha;
         internal bool IsVisible => Alpha > 0f;
         internal UIWindow? Parent;
+        internal bool IsTownService;
     }
 }
 
 namespace GloomhavenVR.WorldUI
 {
+    internal static class TownServicePresentation
+    {
+        internal static bool OwnsWindow(UIWindow window) => window.IsTownService;
+    }
     internal sealed class WindowPanel
     {
         internal UIWindow Window = null!;

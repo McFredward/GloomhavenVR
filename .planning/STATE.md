@@ -1,20 +1,18 @@
 # State — where the project stands
 
-**Updated 2026-09-29: dev 1.0.9 / ModBuild 559, Steam Frame standalone triage.**
-The complete NPC development is isolated on `feature/immersive-town-services` for a
-future release of at least 1.1.0. Builds 538–545 and 547–552 remain reserved for that branch.
-The tutorial now distinguishes an explicit Steam Frame identity from SteamVR's
-Oculus Touch compatibility mapping; the true Frame controller model and
-foveated rendering remain unimplemented. Feasibility:
-[STEAM-FRAME.md](STEAM-FRAME.md),
+**Updated 2026-09-29: dev 1.1.0 / ModBuild 584, unified hardware candidate.**
+The complete immersive NPC work through Build 583 and the Steam Frame changes
+through dev Build 559 now share the sole `dev` integration branch. Future NPC and
+Frame work belongs on `dev`. The NPC presentation remains a two-client hardware
+candidate, not a headset-confirmed result: see [TOWN-MP-583.md](TOWN-MP-583.md).
+Town cloth interaction was retired in Build 582 pending a reliable runtime
+design; the authored cloth remains static. The merchant's visible hand-to-belly
+gap remains open. The first Frame run reached a scenario, but the native exit
+after increasing eye resolution is not root-caused; see
+[STEAM-FRAME-FIRST-HARDWARE.md](STEAM-FRAME-FIRST-HARDWARE.md). The original Frame
+controller model and render foveation also remain unimplemented; feasibility is
+recorded in [STEAM-FRAME.md](STEAM-FRAME.md) and
 [STEAM-FRAME-FOVEATION.md](STEAM-FRAME-FOVEATION.md).
-The first standalone hardware-log review and remaining crash/performance evidence
-are in [STEAM-FRAME-FIRST-HARDWARE.md](STEAM-FRAME-FIRST-HARDWARE.md).
-Earlier review and validation: [BARS-CREATOR-557.md](BARS-CREATOR-557.md), building on
-[REFACE-556.md](REFACE-556.md),
-[STORY-555.md](STORY-555.md) and
-[WINDOWS-553.md](WINDOWS-553.md). Released 1.0.7 / build 546
-was hardware-confirmed before publication; this new continuation review is not yet hardware-confirmed.
 
 The file this replaces had gone 168 builds
 stale while still saying "read this first"; it is kept as `STATE-ARCHIVE-through-2026-08.md` for
@@ -29,28 +27,320 @@ change per build) → this file (where things stand and what is owed) → the bu
 
 ## 1. Position
 
-- **dev / 1.0.9 / ModBuild 559:** late additive main-menu loading re-arms
-  bounded VR Options row discovery; successful injection is visible at normal
-  log level. The historical eye-reach scene sweep is Debug-only after costing
-  187.3 ms on the Frame. Distinct live eye-resolution requests log before XR
-  texture reallocation. Bilingual Steam Frame standalone installation is in
-  the player docs. The native resolution-change exit is not yet root-caused;
-  source, log and next-measurement details are in the first hardware review.
+- **dev / 1.1.0 / ModBuild 584 (hardware candidate):** merge all NPC work through
+  Build 583 with dev's Build 559 Frame changes. The player can test both on one
+  build, and all future development integrates into `dev`. Both town bundles
+  must accompany the DLL. The native Frame resolution exit and the NPC headset
+  presentation remain open hardware checks. Integration validation passed
+  14 source checks, 80 runtime suites, 286600 wire assertions, strict Release
+  build and a complete package containing both town bundles. The compiled-form
+  comparison against pre-NPC dev reports the expected new town types.
 
-- **dev / 1.0.9 / ModBuild 558:** the controls tutorial prioritizes an explicitly
-  identified Steam Frame HMD/controller over Touch-compatible bindings and avoids
-  showing a Quest model when SteamVR reports Touch for an unknown HMD. Its
-  one-shot identity log supports the first Frame hardware test. The original
-  Frame controller model and render foveation are not yet available on this
-  Unity 2021/D3D11 mod path; their feasibility gates are documented above.
+- **Integrated dev / 1.0.9 / ModBuild 559:** late additive main-menu loading
+  re-arms bounded VR Options discovery; the eye-reach scene sweep is Debug-only
+  after a 187.3 ms Frame measurement. Distinct live eye-resolution requests log
+  before XR texture reallocation. Bilingual Frame installation is documented.
+  See [STEAM-FRAME-FIRST-HARDWARE.md](STEAM-FRAME-FIRST-HARDWARE.md).
 
-- **dev / 1.0.9 / ModBuild 557:** the character creator's original UIWindow is
-  included in the character screen's native sub-view fit and seat timing. Enemy
-  and character overhead bars use explicit depth modes for the existing wall
-  visibility setting. A new default-on toggle makes bars scale with their figures
-  throughout table zoom; disabling it restores the prior clamped behavior.
-  Source and build checks are complete; headset pixels remain unverified. See
-  [BARS-CREATOR-557.md](BARS-CREATOR-557.md).
+- **Integrated dev / 1.0.9 / ModBuild 558:** the tutorial distinguishes an
+  explicitly identified Frame from SteamVR Touch emulation. The real controller
+  model and render foveation are still future work.
+
+- **NPC feature / 1.1.0 / ModBuild 583 (hardware candidate):** merchant
+  original-card capture accepts observed shader-property counts and resolves
+  the small texture identity collisions recorded on both peers. The shared
+  cabinet remains public, while each visitor's held item and item fan may be
+  mirrored independently of the stand's elected author. Pickup speech works
+  through the merchant's gaze range. The enchantress's native handoff range now
+  agrees with her gaze range; her offered hand follows visitor attention even
+  before a cue is available. Only the three permanent resident stands remain;
+  visiting a second NPC cannot spawn a fourth table. The current hardware
+  evidence is build 582, so these build-583 outcomes still need a two-client
+  headset comparison. See [TOWN-MP-583.md](TOWN-MP-583.md).
+
+- **NPC feature / 1.1.0 / ModBuild 582 (hardware candidate):** cloth meshes remain
+  static while their solver, hand interaction and publication/replay are removed;
+  historic TLV90 decoding remains for compatibility. Merchant gaze greetings now
+  use a voice channel independent of other residents. Every temple visitor can
+  take and display their own purse; only valid native donation may place it in
+  the bowl. The original immersive setting is a default-on Environment toggle
+  that disappears with all NPC-specific audio options under the 2D map. Build
+  580 logs do not verify these new headset outcomes.
+
+- **NPC feature / 1.1.0 / ModBuild 581 (hardware candidate):** merchant speech
+  follows the face's visitor target ahead of delayed coin-hand attention;
+  enchantress approach switches idle resident destinations and resolves the
+  narrow temple overlap; active transparent story/close targets once again
+  receive laser input. The last two fixes address a scenario progression
+  deadlock and a card handoff deadlock observed in Build 580. Independent
+  per-resident host grants allow simultaneous visits to different NPCs while
+  serializing offers at the same one. Automated checks
+  verify the intended gates; headset behavior remains to be confirmed. See
+  [TOWN-581.md](TOWN-581.md). The merchant hand/coat asset remains open.
+
+- **NPC feature / 1.1.0 / ModBuild 580 (partial hardware candidate):** the elected
+  face author greets a visitor when the merchant first turns to look at them,
+  including consistent behavior after a multiplayer author handover. The
+  priestess's build-579 staggered arm clocks have been removed in favor of a
+  continuous prayer release and return. Native town cloth stays visibly
+  deformed near a tracked hand and protects its sparse triangle interiors
+  against hand passage; local/peer identity changes, withdrawal and station
+  visibility reset its contact state. The merchant's attended hands still hover
+  above the coat: the imported-skin pose candidate was rejected after a full
+  motion scan found visible sleeve/coat intersections. Source and executable
+  Unity evidence, together with remaining headset limits, are in
+  [TOWN-580.md](TOWN-580.md).
+
+- **NPC feature / 1.1.0 / ModBuild 579 (partial hardware candidate):** a
+  visitor who enters the enchantress's area while another native town service
+  is active no longer loses the only approach event. Local and remote cloth
+  use each rendered hand's wrist and index-tip anchors, with contact across
+  triangle interiors. The priestess releases prayer with separate arm phases;
+  portable motion tests cover the intermediate visit. The merchant hands
+  still visibly hover above the belly in build-578 hardware. Attempts to
+  close that gap caused real skin intersections and were rejected; no merchant
+  pose correction is claimed in this build. Successful generated Town suite
+  runs now retain one marked result per suite. See [TOWN-579.md](TOWN-579.md).
+
+- **NPC feature / 1.1.0 / ModBuild 578 (hardware candidate):** the offered
+  enchantment card itself stops the laser while only original enhancement
+  areas respond to selection. Its pulsing aura retains full side bounds.
+  The priestess's prayer-to-neutral arm motion and the merchant's resting
+  hands were retested against the imported skins and rendered at
+  intermediate frames. Build-578 hardware subsequently disproved the claim
+  that the merchant's hands visibly touch the belly. Dev ModBuild 557 contributes native character-creator
+  fit and figure-proportional overhead bars with working wall visibility.
+  Evidence and headset limits are in [TOWN-578.md](TOWN-578.md).
+
+- **Integrated dev / 1.0.9 / ModBuild 557:** character creation joins the
+  original character-screen fit; overhead bars honor the wall-visibility
+  setting and, by default, scale proportionally with figures. The old zoom
+  clamp remains a selectable setting. These source-backed corrections await
+  headset confirmation; see [BARS-CREATOR-557.md](BARS-CREATOR-557.md).
+
+- **NPC feature / 1.1.0 / ModBuild 577 (hardware candidate):** merchant offers
+  keep a native confirmation throughout inspection, rebind lost controls and
+  return cards when no native prompt can open. The offered enchantress card no
+  longer blocks the laser from its own original enhancement areas, while all
+  other physical occluders remain in force; its native ring stays round under
+  rotated, nonuniform transforms. The priestess's entry blend avoids the prior
+  elbow detour. The enchantress's cloth starts clear of its furniture root and
+  holds smooth physical contact. Full-install art bundle and source/visual
+  evidence are recorded in [TOWN-577.md](TOWN-577.md). Headset confirmation
+  remains open.
+
+- **NPC feature / 1.1.0 / ModBuild 576 (hardware candidate):** native saved
+  headquarters unlocks and first-map tutorial gates determine whether each
+  complete resident and stand exists. The immersive campaign's flat-only
+  merchant onboarding steps resolve via native tutorial callbacks; other modes
+  and setting-OFF retain their own flow. Merchant cassette/cards sit within the
+  cabinet, and sold-out stamps clear when lifted. The enchantress shows a
+  persistent neutral offer locator while native input initializes, fits the
+  original aura and selectable areas to the physical card, and returns to the
+  original usable VR window after a prolonged offer stall. Normal English
+  replies and whispered spells now share one voice. Evidence and remaining
+  headset checks are in [TOWN-576.md](TOWN-576.md).
+
+- **NPC feature / 1.1.0 / ModBuild 575 (hardware candidate):** the merchant's
+  Cancel click immediately returns the offered card; stock and owned cards can
+  replace one another with release feedback while cabinet controls remain usable.
+  Cabinet stock sits deeper, sold-out cards display a localized marker, and
+  unsuccessful stock inspection has contextual shared speech. The enchantress's
+  original aura spans the physical card, original enhancement areas accept a
+  physical grip poke, and the card no longer responds to laser pickup. Incidental
+  speech is less frequent. Full-quality town art and voice assets ship in two
+  separately loaded bundles. The priestess shoulder and cloth motion receive a
+  further rendered/solver review. Evidence and headset checks are in
+  [TOWN-575.md](TOWN-575.md).
+
+- **NPC feature / 1.1.0 / ModBuild 574 (hardware candidate):** immediate merchant
+  buy/sell reuse preserves the native confirmation buttons. The actual Unity Cloth
+  solver initializes before hand contact. Imported-skin tests now scan every animated
+  priestess/merchant arm frame, correcting the crossing and thumb penetration missed
+  by static markers. Unconnected cabinet and enchantress stand geometry is removed.
+  Original enchantment-area buttons take laser selection over the offered card's
+  own reclaim collider, and the native full-card effect covers the card instead of
+  collapsing into a strip. Five contextual post-offer lines replace stale card
+  invitations and follow the existing shared speech channel. Evidence and headset
+  checks are in [TOWN-574.md](TOWN-574.md).
+
+- **NPC feature / 1.1.0 / ModBuild 573 (hardware candidate):** merchant confirmations
+  recover after a native window closes without updating its active wrapper; stock-to-owned
+  replacement retains its card through transient tab changes. The red cabinet side appendage
+  is gone and physical controls align with the imported sculpt. The priestess's shoulder and
+  bowl path are corrected at the actual rig. The enchantress shows one card under the game's
+  original selectable enhancement areas and speaks on native visits or accepted offers.
+  Evidence and headset checks are in [TOWN-573.md](TOWN-573.md).
+
+- **NPC feature / 1.1.0 / ModBuild 572 (hardware candidate):** the merchant's side cloth
+  responds to finger contact and shares its movement with observers. Cabinet legs, braces,
+  category controls and lantern mount align with the rebuilt shell. The priestess keeps her
+  arms uncrossed while covering the bowl and blends into and out of that pose. The enchantress
+  previews an opening handoff on first approach; valid merchant, enchantress and temple offers
+  give stronger visual and bounded haptic feedback near their release volumes. Town art preloads
+  asynchronously while the menu is open, avoiding the synchronous first-prefab bundle load;
+  the remaining station construction cost awaits headset measurement. Source-grounded
+  evidence and headset checks are in [TOWN-572.md](TOWN-572.md).
+
+- **NPC feature / 1.1.0 / ModBuild 571 (hardware candidate):** a brief real cloth contact
+  preserves the solver snapshot from approach so its first visible displacement is no longer
+  re-zeroed. The priestess no longer speaks the unavailable response immediately after a
+  committed donation; she performs a synchronized blessing and blends through the corrected
+  prayer, attention and cover poses. The enchantress can finish opening after a brief native
+  block, accepts either physical release, and exposes her original card-dependent options only
+  while holding an offered card. The merchant cabinet is re-authored as a carved PBR shell with
+  matching physical controls and aligned interaction anchors. Evidence and headset checks are in
+  [TOWN-571.md](TOWN-571.md).
+
+- **NPC feature / 1.1.0 / ModBuild 570 (hardware candidate):** merchant item widgets now leave
+  the physical fan before their host is destroyed and restore every native face transform on
+  creation, reclaim and maintenance. Real cloth contact presents the native solver immediately;
+  only release retains a smooth recovery. An available priestess lets her arms hang beside the
+  robe, while a known unavailable visit moves directly from prayer to the synchronized covered-bowl
+  pose. Merchant and enchantress lines use the accepted high-quality speech renderer; casting uses
+  five quiet invented incantations with five deterministic restrained effects. The complete native
+  merchant lantern hook meets the cabinet ring. Evidence and the headset checklist are in
+  [TOWN-570.md](TOWN-570.md).
+
+- **NPC feature / 1.1.0 / ModBuild 569 (hardware candidate):** the merchant now claims and
+  restores detached native child windows before generic modal conversion, keeping the item list
+  behind the physical resident hidden without bypassing native transaction callbacks. Reclaimed
+  item cards release stale renderer veils and independently restore fan parent, position, rotation
+  and scale across repeated grab/release, close/reopen and replacement/cancel paths. Cloth contact
+  follows the current simulated sheet rather than its former rest location. Production-bundle
+  renders verify revised priestess shoulder/elbow anatomy and merchant thumb clearance. Merchant
+  buy and sell prompts use their own synchronized voice families; the unavailable priestess has
+  five synchronized explanations. At the native point of no return every resident smoothly returns
+  to neutral, drops interaction and immediately silences active and queued speech for all peers.
+  Evidence and the headset checklist are in [TOWN-569.md](TOWN-569.md).
+
+- **NPC feature / 1.1.0 / ModBuild 568 (hardware candidate):** the permanent temple
+  resident alone owns the blessing particle system, whose only live trigger is a later committed
+  donation revision in the same owner/session. Close/reopen and hydration preserve their baseline,
+  and smaller additive motes originate in the bowl. Priestess cover availability now blends out
+  continuously rather than snapping when the temporary interaction record disappears; imported-rig
+  tests measure every 90 Hz intermediate hand and elbow frame. Immersive service controllers are
+  claimed before generic modal conversion, closed confirmations stay masked through render
+  retirement, and a renderer reparented out of a hidden window is released immediately. This removes
+  the filmed full native confirmation panel, its measured conversion spike and the stale veil that
+  made returned item fronts grey. The merchant lantern is restored to the cabinet's exterior bracket
+  with complete side-wall clearance. Evidence and the headset checklist are in
+  [TOWN-568.md](TOWN-568.md).
+
+- **NPC feature / 1.1.0 / ModBuild 567 (hardware candidate):** the recurring spatial
+  open/close sound was the flat equipment-toggle clip reused as invented resident cloth foley on
+  approach/departure attention thresholds; that path is removed while coin, spell and voice cues
+  remain. Debug-only bounded traces identify any native town audio request. The purse appears only
+  through the ordinary card-fan wrist gesture, including when donation is unavailable, while its
+  interaction stays disabled. A seeded particle system replaces the polygon blessing. The actual
+  production cloth class now measures capsule-to-sheet contact and preserves its visual zero, with
+  measured contact response and complete recovery. Imported priestess shoulder origins, hip pose,
+  palms-down bowl cover, cover exit and candle clearance were revalidated against the real bundle.
+  Evidence and the headset checklist are in [TOWN-567.md](TOWN-567.md).
+
+- **NPC feature / 1.1.0 / ModBuild 566 (hardware candidate):** automatic resident
+  departure keeps the native mode transition but omits synthetic pointer audio. Temple entry
+  preserves the exact selected party slot and no longer rebuilds an invisible primary workspace
+  with two Cloth solvers; measured repeat entry is sub-millisecond in the Unity harness. The purse
+  remains visible as status information independently of transaction eligibility. Actual imported
+  skins now use accepted merchant/priestess hip silhouettes and a continuous bowl-cover return.
+  Scale-correct gravity, bounded freedom, continuous supports and episode-relative rendering keep
+  the real cloth responsive without table inversion, re-entry pops or solver reconstruction.
+  Complete bounds separate all priestess candles from lanterns, book and bowl. Evidence and the
+  headset checklist are in [TOWN-566.md](TOWN-566.md).
+
+- **NPC feature / 1.1.0 / ModBuild 565 (hardware candidate):** repeated town-service
+  visits resolve local input through the current wire generation, keeping the temple purse
+  and original book visible after visiting another resident. Imported-model pose checks put
+  merchant and priestess hands at their waists and turn the unavailable temple palms down
+  through a continuous blend. The real 25x13 runner surface is reconstructed independently
+  of FBX vertex order and simulated without inherited 19,800x scale, with per-column table
+  support and real index-tip collision. Native flat window show/hide cues are suppressed from
+  the first immersive call, priestess speech has measured loudness compensation, and the
+  enchantress lamp uses its visible renderer footprint on the real workbench. Evidence and
+  headset limits are in [TOWN-565.md](TOWN-565.md).
+
+- **NPC feature / 1.1.0 / ModBuild 564 (hardware candidate):** each resident has
+  one sticky, timeout-bounded multiplayer visitor lease. The elected visitor alone
+  can interact and author the resident, while all peers receive the same station,
+  pose, speech, offering and confirmation presentation. Temple eligibility and one
+  blessing revision use additive inner town-service TLV91 without gameplay identity.
+  The donation guide is blue and translucent, the real purse remains upright and
+  snaps exactly into it, and an unavailable ritual hides the guide while the
+  priestess covers the bowl. Merchant and priestess use reachable anatomical hip
+  poses; merchant and enchantress card palms swap valid cards atomically. The
+  enchantress practical is grounded to the workbench and the remaining immersive
+  flat-service show sound is suppressed at its exact display edge. All fifteen
+  priestess lines use the elderly `Wise_Woman` performance. Evidence and headset
+  limits are in [TOWN-564.md](TOWN-564.md).
+
+- **NPC feature / 1.1.0 / ModBuild 563 (hardware candidate):** native Unity Cloth
+  replaces the rigid altar-runner spring and collides with the complete curved table,
+  local/remote hands and heads without adding ray targets. Temple donations use the
+  original confirmation continuation; every merchant-item return restores fan parent,
+  art readiness, rotation and one palm size. Merchant stock uses the proven mip watcher.
+  Automatic service fan-edge sounds are silent, the shared cabinet has physical foley,
+  and local NPC speech/effects toggles are independent and default on. Voice regeneration
+  replaces all fifteen priestess cues with one consistent close-miked voice and replaces the
+  broken `merchant-sell-2` take. Evidence and headset limits are in
+  [TOWN-563.md](TOWN-563.md).
+
+- **NPC feature / 1.1.0 / ModBuild 562 (hardware candidate):** repeated temple
+  visits rebuild the physical purse; item cards emerge only after their original
+  front is ready and use canonical fan rotation. Merchant and priestess attention
+  author elbows with lowered hands, coin work has no long neutral stop, cloth
+  contact is stronger, and practical lights stay on their furniture. Automatic
+  service entry is silent. Eleven resident cue families each contain five shared,
+  non-repeating variants with linear spatial rolloff. Headset verification remains
+  open; evidence and limits are in [TOWN-562.md](TOWN-562.md).
+
+- **NPC feature / 1.1.0 / ModBuild 561 (hardware candidate):** the physical
+  temple purse retains its original confirmation through native modal focus;
+  page parchment, visitor hand poses and sleeve interiors address build-560
+  screenshots. Returned original item cards settle upright. The merchant's
+  offering pose comes from the elected resident author and speech age cannot
+  rewind within a cue. The enchantress invites a visitor as her hand opens;
+  new consistent merchant and priestess voices, bidirectional lip transitions
+  and quiet, paced coin contact revise the audible presentation. These remain subject to headset
+  verification; evidence and limits are in [TOWN-561.md](TOWN-561.md).
+
+- **NPC feature / 1.1.0 / ModBuild 560 (hardware candidate):** quieter coin foley,
+  English spatial resident lines and mouth curves, varied enchantress activity,
+  merchant attention transition, visibly grounded cloth and cabinet details,
+  guarded donation body target and ghost-purse bowl cue. One elected public
+  merchant cabinet and buyer-owned native confirmation surfaces are mirrored
+  to all players; remote visual controls remain inert. Presentation-only voice
+  reactions are relayed from visitors to the elected resident author. Automated
+  and hardware limits are recorded in [TOWN-560.md](TOWN-560.md).
+
+- **NPC feature / 1.1.0 / ModBuild 559 (hardware candidate):** fixed-scale NPC
+  foley, stable merchant/priestess proximity, native temple purse release
+  diagnostics, curved blank book pages, continuous coin motion, reworked crank,
+  contact-responsive shared altar cloth and inner sleeves. TLV79 adds an optional
+  24-byte cloth tail without changing the older resident prefix; private visitor
+  furniture carries equivalent runner controls in a bounded additive TLV90. Source and
+  automated validation are described in [TOWN-559.md](TOWN-559.md); headset
+  appearance and a completed donation remain unverified.
+
+- **NPC feature / 1.1.0 / ModBuild 558 (hardware candidate):** the merchant stops
+  coin work while attending to a player and uses coordinated, continuous hand/body
+  movement; spatial foley has a practical interaction range. The oversized crank
+  collider and the generic spent-item rotation no longer interfere with the
+  cabinet or first inspection fan. Owned enhancement cards remain associated with
+  native enhancement rows across refreshes, and the immersive enhancement screen
+  is not considered active before its mask exists. The temple approach update now
+  starts the purse path. The priestess's front/profile atlas no longer projects a
+  photographed second ear or eye onto her lateral face; the fixed-detail rig and
+  Windows town bundle were rebuilt. The rack mirror's ancestor-fade test now
+  waits for its bounded publication cadence before asserting visibility, and
+  offering mutations are checked before unrelated rack assertions.
+  Automated checks cover source contracts and
+  asset format, but the reported hardware interactions still require a headset test.
+
+- **Released 1.0.8 / ModBuild 556:** `main` at tag `v1.0.8`; `dev` has advanced its
+  project version to 1.0.9. The NPC branch incorporates that ancestry while keeping
+  its own 1.1.0 feature version. Release validation and publication are complete;
+  NPC hardware acceptance remains separate.
 
 - **dev / 1.0.8 / ModBuild 556:** combat-log and control-board laser releases
   turn toward the owner using the same short animation as other local windows.
@@ -78,6 +368,78 @@ change per build) → this file (where things stand and what is owed) → the bu
   primarily Campaign. Current local/remote files belong to builds 551/500. No NPC code,
   asset bundle change or release is included. See [WINDOWS-553.md](WINDOWS-553.md).
 
+- **NPC feature / 1.1.0 / ModBuild 552 (hardware candidate):** visible-surface laser
+  targeting without resident proxy boxes; mage departure cleanup and independent
+  Character UI; native per-card enhancement points beside the offered card; physical
+  ability/item reclaim. Native priestess purse donations use the actual shared bowl,
+  original authority and guarded confirmation. Original localized ink conforms to the
+  book pages locally and remotely. Revised mirrored wrist motion, varied merchant
+  contact timing and subtle original positional foley. Native black flame padding
+  stays transparent. Full package required; environment bundle unchanged. See
+  [research/TOWN-SERVICES-552.md](research/TOWN-SERVICES-552.md) for integration gates
+  and hardware limits; automated success is not headset acceptance.
+
+- **NPC feature / 1.1.0 / ModBuild 551 (hardware candidate):** callback-scoped
+  palm regrabs and freestanding native confirmation; nearby held-card offer intent;
+  complete original enchantment inventory on the stand and larger offered card;
+  longer varied resident phrases without table bracing; actual articulated rolling
+  shelves with a shared page indicator; original standing candles and opaque flame
+  cores. Fix a destroyed-inscription shutdown exception. Full package required;
+  source and hardware evidence are separated in
+  [research/TOWN-SERVICES-551.md](research/TOWN-SERVICES-551.md). All 69 required
+  suites are covered, including complete repeats of two repaired fixtures and final
+  targeted changes; 14 source gates, 286,120 wire assertions and zero-warning strict
+  Release pass. Actual asset review passes 951,242 assertions / nine controls;
+  4,423 full-skin and 1,206 holder poses have no tested intersections. Matching town
+  bundle: 96,164,115 bytes (`e56d6bd3…61da9`). Hardware results remain unverified.
+
+- **NPC feature / 1.1.0 / ModBuild 550 (hardware candidate):** inert merchant laser/poke;
+  shared ability/item hand-local tracking and owned-fan laser contact suppression;
+  aimed vertical-stick cabinet paging with locomotion arbitration; upright animated
+  actual-card palm handoffs retained through native confirmation, reclaimable and
+  mirrored. Revised prayer, stance and coordinated body/arm retargeting address the
+  549 hardware report. Fitted merchant worktop and actual native candles remove
+  the reported torso/scroll intersections. Original environment bundle unchanged.
+  See [research/TOWN-SERVICES-550.md](research/TOWN-SERVICES-550.md) for evidence,
+  final validation and remaining hardware checks. All 69 local suites are covered
+  with targeted complete repeats after two fixture repairs; 14 source gates, 286,103
+  wire assertions, strict Release and final imported asset/motion checks pass.
+  Full installation required: town bundle 96,187,501 bytes (`91dedb57…642492`).
+
+
+- **NPC feature / 1.1.0 / ModBuild 549 (hardware candidate):** approved upright merchant
+  cabinet with physical categories/crank and occluded animated page changes; original
+  scenario item holding; complete owned-item fan near the merchant; palm-based buy/sell
+  requests with explicit native confirmation. Public cabinet and private inspection
+  lifetimes are independent, including late join and authority handoff. Stable owned
+  practical lighting replaces renderer-dependent nearest-light changes. Revised arm
+  skin/contact motion and front-semicircle placement preserve original room geometry.
+  Final Windows town bundle: 96,167,323 bytes (`d5f413b9…675e5`); the environment
+  bundle is unchanged. Fourteen source gates, all 69 local suites (four stale fixtures
+  corrected with targeted negative-control repeats), 286,103 wire assertions and strict
+  Release zero warnings/errors are covered. Combined assets pass 888,814 assertions /
+  nine rendered controls; motion passes 268,749 / seventeen controls and 1,943 sampled
+  full-skin poses without arm/torso or opposite-arm intersections. Exact package evidence
+  and hardware limits: [research/TOWN-SERVICES-549.md](research/TOWN-SERVICES-549.md).
+
+
+- **NPC feature / 1.1.0 / ModBuild 548 (hardware candidate):** restores original cellar
+  and forest proportions, removes NPC distance LOD, replaces the oversized merchant
+  table with a compact cabinet and physically turning racks, and revises portrait
+  likeness, eye/lid geometry and prop-contact body motion. Four offline Kimodo-generated
+  phrases use existing shared occupation clocks. Multiplayer rack clocks and membership
+  use additive TLV85; live catalog IDs survive repeated page turns without exhaustion.
+  A campaign city-cap null dereference found in build-547 logs is also fixed.
+  The final Windows town bundle is 95,727,401 bytes (`afdd76b3…88c9`); the environment
+  bundle remains byte-identical. Actual source-asset renders pass 2,044 assertions / nine
+  visual negatives and final imported activity/contact tests pass 185,546 assertions /
+  sixteen negatives. Final checks cover all 14 source and 66 runtime suites (one stale
+  radius fixture was corrected and repeated), 286,090 wire assertions and a zero-warning
+  strict Release. Bundle/surface checks pass; historical compiled-baseline differences
+  remain. Exact package hashes and CRC evidence: `debug/town548-package-verification.json`.
+  Headset quality and multiplayer frame timing require hardware confirmation.
+  Evidence and checklist: [research/TOWN-SERVICES-548.md](research/TOWN-SERVICES-548.md).
+
 - **dev / 1.0.7 / ModBuild 546**, based on the 1.0.6 runtime without NPC services:
   campaign city-event cap and native animation, original permanent map windows across
   2D/3D switches, and native map-button hints beside physical caps with synchronized
@@ -86,8 +448,124 @@ change per build) → this file (where things stand and what is owed) → the bu
   and English/German tutorial hints update to the selected binding even while open.
   Native targeting authority and shared encounter continuation remain in charge.
   Evidence, validation and hardware checklist: [MAP-546.md](MAP-546.md).
-  Supplied logs are older NPC build 544 / remote build 500, so this implementation has
-  no matching headset confirmation yet. No release or NPC-branch changes are included.
+  The maintainer confirmed this map/AoE revision on hardware before releasing 1.0.7.
+  At the time, dev remained the independent hotfix branch while NPC integration
+  targeted 1.1.0; both lines merged into dev at Build 584.
+
+- **Town hardware corrections / build 545 (hardware candidate):** build 544's eleven
+  screenshots supersede earlier asset-quality assumptions. Physical complete merchant stock,
+  native coin offerings, physical enhancement choices, original decoration and owner-authored
+  multiplayer output are integrated. Final portrait-fitted faces, spherical eyes, closed
+  costume joins and anatomical hands ship in the matching 100,501,555-byte Windows town bundle
+  (`08ff8501…fe597e`). Actual asset validation passes 599 render assertions / six negatives; actual
+  activity/contact validation passes 125088 / eleven negatives. All map environments share
+  one scenery-checked station layout. Full local guard passes 14 source / 59 runtime suites and 260312 wire assertions; only
+  the expected historical compiled-baseline differences remain. Strict Release has zero
+  warnings/errors. The full matching ZIP is built and CRC/hash-verified. Dev CI status is
+  checked at handoff; private evidence is `debug/town545-package-verification.json`.
+  Close stereo appearance and hardware timing remain unverified; install the complete package
+  on all VR peers. See [research/TOWN-SERVICES-545.md](research/TOWN-SERVICES-545.md).
+
+- **Town hardware corrections / build 544 (new defects confirmed; superseded by 545 work):** the build-543 test exposed black eyes,
+  merchant identity drift and open costume joins. Corrected Windows eye lighting, fitted
+  heads, continuous neck/costume joins and shared work/attention animation are integrated.
+  Full local guard passes 14 source / 51 runtime suites and 260310 wire assertions;
+  strict Release has zero warnings/errors. Final assets pass 489 assertions / six visual
+  negative controls, actual prefab faces 9862 assertions / three compiled negatives /
+  nine anatomical corruption controls, and activities 92107 assertions / nine compiled
+  negatives. The source-only CI subset passes 24031 assertions / five negatives.
+  The full package contains the matching 98,325,951-byte Windows town bundle; the main
+  bundle is unchanged. Install the full package on all VR peers. Headset appearance,
+  close-range stereo and hardware frame timing remain unverified. See
+  [research/TOWN-SERVICES-544.md](research/TOWN-SERVICES-544.md).
+
+- **Town faces / build 543 (hardware defects confirmed; superseded by 544 work):** anatomical faces, separate eyes, shared
+  head/eye tracking, frame-by-frame blink and subtle expression playback are integrated.
+  Full local guard passes 50 runtime suites,
+  258091 wire assertions and the real Unity face suite (2076 assertions / 16 negative
+  controls); strict Release has zero warnings/errors. The voice audit finds original
+  narration but no matching recordings for the three residents; no generated voices ship.
+  Final asset rendering passes 469 assertions / six visual negative controls; production
+  binding to the actual final prefabs passes 9862 assertions / three compiled negative
+  controls plus nine deliberately corrupted jaw-weight cases. Root reviewed final neutral,
+  blink, mouth and gaze-limit renders. The matching 99,211,283-byte Windows town bundle
+  is required; install the full package. The main bundle is unchanged. Existing costume
+  cut-edge imperfections and Windows eye-lighting failures were subsequently confirmed
+  on hardware; the earlier automated checks did not establish a correct headset picture.
+  See [research/TOWN-SERVICES-543.md](research/TOWN-SERVICES-543.md).
+
+- **Town residents / build 542 hardware candidate:** all three NPCs remain on the map in immersive
+  mode; direct NPC visits replace service map caps. Actual-floor placement, native decoration,
+  practical lighting, held merchant inspection and additive shared resident authority are
+  integrated. No purchase occurs on grip/release. Full source/runtime guard passes
+  49 suites and 257025 wire assertions; expected old-baseline compiled differences remain.
+  New neutral heads, original-game decoration and the matching 81.6 MB town bundle pass
+  78 asset assertions and six visual negative controls. Fine facial mesh artifacts remain;
+  facial animation topology and headset quality are not claimed complete. Install both
+  bundles with the matching DLL. See [research/TOWN-SERVICES-542.md](research/TOWN-SERVICES-542.md).
+
+- **Validation infrastructure (runtime remains build 541):** independent source/runtime
+  suites now use bounded parallel execution with isolated logs and temporary outputs.
+  CI distributes its runtime suites across four required shards while preserving exact-tree
+  proof, main-only release publication and optional artifact limits. Measurement and coverage:
+  [TEST-PARALLELISM.md](TEST-PARALLELISM.md).
+
+- **Town services / build 541:** build-540 hardware logs reproduce merchant setup failure
+  immediately after the Buy/Sell/All control conversions. The catalog dereferenced the
+  gamepad-only Owned filter, absent from desktop merchant UI. Its handoff now follows the
+  actual native control set. Repeated catalog tests cover both prefab variants and rollback.
+  VR options expose an explicit immersive/original-window choice in a dedicated first town
+  services section under Boards, backed by the existing default-on setting. Both asset
+  bundles are unchanged from 540. This is a development correction, not a release; successful
+  headset opening remains unverified. Evidence: [research/TOWN-SERVICES-541.md](research/TOWN-SERVICES-541.md).
+
+- **Town services / build 540:** the first hardware test of 539 exposed invisible actors,
+  black furniture, a native error dialog and the unsuitable floating merchant inventory.
+  Corrected NPC LOD bounds and self-contained textured lighting ship in a new town bundle.
+  Mirror-template preparation validates item provenance before touching a pooled card;
+  the native item-ID-zero error path is avoided. The merchant now has six original item
+  cards per page, original prices and buy/sell/filter/exit controls on its counter. Physical
+  samples still select through native rows; purchases retain native confirmation.
+  Reversible wrappers hide the obsolete list without disabling gameplay, and orphan-frame
+  collection respects live service/error owners. Original item details/rule hints remain
+  visible on the counter; additional visitors have separate full-size workspaces with
+  owner-authored motion and materials. Temple/enchantress gain the asset and
+  lifecycle corrections; their existing reading-surface interaction is not replaced by
+  the merchant rack. Default-on settings and original-window rollback remain unchanged.
+  Evidence, validation and hardware checklist: [research/TOWN-SERVICES-540.md](research/TOWN-SERVICES-540.md).
+  Both bundles must be installed. This is an unreleased development build; corrected
+  headset output remains unverified.
+
+- **Town services / build 539:** VR options expose `WorldUI/ImmersiveTownServices`,
+  enabled by default (maintainer clarification, 2026-09-21). Turning it off restores the three original service windows through
+  the ordinary conversion path, including an already-open service, without changing native
+  selection or invoking close/confirmation callbacks. Held samples are cancelled, original
+  section parents and portraits restored. Enabled remote visitors remain visible regardless
+  of the observer's local preference. Unity validation passes 617 assertions and 22 compiled
+  negative controls. Hardware verification of live switching is pending.
+
+- **Town services / build 538:** first immersive merchant, temple and enchantress variant.
+  Three generated NPCs have body/finger rigs, authored greeting/idle animations, three mesh
+  LODs and 4K textures. A separate `prebuilt/ghvr-town.bundle` keeps the existing asset bank
+  unchanged. Native service sections become movable reading surfaces; gripping an original
+  entry and placing its sample on the work tray selects through the original button.
+  Native ownership, prices, restrictions, confirmations and continuations remain authoritative.
+  Concurrent visitors share one NPC per service. Original visible widget output is transported
+  to inert observer copies, including nested masks, card art and dynamic tooltip contents.
+  The complete package requires **both** asset bundles; installing only the DLL is insufficient.
+  Record and hardware checklist: [research/TOWN-SERVICES-FIRST-VARIANT.md](research/TOWN-SERVICES-FIRST-VARIANT.md).
+  Source, Unity render and archive validation are recorded there; headset presentation remains
+  unverified. This is a development handoff, not a release. Detailed facial animation and
+  transaction-specific NPC hand choreography remain later polish.
+  Original exports, generated sheets and paid mesh provenance remain separate in
+  `.planning/debug/npc-references/`, `npc-modeling/` and `npc-meshes/` respectively.
+  Seven FAL generation jobs were used, estimated USD 4.275; no additional paid generation
+  was needed for runtime integration. Actual account billing was not independently audited.
+
+- **Released 1.0.6 / ModBuild 537:** the maintainer confirmed the menu fix; the final
+  hardware log audit found no release blocker. Main commit `59a5d884`, tag `v1.0.6`,
+  release workflow `35525779327` succeeded. Published ZIP downloaded and verified.
+  Automatic bookkeeping advanced dev to 1.0.7 at `ff59a14e`; no runtime build increment.
 
 - **dev / 1.0.6 / ModBuild 537** removes VR-triggered native focus handoffs:
   opening settings must not shade otherwise usable menu entries. Native hidden callbacks
@@ -105,7 +583,8 @@ change per build) → this file (where things stand and what is owed) → the bu
   625 / 174 / 4,742; inventory 132 classes / 200 methods. Guard exit 1 is solely the
   expected old-baseline difference (101 changed, 78 added/removed, one order-only move).
   Direct compiled comparison with build 536 isolates the three intended menu types
-  plus embedded build-number changes. Build-537 headset confirmation remains pending.
+  plus embedded build-number changes. Subsequently confirmed on the maintainer's headset
+  and included in release 1.0.6, as recorded above.
 
 - **dev / 1.0.6 / ModBuild 536** addresses repeated VR-options access. The initial
   Sep-20 logs are released build 534: its fourth opening within 60 seconds triggers

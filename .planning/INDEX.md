@@ -1,6 +1,7 @@
 # Planning index
 
-Updated 2026-09-29 for dev 1.0.9 / build-559 Steam Frame triage. This directory holds internal
+Updated 2026-09-29 for unified dev Build 584, integrating the NPC Build 583
+candidate and Steam Frame dev Build 559. This directory holds internal
 engineering evidence, historical decisions and current status; it is not the player manual.
 
 ## Current entry points
@@ -9,7 +10,55 @@ engineering evidence, historical decisions and current status; it is not the pla
 |---|---|
 | [../AGENTS.md](../AGENTS.md) | Agent workflow, integration ownership and current user rulings |
 | [../CLAUDE.md](../CLAUDE.md) | Technical contracts retained across agent tools |
+| [TEST-PARALLELISM.md](TEST-PARALLELISM.md) | Parallel local/CI execution, coverage and measured timing |
 | [STATE.md](STATE.md) | Current build, validation and outstanding hardware checks |
+| [TOWN-MP-583.md](TOWN-MP-583.md) | Build-582 multiplayer evidence, source causes and build-583 acceptance scope |
+| [TOWN-CLOTH-RETIREMENT-582.md](TOWN-CLOTH-RETIREMENT-582.md) | Static town fabric and the documented retirement of runtime cloth interaction |
+| [TOWN-VOICE-582.md](TOWN-VOICE-582.md) | Independent resident voice playback at the face-target gaze edge |
+| [TOWN-PURSE-582.md](TOWN-PURSE-582.md) | Grabbable temple purse, native donation gate and multi-visitor visibility |
+| [TOWN-OPTIONS-582.md](TOWN-OPTIONS-582.md) | Environment-tab town toggle and 2D-map dependency |
+| [TOWN-577.md](TOWN-577.md) | Build-576 hardware evidence, merchant confirmation, enchantress laser/ring, priestess transition and physical cloth contact |
+| [TOWN-576.md](TOWN-576.md) | Build-575 hardware evidence, native town unlock and first-map FTUE gates, merchant cassette, enchantress offer and voice |
+| [TOWN-575.md](TOWN-575.md) | Build-574 hardware evidence, merchant offer/cabinet interaction, native enchantment input, rendered poses, cloth, contextual speech and split bundles |
+| [TOWN-574.md](TOWN-574.md) | Build-573 hardware evidence, confirmation reuse, cloth initialization, skinned poses, native card selection and contextual speech |
+| [TOWN-573.md](TOWN-573.md) | Build-572 hardware evidence, merchant confirmation recovery, cabinet cleanup, priestess rig and native enchantment highlights |
+| [TOWN-572.md](TOWN-572.md) | Build-571 hardware evidence, moving merchant cloth, cabinet repair, priestess arm transitions and handoff feedback |
+| [TOWN-571.md](TOWN-571.md) | Build-570 hardware evidence, short cloth contacts, native donation poses and detailed merchant cabinet |
+| [TOWN-570.md](TOWN-570.md) | Build-569 hardware evidence, merchant card pooling, visible cloth contact, direct temple poses, resident audio and lantern attachment |
+| [TOWN-569.md](TOWN-569.md) | Build-568 hardware evidence, merchant subwindows/card returns, moving-cloth contact, rendered poses, contextual voice and story silence |
+| [TOWN-568.md](TOWN-568.md) | Build-567 hardware evidence, temple continuity, native-window ownership and cabinet clearance |
+| [TOWN-567.md](TOWN-567.md) | Build-566 hardware evidence, resident UI-audio cause, wrist purse, particle blessing, production cloth and priestess anatomy |
+| [TOWN-566.md](TOWN-566.md) | Build-565 hardware evidence, automatic audio, temple entry cost, resident poses and cloth recovery |
+| [TOWN-565.md](TOWN-565.md) | Build-564 hardware evidence, repeat-visit temple ownership, physical cloth scale, native window audio and lamp grounding |
+| [TOWN-564.md](TOWN-564.md) | Build-563 hardware evidence, elderly priestess voice, physical blessing and synchronized resident leases |
+| [TOWN-563.md](TOWN-563.md) | Build-562 hardware evidence, native cloth, donation/card return fixes and local NPC audio controls |
+| [TOWN-562.md](TOWN-562.md) | Build-561 hardware evidence, build-562 repeated visits, varied voice, pose and decor corrections |
+| [TOWN-561.md](TOWN-561.md) | Build-560 hardware evidence, build-561 NPC fixes, shared pose and voice validation |
+| [TOWN-560.md](TOWN-560.md) | Build-559 evidence and build-560 resident voices, confirmation mirroring and donation target |
+| [TOWN-559.md](TOWN-559.md) | Build-558 hardware evidence, build-559 NPC fixes, wire budget and next headset checks |
+| [research/TOWN-SERVICES-552.md](research/TOWN-SERVICES-552.md) | Current visible town input, physical temple purses, card slots, native page ink and positional foley |
+| [research/TOWN-SERVICES-551.md](research/TOWN-SERVICES-551.md) | Previous palm decisions, native enchantment folio, restrained resident motion and rolling cabinet |
+| [research/TOWN-SERVICES-550.md](research/TOWN-SERVICES-550.md) | Previous hardware corrections: merchant input, hand tracking, floating handoffs, coordinated motion and contact geometry |
+| [research/TOWN-SERVICES-549.md](research/TOWN-SERVICES-549.md) | Previous approved merchant cabinet and first palm trading; motion/input findings superseded by build 550 |
+| [research/TOWN-SERVICES-548.md](research/TOWN-SERVICES-548.md) | Previous room restoration, compact merchant and fixed-detail actors |
+| [research/TOWN-SERVICES-545.md](research/TOWN-SERVICES-545.md) | Historical physical interaction and portrait revision; superseded by subsequent hardware reports |
+| [TOWN-545-MERCHANT.md](TOWN-545-MERCHANT.md) | Complete physical catalog, drawer lifecycle and native transaction ownership |
+| [research/TOWN-545-FACES.md](research/TOWN-545-FACES.md) | Final portrait fitting, anatomical hands, optical rendering and asset provenance |
+| [research/TOWN-545-STANDS.md](research/TOWN-545-STANDS.md) | Native decoration, practical lights and resident activities |
+| [research/TOWN-SERVICES-544.md](research/TOWN-SERVICES-544.md) | Previous NPC corrections; superseded by the build-544 hardware findings |
+| [research/TOWN-544-EYES.md](research/TOWN-544-EYES.md) | Actual Windows eye-shader defect and compiled/render regression evidence |
+| [research/TOWN-544-FACES.md](research/TOWN-544-FACES.md) | Anatomical fit, original costume repair and actual skinned-pose review |
+| [research/TOWN-544-BACKDROP-IDENTITY.md](research/TOWN-544-BACKDROP-IDENTITY.md) | Original backdrop identity collision and owner/observer correction |
+| [TOWN-544-ACTIVITY.md](TOWN-544-ACTIVITY.md) | Activity timeline, contact validation and atomic facial/body transport |
+| [research/TOWN-544-ANIMATION-SERVICES.md](research/TOWN-544-ANIMATION-SERVICES.md) | FAL and Meshy API capability/cost evaluation; no paid generation this round |
+| [research/TOWN-SERVICES-543.md](research/TOWN-SERVICES-543.md) | Anatomical face fitting, shared gaze and final asset-review status |
+| [research/TOWN-543-FACES.md](research/TOWN-543-FACES.md) | Final facial assets, authoring provenance, bundle hashes and rendering costs |
+| [research/TOWN-543-VOICE.md](research/TOWN-543-VOICE.md) | Original game voice inventory and unvoiced resident-dialogue evidence |
+| [research/TOWN-543-GAZE.md](research/TOWN-543-GAZE.md) | Facial runtime, additive transport and source-bound validation |
+| [research/TOWN-543-REVIEW.md](research/TOWN-543-REVIEW.md) | Independent multiplayer/lifecycle review and resolved defects |
+| [research/TOWN-SERVICES-541.md](research/TOWN-SERVICES-541.md) | Desktop merchant fallback and discoverable presentation mode |
+| [research/TOWN-SERVICES-542.md](research/TOWN-SERVICES-542.md) | Persistent residents, physical merchant inspection, native decoration and facial asset revision |
+| [research/TOWN-SERVICES-540.md](research/TOWN-SERVICES-540.md) | NPC visibility, native error, physical merchant catalog and first-test corrections |
 | [RELEASE-READINESS.md](RELEASE-READINESS.md) | Historical 1.0.0 repository audit and publication prerequisites |
 | [../docs/DEVELOPING.md](../docs/DEVELOPING.md) | Developer setup and required gates |
 | [../docs/CI-CD.md](../docs/CI-CD.md) | Actual release pipeline and main-branch provenance |
@@ -18,9 +67,11 @@ engineering evidence, historical decisions and current status; it is not the pla
 
 ## Latest measured work
 
-- [STEAM-FRAME-FIRST-HARDWARE.md](STEAM-FRAME-FIRST-HARDWARE.md): first standalone
-  log review, XR texture churn, main-menu discovery, diagnostic costs and the
-  performance evidence needed from the next run.
+- [STEAM-FRAME-FIRST-HARDWARE.md](STEAM-FRAME-FIRST-HARDWARE.md): standalone
+  XR texture churn, late main-menu discovery, diagnostic cost and the remaining
+  crash/performance evidence needed from the next Frame run.
+- [TOWN-MP-583.md](TOWN-MP-583.md): latest two-client NPC evidence and the
+  Build 583 merchant, enchantress and duplicate-stand corrections to verify.
 - [REFACE-556.md](REFACE-556.md): combat-log and control-board laser-release
   turns with the existing short window animation and board pose stream.
 - [STORY-555.md](STORY-555.md): build 554 evidence of a completed story retained
@@ -29,6 +80,20 @@ engineering evidence, historical decisions and current status; it is not the pla
   and rewards, to reproduce post-quest continuation windows.
 - [WINDOWS-553.md](WINDOWS-553.md): level-up reveal input, map confirmations,
   semantic message continuation, full window-family audit and hardware checklist.
+- [research/TOWN-SERVICES-FIRST-VARIANT.md](research/TOWN-SERVICES-FIRST-VARIANT.md): integrated scope, evidence and first hardware checklist.
+- [research/TOWN-SERVICES-FINAL-AUDIT.md](research/TOWN-SERVICES-FINAL-AUDIT.md): compiled scope comparison with the pre-feature source and historical guard baseline.
+- [research/TOWN-SERVICES-RUNTIME-ASSETS.md](research/TOWN-SERVICES-RUNTIME-ASSETS.md): rig, LOD, animation, materials and separate bundle contract.
+- [research/TOWN-SERVICES-SYNC.md](research/TOWN-SERVICES-SYNC.md): original-widget publication, inert observers, delta transport and lifecycle.
+- [research/TOWN-NATIVE-ART.md](research/TOWN-NATIVE-ART.md): independently owned original sprite loads for inactive remote templates.
+- [research/TOWN-SERVICES-INTERACTION-VALIDATION.md](research/TOWN-SERVICES-INTERACTION-VALIDATION.md): real Unity interaction assertions and compiled negative controls.
+- [research/TOWN-SERVICES-MIRROR-VALIDATION.md](research/TOWN-SERVICES-MIRROR-VALIDATION.md): original/observer pixel comparisons, lifecycle tests and measured CPU workload.
+- [research/TOWN-SERVICES-MESH-GENERATION.md](research/TOWN-SERVICES-MESH-GENERATION.md): paid model comparison, settings, costs and chosen originals.
+- [research/TOWN-SERVICES-MESH-REPAIR.md](research/TOWN-SERVICES-MESH-REPAIR.md): source-preserving material and UV seam repairs.
+- [research/TOWN-SERVICES-CONCEPT.md](research/TOWN-SERVICES-CONCEPT.md): full concept and distinction from the first runtime variant.
+- [research/TOWN-SERVICES-ART.md](research/TOWN-SERVICES-ART.md): six verified original PNG exports from the supplied full GH_Data, with reproducible provenance.
+- [research/TOWN-SERVICES-GENERATED-REFERENCES.md](research/TOWN-SERVICES-GENERATED-REFERENCES.md): explicitly requested gpt-image-2 modelling sheets and exact per-NPC prompts, separate from original assets.
+- [research/TOWN-SERVICES-FUNCTIONS.md](research/TOWN-SERVICES-FUNCTIONS.md): source-grounded native feature coverage.
+- [research/TOWN-SERVICES-INTEGRATION.md](research/TOWN-SERVICES-INTEGRATION.md): environment placement, NPC assets, multiplayer and lifecycle design.
 
 - [OPTIONS-537.md](OPTIONS-537.md): preserve native menu focus and synchronize the VR toggle immediately.
 - [CLOSE-537.md](CLOSE-537.md): native close-event ordering and explicit reopen during pending modal release.

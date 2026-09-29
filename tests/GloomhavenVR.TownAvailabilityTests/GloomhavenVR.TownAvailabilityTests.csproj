@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="../../src/GloomhavenVR/WorldUI/TownServices/TownServiceAvailability.cs" Link="Production/TownServiceAvailability.cs" />
+    <Compile Include="../../src/GloomhavenVR/WorldUI/TownServices/TownServiceTutorialPatches.cs" Link="Production/TownServiceTutorialPatches.cs" />
+  </ItemGroup>
+</Project>

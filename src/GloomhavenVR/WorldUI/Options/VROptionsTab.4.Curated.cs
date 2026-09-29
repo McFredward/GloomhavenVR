@@ -925,6 +925,12 @@ internal static partial class VROptionsTab
                         // "h_vr_o_2dmap" for the sentence that explains it, exactly like
                         // vr_o_sky / h_vr_o_sky two headings up.
                         new("Rig", "Vanilla2DMap", "vr_o_2dmap"),
+                        // Town residents only exist in the 3D map room. Keep their
+                        // persisted bool beside the map choice, using the normal
+                        // on/off switch and the same dependency fold as map controls.
+                        new("WorldUI", "ImmersiveTownServices", "vr_o_immersivetown"),
+                        new("WorldUI", "ImmersiveTownSpeech", "vr_o_townspeech"),
+                        new("WorldUI", "ImmersiveTownSoundEffects", "vr_o_townsfx"),
                         // The map room's card hand, DIRECTLY under the switch that decides whether
                         // there is a room. It folds under Vanilla2DMap == Off
                         // (VROptionsTab.8.Dependencies.cs), so it is only ever on screen while

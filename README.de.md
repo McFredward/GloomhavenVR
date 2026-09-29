@@ -63,8 +63,8 @@ gleich macht. Leg sie zurück, dann setzt sie sich wieder auf ein Feld.
   Entscheidungs-Schublade, alles auf einem Tisch an einer Stange, den du hinstellst, wo du willst.
 - Greif ins Szenario hinein. Heb eine Miniatur hoch, um ihren nächsten Zug zu lesen, oder pack das
   ganze Brett mit beiden Händen, um es zu ziehen, zu drehen und zu zoomen.
-- Die Kampagnenkarte. Zwischen den Szenarien stehst du in einem Gewölbe über der Karte
-  von Gloomhaven, und die Aufträge hängen daneben an der Wand.
+- Eine 3D-Kampagnenkarte. Die Karte liegt im Gewölbe auf einem Tisch; die Questliste schwebt
+  über dessen rechter Kante.
 - Vollwertiger VR-Mehrspieler. Masken, Hände, Bretter und zeigende Finger sehen alle anderen auch.
   Wer kein Headset hat, spielt in derselben Partie am flachen Bildschirm mit.
 - Zwei Umgebungen, die für die Mod gebaut wurden: ein Keller drinnen und ein Nachtwald draußen,
@@ -119,9 +119,8 @@ Fingerspitze an.
   <video src="https://github.com/user-attachments/assets/dadbad52-bde7-48bc-9518-b3a831096550" width="720" controls muted loop></video>
 </p>
 
-Zwischen den Szenarien stehst du in einem Gewölbe, und die Karte von Gloomhaven liegt ausgebreitet
-auf dem Tisch vor dir. Die Aufträge hängen an der Wand, wo du sie lesen kannst, und wenn einer
-freigeschaltet wird, leuchtet der ganze Raum auf.
+Wenn die 3D-Kampagnenkarte aktiv ist, liegt die Karte von Gloomhaven im Gewölbe auf dem Tisch vor
+dir. Die Questliste schwebt über der rechten Tischkante.
 
 <p align="center">
   <img src="docs/img/divider-small.png" width="340" alt="">
@@ -129,9 +128,9 @@ freigeschaltet wird, leuchtet der ganze Raum auf.
 
 ## Umgebungen
 
-Ein Keller drinnen und ein Nachtwald draußen, beide für die Mod gebaut. Sie haben Feuerschein,
-Umgebungsklang, ein Sternfeld aus einem echten Katalog, und das, was ab und zu passiert, wenn man
-lange genug herumsteht.
+Ein Keller drinnen und ein Nachtwald draußen, beide für die Mod gebaut. Beide haben Feuerschein
+und Umgebungsklang; der Nachtwald zeigt ein Sternfeld aus einem echten Katalog. Wer lange genug
+bleibt, bemerkt vielleicht noch etwas anderes.
 
 Dafür gibt es eine Einstellung mit fünf Möglichkeiten. Derselbe Tisch, dasselbe Szenario in allen.
 Die beiden Räume oben sind die, die für die Mod gebaut wurden. Die anderen drei sind der Himmel des
@@ -152,6 +151,31 @@ Bewuchs hervor, Licht hebt die Grundhelligkeit, Dunkelheit verfinstert den Mond.
   <img src="docs/img/env-elements.jpg" width="720" alt="Dieselbe Kamera mit ausgeschaltetem und mit eingeschaltetem Element"><br>
   <i>Dieselbe Kamera, links Element aus, rechts an.</i>
 </p>
+
+<p align="center">
+  <img src="docs/img/divider-small.png" width="340" alt="">
+</p>
+
+## Immersive NPC-Interaktionen
+
+Bei aktiven immersiven NPCs stehen freigeschaltete Stadtbewohner dauerhaft an ihren Ständen um
+die 3D-Karte.
+
+<table>
+<tr>
+<td width="33%" align="center"><img src="docs/img/town-merchant.png" width="230" alt="Händler und Warenschrank"></td>
+<td width="33%" align="center"><img src="docs/img/town-enchantress.png" width="230" alt="Verzauberin an ihrem Stand"></td>
+<td width="33%" align="center"><img src="docs/img/town-priestess.png" width="230" alt="Priesterin an ihrem Altar"></td>
+</tr>
+<tr>
+<td><b>Händler:</b> Nimm eine Ware aus seinem Schrank zum Kaufen oder aus deinem Gegenstandsfächer zum Verkaufen. Leg sie in seine Hand und bestätige.</td>
+<td><b>Verzauberin:</b> Gib ihr eine Fähigkeitenkarte in die Hand und wähle die Stelle aus, die du verbessern möchtest.</td>
+<td><b>Priesterin:</b> Leg den Geldbeutel aus deiner Hand zum Spenden in ihre Schale.</td>
+</tr>
+</table>
+
+Die immersiven Stadt-NPCs sind standardmäßig aktiv. Für die ursprünglichen Fenster schalte sie unter
+**VR Optionen ▸ Umgebung & Ton ▸ Kampagnenkarte** aus. Bei aktiver 2D-Karte ist diese Einstellung ausgeblendet.
 
 <p align="center">
   <img src="docs/img/divider-small.png" width="340" alt="">
@@ -218,8 +242,9 @@ standalone · zwei getrackte Controller · Room-Scale. Entwickelt wurde die Mod 
 - **Demeo** (Resolution Games), dessen Interaktionsmodell diese Mod folgt. Es werden weder Assets
   noch Code daraus verwendet.
 
-**Lizenz: GPL-3.0**, siehe [LICENSE](LICENSE). Die Mod liefert nur eigenen Code und eigene
-lizenzierte Grafik aus. Keine Spieldateien, keine Spiel-Assets, keine dekompilierten Quellen.
+**Lizenz: GPL-3.0**, siehe [LICENSE](LICENSE). Die Mod liefert eigenen Code und lizenzierte
+Assets aus; Rechte Dritter stehen in [packaging/THIRD-PARTY.txt](packaging/THIRD-PARTY.txt).
+Spieldateien, Spiel-Assets und dekompilierte Quellen sind nicht enthalten.
 
 Nicht verbunden mit Flaming Fowl Studios, Twin Sails Interactive, Asmodee oder Cephalofair Games.
 Gloomhaven und die zugehörigen Grafiken gehören ihren Eigentümern.

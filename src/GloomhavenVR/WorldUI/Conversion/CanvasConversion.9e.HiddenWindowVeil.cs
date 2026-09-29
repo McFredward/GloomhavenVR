@@ -220,6 +220,40 @@ internal static partial class CanvasConversion
         return own;
     }
 
+    /// <summary>Release stale hidden-window ownership from pooled graphics below one explicitly
+    /// reparented object. ItemCardUI instances survive their flat window and may be reused by the
+    /// merchant fan in the same frame; waiting for the old panel's next LateUpdate leaves their
+    /// front culled long enough to expose only the brown physical backing. This is deliberately a
+    /// caller-supplied subtree seam, not a scene renderer sweep.</summary>
+    internal static int ReleaseHiddenWindowVeilOwnership(Transform root)
+    {
+        if (root == null) return 0;
+        int released = 0;
+        foreach (HiddenWindowVeilState state in HiddenWindowVeils.Values)
+        {
+            for (int w = 0; w < state.Veiled.Count; w++)
+            {
+                VeiledWindow veil = state.Veiled[w];
+                for (int i = veil.Renderers.Count - 1; i >= 0; i--)
+                {
+                    CanvasRenderer cr = veil.Renderers[i];
+                    Graphic? graphic = i < veil.Graphics.Count ? veil.Graphics[i] : null;
+                    if (cr == null || graphic == null || !graphic.transform.IsChildOf(root))
+                        continue;
+                    // Never lift a renderer while it still belongs to this hidden window. The
+                    // seam only resolves stale ownership after the native pool has reparented it.
+                    if (veil.Window != null && graphic.transform.IsChildOf(veil.Window.transform))
+                        continue;
+                    ReleaseRenderer(cr, graphic);
+                    if (i < veil.Graphics.Count) veil.Graphics.RemoveAt(i);
+                    veil.Renderers.RemoveAt(i);
+                    released++;
+                }
+            }
+        }
+        return released;
+    }
+
     /// <summary>Per-frame, per-panel, from <see cref="LateTick"/> BEFORE the reveal flip, so the
     /// frame a panel becomes visible in is already veiled where the game says it should be.</summary>
     private static void TickHiddenWindowVeil(ConvertedPanel panel)
@@ -314,11 +348,29 @@ internal static partial class CanvasConversion
     /// Cost: one GetAlpha and one cull read per renderer, writes only on change.</summary>
     private static void ReassertVeil(HiddenWindowVeilState st, VeiledWindow v)
     {
-        for (int i = 0; i < v.Renderers.Count; i++)
+        for (int i = v.Renderers.Count - 1; i >= 0; i--)
         {
             CanvasRenderer cr = v.Renderers[i];
-            if (cr == null)
+            Graphic? g = i < v.Graphics.Count ? v.Graphics[i] : null;
+            if (cr == null || g == null)
+            {
+                if (i < v.Graphics.Count) v.Graphics.RemoveAt(i);
+                v.Renderers.RemoveAt(i);
                 continue;
+            }
+            // ItemCardUI is pooled. The merchant return path reparents its FaceCanvas out of
+            // UI Item Confirmation Box and into the wrist fan without recreating the renderer.
+            // A veil belongs to a WINDOW SUBTREE, not to renderer identity for life: retaining
+            // that cull after the reparent made returned fan cards appear as grey slabs until the
+            // settled re-read happened hundreds of frames later. Release the hold in this very
+            // LateUpdate, before the fan renders, while any enclosing veil keeps its own hold.
+            if (v.Window == null || !g.transform.IsChildOf(v.Window.transform))
+            {
+                ReleaseRenderer(cr, g);
+                v.Graphics.RemoveAt(i);
+                v.Renderers.RemoveAt(i);
+                continue;
+            }
             float a = cr.GetAlpha();
             if (a != 0f)
             {

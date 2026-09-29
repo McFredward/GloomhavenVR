@@ -1,0 +1,11 @@
+{
+  "repository": "nvidia/Kimodo-SOMA-RP-v1.1",
+  "revision": "6c9233af1180b8151e3c4703477104af5dce9dd5",
+  "files": {
+    "LICENSE": "11ccdcb47db87ac30b63765b5e5154403026c4fbb52c19919d99d912ec454e19",
+    "config.yaml": "905664ad05779b0e28c391b85dc81c9de166418bd5f471ef605f75ab746ce391",
+    ".gitattributes": "11ad7efa24975ee4b0c3c3a38ed18737f0658a5f75a0a96787b576a78a023361",
+    "README.md": "9854ebe176e78755a44cc4a74ae842c2a2874f24aa94f28f04929a0cc3d27b09",
+    "model.safetensors": "ef0a0ca45a6089ab4532dde609785771ae3f38755b4ae6cf314b0213e07cd4a3"
+  }
+}

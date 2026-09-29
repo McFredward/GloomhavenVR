@@ -295,6 +295,9 @@ internal static partial class VROptionsTab
                     Entries = new[]
                     {
                         new BoardRef("WorldUI", "MapRoomHand", perBoard: false),
+                        new BoardRef("WorldUI", "ImmersiveTownServices", perBoard: false),
+                        new BoardRef("WorldUI", "ImmersiveTownSpeech", perBoard: false),
+                        new BoardRef("WorldUI", "ImmersiveTownSoundEffects", perBoard: false),
                         new BoardRef("WorldUI", "TravelButtonOffsetXWindowHeights", perBoard: false),
                         new BoardRef("WorldUI", "TravelButtonOffsetYWindowHeights", perBoard: false),
                     },
