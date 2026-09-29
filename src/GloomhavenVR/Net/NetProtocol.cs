@@ -547,7 +547,19 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 584;
+    public const ushort ModBuild = 585;
+
+    // ModBuild 585 — reduce measured Steam Frame main-thread work without
+    // changing presentation cadence or interaction order. Canvas flattening
+    // skips the angle calculation only for the exact identity quaternion.
+    // Town residents avoid duplicate Acquire/parent writes; catalog/token
+    // presentation reuses stable renderers and corners and skips unchanged
+    // Unity property writes. Wall-cache refreshes reuse a private renderer
+    // buffer and read accepted bounds once. Nested hand timing separates pose
+    // and individual interactors for the next Debug hardware run. These are
+    // source-proven reductions, not measured headset speedups; the supplied
+    // Frame run has no Valve GPU performance CSV. No wire or asset change.
+    // Evidence: .planning/STEAM-FRAME-SECOND-HARDWARE.md.
 
     // ModBuild 584 — integrate the NPC feature into the sole dev line.
     // The complete Build 583 town implementation and both required town bundles

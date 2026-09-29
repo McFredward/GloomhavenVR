@@ -67,6 +67,8 @@ engineering evidence, historical decisions and current status; it is not the pla
 
 ## Latest measured work
 
+- [STEAM-FRAME-SECOND-HARDWARE.md](STEAM-FRAME-SECOND-HARDWARE.md): Build 584
+  eye-scale comparison, measured CPU costs and the Build 585 follow-up.
 - [STEAM-FRAME-FIRST-HARDWARE.md](STEAM-FRAME-FIRST-HARDWARE.md): standalone
   XR texture churn, late main-menu discovery, diagnostic cost and the remaining
   crash/performance evidence needed from the next Frame run.

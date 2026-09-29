@@ -1,6 +1,6 @@
 # State — where the project stands
 
-**Updated 2026-09-29: dev 1.1.0 / ModBuild 584, unified hardware candidate.**
+**Updated 2026-09-29: dev 1.1.0 / ModBuild 585, Frame CPU candidate.**
 The complete immersive NPC work through Build 583 and the Steam Frame changes
 through dev Build 559 now share the sole `dev` integration branch. Future NPC and
 Frame work belongs on `dev`. The NPC presentation remains a two-client hardware
@@ -13,6 +13,11 @@ after increasing eye resolution is not root-caused; see
 controller model and render foveation also remain unimplemented; feasibility is
 recorded in [STEAM-FRAME.md](STEAM-FRAME.md) and
 [STEAM-FRAME-FOVEATION.md](STEAM-FRAME-FOVEATION.md).
+The second Frame run found little frame-time improvement below eye scale 1.00;
+the maintainer reports unacceptable image quality there. Build 585 removes
+source-proven CPU work and adds hand-step attribution, awaiting another headset
+comparison and Valve's GPU performance CSV. See
+[STEAM-FRAME-SECOND-HARDWARE.md](STEAM-FRAME-SECOND-HARDWARE.md).
 
 The file this replaces had gone 168 builds
 stale while still saying "read this first"; it is kept as `STATE-ARCHIVE-through-2026-08.md` for
@@ -26,6 +31,14 @@ change per build) → this file (where things stand and what is owed) → the bu
 ---
 
 ## 1. Position
+
+- **dev / 1.1.0 / ModBuild 585 (Frame CPU candidate):** reduce redundant
+  canvas-flatten, town-resident/catalog/token and wall-cache work without
+  changing visual cadence or interaction order. Split the hand timing by pose
+  and interactor to identify its next bottleneck. Build 584 hardware evidence
+  shows similar scenario frame p50 at eye scale 0.80 and 1.00 despite lower
+  picture quality at 0.80; Valve GPU time and Build 585 headset speedup remain
+  unmeasured. See [STEAM-FRAME-SECOND-HARDWARE.md](STEAM-FRAME-SECOND-HARDWARE.md).
 
 - **dev / 1.1.0 / ModBuild 584 (hardware candidate):** merge all NPC work through
   Build 583 with dev's Build 559 Frame changes. The player can test both on one
