@@ -51,6 +51,8 @@ public static class Probe
     }
 }
 namespace GloomhavenVR.Core { internal static class VRLog { public static bool WantsDebug => false; public static void Note(string a, string b) { } public static void Warn(string a,string b) {} public static void Debug(string a,string b) {} } }
+// Production timing scopes do not change the interaction fixture's behavior.
+namespace GloomhavenVR.Core { internal static class PerfMonitor { internal static IDisposable Scope(string _) => EmptyScope.Instance; private sealed class EmptyScope : IDisposable { internal static readonly EmptyScope Instance = new(); public void Dispose() { } } } }
 namespace GloomhavenVR.WorldUI { internal static class TownServiceTempleOffering { internal static void TickApproach() {} } }
 namespace GloomhavenVR.Core
 { internal static class Loc { internal static event Action? OnChanged { add { } remove { } } internal static string Mod(string key) => key; } }
