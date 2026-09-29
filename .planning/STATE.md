@@ -1,6 +1,6 @@
 # State — where the project stands
 
-**Updated 2026-09-28: dev 1.0.9 / ModBuild 558, Steam Frame tutorial identity.**
+**Updated 2026-09-29: dev 1.0.9 / ModBuild 559, Steam Frame standalone triage.**
 The complete NPC development is isolated on `feature/immersive-town-services` for a
 future release of at least 1.1.0. Builds 538–545 and 547–552 remain reserved for that branch.
 The tutorial now distinguishes an explicit Steam Frame identity from SteamVR's
@@ -8,6 +8,8 @@ Oculus Touch compatibility mapping; the true Frame controller model and
 foveated rendering remain unimplemented. Feasibility:
 [STEAM-FRAME.md](STEAM-FRAME.md),
 [STEAM-FRAME-FOVEATION.md](STEAM-FRAME-FOVEATION.md).
+The first standalone hardware-log review and remaining crash/performance evidence
+are in [STEAM-FRAME-FIRST-HARDWARE.md](STEAM-FRAME-FIRST-HARDWARE.md).
 Earlier review and validation: [BARS-CREATOR-557.md](BARS-CREATOR-557.md), building on
 [REFACE-556.md](REFACE-556.md),
 [STORY-555.md](STORY-555.md) and
@@ -26,6 +28,14 @@ change per build) → this file (where things stand and what is owed) → the bu
 ---
 
 ## 1. Position
+
+- **dev / 1.0.9 / ModBuild 559:** late additive main-menu loading re-arms
+  bounded VR Options row discovery; successful injection is visible at normal
+  log level. The historical eye-reach scene sweep is Debug-only after costing
+  187.3 ms on the Frame. Distinct live eye-resolution requests log before XR
+  texture reallocation. Bilingual Steam Frame standalone installation is in
+  the player docs. The native resolution-change exit is not yet root-caused;
+  source, log and next-measurement details are in the first hardware review.
 
 - **dev / 1.0.9 / ModBuild 558:** the controls tutorial prioritizes an explicitly
   identified Steam Frame HMD/controller over Touch-compatible bindings and avoids

@@ -925,6 +925,13 @@ internal static class RenderQuality
         // write every single frame — on exactly the runtimes where it buys nothing.
         if (Mathf.Abs(_lastLoggedEyeScale - wanted) < 0.0005f)
             return;
+        // Keep the last requested value in ordinary player logs too: a native XR/driver exit can
+        // stop Unity before Debug-tier readback or a managed exception is emitted. This runs only
+        // on a distinct user setting, never from the per-frame assertion path.
+        VRLog.Note("Rig", $"Eye resolution live change requested: "
+                          + $"{XRSettings.eyeTextureResolutionScale:F2}x -> {wanted:F2}x "
+                          + $"(eye target before change {XRSettings.eyeTextureWidth}x"
+                          + $"{XRSettings.eyeTextureHeight}); XR textures may be reallocated.");
         XRSettings.eyeTextureResolutionScale = wanted;
         _lastLoggedEyeScale = wanted;
         VRLog.Info("Rig", $"Eye render resolution scale asserted → {wanted:F2} " +

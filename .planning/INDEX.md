@@ -1,6 +1,6 @@
 # Planning index
 
-Updated 2026-09-24 for dev 1.0.8 / build-556 release-facing animation. This directory holds internal
+Updated 2026-09-29 for dev 1.0.9 / build-559 Steam Frame triage. This directory holds internal
 engineering evidence, historical decisions and current status; it is not the player manual.
 
 ## Current entry points
@@ -18,6 +18,9 @@ engineering evidence, historical decisions and current status; it is not the pla
 
 ## Latest measured work
 
+- [STEAM-FRAME-FIRST-HARDWARE.md](STEAM-FRAME-FIRST-HARDWARE.md): first standalone
+  log review, XR texture churn, main-menu discovery, diagnostic costs and the
+  performance evidence needed from the next run.
 - [REFACE-556.md](REFACE-556.md): combat-log and control-board laser-release
   turns with the existing short window animation and board pose stream.
 - [STORY-555.md](STORY-555.md): build 554 evidence of a completed story retained

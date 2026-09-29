@@ -172,10 +172,26 @@ not yours.
 
 ## Requirements and install
 
-**Gloomhaven (Digital)** for PC (Steam, GOG, or Epic Games Store) · Windows · a PC-VR headset
-with two tracked controllers · room-scale. It was developed on a Quest 3 over Virtual Desktop.
+**Gloomhaven (Digital)** from Steam, GOG, or Epic Games Store · Windows PC VR or Steam Frame
+standalone · two tracked controllers · room-scale. It was developed on a Quest 3 over Virtual Desktop.
 
 [→ Install guide](INSTALL.md) · [→ Playing & controls](docs/PLAYING.md)
+
+### Steam Frame standalone
+
+1. Install Gloomhaven from your Steam library on the Frame, then switch to Desktop Mode.
+2. In Chrome or another installed browser, download the **Windows x64**
+   [BepInEx 5.4.23.5 archive](https://github.com/BepInEx/BepInEx/releases/tag/v5.4.23.5)
+   and the latest [GloomhavenVR release archive](https://github.com/McFredward/GloomhavenVR/releases/latest).
+   You can open both ZIP files in Dolphin.
+3. Extract the **contents of both archives** into
+   `/home/steamos/.local/share/Steam/steamapps/common/Gloomhaven`, the folder containing `GH.exe`.
+   Merge the `BepInEx` folders when prompted.
+4. In Steam, open Gloomhaven → **Properties → General → Launch Options** and enter
+   `WINEDLLOVERRIDES="winhttp=n,b" %command%`.
+5. Launch the game. On the first launch it may close while applying the mod's rendering setup;
+   automatic relaunch may not work on the Frame.
+6. If it closes, launch the game again manually.
 
 <p align="center">
   <img src="docs/img/divider-small.png" width="340" alt="">

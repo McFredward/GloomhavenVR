@@ -523,7 +523,19 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 558;
+    public const ushort ModBuild = 559;
+
+    // ModBuild 559 — first Steam Frame standalone log triage and late menu discovery.
+    // A main menu loaded additively after the bounded discovery window now re-arms
+    // its twelve searches on the native MainMenu sceneLoaded edge; the menu row's
+    // successful injection has one concise ordinary-level report. The historical
+    // eye-reach scene census, measured at 187.3 ms across one Frame options tap,
+    // runs only at Debug. A distinct live eye-resolution request is logged before
+    // Unity may recreate XR textures, so a native exit leaves useful context.
+    // Steam Frame standalone installation is documented in both languages.
+    // The resolution-change native exit is correlated with XR texture churn,
+    // not yet root-caused or claimed fixed. No wire layout or asset change.
+    // Evidence: .planning/STEAM-FRAME-FIRST-HARDWARE.md.
 
     // ModBuild 558 — Steam Frame tutorial identity and feasibility follow-up.
     // Explicit Frame HMD/controller identity wins over SteamVR's Touch emulation;

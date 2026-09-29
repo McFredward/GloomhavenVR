@@ -14,12 +14,12 @@
 
 | | |
 |---|---|
-| **Game** | Gloomhaven (digital) for PC — Steam, GOG or Epic Games Store; tested with 1.1.8307.0 |
-| **PC** | Windows, a PC-VR headset, two tracked controllers with thumbsticks |
+| **Game** | Gloomhaven (digital) — Steam, GOG or Epic Games Store; tested with 1.1.8307.0 |
+| **VR setup** | Windows PC VR or Steam Frame standalone; two tracked controllers with thumbsticks |
 | **Loader** | BepInEx 5.4.23.5 (x64) — step 1 installs it, once |
 
-> **This is a PC-VR mod.** The game runs on your PC and you stream or tether the headset to it, like
-> any other PC-VR title. Developed and played on a **Quest 3 over Virtual Desktop**.
+> For PC VR, the game runs on your Windows PC and streams or tethers to your headset. Steam Frame
+> can also run the Windows game locally through Proton; see the separate steps below.
 
 <p align="center">
   <img src="docs/img/divider-small.png" width="340" alt="">
@@ -77,6 +77,23 @@ The mod changes the rendering settings in `GH_Data/boot.config` and keeps the or
 `boot.config.gloomhavenvr-backup`. If the game ever refuses to start, copy that back over
 `boot.config`.
 
+## Steam Frame standalone
+
+1. Install Gloomhaven from the Steam library on the Frame. Switch to Desktop Mode.
+2. In Chrome or another installed browser, download **`BepInEx_win_x64_5.4.23.5.zip`** from the
+   [BepInEx release](https://github.com/BepInEx/BepInEx/releases/tag/v5.4.23.5) and
+   **`GloomhavenVR-<version>.zip`** from the [mod releases](https://github.com/McFredward/GloomhavenVR/releases/latest).
+   Use the Windows x64 BepInEx archive because Gloomhaven itself runs as a Windows game under Proton.
+3. Open both ZIP files in Dolphin and extract their **contents** into
+   `/home/steamos/.local/share/Steam/steamapps/common/Gloomhaven` (the folder with `GH.exe`).
+   Merge the `BepInEx` folders. If you installed the game in another Steam library, use
+   **Manage → Browse local files** to find its actual folder.
+4. In Steam, open **Gloomhaven → Properties → General → Launch Options** and enter exactly
+   `WINEDLLOVERRIDES="winhttp=n,b" %command%`.
+5. Launch the game. The first launch may close while the mod applies its rendering setup; automatic
+   relaunch may not work on the Frame.
+6. If it closes, start the game again manually.
+
 <p align="center">
   <img src="docs/img/divider-small.png" width="340" alt="">
 </p>
@@ -102,9 +119,8 @@ Press Update and it downloads (~70 MB), swaps the files, closes the game and sta
 
 ## Settings
 
-You can change everything from inside the headset. Open the game's own **Options** window, from the
-main menu or the pause menu, and pick the **VR Options** tab. Changes apply straight away and are
-saved for you.
+You can change everything from inside the headset. Open the separate **VR Options** entry from the
+main menu or pause menu. Changes apply straight away and are saved for you.
 
 | Tab | What is in it |
 |---|---|

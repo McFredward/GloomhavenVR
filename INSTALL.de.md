@@ -14,13 +14,13 @@
 
 | | |
 |---|---|
-| **Spiel** | Gloomhaven (digital) für den PC — Steam, GOG oder Epic Games Store; getestet mit 1.1.8307.0 |
-| **PC** | Windows, ein PC-VR-Headset, zwei getrackte Controller mit Thumbsticks |
+| **Spiel** | Gloomhaven (digital) — Steam, GOG oder Epic Games Store; getestet mit 1.1.8307.0 |
+| **VR-Aufbau** | Windows-PC-VR oder Steam Frame standalone; zwei getrackte Controller mit Thumbsticks |
 | **Loader** | BepInEx 5.4.23.5 (x64) — Schritt 1 installiert ihn, einmalig |
 
-> **Das ist eine PC-VR-Mod.** Das Spiel läuft auf deinem PC, und du streamst das Headset dorthin oder
-> hängst es per Kabel an — wie bei jedem anderen PC-VR-Titel. Entwickelt und gespielt auf einer
-> **Quest 3 über Virtual Desktop**.
+> Bei PC-VR läuft das Spiel auf deinem Windows-PC und wird zum Headset gestreamt oder per Kabel
+> übertragen. Auf der Steam Frame kann das Windows-Spiel auch direkt über Proton laufen; dafür
+> gelten die gesonderten Schritte unten.
 
 <p align="center">
   <img src="docs/img/divider-small.png" width="340" alt="">
@@ -78,6 +78,24 @@ Die Mod ändert Rendering-Einstellungen in `GH_Data/boot.config` und legt das Or
 `boot.config.gloomhavenvr-backup` daneben. Falls das Spiel irgendwann gar nicht mehr startet, kopier
 es zurück über `boot.config`.
 
+## Steam Frame standalone
+
+1. Installiere Gloomhaven aus der Steam-Bibliothek auf der Frame. Wechsle in den Desktop-Modus.
+2. Lade in Chrome oder einem anderen installierten Browser **`BepInEx_win_x64_5.4.23.5.zip`** vom
+   [BepInEx-Release](https://github.com/BepInEx/BepInEx/releases/tag/v5.4.23.5) und
+   **`GloomhavenVR-<version>.zip`** von den [Mod-Releases](https://github.com/McFredward/GloomhavenVR/releases/latest)
+   herunter. Nimm das Windows-x64-Archiv von BepInEx, weil Gloomhaven unter Proton als Windows-Spiel läuft.
+3. Öffne beide ZIP-Dateien in Dolphin und entpacke ihren **Inhalt** nach
+   `/home/steamos/.local/share/Steam/steamapps/common/Gloomhaven` (den Ordner mit `GH.exe`).
+   Führe die `BepInEx`-Ordner zusammen. Falls du das Spiel in einer anderen Steam-Bibliothek
+   installiert hast, finde seinen Ordner über **Verwalten → Lokale Dateien durchsuchen**.
+4. Öffne in Steam **Gloomhaven → Eigenschaften → Allgemein → Startoptionen** und trage genau
+   `WINEDLLOVERRIDES="winhttp=n,b" %command%` ein.
+5. Starte das Spiel. Beim ersten Start kann es sich schließen, während die Mod ihre
+   Rendering-Einstellungen übernimmt; der automatische Neustart klappt auf der Frame möglicherweise
+   nicht.
+6. Wenn es sich schließt, starte das Spiel selbst ein zweites Mal.
+
 <p align="center">
   <img src="docs/img/divider-small.png" width="340" alt="">
 </p>
@@ -103,9 +121,8 @@ wieder. **Deine Spielstände, deine Kampagne und deine Einstellungen bleiben una
 
 ## Einstellungen
 
-Du kannst alles im Headset einstellen. Öffne das **Optionen**-Fenster des Spiels, aus dem Hauptmenü
-oder dem Pausenmenü, und geh auf den Reiter **VR Optionen**. Änderungen wirken sofort und werden
-gespeichert.
+Du kannst alles im Headset einstellen. Öffne den separaten Eintrag **VR Optionen** im Haupt- oder
+Pausenmenü. Änderungen wirken sofort und werden gespeichert.
 
 | Reiter | Was drinsteht |
 |---|---|

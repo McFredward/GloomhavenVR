@@ -459,7 +459,7 @@ internal static class VRMenuEntry
         if (!_loggedMain)
         {
             _loggedMain = true;
-            VRLog.Note("WorldUI", $"VR main-menu entry ready beside '{donor.name}' "
+            VRLog.Note("WorldUI", $"VR is a MAIN-MENU entry ready beside '{donor.name}' "
                 + $"(label '{Loc.Mod("vr_options")}').");
         }
     }
