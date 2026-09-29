@@ -156,6 +156,9 @@ jobs:
       - name: CI proof reuse regression tests
         run: python3 -m unittest discover -s tests -p 'test_ci_proof_reuse.py'
 
+      - name: Parallel suite runner regression tests
+        run: python3 -m unittest discover -s tests -p 'test_parallel_test_suites.py'
+
       - name: Release upload recovery regression tests
         run: python3 -m unittest discover -s tests -p 'test_release_upload.py'
 
@@ -356,64 +359,11 @@ jobs:
       # These production-source harnesses provide their own Unity API substitutes and
       # can execute on a hosted runner; byte-level wire vectors still require the real game.
       - name: Native presentation regression harnesses
-        run: |
-          bash scripts/card-bindings-tests.sh
-          bash scripts/native-playback-tests.sh
-          bash scripts/board-refresh-tests.sh
-          bash scripts/card-loss-modal-tests.sh
-          bash scripts/map-flow-tests.sh
-          bash scripts/map-button-tests.sh
-          python3 tests/GloomhavenVR.AoeControlTests/run.py
-          python3 tests/GloomhavenVR.MapTooltipTransportTests/run.py
-          python3 tests/GloomhavenVR.MapTooltipTests/run.py
-          python3 tests/GloomhavenVR.CityEventButtonTests/run.py
-          bash scripts/round-card-tests.sh
-          bash scripts/burn-layout-tests.sh
-          bash scripts/burn-replay-tests.sh
-          bash scripts/pick-tray-tests.sh
-          bash scripts/mr-backing-tests.sh
-          bash scripts/mr-backing-materialise-tests.sh
-          bash scripts/mr-backing-animation-tests.sh
-          bash scripts/card-scene-lifetime-tests.sh
-          bash scripts/card-pool-lifetime-tests.sh
-          bash scripts/burn-material-ownership-tests.sh
-          bash scripts/permanent-quest-log-tests.sh
-          bash scripts/guildmaster-table-tests.sh
-          bash scripts/mr-scenario-tests.sh
-          bash scripts/guildmaster-room-tests.sh
-          bash scripts/map-icon-picking-tests.sh
-          bash scripts/remote-burn-sequencing-tests.sh
-          bash scripts/burn-completion-tests.sh
-          bash scripts/item-burn-tests.sh
-          bash scripts/item-appearance-tests.sh
-          bash scripts/flight-timing-tests.sh
-          bash scripts/figure-hold-tests.sh
-          bash scripts/self-update-dialog-tests.sh
-          bash scripts/native-video-tests.sh
-          bash scripts/reward-showcase-tests.sh
-          bash scripts/modal-close-tests.sh
-          bash scripts/story-completion-tests.sh
-          bash scripts/map-story-lifecycle-tests.sh
-          bash scripts/message-continuation-tests.sh
-          bash scripts/announcement-tests.sh
-          bash scripts/dialog-surface-tests.sh
-          bash scripts/vr-options-tests.sh
-          bash scripts/scenario-win-cheat-tests.sh
-          bash scripts/vr-options-close-tests.sh
-          bash scripts/reward-pose-tests.sh
-          bash scripts/conversion-rollback-tests.sh
-          bash scripts/panel-material-tests.sh
-          bash scripts/panel-ink-tests.sh
-          bash scripts/banner-pose-tests.sh
-          bash scripts/video-playback-tests.sh
-          bash scripts/hint-tests.sh
-          bash scripts/quest-hint-tests.sh
-          bash scripts/tutorial-scope-tests.sh
-          bash scripts/tutorial-controller-tests.sh
-          bash scripts/retry-start-tests.sh
-          bash scripts/quest-seat-tests.sh
-          bash scripts/window-reflow-tests.sh
-          bash scripts/shared-window-reflow-tests.sh
+        # The suite manifest preserves the original hosted inventory and each
+        # harness's serial mutation controls; independent harnesses run together.
+        run: >-
+          python3 scripts/run-test-suites.py --group ci --jobs 2
+          --output-dir "$RUNNER_TEMP/runtime-suites"
 
       - name: Wire tests (compile only — see docs/CI-CD.md)
         run: |
