@@ -938,6 +938,12 @@ internal sealed class RemoteHandFan
     /// </summary>
     private readonly List<CAbilityCard> _mapArc = new(MaxCards);
 
+    // The map fan has no AbilityCardUI list. Its order is applied directly to _mapArc,
+    // so the scenario hand-order diagnostic cannot judge this result from _handBuffer.
+    private bool _mapArcOrderApplied;
+    private long _loggedMapArcOrder = long.MinValue;
+    private readonly VRLogThrottle _mapArcFallbackLog = new(30f, maxLines: 12);
+
     /// <summary>Both map-loadout seats come from the same validated held-address accessor as
     /// the held faces. Two cards in hand are ordinary arc membership, never a reason to cover
     /// the entire public map fan.</summary>
@@ -1030,7 +1036,45 @@ internal sealed class RemoteHandFan
             || !NetProtocol.ValidateFanArcOrder(order, count, _mapBuffer.Count)) return false;
         _mapArc.Clear();
         for (int i = 0; i < count; i++) _mapArc.Add(_mapBuffer[order![i]]);
+        _mapArcOrderApplied = true;
         return true;
+    }
+
+    private void ReportMapArcOrderIfChanged(int count, int visibleFronts)
+    {
+        if (!RevealGate.InMapPhase || visibleFronts == 0)
+        {
+            _loggedMapArcOrder = long.MinValue;
+            return;
+        }
+        int stated = _owner.FanArcOrderCount;
+        // Only a visible map front is evidence about map order. The scenario diagnostic's
+        // `model=0` is expected here: this phase has CAbilityCard models, not hand widgets.
+        if (_mapArcOrderApplied)
+        {
+            // Success is a routine state. Keep it at Debug and check the level before
+            // formatting; a moving hand can change the visible count every frame.
+            if (!VRLog.WantsDebug) return;
+            long key = ((long)count << 32) | ((long)_mapArc.Count << 16) | (long)(uint)stated;
+            if (key == _loggedMapArcOrder) return;
+            _loggedMapArcOrder = key;
+            VRLog.Debug("Net", $"MAP ARC ORDER [player {_owner.PlayerId}]: APPLIED — "
+                + $"arc={count} mapModel={_mapArc.Count} visibleFronts={visibleFronts} "
+                + $"recordSeats={stated}; visible map fronts use the owner's record-44 order.");
+            return;
+        }
+        if (!VRLog.Wants(VRLogLevel.Info) || _mapArcFallbackLog.Exhausted) return;
+        // A standing or flapping refusal stays useful in a player's bug report, but the
+        // normal log must not grow with every routine card movement.
+        long fallbackKey = ((long)count << 32) | ((long)_mapBuffer.Count << 16) | (long)(uint)stated;
+        if (!_mapArcFallbackLog.Wants(fallbackKey, Time.unscaledTime)) return;
+        string reason = _owner.FanArcOrder == null || stated <= 0 ? "no order stated"
+            : stated != count ? "order length differs from the arc"
+            : "order does not name distinct map-loadout seats";
+        VRLog.Note("Net", $"MAP ARC ORDER [player {_owner.PlayerId}]: FALLBACK — "
+            + $"arc={count} mapModel={_mapArc.Count} visibleFronts={visibleFronts} "
+            + $"recordSeats={stated}; {reason}. Visible map fronts use the replicated "
+            + $"loadout order, which may differ from the owner's. {_mapArcFallbackLog.Why}");
     }
 
     private CAbilityCard? ResolveMapHeldModel(int slot, uint key)
@@ -1470,6 +1514,7 @@ internal sealed class RemoteHandFan
     {
         bool showFronts = false;
         bool mapFronts = false;
+        _mapArcOrderApplied = false;
         int frontCount = 0;
         // Which seat of the peer's map LOADOUT is in their fist this frame (-1 = none). Read on the
         // map branch below and used again for the census, so the number the log prints is the
@@ -2017,6 +2062,7 @@ internal sealed class RemoteHandFan
 
         ReportSeatStackIfChanged(count, frontCount, heldSeatCount);
         ReportArcMembershipIfChanged(count);
+        ReportMapArcOrderIfChanged(count, frontCount);
 
         // Log exactly once per backs↔fronts transition — counts + gate state only, never identities.
         // The line NAMES the predicate on purpose: the same sentence appears on every other remote
@@ -3059,6 +3105,13 @@ internal sealed class RemoteHandFan
     /// </summary>
     private void ReportArcOrderIfChanged(int count)
     {
+        // The map fan applies record 44 to _mapArc, while _handBuffer is always empty.
+        // Reporting `no fronts` here falsely labels its visible, ordered map cards a refusal.
+        if (RevealGate.InMapPhase)
+        {
+            _loggedOrderVerdict = "\u0000";
+            return;
+        }
         // A FAN WITH NO SLABS HAS NO ORDER TO GET WRONG, and saying so every time one shuts is how
         // this line came to read as a standing refusal. MEASURED (2026-09-07 evening round): EVERY
         // 'reason=none stated' that follows an APPLIED/HELD burst in either log prints "this peer's
@@ -4262,6 +4315,12 @@ internal sealed class RemoteHandFan
     /// </summary>
     private void ReportArcMembershipIfChanged(int count)
     {
+        // This census folds AbilityCardUI ids and is meaningful only for a scenario fan.
+        if (RevealGate.InMapPhase)
+        {
+            _loggedArcMembership = long.MinValue;
+            return;
+        }
         int suppressed = (_arcHeldSeatA >= 0 ? 1 : 0) + (_arcHeldSeatB >= 0 ? 1 : 0);
         int held = _owner.HeldHandSeats(out _, out _, out _);
 
