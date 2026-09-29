@@ -53,11 +53,16 @@ Build 585 is in the same approximate scenario frame-time range as the earlier
 Build 584 windows, but those windows used different viewpoints and interactions;
 this is not a controlled before/after speedup measurement. The XR GPU counter
 tracks the frame interval in the slow windows, while Unity's FrameTimingManager
-has no samples. Treat neither as GPU busy time. Valve's standalone
-`perfrecording-*.csv` is still needed to identify additional GPU pressure,
-reprojection and runtime throttling. The headset can record it through
-Dashboard clock > Performance > VR Settings > Record VR Performance while a
-local VR application is running; output is in
+has no samples. Treat neither as GPU busy time. Runtime GPU/CPU timing would
+help identify additional GPU pressure, reprojection and throttling. Valve's
+documentation shows a separate `Record VR Performance` switch directly below
+`Show Perf Overlay in VR`, but the maintainer's current Steam Frame UI shows
+only the overlay switch. Do not require a `perfrecording-*.csv` for the next
+hardware run or infer that Developer Mode unlocks the missing switch. Use the
+available performance overlay instead: capture its `G` and `C` average/peak
+readings, target rate and per-eye resolution during each test segment. The
+reason for the UI difference remains unverified. If the recording control
+becomes available later, Valve documents the CSV output under
 `/home/steamos/.local/share/Steam/logs/`.
 
 For the next comparison, keep eye scale 1.00 and capture at least 30 seconds
