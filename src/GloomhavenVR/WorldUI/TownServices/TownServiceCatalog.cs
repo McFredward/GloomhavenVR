@@ -56,8 +56,10 @@ internal sealed class TownServiceCatalog : IDisposable
     private readonly int _nativeSibling;
     private float _nextCensus;
     private bool _disposed, _allowInput, _observerDirty = true;
+    private bool _observer;
     private readonly List<Canvas> _observerCanvases = new();
     private readonly List<Renderer> _observerRenderers = new();
+    private readonly HashSet<Renderer> _bodyObserverRenderers = new();
     private object? _context;
     private TownServiceCatalogPreview? _preview;
     private Entry? _inspected;
@@ -258,7 +260,10 @@ internal sealed class TownServiceCatalog : IDisposable
         if (_observerDirty)
         {
             Root.GetComponentsInChildren(true, _observerCanvases);
-            Root.GetComponentsInChildren(true, _observerRenderers); _observerDirty = false;
+            Root.GetComponentsInChildren(true, _observerRenderers);
+            _bodyObserverRenderers.Clear();
+            foreach (Entry entry in _entries) entry.AddBodyRenderers(_bodyObserverRenderers);
+            _observerDirty = false;
         }
         // Avoid repeating engine setter calls when the observer election and sampled
         // card output have not changed. Still inspect every member: another
@@ -266,13 +271,15 @@ internal sealed class TownServiceCatalog : IDisposable
         foreach (Canvas canvas in _observerCanvases)
             if (canvas != null && canvas.enabled == observer) canvas.enabled = !observer;
         foreach (Renderer renderer in _observerRenderers)
-            if (renderer != null && renderer.forceRenderingOff != observer) renderer.forceRenderingOff = observer;
+            if (renderer != null && !_bodyObserverRenderers.Contains(renderer)
+                && renderer.forceRenderingOff != observer) renderer.forceRenderingOff = observer;
+        // Card bodies also depend on the current rack page. Applying the observer
+        // flag in the global pass and the page flag in a second pass unsuppressed
+        // then suppressed every hidden stock body's renderer in each author frame.
+        foreach (Entry entry in _entries) entry.SetBodyRendererVisibility(observer || !entry.Exposed);
+        _observer = observer;
         if (observer && !TownServicePublicMerchant.CanClaim)
             foreach (Entry entry in _entries) entry.Sample.PickCollider.enabled = false;
-        if (!observer)
-            foreach (Entry entry in _entries)
-                if (!entry.Exposed && entry.BodyRoot != null)
-                    entry.HideUnexposedBody();
     }
     private void ClearEntries(){ClearInspection();foreach(var entry in _entries)entry.Dispose();_entries.Clear();_samples.Clear();foreach(var extension in _extensions)extension.Dispose();_extensions.Clear();}
     public void Dispose()
@@ -299,13 +306,17 @@ internal sealed class TownServiceCatalog : IDisposable
         private Transform? _body;
         private Renderer[]? _bodyRenderers;
         internal Transform? BodyRoot => _body;
-        internal void HideUnexposedBody()
+        internal void AddBodyRenderers(HashSet<Renderer> target)
         {
-            // The physical card body is built once for this entry. Reuse the same
-            // renderer set that Tick uses instead of scanning its hierarchy again.
             if (_body == null) return;
             foreach (Renderer renderer in _bodyRenderers ??= _body.GetComponentsInChildren<Renderer>(true))
-                if (renderer != null && !renderer.forceRenderingOff) renderer.forceRenderingOff = true;
+                if (renderer != null) target.Add(renderer);
+        }
+        internal void SetBodyRendererVisibility(bool hidden)
+        {
+            if (_body == null) return;
+            foreach (Renderer renderer in _bodyRenderers ??= _body.GetComponentsInChildren<Renderer>(true))
+                if (renderer != null && renderer.forceRenderingOff != hidden) renderer.forceRenderingOff = hidden;
         }
         private readonly RemoteWidgetMirror _row;
         private readonly List<KeyValuePair<Graphic, bool>> _raycastTargets = new();
@@ -455,8 +466,7 @@ internal sealed class TownServiceCatalog : IDisposable
             if (_body != null)
             {
                 TownServiceCardBody.SetVisibility(_body.gameObject, _owner._opening.alpha);
-                foreach (Renderer renderer in _bodyRenderers ??= _body.GetComponentsInChildren<Renderer>(true))
-                    if (renderer != null && renderer.forceRenderingOff == exposed) renderer.forceRenderingOff = !exposed;
+                SetBodyRendererVisibility(!exposed || _owner._observer);
             }
             if (!Warm) { Sample.PickCollider.enabled = false; return; }
             RefreshSoldOutMarker(!Sample.IsMoving);
