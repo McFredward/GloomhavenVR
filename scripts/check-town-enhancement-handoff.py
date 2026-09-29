@@ -195,7 +195,7 @@ def mutations():
          ";",
          "head proximity opens original service without a held card"),
         ("attention-overlap", name,
-         "|| mageStation != null && mageStation.IsLocalVisitorNear(_magePreferredInside)",
+         "|| (destination == EGuildmasterMode.Merchant || destination == EGuildmasterMode.None)\n                && mageStation != null && mageStation.IsLocalVisitorNear(_magePreferredInside)",
          "",
          "local face attention opens the offering enchantress's card cue despite a nearer idle merchant and averted gaze"),
         ("fan-release", name,

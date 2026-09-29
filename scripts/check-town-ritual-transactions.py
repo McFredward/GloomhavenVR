@@ -266,6 +266,7 @@ def sources(root):
     exit_source += "internal static class TownServiceOfferingPose {" + method(pose_raw, "internal static bool VisitorWithin(") + "}"
     approach = method(offering_raw, "internal static void TickApproach()")
     approach += method(offering_raw, "private static bool WantsPurseAtBowl(")
+    approach += method(offering_raw, "private static bool NearestTempleForHead(")
     approach += method(offering_raw, "private static bool WantsMerchantFanAtCounter(")
     approach += method(offering_raw, "internal static bool WantsPurseFocus")
     approach_source = "using UnityEngine;using VRHand=FakeHand;namespace GloomhavenVR.WorldUI { internal static class BoundTempleApproach { private static bool _approachInside,_purseFocus;private static float _approachAt;" + approach + "} }"
@@ -280,6 +281,9 @@ def mutations():
          "foreign && !WantsPurseAtBowl(station!.Root)",
          "foreign && false && !WantsPurseAtBowl(station!.Root)",
          "head-only overlap cannot steal the enchantress destination"),
+        ("temple-nearest-after-merchant", "TempleApproach.cs", "&& !nearestTemple)",
+         "&& true)",
+         "nearest priestess opens native Temple from stale Merchant mode without a bowl-hand gesture"),
         ("incompatible-host-approach", "TempleApproach.cs",
          "|| !TownServiceGrantSync.CanUseImmersive || !TownServiceEnhancementHandoff.Enabled",
          "|| !TownServiceEnhancementHandoff.Enabled",
@@ -319,6 +323,8 @@ def main():
     parser.add_argument("--unity", type=Path, default=Path(os.environ.get("UNITY_PATH", "/home/claw/unity-2021.3.5/Editor/Unity")))
     parser.add_argument("--unity-ui", type=Path, help="Real UnityEngine.UI.dll (never metadata-only RefAsm)")
     parser.add_argument("--no-negative-controls", action="store_true", help="Quick positive run; not complete validation")
+    parser.add_argument("--only-mutation", action="append", metavar="NAME",
+                        help="Run production and the named negative control only; may be repeated")
     args = parser.parse_args()
     inspect_shared_blessing_contract(args.source_root)
     args.output_dir.mkdir(parents=True, exist_ok=True)
@@ -337,7 +343,12 @@ def main():
     manifest = {"result": str(run / "results.txt"), "cases": []}
     variants = [("production", None, None, None, "")]
     if not args.no_negative_controls:
-        variants += mutations()
+        available = mutations()
+        selected = set(args.only_mutation or [])
+        unknown = selected - {case[0] for case in available}
+        if unknown:
+            parser.error("Unknown mutation(s): " + ", ".join(sorted(unknown)))
+        variants += [case for case in available if not selected or case[0] in selected]
     print(f"Binding production from {args.source_root.resolve()}; evidence: {run}", flush=True)
     for name, filename, before, after, expected in variants:
         build = run / name

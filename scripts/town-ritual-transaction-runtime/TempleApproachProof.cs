@@ -75,8 +75,9 @@ public static class TownServicePopulation
 {
     public static TownServiceStation? Station;
     public static TownServiceStation? MerchantStation;
+    public static TownServiceStation? EnchantressStation;
     public static bool Available(int service)=>Acquire(service)!=null;
-    public static TownServiceStation? Acquire(int service)=>service==1?MerchantStation:Station;
+    public static TownServiceStation? Acquire(int service)=>service==1?MerchantStation:service==3?EnchantressStation:Station;
 }
 public static class TownServicePresentation
 { public static TownServiceRitual? Ritual; }
@@ -132,6 +133,9 @@ internal static class TempleApproachProof
         Check(MapRoomDriver.TemplePresses==2,"return from larger attention radius creates a fresh priestess approach");
         Check(ReferenceEquals(NewPartyDisplayUI.PartyDisplay.SelectedUISlot,selected),"repeated temple entry cannot fall back to the first native slot");
 
+        var enchantressRoot=new GameObject("Enchantress competitor");
+        enchantressRoot.transform.position=root.transform.position+Vector3.forward*.8f;
+        TownServicePopulation.EnchantressStation=new TownServiceStation{Root=enchantressRoot.transform};
         GuildmasterDestinations.Mode=EGuildmasterMode.Enchantress;
         typeof(BoundTempleApproach).GetField("_approachAt",BindingFlags.Static|BindingFlags.NonPublic)!.SetValue(null,0f);
         VRHands.Right.Rig.PalmCenter.position=root.transform.TransformPoint(Vector3.forward*2f);
@@ -169,6 +173,26 @@ internal static class TempleApproachProof
         GuildmasterDestinations.Mode=EGuildmasterMode.Merchant;
         Check(!BoundTempleApproach.WantsPurseFocus,
             "mere nearby priestess head gaze does not replace the merchant item fan");
+        // Build 587 peer: Merchant remains the native mode after its private fan has
+        // reset on departure. Merely walking to the priestess must then open Temple;
+        // the player cannot put a purse into a bowl before that native visit exists.
+        head.transform.position=root.transform.position+Vector3.right*1.1f;
+        typeof(BoundTempleApproach).GetField("_approachAt",BindingFlags.Static|BindingFlags.NonPublic)!.SetValue(null,0f);
+        BoundTempleApproach.TickApproach();
+        Check(MapRoomDriver.TemplePresses==4 && GuildmasterDestinations.Mode==EGuildmasterMode.Merchant,
+            "overlapping head near the merchant cannot steal its idle native destination");
+        head.transform.position=root.transform.position;
+        TownServiceMerchantHandoff.WantsOffering=true;
+        BoundTempleApproach.TickApproach();
+        Check(MapRoomDriver.TemplePresses==4 && GuildmasterDestinations.Mode==EGuildmasterMode.Merchant,
+            "a parked merchant offer cannot be interrupted by walking to the priestess");
+        TownServiceMerchantHandoff.WantsOffering=false;
+        typeof(BoundTempleApproach).GetField("_approachAt",BindingFlags.Static|BindingFlags.NonPublic)!.SetValue(null,0f);
+        BoundTempleApproach.TickApproach();
+        Check(MapRoomDriver.TemplePresses==5 && MapRoomDriver.ModeEntered==EGuildmasterMode.Temple,
+            "nearest priestess opens native Temple from stale Merchant mode without a bowl-hand gesture");
+        Check(ReferenceEquals(NewPartyDisplayUI.PartyDisplay.SelectedUISlot,selected),
+            "walking from merchant to priestess preserves the selected character");
         GuildmasterDestinations.Mode=EGuildmasterMode.None;
         TownServiceGrantSync.CanUseImmersive=false;
         typeof(BoundTempleApproach).GetField("_approachInside",BindingFlags.Static|BindingFlags.NonPublic)!.SetValue(null,false);
@@ -176,12 +200,13 @@ internal static class TempleApproachProof
         Check(!BoundTempleApproach.WantsPurseFocus,
             "incompatible host cannot replace the original Temple window with a purse");
         BoundTempleApproach.TickApproach();
-        Check(MapRoomDriver.TemplePresses==4,
+        Check(MapRoomDriver.TemplePresses==5,
             "incompatible host leaves the original Temple entry path available");
         TownServiceGrantSync.CanUseImmersive=true;
         Object.DestroyImmediate(root);Object.DestroyImmediate(head);
         Object.DestroyImmediate(merchantRoot);
-        TownServicePopulation.Station=TownServicePopulation.MerchantStation=null;VRRigDriver.HeadCamera=null;MapRoomHand.Selected=null;NewPartyDisplayUI.PartyDisplay=null;
+        Object.DestroyImmediate(enchantressRoot);
+        TownServicePopulation.Station=TownServicePopulation.MerchantStation=TownServicePopulation.EnchantressStation=null;VRRigDriver.HeadCamera=null;MapRoomHand.Selected=null;NewPartyDisplayUI.PartyDisplay=null;
         Object.DestroyImmediate(VRHands.Left!.Rig.PalmCenter.gameObject);Object.DestroyImmediate(VRHands.Right!.Rig.PalmCenter.gameObject);
         VRHands.Left=VRHands.Right=VRHands.Primary=null;
         return checks;

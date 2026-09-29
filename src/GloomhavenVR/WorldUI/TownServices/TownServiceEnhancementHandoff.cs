@@ -278,7 +278,8 @@ internal sealed class TownServiceEnhancementHandoff : IDisposable
         // merchant transaction remains protected by the checks below. Other NPCs'
         // gaze and voice are independent of this client's native destination.
         bool magePreferred = abilityFanFocused || cardEntered
-            || mageStation != null && mageStation.IsLocalVisitorNear(_magePreferredInside)
+            || (destination == EGuildmasterMode.Merchant || destination == EGuildmasterMode.None)
+                && mageStation != null && mageStation.IsLocalVisitorNear(_magePreferredInside)
             || head != null && NearestResidentForHead(approachRoot, head.transform.position);
         if (magePreferred && !_magePreferredInside)
             _pendingApproach = true;

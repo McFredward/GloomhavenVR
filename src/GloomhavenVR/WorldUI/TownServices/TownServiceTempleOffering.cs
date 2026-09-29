@@ -82,13 +82,16 @@ internal sealed class TownServiceTempleOffering : IDisposable
         if (!near) { _approachInside = false; return; }
         EGuildmasterMode destination = GuildmasterDestinations.CurrentDestinationMode();
         if (destination == EGuildmasterMode.Temple) return;
-        // The residents' attention volumes intentionally overlap. A head position is not a
-        // request to replace another service's native hand mode: Build 581 could otherwise
-        // close the enchantress's palm while she was visibly offering it. A free, revealed
-        // offhand placed at the priestess's actual bowl is a deliberate temple interaction.
-        // It is independent of which other resident is also looking at this visitor.
+        // The prior native service can remain selected after its private fan has reset on
+        // walking away. Requiring the offhand to reach this bowl before changing that
+        // destination stranded the priestess after a merchant visit: no temple controller,
+        // hence no purse to take to the bowl. Prefer the physically nearest resident once
+        // the visitor reaches this narrower approach volume. A deliberate revealed hand
+        // at the bowl still works in an overlap. Neither choice interrupts a parked deal.
         bool foreign = destination != EGuildmasterMode.None;
-        if (foreign && !WantsPurseAtBowl(station!.Root))
+        bool nearestTemple = (destination is EGuildmasterMode.Merchant or EGuildmasterMode.Enchantress)
+            && NearestTempleForHead(station!.Root);
+        if (foreign && !WantsPurseAtBowl(station!.Root) && !nearestTemple)
         { _approachInside = false; return; }
         if (foreign) _approachInside = false;
         // The latch describes the small physical APPROACH volume, not the resident's larger
@@ -133,6 +136,26 @@ internal sealed class TownServiceTempleOffering : IDisposable
         Vector3 bowl = station.TransformPoint(TownServiceRitualLayout.Origin + TownServiceTempleBowl.Center);
         float scale = Mathf.Max(.01f, Mathf.Abs(station.lossyScale.x));
         return Vector3.Distance(hand.Rig.PalmCenter.position, bowl) <= .40f * scale;
+    }
+
+    private static bool NearestTempleForHead(Transform temple)
+    {
+        Camera? head = VRRigDriver.HeadCamera;
+        if (head == null) return false;
+        Vector3 templeDelta = head.transform.position - temple.position;
+        templeDelta.y = 0f;
+        float templeDistance = templeDelta.magnitude;
+        float tie = .12f * Mathf.Max(.01f, Mathf.Abs(temple.lossyScale.x));
+        for (byte service = 1; service <= 3; service += 2)
+        {
+            if (!TownServicePopulation.Available(service)) continue;
+            TownServiceStation? other = TownServicePopulation.Acquire(service);
+            if (other == null) continue;
+            Vector3 otherDelta = head.transform.position - other.Root.position;
+            otherDelta.y = 0f;
+            if (templeDistance + tie >= otherDelta.magnitude) return false;
+        }
+        return true;
     }
 
     private static bool WantsMerchantFanAtCounter(Transform temple)

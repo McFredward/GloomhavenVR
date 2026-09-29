@@ -1166,6 +1166,12 @@ public static class InteractionProgram
         System.Threading.Thread.Sleep(125); TownServiceEnhancementHandoff.TickApproach();
         Check(MapRoomDriver.Visits == 15 && GuildmasterDestinations.Mode == EGuildmasterMode.Enchantress,
             "local face attention opens the offering enchantress's card cue despite a nearer idle merchant and averted gaze");
+        TownServicePopulation.TempleStation = new TownServiceStation { Root = templeRoot.transform };
+        Outside(); GuildmasterDestinations.Mode = EGuildmasterMode.Temple;
+        head.transform.position = root.transform.position + Vector3.right * 1.35f;
+        TownServiceEnhancementHandoff.TickApproach();
+        Check(MapRoomDriver.Visits == 15 && GuildmasterDestinations.Mode == EGuildmasterMode.Temple,
+            "mage face attention cannot immediately undo a nearer priestess's native visit in their overlap");
         UnityEngine.Object.DestroyImmediate(templeRoot);
         UnityEngine.Object.DestroyImmediate(merchantRoot);
         UnityEngine.Object.DestroyImmediate(fanPalm.gameObject);
