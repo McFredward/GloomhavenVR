@@ -271,69 +271,77 @@ internal static partial class CanvasConversion
 
         // 1. LIFT — the game shows it, or it is gone. IsVisible is `alpha > 0`, so the lift lands
         //    on the first frame of a show tween and no animation loses a frame.
-        for (int i = st.Veiled.Count - 1; i >= 0; i--)
+        using (PerfMonitor.Scope("WorldUI.HiddenWindowVeil.Reassert"))
         {
-            VeiledWindow v = st.Veiled[i];
-            if (v.Window == null || v.Window.IsOpen || v.Window.IsVisible
-                || !v.Window.gameObject.activeInHierarchy)
+            for (int i = st.Veiled.Count - 1; i >= 0; i--)
             {
-                Unveil(v);
-                st.Veiled.RemoveAt(i);
-                continue;
-            }
-            // 1b. RE-ASSERT, and learn every foreign write. The runner writes this channel every
-            //     LateUpdate of a dissolve; the value it left is the one a lift must hand back.
-            ReassertVeil(st, v);
-            // 1c. THE SETTLED RE-READ — the engine's verdict once it has had a serviced frame.
-            //     Not while the window's own group is DISABLED: then the engine's inherited alpha
-            //     reflects a materialise hold, not the game, and a hidden sub-screen must stay
-            //     hidden under the dissolve (the "Character löschen" dialog of the 397 video).
-            if (rendering)
-            {
-                v.RenderTicks++;
-                int since = v.RenderTicks - HiddenWindowVeilSettleTicks;
-                bool governs = v.Group == null || v.Group.enabled;
-                if (governs && since >= 0 && since % HiddenWindowVeilRereadEvery == 0)
-                    LiftWhatTheGameDraws(panel, st, v);
+                VeiledWindow v = st.Veiled[i];
+                if (v.Window == null || v.Window.IsOpen || v.Window.IsVisible
+                    || !v.Window.gameObject.activeInHierarchy)
+                {
+                    Unveil(v);
+                    st.Veiled.RemoveAt(i);
+                    continue;
+                }
+                // 1b. RE-ASSERT, and learn every foreign write. The runner writes this channel every
+                //     LateUpdate of a dissolve; the value it left is the one a lift must hand back.
+                ReassertVeil(st, v);
+                // 1c. THE SETTLED RE-READ — the engine's verdict once it has had a serviced frame.
+                //     Not while the window's own group is DISABLED: then the engine's inherited alpha
+                //     reflects a materialise hold, not the game, and a hidden sub-screen must stay
+                //     hidden under the dissolve (the "Character löschen" dialog of the 397 video).
+                if (rendering)
+                {
+                    v.RenderTicks++;
+                    int since = v.RenderTicks - HiddenWindowVeilSettleTicks;
+                    bool governs = v.Group == null || v.Group.enabled;
+                    if (governs && since >= 0 && since % HiddenWindowVeilRereadEvery == 0)
+                        LiftWhatTheGameDraws(panel, st, v);
+                }
             }
         }
 
         // 2. VEIL — every nested window the game reports hidden, on an active object.
-        VeilWindowScratch.Clear();
-        target.GetComponentsInChildren(includeInactive: false, VeilWindowScratch);
-        for (int i = 0; i < VeilWindowScratch.Count; i++)
+        using (PerfMonitor.Scope("WorldUI.HiddenWindowVeil.Discovery"))
         {
-            UIWindow w = VeilWindowScratch[i];
-            if (w == null)
-                continue;
-            Transform wt = w.transform;
-            // The panel's own window and anything above the conversion target are never
-            // candidates: veiling them is the one way to make an empty window.
-            if (ReferenceEquals(wt, target) || target.IsChildOf(wt))
-                continue;
-            if (w.IsOpen || w.IsVisible)
-                continue;
-            // The lift pass above already checked every existing veil's live window state.
-            // Discovery cannot take a second hold, so avoid resolving its CanvasGroup again
-            // on every frame it remains veiled.
-            if (IsVeiled(st, w))
-                continue;
-            // A window with no CanvasGroup reports IsVisible=false FOREVER (it reads a null
-            // group) — that is a window driven by something else, not a hidden one. Skip.
-            CanvasGroup? group = w.GetComponent<CanvasGroup>();
-            if (group == null)
-                continue;
-            // ModBuild 405, THE STRUCTURAL TEST: the verdict this veil enforces is the window's
-            // CanvasGroup at alpha 0. A group that is DISABLED governs nothing — its alpha is out
-            // of the inherited multiply (that is what WindowVisibilityHold does on purpose for a
-            // window the dissolve is drawing), so IsVisible=false is a number nobody is applying,
-            // and enforcing it here would cull content the effect is deliberately showing. Left
-            // to whoever switched the group off; it becomes a candidate again when the group is.
-            if (!group.enabled)
-                continue;
-            Veil(panel, st, w, group);
+            VeilWindowScratch.Clear();
+            target.GetComponentsInChildren(includeInactive: false, VeilWindowScratch);
+            for (int i = 0; i < VeilWindowScratch.Count; i++)
+            {
+                UIWindow w = VeilWindowScratch[i];
+                if (w == null)
+                    continue;
+                Transform wt = w.transform;
+                // The panel's own window and anything above the conversion target are never
+                // candidates: veiling them is the one way to make an empty window.
+                // GetComponentsInChildren(target) can only return target and its descendants;
+                // once the target itself is excluded, an ancestor of target is impossible.
+                if (ReferenceEquals(wt, target))
+                    continue;
+                if (w.IsOpen || w.IsVisible)
+                    continue;
+                // The lift pass above already checked every existing veil's live window state.
+                // Discovery cannot take a second hold, so avoid resolving its CanvasGroup again
+                // on every frame it remains veiled.
+                if (IsVeiled(st, w))
+                    continue;
+                // A window with no CanvasGroup reports IsVisible=false FOREVER (it reads a null
+                // group) — that is a window driven by something else, not a hidden one. Skip.
+                CanvasGroup? group = w.GetComponent<CanvasGroup>();
+                if (group == null)
+                    continue;
+                // ModBuild 405, THE STRUCTURAL TEST: the verdict this veil enforces is the window's
+                // CanvasGroup at alpha 0. A group that is DISABLED governs nothing — its alpha is out
+                // of the inherited multiply (that is what WindowVisibilityHold does on purpose for a
+                // window the dissolve is drawing), so IsVisible=false is a number nobody is applying,
+                // and enforcing it here would cull content the effect is deliberately showing. Left
+                // to whoever switched the group off; it becomes a candidate again when the group is.
+                if (!group.enabled)
+                    continue;
+                Veil(panel, st, w, group);
+            }
+            VeilWindowScratch.Clear();
         }
-        VeilWindowScratch.Clear();
     }
 
     private static bool IsVeiled(HiddenWindowVeilState st, UIWindow w)
