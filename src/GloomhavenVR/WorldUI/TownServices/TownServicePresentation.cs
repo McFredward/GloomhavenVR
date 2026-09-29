@@ -247,13 +247,8 @@ internal static class TownServicePresentation
                 else
                 {
                     uint session = _session;
-                    if (service == 3)
-                    {
-                        using (PerfMonitor.Scope("TownEnhancement.FolioOpen"))
-                            _ritual = new TownServiceRitual(window, service, _station.Root,
-                                () => Active && _session == session, SelectionContext);
-                    }
-                    else
+                    using (PerfMonitor.Scope(service == 3
+                               ? "TownEnhancement.FolioOpen" : "TownServicePresentation.FolioOpen"))
                         _ritual = new TownServiceRitual(window, service, _station.Root,
                             () => Active && _session == session, SelectionContext);
                     if (service == 3)

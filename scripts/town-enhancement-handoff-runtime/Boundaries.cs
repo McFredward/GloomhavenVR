@@ -77,6 +77,11 @@ namespace GloomhavenVR.Core
     public static class Loc { public static string Mod(string key) => key; }
     public static class VRLayers { public static void Apply(GameObject root) { } }
     public static class VRLog { public static bool WantsDebug => false; public static void Debug(string a, string b) { } public static void Warn(string a, string b) { } public static void Info(string a, string b) { } public static void Note(string a, string b) { } public static void Error(string a, string b) { } }
+    public static class PerfMonitor
+    {
+        public readonly struct Measure : IDisposable { public void Dispose() { } }
+        public static Measure Scope(string name) => default;
+    }
 }
 namespace GloomhavenVR.WorldUI
 {

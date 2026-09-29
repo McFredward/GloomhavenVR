@@ -1,6 +1,6 @@
 # State — where the project stands
 
-**Updated 2026-09-29: dev 1.1.0 / ModBuild 590, corrected-peer town multiplayer candidate.**
+**Updated 2026-09-29: dev 1.1.0 / ModBuild 591, town entry and selection candidate.**
 The complete immersive NPC work through Build 583 and the Steam Frame changes
 through dev Build 559 now share the sole `dev` integration branch. Future NPC and
 Frame work belongs on `dev`. The NPC presentation remains a two-client hardware
@@ -44,6 +44,12 @@ repeated remote rack crash and independent handoff gates; Build 590 repairs
 those source paths. The offered-card world pose and one original-template
 structure mismatch remain headset-open. See [TOWN-MP-590.md](TOWN-MP-590.md)
 and [TOWN-MP-589.md](TOWN-MP-589.md).
+Build 591 retains the selected owned character through native NPC mode changes
+and adds a default-hidden +100 gold test action. The initial conversion of the
+enchantress's 549-element original inventory is cheaper, but the measured
+110–148 ms Visit hitch is **not yet proven resolved**; new scopes separate
+native opening and VR conversion for the next Debug hardware run. See
+[TOWN-591.md](TOWN-591.md).
 
 The file this replaces had gone 168 builds
 stale while still saying "read this first"; it is kept as `STATE-ARCHIVE-through-2026-08.md` for
@@ -57,6 +63,19 @@ change per build) → this file (where things stand and what is owed) → the bu
 ---
 
 ## 1. Position
+
+- **dev / 1.1.0 / ModBuild 591 (hardware candidate):** scoped native map-option
+  transitions no longer clear the locally owned selected portrait and force a
+  visible reselect. The default-hidden Cheats page can add 100 gold to the
+  selected map character or shared Guildmaster purse through native rules and
+  save. A measured quadratic initial layer-restore search was removed; residual
+  enchantress entry time remains a headset question, now split into native
+  opening and original-widget conversion. Validation: 14/14 source gates;
+  79/80 passing in the full runtime run and the sole failed harness repaired
+  and rerun successfully (all 80 suites have passing evidence); 286,609 wire
+  assertions, strict Release 0/0, bundle/surface and EN/DE docs passed. The
+  one-shot guard itself did not reach compiled-form comparison after that
+  fixture failure. See [TOWN-591.md](TOWN-591.md).
 
 - **dev / 1.1.0 / ModBuild 590 (corrected peer-log follow-up):** destroyed
   remote town-service modules now rebuild instead of aborting `ApplyPending`.

@@ -547,7 +547,23 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 590;
+    public const ushort ModBuild = 591;
+
+    // ModBuild 591 — the Build 590 map trace records 12 native character
+    // deselections while switching town destinations, 10 within the old
+    // selection floor's 4 Hz polling window. A tightly scoped map-options
+    // guard retains the already selected, locally controlled portrait during
+    // native CloseWindows/Escape and tab cleanup; ordinary clicks remain native.
+    // The hidden Cheats page can grant the selected character +100 gold through
+    // CMapCharacter.ModifyGold (or the native party purse in shared-gold mode)
+    // and saves through SaveData. Enchantress entry includes two 110-148 ms
+    // TownServicePresentation.Visit spikes. Initial layer restoration of its
+    // 549-node native inventory no longer scans its growing record list; a
+    // focused fixture measures 0.358 to 0.068 ms for that sweep. Debug scopes
+    // split native shop opening from original folio conversion on the next
+    // headset run. This optimization alone does not prove the entire visible
+    // entry hitch resolved. Wire layout and bundles are unchanged. See
+    // .planning/TOWN-591.md.
 
     // ModBuild 590 — the corrected Build 587 peer trace exposed a destroyed
     // public-rack observer child that threw from TickRackClocks and then again

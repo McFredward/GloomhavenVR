@@ -115,7 +115,11 @@ internal static class MapSelectionTransition
         if (_failed)
             return;
         _failed = true;
-        VRLog.Warn(Scope, $"MAP SELECTION TRANSITION failed; native selection remains active "
-            + $"({ex.GetType().Name}: {ex.Message}).");
+        try
+        {
+            VRLog.Warn(Scope, $"MAP SELECTION TRANSITION failed; native selection remains active "
+                + $"({ex.GetType().Name}: {ex.Message}).");
+        }
+        catch { /* A logging failure must not escape into native network dispatch. */ }
     }
 }
