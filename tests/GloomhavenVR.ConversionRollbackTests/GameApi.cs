@@ -26,6 +26,10 @@ namespace UnityEngine
     internal class Transform : Component
     {
         internal Transform? parent;
+        private readonly List<Transform> _children=new();
+        internal int childCount=>_children.Count;
+        internal Transform GetChild(int index)=>_children[index];
+        internal void AddChild(Transform child){_children.Add(child);child.parent=this;}
         internal Vector3 localPosition, localScale;
         internal Quaternion localRotation;
         internal bool RefuseParent;
@@ -67,6 +71,10 @@ namespace UnityEngine.UI
     internal sealed class GraphicRaycaster : UnityEngine.Component { }
     internal sealed class RectMask2D : UnityEngine.Component { internal bool enabled=true; }
     internal sealed class UIWindow : UnityEngine.Component { internal bool IsOpen=true;internal bool _disableCanvas;internal int ID; }
+}
+namespace GloomhavenVR.Core
+{
+    internal static class VRLayers { internal const int ModLayer=27; }
 }
 namespace GloomhavenVR.WorldUI
 {
@@ -124,6 +132,8 @@ namespace GloomhavenVR.WorldUI
     }
     internal static partial class CanvasConversion
     {
+        private const int UiLayer=5;
+        private static readonly List<Transform> TransformScratch=new();
         internal static readonly List<ConvertedPanel> Active=new();
         private static readonly List<Canvas> ReleaseCameraCanvases=new();
         private static readonly List<Camera?> ReleaseCameraWanted=new();

@@ -331,9 +331,16 @@ internal sealed class TownServiceEnhancementHandoff : IDisposable
         }
         NewPartyDisplayUI? display = NewPartyDisplayUI.PartyDisplay;
         NewPartyCharacterUI? selectedSlot = display?.SelectedUISlot;
-        if (MapRoomDriver.PressGuildmasterMode(EGuildmasterMode.Enchantress,
-            cardEntered ? "owned card offered to enchantress" : "approached enchantress",
-            suppressNativeSound: true))
+        bool opened;
+        // The Build 590 headset log places a 110-148 ms main-thread stall inside
+        // TownServicePresentation.Visit on some enchantress entries. That parent
+        // includes both this native press and the subsequent original folio
+        // conversion; keep their costs separate before attributing a residual hitch.
+        using (PerfMonitor.Scope("TownEnhancement.NativeOpen"))
+            opened = MapRoomDriver.PressGuildmasterMode(EGuildmasterMode.Enchantress,
+                cardEntered ? "owned card offered to enchantress" : "approached enchantress",
+                suppressNativeSound: true);
+        if (opened)
         {
             _pendingApproach = false;
             // Changing native guildmaster destinations can select the first assigned

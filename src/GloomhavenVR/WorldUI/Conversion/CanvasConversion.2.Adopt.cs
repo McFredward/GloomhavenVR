@@ -593,7 +593,14 @@ internal static partial class CanvasConversion
             }
             if (t.gameObject.layer != modLayer)
             {
-                if (!IsRelayered(panel, t))
+                // Convert calls the initial sweep exactly once on a fresh panel. No
+                // node has a restoration record yet, and this DFS visits each node
+                // once. Searching the growing list here made a 549-node original
+                // enhancement inventory perform ~150k pointless comparisons while
+                // its native window opened on the VR main thread. Later sweeps keep
+                // the duplicate guard: a game child may be relayered by its owner
+                // between frames and must retain its FIRST original layer on release.
+                if (initial || !IsRelayered(panel, t))
                     panel.Relayered.Add(new LayerRecord { Transform = t, OriginalLayer = t.gameObject.layer });
                 t.gameObject.layer = modLayer;
                 moved++;

@@ -247,17 +247,27 @@ internal static class TownServicePresentation
                 else
                 {
                     uint session = _session;
-                    _ritual = new TownServiceRitual(window, service, _station.Root,
-                        () => Active && _session == session, SelectionContext);
+                    if (service == 3)
+                    {
+                        using (PerfMonitor.Scope("TownEnhancement.FolioOpen"))
+                            _ritual = new TownServiceRitual(window, service, _station.Root,
+                                () => Active && _session == session, SelectionContext);
+                    }
+                    else
+                        _ritual = new TownServiceRitual(window, service, _station.Root,
+                            () => Active && _session == session, SelectionContext);
                     if (service == 3)
                     {
                         // The flat card chooser is a sibling of the character column. Keep its
                         // native pool/controllers alive for selection, but remove its presentation
                         // from that panel. Capacity has already moved to the station folio.
                         EnchantressComposite.Reset();
-                        _enhancementListMask = new TownServiceWindowMask(
-                            (RectTransform)window.GetComponent<UINewEnhancementWindow>().CardsDisplay.transform);
-                        _enhancementListMask.DetachFromPanel(_station.Root);
+                        using (PerfMonitor.Scope("TownEnhancement.NativeListMask"))
+                        {
+                            _enhancementListMask = new TownServiceWindowMask(
+                                (RectTransform)window.GetComponent<UINewEnhancementWindow>().CardsDisplay.transform);
+                            _enhancementListMask.DetachFromPanel(_station.Root);
+                        }
                     }
                     _contextMask = new TownServiceWindowMask((RectTransform)window.transform);
                     _context = null;

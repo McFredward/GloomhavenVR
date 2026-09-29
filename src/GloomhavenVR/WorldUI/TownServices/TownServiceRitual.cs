@@ -404,7 +404,8 @@ internal sealed class TownServiceRitual : IDisposable
                 // hover/selection controllers together. Build 550's manually stacked rune
                 // cards let child anchors escape their faces and obscured later options.
                 // This open folio is attached to the stand, not a separate movable window.
-                AddFolio(10, shop.enhancementShop);
+                using (PerfMonitor.Scope("TownEnhancement.NativeOptions"))
+                    AddFolio(10, shop.enhancementShop);
                 // The original card holder owns HighlightButtons: one animated,
                 // selectable game button per enhanceable ability container. Its canvas
                 // stays on the offered card so the laser can choose every native area.
