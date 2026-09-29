@@ -212,7 +212,12 @@ namespace GloomhavenVR.WorldUI
     }
     public static class WindowMaterialise { public static bool IsPointerBlind(Canvas canvas) => false; }
     public static class StoryComposite { public static bool PointOfNoReturn; }
-    public sealed class TownServiceStation { public Transform Root = null!; }
+    public sealed class TownServiceStation
+    {
+        public Transform Root = null!;
+        public bool AttendsLocal;
+        public bool IsLocalVisitorNear(bool wasNear) => AttendsLocal;
+    }
     public static class TownServicePopulation
     {
         public static TownServiceStation? Station;

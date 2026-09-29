@@ -1148,6 +1148,24 @@ public static class InteractionProgram
         TownServiceEnhancementHandoff.TickApproach();
         Check(MapRoomDriver.Visits == 14 && GuildmasterDestinations.Mode == EGuildmasterMode.Enchantress,
             "nearest enchantress opens for an idle visitor even while the prior native destination is merchant");
+        // Build 587 peer evidence: the enchantress's attention hand can extend in
+        // the merchant overlap, but the native Merchant destination previously
+        // blocked her card cue unless the visitor walked past the distance midpoint.
+        // The face attention test must elect that offered hand without requiring
+        // the headset to point at her; a parked merchant deal still wins.
+        TownServicePopulation.TempleStation = null;
+        TownServicePopulation.MageStation!.AttendsLocal = true;
+        Outside(); GuildmasterDestinations.Mode = EGuildmasterMode.Merchant;
+        head.transform.position = root.transform.position - Vector3.right * 1.4f;
+        head.transform.rotation = Quaternion.LookRotation(Vector3.back);
+        TownServiceMerchantHandoff.WantsOffering = true;
+        TownServiceEnhancementHandoff.TickApproach();
+        Check(MapRoomDriver.Visits == 14 && GuildmasterDestinations.Mode == EGuildmasterMode.Merchant,
+            "looking at the offering enchantress cannot interrupt a parked merchant transaction");
+        TownServiceMerchantHandoff.WantsOffering = false;
+        System.Threading.Thread.Sleep(125); TownServiceEnhancementHandoff.TickApproach();
+        Check(MapRoomDriver.Visits == 15 && GuildmasterDestinations.Mode == EGuildmasterMode.Enchantress,
+            "local face attention opens the offering enchantress's card cue despite a nearer idle merchant and averted gaze");
         UnityEngine.Object.DestroyImmediate(templeRoot);
         UnityEngine.Object.DestroyImmediate(merchantRoot);
         UnityEngine.Object.DestroyImmediate(fanPalm.gameObject);

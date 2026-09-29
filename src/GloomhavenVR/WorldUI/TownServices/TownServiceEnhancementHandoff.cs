@@ -270,10 +270,15 @@ internal sealed class TownServiceEnhancementHandoff : IDisposable
             _pendingApproach = true;
         }
         EGuildmasterMode destination = GuildmasterDestinations.CurrentDestinationMode();
-        // A resident can look at the visitor while another stand is active. Head
-        // proximity elects only the nearest native destination; fan/card focus is
-        // the explicit local choice at an overlap. Neither suppresses NPC attention.
+        // The elected face author extends the enchantress's hand whenever a visitor
+        // passes her face-attention test. The local native service used to require a
+        // second, nearest-resident test; in the merchant overlap the hand could be
+        // visibly offered while its usable card overlay never appeared. Give this
+        // local visitor the same attention predicate as the visible hand. A parked
+        // merchant transaction remains protected by the checks below. Other NPCs'
+        // gaze and voice are independent of this client's native destination.
         bool magePreferred = abilityFanFocused || cardEntered
+            || mageStation != null && mageStation.IsLocalVisitorNear(_magePreferredInside)
             || head != null && NearestResidentForHead(approachRoot, head.transform.position);
         if (magePreferred && !_magePreferredInside)
             _pendingApproach = true;
