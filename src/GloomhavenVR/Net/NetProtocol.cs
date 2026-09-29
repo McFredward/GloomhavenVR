@@ -547,7 +547,23 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 589;
+    public const ushort ModBuild = 590;
+
+    // ModBuild 590 — the corrected Build 587 peer trace exposed a destroyed
+    // public-rack observer child that threw from TickRackClocks and then again
+    // from the catch cleanup, aborting thousands of town presentation ticks.
+    // Retire/rebuild dead module descendants from retained owner frames, keep
+    // cleanup Unity-null-safe and isolate a failing rack from other modules.
+    // An enchantress hand offered in the merchant overlap now shares its native
+    // card-cue attention gate; stale Merchant/Enchantress destination no longer
+    // blocks a visitor nearest the priestess. Active deals still take precedence.
+    // Native template structural mismatches remain guarded, with bounded
+    // address/hash/node diagnostics for the next two-client run. Map card-fan
+    // order uses its own model list, so the scenario widget-order diagnostic
+    // no longer falsely reports that map fronts have no order; visible map
+    // fallbacks are bounded at normal log level. Exact remote card pose and
+    // headset parity remain hardware checks. Wire layout and asset bundles
+    // are unchanged. See .planning/TOWN-MP-590.md.
 
     // ModBuild 589 — Build 587 town multiplayer hardware follow-up. A host's
     // self-issued resident grant now records its own response and an active

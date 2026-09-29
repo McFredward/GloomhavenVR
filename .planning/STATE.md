@@ -1,6 +1,6 @@
 # State — where the project stands
 
-**Updated 2026-09-29: dev 1.1.0 / ModBuild 589, town multiplayer repair candidate.**
+**Updated 2026-09-29: dev 1.1.0 / ModBuild 590, corrected-peer town multiplayer candidate.**
 The complete immersive NPC work through Build 583 and the Steam Frame changes
 through dev Build 559 now share the sole `dev` integration branch. Future NPC and
 Frame work belongs on `dev`. The NPC presentation remains a two-client hardware
@@ -39,9 +39,11 @@ marker. Steam Game Mode argument forwarding and prelaunch VR-settings visibility
 remain hardware checks. See [STEAM-FRAME-SHORTCUT.md](STEAM-FRAME-SHORTCUT.md).
 Build 589 addresses the Build 587 town multiplayer report: host self-grant
 timeout, original atlas capture, public cabinet input, town handoff focus and
-map character selection. The actual peer logs in `debug/remote` are from Build
-582, so a Build 589 two-client comparison is still required, especially for
-the offered-card position. See [TOWN-MP-589.md](TOWN-MP-589.md).
+map character selection. Correct matching Build 587 peer logs then exposed a
+repeated remote rack crash and independent handoff gates; Build 590 repairs
+those source paths. The offered-card world pose and one original-template
+structure mismatch remain headset-open. See [TOWN-MP-590.md](TOWN-MP-590.md)
+and [TOWN-MP-589.md](TOWN-MP-589.md).
 
 The file this replaces had gone 168 builds
 stale while still saying "read this first"; it is kept as `STATE-ARCHIVE-through-2026-08.md` for
@@ -55,6 +57,15 @@ change per build) → this file (where things stand and what is owed) → the bu
 ---
 
 ## 1. Position
+
+- **dev / 1.1.0 / ModBuild 590 (corrected peer-log follow-up):** destroyed
+  remote town-service modules now rebuild instead of aborting `ApplyPending`.
+  Enchantress attention and usable card cue agree in the merchant overlap;
+  visiting the priestess after an idle Merchant/Enchantress destination no
+  longer requires a purse that is not yet available. A guarded template
+  mismatch now reports its actual address and structural difference. The
+  original Build 587 peer trace was supplied after Build 589 and is analyzed
+  in [TOWN-MP-590.md](TOWN-MP-590.md). Headset parity remains open.
 
 - **dev / 1.1.0 / ModBuild 589 (town multiplayer repair candidate):** the
   merchant remains immersive across transaction failures; valid host grants
