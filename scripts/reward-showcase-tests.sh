@@ -85,6 +85,7 @@ dotnet run --project "$project" --configuration Release \
     --property:CatchAllSource="$mutation_dir/RewardPoll.fixture"
 cp "$repo_root/tests/GloomhavenVR.RewardShowcaseTests/"*.cs "$mutation_dir/"
 cp "$project" "$mutation_dir/"
+dotnet restore "$mutation_dir/GloomhavenVR.RewardShowcaseTests.csproj" --verbosity quiet
 for mutation in missing-listener duplicate-listener reveal authority native-input gamepad-adapter map-scenario-gate hover-state identity-block placement-key poll-binding premature-reveal pending-pose screen-unavailable map-reward-binding map-location-binding map-duplicate-binding unlock-target postquest-reveal postquest-duplicate postquest-success intro-focus intro-block postquest-pose; do
     python3 - "$reward_source" "$identity_source" "$placement_source" "$mutation_dir" "$mutation" "$continue_button_source" "$map_buttons_source" <<'PY'
 import pathlib, sys
@@ -151,7 +152,7 @@ PY
         pending-pose) expected='unsettled elected source pose cannot release follower first reveal' ;;
         screen-unavailable) expected='manual desktop reward source is unavailable for shared floating placement' ;;
     esac
-    if dotnet run --project "$mutation_dir/GloomhavenVR.RewardShowcaseTests.csproj" --configuration Release \
+    if dotnet run --project "$mutation_dir/GloomhavenVR.RewardShowcaseTests.csproj" --configuration Release --no-restore \
         --property:RepositorySourceRoot="$repo_root/src/GloomhavenVR" \
     --property:ContinueButtonSource="$mutation_dir/Continue.mutant" \
         --property:PostQuestSource="$mutation_dir/PostQuest.mutant" \

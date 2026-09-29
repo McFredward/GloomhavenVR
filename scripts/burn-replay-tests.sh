@@ -23,7 +23,7 @@ a,b={
 assert s.count(a)==1
 (p/'NativeBurnEpisode.cs').write_text(s.replace(a,b))
 PY
- if dotnet run --project "$work_dir/GloomhavenVR.BurnReplayTests.csproj" -c Release > "$work_dir/negative.log" 2>&1; then cat "$work_dir/negative.log"; exit 1; fi
+ if dotnet run --project "$work_dir/GloomhavenVR.BurnReplayTests.csproj" -c Release --no-restore > "$work_dir/negative.log" 2>&1; then cat "$work_dir/negative.log"; exit 1; fi
  case "$mutation" in
  replay) expected='Repeated native refresh must retain the first burn iterator and paint';;
  completed) expected='Completed lost burns must never replay or turn blue';;
@@ -67,7 +67,7 @@ a,b={
 }[sys.argv[2]]
 assert s.count(a)==1;(p/'Production.cs').write_text(s.replace(a,b))
 PY
- if dotnet run --project "$work_dir/GloomhavenVR.BurnReplayTests.csproj" -c Release > "$work_dir/negative.log" 2>&1; then cat "$work_dir/negative.log"; exit 1; fi
+ if dotnet run --project "$work_dir/GloomhavenVR.BurnReplayTests.csproj" -c Release --no-restore > "$work_dir/negative.log" 2>&1; then cat "$work_dir/negative.log"; exit 1; fi
  case "$mutation" in
  inactive-spent-floor|live-detach-floor) expected='Inactive Lost sampling must retain every spent channel of the live original';;
  idle-detach-floor) expected='Idle detach must release unused spent history';;
@@ -145,7 +145,7 @@ else:
  assert a in s;s=s.replace(a,b)
 (p/'BurnPlaybackTrace.cs').write_text(s)
 PYT
- if dotnet run --project "$work_dir/GloomhavenVR.BurnReplayTests.csproj" -c Release > "$work_dir/trace-negative.log" 2>&1; then cat "$work_dir/trace-negative.log";exit 1;fi
+ if dotnet run --project "$work_dir/GloomhavenVR.BurnReplayTests.csproj" -c Release --no-restore > "$work_dir/trace-negative.log" 2>&1; then cat "$work_dir/trace-negative.log";exit 1;fi
  case "$mutation" in
  normal-level) expected='Normal logging must never record native burn tracing';;
  renderer-binding) expected="Debug tracing must observe the renderer's own rewind independently of the source material";;

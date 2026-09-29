@@ -10,6 +10,7 @@ mutation_dir="$(mktemp -d)"
 trap 'rm -rf "$mutation_dir"' EXIT
 cp "$repo_root/tests/GloomhavenVR.PanelInkTests/"*.cs "$mutation_dir/"
 cp "$project" "$mutation_dir/"
+dotnet restore "$mutation_dir/GloomhavenVR.PanelInkTests.csproj" --verbosity quiet
 python3 - "$repo_root" "$mutation_dir" <<'PY'
 import pathlib, re, sys
 repo, root = map(pathlib.Path, sys.argv[1:])
@@ -156,7 +157,7 @@ for mutation in missing broad hint-ink hint-union reward-heading mr-frame mr-hov
         ink_source="$source_file"
         union_source="$mutation_dir/hint-union.fixture"
     fi
-    if dotnet run --project "$mutation_dir/GloomhavenVR.PanelInkTests.csproj" --configuration Release \
+    if dotnet run --project "$mutation_dir/GloomhavenVR.PanelInkTests.csproj" --configuration Release --no-restore \
         --property:ReflowBoundsSource="$repo_root/src/GloomhavenVR/WorldUI/Modal/WindowReflowBounds.cs" --property:RootWatchSource="$watch_source" --property:CaptureBoundsSource="$capture_bounds_source" --property:CaptureAccessorSource="$capture_accessor_source" --property:TraceSource="$trace_source" --property:PaintedSource="$painted_source" --property:VisibilitySource="$visibility_source" --property:ScopeSource="$repo_root/src/GloomhavenVR/WorldUI/MrBackingScope.cs" --property:InkSource="$ink_source" --property:HeadingSource="$heading_source" --property:DrawnUnionSource="$union_source" > "$mutation_dir/$mutation.log" 2>&1; then
         cat "$mutation_dir/$mutation.log"
         echo "FAIL: $mutation mutation escaped the ink test." >&2
