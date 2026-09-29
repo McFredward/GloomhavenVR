@@ -11,6 +11,7 @@ public static partial class MirrorProgram
 {
     private static IEnumerator PublicCatalogLanes()
     {
+        DecisionFacingMotion();
         TownServiceMirror.Shutdown(); Baselines.Clear(); NetPlayerActors.Peer = 1;
         Transform owner = Go("dual lane owner").transform, observer = Go("dual lane observer").transform;
         Transform service = Go("private native service", owner).transform;
@@ -81,6 +82,33 @@ public static partial class MirrorProgram
         RollerLateJoin();
         IEnumerator secondary = SecondaryMerchantInspection();
         while (secondary.MoveNext()) yield return secondary.Current;
+    }
+
+    private static void DecisionFacingMotion()
+    {
+        Transform prompt = Go("decision rotation probe").transform;
+        var facing = new TownServiceMotion(prompt, Array.Empty<Transform>(), "item.confirm.part.2|");
+        facing.BeforeApply(0f);
+        prompt.localRotation = Quaternion.Euler(0f, 90f, 0f);
+        facing.AfterApply(0f, .2f);
+        facing.Tick(.12f);
+        float between = Quaternion.Angle(Quaternion.identity, prompt.localRotation);
+        Check(between > 35f && between < 80f,
+            "palm decision rotates continuously between 5 Hz owner samples");
+        facing.Tick(.25f);
+        Check(Quaternion.Angle(prompt.localRotation, Quaternion.Euler(0f, 90f, 0f)) < .1f,
+            "palm decision reaches its exact authored target on a bounded clock");
+        UnityEngine.Object.DestroyImmediate(prompt.gameObject);
+
+        Transform crank = Go("discrete crank rotation probe").transform;
+        var discrete = new TownServiceMotion(crank, Array.Empty<Transform>(), "merchant.crank|");
+        discrete.BeforeApply(0f);
+        crank.localRotation = Quaternion.Euler(0f, 90f, 0f);
+        discrete.AfterApply(0f, .2f);
+        discrete.Tick(.12f);
+        Check(Quaternion.Angle(crank.localRotation, Quaternion.Euler(0f, 90f, 0f)) < .1f,
+            "discrete cabinet controls retain their prior prompt response");
+        UnityEngine.Object.DestroyImmediate(crank.gameObject);
     }
 
     private static IEnumerator SecondaryMerchantInspection()

@@ -140,6 +140,24 @@ public static partial class MirrorProgram
         atlasTwin.SetPixels(new[] { Color.green, Color.green, Color.green, Color.green }); atlasTwin.Apply();
         Check(owner.Key(atlas) == owner.Key(atlasTwin),
             "native atlas wrappers sharing the embedded content ID retain one asset identity");
+        foreach (var verified in new[]
+        {
+            (name: "AbilityCardSpriteAtlas", width: 2048, height: 2048, format: TextureFormat.DXT5),
+            (name: "Sarala-Regular SDF Atlas", width: 2048, height: 1024, format: TextureFormat.Alpha8)
+        })
+        {
+            var original = new Texture2D(verified.width, verified.height, verified.format, false) { name = verified.name };
+            var wrapper = new Texture2D(verified.width, verified.height, verified.format, false) { name = verified.name };
+            var otherFormat = new Texture2D(verified.width, verified.height, TextureFormat.RGBA32, false) { name = verified.name };
+            var otherFormatTwin = new Texture2D(verified.width, verified.height, TextureFormat.RGBA32, false) { name = verified.name };
+            Check(owner.Key(original) == owner.Key(wrapper) && observer.Key(wrapper) == owner.Key(original),
+                "verified original item/text atlas wrappers share one identity on both peers: " + verified.name);
+            owner.Key(otherFormat);
+            refused = false;
+            try { owner.Key(otherFormatTwin); } catch (InvalidDataException) { refused = true; }
+            Check(refused, "unverified texture format still fails closed: " + verified.name);
+            Object.Destroy(original); Object.Destroy(wrapper); Object.Destroy(otherFormat); Object.Destroy(otherFormatTwin);
+        }
         Object.Destroy(red); Object.Destroy(redTwin); Object.Destroy(unknown); Object.Destroy(unknownTwin);
         Object.Destroy(wrongFormat); Object.Destroy(wrongFormatTwin); Object.Destroy(wrongMips); Object.Destroy(wrongMipsTwin);
         Object.Destroy(atlas); Object.Destroy(atlasTwin);

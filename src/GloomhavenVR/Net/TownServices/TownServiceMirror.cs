@@ -1049,7 +1049,7 @@ internal static partial class TownServiceMirror
                 originalCanvas.worldCamera = Rig.VRRigDriver.HeadCamera != null ? Rig.VRRigDriver.HeadCamera : Camera.main;
             var binding = new TownServiceBinding(clone.transform);
             return new RemoteModule { Host = host, AddedCanvas = canvas, Binding = binding,
-                Motion = new TownServiceMotion(host.transform, binding.Nodes), Session = frame.Session,
+                Motion = new TownServiceMotion(host.transform, binding.Nodes, frame.TemplateAddress), Session = frame.Session,
                 Template = frame.Template, Address = frame.TemplateAddress };
         }
         catch

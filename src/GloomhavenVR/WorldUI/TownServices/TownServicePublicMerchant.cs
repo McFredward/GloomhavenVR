@@ -26,15 +26,13 @@ internal static class TownServicePublicMerchant
     {
         get
         {
-            if (!TownServiceAvailability.NativeUnlocked(1)) return false;
-            if (TownServiceMirror.IsPublicAuthor) return true;
-            TownRackState? state = TownServiceMirror.PublicRack;
-            // The observer's local cabinet is visually suppressed. Until the elected
-            // author's rack is actually present, its hidden controls cannot claim or
-            // pick an item that no one can see on the shared stand.
-            if (state == null) return false;
-            foreach (TownRackMember member in state.Members) if (member.Detached) return false;
-            return true;
+            // Browsing is a public operation, independent of character assignment
+            // and of another visitor's detached/parked card. The previous receiver
+            // gate disabled all six physical buttons whenever any owner rack member
+            // was detached, even though its slot had already been vacated. The local
+            // native presentation rows contain the complete public stock without a
+            // selected character; a press elects this visitor as its next author.
+            return TownServiceAvailability.NativeUnlocked(1);
         }
     }
     internal static void Claim()
@@ -85,8 +83,10 @@ internal static class TownServicePublicMerchant
             using (PerfMonitor.Scope("TownPublicStock.Catalog"))
             {
                 _catalog.SetVisibility(Mathf.Clamp01((Time.unscaledTime - _opened) / .22f),
-                    allowInput: !StoryComposite.PointOfNoReturn
-                        && TownServiceMirror.CanLocalBeginTransaction(1));
+                    // Cabinet browsing stays available while another player owns a
+                    // buy/sell decision. TownServiceMerchantHandoff.CanOffer keeps
+                    // the separate physical transaction lease on card placement.
+                    allowInput: !StoryComposite.PointOfNoReturn);
                 _catalog.Tick(_station.Root.lossyScale.x);
             }
             bool observer = !TownServiceMirror.IsPublicAuthor;

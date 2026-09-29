@@ -118,13 +118,20 @@ internal sealed class TownServiceAssets
     { try { Key(asset); } catch (InvalidDataException) { /* Unrelated transient assets are not part of this service. */ } }
     private static bool SameKnownNativeIdentity(Texture2D texture)
     {
-        // The original game reference has exactly one 512x512 T_noise_shards
-        // Texture2D in GH_Data/resources.assets (path ID 405). Runtime Unity may
-        // expose several wrappers for that same serialized asset. Its stable
-        // descriptor is sufficient; a GPU readback hash would vary by API and
-        // stall the headset. A same-named unknown size still fails closed.
+        // The game's resources.assets contains exactly one source object for each
+        // of these names: T_noise_shards at path ID 405, AbilityCardSpriteAtlas at
+        // 286 and Sarala-Regular SDF Atlas at 440. The latter two produced repeated
+        // ambiguous-texture capture failures in the Build 587 multiplayer log,
+        // dropping complete remote item/price modules while local cards stayed
+        // readable. Unity can expose several wrappers for one serialized original.
+        // Accept only the verified name, dimensions, format and mip count; unknown
+        // same-name assets still fail closed instead of silently binding wrong art.
         return texture.name == "T_noise_shards" && texture.width == 512 && texture.height == 512
             && texture.format == TextureFormat.DXT1 && texture.mipmapCount == 10
+            || texture.name == "AbilityCardSpriteAtlas" && texture.width == 2048 && texture.height == 2048
+               && texture.format == TextureFormat.DXT5 && texture.mipmapCount == 1
+            || texture.name == "Sarala-Regular SDF Atlas" && texture.width == 2048 && texture.height == 1024
+               && texture.format == TextureFormat.Alpha8 && texture.mipmapCount == 1
             || texture.name.StartsWith("sactx-", StringComparison.Ordinal)
                && texture.name.Contains("BattleOverlayCanvas-");
     }

@@ -187,6 +187,8 @@ def main():
         variants = [("production", None, None, None, "")]
         if not args.no_negative_controls:
             variants += [
+                ("decision-step", "TownServiceMotion.cs", "? Mathf.Clamp(sampleInterval * 1.1f, 1f / 90f, .25f)",
+                 "? Mathf.Clamp(sampleInterval, 1f / 90f, .1f)", "palm decision rotates continuously between 5 Hz owner samples"),
                 ("offering-priority", "PublisherTick.cs", "chip.Holder != null || chip.TownOffering", "chip.Holder != null", "floating owned offering has animation publication priority"),
                 ("private-public-collision", "TownServiceMirror.cs", "if (frame!.PublicCatalog) { peer = -peer;", "if (frame!.PublicCatalog) { peer = Math.Abs(peer);", "one lowest live stock author is elected"),
                 ("unfrozen-inspection-backing", "LazyNativeTemplates.cs", "Freeze(key, bodyEntry); Entries.Add(key, bodyEntry);", "Entries.Add(key, bodyEntry);", "lazy inspection backing has publication partitions on its first request"),
