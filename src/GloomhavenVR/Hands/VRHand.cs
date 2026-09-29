@@ -523,18 +523,24 @@ internal sealed class VRHand : MonoBehaviour
         //   pose read THIS frame, the pose classifier reads that velocity, the curl targets read
         //   the classification, and the interactors must see all of it settled. Machine-checked
         //   against .planning/refactor/FRAME-ORDER.lock — reordering is Tier 3.
-        WorldScale = transform.lossyScale.x;
-        SyncVisualOffset();
+        // The outer hand step includes tracking, articulation and every interactor. Keep these
+        // nested spans separate so a slow Frame run can name the actual hand work without
+        // changing its frame order or sampling only one controller.
+        using (Core.PerfMonitor.Scope("Hands.VRHand.Pose"))
+        {
+            WorldScale = transform.lossyScale.x;
+            SyncVisualOffset();
 
-        if (_simulated)
-            ReadSimulated();
-        else
-            ReadDevice();
+            if (_simulated)
+                ReadSimulated();
+            else
+                ReadDevice();
 
-        UpdateVelocity();
-        UpdatePoseClassification();
-        UpdateCurlTargets();
-        _curler.Tick(Time.deltaTime);
+            UpdateVelocity();
+            UpdatePoseClassification();
+            UpdateCurlTargets();
+            _curler.Tick(Time.deltaTime);
+        }
 
         // FRAME-ORDER VRHand.UpdateBody.interactors [Poke, Ray, RayUgui, RayGrab, Grabber, PalmGate]
         // Interactors see the fresh pose; deterministic order (RayUgui consumes the
@@ -544,13 +550,20 @@ internal sealed class VRHand : MonoBehaviour
         // proximity trigger-grab that frame (Grabber early-outs on Held != null).
         //   Every adjacency above is an arbitration decision — INVARIANTS §6. Reordering is
         //   Tier 3, and is invisible to refactor-guard.sh, which is why it is locked.
-        Poke.Tick();
-        Ray.Tick();
-        RayUgui.Tick();
-        WorldUI.TownServicePhysicalRay.Tick(this);
-        RayGrab.Tick();
-        Grabber.Tick();
-        PalmGate.Tick();
+        using (Core.PerfMonitor.Scope("Hands.VRHand.Poke"))
+            Poke.Tick();
+        using (Core.PerfMonitor.Scope("Hands.VRHand.Ray"))
+            Ray.Tick();
+        using (Core.PerfMonitor.Scope("Hands.VRHand.RayUgui"))
+            RayUgui.Tick();
+        using (Core.PerfMonitor.Scope("Hands.VRHand.TownRay"))
+            WorldUI.TownServicePhysicalRay.Tick(this);
+        using (Core.PerfMonitor.Scope("Hands.VRHand.RayGrab"))
+            RayGrab.Tick();
+        using (Core.PerfMonitor.Scope("Hands.VRHand.Grabber"))
+            Grabber.Tick();
+        using (Core.PerfMonitor.Scope("Hands.VRHand.PalmGate"))
+            PalmGate.Tick();
 
         // AFTER every interactor has run, so the line reports the state the frame ENDED in —
         // beam drawn or not, press cancelled or not. Placed here on purpose: run before the
