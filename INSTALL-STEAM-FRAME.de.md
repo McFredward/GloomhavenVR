@@ -104,10 +104,9 @@ sie auch nach einem Spielupdate erhalten. Sollte Steam eine Grafik nicht überne
 der Starter auch ohne eigenes Bild.
 
 Der neue Eintrag ist eine lokale Verknüpfung und ändert die Steamworks-Einstufung des
-Originalspiels nicht. Der eigene Eintrag lässt sich schon vor dem Start in die VR-Bibliothek
-aufnehmen. Ob die Frame damit auch die VR-Auflösungseinstellungen des *Originalspiels* vor dem
-weitergeleiteten Start anbietet, muss noch am Headset geprüft werden. Sobald GloomhavenVR läuft,
-kannst du diese Einstellungen für Gloomhaven vornehmen.
+Originalspiels nicht. Steam zeigt dessen VR-Auflösungseinstellungen möglicherweise weiterhin
+erst an, während GloomhavenVR läuft. Falls sie vor dem Start fehlen, stell sie während eines
+laufenden Spiels für Gloomhaven ein.
 
 <p align="center">
   <img src="docs/img/divider-small.png" width="340" alt="">

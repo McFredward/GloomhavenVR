@@ -547,7 +547,20 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 587;
+    public const ushort ModBuild = 588;
+
+    // ModBuild 588 — Steam Frame installations can mark their game copy for
+    // explicit VR startup. The original Steam Gloomhaven entry then passes no
+    // --gloomhavenvr argument: both the preloader and plugin return before XR,
+    // graphics changes, config binding and Harmony registration. A separately
+    // named local GloomhavenVR shortcut forwards that exact argument through
+    // Steam to the original app ID, preserving its Proton prefix and saves.
+    // The Frame-only marker is made by the new installer helper and never
+    // shipped in the release archive or created by Windows installation;
+    // ordinary PC startup remains unchanged. Steam Frame Game Mode argument
+    // forwarding and prelaunch per-app VR-settings display still need hardware
+    // confirmation; a lost argument fails closed to flat. No wire layout or
+    // gameplay change. See .planning/STEAM-FRAME-SHORTCUT.md.
 
     // ModBuild 587 — the Build 586 Frame retest still measured about 59-62 ms
     // per late map frame at 1728 pixels/eye, close to Build 585 at 3408;

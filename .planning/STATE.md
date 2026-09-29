@@ -1,6 +1,6 @@
 # State — where the project stands
 
-**Updated 2026-09-29: dev 1.1.0 / ModBuild 587, Frame CPU follow-up.**
+**Updated 2026-09-29: dev 1.1.0 / ModBuild 588, separate Frame launcher candidate.**
 The complete immersive NPC work through Build 583 and the Steam Frame changes
 through dev Build 559 now share the sole `dev` integration branch. Future NPC and
 Frame work belongs on `dev`. The NPC presentation remains a two-client hardware
@@ -32,6 +32,11 @@ for the Build 587 CPU optimization comparison. Build 587 reduces hidden merchant
 page work and adds bounded Debug attribution of the remaining town, veil and
 modal-conversion cost; its headset gain remains unmeasured. See
 [STEAM-FRAME-FIFTH-HARDWARE.md](STEAM-FRAME-FIFTH-HARDWARE.md).
+Build 587 was pushed separately so the maintainer can measure its CPU changes
+at 3408 per eye. Build 588 adds a separate Frame launcher and opt-in gate;
+the original Steam entry remains flat only after the Frame helper creates its
+marker. Steam Game Mode argument forwarding and prelaunch VR-settings visibility
+remain hardware checks. See [STEAM-FRAME-SHORTCUT.md](STEAM-FRAME-SHORTCUT.md).
 
 The file this replaces had gone 168 builds
 stale while still saying "read this first"; it is kept as `STATE-ARCHIVE-through-2026-08.md` for
@@ -45,6 +50,16 @@ change per build) → this file (where things stand and what is owed) → the bu
 ---
 
 ## 1. Position
+
+- **dev / 1.1.0 / ModBuild 588 (Frame launcher candidate):** a Frame-only
+  install helper creates a local `GloomhavenVR` Steam shortcut with the existing
+  mod logo/icon and a marker requiring the exact `--gloomhavenvr` launch
+  argument. Both boot stages refuse VR before touching XR or gameplay when the
+  original Steam entry omits that argument. The shortcut forwards to original
+  AppID 780290 to preserve its Proton prefix and saves; Windows PC installs
+  have no marker and retain their established startup. The separate library
+  entry does not alter original Steamworks VR metadata. See
+  [STEAM-FRAME-SHORTCUT.md](STEAM-FRAME-SHORTCUT.md).
 
 - **dev / 1.1.0 / ModBuild 587 (Frame CPU candidate):** hidden merchant pages
   defer their native price and body-material mirrors until the first exposed

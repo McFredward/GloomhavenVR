@@ -99,10 +99,9 @@ On its library page, set the custom logo to the printed `GloomhavenVR-steam-logo
 existing mod artwork copied into your home folder so they survive a game update. If Steam's
 artwork picker does not keep a selection, the launcher still works without custom artwork.
 
-The new entry is a local shortcut, not a change to Gloomhaven's Steamworks classification. The
-separate entry can be included in the VR library before launch; whether Steam Frame exposes the
-original game's per-app VR resolution settings before the forwarded game starts still needs a
-headset check. Once GloomhavenVR is running, configure those settings for Gloomhaven itself.
+The new entry is a local shortcut; it does not change Gloomhaven's Steamworks classification.
+Steam may still show the original game's per-app VR resolution settings only while GloomhavenVR
+is running. Set those settings in a running session if they are not listed before launch.
 
 <p align="center">
   <img src="docs/img/divider-small.png" width="340" alt="">

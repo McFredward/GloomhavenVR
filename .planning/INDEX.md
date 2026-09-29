@@ -67,6 +67,8 @@ engineering evidence, historical decisions and current status; it is not the pla
 
 ## Latest measured work
 
+- [STEAM-FRAME-SHORTCUT.md](STEAM-FRAME-SHORTCUT.md): Frame-only GloomhavenVR
+  library shortcut, fail-closed VR opt-in, packaging and hardware limits.
 - [STEAM-FRAME-FIFTH-HARDWARE.md](STEAM-FRAME-FIFTH-HARDWARE.md): Build 586
   1728-per-eye retest versus recorded Build 585 at 3408, current CPU bottlenecks,
   controlled configuration trial and Steam library VR-metadata limit.
