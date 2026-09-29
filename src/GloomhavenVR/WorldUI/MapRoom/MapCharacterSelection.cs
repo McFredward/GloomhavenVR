@@ -365,9 +365,10 @@ internal static class MapCharacterSelection
 
     /// <summary>
     /// Is <paramref name="character"/> one the LOCAL client controls? Offline every party member is
-    /// (see the class doc's offline paragraph — <c>IsUnderMyControl</c> is never set there, which is
-    /// why the game itself always writes this disjunction). A bench entry is excluded explicitly,
-    /// belt to the roster's braces.
+    /// (see the class doc's offline paragraph). Online the assignment registry wins once the local
+    /// player is known: the native IsUnderMyControl mirror may transiently be false after ownership
+    /// changes even though the authoritative controllable already belongs to this player. An
+    /// unresolved registry falls back to that native mirror. Bench entries remain excluded.
     /// </summary>
     private static bool IsLocal(CMapCharacter? character)
     {
@@ -377,7 +378,18 @@ internal static class MapCharacterSelection
         {
             if (IsBench(character))
                 return false;
-            return !FFSNetwork.IsOnline || character.IsUnderMyControl;
+            if (!FFSNetwork.IsOnline)
+                return true;
+            Reflect();
+            if (_myPlayer != null && _playerId != null
+                && _myPlayer.GetValue(null) is object local
+                && _playerId.GetValue(local) is int localId && localId > 0)
+            {
+                int owner = OwnerOf(character);
+                if (owner > 0)
+                    return owner == localId;
+            }
+            return character.IsUnderMyControl;
         }
         catch (System.Exception)
         {
@@ -967,8 +979,8 @@ internal static class MapCharacterSelection
     // length: FFSNet.NetworkPlayer is EntityBehaviour<IPlayerState>, i.e. Bolt-derived, and this
     // build has (and needs) no bolt.dll. So the registry, the controllable and the player are all
     // handled as `object` and every member is reached through AccessTools. Anything missing degrades
-    // to "unknown assignment", which costs the census its numbers and NOTHING else — the floor reads
-    // CMapCharacter.IsUnderMyControl, which is the game's own local mirror and needs no reflection.
+    // to "unknown assignment" in the census; the selection floor then falls back to the game's
+    // local IsUnderMyControl mirror instead of guessing another player's assignment.
     //
     // THE SHAPE, from the game's source:
     //   ControllableRegistry.GetControllable(int) : NetworkControllable   (ControllableRegistry.cs:105)
@@ -1022,8 +1034,8 @@ internal static class MapCharacterSelection
         catch (System.Exception ex)
         {
             VRLog.Debug(Scope, $"SELECTION GUARD: map — the FFSNet reflection failed ({ex.Message}); "
-                               + "the census reports assignment as unknown. The rule itself is "
-                               + "unaffected: it reads CMapCharacter.IsUnderMyControl.");
+                               + "the census reports assignment as unknown. The selection floor "
+                               + "falls back to CMapCharacter.IsUnderMyControl.");
         }
     }
 
