@@ -207,6 +207,7 @@ internal sealed class WorldUIModule : IVRModule
         // nothing is left holding the panel down) while the map room stands. See
         // PartyPanelStackingHide.
         VRSession.Harmony?.PatchAll(typeof(Patches.PartyPanelStackingHide));
+        VRSession.Harmony?.PatchAll(typeof(MapRoom.MapSelectionTransition));
 
         VREvents.UiLockChanged += OnUiLock;
         VREvents.SessionResumed += OnSessionResumed; // doff/don recovery sweep (test #17)
