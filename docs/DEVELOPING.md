@@ -215,7 +215,7 @@ re-packs the OLD output, and looks exactly like the edit did nothing.
 
 ## Gates
 
-Run before proposing a change:
+Run these on the final integrated tree before pushing:
 
 ```sh
 scripts/ci-build.sh Release        # 0 errors AND 0 warnings — TreatWarningsAsErrors is on
@@ -230,12 +230,30 @@ compiled form — `patch-inventory.sh check`,
 `check-desync-surface.py`, `check-hw-verify.py`, `check-options-coverage.py`,
 `check-card-identity-mask.py`, `check-mirror-dials.py`, `check-enum-arrays.py`, `wire-tests.sh`,
 `check-bundle-format.sh` and the `check-surface.py` diff. Running one of those by hand as well is
-duplicated work, not extra coverage. The strict build and bilingual-docs checks must also be run
-explicitly. The guard needs a local baseline (`scripts/refactor-guard.sh baseline`, taken before
-editing); exit 1 means compiled output differs, so inspect its verdict and explain the changes.
+duplicated work at the final gate, not extra coverage. The strict build and bilingual-docs checks
+must also be run explicitly. The guard needs a local baseline (`scripts/refactor-guard.sh baseline`,
+taken before editing); exit 1 means compiled output differs, so inspect its verdict and explain
+the changes.
+
+During implementation, each worker runs only the focused runtime suites and source checks
+relevant to its owned changes. Use the suite ID in `scripts/test-suites.json`, or list the
+available local IDs, then run the selected suite with its negative controls:
+
+```sh
+python3 scripts/run-test-suites.py --group local --list
+python3 scripts/run-test-suites.py --group local --suite native-playback
+```
+
+`--suite ID` is a partial run for iteration. It does not execute every standalone suite or the
+golden wire vectors and is not a release or push gate. Record the selected IDs and assertion
+counts when reporting a focused result. After reviewing and integrating the worker commits,
+the primary agent runs the complete local gate above once on the final `dev` tree. In particular,
+`scripts/wire-tests.sh` runs all local suites and then the golden vectors. If a later fix changes
+that validated tree, rerun the affected focused checks and the complete gate on the final tree
+before pushing. Do not count a prior tree's result as coverage for the new tree.
 
 Independent tests run concurrently by default. The source group contains 14 read-only gates;
-`wire-tests.sh` runs its 46 standalone suites through the same bounded scheduler, then executes
+`wire-tests.sh` runs the complete local suite inventory through the same bounded scheduler, then executes
 the unchanged golden wire vectors. Every suite retains its own negative controls and build
 outputs. A failed or cancelled suite fails the whole invocation. No test is skipped for speed.
 

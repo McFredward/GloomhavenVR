@@ -246,6 +246,36 @@ class ParallelSuitesTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             runner.verify_results(paths, suites, 'hash', 'local', 2)
 
+    def test_repeatable_suite_selection_is_manifest_ordered_and_partial(self):
+        suites, _ = runner.load_manifest(runner.MANIFEST)
+        selected = runner.selected_suites(suites, 'local', (0, 1), ['item-burn', 'card-bindings'])
+        self.assertEqual([s['id'] for s in selected], ['card-bindings', 'item-burn'])
+        for invalid in (['not-a-suite'], ['item-burn', 'item-burn']):
+            with self.assertRaises(ValueError):
+                runner.selected_suites(suites, 'local', (0, 1), invalid)
+        with self.assertRaises(ValueError):
+            runner.selected_suites(suites, 'local', (0, 2), ['item-burn'])
+        cli = subprocess.run([sys.executable, str(ROOT / 'scripts/run-test-suites.py'),
+                              '--group', 'local', '--suite', 'item-burn', '--suite',
+                              'card-bindings', '--list'], capture_output=True, text=True)
+        self.assertEqual(cli.returncode, 0, cli.stderr)
+        self.assertEqual(json.loads(cli.stdout), ['card-bindings', 'item-burn'])
+
+    def test_partial_success_cannot_verify_as_complete_gate(self):
+        suites = [self.suite('first', 'print("12 assertions")'),
+                  self.suite('second', 'print("13 assertions")')]
+        output = self.root / 'partial'
+        with contextlib.redirect_stdout(io.StringIO()) as stdout:
+            code = runner.execute(suites[:1], 1, output, self.root, 'hash', 'local',
+                                  (0, 1), partial=True)
+        report = json.loads((output / 'results.json').read_text())
+        self.assertEqual(code, 0)
+        self.assertTrue(report['passed'])
+        self.assertEqual(report['coverage'], 'partial')
+        self.assertIn('Test suite result (PARTIAL): PASS', stdout.getvalue())
+        with self.assertRaises(ValueError):
+            runner.verify_results([str(output)], suites, 'hash', 'local', 1)
+
     def start_worker(self, suites, output):
         # A real separate runner lets signals and cross-invocation locks be exercised.
         code = f'''import importlib.util,pathlib
@@ -298,7 +328,7 @@ raise SystemExit(r.execute({suites!r}, 1, pathlib.Path({str(output)!r}), pathlib
             self.assertEqual(process.returncode, 0, error.decode())
 
     def test_full_wire_gate_rejects_partial_inventory_options(self):
-        for option in ['--group=ci', '--shard=0/4', '--list', '--verify-results=x', '--help', '--unknown']:
+        for option in ['--group=ci', '--shard=0/4', '--suite=item-burn', '--list', '--verify-results=x', '--help', '--unknown']:
             result = subprocess.run(['bash', str(ROOT / 'scripts/wire-tests.sh'), option],
                                     capture_output=True, text=True)
             self.assertEqual(result.returncode, 2)

@@ -132,10 +132,20 @@ def parse_shard(value):
         raise argparse.ArgumentTypeError('Shard must be zero-based INDEX/COUNT, with 0 <= INDEX < COUNT')
 
 
-def selected_suites(suites, group, shard):
+def selected_suites(suites, group, shard, suite_ids=None):
     members = [s for s in suites if group in s['groups']]
     if not members or shard[1] > len(members):
         raise ValueError('Missing group or more shards than suites')
+    if suite_ids is not None:
+        if shard != (0, 1):
+            raise ValueError('--suite cannot be combined with --shard')
+        requested = set(suite_ids)
+        if len(requested) != len(suite_ids):
+            raise ValueError('Duplicate --suite ID')
+        unknown = requested - {s['id'] for s in members}
+        if unknown:
+            raise ValueError(f'Unknown {group} suite ID: {", ".join(sorted(unknown))}')
+        return [s for s in members if s['id'] in requested]
     return [s for i, s in enumerate(members) if i % shard[1] == shard[0]]
 
 
@@ -170,7 +180,7 @@ def fixture_scratch(root):
     raise ValueError('No short standalone temporary directory free of Directory.Build.* policy')
 
 
-def execute(suites, jobs, output, root, manifest_hash, group, shard):
+def execute(suites, jobs, output, root, manifest_hash, group, shard, *, partial=False):
     output.mkdir(parents=True, exist_ok=True)
     if any(output.iterdir()):
         raise ValueError(f'Output directory must be empty: {output}')
@@ -187,11 +197,13 @@ def execute(suites, jobs, output, root, manifest_hash, group, shard):
     cancelled = [0]
     previous = {}
     started = time.monotonic()
+    coverage = 'partial' if partial else ('shard' if shard[1] > 1 else 'complete')
     report = {'schema_version': 1, 'manifest_sha256': manifest_hash, 'group': group,
+              'coverage': coverage,
               'shard': list(shard), 'jobs': jobs, 'expected_suite_ids': [s['id'] for s in suites]}
     for sig in (signal.SIGINT, signal.SIGTERM):
         previous[sig] = signal.signal(sig, lambda number, _frame: cancelled.__setitem__(0, number))
-    print(f'Test suites: {len(suites)}, jobs={jobs}, shard={shard[0]}/{shard[1]}, logs={output}', flush=True)
+    print(f'Test suites ({coverage.upper()}): {len(suites)}, jobs={jobs}, shard={shard[0]}/{shard[1]}, logs={output}', flush=True)
     try:
         while pending or running:
             if cancelled[0]:
@@ -294,7 +306,7 @@ def execute(suites, jobs, output, root, manifest_hash, group, shard):
         if 'log' in result:
             with (output / result['log']).open('r', errors='replace') as log:
                 shutil.copyfileobj(log, sys.stdout)
-    print(f"\nTest suite result: {'PASS' if report['passed'] else 'FAIL'}; "
+    print(f"\nTest suite result ({coverage.upper()}): {'PASS' if report['passed'] else 'FAIL'}; "
           f"{len(results)}/{len(suites)} recorded; {report['duration_seconds']:.1f}s; {output / 'results.json'}", flush=True)
     return 128 + cancelled[0] if cancelled[0] else (0 if report['passed'] else 1)
 
@@ -314,7 +326,8 @@ def verify_results(paths, suites, manifest_hash, group, count):
             raise ValueError(f'Duplicate or invalid shard: {path}')
         seen.add(shard[0])
         expected = [s['id'] for s in selected_suites(suites, group, tuple(shard))]
-        if report.get('schema_version') != 1 or report.get('manifest_sha256') != manifest_hash or report.get('group') != group or report.get('expected_suite_ids') != expected or report.get('passed') is not True:
+        coverage = 'shard' if count > 1 else 'complete'
+        if report.get('schema_version') != 1 or report.get('manifest_sha256') != manifest_hash or report.get('group') != group or report.get('coverage') != coverage or report.get('expected_suite_ids') != expected or report.get('passed') is not True:
             raise ValueError(f'Stale, incomplete or unsuccessful report: {path}')
         results = report.get('results', [])
         if [r.get('id') for r in results] != expected:
@@ -333,6 +346,7 @@ def main():
     parser.add_argument('--group', required=True, choices=('local', 'ci', 'source'))
     parser.add_argument('--jobs', type=int, default=None)
     parser.add_argument('--shard', type=parse_shard, default=(0, 1))
+    parser.add_argument('--suite', action='append', metavar='ID', help='Run only this suite; repeat for multiple suites (partial coverage)')
     parser.add_argument('--output-dir', type=Path)
     parser.add_argument('--list', action='store_true', help='Print selected suite IDs as JSON without running tests')
     parser.add_argument('--verify-results', nargs='+', help='Verify reports and logs from all shards')
@@ -340,7 +354,9 @@ def main():
     args = parser.parse_args()
     try:
         suites, digest = load_manifest(MANIFEST)
-        selected = selected_suites(suites, args.group, args.shard)
+        if args.suite and args.verify_results:
+            raise ValueError('--suite cannot be combined with --verify-results')
+        selected = selected_suites(suites, args.group, args.shard, args.suite)
         if args.list:
             print(json.dumps([s['id'] for s in selected]))
             return 0
@@ -351,7 +367,8 @@ def main():
         if not 1 <= jobs <= 64:
             raise ValueError('Jobs must be between 1 and 64')
         output = args.output_dir or ROOT / '.planning/debug/test-runs' / (time.strftime('%Y%m%d-%H%M%S') + '-' + uuid.uuid4().hex[:8])
-        return execute(selected, jobs, output.resolve(), ROOT, digest, args.group, args.shard)
+        return execute(selected, jobs, output.resolve(), ROOT, digest, args.group, args.shard,
+                       partial=args.suite is not None)
     except (OSError, ValueError, KeyError, TypeError) as exc:
         print(f'Test runner error: {exc}', file=sys.stderr)
         return 1
