@@ -38,7 +38,12 @@ assert code(release).index('RestoreAdoptedCameras("release")') < code(release).i
 tick = code(method(life, '    internal static void Tick()'))
 assert tick.index('ServiceFailedConversions();') < tick.index('ServiceDeferredHosts();'), 'Native home retry must precede deferred host detachment'
 assert 'ServiceFailedConversions();' in code(method(life, '    internal static void ReleaseAll()'))
-catch = m[m.index('        catch (Exception ex)'):]
+catch_start = m.index('        catch (Exception ex)')
+# Bind the production failure handler, not the adjacent conversion-timing finally block.
+# The latter samples local stopwatch variables from TryConvertWindow's opening path and has
+# no ownership or rollback effect in this fixture's deliberately shortened outer method.
+timing_finally = m.find('\n        finally', catch_start)
+catch = m[catch_start:timing_finally if timing_finally >= 0 else len(m)]
 assert 'if (wp != null) Converted.Remove(wp);' in catch
 assert 'CanvasConversion.RollbackFailedConversion(panel, grab);' in catch
 # Run the actual outer failure handler against partially completed attachment phases.
@@ -46,7 +51,7 @@ outer = '''internal static bool AttachForTest(UIWindow window, ConvertedPanel pa
 {
 string name = window.name;
 try { work(); return true; }
-''' + catch[:-len('\n    }')] + '\n}\n'
+''' + (catch if timing_finally >= 0 else catch[:-len('\n    }')]) + '\n}\n'
 output.parent.mkdir(parents=True, exist_ok=True)
 output.write_text('using Object = UnityEngine.Object;\nusing System;\nusing System.Collections.Generic;\nusing UnityEngine;\nusing UnityEngine.UI;\nnamespace GloomhavenVR.WorldUI;\ninternal static partial class CanvasConversion\n{\n' + helpers + release + '\n' + method(life, '    private static void DestroyHostSafely(') + '\n}\ninternal static partial class ModalFallback\n{\n' + outer + '\n}\n')
 print('Rollback production binding: ownership, adoption, reveal, enrollment and retry placement verified.')
