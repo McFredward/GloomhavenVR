@@ -110,6 +110,18 @@ internal static partial class ModalFallback
         UIWindowID.CharacterConfirmationBox,
     };
 
+    // A first map visit on Steam Frame Build 586 converted the same party display several times,
+    // with individual ModalFallback.Convert steps of 382-471 ms. That outer scope includes native
+    // adoption, placement, grab/X creation and enrollment, so it cannot identify the expensive
+    // operation. Keep this diagnostic Debug-only and bounded: conversion is an input-critical
+    // opening edge, and delaying an unknown stage would risk a hidden mandatory window/deadlock.
+    private const int ModalConvertTimingLimit = 64;
+    private static int _modalConvertTimingReports;
+
+    private static double ModalConvertMilliseconds(long begin, long end) =>
+        begin == 0 || end == 0 ? -1d
+        : (end - begin) * 1000d / System.Diagnostics.Stopwatch.Frequency;
+
     /// <summary>
     /// THE WINDOW FLATNESS GUARANTEE (ModBuild 193) — why every window this method floats now
     /// converts with <c>flattenWindow: true</c>.
@@ -182,6 +194,10 @@ internal static partial class ModalFallback
     private static bool TryConvertWindow(UIWindow window)
     {
         string name = window.name;
+        bool sampleConversion = VRLog.WantsDebug && _modalConvertTimingReports < ModalConvertTimingLimit;
+        long started = sampleConversion ? System.Diagnostics.Stopwatch.GetTimestamp() : 0;
+        long beforeCanvas = 0, afterCanvas = 0, afterPlacement = 0, afterChrome = 0;
+        bool converted = false;
         ConvertedPanel? panel = null;
         GrabbableModal? grab = null;
         WindowPanel? wp = null;
@@ -376,6 +392,7 @@ internal static partial class ModalFallback
             // now no collider either. Nothing about it was ever meant to be clicked.
             bool hoverCardPick = IsMapRoomHoverCard(window);
             MapRoom.GuildmasterDestinations.PrepareBannerForConversion(window);
+            if (sampleConversion) beforeCanvas = System.Diagnostics.Stopwatch.GetTimestamp();
             panel = CanvasConversion.Convert(rect, $"Modal_{name}", pokeable: !hoverCardPick,
                 fitContent: fitContent, sortingOrder: ModalHostSortingOrder,
                 diagnostic: true, // FLICKER HUNT: per-frame change-gated host/child/camera diagnostics
@@ -398,6 +415,7 @@ internal static partial class ModalFallback
                 // flattenWindow above and for the same reason — the ruling is about a CLASS of
                 // window, and a per-ID whitelist here would reproduce the failure it is meant to end.
                 sharedWindow: window);
+            if (sampleConversion) afterCanvas = System.Diagnostics.Stopwatch.GetTimestamp();
 
             if (escMenuWidthHug)
                 VRLog.Info("WorldUI", $"MODAL WINDOW: '{name}' (ID {window.ID}) is the ESC menu — one-shot " +
@@ -498,6 +516,7 @@ internal static partial class ModalFallback
             // UICharacterStoryBox, not the 1920x1080 stretch root). The fit itself
             // runs centrally in CanvasConversion.Tick (test #14 item 1).
             panel.FitContentRoot = contentRoot;
+            if (sampleConversion) afterPlacement = System.Diagnostics.Stopwatch.GetTimestamp();
 
             // Sub-item B + Sieg/Niederlage rework (user request A): EVERY floated modal —
             // now INCLUDING the end-of-scenario Sieg/Niederlage results windows
@@ -798,6 +817,7 @@ internal static partial class ModalFallback
             // before the WindowPanel so a failure to build it cannot cost the window its float.
             if (isTransient)
                 AttachTransientDismiss(panel, window);
+            if (sampleConversion) afterChrome = System.Diagnostics.Stopwatch.GetTimestamp();
 
             wp = new WindowPanel
             {
@@ -882,6 +902,7 @@ internal static partial class ModalFallback
             VRLog.Info("WorldUI", $"MODAL WINDOW: '{name}' (ID {window.ID}) floated in front of the HMD " +
                                   $"({WindowDistanceMeters:F1} m, poke + laser clickable) — " +
                                   "restored to 2D when it closes.");
+            converted = true;
             return true;
         }
         catch (Exception ex)
@@ -894,6 +915,30 @@ internal static partial class ModalFallback
                                    $"({ex.GetType().Name}: {ex.Message}) — falling back to the full " +
                                    "flat screen for this window.");
             return false;
+        }
+        finally
+        {
+            if (sampleConversion)
+            {
+                long ended = System.Diagnostics.Stopwatch.GetTimestamp();
+                double totalMs = ModalConvertMilliseconds(started, ended);
+                // At most 64 lines per process, only for openings over the 10 ms significance
+                // threshold. A -1 stage means conversion returned before reaching that boundary.
+                if (totalMs >= 10d)
+                {
+                    _modalConvertTimingReports++;
+                    VRLog.Debug("WorldUI", $"MODAL CONVERT COST '{name}' id={window.ID} " +
+                        $"ok={converted} total={totalMs:F2}ms " +
+                        $"preflight={ModalConvertMilliseconds(started, beforeCanvas):F2}ms " +
+                        $"canvas={ModalConvertMilliseconds(beforeCanvas, afterCanvas):F2}ms " +
+                        $"placement={ModalConvertMilliseconds(afterCanvas, afterPlacement):F2}ms " +
+                        $"chrome={ModalConvertMilliseconds(afterPlacement, afterChrome):F2}ms " +
+                        $"finish={ModalConvertMilliseconds(afterChrome, ended):F2}ms " +
+                        $"report={_modalConvertTimingReports}/{ModalConvertTimingLimit}; " +
+                        "a -1 stage was not reached. Canvas includes native subtree adoption; " +
+                        "placement includes host pose; chrome includes grab/X creation and its audit.");
+                }
+            }
         }
     }
 
