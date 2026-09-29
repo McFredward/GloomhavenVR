@@ -114,8 +114,10 @@ internal sealed class TownServiceCatalog : IDisposable
     internal void SetVisibility(float value,float relocation=1f,bool allowInput=true)
     {
         _allowInput=allowInput&&relocation>=1f;
-        _opening.alpha=Mathf.Clamp01(value)*Mathf.Clamp01(relocation);
-        _opening.interactable=_allowInput;_opening.blocksRaycasts=false;
+        float alpha = Mathf.Clamp01(value) * Mathf.Clamp01(relocation);
+        if (_opening.alpha != alpha) _opening.alpha = alpha;
+        if (_opening.interactable != _allowInput) _opening.interactable = _allowInput;
+        if (_opening.blocksRaycasts) _opening.blocksRaycasts = false;
     }
     internal void LateTick()
     {
@@ -258,14 +260,19 @@ internal sealed class TownServiceCatalog : IDisposable
             Root.GetComponentsInChildren(true, _observerCanvases);
             Root.GetComponentsInChildren(true, _observerRenderers); _observerDirty = false;
         }
-        foreach (Canvas canvas in _observerCanvases) if (canvas != null) canvas.enabled = !observer;
-        foreach (Renderer renderer in _observerRenderers) if (renderer != null) renderer.forceRenderingOff = observer;
+        // Avoid repeating engine setter calls when the observer election and sampled
+        // card output have not changed. Still inspect every member: another
+        // presentation path may have changed it since the preceding tick.
+        foreach (Canvas canvas in _observerCanvases)
+            if (canvas != null && canvas.enabled == observer) canvas.enabled = !observer;
+        foreach (Renderer renderer in _observerRenderers)
+            if (renderer != null && renderer.forceRenderingOff != observer) renderer.forceRenderingOff = observer;
         if (observer && !TownServicePublicMerchant.CanClaim)
             foreach (Entry entry in _entries) entry.Sample.PickCollider.enabled = false;
         if (!observer)
             foreach (Entry entry in _entries)
                 if (!entry.Exposed && entry.BodyRoot != null)
-                    foreach (Renderer renderer in entry.BodyRoot.GetComponentsInChildren<Renderer>(true)) renderer.forceRenderingOff = true;
+                    entry.HideUnexposedBody();
     }
     private void ClearEntries(){ClearInspection();foreach(var entry in _entries)entry.Dispose();_entries.Clear();_samples.Clear();foreach(var extension in _extensions)extension.Dispose();_extensions.Clear();}
     public void Dispose()
@@ -292,6 +299,14 @@ internal sealed class TownServiceCatalog : IDisposable
         private Transform? _body;
         private Renderer[]? _bodyRenderers;
         internal Transform? BodyRoot => _body;
+        internal void HideUnexposedBody()
+        {
+            // The physical card body is built once for this entry. Reuse the same
+            // renderer set that Tick uses instead of scanning its hierarchy again.
+            if (_body == null) return;
+            foreach (Renderer renderer in _bodyRenderers ??= _body.GetComponentsInChildren<Renderer>(true))
+                if (renderer != null && !renderer.forceRenderingOff) renderer.forceRenderingOff = true;
+        }
         private readonly RemoteWidgetMirror _row;
         private readonly List<KeyValuePair<Graphic, bool>> _raycastTargets = new();
         private readonly List<KeyValuePair<GraphicRaycaster, bool>> _raycasters = new();
@@ -431,7 +446,8 @@ internal sealed class TownServiceCatalog : IDisposable
             if (_disposed) return;
             if (!Current) { Sample.Dispose(); _root.SetActive(false); return; }
             bool exposed = Exposed;
-            _pageGate.alpha = exposed ? 1f : 0f;
+            float pageAlpha = exposed ? 1f : 0f;
+            if (_pageGate.alpha != pageAlpha) _pageGate.alpha = pageAlpha;
             // Keep actual original content available for bounded hidden-page prewarming.
             // The page gate is explicit presentation state: it never suppresses native data,
             // changes a transaction, or uses a disabled ancestor Canvas invisible to capture.
@@ -439,7 +455,8 @@ internal sealed class TownServiceCatalog : IDisposable
             if (_body != null)
             {
                 TownServiceCardBody.SetVisibility(_body.gameObject, _owner._opening.alpha);
-                foreach (Renderer renderer in _bodyRenderers ??= _body.GetComponentsInChildren<Renderer>(true)) renderer.forceRenderingOff = !exposed;
+                foreach (Renderer renderer in _bodyRenderers ??= _body.GetComponentsInChildren<Renderer>(true))
+                    if (renderer != null && renderer.forceRenderingOff == exposed) renderer.forceRenderingOff = !exposed;
             }
             if (!Warm) { Sample.PickCollider.enabled = false; return; }
             RefreshSoldOutMarker(!Sample.IsMoving);
@@ -447,9 +464,11 @@ internal sealed class TownServiceCatalog : IDisposable
             {
                 float t = Mathf.Clamp01((Time.unscaledTime - _presentedAt) / .24f);
                 float ease = t * t * (3f - 2f * t);
-                _display.localPosition = _displayHome + new Vector3(0f, 0f, .045f * (1f - ease));
+                Vector3 displayPosition = _displayHome + new Vector3(0f, 0f, .045f * (1f - ease));
+                if (!_display.localPosition.Equals(displayPosition)) _display.localPosition = displayPosition;
             }
-            _canvas.worldCamera = VRRigDriver.HeadCamera != null ? VRRigDriver.HeadCamera : Camera.main;
+            Camera camera = VRRigDriver.HeadCamera != null ? VRRigDriver.HeadCamera : Camera.main;
+            if (_canvas.worldCamera != camera) _canvas.worldCamera = camera;
             _artWatch.Poll("merchant cabinet item");
             if (Time.unscaledTime >= _nextRefresh)
             {
@@ -461,13 +480,13 @@ internal sealed class TownServiceCatalog : IDisposable
             _row.TickLive();
             // Preserve original stock/price/name glyphs but remove the flat list's backing.
             foreach(Transform original in _rowBackgrounds)
-            {Transform? clone=_row.CloneOf(original);if(clone!=null)clone.gameObject.SetActive(false);}
+            {Transform? clone=_row.CloneOf(original);if(clone!=null&&clone.gameObject.activeSelf)clone.gameObject.SetActive(false);}
             // The native detail widget follows the hovered row. It belongs to the full detail
             // placard, never inside this narrow price strip or its measured bounds.
             if (_owner._inventory.itemTooltip != null)
             {
                 Transform? inline = _row.CloneOf(_owner._inventory.itemTooltip.transform);
-                if (inline != null) inline.gameObject.SetActive(false);
+                if (inline != null && inline.gameObject.activeSelf) inline.gameObject.SetActive(false);
             }
             if (exposed) Sample.Tick(scale); else Sample.PickCollider.enabled = false;
         }

@@ -191,12 +191,19 @@ internal sealed class TownServiceToken : IGrabbable, ITriggerOnlyGrabbable, IGra
             _physical.localScale = Vector3.Lerp(_returnScale, _homeScale, ease);
             if (t >= 1f) _returning = false;
         }
-        _shape.enabled = !_returning && Visible();
-        if (!_shape.enabled) return;
-        _source.GetWorldCorners(_corners);
-        _pick.transform.SetPositionAndRotation((_corners[0] + _corners[2]) * .5f, _source.rotation);
-        _shape.size = new Vector3(Vector3.Distance(_corners[0], _corners[3]),
+        bool visible = !_returning && Visible();
+        if (_shape.enabled != visible) _shape.enabled = visible;
+        if (!visible) return;
+        // Visible sampled these exact corners immediately above. No transform or
+        // source mutation occurs between the visibility check and collider fit.
+        Vector3 center = (_corners[0] + _corners[2]) * .5f;
+        Quaternion rotation = _source.rotation;
+        Transform pick = _pick.transform;
+        if (!pick.position.Equals(center) || !pick.rotation.Equals(rotation))
+            pick.SetPositionAndRotation(center, rotation);
+        Vector3 size = new(Vector3.Distance(_corners[0], _corners[3]),
             Vector3.Distance(_corners[0], _corners[1]), _reachDepth * scale);
+        if (!_shape.size.Equals(size)) _shape.size = size;
     }
 
     private bool Visible()

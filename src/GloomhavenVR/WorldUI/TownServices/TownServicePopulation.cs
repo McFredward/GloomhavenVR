@@ -90,8 +90,13 @@ internal static class TownServicePopulation
             _faceEpoch = unchecked((uint)System.Guid.NewGuid().GetHashCode());
             if (_faceEpoch == 0) _faceEpoch = 1;
         }
-        _frame.transform.SetPositionAndRotation(center, Quaternion.identity);
-        _frame.transform.localScale = Vector3.one * scale;
+        // Acquire can call Prepare several times in one presentation frame. Writing an
+        // unchanged parent transform dirties every resident and cabinet descendant.
+        Transform frame = _frame.transform;
+        if (!frame.position.Equals(center) || !frame.rotation.Equals(Quaternion.identity))
+            frame.SetPositionAndRotation(center, Quaternion.identity);
+        Vector3 frameScale = Vector3.one * scale;
+        if (!frame.localScale.Equals(frameScale)) frame.localScale = frameScale;
         TownServiceMirror.SharedFrameForRemote = RemoteFrame;
         return true;
     }
@@ -176,8 +181,15 @@ internal static class TownServicePopulation
                 }
                 continue;
             }
-            if (used && retry) Acquire(service);
-            if (!Residents.TryGetValue(service, out Resident? resident))
+            // Prepare already sampled the shared frame above. Acquire is needed only
+            // for a missing station; calling it for each existing resident repeats
+            // the frame lookup and transform writes on every tick.
+            if (!Residents.TryGetValue(service, out Resident? resident) && used && retry)
+            {
+                Acquire(service);
+                Residents.TryGetValue(service, out resident);
+            }
+            if (resident == null)
             { if (used) missing = true; published.Active = false; continue; }
             resident.Station.RefreshEnvironment(!follows);
             bool ready = resident.Station.IsReady;
