@@ -1,6 +1,6 @@
 # State — where the project stands
 
-**Updated 2026-09-29: dev 1.1.0 / ModBuild 585, third Frame hardware log.**
+**Updated 2026-09-29: dev 1.1.0 / ModBuild 586, extended Frame hardware log.**
 The complete immersive NPC work through Build 583 and the Steam Frame changes
 through dev Build 559 now share the sole `dev` integration branch. Future NPC and
 Frame work belongs on `dev`. The NPC presentation remains a two-client hardware
@@ -15,13 +15,16 @@ recorded in [STEAM-FRAME.md](STEAM-FRAME.md) and
 [STEAM-FRAME-FOVEATION.md](STEAM-FRAME-FOVEATION.md).
 The second Frame run found little frame-time improvement below eye scale 1.00;
 the maintainer reports unacceptable image quality there. Build 585 removes
-source-proven CPU work and adds hand-step attribution, awaiting another headset
-comparison and Valve's GPU performance CSV. See
+source-proven CPU work and adds hand-step attribution. See
 [STEAM-FRAME-SECOND-HARDWARE.md](STEAM-FRAME-SECOND-HARDWARE.md).
-The Build 585 log confirms substantial main-thread cost on the map and in a
+The Build 585 logs confirm substantial main-thread cost on the map and in a
 scenario even at the `Fastest` quality preset; its scenario logic median alone
-exceeds the 72 Hz frame budget. GPU busy time remains unknown without Valve's
-CSV. See [STEAM-FRAME-THIRD-HARDWARE.md](STEAM-FRAME-THIRD-HARDWARE.md).
+exceeds the 72 Hz frame budget. The later screenshots show about 17 FPS for
+both Steam Frame overlay counters on the map, and the late logs put about
+40 ms/frame in main-thread logic. The recording switch is absent on this
+headset, so the two snapshots do not isolate GPU busy time. See
+[STEAM-FRAME-THIRD-HARDWARE.md](STEAM-FRAME-THIRD-HARDWARE.md) and
+[STEAM-FRAME-FOURTH-HARDWARE.md](STEAM-FRAME-FOURTH-HARDWARE.md).
 
 The file this replaces had gone 168 builds
 stale while still saying "read this first"; it is kept as `STATE-ARCHIVE-through-2026-08.md` for
@@ -35,6 +38,15 @@ change per build) → this file (where things stand and what is owed) → the bu
 ---
 
 ## 1. Position
+
+- **dev / 1.1.0 / ModBuild 586 (Frame CPU candidate):** reuse the wall-cache
+  material snapshot, avoid repeated hidden-veil component lookups, apply town
+  catalog visibility once per frame, and skip unchanged panel-capture property
+  writes. These are source-proven reductions on measured hot paths, not a
+  measured headset speedup. No wire or asset change. The Build 585 map
+  screenshots show about 17 FPS with severe frame-time peaks, and the log
+  attributes about 40 ms/frame to main-thread logic in matching late windows.
+  See [STEAM-FRAME-FOURTH-HARDWARE.md](STEAM-FRAME-FOURTH-HARDWARE.md).
 
 - **dev / 1.1.0 / ModBuild 585 (Frame CPU candidate):** reduce redundant
   canvas-flatten, town-resident/catalog/token and wall-cache work without

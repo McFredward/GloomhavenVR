@@ -67,6 +67,9 @@ engineering evidence, historical decisions and current status; it is not the pla
 
 ## Latest measured work
 
+- [STEAM-FRAME-FOURTH-HARDWARE.md](STEAM-FRAME-FOURTH-HARDWARE.md): Build 585
+  extended run with two Steam Frame overlay screenshots, map CPU attribution,
+  catalog-construction stalls and scenario comparison.
 - [STEAM-FRAME-THIRD-HARDWARE.md](STEAM-FRAME-THIRD-HARDWARE.md): Build 585
   standalone map and scenario frame timing, CPU hotspots and GPU evidence gap.
 - [STEAM-FRAME-SECOND-HARDWARE.md](STEAM-FRAME-SECOND-HARDWARE.md): Build 584

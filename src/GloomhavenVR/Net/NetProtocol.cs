@@ -547,7 +547,20 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 585;
+    public const ushort ModBuild = 586;
+
+    // ModBuild 586 — remove source-proven duplicate work in the Steam Frame's
+    // measured map/scenario paths. The wall cache reuses its already-collected
+    // material snapshot for foliage classification. Hidden-window veils skip
+    // a repeated CanvasGroup lookup. Town catalog entries apply final
+    // observer/page visibility once per frame instead of toggling hidden
+    // card bodies twice. Panel capture keeps its prior Camera/Transform/
+    // RectTransform values when unchanged in both update phases. Native
+    // content, card order, capture allocation, interaction and multiplayer
+    // presentation are unchanged. The Build 585 screenshots show roughly
+    // 17 FPS on the map; a Build 586 headset gain is not yet measured.
+    // No wire or asset change. Evidence:
+    // .planning/STEAM-FRAME-FOURTH-HARDWARE.md.
 
     // ModBuild 585 — reduce measured Steam Frame main-thread work without
     // changing presentation cadence or interaction order. Canvas flattening
