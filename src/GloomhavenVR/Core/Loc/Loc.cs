@@ -237,6 +237,17 @@ internal static partial class Loc
         ["cheat_win_hint"] = Pair(
             "Triggers the game's normal victory, results and quest rewards. This counts as a real win and changes the savegame. Press twice within 8 seconds. Single-player only.",
             "Startet den normalen Sieg-Ablauf mit Ergebnissen und Questbelohnungen. Das zählt als echter Sieg und verändert den Spielstand. Innerhalb von 8 Sekunden zweimal drücken. Nur Einzelspieler."),
+        ["cheat_gold"] = Pair("Give selected character 100 gold", "Ausgewähltem Character 100 Gold geben"),
+        ["cheat_gold_hint"] = Pair(
+            "Adds 100 gold to the selected character using the game's rules and saves the result. In shared-gold mode it credits the party purse. Each press adds another 100. Map and single-player only.",
+            "Gibt dem ausgewählten Character über die Spielregeln 100 Gold und speichert das Ergebnis. Bei gemeinsamem Gold wird die Gruppenkasse gefüllt. Jeder Druck gibt weitere 100. Nur auf der Karte im Einzelspieler."),
+        ["cheat_gold_online"] = Pair("Give gold — BLOCKED (multiplayer)", "Gold geben — GESPERRT (Mehrspieler)"),
+        ["cheat_gold_no_map"] = Pair("Give gold — open the campaign map first", "Gold geben — erst die Kampagnenkarte öffnen"),
+        ["cheat_gold_no_character"] = Pair("Give gold — select one of your characters", "Gold geben — einen eigenen Character auswählen"),
+        ["cheat_gold_no_save"] = Pair("Give gold — savegame is still loading", "Gold geben — Spielstand wird noch geladen"),
+        ["cheat_gold_party"] = Pair("party purse", "Gruppenkasse"),
+        ["cheat_gold_done"] = Pair("+100 gold to {0} (now {1}) — press again to add more",
+            "+100 Gold für {0} (jetzt {1}) — erneut drücken für mehr"),
         ["ctl_next"] = Pair("NEXT", "WEITER"),
         ["ctl_skip"] = Pair("SKIP", "ÜBERSPRINGEN"),
         // ---- the multiplayer quest card ----
