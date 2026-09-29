@@ -54,6 +54,7 @@ internal static class TownServiceMerchantHandoff
     private static float _eligibilityUntil;
     private static TownVoiceReaction? _inspectedReaction;
     private static int _inspectedFrame;
+    private static float _coordinatorUnavailableUntil, _nextCoordinatorWarning;
     internal static bool WantsOffering => Active && _near && (_offeredChip != null || _offeredStock != null
         || HeldOwned(VRHands.Left) || HeldOwned(VRHands.Right) || TownServiceCatalog.HeldOfferAvailable);
     // A visitor's proximity is not a transaction. Other town services may keep their
@@ -170,18 +171,20 @@ internal static class TownServiceMerchantHandoff
         Vector3 ownedPosition = heldOwned ? ((ItemsPile.ItemChip)ownedHand!.Grabber.Held!).transform.position : default;
         bool useOwned = heldOwned && (!heldStock || (ownedPosition - _seat.position).sqrMagnitude
             <= (stockPosition - _seat.position).sqrMagnitude);
-        _caption!.text = Loc.Mod(useOwned || stockSelling
-            ? "town_merchant_sell" : "town_merchant_buy");
+        bool retryFeedback = Time.unscaledTime < _coordinatorUnavailableUntil
+            && !heldOwned && !heldStock && !HasParkedOffer;
+        _caption!.text = Loc.Mod(retryFeedback ? "town_merchant_retry"
+            : useOwned || stockSelling ? "town_merchant_sell" : "town_merchant_buy");
         // Active membership also carries the owner's near/offer intent to the shared resident
         // author. A parked card keeps that membership with alpha zero: no second overlay.
-        _zone!.gameObject.SetActive(WantsOffering);
+        _zone!.gameObject.SetActive(WantsOffering || retryFeedback);
         bool show = _offering == null && _offeredStock == null && (heldOwned || heldStock);
         VRHand? holder = useOwned ? ownedHand : stockHand;
         Vector3 position = useOwned ? ownedPosition : stockPosition;
         Vector3 local = show ? _seat.InverseTransformPoint(position) : Vector3.zero;
         _feedback!.Tick(show, holder, show ? local.magnitude : float.MaxValue,
             show && TownServiceOfferingPose.Contains(_seat, position), .43f);
-        _feedback.Paint(show);
+        _feedback.Paint(show, retryFeedback);
     }
 
     private static bool HeldOwned(VRHand? hand) => hand != null && hand.Grabber.Held is ItemsPile.ItemChip chip
@@ -557,6 +560,21 @@ internal static class TownServiceMerchantHandoff
             && ReferenceEquals(confirmation._onConfirmedCallback, callback)) confirmation.OnCancel();
     }
 
+    /// <summary>A missing host response cannot turn a physical merchant offer into a flat
+    /// shop while immersive mode is enabled. Return only this visitor's card, release its
+    /// grant claim, and leave the native controller masked so the next offer can retry.</summary>
+    internal static void AbortUnavailable()
+    {
+        if (!HasParkedOffer) return;
+        Reclaim();
+        _coordinatorUnavailableUntil = Time.unscaledTime + 2.5f;
+        if (Time.unscaledTime >= _nextCoordinatorWarning)
+        {
+            _nextCoordinatorWarning = Time.unscaledTime + 30f;
+            Core.VRLog.Warn("TownServices", "Merchant transaction coordinator did not answer; returned the offered card and kept the immersive stand active for retry.");
+        }
+    }
+
     private static void WithdrawForReplacement()
     {
         Action? callback = _ourConfirmation;
@@ -604,6 +622,7 @@ internal static class TownServiceMerchantHandoff
         Transform? seat = _seat; _seat = _zone = null; _zoneGate = null; _caption = null; _feedback = null;
         _pending = null; _tradeItem = null; _decisionConfirmed = _decisionCancelled = false;
         _decisionRetries = 0; DetachTradeListener(); _eligibilityItem = null; _inspectedReaction = null;
+        _coordinatorUnavailableUntil = 0f;
         Items.Clear(); _character = null;
         try
         {

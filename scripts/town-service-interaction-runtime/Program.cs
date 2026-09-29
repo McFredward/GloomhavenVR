@@ -571,6 +571,27 @@ public static class InteractionProgram
         Clean();
     }
 
+    private static void MerchantCoordinatorTimeout()
+    {
+        var session = Open(1);
+        TownServiceMerchantHandoff.HasParkedOffer = true;
+        GloomhavenVR.Net.TownServices.TownServiceMirror.Unavailable = true;
+        TownServicePresentation.Tick();
+        Check(TownServicePresentation.Active && TownServicePresentation.OwnsWindow(session.Window)
+              && CanvasConversion.ActivePanels.Count == 0,
+            "merchant coordinator timeout keeps the native shop masked behind its immersive stand: active="
+            + TownServicePresentation.Active + " owns=" + TownServicePresentation.OwnsWindow(session.Window)
+            + " panels=" + CanvasConversion.ActivePanels.Count);
+        Check(!TownServiceMerchantHandoff.HasParkedOffer
+              && !GloomhavenVR.Net.TownServices.TownServiceMirror.TransactionActive,
+            "merchant coordinator timeout returns the one offered card and releases its claim");
+        GloomhavenVR.Net.TownServices.TownServiceMirror.Unavailable = false;
+        TownServicePresentation.Tick();
+        Check(TownServicePresentation.Active && CanvasConversion.ActivePanels.Count == 0,
+            "merchant can retry after coordinator recovery without reopening the flat shop");
+        Clean();
+    }
+
     private static void UnconvertedMerchantController()
     {
         var root=Probe.Go("DirectNativeMerchant");
@@ -1002,7 +1023,7 @@ public static class InteractionProgram
     public static int Run()
     {
         _assertions = 0;
-        try { NativeFolioAndTeardown(); EnhancementDecisionLayout(); PalmConfirmationLifecycle(); ParkedStockRegrab(); PhysicalCommitCases(); PhysicalMerchantSamples(); WindowMaskLifecycle(); UnconvertedMerchantController(); MerchantContextLifecycle(); ConfirmationFadeLifecycle(); IdentityChanges(); HoverAndRelease(); CancellationCompatibility(); Handoff(); StalledEnhancementRestoresNativeWindow(); RollbackAndContinuation(); OptionalPresentation(); SharedRitualPlacement(); MapHandFallback(); PhysicalPurse(); PurseSettlement(); return _assertions; }
+        try { NativeFolioAndTeardown(); EnhancementDecisionLayout(); PalmConfirmationLifecycle(); ParkedStockRegrab(); PhysicalCommitCases(); PhysicalMerchantSamples(); WindowMaskLifecycle(); UnconvertedMerchantController(); MerchantContextLifecycle(); MerchantCoordinatorTimeout(); ConfirmationFadeLifecycle(); IdentityChanges(); HoverAndRelease(); CancellationCompatibility(); Handoff(); StalledEnhancementRestoresNativeWindow(); RollbackAndContinuation(); OptionalPresentation(); SharedRitualPlacement(); MapHandFallback(); PhysicalPurse(); PurseSettlement(); return _assertions; }
         finally { Clean(); }
     }
 }

@@ -69,7 +69,12 @@ internal static class TownServiceGrantSync
             SentSequences = new uint[8], SentAt = new float[8] };
         if (Host && Ledger.Request(service, LocalPlayer, session, offer.Nonce, Time.unscaledTime))
         {
-            offer.Epoch = _epoch; offer.LastGrant = Time.unscaledTime;
+            // The host's own ledger decision is a response too. Leaving LastResponse
+            // unset made Unavailable declare a live self-grant dead three seconds
+            // later, replacing the immersive merchant with the flat shop and
+            // reclaiming the card in his hand. The same timeout affected offerings
+            // to the other two residents when the host was their visitor.
+            offer.Epoch = _epoch; offer.LastGrant = offer.LastResponse = Time.unscaledTime;
             offer.RequestSequence = 1;
             Broadcast(new TownGrantMessage(TownGrantKind.Grant, service, LocalPlayer,
                 session, offer.Nonce, _epoch, offer.RequestSequence));
@@ -101,6 +106,9 @@ internal static class TownServiceGrantSync
         if (NetSession.FlatNetMode) return true;
         Offer offer = Offers[service];
         if (!offer.Active || offer.Session != session || offer.Denied) return false;
+        // A currently valid grant is authoritative even if a transport reset or an
+        // older local offer left the diagnostic response clock at its zero sentinel.
+        if (MayCommit(service, session)) return false;
         return !CoordinatorReady || offer.LastResponse <= 0f
             && Time.unscaledTime - offer.Started >= UnavailableSeconds;
     }
@@ -137,7 +145,7 @@ internal static class TownServiceGrantSync
             {
                 if (Ledger.Request(service, LocalPlayer, offer.Session, offer.Nonce, now))
                 {
-                    offer.Epoch = _epoch; offer.LastGrant = now; offer.Denied = false;
+                    offer.Epoch = _epoch; offer.LastGrant = offer.LastResponse = now; offer.Denied = false;
                     Broadcast(new TownGrantMessage(TownGrantKind.Grant, service, LocalPlayer,
                         offer.Session, offer.Nonce, _epoch, offer.RequestSequence));
                 }

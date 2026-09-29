@@ -157,10 +157,11 @@ namespace GloomhavenVR.Net.TownServices
 {
     internal static class TownServiceMirror
     {
+        internal static bool Unavailable, TransactionActive;
         internal static bool LocalOwnsInteraction(byte service, uint session) => true;
         internal static void SetLocalTempleDonationAvailable(bool available) { }
-        internal static void SetLocalTransactionActive(byte service, bool active) { }
-        internal static bool LocalTransactionUnavailable(byte service) => false;
+        internal static void SetLocalTransactionActive(byte service, bool active) { TransactionActive = active; }
+        internal static bool LocalTransactionUnavailable(byte service) => Unavailable && TransactionActive;
     }
     internal static class TownServiceGrantSync { internal static bool CanUseImmersive = true; }
 }
@@ -407,7 +408,7 @@ namespace GloomhavenVR.WorldUI { internal static class TownServiceEnhancementHan
 
 namespace GloomhavenVR.WorldUI {internal static class TownServicePublicMerchant {internal static void Tick(){}internal static void LateTick(){}internal static void Reset(){} }}
 
-namespace GloomhavenVR.WorldUI { internal static class TownServiceMerchantHandoff {internal static bool Reclaim; internal static bool HasParkedOffer; internal static bool CanReclaim(TownServiceToken token)=>Reclaim; internal static void LateTick(){} internal static void Reset(){} } }
+namespace GloomhavenVR.WorldUI { internal static class TownServiceMerchantHandoff {internal static bool Reclaim; internal static bool HasParkedOffer; internal static bool CanReclaim(TownServiceToken token)=>Reclaim; internal static void LateTick(){} internal static void Reset(){} internal static void AbortUnavailable(){HasParkedOffer=false;} } }
 
 public class UIItemConfirmationBox : MonoBehaviour {
  public Component titleText=null!,informationText=null!; public Button confirmButton=null!,cancelButton=null!;

@@ -310,6 +310,17 @@ internal static class TownServicePresentation
         bool enhancementStalled = _ritual?.Handoff?.NativeOfferStalled == true;
         bool templeStalled = _ritual?.TempleGrantStalled == true;
         bool grantUnavailable = TownServiceMirror.LocalTransactionUnavailable(Service);
+        if (grantUnavailable && Service == 1)
+        {
+            // A lost coordinator reply used to restore the original shop window after
+            // three seconds. The flat shop appeared behind the resident and retiring
+            // the physical offer removed the card from his palm. Cancel that one
+            // uncommitted offer instead; the masked native shop remains available to
+            // initialize the next attempt when the coordinator responds again.
+            TownServiceMerchantHandoff.AbortUnavailable();
+            TownServiceMirror.SetLocalTransactionActive(Service, false);
+            return;
+        }
         if (enhancementStalled || templeStalled || grantUnavailable)
         {
             // Preserve the original window and its native callbacks. A permanently blocked

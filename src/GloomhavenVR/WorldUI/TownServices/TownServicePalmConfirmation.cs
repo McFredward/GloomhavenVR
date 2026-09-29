@@ -24,6 +24,7 @@ internal static class TownServicePalmConfirmation
         private TownServiceWindowMask? _mask;
         private bool _prepared;
         private Transform? _frame, _palm;
+        private int _lastRotationFrame = -1;
         internal bool Current => Window != null && ReferenceEquals(_callback, _identity());
         internal object? Callback => _callback;
         internal bool Open => Current && Window.IsOpen;
@@ -56,7 +57,19 @@ internal static class TownServicePalmConfirmation
                 local.y = Mathf.Max(local.y, 1.17f);
                 position = station.TransformPoint(local);
             }
-            _frame.SetPositionAndRotation(position, Seat.rotation);
+            // The offering seat follows the visitor's head each render frame. Copying its
+            // yaw straight onto the floating decision on both Tick and LateTick made the
+            // text and buttons visibly snap, especially after network sampling. Keep the
+            // position attached to the palm while easing only the facing angle. The
+            // second placement in the same frame must not advance the filter twice.
+            if (_lastRotationFrame != Time.frameCount)
+            {
+                _frame.rotation = _lastRotationFrame < 0 ? Seat.rotation
+                    : Quaternion.Slerp(_frame.rotation, Seat.rotation,
+                        1f - Mathf.Exp(-Time.unscaledDeltaTime / .10f));
+                _lastRotationFrame = Time.frameCount;
+            }
+            _frame.position = position;
             _frame.localScale = Vector3.one;
         }
         internal bool Tick()

@@ -41,9 +41,11 @@ def sources(root):
         "Grabber.cs": "Hands/Interact/ProximityGrabber.cs",
         "Interfaces.cs": "Hands/Interact/IGrabbable.cs",
         "HiddenWindowVeil.cs": "WorldUI/Conversion/CanvasConversion.9e.HiddenWindowVeil.cs",
+        "GrantSync.cs": "Net/TownServices/TownServiceGrantSync.cs",
     }
     raw = {name: (base / path).read_text() for name, path in paths.items()}
     inspect_hidden_window_veil(raw["HiddenWindowVeil.cs"])
+    inspect_host_grant_timeout(raw["GrantSync.cs"])
     hashes = {paths[name]: hashlib.sha256(text.encode()).hexdigest() for name, text in raw.items()}
     bound = {name: raw[name] for name in ("Token.cs", "OfferingPose.cs", "Presentation.cs", "Handoff.cs", "WindowMask.cs", "ConfirmationMask.cs", "PalmConfirmation.cs", "Surface.cs")}
     # Native audio suppression has its own integration/build coverage. This fixture binds the
@@ -121,6 +123,27 @@ def inspect_hidden_window_veil(source):
         raise RuntimeError("unbounded hidden-window release negative control did not fail")
 
 
+def inspect_host_grant_timeout(source):
+    """A host's own grant must not become an unanswered request three seconds later."""
+    def valid(candidate):
+        opened = method(candidate, "internal static void SetOffer(")
+        renewed = method(candidate, "internal static void Tick(")
+        unavailable = method(candidate, "internal static bool Unavailable(")
+        return ("offer.LastGrant = offer.LastResponse = Time.unscaledTime;" in opened
+                and "offer.LastGrant = offer.LastResponse = now;" in renewed
+                and "if (MayCommit(service, session)) return false;" in unavailable)
+
+    if not valid(source):
+        raise RuntimeError("a valid host self-grant can time out into a flat town window")
+    for old, new in (
+        ("offer.LastGrant = offer.LastResponse = Time.unscaledTime;", "offer.LastGrant = Time.unscaledTime;"),
+        ("offer.LastGrant = offer.LastResponse = now;", "offer.LastGrant = now;"),
+        ("if (MayCommit(service, session)) return false;", ""),
+    ):
+        if valid(replace_once(source, old, new)):
+            raise RuntimeError("host-grant timeout negative control did not fail")
+
+
 def mutations():
     # Every mutant compiles and must reach the specified runtime assertion. A compile error,
     # unrelated exception or changed source binding cannot count as a rejected negative control.
@@ -163,6 +186,7 @@ def mutations():
         ("service-preclaim", "Presentation.cs", "        || WantsNativeController(window)\n", "", "immersive service controller is claimed before generic full-window conversion"),
         ("service-child-preclaim", "Presentation.cs", "            && window.transform.IsChildOf(controller.transform);", "            && false;", "merchant Scroll View is claimed before it can become the flat panel seen behind the build 568 NPC"),
         ("service-child-retirement", "Presentation.cs", "            if (service == 1 && !ModalFallback.ReleaseTownServiceAuxiliaries(window)) return;", "", "direct immersive merchant restores detached shop children and masks its controller without a flat window"),
+        ("merchant-timeout-flat-window", "Presentation.cs", "        if (grantUnavailable && Service == 1)", "        if (false && Service == 1)", "merchant coordinator timeout keeps the native shop masked behind its immersive stand"),
         ("option-open", "Presentation.cs", "        if (!WorldUIConfig.ImmersiveTownServices.Value || !TownServiceGrantSync.CanUseImmersive)", "        if (!TownServiceGrantSync.CanUseImmersive)", "opting out restores the ordinary converted flat merchant lifecycle"),
         ("option-release", "Presentation.cs", "internal static bool Active => WorldUIConfig.ImmersiveTownServices.Value\n        &&", "internal static bool Active =>", "disabled option immediately fences a held release before next tick"),
         ("option-classic-lifecycle", "Handoff.cs", "        if (window != null && window.IsOpen) TryConvertWindow(window);", "        if (window != null && window.IsOpen) RestoreTownServiceContext(window, Vector3.zero, Quaternion.identity);", "disabled window retains ordinary placement and fitting lifecycle"),

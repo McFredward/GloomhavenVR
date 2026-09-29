@@ -198,6 +198,7 @@ internal static partial class Loc
     {
         ["town_merchant_buy"] = Pair("Buy", "Kaufen"),
         ["town_merchant_sell"] = Pair("Sell", "Verkaufen"),
+        ["town_merchant_retry"] = Pair("Trade unavailable.\nTry again.", "Handel nicht verfügbar.\nErneut versuchen."),
         ["town_merchant_stock"] = Pair("Shop stock", "Warenbestand"),
         ["town_merchant_inventory"] = Pair("Owned items", "Eigene Gegenstände"),
         ["town_offering"] = Pair("Place the purse in the bowl to donate", "Geldbeutel zum Spenden in die Schale legen"),
