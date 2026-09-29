@@ -38,17 +38,18 @@ interpreted as GPU busy time; it tracks the frame interval, and Unity's
   `TownServicePresentation.Late` about 2.5 ms per frame. Scope nesting must be
   checked before adding any of these figures together.
 
-## Next engineering and hardware checks
+## Build 585 changes and next hardware check
 
-1. Remove source-proven redundant work from canvas conversion and town-service
-   presentation while preserving order, geometry, interaction and multiplayer
-   presentation. Keep frame-order and visual contracts in their existing tests.
-2. Split the measured hand step by tracking, articulation and individual
-   interactors so the next Frame log can identify which hand operation needs
-   work. Avoid guessed input throttling, which risks missed touches and clicks.
-3. Keep the eye scale at 1.00 for picture quality; do not use resolution as the
-   proposed fix for the measured CPU cost. Capture Valve's Record VR Performance
-   CSV alongside the mod Debug log over a repeatable route. Its `peakCpu(ms)`,
-   `peakGpu(ms)`, `reprojected`, `width` and `height` fields can separate GPU
-   pressure from CPU/submission pressure. A headset comparison is still needed
-   after any source changes; local tests cannot establish perceived smoothness.
+Build 585 removes redundant work from canvas conversion, wall-cache enumeration
+and town-service presentation. It also splits the hand timing into pose and
+individual interactor scopes without changing their execution order. The
+source and runtime checks passed, but these changes have not been measured on
+the headset.
+
+Keep the eye scale at 1.00 for picture quality; do not use resolution as the
+proposed fix for the measured CPU cost. Capture Valve's Record VR Performance
+CSV alongside the mod Debug log over a repeatable route. Its `peakCpu(ms)`,
+`peakGpu(ms)`, `reprojected`, `width` and `height` fields can separate GPU
+pressure from CPU/submission pressure. Compare the hand subscopes and the same
+scenario and town views against Build 584. A headset comparison is still needed;
+local tests cannot establish perceived smoothness.
