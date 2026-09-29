@@ -613,11 +613,11 @@ internal sealed class TownServiceRitual : IDisposable
         && TownServiceMirror.CanLocalBeginTransaction(2)
         && TempleQuietAvailable(temple, slot);
 
-    private bool TemplePurseVisible(UITempleWindow temple, UITempleShopSlot slot) => temple.character != null
-        && slot != null && slot.Blessing != null
-        && MapRoomHand.OwnedMerchantCharacter()?.CharacterID == temple.character.CharacterID;
+    private bool TemplePurseVisible(UITempleWindow temple, UITempleShopSlot slot) => temple != null && slot != null
+        && slot.Blessing != null && MapRoomHand.OwnedMerchantCharacter() != null;
 
-    private bool TempleQuietAvailable(UITempleWindow temple, UITempleShopSlot slot) => TemplePurseVisible(temple, slot)
+    private bool TempleQuietAvailable(UITempleWindow temple, UITempleShopSlot slot) => temple.character != null
+        && TemplePurseVisible(temple, slot)
         && !_submittedOfferings.Contains((temple.character.CharacterID, slot.Blessing))
         && TempleEligible(temple, slot);
 

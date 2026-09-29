@@ -53,9 +53,10 @@ internal sealed class TownServiceTempleOffering : IDisposable
             bool templeOpen = GuildmasterDestinations.CurrentDestinationMode() == EGuildmasterMode.Temple
                 && station.IsLocalVisitorNear(_purseFocus)
                 && TownServiceOfferingPose.VisitorWithin(station.Root, _purseFocus ? 1.65f : 1.4f);
-            _purseFocus = (deliberate || templeOpen && !WantsMerchantFanAtCounter(station.Root))
-                && !TownServiceMerchantHandoff.WantsOffering
-                && !TownServiceEnhancementHandoff.HasCurrentOffering;
+            // A parked transaction at another resident is not a reason to hide the
+            // priestess's local hand. The actual destination and palm position elect
+            // this fan; each resident's transaction ownership is independent.
+            _purseFocus = deliberate || templeOpen && !WantsMerchantFanAtCounter(station.Root);
             return _purseFocus;
         }
     }
@@ -171,8 +172,7 @@ internal sealed class TownServiceTempleOffering : IDisposable
         var selected = MapRoomHand.OwnedMerchantCharacter();
         TownServiceStation? priest = TownServicePopulation.Acquire(2);
         bool holdingCard = VRHands.Left?.Grabber.Held is VRCard || VRHands.Right?.Grabber.Held is VRCard;
-        _inspectionNear = selected != null && _temple.character != null
-            && selected.CharacterID == _temple.character.CharacterID && priest != null
+        _inspectionNear = selected != null && priest != null
             && priest.IsLocalVisitorNear(_inspectionNear)
             && TownServiceOfferingPose.VisitorWithin(_station, _inspectionNear ? 1.65f : 1.4f)
             && WantsPurseFocus;

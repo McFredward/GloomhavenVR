@@ -24,8 +24,8 @@ namespace GloomhavenVR.WorldUI.MapRoom;
 /// in one log.</para>
 ///
 /// <para><b>WHAT "SELECTED" IS ON THE MAP, AND IT IS NOT THE BOARD'S ACTING HAND.</b> The map phase
-/// has no <c>CPlayerActor</c> at all (<c>CMapCharacter.GetActor()</c> reads
-/// <c>ScenarioManager.Scenario</c>, which is null here — see <c>Net.RevealGate</c>), so there is no
+/// has no active <c>CPlayerActor</c> at all (the scenario singleton may retain a stale
+/// instance after returning to the Guildmaster map), so there is no
 /// "hand the game presents" to fall back to. The map-side selection is one field:</para>
 /// <list type="bullet">
 /// <item><b>THE SELECTION</b> is <c>NewPartyDisplayUI.selectedCharacter</c>
@@ -276,9 +276,11 @@ internal static class MapCharacterSelection
     }
 
     /// <summary>
-    /// The raw map-side selection — <c>NewPartyDisplayUI.PartyDisplay.SelectedUISlot.Data</c>, and
-    /// nothing else. Null while the display holds nobody, is not built, or is gone. Never throws:
-    /// a half-torn UI must not take the map room with it.
+    /// The locally owned map-side selection from
+    /// <c>NewPartyDisplayUI.PartyDisplay.SelectedUISlot.Data</c>. A slot belonging to
+    /// another player cannot satisfy this client's selection floor. Null while the
+    /// display holds nobody local, is not built, or is gone. Never throws: a
+    /// half-torn UI must not take the map room with it.
     /// </summary>
     internal static CMapCharacter? Selected
     {
@@ -291,7 +293,7 @@ internal static class MapCharacterSelection
                 // The slot must actually hold a party member: an Empty/Available slot can be
                 // "selected" while the player is picking a mercenary for it, and that is not a
                 // character to present.
-                if (slot == null || slot.State != PartySlotState.Assigned)
+                if (slot == null || slot.State != PartySlotState.Assigned || !IsLocal(slot.Data))
                     return null;
                 return slot.Data;
             }
@@ -921,17 +923,17 @@ internal static class MapCharacterSelection
         return null;
     }
 
-    /// <summary>True while a map is loaded and no scenario is running — the same predicate
-    /// <c>RevealGate.InMapPhase</c> uses, asked here without taking a dependency on the reveal
-    /// rules.</summary>
+    /// <summary>True while this driver is presenting a loaded map. Native scenario
+    /// singletons and phase flags can lag the visible Guildmaster map during a return;
+    /// the room driver itself owns the presentation lifetime.</summary>
     private static bool InMapPhase
     {
         get
         {
             try
             {
-                return MapRuleLibrary.Adventure.AdventureState.MapState != null
-                       && ScenarioRuleLibrary.ScenarioManager.Scenario == null;
+                return MapRoomDriver.Active
+                    && MapRuleLibrary.Adventure.AdventureState.MapState != null;
             }
             catch (System.Exception)
             {
