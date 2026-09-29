@@ -81,7 +81,7 @@ was simply wrong, so treat every claim in a comment as a hypothesis and check it
 9. **His approved look outranks geometric or technical correctness.**
 10. **Window facing is yaw-only** — no window is ever pitched or rolled.
 
-## The gates — run all of them before you push
+## The gates — run all of them on the integrated tree before you push
 
 ```bash
 bash scripts/refactor-guard.sh check --summary   # 17 checkers, then the compiled-form diff
@@ -119,6 +119,13 @@ invalid evidence blocks publication. Full golden wire vectors still require the 
 Unity runtime and must run locally; hosted runners compile them against metadata references.
 A hosted green run does not
 replace that local gate.
+
+During implementation, each worker runs the focused suites and source checks
+affected by its changes. The primary agent runs the complete local commands above
+once after all worker changes are integrated into `dev`. A partial suite cannot
+certify the full tree; if a later fix changes the validated tree, rerun its affected
+checks and the complete gate on the final tree before pushing. The targeted suite
+interface and evidence location are documented in `docs/DEVELOPING.md`.
 
 **Bundles are built ONLY with `/home/claw/unity-2021.3.5`**, never `unity-2021.3`. The wrong
 editor produces a bundle that loads nothing and fails silently into the procedural fallback;
