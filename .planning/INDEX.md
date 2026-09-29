@@ -1,7 +1,7 @@
 # Planning index
 
-Updated 2026-09-29 for unified dev Build 584, integrating the NPC Build 583
-candidate and Steam Frame dev Build 559. This directory holds internal
+Updated 2026-09-29 for unified dev Build 585, integrating the NPC Build 583
+candidate and Steam Frame performance work. This directory holds internal
 engineering evidence, historical decisions and current status; it is not the player manual.
 
 ## Current entry points
@@ -67,6 +67,8 @@ engineering evidence, historical decisions and current status; it is not the pla
 
 ## Latest measured work
 
+- [STEAM-FRAME-THIRD-HARDWARE.md](STEAM-FRAME-THIRD-HARDWARE.md): Build 585
+  standalone map and scenario frame timing, CPU hotspots and GPU evidence gap.
 - [STEAM-FRAME-SECOND-HARDWARE.md](STEAM-FRAME-SECOND-HARDWARE.md): Build 584
   eye-scale comparison, measured CPU costs and the Build 585 follow-up.
 - [STEAM-FRAME-FIRST-HARDWARE.md](STEAM-FRAME-FIRST-HARDWARE.md): standalone

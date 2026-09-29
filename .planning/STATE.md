@@ -1,6 +1,6 @@
 # State — where the project stands
 
-**Updated 2026-09-29: dev 1.1.0 / ModBuild 585, Frame CPU candidate.**
+**Updated 2026-09-29: dev 1.1.0 / ModBuild 585, third Frame hardware log.**
 The complete immersive NPC work through Build 583 and the Steam Frame changes
 through dev Build 559 now share the sole `dev` integration branch. Future NPC and
 Frame work belongs on `dev`. The NPC presentation remains a two-client hardware
@@ -18,6 +18,10 @@ the maintainer reports unacceptable image quality there. Build 585 removes
 source-proven CPU work and adds hand-step attribution, awaiting another headset
 comparison and Valve's GPU performance CSV. See
 [STEAM-FRAME-SECOND-HARDWARE.md](STEAM-FRAME-SECOND-HARDWARE.md).
+The Build 585 log confirms substantial main-thread cost on the map and in a
+scenario even at the `Fastest` quality preset; its scenario logic median alone
+exceeds the 72 Hz frame budget. GPU busy time remains unknown without Valve's
+CSV. See [STEAM-FRAME-THIRD-HARDWARE.md](STEAM-FRAME-THIRD-HARDWARE.md).
 
 The file this replaces had gone 168 builds
 stale while still saying "read this first"; it is kept as `STATE-ARCHIVE-through-2026-08.md` for
