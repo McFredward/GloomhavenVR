@@ -33,8 +33,12 @@ two-client headset comparison before calling it fixed.
 
 The merchant-handoff and town-interaction runtime suites, asset-identity and
 public-catalog suites, and strict Release builds passed in isolated worktrees.
-The integrated tree must pass the full `refactor-guard`, strict Release build,
-and EN/DE documentation checks before distribution. A headset comparison must
+The integrated tree passed 14/14 source checks, 80/80 runtime suites and
+286,609 wire assertions. The strict Release build passed with zero warnings
+and errors; the EN/DE documentation check passed. The compiled-form guard
+reported expected changes relative to its older pre-NPC baseline
+`bcec5dfed`, so its exit status is 1 by design rather than a failed test.
+A headset comparison must
 use Build 589 on both players and collect both players' logs. Check the original
 item art on the owner's fan and hand, the public cabinet after every category
 switch, each resident's handoff, the selection floor, and the offered card's

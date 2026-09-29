@@ -63,8 +63,9 @@ change per build) → this file (where things stand and what is owed) → the bu
   be used without an assigned character or a free transaction lease. Remote
   merchant decision facing interpolates over its sample period. Map ownership,
   enchantress handoff and temple purse focus no longer depend on stale
-  selection or unrelated gates. Source and focused checks passed before the
-  integrated gate; the headset result remains open. See
+  selection or unrelated gates. The integrated gate passed 14 source checks,
+  80 runtime suites, 286609 wire assertions, the strict Release build and
+  EN/DE docs validation. The headset result remains open. See
   [TOWN-MP-589.md](TOWN-MP-589.md).
 
 - **dev / 1.1.0 / ModBuild 588 (Frame launcher candidate):** a Frame-only
