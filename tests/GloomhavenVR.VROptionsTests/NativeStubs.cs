@@ -22,8 +22,20 @@ namespace UnityEngine
 }
 namespace UnityEngine.SceneManagement
 {
-    internal readonly struct Scene { internal int handle => 1; }
-    internal static class SceneManager { internal static Scene GetActiveScene() => new(); }
+    internal enum LoadSceneMode { Single, Additive }
+    internal readonly struct Scene
+    {
+        internal int handle => 1;
+        internal string name { get; }
+        internal Scene(string name) => this.name = name;
+    }
+    internal static class SceneManager
+    {
+        internal static event Action<Scene, LoadSceneMode>? sceneLoaded;
+        internal static Scene GetActiveScene() => new("Boot");
+        internal static void LoadAdditive(string name) =>
+            sceneLoaded?.Invoke(new Scene(name), LoadSceneMode.Additive);
+    }
 }
 namespace UnityEngine.UI
 {
@@ -170,6 +182,7 @@ namespace GloomhavenVR.WorldUI
         private const int MainScanBudget = 12;
         private static int _mainScanScene, _mainScansLeft;
         private static float _nextMainScan;
+        private static bool _mainSceneHooked;
         internal static UIMainMenuOption[]? _mainRivals;
         internal static bool _yieldArmed;
         internal static bool Throw, FailPause, FailMain;
@@ -197,6 +210,11 @@ namespace GloomhavenVR.WorldUI
         internal static bool HasRows => _entry != null && _mainEntry != null;
         internal static void ResetDiscovery()
         {
+            if (_mainSceneHooked)
+            {
+                UnityEngine.SceneManagement.SceneManager.sceneLoaded -= OnMainSceneLoaded;
+                _mainSceneHooked = false;
+            }
             _host = null; _mainHost = null; _entry = null; _mainEntry = null;
             _mainScansLeft = 0; _mainScanScene = 0; _nextMainScan = 0;
             _pauseInjectFailed = null; _pauseRetryAfter = 0;

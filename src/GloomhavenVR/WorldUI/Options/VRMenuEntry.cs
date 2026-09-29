@@ -169,9 +169,10 @@ internal static class VRMenuEntry
     /// frame is this project's single most expensive recurring mistake (one <c>FindObjectOfType</c>
     /// per frame once owned 12.6 ms of an 11.11 ms budget). So the sweep is bounded twice: it runs
     /// at most once per <see cref="MainScanInterval"/> seconds, and at most
-    /// <see cref="MainScanBudget"/> times per SCENE. A scene that has no main menu therefore costs
-    /// a handful of sweeps just after it loads and nothing at all thereafter; the budget is re-armed
-    /// only by the active scene actually changing.
+    /// <see cref="MainScanBudget"/> times per discovery window. Steam Frame's slower startup can
+    /// exhaust the first window before the main menu is loaded additively, without changing the
+    /// active scene handle. The actual MainMenu sceneLoaded event therefore re-arms one window;
+    /// unrelated additive scenes never do. There is no unbounded per-frame object search.
     /// </summary>
     private const float MainScanInterval = 1f;
 
@@ -182,6 +183,19 @@ internal static class VRMenuEntry
     private static int _mainScanScene;
     private static int _mainScansLeft;
     private static float _nextMainScan;
+    private static bool _mainSceneHooked;
+
+    /// <summary>Re-arm discovery when the game's actual menu arrives additively. Unity raises
+    /// sceneLoaded after Awake/OnEnable and before the next Update; that next Tick can find the
+    /// menu after its normal Start. A slow bundle load must never spend the only twelve searches
+    /// before there is any menu to find.</summary>
+    private static void OnMainSceneLoaded(Scene scene, LoadSceneMode mode)
+    {
+        if (scene.name != "MainMenu" && scene.name != "MainMenu_gamepad")
+            return;
+        _mainScansLeft = MainScanBudget;
+        _nextMainScan = 0f;
+    }
 
     /// <summary>Per-frame step from <see cref="WorldUIModule"/>. Cheap: two singleton reads while
     /// injected, plus a bounded main-menu sweep that stops on its own.</summary>
@@ -350,10 +364,16 @@ internal static class VRMenuEntry
     /// </summary>
     private static void TickMainMenu()
     {
+        if (!_mainSceneHooked)
+        {
+            SceneManager.sceneLoaded += OnMainSceneLoaded;
+            _mainSceneHooked = true;
+        }
         if (_mainEntry != null && _mainHost != null)
             return;
 
-        // A scene change re-arms the budget; nothing else does.
+        // An active-scene change also re-arms discovery. Additive MainMenu loads do not change
+        // this handle, which is why OnMainSceneLoaded owns their separate re-arm.
         int scene = SceneManager.GetActiveScene().handle;
         if (scene != _mainScanScene)
         {
@@ -439,10 +459,8 @@ internal static class VRMenuEntry
         if (!_loggedMain)
         {
             _loggedMain = true;
-            VRLog.Info("WorldUI", $"VR is a MAIN-MENU entry too, directly under '{donor.name}' "
-                + $"(label '{Loc.Mod("vr_options")}'). This row is what replaces the deleted VR "
-                + "tab as the route to the settings before a game is loaded — without it the "
-                + "settings would be unreachable in the main menu.");
+            VRLog.Note("WorldUI", $"VR main-menu entry ready beside '{donor.name}' "
+                + $"(label '{Loc.Mod("vr_options")}').");
         }
     }
 
@@ -868,6 +886,11 @@ internal static class VRMenuEntry
     /// <summary>Module teardown: drop both clones, leaving the menus exactly as they shipped.</summary>
     internal static void Shutdown()
     {
+        if (_mainSceneHooked)
+        {
+            SceneManager.sceneLoaded -= OnMainSceneLoaded;
+            _mainSceneHooked = false;
+        }
         // The seat pass re-based the game's own rows' hover caches; hand them back and rebuild
         // the layout without the clones BEFORE the clones go (Destroy is deferred, a rebuild is
         // not).
