@@ -1489,6 +1489,9 @@ internal static partial class WallSegmentFade
         /// renderer.enabled every frame.</summary>
         private readonly HashSet<MeshRenderer> _siblingOwned = new();
         private readonly List<MeshRenderer> _subtreeScratch = new();
+        // The wall-cache refresh owns this list for its whole synchronous pass. It must not
+        // share _subtreeScratch: standing/prop-unit predicates called from that pass use it.
+        private readonly List<MeshRenderer> _wallCacheRendererScratch = new(64);
         /// <summary>An ancestor whose subtree holds more MeshRenderers than this is a CONTAINER
         /// (the 'L :' Apparance layer/section-root class), not a prefab-sized asset — the walk
         /// stops there and attaches nothing (fail-open: the ugly remnant stays visible, which
@@ -6945,7 +6948,9 @@ internal static partial class WallSegmentFade
         private void RefreshSplitWall(ProceduralWall wall)
         {
             _splitPieceScratch.Clear();
-            MeshRenderer[] all = wall.GetComponentsInChildren<MeshRenderer>(includeInactive: false);
+            _wallCacheRendererScratch.Clear();
+            wall.GetComponentsInChildren(includeInactive: false, _wallCacheRendererScratch);
+            List<MeshRenderer> all = _wallCacheRendererScratch;
             foreach (MeshRenderer r in all)
             {
                 if (r == null)
@@ -9717,7 +9722,11 @@ internal static partial class WallSegmentFade
             BeginRefresh(seg);
             if (seg.Anchor == null)
                 return;
-            MeshRenderer[] all = seg.Anchor.GetComponentsInChildren<MeshRenderer>(includeInactive: false);
+            // Keep the live hierarchy walk and its order, while reusing the destination list
+            // across cache walls. Nothing called below may borrow this scratch list.
+            _wallCacheRendererScratch.Clear();
+            seg.Anchor.GetComponentsInChildren(includeInactive: false, _wallCacheRendererScratch);
+            List<MeshRenderer> all = _wallCacheRendererScratch;
             foreach (MeshRenderer r in all)
             {
                 if (r == null)
@@ -9742,14 +9751,15 @@ internal static partial class WallSegmentFade
                     continue;
                 }
                 seg.Renderers.Add(r);
+                Bounds bounds = r.bounds;
                 if (!seg.HasBounds)
                 {
-                    seg.Bounds = r.bounds;
+                    seg.Bounds = bounds;
                     seg.HasBounds = true;
                 }
                 else
                 {
-                    seg.Bounds.Encapsulate(r.bounds);
+                    seg.Bounds.Encapsulate(bounds);
                 }
                 // Renderer may be brand new (Apparance rebuild) while the segment is mid-fade —
                 // Apply() runs every frame for faded segments and will cover it.
@@ -9760,7 +9770,7 @@ internal static partial class WallSegmentFade
             // tileset whose wall shaders live outside the WallFade family — the one case neither
             // discovery source can fade. The heartbeat prints the shader names so the next
             // hardware log identifies the family to add.
-            if (seg.Renderers.Count == 0 && all.Length > 0)
+            if (seg.Renderers.Count == 0 && all.Count > 0)
             {
                 _censusWallsWithoutFade++;
                 if (_unfadeableWallShaders.Count < 8)

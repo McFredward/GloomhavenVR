@@ -107,7 +107,7 @@ internal static partial class WallSegmentFade
         /// currently hiding is re-recognized (and its authored snapshot preserved) instead of
         /// skipped as "game-disabled".
         /// </summary>
-        private void CollectPlainWallBody(Segment seg, MeshRenderer[] all)
+        private void CollectPlainWallBody(Segment seg, List<MeshRenderer> all)
         {
             seg.PrevBody.Clear();
             seg.PrevBody.AddRange(seg.Body);
