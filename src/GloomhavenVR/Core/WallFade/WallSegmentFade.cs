@@ -7889,6 +7889,14 @@ internal static partial class WallSegmentFade
         {
             _matScratch.Clear();
             r.GetSharedMaterials(_matScratch);
+            return SharedMaterialsUseFoliage();
+        }
+
+        /// <summary>Inspect the material list already read from this renderer. The cache-wall
+        /// refresh uses this immediately after a failed fade-material scan; both verdicts then
+        /// see the same live materials without a second Unity query.</summary>
+        private bool SharedMaterialsUseFoliage()
+        {
             foreach (Material m in _matScratch)
             {
                 if (m == null)
@@ -9731,7 +9739,8 @@ internal static partial class WallSegmentFade
             {
                 if (r == null)
                     continue;
-                if (!CollectWallFadeInfo(r, seg))
+                if (!CollectWallFadeInfo(r, seg, figureArmOnly: false,
+                                         out bool materialsRead))
                 {
                     // Not fade-capable — but a foliage dressing of this wall rides its fade
                     // (the "Gestrüpp-Wand" report). Ground-level tufts are dropped later by
@@ -9746,7 +9755,14 @@ internal static partial class WallSegmentFade
                     // Foliage-shaded and comes here, and a canopy intercepts more rays to the
                     // floor grid than a trunk does. See WallSegmentFade.Standing.cs,
                     // IsStandingFigureOnlyProp.
-                    if (RendererUsesFoliage(r) && !IsStandingFigureOnlyProp(r))
+                    // The first predicate already scanned this renderer's shared materials
+                    // unless it refused a standing prop before the material walk. Reuse that
+                    // exact list on the ordinary miss; preserve the live read on the early
+                    // refusal. Build 585 measured WallCache at 21-35 ms per scenario commit,
+                    // with hundreds of wall-cache children warmed before each one.
+                    bool foliage = materialsRead ? SharedMaterialsUseFoliage()
+                                                 : RendererUsesFoliage(r);
+                    if (foliage && !IsStandingFigureOnlyProp(r))
                         seg.Foliage.Add(r);
                     continue;
                 }
@@ -9888,6 +9904,13 @@ internal static partial class WallSegmentFade
         /// that then rides its run as a PASSENGER without ever voting on it.</param>
         private bool CollectWallFadeInfo(MeshRenderer r, Segment seg, bool figureArmOnly = false)
         {
+            return CollectWallFadeInfo(r, seg, figureArmOnly, out _);
+        }
+
+        private bool CollectWallFadeInfo(MeshRenderer r, Segment seg, bool figureArmOnly,
+                                         out bool materialsRead)
+        {
+            materialsRead = false;
             // STANDING PROPS ARE NEVER WALL GEOMETRY (user report 2026-08-15, skelet.jpg —
             // the skeleton statue's skull faded with 'Wall 1' while its body stayed). This is
             // the ONE choke point every wall-renderer collection path goes through — the cache
@@ -9913,6 +9936,7 @@ internal static partial class WallSegmentFade
             bool any = false;
             _matScratch.Clear();
             r.GetSharedMaterials(_matScratch);
+            materialsRead = true;
             foreach (Material m in _matScratch)
             {
                 if (m == null || m.shader == null)
