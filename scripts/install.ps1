@@ -532,6 +532,10 @@ if (-not $NoPackage) {
 
     Copy-Item -Recurse -Force $pluginDir  (Join-Path $stage "BepInEx\plugins\GloomhavenVR")
     Copy-Item -Recurse -Force $patcherDir (Join-Path $stage "BepInEx\patchers\GloomhavenVR")
+    # A Frame-only marker may exist in the installed game tree. It must never
+    # propagate into a cross-platform archive, where it would opt PC users out.
+    $frameMarker = Join-Path $stage "BepInEx\patchers\GloomhavenVR\frame-launch-opt-in.marker"
+    if (Test-Path -LiteralPath $frameMarker) { Remove-Item -LiteralPath $frameMarker -Force }
 
     $templates = @{
         "INSTALL.txt"         = Join-Path $root "packaging\INSTALL.txt.in"
@@ -547,6 +551,15 @@ if (-not $NoPackage) {
         # be the only alternative and it reads amateurish to the person the file is written for.
         Write-WindowsText $template (Join-Path $stage $name) @{ '@VERSION@' = $version }
     }
+
+    # Only the explicit Frame helper creates the opt-in marker. Including the
+    # helper and existing art in a PC-built archive does not alter PC launches.
+    Copy-Item -LiteralPath (Join-Path $root "scripts\install-steam-frame.sh") `
+              -Destination (Join-Path $stage "install-steam-frame.sh")
+    Copy-Item -LiteralPath (Join-Path $root "src\GloomhavenVR\Assets\GloomhavenVR_logo.png") `
+              -Destination (Join-Path $stage "GloomhavenVR-steam-logo.png")
+    Copy-Item -LiteralPath (Join-Path $root "unity\GloomhavenVR.Assets\Assets\Bundle\UI\VRMenuIcon.png") `
+              -Destination (Join-Path $stage "GloomhavenVR-steam-icon.png")
 
     # No graphics-jobs enabler ships any more: the preloader writes boot.config
     # itself and restarts the game once on the boot that needs it.
@@ -566,7 +579,10 @@ if (-not $NoPackage) {
         "BepInEx/patchers/GloomhavenVR/GloomhavenVR.Preload.dll",
         "BepInEx/patchers/GloomhavenVR/Natives/openxr_loader.dll",
         "INSTALL.txt",
-        "INSTALL-DEUTSCH.txt")
+        "INSTALL-DEUTSCH.txt",
+        "install-steam-frame.sh",
+        "GloomhavenVR-steam-logo.png",
+        "GloomhavenVR-steam-icon.png")
     Add-Type -AssemblyName System.IO.Compression.FileSystem
     # Every .txt in the archive must open cleanly on Windows: valid UTF-8, BOM, CRLF, and none
     # of the two characters a double encoding always produces (U+00C3 from an umlaut's lead

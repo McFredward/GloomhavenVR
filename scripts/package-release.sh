@@ -111,6 +111,10 @@ cp "${RUNTIMEDEPS[@]}" "$PLUGDIR/RuntimeDeps/"
 [[ -f "$ROOT/libs/RuntimeDeps/versions.json" ]] && cp "$ROOT/libs/RuntimeDeps/versions.json" "$PLUGDIR/RuntimeDeps/"
 cp "$PRELOADER" "$PATCHDIR/"
 cp "${NATIVES[@]}" "$PATCHDIR/Natives/"
+[[ ! -e "$PATCHDIR/frame-launch-opt-in.marker" ]] || {
+    echo 'error: Frame-only opt-in marker must never ship in a release archive' >&2
+    exit 1
+}
 
 # ---- text files a Windows user double-clicks -------------------------------------------------
 # stage_text SRC DEST: render @VERSION@ and write DEST as UTF-8 WITH BOM and CRLF line endings,
@@ -181,6 +185,13 @@ done
 stage_text "$TEMPLATE"    "$STAGE/INSTALL.txt"
 stage_text "$TEMPLATE_DE" "$STAGE/INSTALL-DEUTSCH.txt"
 
+# The Steam Frame opt-in is deliberately not an archive marker: extraction on a
+# Windows PC must not change its existing launch behavior. Frame users run this
+# helper once, then add its generated launcher through Steam's own shortcut UI.
+cp "$ROOT/scripts/install-steam-frame.sh" "$STAGE/install-steam-frame.sh"
+cp "$ROOT/src/GloomhavenVR/Assets/GloomhavenVR_logo.png" "$STAGE/GloomhavenVR-steam-logo.png"
+cp "$ROOT/unity/GloomhavenVR.Assets/Assets/Bundle/UI/VRMenuIcon.png" "$STAGE/GloomhavenVR-steam-icon.png"
+
 # NO graphics-jobs enabler ships any more. The preloader writes boot.config itself
 # and restarts the game once on the boot that needs it, so a script whose whole job
 # was to write the same two keys beforehand only offered the user a way to do by
@@ -218,7 +229,10 @@ for path in \
     "BepInEx/patchers/GloomhavenVR/GloomhavenVR.Preload.dll" \
     "BepInEx/patchers/GloomhavenVR/Natives/openxr_loader.dll" \
     "INSTALL.txt" \
-    "INSTALL-DEUTSCH.txt"; do
+    "INSTALL-DEUTSCH.txt" \
+    "install-steam-frame.sh" \
+    "GloomhavenVR-steam-logo.png" \
+    "GloomhavenVR-steam-icon.png"; do
     if ! grep -qF -- "$path" <<<"$LISTING"; then
         echo "error: packaged zip is missing '$path'" >&2
         exit 1
