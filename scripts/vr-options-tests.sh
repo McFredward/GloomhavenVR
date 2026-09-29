@@ -84,7 +84,7 @@ else:
     s=s.replace(a,b,1)
 (out / 'Options.mutant').write_text(s)
 PY
-    if dotnet run --project "$project" --configuration Release --property:OptionsSource="$test_dir/Options.mutant" > "$test_dir/mutant.log" 2>&1; then
+    if dotnet run --project "$project" --configuration Release --no-restore --property:OptionsSource="$test_dir/Options.mutant" > "$test_dir/mutant.log" 2>&1; then
         cat "$test_dir/mutant.log"
         echo "FAIL: $mutation escaped VR options regression tests." >&2
         exit 1
