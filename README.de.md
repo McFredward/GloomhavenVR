@@ -37,6 +37,7 @@
 
 <p align="center">
   <a href="INSTALL.de.md"><b>Installieren →</b></a> &nbsp;·&nbsp;
+  <a href="INSTALL-STEAM-FRAME.de.md"><b>Auf Steam Frame installieren →</b></a> &nbsp;·&nbsp;
   <a href="docs/PLAYING.de.md">Spielablauf &amp; Steuerung</a>
 </p>
 
@@ -204,24 +205,7 @@ behält dessen Stange, nicht deine.
 standalone · zwei getrackte Controller · Room-Scale. Entwickelt wurde die Mod auf einer Quest 3
 über Virtual Desktop.
 
-[→ Installationsanleitung](INSTALL.de.md) · [→ Spielablauf & Steuerung](docs/PLAYING.de.md)
-
-### Steam Frame standalone
-
-1. Installiere Gloomhaven aus deiner Steam-Bibliothek auf der Frame und wechsle in den Desktop-Modus.
-2. Lade in Chrome oder einem anderen installierten Browser das **Windows-x64-Archiv** von
-   [BepInEx 5.4.23.5](https://github.com/BepInEx/BepInEx/releases/tag/v5.4.23.5) und das aktuelle
-   [GloomhavenVR-Release-Archiv](https://github.com/McFredward/GloomhavenVR/releases/latest) herunter.
-   Beide ZIP-Dateien lassen sich in Dolphin öffnen.
-3. Entpacke den **Inhalt beider Archive** nach
-   `/home/steamos/.local/share/Steam/steamapps/common/Gloomhaven`, also in den Ordner mit `GH.exe`.
-   Führe die `BepInEx`-Ordner zusammen, falls Dolphin danach fragt.
-4. Öffne in Steam Gloomhaven → **Eigenschaften → Allgemein → Startoptionen** und trage
-   `WINEDLLOVERRIDES="winhttp=n,b" %command%` ein.
-5. Starte das Spiel. Beim ersten Start kann es sich schließen, während die Mod ihre
-   Rendering-Einstellungen übernimmt; der automatische Neustart klappt auf der Frame möglicherweise
-   nicht.
-6. Wenn es sich schließt, starte es selbst ein zweites Mal.
+[→ Installation](INSTALL.de.md) · [→ Installation auf Steam Frame](INSTALL-STEAM-FRAME.de.md) · [→ Spielablauf & Steuerung](docs/PLAYING.de.md)
 
 <p align="center">
   <img src="docs/img/divider-small.png" width="340" alt="">

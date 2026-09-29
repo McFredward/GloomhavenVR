@@ -58,6 +58,7 @@ MARKDOWN = [
     # (english path, german path, path from the file's own directory to docs/img)
     ("README.md",       "README.de.md",       "docs/img"),
     ("INSTALL.md",      "INSTALL.de.md",      "docs/img"),
+    ("INSTALL-STEAM-FRAME.md", "INSTALL-STEAM-FRAME.de.md", "docs/img"),
     ("docs/PLAYING.md", "docs/PLAYING.de.md", "img"),
 ]
 
