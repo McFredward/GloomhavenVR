@@ -53,9 +53,12 @@ change per build) → this file (where things stand and what is owed) → the bu
   veil discovery remains complete every frame; one impossible hierarchy test
   is removed. Bounded Debug timing splits town visits, public catalog,
   observer state, veil discovery/reassert and slow modal-conversion stages.
-  No UI timing, gameplay, wire or asset change. Focused suites and the strict
-  build passed in workers; full integrated validation and headset measurement
-  are still required. See [STEAM-FRAME-FIFTH-HARDWARE.md](STEAM-FRAME-FIFTH-HARDWARE.md).
+  No UI timing, gameplay, wire or asset change. The integrated 14 source
+  checkers, all 80 runtime suites, strict Release build and EN/DE docs check
+  passed. A compiled-form comparison against Build 586 contains only the
+  reviewed town, veil and modal changes plus the build/branch constants.
+  Headset performance remains unmeasured. See
+  [STEAM-FRAME-FIFTH-HARDWARE.md](STEAM-FRAME-FIFTH-HARDWARE.md).
 
 - **dev / 1.1.0 / ModBuild 586 (Frame CPU candidate):** reuse the wall-cache
   material snapshot, avoid repeated hidden-veil component lookups, apply town
