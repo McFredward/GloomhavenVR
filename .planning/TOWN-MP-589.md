@@ -6,9 +6,11 @@ The main checkout's `debug/LogOutput.log` and `debug/Player.log` are the 29 Sept
 Build 587 host run. The host log confirms a connected player 2 with peer ModBuild
 587. Nine JPGs in `debug/npc_probleme` show the merchant's returning flat window,
 gray remote item surfaces, an empty remote cabinet, and displaced offer art.
-The files currently under `debug/remote` have a Build 582 banner from 28 September;
-they are **not** the peer trace for this Build 587 run. This limits any conclusion
-about the peer's actual publication cadence and the offered card's wrong position.
+The originally supplied `debug/remote` files had a Build 582 banner. They were
+replaced on 29 September with the matching Build 587 peer trace. The additional
+findings from that trace and the resulting follow-up belong in
+[`TOWN-MP-590.md`](TOWN-MP-590.md). This table records the Build 589 changes that
+were already made before the corrected peer files arrived.
 
 ## Source-proven corrections
 
@@ -23,11 +25,10 @@ about the peer's actual publication cadence and the offered card's wrong positio
 | Character UI intermittently shows nobody | Nine host `SELECTION GUARD DROP EDGE: map` lines had no following restore result because the stale scenario singleton made `InMapPhase` false. The selected slot's cached local flag may also lag a new assignment. | Restore during the actual map phase and use the authoritative controllable owner before the cached flag when the registry is answerable. Unassigned multiplayer visitors may still have no selection. |
 
 The displaced gray offered card has no separately demonstrated pose error in the
-available logs. Source review found that its original item-card transform is
+host log alone. Source review found that its original item-card transform is
 published relative to the shared map frame and replayed under the visitor's
-private town module. Restoring its original art and removing missing-module
-gaps may change the observed picture, but this position still requires a fresh
-two-client headset comparison before calling it fixed.
+private town module. The corrected peer trace subsequently exposed a persistent
+mirror exception; see the follow-up note before judging the offered-card pose.
 
 ## Verification
 
