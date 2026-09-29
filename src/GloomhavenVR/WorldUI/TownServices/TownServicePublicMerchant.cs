@@ -82,13 +82,19 @@ internal static class TownServicePublicMerchant
             if (_station == null || _station.Root == null) { Reset(); return; }
             if (!TownServiceMirror.IsPublicAuthor && TownServiceMirror.PublicRack is TownRackState remote)
                 _catalog.Drawers[0].Follow(remote);
-            _catalog.SetVisibility(Mathf.Clamp01((Time.unscaledTime - _opened) / .22f),
-                allowInput: !StoryComposite.PointOfNoReturn
-                    && TownServiceMirror.CanLocalBeginTransaction(1));
-            _catalog.Tick(_station.Root.lossyScale.x);
+            using (PerfMonitor.Scope("TownPublicStock.Catalog"))
+            {
+                _catalog.SetVisibility(Mathf.Clamp01((Time.unscaledTime - _opened) / .22f),
+                    allowInput: !StoryComposite.PointOfNoReturn
+                        && TownServiceMirror.CanLocalBeginTransaction(1));
+                _catalog.Tick(_station.Root.lossyScale.x);
+            }
             bool observer = !TownServiceMirror.IsPublicAuthor;
-            if (observer) foreach (TownServiceToken sample in _catalog.Samples) if (sample.IsMoving) sample.CancelInspection();
-            _catalog.SetObserver(observer);
+            using (PerfMonitor.Scope("TownPublicStock.Observer"))
+            {
+                if (observer) foreach (TownServiceToken sample in _catalog.Samples) if (sample.IsMoving) sample.CancelInspection();
+                _catalog.SetObserver(observer);
+            }
             TownServiceCatalogCategory.TickLaser();
             _catalog.Drawers[0].TickStickScroll();
             if (_failed) { VRLog.Note("TownServices", "Persistent merchant stock presentation recovered."); _failed = false; }

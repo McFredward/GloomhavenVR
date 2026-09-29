@@ -120,7 +120,14 @@ internal static class TownServicePresentation
 
     internal static void Tick()
     {
-        try { TownServiceNativeAudioSilence.EnsureInstalled(); TownServiceWindowMask.TickRetirements(); TownServiceConfirmationMask.Tick(); TickCore(); TownServicePublicMerchant.Tick(); }
+        try
+        {
+            TownServiceNativeAudioSilence.EnsureInstalled();
+            TownServiceWindowMask.TickRetirements();
+            TownServiceConfirmationMask.Tick();
+            using (PerfMonitor.Scope("TownServicePresentation.Visit")) TickCore();
+            using (PerfMonitor.Scope("TownServicePresentation.PublicStock")) TownServicePublicMerchant.Tick();
+        }
         catch (Exception e)
         {
             UIWindow? restore = _window;

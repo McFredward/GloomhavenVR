@@ -257,7 +257,9 @@ internal sealed class TownServiceCatalog : IDisposable
     }
     internal void SetObserver(bool observer)
     {
-        if (_observerDirty)
+        bool observerChanged = _observer != observer;
+        bool observerCensus = _observerDirty;
+        if (observerCensus)
         {
             Root.GetComponentsInChildren(true, _observerCanvases);
             Root.GetComponentsInChildren(true, _observerRenderers);
@@ -273,10 +275,13 @@ internal sealed class TownServiceCatalog : IDisposable
         foreach (Renderer renderer in _observerRenderers)
             if (renderer != null && !_bodyObserverRenderers.Contains(renderer)
                 && renderer.forceRenderingOff != observer) renderer.forceRenderingOff = observer;
-        // Card bodies also depend on the current rack page. Applying the observer
-        // flag in the global pass and the page flag in a second pass unsuppressed
-        // then suppressed every hidden stock body's renderer in each author frame.
-        foreach (Entry entry in _entries) entry.SetBodyRendererVisibility(observer || !entry.Exposed);
+        // Entry.Tick already applies the page and current observer to every body
+        // earlier in this frame. Repeat that pass only when the election changes
+        // after Tick (including an immediate physical claim), or a row census added
+        // bodies since the preceding observer pass. A stable cabinet formerly read
+        // and compared every body renderer twice per frame for the same answer.
+        if (observerChanged || observerCensus)
+            foreach (Entry entry in _entries) entry.SetBodyRendererVisibility(observer || !entry.Exposed);
         _observer = observer;
         if (observer && !TownServicePublicMerchant.CanClaim)
             foreach (Entry entry in _entries) entry.Sample.PickCollider.enabled = false;
@@ -465,7 +470,13 @@ internal sealed class TownServiceCatalog : IDisposable
             if (_shown != exposed) { _shown = exposed; _row.SetShown(true); }
             if (_body != null)
             {
-                TownServiceCardBody.SetVisibility(_body.gameObject, _owner._opening.alpha);
+                // The opaque cassette hides every other page. Its body has no
+                // observable fade or texture while hidden; sample the current
+                // source on the first exposed frame, before either the local render
+                // or the shared presentation snapshot. This retains the opening
+                // fade and late native artwork on every visible item without
+                // polling two source materials on all hidden stock every frame.
+                if (exposed) TownServiceCardBody.SetVisibility(_body.gameObject, _owner._opening.alpha);
                 SetBodyRendererVisibility(!exposed || _owner._observer);
             }
             if (!Warm) { Sample.PickCollider.enabled = false; return; }
@@ -487,7 +498,11 @@ internal sealed class TownServiceCatalog : IDisposable
                 CardFaceMipBake.Rescan(CardUI);
                 _artWatch.Capture(CardUI);
             }
-            _row.TickLive();
+            // Keep the native price/stock widget's intermediate animation on the
+            // visible page. A prewarmed next page is fully obscured by its page
+            // gate; its 27-node clone is refreshed on this same tick when it first
+            // becomes exposed, so it never presents a stale frame to either peer.
+            if (exposed) _row.TickLive();
             // Preserve original stock/price/name glyphs but remove the flat list's backing.
             foreach(Transform original in _rowBackgrounds)
             {Transform? clone=_row.CloneOf(original);if(clone!=null&&clone.gameObject.activeSelf)clone.gameObject.SetActive(false);}
