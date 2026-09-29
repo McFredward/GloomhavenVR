@@ -1,7 +1,7 @@
 # Planning index
 
-Updated 2026-09-29 for unified dev Build 585, integrating the NPC Build 583
-candidate and Steam Frame performance work. This directory holds internal
+Updated 2026-09-29 for unified dev Build 589, integrating the NPC multiplayer
+follow-up and Steam Frame launcher. This directory holds internal
 engineering evidence, historical decisions and current status; it is not the player manual.
 
 ## Current entry points
@@ -12,6 +12,7 @@ engineering evidence, historical decisions and current status; it is not the pla
 | [../CLAUDE.md](../CLAUDE.md) | Technical contracts retained across agent tools |
 | [TEST-PARALLELISM.md](TEST-PARALLELISM.md) | Parallel local/CI execution, coverage and measured timing |
 | [STATE.md](STATE.md) | Current build, validation and outstanding hardware checks |
+| [TOWN-MP-589.md](TOWN-MP-589.md) | Build-587 multiplayer evidence, source fixes and Build-589 headset limits |
 | [TOWN-MP-583.md](TOWN-MP-583.md) | Build-582 multiplayer evidence, source causes and build-583 acceptance scope |
 | [TOWN-CLOTH-RETIREMENT-582.md](TOWN-CLOTH-RETIREMENT-582.md) | Static town fabric and the documented retirement of runtime cloth interaction |
 | [TOWN-VOICE-582.md](TOWN-VOICE-582.md) | Independent resident voice playback at the face-target gaze edge |
@@ -67,6 +68,8 @@ engineering evidence, historical decisions and current status; it is not the pla
 
 ## Latest measured work
 
+- [TOWN-MP-589.md](TOWN-MP-589.md): Build 587 host evidence, map character
+  ownership, resident grants, original remote art and cabinet input repairs.
 - [STEAM-FRAME-SHORTCUT.md](STEAM-FRAME-SHORTCUT.md): Frame-only GloomhavenVR
   library shortcut, fail-closed VR opt-in, packaging and hardware limits.
 - [STEAM-FRAME-FIFTH-HARDWARE.md](STEAM-FRAME-FIFTH-HARDWARE.md): Build 586

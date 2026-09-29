@@ -547,7 +547,24 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 588;
+    public const ushort ModBuild = 589;
+
+    // ModBuild 589 — Build 587 town multiplayer hardware follow-up. A host's
+    // self-issued resident grant now records its own response and an active
+    // grant cannot time out as unanswered. Failed merchant handoffs cancel and
+    // return the card with in-world retry feedback instead of exposing the
+    // native flat shop. The two unique original atlas descriptors that caused
+    // repeated remote card/price capture failures are recognized without
+    // accepting unrelated same-name textures. Public cabinet category input
+    // no longer depends on character assignment or another visitor's offer;
+    // remote and local decision facing interpolate between owner samples.
+    // The map selection floor remains active even if a stale scenario singleton
+    // survives the return to Guildmaster town and consults the authoritative
+    // assignment before the transient local-control flag. Town ability/purse
+    // focus no longer borrows fan-reorder or foreign transaction gates. This is
+    // source-and-log evidence; exact headset presentation and the reported
+    // offered-card position require a fresh two-client Build 589 run. Wire
+    // layout and asset bundles are unchanged. See .planning/TOWN-MP-589.md.
 
     // ModBuild 588 — Steam Frame installations can mark their game copy for
     // explicit VR startup. The original Steam Gloomhaven entry then passes no

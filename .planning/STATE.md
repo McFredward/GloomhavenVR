@@ -1,6 +1,6 @@
 # State — where the project stands
 
-**Updated 2026-09-29: dev 1.1.0 / ModBuild 588, separate Frame launcher candidate.**
+**Updated 2026-09-29: dev 1.1.0 / ModBuild 589, town multiplayer repair candidate.**
 The complete immersive NPC work through Build 583 and the Steam Frame changes
 through dev Build 559 now share the sole `dev` integration branch. Future NPC and
 Frame work belongs on `dev`. The NPC presentation remains a two-client hardware
@@ -37,6 +37,11 @@ at 3408 per eye. Build 588 adds a separate Frame launcher and opt-in gate;
 the original Steam entry remains flat only after the Frame helper creates its
 marker. Steam Game Mode argument forwarding and prelaunch VR-settings visibility
 remain hardware checks. See [STEAM-FRAME-SHORTCUT.md](STEAM-FRAME-SHORTCUT.md).
+Build 589 addresses the Build 587 town multiplayer report: host self-grant
+timeout, original atlas capture, public cabinet input, town handoff focus and
+map character selection. The actual peer logs in `debug/remote` are from Build
+582, so a Build 589 two-client comparison is still required, especially for
+the offered-card position. See [TOWN-MP-589.md](TOWN-MP-589.md).
 
 The file this replaces had gone 168 builds
 stale while still saying "read this first"; it is kept as `STATE-ARCHIVE-through-2026-08.md` for
@@ -50,6 +55,17 @@ change per build) → this file (where things stand and what is owed) → the bu
 ---
 
 ## 1. Position
+
+- **dev / 1.1.0 / ModBuild 589 (town multiplayer repair candidate):** the
+  merchant remains immersive across transaction failures; valid host grants
+  no longer expire as unanswered. Original item art/price atlas capture is
+  resolved by verified native descriptors, and public cabinet categories can
+  be used without an assigned character or a free transaction lease. Remote
+  merchant decision facing interpolates over its sample period. Map ownership,
+  enchantress handoff and temple purse focus no longer depend on stale
+  selection or unrelated gates. Source and focused checks passed before the
+  integrated gate; the headset result remains open. See
+  [TOWN-MP-589.md](TOWN-MP-589.md).
 
 - **dev / 1.1.0 / ModBuild 588 (Frame launcher candidate):** a Frame-only
   install helper creates a local `GloomhavenVR` Steam shortcut with the existing
