@@ -93,6 +93,7 @@ internal static partial class TownServiceMirror
     internal static Action<string, Transform, Transform>? FinishInertPresentation { get; set; }
     private static Dictionary<ushort, LocalModule> Local => _local.Modules;
     private static readonly Dictionary<int, Dictionary<ushort, RemoteModule>> Remote = new();
+    private static readonly List<ushort> RetiredRemoteChildren = new();
     private static readonly Dictionary<int, Dictionary<ushort, TownServiceFrame>> Pending = new();
     private static readonly Dictionary<int, Dictionary<ushort, TownServiceFrame>> ReceivedBaselines = new();
     private static readonly Dictionary<long, float> RemoteRetry = new();
@@ -530,8 +531,39 @@ internal static partial class TownServiceMirror
         internal TownServiceFrame? LastFrame;
         internal Renderer[]? RackBodyRenderers;
         internal TownServiceMotion Motion = null!;
+        internal bool Alive => Host != null && Binding.Root != null;
         public void Dispose()
         { Binding.Dispose(); if (Host != null) { Host.SetActive(false); Object.Destroy(Host); } }
+    }
+
+    private static void RetireDestroyedRemoteModules(int peer, Dictionary<ushort, RemoteModule> modules)
+    {
+        RetiredRemoteChildren.Clear();
+        foreach (var pair in modules)
+            if (!pair.Value.Alive) RetiredRemoteChildren.Add(pair.Key);
+        int count = RetiredRemoteChildren.Count;
+        foreach (ushort id in RetiredRemoteChildren)
+        {
+            RemoteModule dead = modules[id];
+            dead.Dispose(); modules.Remove(id);
+        }
+        if (count != 0)
+            Report("remote peer " + peer,
+                new InvalidDataException(count + " town-service observer host(s) were destroyed; rebuilding from retained owner frames."));
+        RetiredRemoteChildren.Clear();
+    }
+
+    private static void RetireRemoteDescendants(Dictionary<ushort, RemoteModule> modules, ushort parentId, RemoteModule parent)
+    {
+        if (!parent.Alive) return;
+        Transform host = parent.Host.transform;
+        RetiredRemoteChildren.Clear();
+        foreach (var pair in modules)
+            if (pair.Key != parentId && pair.Value.Alive && pair.Value.Host.transform.IsChildOf(host))
+                RetiredRemoteChildren.Add(pair.Key);
+        foreach (ushort id in RetiredRemoteChildren)
+        { modules[id].Dispose(); modules.Remove(id); }
+        RetiredRemoteChildren.Clear();
     }
 
     internal static void RegisterTemplate(byte service, ushort template, Transform original,
@@ -837,6 +869,11 @@ internal static partial class TownServiceMirror
             { standing = new Dictionary<ushort, RemoteModule>(); Remote.Add(entry.Key, standing); }
             if (secondaryVisitor) RetainIndependentVisitorOnly(standing, session.Service);
             else if (entry.Key > 0 && session.Service == 1) RetirePrivateMerchantCatalog(standing);
+            // Unity destroys child GameObjects when their old module parent is retired.
+            // An unchanged child packet must then rebuild its observer clone, not keep
+            // a C# module whose native Host has been destroyed. The Build 587 peer
+            // otherwise threw from rack SetActive every frame and skipped ApplyPending.
+            RetireDestroyedRemoteModules(entry.Key, standing);
             foreach (RemoteModule visible in standing.Values)
             { visible.Motion.Tick(now); visible.Binding.TickAnimation(now); }
             if (!secondaryVisitor) UpdateRackClocks(entry.Key, pending, now);
@@ -865,6 +902,7 @@ internal static partial class TownServiceMirror
                     if (frame.ParentModule != TownServiceFrame.ManifestModule)
                     {
                         if (!standing.TryGetValue(frame.ParentModule, out RemoteModule? parentModule)) continue;
+                        if (!parentModule.Alive) continue;
                         int index = Array.IndexOf(parentModule.Binding.Bindings, frame.ParentBinding);
                         if (index < 0) throw new InvalidDataException("Original town-service parent binding is absent.");
                         mount = parentModule.Binding.Nodes[index];
@@ -876,8 +914,22 @@ internal static partial class TownServiceMirror
                     {
                         RemoteModule candidate = BuildRemote(frame, mount);
                         try { candidate.Binding.Validate(frame, Assets); candidate.Binding.Apply(frame, Assets); }
+                        catch (InvalidDataException e) when (e.Message == "Original town-service template differs between peers.")
+                        {
+                            string detail = DescribeTemplateMismatch(frame, candidate.Binding);
+                            candidate.Dispose();
+                            throw new InvalidDataException(detail, e);
+                        }
                         catch { candidate.Dispose(); throw; }
-                        module?.Dispose(); module = candidate; standing[frame.Module] = module;
+                        if (module != null)
+                        {
+                            // Replacing this host also destroys every module physically
+                            // mounted under it. Retire those entries before the next
+                            // rack/page pass so their retained owner frames rebuild them.
+                            RetireRemoteDescendants(standing, frame.Module, module);
+                            module.Dispose();
+                        }
+                        module = candidate; standing[frame.Module] = module;
                     }
                     else
                     {
@@ -916,15 +968,44 @@ internal static partial class TownServiceMirror
                 }
                 catch (Exception e)
                 {
-                    if (module != null) { module.Host.SetActive(false); module.Motion.Reset(); }
+                    if (module != null)
+                    {
+                        // Failure cleanup must never throw from the same destroyed
+                        // Unity object; that secondary exception used to escape the
+                        // per-module guard and abort every other network presentation.
+                        if (module.Alive) { module.Host.SetActive(false); module.Motion.Reset(); }
+                        else { module.Dispose(); standing.Remove(frame.Module); }
+                    }
                     if (RemoteRetry.Count >= 8 * TownServiceFrame.MaxModules && !RemoteRetry.ContainsKey(retryKey)) RemoteRetry.Clear();
                     RemoteRetry[retryKey] = now + .25f;
-                    Report("remote module " + entry.Key + "/" + frame.Module, e);
+                    Exception report = e;
+                    if (e is InvalidDataException mismatch && mismatch.Message == "Original town-service template differs between peers."
+                        && module != null && module.Alive)
+                        report = new InvalidDataException(DescribeTemplateMismatch(frame, module.Binding), mismatch);
+                    Report("remote module " + entry.Key + "/" + frame.Module, report);
                 }
             }
             if (reorder) OrderOriginalSiblings(standing);
             if (!secondaryVisitor) TickRackClocks(entry.Key, standing, now);
         }
+    }
+
+    private static string DescribeTemplateMismatch(TownServiceFrame frame, TownServiceBinding local)
+    {
+        int common = Math.Min(frame.Nodes.Length, local.Bindings.Length), first = -1;
+        for (int i = 0; i < common; i++)
+            if (frame.Nodes[i].Binding != local.Bindings[i]) { first = i; break; }
+        string binding = first < 0 ? "same prefix"
+            : "first binding " + first + " sender=" + frame.Nodes[first].Binding.ToString("X8")
+                + " observer=" + local.Bindings[first].ToString("X8") + " (" + local.Nodes[first].name + ")";
+        // One bounded anomaly report now identifies whether this is a native
+        // cross-install template difference or a transient local hierarchy
+        // mutation. Never admit a mismatched tree: that would apply original
+        // card/text values to the wrong observer nodes.
+        return "Original town-service template differs between peers: " + frame.TemplateAddress
+            + ", sender structure=" + frame.Structure.ToString("X8") + "/" + frame.Nodes.Length
+            + ", observer structure=" + local.Structure.ToString("X8") + "/" + local.Bindings.Length
+            + ", " + binding + ".";
     }
 
     // The stand and original UI have one elected author. An unselected visitor may

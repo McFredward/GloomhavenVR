@@ -175,11 +175,12 @@ def main():
         variants = [("production", None, None, None, "")]
         if not args.no_negative_controls:
             variants += [
-                ("rack-phase-alias", "TownServiceMirror.Racks.cs", "float displayed=clock.Turning?TownRackState.Progress(clock.Elapsed):1f;", "float displayed=1f;", "late join reconstructs the actual owner mid-turn phase"),
+                ("rack-dead-host", "TownServiceMirror.cs", "RetireDestroyedRemoteModules(entry.Key, standing);", "// disabled dead-host recovery", "destroyed rack and child recover from retained owner frames"),
+                ("rack-phase-alias", "TownServiceMirror.Racks.cs", "float displayed=clock.Turning?TownRackState.Progress(clock.Elapsed):1f;", "float displayed=1f;", "clock reconstructs the full revolution after coalesced owner poses"),
                 ("rack-incomplete-page", "TownServiceMirror.Racks.cs", "clock.Turning&&clock.Waiting&&fromReady&&toReady", "clock.Turning&&clock.Waiting", "missing one dependency keeps the complete outgoing page at rest"),
                 ("rack-native-fade", "TownServiceMirror.Racks.cs", "shown?stamp.Alpha:0f", "shown?1f:0f", "page gate preserves independent native ancestor fades"),
                 ("rack-hidden-body", "TownServiceMirror.Racks.cs", "renderer.forceRenderingOff=!shown;", "renderer.forceRenderingOff=true;", "incoming physical body appears with its face"),
-                ("rack-idle-crank", "TownServiceMirror.Racks.cs", "out var crank)&&replaying)", "out var crank)&&state.Turn!=0)", "idle manual lead pull is not overwritten by the previous clock"),
+                ("rack-idle-crank", "TownServiceMirror.Racks.cs", "out var crank)&&crank.Alive&&replaying)", "out var crank)&&crank.Alive&&state.Turn!=0)", "idle manual lead pull is not overwritten by the previous clock"),
                 ("rack-skipped-epochs", "TownServiceMirror.Racks.cs", "FromPage=joining?state.From:DisplayPage;", "FromPage=state.From;", "skipped owner epochs preserve the actual outgoing front until the opaque midpoint"),
                 ("rack-turn-queue", "TownServiceMirror.Racks.cs", "if(!Turning&&Queue.Count==0)", "if(Queue.Count>=0)", "newer queued turn and reordered old packet do not reset an in-flight rack"),
             ]

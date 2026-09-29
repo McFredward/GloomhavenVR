@@ -170,6 +170,33 @@ public static partial class MirrorProgram
             rack.localRotation=Quaternion.Euler(0,15+360*TownRackState.Progress(.15f),0);TownServiceMirror.SetRack(1,clock);
             Receive(2,Capture());TownServiceMirror.TickRemote(_=>observer);
             Check(RemoteGate(-2,3).alpha==1f&&RemoteGate(-2,51).alpha==0f,"skipped owner epochs preserve the actual outgoing front until the opaque midpoint");
+            if (scale == 1f)
+            {
+                UnityEngine.Object.DestroyImmediate(Remote(-2,52)!.Root.GetComponent<MeshRenderer>());
+                TownServiceMirror.TickRemote(_ => observer);
+                Check(Remote(-2,3)?.Root != null && Remote(-2,1)?.Root != null,
+                    "one retired body renderer cannot stop the public rack or other card modules");
+                // Replacing a rack host destroys every original card module parented
+                // below it. Rebuild from the retained owner frames without letting one
+                // dead child abort the other modules in this network tick.
+                Transform rackHost = Remote(-2,1)!.Root.parent;
+                Check(Remote(-2,3)!.Root.IsChildOf(rackHost),
+                    "negative fixture has a real card descendant under the rack host");
+                UnityEngine.Object.DestroyImmediate(rackHost.gameObject);
+                try { TownServiceMirror.TickRemote(_ => observer); }
+                catch (Exception error) { throw new Exception("destroyed rack and child recover from retained owner frames: " + error.Message, error); }
+                Check(Remote(-2,1)?.Root != null && Remote(-2,3)?.Root != null
+                    && Remote(-2,3)!.Root.gameObject.activeInHierarchy,
+                    "destroyed rack and child recover from retained owner frames in one tick");
+                Transform rebuiltRack = Remote(-2, 1)!.Root;
+                TownServiceMirror.RegisterTemplate(1, 2, rack, child => child == content, "merchant.rack|");
+                TownServiceMirror.RegisterModule(1, 2, rack, child => child == content, "merchant.rack|");
+                Receive(2, Capture()); TownServiceMirror.TickRemote(_ => observer);
+                Check(Remote(-2,1)?.Root != null && Remote(-2,1)!.Root != rebuiltRack
+                    && Remote(-2,3)?.Root != null
+                    && Remote(-2,3)!.Root.gameObject.activeInHierarchy,
+                    "replacing the original rack template retires and rebuilds its mounted card children");
+            }
             TownServiceMirror.EndSession();TownServiceMirror.ResetNetwork();
             UnityEngine.Object.DestroyImmediate(owner.gameObject);UnityEngine.Object.DestroyImmediate(observer.gameObject);
         }

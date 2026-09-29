@@ -118,7 +118,7 @@ internal static partial class TownServiceMirror
         foreach(TownRackMember member in state.Members)
         {
             if(member.Page!=page||member.Detached)continue;
-            if(!modules.TryGetValue(member.Id,out var module)||module.LastFrame==null
+            if(!modules.TryGetValue(member.Id,out var module)||!module.Alive||module.LastFrame==null
                 ||module.LastFrame.RackMember==null||module.LastFrame.RackMember.Rack!=rackId||module.LastFrame.RackMember.Page!=page)return false;
         }
         return true;
@@ -128,8 +128,10 @@ internal static partial class TownServiceMirror
         if(!RemoteRacks.TryGetValue(peer,out var clocks))return;
         foreach(var pair in clocks)
         {
+            try
+            {
             RackPlayback clock=pair.Value;TownRackState state=clock.State;
-            if(state==null||!modules.TryGetValue(pair.Key,out var rack)||rack.LastFrame?.Rack==null)continue;
+            if(state==null||!modules.TryGetValue(pair.Key,out var rack)||!rack.Alive||rack.LastFrame?.Rack==null)continue;
             // The explicit per-card epoch travels with its own held/returning pose. It can
             // overtake the rack clock without ever replaying that card on an obsolete tray.
             bool handSupersedes=false;
@@ -163,6 +165,7 @@ internal static partial class TownServiceMirror
             {
                 TownRackStamp? stamp=child.LastFrame?.RackMember;
                 if(stamp==null||stamp.Rack!=pair.Key)continue;
+                if(!child.Alive)continue;
                 bool detached=stamp.Detached;
                 if(detached)child.Motion.Reset();
                 bool shown=detached||complete&&stamp.Page==clock.DisplayPage;
@@ -171,7 +174,13 @@ internal static partial class TownServiceMirror
                 // Clear only our explicit physical-body page gate; original material
                 // visibility and renderer enablement remain the owner's native output.
                 if(child.Address.StartsWith("merchant.cardbody|",StringComparison.Ordinal))
-                    foreach(Renderer renderer in child.RackBodyRenderers ??= child.Binding.Root.GetComponentsInChildren<Renderer>(true))renderer.forceRenderingOff=!shown;
+                {
+                    bool lostRenderer=false;
+                    foreach(Renderer renderer in child.RackBodyRenderers ??= child.Binding.Root.GetComponentsInChildren<Renderer>(true))
+                        if(renderer != null) renderer.forceRenderingOff=!shown;
+                        else lostRenderer=true;
+                    if(lostRenderer)child.RackBodyRenderers=null;
+                }
             }
             // Full unwrapped revolution: quaternion interpolation alone aliases 0 -> 360
             // when packets coalesce. The owner explicitly supplies its clock and curve.
@@ -197,7 +206,7 @@ internal static partial class TownServiceMirror
                 // physical revolution while its incoming card dependencies are still loading.
                 if (label.text != clock.IndicatorText) label.text = clock.IndicatorText;
             }
-            if(modules.TryGetValue(state.Crank,out var crank)&&replaying)
+            if(modules.TryGetValue(state.Crank,out var crank)&&crank.Alive&&replaying)
             {
                 crank.Motion.Reset();
                 Transform crankPose = crank.AddedCanvas != null && crank.LastFrame?.HasCanvasFrame != true ? crank.Host.transform : crank.Binding.Root;
@@ -206,6 +215,14 @@ internal static partial class TownServiceMirror
             }
             if(!clock.Turning&&!handSupersedes&&clock.Queue.Count>0)
             {TownRackState queued=clock.Queue[0];clock.Queue.RemoveAt(0);clock.Start(queued,now);}
+            }
+            catch(Exception e)
+            {
+                // A destroyed body or transient Unity hierarchy change may invalidate
+                // this cosmetic rack only. Other services, cards and the remaining
+                // network presentation must still advance in the same frame.
+                Report("remote rack " + peer + "/" + pair.Key, e);
+            }
         }
     }
 }
