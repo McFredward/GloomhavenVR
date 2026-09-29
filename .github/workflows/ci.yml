@@ -58,9 +58,9 @@ jobs:
       - name: Checkout the event source
         uses: actions/checkout@v6.1.0
         with:
-          # Full history proves first-parent documentation ancestry. A code/workflow
-          # push still runs full checks; a docs-only push may reuse its tested parent.
-          fetch-depth: 0
+          # Dev pushes and PRs need full history for trusted proof ancestry and base
+          # comparisons. Feature pushes run full checks and need only their HEAD.
+          fetch-depth: ${{ github.event_name == 'push' && github.ref == 'refs/heads/feature/immersive-town-services' && 1 || 0 }}
           persist-credentials: false
       - name: Identify the checked-out tree
         id: source
@@ -363,6 +363,12 @@ jobs:
           path: ~/.nuget/packages
           key: nuget-${{ runner.os }}-${{ hashFiles('**/*.csproj', '**/Directory.Build.props', 'nuget.config') }}
           restore-keys: nuget-${{ runner.os }}-
+      - name: Complete .NET first-use setup before parallel suites
+        # `dotnet --version` does not create the SDK's first-use sentinel. The
+        # first real CLI command runs NuGet migrations under a named mutex; two
+        # suites starting together can fail while creating that mutex. Run this
+        # harmless command once before the two workers inherit the same CLI home.
+        run: dotnet nuget locals global-packages --list
       - name: Native presentation regression harnesses
         run: >-
           python3 scripts/run-test-suites.py --group ci --jobs 2
