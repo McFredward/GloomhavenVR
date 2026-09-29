@@ -58,7 +58,12 @@ change per build) → this file (where things stand and what is owed) → the bu
   original Steam entry omits that argument. The shortcut forwards to original
   AppID 780290 to preserve its Proton prefix and saves; Windows PC installs
   have no marker and retain their established startup. The separate library
-  entry does not alter original Steamworks VR metadata. See
+  entry does not alter original Steamworks VR metadata. Integrated validation
+  passed 14 source checks, all 80 runtime suites, 286609 wire assertions,
+  strict Release build, release-package layout and EN/DE documentation checks.
+  The compiled-form difference against Build 587 is the opt-in gate plus
+  expected build constants. Steam Game Mode argument forwarding and prelaunch
+  app settings are hardware-open. See
   [STEAM-FRAME-SHORTCUT.md](STEAM-FRAME-SHORTCUT.md).
 
 - **dev / 1.1.0 / ModBuild 587 (Frame CPU candidate):** hidden merchant pages

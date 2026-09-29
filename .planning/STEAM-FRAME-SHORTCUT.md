@@ -65,5 +65,8 @@ guarantees:
 Source-level validation: `scripts/test-install-steam-frame.sh` covers helper
 dry run, idempotence, paths with spaces, missing preloader, artwork and exact
 launcher argv. Wire vectors pin the shared gate's marker and argument. A strict
-Release build and EN/DE documentation check cover the integrated code. None of
-these can prove Steam Game Mode argument forwarding or headset library artwork.
+Release build, release-package layout, 14 source checks, all 80 runtime suites,
+286609 wire assertions and EN/DE documentation check passed on the integrated
+tree. The compiled-form difference against Build 587 consists of the opt-in
+gate and expected build constants. None of these checks proves Steam Game Mode
+argument forwarding or headset library artwork.
