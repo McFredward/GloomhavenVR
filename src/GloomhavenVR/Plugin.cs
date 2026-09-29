@@ -385,6 +385,16 @@ public class Plugin : BaseUnityPlugin
 
     private void Awake()
     {
+        // The Steam Frame install marks this game directory so the original Steam entry stays
+        // flat even if a Wine DLL override was accidentally left on it. PC installs have no
+        // marker and retain their existing startup. This must precede every Bind and module:
+        // once Core.Init runs, XR and the presentation patches can no longer be undone cleanly.
+        if (!FrameLaunchOptIn.AllowsCurrentLaunch(Paths.BepInExRootPath))
+        {
+            Logger.LogInfo("Steam Frame flat launch: VR starter argument absent; plugin inactive.");
+            return;
+        }
+
         VRLog.Init(Logger);
 
         // READ THE CONFIG FILE BEFORE THE FIRST BIND TOUCHES IT. BepInEx writes the whole file on

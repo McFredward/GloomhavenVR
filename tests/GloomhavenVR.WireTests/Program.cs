@@ -60,6 +60,7 @@ internal static class Program
             MapContinuationVectors.Run(t);
             MapLoadoutCountVectors.Run(t);
             RelaunchVectors.Run(t);
+            FrameLaunchVectors.Run(t);
             ConfigStepVectors.Run(t, repoRoot);
             ScrollTurnGateVectors.Run(t);
             LiftWedgeVectors.Run(t);

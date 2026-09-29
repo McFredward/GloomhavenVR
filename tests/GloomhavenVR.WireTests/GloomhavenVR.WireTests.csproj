@@ -96,6 +96,7 @@
        It was written free of BepInEx and process access precisely so it could be linked in here. -->
   <ItemGroup>
     <Compile Include="$(RepoRoot)src\GloomhavenVR.Preload\RelaunchCommand.cs" Link="preload\RelaunchCommand.cs" />
+    <Compile Include="$(RepoRoot)src\GloomhavenVR.Preload\FrameLaunchOptIn.cs" Link="preload\FrameLaunchOptIn.cs" />
   </ItemGroup>
 
   <!-- Not a wire file either, and here for the same reason as RelaunchCommand: it decides
@@ -254,6 +255,7 @@
     <Compile Include="StoryVectors.cs" />
     <Compile Include="MapSyncVectors.cs" />
     <Compile Include="RelaunchVectors.cs" />
+    <Compile Include="FrameLaunchVectors.cs" />
     <Compile Include="ConfigStepVectors.cs" />
     <Compile Include="ScrollTurnGateVectors.cs" />
     <Compile Include="LiftWedgeVectors.cs" />
