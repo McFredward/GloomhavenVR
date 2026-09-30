@@ -27,6 +27,10 @@ That includes an existing Steam Cloud profile: this Frame default applies only
 to a genuinely new game profile, not to an existing save's graphics choices.
 `ForceFullTextureResolution` and forced anisotropy deliberately retain the
 tested VR picture even when the native preset is Fastest. The 3408×3408 SteamVR
-per-eye target is an external runtime choice and is not written to the game or
-mod config. Neither this profile nor the native preset resolves the measured
-CPU hitches around NPC visits and the hand fan.
+per-eye target was set manually in Build 592; the Frame setup now suggests the
+same value through the documented game-root `vrpreferences.json` mechanism.
+That is a SteamVR per-application default, separate from the mod's 1.00 scale.
+An existing SteamVR override remains editable and is not replaced. See
+[STEAM-FRAME-VRPREFERENCES.md](STEAM-FRAME-VRPREFERENCES.md) for the installer,
+AppID limitation and headset verification. Neither this profile nor the native
+preset resolves the measured CPU hitches around NPC visits and the hand fan.

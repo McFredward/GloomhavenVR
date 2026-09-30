@@ -58,9 +58,10 @@ marker="$game/BepInEx/patchers/GloomhavenVR/frame-launch-opt-in.marker"
 launcher="$XDG_DATA_HOME/GloomhavenVR/launch-steam-frame.sh"
 shortcuts="$account/shortcuts.vdf"
 boot="$game/GH_Data/boot.config"
+vr_preferences="$game/vrpreferences.json"
 
 bash "$setup/install-steam-frame.sh" --dry-run > "$scratch/dry-run.log"
-[[ ! -e "$marker" && ! -e "$launcher" && ! -e "$shortcuts" ]]
+[[ ! -e "$marker" && ! -e "$launcher" && ! -e "$shortcuts" && ! -e "$vr_preferences" ]]
 [[ "$(cat "$boot")" == 'wait-for-native-debugger=0' ]]
 
 # Dolphin supplies %k to a desktop entry. Gio exercises the same command without
@@ -72,7 +73,7 @@ if command -v gio >/dev/null 2>&1; then
     sed -i 's/^Terminal=true$/Terminal=false/' "$setup/GloomhavenVR-Setup.desktop"
     (cd -- "$game" && gio launch "$setup/GloomhavenVR-Setup.desktop") > "$scratch/desktop.log" 2>&1
     for ((attempt = 0; attempt < 50; attempt++)); do
-        if [[ -f "$marker" && -x "$launcher" && -f "$shortcuts" &&
+        if [[ -f "$marker" && -x "$launcher" && -f "$shortcuts" && -f "$vr_preferences" &&
             ! -e "$game/GloomhavenVR-Setup.desktop" ]]; then
             break
         fi
@@ -87,7 +88,13 @@ else
     bash "$setup/install-steam-frame.sh" > "$scratch/install.log"
 fi
 
-[[ -f "$marker" && -x "$launcher" && -f "$shortcuts" ]]
+[[ -f "$marker" && -x "$launcher" && -f "$shortcuts" && -f "$vr_preferences" ]]
+python3 - "$vr_preferences" <<'PY'
+import json
+from pathlib import Path
+import sys
+assert json.loads(Path(sys.argv[1]).read_text()) == {"steam_frame": {"preferResolution": 3408}}
+PY
 for ((attempt = 0; attempt < 50; attempt++)); do
     rg -q 'Steam configuration before restart needs repair: no' "$setup/steam-frame-setup.log" 2>/dev/null && break
     sleep 0.1
@@ -196,10 +203,62 @@ cmp -s "$HOME/steam-setup-calls" "$scratch/expected-setup-calls"
 cp -- "$boot" "$scratch/boot-before"
 cp -- "$shortcuts" "$scratch/shortcuts-before"
 cp -- "$account/localconfig.vdf" "$scratch/localconfig-before"
+cp -- "$vr_preferences" "$scratch/vr-preferences-before"
 PATH="$scratch/bin:$PATH" bash "$setup/install-steam-frame.sh" > "$scratch/again.log"
 cmp -s "$boot" "$scratch/boot-before"
 cmp -s "$shortcuts" "$scratch/shortcuts-before"
 cmp -s "$account/localconfig.vdf" "$scratch/localconfig-before"
+cmp -s "$vr_preferences" "$scratch/vr-preferences-before"
+cmp -s "$HOME/steam-setup-calls" "$scratch/expected-setup-calls"
+
+# An existing valid file gains only the missing Frame default. Other publisher
+# fields survive, and a byte-exact one-time backup is retained.
+printf '{"publisher":{"mode":"custom"},"steam_frame":{"preferMinRefreshRate":72}}\n' > "$vr_preferences"
+cp -- "$vr_preferences" "$scratch/vr-preferences-publisher"
+PATH="$scratch/bin:$PATH" bash "$setup/install-steam-frame.sh" > "$scratch/merge-preferences.log"
+python3 - "$vr_preferences" <<'PY'
+import json
+from pathlib import Path
+import sys
+assert json.loads(Path(sys.argv[1]).read_text()) == {
+    "publisher": {"mode": "custom"},
+    "steam_frame": {"preferMinRefreshRate": 72, "preferResolution": 3408},
+}
+PY
+cmp -s "$setup/vrpreferences.json.gloomhavenvr-backup" "$scratch/vr-preferences-publisher"
+rg -q 'CHANGED: Steam Frame per-eye resolution default' "$setup/steam-frame-setup.log"
+for ((attempt = 0; attempt < 30; attempt++)); do
+    [[ "$(rg -c '^restart$' "$HOME/steam-setup-calls" || true)" == 2 ]] && break
+    sleep 0.1
+done
+printf 'shutdown\nrestart\nshutdown\nrestart\n' > "$scratch/expected-setup-calls"
+cmp -s "$HOME/steam-setup-calls" "$scratch/expected-setup-calls"
+
+# A pre-existing per-eye choice is never replaced.
+printf '{"steam_frame":{"preferResolution":2500,"preferMinRefreshRate":72}}\n' > "$vr_preferences"
+PATH="$scratch/bin:$PATH" bash "$setup/install-steam-frame.sh" > "$scratch/existing-preferences.log"
+rg -q '"preferResolution":2500' "$vr_preferences"
+cmp -s "$HOME/steam-setup-calls" "$scratch/expected-setup-calls"
+
+# Invalid publisher JSON must be left untouched and clearly reported.
+printf '{invalid json\n' > "$vr_preferences"
+PATH="$scratch/bin:$PATH" bash "$setup/install-steam-frame.sh" > "$scratch/invalid-preferences.log"
+[[ "$(cat "$vr_preferences")" == '{invalid json' ]]
+rg -q 'invalid JSON.*no changes made' "$setup/steam-frame-setup.log"
+cmp -s "$HOME/steam-setup-calls" "$scratch/expected-setup-calls"
+
+# Provisioning only the missing preference must also request a final restart:
+# Valve reads app-provided preferences when SteamVR starts, even if the Steam
+# shortcut itself was already up to date.
+rm -f -- "$vr_preferences"
+PATH="$scratch/bin:$PATH" bash "$setup/install-steam-frame.sh" > "$scratch/preferences-only.log"
+rg -q '"preferResolution": 3408' "$vr_preferences"
+rg -q 'Restarting Steam as the final step' "$setup/steam-frame-setup.log"
+for ((attempt = 0; attempt < 30; attempt++)); do
+    [[ "$(rg -c '^restart$' "$HOME/steam-setup-calls" || true)" == 3 ]] && break
+    sleep 0.1
+done
+printf 'shutdown\nrestart\nshutdown\nrestart\nshutdown\nrestart\n' > "$scratch/expected-setup-calls"
 cmp -s "$HOME/steam-setup-calls" "$scratch/expected-setup-calls"
 
 # A Frame-like restart terminates the installer immediately. The shortcut and
