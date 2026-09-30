@@ -70,9 +70,18 @@ def main() -> int:
                 print(f"error: invalid {name}: {error}", file=sys.stderr)
                 return 1
 
-        for name in (FRAME_SETUP + "GloomhavenVR-steam-logo.png", FRAME_SETUP + "GloomhavenVR-steam-icon.png"):
+        for name in (
+            FRAME_SETUP + "SteamArtwork/library_600x900.png",
+            FRAME_SETUP + "SteamArtwork/library_header.png",
+            FRAME_SETUP + "SteamArtwork/library_hero.png",
+            FRAME_SETUP + "SteamArtwork/logo.png",
+            FRAME_SETUP + "SteamArtwork/icon.png",
+        ):
             if name not in archive.namelist():
                 print(f"error: missing {name}", file=sys.stderr)
+                return 1
+            if not archive.read(name).startswith(b"\x89PNG\r\n\x1a\n"):
+                print(f"error: invalid PNG artwork: {name}", file=sys.stderr)
                 return 1
 
     print("Steam Frame setup: launchers, configuration helper and ZIP permissions verified.")

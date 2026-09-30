@@ -41,8 +41,12 @@ cp -- "$root/scripts/install-steam-frame.sh" "$setup/install-steam-frame.sh"
 cp -- "$root/scripts/steam-frame-config.py" "$setup/steam-frame-config.py"
 cp -- "$root/scripts/frame-boot-config.py" "$setup/frame-boot-config.py"
 cp -- "$root/GloomhavenVR-Setup.desktop" "$setup/GloomhavenVR-Setup.desktop"
-cp -- "$root/src/GloomhavenVR/Assets/GloomhavenVR_logo.png" "$setup/GloomhavenVR-steam-logo.png"
-cp -- "$root/unity/GloomhavenVR.Assets/Assets/Bundle/UI/VRMenuIcon.png" "$setup/GloomhavenVR-steam-icon.png"
+mkdir -p -- "$setup/SteamArtwork"
+for artwork in library_600x900.png library_header.png library_hero.png logo.png icon.png; do
+    printf 'test artwork: %s\n' "$artwork" > "$setup/SteamArtwork/$artwork"
+done
+printf 'obsolete\n' > "$setup/GloomhavenVR-steam-logo.png"
+printf 'obsolete\n' > "$setup/GloomhavenVR-steam-icon.png"
 legacy=(install-steam-frame.sh steam-frame-config.py frame-boot-config.py
     GloomhavenVR-Setup.desktop
     GloomhavenVR-steam-logo.png GloomhavenVR-steam-icon.png)
@@ -94,6 +98,7 @@ rg -q 'GloomhavenVR shortcut before this check: current' "$setup/steam-frame-set
 for obsolete in "${legacy[@]}"; do
     [[ ! -e "$game/$obsolete" ]]
 done
+[[ ! -e "$setup/GloomhavenVR-steam-logo.png" && ! -e "$setup/GloomhavenVR-steam-icon.png" ]]
 # Some desktop environments leave %k empty. Even with a legacy helper in the
 # game root, the launcher must resolve the nested setup from the Steam path.
 if command -v gio >/dev/null 2>&1; then
@@ -117,8 +122,31 @@ rg -q '^gfx-enable-gfx-jobs=1$' "$boot"
 rg -q '^gfx-enable-native-gfx-jobs=1$' "$boot"
 rg -q 'MANGOHUD=1' "$account/localconfig.vdf"
 rg -q 'WINEDLLOVERRIDES=' "$account/localconfig.vdf"
-cmp -s "$setup/GloomhavenVR-steam-logo.png" "$XDG_DATA_HOME/GloomhavenVR/GloomhavenVR-steam-logo.png"
-cmp -s "$setup/GloomhavenVR-steam-icon.png" "$XDG_DATA_HOME/GloomhavenVR/GloomhavenVR-steam-icon.png"
+cmp -s "$setup/SteamArtwork/logo.png" "$XDG_DATA_HOME/GloomhavenVR/GloomhavenVR-steam-logo.png"
+cmp -s "$setup/SteamArtwork/icon.png" "$XDG_DATA_HOME/GloomhavenVR/GloomhavenVR-steam-icon.png"
+for artwork in library_600x900.png library_header.png library_hero.png; do
+    cmp -s "$setup/SteamArtwork/$artwork" "$XDG_DATA_HOME/GloomhavenVR/SteamArtwork/$artwork"
+done
+shortcut_appid="$(python3 - "$shortcuts" "$launcher" "$XDG_DATA_HOME/GloomhavenVR/GloomhavenVR-steam-icon.png" "$root/scripts/steam-frame-config.py" <<'PY'
+import importlib.util
+from pathlib import Path
+import sys
+spec = importlib.util.spec_from_file_location("steam_frame_config", sys.argv[4])
+module = importlib.util.module_from_spec(spec)
+sys.modules[spec.name] = module
+spec.loader.exec_module(module)
+print(module.patch_shortcuts(Path(sys.argv[1]).read_bytes(), Path(sys.argv[2]), Path(sys.argv[3]))[1])
+PY
+)"
+for pair in "library_600x900.png:${shortcut_appid}p.png" \
+    "library_header.png:${shortcut_appid}.png" \
+    "library_hero.png:${shortcut_appid}_hero.png" \
+    "logo.png:${shortcut_appid}_logo.png" \
+    "icon.png:${shortcut_appid}_icon.png"; do
+    source_name="${pair%%:*}"
+    grid_name="${pair#*:}"
+    cmp -s "$setup/SteamArtwork/$source_name" "$account/grid/$grid_name"
+done
 
 # A changed Steam shortcut requires a client restart. The Frame reboot can
 # terminate every setup process, so the VDF must already be correct at shutdown.

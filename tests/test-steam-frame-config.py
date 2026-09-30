@@ -104,16 +104,21 @@ class SteamFrameConfigTest(unittest.TestCase):
             launcher = base / "data/launch.sh"
             icon = base / "data/icon.png"
             logo = base / "data/logo.png"
+            portrait = base / "data/portrait.png"
+            header = base / "data/header.png"
+            hero = base / "data/hero.png"
             proc = base / "empty-proc"
             proc.mkdir()
             args = [sys.executable, str(HELPER), "--steam-root", str(root),
                     "--game-path", str(game), "--launcher", str(launcher),
-                    "--icon", str(icon), "--logo", str(logo), "--proc-root", str(proc)]
+                    "--icon", str(icon), "--logo", str(logo),
+                    "--portrait", str(portrait), "--header", str(header),
+                    "--hero", str(hero), "--proc-root", str(proc)]
             dry = subprocess.run(args + ["--dry-run"], text=True, capture_output=True)
             self.assertEqual(dry.returncode, 0, dry.stderr)
             self.assertIn("Steam restart required: yes", dry.stdout)
             self.assertFalse((config / "shortcuts.vdf").exists())
-            for path in (launcher, icon, logo):
+            for path in (launcher, icon, logo, portrait, header, hero):
                 path.parent.mkdir(parents=True, exist_ok=True)
                 path.write_bytes(b"art")
             need = subprocess.run(args + ["--needs-update"], text=True, capture_output=True)
@@ -127,12 +132,25 @@ class SteamFrameConfigTest(unittest.TestCase):
             appid = module.patch_shortcuts((config / "shortcuts.vdf").read_bytes(), launcher, icon)[1]
             self.assertEqual((config / "grid" / f"{appid}_logo.png").read_bytes(), b"art")
             self.assertEqual((config / "grid" / f"{appid}_icon.png").read_bytes(), b"art")
+            self.assertEqual((config / "grid" / f"{appid}p.png").read_bytes(), b"art")
+            self.assertEqual((config / "grid" / f"{appid}.png").read_bytes(), b"art")
+            self.assertEqual((config / "grid" / f"{appid}_hero.png").read_bytes(), b"art")
             second = subprocess.run(args, text=True, capture_output=True)
             self.assertEqual(second.returncode, 0, second.stderr)
             self.assertIn("Steam restart required: no", second.stdout)
             need = subprocess.run(args + ["--needs-update"], text=True, capture_output=True)
             self.assertEqual(need.returncode, 0, need.stderr)
             self.assertEqual(need.stdout, "no\n")
+            self.assertEqual(len(list(config.glob("localconfig.vdf.gloomhavenvr-backup-*"))), 1)
+            # A replaced image must update the same shortcut, with no duplicate
+            # shortcut or unrelated Steam configuration changes.
+            hero.write_bytes(b"new hero")
+            need = subprocess.run(args + ["--needs-update"], text=True, capture_output=True)
+            self.assertEqual(need.stdout, "yes\n")
+            again = subprocess.run(args, text=True, capture_output=True)
+            self.assertEqual(again.returncode, 0, again.stderr)
+            self.assertEqual((config / "grid" / f"{appid}_hero.png").read_bytes(), b"new hero")
+            self.assertEqual(module.patch_shortcuts((config / "shortcuts.vdf").read_bytes(), launcher, icon)[1], appid)
             self.assertEqual(len(list(config.glob("localconfig.vdf.gloomhavenvr-backup-*"))), 1)
 
     def test_steam_running_refuses_write_without_touching_config(self):
@@ -149,7 +167,10 @@ class SteamFrameConfigTest(unittest.TestCase):
             launcher = base / "launch.sh"
             icon = base / "icon.png"
             logo = base / "logo.png"
-            for path in (launcher, icon, logo):
+            portrait = base / "portrait.png"
+            header = base / "header.png"
+            hero = base / "hero.png"
+            for path in (launcher, icon, logo, portrait, header, hero):
                 path.write_bytes(b"x")
             proc = base / "proc/222"
             proc.mkdir(parents=True)
@@ -157,6 +178,8 @@ class SteamFrameConfigTest(unittest.TestCase):
             args = [sys.executable, str(HELPER), "--steam-root", str(root),
                     "--game-path", str(game), "--launcher", str(launcher),
                     "--icon", str(icon), "--logo", str(logo),
+                    "--portrait", str(portrait), "--header", str(header),
+                    "--hero", str(hero),
                     "--proc-root", str(proc.parent)]
             result = subprocess.run(args, text=True, capture_output=True)
             self.assertNotEqual(result.returncode, 0)

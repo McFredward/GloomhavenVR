@@ -92,15 +92,16 @@ fi
 game_dir="$(cd -- "$game_dir" && pwd -P)"
 patcher="$game_dir/BepInEx/patchers/GloomhavenVR/GloomhavenVR.Preload.dll"
 marker="$game_dir/BepInEx/patchers/GloomhavenVR/frame-launch-opt-in.marker"
-logo="$script_dir/GloomhavenVR-steam-logo.png"
-icon="$script_dir/GloomhavenVR-steam-icon.png"
-if [[ ! -f "$logo" && -f "$script_dir/../src/GloomhavenVR/Assets/GloomhavenVR_logo.png" ]]; then
-    # Developer checkout: the release archive puts these files beside the helper.
-    logo="$script_dir/../src/GloomhavenVR/Assets/GloomhavenVR_logo.png"
-    icon="$script_dir/../unity/GloomhavenVR.Assets/Assets/Bundle/UI/VRMenuIcon.png"
+artwork_source="$script_dir/SteamArtwork"
+if [[ ! -d "$artwork_source" && -d "$script_dir/../src/GloomhavenVR/Assets/SteamFrameArtwork" ]]; then
+    # Developer checkout: release archives place these under FrameSetup.
+    artwork_source="$script_dir/../src/GloomhavenVR/Assets/SteamFrameArtwork"
 fi
 destination="${XDG_DATA_HOME:-$HOME/.local/share}/GloomhavenVR"
 launcher="$destination/launch-steam-frame.sh"
+artwork_destination="$destination/SteamArtwork"
+logo_destination="$destination/GloomhavenVR-steam-logo.png"
+icon_destination="$destination/GloomhavenVR-steam-icon.png"
 steam_helper="$script_dir/steam-frame-config.py"
 boot_helper="$script_dir/frame-boot-config.py"
 if [[ ! -f "$steam_helper" && -f "$script_dir/../scripts/steam-frame-config.py" ]]; then
@@ -111,13 +112,21 @@ steam_root_args=()
 if [[ -n "$steam_root" ]]; then
     steam_root_args=(--steam-root "$steam_root")
 fi
+steam_helper_args=(--game-path "$game_dir" --launcher "$launcher"
+    --icon "$icon_destination" --logo "$logo_destination"
+    --portrait "$artwork_destination/library_600x900.png"
+    --header "$artwork_destination/library_header.png"
+    --hero "$artwork_destination/library_hero.png"
+    "${steam_root_args[@]}")
 
 [[ -f "$game_dir/GH.exe" ]] || { echo "error: GH.exe not found in $game_dir" >&2; exit 1; }
 [[ -f "$patcher" ]] || { echo "error: GloomhavenVR preloader not found: $patcher" >&2; exit 1; }
-[[ -f "$logo" && -f "$icon" ]] || {
-    echo 'error: Steam artwork is missing; extract the complete GloomhavenVR release archive' >&2
-    exit 1
-}
+for artwork in library_600x900.png library_header.png library_hero.png logo.png icon.png; do
+    [[ -f "$artwork_source/$artwork" ]] || {
+        echo "error: Steam artwork is missing: $artwork_source/$artwork; extract the complete GloomhavenVR release archive" >&2
+        exit 1
+    }
+done
 [[ -f "$steam_helper" && -f "$boot_helper" ]] || {
     echo 'error: Steam Frame setup helpers are missing; extract the complete GloomhavenVR release archive' >&2
     exit 1
@@ -127,17 +136,15 @@ command -v python3 >/dev/null 2>&1 || { echo 'error: python3 is required for Ste
 # Validate all inputs before touching either the game or Steam. In particular,
 # failure to locate the active Steam account must not leave a half-created entry.
 python3 "$boot_helper" --game-path "$game_dir" --dry-run
-python3 "$steam_helper" --game-path "$game_dir" --launcher "$launcher" \
-    --icon "$destination/GloomhavenVR-steam-icon.png" \
-    --logo "$destination/GloomhavenVR-steam-logo.png" \
-    "${steam_root_args[@]}" --dry-run
+python3 "$steam_helper" "${steam_helper_args[@]}" --dry-run
 
 cat <<EOF
 Game folder: $game_dir
 VR opt-in marker: $marker
 Steam shortcut target: $launcher
-Steam logo: $destination/GloomhavenVR-steam-logo.png
-Steam icon: $destination/GloomhavenVR-steam-icon.png
+Steam logo: $logo_destination
+Steam icon: $icon_destination
+Steam Library artwork: $artwork_destination
 EOF
 if steam_client_alive; then
     echo 'Steam client before setup: running'
@@ -156,15 +163,18 @@ python3 "$boot_helper" --game-path "$game_dir"
 
 # The marker is intentionally Frame-only. It keeps the original library entry
 # flat even when its winhttp override loads BepInEx.
-mkdir -p -- "$destination"
-if [[ ! -f "$destination/GloomhavenVR-steam-logo.png" ]] ||
-    ! cmp -s -- "$logo" "$destination/GloomhavenVR-steam-logo.png"; then
-    install -m 0644 -- "$logo" "$destination/GloomhavenVR-steam-logo.png"
-fi
-if [[ ! -f "$destination/GloomhavenVR-steam-icon.png" ]] ||
-    ! cmp -s -- "$icon" "$destination/GloomhavenVR-steam-icon.png"; then
-    install -m 0644 -- "$icon" "$destination/GloomhavenVR-steam-icon.png"
-fi
+mkdir -p -- "$artwork_destination"
+# Keep the two legacy destination paths stable so an existing shortcut only
+# changes its artwork, not its identity or the path stored in shortcuts.vdf.
+for artwork in library_600x900.png library_header.png library_hero.png logo.png icon.png; do
+    source="$artwork_source/$artwork"
+    target="$artwork_destination/$artwork"
+    if [[ "$artwork" == logo.png ]]; then target="$logo_destination"; fi
+    if [[ "$artwork" == icon.png ]]; then target="$icon_destination"; fi
+    if [[ ! -f "$target" ]] || ! cmp -s -- "$source" "$target"; then
+        install -m 0644 -- "$source" "$target"
+    fi
+done
 if [[ ! -f "$marker" ]]; then
     : > "$marker"
 fi
@@ -191,10 +201,7 @@ temporary_launcher=""
 # On Steam Frame, closing Steam also restarts the headset shell and terminates
 # the installer, even when it runs in a detached process session. Complete and
 # verify every file change before requesting that restart as the final step.
-steam_changes="$(python3 "$steam_helper" --game-path "$game_dir" --launcher "$launcher" \
-    --icon "$destination/GloomhavenVR-steam-icon.png" \
-    --logo "$destination/GloomhavenVR-steam-logo.png" \
-    "${steam_root_args[@]}" --needs-update)"
+steam_changes="$(python3 "$steam_helper" "${steam_helper_args[@]}" --needs-update)"
 if [[ "$steam_changes" != yes && "$steam_changes" != no ]]; then
     echo "error: unexpected Steam setup status: $steam_changes" >&2
     exit 1
@@ -205,23 +212,14 @@ if [[ "$steam_changes" == yes ]]; then
         live_write_args=(--allow-running)
         echo 'Steam is running; writing its backed-up configuration before the headset restarts.'
     fi
-    python3 "$steam_helper" --game-path "$game_dir" --launcher "$launcher" \
-        --icon "$destination/GloomhavenVR-steam-icon.png" \
-        --logo "$destination/GloomhavenVR-steam-logo.png" \
-        "${steam_root_args[@]}" "${live_write_args[@]}"
+    python3 "$steam_helper" "${steam_helper_args[@]}" "${live_write_args[@]}"
 else
     echo 'Steam configuration already correct; no Steam restart needed.'
 fi
 
 echo 'Steam configuration readback before restart:'
-python3 "$steam_helper" --game-path "$game_dir" --launcher "$launcher" \
-    --icon "$destination/GloomhavenVR-steam-icon.png" \
-    --logo "$destination/GloomhavenVR-steam-logo.png" \
-    "${steam_root_args[@]}" --dry-run
-readback_changes="$(python3 "$steam_helper" --game-path "$game_dir" --launcher "$launcher" \
-    --icon "$destination/GloomhavenVR-steam-icon.png" \
-    --logo "$destination/GloomhavenVR-steam-logo.png" \
-    "${steam_root_args[@]}" --needs-update)"
+python3 "$steam_helper" "${steam_helper_args[@]}" --dry-run
+readback_changes="$(python3 "$steam_helper" "${steam_helper_args[@]}" --needs-update)"
 echo "Steam configuration before restart needs repair: $readback_changes"
 if [[ "$readback_changes" != no ]]; then
     echo 'error: Steam-side files differ from the expected setup state before restart' >&2
@@ -231,6 +229,11 @@ fi
 # the game root. Extraction never deletes old files, so retire them after the
 # replacement has completed successfully.
 if [[ "$script_dir" == "$game_dir/BepInEx/plugins/GloomhavenVR/FrameSetup" ]]; then
+    for obsolete in GloomhavenVR-steam-logo.png GloomhavenVR-steam-icon.png; do
+        if [[ -f "$script_dir/$obsolete" ]] && ! rm -f -- "$script_dir/$obsolete"; then
+            echo "warning: could not remove obsolete packaged artwork: $script_dir/$obsolete" >&2
+        fi
+    done
     for obsolete in install-steam-frame.sh steam-frame-config.py frame-boot-config.py \
         GloomhavenVR-steam-logo.png GloomhavenVR-steam-icon.png \
         GloomhavenVR-Setup.desktop; do

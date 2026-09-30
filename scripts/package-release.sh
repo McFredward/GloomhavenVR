@@ -198,8 +198,11 @@ sed 's/\r$//' "$ROOT/scripts/steam-frame-config.py" > "$FRAMESETUP/steam-frame-c
 sed 's/\r$//' "$ROOT/scripts/frame-boot-config.py" > "$FRAMESETUP/frame-boot-config.py"
 sed 's/\r$//' "$ROOT/GloomhavenVR-Setup.desktop" > "$FRAMESETUP/GloomhavenVR-Setup.desktop"
 chmod 0755 "$FRAMESETUP/install-steam-frame.sh" "$FRAMESETUP/GloomhavenVR-Setup.desktop"
-cp "$ROOT/src/GloomhavenVR/Assets/GloomhavenVR_logo.png" "$FRAMESETUP/GloomhavenVR-steam-logo.png"
-cp "$ROOT/unity/GloomhavenVR.Assets/Assets/Bundle/UI/VRMenuIcon.png" "$FRAMESETUP/GloomhavenVR-steam-icon.png"
+STEAM_ARTWORK="$ROOT/src/GloomhavenVR/Assets/SteamFrameArtwork"
+mkdir -p "$FRAMESETUP/SteamArtwork"
+for artwork in library_600x900.png library_header.png library_hero.png logo.png icon.png; do
+    cp "$STEAM_ARTWORK/$artwork" "$FRAMESETUP/SteamArtwork/$artwork"
+done
 
 # NO graphics-jobs enabler ships any more. The preloader writes boot.config itself
 # and restarts the game once on the boot that needs it, so a script whose whole job
@@ -243,8 +246,11 @@ for path in \
     "BepInEx/plugins/GloomhavenVR/FrameSetup/steam-frame-config.py" \
     "BepInEx/plugins/GloomhavenVR/FrameSetup/frame-boot-config.py" \
     "BepInEx/plugins/GloomhavenVR/FrameSetup/GloomhavenVR-Setup.desktop" \
-    "BepInEx/plugins/GloomhavenVR/FrameSetup/GloomhavenVR-steam-logo.png" \
-    "BepInEx/plugins/GloomhavenVR/FrameSetup/GloomhavenVR-steam-icon.png"; do
+    "BepInEx/plugins/GloomhavenVR/FrameSetup/SteamArtwork/library_600x900.png" \
+    "BepInEx/plugins/GloomhavenVR/FrameSetup/SteamArtwork/library_header.png" \
+    "BepInEx/plugins/GloomhavenVR/FrameSetup/SteamArtwork/library_hero.png" \
+    "BepInEx/plugins/GloomhavenVR/FrameSetup/SteamArtwork/logo.png" \
+    "BepInEx/plugins/GloomhavenVR/FrameSetup/SteamArtwork/icon.png"; do
     if ! grep -qF -- "$path" <<<"$LISTING"; then
         echo "error: packaged zip is missing '$path'" >&2
         exit 1

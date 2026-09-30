@@ -499,6 +499,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--launcher", type=Path, required=True)
     parser.add_argument("--icon", type=Path, required=True)
     parser.add_argument("--logo", type=Path, required=True)
+    parser.add_argument("--portrait", type=Path, required=True,
+                        help="600x900 Steam Library capsule for the VR shortcut")
+    parser.add_argument("--header", type=Path, required=True,
+                        help="wide Steam Library capsule for the VR shortcut")
+    parser.add_argument("--hero", type=Path, required=True,
+                        help="Steam Library details background for the VR shortcut")
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--needs-update", action="store_true",
                         help="print only yes/no without changing Steam files")
@@ -519,19 +525,30 @@ def main(argv: list[str] | None = None) -> int:
         launcher = args.launcher.expanduser().absolute()
         icon = args.icon.expanduser().absolute()
         logo = args.logo.expanduser().absolute()
+        portrait = args.portrait.expanduser().absolute()
+        header = args.header.expanduser().absolute()
+        hero = args.hero.expanduser().absolute()
         old_local = read_bounded(localconfig)
         old_shortcuts = read_bounded(shortcuts) if shortcuts.exists() else b""
         new_local = patch_localconfig(old_local)
         new_shortcuts, appid = patch_shortcuts(old_shortcuts, launcher, icon)
-        art = {config / "grid" / f"{appid}_icon.png": icon,
-               config / "grid" / f"{appid}_logo.png": logo}
+        # Steam's non-Steam shortcut artwork is keyed by the shortcut's own
+        # AppID, not Gloomhaven's 780290. Keep the AppID stable when repairing
+        # an existing shortcut so that every library view updates in place.
+        art = {
+            config / "grid" / f"{appid}p.png": portrait,
+            config / "grid" / f"{appid}.png": header,
+            config / "grid" / f"{appid}_hero.png": hero,
+            config / "grid" / f"{appid}_logo.png": logo,
+            config / "grid" / f"{appid}_icon.png": icon,
+        }
         changed = []
         if new_local != old_local:
             changed.append((localconfig, new_local))
         if new_shortcuts != old_shortcuts:
             changed.append((shortcuts, new_shortcuts))
         if not args.dry_run:
-            for source in (launcher, icon, logo):
+            for source in (launcher, *art.values()):
                 if not source.is_file():
                     raise ConfigError(f"Required Frame launcher/artwork missing: {source}")
             for destination, source in art.items():

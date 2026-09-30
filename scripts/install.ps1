@@ -578,6 +578,14 @@ if (-not $NoPackage) {
     # creates the opt-in marker.
     $frameSetupDir = Join-Path $stage "BepInEx\plugins\GloomhavenVR\FrameSetup"
     New-Item -ItemType Directory -Force -Path $frameSetupDir | Out-Null
+    # The stage is copied from the installed plugin tree; drop only the two
+    # superseded images so a local update cannot put them back into a new ZIP.
+    foreach ($oldArtwork in @('GloomhavenVR-steam-logo.png', 'GloomhavenVR-steam-icon.png')) {
+        $oldArtworkPath = Join-Path $frameSetupDir $oldArtwork
+        if (Test-Path -LiteralPath $oldArtworkPath -PathType Leaf) {
+            Remove-Item -LiteralPath $oldArtworkPath -Force
+        }
+    }
     Write-UnixLauncher (Join-Path $root "scripts\install-steam-frame.sh") `
                        (Join-Path $frameSetupDir "install-steam-frame.sh")
     Write-UnixLauncher (Join-Path $root "scripts\steam-frame-config.py") `
@@ -586,10 +594,17 @@ if (-not $NoPackage) {
                        (Join-Path $frameSetupDir "frame-boot-config.py")
     Write-UnixLauncher (Join-Path $root "GloomhavenVR-Setup.desktop") `
                        (Join-Path $frameSetupDir "GloomhavenVR-Setup.desktop")
-    Copy-Item -LiteralPath (Join-Path $root "src\GloomhavenVR\Assets\GloomhavenVR_logo.png") `
-              -Destination (Join-Path $frameSetupDir "GloomhavenVR-steam-logo.png")
-    Copy-Item -LiteralPath (Join-Path $root "unity\GloomhavenVR.Assets\Assets\Bundle\UI\VRMenuIcon.png") `
-              -Destination (Join-Path $frameSetupDir "GloomhavenVR-steam-icon.png")
+    $steamArtworkSource = Join-Path $root "src\GloomhavenVR\Assets\SteamFrameArtwork"
+    $steamArtworkDestination = Join-Path $frameSetupDir "SteamArtwork"
+    New-Item -ItemType Directory -Force -Path $steamArtworkDestination | Out-Null
+    foreach ($artwork in @('library_600x900.png', 'library_header.png', 'library_hero.png',
+                           'logo.png', 'icon.png')) {
+        $artworkSource = Join-Path $steamArtworkSource $artwork
+        if (-not (Test-Path -LiteralPath $artworkSource -PathType Leaf)) {
+            Write-Error "Missing Steam Frame artwork: $artworkSource"
+        }
+        Copy-Item -LiteralPath $artworkSource -Destination (Join-Path $steamArtworkDestination $artwork)
+    }
 
     # No graphics-jobs enabler ships any more: the preloader writes boot.config
     # itself and restarts the game once on the boot that needs it.
@@ -615,8 +630,11 @@ if (-not $NoPackage) {
         "BepInEx/plugins/GloomhavenVR/FrameSetup/steam-frame-config.py",
         "BepInEx/plugins/GloomhavenVR/FrameSetup/frame-boot-config.py",
         "BepInEx/plugins/GloomhavenVR/FrameSetup/GloomhavenVR-Setup.desktop",
-        "BepInEx/plugins/GloomhavenVR/FrameSetup/GloomhavenVR-steam-logo.png",
-        "BepInEx/plugins/GloomhavenVR/FrameSetup/GloomhavenVR-steam-icon.png")
+        "BepInEx/plugins/GloomhavenVR/FrameSetup/SteamArtwork/library_600x900.png",
+        "BepInEx/plugins/GloomhavenVR/FrameSetup/SteamArtwork/library_header.png",
+        "BepInEx/plugins/GloomhavenVR/FrameSetup/SteamArtwork/library_hero.png",
+        "BepInEx/plugins/GloomhavenVR/FrameSetup/SteamArtwork/logo.png",
+        "BepInEx/plugins/GloomhavenVR/FrameSetup/SteamArtwork/icon.png")
     Add-Type -AssemblyName System.IO.Compression.FileSystem
     # Every .txt in the archive must open cleanly on Windows: valid UTF-8, BOM, CRLF, and none
     # of the two characters a double encoding always produces (U+00C3 from an umlaut's lead

@@ -18,8 +18,11 @@ Write-UnixLauncher $shellSource (Join-Path $frameSetup 'install-steam-frame.sh')
 Write-UnixLauncher $desktopSource (Join-Path $frameSetup 'GloomhavenVR-Setup.desktop')
 Write-UnixLauncher $pythonSource (Join-Path $frameSetup 'steam-frame-config.py')
 Write-UnixLauncher $pythonSource (Join-Path $frameSetup 'frame-boot-config.py')
-[System.IO.File]::WriteAllBytes((Join-Path $frameSetup 'GloomhavenVR-steam-logo.png'), [byte[]]@(137, 80, 78, 71))
-[System.IO.File]::WriteAllBytes((Join-Path $frameSetup 'GloomhavenVR-steam-icon.png'), [byte[]]@(137, 80, 78, 71))
+$artwork = Join-Path $frameSetup 'SteamArtwork'
+New-Item -ItemType Directory -Force -Path $artwork | Out-Null
+foreach ($name in @('library_600x900.png', 'library_header.png', 'library_hero.png', 'logo.png', 'icon.png')) {
+    [System.IO.File]::WriteAllBytes((Join-Path $artwork $name), [byte[]]@(137, 80, 78, 71, 13, 10, 26, 10))
+}
 [System.IO.File]::WriteAllText((Join-Path $stage 'INSTALL.txt'), 'test', $script:Utf8Strict)
 [System.IO.File]::WriteAllText((Join-Path $stage 'INSTALL-DEUTSCH.txt'), 'test', $script:Utf8Strict)
 Remove-Item -LiteralPath $shellSource, $desktopSource, $pythonSource

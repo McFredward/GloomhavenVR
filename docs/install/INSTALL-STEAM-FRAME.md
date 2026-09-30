@@ -67,7 +67,7 @@ BepInEx/patchers/GloomhavenVR/
 In Dolphin, open `BepInEx/plugins/GloomhavenVR/FrameSetup/` inside the Gloomhaven folder and
 double-click **`GloomhavenVR-Setup.desktop`**.
 Choose **Execute** if Dolphin asks. The setup configures the original game's BepInEx launch option,
-adds a separate **GloomhavenVR** entry to the VR library, installs its icon and logo, and prepares
+adds a separate **GloomhavenVR** entry to the VR library, installs its icon and library artwork, and prepares
 the game's rendering settings before the first VR launch. You do not need to change file permissions
 or edit Steam settings. Steam may restart to load the new entry. The original **Gloomhaven** entry
 stays flat; both entries use the same installed game, Steam account and Proton game profile.
