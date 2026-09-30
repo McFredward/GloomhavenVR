@@ -937,6 +937,18 @@
       "weight": 80
     },
     {
+      "id": "town-native-veil",
+      "command": [
+        "bash",
+        "scripts/town-native-veil-tests.sh"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 3
+    },
+    {
       "id": "town-service-interaction",
       "command": [
         "python3",
