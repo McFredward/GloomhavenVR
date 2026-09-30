@@ -1,13 +1,13 @@
 # GloomhavenVR — Steam Frame install guide
 
 <p align="center">
-  <img src="docs/img/flag-en.png" width="24" alt="English">&nbsp;<b>English</b>
+  <img src="../img/flag-en.png" width="24" alt="English">&nbsp;<b>English</b>
   &nbsp;&nbsp;|&nbsp;&nbsp;
-  <a href="INSTALL-STEAM-FRAME.de.md"><img src="docs/img/flag-de.png" width="24" alt="Deutsch">&nbsp;Deutsch</a>
+  <a href="INSTALL-STEAM-FRAME.de.md"><img src="../img/flag-de.png" width="24" alt="Deutsch">&nbsp;Deutsch</a>
 </p>
 
 <p align="center">
-  <img src="docs/img/divider.png" width="600" alt="">
+  <img src="../img/divider.png" width="600" alt="">
 </p>
 
 This guide is for running Gloomhaven **on the Steam Frame itself**. If you run the game on a
@@ -22,7 +22,7 @@ Windows PC and stream it to the headset, use the [PC VR install guide](INSTALL.m
 | **Downloads** | BepInEx 5.4.23.5 for Windows x64 and the latest GloomhavenVR release ZIP |
 
 <p align="center">
-  <img src="docs/img/divider-small.png" width="340" alt="">
+  <img src="../img/divider-small.png" width="340" alt="">
 </p>
 
 ## 1. Install the game and download the files
@@ -36,7 +36,7 @@ Windows PC and stream it to the headset, use the [PC VR install guide](INSTALL.m
 Use the **Windows x64** BepInEx archive: Gloomhaven runs as a Windows game through Proton.
 
 <p align="center">
-  <img src="docs/img/divider-small.png" width="340" alt="">
+  <img src="../img/divider-small.png" width="340" alt="">
 </p>
 
 ## 2. Extract both archives
@@ -59,7 +59,7 @@ BepInEx/patchers/GloomhavenVR/
 ```
 
 <p align="center">
-  <img src="docs/img/divider-small.png" width="340" alt="">
+  <img src="../img/divider-small.png" width="340" alt="">
 </p>
 
 ## 3. Set up Steam
@@ -86,7 +86,7 @@ Steam may still show the original game's per-app VR resolution settings only whi
 is running. Set those settings in a running session if they are not listed before launch.
 
 <p align="center">
-  <img src="docs/img/divider-small.png" width="340" alt="">
+  <img src="../img/divider-small.png" width="340" alt="">
 </p>
 
 ## 4. Start the game
@@ -104,7 +104,7 @@ Your saves, campaign and settings are not touched. The mod backs up `GH_Data/boo
 `GH_Data/boot.config.gloomhavenvr-backup` before changing its rendering settings.
 
 <p align="center">
-  <img src="docs/img/divider-small.png" width="340" alt="">
+  <img src="../img/divider-small.png" width="340" alt="">
 </p>
 
 ## Updating
@@ -114,7 +114,7 @@ new release ZIP and extract it into the same Gloomhaven folder, merging `BepInEx
 All VR players in a multiplayer session need the same mod build.
 
 <p align="center">
-  <img src="docs/img/divider-small.png" width="340" alt="">
+  <img src="../img/divider-small.png" width="340" alt="">
 </p>
 
 ## Troubleshooting
@@ -134,7 +134,7 @@ were doing. For a reproducible issue, set `[General] LogLevel = Debug` in
 `BepInEx/config/dev.gloomhavenvr.cfg`, then reproduce it for a more detailed log.
 
 <p align="center">
-  <img src="docs/img/divider-small.png" width="340" alt="">
+  <img src="../img/divider-small.png" width="340" alt="">
 </p>
 
 ## Uninstall

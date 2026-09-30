@@ -171,7 +171,7 @@ the same way and runs the same check.
 a drag-and-drop user reads, in the two languages the mod ships. `install.ps1` renders the same two
 templates, so the two install paths cannot describe the install differently. `@VERSION@` is the
 only substitution. **If you change install steps, change BOTH templates, both
-[`INSTALL.md`](../INSTALL.md) and [`INSTALL.de.md`](../INSTALL.de.md), and the README's Install
+[`INSTALL.md`](install/INSTALL.md) and [`INSTALL.de.md`](install/INSTALL.de.md), and the README's Install
 section together** — then run `python3 scripts/check-docs-i18n.py`, which is what tells you a
 language fell behind.
 

@@ -1,13 +1,13 @@
 # GloomhavenVR — Installation auf Steam Frame
 
 <p align="center">
-  <a href="INSTALL-STEAM-FRAME.md"><img src="docs/img/flag-en.png" width="24" alt="English">&nbsp;English</a>
+  <a href="INSTALL-STEAM-FRAME.md"><img src="../img/flag-en.png" width="24" alt="English">&nbsp;English</a>
   &nbsp;&nbsp;|&nbsp;&nbsp;
-  <img src="docs/img/flag-de.png" width="24" alt="Deutsch">&nbsp;<b>Deutsch</b>
+  <img src="../img/flag-de.png" width="24" alt="Deutsch">&nbsp;<b>Deutsch</b>
 </p>
 
 <p align="center">
-  <img src="docs/img/divider.png" width="600" alt="">
+  <img src="../img/divider.png" width="600" alt="">
 </p>
 
 Diese Anleitung gilt, wenn Gloomhaven **direkt auf der Steam Frame** läuft. Startest du das Spiel
@@ -22,7 +22,7 @@ auf einem Windows-PC und streamst es zum Headset, nutze die [PC-VR-Installations
 | **Downloads** | BepInEx 5.4.23.5 für Windows x64 und das aktuelle GloomhavenVR-Release-ZIP |
 
 <p align="center">
-  <img src="docs/img/divider-small.png" width="340" alt="">
+  <img src="../img/divider-small.png" width="340" alt="">
 </p>
 
 ## 1. Spiel installieren und Dateien herunterladen
@@ -37,7 +37,7 @@ auf einem Windows-PC und streamst es zum Headset, nutze die [PC-VR-Installations
 Nimm das **Windows-x64**-Archiv von BepInEx: Gloomhaven läuft über Proton als Windows-Spiel.
 
 <p align="center">
-  <img src="docs/img/divider-small.png" width="340" alt="">
+  <img src="../img/divider-small.png" width="340" alt="">
 </p>
 
 ## 2. Beide Archive entpacken
@@ -61,7 +61,7 @@ BepInEx/patchers/GloomhavenVR/
 ```
 
 <p align="center">
-  <img src="docs/img/divider-small.png" width="340" alt="">
+  <img src="../img/divider-small.png" width="340" alt="">
 </p>
 
 ## 3. Steam einrichten
@@ -92,7 +92,7 @@ erst an, während GloomhavenVR läuft. Falls sie vor dem Start fehlen, stell sie
 laufenden Spiels für Gloomhaven ein.
 
 <p align="center">
-  <img src="docs/img/divider-small.png" width="340" alt="">
+  <img src="../img/divider-small.png" width="340" alt="">
 </p>
 
 ## 4. Spiel starten
@@ -112,7 +112,7 @@ Deine Spielstände, Kampagne und Einstellungen bleiben unangetastet. Die Mod sic
 Rendering-Einstellungen ändert.
 
 <p align="center">
-  <img src="docs/img/divider-small.png" width="340" alt="">
+  <img src="../img/divider-small.png" width="340" alt="">
 </p>
 
 ## Updates
@@ -122,7 +122,7 @@ neue Release-ZIP herunterladen und wieder in denselben Gloomhaven-Ordner entpack
 `BepInEx` erneut zusammen. Im Mehrspieler brauchen alle VR-Spieler denselben Mod-Build.
 
 <p align="center">
-  <img src="docs/img/divider-small.png" width="340" alt="">
+  <img src="../img/divider-small.png" width="340" alt="">
 </p>
 
 ## Fehlersuche
@@ -143,7 +143,7 @@ beschreibe, was du gerade gemacht hast. Bei einem reproduzierbaren Problem setz
 ein genaueres Log.
 
 <p align="center">
-  <img src="docs/img/divider-small.png" width="340" alt="">
+  <img src="../img/divider-small.png" width="340" alt="">
 </p>
 
 ## Deinstallieren

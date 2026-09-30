@@ -36,8 +36,8 @@
 </p>
 
 <p align="center">
-  <a href="INSTALL.md"><b>Install →</b></a> &nbsp;·&nbsp;
-  <a href="INSTALL-STEAM-FRAME.md"><b>Install on Steam Frame →</b></a> &nbsp;·&nbsp;
+  <a href="docs/install/INSTALL.md"><b>Install →</b></a> &nbsp;·&nbsp;
+  <a href="docs/install/INSTALL-STEAM-FRAME.md"><b>Install on Steam Frame →</b></a> &nbsp;·&nbsp;
   <a href="docs/PLAYING.md">Playing &amp; controls</a>
 </p>
 
@@ -200,7 +200,7 @@ not yours.
 **Gloomhaven (Digital)** from Steam, GOG, or Epic Games Store · Windows PC VR or Steam Frame
 standalone · two tracked controllers · room-scale. It was developed on a Quest 3 over Virtual Desktop.
 
-[→ Install](INSTALL.md) · [→ Install on Steam Frame](INSTALL-STEAM-FRAME.md) · [→ Playing & controls](docs/PLAYING.md)
+[→ Install](docs/install/INSTALL.md) · [→ Install on Steam Frame](docs/install/INSTALL-STEAM-FRAME.md) · [→ Playing & controls](docs/PLAYING.md)
 
 <p align="center">
   <img src="docs/img/divider-small.png" width="340" alt="">

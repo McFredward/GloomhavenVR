@@ -6,7 +6,7 @@
   <a href="PLAYING.de.md"><img src="img/flag-de.png" width="24" alt="Deutsch">&nbsp;Deutsch</a>
 </p>
 
-[Install guide](../INSTALL.md) · [Controls](#the-controls) · [Round flow](#cards-and-the-control-board)
+[Install guide](install/INSTALL.md) · [Controls](#the-controls) · [Round flow](#cards-and-the-control-board)
 
 ## The controls
 
@@ -115,7 +115,7 @@ Rare ambient apparitions can be reduced or disabled under **World & sound ▸ Cr
 
 [Watch: VR multiplayer](../README.md#full-vr-multiplayer)
 
-- VR players need the same mod version; [update together](../INSTALL.md#updating).
+- VR players need the same mod version; [update together](install/INSTALL.md#updating).
   Players without the mod can join on a flat screen.
 - Other players see your hands, mask, held objects and a live copy of your control board.
   In scenarios, remote fans, held cards and placed cards are **covered during selection** and

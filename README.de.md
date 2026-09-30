@@ -36,8 +36,8 @@
 </p>
 
 <p align="center">
-  <a href="INSTALL.de.md"><b>Installieren →</b></a> &nbsp;·&nbsp;
-  <a href="INSTALL-STEAM-FRAME.de.md"><b>Auf Steam Frame installieren →</b></a> &nbsp;·&nbsp;
+  <a href="docs/install/INSTALL.de.md"><b>Installieren →</b></a> &nbsp;·&nbsp;
+  <a href="docs/install/INSTALL-STEAM-FRAME.de.md"><b>Auf Steam Frame installieren →</b></a> &nbsp;·&nbsp;
   <a href="docs/PLAYING.de.md">Spielablauf &amp; Steuerung</a>
 </p>
 
@@ -205,7 +205,7 @@ behält dessen Stange, nicht deine.
 standalone · zwei getrackte Controller · Room-Scale. Entwickelt wurde die Mod auf einer Quest 3
 über Virtual Desktop.
 
-[→ Installation](INSTALL.de.md) · [→ Installation auf Steam Frame](INSTALL-STEAM-FRAME.de.md) · [→ Spielablauf & Steuerung](docs/PLAYING.de.md)
+[→ Installation](docs/install/INSTALL.de.md) · [→ Installation auf Steam Frame](docs/install/INSTALL-STEAM-FRAME.de.md) · [→ Spielablauf & Steuerung](docs/PLAYING.de.md)
 
 <p align="center">
   <img src="docs/img/divider-small.png" width="340" alt="">

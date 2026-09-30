@@ -1,13 +1,13 @@
 # GloomhavenVR — install guide
 
 <p align="center">
-  <img src="docs/img/flag-en.png" width="24" alt="English">&nbsp;<b>English</b>
+  <img src="../img/flag-en.png" width="24" alt="English">&nbsp;<b>English</b>
   &nbsp;&nbsp;|&nbsp;&nbsp;
-  <a href="INSTALL.de.md"><img src="docs/img/flag-de.png" width="24" alt="Deutsch">&nbsp;Deutsch</a>
+  <a href="INSTALL.de.md"><img src="../img/flag-de.png" width="24" alt="Deutsch">&nbsp;Deutsch</a>
 </p>
 
 <p align="center">
-  <img src="docs/img/divider.png" width="600" alt="">
+  <img src="../img/divider.png" width="600" alt="">
 </p>
 
 ## What you need
@@ -22,7 +22,7 @@
 > Steam Frame, use the separate [Steam Frame install guide](INSTALL-STEAM-FRAME.md).
 
 <p align="center">
-  <img src="docs/img/divider-small.png" width="340" alt="">
+  <img src="../img/divider-small.png" width="340" alt="">
 </p>
 
 ## 1. Install BepInEx
@@ -34,7 +34,7 @@
 3. Start the game once, then quit. Check that `BepInEx/LogOutput.log` exists.
 
 <p align="center">
-  <img src="docs/img/divider-small.png" width="340" alt="">
+  <img src="../img/divider-small.png" width="340" alt="">
 </p>
 
 ## 2. Install the mod
@@ -44,11 +44,11 @@ Get **`GloomhavenVR-<version>.zip`** from the
 folder, letting Windows merge `BepInEx/`. Then check these two folders exist:
 
 <p align="center">
-  <img src="docs/img/install-tree-en.png" width="820" alt="The Gloomhaven folder after installing: BepInEx/plugins/GloomhavenVR/ and BepInEx/patchers/GloomhavenVR/ must both exist">
+  <img src="../img/install-tree-en.png" width="820" alt="The Gloomhaven folder after installing: BepInEx/plugins/GloomhavenVR/ and BepInEx/patchers/GloomhavenVR/ must both exist">
 </p>
 
 <p align="center">
-  <img src="docs/img/divider-small.png" width="340" alt="">
+  <img src="../img/divider-small.png" width="340" alt="">
 </p>
 
 ## 3. Set your OpenXR runtime
@@ -61,7 +61,7 @@ game. Set it in whichever app you stream with:
 - **Steam Link / SteamVR** — SteamVR Settings → OpenXR → *Set SteamVR as OpenXR runtime*.
 
 <p align="center">
-  <img src="docs/img/divider-small.png" width="340" alt="">
+  <img src="../img/divider-small.png" width="340" alt="">
 </p>
 
 ## 4. Start the game
@@ -78,7 +78,7 @@ The mod changes the rendering settings in `GH_Data/boot.config` and keeps the or
 `boot.config`.
 
 <p align="center">
-  <img src="docs/img/divider-small.png" width="340" alt="">
+  <img src="../img/divider-small.png" width="340" alt="">
 </p>
 
 ## Updating
@@ -97,7 +97,7 @@ Press Update and it downloads the release archive, swaps the files, closes the g
   Update together.
 
 <p align="center">
-  <img src="docs/img/divider-small.png" width="340" alt="">
+  <img src="../img/divider-small.png" width="340" alt="">
 </p>
 
 ## Settings
@@ -123,7 +123,7 @@ To disable the VR mod, set `[General] Enabled = false` in
 `BepInEx/config/`.
 
 <p align="center">
-  <img src="docs/img/divider-small.png" width="340" alt="">
+  <img src="../img/divider-small.png" width="340" alt="">
 </p>
 
 ## Troubleshooting
@@ -141,7 +141,7 @@ streaming app. Keep the log from the affected run. For a repeatable issue, set
 `[General] LogLevel = Debug` and reproduce it for a more detailed log.
 
 <p align="center">
-  <img src="docs/img/divider-small.png" width="340" alt="">
+  <img src="../img/divider-small.png" width="340" alt="">
 </p>
 
 ## Uninstall
@@ -155,7 +155,7 @@ These are optional and do nothing without the mod: `GH_Data/Plugins/x86_64/Unity
 `GH_Data/Plugins/x86_64/openxr_loader.dll`, `GH_Data/UnitySubsystems/UnityOpenXR/`.
 
 <p align="center">
-  <img src="docs/img/divider-small.png" width="340" alt="">
+  <img src="../img/divider-small.png" width="340" alt="">
 </p>
 
 A short version of this page ships inside the release zip as `INSTALL.txt`.

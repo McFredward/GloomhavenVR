@@ -1,13 +1,13 @@
 # GloomhavenVR — Installationsanleitung
 
 <p align="center">
-  <a href="INSTALL.md"><img src="docs/img/flag-en.png" width="24" alt="English">&nbsp;English</a>
+  <a href="INSTALL.md"><img src="../img/flag-en.png" width="24" alt="English">&nbsp;English</a>
   &nbsp;&nbsp;|&nbsp;&nbsp;
-  <img src="docs/img/flag-de.png" width="24" alt="Deutsch">&nbsp;<b>Deutsch</b>
+  <img src="../img/flag-de.png" width="24" alt="Deutsch">&nbsp;<b>Deutsch</b>
 </p>
 
 <p align="center">
-  <img src="docs/img/divider.png" width="600" alt="">
+  <img src="../img/divider.png" width="600" alt="">
 </p>
 
 ## Was du brauchst
@@ -22,7 +22,7 @@
 > Für lokales Spielen auf der Steam Frame nutze die eigene [Frame-Installationsanleitung](INSTALL-STEAM-FRAME.de.md).
 
 <p align="center">
-  <img src="docs/img/divider-small.png" width="340" alt="">
+  <img src="../img/divider-small.png" width="340" alt="">
 </p>
 
 ## 1. BepInEx installieren
@@ -34,7 +34,7 @@
 3. Starte das Spiel einmal, dann beenden. Prüf, ob `BepInEx/LogOutput.log` vorhanden ist.
 
 <p align="center">
-  <img src="docs/img/divider-small.png" width="340" alt="">
+  <img src="../img/divider-small.png" width="340" alt="">
 </p>
 
 ## 2. Die Mod installieren
@@ -44,11 +44,11 @@ Hol dir **`GloomhavenVR-<version>.zip`** von der
 Ordner; lass Windows `BepInEx/` zusammenführen. Dann kontrollier, ob diese zwei Ordner da sind:
 
 <p align="center">
-  <img src="docs/img/install-tree-de.png" width="820" alt="Der Gloomhaven-Ordner nach der Installation: BepInEx/plugins/GloomhavenVR/ und BepInEx/patchers/GloomhavenVR/ müssen beide da sein">
+  <img src="../img/install-tree-de.png" width="820" alt="Der Gloomhaven-Ordner nach der Installation: BepInEx/plugins/GloomhavenVR/ und BepInEx/patchers/GloomhavenVR/ müssen beide da sein">
 </p>
 
 <p align="center">
-  <img src="docs/img/divider-small.png" width="340" alt="">
+  <img src="../img/divider-small.png" width="340" alt="">
 </p>
 
 ## 3. OpenXR-Runtime einstellen
@@ -61,7 +61,7 @@ Stell sie in der App ein, mit der du streamst:
 - **Steam Link / SteamVR** — SteamVR-Einstellungen → OpenXR → *SteamVR als OpenXR-Laufzeit festlegen*.
 
 <p align="center">
-  <img src="docs/img/divider-small.png" width="340" alt="">
+  <img src="../img/divider-small.png" width="340" alt="">
 </p>
 
 ## 4. Das Spiel starten
@@ -78,7 +78,7 @@ Die Mod ändert Rendering-Einstellungen in `GH_Data/boot.config` und legt das Or
 es zurück über `boot.config`.
 
 <p align="center">
-  <img src="docs/img/divider-small.png" width="340" alt="">
+  <img src="../img/divider-small.png" width="340" alt="">
 </p>
 
 ## Updates
@@ -97,7 +97,7 @@ wieder. **Deine Spielstände, deine Kampagne und deine Einstellungen bleiben una
   unterschiedliche Builds. Aktualisiert gemeinsam.
 
 <p align="center">
-  <img src="docs/img/divider-small.png" width="340" alt="">
+  <img src="../img/divider-small.png" width="340" alt="">
 </p>
 
 ## Einstellungen
@@ -123,7 +123,7 @@ Um die VR-Mod zu deaktivieren, setz `[General] Enabled = false` in
 der Mod unter `BepInEx/config/`.
 
 <p align="center">
-  <img src="docs/img/divider-small.png" width="340" alt="">
+  <img src="../img/divider-small.png" width="340" alt="">
 </p>
 
 ## Fehlersuche
@@ -141,7 +141,7 @@ Headset und deine Streaming-App. Bewahre das Log des betroffenen Durchlaufs auf.
 reproduzierbaren Problem setz `[General] LogLevel = Debug` und wiederhole es für ein genaueres Log.
 
 <p align="center">
-  <img src="docs/img/divider-small.png" width="340" alt="">
+  <img src="../img/divider-small.png" width="340" alt="">
 </p>
 
 ## Deinstallieren
@@ -155,7 +155,7 @@ Diese hier sind optional und tun ohne die Mod nichts: `GH_Data/Plugins/x86_64/Un
 `GH_Data/Plugins/x86_64/openxr_loader.dll`, `GH_Data/UnitySubsystems/UnityOpenXR/`.
 
 <p align="center">
-  <img src="docs/img/divider-small.png" width="340" alt="">
+  <img src="../img/divider-small.png" width="340" alt="">
 </p>
 
 Eine Kurzfassung dieser Seite liegt als `INSTALL-DEUTSCH.txt` im Release-Zip.

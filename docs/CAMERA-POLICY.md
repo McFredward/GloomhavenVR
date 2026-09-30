@@ -165,7 +165,7 @@ destroyed/disabled). `moved=N` while wearing the HMD → pose application dead.
 input-subsystem or tracking loss. All driver MonoBehaviours live on mod-owned
 DontDestroyOnLoad + HideAndDontSave roots (`GloomhavenVR.Core`, `.RigDriver`,
 `.HandsDriver`, `.WorldUIDriver`, `.Events`); only the `Plugin` itself (coroutine
-host) rides the BepInEx manager GO — INSTALL.md recommends
+host) rides the BepInEx manager GO — `docs/install/INSTALL.md` recommends
 `HideManagerGameObject = true`.
 
 ## §6 FlatScreen RT stack capture — owner: `WorldUI.FlatScreen`

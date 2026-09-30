@@ -6,7 +6,7 @@
   <img src="img/flag-de.png" width="24" alt="Deutsch">&nbsp;<b>Deutsch</b>
 </p>
 
-[Installation](../INSTALL.de.md) · [Steuerung](#die-steuerung) · [Rundenablauf](#karten-und-kontrollbrett)
+[Installation](install/INSTALL.de.md) · [Steuerung](#die-steuerung) · [Rundenablauf](#karten-und-kontrollbrett)
 
 ## Die Steuerung
 
@@ -118,7 +118,7 @@ Seltene Erscheinungen lassen sich unter **Umgebung & Ton ▸ Grusel** reduzieren
 
 [Video: VR-Mehrspieler](../README.de.md#vollwertiger-vr-mehrspieler)
 
-- VR-Spieler brauchen dieselbe Mod-Version; [gemeinsam aktualisieren](../INSTALL.de.md#updates).
+- VR-Spieler brauchen dieselbe Mod-Version; [gemeinsam aktualisieren](install/INSTALL.de.md#updates).
   Spieler ohne Mod können am flachen Bildschirm mitspielen.
 - Andere Spieler sehen deine Hände, Maske, gehaltenen Objekte und ein Live-Abbild deines Bretts.
   Im Szenario sind fremde Fächer, Handkarten und abgelegte Karten **in der Auswahlphase verdeckt**

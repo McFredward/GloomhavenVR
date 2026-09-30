@@ -5,7 +5,7 @@
 | Topic | English | Deutsch |
 |---|---|---|
 | Features and tutorial recommendation | [README](../README.md) | [README](../README.de.md) |
-| Install, update and troubleshoot | [Install](../INSTALL.md) | [Installieren](../INSTALL.de.md) |
+| Install, update and troubleshoot | [Install](install/INSTALL.md) | [Installieren](install/INSTALL.de.md) |
 | Controls, rounds and multiplayer | [Playing](PLAYING.md) | [Spielen](PLAYING.de.md) |
 
 The installation summary inside the release archive comes from
