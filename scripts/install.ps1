@@ -35,7 +35,7 @@
 
     Safe to re-run any time - every step is idempotent and only rebuilds/copies
     what changed. BepInEx 5.4.23.5 (x64) must already be installed in the game
-    folder (see INSTALL.md).
+    folder (see docs/install/INSTALL.md).
 
 .EXAMPLE
     .\scripts\install.ps1
@@ -179,7 +179,7 @@ Write-Host "    game: $GamePath"
 if (-not (Test-Path (Join-Path $GamePath "BepInEx\core\BepInEx.dll"))) {
     Write-Error ("BepInEx not found in '$GamePath'. Install BepInEx 5.4.23.5 x64 first: " +
         "https://github.com/BepInEx/BepInEx/releases/tag/v5.4.23.5 (extract into the game folder, " +
-        "run the game once, then re-run this script). See INSTALL.md.")
+        "run the game once, then re-run this script). See docs/install/INSTALL.md.")
 }
 
 # --- 3. point the build at the game's Managed folder -----------------------

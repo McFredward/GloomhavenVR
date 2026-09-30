@@ -57,8 +57,8 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 MARKDOWN = [
     # (english path, german path, path from the file's own directory to docs/img)
     ("README.md",       "README.de.md",       "docs/img"),
-    ("INSTALL.md",      "INSTALL.de.md",      "docs/img"),
-    ("INSTALL-STEAM-FRAME.md", "INSTALL-STEAM-FRAME.de.md", "docs/img"),
+    ("docs/install/INSTALL.md", "docs/install/INSTALL.de.md", "../img"),
+    ("docs/install/INSTALL-STEAM-FRAME.md", "docs/install/INSTALL-STEAM-FRAME.de.md", "../img"),
     ("docs/PLAYING.md", "docs/PLAYING.de.md", "img"),
 ]
 
