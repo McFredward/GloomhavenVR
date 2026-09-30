@@ -13,27 +13,16 @@ EOF
 
 script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 setup_log="$script_dir/steam-frame-setup.log"
-finish_mode=false
-completion_file=""
-if [[ "${1:-}" == --finish-setup ]]; then
-    (($# >= 2)) || { echo 'error: internal setup completion file is missing' >&2; exit 2; }
-    finish_mode=true
-    completion_file="$2"
-    shift 2
-    exec >> "$setup_log" 2>&1
-    echo "Detached Steam setup started: $(date -Is); PID $$"
-else
-    if [[ -f "$setup_log" ]]; then
-        mv -f -- "$setup_log" "$setup_log.previous"
-    fi
-    if ! : > "$setup_log"; then
-        echo "error: cannot write Steam Frame setup log: $setup_log" >&2
-        exit 1
-    fi
-    exec > >(tee -a "$setup_log") 2>&1
-    echo "==== GloomhavenVR Steam Frame setup: $(date -Is) ===="
-    echo "Setup helper: $script_dir/install-steam-frame.sh"
+if [[ -f "$setup_log" ]]; then
+    mv -f -- "$setup_log" "$setup_log.previous"
 fi
+if ! : > "$setup_log"; then
+    echo "error: cannot write Steam Frame setup log: $setup_log" >&2
+    exit 1
+fi
+exec > >(tee -a "$setup_log") 2>&1
+echo "==== GloomhavenVR Steam Frame setup: $(date -Is) ===="
+echo "Setup helper: $script_dir/install-steam-frame.sh"
 game_dir=""
 steam_root=""
 dry_run=false
@@ -70,9 +59,8 @@ while (($#)); do
     esac
 done
 
-# The desktop launcher opens a terminal. Keep failures visible, and restore Steam
-# even when a later configuration write fails after its clean shutdown.
-steam_stopped=false
+# The desktop launcher opens a terminal. Keep setup failures visible even when
+# Steam later restarts the headset shell and closes the terminal.
 temporary_launcher=""
 steam_client_alive() {
     pgrep -u "$(id -u)" -x steam >/dev/null 2>&1 ||
@@ -83,15 +71,7 @@ on_exit() {
     if [[ -n "$temporary_launcher" ]]; then
         rm -f -- "$temporary_launcher"
     fi
-    if $steam_stopped; then
-        echo 'Restarting Steam after setup...'
-        nohup steam -silent >/dev/null 2>&1 </dev/null &
-    fi
     echo "Setup exit status: $status; log: $setup_log"
-    if $finish_mode; then
-        printf '%s\n' "$status" > "$completion_file.$$"
-        mv -f -- "$completion_file.$$" "$completion_file"
-    fi
     if $pause_on_exit && [[ -t 0 ]]; then
         printf '\nPress Enter to close this window...'
         read -r _ || true
@@ -208,9 +188,9 @@ else
 fi
 temporary_launcher=""
 
-# Steam caches localconfig.vdf and shortcuts.vdf until exit. A graceful shutdown
-# ensures it writes its old state before our changes; never kill it or overwrite
-# a live client's in-memory copy. The exit trap restores the client on failure.
+# On Steam Frame, closing Steam also restarts the headset shell and terminates
+# the installer, even when it runs in a detached process session. Complete and
+# verify every file change before requesting that restart as the final step.
 steam_changes="$(python3 "$steam_helper" --game-path "$game_dir" --launcher "$launcher" \
     --icon "$destination/GloomhavenVR-steam-icon.png" \
     --logo "$destination/GloomhavenVR-steam-logo.png" \
@@ -219,120 +199,21 @@ if [[ "$steam_changes" != yes && "$steam_changes" != no ]]; then
     echo "error: unexpected Steam setup status: $steam_changes" >&2
     exit 1
 fi
-if [[ "$steam_changes" == yes ]] && ! $finish_mode && steam_client_alive; then
-    # A Steam-owned terminal can disappear as its client exits. Continue the
-    # transaction in a separate session so the VDF write and restart survive.
-    command -v setsid >/dev/null 2>&1 || {
-        echo 'error: setsid is required to finish Steam setup after client shutdown' >&2
-        exit 1
-    }
-    completion_file="$(mktemp -- "$destination/.steam-frame-result.XXXXXX")"
-    rm -f -- "$completion_file"
-    echo 'Finishing Steam configuration outside the current terminal...'
-    worker_args=(--finish-setup "$completion_file" --game-path "$game_dir")
-    if [[ -n "$steam_root" ]]; then
-        worker_args+=(--steam-root "$steam_root")
-    fi
-    worker_pid=""
-    worker_started=false
-    if command -v systemd-run >/dev/null 2>&1; then
-        service_env=(--setenv="HOME=$HOME" --setenv="PATH=$PATH")
-        for name in XDG_DATA_HOME XDG_RUNTIME_DIR DBUS_SESSION_BUS_ADDRESS DISPLAY WAYLAND_DISPLAY XAUTHORITY; do
-            if [[ -v $name ]]; then
-                service_env+=(--setenv="$name=${!name}")
-            fi
-        done
-        if systemd-run --user --collect --quiet \
-            --unit="gloomhavenvr-frame-setup-$$" "${service_env[@]}" \
-            /usr/bin/env bash "$script_dir/install-steam-frame.sh" "${worker_args[@]}"; then
-            worker_started=true
-            echo 'Steam setup worker started in a separate user service.'
-        else
-            echo 'User service unavailable; using a separate process session.'
-        fi
-    fi
-    if ! $worker_started; then
-        setsid bash "$script_dir/install-steam-frame.sh" "${worker_args[@]}" \
-            </dev/null >/dev/null 2>&1 &
-        worker_pid=$!
-    fi
-    for ((attempt = 0; attempt < 120; attempt++)); do
-        if [[ -s "$completion_file" ]]; then
-            read -r worker_status < "$completion_file"
-            rm -f -- "$completion_file"
-            echo "Detached Steam setup exit status: $worker_status"
-            if [[ "$worker_status" != 0 ]]; then
-                echo "error: Steam setup failed; inspect $setup_log" >&2
-                exit 1
-            fi
-            exit 0
-        fi
-        if [[ -n "$worker_pid" ]] && ! kill -0 "$worker_pid" 2>/dev/null; then
-            echo "error: Steam setup stopped before reporting completion; inspect $setup_log" >&2
-            exit 1
-        fi
-        sleep 1
-    done
-    echo "error: Steam setup is still running; inspect $setup_log for its final result" >&2
-    exit 1
-fi
-if [[ "$steam_changes" == yes ]] && command -v steam >/dev/null 2>&1 && steam_client_alive; then
-    echo 'Closing Steam briefly to update its library configuration...'
-    if steam -shutdown; then
-        echo 'Steam shutdown request returned successfully.'
-    else
-        shutdown_status=$?
-        echo "Steam shutdown request returned status $shutdown_status; waiting for the client to exit."
-    fi
-    for ((attempt = 0; attempt < 60; attempt++)); do
-        if ! steam_client_alive; then
-            steam_stopped=true
-            break
-        fi
-        if ((attempt > 0 && attempt % 10 == 0)); then
-            echo "Still waiting for Steam to exit (${attempt}s)."
-        fi
-        sleep 1
-    done
-    if ! $steam_stopped; then
-        echo 'error: Steam did not exit cleanly; its library configuration was not changed' >&2
-        exit 1
-    fi
-fi
-
 if [[ "$steam_changes" == yes ]]; then
+    live_write_args=()
+    if steam_client_alive; then
+        live_write_args=(--allow-running)
+        echo 'Steam is running; writing its backed-up configuration before the headset restarts.'
+    fi
     python3 "$steam_helper" --game-path "$game_dir" --launcher "$launcher" \
         --icon "$destination/GloomhavenVR-steam-icon.png" \
         --logo "$destination/GloomhavenVR-steam-logo.png" \
-        "${steam_root_args[@]}"
+        "${steam_root_args[@]}" "${live_write_args[@]}"
 else
     echo 'Steam configuration already correct; no Steam restart needed.'
 fi
 
-steam_restarted=false
-if $steam_stopped; then
-    echo 'Restarting Steam...'
-    nohup steam -silent >/dev/null 2>&1 </dev/null &
-    steam_stopped=false
-    steam_restarted=true
-    for ((attempt = 0; attempt < 45; attempt++)); do
-        steam_client_alive && break
-        sleep 1
-    done
-fi
-if $steam_restarted && steam_client_alive; then
-    sleep 3
-fi
-if steam_client_alive; then
-    echo 'Steam client after setup: running'
-else
-    echo 'Steam client after setup: not yet running'
-    if $steam_restarted; then
-        echo 'error: Steam did not restart after its library configuration was updated' >&2
-        exit 1
-    fi
-fi
-echo 'Steam configuration readback:'
+echo 'Steam configuration readback before restart:'
 python3 "$steam_helper" --game-path "$game_dir" --launcher "$launcher" \
     --icon "$destination/GloomhavenVR-steam-icon.png" \
     --logo "$destination/GloomhavenVR-steam-logo.png" \
@@ -341,9 +222,9 @@ readback_changes="$(python3 "$steam_helper" --game-path "$game_dir" --launcher "
     --icon "$destination/GloomhavenVR-steam-icon.png" \
     --logo "$destination/GloomhavenVR-steam-logo.png" \
     "${steam_root_args[@]}" --needs-update)"
-echo "Steam configuration after restart needs repair: $readback_changes"
+echo "Steam configuration before restart needs repair: $readback_changes"
 if [[ "$readback_changes" != no ]]; then
-    echo 'error: Steam-side files differ from the expected setup state after startup; inspect this log before retrying' >&2
+    echo 'error: Steam-side files differ from the expected setup state before restart' >&2
     exit 1
 fi
 # Archives before the nested setup layout placed these owned helpers directly in
@@ -358,4 +239,25 @@ if [[ "$script_dir" == "$game_dir/BepInEx/plugins/GloomhavenVR/FrameSetup" ]]; t
         fi
     done
 fi
-echo 'Steam configuration is present on disk. Check the library for GloomhavenVR; the original Gloomhaven entry remains flat.'
+echo 'Steam configuration is present on disk; the original Gloomhaven entry remains flat.'
+if [[ "$steam_changes" == yes ]] && command -v steam >/dev/null 2>&1 && steam_client_alive; then
+    echo 'All setup changes and readback checks are complete. Restarting Steam as the final step.'
+    echo 'The Steam Frame display may briefly reboot; then check the library for GloomhavenVR.'
+    # Desktop-mode Steam may not relaunch itself. This best-effort waiter starts
+    # it after shutdown there; Frame's own shell restart can terminate it.
+    if command -v setsid >/dev/null 2>&1; then
+        setsid bash -c '
+            for ((attempt = 0; attempt < 45; attempt++)); do
+                if ! pgrep -u "$(id -u)" -x steam >/dev/null 2>&1 &&
+                   ! pgrep -u "$(id -u)" -x steamwebhelper >/dev/null 2>&1; then
+                    exec steam -silent
+                fi
+                sleep 1
+            done
+        ' </dev/null >/dev/null 2>&1 &
+    fi
+    pause_on_exit=false
+    steam -shutdown || true
+else
+    echo 'Check the Steam library for GloomhavenVR.'
+fi

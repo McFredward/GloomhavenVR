@@ -502,6 +502,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--needs-update", action="store_true",
                         help="print only yes/no without changing Steam files")
+    parser.add_argument("--allow-running", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--proc-root", type=Path, default=Path("/proc"), help=argparse.SUPPRESS)
     args = parser.parse_args(argv)
     if args.dry_run and args.needs_update:
@@ -541,7 +542,7 @@ def main(argv: list[str] | None = None) -> int:
             print("yes" if changed else "no")
             return 0
         if not args.dry_run:
-            if changed and steam_running(args.proc_root):
+            if changed and steam_running(args.proc_root) and not args.allow_running:
                 raise ConfigError("Steam is still running; close it before writing its shortcut/config files")
             for destination, data in changed:
                 backup_and_replace(destination, data)

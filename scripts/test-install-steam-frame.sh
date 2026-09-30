@@ -85,10 +85,10 @@ fi
 
 [[ -f "$marker" && -x "$launcher" && -f "$shortcuts" ]]
 for ((attempt = 0; attempt < 50; attempt++)); do
-    rg -q 'Steam configuration after restart needs repair: no' "$setup/steam-frame-setup.log" 2>/dev/null && break
+    rg -q 'Steam configuration before restart needs repair: no' "$setup/steam-frame-setup.log" 2>/dev/null && break
     sleep 0.1
 done
-rg -q 'Steam configuration after restart needs repair: no' "$setup/steam-frame-setup.log"
+rg -q 'Steam configuration before restart needs repair: no' "$setup/steam-frame-setup.log"
 rg -q 'GloomhavenVR shortcut before this check: current' "$setup/steam-frame-setup.log"
 [[ -f "$setup/steam-frame-setup.log.previous" ]]
 for obsolete in "${legacy[@]}"; do
@@ -120,8 +120,8 @@ rg -q 'WINEDLLOVERRIDES=' "$account/localconfig.vdf"
 cmp -s "$setup/GloomhavenVR-steam-logo.png" "$XDG_DATA_HOME/GloomhavenVR/GloomhavenVR-steam-logo.png"
 cmp -s "$setup/GloomhavenVR-steam-icon.png" "$XDG_DATA_HOME/GloomhavenVR/GloomhavenVR-steam-icon.png"
 
-# A changed Steam artwork file requires a client restart. Stub only the shell's
-# pgrep/steam commands; the Python helper still checks the real /proc tree.
+# A changed Steam shortcut requires a client restart. The Frame reboot can
+# terminate every setup process, so the VDF must already be correct at shutdown.
 cat > "$scratch/bin/pgrep" <<'EOF'
 #!/usr/bin/env bash
 [[ -f "$HOME/fake-steam-running" && " $* " == *' -x steam '* ]]
@@ -130,21 +130,16 @@ cat > "$scratch/bin/steam" <<'EOF'
 #!/usr/bin/env bash
 case "$1" in
     -shutdown)
+        [[ -s "$GHVR_TEST_SHORTCUTS" ]] || exit 41
+        rg -q 'Steam configuration before restart needs repair: no' "$GHVR_TEST_SETUP_LOG" || exit 42
         printf 'shutdown\n' >> "$HOME/steam-setup-calls"
-        if [[ -f "$HOME/fake-steam-shutdown-delay" ]]; then
-            sleep 2
-        fi
         rm -f -- "$HOME/fake-steam-running"
-        if [[ -f "$HOME/fake-steam-shutdown-error" ]]; then
-            printf 'Steam is already running, exiting (command line was forwarded).\n'
-            exit 7
+        if [[ -f "$HOME/fake-steam-kill-installer" ]]; then
+            kill -TERM "$PPID"
         fi
         ;;
     -silent)
         printf 'restart\n' >> "$HOME/steam-setup-calls"
-        if [[ -f "$HOME/fake-steam-drop-shortcut" ]]; then
-            find "$XDG_DATA_HOME/Steam/userdata" -name shortcuts.vdf -type f -delete
-        fi
         : > "$HOME/fake-steam-running"
         ;;
     *)
@@ -152,23 +147,15 @@ case "$1" in
         ;;
 esac
 EOF
-cat > "$scratch/bin/systemd-run" <<'EOF'
-#!/usr/bin/env bash
-# Simulate the user service without starting a real one in CI.
-if [[ -f "$HOME/fake-systemd-available" ]]; then
-    while [[ "${1:-}" == --* ]]; do
-        shift
-    done
-    setsid "$@" </dev/null >/dev/null 2>&1 &
-    exit 0
-fi
-exit 1
-EOF
 chmod +x "$scratch/bin/pgrep" "$scratch/bin/steam"
-chmod +x "$scratch/bin/systemd-run"
-find "$account/grid" -maxdepth 1 -type f -name '*_logo.png' -delete
+export GHVR_TEST_SHORTCUTS="$shortcuts"
+export GHVR_TEST_SETUP_LOG="$setup/steam-frame-setup.log"
+rm -f -- "$shortcuts"
 : > "$HOME/fake-steam-running"
 PATH="$scratch/bin:$PATH" bash "$setup/install-steam-frame.sh" > "$scratch/update.log"
+[[ -s "$shortcuts" ]]
+rg -q 'Steam configuration before restart needs repair: no' "$setup/steam-frame-setup.log"
+rg -q 'All setup changes and readback checks are complete' "$setup/steam-frame-setup.log"
 for ((attempt = 0; attempt < 30; attempt++)); do
     if [[ -f "$HOME/steam-setup-calls" ]] && rg -q '^restart$' "$HOME/steam-setup-calls"; then
         break
@@ -187,59 +174,20 @@ cmp -s "$shortcuts" "$scratch/shortcuts-before"
 cmp -s "$account/localconfig.vdf" "$scratch/localconfig-before"
 cmp -s "$HOME/steam-setup-calls" "$scratch/expected-setup-calls"
 
-# Steam can forward -shutdown and return nonzero even while it exits. The
-# detached finisher must complete the VDF write and restart in that case.
-find "$account/grid" -maxdepth 1 -type f -name '*_logo.png' -delete
-: > "$HOME/fake-steam-shutdown-error"
-PATH="$scratch/bin:$PATH" bash "$setup/install-steam-frame.sh" > "$scratch/forwarded.log"
-rg -q 'Steam shutdown request returned status 7' "$setup/steam-frame-setup.log"
-rg -q 'Steam configuration after restart needs repair: no' "$setup/steam-frame-setup.log"
-rg -q 'Detached Steam setup exit status: 0' "$setup/steam-frame-setup.log"
-rm -f -- "$HOME/fake-steam-shutdown-error"
-
-# Also exercise the preferred user-service handoff and its completion status.
-find "$account/grid" -maxdepth 1 -type f -name '*_logo.png' -delete
-: > "$HOME/fake-systemd-available"
-PATH="$scratch/bin:$PATH" bash "$setup/install-steam-frame.sh" > "$scratch/service.log"
-rg -q 'Steam setup worker started in a separate user service' "$setup/steam-frame-setup.log"
-rg -q 'Steam configuration after restart needs repair: no' "$setup/steam-frame-setup.log"
-rm -f -- "$HOME/fake-systemd-available"
-
-# A Steam-hosted terminal may close as Steam exits. HUP the foreground setup
-# after its separate worker starts and check that the worker still finishes.
-find "$account/grid" -maxdepth 1 -type f -name '*_logo.png' -delete
-: > "$HOME/fake-steam-shutdown-delay"
-: > "$setup/steam-frame-setup.log"
-PATH="$scratch/bin:$PATH" bash "$setup/install-steam-frame.sh" > "$scratch/interrupted.log" 2>&1 &
-foreground_pid=$!
-for ((attempt = 0; attempt < 100; attempt++)); do
-    rg -q 'Detached Steam setup started:' "$setup/steam-frame-setup.log" 2>/dev/null && break
-    sleep 0.1
-done
-rg -q 'Detached Steam setup started:' "$setup/steam-frame-setup.log"
-kill -HUP "$foreground_pid"
-wait "$foreground_pid" 2>/dev/null || true
-for ((attempt = 0; attempt < 100; attempt++)); do
-    rg -q 'Steam configuration after restart needs repair: no' "$setup/steam-frame-setup.log" 2>/dev/null && break
-    sleep 0.1
-done
-rg -q 'Steam configuration after restart needs repair: no' "$setup/steam-frame-setup.log"
-rm -f -- "$HOME/fake-steam-shutdown-delay"
+# A Frame-like restart terminates the installer immediately. The shortcut and
+# all expected fields must already be durable before that last command.
+rm -f -- "$shortcuts"
+: > "$HOME/fake-steam-kill-installer"
+{ PATH="$scratch/bin:$PATH" bash "$setup/install-steam-frame.sh" || true; } > "$scratch/reboot.log" 2>&1
+[[ -s "$shortcuts" ]]
+rg -q 'Steam configuration before restart needs repair: no' "$setup/steam-frame-setup.log"
+rg -q '^shutdown$' "$HOME/steam-setup-calls"
+rm -f -- "$HOME/fake-steam-kill-installer"
 
 PATH="$scratch/bin:$PATH" "$launcher"
 printf '%s\n' -applaunch 780290 --gloomhavenvr > "$scratch/expected-args"
 cmp -s "$HOME/steam-args" "$scratch/expected-args"
 
-# If Steam discards the shortcut during startup, setup must leave a useful log
-# and refuse to report success. The previous log stays available for comparison.
-find "$account/grid" -maxdepth 1 -type f -name '*_logo.png' -delete
-: > "$HOME/fake-steam-drop-shortcut"
-if PATH="$scratch/bin:$PATH" bash "$setup/install-steam-frame.sh" > "$scratch/drop.log" 2>&1; then
-    echo 'error: installer reported success after Steam removed its shortcut' >&2
-    exit 1
-fi
-rg -q 'Steam configuration after restart needs repair: yes' "$setup/steam-frame-setup.log"
-rg -q 'Setup exit status: 1' "$setup/steam-frame-setup.log"
 [[ -f "$setup/steam-frame-setup.log.previous" ]]
 
 rm -f -- "$game/BepInEx/patchers/GloomhavenVR/GloomhavenVR.Preload.dll"

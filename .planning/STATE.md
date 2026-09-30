@@ -9,9 +9,11 @@ install guides moved to `docs/install/`. The actual Frame launch remains a
 hardware check; the archive and updater have focused local coverage. See
 [STEAM-FRAME-SHORTCUT.md](STEAM-FRAME-SHORTCUT.md).
 The first actual Frame shortcut setup log ended at the Steam shutdown request,
-before the shortcut write. A script-only follow-up moves that final transaction
-to an independent user service or detached session and tests terminal loss;
-the resulting library entry still awaits a Frame retest.
+before the shortcut write. A separate-session attempt also ended there: the
+headset restarts its UI when Steam closes. The current script-only follow-up
+writes and verifies all Steam files before making that restart the last step.
+Whether the restarted Steam client retains and shows the entry awaits a Frame
+retest.
 The complete immersive NPC work through Build 583 and the Steam Frame changes
 through dev Build 559 now share the sole `dev` integration branch. Future NPC and
 Frame work belongs on `dev`. The NPC presentation remains a two-client hardware

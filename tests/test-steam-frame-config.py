@@ -163,6 +163,12 @@ class SteamFrameConfigTest(unittest.TestCase):
             self.assertIn("Steam is still running", result.stderr)
             self.assertEqual((config / "localconfig.vdf").read_bytes(), source)
             self.assertFalse((config / "shortcuts.vdf").exists())
+            prepared = subprocess.run(args + ["--allow-running"], text=True, capture_output=True)
+            self.assertEqual(prepared.returncode, 0, prepared.stderr)
+            self.assertTrue((config / "shortcuts.vdf").is_file())
+            self.assertIn(b"WINEDLLOVERRIDES", (config / "localconfig.vdf").read_bytes())
+            self.assertEqual(subprocess.run(args + ["--needs-update"], text=True,
+                                            capture_output=True).stdout, "no\n")
 
     def test_most_recent_account_id_uses_steam_id64_conversion(self):
         with tempfile.TemporaryDirectory() as folder:

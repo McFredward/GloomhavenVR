@@ -159,13 +159,12 @@ Steam library path, never to an unverified root-level helper.
 The first Frame hardware setup restarted Steam but the owner saw only the
 original Gloomhaven entry. Synthetic tests prove that our binary
 `shortcuts.vdf` writer and desktop launcher run, not that the actual Frame Steam
-client accepts and displays the shortcut. `install-steam-frame.sh` now writes a
+client accepts and displays the shortcut. `install-steam-frame.sh` writes a
 bounded `FrameSetup/steam-frame-setup.log` (one previous run retained). It logs
-the selected account, shortcut path and AppID, Steam process lifecycle, and a
-read-only configuration check after restart. A changed or removed shortcut
-after restart is reported as a setup failure rather than claiming the VR entry
-is ready. A synthetic negative control simulates Steam deleting the shortcut.
-The next Frame log will distinguish file loss from a Steam UI/load issue.
+the selected account, shortcut path and AppID. The first diagnostic version
+attempted a read-only check after restart, but the Frame UI reset terminated
+it first. The pre-restart readback now records what was written; a subsequent
+run distinguishes a Steam overwrite from a UI/load issue.
 
 ## Shutdown handoff repair (2026-09-30)
 
@@ -185,3 +184,20 @@ shutdown wait and final result. The focused synthetic test covers both a
 nonzero shutdown return and loss of the foreground terminal. This is a
 source- and simulation-proven repair; actual Frame library visibility still
 needs another hardware run.
+
+## Frame session restart ordering (2026-09-30)
+
+The next Frame log showed that its user service bus is unavailable and that
+the separate-session worker reaches `steam -shutdown` but does not reach the
+VDF writer. The maintainer identified the missing continuation: closing Steam
+briefly restarts the entire headset UI. No setup process in that UI session
+can be trusted to continue afterward. The installer now completes boot
+configuration, art, launcher, marker, Steam launch options, shortcut VDF write,
+readback and old-helper cleanup **before** requesting the Steam restart as its
+final operation. The Steam-side helper retains its normal live-client write
+guard except for the installer's explicit `--allow-running` call; those writes
+are still backed up and atomic. A Desktop-mode waiter can relaunch Steam if the
+headset itself does not. The focused test checks that the shortcut already
+exists and readback is clean when a simulated Frame restart terminates the
+installer. Whether Steam preserves the live-written VDF through its actual
+Frame restart is still a hardware check.
