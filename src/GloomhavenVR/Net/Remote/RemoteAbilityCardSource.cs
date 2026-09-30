@@ -570,6 +570,30 @@ internal static class RemoteAbilityCardSource
         return FacePath.None;
     }
 
+    /// <summary>Prepare the actual map-hand print while its slab is still parked. The same
+    /// clone is revealed later; this is not a second art cache or an extra pooled widget.</summary>
+    internal static bool PreparePooledFace(RemoteCardArt art, CAbilityCard card)
+    {
+        if (art == null || card == null)
+            return false;
+        try { return TryPooledClone(art, card, prepareOnly: true); }
+        catch (System.Exception ex)
+        {
+            VRLog.Debug("Net", $"Map-hand face preparation skipped card {card.ID} ({ex.Message}).");
+            art.HideFront();
+            return false;
+        }
+    }
+
+    /// <summary>Activate a previously prepared map print once its card is in the hierarchy.</summary>
+    internal static FacePath ShowPreparedPooledFace(RemoteCardArt art, CAbilityCard card)
+    {
+        if (art == null || card == null || !BorrowedFaces.TryGetValue(art, out BorrowedFace borrowed)
+            || !ReferenceEquals(borrowed.Card, card) || !art.HasPreparedFront)
+            return FacePath.None;
+        return art.ShowPreparedFront() ? Report(FacePath.PooledBorrow, card) : FacePath.None;
+    }
+
     /// <summary>One Info line the first time each path is exercised in a session — enough for a
     /// hardware log to state WHICH mechanism is carrying the fidelity, without a line per card.</summary>
     private static FacePath Report(FacePath path, CAbilityCard card)
@@ -666,7 +690,8 @@ internal static class RemoteAbilityCardSource
     /// event detection (AbilityCardUI.cs:1312-1335). We add no mutation of our own beyond that call
     /// pair, so the widget the pool gets back is the widget the pool handed out.
     /// </summary>
-    private static bool TryPooledClone(RemoteCardArt art, CAbilityCard card)
+    private static bool TryPooledClone(RemoteCardArt art, CAbilityCard card,
+        bool prepareOnly = false)
     {
         if (ObjectPool.instance == null || card.ID == 0)
             return false;
@@ -725,7 +750,11 @@ internal static class RemoteAbilityCardSource
                                    "reloads its own header art on activation.");
             }
 
-            bool shown = art.ShowFront(ui.fullAbilityCard);
+            bool shown = prepareOnly
+                ? art.PrepareFront(ui.fullAbilityCard.gameObject,
+                    ui.fullAbilityCard.GetInstanceID(), ui.fullAbilityCard,
+                    SkinFixup(ui.fullAbilityCard))
+                : art.ShowFront(ui.fullAbilityCard);
             if (shown)
             {
                 BorrowedFace borrowed = BorrowedFaces.GetValue(art, _ => new BorrowedFace());

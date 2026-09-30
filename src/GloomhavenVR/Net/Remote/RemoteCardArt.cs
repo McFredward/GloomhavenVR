@@ -160,6 +160,16 @@ internal sealed partial class RemoteCardArt
     /// a card that stays broken prints once rather than every cadence tick.</summary>
     private int _gapReported;
     private int _shownSourceId = int.MinValue; // GetInstanceID of the source fullAbilityCard shown
+    private int _preparedSourceId = int.MinValue;
+    private ItemFxRig _preparedItemFx;
+    private SpentLook _preparedSpentLook;
+
+    /// <summary>A clone built while its slab is parked, awaiting the widget's real OnEnable and
+    /// final fit on the first visible frame. Preparation never activates the host.</summary>
+    internal bool HasPreparedFront => _clone != null && _preparedSourceId != int.MinValue;
+
+    internal bool IsShowingFront => _clone != null && _host != null && _host.activeSelf
+        && _shownSourceId != int.MinValue;
     private float _nextMipRescan;   // unscaled time of the next cadenced mip-bake rescan
 
     /// <summary>The CLONE's own <c>FullAbilityCard</c>, cached at print time — the object
@@ -452,6 +462,25 @@ internal sealed partial class RemoteCardArt
             return true;
         }
 
+        return BuildFront(sourceGo, key, skinSource, beforeActivate, spentLook, showNow: true);
+    }
+
+    /// <summary>Build the original face under an inactive host while the map hand is parked.
+    /// The source widget may be recycled immediately; activation and FitClone remain on the
+    /// first visible frame, after the game widget's OnEnable has run.</summary>
+    internal bool PrepareFront(GameObject sourceGo, int key, FullAbilityCard? skinSource = null,
+        System.Action<GameObject>? beforeActivate = null)
+    {
+        if (sourceGo == null || _slab == null || _slab.gameObject.activeInHierarchy)
+            return false;
+        if (HasPreparedFront && _preparedSourceId == key)
+            return true;
+        return BuildFront(sourceGo, key, skinSource, beforeActivate, SpentLook.None, showNow: false);
+    }
+
+    private bool BuildFront(GameObject sourceGo, int key, FullAbilityCard? skinSource,
+        System.Action<GameObject>? beforeActivate, SpentLook spentLook, bool showNow)
+    {
         // Identity changed (or first show): rebuild the clone.
         // Build 592 on Steam Frame measured 691.55 ms here for ten map-hand faces on the
         // first palm reveal. These nested spans separate native cloning, preparation,
@@ -506,39 +535,15 @@ internal sealed partial class RemoteCardArt
             // game face was on a game UI layer). It's a throwaway clone we own, so re-layering is safe.
             VRLayers.Apply(_host);
 
-            using (Core.PerfMonitor.Scope("Net.CardAppearance.ActivateFit"))
+            if (!showNow)
             {
-                _host.SetActive(true);   // clone activates → OnEnable → ShowCard reloads the real art
-                FitClone(clone);         // final pose write, so OnEnable's own reposition can't offset it
+                _preparedSourceId = key;
+                _preparedItemFx = itemFx;
+                _preparedSpentLook = spentLook;
+                return true;
             }
 
-            // THE OWNER'S "already used" LOOK, rebuilt on materials this overlay owns. AFTER the
-            // activation on purpose: the widget's own OnEnable is the last thing that could touch its
-            // Images, so writing here means nothing the game runs can land on top of the result.
-            TryCaptureNativeDefaults();
-            ApplySpentLook(itemFx, spentLook);
-            if (_nativeCard != null && !ExplicitFlightOwnsLook) ClearPendingNativeAppearance();
-
-            // MIP BAKE (user report: "the aliasing on the remote cards is extreme — the fix for my
-            // own local cards should apply here too"). The clone's Image sprites are verbatim
-            // copies of the source's, i.e. they sample the game's MIPLESS UI atlases — the exact
-            // data defect CardFaceMipBake exists for, and the remote faces bypassed it entirely.
-            // One immediate pass swaps everything already copied; the cadenced rescan (see
-            // MaintainMipBake) catches the async header art and any sprite the widget re-assigns.
-            // Shared cache: an atlas the local faces already baked costs nothing here, and vice
-            // versa. The clone is a throwaway we own, so no restore pass is ever needed.
-            using (Core.PerfMonitor.Scope("Net.CardAppearance.Mips"))
-                RescanMips();
-
-            // SHAPE THE PEER'S CARD FROM ITS FIRST DRAWN FRAME (2026-08-11). The local
-            // face is stencil-clipped to the captured card outline; a peer's clone is the
-            // same widget on a world-space canvas, so under the 1:1 rule it takes the same
-            // clip. Here rather than only on art arrival, because FitClone has just written
-            // the final pose and scale — the wrapper fits the face's RENDERED rect, so this
-            // is the first moment that rect is correct. A no-op with no footprint yet.
-
-            _shownSourceId = key;
-            return true;
+            return ActivatePreparedFront(key, itemFx, spentLook);
         }
         catch (System.Exception ex)
         {
@@ -547,6 +552,44 @@ internal sealed partial class RemoteCardArt
             HideFront();
             return false;
         }
+    }
+
+    /// <summary>Finish a parked face only after its slab is active. The final fit follows
+    /// OnEnable just as it does for an ordinary, unprepared face.</summary>
+    internal bool ShowPreparedFront()
+    {
+        if (!HasPreparedFront || _slab == null || !_slab.gameObject.activeInHierarchy)
+            return false;
+        int key = _preparedSourceId;
+        ItemFxRig itemFx = _preparedItemFx;
+        SpentLook spentLook = _preparedSpentLook;
+        try { return ActivatePreparedFront(key, itemFx, spentLook); }
+        catch (System.Exception ex)
+        {
+            VRLog.Warn("Net", $"Prepared card face activation failed ({ex.Message}) — slot keeps its back.");
+            HideFront();
+            return false;
+        }
+    }
+
+    private bool ActivatePreparedFront(int key, ItemFxRig itemFx, SpentLook spentLook)
+    {
+        if (_host == null || _clone == null)
+            return false;
+        using (Core.PerfMonitor.Scope("Net.CardAppearance.ActivateFit"))
+        {
+            _host.SetActive(true);
+            FitClone(_clone);
+        }
+        TryCaptureNativeDefaults();
+        ApplySpentLook(itemFx, spentLook);
+        if (_nativeCard != null && !ExplicitFlightOwnsLook) ClearPendingNativeAppearance();
+        using (Core.PerfMonitor.Scope("Net.CardAppearance.Mips"))
+            RescanMips();
+        _preparedSourceId = int.MinValue;
+        _preparedItemFx = default;
+        _shownSourceId = key;
+        return true;
     }
 
     /// <summary>
@@ -3494,5 +3537,8 @@ internal sealed partial class RemoteCardArt
         _burnRigState = BurnRig.Unbuilt;
         _burnRigLook = CardFxLook.None;
         _shownSourceId = int.MinValue;
+        _preparedSourceId = int.MinValue;
+        _preparedItemFx = default;
+        _preparedSpentLook = SpentLook.None;
     }
 }

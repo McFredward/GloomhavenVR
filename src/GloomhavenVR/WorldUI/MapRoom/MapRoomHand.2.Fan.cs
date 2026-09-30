@@ -301,10 +301,18 @@ internal sealed partial class MapRoomHand
         return mapKey != 0;
     }
 
-    /// <summary>The printed faces, index-aligned with <see cref="_cards"/>. An entry stays null
-    /// until the card is first ACTIVE IN THE HIERARCHY — see <see cref="PrintPendingFaces"/> for
-    /// why the print is deferred and not done at build time.</summary>
+    /// <summary>The printed faces, index-aligned with <see cref="_cards"/>. A face may hold an
+    /// inactive prepared clone before its card is first revealed. The widget's OnEnable and final
+    /// fit still run only after the card becomes active in the hierarchy.</summary>
     private readonly List<RemoteCardArt?> _faces = new(MaxCards);
+
+    /// <summary>Next card to prepare while the selected loadout is parked.</summary>
+    private int _prewarmCursor;
+    private int _prewarmPass;
+    private bool _prewarmAnyFailure;
+    private float _nextPrewarmRetryAt;
+    private const int MaxPrewarmPasses = 3;
+    private const float PrewarmRetryInterval = 0.5f;
 
     /// <summary>
     /// The fade handle on each printed face, index-aligned with <see cref="_faces"/> — see
@@ -541,7 +549,7 @@ internal sealed partial class MapRoomHand
                 continue;
             _cards.Add(card);
             _cardModels.Add(model);
-            _faces.Add(null);   // printed on the first frame the card is active — see TickFan
+            _faces.Add(null);   // prepared while parked; activated after the fan opens
             _faceGroups.Add(null);
         }
 
@@ -653,7 +661,7 @@ internal sealed partial class MapRoomHand
                 continue;   // BuildCard has already warned and named the consequence
             _diffCards.Add(card);
             _diffModels.Add(model);
-            _diffFaces.Add(null);   // printed by PrintPendingFaces on its first visible frame
+            _diffFaces.Add(null);   // prepared while parked, or printed at first reveal
             _diffGroups.Add(null);
             _diffAdded.Add(model.ID);
         }
@@ -746,7 +754,7 @@ internal sealed partial class MapRoomHand
         _frontsShown = 0;
         for (int i = 0; i < _faces.Count; i++)
         {
-            if (_faces[i] != null)
+            if (_faces[i]?.IsShowingFront == true)
                 _frontsShown++;
         }
         if (_diffAdded.Count > 0)
@@ -756,6 +764,10 @@ internal sealed partial class MapRoomHand
             _facesLogged = false;
             _nextFacePrintAt = 0f;
         }
+        _prewarmCursor = 0;
+        _prewarmPass = 0;
+        _prewarmAnyFailure = false;
+        _nextPrewarmRetryAt = 0f;
 
         // NEVER swap: the exchange is the CHARACTER edge and nothing else (see Reconcile's
         // precedence). The driver plays the join animation itself, at the seam that has already
@@ -893,10 +905,10 @@ internal sealed partial class MapRoomHand
         {
             // ModBuild 244 — HOLD THIS CLASS'S THREE CARD-ART ASSETS RESIDENT, HERE, because here is
             // the earliest moment this feature knows which class the hand belongs to and it is many
-            // seconds before a palm can roll up. It is the ONLY lever this fan has: its printed face
-            // is an Object.Instantiate clone with a fresh ImageLoadingContext, so nothing that warms
-            // a widget can reach it, and PrintPendingFaces cannot run any earlier than it does
-            // (see its own note on why the deferral is a correctness point). The user's report
+            // seconds before a palm can roll up. The face is an Object.Instantiate clone with a
+            // fresh ImageLoadingContext, so warming a different widget cannot reach it. Clone
+            // construction now happens while parked; OnEnable and final fit still wait for reveal.
+            // The user's report
             // against 243 is exactly this fan. See Cards/CardArtPin.cs for the measured chain.
             Cards.CardArtPin.PinForCard(model);
 
@@ -997,6 +1009,7 @@ internal sealed partial class MapRoomHand
     /// </summary>
     private void TickFan()
     {
+        PreparePendingFace();
         PrintPendingFaces();
         TickFaceFades();
         for (int i = 0; i < _faces.Count; i++)
@@ -1006,18 +1019,76 @@ internal sealed partial class MapRoomHand
         SweepRetired();
     }
 
+    /// <summary>Build one of the actual future prints per frame before the palm reveals the fan.
+    /// Only the selected character's loadout is resident; RetireCards destroys prepared clones on
+    /// a character change. A failed preparation is retried by the ordinary visible printer.</summary>
+    private void PreparePendingFace()
+    {
+        // The map hand may rebuild before the game's pool singleton finishes loading. Wait for
+        // it rather than spending each card's one preparation attempt on a transient null.
+        if (TownInspection || ObjectPool.instance == null)
+            return;
+        if (_prewarmCursor >= _cards.Count)
+        {
+            if (!_prewarmAnyFailure || _prewarmPass + 1 >= MaxPrewarmPasses
+                || Time.unscaledTime < _nextPrewarmRetryAt)
+                return;
+            _prewarmCursor = 0;
+            _prewarmPass++;
+            _prewarmAnyFailure = false;
+        }
+        int i = _prewarmCursor++;
+        if (i >= _cardModels.Count || i >= _faces.Count || _faces[i] != null)
+            return;
+        VRCard card = _cards[i];
+        CAbilityCard model = _cardModels[i];
+        if (card == null || model == null)
+        {
+            _prewarmAnyFailure = true;
+            _nextPrewarmRetryAt = Time.unscaledTime + PrewarmRetryInterval;
+            return;
+        }
+        if (card.gameObject.activeInHierarchy)
+            return;
+
+        RemoteCardArt? art = null;
+        try
+        {
+            int childrenBefore = card.transform.childCount;
+            art = new RemoteCardArt(card.transform, CardWidthMeters, CardHeightMeters);
+            if (!RemoteAbilityCardSource.PreparePooledFace(art, model))
+            {
+                art.Destroy();
+                _prewarmAnyFailure = true;
+                _nextPrewarmRetryAt = Time.unscaledTime + PrewarmRetryInterval;
+                return;
+            }
+            CanvasGroup? group = TryCaptureFaceGroup(card, childrenBefore);
+            _faces[i] = art;
+            if (i < _faceGroups.Count)
+                _faceGroups[i] = group;
+        }
+        catch (System.Exception ex)
+        {
+            art?.Destroy();
+            _prewarmAnyFailure = true;
+            _nextPrewarmRetryAt = Time.unscaledTime + PrewarmRetryInterval;
+            VRLog.Debug(Scope, $"Map-room face prewarm skipped card {model.ID} ({ex.Message}).");
+        }
+    }
+
     /// <summary>
-    /// Print the real card front on every card that is ACTIVE IN THE HIERARCHY and has none yet.
+    /// Activate a prepared front, or print the real card front, on every card that is ACTIVE IN THE
+    /// HIERARCHY and has none yet.
     ///
-    /// <para>WHY THE PRINT IS DEFERRED RATHER THAN DONE AT BUILD TIME, and it is a correctness
-    /// point and not an optimisation: <c>Net.RemoteCardArt.ShowFront</c> activates its host LAST
+    /// <para>WHY ACTIVATION IS DEFERRED, and it is a correctness point:
+    /// <c>Net.RemoteCardArt.ShowFront</c> activates its host LAST
     /// and then writes the clone's final pose (<c>FitClone</c>) — its own comment records that the
     /// order matters, because the cloned widget's <c>OnEnable</c> repositions itself and must
     /// therefore run BEFORE that write. <c>OnEnable</c> does not run under an inactive root, so a
-    /// face printed while the card was still parked would be fitted against a widget that had not
-    /// laid itself out yet. Waiting until the card is genuinely in the hierarchy — which happens
-    /// the first time the player rolls their palm up and the fan opens — makes the documented order
-    /// hold. It also means a map visit in which the hand is never raised costs zero card clones.</para>
+    /// face activated and fitted while the card was still parked would use a widget that had not
+    /// laid itself out yet. The costly clone construction can run earlier under an inactive host;
+    /// activation and fit still wait for the first time the player rolls their palm up.</para>
     ///
     /// <para>A slot the pool refuses keeps its card BACK, which is the fail-safe, and is counted in
     /// the state line so a hardware log can tell "the pool refused" from "the gate refused" — there
@@ -1036,9 +1107,18 @@ internal sealed partial class MapRoomHand
             return;
         _nextFacePrintAt = Time.unscaledTime + FacePrintInterval;
 
+        int preparedBeforeReveal = 0;
+        if (!_facesLogged)
+            for (int i = 0; i < _faces.Count; i++)
+                if (_faces[i]?.HasPreparedFront == true)
+                    preparedBeforeReveal++;
+        int preparedActivated = 0;
+        int synchronousBuilt = 0;
+
         for (int i = 0; i < _cards.Count && i < _cardModels.Count; i++)
         {
-            if (_faces[i] != null)
+            RemoteCardArt? art = _faces[i];
+            if (art != null && !art.HasPreparedFront)
                 continue;
             VRCard card = _cards[i];
             if (card == null || !card.gameObject.activeInHierarchy)
@@ -1051,7 +1131,7 @@ internal sealed partial class MapRoomHand
                 // Child count BEFORE the print: RemoteCardArt parents its host here, and that is
                 // how the fade handle is captured — see TryCaptureFaceGroup.
                 int childrenBefore = card.transform.childCount;
-                var art = new RemoteCardArt(card.transform, CardWidthMeters, CardHeightMeters);
+                art ??= new RemoteCardArt(card.transform, CardWidthMeters, CardHeightMeters);
                 // actor: null forces the POOLED path. There is no CPlayerActor in the map phase at
                 // all — CMapCharacter.GetActor() (CMapCharacter.cs:1116) reads
                 // ScenarioManager.Scenario, which is null here, so asking for one would THROW.
@@ -1059,13 +1139,20 @@ internal sealed partial class MapRoomHand
                 // RevealGate.ShowRoundCardFronts folds in RevealGate.InScenario, which is FALSE on
                 // the map, so the gate is open by its own definition for every actor — and
                 // RevealGate.ShowMapPhaseHandFronts now states that for the map phase outright.
-                if (RemoteAbilityCardSource.ShowFullFace(art, null, model)
-                    == RemoteAbilityCardSource.FacePath.None)
+                bool prepared = art.HasPreparedFront;
+                var path = prepared
+                    ? RemoteAbilityCardSource.ShowPreparedPooledFace(art, model)
+                    : RemoteAbilityCardSource.ShowFullFace(art, null, model);
+                if (path == RemoteAbilityCardSource.FacePath.None)
                 {
                     art.Destroy();
+                    _faces[i] = null;
+                    _faceGroups[i] = null;
                     continue;   // stays a card BACK, and will be retried next frame
                 }
                 _faces[i] = art;
+                if (prepared) preparedActivated++;
+                else synchronousBuilt++;
                 // FADE IT IN rather than let the pooled borrow land at full opacity. This is the
                 // scenario's own materialize duration, and it covers three cases with one rule:
                 // the first reveal (the faces used to POP in at 5 Hz as the borrows landed), a card
@@ -1074,13 +1161,16 @@ internal sealed partial class MapRoomHand
                 // runs. See the region header for the cross-file defect this stands in for.
                 if (i < _faceGroups.Count)
                 {
-                    _faceGroups[i] = TryCaptureFaceGroup(card, childrenBefore);
+                    _faceGroups[i] ??= TryCaptureFaceGroup(card, childrenBefore);
                     ArmFaceFade(_faceGroups[i], fadeIn: true, VRCard.DockAppearSeconds);
                 }
                 _frontsShown++;
             }
             catch (System.Exception ex)
             {
+                art?.Destroy();
+                _faces[i] = null;
+                _faceGroups[i] = null;
                 VRLog.Debug(Scope, $"Map-room hand: card id {model.ID} kept its back ({ex.Message}).");
             }
         }
@@ -1093,7 +1183,9 @@ internal sealed partial class MapRoomHand
             return;
         _facesLogged = true;
         VRLog.Info(Scope, $"MAP-ROOM HAND FACES: {_frontsShown} of {_cards.Count} card(s) printing "
-            + "their REAL front (Net.RemoteAbilityCardSource pooled borrow); any remainder is "
+            + $"their REAL front, {preparedBeforeReveal} prepared before reveal "
+            + $"({preparedActivated} activated now, {synchronousBuilt} built synchronously) "
+            + "(Net.RemoteAbilityCardSource pooled borrow); any remainder is "
             + "retried at 5 Hz and shows a card BACK until it lands. THIS LINE FIRES ON THE FIRST "
             + "FRAME THE CARDS ARE VISIBLE — i.e. the first time the palm gate REVEALED the fan — so "
             + "its presence is also the proof that (a) 'die Karten sind dauerhaft da' and (b) 'reagiert "
@@ -1140,6 +1232,13 @@ internal sealed partial class MapRoomHand
         {
             VRCard card = _cards[i];
             RemoteCardArt? face = i < _faces.Count ? _faces[i] : null;
+            // A clone that was never activated has no outgoing picture to animate. Free it now
+            // instead of retaining two full prepared loadouts across the character-swap grace.
+            if (face?.HasPreparedFront == true)
+            {
+                face.Destroy();
+                face = null;
+            }
             if (card == null)
             {
                 face?.Destroy();
@@ -1157,6 +1256,10 @@ internal sealed partial class MapRoomHand
         _faces.Clear();
         _faceGroups.Clear();
         _frontsShown = 0;
+        _prewarmCursor = 0;
+        _prewarmPass = 0;
+        _prewarmAnyFailure = false;
+        _nextPrewarmRetryAt = 0f;
         _facesLogged = false;
         _nextFacePrintAt = 0f;   // the new set may print in the very next frame
         // A whole-hand retirement supersedes any single-card removal that was waiting for the

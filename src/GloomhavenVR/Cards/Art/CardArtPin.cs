@@ -28,14 +28,15 @@ namespace GloomhavenVR.Cards;
 /// and which he has not seen yet, and it could never have fixed this one.</para>
 ///
 /// <para>AND THE MAP-ROOM FAN CANNOT BE FIXED THE 243 WAY, EITHER. Its front is not an adopted
-/// widget but an <c>Object.Instantiate</c> CLONE built by <c>Net.RemoteCardArt.ShowFront</c>, and a
+/// widget but an <c>Object.Instantiate</c> CLONE built by <c>Net.RemoteCardArt</c>, and a
 /// clone carries a FRESH <c>ImageLoadingContext</c>. That class's one fast path is
 /// <c>_lastState == FinishedSuccessfully</c> ON THE SAME CONTEXT (ImageLoadingContext.cs:24-29), so
-/// a clone can never inherit another widget's warmth. Worse, the clone is not even BUILT until the
-/// fan opens: <c>MapRoomHand.PrintPendingFaces</c> requires <c>activeInHierarchy</c>, and its own
-/// comment records why that deferral is a correctness point (the cloned widget's <c>OnEnable</c>
-/// must run before <c>FitClone</c> writes the final pose). Warming the widget is therefore the
-/// wrong lever for this fan. The only lever left is the one underneath every context: the asset.</para>
+/// a clone can never inherit another widget's warmth. At ModBuild 244 the clone was also built
+/// only when the fan opened. The later map-hand CPU prewarm builds that same future clone under an
+/// inactive host across several frames, but its <c>OnEnable</c> and final <c>FitClone</c> still run
+/// only after the slab enters the active hierarchy. Warming a different widget remains the wrong
+/// lever for asynchronous artwork; this asset pin supplies the class sprites underneath every
+/// fresh context. It does not duplicate a card texture or a rendered face.</para>
 ///
 /// <para>WHAT THIS DOES, AND WHY IT IS SMALL. Every sprite behind the grey slab is a CLASS asset,
 /// not a card asset — <c>FullAbilityCard.ShowCard</c> loads <c>_skin.TitleSprite</c> (twice: header
