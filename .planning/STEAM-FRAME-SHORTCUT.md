@@ -91,3 +91,13 @@ The Build 591 singleplayer trace did not establish a new functional failure:
 all 85 selected-character censuses were valid and the +100 gold cheat applied
 twice. The enchantress Visit hitch remains measurable (up to 152 ms in this
 run); no claim of smoothness follows from the absence of a noticed glitch.
+
+The first Windows packaging attempt after this change failed in
+`Set-ZipUnixLaunchers`: Windows PowerShell 5.1 evaluated `33261 -shl 16` as a
+signed Int32 before the `UInt32` cast and rejected its negative result. The
+archive helper now writes the already-reviewed unsigned value `2179792896`
+(`0x81ED0000`), and a PowerShell-authored synthetic ZIP passes the same LF and
+Unix-mode checker as the Linux release ZIP in CI. The first CI desktop smoke
+also exposed a host-dependent `%k`/shell parameter-expansion path; the launcher
+now derives its directory with `dirname` and the smoke covers a space-containing
+path. Neither fix changes a game DLL or the ModBuild handshake.

@@ -168,7 +168,10 @@ jobs:
         run: python3 -m unittest discover -s tests -p 'test_prune_dev_artifacts.py'
 
       - name: Steam Frame setup launcher smoke test
-        run: bash scripts/test-install-steam-frame.sh
+        run: |
+          command -v pwsh
+          bash scripts/test-install-steam-frame.sh
+          bash scripts/test-frame-archive.sh
 
       - name: Set up .NET SDK
         uses: actions/setup-dotnet@v5.4.0
