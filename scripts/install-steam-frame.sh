@@ -52,6 +52,10 @@ done
 # even when a later configuration write fails after its clean shutdown.
 steam_stopped=false
 temporary_launcher=""
+steam_client_alive() {
+    pgrep -u "$(id -u)" -x steam >/dev/null 2>&1 ||
+        pgrep -u "$(id -u)" -x steamwebhelper >/dev/null 2>&1
+}
 on_exit() {
     local status=$?
     if [[ -n "$temporary_launcher" ]]; then
@@ -135,9 +139,17 @@ python3 "$boot_helper" --game-path "$game_dir"
 # The marker is intentionally Frame-only. It keeps the original library entry
 # flat even when its winhttp override loads BepInEx.
 mkdir -p -- "$destination"
-install -m 0644 -- "$logo" "$destination/GloomhavenVR-steam-logo.png"
-install -m 0644 -- "$icon" "$destination/GloomhavenVR-steam-icon.png"
-: > "$marker"
+if [[ ! -f "$destination/GloomhavenVR-steam-logo.png" ]] ||
+    ! cmp -s -- "$logo" "$destination/GloomhavenVR-steam-logo.png"; then
+    install -m 0644 -- "$logo" "$destination/GloomhavenVR-steam-logo.png"
+fi
+if [[ ! -f "$destination/GloomhavenVR-steam-icon.png" ]] ||
+    ! cmp -s -- "$icon" "$destination/GloomhavenVR-steam-icon.png"; then
+    install -m 0644 -- "$icon" "$destination/GloomhavenVR-steam-icon.png"
+fi
+if [[ ! -f "$marker" ]]; then
+    : > "$marker"
+fi
 
 temporary_launcher="$(mktemp -- "$destination/.launch-steam-frame.XXXXXX")"
 cat > "$temporary_launcher" <<'EOF'
@@ -151,17 +163,29 @@ fi
 exec steam -applaunch 780290 --gloomhavenvr
 EOF
 chmod 0755 "$temporary_launcher"
-mv -f -- "$temporary_launcher" "$launcher"
+if [[ -f "$launcher" ]] && cmp -s -- "$temporary_launcher" "$launcher"; then
+    rm -f -- "$temporary_launcher"
+else
+    mv -f -- "$temporary_launcher" "$launcher"
+fi
 temporary_launcher=""
 
 # Steam caches localconfig.vdf and shortcuts.vdf until exit. A graceful shutdown
 # ensures it writes its old state before our changes; never kill it or overwrite
 # a live client's in-memory copy. The exit trap restores the client on failure.
-if command -v steam >/dev/null 2>&1 && pgrep -u "$(id -u)" -x steam >/dev/null 2>&1; then
+steam_changes="$(python3 "$steam_helper" --game-path "$game_dir" --launcher "$launcher" \
+    --icon "$destination/GloomhavenVR-steam-icon.png" \
+    --logo "$destination/GloomhavenVR-steam-logo.png" \
+    "${steam_root_args[@]}" --needs-update)"
+if [[ "$steam_changes" != yes && "$steam_changes" != no ]]; then
+    echo "error: unexpected Steam setup status: $steam_changes" >&2
+    exit 1
+fi
+if [[ "$steam_changes" == yes ]] && command -v steam >/dev/null 2>&1 && steam_client_alive; then
     echo 'Closing Steam briefly to update its library configuration...'
     steam -shutdown
     for ((attempt = 0; attempt < 60; attempt++)); do
-        if ! pgrep -u "$(id -u)" -x steam >/dev/null 2>&1; then
+        if ! steam_client_alive; then
             steam_stopped=true
             break
         fi
@@ -173,10 +197,14 @@ if command -v steam >/dev/null 2>&1 && pgrep -u "$(id -u)" -x steam >/dev/null 2
     fi
 fi
 
-python3 "$steam_helper" --game-path "$game_dir" --launcher "$launcher" \
-    --icon "$destination/GloomhavenVR-steam-icon.png" \
-    --logo "$destination/GloomhavenVR-steam-logo.png" \
-    "${steam_root_args[@]}"
+if [[ "$steam_changes" == yes ]]; then
+    python3 "$steam_helper" --game-path "$game_dir" --launcher "$launcher" \
+        --icon "$destination/GloomhavenVR-steam-icon.png" \
+        --logo "$destination/GloomhavenVR-steam-logo.png" \
+        "${steam_root_args[@]}"
+else
+    echo 'Steam configuration already correct; no Steam restart needed.'
+fi
 
 if $steam_stopped; then
     echo 'Restarting Steam...'

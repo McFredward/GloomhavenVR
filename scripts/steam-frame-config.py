@@ -461,6 +461,8 @@ def steam_running(proc_root: Path) -> bool:
         if not process.name.isdigit():
             continue
         try:
+            if process.stat().st_uid != os.getuid():
+                continue
             name = (process / "comm").read_text(encoding="utf-8").strip()
         except (OSError, UnicodeError):
             continue

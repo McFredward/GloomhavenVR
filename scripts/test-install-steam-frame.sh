@@ -1,98 +1,97 @@
 #!/usr/bin/env bash
-# Focused smoke test for the Frame-only opt-in installer and forwarded app launch.
+# Focused end-to-end check for repeatable Steam Frame setup on a synthetic account.
 set -euo pipefail
 
 root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)"
 scratch="$(mktemp -d)"
 trap 'rm -rf -- "$scratch"' EXIT
 
-game="$scratch/Steam library/Gloomhaven"
-release="$scratch/release with spaces"
-installer="$release/install-steam-frame.sh"
-mkdir -p -- "$game/BepInEx/patchers/GloomhavenVR" "$release" "$scratch/bin"
+export HOME="$scratch/home with spaces"
+export XDG_DATA_HOME="$HOME/.local/share"
+steam_root="$XDG_DATA_HOME/Steam"
+game="$steam_root/steamapps/common/Gloomhaven"
+account="$steam_root/userdata/123/config"
+mkdir -p -- "$game/BepInEx/patchers/GloomhavenVR" "$game/GH_Data" "$account" "$scratch/bin"
 : > "$game/GH.exe"
 : > "$game/BepInEx/patchers/GloomhavenVR/GloomhavenVR.Preload.dll"
-cp -- "$root/scripts/install-steam-frame.sh" "$installer"
-cp -- "$root/GloomhavenVR-Setup.desktop" "$release/GloomhavenVR-Setup.desktop"
-cp -- "$root/src/GloomhavenVR/Assets/GloomhavenVR_logo.png" "$release/GloomhavenVR-steam-logo.png"
-cp -- "$root/unity/GloomhavenVR.Assets/Assets/Bundle/UI/VRMenuIcon.png" "$release/GloomhavenVR-steam-icon.png"
+printf 'wait-for-native-debugger=0\n' > "$game/GH_Data/boot.config"
+cat > "$account/localconfig.vdf" <<'EOF'
+"UserLocalConfigStore"
+{
+    "Software"
+    {
+        "Valve"
+        {
+            "Steam"
+            {
+                "Apps"
+                {
+                    "780290"
+                    {
+                        "LaunchOptions" "MANGOHUD=1 %command%"
+                    }
+                }
+            }
+        }
+    }
+}
+EOF
+cp -- "$root/scripts/install-steam-frame.sh" "$game/install-steam-frame.sh"
+cp -- "$root/scripts/steam-frame-config.py" "$game/steam-frame-config.py"
+cp -- "$root/scripts/frame-boot-config.py" "$game/frame-boot-config.py"
+cp -- "$root/GloomhavenVR-Setup.desktop" "$game/GloomhavenVR-Setup.desktop"
+cp -- "$root/src/GloomhavenVR/Assets/GloomhavenVR_logo.png" "$game/GloomhavenVR-steam-logo.png"
+cp -- "$root/unity/GloomhavenVR.Assets/Assets/Bundle/UI/VRMenuIcon.png" "$game/GloomhavenVR-steam-icon.png"
 
-export HOME="$scratch/home"
-export XDG_DATA_HOME="$HOME/.local/share"
-mkdir -p -- "$HOME"
 marker="$game/BepInEx/patchers/GloomhavenVR/frame-launch-opt-in.marker"
 launcher="$XDG_DATA_HOME/GloomhavenVR/launch-steam-frame.sh"
+shortcuts="$account/shortcuts.vdf"
+boot="$game/GH_Data/boot.config"
 
-bash "$installer" --game-path "$game" --dry-run > "$scratch/dry-run.log"
-[[ ! -e "$marker" && ! -e "$launcher" ]]
-bash "$root/scripts/install-steam-frame.sh" --game-path "$game" --dry-run > /dev/null
+bash "$game/install-steam-frame.sh" --dry-run > "$scratch/dry-run.log"
+[[ ! -e "$marker" && ! -e "$launcher" && ! -e "$shortcuts" ]]
+[[ "$(cat "$boot")" == 'wait-for-native-debugger=0' ]]
 
-# Dolphin passes the .desktop path to the launcher, including spaces. A terminal
-# is unnecessary in this test, so let Gio run the same Exec line headlessly.
+# Dolphin supplies %k to a desktop entry. Gio exercises the same command without
+# a graphical shell and may run it asynchronously on some distributions.
 if command -v desktop-file-validate >/dev/null 2>&1; then
-    desktop-file-validate "$release/GloomhavenVR-Setup.desktop"
+    desktop-file-validate "$game/GloomhavenVR-Setup.desktop"
 fi
 if command -v gio >/dev/null 2>&1; then
-    sed -i 's/^Terminal=true$/Terminal=false/' "$release/GloomhavenVR-Setup.desktop"
-    cp -- "$game/GH.exe" "$release/GH.exe"
-    mkdir -p -- "$release/BepInEx/patchers/GloomhavenVR"
-    cp -- "$game/BepInEx/patchers/GloomhavenVR/GloomhavenVR.Preload.dll" \
-        "$release/BepInEx/patchers/GloomhavenVR/GloomhavenVR.Preload.dll"
-    # Some headless Gio builds leave %k empty. Launching from the extracted
-    # folder exercises the entry's fallback; Dolphin normally supplies %k.
-    (cd -- "$release" && gio launch "$release/GloomhavenVR-Setup.desktop") > "$scratch/desktop.log" 2>&1
-    for ((attempt = 0; attempt < 30; attempt++)); do
-        if [[ -f "$release/BepInEx/patchers/GloomhavenVR/frame-launch-opt-in.marker" && -x "$launcher" ]]; then
+    sed -i 's/^Terminal=true$/Terminal=false/' "$game/GloomhavenVR-Setup.desktop"
+    (cd -- "$game" && gio launch "$game/GloomhavenVR-Setup.desktop") > "$scratch/desktop.log" 2>&1
+    for ((attempt = 0; attempt < 50; attempt++)); do
+        if [[ -f "$marker" && -x "$launcher" && -f "$shortcuts" ]]; then
             break
         fi
         sleep 0.1
     done
-    if [[ ! -f "$release/BepInEx/patchers/GloomhavenVR/frame-launch-opt-in.marker" || ! -x "$launcher" ]]; then
+    if [[ ! -f "$marker" || ! -x "$launcher" || ! -f "$shortcuts" ]]; then
         cat "$scratch/desktop.log" >&2
-        echo 'error: desktop launcher did not complete Frame setup' >&2
+        echo 'error: desktop entry did not complete Frame setup' >&2
         exit 1
     fi
-
-    # Force the CI variant where Gio does not expand %k and offers no useful
-    # working directory. The standard Frame game path must still be found.
-    isolated="$scratch/isolated launcher"
-    default_game="$HOME/.local/share/Steam/steamapps/common/Gloomhaven"
-    mkdir -p -- "$isolated" "$default_game/BepInEx/patchers/GloomhavenVR"
-    sed 's/ bash %k$/ bash/' "$release/GloomhavenVR-Setup.desktop" > "$isolated/GloomhavenVR-Setup.desktop"
-    cp -- "$installer" "$default_game/install-steam-frame.sh"
-    cp -- "$game/GH.exe" "$default_game/GH.exe"
-    cp -- "$game/BepInEx/patchers/GloomhavenVR/GloomhavenVR.Preload.dll" \
-        "$default_game/BepInEx/patchers/GloomhavenVR/GloomhavenVR.Preload.dll"
-    cp -- "$release/GloomhavenVR-steam-logo.png" "$default_game/GloomhavenVR-steam-logo.png"
-    cp -- "$release/GloomhavenVR-steam-icon.png" "$default_game/GloomhavenVR-steam-icon.png"
-    rm -f -- "$launcher"
-    gio launch "$isolated/GloomhavenVR-Setup.desktop" > "$scratch/desktop-no-path.log" 2>&1
-    for ((attempt = 0; attempt < 30; attempt++)); do
-        if [[ -f "$default_game/BepInEx/patchers/GloomhavenVR/frame-launch-opt-in.marker" && -x "$launcher" ]]; then
-            break
-        fi
-        sleep 0.1
-    done
-    if [[ ! -f "$default_game/BepInEx/patchers/GloomhavenVR/frame-launch-opt-in.marker" || ! -x "$launcher" ]]; then
-        cat "$scratch/desktop-no-path.log" >&2
-        echo 'error: desktop launcher needs a %k path to complete Frame setup' >&2
-        exit 1
-    fi
-    rm -f -- "$launcher"
+else
+    bash "$game/install-steam-frame.sh" > "$scratch/install.log"
 fi
 
-bash "$installer" --game-path "$game" > "$scratch/install.log"
-[[ -f "$marker" && -x "$launcher" ]]
-cmp -s "$release/GloomhavenVR-steam-logo.png" \
-    "$XDG_DATA_HOME/GloomhavenVR/GloomhavenVR-steam-logo.png"
-cmp -s "$release/GloomhavenVR-steam-icon.png" \
-    "$XDG_DATA_HOME/GloomhavenVR/GloomhavenVR-steam-icon.png"
+[[ -f "$marker" && -x "$launcher" && -f "$shortcuts" ]]
+[[ -f "$boot.gloomhavenvr-backup" ]]
+[[ "$(cat "$boot.gloomhavenvr-backup")" == 'wait-for-native-debugger=0' ]]
+rg -q '^gfx-enable-gfx-jobs=1$' "$boot"
+rg -q '^gfx-enable-native-gfx-jobs=1$' "$boot"
+rg -q 'MANGOHUD=1' "$account/localconfig.vdf"
+rg -q 'WINEDLLOVERRIDES=' "$account/localconfig.vdf"
+cmp -s "$game/GloomhavenVR-steam-logo.png" "$XDG_DATA_HOME/GloomhavenVR/GloomhavenVR-steam-logo.png"
+cmp -s "$game/GloomhavenVR-steam-icon.png" "$XDG_DATA_HOME/GloomhavenVR/GloomhavenVR-steam-icon.png"
 
-# Repeating setup may replace the wrapper, but it must preserve the marker and
-# never create a nested or additional Steam entry on its own.
-bash "$installer" --game-path "$game" > /dev/null
-[[ -f "$marker" && -x "$launcher" ]]
-[[ "$(find "$XDG_DATA_HOME/GloomhavenVR" -maxdepth 1 -type f | wc -l)" -eq 3 ]]
+cp -- "$boot" "$scratch/boot-before"
+cp -- "$shortcuts" "$scratch/shortcuts-before"
+cp -- "$account/localconfig.vdf" "$scratch/localconfig-before"
+bash "$game/install-steam-frame.sh" > "$scratch/again.log"
+cmp -s "$boot" "$scratch/boot-before"
+cmp -s "$shortcuts" "$scratch/shortcuts-before"
+cmp -s "$account/localconfig.vdf" "$scratch/localconfig-before"
 
 cat > "$scratch/bin/steam" <<'EOF'
 #!/usr/bin/env bash
@@ -104,9 +103,9 @@ printf '%s\n' -applaunch 780290 --gloomhavenvr > "$scratch/expected-args"
 cmp -s "$HOME/steam-args" "$scratch/expected-args"
 
 rm -f -- "$game/BepInEx/patchers/GloomhavenVR/GloomhavenVR.Preload.dll"
-if bash "$installer" --game-path "$game" > /dev/null 2>&1; then
-    echo 'error: installer accepted an incomplete game install' >&2
+if bash "$game/install-steam-frame.sh" > /dev/null 2>&1; then
+    echo 'error: installer accepted an incomplete mod install' >&2
     exit 1
 fi
 
-echo 'Frame shortcut installer: smoke checks passed.'
+echo 'Steam Frame setup: desktop launch, Steam entry, boot config and rerun passed.'
