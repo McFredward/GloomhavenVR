@@ -40,10 +40,11 @@ EOF
 cp -- "$root/scripts/install-steam-frame.sh" "$setup/install-steam-frame.sh"
 cp -- "$root/scripts/steam-frame-config.py" "$setup/steam-frame-config.py"
 cp -- "$root/scripts/frame-boot-config.py" "$setup/frame-boot-config.py"
-cp -- "$root/GloomhavenVR-Setup.desktop" "$game/GloomhavenVR-Setup.desktop"
+cp -- "$root/GloomhavenVR-Setup.desktop" "$setup/GloomhavenVR-Setup.desktop"
 cp -- "$root/src/GloomhavenVR/Assets/GloomhavenVR_logo.png" "$setup/GloomhavenVR-steam-logo.png"
 cp -- "$root/unity/GloomhavenVR.Assets/Assets/Bundle/UI/VRMenuIcon.png" "$setup/GloomhavenVR-steam-icon.png"
 legacy=(install-steam-frame.sh steam-frame-config.py frame-boot-config.py
+    GloomhavenVR-Setup.desktop
     GloomhavenVR-steam-logo.png GloomhavenVR-steam-icon.png)
 for obsolete in "${legacy[@]}"; do
     printf 'obsolete\n' > "$game/$obsolete"
@@ -61,13 +62,14 @@ bash "$setup/install-steam-frame.sh" --dry-run > "$scratch/dry-run.log"
 # Dolphin supplies %k to a desktop entry. Gio exercises the same command without
 # a graphical shell and may run it asynchronously on some distributions.
 if command -v desktop-file-validate >/dev/null 2>&1; then
-    desktop-file-validate "$game/GloomhavenVR-Setup.desktop"
+    desktop-file-validate "$setup/GloomhavenVR-Setup.desktop"
 fi
 if command -v gio >/dev/null 2>&1; then
-    sed -i 's/^Terminal=true$/Terminal=false/' "$game/GloomhavenVR-Setup.desktop"
-    (cd -- "$game" && gio launch "$game/GloomhavenVR-Setup.desktop") > "$scratch/desktop.log" 2>&1
+    sed -i 's/^Terminal=true$/Terminal=false/' "$setup/GloomhavenVR-Setup.desktop"
+    (cd -- "$game" && gio launch "$setup/GloomhavenVR-Setup.desktop") > "$scratch/desktop.log" 2>&1
     for ((attempt = 0; attempt < 50; attempt++)); do
-        if [[ -f "$marker" && -x "$launcher" && -f "$shortcuts" ]]; then
+        if [[ -f "$marker" && -x "$launcher" && -f "$shortcuts" &&
+            ! -e "$game/GloomhavenVR-Setup.desktop" ]]; then
             break
         fi
         sleep 0.1

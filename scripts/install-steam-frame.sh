@@ -75,7 +75,7 @@ trap on_exit EXIT
 
 if [[ -z "$game_dir" ]]; then
     # The release keeps setup assets under the plugin so the extracted game
-    # root contains only BepInEx, install guides and the desktop entry.
+    # root contains only BepInEx and the installation texts.
     if [[ -f "$script_dir/../../../../GH.exe" ]]; then
         game_dir="$script_dir/../../../.."
     else
@@ -222,7 +222,8 @@ fi
 # replacement has completed successfully.
 if [[ "$script_dir" == "$game_dir/BepInEx/plugins/GloomhavenVR/FrameSetup" ]]; then
     for obsolete in install-steam-frame.sh steam-frame-config.py frame-boot-config.py \
-        GloomhavenVR-steam-logo.png GloomhavenVR-steam-icon.png; do
+        GloomhavenVR-steam-logo.png GloomhavenVR-steam-icon.png \
+        GloomhavenVR-Setup.desktop; do
         if [[ -f "$game_dir/$obsolete" ]] && ! rm -f -- "$game_dir/$obsolete"; then
             echo "warning: could not remove obsolete setup file: $game_dir/$obsolete" >&2
         fi

@@ -547,7 +547,17 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 591;
+    public const ushort ModBuild = 592;
+
+    // ModBuild 592 — the release ZIP now keeps the Frame setup implementation
+    // and artwork below BepInEx/plugins/GloomhavenVR/FrameSetup, leaving only
+    // BepInEx and the two installation texts at its root. This layout remains
+    // accepted by the already-published 1.0.8 in-game updater; successful
+    // updates retire only the six obsolete root setup files from earlier
+    // packages. The user-facing setup resolves its nested game path
+    // and also removes those old files on a repeated Frame install. Moving the
+    // player install guides to docs/install changes repository links only.
+    // No gameplay, wire format or asset-bundle content changes in this build.
 
     // ModBuild 591 — the Build 590 map trace records 12 native character
     // deselections while switching town destinations, 10 within the old

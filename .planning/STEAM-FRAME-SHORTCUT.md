@@ -13,7 +13,8 @@ https://help.steampowered.com/en/faqs/view/4B8B-9697-2338-40EC.
 
 ## Chosen launch path
 
-`install-steam-frame.sh` runs from the extracted release in the game directory.
+`BepInEx/plugins/GloomhavenVR/FrameSetup/install-steam-frame.sh` runs from the
+extracted release and resolves the game directory four levels above itself.
 It checks for `GH.exe`, the preloader and the two existing mod artwork files;
 copies the art and a small launcher into the user's data directory; and creates
 `BepInEx/patchers/GloomhavenVR/frame-launch-opt-in.marker`. As of the
@@ -45,9 +46,8 @@ install: that URI would reopen the original flat entry without the opt-in flag.
 before the first VR launch, mirroring the preloader's configured value. It
 preserves a one-time original backup and leaves an already-correct file untouched.
 This avoids a first-launch restart for that setting. The release archive must
-never contain the marker; only the Frame
-helper creates it. The Windows packager deletes a marker accidentally staged
-from a local game tree.
+never contain the marker; only the Frame helper creates it. The Windows packager
+deletes a marker accidentally staged from a local game tree.
 
 ## Hardware gates
 
@@ -90,7 +90,8 @@ Linux packager and Windows packager also encode Unix 0755 ZIP permissions;
 `scripts/check-frame-launchers.py` rejects an archive that loses either the
 line endings or the executable attributes. `GloomhavenVR-Setup.desktop` runs
 the existing helper from its own directory through Dolphin and pauses its
-terminal on exit. The shell fallback remains `bash ./install-steam-frame.sh`.
+terminal on exit. The current shell fallback is
+`bash ./BepInEx/plugins/GloomhavenVR/FrameSetup/install-steam-frame.sh`.
 The desktop entry's relative path was exercised with spaces in the folder name;
 Frame's own Dolphin trust prompt and Steam shortcut behavior still need a
 hardware check.
@@ -123,3 +124,16 @@ restarted. Synthetic tests cover the desktop entry, active account selection,
 pre-existing launch options and shortcuts, idempotence, Steam shutdown/restart,
 first-boot config and the packaged helper files. The actual Frame Steam client
 and Game Mode launch still require a headset check.
+
+## Clean release root (2026-09-30)
+
+The user clarified that the files extracted into the game root matter more than
+the repository's own top level. The release ZIP has exactly three root
+entries: `BepInEx/`, `INSTALL.txt` and `INSTALL-DEUTSCH.txt`. The desktop
+entry, implementation helpers and artwork all live under
+`BepInEx/plugins/GloomhavenVR/FrameSetup/`. The desktop entry calls the
+co-located shell helper; repeated setup remains idempotent. Both local
+installers and the successful self-update path remove only the six obsolete
+root setup files from older packages. The published 1.0.8 updater accepts
+only these three ZIP-root entries; nesting the desktop entry therefore allows
+an installed older build to update directly without a bridge release.

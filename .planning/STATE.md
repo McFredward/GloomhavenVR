@@ -1,6 +1,13 @@
 # State — where the project stands
 
-**Updated 2026-09-29: dev 1.1.0 / ModBuild 591, town entry and selection candidate.**
+**Updated 2026-09-30: dev 1.1.0 / ModBuild 592, clean install archive candidate.**
+The release ZIP now exposes only `BepInEx/`, the English/German install texts and
+the Steam Frame desktop starter at game-root level. Its setup scripts and art
+are nested under the plugin. The in-game updater accepts and copies the desktop
+starter; successful upgrades remove five obsolete root helpers. The repository
+install guides moved to `docs/install/`. The actual Frame launch remains a
+hardware check; the archive and updater have focused local coverage. See
+[STEAM-FRAME-SHORTCUT.md](STEAM-FRAME-SHORTCUT.md).
 The complete immersive NPC work through Build 583 and the Steam Frame changes
 through dev Build 559 now share the sole `dev` integration branch. Future NPC and
 Frame work belongs on `dev`. The NPC presentation remains a two-client hardware
@@ -63,6 +70,15 @@ change per build) → this file (where things stand and what is owed) → the bu
 ---
 
 ## 1. Position
+
+- **dev / 1.1.0 / ModBuild 592 (archive layout candidate):** root-level
+  release clutter is removed without changing the plugin/patcher install paths.
+  The Frame desktop starter is nested under the plugin so the published 1.0.8
+  updater accepts the new ZIP. Setup and successful updates retire only the six
+  owned legacy root files. The Frame
+  installer still needs a headset check, while synthetic Steam setup, archive
+  and self-update tests cover the paths and allowlist. No gameplay, wire format
+  or asset-bundle content changed. See [STEAM-FRAME-SHORTCUT.md](STEAM-FRAME-SHORTCUT.md).
 
 - **dev / 1.1.0 / ModBuild 591 (hardware candidate):** scoped native map-option
   transitions no longer clear the locally owned selected portrait and force a

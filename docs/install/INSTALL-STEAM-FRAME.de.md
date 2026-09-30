@@ -66,7 +66,7 @@ BepInEx/patchers/GloomhavenVR/
 
 ## 3. Steam einrichten
 
-Öffne den Gloomhaven-Ordner in Dolphin und doppelklicke auf
+Öffne `BepInEx/plugins/GloomhavenVR/FrameSetup/` im Gloomhaven-Ordner in Dolphin und doppelklicke auf
 **`GloomhavenVR-Setup.desktop`**. Falls Dolphin nachfragt, wähle **Ausführen**. Das Setup richtet
 die BepInEx-Startoption des Originalspiels ein, erstellt einen separaten Eintrag **GloomhavenVR**
 in der VR-Bibliothek, fügt Symbol und Logo hinzu und bereitet die Rendering-Einstellungen vor dem
@@ -129,7 +129,7 @@ neue Release-ZIP herunterladen und wieder in denselben Gloomhaven-Ordner entpack
 
 | Was du siehst | Was du machst |
 |---|---|
-| GloomhavenVR erscheint nicht in Steam | Starte `GloomhavenVR-Setup.desktop` erneut. Bewahre die Ausgabe auf, falls ein Fehler gemeldet wird. |
+| GloomhavenVR erscheint nicht in Steam | Starte `BepInEx/plugins/GloomhavenVR/FrameSetup/GloomhavenVR-Setup.desktop` erneut. Bewahre die Ausgabe auf, falls ein Fehler gemeldet wird. |
 | Die Mod wird über GloomhavenVR nicht geladen | Führe das Setup erneut aus. Prüf die beiden `BepInEx`-Ordner und `BepInEx/patchers/GloomhavenVR/frame-launch-opt-in.marker`. Such nach einem Start nach `BepInEx/LogOutput.log`. |
 | Der ursprüngliche Gloomhaven-Eintrag startet VR | Entferne `--gloomhavenvr` aus dessen Startoptionen und starte `GloomhavenVR-Setup.desktop` erneut. |
 | GloomhavenVR startet flat | Steam hat das VR-Argument möglicherweise nicht weitergereicht. Prüfe, ob die Verknüpfung auf `launch-steam-frame.sh` zeigt, und bewahre `BepInEx/LogOutput.log` für eine Fehlermeldung auf. |
