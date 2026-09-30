@@ -414,6 +414,24 @@ if (Test-Path $legacyPreloader) {
     Write-Host "    removed legacy preloader at BepInEx\patchers\GloomhavenVR.Preload.dll"
 }
 
+# Before the Frame helpers moved below the plugin directory, a release ZIP
+# placed these five files directly in the game root. A local source install may
+# run against that older extraction. Remove only our exact obsolete filenames;
+# keep the desktop launcher and both installation guides at the root.
+$legacyFrameFiles = @(
+    'install-steam-frame.sh',
+    'steam-frame-config.py',
+    'frame-boot-config.py',
+    'GloomhavenVR-steam-logo.png',
+    'GloomhavenVR-steam-icon.png')
+foreach ($name in $legacyFrameFiles) {
+    $legacyFrameFile = Join-Path $GamePath $name
+    if (Test-Path -LiteralPath $legacyFrameFile -PathType Leaf) {
+        Remove-Item -LiteralPath $legacyFrameFile -Force
+        Write-Host "    removed obsolete Frame setup file: $name"
+    }
+}
+
 Write-Host "    plugin + RuntimeDeps + preloader + natives$(if ($bundle) { ' + gloomhavenvr.bundle' }) deployed"
 
 # --- 8. restore any previously shader-patched game data ----------------------
@@ -553,20 +571,24 @@ if (-not $NoPackage) {
         Write-WindowsText $template (Join-Path $stage $name) @{ '@VERSION@' = $version }
     }
 
-    # Only the explicit Frame helper creates the opt-in marker. Including the
-    # helper and existing art in a PC-built archive does not alter PC launches.
+    # Keep Frame implementation files below the plugin directory. Only the
+    # one-click launcher and installation guides belong at the game root after
+    # extracting this archive. These files do not alter PC launches; only the
+    # explicit Frame helper creates the opt-in marker.
+    $frameSetupDir = Join-Path $stage "BepInEx\plugins\GloomhavenVR\FrameSetup"
+    New-Item -ItemType Directory -Force -Path $frameSetupDir | Out-Null
     Write-UnixLauncher (Join-Path $root "scripts\install-steam-frame.sh") `
-                       (Join-Path $stage "install-steam-frame.sh")
+                       (Join-Path $frameSetupDir "install-steam-frame.sh")
     Write-UnixLauncher (Join-Path $root "scripts\steam-frame-config.py") `
-                       (Join-Path $stage "steam-frame-config.py")
+                       (Join-Path $frameSetupDir "steam-frame-config.py")
     Write-UnixLauncher (Join-Path $root "scripts\frame-boot-config.py") `
-                       (Join-Path $stage "frame-boot-config.py")
+                       (Join-Path $frameSetupDir "frame-boot-config.py")
     Write-UnixLauncher (Join-Path $root "GloomhavenVR-Setup.desktop") `
                        (Join-Path $stage "GloomhavenVR-Setup.desktop")
     Copy-Item -LiteralPath (Join-Path $root "src\GloomhavenVR\Assets\GloomhavenVR_logo.png") `
-              -Destination (Join-Path $stage "GloomhavenVR-steam-logo.png")
+              -Destination (Join-Path $frameSetupDir "GloomhavenVR-steam-logo.png")
     Copy-Item -LiteralPath (Join-Path $root "unity\GloomhavenVR.Assets\Assets\Bundle\UI\VRMenuIcon.png") `
-              -Destination (Join-Path $stage "GloomhavenVR-steam-icon.png")
+              -Destination (Join-Path $frameSetupDir "GloomhavenVR-steam-icon.png")
 
     # No graphics-jobs enabler ships any more: the preloader writes boot.config
     # itself and restarts the game once on the boot that needs it.
@@ -588,12 +610,12 @@ if (-not $NoPackage) {
         "BepInEx/patchers/GloomhavenVR/Natives/openxr_loader.dll",
         "INSTALL.txt",
         "INSTALL-DEUTSCH.txt",
-        "install-steam-frame.sh",
-        "steam-frame-config.py",
-        "frame-boot-config.py",
+        "BepInEx/plugins/GloomhavenVR/FrameSetup/install-steam-frame.sh",
+        "BepInEx/plugins/GloomhavenVR/FrameSetup/steam-frame-config.py",
+        "BepInEx/plugins/GloomhavenVR/FrameSetup/frame-boot-config.py",
         "GloomhavenVR-Setup.desktop",
-        "GloomhavenVR-steam-logo.png",
-        "GloomhavenVR-steam-icon.png")
+        "BepInEx/plugins/GloomhavenVR/FrameSetup/GloomhavenVR-steam-logo.png",
+        "BepInEx/plugins/GloomhavenVR/FrameSetup/GloomhavenVR-steam-icon.png")
     Add-Type -AssemblyName System.IO.Compression.FileSystem
     # Every .txt in the archive must open cleanly on Windows: valid UTF-8, BOM, CRLF, and none
     # of the two characters a double encoding always produces (U+00C3 from an umlaut's lead
@@ -631,6 +653,15 @@ if (-not $NoPackage) {
         }
     }
     finally { $archive.Dispose() }
+    $allowedTopLevel = @('BepInEx', 'INSTALL.txt', 'INSTALL-DEUTSCH.txt', 'GloomhavenVR-Setup.desktop')
+    $topLevel = @($entries | ForEach-Object { ($_ -replace '^\./', '').Split('/')[0] } | Sort-Object -Unique)
+    $unexpectedTopLevel = @($topLevel | Where-Object { $allowedTopLevel -notcontains $_ })
+    $missingTopLevel = @($allowedTopLevel | Where-Object { $topLevel -notcontains $_ })
+    if ($unexpectedTopLevel -or $missingTopLevel) {
+        Write-Error ("Unexpected release ZIP top-level layout. Extra: " +
+                     ($unexpectedTopLevel -join ', ') + "; missing: " +
+                     ($missingTopLevel -join ', '))
+    }
     $missing = $required | Where-Object { $entries -notcontains $_ }
     if ($missing) {
         Write-Error "Packaged zip is missing:`n  $($missing -join "`n  ")"

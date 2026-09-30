@@ -23,7 +23,9 @@ function Set-ZipUnixLaunchers([string]$ArchivePath) {
     if ($count -eq 0xFFFF -or $offset -eq 0xFFFFFFFF) {
         throw "ZIP64 archive is not supported by the Frame launcher mode patch: $ArchivePath"
     }
-    $wanted = @('install-steam-frame.sh', 'GloomhavenVR-Setup.desktop')
+    $wanted = @(
+        'BepInEx/plugins/GloomhavenVR/FrameSetup/install-steam-frame.sh',
+        'GloomhavenVR-Setup.desktop')
     $found = @()
     $position = [int]$offset
     for ($n = 0; $n -lt $count; $n++) {

@@ -104,7 +104,8 @@ ZIP="$DIST/GloomhavenVR-$VERSION.zip"
 rm -rf "$STAGE" "$ZIP"
 PLUGDIR="$STAGE/BepInEx/plugins/GloomhavenVR"
 PATCHDIR="$STAGE/BepInEx/patchers/GloomhavenVR"
-mkdir -p "$PLUGDIR/RuntimeDeps" "$PATCHDIR/Natives"
+FRAMESETUP="$PLUGDIR/FrameSetup"
+mkdir -p "$PLUGDIR/RuntimeDeps" "$PATCHDIR/Natives" "$FRAMESETUP"
 
 cp "$PLUGIN" "$PLUGDIR/"
 cp "${RUNTIMEDEPS[@]}" "$PLUGDIR/RuntimeDeps/"
@@ -185,17 +186,19 @@ done
 stage_text "$TEMPLATE"    "$STAGE/INSTALL.txt"
 stage_text "$TEMPLATE_DE" "$STAGE/INSTALL-DEUTSCH.txt"
 
-# The Frame helper, its Steam configuration helper, and KDE launcher must survive
-# even a Windows CRLF checkout. Unlike the Windows-readable .txt files above,
-# these need LF; the shell and desktop launchers also need executable ZIP modes.
-# The opt-in marker is never included: extraction on a PC stays unaffected.
-sed 's/\r$//' "$ROOT/scripts/install-steam-frame.sh" > "$STAGE/install-steam-frame.sh"
-sed 's/\r$//' "$ROOT/scripts/steam-frame-config.py" > "$STAGE/steam-frame-config.py"
-sed 's/\r$//' "$ROOT/scripts/frame-boot-config.py" > "$STAGE/frame-boot-config.py"
+# Frame implementation files live with the plugin, leaving only the one-click
+# launcher and installation guides at the game root after extraction. The
+# helper, its Python companions, and KDE launcher must survive a CRLF checkout.
+# Unlike the Windows-readable .txt files above, these need LF; the shell and
+# desktop launchers also need executable ZIP modes. The opt-in marker never
+# ships: extracting on a PC must not change its normal launch.
+sed 's/\r$//' "$ROOT/scripts/install-steam-frame.sh" > "$FRAMESETUP/install-steam-frame.sh"
+sed 's/\r$//' "$ROOT/scripts/steam-frame-config.py" > "$FRAMESETUP/steam-frame-config.py"
+sed 's/\r$//' "$ROOT/scripts/frame-boot-config.py" > "$FRAMESETUP/frame-boot-config.py"
 sed 's/\r$//' "$ROOT/GloomhavenVR-Setup.desktop" > "$STAGE/GloomhavenVR-Setup.desktop"
-chmod 0755 "$STAGE/install-steam-frame.sh" "$STAGE/GloomhavenVR-Setup.desktop"
-cp "$ROOT/src/GloomhavenVR/Assets/GloomhavenVR_logo.png" "$STAGE/GloomhavenVR-steam-logo.png"
-cp "$ROOT/unity/GloomhavenVR.Assets/Assets/Bundle/UI/VRMenuIcon.png" "$STAGE/GloomhavenVR-steam-icon.png"
+chmod 0755 "$FRAMESETUP/install-steam-frame.sh" "$STAGE/GloomhavenVR-Setup.desktop"
+cp "$ROOT/src/GloomhavenVR/Assets/GloomhavenVR_logo.png" "$FRAMESETUP/GloomhavenVR-steam-logo.png"
+cp "$ROOT/unity/GloomhavenVR.Assets/Assets/Bundle/UI/VRMenuIcon.png" "$FRAMESETUP/GloomhavenVR-steam-icon.png"
 
 # NO graphics-jobs enabler ships any more. The preloader writes boot.config itself
 # and restarts the game once on the boot that needs it, so a script whose whole job
@@ -235,12 +238,12 @@ for path in \
     "BepInEx/patchers/GloomhavenVR/Natives/openxr_loader.dll" \
     "INSTALL.txt" \
     "INSTALL-DEUTSCH.txt" \
-    "install-steam-frame.sh" \
-    "steam-frame-config.py" \
-    "frame-boot-config.py" \
+    "BepInEx/plugins/GloomhavenVR/FrameSetup/install-steam-frame.sh" \
+    "BepInEx/plugins/GloomhavenVR/FrameSetup/steam-frame-config.py" \
+    "BepInEx/plugins/GloomhavenVR/FrameSetup/frame-boot-config.py" \
     "GloomhavenVR-Setup.desktop" \
-    "GloomhavenVR-steam-logo.png" \
-    "GloomhavenVR-steam-icon.png"; do
+    "BepInEx/plugins/GloomhavenVR/FrameSetup/GloomhavenVR-steam-logo.png" \
+    "BepInEx/plugins/GloomhavenVR/FrameSetup/GloomhavenVR-steam-icon.png"; do
     if ! grep -qF -- "$path" <<<"$LISTING"; then
         echo "error: packaged zip is missing '$path'" >&2
         exit 1

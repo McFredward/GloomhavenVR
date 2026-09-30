@@ -6,6 +6,14 @@ import stat
 import sys
 import zipfile
 
+FRAME_SETUP = "BepInEx/plugins/GloomhavenVR/FrameSetup/"
+TOP_LEVEL = {
+    "BepInEx",
+    "GloomhavenVR-Setup.desktop",
+    "INSTALL.txt",
+    "INSTALL-DEUTSCH.txt",
+}
+
 
 def main() -> int:
     if len(sys.argv) != 2:
@@ -13,8 +21,20 @@ def main() -> int:
         return 2
 
     with zipfile.ZipFile(sys.argv[1]) as archive:
+        # Users extract the release into the game folder. Keep that folder
+        # limited to the normal BepInEx tree, two guides, and the Frame setup
+        # launcher; implementation helpers and artwork belong inside BepInEx.
+        top_level = {name.lstrip("./").split("/", 1)[0] for name in archive.namelist()}
+        if top_level != TOP_LEVEL:
+            print(
+                f"error: unexpected release ZIP top level: {sorted(top_level)} "
+                f"(expected {sorted(TOP_LEVEL)})",
+                file=sys.stderr,
+            )
+            return 1
+
         for name, prefix in (
-            ("install-steam-frame.sh", b"#!/usr/bin/env bash\n"),
+            (FRAME_SETUP + "install-steam-frame.sh", b"#!/usr/bin/env bash\n"),
             ("GloomhavenVR-Setup.desktop", b"[Desktop Entry]\n"),
         ):
             try:
@@ -31,7 +51,7 @@ def main() -> int:
                 print(f"error: {name} lacks executable Unix ZIP permissions", file=sys.stderr)
                 return 1
 
-        for name in ("steam-frame-config.py", "frame-boot-config.py"):
+        for name in (FRAME_SETUP + "steam-frame-config.py", FRAME_SETUP + "frame-boot-config.py"):
             try:
                 helper = archive.read(name)
             except KeyError:
@@ -44,6 +64,11 @@ def main() -> int:
                 ast.parse(helper.decode("utf-8"), filename=name)
             except (SyntaxError, UnicodeDecodeError) as error:
                 print(f"error: invalid {name}: {error}", file=sys.stderr)
+                return 1
+
+        for name in (FRAME_SETUP + "GloomhavenVR-steam-logo.png", FRAME_SETUP + "GloomhavenVR-steam-icon.png"):
+            if name not in archive.namelist():
+                print(f"error: missing {name}", file=sys.stderr)
                 return 1
 
     print("Steam Frame setup: launchers, configuration helper and ZIP permissions verified.")
