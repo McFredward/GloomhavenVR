@@ -32,7 +32,7 @@ namespace GloomhavenVR.Core;
 ///
 /// Hosted on the mod's own `GloomhavenVR.Core` root (DontDestroyOnLoad +
 /// HideAndDontSave, created by <see cref="CoreModule"/>) — NOT the BepInEx manager
-/// GO, so game-side scene sweeps can't take it down (INSTALL.md still recommends
+/// GO, so game-side scene sweeps can't take it down (docs/install/INSTALL.md still recommends
 /// `HideManagerGameObject = true` for the BepInEx manager, which hosts the Plugin's
 /// coroutines).
 /// </summary>
