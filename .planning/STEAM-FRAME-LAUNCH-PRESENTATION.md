@@ -41,22 +41,19 @@ publisher-controlled launch type. The current shortcut forwards to 780290 to
 preserve Steamworks identity, achievements, Cloud saves and multiplayer.
 
 The current SteamVR dashboard can auto-open a desktop-game/theater view for
-flat-classified launches even when an OpenXR scene later starts. A report of
+flat-classified launches even when an OpenXR scene later starts. Valve's
+[SteamVR 2.1 announcement](https://store.steampowered.com/news/posts/?appids=250820&enddate=1700599818&feed=steam_community_announcements)
+states that non-VR Steam launches are routed to the Theater Screen. A report of
 the same behavior for a [non-Steam OpenXR shortcut](https://steamcommunity.com/app/250820/discussions/3/798965318967038820/)
-found that `dashboard.autoShowGameTheater=false` suppressed the automatic
-opening on one system. That is useful as a **manual A/B test**, not proof for
-Steam Frame. It is a global SteamVR preference for all desktop games, and a
-Valve developer notes that the modern theater is normally meant to disappear
-once a game submits VR frames
-([developer response](https://steamcommunity.com/app/250820/discussions/0/596272860832518646/)).
-The same developer clarifies that disabling non-VR theater presentation may
-still leave the dashboard open for a manual dismiss; it is not an established
-way to skip the **Resume Game** step. Distinguish an unwanted theater layer
-from the dashboard itself in the Frame test.
+found that `dashboard.autoShowGameTheater=false` suppressed its automatic
+opening on one system, but that is not proof for Steam Frame or for this
+AppID. The owner explicitly rejected disabling that global preference:
+Theater presentation of other flat games is a desired Frame feature. Even
+where theater auto-show is disabled, the dashboard can remain open for a
+manual dismiss ([Valve response](https://steamcommunity.com/app/250820/discussions/0/596272860832518646/)).
 The former per-game desktop-theater toggle was removed with SteamVR 2.1
 ([Valve response](https://steamcommunity.com/app/250820/discussions/0/4035852333636940598/)).
-The installer must not silently disable theater globally or leave a temporary
-override behind if the headset shell restarts.
+No installer or launcher change may disable theater globally, even temporarily.
 
 ## Paths worth evaluating
 
@@ -68,10 +65,12 @@ override behind if the headset shell restarts.
    the original Library art. OpenVR provides an application manifest
    `image_path` and `IVRApplications::IdentifyApplication`, but the mod uses
    Unity OpenXR, and the current running process is launched and owned by Steam
-   as `780290`. An OpenVR manifest plus process re-identification is an
-   experimental integration, not an established shortcut setting. It requires
-   a small native/managed bridge and an on-device test of dashboard title,
-   image, VR input and Steamworks identity before release.
+   as `780290`. The [OpenVR method contract](https://github.com/ValveSoftware/openvr/blob/master/headers/openvr.h)
+   only says that it identifies a known process after manifest registration; it
+   does not promise to change the Steam launch classification or close an
+   already-open dashboard. This is an experimental integration requiring a
+   small native/managed bridge and an on-device test of dashboard title, image,
+   VR input and Steamworks identity before release.
 3. **Launch the executable under the non-Steam shortcut AppID directly** would
    likely let SteamVR use the new entry's identity and art. It would no longer
    be the original Steam launch, though; forwarding `SteamAppId=780290` and
@@ -81,23 +80,29 @@ override behind if the headset shell restarts.
 4. **Original-AppID grid override** could fill the active gray cover if the
    dashboard reads Steam's custom grid there. It also changes the flat entry's
    image and does not fix the recurring dashboard focus, so it is excluded.
+5. **Automatically dismiss SteamVR's dashboard** is not a supported scene-app
+   solution. Valve's [OpenVR overlay documentation](https://github.com/ValveSoftware/openvr/wiki/IVROverlay::ShowOverlay)
+   says only the dashboard manager may hide dashboard overlays. Sending a
+   synthetic controller input or altering SteamVR's internal files would make
+   startup dependent on undocumented behavior and could dismiss a dashboard
+   the player intentionally opened while the game loads. Do not ship that.
 
 ## Next Frame diagnostic
 
-Keep the current launcher and record, immediately after a `GloomhavenVR`
-start, the SteamVR dashboard setting `dashboard.autoShowGameTheater` from
-`~/.local/share/Steam/config/steamvr.vrsettings` and the launch/overlay lines
-from SteamVR's `vrserver.txt`, `vrcompositor.txt` and dashboard log. The
-`steamapps.vrmanifest` entry for `780290`, if present, would reveal the
-runtime's registered name, image and launch type. The decisive A/B is one
-launch with **Present Non-VR Applications on Theater Screen Upon Launch**
-disabled in SteamVR settings (then restore the user's preference), using the
-same shortcut and build. If that removes Resume Game while the game enters VR,
-the cause is theater auto-show; it still leaves the active-app artwork/identity
-question separate. If it removes only the theater screen and the dashboard
-remains, inspect the SteamVR startup/focus transitions before attempting an
-automatic dashboard dismiss. The image fix needs either a safe OpenVR identity
-experiment or publisher VR metadata.
+Keep the current launcher and collect SteamVR's `vrserver.txt`,
+`vrcompositor.txt`, dashboard log and `steamapps.vrmanifest` from the **same**
+Frame start as the game logs. The supplied `Player.log`, `LogOutput.log` and
+`openxr-diagnostics.log` prove that OpenXR initialized, but they contain no
+SteamVR dashboard/theater focus transition or registered app key. The latest
+OpenXR diagnostic reports `App: Gloomhaven` at 2026-09-30 22:17:38. In the
+SteamVR logs, distinguish (a) creation of `valve.steam.desktopgame.*` theater
+overlay, (b) dashboard activation and deactivation, and (c) the active scene
+application key. This tells us whether the visible **Resume Game** panel is
+the leftover non-VR launch presentation or a separate focus issue without
+changing global settings. Then prototype a custom manifest/identity only in
+an opt-in developer build, with before/after captures of the dashboard and
+achievement/cloud/multiplayer checks. Publisher VR metadata remains the only
+documented complete classification fix.
 
 This review does not claim a headset-confirmed fix. No SteamVR configuration or
 original AppID artwork is modified by it.
