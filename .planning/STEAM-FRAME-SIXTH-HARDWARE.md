@@ -26,7 +26,27 @@ is another 3739 ms total with 2422 ms named mod work, including 1208 ms in
 `Net.CardAppearance.Build`; frame 6657 spends 477 ms building VR Options.
 These are plausible moments for a visible freeze, not frame-to-frame jitter.
 
-The recurring map cost has a clear first target: `TownPublicStock.Catalog`
+The maintainer's subsequent headset clarification excludes pauses while the
+loading indicator is visible from the optimization priority. The important
+**interactive** events are more specific:
+
+| Interaction | Build 592 frames | Named work on the slow frame |
+|---|---:|---|
+| First priestess approach | 3964: 398 ms; 3965: 565 ms | `TownServicePresentation.Visit` 215 and 157 ms; its `FolioOpen` child 170 ms on frame 3964; `TownTempleApproach` 51 ms. |
+| Repeated priestess approach | 4057: 120 ms | `Visit` 42 ms, including `FolioOpen` 34 ms. |
+| Enchantress approach | 4128: 566 ms | `Visit` 433 ms, including `TownEnhancement.NativeOpen` 271 ms and `NativeListMask` 92 ms. |
+| Open the card fan near the enchantress | 4143: 147 ms; 4145: 1042 ms | First frame: `Cards.Driver` 63 ms and `CanvasConversion.Late` 41 ms. Second frame: `Rig.MapRoom` 890 ms, including `Net.CardAppearance.Build` 692 ms while 10 real card fronts appear. |
+
+The approach hitches repeat without a loading screen and match the owner's
+reported locations. `Visit`, `NativeOpen`, `FolioOpen` and `PublicStock` are
+nested scopes, so their numbers are not additive. The fan cost is the local
+map-room hand using the same original-card clone path as remote cards; its
+faces are built when their slabs first become active, because cloned widgets'
+`OnEnable` must finish before the final fit. A prewarm must preserve that
+ordering and the first visible frame's complete fronts. Hiding a partial fan
+or letting backs flash would break the established presentation contract.
+
+The recurring map cost has another clear target: `TownPublicStock.Catalog`
 continues to run every frame after construction, generally consuming around
 6 ms. It includes row refresh and card/interaction updates, and is a nested
 scope of the merchant presentation. It should be profiled into change
@@ -35,9 +55,10 @@ the merchant's original card appearance, current page and multiplayer
 animation must remain 1:1. Next, remove redundant native-window conversions
 at their lifecycle source. The 300–765 ms conversion spikes are too large to
 hide by lowering rendering quality. Incremental catalog creation might avoid
-the 2.65 s first-frame stall, but the stand must never expose incomplete
-stock to a player; prewarming or a bounded atomic visual reveal needs a
-hardware check.
+the 2.65 s load-frame stall, but it is lower priority than the interactive
+approach/fan pauses the maintainer actually felt. The stand must never expose
+incomplete stock to a player; prewarming or a bounded atomic visual reveal
+needs a hardware check.
 
 In the scenario, committed `WallFade.Rescan` calls repeatedly cost about
 90–103 ms, with initial wall commits occasionally higher. The live rescan
@@ -62,9 +83,9 @@ late heap samples do not establish a growing leak, and the scenario medians
 remain broadly stable across the measured windows.
 
 Recommended next comparison: keep 3408 per eye, quality and location fixed;
-measure a repeatable pass at the merchant stand and a stationary scenario
-view. Record which headset-visible pauses line up with the initial map-entry
-spikes, merchant interaction, window conversion, wall changes and card art.
-That mapping will decide whether the first implementation pass should target
-the merchant's recurring work or the scenario's atomic hitches. Do not use
+measure the first and second approach to each NPC plus the first and second
+fan open at the enchantress. Record whether the pauses remain after the
+targeted changes. `TownPublicStock.Catalog` still runs while the player is at
+other NPCs, so its 6 ms/frame background cost should be addressed separately.
+Do not use
 `[Perf] FRAME`'s XR GPU field as a hardware GPU measurement in this run.

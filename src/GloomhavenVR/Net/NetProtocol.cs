@@ -547,7 +547,16 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 592;
+    public const ushort ModBuild = 593;
+
+    // ModBuild 593 — Steam Frame standalone installs use a separate set of
+    // fresh VR defaults and suggest a 3408-pixel per-eye SteamVR resolution
+    // through the game's vrpreferences.json. Existing mod, game, and SteamVR
+    // choices remain authoritative. Merchant public-stock reconciliation
+    // avoids repeated quadratic searches while all NPC stands are present;
+    // bounded Debug attribution separates remaining NPC entry and first-fan
+    // card-art costs without changing card visibility or timing. No wire
+    // format or asset-bundle content changes in this build.
 
     // ModBuild 592 — the release ZIP now keeps the Frame setup implementation
     // and artwork below BepInEx/plugins/GloomhavenVR/FrameSetup, leaving only

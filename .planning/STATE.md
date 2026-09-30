@@ -1,6 +1,6 @@
 # State — where the project stands
 
-**Updated 2026-09-30: dev 1.1.0 / ModBuild 592, Steam Frame launch and performance review.**
+**Updated 2026-09-30: dev 1.1.0 / ModBuild 593, Steam Frame defaults and interactive performance review.**
 The release ZIP now exposes only `BepInEx/` and the English/German install
 texts at game-root level. The Steam Frame desktop starter, setup scripts and
 art are nested under the plugin. The in-game updater accepts and copies the
@@ -56,6 +56,14 @@ roughly 6 ms/frame of recurring merchant work on the map, and 90–103 ms
 scenario wall rescans. Menu and scenario also have long stalls not attributable
 to named mod scopes; the XR GPU counter is not usable as busy time. See
 [STEAM-FRAME-SIXTH-HARDWARE.md](STEAM-FRAME-SIXTH-HARDWARE.md).
+Build 593 uses separate fresh Frame mod defaults while retaining existing
+per-player values and the native game's saved graphics quality. The Frame
+setup suggests 3408 pixels per eye via Valve's game-root `vrpreferences.json`;
+SteamVR's user override remains authoritative. The persistent merchant
+catalog now avoids repeated quadratic row searches; additional Debug scopes
+isolate the priestess/enchantress entry and first visible card-fan costs.
+The speedup and SteamVR preference pickup need a matching headset run. See
+[STEAM-FRAME-DEFAULTS.md](STEAM-FRAME-DEFAULTS.md).
 Build 589 addresses the Build 587 town multiplayer report: host self-grant
 timeout, original atlas capture, public cabinet input, town handoff focus and
 map character selection. Correct matching Build 587 peer logs then exposed a
@@ -82,6 +90,17 @@ change per build) → this file (where things stand and what is owed) → the bu
 ---
 
 ## 1. Position
+
+- **dev / 1.1.0 / ModBuild 593 (Frame hardware candidate):** fresh standalone
+  mod defaults mirror the Build 592 test, preserving existing BepInEx and
+  native game settings; the Frame installer suggests 3408 pixels per eye through
+  `vrpreferences.json` without replacing an existing SteamVR choice. The
+  merchant catalog's row reconciliation and item-count lookup are linear,
+  and bounded Debug attribution separates NPC entry and first-fan construction.
+  SteamVR dashboard focus and its in-game gray original-AppID panel remain
+  unresolved; no global theater setting was changed. See
+  [STEAM-FRAME-SIXTH-HARDWARE.md](STEAM-FRAME-SIXTH-HARDWARE.md) and
+  [STEAM-FRAME-LAUNCH-PRESENTATION.md](STEAM-FRAME-LAUNCH-PRESENTATION.md).
 
 - **dev / 1.1.0 / ModBuild 592 (archive layout candidate):** root-level
   release clutter is removed without changing the plugin/patcher install paths.
