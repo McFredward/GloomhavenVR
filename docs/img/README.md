@@ -452,7 +452,8 @@ the generated images alongside changes to the script.
 ```
 python3 docs/img/build-controls-diagram.py     -> controls-{en,de}.png, controls-left-{en,de}.png
 python3 docs/img/build-board-diagram.py        -> board-en.png,    board-de.png
-python3 docs/img/build-install-tree.py         -> install-tree-en.png, install-tree-de.png
+python3 docs/img/build-install-tree.py         -> install-tree-en.png, install-tree-de.png,
+                                                  install-tree-frame-en.png, install-tree-frame-de.png
 ```
 
 All three need Pillow and the Inter fonts at `/usr/share/fonts/opentype/inter`.
@@ -743,13 +744,27 @@ halved. At full size a three-wide row starts 1.2 mm past the pile slabs, and thi
 those slabs as a plate roughly 1.7x their real width, so a to-scale matrix would be drawn straddling
 that plate and would read as a mistake in the drawing rather than as the tight fit it is.
 
-### `install-tree-{en,de}.png` -- "did it land in the right place?"
+### `install-tree-{en,de}.png` and `install-tree-frame-{en,de}.png`
 
 The install guide drew this tree in a fenced code block. A fence is monochrome, so the reader has to
 *read* nine lines to find the two that decide whether the install worked. Here those two folders are
 the only coloured things in the picture, and a reader who looks at nothing else still checks the
 right two. Everything is drawn -- including the tick, because Inter has no U+2714 and a missing
 glyph renders as a tofu box on exactly the row that matters.
+
+The Steam Frame variant uses the same colours and typography. It shows the Linux game folder,
+both mod folders, and `FrameSetup/GloomhavenVR-Setup.desktop`. Its EN/DE labels come from the
+same generator; changing a path or caption requires regenerating both Frame images.
+
+### `frame-install/*.jpg` -- Steam Frame install steps
+
+Five cropped plates combine the eight 1920×1080 headset screenshots in the main checkout's
+gitignored `.planning/debug/frame_anleitung/`. The plates follow the installation order:
+Desktop/hidden folders, opening the ZIP in Dolphin, BepInEx copy/paste, mod copy/paste, and
+the selected `.desktop` file. The first crop excludes the Steam account avatar. They retain
+the original UI pixels; only off-task areas were cropped and related shots were stacked.
+Regenerate them with `python3 docs/img/build-frame-install-shots.py /path/to/frame_anleitung`,
+using the main checkout's evidence directory as the argument.
 
 ### Not in this directory: the option picker's tiles
 

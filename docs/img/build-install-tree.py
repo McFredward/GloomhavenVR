@@ -1,13 +1,12 @@
 #!/usr/bin/env python3
-"""Build docs/img/install-tree-en.png and install-tree-de.png — the "did it land in the right
-place?" picture in the install guide.
+"""Build the PC and Steam Frame install-tree pictures in English and German.
 
 WHY A PICTURE AND NOT A CODE FENCE
 ----------------------------------
 The install guide used to draw this tree in a fenced code block. A fence is monochrome, so the
-reader has to *read* nine lines to find the two that matter. Here the two folders that decide
-whether the install worked are the only coloured things on the page, and a reader who looks at
-nothing else still checks the right two folders.
+reader has to *read* nine lines to find the two that matter. The PC image highlights the two
+mod folders. The Frame image highlights those folders and the setup file. A reader who looks
+at nothing else still checks the right paths.
 
 Everything is drawn as real text, in two languages, from the same table — same reason as
 build-controls-diagram.py: a translated screenshot rots, a translated draw call does not.
@@ -42,7 +41,7 @@ PAD_Y = 40
 INDENT = 62
 
 # (indent, kind, name, note-key, highlighted)
-ROWS = [
+PC_ROWS = [
     (0, "dir",  "Gloomhaven\\",                 "root",   False),
     (1, "file", "GH.exe",                       None,     False),
     (1, "file", "INSTALL.txt",                  "zip",    False),
@@ -52,6 +51,18 @@ ROWS = [
     (2, "dir",  "patchers\\GloomhavenVR\\",     None,     True),
     (2, "dir",  "config\\",                     "cfg",    False),
     (2, "file", "LogOutput.log",                "log",    False),
+]
+
+FRAME_ROWS = [
+    (0, "dir",  "Gloomhaven/",                  "root",   False),
+    (1, "file", "GH.exe",                       None,     False),
+    (1, "file", "INSTALL.txt",                  "zip",    False),
+    (1, "file", "INSTALL-DEUTSCH.txt",          None,     False),
+    (1, "dir",  "BepInEx/",                     None,     False),
+    (2, "dir",  "plugins/GloomhavenVR/",        None,     True),
+    (3, "dir",  "FrameSetup/",                  None,     False),
+    (4, "file", "GloomhavenVR-Setup.desktop",   None,     True),
+    (2, "dir",  "patchers/GloomhavenVR/",       None,     True),
 ]
 
 TEXT = {
@@ -77,6 +88,25 @@ TEXT = {
     },
 }
 
+FRAME_TEXT = {
+    "en": {
+        "notes": {
+            "root": "the folder containing GH.exe",
+            "zip": "the two install texts came from the mod ZIP",
+        },
+        "caption": "Both mod folders must exist. Open FrameSetup and run "
+                   "GloomhavenVR-Setup.desktop to finish the install.",
+    },
+    "de": {
+        "notes": {
+            "root": "der Ordner mit GH.exe",
+            "zip": "die zwei Anleitungen kamen aus dem Mod-ZIP",
+        },
+        "caption": "Beide Mod-Ordner müssen da sein. Öffne FrameSetup und starte "
+                   "GloomhavenVR-Setup.desktop, um die Installation abzuschließen.",
+    },
+}
+
 
 def folder_icon(d, x, y, colour):
     d.polygon([(x, y + 6), (x + 12, y + 6), (x + 16, y + 1), (x + 30, y + 1),
@@ -89,18 +119,19 @@ def file_icon(d, x, y, colour):
     d.polygon([(x + 25, y), (x + 25, y + 8), (x + 17, y)], fill=PAPER)
 
 
-def build(lang):
-    t = TEXT[lang]
+def build(lang, frame=False):
+    t = (FRAME_TEXT if frame else TEXT)[lang]
+    rows = FRAME_ROWS if frame else PC_ROWS
     f_row = font("Inter-Regular.otf", 28)
     f_hit = font("Inter-SemiBold.otf", 28)
     f_note = font("Inter-Regular.otf", 23)
     f_cap = font("Inter-Regular.otf", 25)
 
-    body_h = PAD_Y * 2 + PITCH * len(ROWS)
+    body_h = PAD_Y * 2 + PITCH * len(rows)
     im = Image.new("RGB", (W, body_h + 110), PAPER)
     d = ImageDraw.Draw(im)
 
-    for i, (ind, kind, name, note, hit) in enumerate(ROWS):
+    for i, (ind, kind, name, note, hit) in enumerate(rows):
         y = PAD_Y + i * PITCH
         x = PAD_X + ind * INDENT
 
@@ -140,7 +171,7 @@ def build(lang):
     d.text((PAD_X, cap_y), cur, font=f_cap, fill=INK_SOFT)
 
     im = im.crop((0, 0, W, cap_y + 50))
-    out = os.path.join(HERE, "install-tree-%s.png" % lang)
+    out = os.path.join(HERE, "install-tree-%s%s.png" % ("frame-" if frame else "", lang))
     im.quantize(colors=64, method=Image.FASTOCTREE).save(out, optimize=True)
     print("wrote %s  (%d x %d, %d kB)" % (out, im.width, im.height, os.path.getsize(out) // 1024))
 
@@ -148,3 +179,4 @@ def build(lang):
 if __name__ == "__main__":
     for lang in ("en", "de"):
         build(lang)
+        build(lang, frame=True)

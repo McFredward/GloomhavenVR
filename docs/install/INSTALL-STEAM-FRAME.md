@@ -10,140 +10,137 @@
   <img src="../img/divider.png" width="600" alt="">
 </p>
 
-This guide is for running Gloomhaven **on the Steam Frame itself**. If you run the game on a
-Windows PC and stream it to the headset, use the [PC VR install guide](INSTALL.md).
+This guide installs GloomhavenVR **directly on the Steam Frame**. If Gloomhaven runs on a Windows
+PC and streams to your headset, use the [PC VR install guide](INSTALL.md).
 
-## What you need
+You need Gloomhaven installed from Steam on the Frame, two tracked controllers with thumbsticks,
+and two downloads:
+**BepInEx 5.4.23.5 for Windows x64** and the **latest GloomhavenVR release ZIP**. Gloomhaven is a
+Windows game running through Proton on the Frame, so the Windows BepInEx archive is the right one.
 
-| | |
-|---|---|
-| **Game** | Gloomhaven installed from Steam on the Frame |
-| **Controls** | Two tracked controllers with thumbsticks |
-| **Downloads** | BepInEx 5.4.23.5 for Windows x64 and the latest GloomhavenVR release ZIP |
+## 1. Open Desktop and find Gloomhaven
 
-<p align="center">
-  <img src="../img/divider-small.png" width="340" alt="">
-</p>
-
-## 1. Install the game and download the files
-
-1. Install **Gloomhaven** from your Steam library on the Frame, then switch to **Desktop Mode**.
-2. In Chrome or another installed browser, download **`BepInEx_win_x64_5.4.23.5.zip`** from the
-   [BepInEx release](https://github.com/BepInEx/BepInEx/releases/tag/v5.4.23.5).
-3. Download **`GloomhavenVR-<version>.zip`** from the
-   [latest mod release](https://github.com/McFredward/GloomhavenVR/releases/latest).
-
-Use the **Windows x64** BepInEx archive: Gloomhaven runs as a Windows game through Proton.
+On the Frame's bottom bar, open the **+** launcher and choose **Desktop**. Open **Dolphin**, the
+file manager. If hidden folders are not visible, open Dolphin's menu and choose **Show Hidden
+Files**, or press **Ctrl+H**. The two views below show those actions in order.
 
 <p align="center">
-  <img src="../img/divider-small.png" width="340" alt="">
+  <img src="../img/frame-install/01-desktop.jpg" width="780" alt="Top: choose Desktop from the Frame's + launcher. Bottom: choose Show Hidden Files in Dolphin.">
 </p>
 
-## 2. Extract both archives
-
-Open both ZIP files in **Dolphin** and extract their **contents** into:
+In Dolphin, open the folder containing `GH.exe`. In the default Steam library it is:
 
 ```text
 /home/steamos/.local/share/Steam/steamapps/common/Gloomhaven
 ```
 
-This is the folder containing `GH.exe`. Merge the `BepInEx` folders if Dolphin asks. If your
-Steam library is elsewhere, use **Gloomhaven → Manage → Browse local files** to find the correct
-folder. Dolphin hides `.local` by default; press **Ctrl+H** to show hidden folders.
+The screenshots show the equivalent `.steam/steam` path. If you use another Steam library, find
+the folder through **Gloomhaven → Manage → Browse local files** in Steam. Keep this Gloomhaven
+window open; both ZIP archives go into this same folder.
+The screenshots were taken during a reinstall, so some files are already present before copying.
 
-Check that these two folders now exist inside the Gloomhaven folder:
+## 2. Download and open the archives
 
-```text
-BepInEx/plugins/GloomhavenVR/
-BepInEx/patchers/GloomhavenVR/
-```
+In Chromium or another browser on the Frame, download:
+
+1. **`BepInEx_win_x64_5.4.23.5.zip`** from the
+   [BepInEx 5.4.23.5 release](https://github.com/BepInEx/BepInEx/releases/tag/v5.4.23.5).
+2. **`GloomhavenVR-<version>.zip`** from the
+   [latest GloomhavenVR release](https://github.com/McFredward/GloomhavenVR/releases/latest).
+
+The files should appear in **Downloads**. Open the BepInEx ZIP in Dolphin. If the Frame asks
+which app should open it, choose **Dolphin**, as shown here.
 
 <p align="center">
-  <img src="../img/divider-small.png" width="340" alt="">
+  <img src="../img/frame-install/02-open-zip.jpg" width="710" alt="Dolphin is selected in the Choose Application dialog for the BepInEx ZIP.">
 </p>
 
-## 3. Set up Steam
+## 3. Copy BepInEx into the game
 
-In Dolphin, open `BepInEx/plugins/GloomhavenVR/FrameSetup/` inside the Gloomhaven folder and
-double-click **`GloomhavenVR-Setup.desktop`**.
-Choose **Execute** if Dolphin asks. The setup configures the original game's BepInEx launch option,
-adds a separate **GloomhavenVR** entry to the VR library, installs its icon and library artwork, and prepares
-the game's rendering settings before the first VR launch. You do not need to change file permissions
-or edit Steam settings. Steam may restart to load the new entry. The original **Gloomhaven** entry
-stays flat; both entries use the same installed game, Steam account and Proton game profile.
+In the open BepInEx ZIP, select **everything inside the archive** (`Ctrl+A`). With controllers,
+you can use Dolphin's **Select Files and Folders** menu and select each item. Choose **Copy**
+from the context menu, switch to the Gloomhaven window with `GH.exe`, then choose **Paste**
+in an empty part of that folder. The upper image shows **Copy**; the lower one shows **Paste**.
 
-If your desktop does not offer Execute or setup cannot find `GH.exe` in a different Steam library,
-open a terminal in the Gloomhaven folder and run:
+<p align="center">
+  <img src="../img/frame-install/03-bepinex-copy.jpg" width="820" alt="Copy all files from the BepInEx ZIP, then paste them beside GH.exe in the Gloomhaven folder.">
+</p>
+
+The result includes `BepInEx/` and `winhttp.dll` beside `GH.exe`. Copy the archive's **contents**,
+not the ZIP file or an extra enclosing folder.
+
+## 4. Copy the mod into the same folder
+
+Open `GloomhavenVR-<version>.zip` in Dolphin. Select its three items — `BepInEx/`,
+`INSTALL.txt`, and `INSTALL-DEUTSCH.txt` — and copy them. Paste them into the **same Gloomhaven
+folder**. If Dolphin asks, merge the `BepInEx` folders and overwrite older mod files.
+
+<p align="center">
+  <img src="../img/frame-install/04-mod-copy.jpg" width="820" alt="Copy the BepInEx folder and two install texts from the GloomhavenVR ZIP, then paste them into the Gloomhaven folder.">
+</p>
+
+Check the result before running setup. The green paths in this diagram are the two mod folders
+and the setup file you need next.
+
+<p align="center">
+  <img src="../img/install-tree-frame-en.png" width="820" alt="The Gloomhaven folder contains GH.exe, BepInEx/plugins/GloomhavenVR/FrameSetup/GloomhavenVR-Setup.desktop, and BepInEx/patchers/GloomhavenVR/.">
+</p>
+
+## 5. Run the Frame setup
+
+In the Gloomhaven folder, open `BepInEx/plugins/GloomhavenVR/FrameSetup/` and double-click
+**`GloomhavenVR-Setup.desktop`**. Choose **Execute** if Dolphin asks. The screenshot shows the
+file selected in its folder.
+
+<p align="center">
+  <img src="../img/frame-install/05-setup.jpg" width="640" alt="GloomhavenVR-Setup.desktop selected in BepInEx/plugins/GloomhavenVR/FrameSetup/ in Dolphin.">
+</p>
+
+The setup configures BepInEx for the original Steam game and adds a separate **GloomhavenVR**
+entry with artwork to the VR library. Steam may restart to show the new entry. The original
+**Gloomhaven** entry remains available for flat play; both entries use the same installed game
+and saves. The setup also suggests a 3408-pixel per-eye SteamVR resolution if you have not
+chosen one already. Restart SteamVR if that new setting does not take effect at once.
+
+If Dolphin offers no **Execute** option or setup cannot find a different Steam library, open a
+terminal in the Gloomhaven folder and run:
 
 ```bash
-bash ./BepInEx/plugins/GloomhavenVR/FrameSetup/install-steam-frame.sh
+bash ./BepInEx/plugins/GloomhavenVR/FrameSetup/install-steam-frame.sh --game-path .
 ```
 
-Using `bash` also works if your ZIP extractor did not preserve executable permissions. If setup
-cannot update Steam, it reports which step failed and leaves the original Steam entry intact.
+## 6. Start the game
 
-The new entry is a local shortcut; it does not change Gloomhaven's Steamworks classification.
-Steam may still show the original game's per-app VR resolution settings only while GloomhavenVR
-is running. Set those settings in a running session if they are not listed before launch.
+Return to the Frame's game library and launch **GloomhavenVR**. You should see the VR menu and
+stand at the table. You can launch the original **Gloomhaven** entry for flat play.
 
-<p align="center">
-  <img src="../img/divider-small.png" width="340" alt="">
-</p>
-
-## 4. Start the game
-
-Launch **GloomhavenVR** for VR, or the original **Gloomhaven** entry for flat play. The setup
-prepares the rendering settings, so the first VR launch should open normally. When the mod loads,
-you should see the VR menu and stand at the table.
-
-For the first check, start the original entry once and confirm it stays flat. Then start the
-**GloomhavenVR** entry and confirm the VR menu appears. If the second entry starts flat, Steam
-did not forward `--gloomhavenvr`; keep `BepInEx/LogOutput.log` and report it. The shortcut is
-designed to fail closed: a lost flag must never make the original entry start VR.
-
-Your saves, campaign and settings are not touched. The mod backs up `GH_Data/boot.config` as
-`GH_Data/boot.config.gloomhavenvr-backup` before changing its rendering settings.
-
-<p align="center">
-  <img src="../img/divider-small.png" width="340" alt="">
-</p>
+Your saves and campaign remain in place. Before changing `GH_Data/boot.config`, the setup
+backs it up as `GH_Data/boot.config.gloomhavenvr-backup`.
 
 ## Updating
 
-When a newer release is available, the VR main menu offers an update. You can also download the
-new release ZIP and extract it into the same Gloomhaven folder, merging `BepInEx` again.
-All VR players in a multiplayer session need the same mod build.
-
-<p align="center">
-  <img src="../img/divider-small.png" width="340" alt="">
-</p>
+When a newer release is available, the VR main menu offers an update. You can also extract the
+new release ZIP into the same Gloomhaven folder and merge `BepInEx` again. All VR players in a
+multiplayer session need the same mod build.
 
 ## Troubleshooting
 
 | What you see | What to do |
 |---|---|
-| GloomhavenVR does not appear in Steam | Run `BepInEx/plugins/GloomhavenVR/FrameSetup/GloomhavenVR-Setup.desktop` again. Keep the setup output if it reports an error. |
-| The mod does not load from GloomhavenVR | Rerun setup. Check the two `BepInEx` folders and `BepInEx/patchers/GloomhavenVR/frame-launch-opt-in.marker`. Look for `BepInEx/LogOutput.log` after a launch. |
-| The original Gloomhaven entry opens VR | Remove `--gloomhavenvr` from that entry's launch options, then run `GloomhavenVR-Setup.desktop` again. |
-| GloomhavenVR opens flat | Steam may not have forwarded the VR flag. Check that the shortcut targets `launch-steam-frame.sh`, then keep `BepInEx/LogOutput.log` for a report. |
-| The first VR launch closes | Start GloomhavenVR a second time. Keep `BepInEx/LogOutput.log` for a report if it closes again. |
-| The game will not start | Copy `GH_Data/boot.config.gloomhavenvr-backup` over `GH_Data/boot.config`. |
-| The helper reports `bash\r: No such file or directory` | Extract the latest mod ZIP again. Its SteamOS launchers have Unix line endings. |
+| GloomhavenVR is missing from Steam | Run `GloomhavenVR-Setup.desktop` again. Steam may need to restart. |
+| Dolphin does not offer **Execute** | Use the terminal command in step 5. |
+| The mod does not load | Check the two green mod folders in the diagram, then run setup again. |
+| GloomhavenVR starts flat or closes | Keep `BepInEx/LogOutput.log` from that launch and report the problem. |
+| The game no longer starts | Restore `GH_Data/boot.config` from `GH_Data/boot.config.gloomhavenvr-backup`. |
 
-To report a setup problem, keep `BepInEx/plugins/GloomhavenVR/FrameSetup/steam-frame-setup.log`.
-For an in-game problem, keep `BepInEx/LogOutput.log` from the affected run and describe what you
-were doing. For a reproducible issue, set `[General] LogLevel = Debug` in
-`BepInEx/config/dev.gloomhavenvr.cfg`, then reproduce it for a more detailed log.
-
-<p align="center">
-  <img src="../img/divider-small.png" width="340" alt="">
-</p>
+For a setup problem, keep `BepInEx/plugins/GloomhavenVR/FrameSetup/steam-frame-setup.log`.
+For an in-game problem, keep `BepInEx/LogOutput.log` from the affected run and describe what
+you were doing.
 
 ## Uninstall
 
-Remove the **GloomhavenVR** non-Steam shortcut in Steam. Delete
-`/home/steamos/.local/share/GloomhavenVR/`, `BepInEx/plugins/GloomhavenVR/` and
+Remove the **GloomhavenVR** shortcut from Steam. Delete
+`/home/steamos/.local/share/GloomhavenVR/`, `BepInEx/plugins/GloomhavenVR/`, and
 `BepInEx/patchers/GloomhavenVR/`. Restore `GH_Data/boot.config` from
-`boot.config.gloomhavenvr-backup` if that backup exists. Remove the original game's
-`WINEDLLOVERRIDES` launch option from the original game's Steam properties if you also remove
-BepInEx.
+`boot.config.gloomhavenvr-backup` if that backup exists. If you also remove BepInEx, remove
+its `WINEDLLOVERRIDES` launch option from the original game's Steam properties.
