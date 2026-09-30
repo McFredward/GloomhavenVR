@@ -12,6 +12,17 @@ EOF
 }
 
 script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
+setup_log="$script_dir/steam-frame-setup.log"
+if [[ -f "$setup_log" ]]; then
+    mv -f -- "$setup_log" "$setup_log.previous"
+fi
+if ! : > "$setup_log"; then
+    echo "error: cannot write Steam Frame setup log: $setup_log" >&2
+    exit 1
+fi
+exec > >(tee -a "$setup_log") 2>&1
+echo "==== GloomhavenVR Steam Frame setup: $(date -Is) ===="
+echo "Setup helper: $script_dir/install-steam-frame.sh"
 game_dir=""
 steam_root=""
 dry_run=false
@@ -69,6 +80,7 @@ on_exit() {
         printf '\nPress Enter to close this window...'
         read -r _ || true
     fi
+    echo "Setup exit status: $status; log: $setup_log"
     return "$status"
 }
 trap on_exit EXIT
@@ -132,6 +144,11 @@ Steam shortcut target: $launcher
 Steam logo: $destination/GloomhavenVR-steam-logo.png
 Steam icon: $destination/GloomhavenVR-steam-icon.png
 EOF
+if steam_client_alive; then
+    echo 'Steam client before setup: running'
+else
+    echo 'Steam client before setup: stopped'
+fi
 
 if $dry_run; then
     echo 'Dry run: no files changed.'
@@ -212,10 +229,38 @@ else
     echo 'Steam configuration already correct; no Steam restart needed.'
 fi
 
+steam_restarted=false
 if $steam_stopped; then
     echo 'Restarting Steam...'
     nohup steam -silent >/dev/null 2>&1 </dev/null &
     steam_stopped=false
+    steam_restarted=true
+    for ((attempt = 0; attempt < 15; attempt++)); do
+        steam_client_alive && break
+        sleep 1
+    done
+fi
+if $steam_restarted && steam_client_alive; then
+    sleep 3
+fi
+if steam_client_alive; then
+    echo 'Steam client after setup: running'
+else
+    echo 'Steam client after setup: not yet running'
+fi
+echo 'Steam configuration readback:'
+python3 "$steam_helper" --game-path "$game_dir" --launcher "$launcher" \
+    --icon "$destination/GloomhavenVR-steam-icon.png" \
+    --logo "$destination/GloomhavenVR-steam-logo.png" \
+    "${steam_root_args[@]}" --dry-run
+readback_changes="$(python3 "$steam_helper" --game-path "$game_dir" --launcher "$launcher" \
+    --icon "$destination/GloomhavenVR-steam-icon.png" \
+    --logo "$destination/GloomhavenVR-steam-logo.png" \
+    "${steam_root_args[@]}" --needs-update)"
+echo "Steam configuration after restart needs repair: $readback_changes"
+if [[ "$readback_changes" != no ]]; then
+    echo 'error: Steam-side files differ from the expected setup state after startup; inspect this log before retrying' >&2
+    exit 1
 fi
 # Archives before the nested setup layout placed these owned helpers directly in
 # the game root. Extraction never deletes old files, so retire them after the
@@ -229,4 +274,4 @@ if [[ "$script_dir" == "$game_dir/BepInEx/plugins/GloomhavenVR/FrameSetup" ]]; t
         fi
     done
 fi
-echo 'GloomhavenVR is ready in the Steam VR library. The original Gloomhaven entry remains flat.'
+echo 'Steam configuration is present on disk. Check the library for GloomhavenVR; the original Gloomhaven entry remains flat.'

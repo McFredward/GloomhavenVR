@@ -130,7 +130,8 @@ All VR players in a multiplayer session need the same mod build.
 | The game will not start | Copy `GH_Data/boot.config.gloomhavenvr-backup` over `GH_Data/boot.config`. |
 | The helper reports `bash\r: No such file or directory` | Extract the latest mod ZIP again. Its SteamOS launchers have Unix line endings. |
 
-To report a problem, keep `BepInEx/LogOutput.log` from the affected run and describe what you
+To report a setup problem, keep `BepInEx/plugins/GloomhavenVR/FrameSetup/steam-frame-setup.log`.
+For an in-game problem, keep `BepInEx/LogOutput.log` from the affected run and describe what you
 were doing. For a reproducible issue, set `[General] LogLevel = Debug` in
 `BepInEx/config/dev.gloomhavenvr.cfg`, then reproduce it for a more detailed log.
 

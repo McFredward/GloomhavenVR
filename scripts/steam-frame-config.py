@@ -546,6 +546,9 @@ def main(argv: list[str] | None = None) -> int:
             for destination, data in changed:
                 backup_and_replace(destination, data)
         print(f"Steam account: {account.name}")
+        print(f"Steam shortcuts file: {shortcuts}")
+        print(f"GloomhavenVR shortcut before this check: {'current' if new_shortcuts == old_shortcuts else 'missing or stale'}")
+        print(f"Gloomhaven launch options before this check: {'current' if new_local == old_local else 'missing or stale'}")
         print(f"GloomhavenVR shortcut AppID: {appid}")
         print(f"Steam configuration {'would change' if args.dry_run else 'changed'}: {len(changed)} file(s)")
         print(f"Steam restart required: {'yes' if changed else 'no'}")

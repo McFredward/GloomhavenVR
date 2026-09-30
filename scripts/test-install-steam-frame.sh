@@ -84,6 +84,13 @@ else
 fi
 
 [[ -f "$marker" && -x "$launcher" && -f "$shortcuts" ]]
+for ((attempt = 0; attempt < 50; attempt++)); do
+    rg -q 'Steam configuration after restart needs repair: no' "$setup/steam-frame-setup.log" 2>/dev/null && break
+    sleep 0.1
+done
+rg -q 'Steam configuration after restart needs repair: no' "$setup/steam-frame-setup.log"
+rg -q 'GloomhavenVR shortcut before this check: current' "$setup/steam-frame-setup.log"
+[[ -f "$setup/steam-frame-setup.log.previous" ]]
 for obsolete in "${legacy[@]}"; do
     [[ ! -e "$game/$obsolete" ]]
 done
@@ -128,6 +135,9 @@ case "$1" in
         ;;
     -silent)
         printf 'restart\n' >> "$HOME/steam-setup-calls"
+        if [[ -f "$HOME/fake-steam-drop-shortcut" ]]; then
+            find "$XDG_DATA_HOME/Steam/userdata" -name shortcuts.vdf -type f -delete
+        fi
         : > "$HOME/fake-steam-running"
         ;;
     *)
@@ -160,6 +170,18 @@ cmp -s "$HOME/steam-setup-calls" "$scratch/expected-setup-calls"
 PATH="$scratch/bin:$PATH" "$launcher"
 printf '%s\n' -applaunch 780290 --gloomhavenvr > "$scratch/expected-args"
 cmp -s "$HOME/steam-args" "$scratch/expected-args"
+
+# If Steam discards the shortcut during startup, setup must leave a useful log
+# and refuse to report success. The previous log stays available for comparison.
+find "$account/grid" -maxdepth 1 -type f -name '*_logo.png' -delete
+: > "$HOME/fake-steam-drop-shortcut"
+if PATH="$scratch/bin:$PATH" bash "$setup/install-steam-frame.sh" > "$scratch/drop.log" 2>&1; then
+    echo 'error: installer reported success after Steam removed its shortcut' >&2
+    exit 1
+fi
+rg -q 'Steam configuration after restart needs repair: yes' "$setup/steam-frame-setup.log"
+rg -q 'Setup exit status: 1' "$setup/steam-frame-setup.log"
+[[ -f "$setup/steam-frame-setup.log.previous" ]]
 
 rm -f -- "$game/BepInEx/patchers/GloomhavenVR/GloomhavenVR.Preload.dll"
 if bash "$setup/install-steam-frame.sh" > /dev/null 2>&1; then

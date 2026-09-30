@@ -137,7 +137,8 @@ neue Release-ZIP herunterladen und wieder in denselben Gloomhaven-Ordner entpack
 | Das Spiel startet nicht mehr | Kopiere `GH_Data/boot.config.gloomhavenvr-backup` über `GH_Data/boot.config`. |
 | Das Hilfsskript meldet `bash\r: No such file or directory` | Entpacke das aktuelle Mod-ZIP erneut. Dessen SteamOS-Starter haben Unix-Zeilenenden. |
 
-Für eine Fehlermeldung bewahre `BepInEx/LogOutput.log` vom betroffenen Durchlauf auf und
+Für ein Setup-Problem bewahre `BepInEx/plugins/GloomhavenVR/FrameSetup/steam-frame-setup.log` auf.
+Für ein Problem im Spiel bewahre `BepInEx/LogOutput.log` vom betroffenen Durchlauf auf und
 beschreibe, was du gerade gemacht hast. Bei einem reproduzierbaren Problem setz
 `[General] LogLevel = Debug` in `BepInEx/config/dev.gloomhavenvr.cfg` und wiederhole es für
 ein genaueres Log.

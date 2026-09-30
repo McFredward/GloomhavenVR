@@ -153,3 +153,16 @@ The first CI run also found that some desktop launchers omit `%k`; the old
 working-directory fallback then selected an obsolete root helper left by a
 previous extraction. The desktop entry now falls back directly to the nested
 Steam library path, never to an unverified root-level helper.
+
+## Frame setup diagnostics (2026-09-30)
+
+The first Frame hardware setup restarted Steam but the owner saw only the
+original Gloomhaven entry. Synthetic tests prove that our binary
+`shortcuts.vdf` writer and desktop launcher run, not that the actual Frame Steam
+client accepts and displays the shortcut. `install-steam-frame.sh` now writes a
+bounded `FrameSetup/steam-frame-setup.log` (one previous run retained). It logs
+the selected account, shortcut path and AppID, Steam process lifecycle, and a
+read-only configuration check after restart. A changed or removed shortcut
+after restart is reported as a setup failure rather than claiming the VR entry
+is ready. A synthetic negative control simulates Steam deleting the shortcut.
+The next Frame log will distinguish file loss from a Steam UI/load issue.
