@@ -55,13 +55,16 @@ internal static class SelfUpdateZip
     /// checks "is anything else there" agree on every zip except the one that changed.</para>
     ///
     /// <para>A SET RATHER THAN A SECOND CONSTANT, because the next translated INSTALL file must be
-    /// one line here and not a third code path. Order is irrelevant; the lookup is a short linear
-    /// scan over two entries on a path that runs once per downloaded archive.</para>
+    /// one line here and not a third code path. The Steam Frame setup launcher also lives at
+    /// the archive root so a player can start it after extracting the release into the game
+    /// folder. Order is irrelevant; the lookup is a short linear scan on a path that runs once
+    /// per downloaded archive.</para>
     /// </summary>
     internal static readonly string[] AllowedRootFiles =
     {
         "INSTALL.txt",
         "INSTALL-DEUTSCH.txt",
+        "GloomhavenVR-Setup.desktop",
     };
 
     /// <summary>Is <paramref name="name"/> one of the root files a release zip may carry?</summary>
@@ -399,5 +402,6 @@ internal static class SelfUpdateZip
     }
 
     private static Stream EntryOpen(object entry) =>
-        (Stream)_open!.Invoke(entry, Array.Empty<object>());
+        _open!.Invoke(entry, Array.Empty<object>()) as Stream
+        ?? throw new InvalidOperationException("ZipArchiveEntry.Open did not return a stream");
 }

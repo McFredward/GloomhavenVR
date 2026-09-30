@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="../../src/GloomhavenVR/Core/SelfUpdate/SelfUpdateZip.cs" Link="Production/SelfUpdateZip.cs" />
+    <Compile Include="../../src/GloomhavenVR/Core/SelfUpdate/SelfUpdateApplyScript.cs" Link="Production/SelfUpdateApplyScript.cs" />
+  </ItemGroup>
+</Project>

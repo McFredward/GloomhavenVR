@@ -154,6 +154,18 @@ internal static class SelfUpdateApplyScript
         // sibling, so a zip built before the German file existed still applies cleanly.
         sb.Append("if exist \"%HERE%staged\\INSTALL.txt\" copy /Y \"%HERE%staged\\INSTALL.txt\" \"%ROOT%\\INSTALL.txt\" >>\"%LOG%\" 2>&1\r\n");
         sb.Append("if exist \"%HERE%staged\\INSTALL-DEUTSCH.txt\" copy /Y \"%HERE%staged\\INSTALL-DEUTSCH.txt\" \"%ROOT%\\INSTALL-DEUTSCH.txt\" >>\"%LOG%\" 2>&1\r\n");
+        // The release's one-click Steam Frame launcher is a root entry too. Older releases
+        // predate it, so its absence must not block an otherwise valid update.
+        sb.Append("if exist \"%HERE%staged\\GloomhavenVR-Setup.desktop\" copy /Y \"%HERE%staged\\GloomhavenVR-Setup.desktop\" \"%ROOT%\\GloomhavenVR-Setup.desktop\" >>\"%LOG%\" 2>&1\r\n");
+        // Older release archives placed these five Frame support files at the game root.
+        // The new archive keeps them inside the mod folder; remove only those exact,
+        // mod-owned legacy paths after the new BepInEx tree installed successfully. Never
+        // run this cleanup from the rollback branch or delete other game-root files.
+        sb.Append("if exist \"%ROOT%\\install-steam-frame.sh\" del /q \"%ROOT%\\install-steam-frame.sh\" >>\"%LOG%\" 2>&1\r\n");
+        sb.Append("if exist \"%ROOT%\\steam-frame-config.py\" del /q \"%ROOT%\\steam-frame-config.py\" >>\"%LOG%\" 2>&1\r\n");
+        sb.Append("if exist \"%ROOT%\\frame-boot-config.py\" del /q \"%ROOT%\\frame-boot-config.py\" >>\"%LOG%\" 2>&1\r\n");
+        sb.Append("if exist \"%ROOT%\\GloomhavenVR-steam-logo.png\" del /q \"%ROOT%\\GloomhavenVR-steam-logo.png\" >>\"%LOG%\" 2>&1\r\n");
+        sb.Append("if exist \"%ROOT%\\GloomhavenVR-steam-icon.png\" del /q \"%ROOT%\\GloomhavenVR-steam-icon.png\" >>\"%LOG%\" 2>&1\r\n");
         sb.Append($"echo OK: installed {version} >>\"%LOG%\"\r\n");
         sb.Append("goto relaunch\r\n");
         sb.Append("\r\n");
