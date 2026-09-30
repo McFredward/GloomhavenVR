@@ -64,51 +64,27 @@ BepInEx/patchers/GloomhavenVR/
   <img src="docs/img/divider-small.png" width="340" alt="">
 </p>
 
-## 3. Den ursprünglichen Steam-Start beibehalten
-
-Behalte beim ursprünglichen Eintrag **Gloomhaven** unter **Eigenschaften → Allgemein →
-Startoptionen** Folgendes bei:
-
-```text
-WINEDLLOVERRIDES="winhttp=n,b" %command%
-```
-
-Füge beim ursprünglichen Eintrag kein `--gloomhavenvr` hinzu. Nach dem nächsten Schritt startet
-er das Flat-Spiel. Der separate Eintrag **GloomhavenVR** startet VR. Beide nutzen dieselbe
-Spielinstallation, denselben Steam-Account und dasselbe Proton-Spielprofil.
-
-<p align="center">
-  <img src="docs/img/divider-small.png" width="340" alt="">
-</p>
-
-## 4. GloomhavenVR zur VR-Bibliothek hinzufügen
+## 3. Steam einrichten
 
 Öffne den Gloomhaven-Ordner in Dolphin und doppelklicke auf
-**`GloomhavenVR-Setup.desktop`**. Falls Dolphin nachfragt, wähle **Ausführen**. Das Terminal bleibt
-mit den Anweisungen geöffnet; du musst keine Dateiberechtigungen ändern. Bietet dein Desktop
-kein Ausführen an oder findet die Einrichtung `GH.exe` in einer anderen Steam-Bibliothek nicht,
-öffne im Gloomhaven-Ordner ein Terminal und gib ein:
+**`GloomhavenVR-Setup.desktop`**. Falls Dolphin nachfragt, wähle **Ausführen**. Das Setup richtet
+die BepInEx-Startoption des Originalspiels ein, erstellt einen separaten Eintrag **GloomhavenVR**
+in der VR-Bibliothek, fügt Symbol und Logo hinzu und bereitet die Rendering-Einstellungen vor dem
+ersten VR-Start vor. Du musst weder Dateiberechtigungen noch Steam-Einstellungen selbst ändern.
+Steam wird möglicherweise neu gestartet, um den neuen Eintrag zu laden. Der ursprüngliche Eintrag
+**Gloomhaven** bleibt flat; beide Einträge verwenden dieselbe Spielinstallation, denselben
+Steam-Account und dasselbe Proton-Spielprofil.
+
+Bietet dein Desktop kein Ausführen an oder findet die Einrichtung `GH.exe` in einer anderen
+Steam-Bibliothek nicht, öffne im Gloomhaven-Ordner ein Terminal und gib ein:
 
 ```bash
 bash ./install-steam-frame.sh
 ```
 
-Starte das Hilfsskript im Terminal mit `bash`, nicht mit `./install-steam-frame.sh`. So funktioniert
-es auch, falls das Entpackprogramm die Ausführungsberechtigung nicht erhalten hat.
-
-Das erstellt die Frame-spezifische VR-Freigabe und einen kleinen Starter im Home-Ordner. Die
-Steam-Konfiguration wird dabei nicht verändert. Wähle in Steam im Desktop-Modus **Spiele →
-Steam-fremdes Spiel hinzufügen → Durchsuchen** und wähle den vom Skript ausgegebenen Starterpfad
-(normalerweise `/home/steamos/.local/share/GloomhavenVR/launch-steam-frame.sh`). Benenne den
-neuen Eintrag exakt **GloomhavenVR**. Aktiviere in seinen Eigenschaften **In VR-Bibliothek
-aufnehmen**. Erzwinge für diesen Starter kein Proton: Er startet das ursprüngliche Steam-Spiel
-mit dessen bestehender Proton-Einstellung.
-
-Wähle als Symbol für den neuen Eintrag die ausgegebene Datei `GloomhavenVR-steam-icon.png`.
-Auf seiner Bibliotheksseite kannst du `GloomhavenVR-steam-logo.png` als eigenes Logo festlegen.
-Beide sind vorhandene Mod-Grafiken, die das Skript in deinen Home-Ordner kopiert; dadurch bleiben
-sie auch nach einem Spielupdate erhalten. Sollte Steam eine Grafik nicht übernehmen, funktioniert
-der Starter auch ohne eigenes Bild.
+Mit `bash` funktioniert es auch, falls das Entpackprogramm die Ausführungsberechtigung nicht
+erhalten hat. Falls das Setup Steam nicht aktualisieren kann, nennt es den fehlgeschlagenen Schritt
+und lässt den ursprünglichen Steam-Eintrag intakt.
 
 Der neue Eintrag ist eine lokale Verknüpfung und ändert die Steamworks-Einstufung des
 Originalspiels nicht. Steam zeigt dessen VR-Auflösungseinstellungen möglicherweise weiterhin
@@ -119,13 +95,11 @@ laufenden Spiels für Gloomhaven ein.
   <img src="docs/img/divider-small.png" width="340" alt="">
 </p>
 
-## 5. Spiel starten
+## 4. Spiel starten
 
-Starte **GloomhavenVR** für VR oder den ursprünglichen Eintrag **Gloomhaven** für Flat. Beim
-ersten VR-Start kann das Spiel geschlossen werden, während die Mod ihre Rendering-Einstellungen
-übernimmt. Der automatische Neustart klappt auf der Frame möglicherweise nicht; wenn sich das
-Spiel schließt, **starte GloomhavenVR selbst ein zweites Mal**. Wenn die Mod geladen ist, solltest
-du das VR-Menü sehen und am Tisch stehen.
+Starte **GloomhavenVR** für VR oder den ursprünglichen Eintrag **Gloomhaven** für Flat. Das Setup
+bereitet die Rendering-Einstellungen vor, sodass der erste VR-Start normalerweise direkt
+funktioniert. Wenn die Mod geladen ist, solltest du das VR-Menü sehen und am Tisch stehen.
 
 Prüfe zuerst mit einem Start des ursprünglichen Eintrags, dass er flat bleibt. Starte danach
 **GloomhavenVR** und prüfe, ob das VR-Menü erscheint. Wenn der zweite Eintrag flat startet, hat
@@ -155,10 +129,11 @@ neue Release-ZIP herunterladen und wieder in denselben Gloomhaven-Ordner entpack
 
 | Was du siehst | Was du machst |
 |---|---|
-| Die Mod wird über GloomhavenVR nicht geladen | Prüf die Startoption des Originalspiels, die beiden `BepInEx`-Ordner und `BepInEx/patchers/GloomhavenVR/frame-launch-opt-in.marker`. Such nach einem Start nach `BepInEx/LogOutput.log`. |
+| GloomhavenVR erscheint nicht in Steam | Führe `bash ./install-steam-frame.sh` im Gloomhaven-Ordner erneut aus. Bewahre die Ausgabe auf, falls ein Fehler gemeldet wird. |
+| Die Mod wird über GloomhavenVR nicht geladen | Führe das Setup erneut aus. Prüf die beiden `BepInEx`-Ordner und `BepInEx/patchers/GloomhavenVR/frame-launch-opt-in.marker`. Such nach einem Start nach `BepInEx/LogOutput.log`. |
 | Der ursprüngliche Gloomhaven-Eintrag startet VR | Entferne `--gloomhavenvr` aus dessen Startoptionen und führe `bash ./install-steam-frame.sh` erneut aus. |
 | GloomhavenVR startet flat | Steam hat das VR-Argument möglicherweise nicht weitergereicht. Prüfe, ob die Verknüpfung auf `launch-steam-frame.sh` zeigt, und bewahre `BepInEx/LogOutput.log` für eine Fehlermeldung auf. |
-| Der erste VR-Start schließt sich | Starte GloomhavenVR selbst ein zweites Mal. |
+| Der erste VR-Start schließt sich | Starte GloomhavenVR ein zweites Mal. Falls es erneut schließt, bewahre `BepInEx/LogOutput.log` für eine Fehlermeldung auf. |
 | Das Spiel startet nicht mehr | Kopiere `GH_Data/boot.config.gloomhavenvr-backup` über `GH_Data/boot.config`. |
 | Das Hilfsskript meldet `bash\r: No such file or directory` | Entpacke das aktuelle Mod-ZIP erneut. Dessen SteamOS-Starter haben Unix-Zeilenenden. Bei einem älteren Archiv kannst du im Gloomhaven-Ordner `sed -i 's/\r$//' install-steam-frame.sh` ausführen und danach `bash ./install-steam-frame.sh`. |
 
@@ -177,4 +152,5 @@ Entferne die Steam-fremde Verknüpfung **GloomhavenVR**. Lösch
 `/home/steamos/.local/share/GloomhavenVR/`, `BepInEx/plugins/GloomhavenVR/` und
 `BepInEx/patchers/GloomhavenVR/`. Stell `GH_Data/boot.config` aus
 `boot.config.gloomhavenvr-backup` wieder her, falls das Backup vorhanden ist. Entferne die
-`WINEDLLOVERRIDES`-Startoption des Originalspiels, wenn du auch BepInEx entfernst.
+`WINEDLLOVERRIDES`-Startoption in den Steam-Eigenschaften des Originalspiels, wenn du auch
+BepInEx entfernst.

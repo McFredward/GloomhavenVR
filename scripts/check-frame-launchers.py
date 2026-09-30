@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Verify that SteamOS can execute the Frame helpers from a release ZIP."""
 
+import ast
 import stat
 import sys
 import zipfile
@@ -30,7 +31,22 @@ def main() -> int:
                 print(f"error: {name} lacks executable Unix ZIP permissions", file=sys.stderr)
                 return 1
 
-    print("Steam Frame launchers: LF and executable ZIP permissions verified.")
+        for name in ("steam-frame-config.py", "frame-boot-config.py"):
+            try:
+                helper = archive.read(name)
+            except KeyError:
+                print(f"error: missing {name}", file=sys.stderr)
+                return 1
+            if b"\r" in helper or helper.startswith(b"\xef\xbb\xbf"):
+                print(f"error: {name} needs plain UTF-8 and LF line endings", file=sys.stderr)
+                return 1
+            try:
+                ast.parse(helper.decode("utf-8"), filename=name)
+            except (SyntaxError, UnicodeDecodeError) as error:
+                print(f"error: invalid {name}: {error}", file=sys.stderr)
+                return 1
+
+    print("Steam Frame setup: launchers, configuration helper and ZIP permissions verified.")
     return 0
 
 

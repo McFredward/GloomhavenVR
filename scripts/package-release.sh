@@ -185,10 +185,13 @@ done
 stage_text "$TEMPLATE"    "$STAGE/INSTALL.txt"
 stage_text "$TEMPLATE_DE" "$STAGE/INSTALL-DEUTSCH.txt"
 
-# The Frame helper and KDE launcher must survive even a Windows CRLF checkout.
-# Unlike the Windows-readable .txt files above, they need LF and executable ZIP modes.
+# The Frame helper, its Steam configuration helper, and KDE launcher must survive
+# even a Windows CRLF checkout. Unlike the Windows-readable .txt files above,
+# these need LF; the shell and desktop launchers also need executable ZIP modes.
 # The opt-in marker is never included: extraction on a PC stays unaffected.
 sed 's/\r$//' "$ROOT/scripts/install-steam-frame.sh" > "$STAGE/install-steam-frame.sh"
+sed 's/\r$//' "$ROOT/scripts/steam-frame-config.py" > "$STAGE/steam-frame-config.py"
+sed 's/\r$//' "$ROOT/scripts/frame-boot-config.py" > "$STAGE/frame-boot-config.py"
 sed 's/\r$//' "$ROOT/GloomhavenVR-Setup.desktop" > "$STAGE/GloomhavenVR-Setup.desktop"
 chmod 0755 "$STAGE/install-steam-frame.sh" "$STAGE/GloomhavenVR-Setup.desktop"
 cp "$ROOT/src/GloomhavenVR/Assets/GloomhavenVR_logo.png" "$STAGE/GloomhavenVR-steam-logo.png"
@@ -233,6 +236,8 @@ for path in \
     "INSTALL.txt" \
     "INSTALL-DEUTSCH.txt" \
     "install-steam-frame.sh" \
+    "steam-frame-config.py" \
+    "frame-boot-config.py" \
     "GloomhavenVR-Setup.desktop" \
     "GloomhavenVR-steam-logo.png" \
     "GloomhavenVR-steam-icon.png"; do

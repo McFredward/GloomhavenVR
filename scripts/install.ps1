@@ -557,6 +557,10 @@ if (-not $NoPackage) {
     # helper and existing art in a PC-built archive does not alter PC launches.
     Write-UnixLauncher (Join-Path $root "scripts\install-steam-frame.sh") `
                        (Join-Path $stage "install-steam-frame.sh")
+    Write-UnixLauncher (Join-Path $root "scripts\steam-frame-config.py") `
+                       (Join-Path $stage "steam-frame-config.py")
+    Write-UnixLauncher (Join-Path $root "scripts\frame-boot-config.py") `
+                       (Join-Path $stage "frame-boot-config.py")
     Write-UnixLauncher (Join-Path $root "GloomhavenVR-Setup.desktop") `
                        (Join-Path $stage "GloomhavenVR-Setup.desktop")
     Copy-Item -LiteralPath (Join-Path $root "src\GloomhavenVR\Assets\GloomhavenVR_logo.png") `
@@ -585,6 +589,8 @@ if (-not $NoPackage) {
         "INSTALL.txt",
         "INSTALL-DEUTSCH.txt",
         "install-steam-frame.sh",
+        "steam-frame-config.py",
+        "frame-boot-config.py",
         "GloomhavenVR-Setup.desktop",
         "GloomhavenVR-steam-logo.png",
         "GloomhavenVR-steam-icon.png")

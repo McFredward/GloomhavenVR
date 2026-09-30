@@ -62,48 +62,24 @@ BepInEx/patchers/GloomhavenVR/
   <img src="docs/img/divider-small.png" width="340" alt="">
 </p>
 
-## 3. Keep the original Steam launch
-
-For the original **Gloomhaven** entry, keep this in **Properties → General → Launch Options**:
-
-```text
-WINEDLLOVERRIDES="winhttp=n,b" %command%
-```
-
-Do not add `--gloomhavenvr` to the original entry. The Frame setup in the next step makes that
-entry launch the flat game, while a separate **GloomhavenVR** entry starts VR. Both entries use
-the same installed game, Steam account and Proton game profile.
-
-<p align="center">
-  <img src="docs/img/divider-small.png" width="340" alt="">
-</p>
-
-## 4. Add GloomhavenVR to the VR library
+## 3. Set up Steam
 
 In Dolphin, open the Gloomhaven folder and double-click **`GloomhavenVR-Setup.desktop`**.
-Choose **Execute** if Dolphin asks. The setup opens a terminal and keeps its instructions visible;
-you do not need to change file permissions. If your desktop does not offer Execute or setup cannot
-find `GH.exe` in a different Steam library, open a terminal in the Gloomhaven folder and run:
+Choose **Execute** if Dolphin asks. The setup configures the original game's BepInEx launch option,
+adds a separate **GloomhavenVR** entry to the VR library, installs its icon and logo, and prepares
+the game's rendering settings before the first VR launch. You do not need to change file permissions
+or edit Steam settings. Steam may restart to load the new entry. The original **Gloomhaven** entry
+stays flat; both entries use the same installed game, Steam account and Proton game profile.
+
+If your desktop does not offer Execute or setup cannot find `GH.exe` in a different Steam library,
+open a terminal in the Gloomhaven folder and run:
 
 ```bash
 bash ./install-steam-frame.sh
 ```
 
-Use `bash`, not `./install-steam-frame.sh`, when running the helper directly: this also works if
-your ZIP extractor did not preserve its executable permission.
-
-This creates the Frame-only VR opt-in file and a small launcher in your home folder. It does not
-edit Steam's configuration. In Steam Desktop Mode, choose **Games → Add a Non-Steam Game → Browse**
-and select the launcher's path printed by the script (normally
-`/home/steamos/.local/share/GloomhavenVR/launch-steam-frame.sh`). Name the new entry exactly
-**GloomhavenVR**. In its properties, enable **Include in VR Library**. Do not force a Proton
-compatibility tool for this launcher: it starts the original Steam game, which uses its own
-existing Proton setting.
-
-For the new entry's icon, select the printed `GloomhavenVR-steam-icon.png` in its properties.
-On its library page, set the custom logo to the printed `GloomhavenVR-steam-logo.png`. Both are
-existing mod artwork copied into your home folder so they survive a game update. If Steam's
-artwork picker does not keep a selection, the launcher still works without custom artwork.
+Using `bash` also works if your ZIP extractor did not preserve executable permissions. If setup
+cannot update Steam, it reports which step failed and leaves the original Steam entry intact.
 
 The new entry is a local shortcut; it does not change Gloomhaven's Steamworks classification.
 Steam may still show the original game's per-app VR resolution settings only while GloomhavenVR
@@ -113,11 +89,10 @@ is running. Set those settings in a running session if they are not listed befor
   <img src="docs/img/divider-small.png" width="340" alt="">
 </p>
 
-## 5. Start the game
+## 4. Start the game
 
-Launch **GloomhavenVR** for VR, or the original **Gloomhaven** entry for flat play. The first VR
-launch may close while the mod applies its rendering settings. Automatic relaunch may not work
-on the Frame; if the game closes, **start GloomhavenVR again manually**. When the mod loads,
+Launch **GloomhavenVR** for VR, or the original **Gloomhaven** entry for flat play. The setup
+prepares the rendering settings, so the first VR launch should open normally. When the mod loads,
 you should see the VR menu and stand at the table.
 
 For the first check, start the original entry once and confirm it stays flat. Then start the
@@ -146,10 +121,11 @@ All VR players in a multiplayer session need the same mod build.
 
 | What you see | What to do |
 |---|---|
-| The mod does not load from GloomhavenVR | Check the original game's launch option, the two `BepInEx` folders, and `BepInEx/patchers/GloomhavenVR/frame-launch-opt-in.marker`. Look for `BepInEx/LogOutput.log` after a launch. |
+| GloomhavenVR does not appear in Steam | Run `bash ./install-steam-frame.sh` again in the Gloomhaven folder. Keep the setup output if it reports an error. |
+| The mod does not load from GloomhavenVR | Rerun setup. Check the two `BepInEx` folders and `BepInEx/patchers/GloomhavenVR/frame-launch-opt-in.marker`. Look for `BepInEx/LogOutput.log` after a launch. |
 | The original Gloomhaven entry opens VR | Remove `--gloomhavenvr` from that entry's launch options, then rerun `bash ./install-steam-frame.sh`. |
 | GloomhavenVR opens flat | Steam may not have forwarded the VR flag. Check that the shortcut targets `launch-steam-frame.sh`, then keep `BepInEx/LogOutput.log` for a report. |
-| The first VR launch closes | Start GloomhavenVR a second time manually. |
+| The first VR launch closes | Start GloomhavenVR a second time. Keep `BepInEx/LogOutput.log` for a report if it closes again. |
 | The game will not start | Copy `GH_Data/boot.config.gloomhavenvr-backup` over `GH_Data/boot.config`. |
 | The helper reports `bash\r: No such file or directory` | Extract the latest mod ZIP again. Its SteamOS launchers have Unix line endings. With an older archive, run `sed -i 's/\r$//' install-steam-frame.sh` in the Gloomhaven folder, then `bash ./install-steam-frame.sh`. |
 
@@ -167,4 +143,5 @@ Remove the **GloomhavenVR** non-Steam shortcut in Steam. Delete
 `/home/steamos/.local/share/GloomhavenVR/`, `BepInEx/plugins/GloomhavenVR/` and
 `BepInEx/patchers/GloomhavenVR/`. Restore `GH_Data/boot.config` from
 `boot.config.gloomhavenvr-backup` if that backup exists. Remove the original game's
-`WINEDLLOVERRIDES` launch option if you also remove BepInEx.
+`WINEDLLOVERRIDES` launch option from the original game's Steam properties if you also remove
+BepInEx.
