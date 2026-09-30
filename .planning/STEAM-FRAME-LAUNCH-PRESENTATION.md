@@ -104,5 +104,20 @@ an opt-in developer build, with before/after captures of the dashboard and
 achievement/cloud/multiplayer checks. Publisher VR metadata remains the only
 documented complete classification fix.
 
+Valve locates the Frame's SteamVR logs at
+`/home/steamos/.local/share/Steam/logs/` ([Frame debugging guide](https://partner.steamgames.com/doc/steamhardware/steamframe/debugging)).
+For the next launch, retain `vrserver.txt`, `vrcompositor.txt`,
+`vrdashboard.txt` and any `vrclient_wine64-preloader.txt` from that directory;
+the Steam-generated application manifest is normally under
+`/home/steamos/.local/share/Steam/config/steamapps.vrmanifest`. Collect them
+before another launch rotates the logs. `vrserver.txt` should show the scene
+process and its app key; `vrdashboard.txt` can show whether Theater opened
+before OpenXR took scene focus. Do not edit the generated manifest or install
+a duplicate `steam.app.780290` manifest as a proposed fix: Steam owns that
+app key and can regenerate its manifest. OpenVR's
+[`IdentifyApplication` contract](https://github.com/ValveSoftware/openvr/blob/master/headers/openvr.h)
+only identifies a registered running process; it does not promise to override
+Steam's app identity or dismiss the dashboard.
+
 This review does not claim a headset-confirmed fix. No SteamVR configuration or
 original AppID artwork is modified by it.
