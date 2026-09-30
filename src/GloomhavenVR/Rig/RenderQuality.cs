@@ -206,6 +206,7 @@ internal static class RenderQuality
     // for, and it is exactly the mechanism this one asked to have removed.
 
     private static ConfigFile? _file;
+    private static bool _frameDefaults;
     internal static ConfigEntry<int>? MsaaLevel;
     internal static ConfigEntry<bool>? ForceAnisotropic;
 
@@ -345,7 +346,11 @@ internal static class RenderQuality
         if (_file != null)
             return;
         _file = ModuleConfig.Create("rig");
-        MsaaLevel = _file.Bind("RenderQuality", "MsaaLevel", Defaults.MsaaLevel, new ConfigDescription(
+        bool frame = FrameDefaults.Active;
+        _frameDefaults = frame;
+        if (frame)
+            VRLog.Info("Rig", "Steam Frame standalone render defaults selected for unset config keys; saved values take precedence.");
+        MsaaLevel = _file.Bind("RenderQuality", "MsaaLevel", frame ? FrameDefaults.MsaaLevel : Defaults.MsaaLevel, new ConfigDescription(
             "Hardware MSAA sample count for the VR eye render (0 = off, 2/4/8). The game's own "
             + "AA lives in the PostProcessLayer the mod disables and its boot quality level sets "
             + "antiAliasing 0, so without this the HMD has NO anti-aliasing (shimmering card line "
@@ -357,12 +362,12 @@ internal static class RenderQuality
             + "geometry aliasing and their sample counts multiply, so 8x on a heavily supersampled "
             + "target is the expensive half of a job already mostly done.",
             new AcceptableValueList<int>(0, 2, 4, 8)));
-        ForceAnisotropic = _file.Bind("RenderQuality", "ForceAnisotropic", Defaults.ForceAnisotropic,
+        ForceAnisotropic = _file.Bind("RenderQuality", "ForceAnisotropic", frame ? FrameDefaults.ForceAnisotropic : Defaults.ForceAnisotropic,
             "Force anisotropic texture filtering for ALL textures (plus a global min-aniso floor). "
             + "Cuts distant shimmer on flat-on-view textures — card faces, initiative portraits, "
             + "board art. Purely a sampling-quality raise; disable to restore the game's setting.");
         ForceFullTextureResolution = _file.Bind("RenderQuality", "ForceFullTextureResolution",
-            Defaults.ForceFullTextureResolution,
+            frame ? FrameDefaults.ForceFullTextureResolution : Defaults.ForceFullTextureResolution,
             "Force Unity's global texture limit back to 0 — i.e. stop the game discarding the top "
             + "mip levels of every texture. The game's own Options > Graphics > Texture Quality row "
             + "writes this as a MIP-DROP COUNT (FULL/HALF/QUARTER/EIGHTH), it is persisted in the "
@@ -373,7 +378,7 @@ internal static class RenderQuality
             + "and no frame time: a larger mip is not sampled more often, it is sampled from a "
             + "different level. Turn off only to A/B against the game's own setting.");
         ForceTextureStreamingOff = _file.Bind("RenderQuality", "ForceTextureStreamingOff",
-            Defaults.ForceTextureStreamingOff,
+            frame ? FrameDefaults.ForceTextureStreamingOff : Defaults.ForceTextureStreamingOff,
             "Turn Unity's MIPMAP STREAMING off, so every mipped texture is resident at its full "
             + "authored level instead of being held below it until a budget catches up. THIS IS THE "
             + "ANSWER TO 'the higher graphics preset looks WORSE': the game authors streaming ON at "
@@ -389,7 +394,7 @@ internal static class RenderQuality
             + "asset's own value on every quality swap. Turn OFF to hand the decision back to the "
             + "game — TextureStreamingBudgetMB below then raises its budget instead.");
         TextureStreamingBudgetMB = _file.Bind("RenderQuality", "TextureStreamingBudgetMB",
-            Defaults.TextureStreamingBudgetMB, new ConfigDescription(
+            frame ? FrameDefaults.TextureStreamingBudgetMB : Defaults.TextureStreamingBudgetMB, new ConfigDescription(
             "Minimum mipmap-streaming budget in MB, applied ONLY while ForceTextureStreamingOff "
             + "above is false AND the game currently has streaming on. It RAISES the game's own "
             + "budget to at least this value and never lowers it, so a game that already asks for "
@@ -400,7 +405,7 @@ internal static class RenderQuality
             + "picture when the budget is the only thing starving the mip chain; they differ only in "
             + "how much VRAM is held. Inert while the row above is on.",
             new AcceptableValueRange<int>(256, 16384)));
-        EyeResolutionScale = _file.Bind("RenderQuality", "EyeResolutionScale", Defaults.EyeResolutionScale, new ConfigDescription(
+        EyeResolutionScale = _file.Bind("RenderQuality", "EyeResolutionScale", frame ? FrameDefaults.EyeResolutionScale : Defaults.EyeResolutionScale, new ConfigDescription(
             "Render resolution per eye, relative to what the OpenXR runtime asks for (1 = as asked). "
             + "THE primary GPU lever: essentially all per-pixel work — shading, rasterization, the "
             + "MSAA surfaces and their resolve — scales with the SQUARE of this value. 0.7 = about "
@@ -425,7 +430,7 @@ internal static class RenderQuality
         // outright. The argument for each is written where it now lives; see the constant above
         // and the tombstone in PushDisplayMsaa.
 
-        PixelLightCount = _file.Bind("RenderQuality", "PixelLightCount", Defaults.PixelLightCount, new ConfigDescription(
+        PixelLightCount = _file.Bind("RenderQuality", "PixelLightCount", frame ? FrameDefaults.PixelLightCount : Defaults.PixelLightCount, new ConfigDescription(
             "Maximum number of PER-PIXEL lights. 0 IS WHAT SHIPS SINCE 2026-08-23 (user ruling: the "
             + "row is 'zu gefährlich für normale Nutzer' as an everyday dial), -1 hands the decision "
             + "back to the game, which runs 4. THIS IS THE STRONGEST SINGLE PERFORMANCE LEVER "
@@ -1142,7 +1147,9 @@ internal static class RenderQuality
         // than inventing one out of the tuned state.
         if (_baseMegaSamples <= 0
             && Mathf.Abs(Mathf.Clamp(EyeResolutionScale!.Value, MinEyeScale, MaxEyeScale) - 1f) < 0.0005f
-            && viewport > 0.995f && wanted == Defaults.MsaaLevel && megaSamples > 0)
+            && viewport > 0.995f
+            && wanted == (_frameDefaults ? FrameDefaults.MsaaLevel : Defaults.MsaaLevel)
+            && megaSamples > 0)
         {
             _baseMegaSamples = megaSamples;
         }

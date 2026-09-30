@@ -261,7 +261,7 @@ internal static class WallFadeTuning
             "all, because your eye would have to be near the floor. Live; clamped 0.00-1.00.");
 
         RescanIntervalSecondsEntry = config.Bind("WallFade", "RescanIntervalSeconds",
-            Defaults.RescanIntervalSeconds,
+            FrameDefaults.Active ? FrameDefaults.WallRescanIntervalSeconds : Defaults.RescanIntervalSeconds,
             "How often the mod REBUILDS its table of which renderers belong to which wall — the "
             + "sweep/classify/survey pipeline whose last step is one atomic frame. THIS IS THE "
             + "SETTING BEHIND THE SHORT HITCHES: on the ModBuild 277 hardware log that final "
@@ -679,9 +679,10 @@ internal static class WallFadeTuning
 
     /// <summary>
     /// ModBuild 278 — seconds between two RESCAN CYCLES. The number inside Clamped() is only the
-    /// PRE-BIND fallback; the shipped default is <c>Defaults.RescanIntervalSeconds</c>, and the
-    /// two must stay equal (this project has lost two rounds to reading the fallback as the
-    /// shipped default — see the ledger entry "A clamp fallback is not a default").
+    /// PRE-BIND fallback; fresh PC configs use <c>Defaults.RescanIntervalSeconds</c>, while
+    /// a fresh Steam Frame standalone config starts at <c>FrameDefaults.WallRescanIntervalSeconds</c>.
+    /// This project has lost two rounds to reading the fallback as the shipped default — see
+    /// the ledger entry "A clamp fallback is not a default".
     ///
     /// <para>THE LOWER CLAMP IS 0.5 AND IT IS A SAFETY BAR, not taste. The cycle's own stages are
     /// budgeted per frame (census 1.5 ms, survey 1.5 ms, prepare 1.5 ms) and a scene of ~5800
@@ -1395,8 +1396,8 @@ internal static partial class WallSegmentFade
         /// request 2026-08-25: <i>"Würde es helfen hier die Abtastrate … etwas zu verringern?
         /// Am Besten lass sie in den Einstellungen selber einstellen können."</i>) — it was
         /// <c>private const float RescanIntervalSeconds = 2f</c> from the subsystem's first
-        /// build until then, and <c>Defaults.RescanIntervalSeconds</c> holds that same 2.0 so
-        /// nothing moves at the shipped value.
+        /// build until then. The PC default remains 2.0; the separate tested Frame default
+        /// is 4.0. An existing saved value wins on either platform.
         ///
         /// <para>READ IT FOR DISPLAY AND FOR SCHEDULING, NEVER FOR JUDGING A CYCLE THAT IS
         /// ALREADY OPEN. The value can change between the frame a cycle was scheduled on and
