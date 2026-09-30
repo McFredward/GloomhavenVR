@@ -9,9 +9,13 @@ function Write-UnixLauncher([string]$Source, [string]$Destination) {
 }
 
 function Set-ZipUnixLaunchers([string]$ArchivePath) {
-    # Compress-Archive writes DOS ZIP entries, which Dolphin extracts without
-    # executable bits. Mark only the two launcher entries as Unix regular files
-    # with mode 0755; the rest of the cross-platform archive is unchanged.
+    # Windows Compress-Archive can store backslashes in entry names. While the
+    # entries are tagged as DOS files, Explorer treats them as directories. Once
+    # we mark a launcher as Unix, Dolphin treats those same backslashes as
+    # literal filename characters and extracts one flattened, unusable file.
+    # Normalize every entry name in both the central directory and its local
+    # header before changing launcher modes. The replacement is byte-for-byte
+    # length preserving, so offsets and compressed payloads stay unchanged.
     $bytes = [System.IO.File]::ReadAllBytes($ArchivePath)
     $eocd = -1
     for ($i = $bytes.Length - 22; $i -ge [Math]::Max(0, $bytes.Length - 65557); $i--) {
@@ -35,7 +39,27 @@ function Set-ZipUnixLaunchers([string]$ArchivePath) {
         $nameLength = [BitConverter]::ToUInt16($bytes, $position + 28)
         $extraLength = [BitConverter]::ToUInt16($bytes, $position + 30)
         $commentLength = [BitConverter]::ToUInt16($bytes, $position + 32)
-        $name = [Text.Encoding]::UTF8.GetString($bytes, $position + 46, $nameLength).Replace('\', '/')
+        $localOffset = [BitConverter]::ToUInt32($bytes, $position + 42)
+        if ($localOffset -gt [int]::MaxValue -or
+            [BitConverter]::ToUInt32($bytes, [int]$localOffset) -ne 0x04034b50) {
+            throw "Invalid local ZIP header for entry $n in $ArchivePath"
+        }
+        $localNameLength = [BitConverter]::ToUInt16($bytes, [int]$localOffset + 26)
+        if ($localNameLength -ne $nameLength) {
+            throw "ZIP filename lengths disagree for entry $n in $ArchivePath"
+        }
+        for ($j = 0; $j -lt $nameLength; $j++) {
+            $centralIndex = $position + 46 + $j
+            $localIndex = [int]$localOffset + 30 + $j
+            if ($bytes[$centralIndex] -ne $bytes[$localIndex]) {
+                throw "ZIP filenames disagree for entry $n in $ArchivePath"
+            }
+            if ($bytes[$centralIndex] -eq 0x5C) {
+                $bytes[$centralIndex] = 0x2F
+                $bytes[$localIndex] = 0x2F
+            }
+        }
+        $name = [Text.Encoding]::UTF8.GetString($bytes, $position + 46, $nameLength)
         if ($wanted -contains $name) {
             $bytes[$position + 5] = 3  # ZIP creator system: Unix
             # 0x81ED0000 = Unix regular file (0100755) in the ZIP upper word.

@@ -23,6 +23,27 @@ Write-UnixLauncher $pythonSource (Join-Path $frameSetup 'frame-boot-config.py')
 [System.IO.File]::WriteAllText((Join-Path $stage 'INSTALL.txt'), 'test', $script:Utf8Strict)
 [System.IO.File]::WriteAllText((Join-Path $stage 'INSTALL-DEUTSCH.txt'), 'test', $script:Utf8Strict)
 Remove-Item -LiteralPath $shellSource, $desktopSource, $pythonSource
-Compress-Archive -Path (Join-Path $stage '*') -DestinationPath $OutputZip -Force
+# Reproduce Windows Compress-Archive's backslash entry names even when this
+# test runs under PowerShell on Linux. The patch must fix both ZIP headers,
+# otherwise a Unix extractor still creates a single flattened filename.
+Add-Type -AssemblyName System.IO.Compression.FileSystem
+$archive = [System.IO.Compression.ZipFile]::Open($OutputZip, [System.IO.Compression.ZipArchiveMode]::Create)
+try {
+    foreach ($file in Get-ChildItem -LiteralPath $stage -File -Recurse) {
+        $relative = $file.FullName.Substring($stage.Length + 1).Replace('/', '\')
+        $entry = $archive.CreateEntry($relative)
+        $source = [System.IO.File]::OpenRead($file.FullName)
+        $destination = $entry.Open()
+        try { $source.CopyTo($destination) }
+        finally { $destination.Dispose(); $source.Dispose() }
+    }
+}
+finally { $archive.Dispose() }
+$archive = [System.IO.Compression.ZipFile]::OpenRead($OutputZip)
+try {
+    $windowsNames = @($archive.Entries | Where-Object { $_.FullName.Contains('\') })
+    if ($windowsNames.Count -eq 0) { throw 'Regression fixture did not create Windows ZIP paths' }
+}
+finally { $archive.Dispose() }
 Set-ZipUnixLaunchers $OutputZip
 Write-Host 'PowerShell Frame archive: created.'

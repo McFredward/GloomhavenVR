@@ -20,6 +20,10 @@ def main() -> int:
         return 2
 
     with zipfile.ZipFile(sys.argv[1]) as archive:
+        backslash_names = [name for name in archive.namelist() if "\\" in name]
+        if backslash_names:
+            print(f"error: ZIP entries contain Windows path separators: {backslash_names[:3]}", file=sys.stderr)
+            return 1
         # Users extract the release into the game folder. Keep that folder
         # limited to the normal BepInEx tree and two guides. Published updater
         # builds reject any other root file; all Frame setup files belong inside

@@ -78,7 +78,10 @@ change per build) → this file (where things stand and what is owed) → the bu
   owned legacy root files. The Frame
   installer still needs a headset check, while synthetic Steam setup, archive
   and self-update tests cover the paths and allowlist. No gameplay, wire format
-  or asset-bundle content changed. See [STEAM-FRAME-SHORTCUT.md](STEAM-FRAME-SHORTCUT.md).
+  or asset-bundle content changed. A packaging-only follow-up normalizes Windows
+  ZIP path separators before applying Unix launcher modes, after a Windows-built
+  archive exposed flattened launcher filenames. See
+  [STEAM-FRAME-SHORTCUT.md](STEAM-FRAME-SHORTCUT.md).
 
 - **dev / 1.1.0 / ModBuild 591 (hardware candidate):** scoped native map-option
   transitions no longer clear the locally owned selected portrait and force a

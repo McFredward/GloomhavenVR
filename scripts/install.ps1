@@ -625,7 +625,12 @@ if (-not $NoPackage) {
     $textProblems = @()
     $archive = [System.IO.Compression.ZipFile]::OpenRead($zip)
     try {
-        $entries = $archive.Entries | ForEach-Object { $_.FullName -replace '\\', '/' }
+        $entries = $archive.Entries | ForEach-Object { $_.FullName }
+        $backslashEntries = @($entries | Where-Object { $_.Contains('\') })
+        if ($backslashEntries) {
+            $examples = (@($backslashEntries | Select-Object -First 3) -join ', ')
+            Write-Error "Packaged ZIP still contains Windows path separators: $examples"
+        }
         foreach ($entry in $archive.Entries) {
             if (-not $entry.FullName.ToLowerInvariant().EndsWith('.txt')) { continue }
             $ms = New-Object System.IO.MemoryStream

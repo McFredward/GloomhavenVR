@@ -137,3 +137,19 @@ installers and the successful self-update path remove only the six obsolete
 root setup files from older packages. The published 1.0.8 updater accepts
 only these three ZIP-root entries; nesting the desktop entry therefore allows
 an installed older build to update directly without a bridge release.
+
+## Windows ZIP separators (2026-09-30)
+
+The first nested-layout Windows archive marked the two Frame launchers as Unix
+files but kept `Compress-Archive`'s backslashes in their ZIP entry names. A Unix
+extractor then treated each path as one flattened filename (shown in Dolphin
+with unusual separator glyphs), so the double-click setup was missing from
+`FrameSetup/`. `Set-ZipUnixLaunchers` now converts backslashes to forward
+slashes in both the central directory and corresponding local headers before
+changing the launcher mode. The PowerShell regression archive deliberately
+starts with Windows-style names and must extract both launchers into the nested
+folder. The release ZIP checker rejects any remaining backslash entry name.
+The first CI run also found that some desktop launchers omit `%k`; the old
+working-directory fallback then selected an obsolete root helper left by a
+previous extraction. The desktop entry now falls back directly to the nested
+Steam library path, never to an unverified root-level helper.

@@ -87,6 +87,23 @@ fi
 for obsolete in "${legacy[@]}"; do
     [[ ! -e "$game/$obsolete" ]]
 done
+# Some desktop environments leave %k empty. Even with a legacy helper in the
+# game root, the launcher must resolve the nested setup from the Steam path.
+if command -v gio >/dev/null 2>&1; then
+    no_path_desktop="$setup/GloomhavenVR-Setup-NoPath.desktop"
+    sed 's/ bash %k$/ bash/' "$setup/GloomhavenVR-Setup.desktop" > "$no_path_desktop"
+    printf 'obsolete\n' > "$game/install-steam-frame.sh"
+    (cd -- "$game" && gio launch "$no_path_desktop") > "$scratch/no-path-desktop.log" 2>&1
+    for ((attempt = 0; attempt < 50; attempt++)); do
+        [[ ! -e "$game/install-steam-frame.sh" ]] && break
+        sleep 0.1
+    done
+    if [[ -e "$game/install-steam-frame.sh" ]]; then
+        cat "$scratch/no-path-desktop.log" >&2
+        echo 'error: desktop entry selected the obsolete game-root helper without %k' >&2
+        exit 1
+    fi
+fi
 [[ -f "$boot.gloomhavenvr-backup" ]]
 [[ "$(cat "$boot.gloomhavenvr-backup")" == 'wait-for-native-debugger=0' ]]
 rg -q '^gfx-enable-gfx-jobs=1$' "$boot"
