@@ -40,17 +40,20 @@ loading indicator is visible from the optimization priority. The important
 The approach hitches repeat without a loading screen and match the owner's
 reported locations. `Visit`, `NativeOpen`, `FolioOpen` and `PublicStock` are
 nested scopes, so their numbers are not additive. The fan cost is the local
-map-room hand using the same original-card clone path as remote cards; its
-faces are built when their slabs first become active, because cloned widgets'
-`OnEnable` must finish before the final fit. A prewarm must preserve that
-ordering and the first visible frame's complete fronts. Hiding a partial fan
-or letting backs flash would break the established presentation contract.
+map-room hand using the same original-card clone path as remote cards. Build
+593 prepares the selected hand's later-visible clones one per frame after the
+map hand rebuild, which occurred while the spinner was still visible in this
+run. Activation and final fit still follow the cloned widget's `OnEnable` on
+reveal. A too-early reveal retains the original synchronous fallback. The
+remaining activation/mip cost needs the next Debug trace; neither a partial
+fan nor a back flash is an acceptable way to move it.
 
 The recurring map cost has another clear target: `TownPublicStock.Catalog`
 continues to run every frame after construction, generally consuming around
 6 ms. It includes row refresh and card/interaction updates, and is a nested
-scope of the merchant presentation. It should be profiled into change
-detection, visible card updates, and hidden page work before changing it;
+scope of the merchant presentation. Build 593 removes repeated quadratic
+row-matching and item-count scans and adds child scopes for census, navigation,
+cards and controls. The remaining split is still a hardware measurement;
 the merchant's original card appearance, current page and multiplayer
 animation must remain 1:1. Next, remove redundant native-window conversions
 at their lifecycle source. The 300–765 ms conversion spikes are too large to

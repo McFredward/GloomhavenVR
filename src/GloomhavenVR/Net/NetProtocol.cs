@@ -553,10 +553,12 @@ internal static class NetProtocol
     // fresh VR defaults and suggest a 3408-pixel per-eye SteamVR resolution
     // through the game's vrpreferences.json. Existing mod, game, and SteamVR
     // choices remain authoritative. Merchant public-stock reconciliation
-    // avoids repeated quadratic searches while all NPC stands are present;
-    // bounded Debug attribution separates remaining NPC entry and first-fan
-    // card-art costs without changing card visibility or timing. No wire
-    // format or asset-bundle content changes in this build.
+    // avoids repeated quadratic searches while all NPC stands are present.
+    // The invisible native enchantress list no longer reparents its full
+    // pooled card tree on entry. The selected map hand prepares its original
+    // card clones during loading, then activates and fits them in the original
+    // reveal order. Bounded Debug attribution separates residual NPC and
+    // first-fan costs. No wire format or asset-bundle content changes.
 
     // ModBuild 592 — the release ZIP now keeps the Frame setup implementation
     // and artwork below BepInEx/plugins/GloomhavenVR/FrameSetup, leaving only

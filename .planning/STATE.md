@@ -60,8 +60,12 @@ Build 593 uses separate fresh Frame mod defaults while retaining existing
 per-player values and the native game's saved graphics quality. The Frame
 setup suggests 3408 pixels per eye via Valve's game-root `vrpreferences.json`;
 SteamVR's user override remains authoritative. The persistent merchant
-catalog now avoids repeated quadratic row searches; additional Debug scopes
-isolate the priestess/enchantress entry and first visible card-fan costs.
+catalog now avoids repeated quadratic row searches. The enchantress's hidden
+native card list no longer reparents its 549-element pool, although the game's
+controller and callbacks still initialize those widgets. The selected map hand
+prepares the same card clones it later reveals during the loading phase;
+activation and final fitting keep their original order. Additional Debug
+scopes isolate the remaining priestess/enchantress entry and fan reveal costs.
 The speedup and SteamVR preference pickup need a matching headset run. See
 [STEAM-FRAME-DEFAULTS.md](STEAM-FRAME-DEFAULTS.md).
 Build 589 addresses the Build 587 town multiplayer report: host self-grant
@@ -95,8 +99,11 @@ change per build) → this file (where things stand and what is owed) → the bu
   mod defaults mirror the Build 592 test, preserving existing BepInEx and
   native game settings; the Frame installer suggests 3408 pixels per eye through
   `vrpreferences.json` without replacing an existing SteamVR choice. The
-  merchant catalog's row reconciliation and item-count lookup are linear,
-  and bounded Debug attribution separates NPC entry and first-fan construction.
+  merchant catalog's row reconciliation and item-count lookup are linear.
+  The invisible native enhancement list avoids a full-subtree reparent on
+  entry while its game controllers stay active. The selected map hand prepares
+  original face clones during loading and retains a synchronous early-open
+  fallback. Bounded Debug attribution separates residual NPC and fan work.
   SteamVR dashboard focus and its in-game gray original-AppID panel remain
   unresolved; no global theater setting was changed. See
   [STEAM-FRAME-SIXTH-HARDWARE.md](STEAM-FRAME-SIXTH-HARDWARE.md) and
