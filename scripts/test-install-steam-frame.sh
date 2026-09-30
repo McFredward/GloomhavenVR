@@ -11,7 +11,8 @@ export XDG_DATA_HOME="$HOME/.local/share"
 steam_root="$XDG_DATA_HOME/Steam"
 game="$steam_root/steamapps/common/Gloomhaven"
 account="$steam_root/userdata/123/config"
-mkdir -p -- "$game/BepInEx/patchers/GloomhavenVR" "$game/GH_Data" "$account" "$scratch/bin"
+setup="$game/BepInEx/plugins/GloomhavenVR/FrameSetup"
+mkdir -p -- "$game/BepInEx/patchers/GloomhavenVR" "$game/GH_Data" "$account" "$scratch/bin" "$setup"
 : > "$game/GH.exe"
 : > "$game/BepInEx/patchers/GloomhavenVR/GloomhavenVR.Preload.dll"
 printf 'wait-for-native-debugger=0\n' > "$game/GH_Data/boot.config"
@@ -36,19 +37,19 @@ cat > "$account/localconfig.vdf" <<'EOF'
     }
 }
 EOF
-cp -- "$root/scripts/install-steam-frame.sh" "$game/install-steam-frame.sh"
-cp -- "$root/scripts/steam-frame-config.py" "$game/steam-frame-config.py"
-cp -- "$root/scripts/frame-boot-config.py" "$game/frame-boot-config.py"
+cp -- "$root/scripts/install-steam-frame.sh" "$setup/install-steam-frame.sh"
+cp -- "$root/scripts/steam-frame-config.py" "$setup/steam-frame-config.py"
+cp -- "$root/scripts/frame-boot-config.py" "$setup/frame-boot-config.py"
 cp -- "$root/GloomhavenVR-Setup.desktop" "$game/GloomhavenVR-Setup.desktop"
-cp -- "$root/src/GloomhavenVR/Assets/GloomhavenVR_logo.png" "$game/GloomhavenVR-steam-logo.png"
-cp -- "$root/unity/GloomhavenVR.Assets/Assets/Bundle/UI/VRMenuIcon.png" "$game/GloomhavenVR-steam-icon.png"
+cp -- "$root/src/GloomhavenVR/Assets/GloomhavenVR_logo.png" "$setup/GloomhavenVR-steam-logo.png"
+cp -- "$root/unity/GloomhavenVR.Assets/Assets/Bundle/UI/VRMenuIcon.png" "$setup/GloomhavenVR-steam-icon.png"
 
 marker="$game/BepInEx/patchers/GloomhavenVR/frame-launch-opt-in.marker"
 launcher="$XDG_DATA_HOME/GloomhavenVR/launch-steam-frame.sh"
 shortcuts="$account/shortcuts.vdf"
 boot="$game/GH_Data/boot.config"
 
-bash "$game/install-steam-frame.sh" --dry-run > "$scratch/dry-run.log"
+bash "$setup/install-steam-frame.sh" --dry-run > "$scratch/dry-run.log"
 [[ ! -e "$marker" && ! -e "$launcher" && ! -e "$shortcuts" ]]
 [[ "$(cat "$boot")" == 'wait-for-native-debugger=0' ]]
 
@@ -72,7 +73,7 @@ if command -v gio >/dev/null 2>&1; then
         exit 1
     fi
 else
-    bash "$game/install-steam-frame.sh" > "$scratch/install.log"
+    bash "$setup/install-steam-frame.sh" > "$scratch/install.log"
 fi
 
 [[ -f "$marker" && -x "$launcher" && -f "$shortcuts" ]]
@@ -82,8 +83,8 @@ rg -q '^gfx-enable-gfx-jobs=1$' "$boot"
 rg -q '^gfx-enable-native-gfx-jobs=1$' "$boot"
 rg -q 'MANGOHUD=1' "$account/localconfig.vdf"
 rg -q 'WINEDLLOVERRIDES=' "$account/localconfig.vdf"
-cmp -s "$game/GloomhavenVR-steam-logo.png" "$XDG_DATA_HOME/GloomhavenVR/GloomhavenVR-steam-logo.png"
-cmp -s "$game/GloomhavenVR-steam-icon.png" "$XDG_DATA_HOME/GloomhavenVR/GloomhavenVR-steam-icon.png"
+cmp -s "$setup/GloomhavenVR-steam-logo.png" "$XDG_DATA_HOME/GloomhavenVR/GloomhavenVR-steam-logo.png"
+cmp -s "$setup/GloomhavenVR-steam-icon.png" "$XDG_DATA_HOME/GloomhavenVR/GloomhavenVR-steam-icon.png"
 
 # A changed Steam artwork file requires a client restart. Stub only the shell's
 # pgrep/steam commands; the Python helper still checks the real /proc tree.
@@ -110,7 +111,7 @@ EOF
 chmod +x "$scratch/bin/pgrep" "$scratch/bin/steam"
 find "$account/grid" -maxdepth 1 -type f -name '*_logo.png' -delete
 : > "$HOME/fake-steam-running"
-PATH="$scratch/bin:$PATH" bash "$game/install-steam-frame.sh" > "$scratch/update.log"
+PATH="$scratch/bin:$PATH" bash "$setup/install-steam-frame.sh" > "$scratch/update.log"
 for ((attempt = 0; attempt < 30; attempt++)); do
     if [[ -f "$HOME/steam-setup-calls" ]] && rg -q '^restart$' "$HOME/steam-setup-calls"; then
         break
@@ -123,7 +124,7 @@ cmp -s "$HOME/steam-setup-calls" "$scratch/expected-setup-calls"
 cp -- "$boot" "$scratch/boot-before"
 cp -- "$shortcuts" "$scratch/shortcuts-before"
 cp -- "$account/localconfig.vdf" "$scratch/localconfig-before"
-PATH="$scratch/bin:$PATH" bash "$game/install-steam-frame.sh" > "$scratch/again.log"
+PATH="$scratch/bin:$PATH" bash "$setup/install-steam-frame.sh" > "$scratch/again.log"
 cmp -s "$boot" "$scratch/boot-before"
 cmp -s "$shortcuts" "$scratch/shortcuts-before"
 cmp -s "$account/localconfig.vdf" "$scratch/localconfig-before"
@@ -134,7 +135,7 @@ printf '%s\n' -applaunch 780290 --gloomhavenvr > "$scratch/expected-args"
 cmp -s "$HOME/steam-args" "$scratch/expected-args"
 
 rm -f -- "$game/BepInEx/patchers/GloomhavenVR/GloomhavenVR.Preload.dll"
-if bash "$game/install-steam-frame.sh" > /dev/null 2>&1; then
+if bash "$setup/install-steam-frame.sh" > /dev/null 2>&1; then
     echo 'error: installer accepted an incomplete mod install' >&2
     exit 1
 fi

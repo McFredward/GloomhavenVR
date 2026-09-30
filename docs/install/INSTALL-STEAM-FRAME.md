@@ -75,7 +75,7 @@ If your desktop does not offer Execute or setup cannot find `GH.exe` in a differ
 open a terminal in the Gloomhaven folder and run:
 
 ```bash
-bash ./install-steam-frame.sh
+bash ./BepInEx/plugins/GloomhavenVR/FrameSetup/install-steam-frame.sh
 ```
 
 Using `bash` also works if your ZIP extractor did not preserve executable permissions. If setup
@@ -121,13 +121,13 @@ All VR players in a multiplayer session need the same mod build.
 
 | What you see | What to do |
 |---|---|
-| GloomhavenVR does not appear in Steam | Run `bash ./install-steam-frame.sh` again in the Gloomhaven folder. Keep the setup output if it reports an error. |
+| GloomhavenVR does not appear in Steam | Run `GloomhavenVR-Setup.desktop` again. Keep the setup output if it reports an error. |
 | The mod does not load from GloomhavenVR | Rerun setup. Check the two `BepInEx` folders and `BepInEx/patchers/GloomhavenVR/frame-launch-opt-in.marker`. Look for `BepInEx/LogOutput.log` after a launch. |
-| The original Gloomhaven entry opens VR | Remove `--gloomhavenvr` from that entry's launch options, then rerun `bash ./install-steam-frame.sh`. |
+| The original Gloomhaven entry opens VR | Remove `--gloomhavenvr` from that entry's launch options, then run `GloomhavenVR-Setup.desktop` again. |
 | GloomhavenVR opens flat | Steam may not have forwarded the VR flag. Check that the shortcut targets `launch-steam-frame.sh`, then keep `BepInEx/LogOutput.log` for a report. |
 | The first VR launch closes | Start GloomhavenVR a second time. Keep `BepInEx/LogOutput.log` for a report if it closes again. |
 | The game will not start | Copy `GH_Data/boot.config.gloomhavenvr-backup` over `GH_Data/boot.config`. |
-| The helper reports `bash\r: No such file or directory` | Extract the latest mod ZIP again. Its SteamOS launchers have Unix line endings. With an older archive, run `sed -i 's/\r$//' install-steam-frame.sh` in the Gloomhaven folder, then `bash ./install-steam-frame.sh`. |
+| The helper reports `bash\r: No such file or directory` | Extract the latest mod ZIP again. Its SteamOS launchers have Unix line endings. |
 
 To report a problem, keep `BepInEx/LogOutput.log` from the affected run and describe what you
 were doing. For a reproducible issue, set `[General] LogLevel = Debug` in

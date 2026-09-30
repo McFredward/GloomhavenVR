@@ -6,7 +6,7 @@ usage() {
     cat <<'EOF'
 Usage: bash install-steam-frame.sh [--game-path PATH] [--steam-root PATH] [--dry-run] [--pause]
 
-Run this from the Gloomhaven folder after extracting BepInEx and GloomhavenVR.
+Run this from the extracted GloomhavenVR release after installing BepInEx.
 The setup creates the GloomhavenVR library entry and configures the first VR launch.
 EOF
 }
@@ -74,7 +74,13 @@ on_exit() {
 trap on_exit EXIT
 
 if [[ -z "$game_dir" ]]; then
-    game_dir="$script_dir"
+    # The release keeps setup assets under the plugin so the extracted game
+    # root contains only BepInEx, install guides and the desktop entry.
+    if [[ -f "$script_dir/../../../../GH.exe" ]]; then
+        game_dir="$script_dir/../../../.."
+    else
+        game_dir="$script_dir"
+    fi
 fi
 game_dir="$(cd -- "$game_dir" && pwd -P)"
 patcher="$game_dir/BepInEx/patchers/GloomhavenVR/GloomhavenVR.Preload.dll"

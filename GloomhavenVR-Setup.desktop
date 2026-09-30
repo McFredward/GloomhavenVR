@@ -4,7 +4,7 @@ Name=Set up GloomhavenVR
 Name[de]=GloomhavenVR einrichten
 Comment=Create the Steam Frame VR shortcut
 Comment[de]=Steam-Frame-VR-Verknüpfung erstellen
-Exec=/usr/bin/env bash -c "set -f; IFS=; if test x\\$1 != x && cd -- \\$(dirname -- \\$1); then :; elif test -f ./install-steam-frame.sh; then :; else cd -- \\$HOME/.local/share/Steam/steamapps/common/Gloomhaven; fi; exec bash ./install-steam-frame.sh --pause" bash %k
+Exec=/usr/bin/env bash -c "set -f; IFS=; if test x\\$1 != x && cd -- \\$(dirname -- \\$1); then :; elif test -f ./BepInEx/plugins/GloomhavenVR/FrameSetup/install-steam-frame.sh; then :; else cd -- \\$HOME/.local/share/Steam/steamapps/common/Gloomhaven; fi; exec bash ./BepInEx/plugins/GloomhavenVR/FrameSetup/install-steam-frame.sh --pause" bash %k
 Terminal=true
 Icon=applications-games
 Categories=Game;

@@ -79,7 +79,7 @@ Bietet dein Desktop kein Ausführen an oder findet die Einrichtung `GH.exe` in e
 Steam-Bibliothek nicht, öffne im Gloomhaven-Ordner ein Terminal und gib ein:
 
 ```bash
-bash ./install-steam-frame.sh
+bash ./BepInEx/plugins/GloomhavenVR/FrameSetup/install-steam-frame.sh
 ```
 
 Mit `bash` funktioniert es auch, falls das Entpackprogramm die Ausführungsberechtigung nicht
@@ -129,13 +129,13 @@ neue Release-ZIP herunterladen und wieder in denselben Gloomhaven-Ordner entpack
 
 | Was du siehst | Was du machst |
 |---|---|
-| GloomhavenVR erscheint nicht in Steam | Führe `bash ./install-steam-frame.sh` im Gloomhaven-Ordner erneut aus. Bewahre die Ausgabe auf, falls ein Fehler gemeldet wird. |
+| GloomhavenVR erscheint nicht in Steam | Starte `GloomhavenVR-Setup.desktop` erneut. Bewahre die Ausgabe auf, falls ein Fehler gemeldet wird. |
 | Die Mod wird über GloomhavenVR nicht geladen | Führe das Setup erneut aus. Prüf die beiden `BepInEx`-Ordner und `BepInEx/patchers/GloomhavenVR/frame-launch-opt-in.marker`. Such nach einem Start nach `BepInEx/LogOutput.log`. |
-| Der ursprüngliche Gloomhaven-Eintrag startet VR | Entferne `--gloomhavenvr` aus dessen Startoptionen und führe `bash ./install-steam-frame.sh` erneut aus. |
+| Der ursprüngliche Gloomhaven-Eintrag startet VR | Entferne `--gloomhavenvr` aus dessen Startoptionen und starte `GloomhavenVR-Setup.desktop` erneut. |
 | GloomhavenVR startet flat | Steam hat das VR-Argument möglicherweise nicht weitergereicht. Prüfe, ob die Verknüpfung auf `launch-steam-frame.sh` zeigt, und bewahre `BepInEx/LogOutput.log` für eine Fehlermeldung auf. |
 | Der erste VR-Start schließt sich | Starte GloomhavenVR ein zweites Mal. Falls es erneut schließt, bewahre `BepInEx/LogOutput.log` für eine Fehlermeldung auf. |
 | Das Spiel startet nicht mehr | Kopiere `GH_Data/boot.config.gloomhavenvr-backup` über `GH_Data/boot.config`. |
-| Das Hilfsskript meldet `bash\r: No such file or directory` | Entpacke das aktuelle Mod-ZIP erneut. Dessen SteamOS-Starter haben Unix-Zeilenenden. Bei einem älteren Archiv kannst du im Gloomhaven-Ordner `sed -i 's/\r$//' install-steam-frame.sh` ausführen und danach `bash ./install-steam-frame.sh`. |
+| Das Hilfsskript meldet `bash\r: No such file or directory` | Entpacke das aktuelle Mod-ZIP erneut. Dessen SteamOS-Starter haben Unix-Zeilenenden. |
 
 Für eine Fehlermeldung bewahre `BepInEx/LogOutput.log` vom betroffenen Durchlauf auf und
 beschreibe, was du gerade gemacht hast. Bei einem reproduzierbaren Problem setz
