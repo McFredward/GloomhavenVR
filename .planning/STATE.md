@@ -1,19 +1,20 @@
 # State — where the project stands
 
-**Updated 2026-09-30: dev 1.1.0 / ModBuild 592, clean install archive candidate.**
+**Updated 2026-09-30: dev 1.1.0 / ModBuild 592, Steam Frame launch and performance review.**
 The release ZIP now exposes only `BepInEx/` and the English/German install
 texts at game-root level. The Steam Frame desktop starter, setup scripts and
 art are nested under the plugin. The in-game updater accepts and copies the
 desktop starter; successful upgrades remove six obsolete root helpers. The repository
-install guides moved to `docs/install/`. The actual Frame launch remains a
-hardware check; the archive and updater have focused local coverage. See
+install guides moved to `docs/install/`. The archive and updater have focused
+local coverage. See
 [STEAM-FRAME-SHORTCUT.md](STEAM-FRAME-SHORTCUT.md).
-The first actual Frame shortcut setup log ended at the Steam shutdown request,
-before the shortcut write. A separate-session attempt also ended there: the
-headset restarts its UI when Steam closes. The current script-only follow-up
-writes and verifies all Steam files before making that restart the last step.
-Whether the restarted Steam client retains and shows the entry awaits a Frame
-retest.
+The maintainer now confirms the separate `GloomhavenVR` Library entry and its
+artwork on Frame. SteamVR still opens a dashboard requiring Resume Game, and
+the active game's panel is the original AppID with a gray cover. The shortcut
+continues to launch AppID 780290 for Steamworks identity; native VR launch
+classification needs publisher Steamworks metadata. The locally testable
+theater/dashboard and app-key options, with their limitations, are in
+[STEAM-FRAME-LAUNCH-PRESENTATION.md](STEAM-FRAME-LAUNCH-PRESENTATION.md).
 The complete immersive NPC work through Build 583 and the Steam Frame changes
 through dev Build 559 now share the sole `dev` integration branch. Future NPC and
 Frame work belongs on `dev`. The NPC presentation remains a two-client hardware
@@ -50,6 +51,11 @@ at 3408 per eye. Build 588 adds a separate Frame launcher and opt-in gate;
 the original Steam entry remains flat only after the Frame helper creates its
 marker. Steam Game Mode argument forwarding and prelaunch VR-settings visibility
 remain hardware checks. See [STEAM-FRAME-SHORTCUT.md](STEAM-FRAME-SHORTCUT.md).
+The Build 592 run at 3408 per eye shows a 2.65 s merchant catalog build,
+roughly 6 ms/frame of recurring merchant work on the map, and 90–103 ms
+scenario wall rescans. Menu and scenario also have long stalls not attributable
+to named mod scopes; the XR GPU counter is not usable as busy time. See
+[STEAM-FRAME-SIXTH-HARDWARE.md](STEAM-FRAME-SIXTH-HARDWARE.md).
 Build 589 addresses the Build 587 town multiplayer report: host self-grant
 timeout, original atlas capture, public cabinet input, town handoff focus and
 map character selection. Correct matching Build 587 peer logs then exposed a

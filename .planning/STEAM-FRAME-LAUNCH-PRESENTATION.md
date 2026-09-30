@@ -49,6 +49,10 @@ Steam Frame. It is a global SteamVR preference for all desktop games, and a
 Valve developer notes that the modern theater is normally meant to disappear
 once a game submits VR frames
 ([developer response](https://steamcommunity.com/app/250820/discussions/0/596272860832518646/)).
+The same developer clarifies that disabling non-VR theater presentation may
+still leave the dashboard open for a manual dismiss; it is not an established
+way to skip the **Resume Game** step. Distinguish an unwanted theater layer
+from the dashboard itself in the Frame test.
 The former per-game desktop-theater toggle was removed with SteamVR 2.1
 ([Valve response](https://steamcommunity.com/app/250820/discussions/0/4035852333636940598/)).
 The installer must not silently disable theater globally or leave a temporary
@@ -90,8 +94,10 @@ launch with **Present Non-VR Applications on Theater Screen Upon Launch**
 disabled in SteamVR settings (then restore the user's preference), using the
 same shortcut and build. If that removes Resume Game while the game enters VR,
 the cause is theater auto-show; it still leaves the active-app artwork/identity
-question separate. The image fix needs either a safe OpenVR identity experiment
-or publisher VR metadata.
+question separate. If it removes only the theater screen and the dashboard
+remains, inspect the SteamVR startup/focus transitions before attempting an
+automatic dashboard dismiss. The image fix needs either a safe OpenVR identity
+experiment or publisher VR metadata.
 
 This review does not claim a headset-confirmed fix. No SteamVR configuration or
 original AppID artwork is modified by it.
