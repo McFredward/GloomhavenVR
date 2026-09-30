@@ -1,19 +1,19 @@
 #!/usr/bin/env bash
-# Prepare a local Steam Frame VR shortcut without changing the original Steam app.
-# Steam's own UI creates the shortcut; this script never edits Steam's VDF files.
+# Configure the Steam Frame VR entry while preserving the original flat entry.
 set -euo pipefail
 
 usage() {
     cat <<'EOF'
-Usage: bash install-steam-frame.sh [--game-path PATH] [--dry-run] [--pause]
+Usage: bash install-steam-frame.sh [--game-path PATH] [--steam-root PATH] [--dry-run] [--pause]
 
 Run this from the Gloomhaven folder after extracting BepInEx and GloomhavenVR.
-The generated launcher must be added to Steam as a non-Steam game named GloomhavenVR.
+The setup creates the GloomhavenVR library entry and configures the first VR launch.
 EOF
 }
 
 script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 game_dir=""
+steam_root=""
 dry_run=false
 pause_on_exit=false
 while (($#)); do
@@ -21,6 +21,11 @@ while (($#)); do
         --game-path)
             (($# >= 2)) || { echo 'error: --game-path needs a directory' >&2; exit 2; }
             game_dir="$2"
+            shift 2
+            ;;
+        --steam-root)
+            (($# >= 2)) || { echo 'error: --steam-root needs a directory' >&2; exit 2; }
+            steam_root="$2"
             shift 2
             ;;
         --dry-run)
@@ -43,19 +48,26 @@ while (($#)); do
     esac
 done
 
-# The desktop launcher opens a terminal. Keep it visible so setup instructions
-# and validation failures do not disappear when the terminal closes.
-pause_before_exit() {
+# The desktop launcher opens a terminal. Keep failures visible, and restore Steam
+# even when a later configuration write fails after its clean shutdown.
+steam_stopped=false
+temporary_launcher=""
+on_exit() {
     local status=$?
-    if [[ -t 0 ]]; then
+    if [[ -n "$temporary_launcher" ]]; then
+        rm -f -- "$temporary_launcher"
+    fi
+    if $steam_stopped; then
+        echo 'Restarting Steam after setup...'
+        nohup steam -silent >/dev/null 2>&1 </dev/null &
+    fi
+    if $pause_on_exit && [[ -t 0 ]]; then
         printf '\nPress Enter to close this window...'
         read -r _ || true
     fi
     return "$status"
 }
-if $pause_on_exit; then
-    trap pause_before_exit EXIT
-fi
+trap on_exit EXIT
 
 if [[ -z "$game_dir" ]]; then
     game_dir="$script_dir"
@@ -72,6 +84,16 @@ if [[ ! -f "$logo" && -f "$script_dir/../src/GloomhavenVR/Assets/GloomhavenVR_lo
 fi
 destination="${XDG_DATA_HOME:-$HOME/.local/share}/GloomhavenVR"
 launcher="$destination/launch-steam-frame.sh"
+steam_helper="$script_dir/steam-frame-config.py"
+boot_helper="$script_dir/frame-boot-config.py"
+if [[ ! -f "$steam_helper" && -f "$script_dir/../scripts/steam-frame-config.py" ]]; then
+    steam_helper="$script_dir/../scripts/steam-frame-config.py"
+    boot_helper="$script_dir/../scripts/frame-boot-config.py"
+fi
+steam_root_args=()
+if [[ -n "$steam_root" ]]; then
+    steam_root_args=(--steam-root "$steam_root")
+fi
 
 [[ -f "$game_dir/GH.exe" ]] || { echo "error: GH.exe not found in $game_dir" >&2; exit 1; }
 [[ -f "$patcher" ]] || { echo "error: GloomhavenVR preloader not found: $patcher" >&2; exit 1; }
@@ -79,6 +101,19 @@ launcher="$destination/launch-steam-frame.sh"
     echo 'error: Steam artwork is missing; extract the complete GloomhavenVR release archive' >&2
     exit 1
 }
+[[ -f "$steam_helper" && -f "$boot_helper" ]] || {
+    echo 'error: Steam Frame setup helpers are missing; extract the complete GloomhavenVR release archive' >&2
+    exit 1
+}
+command -v python3 >/dev/null 2>&1 || { echo 'error: python3 is required for Steam Frame setup' >&2; exit 1; }
+
+# Validate all inputs before touching either the game or Steam. In particular,
+# failure to locate the active Steam account must not leave a half-created entry.
+python3 "$boot_helper" --game-path "$game_dir" --dry-run
+python3 "$steam_helper" --game-path "$game_dir" --launcher "$launcher" \
+    --icon "$destination/GloomhavenVR-steam-icon.png" \
+    --logo "$destination/GloomhavenVR-steam-logo.png" \
+    "${steam_root_args[@]}" --dry-run
 
 cat <<EOF
 Game folder: $game_dir
@@ -93,15 +128,18 @@ if $dry_run; then
     exit 0
 fi
 
-# The marker is intentionally Frame-only. It makes normal Gloomhaven launches
-# stay flat even if the old winhttp launch override is still present in Steam.
+# Unity reads boot.config before the preloader can run. Prepare its graphics-job
+# keys now, so the first Frame launch does not need the unsupported auto-restart.
+python3 "$boot_helper" --game-path "$game_dir"
+
+# The marker is intentionally Frame-only. It keeps the original library entry
+# flat even when its winhttp override loads BepInEx.
 mkdir -p -- "$destination"
 install -m 0644 -- "$logo" "$destination/GloomhavenVR-steam-logo.png"
 install -m 0644 -- "$icon" "$destination/GloomhavenVR-steam-icon.png"
 : > "$marker"
 
 temporary_launcher="$(mktemp -- "$destination/.launch-steam-frame.XXXXXX")"
-trap 'rm -f -- "$temporary_launcher"' EXIT
 cat > "$temporary_launcher" <<'EOF'
 #!/usr/bin/env bash
 # Keep Gloomhaven's original Steam AppID and Proton prefix (including its saves).
@@ -114,20 +152,35 @@ exec steam -applaunch 780290 --gloomhavenvr
 EOF
 chmod 0755 "$temporary_launcher"
 mv -f -- "$temporary_launcher" "$launcher"
-trap - EXIT
+temporary_launcher=""
 
-cat <<EOF
+# Steam caches localconfig.vdf and shortcuts.vdf until exit. A graceful shutdown
+# ensures it writes its old state before our changes; never kill it or overwrite
+# a live client's in-memory copy. The exit trap restores the client on failure.
+if command -v steam >/dev/null 2>&1 && pgrep -u "$(id -u)" -x steam >/dev/null 2>&1; then
+    echo 'Closing Steam briefly to update its library configuration...'
+    steam -shutdown
+    for ((attempt = 0; attempt < 60; attempt++)); do
+        if ! pgrep -u "$(id -u)" -x steam >/dev/null 2>&1; then
+            steam_stopped=true
+            break
+        fi
+        sleep 1
+    done
+    if ! $steam_stopped; then
+        echo 'error: Steam did not exit cleanly; its library configuration was not changed' >&2
+        exit 1
+    fi
+fi
 
-Next, in Steam Desktop Mode:
-  1. Games > Add a Non-Steam Game > Browse and select:
-     $launcher
-  2. Name the shortcut exactly GloomhavenVR and enable Include in VR Library.
-  3. In its Properties, set the icon to:
-     $destination/GloomhavenVR-steam-icon.png
-     Set its library logo to $destination/GloomhavenVR-steam-logo.png.
-  4. Leave the original Gloomhaven entry without --gloomhavenvr.
+python3 "$steam_helper" --game-path "$game_dir" --launcher "$launcher" \
+    --icon "$destination/GloomhavenVR-steam-icon.png" \
+    --logo "$destination/GloomhavenVR-steam-logo.png" \
+    "${steam_root_args[@]}"
 
-The GloomhavenVR shortcut forwards to the original Steam AppID 780290. Steam's
-original WINEDLLOVERRIDES="winhttp=n,b" %command% launch option is still required
-on this Frame for BepInEx; the marker prevents VR activation without the flag.
-EOF
+if $steam_stopped; then
+    echo 'Restarting Steam...'
+    nohup steam -silent >/dev/null 2>&1 </dev/null &
+    steam_stopped=false
+fi
+echo 'GloomhavenVR is ready in the Steam VR library. The original Gloomhaven entry remains flat.'
