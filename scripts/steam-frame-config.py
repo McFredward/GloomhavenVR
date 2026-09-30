@@ -286,12 +286,12 @@ def parse_binary(data: bytes) -> list[BinNode]:
                 value = data[pos:pos + 8]
                 pos += 8
             elif kind == 5:
-                if pos + 2 > len(data):
-                    raise ConfigError("Truncated Steam binary VDF field")
-                units = struct.unpack_from("<H", data, pos)[0]
-                pos += 2 + units * 2
-                if pos > len(data):
-                    raise ConfigError("Truncated Steam binary VDF field")
+                # Valve's WString payload is UTF-16LE terminated by two zero bytes.
+                while pos + 1 < len(data) and data[pos:pos + 2] != b"\0\0":
+                    pos += 2
+                if pos + 1 >= len(data):
+                    raise ConfigError("Truncated Steam binary VDF wide string")
+                pos += 2
                 value = data[start:pos]
             else:
                 raise ConfigError(f"Unsupported Steam binary VDF type {kind}")

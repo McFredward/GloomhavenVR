@@ -64,7 +64,8 @@ class SteamFrameConfigTest(unittest.TestCase):
 
     def test_binary_shortcut_preserves_unrelated_bytes_and_updates_in_place(self):
         unrelated = shortcut_entry("0", "Another Game", '"/games/other"', 0x80112233,
-                                   module.bin_string("Unfamiliar", "keep me"))
+                                   module.bin_string("Unfamiliar", "keep me")
+                                   + b"\x05WideNote\0" + "Other".encode("utf-16le") + b"\0\0")
         raw = module.bin_object("shortcuts", unrelated) + b"\x08"
         launcher = Path("/home/frame/VR Launcher/launch.sh")
         icon = Path("/home/frame/VR Launcher/icon.png")
