@@ -25,6 +25,7 @@ internal static class Program
             CurrentReleaseLayout(scratch);
             EarlierReleaseLayout(scratch);
             RejectUnknownRootEntry(scratch);
+            RejectLegacyRootDesktopEntry(scratch);
             RejectEscapingEntry(scratch);
             ApplyScriptCopiesAndCleansOnlyKnownRootFiles();
             if (args.Length == 1)
@@ -45,22 +46,27 @@ internal static class Program
             ["BepInEx/plugins/GloomhavenVR/GloomhavenVR.dll"] = "plugin",
             ["BepInEx/patchers/GloomhavenVR/GloomhavenVR.Preload.dll"] = "preloader",
             ["BepInEx/plugins/GloomhavenVR/FrameSetup/install-steam-frame.sh"] = "setup",
+            ["BepInEx/plugins/GloomhavenVR/FrameSetup/GloomhavenVR-Setup.desktop"] = "[Desktop Entry]",
             ["INSTALL.txt"] = "English guide",
             ["INSTALL-DEUTSCH.txt"] = "Deutsche Anleitung",
-            ["GloomhavenVR-Setup.desktop"] = "[Desktop Entry]",
         });
 
         var verdict = SelfUpdateZip.Verify(archive, new FileInfo(archive).Length);
         Check(verdict.Ok, "Current release layout is accepted: " + verdict.FailedTerm);
-        Check(verdict.Entries.Contains("GloomhavenVR-Setup.desktop"), "Root desktop launcher is in verified entries");
+        Check(SelfUpdateZip.AllowedRootFiles.Length == 2
+            && Array.IndexOf(SelfUpdateZip.AllowedRootFiles, "INSTALL.txt") >= 0
+            && Array.IndexOf(SelfUpdateZip.AllowedRootFiles, "INSTALL-DEUTSCH.txt") >= 0,
+            "Root allowlist stays compatible with released updaters");
+        Check(verdict.Entries.Contains("BepInEx/plugins/GloomhavenVR/FrameSetup/GloomhavenVR-Setup.desktop"),
+            "Frame launcher is nested inside BepInEx");
         Check(verdict.Entries.Contains("BepInEx/plugins/GloomhavenVR/FrameSetup/install-steam-frame.sh"),
             "Nested Frame setup helper is in verified entries");
 
         string destination = Path.Combine(scratch, "extracted");
         Check(SelfUpdateZip.Extract(archive, destination, new int[1], out string error),
             "Current layout extracts: " + error);
-        Check(File.ReadAllText(Path.Combine(destination, "GloomhavenVR-Setup.desktop")) == "[Desktop Entry]",
-            "Root desktop launcher survives extraction");
+        Check(File.ReadAllText(Path.Combine(destination, "BepInEx/plugins/GloomhavenVR/FrameSetup/GloomhavenVR-Setup.desktop")) == "[Desktop Entry]",
+            "Nested Frame launcher survives extraction");
         Check(File.ReadAllText(Path.Combine(destination, "BepInEx/plugins/GloomhavenVR/FrameSetup/install-steam-frame.sh")) == "setup",
             "Nested Frame setup helper survives extraction");
     }
@@ -84,12 +90,24 @@ internal static class Program
         {
             ["BepInEx/plugins/GloomhavenVR/GloomhavenVR.dll"] = "plugin",
             ["BepInEx/patchers/GloomhavenVR/GloomhavenVR.Preload.dll"] = "preloader",
-            ["GloomhavenVR-Setup.desktop"] = "[Desktop Entry]",
             ["unrelated.txt"] = "must not install",
         });
         var verdict = SelfUpdateZip.Verify(archive, new FileInfo(archive).Length);
         Check(!verdict.Ok && verdict.FailedTerm.Contains("unrelated.txt", StringComparison.Ordinal),
             "Unknown root files remain forbidden");
+    }
+
+    private static void RejectLegacyRootDesktopEntry(string scratch)
+    {
+        string archive = CreateZip(scratch, "root-desktop.zip", new Dictionary<string, string>
+        {
+            ["BepInEx/plugins/GloomhavenVR/GloomhavenVR.dll"] = "plugin",
+            ["BepInEx/patchers/GloomhavenVR/GloomhavenVR.Preload.dll"] = "preloader",
+            ["GloomhavenVR-Setup.desktop"] = "[Desktop Entry]",
+        });
+        var verdict = SelfUpdateZip.Verify(archive, new FileInfo(archive).Length);
+        Check(!verdict.Ok && verdict.FailedTerm.Contains("GloomhavenVR-Setup.desktop", StringComparison.Ordinal),
+            "A root desktop entry is rejected as released updaters would reject it");
     }
 
     private static void RejectEscapingEntry(string scratch)
@@ -109,31 +127,30 @@ internal static class Program
     {
         Check(SelfUpdateApplyScript.TryBuild(123, "GH.exe", "780290", new[] { "GH.exe" }, "1.1.0",
             out string script, out string refusal, out _), "Applier script builds: " + refusal);
-        const string desktopCopy = "if exist \"%HERE%staged\\GloomhavenVR-Setup.desktop\" copy /Y \"%HERE%staged\\GloomhavenVR-Setup.desktop\" \"%ROOT%\\GloomhavenVR-Setup.desktop\"";
-        Check(script.Contains(desktopCopy, StringComparison.Ordinal),
-            "New launcher is copied into the game root when present");
+        Check(!script.Contains("staged\\GloomhavenVR-Setup.desktop", StringComparison.Ordinal),
+            "The updater never copies a desktop launcher to the archive root");
+        Check(script.Contains("robocopy \"%HERE%staged\\BepInEx\" \"%ROOT%\\BepInEx\"", StringComparison.Ordinal),
+            "The nested launcher is installed by the BepInEx tree copy");
 
         int installCheck = script.IndexOf("if errorlevel 8 goto installfailed", StringComparison.Ordinal);
-        int successfulCopy = script.IndexOf(desktopCopy, StringComparison.Ordinal);
-        int successBranchEnd = script.IndexOf("goto relaunch", successfulCopy, StringComparison.Ordinal);
+        int successBranchEnd = script.IndexOf("goto relaunch", installCheck, StringComparison.Ordinal);
         int rollback = script.IndexOf(":installfailed", StringComparison.Ordinal);
-        Check(installCheck >= 0 && successfulCopy > installCheck && successBranchEnd > successfulCopy && rollback > successBranchEnd,
-            "Launcher copy runs only after a successful BepInEx install");
+        Check(installCheck >= 0 && successBranchEnd > installCheck && rollback > successBranchEnd,
+            "The successful install branch precedes rollback");
 
         string[] legacy =
         {
             "install-steam-frame.sh", "steam-frame-config.py", "frame-boot-config.py",
             "GloomhavenVR-steam-logo.png", "GloomhavenVR-steam-icon.png",
+            "GloomhavenVR-Setup.desktop",
         };
         foreach (string name in legacy)
         {
             string deletion = $"if exist \"%ROOT%\\{name}\" del /q \"%ROOT%\\{name}\"";
             int at = script.IndexOf(deletion, StringComparison.Ordinal);
-            Check(at > successfulCopy && at < successBranchEnd,
+            Check(at > installCheck && at < successBranchEnd,
                 "Only the successful branch removes legacy root file " + name);
         }
-        Check(!script.Contains("del /q \"%ROOT%\\GloomhavenVR-Setup.desktop\"", StringComparison.Ordinal),
-            "The root desktop launcher is retained");
     }
 
     private static void VerifyRealRelease(string archive)
