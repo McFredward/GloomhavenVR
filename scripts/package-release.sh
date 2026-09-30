@@ -186,17 +186,18 @@ done
 stage_text "$TEMPLATE"    "$STAGE/INSTALL.txt"
 stage_text "$TEMPLATE_DE" "$STAGE/INSTALL-DEUTSCH.txt"
 
-# Frame implementation files live with the plugin, leaving only the one-click
-# launcher and installation guides at the game root after extraction. The
-# helper, its Python companions, and KDE launcher must survive a CRLF checkout.
+# All Frame setup files live with the plugin. The game root contains only the
+# BepInEx tree and two installation guides, matching the allowlist enforced by
+# older published in-game updaters. The helper, its Python companions, and KDE
+# launcher must survive a CRLF checkout.
 # Unlike the Windows-readable .txt files above, these need LF; the shell and
 # desktop launchers also need executable ZIP modes. The opt-in marker never
 # ships: extracting on a PC must not change its normal launch.
 sed 's/\r$//' "$ROOT/scripts/install-steam-frame.sh" > "$FRAMESETUP/install-steam-frame.sh"
 sed 's/\r$//' "$ROOT/scripts/steam-frame-config.py" > "$FRAMESETUP/steam-frame-config.py"
 sed 's/\r$//' "$ROOT/scripts/frame-boot-config.py" > "$FRAMESETUP/frame-boot-config.py"
-sed 's/\r$//' "$ROOT/GloomhavenVR-Setup.desktop" > "$STAGE/GloomhavenVR-Setup.desktop"
-chmod 0755 "$FRAMESETUP/install-steam-frame.sh" "$STAGE/GloomhavenVR-Setup.desktop"
+sed 's/\r$//' "$ROOT/GloomhavenVR-Setup.desktop" > "$FRAMESETUP/GloomhavenVR-Setup.desktop"
+chmod 0755 "$FRAMESETUP/install-steam-frame.sh" "$FRAMESETUP/GloomhavenVR-Setup.desktop"
 cp "$ROOT/src/GloomhavenVR/Assets/GloomhavenVR_logo.png" "$FRAMESETUP/GloomhavenVR-steam-logo.png"
 cp "$ROOT/unity/GloomhavenVR.Assets/Assets/Bundle/UI/VRMenuIcon.png" "$FRAMESETUP/GloomhavenVR-steam-icon.png"
 
@@ -241,7 +242,7 @@ for path in \
     "BepInEx/plugins/GloomhavenVR/FrameSetup/install-steam-frame.sh" \
     "BepInEx/plugins/GloomhavenVR/FrameSetup/steam-frame-config.py" \
     "BepInEx/plugins/GloomhavenVR/FrameSetup/frame-boot-config.py" \
-    "GloomhavenVR-Setup.desktop" \
+    "BepInEx/plugins/GloomhavenVR/FrameSetup/GloomhavenVR-Setup.desktop" \
     "BepInEx/plugins/GloomhavenVR/FrameSetup/GloomhavenVR-steam-logo.png" \
     "BepInEx/plugins/GloomhavenVR/FrameSetup/GloomhavenVR-steam-icon.png"; do
     if ! grep -qF -- "$path" <<<"$LISTING"; then

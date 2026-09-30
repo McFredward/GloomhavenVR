@@ -25,7 +25,7 @@ function Set-ZipUnixLaunchers([string]$ArchivePath) {
     }
     $wanted = @(
         'BepInEx/plugins/GloomhavenVR/FrameSetup/install-steam-frame.sh',
-        'GloomhavenVR-Setup.desktop')
+        'BepInEx/plugins/GloomhavenVR/FrameSetup/GloomhavenVR-Setup.desktop')
     $found = @()
     $position = [int]$offset
     for ($n = 0; $n -lt $count; $n++) {

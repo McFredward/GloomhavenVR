@@ -15,7 +15,7 @@ $pythonSource = Join-Path $stage 'source.py'
 [System.IO.File]::WriteAllText($desktopSource, "[Desktop Entry]`r`nType=Application`r`n", $script:Utf8Strict)
 [System.IO.File]::WriteAllText($pythonSource, "#!/usr/bin/env python3`r`nprint('ready')`r`n", $script:Utf8Strict)
 Write-UnixLauncher $shellSource (Join-Path $frameSetup 'install-steam-frame.sh')
-Write-UnixLauncher $desktopSource (Join-Path $stage 'GloomhavenVR-Setup.desktop')
+Write-UnixLauncher $desktopSource (Join-Path $frameSetup 'GloomhavenVR-Setup.desktop')
 Write-UnixLauncher $pythonSource (Join-Path $frameSetup 'steam-frame-config.py')
 Write-UnixLauncher $pythonSource (Join-Path $frameSetup 'frame-boot-config.py')
 [System.IO.File]::WriteAllBytes((Join-Path $frameSetup 'GloomhavenVR-steam-logo.png'), [byte[]]@(137, 80, 78, 71))

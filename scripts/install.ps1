@@ -415,15 +415,16 @@ if (Test-Path $legacyPreloader) {
 }
 
 # Before the Frame helpers moved below the plugin directory, a release ZIP
-# placed these five files directly in the game root. A local source install may
+# placed these files directly in the game root. A local source install may
 # run against that older extraction. Remove only our exact obsolete filenames;
-# keep the desktop launcher and both installation guides at the root.
+# keep both installation guides at the root.
 $legacyFrameFiles = @(
     'install-steam-frame.sh',
     'steam-frame-config.py',
     'frame-boot-config.py',
     'GloomhavenVR-steam-logo.png',
-    'GloomhavenVR-steam-icon.png')
+    'GloomhavenVR-steam-icon.png',
+    'GloomhavenVR-Setup.desktop')
 foreach ($name in $legacyFrameFiles) {
     $legacyFrameFile = Join-Path $GamePath $name
     if (Test-Path -LiteralPath $legacyFrameFile -PathType Leaf) {
@@ -571,10 +572,10 @@ if (-not $NoPackage) {
         Write-WindowsText $template (Join-Path $stage $name) @{ '@VERSION@' = $version }
     }
 
-    # Keep Frame implementation files below the plugin directory. Only the
-    # one-click launcher and installation guides belong at the game root after
-    # extracting this archive. These files do not alter PC launches; only the
-    # explicit Frame helper creates the opt-in marker.
+    # Keep all Frame setup files below the plugin directory. Older published
+    # updaters accept only BepInEx and the two installation guides at the root.
+    # These files do not alter PC launches; only the explicit Frame helper
+    # creates the opt-in marker.
     $frameSetupDir = Join-Path $stage "BepInEx\plugins\GloomhavenVR\FrameSetup"
     New-Item -ItemType Directory -Force -Path $frameSetupDir | Out-Null
     Write-UnixLauncher (Join-Path $root "scripts\install-steam-frame.sh") `
@@ -584,7 +585,7 @@ if (-not $NoPackage) {
     Write-UnixLauncher (Join-Path $root "scripts\frame-boot-config.py") `
                        (Join-Path $frameSetupDir "frame-boot-config.py")
     Write-UnixLauncher (Join-Path $root "GloomhavenVR-Setup.desktop") `
-                       (Join-Path $stage "GloomhavenVR-Setup.desktop")
+                       (Join-Path $frameSetupDir "GloomhavenVR-Setup.desktop")
     Copy-Item -LiteralPath (Join-Path $root "src\GloomhavenVR\Assets\GloomhavenVR_logo.png") `
               -Destination (Join-Path $frameSetupDir "GloomhavenVR-steam-logo.png")
     Copy-Item -LiteralPath (Join-Path $root "unity\GloomhavenVR.Assets\Assets\Bundle\UI\VRMenuIcon.png") `
@@ -613,7 +614,7 @@ if (-not $NoPackage) {
         "BepInEx/plugins/GloomhavenVR/FrameSetup/install-steam-frame.sh",
         "BepInEx/plugins/GloomhavenVR/FrameSetup/steam-frame-config.py",
         "BepInEx/plugins/GloomhavenVR/FrameSetup/frame-boot-config.py",
-        "GloomhavenVR-Setup.desktop",
+        "BepInEx/plugins/GloomhavenVR/FrameSetup/GloomhavenVR-Setup.desktop",
         "BepInEx/plugins/GloomhavenVR/FrameSetup/GloomhavenVR-steam-logo.png",
         "BepInEx/plugins/GloomhavenVR/FrameSetup/GloomhavenVR-steam-icon.png")
     Add-Type -AssemblyName System.IO.Compression.FileSystem
@@ -653,7 +654,7 @@ if (-not $NoPackage) {
         }
     }
     finally { $archive.Dispose() }
-    $allowedTopLevel = @('BepInEx', 'INSTALL.txt', 'INSTALL-DEUTSCH.txt', 'GloomhavenVR-Setup.desktop')
+    $allowedTopLevel = @('BepInEx', 'INSTALL.txt', 'INSTALL-DEUTSCH.txt')
     $topLevel = @($entries | ForEach-Object { ($_ -replace '^\./', '').Split('/')[0] } | Sort-Object -Unique)
     $unexpectedTopLevel = @($topLevel | Where-Object { $allowedTopLevel -notcontains $_ })
     $missingTopLevel = @($allowedTopLevel | Where-Object { $topLevel -notcontains $_ })

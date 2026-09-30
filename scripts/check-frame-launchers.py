@@ -9,7 +9,6 @@ import zipfile
 FRAME_SETUP = "BepInEx/plugins/GloomhavenVR/FrameSetup/"
 TOP_LEVEL = {
     "BepInEx",
-    "GloomhavenVR-Setup.desktop",
     "INSTALL.txt",
     "INSTALL-DEUTSCH.txt",
 }
@@ -22,8 +21,9 @@ def main() -> int:
 
     with zipfile.ZipFile(sys.argv[1]) as archive:
         # Users extract the release into the game folder. Keep that folder
-        # limited to the normal BepInEx tree, two guides, and the Frame setup
-        # launcher; implementation helpers and artwork belong inside BepInEx.
+        # limited to the normal BepInEx tree and two guides. Published updater
+        # builds reject any other root file; all Frame setup files belong inside
+        # BepInEx so an existing install can update to this archive.
         top_level = {name.lstrip("./").split("/", 1)[0] for name in archive.namelist()}
         if top_level != TOP_LEVEL:
             print(
@@ -35,7 +35,7 @@ def main() -> int:
 
         for name, prefix in (
             (FRAME_SETUP + "install-steam-frame.sh", b"#!/usr/bin/env bash\n"),
-            ("GloomhavenVR-Setup.desktop", b"[Desktop Entry]\n"),
+            (FRAME_SETUP + "GloomhavenVR-Setup.desktop", b"[Desktop Entry]\n"),
         ):
             try:
                 entry = archive.getinfo(name)
