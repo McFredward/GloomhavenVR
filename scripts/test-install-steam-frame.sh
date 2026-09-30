@@ -131,7 +131,14 @@ cat > "$scratch/bin/steam" <<'EOF'
 case "$1" in
     -shutdown)
         printf 'shutdown\n' >> "$HOME/steam-setup-calls"
+        if [[ -f "$HOME/fake-steam-shutdown-delay" ]]; then
+            sleep 2
+        fi
         rm -f -- "$HOME/fake-steam-running"
+        if [[ -f "$HOME/fake-steam-shutdown-error" ]]; then
+            printf 'Steam is already running, exiting (command line was forwarded).\n'
+            exit 7
+        fi
         ;;
     -silent)
         printf 'restart\n' >> "$HOME/steam-setup-calls"
@@ -145,7 +152,20 @@ case "$1" in
         ;;
 esac
 EOF
+cat > "$scratch/bin/systemd-run" <<'EOF'
+#!/usr/bin/env bash
+# Simulate the user service without starting a real one in CI.
+if [[ -f "$HOME/fake-systemd-available" ]]; then
+    while [[ "${1:-}" == --* ]]; do
+        shift
+    done
+    setsid "$@" </dev/null >/dev/null 2>&1 &
+    exit 0
+fi
+exit 1
+EOF
 chmod +x "$scratch/bin/pgrep" "$scratch/bin/steam"
+chmod +x "$scratch/bin/systemd-run"
 find "$account/grid" -maxdepth 1 -type f -name '*_logo.png' -delete
 : > "$HOME/fake-steam-running"
 PATH="$scratch/bin:$PATH" bash "$setup/install-steam-frame.sh" > "$scratch/update.log"
@@ -166,6 +186,45 @@ cmp -s "$boot" "$scratch/boot-before"
 cmp -s "$shortcuts" "$scratch/shortcuts-before"
 cmp -s "$account/localconfig.vdf" "$scratch/localconfig-before"
 cmp -s "$HOME/steam-setup-calls" "$scratch/expected-setup-calls"
+
+# Steam can forward -shutdown and return nonzero even while it exits. The
+# detached finisher must complete the VDF write and restart in that case.
+find "$account/grid" -maxdepth 1 -type f -name '*_logo.png' -delete
+: > "$HOME/fake-steam-shutdown-error"
+PATH="$scratch/bin:$PATH" bash "$setup/install-steam-frame.sh" > "$scratch/forwarded.log"
+rg -q 'Steam shutdown request returned status 7' "$setup/steam-frame-setup.log"
+rg -q 'Steam configuration after restart needs repair: no' "$setup/steam-frame-setup.log"
+rg -q 'Detached Steam setup exit status: 0' "$setup/steam-frame-setup.log"
+rm -f -- "$HOME/fake-steam-shutdown-error"
+
+# Also exercise the preferred user-service handoff and its completion status.
+find "$account/grid" -maxdepth 1 -type f -name '*_logo.png' -delete
+: > "$HOME/fake-systemd-available"
+PATH="$scratch/bin:$PATH" bash "$setup/install-steam-frame.sh" > "$scratch/service.log"
+rg -q 'Steam setup worker started in a separate user service' "$setup/steam-frame-setup.log"
+rg -q 'Steam configuration after restart needs repair: no' "$setup/steam-frame-setup.log"
+rm -f -- "$HOME/fake-systemd-available"
+
+# A Steam-hosted terminal may close as Steam exits. HUP the foreground setup
+# after its separate worker starts and check that the worker still finishes.
+find "$account/grid" -maxdepth 1 -type f -name '*_logo.png' -delete
+: > "$HOME/fake-steam-shutdown-delay"
+: > "$setup/steam-frame-setup.log"
+PATH="$scratch/bin:$PATH" bash "$setup/install-steam-frame.sh" > "$scratch/interrupted.log" 2>&1 &
+foreground_pid=$!
+for ((attempt = 0; attempt < 100; attempt++)); do
+    rg -q 'Detached Steam setup started:' "$setup/steam-frame-setup.log" 2>/dev/null && break
+    sleep 0.1
+done
+rg -q 'Detached Steam setup started:' "$setup/steam-frame-setup.log"
+kill -HUP "$foreground_pid"
+wait "$foreground_pid" 2>/dev/null || true
+for ((attempt = 0; attempt < 100; attempt++)); do
+    rg -q 'Steam configuration after restart needs repair: no' "$setup/steam-frame-setup.log" 2>/dev/null && break
+    sleep 0.1
+done
+rg -q 'Steam configuration after restart needs repair: no' "$setup/steam-frame-setup.log"
+rm -f -- "$HOME/fake-steam-shutdown-delay"
 
 PATH="$scratch/bin:$PATH" "$launcher"
 printf '%s\n' -applaunch 780290 --gloomhavenvr > "$scratch/expected-args"

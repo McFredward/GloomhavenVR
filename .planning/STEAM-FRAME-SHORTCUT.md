@@ -166,3 +166,22 @@ read-only configuration check after restart. A changed or removed shortcut
 after restart is reported as a setup failure rather than claiming the VR entry
 is ready. A synthetic negative control simulates Steam deleting the shortcut.
 The next Frame log will distinguish file loss from a Steam UI/load issue.
+
+## Shutdown handoff repair (2026-09-30)
+
+The maintainer's complete Frame log stopped immediately after Steam printed
+`Steam is already running, exiting (command line was forwarded)` for the
+shutdown request. It contained no shortcut write, restart readback or installer
+exit status. That establishes that the first attempt never reached the Steam
+configuration writer; it does not establish why the original terminal ended.
+The setup now starts its final phase in a separate user systemd service, with
+an independent session fallback if that service is unavailable. The worker
+requests Steam shutdown, waits until the client has exited, writes the VDF
+files, restarts Steam and verifies the on-disk shortcut. The foreground setup
+waits for a completion status, but the worker continues if that terminal is
+closed. A forwarded shutdown command's nonzero exit status no longer aborts
+the write when Steam actually closes. The log records the worker, bounded
+shutdown wait and final result. The focused synthetic test covers both a
+nonzero shutdown return and loss of the foreground terminal. This is a
+source- and simulation-proven repair; actual Frame library visibility still
+needs another hardware run.

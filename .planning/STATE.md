@@ -1,13 +1,17 @@
 # State — where the project stands
 
 **Updated 2026-09-30: dev 1.1.0 / ModBuild 592, clean install archive candidate.**
-The release ZIP now exposes only `BepInEx/`, the English/German install texts and
-the Steam Frame desktop starter at game-root level. Its setup scripts and art
-are nested under the plugin. The in-game updater accepts and copies the desktop
-starter; successful upgrades remove five obsolete root helpers. The repository
+The release ZIP now exposes only `BepInEx/` and the English/German install
+texts at game-root level. The Steam Frame desktop starter, setup scripts and
+art are nested under the plugin. The in-game updater accepts and copies the
+desktop starter; successful upgrades remove six obsolete root helpers. The repository
 install guides moved to `docs/install/`. The actual Frame launch remains a
 hardware check; the archive and updater have focused local coverage. See
 [STEAM-FRAME-SHORTCUT.md](STEAM-FRAME-SHORTCUT.md).
+The first actual Frame shortcut setup log ended at the Steam shutdown request,
+before the shortcut write. A script-only follow-up moves that final transaction
+to an independent user service or detached session and tests terminal loss;
+the resulting library entry still awaits a Frame retest.
 The complete immersive NPC work through Build 583 and the Steam Frame changes
 through dev Build 559 now share the sole `dev` integration branch. Future NPC and
 Frame work belongs on `dev`. The NPC presentation remains a two-client hardware
