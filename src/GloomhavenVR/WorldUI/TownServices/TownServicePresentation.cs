@@ -28,7 +28,8 @@ internal static class TownServicePresentation
     private static TownServiceRitual? _ritual;
     private static TownServiceWorkspace? _workspace;
     private static Transform? _counter;
-    private static TownServiceWindowMask? _contextMask, _enhancementListMask;
+    private static TownServiceWindowMask? _contextMask;
+    private static TownServiceNativeListVeil? _enhancementListVeil;
     private static Vector3 _origin;
     private static Quaternion _yaw;
     private static float _scale, _opened, _nextCensus;
@@ -53,7 +54,7 @@ internal static class TownServicePresentation
     internal static Transform? ContextRoot => _context?.Target;
     internal static Transform? StationRoot => _station?.Root;
     internal static bool UsesImmersiveEnhancement => MapRoomDriver.Active && Service == 3 && Active
-        && _enhancementListMask != null
+        && _enhancementListVeil != null
         && GuildmasterDestinations.CurrentDestinationMode() == EGuildmasterMode.Enchantress;
     internal static bool Active => WorldUIConfig.ImmersiveTownServices.Value
         && TownServiceGrantSync.CanUseImmersive
@@ -253,16 +254,15 @@ internal static class TownServicePresentation
                             () => Active && _session == session, SelectionContext);
                     if (service == 3)
                     {
-                        // The flat card chooser is a sibling of the character column. Keep its
-                        // native pool/controllers alive for selection, but remove its presentation
-                        // from that panel. Capacity has already moved to the station folio.
+                        // The flat card chooser is a sibling of the character column. Its
+                        // original card pool and callbacks still drive enhancement selection,
+                        // but the immersive visitor never sees the flat list. Hide it in place:
+                        // moving the full pooled subtree through two canvases caused a large
+                        // main-thread layout rebuild on every first approach.
                         EnchantressComposite.Reset();
                         using (PerfMonitor.Scope("TownEnhancement.NativeListMask"))
-                        {
-                            _enhancementListMask = new TownServiceWindowMask(
+                            _enhancementListVeil = new TownServiceNativeListVeil(
                                 (RectTransform)window.GetComponent<UINewEnhancementWindow>().CardsDisplay.transform);
-                            _enhancementListMask.DetachFromPanel(_station.Root);
-                        }
                     }
                     _contextMask = new TownServiceWindowMask((RectTransform)window.transform);
                     _context = null;
@@ -312,6 +312,7 @@ internal static class TownServicePresentation
         }
         _catalog?.Tick(_scale);
         _ritual?.Tick(_scale);
+        _enhancementListVeil?.Reassert();
         bool enhancementStalled = _ritual?.Handoff?.NativeOfferStalled == true;
         bool templeStalled = _ritual?.TempleGrantStalled == true;
         bool grantUnavailable = TownServiceMirror.LocalTransactionUnavailable(Service);
@@ -542,7 +543,7 @@ internal static class TownServicePresentation
         _ritual?.Dispose(); _ritual = null;
         for (int i = Surfaces.Count - 1; i >= 0; i--) Surfaces[i].Dispose();
         Surfaces.Clear();
-        _enhancementListMask?.Dispose(); _enhancementListMask = null;
+        _enhancementListVeil?.Dispose(); _enhancementListVeil = null;
         _contextMask?.Dispose(); _contextMask = null;
         if (_counter != null) UnityEngine.Object.Destroy(_counter.gameObject);
         _counter = null;
