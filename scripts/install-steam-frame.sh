@@ -217,4 +217,15 @@ if $steam_stopped; then
     nohup steam -silent >/dev/null 2>&1 </dev/null &
     steam_stopped=false
 fi
+# Archives before the nested setup layout placed these owned helpers directly in
+# the game root. Extraction never deletes old files, so retire them after the
+# replacement has completed successfully.
+if [[ "$script_dir" == "$game_dir/BepInEx/plugins/GloomhavenVR/FrameSetup" ]]; then
+    for obsolete in install-steam-frame.sh steam-frame-config.py frame-boot-config.py \
+        GloomhavenVR-steam-logo.png GloomhavenVR-steam-icon.png; do
+        if [[ -f "$game_dir/$obsolete" ]] && ! rm -f -- "$game_dir/$obsolete"; then
+            echo "warning: could not remove obsolete setup file: $game_dir/$obsolete" >&2
+        fi
+    done
+fi
 echo 'GloomhavenVR is ready in the Steam VR library. The original Gloomhaven entry remains flat.'

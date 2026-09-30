@@ -43,6 +43,11 @@ cp -- "$root/scripts/frame-boot-config.py" "$setup/frame-boot-config.py"
 cp -- "$root/GloomhavenVR-Setup.desktop" "$game/GloomhavenVR-Setup.desktop"
 cp -- "$root/src/GloomhavenVR/Assets/GloomhavenVR_logo.png" "$setup/GloomhavenVR-steam-logo.png"
 cp -- "$root/unity/GloomhavenVR.Assets/Assets/Bundle/UI/VRMenuIcon.png" "$setup/GloomhavenVR-steam-icon.png"
+legacy=(install-steam-frame.sh steam-frame-config.py frame-boot-config.py
+    GloomhavenVR-steam-logo.png GloomhavenVR-steam-icon.png)
+for obsolete in "${legacy[@]}"; do
+    printf 'obsolete\n' > "$game/$obsolete"
+done
 
 marker="$game/BepInEx/patchers/GloomhavenVR/frame-launch-opt-in.marker"
 launcher="$XDG_DATA_HOME/GloomhavenVR/launch-steam-frame.sh"
@@ -77,6 +82,9 @@ else
 fi
 
 [[ -f "$marker" && -x "$launcher" && -f "$shortcuts" ]]
+for obsolete in "${legacy[@]}"; do
+    [[ ! -e "$game/$obsolete" ]]
+done
 [[ -f "$boot.gloomhavenvr-backup" ]]
 [[ "$(cat "$boot.gloomhavenvr-backup")" == 'wait-for-native-debugger=0' ]]
 rg -q '^gfx-enable-gfx-jobs=1$' "$boot"
