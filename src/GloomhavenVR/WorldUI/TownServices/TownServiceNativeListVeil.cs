@@ -36,13 +36,15 @@ internal sealed class TownServiceNativeListVeil : IDisposable
     internal TownServiceNativeListVeil(RectTransform source)
     {
         _source = source ?? throw new ArgumentNullException(nameof(source));
-        _parts = source.GetComponent<TownServiceNativeListVeilParts>()
-            ?? source.gameObject.AddComponent<TownServiceNativeListVeilParts>();
+        TownServiceNativeListVeilParts? parts = source.GetComponent<TownServiceNativeListVeilParts>();
+        _parts = parts == null ? source.gameObject.AddComponent<TownServiceNativeListVeilParts>() : parts;
         // CanvasGroup is unique on a Unity object. If the prefab already owns one,
         // snapshot its presentation properties and restore them on every exit path.
         CanvasGroup? group = _parts.Group != null ? _parts.Group : source.GetComponent<CanvasGroup>();
         _addedGroup = _parts.Group != null || group == null;
-        _group = group ?? source.gameObject.AddComponent<CanvasGroup>();
+        // Unity's missing-component wrapper can be a non-null managed reference.
+        // The C# ?? operator then keeps it even though Unity's == null reports missing.
+        _group = group == null ? source.gameObject.AddComponent<CanvasGroup>() : group;
         if (_addedGroup) _parts.Group = _group;
         _restoreAlpha = _group.alpha; _groupEnabled = _group.enabled;
         _blocksRaycasts = _group.blocksRaycasts; _ignoreParentGroups = _group.ignoreParentGroups;

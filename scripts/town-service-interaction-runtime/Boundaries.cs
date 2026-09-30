@@ -30,13 +30,14 @@ public class UINewEnhancementWindow : UIWindow
     public AbilityCardUI? selectedCard, SowingCard;
     public EnhancementShop enhancementShop = null!;
     public CardHolder cardHolder = null!;
-    public CardsDisplay CardsDisplay = null!;
+    public UIPartyCharacterEnhancementAbilityCardsDisplay CardsDisplay = null!;
 }
 public class AbilityCardUI { public object AbilityCard = new object(); }
 public class EnhancementShop : MonoBehaviour { public List<UINewEnhancementShopSlot> slotsPool = new(); }
 public class CardHolder : MonoBehaviour { public AbilityCardUI? Card; }
 public class CardsDisplay : MonoBehaviour
 { public RectTransform abilityCardsPanel = null!; public List<UIEnhanceCardSlot> slotsPool = new(); }
+public class UIPartyCharacterEnhancementAbilityCardsDisplay : CardsDisplay { }
 public class UINewEnhancementShopSlot : MonoBehaviour { public Selectable button = null!; public object enhancement = new object(); }
 public class UIEnhanceCardSlot : MonoBehaviour { public Selectable Selectable = null!; public AbilityCardUI? AbilityCard; }
 public static class Probe
@@ -50,7 +51,7 @@ public static class Probe
         return go;
     }
 }
-namespace GloomhavenVR.Core { internal static class VRLog { public static bool WantsDebug => false; public static void Note(string a, string b) { } public static void Warn(string a,string b) {} public static void Debug(string a,string b) {} } }
+namespace GloomhavenVR.Core { internal static class VRLog { public static bool WantsDebug => false; public static void Note(string a, string b) { if (b.StartsWith("TOWN SERVICE FALLBACK")) Console.WriteLine(b); } public static void Warn(string a,string b) {} public static void Debug(string a,string b) {} } }
 // Production timing scopes do not change the interaction fixture's behavior.
 namespace GloomhavenVR.Core { internal static class PerfMonitor { internal static IDisposable Scope(string _) => EmptyScope.Instance; private sealed class EmptyScope : IDisposable { internal static readonly EmptyScope Instance = new(); public void Dispose() { } } } }
 namespace GloomhavenVR.WorldUI { internal static class TownServiceTempleOffering { internal static void TickApproach() {} } }

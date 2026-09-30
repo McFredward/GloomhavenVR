@@ -118,7 +118,7 @@ public static class InteractionProgram
             var win = root.AddComponent<UINewEnhancementWindow>();
             win.enhancementShop = Child<EnhancementShop>("enhancements", root.transform);
             win.cardHolder = Child<CardHolder>("card-holder", root.transform);
-            win.CardsDisplay = Child<CardsDisplay>("cards", root.transform);
+            win.CardsDisplay = Child<UIPartyCharacterEnhancementAbilityCardsDisplay>("cards", root.transform);
             win.CardsDisplay.abilityCardsPanel = (RectTransform)Probe.Go("card-scroll", win.CardsDisplay.transform).transform;
             var slot = Child<UIEnhanceCardSlot>("ability", win.CardsDisplay.abilityCardsPanel);
             slot.AbilityCard = new AbilityCardUI();

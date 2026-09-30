@@ -34,6 +34,7 @@ def sources(root):
         "Surface.cs": "WorldUI/TownServices/TownServiceSurface.cs",
         "OfferingPose.cs": "WorldUI/TownServices/TownServiceOfferingPose.cs",
         "WindowMask.cs": "WorldUI/TownServices/TownServiceWindowMask.cs",
+        "NativeListVeil.cs": "WorldUI/TownServices/TownServiceNativeListVeil.cs",
         "ConfirmationMask.cs": "WorldUI/TownServices/TownServiceConfirmationMask.cs",
         "Presentation.cs": "WorldUI/TownServices/TownServicePresentation.cs",
         "Handoff.cs": "WorldUI/Modal/ModalFallback.TownServices.cs",
@@ -47,7 +48,7 @@ def sources(root):
     inspect_hidden_window_veil(raw["HiddenWindowVeil.cs"])
     inspect_host_grant_timeout(raw["GrantSync.cs"])
     hashes = {paths[name]: hashlib.sha256(text.encode()).hexdigest() for name, text in raw.items()}
-    bound = {name: raw[name] for name in ("Token.cs", "OfferingPose.cs", "Presentation.cs", "Handoff.cs", "WindowMask.cs", "ConfirmationMask.cs", "PalmConfirmation.cs", "Surface.cs")}
+    bound = {name: raw[name] for name in ("Token.cs", "OfferingPose.cs", "Presentation.cs", "Handoff.cs", "WindowMask.cs", "NativeListVeil.cs", "ConfirmationMask.cs", "PalmConfirmation.cs", "Surface.cs")}
     # Native audio suppression has its own integration/build coverage. This fixture binds the
     # modal handoff methods and deliberately excludes the independent Harmony patch boundary.
     audio_class = bound["Handoff.cs"].index("internal static class TownServiceNativeAudioSilence")
