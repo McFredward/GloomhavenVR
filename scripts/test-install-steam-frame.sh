@@ -38,15 +38,46 @@ if command -v gio >/dev/null 2>&1; then
     mkdir -p -- "$release/BepInEx/patchers/GloomhavenVR"
     cp -- "$game/BepInEx/patchers/GloomhavenVR/GloomhavenVR.Preload.dll" \
         "$release/BepInEx/patchers/GloomhavenVR/GloomhavenVR.Preload.dll"
-    gio launch "$release/GloomhavenVR-Setup.desktop" > "$scratch/desktop.log"
+    # Some headless Gio builds leave %k empty. Launching from the extracted
+    # folder exercises the entry's fallback; Dolphin normally supplies %k.
+    (cd -- "$release" && gio launch "$release/GloomhavenVR-Setup.desktop") > "$scratch/desktop.log" 2>&1
     for ((attempt = 0; attempt < 30; attempt++)); do
         if [[ -f "$release/BepInEx/patchers/GloomhavenVR/frame-launch-opt-in.marker" && -x "$launcher" ]]; then
             break
         fi
         sleep 0.1
     done
-    [[ -f "$release/BepInEx/patchers/GloomhavenVR/frame-launch-opt-in.marker" ]]
-    [[ -x "$launcher" ]]
+    if [[ ! -f "$release/BepInEx/patchers/GloomhavenVR/frame-launch-opt-in.marker" || ! -x "$launcher" ]]; then
+        cat "$scratch/desktop.log" >&2
+        echo 'error: desktop launcher did not complete Frame setup' >&2
+        exit 1
+    fi
+
+    # Force the CI variant where Gio does not expand %k and offers no useful
+    # working directory. The standard Frame game path must still be found.
+    isolated="$scratch/isolated launcher"
+    default_game="$HOME/.local/share/Steam/steamapps/common/Gloomhaven"
+    mkdir -p -- "$isolated" "$default_game/BepInEx/patchers/GloomhavenVR"
+    sed 's/ bash %k$/ bash/' "$release/GloomhavenVR-Setup.desktop" > "$isolated/GloomhavenVR-Setup.desktop"
+    cp -- "$installer" "$default_game/install-steam-frame.sh"
+    cp -- "$game/GH.exe" "$default_game/GH.exe"
+    cp -- "$game/BepInEx/patchers/GloomhavenVR/GloomhavenVR.Preload.dll" \
+        "$default_game/BepInEx/patchers/GloomhavenVR/GloomhavenVR.Preload.dll"
+    cp -- "$release/GloomhavenVR-steam-logo.png" "$default_game/GloomhavenVR-steam-logo.png"
+    cp -- "$release/GloomhavenVR-steam-icon.png" "$default_game/GloomhavenVR-steam-icon.png"
+    rm -f -- "$launcher"
+    gio launch "$isolated/GloomhavenVR-Setup.desktop" > "$scratch/desktop-no-path.log" 2>&1
+    for ((attempt = 0; attempt < 30; attempt++)); do
+        if [[ -f "$default_game/BepInEx/patchers/GloomhavenVR/frame-launch-opt-in.marker" && -x "$launcher" ]]; then
+            break
+        fi
+        sleep 0.1
+    done
+    if [[ ! -f "$default_game/BepInEx/patchers/GloomhavenVR/frame-launch-opt-in.marker" || ! -x "$launcher" ]]; then
+        cat "$scratch/desktop-no-path.log" >&2
+        echo 'error: desktop launcher needs a %k path to complete Frame setup' >&2
+        exit 1
+    fi
     rm -f -- "$launcher"
 fi
 

@@ -98,6 +98,8 @@ signed Int32 before the `UInt32` cast and rejected its negative result. The
 archive helper now writes the already-reviewed unsigned value `2179792896`
 (`0x81ED0000`), and a PowerShell-authored synthetic ZIP passes the same LF and
 Unix-mode checker as the Linux release ZIP in CI. The first CI desktop smoke
-also exposed a host-dependent `%k`/shell parameter-expansion path; the launcher
-now derives its directory with `dirname` and the smoke covers a space-containing
-path. Neither fix changes a game DLL or the ModBuild handshake.
+also exposed a host-dependent `%k` expansion: headless Gio supplied no desktop
+path on the CI runner. The launcher now derives its directory with `dirname`
+when available, then tries its working directory and the standard Frame game
+folder. The smoke covers a space-containing path both with and without `%k`.
+Neither fix changes a game DLL or the ModBuild handshake.

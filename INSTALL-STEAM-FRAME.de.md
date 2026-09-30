@@ -86,7 +86,8 @@ Spielinstallation, denselben Steam-Account und dasselbe Proton-Spielprofil.
 Öffne den Gloomhaven-Ordner in Dolphin und doppelklicke auf
 **`GloomhavenVR-Setup.desktop`**. Falls Dolphin nachfragt, wähle **Ausführen**. Das Terminal bleibt
 mit den Anweisungen geöffnet; du musst keine Dateiberechtigungen ändern. Bietet dein Desktop
-kein Ausführen an, öffne in diesem Ordner ein Terminal und gib ein:
+kein Ausführen an oder findet die Einrichtung `GH.exe` in einer anderen Steam-Bibliothek nicht,
+öffne im Gloomhaven-Ordner ein Terminal und gib ein:
 
 ```bash
 bash ./install-steam-frame.sh
