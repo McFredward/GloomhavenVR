@@ -8,6 +8,15 @@ using UnityEngine;
 using UnityEngine.UI;
 using ScenarioRuleLibrary;
 using MapRuleLibrary.Party;
+namespace GloomhavenVR.Core
+{
+    internal static class PerfMonitor
+    {
+        internal static IDisposable Scope(string _) => EmptyScope.Instance;
+        private sealed class EmptyScope : IDisposable
+        { internal static readonly EmptyScope Instance = new(); public void Dispose() { } }
+    }
+}
 public enum ItemListingType { None,AllGear,Head,Body,Hands,Legs,SmallItems,Owned }
 namespace ScenarioRuleLibrary
 {

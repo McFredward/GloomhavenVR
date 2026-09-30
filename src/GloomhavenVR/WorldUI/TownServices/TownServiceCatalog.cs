@@ -149,19 +149,30 @@ internal sealed class TownServiceCatalog : IDisposable
     {
         if(_disposed)return;
         if(!_alive()||_inventory==null||_anchor==null){Dispose();return;}
-        if(Time.unscaledTime>=_nextCensus){_nextCensus=Time.unscaledTime+.5f;RefreshRows();}
-        foreach(var drawer in _drawers)
+        if(Time.unscaledTime>=_nextCensus)
         {
-            int maximum=-1; foreach(var entry in _entries) if(entry.Selling==drawer.Selling&&entry.Category==drawer.Category) maximum=Math.Max(maximum,entry.Ordinal);
-            drawer.SetPageCount(maximum/TownServiceMerchantDrawer.Capacity+1); drawer.Tick(_opening.alpha);
+            _nextCensus=Time.unscaledTime+.5f;
+            using (PerfMonitor.Scope("TownPublicStock.Catalog.Census")) RefreshRows();
         }
-        foreach(var entry in _entries)entry.Tick(scale);
-        foreach(var category in _categories)category.Tick(_opening.alpha);
-        foreach(var zone in _zones)
+        using (PerfMonitor.Scope("TownPublicStock.Catalog.Navigation"))
         {
-            bool shown=false;
-            foreach(var entry in _entries)if(entry.Selling==zone.Selling&&entry.Sample.DropEligible){shown=true;break;}
-            zone.SetShown(shown,_opening.alpha);
+            foreach(var drawer in _drawers)
+            {
+                int maximum=-1; foreach(var entry in _entries) if(entry.Selling==drawer.Selling&&entry.Category==drawer.Category) maximum=Math.Max(maximum,entry.Ordinal);
+                drawer.SetPageCount(maximum/TownServiceMerchantDrawer.Capacity+1); drawer.Tick(_opening.alpha);
+            }
+        }
+        using (PerfMonitor.Scope("TownPublicStock.Catalog.Cards"))
+            foreach(var entry in _entries)entry.Tick(scale);
+        using (PerfMonitor.Scope("TownPublicStock.Catalog.Controls"))
+        {
+            foreach(var category in _categories)category.Tick(_opening.alpha);
+            foreach(var zone in _zones)
+            {
+                bool shown=false;
+                foreach(var entry in _entries)if(entry.Selling==zone.Selling&&entry.Sample.DropEligible){shown=true;break;}
+                zone.SetShown(shown,_opening.alpha);
+            }
         }
     }
     private void RefreshRows()
@@ -171,25 +182,33 @@ internal sealed class TownServiceCatalog : IDisposable
         if(!ReferenceEquals(context,_context)){if(!_persistent)ClearEntries();_context=context;changed=true;}
         if(!changed)return;
         _observerDirty = true;
+        var sources = new HashSet<UIShopItemSlot>();
+        foreach (var row in _backend.Rows) sources.Add(row.Source);
         for(int i=_entries.Count-1;i>=0;i--)
         {
             Entry entry=_entries[i];
-            if(!entry.Current||!_backend.Rows.Exists(row=>row.Source==entry.RowSource))
+            if(!entry.Current||!sources.Contains(entry.RowSource))
             {if(_inspected==entry)ClearInspection();entry.Dispose();_samples.Remove(entry.Sample);_entries.RemoveAt(i);}
         }
+        var indexed = new HashSet<UIShopItemSlot>();
+        var occupied = new HashSet<(bool Selling, int Category, int Ordinal)>();
+        foreach (Entry entry in _entries)
+        { indexed.Add(entry.RowSource); occupied.Add((entry.Selling, entry.Category, entry.Ordinal)); }
         foreach(var row in _backend.Rows)
         {
-            if(_entries.Exists(entry=>entry.RowSource==row.Source))continue;
+            if(indexed.Contains(row.Source))continue;
             // Retain each surviving card's physical slot across native stock refreshes. An
             // unlock or another visitor's purchase must never rearrange the card in a hand.
+            int category = CategoryOf(row.Item);
             int position=0;
-            while(_entries.Exists(entry=>entry.Selling==row.Selling&&entry.Category==CategoryOf(row.Item)&&entry.Ordinal==position))position++;
+            while(occupied.Contains((row.Selling,category,position)))position++;
             TownServiceMerchantDrawer rack = _drawers[0];
             Transform parent = rack.CardParent(position);
             Vector3 local = TownServiceMerchantLayout.StockPosition(position % TownServiceMerchantDrawer.Capacity);
             local.y = 0f; // The articulated holder row carries the original vertical slot.
             var added=new Entry(this,row.Source,position,row.Selling,parent,local);
             _entries.Add(added);_samples.Add(added.Sample);
+            indexed.Add(row.Source); occupied.Add((row.Selling, category, position));
         }
         foreach (TownServiceMerchantDrawer rack in _drawers)
         {
@@ -339,10 +358,10 @@ internal sealed class TownServiceCatalog : IDisposable
         internal readonly CItem Item;
         internal readonly bool Selling;
         internal readonly int Ordinal;
-        internal int Category => CategoryOf(Item);
+        internal readonly int Category;
         private TownServiceMerchantDrawer Rack => _owner._drawers[0];
         internal bool Warm => Current && (Sample.IsMoving || Rack.RetainsPage(Page));
-        internal int Page => (Selling ? 2048 : 0) + Category * 256 + Ordinal / TownServiceMerchantDrawer.Capacity;
+        internal readonly int Page;
         internal bool Exposed => Current && (Sample.IsMoving || Page == Rack.Page);
         internal readonly TownServiceToken Sample;
         internal ItemCardUI CardUI { get; private set; } = null!;
@@ -360,6 +379,8 @@ internal sealed class TownServiceCatalog : IDisposable
         internal Entry(TownServiceCatalog owner, UIShopItemSlot source, int position, bool selling, Transform parent, Vector3 local)
         {
             _owner = owner; RowSource = source; Item = source.Item; Selling = selling; Ordinal = position;
+            Category = CategoryOf(Item);
+            Page = (Selling ? 2048 : 0) + Category * 256 + Ordinal / TownServiceMerchantDrawer.Capacity;
             _root = new GameObject("CatalogItem");
             _pageGate = _root.AddComponent<CanvasGroup>(); _pageGate.blocksRaycasts = false;
             _root.transform.SetParent(parent, false);

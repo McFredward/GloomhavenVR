@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Runtime.CompilerServices;
+using GloomhavenVR.Core;
 using MapRuleLibrary.Adventure;
 using MapRuleLibrary.Party;
 using MapRuleLibrary.State;
@@ -14,6 +16,12 @@ namespace GloomhavenVR.WorldUI;
 /// actual inventory remains the transaction backend, and is resolved afresh at the drop.</summary>
 internal sealed class TownServiceMerchantRows : IDisposable
 {
+    private sealed class ItemReferenceComparer : IEqualityComparer<CItem>
+    {
+        internal static readonly ItemReferenceComparer Instance = new();
+        public bool Equals(CItem? left, CItem? right) => ReferenceEquals(left, right);
+        public int GetHashCode(CItem item) => RuntimeHelpers.GetHashCode(item);
+    }
     internal sealed class Row
     {
         internal readonly UIShopItemSlot Source;
@@ -53,36 +61,68 @@ internal sealed class TownServiceMerchantRows : IDisposable
             changed = Rows[i].Selling || !ReferenceEquals(Rows[i].Item, groups[i].First());
         for (int i = 0; !changed && i < owned.Count; i++)
             changed = !Rows[groups.Count + i].Selling || !ReferenceEquals(Rows[groups.Count + i].Item, owned[i]);
-        var previous = new List<Row>(Rows);
-        var next = new List<Row>();
+        // The public cabinet is present even when the player is visiting another resident.
+        // The Frame trace showed 15-33 ms catalog ticks during priestess/enchantress play.
+        // Matching each old row with List.Find and counting the whole buy list for every
+        // displayed item made this census quadratic. Preserve the exact first matching row
+        // and order while looking each identity up once; native Initialize remains the sole
+        // source of stock, affordability and price presentation.
+        var previousBuy = new Dictionary<int, Queue<Row>>(Rows.Count);
+        var previousOwned = new Dictionary<CItem, Queue<Row>>(ItemReferenceComparer.Instance);
+        foreach (Row row in Rows)
+        {
+            if (row.Selling)
+            {
+                if (!previousOwned.TryGetValue(row.Item, out Queue<Row>? queue))
+                    previousOwned[row.Item] = queue = new Queue<Row>();
+                queue.Enqueue(row);
+            }
+            else
+            {
+                if (!previousBuy.TryGetValue(row.Item.ID, out Queue<Row>? queue))
+                    previousBuy[row.Item.ID] = queue = new Queue<Row>();
+                queue.Enqueue(row);
+            }
+        }
+        var reused = new HashSet<Row>();
+        var next = new List<Row>(groups.Count + owned.Count);
         foreach(var group in groups)
         {
-            Row? row=previous.Find(candidate=>!candidate.Selling&&candidate.Item.ID==group.Key);
-            if(row==null)row=Create(false);else previous.Remove(row);
+            Row? row = previousBuy.TryGetValue(group.Key, out Queue<Row>? queue) && queue.Count > 0
+                ? queue.Dequeue() : null;
+            if (row == null) row = Create(false); else reused.Add(row);
             next.Add(row);
         }
         foreach(CItem item in owned)
         {
-            Row? row=previous.Find(candidate=>candidate.Selling&&ReferenceEquals(candidate.Item,item));
-            if(row==null)row=Create(true);else previous.Remove(row);
+            Row? row = previousOwned.TryGetValue(item, out Queue<Row>? queue) && queue.Count > 0
+                ? queue.Dequeue() : null;
+            if (row == null) row = Create(true); else reused.Add(row);
             next.Add(row);
         }
+        foreach (Row row in Rows) if (!reused.Contains(row))
+        { row.Source.gameObject.SetActive(false); UnityEngine.Object.Destroy(row.Source.gameObject); }
         Rows.Clear();Rows.AddRange(next);
-        foreach(Row retired in previous){retired.Source.gameObject.SetActive(false);UnityEngine.Object.Destroy(retired.Source.gameObject);}
-        int index = 0;
-        foreach (var group in groups)
+        var buyAmounts = new Dictionary<int, int>(buy.Count);
+        foreach (CItem item in buy)
+        { buyAmounts.TryGetValue(item.ID, out int amount); buyAmounts[item.ID] = amount + 1; }
+        using (PerfMonitor.Scope("TownPublicStock.Rows.Initialize"))
         {
-            CItem item = group.First();
-            int amount = buy.Count(candidate => candidate.ID == item.ID);
-            Rows[index++].Source.Initialize(item, service.DiscountedCost(item), IgnoreSelect, IgnoreHover, null,
-                amount, group.Count(), service.IsAffordable(item, character), false, false,
-                service.GetBuyDiscount(), character);
-        }
-        foreach (CItem item in owned)
-        {
-            bool bound = bounds.TryGetValue(item, out var binding);
-            Rows[index++].Source.Initialize(item, item.SellPrice, IgnoreSelect, IgnoreHover, null,
-                bound ? binding!.Item1 : null, bound && binding!.Item2, character);
+            int index = 0;
+            foreach (var group in groups)
+            {
+                CItem item = group.First();
+                buyAmounts.TryGetValue(item.ID, out int amount);
+                Rows[index++].Source.Initialize(item, service.DiscountedCost(item), IgnoreSelect, IgnoreHover, null,
+                    amount, group.Count(), service.IsAffordable(item, character), false, false,
+                    service.GetBuyDiscount(), character);
+            }
+            foreach (CItem item in owned)
+            {
+                bool bound = bounds.TryGetValue(item, out var binding);
+                Rows[index++].Source.Initialize(item, item.SellPrice, IgnoreSelect, IgnoreHover, null,
+                    bound ? binding!.Item1 : null, bound && binding!.Item2, character);
+            }
         }
         return changed;
     }

@@ -362,11 +362,13 @@ internal sealed class TownServiceRitual : IDisposable
             _opening = Root.gameObject.AddComponent<CanvasGroup>(); _opening.alpha = 0f;
             Root.SetParent(station, false); Root.localPosition = TownServiceRitualLayout.Origin;
             if (service == 2)
-                _templeOffering = new TownServiceTempleOffering(this, window.GetComponent<UITempleWindow>(),
-                    TownServicePresentation.StationRoot ?? station);
-            if (service == 2)
             {
-                _bowlMarker = new TownServiceTempleBowlMarker(_templeOffering!.DropFrame);
+                using (PerfMonitor.Scope("TownTemple.Folio.Bowl"))
+                {
+                    _templeOffering = new TownServiceTempleOffering(this, window.GetComponent<UITempleWindow>(),
+                        TownServicePresentation.StationRoot ?? station);
+                    _bowlMarker = new TownServiceTempleBowlMarker(_templeOffering.DropFrame);
+                }
             }
             else
             {
@@ -381,16 +383,19 @@ internal sealed class TownServiceRitual : IDisposable
             }
             if (service == 2)
             {
-                UITempleWindow temple = window.GetComponent<UITempleWindow>();
-                _inscriptions.Add(new Inscription("temple.level", temple.devotionLevel, Root,
-                    new Vector3(-.33f, .022f, .025f), .26f, .025f));
-                _inscriptions.Add(new Inscription("temple.gold", temple.totalDonatedGold.text, Root,
-                    new Vector3(-.40f, .022f, -.015f), .10f, .025f));
-                if (temple.devotionProgress.AmountTexts.Count > 0)
-                    _inscriptions.Add(new Inscription("temple.progress", temple.devotionProgress.AmountTexts[0], Root,
-                        new Vector3(-.26f, .022f, -.015f), .12f, .025f));
-                _inscriptions.Add(new Inscription("temple.description", temple.helpBox.tipText, Root,
-                    new Vector3(-.33f, .022f, -.09f), .26f, .12f));
+                using (PerfMonitor.Scope("TownTemple.Folio.Inscriptions"))
+                {
+                    UITempleWindow temple = window.GetComponent<UITempleWindow>();
+                    _inscriptions.Add(new Inscription("temple.level", temple.devotionLevel, Root,
+                        new Vector3(-.33f, .022f, .025f), .26f, .025f));
+                    _inscriptions.Add(new Inscription("temple.gold", temple.totalDonatedGold.text, Root,
+                        new Vector3(-.40f, .022f, -.015f), .10f, .025f));
+                    if (temple.devotionProgress.AmountTexts.Count > 0)
+                        _inscriptions.Add(new Inscription("temple.progress", temple.devotionProgress.AmountTexts[0], Root,
+                            new Vector3(-.26f, .022f, -.015f), .12f, .025f));
+                    _inscriptions.Add(new Inscription("temple.description", temple.helpBox.tipText, Root,
+                        new Vector3(-.33f, .022f, -.09f), .26f, .12f));
+                }
             }
             if (service == 3)
             {
@@ -416,7 +421,8 @@ internal sealed class TownServiceRitual : IDisposable
                 AddFolio(15, shop.buyButton);
                 AddFolio(16, shop.sellButton);
             }
-            RefreshPieces();
+            using (PerfMonitor.Scope(service == 2 ? "TownTemple.Folio.Purses" : "TownEnhancement.Folio.Pieces"))
+                RefreshPieces();
         }
         catch { Dispose(); throw; }
     }
