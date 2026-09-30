@@ -80,7 +80,7 @@ def check_presentation_bridge(root):
     property_body = source[source.index("internal static bool UsesImmersiveEnhancement =>"):
                            source.index(";", source.index("internal static bool UsesImmersiveEnhancement =>"))]
     def has_mage_ownership(body):
-        return "_enhancementListMask != null" in body and "Service == 3" in body
+        return "_enhancementListVeil != null" in body and "Service == 3" in body
 
     if not has_mage_ownership(property_body):
         raise RuntimeError("Enchantress native card list is released before immersive ownership is established")
@@ -88,7 +88,7 @@ def check_presentation_bridge(root):
     # its own planted regression would provide no useful integration evidence.
     if has_temple_approach(tick.replace("TownServiceTempleOffering.TickApproach();", "", 1)):
         raise RuntimeError("Temple approach negative control was accepted")
-    if has_mage_ownership(property_body.replace("_enhancementListMask != null", "true", 1)):
+    if has_mage_ownership(property_body.replace("_enhancementListVeil != null", "true", 1)):
         raise RuntimeError("Mage ownership negative control was accepted")
 
 
