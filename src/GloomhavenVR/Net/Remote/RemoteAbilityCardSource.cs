@@ -671,6 +671,10 @@ internal static class RemoteAbilityCardSource
         if (ObjectPool.instance == null || card.ID == 0)
             return false;
 
+        // The Build 592 Frame map fan borrows ten source widgets on its first reveal.
+        // Time the native pool stages separately from RemoteCardArt.Build so the next
+        // capture can tell whether the hitch is source manufacture or face presentation.
+        // No stage is deferred: every front still reaches the first visible frame.
         // Reset the art's source dedup first: the borrowed widget is transient, so its instance id
         // carries no meaning across calls and must never be allowed to dedup a genuinely new card.
         art.HideFront();
@@ -687,8 +691,9 @@ internal static class RemoteAbilityCardSource
             holder.transform.SetParent(ObjectPool.instance.transform, worldPositionStays: false);
             holder.SetActive(false);
 
-            cardGo = ObjectPool.SpawnCard(card.ID, ObjectPool.ECardType.Ability, holder.transform,
-                resetLocalScale: true, resetToMiddle: true, resetLocalRotation: false, activate: false);
+            using (Core.PerfMonitor.Scope("Net.CardAppearance.PoolSpawn"))
+                cardGo = ObjectPool.SpawnCard(card.ID, ObjectPool.ECardType.Ability, holder.transform,
+                    resetLocalScale: true, resetToMiddle: true, resetLocalRotation: false, activate: false);
             if (cardGo == null)
                 return false;
 
@@ -700,7 +705,8 @@ internal static class RemoteAbilityCardSource
             // Everything the CLONE needs to draw is already baked on the widget by the pool's own
             // MakeFullCard (name, initiative, level, both action layouts — FullAbilityCard.cs:456+);
             // Init adds the skin, which RemoteCardArt re-hands to the clone.
-            ui.Init(card, disableEventDetection: true);
+            using (Core.PerfMonitor.Scope("Net.CardAppearance.PoolInit"))
+                ui.Init(card, disableEventDetection: true);
 
             // BEST-EFFORT ONLY. Show() → FullAbilityCard.ShowCard() kicks the skin's async header-art
             // load through an ImageAddressableLoader keyed on the widget — but our borrowed widget is
@@ -708,7 +714,11 @@ internal static class RemoteAbilityCardSource
             // it can legitimately refuse. That costs us nothing: the clone carries the same _skin and
             // runs its OWN OnEnable → ShowCard once it activates (FullAbilityCard.cs:430), which is
             // where the header art actually arrives. So a failure here must never sink the path.
-            try { ui.Show(); }
+            try
+            {
+                using (Core.PerfMonitor.Scope("Net.CardAppearance.PoolShow"))
+                    ui.Show();
+            }
             catch (System.Exception e)
             {
                 VRLog.Debug("Net", $"Borrowed ability card Show() skipped ({e.Message}) — the clone " +
@@ -731,7 +741,11 @@ internal static class RemoteAbilityCardSource
             // source here cannot disturb it.
             if (cardGo != null && ui != null)
             {
-                try { ObjectPool.RecycleCard(ui.CardID, ObjectPool.ECardType.Ability, cardGo); }
+                try
+                {
+                    using (Core.PerfMonitor.Scope("Net.CardAppearance.PoolRecycle"))
+                        ObjectPool.RecycleCard(ui.CardID, ObjectPool.ECardType.Ability, cardGo);
+                }
                 catch (System.Exception e) { VRLog.Warn("Net", $"Ability-card borrow recycle failed: {e.Message}"); }
             }
             else if (cardGo != null)

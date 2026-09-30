@@ -453,6 +453,11 @@ internal sealed partial class RemoteCardArt
         }
 
         // Identity changed (or first show): rebuild the clone.
+        // Build 592 on Steam Frame measured 691.55 ms here for ten map-hand faces on the
+        // first palm reveal. These nested spans separate native cloning, preparation,
+        // OnEnable/layout, and mip conversion in the next Debug performance capture.
+        // Keep the activation and final-fit order intact: spreading visible faces over
+        // later frames would expose card backs in the local map hand.
         using var scope = Core.PerfMonitor.Scope("Net.CardAppearance.Build");
         DestroyClone();
         try
@@ -463,7 +468,9 @@ internal sealed partial class RemoteCardArt
 
             // Build the clone UNDER the inactive host so the cloned widget's Awake/OnEnable does not
             // run until we have neutralized interaction and re-applied the skin.
-            var clone = Object.Instantiate(sourceGo, _host.transform, worldPositionStays: false);
+            GameObject clone;
+            using (Core.PerfMonitor.Scope("Net.CardAppearance.Instantiate"))
+                clone = Object.Instantiate(sourceGo, _host.transform, worldPositionStays: false);
             clone.name = "FrontArtClone";
             _clone = clone;
             // The clone's own FullAbilityCard, for the card-art heal in MaintainMipBake. Read HERE,
@@ -472,15 +479,19 @@ internal sealed partial class RemoteCardArt
             _cloneFace = clone.GetComponent<FullAbilityCard>();
             _nextArtHeal = Time.unscaledTime + Cards.CardArtGuard.TickIntervalSeconds;
 
-            Neutralize(clone);
-            CardEffects? nativeEffects = clone.GetComponentInChildren<CardEffects>(true);
-            _nativeBindings = nativeEffects != null ? new CardAppearanceBindings(nativeEffects) : null;
-            ItemFxRig itemFx = StripFragileEffects(clone, out _burnHeaderText, out _burnInitiativeText,
-                                                  out _flameBurnTexture, out _flameGhostTexture,
-                                                  out _flameQuadByName);
-            if (skinSource != null)
-                TryReapplySkin(skinSource, clone);
-            beforeActivate?.Invoke(clone);
+            ItemFxRig itemFx;
+            using (Core.PerfMonitor.Scope("Net.CardAppearance.Prepare"))
+            {
+                Neutralize(clone);
+                CardEffects? nativeEffects = clone.GetComponentInChildren<CardEffects>(true);
+                _nativeBindings = nativeEffects != null ? new CardAppearanceBindings(nativeEffects) : null;
+                itemFx = StripFragileEffects(clone, out _burnHeaderText, out _burnInitiativeText,
+                                            out _flameBurnTexture, out _flameGhostTexture,
+                                            out _flameQuadByName);
+                if (skinSource != null)
+                    TryReapplySkin(skinSource, clone);
+                beforeActivate?.Invoke(clone);
+            }
 
             // A clone copies the source's own activeSelf, and a widget BORROWED from the pool is
             // handed out deactivated (activate:false) so it can never render before the gate. Flip the
@@ -495,8 +506,11 @@ internal sealed partial class RemoteCardArt
             // game face was on a game UI layer). It's a throwaway clone we own, so re-layering is safe.
             VRLayers.Apply(_host);
 
-            _host.SetActive(true);   // clone activates → OnEnable → ShowCard reloads the real art
-            FitClone(clone);         // final pose write, so OnEnable's own reposition can't offset it
+            using (Core.PerfMonitor.Scope("Net.CardAppearance.ActivateFit"))
+            {
+                _host.SetActive(true);   // clone activates → OnEnable → ShowCard reloads the real art
+                FitClone(clone);         // final pose write, so OnEnable's own reposition can't offset it
+            }
 
             // THE OWNER'S "already used" LOOK, rebuilt on materials this overlay owns. AFTER the
             // activation on purpose: the widget's own OnEnable is the last thing that could touch its
@@ -513,7 +527,8 @@ internal sealed partial class RemoteCardArt
             // MaintainMipBake) catches the async header art and any sprite the widget re-assigns.
             // Shared cache: an atlas the local faces already baked costs nothing here, and vice
             // versa. The clone is a throwaway we own, so no restore pass is ever needed.
-            RescanMips();
+            using (Core.PerfMonitor.Scope("Net.CardAppearance.Mips"))
+                RescanMips();
 
             // SHAPE THE PEER'S CARD FROM ITS FIRST DRAWN FRAME (2026-08-11). The local
             // face is stencil-clipped to the captured card outline; a peer's clone is the
