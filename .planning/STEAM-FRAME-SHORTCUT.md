@@ -16,10 +16,14 @@ https://help.steampowered.com/en/faqs/view/4B8B-9697-2338-40EC.
 `install-steam-frame.sh` runs from the extracted release in the game directory.
 It checks for `GH.exe`, the preloader and the two existing mod artwork files;
 copies the art and a small launcher into the user's data directory; and creates
-`BepInEx/patchers/GloomhavenVR/frame-launch-opt-in.marker`. The player adds the
-launcher to Steam through its normal UI, names it `GloomhavenVR`, includes it in
-the VR library and selects the copied logo/icon. The helper never edits Steam's
-VDF files or the original game's Steamworks entry.
+`BepInEx/patchers/GloomhavenVR/frame-launch-opt-in.marker`. As of the
+2026-09-30 setup revision, `steam-frame-config.py` also updates the active
+account's local Steam launch option and creates or repairs its non-Steam
+`GloomhavenVR` shortcut with `OpenVR=1`, icon and logo. The user no longer has
+to perform those Steam UI steps. The helper backs up changed VDF files, writes
+them atomically and leaves unrelated keys and shortcuts intact. It requests a
+graceful Steam shutdown and restart only when the files actually need changes.
+It does not change the game's publisher-controlled Steamworks metadata.
 
 The launcher invokes `steam -applaunch 780290 --gloomhavenvr`. Forwarding to the
 original app ID is deliberate: launching `GH.exe` directly as a new non-Steam
@@ -37,8 +41,11 @@ remains, and XR native files installed by an earlier VR run remain in the game
 directory, but the mod does not start an XR session or present VR content.
 The preloader suppresses its usual Steam URI auto-restart on a marked Frame
 install: that URI would reopen the original flat entry without the opt-in flag.
-The player instead launches the VR shortcut again after the one-time graphics
-change. The release archive must never contain the marker; only the Frame
+`frame-boot-config.py` now sets Unity's two graphics-job keys in `GH_Data/boot.config`
+before the first VR launch, mirroring the preloader's configured value. It
+preserves a one-time original backup and leaves an already-correct file untouched.
+This avoids a first-launch restart for that setting. The release archive must
+never contain the marker; only the Frame
 helper creates it. The Windows packager deletes a marker accidentally staged
 from a local game tree.
 
@@ -52,15 +59,16 @@ guarantees:
    not, the opt-in rejects VR and the shortcut opens flat. Do not replace this
    with a persistent or timed on-disk launch token: an original-entry launch
    could consume that token and accidentally enter VR.
-2. The local shortcut should appear under the player's VR library with the
-   selected art. Whether SteamVR exposes *original AppID 780290* per-app
+2. The automatically created local shortcut should appear under the player's
+   VR library with its art. Whether SteamVR exposes *original AppID 780290* per-app
    resolution controls before that forwarded process runs is separate; the
    local alias cannot change Steamworks metadata. If those settings remain
    absent, they can still be set while the original app is running in VR.
 3. Launch original `Gloomhaven` after the marker is created and confirm flat
    presentation, then launch `GloomhavenVR` and confirm the ModBuild banner and
-   VR table. Repeat the VR launch once if the first graphics-job boot closes.
-   Check that both entries share campaign saves and multiplayer identity.
+   VR table. The prepared graphics-job config should avoid the earlier
+   first-start closure. Check that both entries share campaign saves and
+   multiplayer identity.
 
 Source-level validation: `scripts/test-install-steam-frame.sh` covers helper
 dry run, idempotence, paths with spaces, missing preloader, artwork and exact
@@ -101,5 +109,17 @@ Unix-mode checker as the Linux release ZIP in CI. The first CI desktop smoke
 also exposed a host-dependent `%k` expansion: headless Gio supplied no desktop
 path on the CI runner. The launcher now derives its directory with `dirname`
 when available, then tries its working directory and the standard Frame game
-folder. The smoke covers a space-containing path both with and without `%k`.
+folder. The earlier smoke covered a space-containing path both with and without `%k`.
 Neither fix changes a game DLL or the ModBuild handshake.
+
+## Automatic Steam setup and first-launch config (2026-09-30)
+
+The maintainer narrowed automation to the Steam-side setup after the game,
+BepInEx and mod archives have been installed. One run of the desktop launcher
+now applies the Steam DLL override, creates the VR-library entry and its art,
+and prepares `boot.config` before launching the game. Repeating setup only
+changes missing or stale data; an already-correct Steam configuration is not
+restarted. Synthetic tests cover the desktop entry, active account selection,
+pre-existing launch options and shortcuts, idempotence, Steam shutdown/restart,
+first-boot config and the packaged helper files. The actual Frame Steam client
+and Game Mode launch still require a headset check.
