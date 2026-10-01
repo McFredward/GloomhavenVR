@@ -603,6 +603,9 @@ internal sealed partial class VRRigDriver : MonoBehaviour
             // this frame, and the guard's whole job is to compare THIS frame's final head pose
             // against the last one — see VRRigDriver.OriginGuard.cs.
             Core.TickGuard.Run("Rig.OriginGuard", TickOriginGuard);
+            // Read the previous frame's native rendering counters after rig kind resolution.
+            // This is Debug-only and does not join the render-state tail step order.
+            HeadRenderCounters.Tick(_kind == RigKind.Scenario);
         }
         finally
         {
@@ -791,6 +794,7 @@ internal sealed partial class VRRigDriver : MonoBehaviour
 
     private void OnDestroy()
     {
+        HeadRenderCounters.Stop();
         VREvents.SceneLoaded -= OnSceneLoaded;
         TearDownRig("rig driver destroyed (shutdown/hot reload)");
         // Belt and braces: TearDownRig already stood the map room down if a map rig existed, but
