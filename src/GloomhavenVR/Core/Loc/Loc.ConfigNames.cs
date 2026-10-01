@@ -655,6 +655,7 @@ internal static partial class Loc
             ["WallFade/EvalIntervalSeconds"] = Pair("Occlusion check every (s)", "Verdeckung prüfen alle (s)"),
             ["WallFade/WalkInSuspendSampling"] = Pair("Inside: stop measuring", "Im Spielfeld: Messung pausieren"),
             ["WallFade/SignatureCulpritCensus"] = Pair("Log what changed the scene", "Szenen-Änderungen protokollieren"),
+            ["WallFade/DeepSceneCensus"] = Pair("Log detailed wall geometry", "Wandgeometrie detailliert protokollieren"),
             // ModBuild 281. The row names WHAT IS COUNTED, not the machinery: "Tabellenumbau
             // protokollieren" would be true of the census two rows up as well. What is unique to
             // this one is that it counts walls that LEAVE the table mid-fade, so that is the row.

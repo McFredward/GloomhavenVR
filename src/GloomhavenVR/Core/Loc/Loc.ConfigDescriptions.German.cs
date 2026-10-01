@@ -750,6 +750,13 @@ internal static partial class Loc
                 + "der ohnehin neu aufbaut, höchstens alle paar Sekunden, und meldet seine "
                 + "eigenen Kosten als Schritt 'WallFade.SigDiag' — es kann also nie zu einer "
                 + "ungemessenen Dauerlast werden. Live änderbar.",
+            ["WallFade/DeepSceneCensus"] =
+                "Nur Diagnose: Durchsucht alle Meshes und generierten Kartenkacheln, um "
+                + "Bodenspalten, Kachelkinder und den Apparance-Blickpunkt bei Änderungen "
+                + "der Wandtabelle zu protokollieren. Auf der Steam Frame standardmäßig aus, "
+                + "da dieser Szenendurchlauf nach dem Laden einen messbaren Hänger verursachte. "
+                + "Die normalen Wandmeldungen und die Ausblendung bleiben aktiv. Zum Untersuchen "
+                + "fehlender Geometrie einschalten; live änderbar.",
             // ModBuild 281 (PERF B Schritt 3) — die Churn-Messung vor dem Slicing.
             ["WallFade/CommitTableGate"] =
                 "DIAGNOSE, keine Verhaltensänderung — es liest die Wandtabelle und schreibt "

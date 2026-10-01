@@ -540,6 +540,14 @@ internal sealed partial class RemoteCardArt
                 _preparedSourceId = key;
                 _preparedItemFx = itemFx;
                 _preparedSpentLook = spentLook;
+                // The selected map hand builds one parked face per loading frame. Its
+                // clone already has the static native sprites, and RescanMips includes
+                // inactive descendants, so bake those sprites while the loading veil
+                // is still up instead of baking ten faces on the palm-reveal frame.
+                // OnEnable may assign later artwork; ActivatePreparedFront still runs
+                // the ordinary rescan after activation to capture that final content.
+                using (Core.PerfMonitor.Scope("Net.CardAppearance.PrepareMips"))
+                    RescanMips();
                 return true;
             }
 

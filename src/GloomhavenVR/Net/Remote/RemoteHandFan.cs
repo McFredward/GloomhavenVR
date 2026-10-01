@@ -1277,6 +1277,7 @@ internal sealed class RemoteHandFan
 
         SyncTuning();
         SyncFaceRect(); // AFTER SyncTuning: the printed rect is derived from the card size it resolves
+        PinMapClassArtBeforeReveal();
 
         // Which hand does the fan hang off? owner.NonDominantHandHolder already resolves to the
         // LEFT holder when DominantRight is true (the sensible default), else RIGHT; fall back to
@@ -1496,6 +1497,40 @@ internal sealed class RemoteHandFan
         PoseFan(holder, dt);
         LayoutCards(count, dt);
         UpdateFaces(count, shownActor);
+    }
+
+    private uint _pinnedMapClassKey;
+    private float _nextMapClassPinAttempt;
+    private readonly List<CAbilityCard> _mapClassPinBuffer = new(MaxCards);
+
+    /// <summary>Warm the peer's class artwork while their map fan is still closed. The
+    /// loadout is public in the 3D map, but scenario selection never enters this path.
+    /// Pinning a class asset does not construct a face or change the reveal gate; the
+    /// existing count/order belt still decides which remote card may be printed.</summary>
+    private void PinMapClassArtBeforeReveal()
+    {
+        if (!RevealGate.ShowMapPhaseHandFronts)
+        {
+            _pinnedMapClassKey = 0;
+            return;
+        }
+        if (UIInfoTools.Instance == null
+            || !RemoteMapRoom.TryGetPeerFanCharacterKey(_owner.PlayerId, out uint key)
+            || key == 0 || key == _pinnedMapClassKey || Time.unscaledTime < _nextMapClassPinAttempt)
+            return;
+        _nextMapClassPinAttempt = Time.unscaledTime + 1f;
+        try
+        {
+            if (!WorldUI.MapRoom.MapRoomHand.ResolveNamedMapLoadout(key, _mapClassPinBuffer)
+                || _mapClassPinBuffer.Count == 0) return;
+            Cards.CardArtPin.PinForCard(_mapClassPinBuffer[0]);
+            _pinnedMapClassKey = key;
+        }
+        catch (System.Exception ex)
+        {
+            VRLog.Debug("Net", $"Remote map class-art pin deferred ({ex.Message}).");
+        }
+        finally { _mapClassPinBuffer.Clear(); }
     }
 
     // ------------------------------------------------------------------ front art (gated) --
@@ -1922,8 +1957,13 @@ internal sealed class RemoteHandFan
                 {
                     AbilityCardUI widget = _handBuffer[i];
                     FullAbilityCard? full = widget != null ? widget.fullAbilityCard : null;
-                    if (widget != null && full != null && PrintsFront(publicCardsOnly, actor, widget)
-                        && face.ShowFront(full))
+                    bool printed = false;
+                    if (widget != null && full != null && PrintsFront(publicCardsOnly, actor, widget))
+                    {
+                        using (Core.PerfMonitor.Scope("Net.RemoteHandFan.ScenarioFace"))
+                            printed = face.ShowFront(full);
+                    }
+                    if (printed && widget != null)
                     {
                         face.SetNativeAppearance(_owner.PlayerId, actor, widget.AbilityCard);
                         frontCount++;
@@ -2243,8 +2283,9 @@ internal sealed class RemoteHandFan
             face.MaintainMipBake();
             return true;
         }
-        if (RemoteAbilityCardSource.ShowFullFace(face, null, card) == RemoteAbilityCardSource.FacePath.None)
-            return false;
+        using (Core.PerfMonitor.Scope("Net.RemoteHandFan.MapFirstFace"))
+            if (RemoteAbilityCardSource.ShowFullFace(face, null, card) == RemoteAbilityCardSource.FacePath.None)
+                return false;
         face.SetNativeAppearance(_owner.PlayerId, null, card);
         if (index < _mapPrinted.Count)
             _mapPrinted[index] = card.ID;
