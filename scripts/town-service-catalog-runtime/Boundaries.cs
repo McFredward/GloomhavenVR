@@ -213,10 +213,11 @@ namespace GloomhavenVR.Net
     internal sealed class RemoteWidgetMirror
     {
         internal static int ThrowConstruction;
+        internal int RebuildStamp { get; private set; }
         private readonly Transform _mount;private readonly Dictionary<Transform,Transform> _clones=new();
         internal RemoteWidgetMirror(string name,Transform mount,float width,float height,Vector2 offset,Func<Transform,bool>? externallyShownBranch=null,bool mrBacking=true){if(ThrowConstruction>0&&--ThrowConstruction==0)throw new InvalidOperationException("injected mirror allocation failure");_mount=mount;}
         internal void SetOwnerFrame(Vector2 a,Vector2 b){}
-        internal bool Refresh(Transform source){if(!_clones.ContainsKey(source)){var clone=new GameObject("Clone",typeof(RectTransform));clone.transform.SetParent(_mount,false);_clones.Add(source,clone.transform);}return true;}
+        internal bool Refresh(Transform source){if(!_clones.ContainsKey(source)){var clone=new GameObject("Clone",typeof(RectTransform));clone.transform.SetParent(_mount,false);_clones.Add(source,clone.transform);RebuildStamp++;}return true;}
         internal Transform? CloneOf(Transform source)=>_clones.TryGetValue(source,out var clone)?clone:null;
         internal void SetShown(bool shown){}
         internal void TickLive(){}internal void Destroy(){foreach(var clone in _clones.Values)if(clone!=null)UnityEngine.Object.DestroyImmediate(clone.gameObject);}

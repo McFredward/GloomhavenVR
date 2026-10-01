@@ -474,6 +474,8 @@ public static class InteractionProgram
         Set(pageTestRack,"_clock",.45f);catalog.Tick(1f);
         Check(cold.RowSource.LastPrice==17&&!cold.RowSource.LastAffordable&&cold.Exposed,
             "cold original row receives current native price and affordability on its first exposed frame");
+        Check(stable.PageGate.alpha==0f&&!stable.Sample.PickCollider.enabled,
+            "outgoing cards lose ink and pickup collision on the shutter swap frame");
         Set(pageTestRack,"_clock",.85f);catalog.Tick(1f);
         Check(pageTestRack.Select(0,false),"price test restores the initial category");
         Set(pageTestRack,"_clock",.85f);catalog.Tick(1f);

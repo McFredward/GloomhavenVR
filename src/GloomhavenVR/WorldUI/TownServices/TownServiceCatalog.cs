@@ -40,6 +40,13 @@ internal sealed class TownServiceCatalog : IDisposable
     private readonly CanvasGroup _opening;
     private readonly TownServiceMerchantRows _backend;
     private readonly List<Entry> _entries = new();
+    private readonly Dictionary<int, List<Entry>> _pages = new();
+    private readonly int[] _maximumOrdinal = new int[12];
+    private readonly HashSet<Entry> _movingEntries = new();
+    private readonly HashSet<Entry> _tickSet = new();
+    private readonly HashSet<Entry> _warmSet = new();
+    private readonly List<Entry> _warmEntries = new();
+    private List<Entry> _tickEntries = new(), _previousTickEntries = new();
     private readonly List<TownServiceToken> _samples = new();
     private readonly HashSet<UIShopItemSlot> _warmSources = new();
     private readonly List<TownServiceMerchantDrawer> _drawers = new();
@@ -148,6 +155,54 @@ internal sealed class TownServiceCatalog : IDisposable
         if(_inspected!=null&&_inventory.itemTooltip!=null)_inventory.itemTooltip.Hide();
         _inspected=null;
     }
+    private void AddPage(int page, List<Entry> target, HashSet<Entry> seen)
+    {
+        if (!_pages.TryGetValue(page, out List<Entry>? entries)) return;
+        foreach (Entry entry in entries) if (seen.Add(entry)) target.Add(entry);
+    }
+    private void CollectPages(List<Entry> target, HashSet<Entry> seen)
+    {
+        TownServiceMerchantDrawer rack = _drawers[0];
+        AddPage(rack.Page, target, seen);
+        if (!rack.Accessible)
+        {
+            AddPage(rack.FromPage, target, seen);
+            AddPage(rack.ToPage, target, seen);
+        }
+        int next = rack.Page / 256 * 256 + (rack.Page % 256 + 1) % Math.Max(1, rack.PageCount);
+        AddPage(next, target, seen);
+        foreach (Entry entry in _movingEntries) if (seen.Add(entry)) target.Add(entry);
+        // A grab can arrive after our preceding catalog tick but before a
+        // network-driven page turn. Carry that just-grabbed card into the next
+        // tick even though it was not in _movingEntries on the preceding one.
+        foreach (Entry entry in _previousTickEntries)
+            if (!entry.Disposed && entry.Sample.IsMoving && seen.Add(entry)) target.Add(entry);
+    }
+    private List<Entry> WarmEntries()
+    {
+        _warmEntries.Clear(); _warmSet.Clear();
+        CollectPages(_warmEntries, _warmSet);
+        return _warmEntries;
+    }
+    private void CollectTickEntries()
+    {
+        _tickEntries.Clear(); _tickSet.Clear();
+        CollectPages(_tickEntries, _tickSet);
+    }
+    private void RebuildPageIndex()
+    {
+        _pages.Clear();
+        for (int i = 0; i < _maximumOrdinal.Length; i++) _maximumOrdinal[i] = -1;
+        foreach (Entry entry in _entries)
+        {
+            if (!_pages.TryGetValue(entry.Page, out List<Entry>? entries))
+                _pages[entry.Page] = entries = new List<Entry>(TownServiceMerchantDrawer.Capacity);
+            entries.Add(entry);
+            int index = (entry.Selling ? 6 : 0) + entry.Category;
+            _maximumOrdinal[index] = Math.Max(_maximumOrdinal[index], entry.Ordinal);
+        }
+        _movingEntries.RemoveWhere(entry => entry.Disposed);
+    }
     internal void Tick(float scale)
     {
         if(_disposed)return;
@@ -161,7 +216,7 @@ internal sealed class TownServiceCatalog : IDisposable
         {
             foreach(var drawer in _drawers)
             {
-                int maximum=-1; foreach(var entry in _entries) if(entry.Selling==drawer.Selling&&entry.Category==drawer.Category) maximum=Math.Max(maximum,entry.Ordinal);
+                int maximum = _maximumOrdinal[(drawer.Selling ? 6 : 0) + drawer.Category];
                 drawer.SetPageCount(maximum/TownServiceMerchantDrawer.Capacity+1); drawer.Tick(_opening.alpha);
             }
         }
@@ -176,14 +231,30 @@ internal sealed class TownServiceCatalog : IDisposable
             _lastWarmPage = currentRack.Page;
             _lastWarmPageCount = currentRack.PageCount;
             if (_backend.HasPendingPresentation)
-                foreach (Entry entry in _entries)
-                    if (entry.Warm && _backend.NeedsPresentation(entry.RowSource))
-                    { using (PerfMonitor.Scope("TownPublicStock.Catalog.Census")) RefreshRows(); break; }
+            {
+                bool needsRefresh = false;
+                foreach (Entry entry in WarmEntries())
+                    if (entry.Current && _backend.NeedsPresentation(entry.RowSource)) { needsRefresh = true; break; }
+                if (needsRefresh)
+                    using (PerfMonitor.Scope("TownPublicStock.Catalog.Census")) RefreshRows();
+            }
         }
         using (PerfMonitor.Scope("TownPublicStock.Catalog.Cards"))
         {
             Camera? camera = VRRigDriver.HeadCamera != null ? VRRigDriver.HeadCamera : Camera.main;
-            foreach(var entry in _entries)entry.Tick(scale, camera);
+            CollectTickEntries();
+            // A page that has just left the roller must lose its collision and ink
+            // in this same frame. All other cold pages remain parked without a
+            // native hierarchy query, art poll or original-widget mirror walk.
+            foreach (Entry entry in _previousTickEntries)
+                if (!_tickSet.Contains(entry)) entry.ParkHidden();
+            _movingEntries.Clear();
+            foreach (Entry entry in _tickEntries)
+            {
+                entry.Tick(scale, camera);
+                if (entry.Sample.IsMoving) _movingEntries.Add(entry);
+            }
+            (_previousTickEntries, _tickEntries) = (_tickEntries, _previousTickEntries);
         }
         using (PerfMonitor.Scope("TownPublicStock.Catalog.Controls"))
         {
@@ -191,7 +262,7 @@ internal sealed class TownServiceCatalog : IDisposable
             foreach(var zone in _zones)
             {
                 bool shown=false;
-                foreach(var entry in _entries)if(entry.Selling==zone.Selling&&entry.Sample.DropEligible){shown=true;break;}
+                foreach(var entry in _movingEntries)if(entry.Selling==zone.Selling&&entry.Sample.DropEligible){shown=true;break;}
                 zone.SetShown(shown,_opening.alpha);
             }
         }
@@ -200,7 +271,8 @@ internal sealed class TownServiceCatalog : IDisposable
     {
         object? context=_contextIdentity();
         _warmSources.Clear();
-        foreach (Entry entry in _entries) if (entry.Warm) _warmSources.Add(entry.RowSource);
+        foreach (Entry entry in WarmEntries())
+            if (entry.Current) _warmSources.Add(entry.RowSource);
         bool changed=_backend.Refresh(_warmSources);
         if(!ReferenceEquals(context,_context)){if(!_persistent)ClearEntries();_context=context;changed=true;}
         if(!changed)return;
@@ -233,10 +305,10 @@ internal sealed class TownServiceCatalog : IDisposable
             _entries.Add(added);_samples.Add(added.Sample);
             indexed.Add(row.Source); occupied.Add((row.Selling, category, position));
         }
+        RebuildPageIndex();
         foreach (TownServiceMerchantDrawer rack in _drawers)
         {
-            int maximum = -1;
-            foreach (Entry entry in _entries) if (entry.Selling == rack.Selling && entry.Category == rack.Category) maximum = Math.Max(maximum, entry.Ordinal);
+            int maximum = _maximumOrdinal[(rack.Selling ? 6 : 0) + rack.Category];
             rack.SetPageCount(maximum / TownServiceMerchantDrawer.Capacity + 1);
         }
     }
@@ -328,7 +400,7 @@ internal sealed class TownServiceCatalog : IDisposable
         if (observer && !TownServicePublicMerchant.CanClaim)
             foreach (Entry entry in _entries) entry.Sample.PickCollider.enabled = false;
     }
-    private void ClearEntries(){ClearInspection();foreach(var entry in _entries)entry.Dispose();_entries.Clear();_samples.Clear();foreach(var extension in _extensions)extension.Dispose();_extensions.Clear();}
+    private void ClearEntries(){ClearInspection();foreach(var entry in _entries)entry.Dispose();_entries.Clear();_pages.Clear();_movingEntries.Clear();_samples.Clear();foreach(var extension in _extensions)extension.Dispose();_extensions.Clear();}
     public void Dispose()
     {
         if(_disposed)return;_disposed=true;foreach(var category in _categories)category.Dispose();_categories.Clear();ClearEntries();_preview?.Dispose();_preview=null;_backend?.Dispose();foreach(var drawer in _drawers)drawer.Dispose();_drawers.Clear();foreach(var zone in _zones)zone.Dispose();_zones.Clear();
@@ -375,6 +447,9 @@ internal sealed class TownServiceCatalog : IDisposable
         private readonly List<KeyValuePair<Graphic, bool>> _raycastTargets = new();
         private readonly List<KeyValuePair<GraphicRaycaster, bool>> _raycasters = new();
         private readonly List<Transform> _rowBackgrounds = new();
+        private readonly List<Transform> _backgroundClones = new();
+        private Transform? _tooltipClone;
+        private int _suppressionStamp = -1;
         private GameObject? _card;
         private float _nextRefresh;
         // The cabinet borrows the same native ItemCardUI as the scenario fan.
@@ -402,6 +477,7 @@ internal sealed class TownServiceCatalog : IDisposable
         internal Transform? RowContent => _row.CloneOf(RowSource.transform);
         internal Transform? RowCloneOf(Transform original) => _row.CloneOf(original);
         internal int ItemId => Item.ID;
+        internal bool Disposed => _disposed;
         internal bool Current => !_disposed && _owner._alive() && RowSource != null
             && RowSource.gameObject.activeInHierarchy && ReferenceEquals(Item, RowSource.Item);
 
@@ -412,6 +488,7 @@ internal sealed class TownServiceCatalog : IDisposable
             Page = (Selling ? 2048 : 0) + Category * 256 + Ordinal / TownServiceMerchantDrawer.Capacity;
             _root = new GameObject("CatalogItem");
             _pageGate = _root.AddComponent<CanvasGroup>(); _pageGate.blocksRaycasts = false;
+            _pageGate.alpha = 0f;
             _root.transform.SetParent(parent, false);
             _root.transform.localPosition = local;
             _display = new GameObject("PhysicalCard").transform;
@@ -482,6 +559,7 @@ internal sealed class TownServiceCatalog : IDisposable
                 _body = TownServiceCardBody.Create(_display).transform;
                 _body.localScale = new Vector3(physicalSize.x, physicalSize.y, 1f);
                 TownServiceCardBody.SetVisibility(_body.gameObject, owner._opening.alpha);
+                SetBodyRendererVisibility(true);
                 rect.anchorMin = rect.anchorMax = rect.pivot = new Vector2(.5f, .5f);
                 rect.anchoredPosition3D = Vector3.zero; rect.localRotation = Quaternion.identity; rect.localScale = Vector3.one;
                 foreach (GraphicRaycaster raycaster in _card.GetComponentsInChildren<GraphicRaycaster>(true))
@@ -559,16 +637,37 @@ internal sealed class TownServiceCatalog : IDisposable
             // becomes exposed, so it never presents a stale frame to either peer.
             if (exposed) _row.TickLive();
             // Preserve original stock/price/name glyphs but remove the flat list's backing.
-            foreach(Transform original in _rowBackgrounds)
-            {Transform? clone=_row.CloneOf(original);if(clone!=null&&clone.gameObject.activeSelf)clone.gameObject.SetActive(false);}
-            // The native detail widget follows the hovered row. It belongs to the full detail
-            // placard, never inside this narrow price strip or its measured bounds.
-            if (_owner._inventory.itemTooltip != null)
-            {
-                Transform? inline = _row.CloneOf(_owner._inventory.itemTooltip.transform);
-                if (inline != null && inline.gameObject.activeSelf) inline.gameObject.SetActive(false);
-            }
+            SuppressNativeBacking();
             if (exposed) Sample.Tick(scale); else Sample.PickCollider.enabled = false;
+        }
+        internal void ParkHidden()
+        {
+            if (_disposed) return;
+            if (_pageGate.alpha != 0f) _pageGate.alpha = 0f;
+            SetBodyRendererVisibility(true);
+            Sample.PickCollider.enabled = false;
+        }
+        private void SuppressNativeBacking()
+        {
+            // CloneOf scans the full native pair array. Resolve this small fixed set
+            // once per clone generation; TickLive can still restore the source's
+            // active state each frame, so retain the inexpensive active-flag check.
+            if (_suppressionStamp != _row.RebuildStamp)
+            {
+                _suppressionStamp = _row.RebuildStamp;
+                _backgroundClones.Clear();
+                foreach (Transform original in _rowBackgrounds)
+                {
+                    Transform? clone = _row.CloneOf(original);
+                    if (clone != null) _backgroundClones.Add(clone);
+                }
+                _tooltipClone = _owner._inventory.itemTooltip != null
+                    ? _row.CloneOf(_owner._inventory.itemTooltip.transform) : null;
+            }
+            foreach (Transform clone in _backgroundClones)
+                if (clone != null && clone.gameObject.activeSelf) clone.gameObject.SetActive(false);
+            if (_tooltipClone != null && _tooltipClone.gameObject.activeSelf)
+                _tooltipClone.gameObject.SetActive(false);
         }
         internal void RefreshSoldOutMarker(bool inCabinet)
         {
