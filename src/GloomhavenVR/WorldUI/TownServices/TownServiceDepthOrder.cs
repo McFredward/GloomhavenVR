@@ -29,6 +29,12 @@ internal static class TownServiceDepthOrder
     }
     private static readonly ConditionalWeakTable<Transform, Anchor> Anchors = new();
 
+    internal static void Refresh(Transform root)
+    {
+        if (root != null && Anchors.TryGetValue(root, out Anchor anchor))
+            CanvasConversion.ReassertFurniture(anchor);
+    }
+
     internal static void Bind(Transform root)
     {
         if (root == null) return;
