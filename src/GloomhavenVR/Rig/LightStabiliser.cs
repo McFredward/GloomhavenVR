@@ -506,11 +506,9 @@ internal static class LightStabiliser
     /// </summary>
     private static void Scan()
     {
-        LightFlicker[] flickers;
         Light[] lights;
         try
         {
-            flickers = Object.FindObjectsOfType<LightFlicker>();
             lights = Object.FindObjectsOfType<Light>();
         }
         catch (System.Exception e)
@@ -520,13 +518,26 @@ internal static class LightStabiliser
             return;
         }
 
-        CensusFlickers(flickers);
         int newLights = AdoptLights(lights);
         PruneDestroyed();
         int pinned = ApplyPinning();
 
         if (newLights == 0 && pinned == 0 && _censusPrinted)
             return; // nothing moved this cycle — say nothing rather than repeat a line every 10 s
+
+        // LightFlicker is diagnostic only. Its scene-wide lookup used to run on every 10 s scan,
+        // even when the unchanged-light gate above suppressed the sole consumer, LogCensus.
+        // Keep the sample fresh whenever a census is actually emitted, including room arrivals.
+        try
+        {
+            CensusFlickers(Object.FindObjectsOfType<LightFlicker>());
+        }
+        catch (System.Exception e)
+        {
+            VRLog.Info("Rig", $"LIGHT STABILISER: the LightFlicker census threw '{e.Message}' — "
+                              + "the light scan completed, and the diagnostic retries next cycle.");
+            return;
+        }
 
         _censusPrinted = true;
         LogCensus(lights.Length, newLights, pinned);
@@ -974,6 +985,22 @@ internal static class LightStabiliser
         _driver = null;
     }
 
+    /// <summary>Skip an engine setter when damping produced the value already on the light.
+    /// Static scene lights otherwise receive a redundant native write every LateUpdate.</summary>
+    private static void WriteIntensityIfChanged(Light light, float raw, float output)
+    {
+        if (raw != output)
+            light.intensity = output;
+    }
+
+    /// <summary>Use exact component equality. Unity's Vector3 == uses a distance tolerance,
+    /// which could silently discard a small but real damped movement.</summary>
+    private static void WritePositionIfChanged(Transform transform, Vector3 raw, Vector3 output)
+    {
+        if (!raw.Equals(output))
+            transform.localPosition = output;
+    }
+
     /// <summary>
     /// ONE walk over the held lights per frame. It measures the RAW signal the game just wrote
     /// (which is what makes this build's numbers comparable with ModBuild 228's), then writes the
@@ -1090,7 +1117,7 @@ internal static class LightStabiliser
             r.BaselineIntensity += dev * k;
 
             if (damp)
-                l.intensity = outIntensity;
+                WriteIntensityIfChanged(l, raw, outIntensity);
 
             float outJump = Mathf.Abs(outIntensity - r.LastOutIntensity);
             if (outJump > floorRef * IntensityEventFraction)
@@ -1141,7 +1168,7 @@ internal static class LightStabiliser
             r.BaselineLocal += posDev * k;
 
             if (dampPos)
-                t.localPosition = outLocal;
+                WritePositionIfChanged(t, rawLocal, outLocal);
 
             // Measured against the SAME (pre-update) baseline as rawPosDev above, so the two numbers
             // in the watch line are the same quantity with and without the damper and can be read as
