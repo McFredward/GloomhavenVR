@@ -197,6 +197,10 @@ internal sealed class LoadingIndicator
 {
     // ---- placement (head-local) --------------------------------------------------------
     private const float DistanceMeters = 1.5f;
+    // The VR options window stays open while its NPC toggle is pressed. Put the
+    // reload spinner in front of that window instead of hiding it behind the pane.
+    private const float TownReloadDistanceMeters = 0.65f;
+    private const float TownReloadScale = 0.55f;
     private const float BelowEyeMeters = 0.18f;
     private const float SizeMeters = 0.25f;
     /// <summary>Overlay sits this far in FRONT of the base quad (toward the head) so the
@@ -314,6 +318,7 @@ internal sealed class LoadingIndicator
     private bool _townModeObserved;
     private bool _townWasEnabled;
     private bool _townReloadActive;
+    private bool _townReloadVisual;
     private float _townReloadStartedAt;
     private const float TownReloadMinimumSeconds = 0.5f;
     private const float TownReloadMaximumSeconds = 45f;
@@ -327,12 +332,20 @@ internal sealed class LoadingIndicator
 
     public void Tick()
     {
-        // Observe the town-mode edge only while VR is running. The indicator option still
-        // controls the visual; a disabled indicator does not stop town preparation.
-        bool townReload = VRSession.IsRunning && TickTownReload();
-        bool gameLoading = VRSession.IsRunning && IsGameLoading();
-        bool want = VRSession.IsRunning && WorldUIConfig.LoadingIndicator.Value
-            && (gameLoading || townReload);
+        // The indicator option disables all its polling and presentation. The town
+        // services themselves keep preparing independently of this visual option.
+        bool indicatorEnabled = VRSession.IsRunning && WorldUIConfig.LoadingIndicator.Value;
+        if (VRSession.IsRunning && !indicatorEnabled)
+        {
+            _townModeObserved = true;
+            _townWasEnabled = WorldUIConfig.ImmersiveTownServices.Value;
+            _townReloadActive = false;
+        }
+        bool townReload = indicatorEnabled && TickTownReload();
+        bool gameLoading = indicatorEnabled && IsGameLoading();
+        bool want = townReload || gameLoading;
+        if (townReload && !gameLoading) _townReloadVisual = true;
+        else if (gameLoading) _townReloadVisual = false;
 
         // Part 2 runs whenever the feature is on and a load is in flight — flipped and
         // restored on the edges only, one log line each (existing VRLog style).
@@ -343,8 +356,7 @@ internal sealed class LoadingIndicator
         // nothing there — the frames that stall are the game's own synchronous YML parse on
         // the main thread, not async integration, so a smaller slice cannot touch them. The
         // boot clause is a display decision and stays one; it must not sit on the load path.
-        TickLoadPriority(gameLoading && WorldUIConfig.LoadingIndicator.Value
-            && _boot != BootCoverage.Covering);
+        TickLoadPriority(gameLoading && _boot != BootCoverage.Covering);
 
         // The flat-screen gate keeps its shipped edge-exact semantics (the screen returns the
         // instant loading ends). The spinner's own fade-out then cross-fades over the screen
@@ -380,13 +392,19 @@ internal sealed class LoadingIndicator
         if (_root == null)
             return; // hard build failure already logged (once)
 
-        if (_root.transform.parent != head.transform)
+        float distance = _townReloadVisual ? TownReloadDistanceMeters : DistanceMeters;
+        Vector3 localPosition = new Vector3(0f, -BelowEyeMeters, distance);
+        Vector3 localScale = Vector3.one * (_townReloadVisual ? TownReloadScale : 1f);
+        bool attach = _root.transform.parent != head.transform;
+        if (attach)
         {
             _root.transform.SetParent(head.transform, worldPositionStays: false);
-            _root.transform.localPosition = new Vector3(0f, -BelowEyeMeters, DistanceMeters);
             _root.transform.localRotation = Quaternion.identity; // child of the head = always facing
-            _root.transform.localScale = Vector3.one;
         }
+        if (attach || !_root.activeSelf || !_root.transform.localPosition.Equals(localPosition))
+            _root.transform.localPosition = localPosition;
+        if (attach || !_root.activeSelf || !_root.transform.localScale.Equals(localScale))
+            _root.transform.localScale = localScale;
         if (!_root.activeSelf)
             _root.SetActive(true);
         if (!_shownLogged)
@@ -395,7 +413,7 @@ internal sealed class LoadingIndicator
             VRLog.Info("WorldUI", $"Loading indicator shown: {(_boot == BootCoverage.Covering ? "BOOT window (intro over, " +
                                       "Gloomhaven_unified loading — the game shows nothing here)" :
                                       townReload && !gameLoading ? "immersive town services reloading" : "game spinner")} " +
-                                  $"{DistanceMeters:0.0} m ahead of head '{head.name}' (step {_spinDegrees:0.#}° / " +
+                                  $"{distance:0.00} m ahead of head '{head.name}' (step {_spinDegrees:0.#}° / " +
                                   $"{_stepSeconds:0.###}s, glow {_glowStep:0.###}, min alpha {_minAlpha:0.##}, " +
                                   $"fade {FadeSeconds:0.00}s) — flat screen suppressed for the load.");
         }
@@ -407,6 +425,7 @@ internal sealed class LoadingIndicator
     /// provisional ring, drop that too so the next show re-reads the game's own sprites.</summary>
     private void HideNow()
     {
+        _townReloadVisual = false;
         if (_root != null && _root.activeSelf)
         {
             _root.SetActive(false);
