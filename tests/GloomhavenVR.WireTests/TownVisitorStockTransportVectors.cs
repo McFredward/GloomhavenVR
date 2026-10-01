@@ -78,6 +78,22 @@ internal static class TownVisitorStockTransportVectors
         }
         t.Equal(3, seen.Count, "actual globally budgeted send queue delivers private/public/stock without coalescing");
         queue.Clear();
+        var voices = new TownServiceSendQueue(0); var voiceReceiver = new TownServiceFragments();
+        var stockVoice = VoiceFrame(true, 1, 1);
+        var privateVoice = VoiceFrame(false, 3, 500);
+        foreach (TownServiceFrame voice in new[] { stockVoice, privateVoice })
+        { byte[] bytes = TownServiceCodec.Write(voice); voices.Enqueue(bytes, bytes.Length, voice); }
+        var heard = new HashSet<bool>();
+        for (int i = 0; i < 80; i++)
+        {
+            byte[]? page = voices.Next(i * .05); if (page == null) continue;
+            byte[]? packet = voiceReceiver.Accept(12, page, page.Length, i * .05); if (packet == null) continue;
+            t.True(TownServiceCodec.TryRead(packet, packet.Length, out TownServiceFrame? voice)
+                && voice!.Module == TownServiceFrame.VoiceModule, "private and stock voices retain their exact cosmetic frame shape");
+            heard.Add(voice!.VisitorStock);
+        }
+        t.Equal(2, heard.Count, "private mage session changes cannot clear an independently queued stock inspection voice");
+        voices.Clear();
         foreach (ulong marker in new[] { 0UL, TownServiceFragments.StockLaneMarker })
         {
             var frame = Frame(marker == 0 ? 0 : 2);
@@ -118,6 +134,15 @@ internal static class TownVisitorStockTransportVectors
             t.True(arrived, "fresh network queue and assembler recover without inheriting an exhausted lane");
         }
     }
+
+    private static TownServiceFrame VoiceFrame(bool stock, byte service, uint session) => new()
+    {
+        VisitorStock = stock, Service = service, Session = session, Sequence = 1,
+        Module = TownServiceFrame.VoiceModule, Template = 1, TemplateAddress = TownServiceFrame.VoiceAddress,
+        Structure = 0x564F0000 | (stock ? 0u : 4u), Visible = true,
+        Pose = new[] { 0f, 0f, 0f, 0f, 0f, 0f, 1f, 1f, 1f, 1f },
+        Nodes = new[] { new TownServiceNode { Binding = 1 } }
+    };
 
     private static TownServiceFrame Frame(int lane)
     {

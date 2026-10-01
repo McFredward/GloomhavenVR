@@ -86,7 +86,7 @@ internal static partial class TownServiceMirror
             for (int steps = 0; steps < TownServiceFrame.MaxModules; steps++)
             {
                 if (StockMountIds.Contains(parent))
-                { if (wanted == 0) StockHeldIds.Add(id); else if (id == wanted) found = true; break; }
+                { if (wanted == 0) { StockHeldIds.Add(id); found = true; } else if (id == wanted) found = true; break; }
                 if (!frames.TryGetValue(parent, out TownServiceFrame? ancestor)
                     || ancestor.Session != session.Session || !ancestor.Visible
                     || Array.BinarySearch(session.Modules, ancestor.Module) < 0
@@ -95,6 +95,18 @@ internal static partial class TownServiceMirror
             }
         }
         return found;
+    }
+
+    // A pickup cue belongs to an actual visible original lifted stock sample,
+    // independently of the visitor's current private NPC focus and transaction.
+    private static bool TryStockVoiceSession(int realPeer, TownServiceFrame frame,
+        out TownServiceSessionInfo? session)
+    {
+        session = null;
+        return frame.VisitorStock && frame.Service == 1
+            && StockKeys.TryGetValue(realPeer, out int key)
+            && Sessions.TryGetValue(key, out session) && session.Session == frame.Session
+            && LiveStockItems(key);
     }
 
     private static void SetSecondaryTempleInscriptions(TownServiceSessionInfo session,

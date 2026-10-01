@@ -27,6 +27,16 @@ namespace GloomhavenVR.WorldUI
     internal static class TownServiceVoice
     {
         internal static Action<byte, TownVoiceReaction>? RelayRequest;
+        internal static Func<TownVoiceReaction, bool>? StockRelayRequest;
+        internal static bool IsStockReaction(TownVoiceReaction reaction) => reaction is TownVoiceReaction.MerchantOffer
+            or TownVoiceReaction.MerchantUnaffordable or TownVoiceReaction.MerchantSoldOut;
+        internal static readonly List<(TownVoiceReaction Reaction, int Peer, uint Session, uint Sequence, float Age)> StockAccepted = new();
+        internal static bool AcceptRelayedStockReaction(TownVoiceReaction reaction,
+            int peer, uint session, uint sequence, float age)
+        {
+            if (!TownServicePopulation.IsFaceAuthor || !IsStockReaction(reaction) || age < 0f || age > 3f) return false;
+            StockAccepted.Add((reaction, peer, session, sequence, age)); return true;
+        }
         internal static readonly List<(byte Service, TownVoiceReaction Reaction, int Peer, uint Session, uint Sequence, float Age)> Accepted = new();
         internal static bool AcceptRelayedReaction(byte service, TownVoiceReaction reaction,
             int peer, uint session, uint sequence, float age)

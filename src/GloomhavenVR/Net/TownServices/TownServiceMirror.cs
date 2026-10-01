@@ -52,6 +52,7 @@ internal static partial class TownServiceMirror
     {
         TownServiceDelivery.Completed = SnapshotSent;
         TownServiceVoice.RelayRequest = QueueVoiceReaction;
+        TownServiceVoice.StockRelayRequest = QueueStockVoiceReaction;
     }
     internal static readonly TownServiceAssets Assets = new();
     private static readonly Dictionary<int, TownServiceSessionInfo> Sessions = new();
@@ -637,7 +638,7 @@ internal static partial class TownServiceMirror
         TemplateKey(service, 1);
         if (session == 0 || sharedFrame == null || stationAnchor == null) throw new ArgumentException("Missing town-service session frame.");
         if (_session != session || _service != service)
-        { ClearLocalModules(); ClearVoiceOutgoing(); _nextManifest = 0; _sessionStarted = Time.unscaledTime - Mathf.Max(0f, ownerAge);
+        { ClearLocalModules(); ClearLaneVoiceOutgoing(); _nextManifest = 0; _sessionStarted = Time.unscaledTime - Mathf.Max(0f, ownerAge);
           _local.TempleDonationKnown = _local.TempleDonationAvailable = false;
           _local.TempleDonationRevision = 0; _local.TempleDonationChangedTime = 0f;
           _local.TransactionActive = false; }
@@ -697,7 +698,7 @@ internal static partial class TownServiceMirror
       _local.TempleDonationKnown = _local.TempleDonationAvailable = false;
       _local.TempleDonationRevision = 0; _local.TempleDonationChangedTime = 0f;
       _local.TransactionActive = false;
-      ClearVoiceOutgoing(); ClearLocalModules(); }
+      ClearLaneVoiceOutgoing(); ClearLocalModules(); }
 
     /// <summary>Call in the owner's final presentation pass. Immutable packets go to the existing transport.</summary>
     internal static void Capture(Action<byte[], int> send) => Capture((bytes, length, _) => send(bytes, length));
@@ -705,7 +706,7 @@ internal static partial class TownServiceMirror
     {
         using (new LaneScope(PrivateLane)) { CaptureLane(send); CaptureVoice(send); }
         using (new LaneScope(PublicLane)) CaptureLane(send);
-        using (new LaneScope(StockLane)) CaptureLane(send);
+        using (new LaneScope(StockLane)) { CaptureLane(send); CaptureStockVoice(send); }
     }
     private static void CaptureLane(Action<byte[], int, object?> send)
     {
@@ -800,7 +801,7 @@ internal static partial class TownServiceMirror
     {
         if (peer <= 0 || !TownServiceCodec.TryRead(packet, length, out TownServiceFrame? frame)) return false;
         if (frame!.Module == TownServiceFrame.VoiceModule)
-        { ReceiveVoice(peer, frame); return true; }
+        { if (frame.VisitorStock) ReceiveStockVoice(peer, frame); else ReceiveVoice(peer, frame); return true; }
         if (frame!.VisitorStock)
         { if (!TryStockPeerKey(peer, out peer)) return false; }
         else if (frame!.PublicCatalog)
@@ -837,6 +838,7 @@ internal static partial class TownServiceMirror
             PrunePending(ReceivedBaselines, peer, frame);
             ReconcileMerchantOffering(peer);
             if (peer > 0) FlushVoicePending(peer);
+            else if (IsStockPeerKey(peer)) FlushStockVoicePending(RealPeer(peer));
             return true;
         }
         if (!Pending.TryGetValue(peer, out Dictionary<ushort, TownServiceFrame>? pending))
@@ -859,6 +861,7 @@ internal static partial class TownServiceMirror
         }
         if (!pending.TryGetValue(frame.Module, out TownServiceFrame? old) || frame.Sequence > old.Sequence)
             { pending[frame.Module] = frame; ObserveMerchantOffering(peer, frame); }
+        if (IsStockPeerKey(peer)) FlushStockVoicePending(RealPeer(peer));
         return true;
     }
 

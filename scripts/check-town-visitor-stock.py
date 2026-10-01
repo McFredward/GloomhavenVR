@@ -19,7 +19,7 @@ def main():
     parser.add_argument('--output-dir', type=Path, default=ROOT / '.planning/debug/town-visitor-stock')
     parser.add_argument('--unity', type=Path, default=Path(os.environ.get('UNITY_PATH', '/home/claw/unity-2021.3.5/Editor/Unity')))
     parser.add_argument('--no-negative-controls', action='store_true')
-    parser.add_argument('--only-mutation', help='Run production and one affected negative control')
+    parser.add_argument('--only-mutation', help='Run production and the named affected controls (comma-separated)')
     args = parser.parse_args()
     if not args.unity.is_file():
         parser.error('Real Unity 2021.3.5 is required; this rendered proof cannot silently skip')
@@ -32,7 +32,7 @@ def main():
     helper = args.source_root / 'src/GloomhavenVR/WorldUI/TownServices/TownServiceTemplateAssets.cs'
     bound[helper.name] = helper.read_text()
     avatar = args.source_root / 'src/GloomhavenVR/Net/Avatar/NetAvatarDriver.TownServices.cs'
-    bound['VisitorQueue.cs'] = 'using System;\nusing System.Collections.Generic;\nusing GloomhavenVR.Net.TownServices;\nnamespace GloomhavenVR.Net;\ninternal sealed partial class NetAvatarDriver {\n' + '    private sealed class TownPacket { internal ulong Sequence; internal byte[] Bytes = null!; }\n    private readonly Dictionary<int, Dictionary<uint, TownPacket>> _pendingTown = new();\n    private readonly Dictionary<int, List<TownPacket>> _pendingTownVoice = new();\n    internal bool QueueFixture(int peer, byte[] packet) => QueueTownService(peer, packet, packet.Length);\n    internal void ApplyFixture() => ApplyTownServices();\n    internal int QueuedFixture(int peer) => _pendingTown.TryGetValue(peer, out var queued) ? queued.Count : 0;\n' + loader.method(avatar.read_text(), 'private bool QueueTownService(int sender, byte[] bytes, int length)') + '\n' + loader.method(avatar.read_text(), 'private void ApplyTownServices()') + '\n}\n'
+    bound['VisitorQueue.cs'] = 'using System;\nusing System.Collections.Generic;\nusing GloomhavenVR.Net.TownServices;\nnamespace GloomhavenVR.Net;\ninternal sealed partial class NetAvatarDriver {\n' + '    private sealed class TownPacket { internal ulong Sequence; internal uint Session; internal byte Service; internal bool VisitorStock; internal byte[] Bytes = null!; }\n    private readonly Dictionary<int, Dictionary<uint, TownPacket>> _pendingTown = new();\n    private readonly Dictionary<int, List<TownPacket>> _pendingTownVoice = new();\n    internal bool QueueFixture(int peer, byte[] packet) => QueueTownService(peer, packet, packet.Length);\n    internal void ApplyFixture() => ApplyTownServices();\n    internal int QueuedFixture(int peer) => _pendingTown.TryGetValue(peer, out var queued) ? queued.Count : 0;\n    internal int QueuedVoiceFixture(int peer) => _pendingTownVoice.TryGetValue(peer, out var queued) ? queued.Count : 0;\n' + loader.method(avatar.read_text(), 'private bool QueueTownService(int sender, byte[] bytes, int length)') + '\n' + loader.method(avatar.read_text(), 'private void ApplyTownServices()') + '\n}\n'
     fixture = run / 'fixture'
     shutil.copytree(ROOT / 'scripts/town-service-mirror-runtime', fixture)
     shutil.copyfile(ROOT / 'scripts/town-visitor-stock-runtime/Program.cs', fixture / 'VisitorStockLanes.cs')
@@ -63,6 +63,21 @@ def main():
     variants = [('production', '', '', '', '')]
     if not args.no_negative_controls:
         variants += [
+            ('stock-voice-queue-alias', 'VisitorQueue.cs',
+             'packet.Sequence == frame.Sequence && packet.Session == frame.Session\n                && packet.Service == frame.Service && packet.VisitorStock == frame.VisitorStock',
+             'packet.Sequence == frame.Sequence',
+             'actual avatar retains coincident private and stock voice ordinals'),
+            ('stock-voice-source-bypass', 'TownServiceMirror.Stock.cs',
+             '&& LiveStockItems(key);', '&& true;',
+             'a stock census alone does not authorize a pickup cue'),
+            ('stock-voice-source-flush-omitted', 'TownServiceMirror.cs',
+             '\n        if (IsStockPeerKey(peer)) FlushStockVoicePending(RealPeer(peer));',
+             '\n        if (IsStockPeerKey(peer)) { }',
+             'matching original lifted membership releases the deferred stock cue using the real sender'),
+            ('stock-voice-clears-private', 'TownServiceMirror.cs',
+             'ClearLocalModules(); ClearLaneVoiceOutgoing(); _nextManifest = 0;',
+             'ClearLocalModules(); ClearVoiceOutgoing(); _nextManifest = 0;',
+             "starting a stock hold preserves the other NPC's queued private cue"),
             ('secondary-purse-inscriptions', 'TownServiceMirror.cs',
              '|| address.StartsWith("temple.row|", StringComparison.Ordinal);', '|| false;',
              'secondary visitor retains the original held-purse inscriptions'),
@@ -82,7 +97,7 @@ def main():
              'private static Dictionary<Transform, ParentLink> SourceParents => PrivateLane.Parents;',
              'original module ancestry is scoped to each presentation lane'),
             ('stock-capture-omitted', 'TownServiceMirror.cs',
-             'using (new LaneScope(StockLane)) CaptureLane(send);', '// visitor stock omitted',
+             'using (new LaneScope(StockLane)) { CaptureLane(send); CaptureStockVoice(send); }', '// visitor stock omitted',
              'original module ancestry is scoped to each presentation lane'),
             ('stock-dedup-omitted', 'TownServiceMirror.cs',
              '        SuppressRemoteStockDuplicates();', '        // duplicate shelf branch left visible',
@@ -95,8 +110,9 @@ def main():
              'only the live typed stock mount vacates its exact public item slot'),
         ]
     if args.only_mutation:
-        variants = [variant for variant in variants if variant[0] in ('production', args.only_mutation)]
-        if len(variants) != 2: parser.error('Unknown mutation: ' + args.only_mutation)
+        requested = set(args.only_mutation.split(','))
+        variants = [variant for variant in variants if variant[0] == 'production' or variant[0] in requested]
+        if len(variants) != len(requested) + 1: parser.error('Unknown mutation: ' + args.only_mutation)
     (run / 'source-hashes.json').write_text(json.dumps({name: hashlib.sha256(text.encode()).hexdigest() for name, text in bound.items()}, indent=2) + '\n')
     dotnet = shutil.which('dotnet') or str(Path.home() / '.dotnet/dotnet')
     manifest = {'result': str(run / 'results.txt'), 'evidence': str(run), 'suite': 'visitor-stock', 'cases': []}

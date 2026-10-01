@@ -198,6 +198,8 @@ public static partial class MirrorProgram
         TownServiceMirror.Shutdown(); NetPlayerActors.Peer = 1;
         IEnumerator inscriptions = SecondaryPurseInscriptions();
         while (inscriptions.MoveNext()) yield return inscriptions.Current;
+        IEnumerator voices = IndependentStockVoice();
+        while (voices.MoveNext()) yield return voices.Current;
     }
 
     private static IEnumerator SecondaryPurseInscriptions()
@@ -240,4 +242,85 @@ public static partial class MirrorProgram
             "returning one purse hides only that visitor's inscriptions");
         TownServiceMirror.Shutdown(); NetPlayerActors.Peer = 1;
     }
+    // The recording scheduler boundary only observes the accepted cosmetic cue.
+    // Publisher, three-lane capture, actual avatar queue, membership validation and
+    // reordered network receive compile directly from production implementations.
+    private static IEnumerator IndependentStockVoice()
+    {
+        TownServiceMirror.Shutdown(); Baselines.Clear(); NetPlayerActors.Peer = 2;
+        TownServiceVoice.Accepted.Clear(); TownServiceVoice.StockAccepted.Clear();
+        Transform owner = Go("independent stock voice visitor").transform;
+        Transform empty = Go("original stock voice mount").transform;
+        Transform mount = Go("actual lifted stock voice sample", owner).transform;
+        Transform item = StockFace(mount, "original stock voice front", Color.green);
+        TownServiceMirror.RegisterTemplate(1, 1, empty, address: "merchant.heldstock|");
+        TownServiceMirror.RegisterTemplate(1, 1, item, address: "item.77|");
+        TownServiceMirror.BeginSession(3, 300, owner, owner);
+        TownServiceMirror.InteractionOwner(3);
+        for (float until = Time.unscaledTime + .13f; Time.unscaledTime < until;) yield return null;
+        TownServiceVoice.RelayRequest!(3, TownVoiceReaction.EnchantressEnhance);
+        using (TownServiceMirror.UseStockLane())
+        {
+            TownServiceMirror.BeginSession(1, 400, owner, owner);
+            TownServiceMirror.RegisterModule(7, 1, mount, node => node.parent == mount, "merchant.heldstock|");
+            TownServiceMirror.RegisterModule(8, 1, item, address: "item.77|");
+        }
+        Check(TownServiceVoice.StockRelayRequest!(TownVoiceReaction.MerchantOffer)
+            && !TownServiceVoice.StockRelayRequest(TownVoiceReaction.MerchantBuy),
+            "independent stock pickup cue is cosmetic and needs no merchant transaction");
+        List<byte[]> packets = Capture();
+        byte[] Find(bool stock, ushort module) => packets.Find(bytes =>
+            TownServiceCodec.TryRead(bytes, bytes.Length, out TownServiceFrame? frame)
+            && frame!.VisitorStock == stock && frame.Module == module)!;
+        byte[] stockVoice = Find(true, TownServiceFrame.VoiceModule);
+        byte[] privateVoice = Find(false, TownServiceFrame.VoiceModule);
+        Check(stockVoice != null && privateVoice != null,
+            "starting a stock hold preserves the other NPC's queued private cue");
+        Check(TownServiceCodec.TryRead(stockVoice, stockVoice.Length, out TownServiceFrame? stockCue)
+            && stockCue!.Session == 400 && stockCue.Sequence == 1 && stockCue.VisitorStock
+            && TownServiceCodec.TryRead(privateVoice, privateVoice.Length, out TownServiceFrame? privateCue)
+            && privateCue!.Session == 300 && privateCue.Sequence == 1 && privateCue.Service == 3,
+            "stock and mage cues keep coincident ordinals in distinct visitor envelopes");
+        TownServiceVoice.RelayRequest!(3, TownVoiceReaction.EnchantressInspect);
+        using (TownServiceMirror.UseStockLane()) TownServiceMirror.EndSession();
+        List<byte[]> returned = Capture();
+        Check(returned.Exists(bytes => TownServiceCodec.TryRead(bytes, bytes.Length, out TownServiceFrame? frame)
+            && !frame!.VisitorStock && frame.Module == TownServiceFrame.VoiceModule),
+            "returning stock leaves the other NPC's queued private cue intact");
+        TownServiceMirror.EndSession(); TownServiceMirror.ResetNetwork(); NetPlayerActors.Peer = 3;
+        var driver = new NetAvatarDriver();
+        Check(driver.QueueFixture(2, stockVoice) && driver.QueueFixture(2, privateVoice)
+            && driver.QueuedVoiceFixture(2) == 2,
+            "actual avatar retains coincident private and stock voice ordinals");
+        driver.ApplyFixture();
+        Check(TownServiceVoice.StockAccepted.Count == 0,
+            "stock voice cannot precede its original lifted source manifest");
+        byte[] census = Find(true, TownServiceFrame.ManifestModule);
+        Check(TownServiceMirror.Receive(2, census, census.Length), "stock voice original census is received");
+        Check(TownServiceVoice.StockAccepted.Count == 0,
+            "a stock census alone does not authorize a pickup cue");
+        byte[] front = Find(true, 8);
+        Check(TownServiceMirror.Receive(2, front, front.Length), "stock voice original item is received before its mount");
+        Check(TownServiceVoice.StockAccepted.Count == 0,
+            "an original item without its typed lifted mount does not authorize a pickup cue");
+        byte[] root = Find(true, 7);
+        Check(TownServiceMirror.Receive(2, root, root.Length), "stock voice original mount is received");
+        Check(TownServiceVoice.StockAccepted.Count == 1
+            && TownServiceVoice.StockAccepted[0].Peer == 2 && TownServiceVoice.StockAccepted[0].Session == 400
+            && TownServiceVoice.StockAccepted[0].Reaction == TownVoiceReaction.MerchantOffer,
+            "matching original lifted membership releases the deferred stock cue using the real sender");
+        Check(TownServiceMirror.InteractionOwner(1) == 0,
+            "a stock pickup cue creates no merchant interaction claim");
+        TownServiceFrame unrelated = TownServiceVoiceRelayCodec.Create(1, 401, 2,
+            TownVoiceReaction.MerchantSoldOut, Time.unscaledTime, 0f, visitorStock: true);
+        byte[] unrelatedBytes = TownServiceCodec.Write(unrelated);
+        TownServiceMirror.Receive(2, unrelatedBytes, unrelatedBytes.Length);
+        Check(TownServiceVoice.StockAccepted.Count == 1,
+            "an unmatched stock session cannot impersonate a live sample");
+        TownServiceMirror.RemovePeer(2);
+        var pending = (IDictionary)typeof(TownServiceMirror).GetField("StockVoicePending", PrivateStatic)!.GetValue(null)!;
+        Check(!pending.Contains(2), "disconnect removes deferred stock voice ownership");
+        TownServiceMirror.Shutdown(); NetPlayerActors.Peer = 1;
+    }
+
 }

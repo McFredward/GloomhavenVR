@@ -10,7 +10,7 @@ namespace GloomhavenVR.Net;
 internal sealed partial class NetAvatarDriver
 {
     private sealed class TownPacket
-    { internal ulong Sequence; internal byte[] Bytes = null!; }
+    { internal ulong Sequence; internal uint Session; internal byte Service; internal bool VisitorStock; internal byte[] Bytes = null!; }
     private readonly Dictionary<int, Dictionary<uint, TownPacket>> _pendingTown = new();
     private readonly Dictionary<int, List<TownPacket>> _pendingTownVoice = new();
     private readonly byte[] _activityBuffer = new byte[TownActivityCodec.PacketBytes];
@@ -42,10 +42,12 @@ internal sealed partial class NetAvatarDriver
                 if (_pendingTownVoice.Count >= 8) return true;
                 voice = new List<TownPacket>(16); _pendingTownVoice.Add(sender, voice);
             }
-            if (voice.Exists(packet => packet.Sequence == frame.Sequence)) return true;
+            if (voice.Exists(packet => packet.Sequence == frame.Sequence && packet.Session == frame.Session
+                && packet.Service == frame.Service && packet.VisitorStock == frame.VisitorStock)) return true;
             if (voice.Count >= 16) voice.RemoveAt(0);
             byte[] eventCopy = new byte[length]; Buffer.BlockCopy(bytes, 0, eventCopy, 0, length);
-            voice.Add(new TownPacket { Sequence = frame.Sequence, Bytes = eventCopy });
+            voice.Add(new TownPacket { Sequence = frame.Sequence, Session = frame.Session, Service = frame.Service,
+                VisitorStock = frame.VisitorStock, Bytes = eventCopy });
             return true;
         }
         if (!_pendingTown.TryGetValue(sender, out Dictionary<uint, TownPacket>? pending))
