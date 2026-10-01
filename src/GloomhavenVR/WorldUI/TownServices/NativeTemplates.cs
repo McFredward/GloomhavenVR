@@ -152,8 +152,20 @@ internal static class NativeTemplates
     private static void BindOriginalBackdrops()
     {
         TownServiceBackdropAssets.Register(TownServiceMirror.Assets, Original);
+        TownServiceTemplateAssets.Register(TownServiceMirror.Assets, FrozenOriginal);
+        // Lazy cards can be borrowed after the immutable static bank was built.
+        // Their pooled original references may now belong to a different visit;
+        // retained neutralized copies are the stable reset-time provenance.
+        var keys = new List<string>(Entries.Keys); keys.Sort(StringComparer.Ordinal);
+        foreach (string key in keys)
+        {
+            Transform? source = FrozenOriginal(key);
+            if (source != null) TownServiceTemplateAssets.Register(TownServiceMirror.Assets, key, source);
+        }
         _assetGeneration = TownServiceMirror.Assets.Generation;
     }
+    private static Transform? FrozenOriginal(string key) => Entries.TryGetValue(key, out Entry? entry)
+        ? entry.Copy != null ? entry.Copy.transform : entry.Original : null;
     internal static bool IsBoundary(Transform node) => Roots.ContainsKey(node) || IsDynamic(node)
         || TownServiceMerchantDrawer.IsContentRoot(node) || TownServiceCatalog.IsCardMountChild(node);
     internal static bool IsDynamic(Transform node) => node.GetComponent<UIShopItemSlot>() != null
@@ -165,6 +177,7 @@ internal static class NativeTemplates
     private static void Freeze(string key, Entry entry)
     {
         if (_bank == null || entry.Original == null) throw new InvalidOperationException("Original town template is unavailable: " + key);
+        TownServiceTemplateAssets.Register(TownServiceMirror.Assets, key, entry.Original);
         TownServiceNativeAssets.PrepareRoot(entry.Original);
         entry.Copy = Object.Instantiate(entry.Original.gameObject, _bank.transform, false);
         Prune(entry.Original, entry.Copy.transform);
