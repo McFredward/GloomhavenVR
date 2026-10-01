@@ -80,6 +80,10 @@ internal static class WallFadeTuning
     /// <summary>ModBuild 278: name WHICH renderers moved the scene half of the skip signature on
     /// a cycle that refused to skip (see WallSegmentFadeCulprits.cs).</summary>
     internal static ConfigEntry<bool>? SignatureCulpritCensus;
+    /// <summary>Expensive room-column and generated-tile forensic scans. The Frame keeps the
+    /// ordinary wall heartbeat and budget report, but opts out of these full-scene diagnostics
+    /// unless a wall-geometry investigation explicitly needs them.</summary>
+    internal static ConfigEntry<bool>? DeepSceneCensus;
     /// <summary>ModBuild 279 (Option A): let the skip signature stop listening to renderers the
     /// round-7 ruling puts beyond every adoption lane's reach. Ships OFF — see
     /// <see cref="FigureExemptSkipOn"/>.</summary>
@@ -335,6 +339,14 @@ internal static class WallFadeTuning
             + "on that. It runs only on a cycle that is already going to rebuild, at most once "
             + "every few seconds, and reports its own cost as the step 'WallFade.SigDiag' so it "
             + "can never become an unmeasured tax. Live.");
+        DeepSceneCensus = config.Bind("WallFade", "DeepSceneCensus",
+            !FrameDefaults.Active,
+            "DIAGNOSTIC only. Scan every mesh and generated map tile to log room-floor columns, "
+            + "tile children and the Apparance viewpoint when the wall heartbeat changes. The "
+            + "Steam Frame starts with this OFF because the Build 594 hardware log measured "
+            + "65.7 ms in the diagnostic census on one post-load frame; the normal wall heartbeat, "
+            + "commit budget, signatures and failure reports remain active. Switch this ON when "
+            + "investigating missing geometry. It never changes wall decisions or appearance. Live.");
         FigureExemptSkip = config.Bind("WallFade", "FigureExemptSkip",
             Defaults.FigureExemptSkip,
             "EXPERIMENTAL, OFF BY DEFAULT, AND MEASURED EITHER WAY. Heroes, monsters and their "
@@ -769,6 +781,9 @@ internal static class WallFadeTuning
     /// question is a wasted round, and this project has had three of those.</summary>
     internal static bool SignatureCulpritCensusOn =>
         SignatureCulpritCensus == null || SignatureCulpritCensus.Value;
+
+    internal static bool DeepSceneCensusOn =>
+        DeepSceneCensus == null ? !FrameDefaults.Active : DeepSceneCensus.Value;
 
     /// <summary>
     /// ModBuild 279 (Option A) — MAY THE SKIP SIGNATURE STOP LISTENING TO FIGURES?
@@ -2874,7 +2889,16 @@ internal static partial class WallSegmentFade
                 _heartbeatLogged = true;
                 _heartbeatSegCount = _live.Segments.Count;
                 _heartbeatFadeRenderers = _censusFadeRenderers;
-                LogFloorColumnCensus();
+                // These two full-scene searches are forensic output only. On Build 594's Frame
+                // scenario one heartbeat cost 65.7 ms after the loading indicator had gone;
+                // the wall table and all visual appliers had already completed. Keep the
+                // bounded summary below, and allow explicit opt-in when investigating floors.
+                if (WallFadeTuning.DeepSceneCensusOn)
+                {
+                    using var _deepCensusScope = PerfMonitor.Scope("WallFade.Census.Deep");
+                    LogFloorColumnCensus();
+                }
+                using var _summaryCensusScope = PerfMonitor.Scope("WallFade.Census.Summary");
                 LogMountedCensus();
                 // ModBuild 262: LogWallPathAudit is NO LONGER driven from here. Hanging off this
                 // block is exactly why the 260 log holds three of them and no steady state — the
