@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using GloomhavenVR.Board.FigureGrab;
 using HarmonyLib;
 using UnityEngine;
 using UnityEngine.SceneManagement;
@@ -33,6 +34,7 @@ internal static class ScenarioSceneryBudget
     private const string GrassShader = "Amp_Basic_Foliage";
     private const int NodesPerFrame = 96;
     private const int RetunesPerFrame = 96;
+    private const int AncestryChecksPerFrame = 64;
     private const int NamedDebugCap = 8;
 
     private static Driver? _driver;
@@ -72,8 +74,8 @@ internal static class ScenarioSceneryBudget
     /// <summary>Patch callbacks only enqueue; no content walk runs inside native placement.</summary>
     internal static void ContentPlaced(ProceduralBase entity)
     {
-        if (entity is ProceduralMapTile tile)
-            _driver?.QueueTile(tile);
+        if (entity != null)
+            _driver?.QueueTile(entity.GetComponentInParent<ProceduralMapTile>());
     }
 
     internal static void ContentShown(GameObject root)
@@ -250,13 +252,13 @@ internal static class ScenarioSceneryBudget
         return nodes.ToArray();
     }
 
-    /// <summary>Cheap per-frame safety over OWNED renderers only. A grab or hierarchy rebuild
-    /// reparents a node; all links must still be exactly the ones admitted at classification.
-    /// The held-prop test catches ownership changes before any scene traversal is needed.</summary>
+    /// <summary>Validate the originally admitted chain. The rolling watch calls this for only
+    /// a bounded number of records per frame; content-placement events validate known records
+    /// immediately. Held props have a separate same-frame check when any prop is actually held.</summary>
     private static bool StillOnOriginalChain(Record record)
     {
         MeshRenderer renderer = record.Renderer;
-        if (renderer == null || FigureRendererGuard.HeldByPlayer(renderer))
+        if (renderer == null)
             return false;
         Transform? t = renderer.transform;
         for (int i = 0; i < record.Chain.Length; i++)
@@ -293,6 +295,7 @@ internal static class ScenarioSceneryBudget
         private int _density = 100;
         private int _retuneIndex = -1;
         private int _pruneIndex;
+        private int _watchIndex;
         private int _visitedNodes;
         private int _meshRenderers;
         private int _debugNames;
@@ -324,9 +327,10 @@ internal static class ScenarioSceneryBudget
             int wanted = Mathf.Clamp(PerfConfig.ScenarioSceneryDensityPercentValue, 0, 100);
             if (_density != wanted)
                 ChangeDensity(wanted);
-            if (!_inScenarioScene)
+            if (!_inScenarioScene || (_density == 100 && _records.Count == 0))
                 return;
 
+            using var _perf = PerfMonitor.Scope("SceneryBudget.Update");
             RecheckOwned();
             PruneDead(16);
             Retune();
@@ -414,7 +418,10 @@ internal static class ScenarioSceneryBudget
             if (_byId.TryGetValue(id, out Record? known))
             {
                 if (known.Renderer != null)
+                {
+                    RevalidateKnown(known, renderer, tile);
                     return;
+                }
                 _records.Remove(known);
                 _byId.Remove(id);
                 if (_retuneIndex >= 0)
@@ -444,6 +451,18 @@ internal static class ScenarioSceneryBudget
             }
         }
 
+        /// <summary>A placement or reveal can rebuild a unit without replacing its renderer.
+        /// Re-run the full classifier before retaining our mask on a previously seen leaf.</summary>
+        private void RevalidateKnown(Record record, MeshRenderer renderer, ProceduralMapTile tile)
+        {
+            Verdict verdict = Classify(renderer, tile, out Transform? unit);
+            if (!record.Invalidated && verdict == Verdict.Eligible && unit != null
+                && StillOnOriginalChain(record) && !FigureRendererGuard.HeldByPlayer(renderer))
+                return;
+            SetHidden(record, false);
+            record.Invalidated = true;
+        }
+
         private void Retune()
         {
             if (_retuneIndex < 0)
@@ -467,9 +486,29 @@ internal static class ScenarioSceneryBudget
 
         private void RecheckOwned()
         {
-            for (int i = 0; i < _records.Count; i++)
+            // A held prop is the one state transition that must never wait for a rolling watch.
+            // This full list scan is only active during an actual local or remote prop hold.
+            if (HeldProps.Count > 0 || NetHeldProps.Any)
             {
-                Record record = _records[i];
+                for (int i = 0; i < _records.Count; i++)
+                {
+                    Record record = _records[i];
+                    if (!record.Owned || record.Renderer == null
+                        || !FigureRendererGuard.HeldByPlayer(record.Renderer))
+                        continue;
+                    SetHidden(record, false);
+                    record.Invalidated = true;
+                }
+            }
+
+            // Apparance may replace/reparent generated content outside a placement callback.
+            // Check a fixed slice, not every hidden renderer's full Transform.parent chain.
+            int budget = Math.Min(_records.Count, AncestryChecksPerFrame);
+            while (budget-- > 0)
+            {
+                if (_watchIndex >= _records.Count)
+                    _watchIndex = 0;
+                Record record = _records[_watchIndex++];
                 if (!record.Owned || StillOnOriginalChain(record))
                     continue;
                 SetHidden(record, false);
@@ -551,6 +590,7 @@ internal static class ScenarioSceneryBudget
             _debugNames = 0;
             _retuneIndex = -1;
             _pruneIndex = 0;
+            _watchIndex = 0;
         }
 
         private static string PathOf(Transform leaf, Transform stop)
