@@ -35,9 +35,23 @@ public static partial class MirrorProgram
         Transform heldFace = StockFace(held, "original item front", Color.green);
         Transform heldBody = StockFace(held, "original stock backing", Color.gray);
         Transform heldPrice = StockFace(held, "original stock price", Color.yellow);
-        Func<Transform, bool> excludeChildren = node => node.parent == held || node.parent == rack;
+        Transform housing = Go("original cabinet mechanism", owner).transform;
+        Transform warmOne = Go("original warm page one mount", owner).transform;
+        Transform warmOneFace = StockFace(warmOne, "original warm page one front", Color.cyan);
+        Transform warmTwo = Go("original warm page two mount", owner).transform;
+        Transform warmTwoFace = StockFace(warmTwo, "original warm page two front", Color.magenta);
+        var rackState = new TownRackState { Cassette = true, PageCount = 3, Crank = 29,
+            Page = 0, From = 0, To = 0, Elapsed = TownRackState.TurnDuration,
+            Members = new[] { new TownRackMember(7, 0, false), new TownRackMember(8, 0, false),
+                new TownRackMember(21, 1, false), new TownRackMember(22, 1, false),
+                new TownRackMember(23, 2, false), new TownRackMember(24, 2, false) } };
+        Func<Transform, bool> excludeChildren = node => node.parent == held || node.parent == rack
+            || node.parent == warmOne || node.parent == warmTwo;
         TownServiceMirror.RegisterTemplate(2, 1, npc, address: "temple.counter|");
         TownServiceMirror.RegisterTemplate(1, 1, empty, address: "merchant.cardmount|");
+        TownServiceMirror.RegisterTemplate(1, 1, housing, address: "merchant.rack|");
+        TownServiceMirror.RegisterTemplate(1, 1, warmOneFace, address: "item.78|");
+        TownServiceMirror.RegisterTemplate(1, 1, warmTwoFace, address: "item.79|");
         TownServiceMirror.RegisterTemplate(1, 1, empty, address: "merchant.heldstock|");
         TownServiceMirror.RegisterTemplate(1, 1, heldFace, address: "item.77|");
         TownServiceMirror.RegisterTemplate(1, 1, heldBody, address: "merchant.heldstock.body|");
@@ -49,6 +63,14 @@ public static partial class MirrorProgram
             TownServiceMirror.BeginSession(1, 1, owner, owner);
             TownServiceMirror.RegisterModule(7, 1, rack, excludeChildren, "merchant.cardmount|");
             TownServiceMirror.RegisterModule(8, 1, rackFace, address: "item.77|");
+            TownServiceMirror.RegisterModule(21, 1, warmOne, excludeChildren, "merchant.cardmount|");
+            TownServiceMirror.RegisterModule(22, 1, warmOneFace, address: "item.78|");
+            TownServiceMirror.RegisterModule(23, 1, warmTwo, excludeChildren, "merchant.cardmount|");
+            TownServiceMirror.RegisterModule(24, 1, warmTwoFace, address: "item.79|");
+            TownServiceMirror.RegisterModule(30, 1, housing, address: "merchant.rack|");
+            TownServiceMirror.SetRack(30, rackState);
+            foreach (ushort id in new ushort[] { 7, 8, 21, 22, 23, 24 })
+                TownServiceMirror.SetRackMember(id, new TownRackStamp { Rack = 30, Page = id < 20 ? (ushort)0 : id < 23 ? (ushort)1 : (ushort)2 });
         }
         using (TownServiceMirror.UseStockLane())
         {
@@ -87,7 +109,11 @@ public static partial class MirrorProgram
         foreach (byte[] bytes in packets)
             if (TownServiceCodec.TryRead(bytes, bytes.Length, out TownServiceFrame? frame) && frame!.Module == 7) sameId++;
         Check(sameId == 3, "three original lanes retain identical session and module IDs independently");
-        NetPlayerActors.Peer = 3; Receive(2, packets); TownServiceMirror.InteractionOwner(2);
+        NetPlayerActors.Peer = 3;
+        var driver = new NetAvatarDriver();
+        foreach (byte[] packet in packets) Check(driver.QueueFixture(2, packet), "actual avatar accepts complete immutable town packet");
+        Check(driver.QueuedFixture(2) == packets.Count, "actual avatar queue retains all three original presentation lanes");
+        driver.ApplyFixture(); TownServiceMirror.InteractionOwner(2);
         for (float until = Time.unscaledTime + .13f; Time.unscaledTime < until;) yield return null;
         var supplied = new List<int>();
         TownServiceMirror.TickRemote(peer => { supplied.Add(peer); return observer; });
@@ -103,6 +129,9 @@ public static partial class MirrorProgram
             "only the live typed stock mount vacates its exact public item slot");
         Check(!Remote(-2, 7)!.Root.parent.gameObject.activeSelf && !Remote(-2, 8)!.Root.gameObject.activeInHierarchy,
             "observer suppresses the whole duplicate public shelf sample while it is held");
+        Check(Remote(-2, 21)!.Root.parent.GetComponent<CanvasGroup>().alpha == 0f
+            && Remote(-2, 23)!.Root.parent.GetComponent<CanvasGroup>().alpha == 0f,
+            "two prewarmed pages remain invisible under the current rack gate");
         Check(Remote(stockKey, 8)!.Root.GetComponent<Image>().color == Color.green
             && Remote(stockKey, 9)!.Root.GetComponent<Image>().color == Color.gray
             && Remote(stockKey, 10)!.Root.GetComponent<Image>().color == Color.yellow,
@@ -123,7 +152,11 @@ public static partial class MirrorProgram
         // A new public author can replace/repage the cabinet without retiring this
         // visitor's original hold or the unrelated NPC interaction in their other hand.
         NetPlayerActors.Peer = 4;
-        using (TownServiceMirror.UsePublicLane()) TownServiceMirror.ClaimPublicCatalog();
+        using (TownServiceMirror.UsePublicLane())
+        {
+            rackState.Page = rackState.From = rackState.To = 1;
+            TownServiceMirror.SetRack(30, rackState); TownServiceMirror.ClaimPublicCatalog();
+        }
         var newAuthor = Capture();
         newAuthor.RemoveAll(bytes => !TownServiceCodec.TryRead(bytes, bytes.Length, out TownServiceFrame? frame) || !frame!.PublicCatalog);
         using (TownServiceMirror.UsePublicLane()) TownServiceMirror.EndSession();
@@ -135,7 +168,10 @@ public static partial class MirrorProgram
 
         // A newly joined observer receives complete originals for each independent
         // lane, even after a different player became the current cabinet author.
-        TownServiceMirror.ResetNetwork(); NetPlayerActors.Peer = 6;
+        TownServiceMirror.ResetNetwork();
+        Check(privateParents.Contains(npc) && stockParents.Contains(heldFace),
+            "network reconnect retains ancestry for unchanged original local bindings");
+        NetPlayerActors.Peer = 6;
         Receive(2, afterRetirement); Receive(4, newAuthor); TownServiceMirror.InteractionOwner(2);
         for (float until = Time.unscaledTime + .13f; Time.unscaledTime < until;) yield return null;
         TownServiceMirror.TickRemote(_ => observer); stockKey = StockPeerKey(2);
@@ -149,13 +185,59 @@ public static partial class MirrorProgram
         var returned = Capture(); NetPlayerActors.Peer = 3; Receive(2, returned); TownServiceMirror.TickRemote(_ => observer);
         Check(!TownServiceMirror.StockItemHeldByOther(77) && Remote(stockKey, 7) == null,
             "finished return/decision retires stock membership immediately");
-        Check(Remote(-4, 7) != null && Remote(-4, 7)!.Root.parent.gameObject.activeSelf,
-            "retired held membership restores the selected public shelf original");
+        Check(Remote(-4, 7) != null && !Remote(-4, 7)!.Root.parent.gameObject.activeSelf
+            && Remote(-4, 7)!.Root.parent.GetComponent<CanvasGroup>().alpha == 0f
+            && Remote(-4, 21)!.Root.parent.GetComponent<CanvasGroup>().alpha > .99f
+            && Remote(-4, 23)!.Root.parent.GetComponent<CanvasGroup>().alpha == 0f,
+            "retired stock return preserves the selected rack page and hidden warm originals");
         TownServiceMirror.RemovePeer(2); TownServiceMirror.TickRemote(_ => observer);
         Check(!TownServiceMirror.RemoteSessions.ContainsKey(2), "disconnect removes the visitor without touching the other public author");
         TownServiceMirror.ResetNetwork();
         Check(TownServiceMirror.RemoteSessions.Count == 0 && !TownServiceMirror.StockItemHeldByOther(77),
             "network reset releases all independent stock and visitor membership");
+        TownServiceMirror.Shutdown(); NetPlayerActors.Peer = 1;
+        IEnumerator inscriptions = SecondaryPurseInscriptions();
+        while (inscriptions.MoveNext()) yield return inscriptions.Current;
+    }
+
+    private static IEnumerator SecondaryPurseInscriptions()
+    {
+        TownServiceMirror.Shutdown(); NetPlayerActors.Peer = 10;
+        Transform owner = Go("simultaneous purse owner frame").transform;
+        Transform observer = Go("simultaneous purse observer frame").transform;
+        Transform purse = StockFace(owner, "original held purse", Color.yellow);
+        Transform counter = StockFace(owner, "original shared temple counter", Color.blue);
+        Transform row = StockFace(owner, "original purse inscriptions", Color.white);
+        TownServiceMirror.RegisterTemplate(2, 1, purse, address: "ritual.purse.held|");
+        TownServiceMirror.RegisterTemplate(2, 1, counter, address: "temple.counter|");
+        TownServiceMirror.RegisterTemplate(2, 1, row, address: "temple.row|");
+        TownServiceMirror.BeginSession(2, 700, owner, owner);
+        TownServiceMirror.RegisterModule(7, 1, purse, address: "ritual.purse.held|");
+        TownServiceMirror.RegisterModule(8, 1, counter, address: "temple.counter|");
+        TownServiceMirror.RegisterModule(9, 1, row, address: "temple.row|");
+        List<byte[]> packets = Capture(); TownServiceMirror.EndSession();
+        foreach (int peer in new[] { 2, 3 })
+            foreach (byte[] bytes in packets)
+            {
+                Check(TownServiceCodec.TryRead(bytes, bytes.Length, out TownServiceFrame? frame),
+                    "simultaneous original purse content decodes");
+                frame!.Session = (uint)(700 + peer); frame.Sequence += 100;
+                byte[] packet = TownServiceCodec.Write(frame);
+                Check(TownServiceMirror.Receive(peer, packet, packet.Length), "simultaneous visitor purse and inscription packet is retained");
+            }
+        TownServiceMirror.InteractionOwner(2);
+        for (float until = Time.unscaledTime + .13f; Time.unscaledTime < until;) yield return null;
+        TownServiceMirror.TickRemote(_ => observer);
+        Check(Remote(2, 8) != null && Remote(3, 8) == null && Remote(2, 7) != null && Remote(3, 7) != null,
+            "secondary held purse never duplicates the original shared temple counter");
+        Check(Remote(3, 9) != null && Remote(3, 9)!.Root.gameObject.activeInHierarchy
+            && Remote(3, 9)!.Root.GetComponent<Image>().color == Color.white,
+            "secondary visitor retains the original held-purse inscriptions");
+        InteractionManifest(3, 2, 703, 200, modules: new ushort[] { 8, 9 });
+        TownServiceMirror.TickRemote(_ => observer);
+        Check(Remote(3, 7) == null && !Remote(3, 9)!.Root.parent.gameObject.activeSelf
+            && Remote(2, 9)!.Root.gameObject.activeInHierarchy,
+            "returning one purse hides only that visitor's inscriptions");
         TownServiceMirror.Shutdown(); NetPlayerActors.Peer = 1;
     }
 }

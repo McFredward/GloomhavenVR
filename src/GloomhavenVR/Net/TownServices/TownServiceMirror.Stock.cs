@@ -147,8 +147,23 @@ internal static partial class TownServiceMirror
         {
             RemoteModule module = pair.Value;
             if (!module.Alive || module.Address != "merchant.cardmount|" || module.LastFrame == null) continue;
-            bool shown = module.LastFrame.Visible && !DuplicatePublicMounts.Contains(pair.Key);
-            if (module.Host.activeSelf != shown) module.Host.SetActive(shown);
+            if (DuplicatePublicMounts.Contains(pair.Key))
+            {
+                module.StockMasked = true;
+                if (module.Host.activeSelf) module.Host.SetActive(false);
+            }
+            else if (module.StockMasked)
+            {
+                // The rack already computed page/dependency visibility this tick.
+                // Restore only our own mask; a warm off-page native slot must stay
+                // hidden rather than acquiring a second, invented page author.
+                module.StockMasked = false;
+                bool shown = module.LastFrame.Visible;
+                TownRackStamp? stamp = module.LastFrame.RackMember;
+                if (stamp != null && !stamp.Detached)
+                    shown &= module.Host.GetComponent<CanvasGroup>().alpha > .01f;
+                if (module.Host.activeSelf != shown) module.Host.SetActive(shown);
+            }
         }
     }
 }

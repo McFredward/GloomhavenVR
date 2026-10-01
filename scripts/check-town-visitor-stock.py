@@ -31,6 +31,8 @@ def main():
     bound, hashes = loader.sources(args.source_root)
     helper = args.source_root / 'src/GloomhavenVR/WorldUI/TownServices/TownServiceTemplateAssets.cs'
     bound[helper.name] = helper.read_text()
+    avatar = args.source_root / 'src/GloomhavenVR/Net/Avatar/NetAvatarDriver.TownServices.cs'
+    bound['VisitorQueue.cs'] = 'using System;\nusing System.Collections.Generic;\nusing GloomhavenVR.Net.TownServices;\nnamespace GloomhavenVR.Net;\ninternal sealed partial class NetAvatarDriver {\n' + '    private sealed class TownPacket { internal ulong Sequence; internal byte[] Bytes = null!; }\n    private readonly Dictionary<int, Dictionary<uint, TownPacket>> _pendingTown = new();\n    private readonly Dictionary<int, List<TownPacket>> _pendingTownVoice = new();\n    internal bool QueueFixture(int peer, byte[] packet) => QueueTownService(peer, packet, packet.Length);\n    internal void ApplyFixture() => ApplyTownServices();\n    internal int QueuedFixture(int peer) => _pendingTown.TryGetValue(peer, out var queued) ? queued.Count : 0;\n' + loader.method(avatar.read_text(), 'private bool QueueTownService(int sender, byte[] bytes, int length)') + '\n' + loader.method(avatar.read_text(), 'private void ApplyTownServices()') + '\n}\n'
     fixture = run / 'fixture'
     shutil.copytree(ROOT / 'scripts/town-service-mirror-runtime', fixture)
     shutil.copyfile(ROOT / 'scripts/town-visitor-stock-runtime/Program.cs', fixture / 'VisitorStockLanes.cs')
@@ -61,6 +63,20 @@ def main():
     variants = [('production', '', '', '', '')]
     if not args.no_negative_controls:
         variants += [
+            ('secondary-purse-inscriptions', 'TownServiceMirror.cs',
+             '|| address.StartsWith("temple.row|", StringComparison.Ordinal);', '|| false;',
+             'secondary visitor retains the original held-purse inscriptions'),
+            ('stock-restore-warm-page', 'TownServiceMirror.Stock.cs',
+             'shown &= module.Host.GetComponent<CanvasGroup>().alpha > .01f;',
+             'shown &= true;',
+             'retired stock return preserves the selected rack page and hidden warm originals'),
+            ('reconnect-ancestry-lost', 'TownServiceMirror.cs',
+             'ResetInteractionLeases(); ClearStockPeerKeys();',
+             'ResetInteractionLeases(); ClearStockPeerKeys(); PrivateLane.Parents.Clear(); StockLane.Parents.Clear();',
+             'network reconnect retains ancestry for unchanged original local bindings'),
+            ('visitor-queue-alias', 'VisitorQueue.cs',
+             ' | (frame.VisitorStock ? 262144u : 0u)', '',
+             'actual avatar queue retains all three original presentation lanes'),
             ('shared-original-parents', 'TownServiceMirror.cs',
              'private static Dictionary<Transform, ParentLink> SourceParents => _local.Parents;',
              'private static Dictionary<Transform, ParentLink> SourceParents => PrivateLane.Parents;',

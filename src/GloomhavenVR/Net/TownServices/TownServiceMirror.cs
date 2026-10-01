@@ -551,6 +551,7 @@ internal static partial class TownServiceMirror
         internal ulong Sequence;
         internal TownServiceFrame? LastFrame;
         internal Renderer[]? RackBodyRenderers;
+        internal bool StockMasked;
         internal TownServiceMotion Motion = null!;
         internal bool Alive => Host != null && Binding.Root != null;
         public void Dispose()
@@ -1222,7 +1223,6 @@ internal static partial class TownServiceMirror
         PrivateLane.TempleDonationRevision = 0; PrivateLane.TempleDonationChangedTime = 0f;
         PrivateLane.TransactionActive = false;
         ResetInteractionLeases(); ClearStockPeerKeys();
-        PrivateLane.Parents.Clear(); PublicLane.Parents.Clear(); StockLane.Parents.Clear();
     }
     internal static void Shutdown()
     {
