@@ -342,6 +342,35 @@ internal static class CardFaceMipBake
         }
     }
 
+    /// <summary>Fill only the shared sprite replacement cache while a cloned card is
+    /// still parked. The normal Rescan runs after OnEnable to apply the replacements
+    /// and perform silhouette, pad and effect maintenance on the final layout.</summary>
+    internal static void WarmSprites(Component? faceRoot)
+    {
+        if (faceRoot == null || CardsConfig.FaceMipBake == null || !CardsConfig.FaceMipBake.Value)
+            return;
+        try
+        {
+            foreach (Image image in faceRoot.GetComponentsInChildren<Image>(includeInactive: true))
+            {
+                if (image == null || image.sprite == null)
+                    continue;
+                Sprite sprite = image.sprite;
+                if (!s_originalByReplacement.ContainsKey(sprite.GetInstanceID()))
+                    ReplacementFor(sprite);
+            }
+        }
+        catch (System.Exception ex)
+        {
+            if (!s_errorLogged)
+            {
+                s_errorLogged = true;
+                VRLog.Warn("Cards", $"Parked face mip warm-up failed ({ex.GetType().Name}: {ex.Message}) "
+                    + "— activation will use the ordinary rescan.");
+            }
+        }
+    }
+
     /// <summary>
     /// Put the ORIGINAL sprites back on every Image under <paramref name="faceRoot"/>
     /// that currently wears one of our replacements — called by CardFace.Restore before
