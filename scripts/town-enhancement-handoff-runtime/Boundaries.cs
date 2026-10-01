@@ -250,3 +250,7 @@ namespace GloomhavenVR.Hands.Interact {
 }
 
 namespace GloomhavenVR.WorldUI { internal static class ModalFallback { internal static int Closed; internal static void CloseFloatedWindow(UIWindow window) { Closed++; window.IsOpen=false; } } }
+
+// The handoff fixture exercises native offer/approach behavior; the production
+// load-time pool builder is compiled with the main plugin and has its own lifetime.
+namespace GloomhavenVR.WorldUI { internal static class TownServiceEnhancementPoolWarmup { internal static void Tick() { } internal static void ReportAtOpen() { } } }

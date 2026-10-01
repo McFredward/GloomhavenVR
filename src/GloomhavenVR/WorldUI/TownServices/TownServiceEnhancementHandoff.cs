@@ -213,6 +213,7 @@ internal sealed class TownServiceEnhancementHandoff : IDisposable
 
     internal static void TickApproach()
     {
+        TownServiceEnhancementPoolWarmup.Tick();
         if (!MapRoomDriver.Active || !WorldUIConfig.ImmersiveTownServices.Value || !Enabled
             || !TownServiceGrantSync.CanUseImmersive
             || !TownServicePopulation.Available(3))
@@ -336,6 +337,7 @@ internal sealed class TownServiceEnhancementHandoff : IDisposable
         // TownServicePresentation.Visit on some enchantress entries. That parent
         // includes both this native press and the subsequent original folio
         // conversion; keep their costs separate before attributing a residual hitch.
+        TownServiceEnhancementPoolWarmup.ReportAtOpen();
         using (PerfMonitor.Scope("TownEnhancement.NativeOpen"))
             opened = MapRoomDriver.PressGuildmasterMode(EGuildmasterMode.Enchantress,
                 cardEntered ? "owned card offered to enchantress" : "approached enchantress",
