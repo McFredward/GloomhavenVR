@@ -616,6 +616,9 @@ public static class InteractionProgram
         Check(!observerAudio.isPlaying,"completed cabinet events never replay on a late observer");
         crank.Follow(RackState(crank,lateEpoch,TownRackState.TurnDuration));
         OfferedStock(catalog);
+        // Cache the actual native canvas census before the card leaves Root,
+        // matching the persistent cabinet's normal election path on hardware.
+        catalog.SetObserver(false);
         stable.Tick(1f);var holder=new VRHand();stable.Sample.OnGrab(holder);stable.Tick(1f);
         for (int n = 0; n < 120; n++) stable.Tick(1f);
         Vector3 heldPosition = stable.MountRoot.position; Quaternion heldRotation = stable.MountRoot.rotation;

@@ -57,6 +57,8 @@ internal static class TownCatalogLayout
 
     internal static TownCatalogSlot[] Read(byte[] bytes)
     {
+        if (bytes == null || bytes.Length < 3)
+            throw new InvalidDataException("Invalid public cabinet layout length.");
         using var stream = new MemoryStream(bytes, false);
         using var reader = new BinaryReader(stream);
         if (reader.ReadByte() != 1) throw new InvalidDataException("Unknown public cabinet layout version.");
