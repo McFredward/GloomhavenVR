@@ -52,11 +52,11 @@ namespace GloomhavenVR.Cards;
 ///
 /// <para>THE COST, MEASURED FROM THE GAME'S OWN ASSETS RATHER THAN ESTIMATED: on this party the
 /// three keys are <c>AC_&lt;Class&gt;_Background</c> 1254x1916 and two 1085x651 halves, i.e. about
-/// 4 MB compressed per class. The map-room fan shows ONE character at a time and a scenario hand is
-/// one class, so the resident set is three keys, not three per card and not three per party
-/// member. Nothing is copied, nothing is cached here, and the handles are released on the edges
-/// below — the pin is a REFERENCE on an asset the game was going to load anyway, held a few seconds
-/// earlier and a few seconds longer.</para>
+/// 4 MB compressed per class. One local hand needs three keys; a multiplayer map
+/// can pin one such set per distinct displayed class because remote map fans pin
+/// their public class before opening. The set is bounded by party classes rather
+/// than by card count or frames. Nothing is copied; the handles below are
+/// REFERENCES on assets the game will load, held a few seconds earlier and longer.</para>
 ///
 /// <para>WHAT IS DELIBERATELY NOT PINNED: the HIGHLIGHT / SELECTED / DISABLED state sprites that
 /// <c>SetSkin(selected: true)</c> swaps in. They are the same size again, four per half, and none of
@@ -66,7 +66,8 @@ namespace GloomhavenVR.Cards;
 ///
 /// <para>MULTIPLAYER: nothing here goes near the wire, and no game state is written. It asks
 /// Addressables for an asset by GUID and releases it again; the game's own loaders, contexts and
-/// reference counts are untouched, and card identity still never leaves this machine.</para>
+/// reference counts are untouched, and card identity still never leaves this machine. Remote
+/// fan callers must still pass RevealGate's map-phase public-front predicate before pinning.</para>
 /// </summary>
 internal static class CardArtPin
 {

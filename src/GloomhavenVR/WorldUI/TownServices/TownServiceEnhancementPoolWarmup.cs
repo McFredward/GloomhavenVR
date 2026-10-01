@@ -28,6 +28,7 @@ internal static class TownServiceEnhancementPoolWarmup
 {
     private const int MaxSlots = 32;
     private static UIPartyCharacterEnhancementAbilityCardsDisplay? _display;
+    private static GameObject? _inactiveStaging;
     private static int _target, _created;
     private static bool _targetReady, _finished, _failed;
 
@@ -40,17 +41,26 @@ internal static class TownServiceEnhancementPoolWarmup
     private static void TickCore()
     {
         if (!MapRoomDriver.Active || !WorldUIConfig.ImmersiveTownServices.Value
-            || !TownServiceEnhancementHandoff.Enabled) return;
+            || !TownServiceEnhancementHandoff.Enabled)
+        {
+            ReleaseStaging();
+            return;
+        }
         SceneController? scene = SceneController.Instance;
         if (!LoadingIndicator.FlatScreenSuppressed
             && (scene == null || !scene.IsLoading && !scene.ScenarioIsLoading)) return;
         UIWindow? window = GuildmasterDestinations.ModeWindow(EGuildmasterMode.Enchantress);
-        if (window == null || window.IsOpen) return;
+        if (window == null || window.IsOpen)
+        {
+            ReleaseStaging();
+            return;
+        }
         UINewEnhancementWindow? shop = window.GetComponent<UINewEnhancementWindow>();
         UIPartyCharacterEnhancementAbilityCardsDisplay? display = shop?.CardsDisplay;
         if (display == null) return;
         if (!ReferenceEquals(_display, display))
         {
+            ReleaseStaging();
             _display = display;
             _target = _created = 0;
             _targetReady = _finished = _failed = false;
@@ -96,10 +106,18 @@ internal static class TownServiceEnhancementPoolWarmup
             UIEnhanceCardSlot? slot = null;
             try
             {
-                slot = UnityEngine.Object.Instantiate(prefab);
+                // Instantiate below an inactive parent. An active source prefab can
+                // otherwise run OnEnable before SetActive(false), which would turn a
+                // hidden warm-up into an early native shop-controller transition.
+                if (_inactiveStaging == null)
+                {
+                    _inactiveStaging = new GameObject("GloomhavenVR.EnhancementPoolStaging");
+                    _inactiveStaging.SetActive(false);
+                }
+                slot = UnityEngine.Object.Instantiate(prefab, _inactiveStaging.transform, false);
                 slot.name = prefab.name;
-                slot.transform.SetParent(panel.content, worldPositionStays: false);
                 slot.gameObject.SetActive(false);
+                slot.transform.SetParent(panel.content, worldPositionStays: false);
                 pool.Add(slot);
             }
             catch
@@ -137,6 +155,7 @@ internal static class TownServiceEnhancementPoolWarmup
     private static void Finish(int count)
     {
         _finished = true;
+        ReleaseStaging();
         if (VRLog.WantsDebug)
             VRLog.Debug("WorldUI", "TOWN ENHANCEMENT native slot warmup: target=" + _target
                 + " pool=" + count + " created=" + _created + " during map load.");
@@ -146,7 +165,15 @@ internal static class TownServiceEnhancementPoolWarmup
     {
         if (_failed) return;
         _failed = true;
+        ReleaseStaging();
         if (VRLog.WantsDebug)
             VRLog.Debug("WorldUI", "TOWN ENHANCEMENT native slot warmup skipped: " + reason + ".");
+    }
+
+    private static void ReleaseStaging()
+    {
+        if (_inactiveStaging == null) return;
+        UnityEngine.Object.Destroy(_inactiveStaging);
+        _inactiveStaging = null;
     }
 }
