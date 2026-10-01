@@ -340,7 +340,7 @@ internal static class WallFadeTuning
             + "every few seconds, and reports its own cost as the step 'WallFade.SigDiag' so it "
             + "can never become an unmeasured tax. Live.");
         DeepSceneCensus = config.Bind("WallFade", "DeepSceneCensus",
-            !FrameDefaults.Active,
+            FrameDefaults.Active ? FrameDefaults.DeepSceneCensus : Defaults.DeepSceneCensus,
             "DIAGNOSTIC only. Scan every mesh and generated map tile to log room-floor columns, "
             + "tile children and the Apparance viewpoint when the wall heartbeat changes. The "
             + "Steam Frame starts with this OFF because the Build 594 hardware log measured "
@@ -783,7 +783,9 @@ internal static class WallFadeTuning
         SignatureCulpritCensus == null || SignatureCulpritCensus.Value;
 
     internal static bool DeepSceneCensusOn =>
-        DeepSceneCensus == null ? !FrameDefaults.Active : DeepSceneCensus.Value;
+        DeepSceneCensus == null
+            ? FrameDefaults.Active ? FrameDefaults.DeepSceneCensus : Defaults.DeepSceneCensus
+            : DeepSceneCensus.Value;
 
     /// <summary>
     /// ModBuild 279 (Option A) — MAY THE SKIP SIGNATURE STOP LISTENING TO FIGURES?

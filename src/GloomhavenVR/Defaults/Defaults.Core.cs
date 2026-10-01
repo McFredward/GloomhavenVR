@@ -346,6 +346,7 @@ internal static partial class Defaults
     // a deletion. Turn the key back on the day §7.2 is implemented: that is precisely the run
     // where it has to name, renderer by renderer, what the narrowing dropped.
     internal const bool SignatureCulpritCensus = false;      // => [WallFade] SignatureCulpritCensus  (pinned: ModBuild 284 turned this OFF deliberately — the question it exists to ask has been asked and answered, and it is the "a probe that answered is spent" entry. The 2026-08-26 cfg snapshot carries a value that PREDATES that decision, not a chosen one; turn it back on the day WALL-FADE-CLOSEOUT §7.2 is implemented)
+    internal const bool DeepSceneCensus = true;              // => [WallFade] DeepSceneCensus (PC keeps the historical diagnostic; fresh Frame profiles use FrameDefaults.DeepSceneCensus)
     // ModBuild 281 (PERF B step 3) — the CHURN gate (see WallSegmentFade.CommitGate.cs). It
     // shipped ON for the same reason SignatureCulpritCensus above it did: PERF B removes the
     // ~95 ms commit frame by spreading it over ~63 frames, and the one thing that can go wrong
