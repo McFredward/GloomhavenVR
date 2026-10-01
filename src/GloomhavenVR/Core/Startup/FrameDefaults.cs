@@ -28,5 +28,4 @@ internal static class FrameDefaults
     // A 4 s wall-rescan cadence was active in the tested Frame configuration. It reduces
     // rescan frequency, not the duration of an individual rescan.
     internal const float WallRescanIntervalSeconds = 4f;
-    internal const bool DeepSceneCensus = false;
 }

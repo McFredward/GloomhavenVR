@@ -753,8 +753,8 @@ internal static partial class Loc
             ["WallFade/DeepSceneCensus"] =
                 "Nur Diagnose: Durchsucht alle Meshes und generierten Kartenkacheln, um "
                 + "Bodenspalten, Kachelkinder und den Apparance-Blickpunkt bei Änderungen "
-                + "der Wandtabelle zu protokollieren. Auf der Steam Frame standardmäßig aus, "
-                + "da dieser Szenendurchlauf nach dem Laden einen messbaren Hänger verursachte. "
+                + "der Wandtabelle zu protokollieren. Standardmäßig aus, da dieser "
+                + "Szenendurchlauf nach dem Laden einen messbaren Hänger verursachte. "
                 + "Die normalen Wandmeldungen und die Ausblendung bleiben aktiv. Zum Untersuchen "
                 + "fehlender Geometrie einschalten; live änderbar.",
             // ModBuild 281 (PERF B Schritt 3) — die Churn-Messung vor dem Slicing.

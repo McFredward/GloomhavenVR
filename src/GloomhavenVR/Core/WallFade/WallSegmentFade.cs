@@ -80,9 +80,9 @@ internal static class WallFadeTuning
     /// <summary>ModBuild 278: name WHICH renderers moved the scene half of the skip signature on
     /// a cycle that refused to skip (see WallSegmentFadeCulprits.cs).</summary>
     internal static ConfigEntry<bool>? SignatureCulpritCensus;
-    /// <summary>Expensive room-column and generated-tile forensic scans. The Frame keeps the
-    /// ordinary wall heartbeat and budget report, but opts out of these full-scene diagnostics
-    /// unless a wall-geometry investigation explicitly needs them.</summary>
+    /// <summary>Expensive room-column and generated-tile forensic scans. Every profile keeps
+    /// the ordinary wall heartbeat and budget report, but opts out of these full-scene
+    /// diagnostics unless a wall-geometry investigation explicitly needs them.</summary>
     internal static ConfigEntry<bool>? DeepSceneCensus;
     /// <summary>ModBuild 279 (Option A): let the skip signature stop listening to renderers the
     /// round-7 ruling puts beyond every adoption lane's reach. Ships OFF — see
@@ -340,10 +340,10 @@ internal static class WallFadeTuning
             + "every few seconds, and reports its own cost as the step 'WallFade.SigDiag' so it "
             + "can never become an unmeasured tax. Live.");
         DeepSceneCensus = config.Bind("WallFade", "DeepSceneCensus",
-            FrameDefaults.Active ? FrameDefaults.DeepSceneCensus : Defaults.DeepSceneCensus,
+            Defaults.DeepSceneCensus,
             "DIAGNOSTIC only. Scan every mesh and generated map tile to log room-floor columns, "
             + "tile children and the Apparance viewpoint when the wall heartbeat changes. The "
-            + "Steam Frame starts with this OFF because the Build 594 hardware log measured "
+            + "New profiles start with this OFF because the Build 594 Frame log measured "
             + "65.7 ms in the diagnostic census on one post-load frame; the normal wall heartbeat, "
             + "commit budget, signatures and failure reports remain active. Switch this ON when "
             + "investigating missing geometry. It never changes wall decisions or appearance. Live.");
@@ -783,9 +783,7 @@ internal static class WallFadeTuning
         SignatureCulpritCensus == null || SignatureCulpritCensus.Value;
 
     internal static bool DeepSceneCensusOn =>
-        DeepSceneCensus == null
-            ? FrameDefaults.Active ? FrameDefaults.DeepSceneCensus : Defaults.DeepSceneCensus
-            : DeepSceneCensus.Value;
+        DeepSceneCensus == null ? Defaults.DeepSceneCensus : DeepSceneCensus.Value;
 
     /// <summary>
     /// ModBuild 279 (Option A) — MAY THE SKIP SIGNATURE STOP LISTENING TO FIGURES?
