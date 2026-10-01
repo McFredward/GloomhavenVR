@@ -279,7 +279,7 @@ internal static class WallFadeTuning
             + "that are left rather than removing a fixed cost. Live; clamped 0.50-15.00.");
         EvalIntervalSecondsEntry = config.Bind("WallFade", "EvalIntervalSeconds",
             Defaults.EvalIntervalSeconds,
-            "How often the mod CHECKS whether a wall is hiding the floor you are looking at — "
+            new ConfigDescription("How often the mod CHECKS whether a wall is hiding the floor you are looking at — "
             + "the per-frame half: it projects every room's floor samples through your head "
             + "camera and re-measures every wall against them. 0 = not set here, which since "
             + "ModBuild 437 means the shipped cadence of 0.05 s (20 Hz) rather than every single "
@@ -300,7 +300,12 @@ internal static class WallFadeTuning
             + "fade animation's own smear and cannot be seen. IF THIS IS 0, the older "
             + "[Optimize] WallFadeEvalInterval in dev.gloomhavenvr.perf.cfg still applies, and "
             + "if that is 0 too the shipped 0.05 s applies; any non-zero value here overrides "
-            + "both. Live; clamped 0.00-0.25.");
+            + "both. Live; clamped 0.00-0.25.",
+            // The VR options catalog reads BepInEx's acceptable range. The runtime accessor
+            // already capped this at 0.25, but without a declared range the row let a player
+            // save 1.00 while the driver kept using 0.25 (Frame Build 594 evidence).
+            // BepInEx now normalizes old out-of-range cfg values to the SAME effective value.
+            new AcceptableValueRange<float>(0f, 0.25f)));
         WalkInSuspendSampling = config.Bind("WallFade", "WalkInSuspendSampling",
             Defaults.WalkInSuspendSampling,
             "While you are standing INSIDE the play field (see 'Im Spielfeld: alle Wände "
