@@ -2971,7 +2971,11 @@ internal static partial class ModalFallback
         //    A HOVER CARD has no grab frame at all (ModBuild 181) — TickHoverCards owns its pose.
         for (int i = 0; i < Converted.Count; i++)
         {
-            if (Converted[i].HoverCard)
+            // TickWindowLiveness ran in the release phase above and owns every wake edge.
+            // A dormant float's canvas, bar and collider are all hidden; following its grab
+            // frame cannot affect a visible pixel or input target. Its saved pose and shared
+            // state are refreshed on the first tick it wakes, before rendering that frame.
+            if (Converted[i].HoverCard || Converted[i].Dormant)
                 continue;
             // ...and its grab bar is re-tinted from the LIVE shared-window predicate in the same
             // pass. THIS is the one place that knows both halves — the mod-owned GrabbableModal and
@@ -2995,8 +2999,10 @@ internal static partial class ModalFallback
             // grab: the handle's release edge, and the two net pose appliers. This is the one place
             // per tick that knows both halves, so a window that wears the network badge is exactly a
             // window that will not re-face — one fact, one evaluation, no second predicate to drift.
-            Converted[i].Grab?.SyncSharedState(Converted[i].Window);
-            Converted[i].Grab?.Tick();
+            using (PerfMonitor.Scope("ModalFallback.GrabSharedState"))
+                Converted[i].Grab?.SyncSharedState(Converted[i].Window);
+            using (PerfMonitor.Scope("ModalFallback.GrabPoseAndBar"))
+                Converted[i].Grab?.Tick();
         }
         TickHoverCards();
         EnterPhase(PhaseDestinations);

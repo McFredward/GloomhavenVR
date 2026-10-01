@@ -4790,7 +4790,8 @@ internal static partial class CanvasConversion
         // after its pre-reveal first fit had committed — a hit-rect update hung off the fit's own
         // gates would be blind in exactly the cases that produced the report. Self-throttled
         // (FitCheckIntervalFrames, staggered per panel) and self-guarded; see TickHitRect.
-        TickHitRect(panel);
+        using (PerfMonitor.Scope("CanvasConversion.HitRect"))
+            TickHitRect(panel);
 
         if (!panel.FitEnabled)
             return;

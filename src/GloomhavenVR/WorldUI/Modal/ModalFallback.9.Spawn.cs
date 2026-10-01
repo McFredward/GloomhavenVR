@@ -3569,7 +3569,8 @@ internal static partial class ModalFallback
         // window OPENS, i.e. one tick before its conversion measures it, so the panel's first
         // content fit already unions picture + dialog and the composite never has to grow into
         // place with a visible jump.
-        StoryComposite.Tick();
+        using (PerfMonitor.Scope("ModalFallback.StoryComposite"))
+            StoryComposite.Tick();
 
         long begin = System.Diagnostics.Stopwatch.GetTimestamp();
         float now = Time.unscaledTime;
@@ -3675,7 +3676,9 @@ internal static partial class ModalFallback
                 // DrawsAnythingScriptSide for the whole argument). The log names WHICH one woke it,
                 // so the next hardware run tells us whether the strict test survives the hide or
                 // whether the script-side arm is carrying the rule on its own.
-                bool strict = MeasureDrawsSomething(wp, out _);
+                bool strict;
+                using (PerfMonitor.Scope("ModalFallback.LivenessMeasure"))
+                    strict = MeasureDrawsSomething(wp, out _);
                 bool loose = strict || DrawsAnythingScriptSide(wp.Panel.Target);
                 if (loose)
                 {
@@ -3768,7 +3771,10 @@ internal static partial class ModalFallback
             }
             wp.LivenessNextCheckFrame = frame + LivenessCheckStride;
 
-            bool draws = MeasureDrawsSomething(wp, out string darkReason);
+            bool draws;
+            string darkReason;
+            using (PerfMonitor.Scope("ModalFallback.LivenessMeasure"))
+                draws = MeasureDrawsSomething(wp, out darkReason);
             if (draws)
             {
                 wp.LastDrawnAt = now;

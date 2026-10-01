@@ -760,15 +760,19 @@ internal static partial class CanvasConversion
     {
         // Parked hosts first: a host that is only waiting for Unity to allow the detach must be
         // retried on a frame that is NOT inside a SetActive callback, and this is that frame.
-        ServiceFailedConversions();
-        ServiceDeferredHosts();
+        using (PerfMonitor.Scope("CanvasConversion.Deferred"))
+        {
+            ServiceFailedConversions();
+            ServiceDeferredHosts();
+        }
 
         // ModBuild 426: both ownership guards, at the TOP and outside the Active loop, because both
         // of them are about windows the mod no longer owns — a pass that only ran while a panel was
         // converted could never see the state it exists to correct. Bounded: a strided walk of the
         // mod's own watch list and a walk of the (one- or two-entry) dark-hold list; no scene sweep,
         // no component walk, no allocation. See CanvasConversion.4b.CameraOwnership.cs.
-        TickOwnershipGuards();
+        using (PerfMonitor.Scope("CanvasConversion.Ownership"))
+            TickOwnershipGuards();
 
         // Part 9d, the LIFT half of the pre-Start flash veil, and it belongs at the TOP of the
         // Update phase for a reason the part's header states in full: Unity has already run
@@ -807,6 +811,14 @@ internal static partial class CanvasConversion
                 DestroyHostSafely(panel, "prune (target already destroyed)");
                 continue;
             }
+            // ModalFallback runs before this service in the WorldUI driver. A dormant float has
+            // no enabled canvas, renderer or raycaster, so its subtree cannot paint or receive
+            // input while it sleeps. Keep the host and ownership guards above, but defer the
+            // expensive adoption, fit and per-frame reassertion walks until ModalFallback wakes
+            // it. WakeDormant clears this flag and restores visibility before this same-frame
+            // pass, so pooled children are treated before the first frame they can render.
+            if (ModalFallback.IsDormantPanel(panel))
+                continue;
             if (panel.HostCanvas.worldCamera != cam)
                 panel.HostCanvas.worldCamera = cam;
 
@@ -836,7 +848,9 @@ internal static partial class CanvasConversion
                 // the same still/moving budget as the two guards below, so "what a drag now costs"
                 // is one number and not an estimate.
                 long ta = System.Diagnostics.Stopwatch.GetTimestamp();
-                bool adoptedNew = AdoptNestedCanvases(panel);
+                bool adoptedNew;
+                using (PerfMonitor.Scope("CanvasConversion.Adopt"))
+                    adoptedNew = AdoptNestedCanvases(panel);
                 long tb = System.Diagnostics.Stopwatch.GetTimestamp();
                 if (panel.PerFrameGuards)
                 {
@@ -867,7 +881,10 @@ internal static partial class CanvasConversion
                 if (panel.ModLayerEnabled
                     && (earlySettle || sweepDue || adoptedNew || SubViewBurstRunning(panel))
                     && !PanelSupersample.OwnsPanelLayers(panel))
-                    ApplyModLayer(panel, initial: false);
+                {
+                    using (PerfMonitor.Scope("CanvasConversion.ModLayer"))
+                        ApplyModLayer(panel, initial: false);
+                }
             }
 
             // Task #4: pooled/late children can bring ScrollRects after Convert — re-sweep on
@@ -885,7 +902,10 @@ internal static partial class CanvasConversion
             // Change-gated inside (add-once), so a burst on a window whose viewports are already
             // clipped is a component walk and no writes.
             if (sweepDue || SubViewBurstRunning(panel))
-                EnsureScrollClipping(panel);
+            {
+                using (PerfMonitor.Scope("CanvasConversion.ScrollClip"))
+                    EnsureScrollClipping(panel);
+            }
 
             // User #8 part 2: re-assert the background hide (menu fade-ins can enable the
             // backing image a few frames after the window shows).
@@ -904,7 +924,10 @@ internal static partial class CanvasConversion
             // harmless), and LateTick re-treats once more (canvas now enabled) before the frame
             // renders — so the first visible frame is fully treated: zero flicker, unchanged.
             if (panel.RevealPending && panel.HostCanvas != null)
-                TickRevealGate(panel);
+            {
+                using (PerfMonitor.Scope("CanvasConversion.Reveal"))
+                    TickRevealGate(panel);
+            }
 
             // FLICKER FIX (modal hosts only): the 30-frame adoption sweep re-asserts
             // overrideSorting=false, but a WORLD-space modal that shares its canvas order
@@ -922,7 +945,8 @@ internal static partial class CanvasConversion
             {
                 bool moving = panel.GuardHostMoving;
                 long t0 = System.Diagnostics.Stopwatch.GetTimestamp();
-                ReassertAdoptedSorting(panel, moving);
+                using (PerfMonitor.Scope("CanvasConversion.SortGuard"))
+                    ReassertAdoptedSorting(panel, moving);
                 long t1 = System.Diagnostics.Stopwatch.GetTimestamp();
                 // ROUND 7 steady-state guard: the same reason the sorting is re-asserted every
                 // frame for modal hosts — a game writer that re-drives the conversion frame AFTER
@@ -930,7 +954,9 @@ internal static partial class CanvasConversion
                 // or off its own plane, with the fit already locked and nothing left to notice.
                 // Height cap excluded here on purpose (see the parameter's doc): a rect the game
                 // drives from a layout component must not be fought every frame.
-                bool frameCorrected = ReassertConversionFrame(panel, out _, includeHeightCap: false);
+                bool frameCorrected;
+                using (PerfMonitor.Scope("CanvasConversion.FrameGuard"))
+                    frameCorrected = ReassertConversionFrame(panel, out _, includeHeightCap: false);
                 long t2 = System.Diagnostics.Stopwatch.GetTimestamp();
 
                 if (moving)
@@ -957,7 +983,8 @@ internal static partial class CanvasConversion
 
             TickGuardBudget(panel);
 
-            TickFit(panel); // test #14 item 1: content fit + growth re-fit (throttled)
+            using (PerfMonitor.Scope("CanvasConversion.Fit"))
+                TickFit(panel); // test #14 item 1: content fit + growth re-fit (throttled)
 
             // (The per-host depth-compose stamp that used to run here is gone. Converted panels
             // occlude each other by DRAW ORDER now — TickPanelOrder, run last in the WorldUI
@@ -973,7 +1000,8 @@ internal static partial class CanvasConversion
         // supersampled render target this frame. Runs AFTER the loop above, so every panel's fit,
         // reveal and hide state is this frame's settled value. Fully self-guarded and a no-op
         // while [WorldUI] PanelSupersample is false.
-        PanelSupersample.Tick();
+        using (PerfMonitor.Scope("CanvasConversion.Supersample"))
+            PanelSupersample.Tick();
 
         if (Active.Count > 0 || _maskRequests > 0)
             EnsureCameraMask();
@@ -1277,6 +1305,16 @@ internal static partial class CanvasConversion
             ConvertedPanel panel = Active[i];
             if (!panel.IsAlive)
                 continue;
+            // A sleeping float has no visible or clickable subtree. Keep servicing veil
+            // ownership: a pooled Graphic can leave this hidden window for a visible hand fan
+            // while the float sleeps, and ReassertVeil must release that stale cull this frame.
+            // All other visual guards resume on the first frame ModalFallback wakes the panel.
+            if (ModalFallback.IsDormantPanel(panel))
+            {
+                using (Core.PerfMonitor.Scope("WorldUI.HiddenWindowVeil"))
+                    TickHiddenWindowVeil(panel);
+                continue;
+            }
             // ModBuild 401 — the hidden-window veil runs FIRST, before the reveal flip below, so the
             // frame a panel becomes visible in already has every game-hidden nested window culled
             // at the renderer. See CanvasConversion.9e.HiddenWindowVeil.cs for the whole account.
@@ -1290,9 +1328,13 @@ internal static partial class CanvasConversion
             // still be withheld — and being ABOVE the reveal flip means a panel that becomes
             // visible this frame is already covered. One dictionary lookup for every window in the
             // game except the character screen; see CanvasConversion.9g.SubViewSeatVeil.cs.
-            TickSubViewSeatVeil(panel);
+            using (PerfMonitor.Scope("CanvasConversion.SeatVeil"))
+                TickSubViewSeatVeil(panel);
             if (panel.FlattenEnabled)
-                FlattenSubtree(panel);
+            {
+                using (PerfMonitor.Scope("CanvasConversion.Flatten"))
+                    FlattenSubtree(panel);
+            }
 
             // Sub-item A (INITIAL flicker — the residual): the mod-layer move + background hide
             // run from Tick() in Update, but the game instantiates / fades in / enables the
@@ -1353,7 +1395,8 @@ internal static partial class CanvasConversion
         // veiled subtree is already culled when the capture sizes itself around the panel's
         // drawn content. Idle cost is a bounded loop of field reads over the game's own
         // enabled-window registry; see CanvasConversion.9d.FlashVeil.cs for the full argument.
-        TickFlashVeilScan();
+        using (PerfMonitor.Scope("CanvasConversion.FlashVeil"))
+            TickFlashVeilScan();
 
         // ROUND 10 (supersample): keep each capture frustum, display quad and allocation on its
         // panel's live geometry. The CAPTURE itself is not driven from here — the per-panel capture
@@ -1362,7 +1405,8 @@ internal static partial class CanvasConversion
         // "both eyes read one finished, identical RenderTexture" invariant CameraOrderProbe measured.
         // The display quad's final pose is copied in the capture path's own onPreCull, i.e. after
         // every remaining LateUpdate pose writer (grab, board docks, the order ladder) has run.
-        PanelSupersample.LateTick();
+        using (PerfMonitor.Scope("CanvasConversion.SupersampleLate"))
+            PanelSupersample.LateTick();
 
         // THE FLOAT-INTENT INVARIANT, AND IT IS LAST IN THIS PASS ON PURPOSE (2026-09-04, round 2).
         //
