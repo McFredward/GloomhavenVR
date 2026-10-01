@@ -46,6 +46,7 @@ namespace GloomhavenVR.Core
             ? CurrentLanguage == "German" ? pair.De : pair.En : key;
     }
     internal static class VRLog { internal static void Warn(string module, string message) => throw new Exception(message); }
+    internal static class VRSession { internal static bool IsRunning { get; set; } }
 }
 namespace GloomhavenVR.Cards
 {
@@ -61,6 +62,7 @@ namespace GloomhavenVR.Hands
 namespace GloomhavenVR
 {
     internal static class Plugin { internal static WorldUI.Entry<Hands.HandStyle> HandStyle = new(Hands.HandStyle.Glove); }
+    internal static class FrameDefaults { internal static bool Active { get; set; } }
 }
 namespace GloomhavenVR.WorldUI.Surfaces
 {

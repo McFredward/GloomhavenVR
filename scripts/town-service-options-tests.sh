@@ -78,7 +78,7 @@ a,b = {
     'bool-dispatch': ('item.Kind == ConfigCatalog.ConfigKind.Bool && BuildBoolRow', 'item.Kind == ConfigCatalog.ConfigKind.Number && BuildBoolRow'),
     'value-inversion': ('toggle.isOn = item.Entry.BoxedValue is bool b && b;', 'toggle.isOn = item.Entry.BoxedValue is bool b && !b;'),
     'callback-disabled': ('ConfigCatalog.ToggleBool(item)', 'Noop()'),
-    'off-hidden': ('!HasItsOwnPage(item) && IsShownForCurrentVariant(item) && DependencyMet(item);', '!HasItsOwnPage(item) && IsShownForCurrentVariant(item) && DependencyMet(item) && (!(item.Entry.BoxedValue is bool b) || b);'),
+    'off-hidden': ('&& IsShownForCurrentVariant(item) && DependencyMet(item);', '&& IsShownForCurrentVariant(item) && DependencyMet(item) && (!(item.Entry.BoxedValue is bool b) || b);'),
     'default-disabled': ('internal const bool ImmersiveTownServices = true;', 'internal const bool ImmersiveTownServices = false;'),
     'donor-callback': ('toggle.onValueChanged.RemoveAllListeners();', ''),
     'map-gate': ('["WorldUI/ImmersiveTownServices"] = new("Rig", "Vanilla2DMap", Off)', '["WorldUI/ImmersiveTownServices"] = new("Rig", "Vanilla2DMap", On)'),

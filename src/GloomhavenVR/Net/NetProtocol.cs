@@ -547,7 +547,18 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 593;
+    public const ushort ModBuild = 594;
+
+    // ModBuild 594 — the enchantress's original enhancement-point heading
+    // stays visible after its old native card-list ancestor is veiled. The
+    // large Character UI capture-layer sweep uses identity-indexed ownership
+    // instead of repeated linear ledger scans; the merchant refreshes hidden
+    // prices/stock only before their first exposed frame and avoids redundant
+    // per-card scene reads. Steam Frame VR uses the existing discarded-desktop
+    // camera sink regardless of an older saved mirror preference and suppresses
+    // the native flat gamepad connection popup. Debug logs record edits to
+    // the three wall cadence controls and both effective live rates. No wire
+    // format or asset-bundle content changes.
 
     // ModBuild 593 — Steam Frame standalone installs use a separate set of
     // fresh VR defaults and suggest a 3408-pixel per-eye SteamVR resolution

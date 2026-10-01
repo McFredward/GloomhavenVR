@@ -1,6 +1,6 @@
 # State — where the project stands
 
-**Updated 2026-09-30: dev 1.1.0 / ModBuild 593, Steam Frame defaults and interactive performance review.**
+**Updated 2026-10-01: dev 1.1.0 / ModBuild 594, Steam Frame interactive performance follow-up.**
 The release ZIP now exposes only `BepInEx/` and the English/German install
 texts at game-root level. The Steam Frame desktop starter, setup scripts and
 art are nested under the plugin. The in-game updater accepts and copies the
@@ -66,8 +66,14 @@ controller and callbacks still initialize those widgets. The selected map hand
 prepares the same card clones it later reveals during the loading phase;
 activation and final fitting keep their original order. Additional Debug
 scopes isolate the remaining priestess/enchantress entry and fan reveal costs.
-The speedup and SteamVR preference pickup need a matching headset run. See
-[STEAM-FRAME-DEFAULTS.md](STEAM-FRAME-DEFAULTS.md).
+The Build 593 headset run confirms 10/10 then 9/9 map card fronts prewarmed
+before reveal, but map hand activation/mip work, merchant catalog refresh and
+first NPC approaches still produce interactive hitches; scenario pacing remains
+roughly 41–52 ms median. Its screenshot shows the native flat gamepad popup and
+desktop UI in SteamVR's application panel. The intended one-second wall setting
+is not effective in this trace (live rescan 4.00 s; visibility evaluation 0.250 s).
+See [STEAM-FRAME-DEFAULTS.md](STEAM-FRAME-DEFAULTS.md) and
+[STEAM-FRAME-SEVENTH-HARDWARE.md](STEAM-FRAME-SEVENTH-HARDWARE.md).
 Build 589 addresses the Build 587 town multiplayer report: host self-grant
 timeout, original atlas capture, public cabinet input, town handoff focus and
 map character selection. Correct matching Build 587 peer logs then exposed a
@@ -94,6 +100,25 @@ change per build) → this file (where things stand and what is owed) → the bu
 ---
 
 ## 1. Position
+
+- **dev / 1.1.0 / ModBuild 594 (Frame hardware candidate):** restore the
+  enchantress's original enhancement-point heading above its physical book
+  after the discarded flat list is veiled. The post-load Character UI layer
+  sweep now indexes captured transforms by identity rather than searching an
+  ordered ledger for each of 2660–3050 newly pooled objects. The persistent
+  merchant catalog refreshes warm/visible rows during its recurring census;
+  cold rows are refreshed before their first exposed frame, including a page
+  or category change. Unchanged physical cards avoid redundant hierarchy,
+  camera and renderer reads. Frame VR forces the existing discarded-desktop
+  camera sink even when a saved PC mirror preference is off, and suppresses
+  the native flat-only gamepad connection popup. PC and flat launches keep
+  their settings and native behavior. Debug logs now identify actual edits
+  to the three wall-cadence controls and the effective live rates. Build 593
+  traces show 4.00 s rescan / 0.250 s evaluation throughout the scenario,
+  but no setting-edit value is logged there; the owner's intended 1 s cannot
+  be attributed to a particular control from that run. Full headset speed,
+  enchantress points, and SteamVR theater presentation remain to be checked.
+  See [STEAM-FRAME-SEVENTH-HARDWARE.md](STEAM-FRAME-SEVENTH-HARDWARE.md).
 
 - **dev / 1.1.0 / ModBuild 593 (Frame hardware candidate):** fresh standalone
   mod defaults mirror the Build 592 test, preserving existing BepInEx and

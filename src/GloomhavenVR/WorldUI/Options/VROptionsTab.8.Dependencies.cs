@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using GloomhavenVR.Core;
 
 namespace GloomhavenVR.WorldUI;
 
@@ -440,5 +439,5 @@ internal static partial class VROptionsTab
 
     private static bool IsFixedFrameDesktopMirror(ConfigCatalog.ConfigItem item) =>
         item.Section == "WorldUI" && item.Key == "DesktopMirrorLeftEye"
-        && VRSession.IsRunning && FrameHasStandaloneMarker;
+        && Core.VRSession.IsRunning && FrameHasStandaloneMarker;
 }

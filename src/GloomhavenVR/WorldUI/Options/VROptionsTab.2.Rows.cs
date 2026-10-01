@@ -1728,6 +1728,14 @@ internal static partial class VROptionsTab
     /// </summary>
     private static void Apply(ConfigCatalog.ConfigItem item, Action edit)
     {
+        // A wall-cadence edit has two differently named controls plus the older
+        // [Optimize] fallback. The effective values matter more than the slider
+        // position, and a map transition can end wall sampling before its next
+        // periodic report. Record actual UI writes at Debug, never every frame.
+        bool wallCadence = (item.Section == "WallFade"
+                            && (item.Key == "RescanIntervalSeconds" || item.Key == "EvalIntervalSeconds"))
+                           || (item.Section == "Optimize" && item.Key == "WallFadeEvalInterval");
+        object? before = wallCadence ? item.Entry.BoxedValue : null;
         try
         {
             edit();
@@ -1737,6 +1745,13 @@ internal static partial class VROptionsTab
             VRLog.Warn("WorldUI", $"VR options tab: editing {item.Section}/{item.Key} threw ({e.Message}).");
             return;
         }
+
+        if (wallCadence && VRLog.WantsDebug)
+            VRLog.Debug("WorldUI", $"WALL CADENCE EDIT {item.Section}/{item.Key}: "
+                + $"stored {before} -> {item.Entry.BoxedValue} "
+                + $"(changed={!Equals(before, item.Entry.BoxedValue)}); effective table rebuild "
+                + $"{WallFadeTuning.RescanIntervalSeconds:F3}s, occlusion check "
+                + $"{WallFadeTuning.EffectiveEvalIntervalSeconds:F3}s.");
 
         for (int i = 0; i < ValueLabels.Count; i++)
         {
