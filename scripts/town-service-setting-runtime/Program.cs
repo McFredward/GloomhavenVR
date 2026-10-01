@@ -87,6 +87,11 @@ namespace GloomhavenVR.Core
 {
     internal static class SkyAlternative { internal static Transform? PlacedRoomRoot; }
     internal static class VRLayers { internal const int ModLayer=27; }
+    internal static class PerfMonitor
+    {
+        internal static IDisposable Scope(string name) => new Lease();
+        private sealed class Lease : IDisposable { public void Dispose() { } }
+    }
 }
 namespace GloomhavenVR.WorldUI.MapRoom
 {

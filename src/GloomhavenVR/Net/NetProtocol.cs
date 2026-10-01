@@ -547,7 +547,19 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 597;
+    public const ushort ModBuild = 598;
+
+    // ModBuild 598 — the Build 597 Frame run opened a large scenario at
+    // 3408 pixels/eye and exposed 282–385 ms wall-table commits, recurring
+    // 15–33 ms water/material scans and a 51–62 ms/frame 3D map. Wall refresh
+    // uses membership indexes for old children instead of quadratic list
+    // scans; water discovers unchanged tiles through placement events; the
+    // material watchdog spreads a complete pass over bounded frames. On the
+    // map, hidden icon mip warms are queued, the cabinet stops ticking its
+    // covered next page, and unchanged NPC/cabinet Unity setters are skipped.
+    // Additional map/NPC scopes distinguish remaining work. Presentation,
+    // multiplayer state and wire format are unchanged. The large scene's
+    // other atomic wall phases and headset frame rate remain hardware-open.
 
     // ModBuild 597 — the Build 596 Frame trace caught a native enchantress
     // entry failure after its early enhancement-slot pool warmup. The pool

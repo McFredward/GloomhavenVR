@@ -1,6 +1,6 @@
 # State — where the project stands
 
-**Updated 2026-10-01: dev 1.1.0 / ModBuild 597, Steam Frame follow-up candidate.**
+**Updated 2026-10-01: dev 1.1.0 / ModBuild 598, large-scene Steam Frame candidate.**
 The release ZIP now exposes only `BepInEx/` and the English/German install
 texts at game-root level. The Steam Frame desktop starter, setup scripts and
 art are nested under the plugin. The in-game updater accepts and copies the
@@ -103,8 +103,18 @@ triangles, allows the blessing visuals to finish before the bowl-cover pose,
 skips the fully hidden merchant cassette page, and bounds window animation
 progress per rendered frame. Re-enabling immersive NPCs displays the loading
 indicator through resident and public-stock preparation. These changes are
-source/test candidates until another headset run measures their effect. See
+source-level changes whose overall frame-time effect was not confirmed by the
+subsequent headset run. See
 [STEAM-FRAME-TENTH-HARDWARE.md](STEAM-FRAME-TENTH-HARDWARE.md).
+The Build 597 run with a large immediately revealed scenario reached 12 Hz and
+showed 282–385 ms atomic wall-table commits, recurring water/material scans,
+and 51–62 ms average map frames. Build 598 removes quadratic wall refresh
+membership checks, makes unchanged water-tile discovery event-driven, spreads
+the complete material watchdog pass over bounded frames, and avoids redundant
+hidden icon/cabinet and unchanged NPC setters on the 3D map. Remaining wall
+commit phases and native/runtime frame cost are still substantial; hardware
+improvement is unverified. See
+[STEAM-FRAME-ELEVENTH-HARDWARE.md](STEAM-FRAME-ELEVENTH-HARDWARE.md).
 Build 589 addresses the Build 587 town multiplayer report: host self-grant
 timeout, original atlas capture, public cabinet input, town handoff focus and
 map character selection. Correct matching Build 587 peer logs then exposed a
@@ -132,6 +142,11 @@ change per build) → this file (where things stand and what is owed) → the bu
 
 ## 1. Position
 
+- **dev / 1.1.0 / ModBuild 598 (large-scene Frame candidate):** remove quadratic
+  wall-refresh membership checks, use placement events for unchanged water tiles,
+  bound material-watchdog work per frame, and reduce redundant hidden-icon,
+  merchant-cabinet and NPC work on the 3D map. The headset gain and remaining
+  atomic wall phases require a matched hardware test.
 - **dev / 1.1.0 / ModBuild 596 (interactive CPU candidate):** global lossless
   scheduling and prewarm target the measured merchant, window, map-hand and
   enchantress costs. Original 2D/3D map windows keep their native paths;
