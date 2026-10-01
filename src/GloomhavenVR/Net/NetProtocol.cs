@@ -547,7 +547,21 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 596;
+    public const ushort ModBuild = 597;
+
+    // ModBuild 597 — the Build 596 Frame trace caught a native enchantress
+    // entry failure after its early enhancement-slot pool warmup. The pool
+    // is again created by the game's own shop entry; off-bar failures now
+    // retain a bounded stack trace. Temple book inscriptions index their
+    // original triangles instead of searching every one per page sample,
+    // and blessing visuals complete before the priestess covers the bowl.
+    // The merchant stops maintaining its fully covered next cassette page.
+    // Re-enabling immersive residents shows the existing loading indicator
+    // until the stations and public cabinet are ready. Window-materialise
+    // visual time advances at most 50 ms per rendered frame while its hard
+    // safety limit still uses wall time, preventing a Frame stall from
+    // finishing the whole effect in one image. These are presentation and
+    // performance changes; no wire format or bundle content changes.
 
     // ModBuild 596 — global interactive CPU candidate after the Build 594
     // Frame trace. Dormant floated windows skip repeated conversion and

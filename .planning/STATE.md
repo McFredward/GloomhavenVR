@@ -1,6 +1,6 @@
 # State — where the project stands
 
-**Updated 2026-10-01: dev 1.1.0 / ModBuild 596, Steam Frame interactive performance candidate.**
+**Updated 2026-10-01: dev 1.1.0 / ModBuild 597, Steam Frame follow-up candidate.**
 The release ZIP now exposes only `BepInEx/` and the English/German install
 texts at game-root level. The Steam Frame desktop starter, setup scripts and
 art are nested under the plugin. The in-game updater accepts and copies the
@@ -92,6 +92,19 @@ MSAA 0, a smaller texture-streaming floor and slower wall rescans; existing
 settings are retained, and no further resolution/legibility reduction is
 applied without a matched hardware result. See
 [STEAM-FRAME-NINTH-HARDWARE.md](STEAM-FRAME-NINTH-HARDWARE.md).
+The Build 596 Frame run found a 487.82 ms first priestess visit (139.62 ms
+inside the book-inscription geometry), a failed first enchantress entry after
+inactive native slot-pool warmup, and a temple blessing visual that outlived
+the native donation callback. Steady map/town logic was still roughly
+36–42 ms/frame; the merchant cabinet continued spending 4.35–4.86 ms/frame
+on cards. Some 0.35 s window appearances rendered in only one to four frames.
+Build 597 removes the unsafe native pool warmup, indexes original temple page
+triangles, allows the blessing visuals to finish before the bowl-cover pose,
+skips the fully hidden merchant cassette page, and bounds window animation
+progress per rendered frame. Re-enabling immersive NPCs displays the loading
+indicator through resident and public-stock preparation. These changes are
+source/test candidates until another headset run measures their effect. See
+[STEAM-FRAME-TENTH-HARDWARE.md](STEAM-FRAME-TENTH-HARDWARE.md).
 Build 589 addresses the Build 587 town multiplayer report: host self-grant
 timeout, original atlas capture, public cabinet input, town handoff focus and
 map character selection. Correct matching Build 587 peer logs then exposed a

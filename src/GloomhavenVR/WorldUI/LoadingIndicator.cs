@@ -4,6 +4,7 @@ using System.Globalization;
 using System.IO;
 using BepInEx;
 using GloomhavenVR.Core;
+using GloomhavenVR.Net.TownServices;
 using GloomhavenVR.WorldUI.MapRoom;
 using HarmonyLib;
 using UnityEngine;
@@ -315,7 +316,7 @@ internal sealed class LoadingIndicator
     private bool _townReloadActive;
     private float _townReloadStartedAt;
     private const float TownReloadMinimumSeconds = 0.5f;
-    private const float TownReloadMaximumSeconds = 12f;
+    private const float TownReloadMaximumSeconds = 45f;
 
     // Boot clause state.
     private BootCoverage _boot;
@@ -555,6 +556,12 @@ internal sealed class LoadingIndicator
         for (byte service = 1; service <= 3; service++)
             if (TownServiceAvailability.NativeUnlocked(service) && !TownServicePopulation.Available(service))
                 return true;
+        // The merchant's public stock is a separate persistent presentation built
+        // after the resident. Do not dismiss the spinner with an empty cabinet.
+        if (TownServiceAvailability.NativeUnlocked(1) && TownServiceGrantSync.CanUseImmersive
+            && !TownServicePresentation.NativeFallbackFor(1)
+            && TownServicePublicMerchant.Catalog == null)
+            return true;
         _townReloadActive = false;
         VRLog.Info("WorldUI", $"Immersive town services ready after {elapsed:0.00}s; loading indicator released.");
         return false;
