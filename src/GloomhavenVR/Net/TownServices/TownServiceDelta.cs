@@ -84,6 +84,7 @@ internal static class TownServiceDelta
         WorkspaceCloth = f.WorkspaceCloth == null ? null : (byte[])f.WorkspaceCloth.Clone(),
         TempleDonationKnown = f.TempleDonationKnown, TempleDonationAvailable = f.TempleDonationAvailable,
         TempleDonationRevision = f.TempleDonationRevision, TransactionActive = f.TransactionActive,
+        HasTempleDonationCommitAge = f.HasTempleDonationCommitAge, TempleDonationCommitAge = f.TempleDonationCommitAge,
         Module = f.Module, Template = f.Template, TemplateAddress = f.TemplateAddress, Structure = f.Structure, Visible = f.Visible,
         SampleTime = f.SampleTime, SessionAge = f.SessionAge, ParentModule = f.ParentModule, ParentBinding = f.ParentBinding,
         ParentAlpha = f.ParentAlpha, HasCanvasFrame = f.HasCanvasFrame, CanvasPose = (float[])f.CanvasPose.Clone(),

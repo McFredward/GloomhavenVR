@@ -40,6 +40,9 @@ internal sealed class TownServiceFrame
     internal bool TempleDonationKnown;
     internal bool TempleDonationAvailable;
     internal uint TempleDonationRevision;
+    // Additive TLV93 preserves the committed blessing age across transport/late join.
+    internal bool HasTempleDonationCommitAge;
+    internal float TempleDonationCommitAge;
     // Additive TLV92 belongs only to a private active manifest. A visitor may browse a
     // service without reserving it; the claim begins only after an offer is placed.
     internal bool TransactionActive;

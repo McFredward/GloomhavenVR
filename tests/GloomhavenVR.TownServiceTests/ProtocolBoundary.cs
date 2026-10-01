@@ -8,6 +8,7 @@ namespace GloomhavenVR.Net
         internal const byte ExtIdTownWorkspaceCloth = 90;
         internal const byte ExtIdTownInteraction = 91;
         internal const byte ExtIdTownTransaction = 92;
+        internal const byte ExtIdTownDonationClock = 93;
     }
 }
 

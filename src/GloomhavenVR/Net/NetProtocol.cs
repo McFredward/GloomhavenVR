@@ -81,6 +81,8 @@ internal static class NetProtocol
     /// <summary>Private town-service manifest reservation after a physical card or purse
     /// handoff. Absence means that the visitor is browsing and does not own the NPC.</summary>
     public const byte ExtIdTownTransaction = 92;
+    // Optional committed-donation age on private TLV78 manifests; older peers skip this record.
+    public const byte ExtIdTownDonationClock = 93;
     public const byte ExtIdTownRack = 85;
     public const byte ExtIdTownCassette = 86;
     public const byte ExtIdTownResidents = 79;
@@ -547,7 +549,7 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 601;
+    public const ushort ModBuild = 602;
 
     // ModBuild 601 — Build 600's Frame hardware run showed that grass density
     // zero masked only 27 of 6,560 active renderers. Its first scan preceded

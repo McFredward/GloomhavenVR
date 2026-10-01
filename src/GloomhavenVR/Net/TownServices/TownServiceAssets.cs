@@ -38,6 +38,8 @@ internal sealed class TownServiceAssets
     internal void Register(string key, Object asset)
     {
         if (asset == null || string.IsNullOrEmpty(key)) throw new ArgumentException("Missing town-service asset.");
+        // Broad discovery and TMP atlas registration must not replace verified original slots.
+        if (_originalKeys.ContainsKey(asset.GetInstanceID())) return;
         _keys[asset.GetInstanceID()] = key;
         // This method is the adapter's explicit original/model-aware identity contract.
         if (!_assets.ContainsKey(key)) _assets.Add(key, asset);
@@ -116,7 +118,7 @@ internal sealed class TownServiceAssets
     }
     private void TryKey(Object asset)
     { try { Key(asset); } catch (InvalidDataException) { /* Unrelated transient assets are not part of this service. */ } }
-    private static bool SameKnownNativeIdentity(Texture2D texture)
+    internal static bool SameKnownNativeIdentity(Texture2D texture)
     {
         // The game's resources.assets contains exactly one source object for each
         // of these names: T_noise_shards at path ID 405, AbilityCardSpriteAtlas at
@@ -132,6 +134,20 @@ internal sealed class TownServiceAssets
                && texture.format == TextureFormat.DXT5 && texture.mipmapCount == 1
             || texture.name == "Sarala-Regular SDF Atlas" && texture.width == 2048 && texture.height == 1024
                && texture.format == TextureFormat.Alpha8 && texture.mipmapCount == 1
+            // Build-600 paired hardware logs identified five additional duplicate wrappers.
+            // Read-only inspection across every original *.assets verified exactly one source
+            // for each: resources.assets 205/261, sharedassets1.assets 89/625, and
+            // sharedassets2.assets 51 respectively. Different dimensions/formats still fail.
+            || texture.name == "MarcellusSC-Regular SDF Atlas" && texture.width == 2048 && texture.height == 4096
+               && texture.format == TextureFormat.Alpha8 && texture.mipmapCount == 1
+            || texture.name == "T_disc_ring" && texture.width == 512 && texture.height == 512
+               && texture.format == TextureFormat.RGB24 && texture.mipmapCount == 10
+            || texture.name == "Elementalist_ActiveAbility_Highlighted" && texture.width == 588 && texture.height == 91
+               && texture.format == TextureFormat.RGBA32 && texture.mipmapCount == 1
+            || texture.name == "T_flowmap_outwards_02" && texture.width == 512 && texture.height == 512
+               && texture.format == TextureFormat.RGBA32 && texture.mipmapCount == 10
+            || texture.name == "CoinIcon2_White" && texture.width == 128 && texture.height == 128
+               && texture.format == TextureFormat.DXT5 && texture.mipmapCount == 1
             || texture.name.StartsWith("sactx-", StringComparison.Ordinal)
                && texture.name.Contains("BattleOverlayCanvas-");
     }

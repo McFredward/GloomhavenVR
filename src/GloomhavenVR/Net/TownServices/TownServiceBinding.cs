@@ -146,6 +146,9 @@ internal sealed class TownServiceBinding : IDisposable
                 if (!ReferenceEquals(cache.Components[c], cache.ComponentProbe[c])) throw new InvalidDataException("Native town-service topology changed.");
             bool meshChanged = ReadMesh(cache, assets);
             bool draw = cache.Graphic != null && cache.Graphic.enabled && node.gameObject.activeInHierarchy;
+            // Establish the font's serialized atlas dependencies before sampling its material.
+            // The inverse order loses a complete text/card module on duplicate native wrappers.
+            if (draw && cache.Graphic is TMP_Text fontOwner) assets.Key(fontOwner.font);
             TownServiceValue? material = draw
                 ? TownServiceMaterial.Read(cache.Graphic is TMP_Text tm ? tm.fontSharedMaterial : cache.Graphic!.material, assets) : null;
             NodeProbe probe = Probe(cache, i == 0);

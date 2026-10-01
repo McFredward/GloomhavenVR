@@ -44,6 +44,7 @@ namespace GloomhavenVR.Net
         internal const byte ExtIdTownWorkspaceCloth = 90;
         internal const byte ExtIdTownInteraction = 91;
         internal const byte ExtIdTownTransaction = 92;
+        internal const byte ExtIdTownDonationClock = 93;
         internal const float StaleTimeoutSeconds = 3f;
     }
     internal struct TownClothRunnerState { internal Vector2 Left, Right, LeftVelocity, RightVelocity; }
