@@ -262,9 +262,9 @@ internal sealed class LoadingIndicator
     }
 
     /// <summary>
-    /// True while the loading indicator owns the HMD picture — <c>FlatScreen.WantVisible</c>
-    /// returns false so ONLY spinner + hands show on the void. Recomputed every tick;
-    /// false the instant loading ends or the feature is toggled off (gate self-restores).
+    /// True only during an actual game/boot load, when the flat capture is unusable.
+    /// A town-service reload shows its spinner without hiding a native fallback or
+    /// rescue window that might still be needed if optional art fails to initialize.
     /// </summary>
     internal static bool FlatScreenSuppressed { get; private set; }
 
@@ -358,10 +358,9 @@ internal sealed class LoadingIndicator
         // boot clause is a display decision and stays one; it must not sit on the load path.
         TickLoadPriority(gameLoading && _boot != BootCoverage.Covering);
 
-        // The flat-screen gate keeps its shipped edge-exact semantics (the screen returns the
-        // instant loading ends). The spinner's own fade-out then cross-fades over the screen
-        // that just came back, rather than delaying it by a ramp on every load.
-        FlatScreenSuppressed = want;
+        // Only a real scene load owns the full picture. A town-mode toggle leaves
+        // original/rescue windows reachable while its spinner runs in front of options.
+        FlatScreenSuppressed = gameLoading;
 
         // Appear/disappear WITH the animation (hard rule): one unscaled ramp both ways. It is
         // also what makes the boot arming bearable — the spinner rises over the intro's last
@@ -401,10 +400,21 @@ internal sealed class LoadingIndicator
             _root.transform.SetParent(head.transform, worldPositionStays: false);
             _root.transform.localRotation = Quaternion.identity; // child of the head = always facing
         }
-        if (attach || !_root.activeSelf || !_root.transform.localPosition.Equals(localPosition))
+        if (attach || !_root.activeSelf)
+        {
             _root.transform.localPosition = localPosition;
-        if (attach || !_root.activeSelf || !_root.transform.localScale.Equals(localScale))
             _root.transform.localScale = localScale;
+        }
+        else
+        {
+            // A scene load can start while the town spinner is still up. Ease its
+            // head-local seat and size instead of snapping the visible disc away.
+            float step = Mathf.Min(Time.unscaledDeltaTime, 0.05f);
+            _root.transform.localPosition = Vector3.MoveTowards(
+                _root.transform.localPosition, localPosition, step * 4f);
+            _root.transform.localScale = Vector3.MoveTowards(
+                _root.transform.localScale, localScale, step * 2.5f);
+        }
         if (!_root.activeSelf)
             _root.SetActive(true);
         if (!_shownLogged)
@@ -415,7 +425,8 @@ internal sealed class LoadingIndicator
                                       townReload && !gameLoading ? "immersive town services reloading" : "game spinner")} " +
                                   $"{distance:0.00} m ahead of head '{head.name}' (step {_spinDegrees:0.#}° / " +
                                   $"{_stepSeconds:0.###}s, glow {_glowStep:0.###}, min alpha {_minAlpha:0.##}, " +
-                                  $"fade {FadeSeconds:0.00}s) — flat screen suppressed for the load.");
+                                  $"fade {FadeSeconds:0.00}s) — flat screen "
+                                  + (gameLoading ? "suppressed for the scene load." : "left available during town reload."));
         }
 
         Animate();
@@ -429,7 +440,7 @@ internal sealed class LoadingIndicator
         if (_root != null && _root.activeSelf)
         {
             _root.SetActive(false);
-            VRLog.Info("WorldUI", "Loading indicator hidden (loading ended, faded out) — flat screen released.");
+            VRLog.Info("WorldUI", "Loading indicator hidden after fade; any scene-load flat-screen gate is released.");
         }
         _shownLogged = false;
         if (_artIsProvisional && SceneController.Instance != null)

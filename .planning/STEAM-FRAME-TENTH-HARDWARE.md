@@ -51,8 +51,9 @@ compare loading-screen stalls with interactive frames.
 - Show the existing VR loading indicator after an immersive-NPC off→on
   settings change until unlocked residents and the public merchant cabinet
   are ready. It sits in front of the still-open VR options pane while this
-  happens. A bounded failure exit prevents a broken optional asset from
-  leaving the player behind a permanent spinner.
+  happens without suppressing native fallback or rescue windows. A bounded
+  failure exit prevents a broken optional asset from leaving the player
+  behind a permanent spinner.
 - Cap *visual* materialization progress to 50 ms per rendered frame. The
   watchdog still counts actual elapsed time, so a window cannot remain held
   forever after a stall. This preserves more intermediate states on slow
