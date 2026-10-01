@@ -36,7 +36,8 @@ internal static class TownServiceTemplateAssets
         // Lazy model faces can be borrowed in different orders on different clients. Their
         // artwork keeps the model-aware/native resource identities, not the first borrower's.
         if (template.StartsWith("item.", StringComparison.Ordinal)
-            || template.StartsWith("face.", StringComparison.Ordinal)) return;
+            || template.StartsWith("face.", StringComparison.Ordinal)
+            || template.StartsWith("inspectionbody.", StringComparison.Ordinal)) return;
         // The order and paths are authored prefab identities, never instance IDs or visit order.
         Visit(assets, root, "native-town|template|" + template, root);
     }
