@@ -5,16 +5,18 @@ using UnityEngine;
 
 namespace GloomhavenVR.Net.TownServices;
 
-/// <summary>A private, presentation-only visitor request. The face author publishes the
-/// resulting cue through TLV80; this packet cannot execute a native transaction.</summary>
+/// <summary>A presentation-only visitor request. Private decisions retain their owner
+/// envelope; lifted stock has a separate cosmetic envelope. The resident author
+/// publishes the resulting cue through TLV80; neither envelope can transact.</summary>
 internal static class TownServiceVoiceRelayCodec
 {
     internal const string Address = TownServiceFrame.VoiceAddress;
     private const uint Signature = 0x564F0000;
 
     internal static TownServiceFrame Create(byte service, uint session, uint sequence, TownVoiceReaction reaction,
-        float sampleTime, float sessionAge) => new()
+        float sampleTime, float sessionAge, bool visitorStock = false) => new()
     {
+        VisitorStock = visitorStock,
         Service = service, Session = session, Sequence = sequence,
         Module = TownServiceFrame.VoiceModule, Template = 1, TemplateAddress = Address,
         Structure = Signature | (byte)reaction, Visible = true, SampleTime = sampleTime,
@@ -40,6 +42,8 @@ internal static class TownServiceVoiceRelayCodec
             || frame.Pose[7] != 1f || frame.Pose[8] != 1f || frame.Pose[9] != 1f)
             return false;
         reaction = (TownVoiceReaction)(byte)frame.Structure;
+        if (frame.VisitorStock)
+            return frame.Service == 1 && TownServiceVoice.IsStockReaction(reaction);
         return frame.Service switch
         {
             1 => reaction == TownVoiceReaction.MerchantOffer || reaction == TownVoiceReaction.MerchantBuy
@@ -67,6 +71,72 @@ internal static partial class TownServiceMirror
     private static readonly Queue<TownServiceFrame> VoiceOutgoing = new();
     private static readonly Dictionary<int, List<PendingVoice>> VoicePending = new();
     private static uint _voiceOrdinal;
+    private static readonly Queue<TownServiceFrame> StockVoiceOutgoing = new();
+    private static readonly Dictionary<int, List<PendingVoice>> StockVoicePending = new();
+    private static uint _stockVoiceOrdinal, _stockVoiceSession;
+
+    private static bool QueueStockVoiceReaction(TownVoiceReaction reaction)
+    {
+        using var lane = new LaneScope(StockLane);
+        if (!_active || _session == 0 || _service != 1 || StockVoiceOutgoing.Count >= 16
+            || !TownServiceVoice.IsStockReaction(reaction)) return false;
+        if (_stockVoiceSession != _session)
+        { StockVoiceOutgoing.Clear(); _stockVoiceSession = _session; _stockVoiceOrdinal = 0; }
+        if (_stockVoiceOrdinal == uint.MaxValue) return false;
+        TownServiceFrame frame = TownServiceVoiceRelayCodec.Create(1, _session, ++_stockVoiceOrdinal,
+            reaction, Time.unscaledTime, Mathf.Max(0f, Time.unscaledTime - _sessionStarted), visitorStock: true);
+        if (!TownServiceVoiceRelayCodec.TryRead(frame, out _)) return false;
+        StockVoiceOutgoing.Enqueue(frame);
+        return true;
+    }
+
+    private static void CaptureStockVoice(Action<byte[], int, object?> send)
+    {
+        if (StockVoiceOutgoing.Count == 0) return;
+        TownServiceFrame frame = StockVoiceOutgoing.Dequeue();
+        if (!_active || frame.Session != _session || _service != 1
+            || Time.unscaledTime - frame.SampleTime > 3f) return;
+        byte[] packet = TownServiceCodec.Write(frame);
+        send(packet, packet.Length, frame);
+    }
+
+    private static void ReceiveStockVoice(int peer, TownServiceFrame frame)
+    {
+        if (!frame.VisitorStock || !TownServiceVoiceRelayCodec.TryRead(frame, out _)) return;
+        if (TryStockVoiceSession(peer, frame, out TownServiceSessionInfo? session))
+        { DeliverStockVoice(peer, frame, session!, Time.unscaledTime); return; }
+        if (!StockVoicePending.TryGetValue(peer, out List<PendingVoice>? pending))
+        {
+            if (StockVoicePending.Count >= 8) return;
+            pending = new List<PendingVoice>(8); StockVoicePending.Add(peer, pending);
+        }
+        if (pending.Count >= 8) pending.RemoveAt(0);
+        pending.Add(new PendingVoice(frame, Time.unscaledTime));
+    }
+
+    private static void FlushStockVoicePending(int peer)
+    {
+        if (!StockVoicePending.TryGetValue(peer, out List<PendingVoice>? pending)) return;
+        pending.Sort((a, b) => a.Frame.Sequence.CompareTo(b.Frame.Sequence));
+        for (int n = 0; n < pending.Count;)
+        {
+            PendingVoice queued = pending[n];
+            if (Time.unscaledTime - queued.Received > 3f) { pending.RemoveAt(n); continue; }
+            if (!TryStockVoiceSession(peer, queued.Frame, out TownServiceSessionInfo? session)) { n++; continue; }
+            pending.RemoveAt(n); DeliverStockVoice(peer, queued.Frame, session!, queued.Received);
+        }
+        if (pending.Count == 0) StockVoicePending.Remove(peer);
+    }
+
+    private static void DeliverStockVoice(int peer, TownServiceFrame frame, TownServiceSessionInfo session, float received)
+    {
+        if (!frame.VisitorStock || !TownServiceVoiceRelayCodec.TryRead(frame, out TownVoiceReaction reaction)
+            || Time.unscaledTime - received > 3f
+            || Mathf.Abs((frame.SampleTime - session.SampleTime)
+                - (frame.SessionAge - session.SessionAge)) > .5f) return;
+        float age = Mathf.Max(0f, Time.unscaledTime - session.ReceivedTime + session.SampleTime - frame.SampleTime);
+        TownServiceVoice.AcceptRelayedStockReaction(reaction, peer, frame.Session, (uint)frame.Sequence, age);
+    }
 
     private static void QueueVoiceReaction(byte service, TownVoiceReaction reaction)
     {
@@ -93,7 +163,7 @@ internal static partial class TownServiceMirror
 
     private static void ReceiveVoice(int peer, TownServiceFrame frame)
     {
-        if (!TownServiceVoiceRelayCodec.TryRead(frame, out _)) return;
+        if (frame.VisitorStock || !TownServiceVoiceRelayCodec.TryRead(frame, out _)) return;
         if (VisitorSessions.TryGetValue(peer, out TownServiceSessionInfo? session)
             && session.Session == frame.Session && session.Service == frame.Service)
         {
@@ -139,8 +209,15 @@ internal static partial class TownServiceMirror
     }
 
     private static void ClearVoiceOutgoing() { VoiceOutgoing.Clear(); _voiceOrdinal = 0; }
-    private static void ClearVoicePeer(int peer) => VoicePending.Remove(peer);
+    private static void ClearLaneVoiceOutgoing()
+    {
+        if (ReferenceEquals(_local, PrivateLane)) ClearVoiceOutgoing();
+        else if (ReferenceEquals(_local, StockLane))
+        { StockVoiceOutgoing.Clear(); _stockVoiceOrdinal = 0; _stockVoiceSession = 0; }
+    }
+    private static void ClearVoicePeer(int peer) { VoicePending.Remove(peer); StockVoicePending.Remove(peer); }
     // Keep the local ordinal across a transport reconnect in the same visitor session;
     // the elected author may still remember the last accepted request.
-    private static void ClearVoiceNetwork() { VoiceOutgoing.Clear(); VoicePending.Clear(); }
+    private static void ClearVoiceNetwork()
+    { VoiceOutgoing.Clear(); VoicePending.Clear(); StockVoiceOutgoing.Clear(); StockVoicePending.Clear(); }
 }

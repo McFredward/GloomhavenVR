@@ -59,6 +59,7 @@ internal static class TownServiceVoice
     /// <summary>Owner-to-face-author presentation request. Integration sends only a cue kind,
     /// source session and monotonic event sequence; no item/card identity or native command.</summary>
     internal static Action<byte, TownVoiceReaction>? RelayRequest;
+    internal static Func<TownVoiceReaction, bool>? StockRelayRequest;
     private static bool _missingRelayReported;
     private static TownServiceVoiceSchedule _schedule = new();
     private sealed class Playback
@@ -131,17 +132,42 @@ internal static class TownServiceVoice
         _schedule.Request(service, firstCue, Time.unscaledTime);
     }
 
+    internal static bool IsStockReaction(TownVoiceReaction reaction) => reaction == TownVoiceReaction.MerchantOffer
+        || reaction == TownVoiceReaction.MerchantUnaffordable || reaction == TownVoiceReaction.MerchantSoldOut;
+
+    /// <summary>Physical stock inspection is cosmetic and independent of private fan
+    /// focus or payment. Only the resident author chooses and times the shared take.</summary>
+    internal static bool RequestStockReaction(TownVoiceReaction reaction)
+    {
+        if (StoryComposite.PointOfNoReturn || !IsStockReaction(reaction)) return false;
+        if (!TownServicePopulation.IsFaceAuthor) return StockRelayRequest?.Invoke(reaction) == true;
+        Ensure();
+        _schedule.Request(1, ReactionFirstCue(1, reaction), Time.unscaledTime);
+        return true;
+    }
+
     /// <summary>Accept only a fresh, ordered presentation event on the elected author.
     /// The transport separately validates its owner/session envelope; this second guard
     /// prevents duplicate town snapshots or late delivery from replaying a reaction.</summary>
     internal static bool AcceptRelayedReaction(byte service, TownVoiceReaction reaction,
         int sourcePeer, uint sourceSession, uint sequence, float ageSeconds)
+        => AcceptReaction(service, reaction, sourcePeer, sourceSession, sequence, ageSeconds, stock: false);
+
+    internal static bool AcceptRelayedStockReaction(TownVoiceReaction reaction,
+        int sourcePeer, uint sourceSession, uint sequence, float ageSeconds)
+        => IsStockReaction(reaction)
+            && AcceptReaction(1, reaction, sourcePeer, sourceSession, sequence, ageSeconds, stock: true);
+
+    private static bool AcceptReaction(byte service, TownVoiceReaction reaction,
+        int sourcePeer, uint sourceSession, uint sequence, float ageSeconds, bool stock)
     {
         ushort firstCue = ReactionFirstCue(service, reaction);
         if (StoryComposite.PointOfNoReturn || !TownServicePopulation.IsFaceAuthor || firstCue == 0 || sourcePeer <= 0
             || sourceSession == 0 || sequence == 0 || !TownServiceVoiceSchedule.Finite(ageSeconds)
             || ageSeconds < 0f || ageSeconds > 3f) return false;
-        ulong key = ((ulong)(uint)sourcePeer << 8) | service;
+        // Private and lifted-stock generations are independent lifetimes. Sharing
+        // their replay key could silently discard a valid overlapping pickup.
+        ulong key = ((ulong)(uint)sourcePeer << 8) | (stock ? (byte)4 : service);
         if (Relayed.TryGetValue(key, out RelayStamp last)
             && (sourceSession == last.Session && unchecked((int)(sequence - last.Sequence)) <= 0
                 || sourceSession != last.Session && unchecked((int)(sourceSession - last.Session)) <= 0)) return false;

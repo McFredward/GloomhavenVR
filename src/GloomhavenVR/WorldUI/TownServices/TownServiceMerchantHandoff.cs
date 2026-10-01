@@ -54,6 +54,7 @@ internal static class TownServiceMerchantHandoff
     private static float _eligibilityUntil;
     private static TownVoiceReaction? _inspectedReaction;
     private static int _inspectedFrame;
+    private static float _inspectedUntil;
     private static float _offerRetryUntil, _nextOfferFailureWarning;
     internal static bool WantsOffering => Active && _near && (_offeredChip != null || _offeredStock != null
         || HeldOwned(VRHands.Left) || HeldOwned(VRHands.Right) || TownServiceCatalog.HeldOfferAvailable);
@@ -80,6 +81,7 @@ internal static class TownServiceMerchantHandoff
     internal static void Tick()
     {
         if (_resetting) return;
+        FlushStockInspectionReaction();
         TownServiceCatalog.CanOffer = CanOffer;
         TownServiceCatalog.Offer = Offer;
         TownServiceCatalog.InOfferingZone = InOfferingZone;
@@ -129,13 +131,6 @@ internal static class TownServiceMerchantHandoff
             { Items.Clear(); Items.AddRange(current); unchecked { _itemRevision++; } }
         }
         _fan!.TickInspection(Items, _itemRevision);
-        // The first card can be lifted in the same frame the outer gaze volume
-        // opens. Publication establishes the private visitor session in LateTick;
-        // relaying on the pickup callback itself would discard the event before
-        // that session exists. One frame later the elected author gets exactly
-        // one reaction, including a stock card taken at the far cabinet edge.
-        if (_inspectedReaction is TownVoiceReaction reaction && Time.frameCount > _inspectedFrame)
-        { _inspectedReaction = null; TownServiceVoice.RequestReaction(1, reaction); }
         TickTradeOutcome();
         TickPending();
         TickConfirmation();
@@ -220,14 +215,36 @@ internal static class TownServiceMerchantHandoff
         // Inspection is always allowed, including an exhausted shelf or an item beyond
         // this character's purse. The native shop still refuses an invalid purchase;
         // speech explains that refusal at the first physical pickup, not after a dead drop.
-        if (!Active || !_near || item == null || StoryComposite.PointOfNoReturn) return;
+        // Stock inspection does not own the merchant's private fan or transaction.
+        // A player can hold this original card while the mage or temple has focus.
+        if (item == null || !StockInspectionNear()) return;
         ShopService? shop = Shop();
         if (shop == null) return;
-        _inspectedReaction = !available || !shop.GetItemsToBuy(_character).Exists(candidate => candidate.ID == item.ID)
+        CMapCharacter? selected = MapRoomHand.OwnedMerchantCharacter();
+        _inspectedReaction = !available || selected != null
+            && !shop.GetItemsToBuy(selected).Exists(candidate => candidate.ID == item.ID)
             ? TownVoiceReaction.MerchantSoldOut
-            : !shop.IsAffordable(item, _character)
+            : selected != null && !shop.IsAffordable(item, selected)
                 ? TownVoiceReaction.MerchantUnaffordable : TownVoiceReaction.MerchantOffer;
         _inspectedFrame = Time.frameCount;
+        _inspectedUntil = Time.unscaledTime + 3f;
+    }
+    private static bool StockInspectionNear() => MapRoomDriver.Active
+        && WorldUIConfig.ImmersiveTownServices.Value && TownServiceGrantSync.CanUseImmersive
+        && TownServiceEnhancementHandoff.Enabled && !StoryComposite.PointOfNoReturn
+        && !TownServicePresentation.NativeFallbackFor(1) && TownServicePopulation.Available(1)
+        && TownServicePopulation.Acquire(1)?.IsLocalVisitorNear(true) == true;
+
+    private static void FlushStockInspectionReaction()
+    {
+        if (_inspectedReaction is not TownVoiceReaction reaction) return;
+        if (Time.unscaledTime > _inspectedUntil || !StockInspectionNear())
+        { _inspectedReaction = null; return; }
+        // Lifted stock publishes its independent typed membership in LateTick.
+        // Retry this cosmetic request until that membership exists, never open a
+        // private interaction merely to make a shared pickup line audible.
+        if (Time.frameCount > _inspectedFrame && TownServiceVoice.RequestStockReaction(reaction))
+            _inspectedReaction = null;
     }
     private static bool Eligible(CItem item, bool selling, bool cached)
     {
@@ -625,7 +642,7 @@ internal static class TownServiceMerchantHandoff
         ItemsPile? fan = _fan; _fan = null;
         Transform? seat = _seat; _seat = _zone = null; _zoneGate = null; _caption = null; _feedback = null;
         _pending = null; _tradeItem = null; _decisionConfirmed = _decisionCancelled = false;
-        _decisionRetries = 0; DetachTradeListener(); _eligibilityItem = null; _inspectedReaction = null;
+        _decisionRetries = 0; DetachTradeListener(); _eligibilityItem = null;
         _offerRetryUntil = 0f;
         Items.Clear(); _character = null;
         try

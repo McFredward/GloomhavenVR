@@ -5,6 +5,7 @@ from pathlib import Path
 repo=Path(__file__).resolve().parent.parent
 parser=argparse.ArgumentParser(description=__doc__)
 parser.add_argument('--no-negative-controls',action='store_true')
+parser.add_argument('--negative-control',action='append',default=[],help='Run named controls and production; partial focused evidence')
 args=parser.parse_args()
 dotnet=shutil.which('dotnet') or str(Path.home()/'.dotnet/dotnet')
 portable=subprocess.run([dotnet,'run','--project',str(repo/'scripts/town-voice-runtime/PortableSchedule.csproj'),
@@ -57,8 +58,19 @@ variants += [
   'repeated visual spells do not repeat incidental speech every cast'),
  ('merchant-reply-service','TownServiceVoice.cs',
   '|| cue >= 66 && cue <= 75 ? (byte)1', '? (byte)1',
-  'curve rejected cue=66')]
+  'curve rejected cue=66'),
+ ('stock-author-source','TownServiceVoice.cs',
+  'if (!TownServicePopulation.IsFaceAuthor) return StockRelayRequest?.Invoke(reaction) == true;',
+  'if (reaction == (TownVoiceReaction)byte.MaxValue) return StockRelayRequest?.Invoke(reaction) == true;',
+  'non-author stock inspection uses its independent cosmetic source'),
+ ('stock-replay-namespace','TownServiceVoice.cs',
+  '(stock ? (byte)4 : service)', 'service',
+  'stock replay lifetime is independent of a larger private merchant generation')]
 if args.no_negative_controls: variants=variants[:1]
+if args.negative_control:
+ unknown=set(args.negative_control)-{v[0] for v in variants}
+ if unknown:parser.error('Unknown controls: '+', '.join(sorted(unknown)))
+ variants=[v for v in variants if v[0]=='production' or v[0] in args.negative_control]
 manifest={'result':str(out/'results.txt'),'cases':[]}
 unity=Path('/home/claw/unity-2021.3.5/Editor/Unity'); managed=repo/'ressources/GH_Data/Managed'
 for name,target,before,after,expected in variants:

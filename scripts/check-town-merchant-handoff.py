@@ -123,6 +123,9 @@ def mutations():
         ("merchant-context-voice", "TownServiceMerchantHandoff.cs", "_selling ? TownVoiceReaction.MerchantSell : TownVoiceReaction.MerchantBuy", "TownVoiceReaction.MerchantOffer", "merchant chooses the seller voice family when a sale confirmation opens"),
         ("merchant-no-funds-voice", "TownServiceMerchantHandoff.cs", "? TownVoiceReaction.MerchantUnaffordable : TownVoiceReaction.MerchantOffer;", "? TownVoiceReaction.MerchantOffer : TownVoiceReaction.MerchantOffer;", "physically inspecting unaffordable stock chooses the money explanation"),
         ("merchant-soldout-voice", "TownServiceMerchantHandoff.cs", "? TownVoiceReaction.MerchantSoldOut", "? TownVoiceReaction.MerchantOffer", "physically inspecting exhausted stock chooses the availability explanation"),
+        ("merchant-stock-focus-gate", "TownServiceMerchantHandoff.cs", "if (item == null || !StockInspectionNear()) return;", "if (!Active || item == null || !StockInspectionNear()) return;", "stock pickup queues a next-frame reaction"),
+        ("merchant-stock-reset", "TownServiceMerchantHandoff.cs", "_decisionRetries = 0; DetachTradeListener(); _eligibilityItem = null;", "_decisionRetries = 0; DetachTradeListener(); _eligibilityItem = null; _inspectedReaction = null;", "stock pickup survives mage focus and private merchant teardown"),
+        ("merchant-stock-private-relay", "TownServiceMerchantHandoff.cs", "TownServiceVoice.RequestStockReaction(reaction)", "PrivateReactionControl(reaction)", "stock pickup survives mage focus and private merchant teardown"),
         ("merchant-cancel-intent", "TownServiceMerchantHandoff.cs", "box.cancelButton.onClick.AddListener(_cancelListener);", "", "first cancel click starts the owned card's return flight before native fade completes"),
         ("merchant-cancel-flight", "TownServiceMerchantHandoff.cs", "_decisionCancelled = true;\n                        ReleaseOffering();", "_decisionCancelled = true;", "first cancel click starts the owned card's return flight before native fade completes"),
         ("merchant-owned-swap-haptic", "TownServiceMerchantHandoff.cs", "if (hand.HasPose) hand.SendHaptic(HapticPreset.ClickPulse);", "", "accepted owned item offer pulses the actual releasing controller"),
@@ -138,6 +141,7 @@ def main():
     parser.add_argument("--unity", type=Path, default=Path(os.environ.get("UNITY_PATH", "/home/claw/unity-2021.3.5/Editor/Unity")))
     parser.add_argument("--unity-ui", type=Path, help="Real UnityEngine.UI.dll (never metadata-only RefAsm)")
     parser.add_argument("--no-negative-controls", action="store_true", help="Quick positive run; not complete validation")
+    parser.add_argument("--negative-control", action="append", default=[], help="Run named controls plus production; partial focused evidence")
     args = parser.parse_args()
     args.output_dir.mkdir(parents=True, exist_ok=True)
     run = Path(tempfile.mkdtemp(prefix="run-", dir=args.output_dir.resolve()))
@@ -158,6 +162,10 @@ def main():
         variants += [("historical-census", "ItemsPile.Merchant.cs", None, None, "stable membership never rereads the inventory census")]
     if not args.no_negative_controls:
         variants += mutations()
+    if args.negative_control:
+        unknown = set(args.negative_control) - {variant[0] for variant in variants}
+        if unknown: parser.error("Unknown controls: " + ", ".join(sorted(unknown)))
+        variants = [variant for variant in variants if variant[0] == "production" or variant[0] in args.negative_control]
     print(f"Binding production from {args.source_root.resolve()}; evidence: {run}", flush=True)
     for name, filename, before, after, expected in variants:
         build = run / name
@@ -165,6 +173,8 @@ def main():
         production.mkdir(parents=True)
         for path, text in bound.items():
             if path == filename:
+                if name == "merchant-stock-private-relay":
+                    text = text.replace("private static bool StockInspectionNear()", "private static bool PrivateReactionControl(TownVoiceReaction reaction) { TownServiceVoice.RequestReaction(1, reaction); return true; }\n    private static bool StockInspectionNear()", 1)
                 if name == "historical-census":
                     text = (fixture / "ItemsPile.Merchant.pre-optimization.fixture").read_text()
                     # Preserve the historical quadratic census, adapting only its new parked-card API.

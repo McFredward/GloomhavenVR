@@ -199,6 +199,34 @@ public static class InteractionProgram
   FlushNextFrameInspectionReaction();
   Check(TownServiceVoice.SoldOut==rejectedStock+1,
       "physically inspecting exhausted stock chooses the availability explanation");
+  int stockRequests=TownServiceVoice.StockRequests;
+  int cosmeticTransactions=TownServiceMerchantTransaction.Requests;
+  ShopService.Affordable=false;
+  TownServiceEnhancementHandoff.WantsAbilityFan=true;
+  TownServiceMerchantHandoff.StockInspected(stock,true);
+  TownServiceMerchantHandoff.Tick(); // Other NPC focus tears down the private fan before the next-frame relay.
+  FlushNextFrameInspectionReaction();
+  Check(TownServiceVoice.StockRequests==stockRequests+1 && !TownServiceMerchantHandoff.Active,
+      "stock pickup survives mage focus and private merchant teardown");
+  Check(TownServiceMerchantTransaction.Requests==cosmeticTransactions,
+      "cosmetic stock speech cannot enter a native transaction");
+  TownServiceEnhancementHandoff.WantsAbilityFan=false;
+  TownServiceTempleOffering.WantsPurseFocus=true;
+  TownServiceMerchantHandoff.StockInspected(stock,true);
+  TownServiceVoice.StockReady=false;
+  FlushNextFrameInspectionReaction();
+  Check(TownServiceVoice.StockRequests==stockRequests+1,
+      "stock reaction waits for its independent original membership");
+  TownServiceVoice.StockReady=true;
+  TownServiceMerchantHandoff.Tick();
+  Check(TownServiceVoice.StockRequests==stockRequests+2 && !TownServiceMerchantHandoff.Active,
+      "stock pickup uses the independent cosmetic voice source during temple focus");
+  TownServiceMerchantHandoff.Tick();
+  Check(TownServiceVoice.StockRequests==stockRequests+2,
+      "an accepted stock pickup reaction is consumed exactly once");
+  TownServiceTempleOffering.WantsPurseFocus=false;
+  ShopService.Affordable=true;
+  TownServiceMerchantHandoff.Tick(); TownServiceMerchantHandoff.LateTick();
   int beforeStockOffer=TownServiceMerchantTransaction.Requests;
   Check(TownServiceMerchantHandoff.Offer(stock,false,palm.position),"cabinet release requests native buy");
   Check(TownServiceMerchantTransaction.Requests==beforeStockOffer+1
@@ -315,7 +343,7 @@ public static class InteractionProgram
   UnityEngine.Object.DestroyImmediate(root);
  }
  private static void FlushNextFrameInspectionReaction() {
-  // The production caller publishes its private visit in LateTick and relays a
+  // The production caller publishes its lifted stock in LateTick and relays a
   // pickup reaction on the following frame. This synchronous Unity fixture
   // advances only that frame fence before exercising the real Tick path.
   var frame=typeof(TownServiceMerchantHandoff).GetField("_inspectedFrame",

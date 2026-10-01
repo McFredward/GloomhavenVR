@@ -261,7 +261,32 @@ public static class InteractionProgram
         { if (service == 2) requests++; };
         TownServiceVoice.RequestReaction(2, TownVoiceReaction.PriestessDonate);
         Check(requests == 1, "non-author forwards reaction without inventing a local voice cue");
+        int stockRequests=0;
+        TownServiceVoice.StockRelayRequest = reaction => { stockRequests++; return true; };
+        Check(TownServiceVoice.RequestStockReaction(TownVoiceReaction.MerchantOffer)
+            && stockRequests==1 && requests==1,
+            "non-author stock inspection uses its independent cosmetic source");
+        Check(!TownServiceVoice.RequestStockReaction(TownVoiceReaction.MerchantBuy)
+            && !TownServiceVoice.RequestStockReaction(TownVoiceReaction.MerchantSell)
+            && stockRequests==1,
+            "stock cosmetic relay cannot request transaction voice families");
         TownServicePopulation.IsFaceAuthor = true;
+        Check(TownServiceVoice.RequestStockReaction(TownVoiceReaction.MerchantSoldOut) && stockRequests==1,
+            "resident author chooses stock speech without forwarding or local follower playback");
+        Check(TownServiceVoice.AcceptRelayedReaction(1,TownVoiceReaction.MerchantBuy,7,5,1,.1f)
+            && TownServiceVoice.AcceptRelayedStockReaction(TownVoiceReaction.MerchantOffer,7,1,1,.1f),
+            "stock replay lifetime is independent of a larger private merchant generation");
+        Check(!TownServiceVoice.AcceptRelayedStockReaction(TownVoiceReaction.MerchantOffer,7,1,1,.1f),
+            "duplicate stock request cannot repeat the shared cue");
+        Check(TownServiceVoice.AcceptRelayedStockReaction(TownVoiceReaction.MerchantOffer,9,1,1,.1f)
+            && TownServiceVoice.AcceptRelayedReaction(1,TownVoiceReaction.MerchantBuy,9,1,1,.1f),
+            "stock then private accepts coincident session and ordinal independently");
+        Check(TownServiceVoice.AcceptRelayedReaction(1,TownVoiceReaction.MerchantSell,10,1,1,.1f)
+            && TownServiceVoice.AcceptRelayedStockReaction(TownVoiceReaction.MerchantOffer,10,1,1,.1f),
+            "private then stock accepts coincident session and ordinal independently");
+        Check(!TownServiceVoice.AcceptRelayedStockReaction(TownVoiceReaction.MerchantBuy,8,1,1,.1f)
+            && !TownServiceVoice.AcceptRelayedStockReaction(TownVoiceReaction.MerchantOffer,8,1,1,4f),
+            "stock request validation rejects transaction and stale cosmetics");
         Check(!TownServiceVoice.AcceptRelayedReaction(2, TownVoiceReaction.PriestessDonate,
             7, 4, 1, 4f), "stale presentation request cannot trigger speech");
         Check(TownServiceVoice.AcceptRelayedReaction(2, TownVoiceReaction.PriestessDonate,
