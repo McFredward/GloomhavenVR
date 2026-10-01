@@ -178,6 +178,61 @@ No mod Error/Fatal entry or unhandled exception stack is found. Native Hydra DNS
 errors recur without a timed link to the sustained slowdown. Presentation latch
 warnings remain separate from the primary renderer-volume failure.
 
+## Collider and interaction audit
+
+`Renderer.forceRenderingOff` does not remove a collider. Hiding collider-bearing
+decorative meshes can therefore create invisible interaction blockers; retaining
+all collider state alone is not a complete interaction-safety proof.
+
+Source paths that matter:
+
+- `Hands/Interact/RayInteractor.cs:811` picks the first native physics hit without
+  testing renderer visibility. `Board/BoardDriver.cs:75` supplies the native
+  Controller's active selection mask. Before that synchronization, RayInteractor's
+  default is `Physics.DefaultRaycastLayers`.
+- `Hands/Interact/RayUguiDriver.cs:233` rejects a farther UI window when that
+  physics hit is closer. An incidental collider needs no interactable component
+  to block the laser or window.
+- `Board/BoardPick.cs:334` and `:368` perform independent near/far native-mask
+  physics raycasts. `Board/Patches/PickingPatches.cs:49` independently raycasts for
+  the patched native `MF.FindInteractableAtMousePosition` call. Filtering the hand
+  ray alone would leave these game selection paths inconsistent.
+- `Board/FigureGrab/FigureGrabDriver.cs:1132` resolves actors from the hit collider's
+  `CInteractableActor` ancestry. A closer hidden decoration can prevent reaching
+  that actor. Physical proximity grabbing uses registered grabbables, so a bare
+  incidental collider is not itself a new grabbable, but can still affect physics
+  pick/occlusion.
+
+The effective physics layer masks were not recorded for every interaction state.
+It is not established that every decorative collider in this room intersects the
+current mask, nor that a mask which excludes it now will exclude it after a game
+interaction-state change. Do not claim a collider is harmless based only on its
+renderer layer in the SCENE census.
+
+The conservative admission rule is to preserve a visible leaf when its own active
+collider, a MeshCollider using that leaf's mesh, or a collider belonging to a
+wholly hidden decorative unit would become an invisible surface. A collider on a
+shared wall/floor ancestor may remain when its corresponding structural geometry
+also remains visible; a wall ancestor should not automatically exempt all attached
+foliage. Ambiguous collider ownership should preserve the affected decoration.
+Do not disable native collider/GameObject state to recover the renderer saving.
+
+If a later implementation deliberately skips owned hidden incidental colliders
+instead, the ownership check must be specific to the scenery budget, and every
+physics pick path listed above must use the same bounded query/filter. A generic
+"any force-hidden renderer" test could bypass unrelated visibility systems and
+gameplay walls. Such a pointer change needs its own focused tests.
+
+`Core/FigureRendererGuard` protects actors, animators and currently held props;
+it does not identify all non-held gameplay props. Retain explicit ProceduralProp,
+door, functional UnityGameEditorObject and CInteractable ancestry exclusions,
+including props with no ActorBehaviour. The native UnityGameEditorObject type
+includes floor/edge/coverage entries, so treating every ancestor of that type as
+a prop would also over-exclude generated floor dressing. The native
+`ObjectCacheService` prop mapping and `Board/FigureGrab/PropVisualLookup` establish
+the actual `CObjectProp.InstanceName` visual provenance when a component alone
+does not identify a gameplay object.
+
 ## Acceptance for the next candidate
 
 An automated classifier test proves admitted/protected cases, not this room's
