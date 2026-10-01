@@ -51,6 +51,17 @@ internal static partial class PanelSupersample
 {
     private const string Scope = "WorldUI";
 
+    // UnityEngine.Object equality treats a destroyed native object as null. Layer
+    // ownership is about the exact managed Transform wrapper, as the previous
+    // IsRecorded/foreign-transfer scans used ReferenceEquals; keep that identity
+    // when indexing the ordered restoration ledger.
+    private sealed class TransformIdentityComparer : IEqualityComparer<Transform>
+    {
+        internal static readonly TransformIdentityComparer Instance = new();
+        public bool Equals(Transform? x, Transform? y) => ReferenceEquals(x, y);
+        public int GetHashCode(Transform value) => System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(value);
+    }
+
     // ---- caps (constants on purpose: the user gets one switch and one factor, not five knobs) ----
 
     /// <summary>
@@ -1051,6 +1062,7 @@ internal static partial class PanelSupersample
         /// before the first write. Restored on stand-down — and only while the transform is still on
         /// OUR layer (see <see cref="RestoreLayers"/>).</summary>
         internal readonly List<LayerRecord> Relayered = new(128);
+        internal readonly HashSet<Transform> RecordedLayers = new(TransformIdentityComparer.Instance);
 
         internal Vector2 Authored;
         internal int RtW;

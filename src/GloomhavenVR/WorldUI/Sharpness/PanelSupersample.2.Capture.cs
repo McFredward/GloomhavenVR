@@ -1807,9 +1807,11 @@ internal static partial class PanelSupersample
     /// display quad is a scene root and never appears in this walk at all — which is one of the two
     /// reasons it is not parented to the host; the other is that a nested <see cref="Canvas"/> inside
     /// a converted subtree gets adopted into the panel's hit-testing.</para>
-    /// <para>Cost: the O(n) <see cref="IsRecorded"/> scan runs ONLY for a transform that is not yet on
-    /// the capture layer, so a settled window costs one component walk and zero scans — the same
-    /// shape, and the same reason, as <c>ApplyModLayer</c>'s own guard.</para>
+    /// <para>Cost: only transforms outside the capture layer consult the identity index. A
+    /// settled window still costs one component walk. Build 593's Frame trace caught 2660
+    /// late children of New Party display arriving in one sweep; the former linear search
+    /// of a growing restore list made that one late sweep quadratic and took 764 ms on Frame.
+    /// The index preserves exact-reference identity and the ordered list still restores layers.</para>
     /// </summary>
     private static void ApplyCaptureLayer(Entry e, bool initial)
     {
@@ -1882,7 +1884,7 @@ internal static partial class PanelSupersample
             }
             if (t.gameObject.layer != layer)
             {
-                if (!IsRecorded(e, t))
+                if (e.RecordedLayers.Add(t))
                     e.Relayered.Add(new LayerRecord { Transform = t, OriginalLayer = observed });
                 t.gameObject.layer = layer;
                 moved++;
@@ -2394,19 +2396,10 @@ internal static partial class PanelSupersample
                     continue;
                 originalLayer = other.Relayered[r].OriginalLayer;
                 other.Relayered.RemoveAt(r);
+                other.RecordedLayers.Remove(t);
                 other.LayersMoved = other.Relayered.Count;
                 return true;
             }
-        }
-        return false;
-    }
-
-    private static bool IsRecorded(Entry e, Transform t)
-    {
-        for (int i = 0; i < e.Relayered.Count; i++)
-        {
-            if (ReferenceEquals(e.Relayered[i].Transform, t))
-                return true;
         }
         return false;
     }
@@ -2433,6 +2426,7 @@ internal static partial class PanelSupersample
         if (layer < 0)
         {
             e.Relayered.Clear();
+            e.RecordedLayers.Clear();
             return 0;
         }
         int refused = 0;
@@ -2447,6 +2441,7 @@ internal static partial class PanelSupersample
                 refused++;
         }
         e.Relayered.Clear();
+        e.RecordedLayers.Clear();
         return refused;
     }
 
