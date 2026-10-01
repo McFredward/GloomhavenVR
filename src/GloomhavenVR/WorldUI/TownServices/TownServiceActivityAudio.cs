@@ -1,5 +1,6 @@
 using System;
 using GloomhavenVR.Core;
+using GloomhavenVR.Net;
 using UnityEngine;
 
 namespace GloomhavenVR.WorldUI;
@@ -21,6 +22,11 @@ internal sealed class TownServiceActivityAudio : IDisposable
     private readonly float[] _resolveAt = new float[SoundCount];
     private int _voice;
     private float _voiceScale;
+    private TownActivitySoundState _event;
+    private bool _eventPending;
+    private int _eventAuthor;
+    private uint _eventEpoch, _observedGeneration;
+    internal TownActivitySoundState Published => _event;
     private uint _blessingEpoch, _blessingGeneration;
     private bool _blessingPending;
     private AudioClip? _blessingClip;
@@ -93,17 +99,36 @@ internal sealed class TownServiceActivityAudio : IDisposable
     }
 
     internal void Tick(int author, uint epoch, float workClock, float elapsed, bool visible,
-        in TownActivityVisual shown)
+        in TownActivityVisual shown, bool authorPerformance = true,
+        float performanceClock = float.NaN, TownActivitySoundState remote = default)
     {
         if (_failed) return;
         try
         {
-            TownActivitySound sound = _clock.Sample(_service, author, epoch, workClock, elapsed, visible, in shown);
+            float sharedClock = float.IsNaN(performanceClock) ? workClock : performanceClock;
+            bool newLifetime = _eventAuthor != author || _eventEpoch != epoch;
+            if (newLifetime)
+            {
+                _eventAuthor = author; _eventEpoch = epoch; _event = default;
+                _observedGeneration = 0; _eventPending = false;
+            }
+            TownActivitySound sound = authorPerformance
+                ? _clock.Sample(_service, author, epoch, workClock, elapsed, visible, in shown)
+                : TownActivitySound.None;
+            if (authorPerformance && sound != TownActivitySound.None)
+            {
+                if (_event.Generation != uint.MaxValue) _event.Generation++;
+                _event.Cue = (byte)sound; _event.StartedClock = sharedClock;
+            }
+            else if (!authorPerformance) _event = remote;
+            if (_event.Generation != _observedGeneration)
+            { _observedGeneration = _event.Generation; _eventPending = _event.Generation != 0; }
+            sound = (TownActivitySound)_event.Cue;
             // The activity clock still advances while locally muted. Its author-owned
             // phase is shared presentation state; a listener preference may silence the
             // result, but must never make this peer choose a different later sound edge.
-            if (!WorldUIConfig.ImmersiveTownSoundEffects.Value) { Stop(); return; }
-            if (!visible) { Stop(); return; }
+            if (!WorldUIConfig.ImmersiveTownSoundEffects.Value) { _eventPending = false; Stop(); return; }
+            if (!visible) { _eventPending = false; Stop(); return; }
             if (!HeadEar.Claim(_claim)) { _clock.Reset(); Stop(); return; }
             float now = Time.unscaledTime;
             // Resident coordinates are authored in perceived metres, while Unity's
@@ -126,9 +151,15 @@ internal sealed class TownServiceActivityAudio : IDisposable
                 if (now >= _ends[i] && source.isPlaying) source.Stop();
                 source.volume = master * _gains[i] * Mathf.Clamp01((_ends[i] - now) / .08f);
             }
-            if (sound == TownActivitySound.None || master <= 0f) return;
+            if (!_eventPending || sound == TownActivitySound.None || master <= 0f) return;
+            float duration = TownServiceActivitySoundClock.IsSpell(sound) ? 1.3f
+                : sound == TownActivitySound.Coin ? .45f : .65f;
+            float eventAge = Mathf.Max(0f, sharedClock - _event.StartedClock);
+            if (eventAge >= duration) { _eventPending = false; return; }
             AudioClip? clip = Resolve(sound, now);
             if (clip == null) return;
+            if (eventAge >= clip.length) { _eventPending = false; return; }
+            _eventPending = false;
             if (VRLog.WantsDebug && TraceLines[_service] < TraceLineBudgetPerResident)
             {
                 TraceLines[_service]++;
@@ -139,6 +170,9 @@ internal sealed class TownServiceActivityAudio : IDisposable
             int slot = _voice++ % _voices.Length;
             AudioSource voice = _voices[slot] ?? Create(slot);
             voice.Stop(); voice.clip = clip;
+            // Delayed packets and clip readiness seek the author's contact time.
+            // Observers never choose their own edge or replay a loaded cue at zero.
+            voice.time = Mathf.Clamp(eventAge, 0f, Mathf.Max(0f, clip.length - .001f));
             voice.transform.position = _root.TransformPoint(sound == TownActivitySound.Coin ? shown.Left : shown.Right);
             voice.pitch = 1f;
             // The previous foley gain was multiplied by the game's two volume sliders
@@ -148,9 +182,7 @@ internal sealed class TownServiceActivityAudio : IDisposable
             voice.volume = master * _gains[slot];
             // Native effects can contain long gameplay tails. Foley uses a bounded
             // excerpt with a short end fade; the original shared clip is untouched.
-            float duration = TownServiceActivitySoundClock.IsSpell(sound) ? 1.3f
-                : sound == TownActivitySound.Coin ? .45f : .65f;
-            _ends[slot] = now + Mathf.Min(duration, clip.length);
+            _ends[slot] = now + Mathf.Min(duration, clip.length) - eventAge;
             voice.Play();
         }
         catch (Exception error)
@@ -191,7 +223,9 @@ internal sealed class TownServiceActivityAudio : IDisposable
         {
             if (_coinClink == null && now >= _nextCoinResolve)
             {
-                _nextCoinResolve = now + 10f;
+                // An authored contact is pending for at most .45 seconds. A
+                // ten-second retry would consume it before its assets became ready.
+                _nextCoinResolve = now + .10f;
                 _coinClink = TownServiceAssets.Audio("coin-soft");
                 if (_coinClink != null && _coinClink.loadState == AudioDataLoadState.Unloaded)
                     _coinClink.LoadAudioData();
@@ -203,7 +237,7 @@ internal sealed class TownServiceActivityAudio : IDisposable
         if (_clips[index] != null)
             return _clips[index]!.loadState == AudioDataLoadState.Loaded ? _clips[index] : null;
         if (now < _resolveAt[index]) return null;
-        _resolveAt[index] = now + 5f;
+        _resolveAt[index] = now + .10f;
         if (!TownServiceActivitySoundClock.IsSpell(sound)) return null;
         // A gameplay augment/UI cue was conspicuous at the resident and repeated the
         // same timbre for every experiment. These five original, short close-fidelity

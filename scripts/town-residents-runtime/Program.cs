@@ -290,23 +290,55 @@ internal static class Program
         Check(TownActivityCodec.ReadPacket(bytes,count,out replay,out replayFace)
             && replay.HasSharedPerformance && replay.Interactive,
             "new performance tail retains the author interaction state");
+        Check(replay.HasEnvironmentLight && replay.EnvironmentLightIntensity==.4f
+            && replay.EnvironmentLightColour.y==.8f && replay.EnvironmentLightDirection.z==1f,
+            "author fill sampler survives the actual atomic packet");
         var invalid=state;invalid.TempleUnavailableBlend=1.01f;
         Check(!TownActivityCodec.Valid(in invalid),"out-of-range author cover is rejected");
         invalid=state;invalid.TempleBlessingGeneration=1;invalid.TempleBlessingStartedClock=state.Clock+.01f;
         Check(!TownActivityCodec.Valid(in invalid),"future blessing timestamps cannot invent a gesture");
-        var legacy=state;legacy.HasSharedPerformance=false;
+        invalid=state;invalid.EnvironmentLightDirection=new(0f,0f,2f);
+        Check(!TownActivityCodec.Valid(in invalid),"non-unit environment light direction is rejected");
+        invalid=state;invalid.EnvironmentLightColour.x=float.NaN;
+        Check(!TownActivityCodec.Valid(in invalid),"non-finite author light colour is rejected");
+        Check(replay.HasAuthoredFoley,"author contact records survive the actual performance packet");
+        invalid=state;invalid.MerchantFoley=new(){Cue=6,Generation=1,StartedClock=state.Clock};
+        Check(!TownActivityCodec.Valid(in invalid),"merchant cannot author enchantress spell foley");
+        var light=state;light.HasAuthoredFoley=false;
+        int lightCount=TownActivityCodec.WritePacket(bytes,in light,in face);
+        Check(lightCount==198 && TownActivityCodec.ReadPacket(bytes,lightCount,out replay,out _)
+            && replay.HasEnvironmentLight && !replay.HasAuthoredFoley,
+            "light performance without contact records remains readable");
+        var contacts=state;contacts.MerchantFoley=new(){Cue=1,Generation=4,StartedClock=state.Clock*.5f};
+        contacts.EnchantressFoley=new(){Cue=6,Generation=9,StartedClock=state.Clock*.75f};
+        int contactCount=TownActivityCodec.WritePacket(bytes,in contacts,in face);
+        Check(contactCount==216 && TownActivityCodec.ReadPacket(bytes,contactCount,out replay,out _)
+            && replay.MerchantFoley.Generation==4 && replay.EnchantressFoley.Cue==6
+            && replay.MerchantFoley.StartedClock==contacts.MerchantFoley.StartedClock,
+            "authored sound cue, revision and onset survive wire round trip");
+        var shared=state;shared.HasAuthoredFoley=false;shared.HasEnvironmentLight=false;
+        int sharedCount=TownActivityCodec.WritePacket(bytes,in shared,in face);
+        Check(sharedCount==170 && TownActivityCodec.ReadPacket(bytes,sharedCount,out replay,out _)
+            && replay.HasSharedPerformance && !replay.HasEnvironmentLight,
+            "shared performance without a lighting tail remains readable");
+        var legacy=state;legacy.HasAuthoredFoley=false;legacy.HasEnvironmentLight=false;legacy.HasSharedPerformance=false;
         int legacyCount=TownActivityCodec.WritePacket(bytes,in legacy,in face);
         Check(legacyCount==157 && TownActivityCodec.ReadPacket(bytes,legacyCount,out replay,out _)
             && !replay.HasSharedPerformance,"historical 53-byte activity packet remains readable");
         Reset();
         state=new TownActivityState{Active=true,Epoch=11,Sequence=1,Clock=20,
-            HasSharedPerformance=true,Interactive=true,TempleUnavailableBlend=.73f};
+            HasSharedPerformance=true,Interactive=true,TempleUnavailableBlend=.73f,
+            HasEnvironmentLight=true,EnvironmentLightDirection=new(0,1,0),
+            EnvironmentLightColour=new(.2f,.3f,.4f),EnvironmentLightIntensity=.25f};
         for(int n=0;n<3;n++)state.Set(n,new TownActivityPose{WorkClock=9f,TransitionAge=TownActivityPose.TransitionSeconds,Engaged=true});
         face=new TownFaceState{Active=true,Epoch=11,Sequence=1,Clock=20};
         var presence=new PresenceState{HasTownResidents=true,TownResidents=State(),
             HasTownActivity=true,TownActivity=state,HasTownFace=true,TownFace=face};
         RemoteTownResidents.Observe(2,in presence);Tick(.01f);
         Check(!TownServicePopulation.IsFaceAuthor,"the observer follows one lower-id resident author");
+        Check(TownServiceLighting.Replays>0 && TownServiceLighting.LastReplay.EnvironmentLightIntensity==.25f
+            && TownServiceLighting.LastReplay.EnvironmentLightDirection.y==1f,
+            "follower applies the published light instead of resampling its own room");
         var pose=TownServicePopulation.PublishedActivities.Temple;
         var expected=TownServiceActivityMotion.Visual(2,in pose);
         TownServiceActivityMotion.ApplyTempleAvailability(ref expected,false,.73f);

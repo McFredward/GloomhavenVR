@@ -87,6 +87,40 @@ internal static class AudioSourceChecks
                     "expired blessing audio does not replay for late observers");
             }
             UnityEngine.Object.DestroyImmediate(blessingRoot.gameObject);
+            var observerRoot=new GameObject("Authored contact observer").transform;
+            using(var observer=new TownServiceActivityAudio(observerRoot,1))
+            {
+                var contactEvent=new GloomhavenVR.Net.TownActivitySoundState{Cue=1,Generation=7,StartedClock=20f};
+                FaceClock.Now=20.2f;
+                observer.Tick(1,9,100f,.01f,true,in released,false,20.2f,contactEvent);
+                var voice=observerRoot.GetComponentInChildren<AudioSource>();
+                Check(voice!=null && voice.clip==contact && Mathf.Abs(voice.time-.2f)<.02f,
+                    "observer with no local contact edge seeks the authored foley age");
+                voice!.time=.3f;
+                observer.Tick(1,9,100.1f,.01f,true,in released,false,20.3f,contactEvent);
+                Check(Mathf.Abs(voice.time-.3f)<.02f && observerRoot.GetComponentsInChildren<AudioSource>().Length==1,
+                    "duplicate authored contact cannot restart its sound");
+                contactEvent.Generation=8;contactEvent.StartedClock=19f;
+                observer.Tick(1,9,100.2f,.01f,true,in released,false,20.4f,contactEvent);
+                Check(observerRoot.GetComponentsInChildren<AudioSource>().Length==1,
+                    "expired authored contact creates no late replay voice");
+            }
+            UnityEngine.Object.DestroyImmediate(observerRoot.gameObject);
+            var lateRoot=new GameObject("Late authored spell clip").transform;
+            using(var observer=new TownServiceActivityAudio(lateRoot,3))
+            {
+                var spellEvent=new GloomhavenVR.Net.TownActivitySoundState{Cue=2,Generation=1,StartedClock=30f};
+                TownServiceAssets.Spell=null;FaceClock.Now=30f;
+                observer.Tick(1,9,100f,.01f,true,in released,false,30f,spellEvent);
+                Check(lateRoot.GetComponentsInChildren<AudioSource>().Length==0,
+                    "unready authored foley waits without consuming the event");
+                TownServiceAssets.Spell=clip;FaceClock.Now=30.25f;
+                observer.Tick(1,9,100.1f,.01f,true,in released,false,30.25f,spellEvent);
+                var voice=lateRoot.GetComponentInChildren<AudioSource>();
+                Check(voice!=null && Mathf.Abs(voice.time-.25f)<.02f,
+                    "late ready authored foley seeks the current age instead of replaying zero");
+            }
+            UnityEngine.Object.DestroyImmediate(lateRoot.gameObject);
         }
         finally
         {

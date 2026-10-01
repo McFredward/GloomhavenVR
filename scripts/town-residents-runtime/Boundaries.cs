@@ -125,8 +125,10 @@ namespace GloomhavenVR.WorldUI
         internal TownActivityVisual LastActivity;
         internal void SampleActivity(in TownActivityVisual pose) { LastActivity=pose; }
         internal bool LastActivityAudioVisible;
-        internal void SampleActivityAudio(int author,uint epoch,float clock,bool visible,in TownActivityVisual shown,bool lookingAtVisitor)
+        internal void SampleActivityAudio(int author,uint epoch,float clock,bool visible,in TownActivityVisual shown,bool lookingAtVisitor,
+            bool authorPerformance,float performanceClock,GloomhavenVR.Net.TownActivitySoundState remote)
         { LastActivityAudioVisible=visible; }
+        internal GloomhavenVR.Net.TownActivitySoundState PublishedFoley=>default;
         internal int FaceSeeds;internal bool FaceAuthor,FaceReceived;internal GloomhavenVR.Net.TownFacePose FacePose;
         internal void SeedFace(GloomhavenVR.Net.TownFacePose pose,int author,float elapsed){FaceSeeds++;FacePose=pose;}
         internal GloomhavenVR.Net.TownFacePose SampleFace(bool author,bool received,int authorId,in GloomhavenVR.Net.TownFacePose remote,float elapsed,float clock){FaceAuthor=author;FaceReceived=received;if(received)FacePose=remote;return FacePose;}
@@ -141,6 +143,19 @@ namespace GloomhavenVR.WorldUI
             LastBlessingAge=age;
         }
         internal void Dispose() { Live.Remove(Service);Disposals++; }
+    }
+    // Engine/environment boundary; the producer and codec under test are real.
+    internal static class TownServiceLighting
+    {
+        internal static int Samples, Replays;
+        internal static GloomhavenVR.Net.TownActivityState LastReplay;
+        internal static void SampleEnvironment(Transform frame,ref GloomhavenVR.Net.TownActivityState state)
+        {
+            Samples++;state.HasEnvironmentLight=true;state.EnvironmentLightDirection=new(0,0,1);
+            state.EnvironmentLightColour=new(.7f,.8f,.9f);state.EnvironmentLightIntensity=.4f;
+        }
+        internal static void ApplyEnvironment(Transform frame,in GloomhavenVR.Net.TownActivityState state)
+        { if(state.HasEnvironmentLight){Replays++;LastReplay=state;} }
     }
     internal sealed class TownServiceVisitTarget
     {

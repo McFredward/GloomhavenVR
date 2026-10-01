@@ -24,13 +24,15 @@ def main():
     parser.add_argument("--source-root", type=Path, default=ROOT)
     args = parser.parse_args()
     owner = (args.source_root / "src/GloomhavenVR/WorldUI/TownServices/TownServiceLighting.cs").read_text()
+    activity = (args.source_root / "src/GloomhavenVR/Net/TownActivityState.cs").read_text().split("/// <summary>Additive81", 1)[0]
     stabilizer = (args.source_root / "src/GloomhavenVR/Rig/LightStabiliser.cs").read_text()
     methods = [method(stabilizer, signature) for signature in (
         "private static int AdoptLights(Light[] found)",
         "private static string ClassifyExclusion(List<string> ownScripts, Transform t)",
         "private static int IndexOfLight(Light l)")]
     adoption = "using System; using System.Collections.Generic; using UnityEngine; namespace GloomhavenVR.Rig; internal static partial class LightStabiliser {\n" + "\n".join(methods) + "\n}"
-    sources = {"Owner.cs": owner, "Adoption.cs": adoption}
+    sources = {"Owner.cs": owner, "Adoption.cs": adoption,
+               "Activity.cs": "#pragma warning disable CS0649\n" + activity}
     variants = [
         ("baseline", {}),
         ("stabilizer adopts town lights", {"Adoption.cs": adoption.replace("WorldUI.TownServiceLighting.Owns(l) || ", "")}),
@@ -38,6 +40,9 @@ def main():
         ("practical never registered", {"Owner.cs": owner.replace("ClaimPractical(_stand);", "")}),
         ("destroyed practical leaks registry", {"Owner.cs": owner.replace("ForgetPractical(_stand);", "if (_stand != null) ForgetPractical(_stand);")}),
         ("ownership released after deferred destroy", {"Owner.cs": owner.replace("ForgetPractical(_stand);", "UnityEngine.Object.Destroy(_stand.gameObject); ForgetPractical(_stand);")}),
+        ("observer samples its own moon", {"Owner.cs": owner.replace("authorEnvironment && SkyAlternative.TryRoomMoonDirection", "SkyAlternative.TryRoomMoonDirection")}),
+        ("observer fails to apply author colour", {"Owner.cs": owner.replace("_roomLight.color = new Color(colour.x, colour.y, colour.z);", "_roomLight.color = new Color(1f, 1f, 1f);")}),
+        ("fill ignores shared map rotation", {"Owner.cs": owner.replace("frame.TransformDirection(state.EnvironmentLightDirection)", "state.EnvironmentLightDirection")}),
     ]
     dotnet = shutil.which("dotnet") or str(Path.home() / ".dotnet/dotnet")
     env = dict(os.environ, DOTNET_ROOT=str(Path(dotnet).resolve().parent))

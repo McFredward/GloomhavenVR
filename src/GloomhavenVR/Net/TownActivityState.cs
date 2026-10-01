@@ -12,6 +12,12 @@ internal struct TownActivityPose
     internal float WorkClock, TransitionAge, FromBlend;
     internal bool Engaged;
 }
+internal struct TownActivitySoundState
+{
+    internal byte Cue;
+    internal uint Generation;
+    internal float StartedClock;
+}
 internal struct TownActivityState
 {
     internal bool Active;
@@ -27,18 +33,29 @@ internal struct TownActivityState
     internal bool HasSharedPerformance, Interactive;
     internal float TempleUnavailableBlend, TempleBlessingStartedClock;
     internal uint TempleBlessingGeneration;
+    // The owned directional fill is sampled in the shared map frame. It must not
+    // change when an observer chooses another local room or mixed reality.
+    internal bool HasEnvironmentLight;
+    internal Vector3 EnvironmentLightDirection, EnvironmentLightColour;
+    internal float EnvironmentLightIntensity;
+    internal bool HasAuthoredFoley;
+    internal TownActivitySoundState MerchantFoley, EnchantressFoley;
     internal TownActivityPose At(int index) => index == 0 ? Merchant : index == 1 ? Temple : Enchantress;
     internal void Set(int index, TownActivityPose pose)
     { if (index == 0) Merchant = pose; else if (index == 1) Temple = pose; else Enchantress = pose; }
 }
 
 /// <summary>Additive81: active1/epoch4/sequence4/clock4, three13-byte occupation phases,
-/// then the author's quantized merchant offering blend (one byte).
+/// then the author's quantized merchant offering blend (one byte). Optional tails
+/// carry the 13-byte shared performance, 28-byte owned environment light and
+/// two nine-byte authored physical sound contacts.
 /// Existing records79/80 and their dedicated packets remain byte-identical.</summary>
 internal static class TownActivityCodec
 {
     internal const int LegacyPayload = 53;
-    internal const int MaxPayload = LegacyPayload + 13;
+    internal const int SharedPayload = LegacyPayload + 13;
+    internal const int LightPayload = SharedPayload + 28;
+    internal const int MaxPayload = LightPayload + 18;
     internal const int PacketBytes = 6 + 2 + MaxPayload + 2 + TownFaceCodec.MaxPayload;
     private static bool Finite(float value) => !float.IsNaN(value) && !float.IsInfinity(value);
     internal static bool Valid(in TownActivityState state)
@@ -53,6 +70,19 @@ internal static class TownActivityCodec
             || state.TempleBlessingStartedClock < -30f
             || state.TempleBlessingStartedClock > state.Clock
             || state.TempleBlessingGeneration == 0 && state.TempleBlessingStartedClock != 0f)) return false;
+        if (state.HasEnvironmentLight && (!state.HasSharedPerformance
+            || !Finite(state.EnvironmentLightDirection.x) || !Finite(state.EnvironmentLightDirection.y)
+            || !Finite(state.EnvironmentLightDirection.z)
+            || Mathf.Abs(state.EnvironmentLightDirection.sqrMagnitude - 1f) > .01f
+            || !Finite(state.EnvironmentLightColour.x) || !Finite(state.EnvironmentLightColour.y)
+            || !Finite(state.EnvironmentLightColour.z) || state.EnvironmentLightColour.x < 0f
+            || state.EnvironmentLightColour.y < 0f || state.EnvironmentLightColour.z < 0f
+            || state.EnvironmentLightColour.x > 10f || state.EnvironmentLightColour.y > 10f
+            || state.EnvironmentLightColour.z > 10f || !Finite(state.EnvironmentLightIntensity)
+            || state.EnvironmentLightIntensity < 0f || state.EnvironmentLightIntensity > 10f)) return false;
+        if (state.HasAuthoredFoley && (!state.HasEnvironmentLight
+            || !ValidSound(in state.MerchantFoley, state.Clock, 1, 1)
+            || !ValidSound(in state.EnchantressFoley, state.Clock, 2, 6))) return false;
         for (int n = 0; n < 3; n++)
         {
             TownActivityPose p = state.At(n);
@@ -64,7 +94,7 @@ internal static class TownActivityCodec
     }
     internal static bool Write(byte[] buffer, ref int offset, in TownActivityState state)
     {
-        int length = state.Active ? state.HasSharedPerformance ? MaxPayload : LegacyPayload : 1;
+        int length = state.Active ? Payload(in state) : 1;
         if (buffer == null || !Valid(in state) || offset < 0 || offset > buffer.Length - length - 2) return false;
         buffer[offset++] = NetProtocol.ExtIdTownActivity; buffer[offset++] = (byte)length;
         buffer[offset++] = state.Active ? (byte)1 : (byte)0;
@@ -88,15 +118,32 @@ internal static class TownActivityCodec
             AvatarSerializer.WriteU32(buffer, ref offset, state.TempleBlessingGeneration);
             AvatarSerializer.WriteF32(buffer, ref offset, state.TempleBlessingStartedClock);
         }
+        if (state.HasEnvironmentLight)
+        {
+            AvatarSerializer.WriteF32(buffer, ref offset, state.EnvironmentLightDirection.x);
+            AvatarSerializer.WriteF32(buffer, ref offset, state.EnvironmentLightDirection.y);
+            AvatarSerializer.WriteF32(buffer, ref offset, state.EnvironmentLightDirection.z);
+            AvatarSerializer.WriteF32(buffer, ref offset, state.EnvironmentLightColour.x);
+            AvatarSerializer.WriteF32(buffer, ref offset, state.EnvironmentLightColour.y);
+            AvatarSerializer.WriteF32(buffer, ref offset, state.EnvironmentLightColour.z);
+            AvatarSerializer.WriteF32(buffer, ref offset, state.EnvironmentLightIntensity);
+        }
+        if (state.HasAuthoredFoley)
+        {
+            WriteSound(buffer, ref offset, in state.MerchantFoley);
+            WriteSound(buffer, ref offset, in state.EnchantressFoley);
+        }
         return true;
     }
     internal static bool TryRead(byte[] buffer, int offset, int length, out TownActivityState state)
     {
         state = default;
-        if (buffer == null || (length != 1 && length != LegacyPayload && length != MaxPayload) || offset < 0 || offset > buffer.Length - length) return false;
+        if (buffer == null || (length != 1 && length != LegacyPayload && length != SharedPayload
+            && length != LightPayload && length != MaxPayload) || offset < 0 || offset > buffer.Length - length) return false;
         byte flag = buffer[offset++];
         if (flag > 1 || flag == 0 && length != 1 || flag == 1 && length == 1) return false;
-        var read = new TownActivityState { Active = flag == 1, HasSharedPerformance = length == MaxPayload };
+        var read = new TownActivityState { Active = flag == 1, HasSharedPerformance = length >= SharedPayload,
+            HasEnvironmentLight = length >= LightPayload, HasAuthoredFoley = length == MaxPayload };
         if (!read.Active) return true;
         read.Epoch = AvatarSerializer.ReadU32(buffer, ref offset);
         read.Sequence = AvatarSerializer.ReadU32(buffer, ref offset);
@@ -120,14 +167,45 @@ internal static class TownActivityCodec
             read.TempleBlessingGeneration = AvatarSerializer.ReadU32(buffer, ref offset);
             read.TempleBlessingStartedClock = AvatarSerializer.ReadF32(buffer, ref offset);
         }
+        if (read.HasEnvironmentLight)
+        {
+            read.EnvironmentLightDirection = new Vector3(AvatarSerializer.ReadF32(buffer, ref offset),
+                AvatarSerializer.ReadF32(buffer, ref offset), AvatarSerializer.ReadF32(buffer, ref offset));
+            read.EnvironmentLightColour = new Vector3(AvatarSerializer.ReadF32(buffer, ref offset),
+                AvatarSerializer.ReadF32(buffer, ref offset), AvatarSerializer.ReadF32(buffer, ref offset));
+            read.EnvironmentLightIntensity = AvatarSerializer.ReadF32(buffer, ref offset);
+        }
+        if (read.HasAuthoredFoley)
+        {
+            read.MerchantFoley = ReadSound(buffer, ref offset);
+            read.EnchantressFoley = ReadSound(buffer, ref offset);
+        }
         if (!Valid(in read)) return false;
         state = read; return true;
     }
     internal static bool Matches(in TownActivityState activity, in TownFaceState face) => activity.Active == face.Active
         && (!activity.Active || (activity.Epoch == face.Epoch && activity.Sequence == face.Sequence && activity.Clock == face.Clock));
+    private static bool ValidSound(in TownActivitySoundState sound, float clock, byte first, byte last) =>
+        sound.Generation == 0 ? sound.Cue == 0 && sound.StartedClock == 0f
+        : sound.Cue >= first && sound.Cue <= last && Finite(sound.StartedClock)
+            && sound.StartedClock >= 0f && sound.StartedClock <= clock;
+    private static void WriteSound(byte[] buffer, ref int offset, in TownActivitySoundState sound)
+    {
+        buffer[offset++] = sound.Cue;
+        AvatarSerializer.WriteU32(buffer, ref offset, sound.Generation);
+        AvatarSerializer.WriteF32(buffer, ref offset, sound.StartedClock);
+    }
+    private static TownActivitySoundState ReadSound(byte[] buffer, ref int offset) => new TownActivitySoundState
+    {
+        Cue = buffer[offset++], Generation = AvatarSerializer.ReadU32(buffer, ref offset),
+        StartedClock = AvatarSerializer.ReadF32(buffer, ref offset)
+    };
+    private static int Payload(in TownActivityState state) => state.HasAuthoredFoley ? MaxPayload
+        : state.HasEnvironmentLight ? LightPayload
+        : state.HasSharedPerformance ? SharedPayload : LegacyPayload;
     internal static int WritePacket(byte[] buffer, in TownActivityState state, in TownFaceState face)
     {
-        int packetBytes = 6 + 2 + (state.HasSharedPerformance ? MaxPayload : LegacyPayload) + 2 + TownFaceCodec.MaxPayload;
+        int packetBytes = 6 + 2 + Payload(in state) + 2 + TownFaceCodec.MaxPayload;
         if (buffer == null || buffer.Length < packetBytes || !state.Active || !Valid(in state)
             || !TownFaceCodec.Valid(in face) || !Matches(in state, in face)) return 0;
         int offset = 0;
@@ -139,7 +217,9 @@ internal static class TownActivityCodec
     {
         state = default; face = default;
         const int activityHeader = 8 + TownFaceCodec.MaxPayload;
-        if (bytes == null || (length != PacketBytes && length != PacketBytes - (MaxPayload - LegacyPayload)) || length > bytes.Length || NetPacket.PeekType(bytes, length) != NetProtocol.MsgTownActivity
+        if (bytes == null || (length != PacketBytes && length != PacketBytes - (MaxPayload - SharedPayload)
+            && length != PacketBytes - (MaxPayload - LightPayload)
+            && length != PacketBytes - (MaxPayload - LegacyPayload)) || length > bytes.Length || NetPacket.PeekType(bytes, length) != NetProtocol.MsgTownActivity
             || bytes[6] != NetProtocol.ExtIdTownFace || bytes[7] != TownFaceCodec.MaxPayload
             || bytes[activityHeader] != NetProtocol.ExtIdTownActivity || bytes[activityHeader + 1] != length - activityHeader - 2
             || !TownFaceCodec.TryRead(bytes, 8, TownFaceCodec.MaxPayload, out TownFaceState readFace)

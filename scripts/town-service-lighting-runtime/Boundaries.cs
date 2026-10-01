@@ -37,6 +37,9 @@ namespace UnityEngine
         public Vector3 localPosition,position,localScale=Vector3.one;
         public Vector3 lossyScale=>localScale;
         public Quaternion rotation;
+        public Vector3 forward=>rotation.Forward;
+        public Vector3 TransformDirection(Vector3 direction)=>rotation.Transform(direction);
+        public Vector3 InverseTransformDirection(Vector3 direction)=>rotation.InverseTransform(direction);
         public void SetParent(Transform root,bool world){parent=root;}
     }
     public struct Vector3
@@ -45,11 +48,27 @@ namespace UnityEngine
         public Vector3(float x,float y,float z){this.x=x;this.y=y;this.z=z;}
         public static Vector3 up=>new(0,1,0);
         public static Vector3 one=>new(1,1,1);
+        public float sqrMagnitude=>x*x+y*y+z*z;
+        public Vector3 normalized=>sqrMagnitude>.000001f?this*(1f/(float)Math.Sqrt(sqrMagnitude)):new(0,0,1);
         public static Vector3 operator -(Vector3 v)=>new(-v.x,-v.y,-v.z);
         public static Vector3 operator *(Vector3 v,float f)=>new(v.x*f,v.y*f,v.z*f);
     }
-    public struct Quaternion{public static Quaternion LookRotation(Vector3 direction,Vector3 up)=>new();}
-    public struct Color{public float r,g,b;public Color(float r,float g,float b){this.r=r;this.g=g;this.b=b;}}
+    public struct Quaternion
+    {
+        private System.Numerics.Quaternion _value;
+        private bool _set;
+        private System.Numerics.Quaternion Value=>_set?_value:System.Numerics.Quaternion.Identity;
+        public Vector3 Forward=>Transform(new(0,0,1));
+        public Vector3 Transform(Vector3 value){var v=System.Numerics.Vector3.Transform(new(value.x,value.y,value.z),Value);return new(v.X,v.Y,v.Z);}
+        public Vector3 InverseTransform(Vector3 value){var v=System.Numerics.Vector3.Transform(new(value.x,value.y,value.z),System.Numerics.Quaternion.Inverse(Value));return new(v.X,v.Y,v.Z);}
+        public static Quaternion LookRotation(Vector3 direction,Vector3 up)
+        {
+            direction=direction.normalized;
+            float yaw=(float)Math.Atan2(direction.x,direction.z),pitch=-(float)Math.Asin(direction.y);
+            return new(){_value=System.Numerics.Quaternion.CreateFromYawPitchRoll(yaw,pitch,0),_set=true};
+        }
+    }
+    public struct Color{public float r,g,b;public Color(float r,float g,float b){this.r=r;this.g=g;this.b=b;}public static Color white=>new(1,1,1);}
     public class MonoBehaviour:Object{}
     public enum LightType{Point,Directional}
     public enum LightRenderMode{Auto,ForceVertex}
@@ -81,7 +100,9 @@ namespace GloomhavenVR.Core
     internal static class SkyAlternative
     {
         internal static bool HasMoon=true;
-        internal static bool TryRoomMoonDirection(out Vector3 direction,out Color moon,out string source){direction=new(1,1,1);moon=new(.7f,.79f,.94f);source="fixture";return HasMoon;}
+        internal static Vector3 Direction=new(1,1,1);
+        internal static Color Colour=new(.7f,.79f,.94f);
+        internal static bool TryRoomMoonDirection(out Vector3 direction,out Color moon,out string source){direction=Direction;moon=Colour;source="fixture";return HasMoon;}
     }
 }
 namespace GloomhavenVR.Rig

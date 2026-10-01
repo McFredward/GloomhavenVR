@@ -168,6 +168,7 @@ internal static class TownServicePopulation
             Sequence = unchecked(++_faceSequence), Clock = _faceClock };
         var activities = new TownActivityState { Active = enabled, Epoch = _faceEpoch, Sequence = _faceSequence, Clock = _faceClock,
             HasSharedPerformance = true, Interactive = interactive };
+        activities.HasAuthoredFoley = true;
         bool sharedInteractive = hasActivity && remoteActivity.HasSharedPerformance
             ? remoteActivity.Interactive : interactive;
         TownActivityState activitySeed = default;
@@ -429,7 +430,11 @@ internal static class TownServicePopulation
             resident.Station.SampleActivity(in displayedActivity);
             resident.Station.SampleActivityAudio(faceAuthor, sourceEpoch, resident.Activity.WorkClock,
                 sharedInteractive && used && ready && resident.Visibility >= .99f, in displayedActivity,
-                lookingAtVisitor);
+                lookingAtVisitor, IsFaceAuthor, _faceClock,
+                service == 1 ? remoteActivity.MerchantFoley
+                    : service == 3 ? remoteActivity.EnchantressFoley : default);
+            if (service == 1) activities.MerchantFoley = resident.Station.PublishedFoley;
+            else if (service == 3) activities.EnchantressFoley = resident.Station.PublishedFoley;
             activities.Set(service - 1, resident.Activity);
             remotePose = displayedFace;
             if (seedAuthority) resident.Station.SeedFace(seed.At(service - 1), seedAuthor, seedElapsed);
@@ -452,6 +457,8 @@ internal static class TownServicePopulation
             { NativeTemplates.InvalidateResident(service); resident.Visit.Dispose(); resident.Station.Dispose(); Residents.Remove(service); }
         }
         if (missing && retry) _retryAt = now + 2f;
+        if (IsFaceAuthor) TownServiceLighting.SampleEnvironment(_frame!.transform, ref activities);
+        else if (hasActivity) TownServiceLighting.ApplyEnvironment(_frame!.transform, in remoteActivity);
         // Keep TLV79's historical cloth tail readable, but no longer author it.
         published.HasCloth = false;
         Published = published;

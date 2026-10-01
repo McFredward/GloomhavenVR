@@ -39,6 +39,12 @@ def mutations():
         ("audio-not-spatial", "TownServiceActivityAudio.cs", "source.spatialBlend = 1f", "source.spatialBlend = 0f", "resident foley has continuous linear falloff and no moving-rig Doppler"),
         ("audio-fixed-world-range", "TownServiceActivityAudio.cs", "source.maxDistance = 7f * worldUnitsPerMetre;", "source.maxDistance = 7f;", "resident range follows the map's world units per perceived metre"),
         ("audio-leaks-listener", "TownServiceActivityAudio.cs", "HeadEar.Release(_claim);", "// negative: leak shared listener", "local resident effects preference immediately stops foley and releases listener"),
+        ("audio-observer-ignores-authored-contact", "TownServiceActivityAudio.cs", "else if (!authorPerformance) _event = remote;", "else if (authorPerformance) _event = remote;", "observer with no local contact edge seeks the authored foley age"),
+        ("audio-contact-starts-at-zero", "TownServiceActivityAudio.cs", "voice.time = Mathf.Clamp(eventAge, 0f, Mathf.Max(0f, clip.length - .001f));", "voice.time = 0f;", "observer with no local contact edge seeks the authored foley age"),
+        ("audio-contact-restarts-generation", "TownServiceActivityAudio.cs", "if (_event.Generation != _observedGeneration)", "if (_event.Generation != _observedGeneration || !authorPerformance && _event.Generation != 0)", "duplicate authored contact cannot restart its sound"),
+        ("audio-contact-ready-too-late", "TownServiceActivityAudio.cs", "_resolveAt[index] = now + .10f;", "_resolveAt[index] = now + 5f;", "late ready authored foley seeks the current age instead of replaying zero"),
+        ("blessing-automatic-local-clock", "TownServiceTempleBowlMarker.cs", "_blessing.Pause(true);", "// negative: automatic local particle clock", "blessing simulation is owned by shared event age"),
+        ("blessing-pulses-local-geometry", "TownServiceTempleBowlMarker.cs", "_ownsBlessing ? Vector3.one : Vector3.one * pulse", "Vector3.one * pulse", "shared blessing geometry cannot pulse from independent observer time"),
         ("audio-seek-replay", "TownServiceActivitySoundClock.cs", "delta >= -.001f && delta <= .25f", "true", "authority seek stall or hide cannot replay historical contact"),
         ("audio-contact-repeat", "TownServiceActivitySoundClock.cs", "before > .99f && after < .01f", "after < .01f", "each visible coin deposit sounds once independent of frame rate"),
         ("audio-author-replay", "TownServiceActivitySoundClock.cs", "author == _author && epoch == _epoch", "true", "authority seek stall or hide cannot replay historical contact"),
@@ -110,6 +116,8 @@ def main():
     parser.add_argument("--book-texture", type=Path, help="Read-only original-game book atlas for the diagnostic render")
     parser.add_argument("--bundle", type=Path, help="Optional Linux final-asset bundle for actual prefab binding checks")
     parser.add_argument("--no-negative-controls", action="store_true", help="Quick positive run; not complete validation")
+    parser.add_argument("--negative-control", action="append", choices=[case[0] for case in mutations()],
+                        help="Run production and only the selected focused controls; repeatable")
     args = parser.parse_args()
     args.output_dir.mkdir(parents=True, exist_ok=True)
     run = Path(tempfile.mkdtemp(prefix="run-", dir=args.output_dir.resolve()))
@@ -139,12 +147,13 @@ def main():
     variants = [("production", None, None, None, "")]
     if not args.no_negative_controls:
         # Portable validation omits Unity components exercised by these controls.
-        rig_only = ("audio-ignores-master", "audio-not-spatial", "audio-fixed-world-range", "audio-leaks-listener", "unmirrored-mage-pronation", "separated-prayer", "priestess-delayed-separation", "animated-knee-pole", "zero-weight-stance-snap", "raised-stage-gesture", "vertical-casting-palm", "wrapped-forearm-support", "unplanted-feet", "one-sided-merchant-hip", "upturned-priestess-hip", "upturned-bowl-cover", "low-priestess-shoulders", "ignore-ik", "thumb-overcurl", "attentive-counter-bracing", "excessive-work-bow", "ignore-palm-offset", "curl-contact-markers", "open-sleeve-hem", "open-sleeve-interior", "downward-offering", "coin-detached-from-grip")
+        rig_only = ("audio-ignores-master", "audio-not-spatial", "audio-fixed-world-range", "audio-leaks-listener", "audio-observer-ignores-authored-contact", "audio-contact-starts-at-zero", "audio-contact-restarts-generation", "audio-contact-ready-too-late", "blessing-automatic-local-clock", "blessing-pulses-local-geometry", "unmirrored-mage-pronation", "separated-prayer", "priestess-delayed-separation", "animated-knee-pole", "zero-weight-stance-snap", "raised-stage-gesture", "vertical-casting-palm", "wrapped-forearm-support", "unplanted-feet", "one-sided-merchant-hip", "upturned-priestess-hip", "upturned-bowl-cover", "low-priestess-shoulders", "ignore-ik", "thumb-overcurl", "attentive-counter-bracing", "excessive-work-bow", "ignore-palm-offset", "curl-contact-markers", "open-sleeve-hem", "open-sleeve-interior", "downward-offering", "coin-detached-from-grip")
         # Source-only Unity has no imported resident prefab to observe. The explicit
         # imported-asset run supplies --bundle and executes every one of these controls.
         bundle_only = ("unmirrored-mage-pronation", "attentive-counter-bracing", "unplanted-feet", "wrapped-forearm-support", "separated-prayer", "priestess-delayed-separation", "animated-knee-pole", "zero-weight-stance-snap", "raised-stage-gesture", "vertical-casting-palm", "one-sided-merchant-hip", "upturned-priestess-hip", "low-priestess-shoulders")
         variants += [v for v in mutations() if (not args.portable or v[0] not in rig_only)
-            and (args.bundle or v[0] not in bundle_only)]
+            and (args.bundle or v[0] not in bundle_only)
+            and (not args.negative_control or v[0] in args.negative_control)]
     # A mutation of an absent production file is not an executable negative control.
     # The full Unity suite retains every rig mutation; portable mode only claims its
     # compiled phase/network sources and must fail loudly if this partition drifts.

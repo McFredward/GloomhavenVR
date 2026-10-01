@@ -71,7 +71,7 @@ internal sealed class TownServiceLighting : IDisposable
         if (_second != null) _second.intensity = _hasSecond ? _power * value : 0f;
     }
 
-    internal void Refresh(Transform root)
+    internal void Refresh(Transform root, bool authorEnvironment = true)
     {
         _stand.range = 2.65f * Mathf.Abs(root.lossyScale.x);
         if (_second != null) _second.range = _stand.range;
@@ -87,19 +87,43 @@ internal sealed class TownServiceLighting : IDisposable
             _roomLight.cullingMask = 1 << VRLayers.ModLayer;
             _roomLight.shadows = LightShadows.None;
         }
-        if (SkyAlternative.TryRoomMoonDirection(out Vector3 direction, out Color moon, out _))
+        if (authorEnvironment && SkyAlternative.TryRoomMoonDirection(out Vector3 direction, out Color moon, out _))
         {
             _roomLight.transform.rotation = Quaternion.LookRotation(-direction, Vector3.up);
             _roomLight.color = moon;
             _roomLight.intensity = .40f;
+            _roomLight.enabled = true;
         }
-        else
+        else if (authorEnvironment)
         {
             // Default/MR retain the native scene's ambient probe; only the visible practical
             // light supplies additional light. Do not invent a white studio fill in darkness.
             _roomLight.intensity = 0f;
+            _roomLight.enabled = false;
         }
         SetVisibility(_visibility);
+    }
+
+    /// <summary>Sample only the mod-owned fill, in the same frame as all resident poses.</summary>
+    internal static void SampleEnvironment(Transform frame, ref GloomhavenVR.Net.TownActivityState state)
+    {
+        state.HasEnvironmentLight = true;
+        state.EnvironmentLightDirection = _roomLight != null
+            ? frame.InverseTransformDirection(_roomLight.transform.forward) : new Vector3(0f, 0f, 1f);
+        Color colour = _roomLight != null ? _roomLight.color : Color.white;
+        state.EnvironmentLightColour = new Vector3(colour.r, colour.g, colour.b);
+        state.EnvironmentLightIntensity = _roomLight != null && _roomLight.enabled ? _roomLight.intensity : 0f;
+    }
+
+    /// <summary>The observer's room can still have its own scenery; the shared NPC fill cannot.</summary>
+    internal static void ApplyEnvironment(Transform frame, in GloomhavenVR.Net.TownActivityState state)
+    {
+        if (!state.HasEnvironmentLight || _roomLight == null) return;
+        _roomLight.transform.rotation = Quaternion.LookRotation(frame.TransformDirection(state.EnvironmentLightDirection), Vector3.up);
+        Vector3 colour = state.EnvironmentLightColour;
+        _roomLight.color = new Color(colour.x, colour.y, colour.z);
+        _roomLight.intensity = state.EnvironmentLightIntensity;
+        _roomLight.enabled = state.EnvironmentLightIntensity > 0f;
     }
 
     public void Dispose()

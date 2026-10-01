@@ -151,7 +151,7 @@ internal sealed class TownServiceStation : IDisposable
         }
         float lightScale = Root.lossyScale.x;
         if (changed || lightScale != _lightScale)
-        { _lighting.Refresh(Root); _lightScale = lightScale; _room = room; _placed = true; }
+        { _lighting.Refresh(Root, authorPose); _lightScale = lightScale; _room = room; _placed = true; }
         _authorPose = authorPose;
         _decor.Tick();
     }
@@ -232,12 +232,14 @@ internal sealed class TownServiceStation : IDisposable
     }
 
     internal void SampleActivityAudio(int author, uint epoch, float clock, bool visible, in TownActivityVisual shown,
-        bool lookingAtVisitor)
+        bool lookingAtVisitor, bool authorPerformance, float performanceClock, TownActivitySoundState remote)
     {
         bool audible = visible && !_activityFailed;
-        _audio.Tick(author, epoch, clock, Time.unscaledDeltaTime, audible, in shown);
+        _audio.Tick(author, epoch, clock, Time.unscaledDeltaTime, audible, in shown,
+            authorPerformance, performanceClock, remote);
         TownServiceVoice.Tick(_service, clock, audible, in shown, lookingAtVisitor);
     }
+    internal TownActivitySoundState PublishedFoley => _audio.Published;
 
     internal void SeedFace(TownFacePose pose, int author, float elapsed)
     {

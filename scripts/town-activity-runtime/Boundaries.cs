@@ -33,7 +33,7 @@ namespace GloomhavenVR.WorldUI
         internal static AudioClip? Coin;
         internal static AudioClip? Spell;
         internal static AudioClip? Audio(string name) => name == "coin-soft" ? Coin
-            : name == "spell-soft-4" ? Spell : null;
+            : name.StartsWith("spell-soft-") ? Spell : null;
     }
     internal static class SkyAlternative {internal static Transform? PlacedRoomRoot=null;}
     // Activity cases use no terrain; actual mesh sampling is covered by workspace/setting suites.
