@@ -155,7 +155,13 @@ internal sealed class TownServiceBookInk
     // regenerates its glyphs; native numbers/text changes keep their ordinary update cadence.
     private sealed class PageGeometry
     {
-        private readonly List<(Vector3 A, Vector3 B, Vector3 C, Vector3 Normal)> _triangles = new();
+        private const int Columns = 32, Rows = 24;
+        private readonly List<(Vector3 A, Vector3 B, Vector3 C, Vector3 Normal,
+            float MinX, float MaxX, float MinZ, float MaxZ)> _triangles = new();
+        private readonly List<int>?[] _cells = new List<int>[Columns * Rows];
+        private float _minX = float.PositiveInfinity, _maxX = float.NegativeInfinity;
+        private float _minZ = float.PositiveInfinity, _maxZ = float.NegativeInfinity;
+        private float _cellWidth, _cellDepth;
         internal PageGeometry(Transform book)
         {
             Transform frame = book.parent != null ? book.parent : book;
@@ -171,15 +177,46 @@ internal sealed class TownServiceBookInk
                     Vector3 c = frame.InverseTransformPoint(filter.transform.TransformPoint(vertices[indices[i + 2]]));
                     Vector3 normal = Vector3.Cross(b - a, c - a).normalized;
                     if (normal.y < 0f) normal = -normal;
-                    if (normal.y >= .6f) _triangles.Add((a, b, c, normal));
+                    if (normal.y >= .6f)
+                    {
+                        float minX = Mathf.Min(a.x, Mathf.Min(b.x, c.x));
+                        float maxX = Mathf.Max(a.x, Mathf.Max(b.x, c.x));
+                        float minZ = Mathf.Min(a.z, Mathf.Min(b.z, c.z));
+                        float maxZ = Mathf.Max(a.z, Mathf.Max(b.z, c.z));
+                        _triangles.Add((a, b, c, normal, minX, maxX, minZ, maxZ));
+                        _minX = Mathf.Min(_minX, minX); _maxX = Mathf.Max(_maxX, maxX);
+                        _minZ = Mathf.Min(_minZ, minZ); _maxZ = Mathf.Max(_maxZ, maxZ);
+                    }
                 }
             }
+            IndexTriangles();
             // The original prop has dense dark decorative print across both pages.
             // Native localized ink on top of that print was unreadable in the headset
             // (build 558 screenshot 085152). Lay a thin blank parchment skin over the
             // same sampled page curvature, below the real text. No collider or copied
             // gameplay component is created. The cover and spine remain original.
             AddBlankPages(book, frame);
+        }
+
+        private void IndexTriangles()
+        {
+            if (_triangles.Count == 0) return;
+            _cellWidth = Mathf.Max(.000001f, (_maxX - _minX) / Columns);
+            _cellDepth = Mathf.Max(.000001f, (_maxZ - _minZ) / Rows);
+            for (int i = 0; i < _triangles.Count; i++)
+            {
+                var triangle = _triangles[i];
+                int left = Mathf.Clamp(Mathf.FloorToInt((triangle.MinX - _minX) / _cellWidth), 0, Columns - 1);
+                int right = Mathf.Clamp(Mathf.FloorToInt((triangle.MaxX - _minX) / _cellWidth), 0, Columns - 1);
+                int near = Mathf.Clamp(Mathf.FloorToInt((triangle.MinZ - _minZ) / _cellDepth), 0, Rows - 1);
+                int far = Mathf.Clamp(Mathf.FloorToInt((triangle.MaxZ - _minZ) / _cellDepth), 0, Rows - 1);
+                for (int row = near; row <= far; row++)
+                    for (int column = left; column <= right; column++)
+                    {
+                        int cell = row * Columns + column;
+                        (_cells[cell] ??= new List<int>()).Add(i);
+                    }
+            }
         }
         private void AddBlankPages(Transform book, Transform frame)
         {
@@ -199,16 +236,8 @@ internal sealed class TownServiceBookInk
             // is much shorter than that width. Sampling the old fixed 32-cm depth
             // covered only narrow strips of the real 20-cm leaves. Derive the reading
             // area from the actual top triangles so both leaves stay covered.
-            float minX = float.PositiveInfinity, maxX = float.NegativeInfinity;
-            float minZ = float.PositiveInfinity, maxZ = float.NegativeInfinity;
-            foreach (var triangle in _triangles)
-                foreach (Vector3 vertex in new[] { triangle.A, triangle.B, triangle.C })
-                {
-                    minX = Mathf.Min(minX, vertex.x); maxX = Mathf.Max(maxX, vertex.x);
-                    minZ = Mathf.Min(minZ, vertex.z); maxZ = Mathf.Max(maxZ, vertex.z);
-                }
-            float inset = .002f, middle = (minX + maxX) * .5f;
-            float[] edges = { minX + inset, middle - .003f, middle + .003f, maxX - inset };
+            float inset = .002f, middle = (_minX + _maxX) * .5f;
+            float[] edges = { _minX + inset, middle - .003f, middle + .003f, _maxX - inset };
             for (int page = 0; page < 2; page++)
             {
                 int start = vertices.Count;
@@ -221,7 +250,7 @@ internal sealed class TownServiceBookInk
                         int sample = row * (columns + 1) + column;
                         float u = column / (float)columns, v = row / (float)rows;
                         float x = Mathf.Lerp(edges[page * 2], edges[page * 2 + 1], u);
-                        float z = Mathf.Lerp(minZ + inset, maxZ - inset, v);
+                        float z = Mathf.Lerp(_minZ + inset, _maxZ - inset, v);
                         bool onPage = Sample(x, z, out Vector3 surface, out Vector3 normal);
                         covered[sample] = onPage;
                         samples[sample] = surface;
@@ -250,7 +279,7 @@ internal sealed class TownServiceBookInk
                     }
                     if (nearest < 0) continue;
                     float x = Mathf.Lerp(edges[page * 2], edges[page * 2 + 1], column / (float)columns);
-                    float z = Mathf.Lerp(minZ + inset, maxZ - inset, row / (float)rows);
+                    float z = Mathf.Lerp(_minZ + inset, _maxZ - inset, row / (float)rows);
                     Vector3 surface = new Vector3(x, samples[nearest].y, z);
                     vertices[start + sample] = book.InverseTransformPoint(frame.TransformPoint(surface + normals[nearest] * .0002f));
                 }
@@ -291,11 +320,17 @@ internal sealed class TownServiceBookInk
         internal bool Sample(float x, float z, out Vector3 point, out Vector3 normal)
         {
             point = default; normal = Vector3.up; float height = float.NegativeInfinity;
+            if (_triangles.Count == 0 || x < _minX || x > _maxX || z < _minZ || z > _maxZ)
+                return false;
+            int column = Mathf.Clamp(Mathf.FloorToInt((x - _minX) / _cellWidth), 0, Columns - 1);
+            int row = Mathf.Clamp(Mathf.FloorToInt((z - _minZ) / _cellDepth), 0, Rows - 1);
+            List<int>? candidates = _cells[row * Columns + column];
+            if (candidates == null) return false;
             Vector3 origin = new Vector3(x, 3f, z);
-            foreach (var t in _triangles)
+            foreach (int index in candidates)
             {
-                if (x < Mathf.Min(t.A.x, Mathf.Min(t.B.x, t.C.x)) || x > Mathf.Max(t.A.x, Mathf.Max(t.B.x, t.C.x))
-                    || z < Mathf.Min(t.A.z, Mathf.Min(t.B.z, t.C.z)) || z > Mathf.Max(t.A.z, Mathf.Max(t.B.z, t.C.z))) continue;
+                var t = _triangles[index];
+                if (x < t.MinX || x > t.MaxX || z < t.MinZ || z > t.MaxZ) continue;
                 if (!Intersect(origin, Vector3.down, t.A, t.B, t.C, out float distance)) continue;
                 float y = origin.y - distance;
                 if (y <= height) continue;

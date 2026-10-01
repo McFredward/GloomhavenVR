@@ -56,7 +56,8 @@ def main():
             ("late unavailable hydration snaps the cover pose", "Population.cs",
                 "resident.TempleDirectCover = displayedActivity.Attention <= .05f;",
                 "resident.TempleDirectCover = true;"),
-            ("temple cover follows packet arrival", "Population.cs", "committedAge / TownServiceActivityMotion.TransitionSeconds", "Time.unscaledDeltaTime / TownServiceActivityMotion.TransitionSeconds"),
+            ("temple cover interrupts blessing tail", "Population.cs", "bool coverUnavailable = unavailable && !blessingVisible;", "bool coverUnavailable = unavailable;"),
+            ("temple cover starts before last mote", "ActivityMotion.cs", "internal const float TempleBlessingVisualSeconds = 4.20f;", "internal const float TempleBlessingVisualSeconds = 2.45f;"),
             ("stale author never expires", "Remote.cs", "now - pair.Value.Received <= NetProtocol.StaleTimeoutSeconds", "true"),
         ]
         for label, file, before, after in variants:

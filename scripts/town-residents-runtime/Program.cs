@@ -121,13 +121,11 @@ internal static class Program
         TownServiceMirror.TempleTransitionAge=.14f;Tick(.01f);
         TownActivityPose donationState=TownServicePopulation.PublishedActivities.Temple;
         var donationExpected=TownServiceActivityMotion.Visual(2,in donationState);
-        TownServiceActivityMotion.ApplyTempleAvailability(ref donationExpected,false,
-            .14f/TownServiceActivityMotion.TransitionSeconds);
         TownServiceActivityMotion.ApplyTempleBlessing(ref donationExpected,.14f);
         TownServiceActivityMotion.ApplyTempleBreath(ref donationExpected,
             TownServicePopulation.PublishedActivities.Clock);
         Check(Vector3.Distance(TownServiceStation.Live[2].LastActivity.Left,donationExpected.Left)<.0001f,
-            "live donation cover and blessing use replicated transition age on every peer");
+            "live donation plays the replicated blessing before the unavailable cover");
 
         Reset();TownServiceStation.NearVisitor=true;
         TownServiceMirror.TempleReceived=true;TownServiceMirror.TempleOwner=10;
@@ -215,11 +213,17 @@ internal static class Program
         TownServiceMirror.TempleStates[1]=new TownTempleDonationState(11,2,true,false,8,.14f);
         Tick(3f);
         pose=TownServicePopulation.PublishedActivities.Temple;
+        var stillBlessing=TownServiceActivityMotion.Visual(2,in pose);
+        TownServiceActivityMotion.ApplyTempleBreath(ref stillBlessing,TownServicePopulation.PublishedActivities.Clock);
+        Check(Vector3.Distance(temple.LastActivity.Left,stillBlessing.Left)<.001f,
+            "remaining blessing motes do not freeze the hand on the unavailable cover");
+        Tick(1.1f);Tick(TownServiceActivityMotion.TransitionSeconds);
+        pose=TownServicePopulation.PublishedActivities.Temple;
         var closed=TownServiceActivityMotion.Visual(2,in pose);
         TownServiceActivityMotion.ApplyTempleAvailability(ref closed,false,1f);
         TownServiceActivityMotion.ApplyTempleBreath(ref closed,TownServicePopulation.PublishedActivities.Clock);
         Check(Vector3.Distance(temple.LastActivity.Left,closed.Left)<.001f,
-            "bowl cover begins only after every nearby Temple visitor is ineligible");
+            "bowl cover follows the complete blessing tail for the unavailable visitor");
         TownServiceMirror.TempleStates.Add(new TownTempleDonationState(12,3,false,false,0,0f));
         Tick(TownServiceActivityMotion.TransitionSeconds);
         pose=TownServicePopulation.PublishedActivities.Temple;

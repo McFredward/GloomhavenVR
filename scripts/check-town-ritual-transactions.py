@@ -52,6 +52,8 @@ def inspect_particle_contract(marker):
         "if (_ownsBlessing) BuildBlessing();",
         "effect.SetActive(false);",
         "ParticleSystemStopBehavior.StopEmittingAndClear",
+        "if (_blessingFinished) continue;",
+        "age >= TownServiceActivityMotion.TempleBlessingVisualSeconds",
         "Shader.Find(\"Legacy Shaders/Particles/Additive\")",
     )
     missing = [entry for entry in particle if entry not in marker]
@@ -67,6 +69,7 @@ def inspect_shared_blessing_contract(root):
     population = (town / "TownServicePopulation.cs").read_text()
     station = (town / "TownServiceStation.cs").read_text()
     marker = (town / "TownServiceTempleBowlMarker.cs").read_text()
+    motion = (town / "TownServiceActivityMotion.cs").read_text()
     donate = method(ritual, "private bool Donate(") + method(ritual, "private void CompleteTempleDonation(")
     if ".Bless(" in donate:
         raise RuntimeError("Private ritual plays a duplicate local blessing")
@@ -84,25 +87,31 @@ def inspect_shared_blessing_contract(root):
     if missing:
         raise RuntimeError("Shared temple blessing seam is incomplete: " + ", ".join(missing))
     inspect_particle_contract(marker)
+    if "internal const float TempleBlessingVisualSeconds = 4.20f;" not in motion:
+        raise RuntimeError("Temple cover no longer waits for the primary mote's full lifetime")
     gate = (
         "if (!received || owner <= 0 || session == 0) return false;",
         "bool committed = known && unchecked((int)(revision - previous)) > 0;",
-        "if (unavailable && !resident.TempleAvailabilityObserved)",
+        "bool coverUnavailable = unavailable && !blessingVisible;",
+        "if (coverUnavailable && !resident.TempleAvailabilityObserved)",
         "resident.TempleUnavailableBlend = 1f;",
         "committedAge / TownServiceActivityMotion.TransitionSeconds",
         "resident.TempleUnavailableBlend = Mathf.MoveTowards(resident.TempleUnavailableBlend,\n                        0f,",
-        "TownServiceActivityMotion.ApplyTempleAvailability(ref displayedActivity,\n                    !unavailable, resident.TempleUnavailableBlend)",
+        "TownServiceActivityMotion.ApplyTempleAvailability(ref displayedActivity,\n                    !coverUnavailable, resident.TempleUnavailableBlend)",
     )
     missing_gate = [entry for entry in gate if entry not in population]
     if missing_gate or "resident.TempleUnavailableBlend = 0f" in population:
         raise RuntimeError("Temple blessing/cover continuity gate is incomplete: " + ", ".join(missing_gate))
     cover_controls = (
         replace_once(population,
-            "if (unavailable && !resident.TempleAvailabilityObserved)",
-            "if (unavailable && false)"),
+            "if (coverUnavailable && !resident.TempleAvailabilityObserved)",
+            "if (coverUnavailable && false)"),
         replace_once(population,
             "committedAge / TownServiceActivityMotion.TransitionSeconds",
             "Time.unscaledDeltaTime / TownServiceActivityMotion.TransitionSeconds"),
+        replace_once(population,
+            "bool coverUnavailable = unavailable && !blessingVisible;",
+            "bool coverUnavailable = unavailable;"),
     )
     for snap_control in cover_controls:
         try:

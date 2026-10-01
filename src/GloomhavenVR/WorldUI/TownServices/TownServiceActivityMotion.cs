@@ -16,6 +16,9 @@ internal struct TownActivityVisual
 }
 internal static class TownServiceActivityMotion
 {
+    // The bowl emits until 2.45 s; its longest mote lives another 1.75 s.
+    // Both the station effect and shared arm transition use this endpoint.
+    internal const float TempleBlessingVisualSeconds = 4.20f;
     internal const float TransitionSeconds = .95f;
     internal static float Blend(in TownActivityPose state)
     {

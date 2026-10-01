@@ -306,6 +306,18 @@ internal static class TownServicePopulation
                 // disabled by the original native TempleEligible check in TownServiceRitual.
                 // Unknown fresh eligibility is treated as open until its owner publishes.
                 bool unavailable = interactive && received && !anyCanDonate;
+                float blessingAge = now - resident.TempleBlessingStartedAt;
+                // Build 596 Frame: the native donation completed and raised Prosperity,
+                // but the priestess's hand appeared to freeze over the bowl. The revision
+                // starts a 2.45 s gesture with motes lasting up to 4.20 s; availability
+                // flips on the same callback. Previously that flip moved the underlying
+                // pose to its permanent bowl cover *during* the gesture, so the gesture
+                // ended directly on a still hand and its fading motes. Finish the full
+                // authored visual first, then ease into the existing unavailable pose.
+                // Story/reward windows do not reset this owner clock or the shared pose.
+                bool blessingVisible = blessingAge >= 0f
+                    && blessingAge < TownServiceActivityMotion.TempleBlessingVisualSeconds;
+                bool coverUnavailable = unavailable && !blessingVisible;
                 // If the first state seen on approach is already unavailable, attention must
                 // travel directly from prayer to the covered bowl. Ramping a second blend from
                 // zero made the first half of the entrance visibly pass through the available
@@ -315,18 +327,18 @@ internal static class TownServicePopulation
                 // Jumping its cover weight to one at that point produces a one-frame arm snap.
                 // Only choose the direct prayer-to-cover path before attention starts; a late
                 // baseline blends from the pose already on screen.
-                if (unavailable && !resident.TempleAvailabilityObserved)
+                if (coverUnavailable && !resident.TempleAvailabilityObserved)
                 {
                     resident.TempleDirectCover = displayedActivity.Attention <= .05f;
                     resident.TempleHydratingCover = !resident.TempleDirectCover;
                 }
                 if (received) resident.TempleAvailabilityObserved = true;
-                if (unavailable && resident.TempleDirectCover)
+                if (coverUnavailable && resident.TempleDirectCover)
                     resident.TempleUnavailableBlend = 1f;
-                else if (unavailable && resident.TempleHydratingCover)
+                else if (coverUnavailable && resident.TempleHydratingCover)
                     resident.TempleUnavailableBlend = Mathf.MoveTowards(resident.TempleUnavailableBlend,
                         1f, Time.unscaledDeltaTime / TownServiceActivityMotion.TransitionSeconds);
-                else if (unavailable)
+                else if (coverUnavailable)
                 {
                     // Only a native committed donation has a shared author timestamp.
                     // Character selection, affordability and saved state can change
@@ -354,7 +366,7 @@ internal static class TownServicePopulation
                 // attention fade carry it to prayer. At neutral, the branch above clears it
                 // before any later available visit can start.
                 TownServiceActivityMotion.ApplyTempleAvailability(ref displayedActivity,
-                    !unavailable, resident.TempleUnavailableBlend);
+                    !coverUnavailable, resident.TempleUnavailableBlend);
                 if (interactive)
                     TownServiceActivityMotion.ApplyTempleBlessing(ref displayedActivity,
                         now - resident.TempleBlessingStartedAt);

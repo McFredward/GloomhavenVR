@@ -16,6 +16,7 @@ internal sealed class TownServiceTempleBowlMarker : IDisposable
     private ParticleSystem? _halo, _falling, _outward;
     private Light? _blessingLight;
     private float _blessingStartedAt = float.NegativeInfinity;
+    private bool _blessingFinished = true;
     private Material? _blessingMaterial;
     private Texture2D? _blessingTexture;
     private GameObject? _bag;
@@ -41,6 +42,16 @@ internal sealed class TownServiceTempleBowlMarker : IDisposable
     internal void Tick(bool shown, float approach = 0f)
     {
         if (_root == null) return;
+        if (!_blessingFinished && Time.unscaledTime - _blessingStartedAt >= TownServiceActivityMotion.TempleBlessingVisualSeconds)
+        {
+            // Bound the tail even after a long main-thread stall or a Unity particle pause.
+            // The four systems are cosmetic; their owner clock is the donation revision.
+            _blessingFinished = true;
+            _blessing?.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
+            _halo?.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
+            _falling?.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
+            _outward?.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
+        }
         if (_bag == null && TownServiceDecor.MoneyBagTemplate != null)
         {
             _bag = UnityEngine.Object.Instantiate(TownServiceDecor.MoneyBagTemplate.gameObject, _root.transform, false);
@@ -98,13 +109,17 @@ internal sealed class TownServiceTempleBowlMarker : IDisposable
         // Restarting the same seeded local-space system and advancing it by that age gives every
         // observer the same bounded beat without publishing individual particles or predicting a
         // transaction. ParticleSystem owns the motes; no legible mesh shards are flown by hand.
-        float age = Mathf.Clamp(elapsed, 0f, 2.45f);
+        float age = Mathf.Max(0f, elapsed);
         _blessingStartedAt = Time.unscaledTime - age;
+        _blessingFinished = age >= TownServiceActivityMotion.TempleBlessingVisualSeconds;
         ParticleSystem[] phases = { _blessing, _halo, _falling, _outward };
         for (int i = 0; i < phases.Length; i++)
         {
             ParticleSystem phase = phases[i];
             phase.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
+            // A delayed peer must not restart a stale visual at 2.45 s. Its owner-authored
+            // age may already be past the final mote, so leave this phase clear in that case.
+            if (_blessingFinished) continue;
             phase.randomSeed = 0x475652u + (uint)(i * 917);
             phase.Play(true);
             if (age > 0f) phase.Simulate(age, true, false, true);
