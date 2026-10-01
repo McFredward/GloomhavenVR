@@ -26,6 +26,10 @@ def sources(root):
     names = ["TownServiceAssets", "TownServiceBinding", "TownServiceCodec", "TownServiceDelta",
              "TownServiceFrame", "TownRackState", "TownCatalogLayout", "TownCassetteMotion", "TownServiceMirror.Racks", "TownServiceMirror.Offerings", "TownServiceMirror.Voice", "TownServiceMaterial", "TownServiceFlameClock", "TownServiceMirror"]
     bound = {name + ".cs": (base / "Net/TownServices" / (name + ".cs")).read_text() for name in names}
+    stock = base / "Net/TownServices/TownServiceMirror.Stock.cs"
+    if stock.exists(): bound[stock.name] = stock.read_text()
+    stock_publisher = base / "WorldUI/TownServices/TownServiceSync.Stock.cs"
+    if stock_publisher.exists(): bound[stock_publisher.name] = stock_publisher.read_text()
     offering = base / "WorldUI/TownServices/TownServiceOfferingPose.cs"
     bound[offering.name] = offering.read_text()
     cabinet_audio = base / "WorldUI/TownServices/TownServiceCabinetAudio.cs"
@@ -181,13 +185,14 @@ def main():
         if not args.no_negative_controls:
             variants += [
                 ("rack-dead-host", "TownServiceMirror.cs", "RetireDestroyedRemoteModules(entry.Key, standing);", "// disabled dead-host recovery", "destroyed rack and child recover from retained owner frames"),
-                ("rack-phase-alias", "TownServiceMirror.Racks.cs", "float displayed=clock.Turning?TownRackState.Progress(clock.Elapsed):1f;", "float displayed=1f;", "clock reconstructs the full revolution after coalesced owner poses"),
-                ("rack-incomplete-page", "TownServiceMirror.Racks.cs", "clock.Turning&&clock.Waiting&&fromReady&&toReady", "clock.Turning&&clock.Waiting", "missing one dependency keeps the complete outgoing page at rest"),
+                ("rack-phase-alias", "TownServiceMirror.Racks.cs", "float displayed=replaying?TownRackState.Progress(clock.Elapsed):1f;", "float displayed=1f;", "clock reconstructs the full revolution after coalesced owner poses"),
+                ("rack-incomplete-page", "TownServiceMirror.Racks.cs", "bool ready=toReady&&(completeOwner||fromReady);", "bool ready=true;", "missing one dependency keeps the complete outgoing page at rest"),
+                ("rack-owner-age-loss", "TownServiceMirror.Racks.cs", "float ownerAge=Mathf.Clamp(state.Elapsed+Mathf.Max(0f,now-clock.ReceivedTime)", "float ownerAge=Mathf.Clamp(Mathf.Max(0f,now-clock.ReceivedTime)", "late cabinet dependencies seek the current owner age without restarting the revolution"),
                 ("rack-native-fade", "TownServiceMirror.Racks.cs", "shown?stamp.Alpha:0f", "shown?1f:0f", "page gate preserves independent native ancestor fades"),
                 ("rack-hidden-body", "TownServiceMirror.Racks.cs", "renderer.forceRenderingOff=!shown;", "renderer.forceRenderingOff=true;", "incoming physical body appears with its face"),
                 ("rack-idle-crank", "TownServiceMirror.Racks.cs", "out var crank)&&crank.Alive&&replaying)", "out var crank)&&crank.Alive&&state.Turn!=0)", "idle manual lead pull is not overwritten by the previous clock"),
-                ("rack-skipped-epochs", "TownServiceMirror.Racks.cs", "FromPage=joining?state.From:DisplayPage;", "FromPage=state.From;", "skipped owner epochs preserve the actual outgoing front until the opaque midpoint"),
-                ("rack-turn-queue", "TownServiceMirror.Racks.cs", "if(!Turning&&Queue.Count==0)", "if(Queue.Count>=0)", "newer queued turn and reordered old packet do not reset an in-flight rack"),
+                ("rack-skipped-epochs", "TownServiceMirror.Racks.cs", "clock.DisplayPage=clock.Turning&&TownRackState.Progress(clock.Elapsed)<.5f?state.From:state.To;", "clock.DisplayPage=clock.Turning&&TownRackState.Progress(clock.Elapsed)<.5f?clock.DisplayPage:state.To;", "skipped owner epochs adopt the actual current original from-page and animation"),
+                ("rack-turn-queue", "TownServiceMirror.Racks.cs", "Start(next,now);", "return;", "newest completed owner clock replaces obsolete turns despite a reordered old packet"),
             ]
     if args.suite == "public-catalog":
         variants = [("production", None, None, None, "")]
@@ -206,8 +211,8 @@ def main():
                 ("stale-author-clock", "TownServiceMirror.cs", "if (RemoteRacks.TryGetValue(peer, out var clocks))", "if (peer > 0 && RemoteRacks.TryGetValue(peer, out var clocks))", "missing observer artwork never permanently disables the local public input proxy"),
                 ("public-visitor", "TownServiceMirror.cs", "if (peer > 0) VisitorSessions[peer] = Sessions[peer];", "VisitorSessions[peer] = Sessions[peer];", "remote public stock is excluded from visitor census"),
                 ("inactive-author", "TownServiceMirror.cs", "int author = PublicLane.Active ? LocalPeer : int.MaxValue;", "int author = LocalPeer;", "departed public owner leaves no stale invisible authority"),
-                ("roller-missing-direction", "TownServiceMirror.Racks.cs", "TownCassetteMotion.Apply(rack.Binding.Root, clock.Turning ? clock.Elapsed / TownRackState.TurnDuration : 1f, state.ScrollDirection);", "TownCassetteMotion.Apply(rack.Binding.Root, clock.Turning ? clock.Elapsed / TownRackState.TurnDuration : 1f, 0);", "late observer reconstructs exact owner holder translation and hinge angle in either scroll direction"),
-                ("cassette-skip-motion", "TownServiceMirror.Racks.cs", "TownCassetteMotion.Apply(rack.Binding.Root, clock.Turning ? clock.Elapsed / TownRackState.TurnDuration : 1f, state.ScrollDirection);", "TownCassetteMotion.Apply(rack.Binding.Root, 1f, 0);", "late public observer reconstructs cassette withdrawal from explicit clock"),
+                ("roller-missing-direction", "TownServiceMirror.Racks.cs", "TownCassetteMotion.Apply(rack.Binding.Root, replaying ? clock.Elapsed / TownRackState.TurnDuration : 1f, state.ScrollDirection);", "TownCassetteMotion.Apply(rack.Binding.Root, replaying ? clock.Elapsed / TownRackState.TurnDuration : 1f, 0);", "late observer reconstructs exact owner holder translation and hinge angle in either scroll direction"),
+                ("cassette-skip-motion", "TownServiceMirror.Racks.cs", "TownCassetteMotion.Apply(rack.Binding.Root, replaying ? clock.Elapsed / TownRackState.TurnDuration : 1f, state.ScrollDirection);", "TownCassetteMotion.Apply(rack.Binding.Root, 1f, 0);", "late public observer reconstructs cassette withdrawal from explicit clock"),
                 ("secondary-item-erasure", "TownServiceMirror.cs", "(session.Service == 1 || session.Service == 2);", "session.Service == 2;", "non-elected visitor's original held item face and backing remain visible to third player"),
             ]
     if args.suite == "item-transfer":

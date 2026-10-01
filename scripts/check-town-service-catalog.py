@@ -64,6 +64,7 @@ def sources(root):
 
 def mutations():
     return [
+        ("foreign-stock-double", "TownServiceCatalog.cs", "if (_display.gameObject.activeSelf == foreignStock) _display.gameObject.SetActive(!foreignStock);", "", "another visitor's live stock sample vacates the complete original shelf face body price and input"),
         ("local-history-over-owner-layout", "TownServiceCatalog.cs", "entry.ApplyOrdinal(ordinal);", "entry.ApplyOrdinal(entry.Ordinal);", "public author handover adopts the original cold-page slot without moving a held card"),
         ("lost-cold-stock-slot", "TownServiceCatalog.cs", "foreach (ushort slot in _canonicalSlots.Values)", "foreach (ushort slot in Array.Empty<ushort>())", "unknown cold native item slots remain reserved while a new local unlock arrives"),
         ("handover-reparents-held-card", "TownServiceCatalog.cs", "_root.transform.SetParent(Rack.CardParent(ordinal), false);", "_display.SetParent(Rack.CardParent(ordinal), false);", "public author handover adopts the original cold-page slot without moving a held card"),

@@ -257,6 +257,16 @@ namespace GloomhavenVR.WorldUI { internal sealed class TownServiceGrounding : Sy
 namespace GloomhavenVR.Net.TownServices { internal static class TownServiceFrame { internal const ushort BundleStream=65534; } }
 
 namespace GloomhavenVR.WorldUI {internal static partial class TownServicePublicMerchant {internal static bool ClaimAvailable=true;internal static bool CanClaim=>ClaimAvailable;internal static void Claim(){} }}
+namespace GloomhavenVR.Net.TownServices
+{
+    // Transport lineage/expiry has its own production stock-lane fixture. Here
+    // only membership is an input; the original catalogue visibility is real.
+    internal static class TownServiceMirror
+    {
+        internal static readonly HashSet<int> ForeignStock = new();
+        internal static bool StockItemHeldByOther(int itemId) => ForeignStock.Contains(itemId);
+    }
+}
 
 namespace GloomhavenVR.Hands.Interact { internal class RayInteractor { internal struct CardContact {
  internal readonly float Depth,Margin,Limit; internal CardContact(string probe,float depth,float margin,float limit){Depth=depth;Margin=margin;Limit=limit;}

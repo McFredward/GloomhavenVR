@@ -8,6 +8,13 @@ using UnityEngine;
 // arguments and removal, while Program.cs validates actual capture/render playback.
 namespace GloomhavenVR.WorldUI
 {
+    internal static class TownServicePublicMerchant
+    {
+        internal static TownServiceCatalog? Catalog;
+        internal static Transform? StationRoot;
+        internal static uint Session;
+        internal static float SessionAge;
+    }
     internal sealed class UIShopItemSlot : MonoBehaviour { }
     internal sealed class UITempleShopSlot : MonoBehaviour { }
     internal sealed class UINewEnhancementShopSlot : MonoBehaviour { }

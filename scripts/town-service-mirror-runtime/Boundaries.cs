@@ -43,6 +43,7 @@ namespace GloomhavenVR.WorldUI
     {
         internal static readonly HashSet<Transform> Bound = new();
         internal static void Bind(Transform root) => Bound.Add(root);
+        internal static void Refresh(GameObject root) { }
     }
 
 }

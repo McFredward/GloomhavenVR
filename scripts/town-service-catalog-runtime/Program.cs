@@ -616,12 +616,22 @@ public static class InteractionProgram
         Check(!observerAudio.isPlaying,"completed cabinet events never replay on a late observer");
         crank.Follow(RackState(crank,lateEpoch,TownRackState.TurnDuration));
         OfferedStock(catalog);
+        GloomhavenVR.Net.TownServices.TownServiceMirror.ForeignStock.Add(stable.ItemId);stable.Tick(1f);
+        Check(!stable.MountRoot.gameObject.activeSelf && !stable.Sample.PickCollider.enabled,
+            "another visitor's live stock sample vacates the complete original shelf face body price and input");
+        GloomhavenVR.Net.TownServices.TownServiceMirror.ForeignStock.Remove(stable.ItemId);stable.Tick(1f);
+        Check(stable.MountRoot.gameObject.activeSelf && stable.Sample.PickCollider.enabled,
+            "retiring another visitor's stock sample restores its original public shelf slot");
         // Cache the actual native canvas census before the card leaves Root,
         // matching the persistent cabinet's normal election path on hardware.
         catalog.SetObserver(false);
         stable.Tick(1f);var holder=new VRHand();stable.Sample.OnGrab(holder);stable.Tick(1f);
         for (int n = 0; n < 120; n++) stable.Tick(1f);
         Vector3 heldPosition = stable.MountRoot.position; Quaternion heldRotation = stable.MountRoot.rotation;
+        GloomhavenVR.Net.TownServices.TownServiceMirror.ForeignStock.Add(stable.ItemId);stable.Tick(1f);
+        Check(stable.MountRoot.gameObject.activeSelf && stable.Sample.IsHeld,
+            "foreign stock membership never hides this visitor's independently held original card");
+        GloomhavenVR.Net.TownServices.TownServiceMirror.ForeignStock.Clear();
         Check(crank.RequestTurn(),"held stock does not reserve the public category buttons or crank");
         Set(crank,"_clock",TownRackState.TurnDuration);catalog.Tick(1f);
         Check(stable.Exposed && stable.Sample.IsHeld && stable.MountRoot.parent == holder.Rig.GrabAnchor

@@ -78,6 +78,8 @@ public static partial class MirrorProgram
             for(float wait=Time.unscaledTime+.08f;Time.unscaledTime<wait;)yield return null;TownServiceMirror.TickRemote(_=>observer);
             Check(Quaternion.Angle(Quaternion.Inverse(observer.rotation)*Remote(-2,1)!.Root.rotation,Quaternion.Euler(0,15,0))<.1f,"missing one dependency keeps the complete outgoing page at rest");
             Receive(2,new[]{withheld});TownServiceMirror.TickRemote(_=>observer);
+            Check(TownServiceMirror.PublicRack!.Elapsed >= .17f,
+                "late cabinet dependencies seek the current owner age without restarting the revolution");
             float started=Time.unscaledTime;bool sawQuarter=false,sawBack=false;
             while(Time.unscaledTime-started<.96f)
             {
@@ -152,24 +154,27 @@ public static partial class MirrorProgram
             var turnThree=Capture();Receive(2,turnThree);TownServiceMirror.TickRemote(_=>observer);
             for(float wait=Time.unscaledTime+.2f;Time.unscaledTime<wait;)yield return null;TownServiceMirror.TickRemote(_=>observer);
             Quaternion quarter=Remote(-2,1)!.Root.rotation;
-            // Coalesced owner packets represent two valid consecutive .85-second turns.
-            // The observer is still catching up, and must finish the displayed revolution.
+            // The owner already completed the next epoch. Do not invent a queue
+            // of obsolete turns just to animate the observer's earlier snapshot.
             clock=new TownRackState{Crank=2,Turn=4,Elapsed=.85f,Page=0,From=1,To=0,Members=members.ToArray()};
             rack.localRotation=Quaternion.Euler(0,15,0);TownServiceMirror.SetRack(1,clock);
             Receive(2,Capture());Receive(2,turnThree);TownServiceMirror.TickRemote(_=>observer);
-            Check(Quaternion.Angle(quarter,Remote(-2,1)!.Root.rotation)<8f,"newer queued turn and reordered old packet do not reset an in-flight rack");
+            Check(Quaternion.Angle(Quaternion.Inverse(observer.rotation)*Remote(-2,1)!.Root.rotation,Quaternion.Euler(0,15,0))<.1f,
+                "newest completed owner clock replaces obsolete turns despite a reordered old packet");
             for(float wait=Time.unscaledTime+.30f;Time.unscaledTime<wait;)yield return null;TownServiceMirror.TickRemote(_=>observer);
-            Check(RemoteGate(-2,51).alpha==1f&&RemoteGate(-2,3).alpha==0f,"first queued revolution reveals its own destination behind the back");
+            Check(RemoteGate(-2,3).alpha==1f&&RemoteGate(-2,51).alpha==0f,
+                "completed owner epoch displays the same current page without replaying an obsolete destination");
             float drain=Time.unscaledTime;
-            while(Time.unscaledTime-drain<1.35f){TownServiceMirror.TickRemote(_=>observer);yield return null;}
-            Check(RemoteGate(-2,3).alpha==1f&&RemoteGate(-2,51).alpha==0f,"bounded replay completes consecutive turns in causal order");
-            Check(Quaternion.Angle(Quaternion.Inverse(observer.rotation)*Remote(-2,1)!.Root.rotation,Quaternion.Euler(0,15,0))<.1f,"queued completed clocks do not alias a full revolution or leave a rotated rack");
-            // Two owner epochs were entirely coalesced; their intermediate from-page
-            // must not suddenly replace the currently visible tray at the front.
+            while(Time.unscaledTime-drain<.12f){TownServiceMirror.TickRemote(_=>observer);yield return null;}
+            Check(RemoteGate(-2,3).alpha==1f&&RemoteGate(-2,51).alpha==0f,
+                "repeated observer ticks never replay a completed owner's older revolutions");
+            // Two owner epochs were entirely coalesced. Their complete native
+            // from-page is available, so reproduce the actual current owner phase.
             clock=new TownRackState{Crank=2,Turn=7,Elapsed=.15f,Page=1,From=1,To=0,Members=members.ToArray()};
             rack.localRotation=Quaternion.Euler(0,15+360*TownRackState.Progress(.15f),0);TownServiceMirror.SetRack(1,clock);
             Receive(2,Capture());TownServiceMirror.TickRemote(_=>observer);
-            Check(RemoteGate(-2,3).alpha==1f&&RemoteGate(-2,51).alpha==0f,"skipped owner epochs preserve the actual outgoing front until the opaque midpoint");
+            Check(RemoteGate(-2,51).alpha==1f&&RemoteGate(-2,3).alpha==0f,
+                "skipped owner epochs adopt the actual current original from-page and animation");
             if (scale == 1f)
             {
                 UnityEngine.Object.DestroyImmediate(Remote(-2,52)!.Root.GetComponent<MeshRenderer>());

@@ -693,6 +693,11 @@ internal sealed class TownServiceCatalog : IDisposable
             // every frame, even for the fully occluded pages.
             bool moving = Sample.IsMoving;
             bool exposed = moving || Page == Rack.Page;
+            bool foreignStock = !moving && TownServiceMirror.StockItemHeldByOther(ItemId);
+            // A public cabinet authority can change while another visitor keeps
+            // the original sample in hand. Preserve that visitor's separate lane
+            // and vacate this entire native face/body/price mount, including input.
+            if (_display.gameObject.activeSelf == foreignStock) _display.gameObject.SetActive(!foreignStock);
             float pageAlpha = exposed ? 1f : 0f;
             if (_pageGate.alpha != pageAlpha) _pageGate.alpha = pageAlpha;
             // Keep actual original content available for bounded hidden-page prewarming.
@@ -718,7 +723,7 @@ internal sealed class TownServiceCatalog : IDisposable
             // Page. Refresh it on that first exposed tick, before either the local
             // render or the shared presentation publisher sees it. A held/returning
             // card remains exposed and keeps every intermediate animation frame.
-            if (!exposed) { Sample.PickCollider.enabled = false; return; }
+            if (!exposed || foreignStock) { Sample.PickCollider.enabled = false; return; }
             RefreshSoldOutMarker(!moving);
             if (!moving)
             {

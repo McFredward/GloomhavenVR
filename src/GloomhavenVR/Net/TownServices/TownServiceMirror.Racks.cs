@@ -42,7 +42,6 @@ internal static partial class TownServiceMirror
         internal TownRackState State = null!, Latest = null!;
         internal TownRackState? Outgoing, Handoff, HandoffSource;
         internal ushort FromPage;
-        internal readonly List<TownRackState> Queue = new();
         internal ulong Sequence;
         internal float LastTick, WaitingSince, Elapsed, ReceivedTime;
         internal ushort DisplayPage;
@@ -51,13 +50,13 @@ internal static partial class TownServiceMirror
         internal string IndicatorText = "";
         internal void Start(TownRackState state,float now,bool joining=false)
         {
-            // Keep what the observer actually sees until the opaque midpoint, including
-            // skipped owner epochs. A later turn's declared From page may never have arrived.
-            if(joining||State==null)Outgoing=state;
-            else if(DisplayPage==State.To||Outgoing==null)Outgoing=State;
-            FromPage=joining?state.From:DisplayPage;
-            State=state;Elapsed=joining?state.Elapsed:0f;
-            DisplayPage=TownRackState.Progress(Elapsed)<.5f?FromPage:state.To;
+            // Retain the last complete page only while actual native dependencies
+            // are unavailable. Once ready, seek this owner's current epoch/age;
+            // replaying missed revolutions invented a different public animation.
+            Outgoing=State??state;
+            FromPage=state.From;
+            if(joining||State==null)DisplayPage=TownRackState.Progress(state.Elapsed)<.5f?state.From:state.To;
+            State=state;Elapsed=state.Elapsed;
             Turning=state.Turn!=0&&Elapsed<TownRackState.TurnDuration;
             Waiting=Turning;WaitingSince=LastTick=now;
             if(!Turning)DisplayPage=state.Page;
@@ -70,16 +69,7 @@ internal static partial class TownServiceMirror
             Latest=next;Sequence=frame.Sequence;ReceivedTime=now;
             if(State==null){Start(next,now,true);return;}
             if(next.Turn==State.Turn){State=next;return;}
-            if(!Turning&&Queue.Count==0){Start(next,now);return;}
-            int existing=Queue.FindIndex(value=>value.Turn==next.Turn);
-            if(existing>=0)Queue[existing]=next;
-            else
-            {
-                // Bound receiver latency/memory. If several complete cycles were lost,
-                // finish the displayed revolution, then catch up to the newest one.
-                if(Queue.Count>=4)Queue.RemoveAt(Queue.Count-1);
-                Queue.Add(next);
-            }
+            Start(next,now);
         }
     }
     private static bool RackRetains(int peer,ushort module)
@@ -91,8 +81,6 @@ internal static partial class TownServiceMirror
                 if(member.Id==module&&member.Page==clock.FromPage)return true;
             if(clock.State!=null)foreach(var member in clock.State.Members)
                 if(member.Id==module&&(member.Page==clock.State.From||member.Page==clock.State.To))return true;
-            foreach(var queued in clock.Queue)foreach(var member in queued.Members)
-                if(member.Id==module&&(member.Page==queued.From||member.Page==queued.To))return true;
         }
         return false;
     }
@@ -140,24 +128,28 @@ internal static partial class TownServiceMirror
                     &&stamp.Detached&&stamp.Turn>=state.Turn)
                 { handSupersedes=true;clock.DisplayPage=stamp.Page; }
             if(handSupersedes)
-            { clock.State=state=clock.Latest;clock.Queue.Clear();clock.Turning=false;clock.Waiting=false;clock.Elapsed=TownRackState.TurnDuration; }
-            bool replaying=clock.Turning;
-            bool fromReady=RackPageReady(pair.Key,clock.Outgoing??state,clock.FromPage,modules),toReady=RackPageReady(pair.Key,state,state.To,modules);
-            if(clock.Turning&&clock.Waiting&&fromReady&&toReady)
-            {clock.Waiting=false;clock.LastTick=now;}
-            if(clock.Turning&&clock.Waiting&&now-clock.WaitingSince>3f)
+            { clock.State=state=clock.Latest;clock.Turning=false;clock.Waiting=false;clock.Elapsed=TownRackState.TurnDuration; }
+            bool fromReady=RackPageReady(pair.Key,state,state.From,modules),toReady=RackPageReady(pair.Key,state,state.To,modules);
+            if(!handSupersedes)
             {
-                // Bounded cosmetic recovery only. Ordinary baseline heartbeats keep trying;
-                // native services and other town windows never wait for this rack's artwork.
-                clock.State=state=clock.Latest;clock.Queue.Clear();clock.Elapsed=0f;clock.WaitingSince=now;
+                float ownerAge=Mathf.Clamp(state.Elapsed+Mathf.Max(0f,now-clock.ReceivedTime),0f,TownRackState.TurnDuration);
+                bool completeOwner=state.Turn==0||ownerAge>=TownRackState.TurnDuration;
+                bool ready=toReady&&(completeOwner||fromReady);
+                clock.Waiting=!ready;
+                if(ready)
+                {
+                    // Same-epoch heartbeats cannot rewind analytic motion that
+                    // already advanced between packets. A newer epoch seeks its
+                    // authored age immediately instead of queueing old animations.
+                    clock.Elapsed=Mathf.Max(clock.Elapsed,ownerAge);
+                    clock.FromPage=state.From;clock.Outgoing=state;
+                    clock.Turning=state.Turn!=0&&clock.Elapsed<TownRackState.TurnDuration;
+                    clock.DisplayPage=clock.Turning&&TownRackState.Progress(clock.Elapsed)<.5f?state.From:state.To;
+                    if(state.Turn==0)clock.DisplayPage=state.Page;
+                }
+                else clock.Turning=state.Turn!=0;
             }
-            if(clock.Turning&&!clock.Waiting)
-            {
-                clock.Elapsed=Mathf.Min(TownRackState.TurnDuration,clock.Elapsed+Mathf.Max(0f,now-clock.LastTick));
-                clock.DisplayPage=TownRackState.Progress(clock.Elapsed)<.5f?clock.FromPage:state.To;
-                if(clock.Elapsed>=TownRackState.TurnDuration)clock.Turning=false;
-            }
-            if(!clock.Turning&&!handSupersedes&&(state.Turn==0||state.Elapsed>=TownRackState.TurnDuration)&&RackPageReady(pair.Key,state,state.Page,modules))clock.DisplayPage=state.Page;
+            bool replaying=clock.Turning&&!clock.Waiting;
             clock.LastTick=now;
             bool complete=RackPageReady(pair.Key,clock.DisplayPage==clock.FromPage?clock.Outgoing??state:state,clock.DisplayPage,modules);
             // A cold page appears as one dependency group, never face/price/body fragments.
@@ -188,11 +180,11 @@ internal static partial class TownServiceMirror
             float ownerProgress=TownRackState.Progress(authored.Rack!.Elapsed);
             Quaternion rest = authored.Rack.Cassette ? Rotation(authored.Pose)
                 : Rotation(authored.Pose)*Quaternion.Inverse(Quaternion.Euler(0f,ownerProgress*360f,0f));
-            float displayed=clock.Turning?TownRackState.Progress(clock.Elapsed):1f;
+            float displayed=replaying?TownRackState.Progress(clock.Elapsed):1f;
             rack.Motion.Reset();
             Transform rackPose = rack.AddedCanvas != null && !authored.HasCanvasFrame ? rack.Host.transform : rack.Binding.Root;
             if (authored.Rack.Cassette)
-                TownCassetteMotion.Apply(rack.Binding.Root, clock.Turning ? clock.Elapsed / TownRackState.TurnDuration : 1f, state.ScrollDirection);
+                TownCassetteMotion.Apply(rack.Binding.Root, replaying ? clock.Elapsed / TownRackState.TurnDuration : 1f, state.ScrollDirection);
             else rackPose.localRotation=rest*Quaternion.Euler(0f,displayed*360f,0f);
             Transform? indicator = rack.Binding.Root.Find("PageIndicator/Caption");
             if (indicator != null && indicator.GetComponent<TMPro.TMP_Text>() is TMPro.TMP_Text label)
@@ -213,8 +205,6 @@ internal static partial class TownServiceMirror
                 float angle = -(state.ScrollDirection < 0 ? -1f : 1f) * (state.LeadAngle+(360f-state.LeadAngle)*displayed);
                 crankPose.localRotation=rest*(authored.Rack.Cassette ? Quaternion.Euler(angle,0f,0f) : Quaternion.Euler(0f,0f,angle));
             }
-            if(!clock.Turning&&!handSupersedes&&clock.Queue.Count>0)
-            {TownRackState queued=clock.Queue[0];clock.Queue.RemoveAt(0);clock.Start(queued,now);}
             }
             catch(Exception e)
             {
