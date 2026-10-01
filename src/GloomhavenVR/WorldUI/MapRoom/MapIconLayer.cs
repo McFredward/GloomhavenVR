@@ -462,6 +462,13 @@ internal sealed class MapIconLayer
     /// </summary>
     private readonly Dictionary<int, Texture?> _seenTexByDecal = new(64);
 
+    // An inactive icon only needs one cache warm per *new texture*. The arrival
+    // watch below still runs every frame so a newly enabled icon is ready on its
+    // first visible tick; this queue avoids re-reading every hidden material and
+    // re-querying the mip cache on all subsequent settled frames.
+    private readonly Queue<(int Id, Texture2D Texture)> _hiddenBakeQueue = new();
+    private readonly HashSet<int> _hiddenBakeQueued = new();
+
     /// <summary>
     /// Texture instance ids already OFFERED to <c>CardFaceMipBake</c>. A repeat ask is a dictionary
     /// lookup and free, so this set exists only to spend <see cref="MaxIconBakesPerFrame"/> on FIRST
@@ -924,6 +931,12 @@ internal sealed class MapIconLayer
                 _seenTexByDecal[decalId] = tex;
                 if (tex != null)
                     arrivals++;
+                if (!d.gameObject.activeInHierarchy && tex is Texture2D hiddenTexture)
+                {
+                    int textureId = hiddenTexture.GetInstanceID();
+                    if (!BakeAsked.Contains(textureId) && _hiddenBakeQueued.Add(textureId))
+                        _hiddenBakeQueue.Enqueue((textureId, hiddenTexture));
+                }
             }
 
             // THE VISIBLE MAP IS SERVED FIRST. The scan holds BOTH maps' decals now
@@ -984,21 +997,17 @@ internal sealed class MapIconLayer
         // first frame instead of paying for 20-odd bakes at the moment of the switch. Nothing is
         // drawn here — the bake is a cache warm and the picture is untouched.
         int prewarmed = 0;
-        for (int i = 0; i < _decals.Count && bakeBudget > 0; i++)
+        while (_hiddenBakeQueue.Count > 0 && bakeBudget > 0)
         {
-            Component d = _decals[i];
-            if (d == null || d.gameObject.activeInHierarchy)
-                continue;
-            if (_decalCurMatProp?.GetValue(d) is not Material cm)
-                continue;
-            Texture? tex = cm.HasProperty(IconMainTex) ? cm.GetTexture(IconMainTex) : cm.mainTexture;
-            if (tex == null)
-                continue;
+            (int id, Texture2D tex) = _hiddenBakeQueue.Dequeue();
+            _hiddenBakeQueued.Remove(id);
+            if (tex == null) continue;
             int before = bakeBudget;
             MippedOrOriginal(tex, ref bakeBudget, ref deferredBakes);
             if (bakeBudget != before)
                 prewarmed++;
         }
+        deferredBakes += _hiddenBakeQueue.Count;
 
         // ORDER IS LOAD-BEARING: the scale goes on the token's transform FIRST, and the draw is
         // recorded second. DrawRenderer captures the renderer's matrix at EXECUTION time rather than
@@ -2088,6 +2097,8 @@ internal sealed class MapIconLayer
         _decalRenderers.Clear();
         _decalOwners.Clear();
         _seenTexByDecal.Clear();
+        _hiddenBakeQueue.Clear();
+        _hiddenBakeQueued.Clear();
         // BakeAsked is deliberately NOT cleared — see its own doc. It rations access to a cache with
         // session lifetime, so it must have session lifetime too, or every re-entry into the room
         // would meter already-baked icons back in two per frame.

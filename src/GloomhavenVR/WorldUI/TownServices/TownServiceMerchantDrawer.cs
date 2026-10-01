@@ -24,6 +24,8 @@ internal sealed class TownServiceMerchantDrawer : IGrabbable, IGrabbableHandFilt
     private readonly BoxCollider _pick;
     private readonly TownServiceCabinetAudio _audio;
     private readonly List<Material> _materials = new();
+    private readonly List<Material> _visibilityMaterials = new();
+    private float _lastVisibility = float.NaN;
     private VRHand? _hand;
     private Vector3 _cursorStart;
     private float _pull, _leadAngle, _clock;
@@ -118,7 +120,10 @@ internal sealed class TownServiceMerchantDrawer : IGrabbable, IGrabbableHandFilt
             {
                 if (materials[i] == null) continue;
                 if (!copies.TryGetValue(materials[i], out Material copy))
-                { copy = new Material(materials[i]); copies.Add(materials[i], copy); _materials.Add(copy); }
+                {
+                    copy = new Material(materials[i]); copies.Add(materials[i], copy); _materials.Add(copy);
+                    if (copy.HasProperty("_TownVisibility")) _visibilityMaterials.Add(copy);
+                }
                 materials[i] = copy;
             }
             renderer.sharedMaterials = materials;
@@ -264,9 +269,15 @@ internal sealed class TownServiceMerchantDrawer : IGrabbable, IGrabbableHandFilt
         }
         if (_indicatorPage != Page || _indicatorCount != PageCount)
         { _indicatorPage = Page; _indicatorCount = PageCount; _pageLabel.text = "↑\n" + (Page % 256 + 1) + " / " + PageCount + "\n↓"; }
-        _pageLabelGate.alpha = PageCount > 1 ? opacity : 0f;
-        _pick.enabled = opacity > .99f && _alive() && !_turning && PageCount > 1 && _mayClose();
-        foreach (Material material in _materials) if (material.HasProperty("_TownVisibility")) material.SetFloat("_TownVisibility", opacity);
+        float pageLabelAlpha = PageCount > 1 ? opacity : 0f;
+        if (_pageLabelGate.alpha != pageLabelAlpha) _pageLabelGate.alpha = pageLabelAlpha;
+        bool pickable = opacity > .99f && _alive() && !_turning && PageCount > 1 && _mayClose();
+        if (_pick.enabled != pickable) _pick.enabled = pickable;
+        if (_lastVisibility != opacity)
+        {
+            _lastVisibility = opacity;
+            foreach (Material material in _visibilityMaterials) material.SetFloat("_TownVisibility", opacity);
+        }
     }
     internal void Close() { }
     public void OnRelease(VRHand hand, Vector3 velocity)

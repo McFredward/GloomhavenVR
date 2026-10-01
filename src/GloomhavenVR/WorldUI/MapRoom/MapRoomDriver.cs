@@ -700,16 +700,17 @@ internal static class MapRoomDriver
         if (!Active)
             return;
         bool have = Parchment.Ensure(_choreo);
-        Icons.Tick(have ? head : null, Parchment.Renderer, _choreo);
+        using (PerfMonitor.Scope("MapRoom.Icons"))
+            Icons.Tick(have ? head : null, Parchment.Renderer, _choreo);
         // Laser + fingertip on the location icons (phase 4). Runs whether or not the parchment is
         // momentarily unmeasurable: the icons are their own GameObjects with their own colliders,
         // and losing input for the frames of a world↔city switch would be a worse bug than a
         // hover on an icon whose parchment is being swapped underneath it.
-        Locations.Tick();
+        using (PerfMonitor.Scope("MapRoom.Locations")) Locations.Tick();
         // The guildmaster bar as physical table buttons (phase 6). Same reasoning as above for
         // running it unconditionally: the buttons are their own GameObjects and do not depend on
         // the parchment being measurable this frame.
-        Buttons.Tick();
+        using (PerfMonitor.Scope("MapRoom.Buttons")) Buttons.Tick();
         // The game's own Reisen/Abbrechen buttons ride the floated quest window (phase 4b) — they
         // live in the flat map HUD, which this room does not draw, so without this they exist and
         // cannot be reached. Level-triggered; see MapTravelConfirm.
@@ -723,7 +724,7 @@ internal static class MapRoomDriver
         // player's own hand, not off the parchment, so a world<->city switch must not blink it. It
         // is entirely self-guarding (its own dial, its own capability latch, its own try) and never
         // throws into this call.
-        Hand.Tick();
+        using (PerfMonitor.Scope("MapRoom.Hand")) Hand.Tick();
         // The four table legs at the corners of the game's own tabletop (user, against ModBuild 197:
         // "Instead I want the TABLE to get TABLE LEGS at its 4 CORNERS, and these should STAND ON
         // THE FLOOR of the environment"). Called UNCONDITIONALLY — not gated on `have` like the rest

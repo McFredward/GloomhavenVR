@@ -22,6 +22,8 @@ internal sealed class TownServiceCatalogCategory : IPokeable, IDisposable
     private readonly Vector3 _home;
     private readonly int _category;
     private readonly List<Material> _materials = new();
+    private readonly List<Material> _visibilityMaterials = new();
+    private float _lastVisibility = float.NaN;
     private float _pressed, _lastPressed = float.NegativeInfinity;
     internal Transform Root => _root.transform;
     internal string Key => "merchant.category." + _category;
@@ -45,7 +47,10 @@ internal sealed class TownServiceCatalogCategory : IPokeable, IDisposable
             {
                 Material original = materials[i]; if (original == null) continue;
                 if (!copies.TryGetValue(original, out Material copy))
-                { copy = new Material(original); copies.Add(original, copy); _materials.Add(copy); }
+                {
+                    copy = new Material(original); copies.Add(original, copy); _materials.Add(copy);
+                    if (copy.HasProperty("_TownVisibility")) _visibilityMaterials.Add(copy);
+                }
                 materials[i] = copy;
             }
             renderer.sharedMaterials = materials;
@@ -68,10 +73,16 @@ internal sealed class TownServiceCatalogCategory : IPokeable, IDisposable
     }
     internal void Tick(float opacity)
     {
-        _shape.enabled = opacity > .99f && _available();
-        foreach (Material material in _materials) if (material.HasProperty("_TownVisibility")) material.SetFloat("_TownVisibility", opacity);
+        bool pickable = opacity > .99f && _available();
+        if (_shape.enabled != pickable) _shape.enabled = pickable;
+        if (_lastVisibility != opacity)
+        {
+            _lastVisibility = opacity;
+            foreach (Material material in _visibilityMaterials) material.SetFloat("_TownVisibility", opacity);
+        }
         _pressed = Mathf.MoveTowards(_pressed, _rack.Category == _category ? 1f : 0f, Time.unscaledDeltaTime * 12f);
-        Root.localPosition = _home + Vector3.forward * (.012f * _pressed);
+        Vector3 position = _home + Vector3.forward * (.012f * _pressed);
+        if (Root.localPosition != position) Root.localPosition = position;
     }
     public void OnPokeEnter(VRHand hand) { if (_available()) hand.SendHaptic(HapticPreset.HoverTick); }
     public void OnPokeExit(VRHand hand) { }

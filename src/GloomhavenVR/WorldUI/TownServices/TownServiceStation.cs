@@ -11,6 +11,7 @@ internal sealed class TownServiceStation : IDisposable
 {
     private readonly GameObject _root;
     private readonly Animation? _animation;
+    private string? _sampledClip;
     private readonly byte _service;
     private readonly TownServiceLighting _lighting;
     private readonly TownServiceDecor _decor;
@@ -165,6 +166,7 @@ internal sealed class TownServiceStation : IDisposable
 
     internal void Sample(string clip, float seconds)
     {
+        using var _perf = PerfMonitor.Scope("TownStation.Body");
         // The permanent station owns the blessing so the same replicated revision can
         // play on clients that do not own a private native temple window.
         _templeBlessing?.Tick(false);
@@ -175,7 +177,15 @@ internal sealed class TownServiceStation : IDisposable
         AnimationState? state = _animation[clip];
         if (state == null) return;
         // Explicit sampling lets the shared cosmetic author supply the same phase to observers.
-        _animation.Stop();
+        // This is our owned prefab and Sample is its only clip writer. The previous
+        // call disabled its state below, so stopping the whole Animation again on
+        // every frame cannot change the pose. It does, however, re-enter Unity's
+        // animation controller for each resident on every 3D-map frame.
+        if (_sampledClip != clip)
+        {
+            _animation.Stop();
+            _sampledClip = clip;
+        }
         state.enabled = true;
         state.weight = 1f;
         state.time = seconds;
@@ -196,6 +206,7 @@ internal sealed class TownServiceStation : IDisposable
     }
     internal void SampleActivity(in TownActivityVisual pose)
     {
+        using var _perf = PerfMonitor.Scope("TownStation.Activity");
         if (_activityFailed) return;
         try
         {
@@ -230,6 +241,7 @@ internal sealed class TownServiceStation : IDisposable
     }
     internal TownFacePose SampleFace(bool author, bool received, int authorId, in TownFacePose remote, float elapsed, float clock)
     {
+        using var _perf = PerfMonitor.Scope("TownStation.Face");
         if (_faceFailed) return remote;
         try { return _face.Tick(author, received, authorId, in remote, elapsed, clock,
             _templeBlessing?.BlessingAge ?? float.PositiveInfinity); }

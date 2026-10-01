@@ -160,7 +160,7 @@ internal sealed class TownServiceCatalog : IDisposable
         if (!_pages.TryGetValue(page, out List<Entry>? entries)) return;
         foreach (Entry entry in entries) if (seen.Add(entry)) target.Add(entry);
     }
-    private void CollectPages(List<Entry> target, HashSet<Entry> seen)
+    private void CollectPages(List<Entry> target, HashSet<Entry> seen, bool warmNext)
     {
         TownServiceMerchantDrawer rack = _drawers[0];
         AddPage(rack.Page, target, seen);
@@ -169,8 +169,14 @@ internal sealed class TownServiceCatalog : IDisposable
             AddPage(rack.FromPage, target, seen);
             AddPage(rack.ToPage, target, seen);
         }
-        int next = rack.Page / 256 * 256 + (rack.Page % 256 + 1) % Math.Max(1, rack.PageCount);
-        AddPage(next, target, seen);
+        // The next page needs its native source initialized before the shutter
+        // reveals it, but its opaque holder needs no per-frame card, collider or
+        // row-mirror tick. The first exposed frame still ticks it before publish.
+        if (warmNext)
+        {
+            int next = rack.Page / 256 * 256 + (rack.Page % 256 + 1) % Math.Max(1, rack.PageCount);
+            AddPage(next, target, seen);
+        }
         foreach (Entry entry in _movingEntries) if (seen.Add(entry)) target.Add(entry);
         // A grab can arrive after our preceding catalog tick but before a
         // network-driven page turn. Carry that just-grabbed card into the next
@@ -181,13 +187,13 @@ internal sealed class TownServiceCatalog : IDisposable
     private List<Entry> WarmEntries()
     {
         _warmEntries.Clear(); _warmSet.Clear();
-        CollectPages(_warmEntries, _warmSet);
+        CollectPages(_warmEntries, _warmSet, warmNext: true);
         return _warmEntries;
     }
     private void CollectTickEntries()
     {
         _tickEntries.Clear(); _tickSet.Clear();
-        CollectPages(_tickEntries, _tickSet);
+        CollectPages(_tickEntries, _tickSet, warmNext: false);
     }
     private void RebuildPageIndex()
     {
