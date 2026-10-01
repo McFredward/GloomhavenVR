@@ -29,7 +29,8 @@ internal sealed class TownServiceLaneSendQueue
         _seed = seed;
         _bundle = new ExtrasSendQueue((seed & ~65535UL) | TownServiceFrame.BundleStream,
             TownServiceCodec.MessageType, TownServiceCodec.FragmentType,
-            snapshotLimit: TownServiceFrame.MaxBytes, sequenceStride: 131072);
+            snapshotLimit: TownServiceFrame.MaxBytes, sequenceStride: 131072,
+            counterMask: TownServiceFragments.StockLaneMarker - 1, fixedMarker: seed & TownServiceFragments.StockLaneMarker);
     }
     internal void Enqueue(byte[] bytes, int length, TownServiceFrame frame)
     {
@@ -40,7 +41,8 @@ internal sealed class TownServiceLaneSendQueue
             if (_queues.Count >= TownServiceFrame.MaxModules + 1) return;
             ulong sequence = _sequences.TryGetValue(frame.Module, out ulong previous) ? previous : (_seed & ~65535UL) | frame.Module;
             queue = new ExtrasSendQueue(sequence, TownServiceCodec.MessageType,
-                TownServiceCodec.FragmentType, preserveFirst: true, snapshotLimit: TownServiceFrame.MaxBytes, sequenceStride: 131072);
+                TownServiceCodec.FragmentType, preserveFirst: true, snapshotLimit: TownServiceFrame.MaxBytes, sequenceStride: 131072,
+                counterMask: TownServiceFragments.StockLaneMarker - 1, fixedMarker: _seed & TownServiceFragments.StockLaneMarker);
             _queues.Add(frame.Module, queue); _order.Add(frame.Module);
         }
         if (frame.Module == TownServiceFrame.ManifestModule)
@@ -193,7 +195,8 @@ internal sealed class TownServiceSendQueue
       _stock = new TownServiceLaneSendQueue((seed & ~(131071UL | TownServiceFragments.StockLaneMarker)) | TownServiceFragments.StockLaneMarker);
       _voice = new ExtrasSendQueue((seed & ~(131071UL | TownServiceFragments.StockLaneMarker)) | TownServiceFrame.VoiceModule,
           TownServiceCodec.MessageType, TownServiceCodec.FragmentType,
-          snapshotLimit: TownServiceFrame.MaxBytes, sequenceStride: 131072); }
+          snapshotLimit: TownServiceFrame.MaxBytes, sequenceStride: 131072,
+          counterMask: TownServiceFragments.StockLaneMarker - 1); }
     internal void Enqueue(byte[] bytes, int length, TownServiceFrame frame)
     {
         if (!frame.PublicCatalog && !frame.VisitorStock && (_voiceSession != frame.Session || _voiceService != frame.Service))

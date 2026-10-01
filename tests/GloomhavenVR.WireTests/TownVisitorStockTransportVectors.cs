@@ -78,6 +78,45 @@ internal static class TownVisitorStockTransportVectors
         }
         t.Equal(3, seen.Count, "actual globally budgeted send queue delivers private/public/stock without coalescing");
         queue.Clear();
+        foreach (ulong marker in new[] { 0UL, TownServiceFragments.StockLaneMarker })
+        {
+            var frame = Frame(marker == 0 ? 0 : 2);
+            // One final monotonic snapshot fits; the following stride would enter
+            // another namespace. A single failure must never become a migrated lane.
+            ulong seed = TownServiceFragments.StockLaneMarker - 262144UL + frame.Module;
+            var bounded = new ExtrasSendQueue(seed, TownServiceCodec.MessageType,
+                TownServiceCodec.FragmentType, snapshotLimit: TownServiceFrame.MaxBytes,
+                sequenceStride: 131072, counterMask: TownServiceFragments.StockLaneMarker - 1,
+                fixedMarker: marker);
+            byte[] bytes = TownServiceCodec.Write(frame);
+            bounded.Enqueue(bytes, bytes.Length);
+            var receiver = new TownServiceFragments(); bool arrived = false;
+            for (int i = 0; i < 40; i++)
+            {
+                byte[]? page = bounded.Next(i * .05); if (page == null) continue;
+                ulong fixedBit = (page[15] & 128) != 0 ? TownServiceFragments.StockLaneMarker : 0UL;
+                t.Equal(marker, fixedBit, "near exhaustion retains the exact fixed fragment namespace");
+                if (receiver.Accept(11, page, page.Length, i * .05) != null) arrived = true;
+            }
+            t.True(arrived, "last complete monotonic snapshot remains usable in its correct lane");
+            bounded.Enqueue(bytes, bytes.Length); bool failed = false;
+            try { bounded.Next(3); } catch (InvalidOperationException error)
+            { failed = error.Message.Contains("namespace exhausted"); }
+            t.True(failed, "counter exhaustion reports one controlled failure before namespace migration");
+            bounded.Clear(); bounded.Enqueue(bytes, bytes.Length);
+            t.True(bounded.Next(4) == null, "clear cannot alias a previous fragment generation after exhaustion");
+            receiver.Forget(11);
+            var fresh = new ExtrasSendQueue(frame.Module, TownServiceCodec.MessageType,
+                TownServiceCodec.FragmentType, snapshotLimit: TownServiceFrame.MaxBytes,
+                sequenceStride: 131072, counterMask: TownServiceFragments.StockLaneMarker - 1, fixedMarker: marker);
+            fresh.Enqueue(bytes, bytes.Length); arrived = false;
+            for (int i = 0; i < 40; i++)
+            {
+                byte[]? page = fresh.Next(4 + i * .05); if (page == null) continue;
+                if (receiver.Accept(11, page, page.Length, 4 + i * .05) != null) arrived = true;
+            }
+            t.True(arrived, "fresh network queue and assembler recover without inheriting an exhausted lane");
+        }
     }
 
     private static TownServiceFrame Frame(int lane)

@@ -43,6 +43,8 @@ internal sealed class ExtrasSendQueue
     private readonly bool _preserveFirst;
     private readonly int _snapshotLimit;
     private readonly ulong _sequenceStride;
+    private readonly ulong _counterMask, _fixedMarker;
+    private bool _sequenceExhausted;
     internal ulong Sequence => _sequence;
     internal bool HasInFlight => _pages != null;
     internal bool HasPending => _pending.Count > 0 || _first != null || _latest != null;
@@ -51,9 +53,14 @@ internal sealed class ExtrasSendQueue
 
     internal ExtrasSendQueue(ulong sequence, byte payloadType = NetProtocol.MsgExtras,
         byte envelopeType = NetProtocol.MsgExtrasFragments, bool preserveFirst = false,
-        int snapshotLimit = ExtrasFragments.MaxSnapshotBytes, ulong sequenceStride = 1)
+        int snapshotLimit = ExtrasFragments.MaxSnapshotBytes, ulong sequenceStride = 1,
+        ulong counterMask = ulong.MaxValue, ulong fixedMarker = 0)
     {
-        _sequence = sequence;
+        if ((fixedMarker & counterMask) != 0 || counterMask == 0 || sequenceStride > counterMask
+            || counterMask != ulong.MaxValue && (counterMask & (counterMask + 1)) != 0)
+            throw new ArgumentException("Invalid bounded presentation sequence namespace.");
+        _counterMask = counterMask; _fixedMarker = fixedMarker;
+        _sequence = fixedMarker | (sequence & counterMask);
         _payloadType = payloadType;
         _envelopeType = envelopeType;
         _preserveFirst = preserveFirst;
@@ -69,6 +76,7 @@ internal sealed class ExtrasSendQueue
             || length > _snapshotLimit
             || NetPacket.PeekType(snapshot, length) != _payloadType)
             throw new ArgumentException("Invalid presentation snapshot.", nameof(snapshot));
+        if (_sequenceExhausted) return;
         var copy = new byte[length];
         Buffer.BlockCopy(snapshot, 0, copy, 0, length);
         if (identity != null)
@@ -91,7 +99,7 @@ internal sealed class ExtrasSendQueue
 
     internal byte[]? Next(double now)
     {
-        if (now < _next) return null;
+        if (_sequenceExhausted || now < _next) return null;
         if (_pages == null)
         {
             byte[]? next = _pending.Count > 0 ? _pending[0].Bytes : _first ?? _latest;
@@ -104,7 +112,15 @@ internal sealed class ExtrasSendQueue
                 _latest = null;
             }
             else _latest = null;
-            _sequence += _sequenceStride;
+            // A bounded cosmetic namespace fails once rather than rolling into
+            // another lane or aliasing an old fragmented snapshot. Clear cannot
+            // reset that counter; reconnect creates a fresh queue and assembler.
+            if (_counterMask != ulong.MaxValue && (_sequence & _counterMask) > _counterMask - _sequenceStride)
+            {
+                _sequenceExhausted = true; Clear();
+                throw new InvalidOperationException("Presentation fragment sequence namespace exhausted; reconnect to resume.");
+            }
+            _sequence = _fixedMarker | unchecked((_sequence + _sequenceStride) & _counterMask);
             _pages = ExtrasFragments.Encode(next, next.Length, _sequence, _payloadType, _envelopeType, _snapshotLimit, compress: true);
             _page = 0;
         }
