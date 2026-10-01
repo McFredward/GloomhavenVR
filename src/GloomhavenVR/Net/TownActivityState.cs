@@ -5,6 +5,10 @@ namespace GloomhavenVR.Net;
 /// <summary>Analytic work/attention phase; no native transaction or private character state.</summary>
 internal struct TownActivityPose
 {
+    // Shared by the producer and validator. Build 600 extended the visible transition
+    // to .95 seconds while the wire still rejected anything after .65 seconds;
+    // settled idle/attention could consequently never be sent to observers.
+    internal const float TransitionSeconds = .95f;
     internal float WorkClock, TransitionAge, FromBlend;
     internal bool Engaged;
 }
@@ -17,6 +21,12 @@ internal struct TownActivityState
     // The resident author alone advances this transition. Recomputing it from a
     // visitor's locally received offer would give every observer a different pose.
     internal float MerchantOfferingBlend;
+    // Optional additive tail. Only the resident author evaluates visitor manifests;
+    // observers replay its cover and committed blessing instead of independently
+    // deciding availability at each manifest's arrival time.
+    internal bool HasSharedPerformance, Interactive;
+    internal float TempleUnavailableBlend, TempleBlessingStartedClock;
+    internal uint TempleBlessingGeneration;
     internal TownActivityPose At(int index) => index == 0 ? Merchant : index == 1 ? Temple : Enchantress;
     internal void Set(int index, TownActivityPose pose)
     { if (index == 0) Merchant = pose; else if (index == 1) Temple = pose; else Enchantress = pose; }
@@ -27,7 +37,8 @@ internal struct TownActivityState
 /// Existing records79/80 and their dedicated packets remain byte-identical.</summary>
 internal static class TownActivityCodec
 {
-    internal const int MaxPayload = 53;
+    internal const int LegacyPayload = 53;
+    internal const int MaxPayload = LegacyPayload + 13;
     internal const int PacketBytes = 6 + 2 + MaxPayload + 2 + TownFaceCodec.MaxPayload;
     private static bool Finite(float value) => !float.IsNaN(value) && !float.IsInfinity(value);
     internal static bool Valid(in TownActivityState state)
@@ -36,18 +47,24 @@ internal static class TownActivityCodec
         if (state.Epoch == 0 || !Finite(state.Clock) || state.Clock < 0f || state.Clock > 10000000f
             || !Finite(state.MerchantOfferingBlend) || state.MerchantOfferingBlend < 0f
             || state.MerchantOfferingBlend > 1f) return false;
+        if (state.HasSharedPerformance && (!Finite(state.TempleUnavailableBlend)
+            || state.TempleUnavailableBlend < 0f || state.TempleUnavailableBlend > 1f
+            || !Finite(state.TempleBlessingStartedClock)
+            || state.TempleBlessingStartedClock < -30f
+            || state.TempleBlessingStartedClock > state.Clock
+            || state.TempleBlessingGeneration == 0 && state.TempleBlessingStartedClock != 0f)) return false;
         for (int n = 0; n < 3; n++)
         {
             TownActivityPose p = state.At(n);
             if (!Finite(p.WorkClock) || p.WorkClock < 0f || p.WorkClock > 10000000f
-                || !Finite(p.TransitionAge) || p.TransitionAge < 0f || p.TransitionAge > .65f
+                || !Finite(p.TransitionAge) || p.TransitionAge < 0f || p.TransitionAge > TownActivityPose.TransitionSeconds
                 || !Finite(p.FromBlend) || p.FromBlend < 0f || p.FromBlend > 1f) return false;
         }
         return true;
     }
     internal static bool Write(byte[] buffer, ref int offset, in TownActivityState state)
     {
-        int length = state.Active ? MaxPayload : 1;
+        int length = state.Active ? state.HasSharedPerformance ? MaxPayload : LegacyPayload : 1;
         if (buffer == null || !Valid(in state) || offset < 0 || offset > buffer.Length - length - 2) return false;
         buffer[offset++] = NetProtocol.ExtIdTownActivity; buffer[offset++] = (byte)length;
         buffer[offset++] = state.Active ? (byte)1 : (byte)0;
@@ -64,15 +81,22 @@ internal static class TownActivityCodec
             buffer[offset++] = p.Engaged ? (byte)1 : (byte)0;
         }
         buffer[offset++] = (byte)Mathf.RoundToInt(state.MerchantOfferingBlend * 255f);
+        if (state.HasSharedPerformance)
+        {
+            buffer[offset++] = state.Interactive ? (byte)1 : (byte)0;
+            AvatarSerializer.WriteF32(buffer, ref offset, state.TempleUnavailableBlend);
+            AvatarSerializer.WriteU32(buffer, ref offset, state.TempleBlessingGeneration);
+            AvatarSerializer.WriteF32(buffer, ref offset, state.TempleBlessingStartedClock);
+        }
         return true;
     }
     internal static bool TryRead(byte[] buffer, int offset, int length, out TownActivityState state)
     {
         state = default;
-        if (buffer == null || (length != 1 && length != MaxPayload) || offset < 0 || offset > buffer.Length - length) return false;
+        if (buffer == null || (length != 1 && length != LegacyPayload && length != MaxPayload) || offset < 0 || offset > buffer.Length - length) return false;
         byte flag = buffer[offset++];
-        if (flag > 1 || length != (flag == 1 ? MaxPayload : 1)) return false;
-        var read = new TownActivityState { Active = flag == 1 };
+        if (flag > 1 || flag == 0 && length != 1 || flag == 1 && length == 1) return false;
+        var read = new TownActivityState { Active = flag == 1, HasSharedPerformance = length == MaxPayload };
         if (!read.Active) return true;
         read.Epoch = AvatarSerializer.ReadU32(buffer, ref offset);
         read.Sequence = AvatarSerializer.ReadU32(buffer, ref offset);
@@ -87,6 +111,15 @@ internal static class TownActivityCodec
             read.Set(n, p);
         }
         read.MerchantOfferingBlend = buffer[offset++] / 255f;
+        if (read.HasSharedPerformance)
+        {
+            byte interactive = buffer[offset++];
+            if (interactive > 1) return false;
+            read.Interactive = interactive == 1;
+            read.TempleUnavailableBlend = AvatarSerializer.ReadF32(buffer, ref offset);
+            read.TempleBlessingGeneration = AvatarSerializer.ReadU32(buffer, ref offset);
+            read.TempleBlessingStartedClock = AvatarSerializer.ReadF32(buffer, ref offset);
+        }
         if (!Valid(in read)) return false;
         state = read; return true;
     }
@@ -94,7 +127,8 @@ internal static class TownActivityCodec
         && (!activity.Active || (activity.Epoch == face.Epoch && activity.Sequence == face.Sequence && activity.Clock == face.Clock));
     internal static int WritePacket(byte[] buffer, in TownActivityState state, in TownFaceState face)
     {
-        if (buffer == null || buffer.Length < PacketBytes || !state.Active || !Valid(in state)
+        int packetBytes = 6 + 2 + (state.HasSharedPerformance ? MaxPayload : LegacyPayload) + 2 + TownFaceCodec.MaxPayload;
+        if (buffer == null || buffer.Length < packetBytes || !state.Active || !Valid(in state)
             || !TownFaceCodec.Valid(in face) || !Matches(in state, in face)) return 0;
         int offset = 0;
         AvatarSerializer.WriteU32(buffer, ref offset, NetProtocol.Magic);
@@ -105,11 +139,11 @@ internal static class TownActivityCodec
     {
         state = default; face = default;
         const int activityHeader = 8 + TownFaceCodec.MaxPayload;
-        if (bytes == null || length != PacketBytes || length > bytes.Length || NetPacket.PeekType(bytes, length) != NetProtocol.MsgTownActivity
+        if (bytes == null || (length != PacketBytes && length != PacketBytes - (MaxPayload - LegacyPayload)) || length > bytes.Length || NetPacket.PeekType(bytes, length) != NetProtocol.MsgTownActivity
             || bytes[6] != NetProtocol.ExtIdTownFace || bytes[7] != TownFaceCodec.MaxPayload
-            || bytes[activityHeader] != NetProtocol.ExtIdTownActivity || bytes[activityHeader + 1] != MaxPayload
+            || bytes[activityHeader] != NetProtocol.ExtIdTownActivity || bytes[activityHeader + 1] != length - activityHeader - 2
             || !TownFaceCodec.TryRead(bytes, 8, TownFaceCodec.MaxPayload, out TownFaceState readFace)
-            || !TryRead(bytes, activityHeader + 2, MaxPayload, out TownActivityState readActivity)
+            || !TryRead(bytes, activityHeader + 2, bytes[activityHeader + 1], out TownActivityState readActivity)
             || !readActivity.Active || !Matches(in readActivity, in readFace)) return false;
         state = readActivity; face = readFace; return true;
     }

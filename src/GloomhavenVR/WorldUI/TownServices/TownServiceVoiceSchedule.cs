@@ -11,6 +11,7 @@ internal sealed class TownServiceVoiceSchedule
         internal float VisitAge, Deadline, NextAllowed, NextAmbientAllowed, NextSpeechAt, Started, ObservedAge;
         internal ushort Cue, PendingCue, LastRequestedCue, LastVariantCue;
         internal uint Generation, ObservedGeneration;
+        internal uint ObservedEpoch;
         internal int Author;
         internal bool Observed;
         internal float LastRequestedAt, LastWorkClock, LastCast, LastAttention;
@@ -44,6 +45,7 @@ internal sealed class TownServiceVoiceSchedule
     internal void FollowerAttention(byte service, float attention, bool visible)
     {
         Entry e = At(service);
+        e.Pending = false;
         if (!Finite(attention)) { e.FollowerAttentionKnown = false; return; }
         e.LastAttention = visible ? attention : 0f;
         e.FollowerAttentionKnown = true;
@@ -219,15 +221,16 @@ internal sealed class TownServiceVoiceSchedule
 
     /// <summary>Adopt the elected author's exact performance before a possible handover.
     /// Same-generation late packets cannot reopen an ended cue or rewind its clock.</summary>
-    internal bool Observe(byte service, int author, ushort cue, uint generation, float age, float now)
+    internal bool Observe(byte service, int author, ushort cue, uint generation, float age, float now, uint epoch = 0)
     {
         if (generation == 0 && cue != 0 || !Finite(age) || age < 0f) return false;
         Entry e = At(service);
-        bool same = e.Observed && e.Author == author && e.ObservedGeneration == generation;
-        if (e.Observed && e.Author == author && generation < e.ObservedGeneration) return false;
+        bool lifetime = e.Observed && e.Author == author && e.ObservedEpoch == epoch;
+        bool same = lifetime && e.ObservedGeneration == generation;
+        if (lifetime && generation < e.ObservedGeneration) return false;
         if (same && (cue != 0 && (age + .001f < e.ObservedAge || e.Ended))) return false;
         if (same && e.Cue != 0 && cue != 0 && cue != e.Cue) return false;
-        e.Author = author; e.Observed = true; e.Generation = generation; e.ObservedGeneration = generation; e.ObservedAge = age;
+        e.Author = author; e.ObservedEpoch = epoch; e.Observed = true; e.Generation = generation; e.ObservedGeneration = generation; e.ObservedAge = age;
         e.Cue = cue; e.Ended = cue == 0;
         if (cue != 0)
         {

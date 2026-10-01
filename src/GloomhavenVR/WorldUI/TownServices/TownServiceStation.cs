@@ -198,6 +198,12 @@ internal sealed class TownServiceStation : IDisposable
 
     internal void PlayTempleBlessing(float elapsed) => _templeBlessing?.Bless(elapsed);
 
+    internal void SampleTempleBlessing(uint epoch, uint generation, float age, bool interactive)
+    {
+        _templeBlessing?.SampleBlessing(epoch, generation, age, interactive);
+        _audio.SampleBlessing(epoch, generation, age, interactive);
+    }
+
     internal bool PrepareActivityAttention(bool wasEngaged)
     {
         if (_faceFailed) return false;
@@ -244,7 +250,7 @@ internal sealed class TownServiceStation : IDisposable
         using var _perf = PerfMonitor.Scope("TownStation.Face");
         if (_faceFailed) return remote;
         try { return _face.Tick(author, received, authorId, in remote, elapsed, clock,
-            _templeBlessing?.BlessingAge ?? float.PositiveInfinity); }
+            _templeBlessing?.BlessingAge ?? float.PositiveInfinity, TownServicePopulation.PerformanceEpoch); }
         catch (Exception error) { FaceFailure(error); return remote; }
     }
     private void FaceFailure(Exception error)

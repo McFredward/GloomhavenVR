@@ -177,10 +177,14 @@ public static class InteractionProgram
         face.BeforeBodySample();
         output=face.Tick(false,true,2,in jittered,.1f,2);
         Near(output.SpeechAge,.2f,"new utterance starts at its authored age");
+        var newLifetime=jittered;newLifetime.SpeechAge=.01f;
+        face.BeforeBodySample();
+        output=face.Tick(false,true,2,in newLifetime,.01f,2,float.PositiveInfinity,12);
+        Near(output.SpeechAge,.02f,"new author epoch can reset an otherwise equal utterance generation");
         float before=output.HeadYaw;face.BeforeBodySample();FaceClock.Now+=.1f;
         output=face.Tick(false,false,2,in remote,0,2.1f);Near(output.HeadYaw,before,"short missing face interval retains head");
         face.BeforeBodySample();FaceClock.Now+=1f;output=face.Tick(false,false,2,in remote,0,3);
-        Check(output.HeadYaw>before&&output.HeadYaw<0,"missing face returns smoothly without observer election");
+        Near(output.HeadYaw,before,"missing face retains authored gaze during packet gaps");
         float beforeHandover=output.HeadYaw;face.Seed(in remote,2,.2f);face.BeforeBodySample();output=face.Tick(true,false,1,in remote,0,3);
         Check(Mathf.Abs(output.HeadYaw-beforeHandover)<1,"authority handover preserves pose before smooth attention change");
         TownServiceFaceSpeech.Curve=null;TownServiceFaceSpeech.Observer=null;TownServiceFaceSpeech.Sampler=null;

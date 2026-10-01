@@ -24,14 +24,16 @@ namespace GloomhavenVR.Rig { internal static class VRRigDriver { internal static
 namespace GloomhavenVR.WorldUI
 {
     internal static class TownServiceRitualLayout { internal static readonly Vector3 Origin=new(0f,.978f,-.08f); }
-    internal static class TownServiceTempleBowl { internal static readonly Vector3 PurseSeat=new(0f,.178f,.26f); }
+    internal static class TownServiceTempleBowl { internal static readonly Vector3 Center=new(0f,.16f,.26f); internal static readonly Vector3 PurseSeat=new(0f,.178f,.26f); }
     internal static class TownServiceDecor { internal static Transform? MoneyBagTemplate; }
     internal sealed class BoolSetting { internal bool Value=true; }
     internal static class WorldUIConfig { internal static readonly BoolSetting ImmersiveTownSoundEffects=new(); }
     internal static class TownServiceAssets
     {
         internal static AudioClip? Coin;
-        internal static AudioClip? Audio(string name) => name == "coin-soft" ? Coin : null;
+        internal static AudioClip? Spell;
+        internal static AudioClip? Audio(string name) => name == "coin-soft" ? Coin
+            : name == "spell-soft-4" ? Spell : null;
     }
     internal static class SkyAlternative {internal static Transform? PlacedRoomRoot=null;}
     // Activity cases use no terrain; actual mesh sampling is covered by workspace/setting suites.

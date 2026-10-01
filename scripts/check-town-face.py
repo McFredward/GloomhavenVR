@@ -48,6 +48,7 @@ def mutations():
         ("epoch-crossing", "RemoteTownFaces.cs", "peer.Latest.Epoch != state.Epoch) return;", "false) return;", "old process cannot mutate new epoch voice"),
         ("stale-face", "RemoteTownFaces.cs", "elapsed > NetProtocol.StaleTimeoutSeconds", "elapsed > float.MaxValue", "stale facial stream expires"),
         ("gaze-through-wall", "TownServiceFaceAttention.cs", " || !Unobstructed(root, eye, point)", "", "native scenery blocks gaze election"),
+        ("gap-elects-local-gaze", "TownServiceFace.cs", "// A packet gap cannot elect a different local gaze.", "else _shown = TownServiceFaceMotion.Aim(_rig.OpticalRotation, _root.lossyScale.x, _rig.HeadPosition, _rig.LeftPosition, _rig.RightPosition, null, in _shown, Time.unscaledDeltaTime); //", "short missing face interval retains head"),
         ("observer-elects-viewer", "TownServiceFace.cs", "if (author)", "if (author || !author)", "remote ignores observer headset"),
         ("fixed-work-gaze", "TownServiceFace.cs", "_workFocus != null ? _workFocus.position : _root.TransformPoint(TownServiceActivityMotion.RestFocus(_service))", "_root.TransformPoint(TownServiceActivityMotion.RestFocus(_service))", "work gaze uses current post-activity contact"),
         ("story-prepare-selects-viewer", "TownServiceFace.cs", "if (StoryComposite.PointOfNoReturn)", "if (StoryComposite.PointOfNoReturn && _service == byte.MaxValue)", "point of no return refuses player-facing resident attention"),

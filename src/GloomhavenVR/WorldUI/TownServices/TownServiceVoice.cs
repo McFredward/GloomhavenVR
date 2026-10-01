@@ -66,6 +66,9 @@ internal static class TownServiceVoice
         internal AudioSource? Source;
         internal ushort Cue;
         internal uint Generation;
+        internal uint Epoch;
+        internal int Author;
+        internal float AuthoredAge;
         internal float LastSeek;
     }
     private static readonly Playback[] Playbacks = { new(), new(), new() };
@@ -231,7 +234,10 @@ internal static class TownServiceVoice
                 if (!remote.Active || remote.Service != service || now - remote.ReceivedTime > NetProtocol.StaleTimeoutSeconds) continue;
                 visiting = true; age = Mathf.Min(age, remote.SessionAge + Mathf.Max(0f, now - remote.ReceivedTime));
             }
-            _schedule.Visit(service, visiting, age, now);
+            // A follower must not accumulate private visit greetings which could
+            // suddenly become audible when authority changes. It observes the
+            // elected author's exact cue instead of scheduling from its own UI.
+            if (TownServicePopulation.IsFaceAuthor) _schedule.Visit(service, visiting, age, now);
         }
         if (now < _nextContext) return;
         _nextContext = now + .1f;
@@ -292,7 +298,8 @@ internal static class TownServiceVoice
         if (service < 1 || service > 3 || head == null || cue != 0 && !Valid(service, cue)) return;
         if (StoryComposite.PointOfNoReturn) { SilenceForStory(); return; }
         Refresh();
-        if (!_schedule.Observe(service, author, cue, generation, age, Time.unscaledTime)) return;
+        uint epoch = TownServicePopulation.PerformanceEpoch;
+        if (!_schedule.Observe(service, author, cue, generation, age, Time.unscaledTime, epoch)) return;
         Playback playback = Playbacks[service - 1];
         string ear = Ears[service - 1];
         if (cue == 0)
@@ -334,7 +341,9 @@ internal static class TownServiceVoice
         if (service == 2) speechGain *= 1.30f;
         source.volume = _disabled || _narration || !WorldUIConfig.ImmersiveTownSpeech.Value
             ? 0f : _volume * speechGain;
-        bool different = playback.Cue != cue || playback.Generation != generation;
+        bool lifetimeChanged = playback.Author != author || playback.Epoch != epoch;
+        bool different = playback.Cue != cue || playback.Generation != generation
+            || lifetimeChanged && age + .001f < playback.AuthoredAge;
         if (different)
         {
             source.Stop(); source.clip = clip;
@@ -348,6 +357,9 @@ internal static class TownServiceVoice
             source.time = Mathf.Clamp(age, 0f, Mathf.Max(0f, clip.length - .001f));
             playback.LastSeek = Time.unscaledTime;
         }
+        // Authority handover may adopt the same still-playing take. Keep it
+        // continuous; a reset event age in a new lifetime is a new performance.
+        playback.Author = author; playback.Epoch = epoch; playback.AuthoredAge = age;
     }
 
     internal static void Reset()
@@ -356,7 +368,7 @@ internal static class TownServiceVoice
         {
             Playback playback = Playbacks[i];
             if (playback.Source != null) { playback.Source.Stop(); Object.Destroy(playback.Source.gameObject); playback.Source = null; }
-            playback.Cue = 0; playback.Generation = 0; playback.LastSeek = 0f;
+            playback.Cue = 0; playback.Generation = 0; playback.Epoch = 0; playback.Author = 0; playback.AuthoredAge = 0f; playback.LastSeek = 0f;
             HeadEar.Release(Ears[i]);
         }
         _schedule = new TownServiceVoiceSchedule();

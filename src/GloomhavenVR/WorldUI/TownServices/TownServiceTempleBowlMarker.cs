@@ -17,6 +17,10 @@ internal sealed class TownServiceTempleBowlMarker : IDisposable
     private Light? _blessingLight;
     private float _blessingStartedAt = float.NegativeInfinity;
     private bool _blessingFinished = true;
+    private uint _blessingEpoch, _blessingGeneration;
+    private bool _blessingPending;
+    private float _blessingSampleAge;
+    private const float BlessingStepSeconds = .02f;
     private Material? _blessingMaterial;
     private Texture2D? _blessingTexture;
     private GameObject? _bag;
@@ -78,7 +82,10 @@ internal sealed class TownServiceTempleBowlMarker : IDisposable
         }
         _visibility = Mathf.MoveTowards(_visibility, shown ? 1f : 0f, Time.unscaledDeltaTime / .12f);
         float pulse = .96f + .06f * Mathf.Sin(Time.unscaledTime * 4f) + .09f * approach;
-        _root.transform.localScale = Vector3.one * pulse;
+        // The permanent marker owns particles, not a visible destination guide.
+        // Scaling it with this client's time moved the same seeded blessing
+        // through different positions on every headset.
+        _root.transform.localScale = _ownsBlessing ? Vector3.one : Vector3.one * pulse;
         foreach (Material material in _materials)
             if (material != null && material.HasProperty("_Color"))
             {
@@ -121,9 +128,64 @@ internal sealed class TownServiceTempleBowlMarker : IDisposable
             // age may already be past the final mote, so leave this phase clear in that case.
             if (_blessingFinished) continue;
             phase.randomSeed = 0x475652u + (uint)(i * 917);
+            phase.useAutoRandomSeed = false;
+            if (age > 0f) phase.Simulate(age, true, true, true);
             phase.Play(true);
-            if (age > 0f) phase.Simulate(age, true, false, true);
         }
+    }
+
+    /// <summary>Replay the resident author's durable event, including late asset
+    /// readiness. A revision is not consumed until its particle systems exist;
+    /// repeated snapshots never restart the same gesture at age zero.</summary>
+    internal void SampleBlessing(uint epoch, uint generation, float age, bool interactive)
+    {
+        if (!_ownsBlessing) return;
+        bool fresh = epoch != _blessingEpoch || generation != _blessingGeneration;
+        if (fresh)
+        {
+            _blessingEpoch = epoch; _blessingGeneration = generation;
+            _blessingPending = generation != 0;
+        }
+        if (!interactive || generation == 0 || float.IsNaN(age) || float.IsInfinity(age)
+            || age < 0f || age >= TownServiceActivityMotion.TempleBlessingVisualSeconds)
+        {
+            _blessingPending = false;
+            _blessingStartedAt = float.NegativeInfinity;
+            if (_blessingLight != null) { _blessingLight.intensity = 0f; _blessingLight.enabled = false; }
+            if (!_blessingFinished)
+            {
+                _blessingFinished = true;
+                _blessing?.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
+                _halo?.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
+                _falling?.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
+                _outward?.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
+            }
+            return;
+        }
+        if (_blessing == null || _halo == null || _falling == null || _outward == null)
+            return; // Tick may construct native decoration later; keep the event pending.
+        float sampledAge = Mathf.Floor(age / BlessingStepSeconds) * BlessingStepSeconds;
+        if (_blessingPending || sampledAge + BlessingStepSeconds < _blessingSampleAge)
+        {
+            Bless(sampledAge);
+            _blessingPending = false;
+            _blessingSampleAge = sampledAge;
+            _blessing.Pause(true); _halo.Pause(true); _falling.Pause(true); _outward.Pause(true);
+        }
+        else if (sampledAge >= _blessingSampleAge + BlessingStepSeconds - .0001f)
+        {
+            // Run the same fixed simulation steps on the elected author and every
+            // observer. Unity's automatic per-frame particle tick uses different
+            // deltas on different headsets even with the same seed and event age.
+            float delta = sampledAge - _blessingSampleAge;
+            _blessing.Simulate(delta, true, false, true);
+            _halo.Simulate(delta, true, false, true);
+            _falling.Simulate(delta, true, false, true);
+            _outward.Simulate(delta, true, false, true);
+            _blessingSampleAge = sampledAge;
+        }
+        // The light and facial response use the same author age even between seeks.
+        _blessingStartedAt = Time.unscaledTime - age;
     }
 
     private static Material GhostMaterial(Material source)

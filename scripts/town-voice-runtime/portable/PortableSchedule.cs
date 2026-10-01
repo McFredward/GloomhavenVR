@@ -118,6 +118,14 @@ internal static class PortableSchedule
         Check(otherResident.At(2).PendingCue is >= 6 and <= 10,
             "priestess native greeting remains on its existing visit edge");
 
+        var epochAware=new TownServiceVoiceSchedule();
+        Check(epochAware.Observe(1,7,16,9,.2f,4f,11),
+            "first authority epoch accepts its utterance");
+        Check(!epochAware.Observe(1,7,16,8,.3f,4.1f,11),
+            "same epoch rejects an older utterance");
+        Check(epochAware.Observe(1,7,17,1,.1f,4.2f,12),
+            "returning player with a new authority epoch can start low generations");
+
         Console.WriteLine($"PASS merchant gaze voice scheduling: {_checks} assertions");
     }
 }

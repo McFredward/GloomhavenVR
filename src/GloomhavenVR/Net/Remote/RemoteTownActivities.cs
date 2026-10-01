@@ -109,6 +109,9 @@ internal static class RemoteTownActivities
         // Reconcile the author's samples with the same packet span as the body.
         state.MerchantOfferingBlend = Mathf.Lerp(peer.Previous.MerchantOfferingBlend,
             peer.Latest.MerchantOfferingBlend, t);
+        if (state.HasSharedPerformance)
+            state.TempleUnavailableBlend = Mathf.Lerp(peer.Previous.TempleUnavailableBlend,
+                peer.Latest.TempleUnavailableBlend, t);
         state.Clock += elapsed;
         return state;
     }

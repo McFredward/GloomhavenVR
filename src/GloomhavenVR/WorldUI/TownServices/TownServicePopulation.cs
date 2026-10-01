@@ -21,7 +21,8 @@ internal static class TownServicePopulation
         private readonly Queue<(int Owner, uint Session)> _order = new();
 
         internal bool Observe(bool received, int owner, uint session, bool known,
-            bool available, uint revision)
+            bool available, uint revision, float commitAge = float.PositiveInfinity,
+            bool hasCommitAge = false)
         {
             if (!received || owner <= 0 || session == 0) return false;
             var key = (owner, session);
@@ -30,7 +31,13 @@ internal static class TownServicePopulation
                 _seen.Add(key, revision);
                 _order.Enqueue(key);
                 if (_order.Count > 64) _seen.Remove(_order.Dequeue());
-                return false;
+                // A first manifest can already contain the donation: the native
+                // callback may win the race with its initial availability packet.
+                // Only the explicit committed event clock permits replay here;
+                // an unavailable character or a saved revision is not an event.
+                return known && revision != 0 && hasCommitAge && !float.IsNaN(commitAge)
+                    && !float.IsInfinity(commitAge) && commitAge >= 0f
+                    && commitAge < TownServiceActivityMotion.TempleBlessingVisualSeconds;
             }
             bool committed = known && unchecked((int)(revision - previous)) > 0;
             if (committed) _seen[key] = revision;
@@ -52,6 +59,8 @@ internal static class TownServicePopulation
         internal bool TempleUnavailableSpoken;
         internal bool TempleAvailabilityObserved;
         internal float TempleBlessingStartedAt = float.NegativeInfinity;
+        internal float TempleBlessingStartedClock;
+        internal uint TempleBlessingGeneration;
         internal bool ObservedActivity;
         internal readonly TownServiceActivityHandover Handover = new();
         internal TownServiceVisitTarget Visit = null!;
@@ -64,6 +73,7 @@ internal static class TownServicePopulation
     internal static TownFaceState PublishedFaces { get; private set; }
     internal static TownActivityState PublishedActivities { get; private set; }
     internal static bool IsFaceAuthor { get; private set; }
+    internal static uint PerformanceEpoch { get; private set; }
     private static uint _faceSequence, _faceEpoch;
     private static float _faceClock, _lastRemoteFaceTime = float.NegativeInfinity;
     internal static bool Available(byte service) => TownServiceAvailability.NativeUnlocked(service)
@@ -145,6 +155,7 @@ internal static class TownServicePopulation
             _faceEpoch = unchecked((uint)System.Guid.NewGuid().GetHashCode());
             if (_faceEpoch == 0) _faceEpoch = 1;
         }
+        PerformanceEpoch = hasActivity ? remoteActivity.Epoch : IsFaceAuthor ? _faceEpoch : PerformanceEpoch;
         TownFaceState seed = default;
         int seedAuthor = 0;
         float seedElapsed = 0f;
@@ -155,10 +166,19 @@ internal static class TownServicePopulation
             _faceClock = seed.Clock;
         var faces = new TownFaceState { Active = enabled, Epoch = _faceEpoch,
             Sequence = unchecked(++_faceSequence), Clock = _faceClock };
-        var activities = new TownActivityState { Active = enabled, Epoch = _faceEpoch, Sequence = _faceSequence, Clock = _faceClock };
+        var activities = new TownActivityState { Active = enabled, Epoch = _faceEpoch, Sequence = _faceSequence, Clock = _faceClock,
+            HasSharedPerformance = true, Interactive = interactive };
+        bool sharedInteractive = hasActivity && remoteActivity.HasSharedPerformance
+            ? remoteActivity.Interactive : interactive;
         TownActivityState activitySeed = default;
         bool seedActivity = IsFaceAuthor && !wasFaceAuthor && RemoteTownActivities.TrySeed(out activitySeed, out _, out _);
         var published = new TownResidentsState { Active = enabled };
+        // A locked resident is an invisible entry, not an invalid quaternion/scale.
+        // TLV79 validates all three entries; default zero geometry silently dropped
+        // the whole authority record in campaigns with an unopened service.
+        for (int index = 0; index < 3; index++)
+            published.Set(index, new TownResidentPose
+            { Pose = new RigPose { Rotation = Quaternion.identity }, Scale = 1f });
         bool retry = now >= _retryAt;
         bool missing = false;
         for (byte service = 1; service <= 3; service++)
@@ -274,118 +294,141 @@ internal static class TownServicePopulation
             }
             else if (service == 2)
             {
-                TownServiceMirror.TryTemplePresentationState(out bool received, out bool anyCanDonate);
-                TownServiceMirror.CollectTempleDonationStates(TempleDonationStates);
-                bool donationCommitted = false;
-                float transitionAge = float.PositiveInfinity;
-                foreach (TownTempleDonationState state in TempleDonationStates)
-                    if (resident.TempleBlessing.Observe(true, state.Peer, state.Session,
-                        state.Known, state.Available, state.Revision))
+                if (seedActivity)
+                {
+                    resident.TempleUnavailableBlend = activitySeed.TempleUnavailableBlend;
+                    resident.TempleBlessingGeneration = activitySeed.TempleBlessingGeneration;
+                    resident.TempleBlessingStartedClock = activitySeed.TempleBlessingStartedClock;
+                }
+                if (IsFaceAuthor)
+                {
+                    TownServiceMirror.TryTemplePresentationState(out bool received, out bool anyCanDonate);
+                    TownServiceMirror.CollectTempleDonationStates(TempleDonationStates);
+                    bool donationCommitted = false;
+                    float transitionAge = float.PositiveInfinity;
+                    foreach (TownTempleDonationState state in TempleDonationStates)
+                        if (resident.TempleBlessing.Observe(true, state.Peer, state.Session,
+                            state.Known, state.Available, state.Revision, state.TransitionAge, state.HasCommitAge))
+                        {
+                            donationCommitted = true;
+                            transitionAge = Mathf.Min(transitionAge, state.TransitionAge);
+                        }
+                    if (donationCommitted)
                     {
-                        donationCommitted = true;
-                        transitionAge = Mathf.Min(transitionAge, state.TransitionAge);
+                        // The native donation callback requests her gratitude. Availability also
+                        // flips to false on the same update; treating that edge as a new refusal
+                        // used to replace the gratitude with "you cannot donate again".
+                        // Reserve the refusal for a later visit after she has returned to prayer.
+                        resident.TempleUnavailableSpoken = true;
+                        resident.TempleBlessingStartedAt = now - transitionAge;
+                        resident.TempleBlessingStartedClock = _faceClock - transitionAge;
+                        if (resident.TempleBlessingGeneration != uint.MaxValue) resident.TempleBlessingGeneration++;
+                        if (interactive) TownServiceVoice.RequestReaction(2, TownVoiceReaction.PriestessDonate);
                     }
-                if (donationCommitted)
-                {
-                    // The native donation callback requests her gratitude. Availability also
-                    // flips to false on the same update; treating that edge as a new refusal
-                    // used to replace the gratitude with "you cannot donate again".
-                    // Reserve the refusal for a later visit after she has returned to prayer.
-                    resident.TempleUnavailableSpoken = true;
-                    resident.TempleBlessingStartedAt = now - transitionAge;
-                    if (interactive) resident.Station.PlayTempleBlessing(transitionAge);
+                    // The private window may already be unavailable when first hydrated. Its
+                    // revision is a baseline, not evidence that this viewer witnessed a donation.
+                    // The unavailable pose belongs to the permanent resident, so removal of the
+                    // temporary interaction record must release it over the same analytic transition
+                    // as attention. Resetting this value to zero produced the recorded one-frame
+                    // bowl-cover -> prayer snap every time the visitor walked away.
+                    // All visitors see one bowl. It stays open while any visitor's character
+                    // can donate; a different local character's purse remains individually
+                    // disabled by the original native TempleEligible check in TownServiceRitual.
+                    // Unknown fresh eligibility is treated as open until its owner publishes.
+                    bool unavailable = interactive && received && !anyCanDonate;
+                    float blessingAge = now - resident.TempleBlessingStartedAt;
+                    // Build 596 Frame: the native donation completed and raised Prosperity,
+                    // but the priestess's hand appeared to freeze over the bowl. The revision
+                    // starts a 2.45 s gesture with motes lasting up to 4.20 s; availability
+                    // flips on the same callback. Previously that flip moved the underlying
+                    // pose to its permanent bowl cover *during* the gesture, so the gesture
+                    // ended directly on a still hand and its fading motes. Finish the full
+                    // authored visual first, then ease into the existing unavailable pose.
+                    // Story/reward windows do not reset this owner clock or the shared pose.
+                    bool blessingVisible = blessingAge >= 0f
+                        && blessingAge < TownServiceActivityMotion.TempleBlessingVisualSeconds;
+                    bool coverUnavailable = unavailable && !blessingVisible;
+                    // If the first state seen on approach is already unavailable, attention must
+                    // travel directly from prayer to the covered bowl. Ramping a second blend from
+                    // zero made the first half of the entrance visibly pass through the available
+                    // hands-down pose. A live availability change while she is already attending
+                    // still uses the ordinary smooth transition, as does every departure.
+                    // A private window can hydrate after attention has already become visible.
+                    // Jumping its cover weight to one at that point produces a one-frame arm snap.
+                    // Only choose the direct prayer-to-cover path before attention starts; a late
+                    // baseline blends from the pose already on screen.
+                    if (coverUnavailable && !resident.TempleAvailabilityObserved)
+                    {
+                        resident.TempleDirectCover = displayedActivity.Attention <= .05f;
+                        resident.TempleHydratingCover = !resident.TempleDirectCover;
+                    }
+                    if (received) resident.TempleAvailabilityObserved = true;
+                    if (coverUnavailable && resident.TempleDirectCover)
+                        resident.TempleUnavailableBlend = 1f;
+                    else if (coverUnavailable && resident.TempleHydratingCover)
+                        resident.TempleUnavailableBlend = Mathf.MoveTowards(resident.TempleUnavailableBlend,
+                            1f, Time.unscaledDeltaTime / TownServiceActivityMotion.TransitionSeconds);
+                    else if (coverUnavailable)
+                    {
+                        // Only a native committed donation has a shared author timestamp.
+                        // Character selection, affordability and saved state can change
+                        // availability without a donation revision. Those changes must
+                        // ease from the visible pose rather than treating an absent age
+                        // as infinity and snapping the arm onto the bowl in one frame.
+                        float committedAge = now - resident.TempleBlessingStartedAt;
+                        resident.TempleUnavailableBlend = committedAge >= 0f
+                            && committedAge <= TownServiceActivityMotion.TransitionSeconds + .15f
+                                ? Mathf.Clamp01(committedAge / TownServiceActivityMotion.TransitionSeconds)
+                                : Mathf.MoveTowards(resident.TempleUnavailableBlend, 1f,
+                                    Time.unscaledDeltaTime / TownServiceActivityMotion.TransitionSeconds);
+                    }
+                    else if (received || displayedActivity.Attention <= .001f)
+                    {
+                        resident.TempleDirectCover = false;
+                        resident.TempleHydratingCover = false;
+                        resident.TempleUnavailableBlend = Mathf.MoveTowards(resident.TempleUnavailableBlend,
+                            0f,
+                            Time.unscaledDeltaTime / TownServiceActivityMotion.TransitionSeconds);
+                    }
+                    // A disappearing private manifest is ambiguous while attention is still
+                    // returning: it can be an ordinary departure or a one-frame native window
+                    // rebuild. Keep the last cover contribution and let the already analytic
+                    // attention fade carry it to prayer. At neutral, the branch above clears it
+                    // before any later available visit can start.
+                    if (displayedActivity.Attention < .10f || !interactive)
+                        resident.TempleUnavailableSpoken = false;
+                    else if (unavailable && IsFaceAuthor && displayedActivity.Attention >= .35f
+                        && !resident.TempleUnavailableSpoken)
+                    {
+                        resident.TempleUnavailableSpoken = true;
+                        TownServiceVoice.RequestReaction(2, TownVoiceReaction.PriestessUnavailable);
+                    }
+                    if (displayedActivity.Attention <= .001f)
+                        resident.TempleAvailabilityObserved = false;
                 }
-                // The private window may already be unavailable when first hydrated. Its
-                // revision is a baseline, not evidence that this viewer witnessed a donation.
-                // The unavailable pose belongs to the permanent resident, so removal of the
-                // temporary interaction record must release it over the same analytic transition
-                // as attention. Resetting this value to zero produced the recorded one-frame
-                // bowl-cover -> prayer snap every time the visitor walked away.
-                // All visitors see one bowl. It stays open while any visitor's character
-                // can donate; a different local character's purse remains individually
-                // disabled by the original native TempleEligible check in TownServiceRitual.
-                // Unknown fresh eligibility is treated as open until its owner publishes.
-                bool unavailable = interactive && received && !anyCanDonate;
-                float blessingAge = now - resident.TempleBlessingStartedAt;
-                // Build 596 Frame: the native donation completed and raised Prosperity,
-                // but the priestess's hand appeared to freeze over the bowl. The revision
-                // starts a 2.45 s gesture with motes lasting up to 4.20 s; availability
-                // flips on the same callback. Previously that flip moved the underlying
-                // pose to its permanent bowl cover *during* the gesture, so the gesture
-                // ended directly on a still hand and its fading motes. Finish the full
-                // authored visual first, then ease into the existing unavailable pose.
-                // Story/reward windows do not reset this owner clock or the shared pose.
-                bool blessingVisible = blessingAge >= 0f
-                    && blessingAge < TownServiceActivityMotion.TempleBlessingVisualSeconds;
-                bool coverUnavailable = unavailable && !blessingVisible;
-                // If the first state seen on approach is already unavailable, attention must
-                // travel directly from prayer to the covered bowl. Ramping a second blend from
-                // zero made the first half of the entrance visibly pass through the available
-                // hands-down pose. A live availability change while she is already attending
-                // still uses the ordinary smooth transition, as does every departure.
-                // A private window can hydrate after attention has already become visible.
-                // Jumping its cover weight to one at that point produces a one-frame arm snap.
-                // Only choose the direct prayer-to-cover path before attention starts; a late
-                // baseline blends from the pose already on screen.
-                if (coverUnavailable && !resident.TempleAvailabilityObserved)
+                else if (hasActivity && remoteActivity.HasSharedPerformance)
                 {
-                    resident.TempleDirectCover = displayedActivity.Attention <= .05f;
-                    resident.TempleHydratingCover = !resident.TempleDirectCover;
+                    resident.TempleUnavailableBlend = remoteActivity.TempleUnavailableBlend;
+                    resident.TempleBlessingGeneration = remoteActivity.TempleBlessingGeneration;
+                    resident.TempleBlessingStartedClock = remoteActivity.TempleBlessingStartedClock;
                 }
-                if (received) resident.TempleAvailabilityObserved = true;
-                if (coverUnavailable && resident.TempleDirectCover)
-                    resident.TempleUnavailableBlend = 1f;
-                else if (coverUnavailable && resident.TempleHydratingCover)
-                    resident.TempleUnavailableBlend = Mathf.MoveTowards(resident.TempleUnavailableBlend,
-                        1f, Time.unscaledDeltaTime / TownServiceActivityMotion.TransitionSeconds);
-                else if (coverUnavailable)
-                {
-                    // Only a native committed donation has a shared author timestamp.
-                    // Character selection, affordability and saved state can change
-                    // availability without a donation revision. Those changes must
-                    // ease from the visible pose rather than treating an absent age
-                    // as infinity and snapping the arm onto the bowl in one frame.
-                    float committedAge = now - resident.TempleBlessingStartedAt;
-                    resident.TempleUnavailableBlend = committedAge >= 0f
-                        && committedAge <= TownServiceActivityMotion.TransitionSeconds + .15f
-                            ? Mathf.Clamp01(committedAge / TownServiceActivityMotion.TransitionSeconds)
-                            : Mathf.MoveTowards(resident.TempleUnavailableBlend, 1f,
-                                Time.unscaledDeltaTime / TownServiceActivityMotion.TransitionSeconds);
-                }
-                else if (received || displayedActivity.Attention <= .001f)
-                {
-                    resident.TempleDirectCover = false;
-                    resident.TempleHydratingCover = false;
-                    resident.TempleUnavailableBlend = Mathf.MoveTowards(resident.TempleUnavailableBlend,
-                        0f,
-                        Time.unscaledDeltaTime / TownServiceActivityMotion.TransitionSeconds);
-                }
-                // A disappearing private manifest is ambiguous while attention is still
-                // returning: it can be an ordinary departure or a one-frame native window
-                // rebuild. Keep the last cover contribution and let the already analytic
-                // attention fade carry it to prayer. At neutral, the branch above clears it
-                // before any later available visit can start.
+                float sharedBlessingAge = resident.TempleBlessingGeneration == 0
+                    ? float.PositiveInfinity : _faceClock - resident.TempleBlessingStartedClock;
+                resident.TempleBlessingStartedAt = now - sharedBlessingAge;
                 TownServiceActivityMotion.ApplyTempleAvailability(ref displayedActivity,
-                    !coverUnavailable, resident.TempleUnavailableBlend);
-                if (interactive)
-                    TownServiceActivityMotion.ApplyTempleBlessing(ref displayedActivity,
-                        now - resident.TempleBlessingStartedAt);
-                TownServiceActivityMotion.ApplyTempleBreath(ref displayedActivity,
-                    hasActivity ? remoteActivity.Clock + activityElapsed : _faceClock);
-                if (displayedActivity.Attention < .10f || !interactive)
-                    resident.TempleUnavailableSpoken = false;
-                else if (unavailable && IsFaceAuthor && displayedActivity.Attention >= .35f
-                    && !resident.TempleUnavailableSpoken)
-                {
-                    resident.TempleUnavailableSpoken = true;
-                    TownServiceVoice.RequestReaction(2, TownVoiceReaction.PriestessUnavailable);
-                }
-                if (displayedActivity.Attention <= .001f)
-                    resident.TempleAvailabilityObserved = false;
+                    resident.TempleUnavailableBlend <= 0f, resident.TempleUnavailableBlend);
+                if (sharedInteractive)
+                    TownServiceActivityMotion.ApplyTempleBlessing(ref displayedActivity, sharedBlessingAge);
+                TownServiceActivityMotion.ApplyTempleBreath(ref displayedActivity, _faceClock);
+                resident.Station.SampleTempleBlessing(sourceEpoch, resident.TempleBlessingGeneration,
+                    sharedBlessingAge, sharedInteractive);
+                activities.TempleUnavailableBlend = resident.TempleUnavailableBlend;
+                activities.TempleBlessingGeneration = resident.TempleBlessingGeneration;
+                activities.TempleBlessingStartedClock = resident.TempleBlessingStartedClock;
             }
             resident.Station.SampleActivity(in displayedActivity);
             resident.Station.SampleActivityAudio(faceAuthor, sourceEpoch, resident.Activity.WorkClock,
-                interactive && used && ready && resident.Visibility >= .99f, in displayedActivity,
+                sharedInteractive && used && ready && resident.Visibility >= .99f, in displayedActivity,
                 lookingAtVisitor);
             activities.Set(service - 1, resident.Activity);
             remotePose = displayedFace;
@@ -420,6 +463,7 @@ internal static class TownServicePopulation
     internal static void Reset()
     {
         Published = default; PublishedFaces = default; PublishedActivities = default; IsFaceAuthor = false;
+        PerformanceEpoch = 0;
         _faceClock = 0f; _lastRemoteFaceTime = float.NegativeInfinity;
         if (_frame == null && Residents.Count == 0) return;
         TownServiceFaceSpeech.ResetObserver?.Invoke();

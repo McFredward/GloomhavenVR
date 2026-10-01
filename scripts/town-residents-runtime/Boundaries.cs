@@ -133,6 +133,13 @@ namespace GloomhavenVR.WorldUI
         internal void Sample(string clip,float age) { Clip=clip;Age=age; }
         internal int Blessings; internal float LastBlessingAge;
         internal void PlayTempleBlessing(float elapsed) { Blessings++;LastBlessingAge=elapsed; }
+        private uint _blessingGeneration;
+        internal void SampleTempleBlessing(uint epoch,uint generation,float age,bool interactive)
+        {
+            if(!interactive||generation==0||age<0f||age>=TownServiceActivityMotion.TempleBlessingVisualSeconds)return;
+            if(generation!=_blessingGeneration){_blessingGeneration=generation;Blessings++;}
+            LastBlessingAge=age;
+        }
         internal void Dispose() { Live.Remove(Service);Disposals++; }
     }
     internal sealed class TownServiceVisitTarget
@@ -158,8 +165,9 @@ namespace GloomhavenVR.Net.TownServices
         internal readonly bool Known, Available;
         internal readonly uint Revision;
         internal readonly float TransitionAge;
-        internal TownTempleDonationState(int peer,uint session,bool known,bool available,uint revision,float transitionAge)
-        { Peer=peer;Session=session;Known=known;Available=available;Revision=revision;TransitionAge=transitionAge; }
+        internal readonly bool HasCommitAge;
+        internal TownTempleDonationState(int peer,uint session,bool known,bool available,uint revision,float transitionAge,bool hasCommitAge=false)
+        { Peer=peer;Session=session;Known=known;Available=available;Revision=revision;TransitionAge=transitionAge;HasCommitAge=hasCommitAge; }
     }
     internal sealed class TownServiceSessionInfo
     { internal bool Active;internal byte Service;internal float ReceivedTime,LastSeenTime,SessionAge;internal int Peer; }
@@ -217,36 +225,28 @@ namespace GloomhavenVR.Net
 {
     using UnityEngine;
     internal static class NetPlayerActors { internal static int Local=10; internal static int LocalPlayerId()=>Local; }
-    internal static class NetProtocol { internal const float StaleTimeoutSeconds=3; internal const byte ExtIdTownResidents=79; }
+    internal static class NetProtocol { internal const float StaleTimeoutSeconds=3; internal const byte ExtIdTownResidents=79,ExtIdTownActivity=81,ExtIdTownFace=80,MsgTownActivity=22,MsgTownFace=21,Version=3; internal const uint Magic=0x47565231; }
     internal struct RigPose { internal Vector3 Position; internal Quaternion Rotation; }
     internal struct PresenceState { internal bool TownActivityRecordSeen; internal bool HasTownActivity;internal TownActivityState TownActivity;internal bool HasTownFace;internal TownFaceState TownFace; internal bool HasTownResidents; internal TownResidentsState TownResidents; }
-    // Serialization is independently covered by golden wire tests. Any accidental use here fails.
+    // Codec mechanics are elementary byte operations. Production validators,
+    // writers/readers and packet framing below execute unchanged, not a Valid=true stub.
     internal static class AvatarSerializer
     {
-        internal static void WritePoseShared(byte[] b,ref int o,in RigPose p)=>throw new Exception("Unexpected codec boundary");
-        internal static void WriteF32(byte[] b,ref int o,float p)=>throw new Exception("Unexpected codec boundary");
-        internal static short ReadI16(byte[] b,ref int o)=>throw new Exception("Unexpected codec boundary");
-        internal static float ReadF32(byte[] b,ref int o)=>throw new Exception("Unexpected codec boundary");
-        internal static void ReadPoseShared(byte[] b,ref int o,out RigPose p)=>throw new Exception("Unexpected codec boundary");
+        internal static void WritePoseShared(byte[] b,ref int o,in RigPose p)=>throw new Exception("Unused resident codec boundary");
+        internal static void WriteF32(byte[] b,ref int o,float v){BitConverter.GetBytes(v).CopyTo(b,o);o+=4;}
+        internal static void WriteU32(byte[] b,ref int o,uint v){BitConverter.GetBytes(v).CopyTo(b,o);o+=4;}
+        internal static void WriteI16(byte[] b,ref int o,short v){BitConverter.GetBytes(v).CopyTo(b,o);o+=2;}
+        internal static short ReadI16(byte[] b,ref int o){short v=BitConverter.ToInt16(b,o);o+=2;return v;}
+        internal static uint ReadU32(byte[] b,ref int o){uint v=BitConverter.ToUInt32(b,o);o+=4;return v;}
+        internal static float ReadF32(byte[] b,ref int o){float v=BitConverter.ToSingle(b,o);o+=4;return v;}
+        internal static void ReadPoseShared(byte[] b,ref int o,out RigPose p)=>throw new Exception("Unused resident codec boundary");
     }
+    internal static class NetPacket
+    { internal static byte PeekType(byte[] b,int count)=>count>=6&&BitConverter.ToUInt32(b,0)==NetProtocol.Magic&&b[4]==NetProtocol.Version?b[5]:(byte)0; }
+
 }
 
 namespace GloomhavenVR.WorldUI { internal static class TownServiceFaceSpeech { internal static System.Action? ResetObserver {get;set;} } }
-namespace GloomhavenVR.Net
-{
-    internal struct TownFacePose { internal float HeadYaw; }
-    internal struct TownFaceState { internal bool Active;internal uint Epoch,Sequence;internal float Clock;private TownFacePose _m,_t,_e;internal TownFacePose At(int index)=>index==0?_m:index==1?_t:_e;internal void Set(int index,TownFacePose pose){if(index==0)_m=pose;else if(index==1)_t=pose;else _e=pose;} }
-    internal static class RemoteTownFaces
-    {
-        private static readonly Dictionary<int,TownFaceState> States=new();
-        internal static bool Sample(int player,out TownFaceState state,out float elapsed){elapsed=0;return States.TryGetValue(player,out state);}
-        internal static void ObservePresence(int player,in TownFaceState state){States[player]=state;}
-        internal static bool TrySeed(out TownFaceState state,out int author,out float elapsed){foreach(var pair in States){author=pair.Key;elapsed=0;state=pair.Value;return true;}state=default;author=0;elapsed=0;return false;}
-        internal static void Forget(int player)=>States.Remove(player);
-        internal static void Reset()=>States.Clear();
-    }
-}
-
 // The analytic phase and real IK have their own Unity production fixture. This boundary
 // isolates resident lifetime/authority routing from cosmetic pose details.
 namespace GloomhavenVR.WorldUI
@@ -257,20 +257,6 @@ namespace GloomhavenVR.WorldUI
             => new GloomhavenVR.Net.TownFacePose{HeadYaw=UnityEngine.Mathf.Lerp(a.HeadYaw,b.HeadYaw,t)};
     }
 }
-namespace GloomhavenVR.Net
-{
-    internal static class RemoteTownActivities
-    {
-        internal static bool KnownPair(int peer)=>false;
-        internal static bool Sample(int peer,out TownActivityState state,out float elapsed){state=default;elapsed=0;return false;}
-        internal static bool TrySeed(out TownActivityState state,out int author,out float elapsed){state=default;author=0;elapsed=0;return false;}
-        internal static void ObservePresence(int peer,in TownActivityState state){}
-        internal static void Forget(int peer){} internal static void Reset(){}
-    }
-}
-
-namespace GloomhavenVR.Net { internal static class RemoteTownPerformance { internal static bool Observe(int peer,in TownActivityState a,in TownFaceState f,bool presence){RemoteTownFaces.ObservePresence(peer,in f);return true;} } }
-
 // Rendering/template lifetime is covered by the real Unity mirror suite. Population
 // owns only these lifecycle calls; record them here without emulating render state.
 namespace GloomhavenVR.Net.TownServices

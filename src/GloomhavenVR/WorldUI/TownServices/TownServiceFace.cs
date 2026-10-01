@@ -16,8 +16,8 @@ internal sealed class TownServiceFace
     private readonly TownServiceFaceRig _rig;
     private readonly TownServiceFaceAttention _attention = new();
     private TownFacePose _shown;
-    private float _lastRemote;
     private int _shownAuthor;
+    private uint _shownEpoch;
     private bool _hasRemote;
     private bool _prepared;
     private bool _preparedEngaged, _workFocusBound;
@@ -78,7 +78,7 @@ internal sealed class TownServiceFace
         TownServiceFaceSpeech.Observer?.Invoke(_service, author, _shown.Cue, _shown.Generation, _shown.SpeechAge, _rig.Head);
     }
     internal TownFacePose Tick(bool author, bool received, int authorId, in TownFacePose remote, float elapsed, float clock,
-        float blessingAge = float.PositiveInfinity)
+        float blessingAge = float.PositiveInfinity, uint epoch = 0)
     {
         Vector3 mouth;
         if (author)
@@ -112,22 +112,24 @@ internal sealed class TownServiceFace
         {
             TownFacePose previous = _shown;
             int previousAuthor = _shownAuthor;
+            uint previousEpoch = _shownEpoch;
             if (received)
-            { _shown = remote; _hasRemote = true; _shownAuthor = authorId; _lastRemote = Time.unscaledTime; }
-            else if (Time.unscaledTime - _lastRemote > .25f)
-                _shown = TownServiceFaceMotion.Aim(_rig.OpticalRotation, _root.lossyScale.x,
-                    _rig.HeadPosition, _rig.LeftPosition, _rig.RightPosition, null, in _shown, Time.unscaledDeltaTime);
+            { _shown = remote; _hasRemote = true; _shownAuthor = authorId; }
+            // A packet gap cannot elect a different local gaze. The resident
+            // authority gate owns expiry; retain its last head/eye pose while
+            // expressions continue on the shared clock until that gate changes.
             _shown.SpeechAge = Mathf.Min(3600f, _shown.SpeechAge + (received ? elapsed : Time.unscaledDeltaTime));
             // A newly received sample may be slightly older than the mouth pose
             // already displayed from the prior packet. Audio ignores that rewind;
             // keep the same cue's visual age monotonic so lips cannot snap backward.
-            if (received && authorId == previousAuthor && _shown.Cue != 0
+            if (received && authorId == previousAuthor && epoch == previousEpoch && _shown.Cue != 0
                 && _shown.Cue == previous.Cue && _shown.Generation == previous.Generation)
                 _shown.SpeechAge = Mathf.Max(_shown.SpeechAge, previous.SpeechAge);
             mouth = TownServiceFaceSpeech.Curve != null
                 ? TownServiceFaceSpeech.Curve(_service, _shown.Cue, _shown.SpeechAge)
                 : Vector3.zero;
         }
+        _shownEpoch = epoch;
         TownServiceFaceSpeech.Observer?.Invoke(_service, _shownAuthor, _shown.Cue, _shown.Generation, _shown.SpeechAge, _rig.Head);
         TownServiceFacePose pose = TownServiceFaceMotion.Evaluate(in _shown, clock, _service, mouth, blessingAge);
         _rig.Apply(in pose);

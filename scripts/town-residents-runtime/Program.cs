@@ -47,6 +47,9 @@ internal static class Program
         Check(TownServiceStation.Live.ContainsKey(1) && TownServiceStation.Live.ContainsKey(3)
             && TownServicePopulation.Published.Active,
             "locking one service leaves independently unlocked town residents published");
+        var published = TownServicePopulation.Published;
+        Check(TownResidentsCodec.Valid(in published),
+            "locked resident cannot invalidate the complete global authority record");
         Check(NativeTemplates.Invalidated.Contains(2),
             "locked resident invalidates its native furniture template");
         TownServiceAvailability.Locked.Clear(); Tick(); AllVisible();
@@ -262,8 +265,72 @@ internal static class Program
         Check(TownServicePopulation.PublishedActivities.Merchant.TransitionAge>0f,
             "leaving story commitment resumes the existing smooth attention transition");
     }
+    private static void WireAndFollowerParity()
+    {
+        var commitGate=new TownServicePopulation.TempleBlessingGate();
+        Check(commitGate.Observe(true,2,4,true,false,1,.25f,true),
+            "first manifest with explicit fresh commit clock retains the blessing");
+        Check(!commitGate.Observe(true,2,4,true,false,1,.3f,true),
+            "the same first committed manifest does not replay twice");
+        Check(!commitGate.Observe(true,3,5,true,false,1,8f,true),
+            "old committed event does not restart for a late observer");
+        Check(!commitGate.Observe(true,4,6,true,false,1,.25f,false),
+            "legacy unavailable baseline without a commit clock cannot invent a donation");
+        Reset(); Tick(.7f);
+        var state=TownServicePopulation.PublishedActivities;
+        var face=TownServicePopulation.PublishedFaces;
+        Check(state.Merchant.TransitionAge==TownActivityPose.TransitionSeconds
+            && TownActivityCodec.Valid(in state),
+            "production settled .95-second activity remains serializable");
+        byte[] bytes=new byte[TownActivityCodec.PacketBytes];
+        int count=TownActivityCodec.WritePacket(bytes,in state,in face);
+        Check(count==TownActivityCodec.PacketBytes
+            && TownActivityCodec.ReadPacket(bytes,count,out var replay,out var replayFace),
+            "actual producer writes and reads the extended atomic performance packet");
+        Check(TownActivityCodec.ReadPacket(bytes,count,out replay,out replayFace)
+            && replay.HasSharedPerformance && replay.Interactive,
+            "new performance tail retains the author interaction state");
+        var invalid=state;invalid.TempleUnavailableBlend=1.01f;
+        Check(!TownActivityCodec.Valid(in invalid),"out-of-range author cover is rejected");
+        invalid=state;invalid.TempleBlessingGeneration=1;invalid.TempleBlessingStartedClock=state.Clock+.01f;
+        Check(!TownActivityCodec.Valid(in invalid),"future blessing timestamps cannot invent a gesture");
+        var legacy=state;legacy.HasSharedPerformance=false;
+        int legacyCount=TownActivityCodec.WritePacket(bytes,in legacy,in face);
+        Check(legacyCount==157 && TownActivityCodec.ReadPacket(bytes,legacyCount,out replay,out _)
+            && !replay.HasSharedPerformance,"historical 53-byte activity packet remains readable");
+        Reset();
+        state=new TownActivityState{Active=true,Epoch=11,Sequence=1,Clock=20,
+            HasSharedPerformance=true,Interactive=true,TempleUnavailableBlend=.73f};
+        for(int n=0;n<3;n++)state.Set(n,new TownActivityPose{WorkClock=9f,TransitionAge=TownActivityPose.TransitionSeconds,Engaged=true});
+        face=new TownFaceState{Active=true,Epoch=11,Sequence=1,Clock=20};
+        var presence=new PresenceState{HasTownResidents=true,TownResidents=State(),
+            HasTownActivity=true,TownActivity=state,HasTownFace=true,TownFace=face};
+        RemoteTownResidents.Observe(2,in presence);Tick(.01f);
+        Check(!TownServicePopulation.IsFaceAuthor,"the observer follows one lower-id resident author");
+        var pose=TownServicePopulation.PublishedActivities.Temple;
+        var expected=TownServiceActivityMotion.Visual(2,in pose);
+        TownServiceActivityMotion.ApplyTempleAvailability(ref expected,false,.73f);
+        TownServiceActivityMotion.ApplyTempleBreath(ref expected,TownServicePopulation.PublishedActivities.Clock);
+        Check(Vector3.Distance(TownServiceStation.Live[2].LastActivity.Left,expected.Left)<.0001f,
+            "follower uses author cover even with no local temple manifest");
+        state.Sequence=2;face.Sequence=2;state.Clock=face.Clock=20.01f;
+        state.TempleBlessingGeneration=1;state.TempleBlessingStartedClock=19.81f;
+        presence.TownActivity=state;presence.TownFace=face;
+        RemoteTownResidents.Observe(2,in presence);Tick(.01f);
+        TownServiceStation temple=TownServiceStation.Live[2];
+        Check(temple.Blessings==1 && temple.LastBlessingAge>=.20f,
+            "observer replays the durable author blessing without its local donation revision");
+        Tick(.01f);Check(temple.Blessings==1,
+            "repeated snapshots do not restart the shared blessing event");
+        state.Sequence=3;face.Sequence=3;state.Clock=face.Clock=20.03f;state.Interactive=false;
+        presence.TownActivity=state;presence.TownFace=face;
+        RemoteTownResidents.Observe(2,in presence);Tick(.01f);
+        Check(!temple.LastActivityAudioVisible,
+            "author story commitment silences observers before their private UI catches up");
+    }
     private static void Main()
     {
+        WireAndFollowerParity();
         MerchantOffering();
         EnchantressApproach();
         TemplePresentation();
@@ -327,12 +394,13 @@ internal static class Program
         RemoteTownResidents.Observe(2,in authority);
         Check(!RemoteTownFaces.Sample(2,out _,out _),"malformed81 cannot accept otherwise valid face half through legacy fallback");
         authority.TownActivityRecordSeen=false;
+        float authorReceived=Time.unscaledTime;
         RemoteTownResidents.Observe(2,in authority);Tick();
         Check(!TownServiceStation.Live[1].FaceAuthor&&TownServiceStation.Live[1].FaceReceived,"follower applies received face without local attention election");
         Near(TownServiceStation.Live[1].FacePose.HeadYaw,0,"new authority starts from actual previously displayed gaze");
         Tick(.35f);
         Near(TownServiceStation.Live[1].FacePose.HeadYaw,22,"follower face reaches authority angles after shared recovery");
-        Near(TownServicePopulation.PublishedFaces.Clock,20,"follower clock uses author even when local history is far ahead");
+        Near(TownServicePopulation.PublishedFaces.Clock,20+(Time.unscaledTime-authorReceived),"follower clock uses author even when local history is far ahead");
         NetPlayerActors.Local=1;Tick();
         Check(TownServiceStation.Live[1].FaceAuthor&&TownServiceStation.Live[1].FaceSeeds==1,"new lower ID seeds existing authority before authoring");
         Near(TownServiceStation.Live[1].FacePose.HeadYaw,22,"handover retains existing head angle");

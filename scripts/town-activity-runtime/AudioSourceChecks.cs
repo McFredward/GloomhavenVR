@@ -65,12 +65,34 @@ internal static class AudioSourceChecks
             Check(voices.Length==2&&!voices.Any(item=>item.isPlaying),"reopening does not replay contact or leak voices");
             audio.Dispose();Check(HeadEar.Claims.Count==0,"resident disposal releases shared listener");
             Check(VRLog.Warnings==0,"normal native foley lifetime emits no warning");
+            SaveData.Instance.Global.MasterVolume=100;SaveData.Instance.Global.SFXVolume=100;
+            var blessingRoot=new GameObject("Shared blessing audio").transform;
+            blessingRoot.localScale=Vector3.one*198.12f;
+            using(var blessing=new TownServiceActivityAudio(blessingRoot,2))
+            {
+                FaceClock.Now=10f;TownServiceAssets.Spell=null;
+                blessing.SampleBlessing(7,1,.1f,true);
+                Check(blessingRoot.GetComponentsInChildren<AudioSource>().Length==0,
+                    "unready blessing audio waits without consuming the shared event");
+                TownServiceAssets.Spell=clip;
+                FaceClock.Now=10.2f;blessing.SampleBlessing(7,1,.3f,true);
+                var voice=blessingRoot.GetComponentInChildren<AudioSource>();
+                Check(voice!=null && voice.clip==clip && Math.Abs(voice.time-.3f)<.02f,
+                    "late ready blessing audio seeks the author age instead of restarting");
+                voice!.time=.5f;blessing.SampleBlessing(7,1,.4f,true);
+                Check(Math.Abs(voice.time-.5f)<.02f,
+                    "repeated blessing event cannot restart its shared sound");
+                blessing.SampleBlessing(7,2,2f,true);
+                Check(!voice.isPlaying,
+                    "expired blessing audio does not replay for late observers");
+            }
+            UnityEngine.Object.DestroyImmediate(blessingRoot.gameObject);
         }
         finally
         {
             SaveData.Instance.Global.MasterVolume=100;SaveData.Instance.Global.SFXVolume=100;
             WorldUIConfig.ImmersiveTownSoundEffects.Value=true;
-            AudioController.Items.Clear();TownServiceAssets.Coin=null;
+            AudioController.Items.Clear();TownServiceAssets.Coin=null;TownServiceAssets.Spell=null;
             UnityEngine.Object.DestroyImmediate(root.gameObject);UnityEngine.Object.DestroyImmediate(clip);
             UnityEngine.Object.DestroyImmediate(contact);
         }

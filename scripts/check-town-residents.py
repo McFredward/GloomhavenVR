@@ -16,6 +16,10 @@ FILES = {
     "Population.cs": "src/GloomhavenVR/WorldUI/TownServices/TownServicePopulation.cs",
     "Remote.cs": "src/GloomhavenVR/Net/Remote/RemoteTownResidents.cs",
     "State.cs": "src/GloomhavenVR/Net/TownResidentsState.cs",
+    "RemoteActivity.cs": "src/GloomhavenVR/Net/Remote/RemoteTownActivities.cs",
+    "RemoteFace.cs": "src/GloomhavenVR/Net/Remote/RemoteTownFaces.cs",
+    "RemotePerformance.cs": "src/GloomhavenVR/Net/Remote/RemoteTownPerformance.cs",
+    "FaceTypes.cs": "src/GloomhavenVR/Net/TownFaceState.cs",
 }
 
 def main():
@@ -23,7 +27,7 @@ def main():
     parser.add_argument("--source-root", type=Path, default=ROOT)
     args = parser.parse_args()
     sources = {name: (args.source_root / source).read_text() for name, source in FILES.items()}
-    sources["ActivityTypes.cs"] = (args.source_root / "src/GloomhavenVR/Net/TownActivityState.cs").read_text().split("/// <summary>Additive81:")[0]
+    sources["ActivityTypes.cs"] = (args.source_root / "src/GloomhavenVR/Net/TownActivityState.cs").read_text()
     protocol = (args.source_root / "src/GloomhavenVR/Net/NetProtocol.cs").read_text()
     if "public const float StaleTimeoutSeconds = 3f;" not in protocol:
         raise SystemExit("Production stale timeout changed; update the explicit fixture boundary")
@@ -58,6 +62,9 @@ def main():
                 "resident.TempleDirectCover = true;"),
             ("temple cover interrupts blessing tail", "Population.cs", "bool coverUnavailable = unavailable && !blessingVisible;", "bool coverUnavailable = unavailable;"),
             ("temple cover starts before last mote", "ActivityMotion.cs", "internal const float TempleBlessingVisualSeconds = 4.20f;", "internal const float TempleBlessingVisualSeconds = 2.45f;"),
+            ("settled activity rejected by old wire bound", "ActivityTypes.cs", "p.TransitionAge > TownActivityPose.TransitionSeconds", "p.TransitionAge > .65f"),
+            ("follower derives local priestess availability", "Population.cs", "if (IsFaceAuthor)\n                {\n                    TownServiceMirror.TryTemplePresentationState", "if (IsFaceAuthor || hasActivity)\n                {\n                    TownServiceMirror.TryTemplePresentationState"),
+            ("follower loses shared blessing", "Population.cs", "resident.TempleBlessingGeneration = remoteActivity.TempleBlessingGeneration;", "resident.TempleBlessingGeneration = 0;"),
             ("stale author never expires", "Remote.cs", "now - pair.Value.Received <= NetProtocol.StaleTimeoutSeconds", "true"),
         ]
         for label, file, before, after in variants:

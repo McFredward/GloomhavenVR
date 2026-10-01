@@ -175,7 +175,7 @@ def main():
             portable = build / "portable"
             portable.mkdir()
             program = (fixture / "Program.cs").read_text().split("    private static void Actual(")[0] + "}\n"
-            program = program.replace('        count += HandContacts.Run();\n', '').replace('        count += AudioSourceChecks.Run();\n', '')
+            program = program.replace('        count += HandContacts.Run();\n', '').replace('        count += AudioSourceChecks.Run();\n', '').replace('        count += BlessingChecks.Run();\n', '')
             program = program.replace('        string[] args=Environment.GetCommandLineArgs();int at=Array.IndexOf(args,"-faceBundle");\n        if(at>=0)Actual(args[at+1]);\n', '')
             (portable / "Program.cs").write_text(program)
             shutil.copyfile(fixture / "AudioClockChecks.cs", portable / "AudioClockChecks.cs")

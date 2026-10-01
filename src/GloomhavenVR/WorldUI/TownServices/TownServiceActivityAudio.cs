@@ -21,6 +21,9 @@ internal sealed class TownServiceActivityAudio : IDisposable
     private readonly float[] _resolveAt = new float[SoundCount];
     private int _voice;
     private float _voiceScale;
+    private uint _blessingEpoch, _blessingGeneration;
+    private bool _blessingPending;
+    private AudioClip? _blessingClip;
     private bool _failed;
     private static AudioClip? _coinClink;
     private static float _nextCoinResolve;
@@ -30,6 +33,64 @@ internal sealed class TownServiceActivityAudio : IDisposable
 
     internal TownServiceActivityAudio(Transform root, byte service)
     { _root = root; _service = service; _claim = "TownResidentAudio." + service; }
+
+    /// <summary>A committed shared blessing has an explicit clock, unlike an
+    /// incidental hand contact. Seek its bounded soft magical cue on late receive
+    /// or clip readiness; a repeated revision cannot restart it.</summary>
+    internal void SampleBlessing(uint epoch, uint generation, float age, bool interactive)
+    {
+        if (_service != 2 || _failed) return;
+        try { SampleBlessingCore(epoch, generation, age, interactive); }
+        catch (Exception error)
+        {
+            _failed = true; Stop();
+            if (!Reported[_service])
+            {
+                Reported[_service] = true;
+                VRLog.Warn("TownServices", "NPC activity audio disabled for service " + _service + ": " + error);
+            }
+        }
+    }
+
+    private void SampleBlessingCore(uint epoch, uint generation, float age, bool interactive)
+    {
+        if (_service != 2 || _failed) return;
+        if (_blessingEpoch != epoch || _blessingGeneration != generation)
+        {
+            if (_voices[0] != null) _voices[0]!.Stop();
+            _blessingEpoch = epoch; _blessingGeneration = generation;
+            _blessingPending = generation != 0;
+        }
+        if (!interactive || generation == 0 || age < 0f || (float.IsNaN(age) || float.IsInfinity(age))
+            || age >= 1.3f || !WorldUIConfig.ImmersiveTownSoundEffects.Value)
+        {
+            _blessingPending = false;
+            if (_voices[0] != null) _voices[0]!.Stop();
+            return;
+        }
+        if (!_blessingPending) return;
+        if (_blessingClip == null)
+        {
+            _blessingClip = TownServiceAssets.Audio("spell-soft-4");
+            if (_blessingClip != null && _blessingClip.loadState == AudioDataLoadState.Unloaded)
+                _blessingClip.LoadAudioData();
+        }
+        AudioClip? clip = _blessingClip;
+        if (clip == null || clip.loadState != AudioDataLoadState.Loaded || !HeadEar.Claim(_claim)) return;
+        _blessingPending = false;
+        if (age >= clip.length) return;
+        AudioSource source = _voices[0] ?? Create(0);
+        source.Stop(); source.clip = clip;
+        source.transform.position = _root.TransformPoint(TownServiceRitualLayout.Origin + TownServiceTempleBowl.Center);
+        source.time = Mathf.Clamp(age, 0f, Mathf.Max(0f, clip.length - .001f));
+        source.pitch = 1f;
+        _gains[0] = .075f;
+        _ends[0] = Time.unscaledTime + Mathf.Min(1.3f, clip.length) - age;
+        GlobalData? global = SaveData.Instance?.Global;
+        float master = global == null ? 1f : Mathf.Clamp01(global.MasterVolume / 100f) * Mathf.Clamp01(global.SFXVolume / 100f);
+        source.volume = master * _gains[0];
+        source.Play();
+    }
 
     internal void Tick(int author, uint epoch, float workClock, float elapsed, bool visible,
         in TownActivityVisual shown)

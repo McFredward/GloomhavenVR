@@ -24,7 +24,7 @@ namespace GloomhavenVR.WorldUI {
  internal sealed class BoolSetting { internal bool Value=true; }
  internal static class WorldUIConfig { internal static readonly BoolSetting ImmersiveTownSpeech=new(); }
  internal static class TownServicePresentation {internal static bool Active; internal static byte Service; internal static float SessionAge;}
- internal static class TownServicePopulation {internal static Transform? Frame;internal static bool IsFaceAuthor;}
+ internal static class TownServicePopulation {internal static Transform? Frame;internal static bool IsFaceAuthor;internal static uint PerformanceEpoch=1;}
  internal struct TownActivityVisual { internal float Cast, Attention; }
  internal static class TownServiceAssets {
   internal static Dictionary<string,AudioClip> Clips=new(); internal static Dictionary<string,TextAsset> Curves=new();
