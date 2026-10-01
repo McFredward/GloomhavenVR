@@ -553,25 +553,6 @@ internal static partial class WallSegmentFade
             _wallSectionFailCount = 0;
         }
 
-        /// <summary>The PROP UNIT of a renderer for the FIGURE arm: the nearest ancestor (itself
-        /// included) carrying one of the figure/actor components. Null when there is none — then
-        /// the renderer matched only as a <c>SkinnedMeshRenderer</c> and there is no unit to
-        /// protect as a whole.</summary>
-        private static Transform? FigurePropRootOf(Transform? t)
-        {
-            while (t != null)
-            {
-                if (t.GetComponent<ActorBehaviour>() != null
-                    || t.GetComponent<CInteractableActor>() != null
-                    || t.GetComponent<Animator>() != null)
-                {
-                    return t;
-                }
-                t = t.parent;
-            }
-            return null;
-        }
-
         /// <summary>The PROP UNIT of a renderer for the FLOOR arm: ModBuild 167's grouping, the
         /// HIGHEST still prop-sized ancestor of the renderer's parent, memoised per parent because
         /// siblings share the answer. Null when the walk finds nothing — a renderer hanging

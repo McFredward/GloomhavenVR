@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <ReadFactsSource Condition="'$(ReadFactsSource)' == ''">../../src/GloomhavenVR/Core/WallFade/WallSegmentFade.ReadFacts.cs</ReadFactsSource>
+    <DriverSource Condition="'$(DriverSource)' == ''">../../src/GloomhavenVR/Core/WallFade/WallSegmentFade.cs</DriverSource>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="$(ReadFactsSource)" Link="Production/WallSegmentFade.ReadFacts.cs" />
+    <Compile Include="$(IntermediateOutputPath)DriverReads.g.cs" />
+  </ItemGroup>
+  <Target Name="ExtractDriverReads" BeforeTargets="BeforeCompile">
+    <Exec Command="python3 &quot;$(MSBuildProjectDirectory)/extract-driver.py&quot; &quot;$(DriverSource)&quot; &quot;$(IntermediateOutputPath)DriverReads.g.cs&quot;" />
+  </Target>
+</Project>

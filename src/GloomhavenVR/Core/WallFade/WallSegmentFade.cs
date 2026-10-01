@@ -5828,7 +5828,11 @@ internal static partial class WallSegmentFade
                 using (Phase(CommitPhase.DeadSegments))
                     CommitDeadSegments();
                 using (Phase(CommitPhase.WallCache))
-                    CommitWallCache();
+                {
+                    BeginWallCacheMaterialFacts();
+                    try { CommitWallCache(); }
+                    finally { EndWallCacheMaterialFacts(); }
+                }
                 using (Phase(CommitPhase.Doors))
                     CommitDoorRoots();
                 // GATE COLUMNS (user ruling 2026-08-07): the wall EMBEDDING each doorway fades
@@ -7755,6 +7759,7 @@ internal static partial class WallSegmentFade
         private static void BeginFigureMemo()
         {
             FigureAncestryMemo.Clear();
+            FigureRootMemo.Clear();
             GameLogicAncestryMemo.Clear();
             WallGeneratorAncestryMemo.Clear();
             _figureMemoActive = true;
@@ -7764,6 +7769,7 @@ internal static partial class WallSegmentFade
         {
             _figureMemoActive = false;
             FigureAncestryMemo.Clear(); // never hold transform references across frames
+            FigureRootMemo.Clear();
             GameLogicAncestryMemo.Clear();
             WallGeneratorAncestryMemo.Clear();
         }
@@ -10035,25 +10041,18 @@ internal static partial class WallSegmentFade
             materialsRead = true;
             foreach (Material m in _matScratch)
             {
-                if (m == null || m.shader == null)
+                if (m == null)
                     continue;
-                // PERF S4: the name and its two Contains tests come out of the per-Shader cache
-                // (_shaderFadeName) instead of an interop allocation per material per renderer
-                // per commit. Same two expressions, same order, one entry per Shader.
-                ShaderFadeName nameInfo = FadeNameOf(m.shader);
-                string shaderName = nameInfo.Name;
-                bool byName = nameInfo.ByName;
-                bool low = nameInfo.Low;
-                bool byToggle = !byName && HasLiveWallFadeToggle(m);
-                if (!byName && !byToggle)
+                WallMaterialFact material = WallMaterialFactOf(m);
+                if (!material.Valid || (!material.ByName && !material.ByToggle))
                     continue;
+                string shaderName = material.Name;
                 any = true;
-                if (byToggle)
+                if (material.ByToggle)
                 {
                     seg.ToggleNative++;
                     LogToggleNativeMaterialOnce(m);
                     CaptureMasonryTemplate(m); // round-11 dissolve-swap template donor
-                    shaderName += "(toggle-native)";
                 }
                 // Held-state cutoff = the material's authored "Mask Clip Value" — the flat
                 // game never writes _Cutoff, so this IS the value its fade runs with.
@@ -10061,15 +10060,15 @@ internal static partial class WallSegmentFade
                 // identical geometry (c only shapes the HIGH variant's dither density),
                 // while c = 0 would disable the LOW discard and c ≥ 1 would kill the HIGH
                 // foundation band (clip = 1-c).
-                if (!seg.CutoffAuthored && m.HasProperty(CutoffId))
+                if (!seg.CutoffAuthored && material.HasCutoff)
                 {
-                    seg.HeldCutoff = Mathf.Clamp(m.GetFloat(CutoffId), 0.05f, 0.95f);
+                    seg.HeldCutoff = material.Cutoff;
                     seg.CutoffAuthored = true;
                 }
                 // Read off the RAW name's cached fact: the "(toggle-native)" suffix appended
                 // above carries no capital L, so this is the same answer the old
                 // shaderName.Contains("Low") gave on either branch.
-                if (low)
+                if (material.Low)
                     seg.VariantLow = true;
                 else
                     seg.VariantHigh = true;
