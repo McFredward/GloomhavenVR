@@ -555,6 +555,19 @@ internal static class NetProtocol
     /// 15 Hz board pose while moving).</summary>
     public const ushort ModBuild = 602;
 
+    // ModBuild 602 — PCVR multiplayer town review: one authored resident role,
+    // transition, blessing, contact sound and voice clock; immutable original
+    // font/texture/template identities and preallocated cabinet foley topology.
+    // Public cabinet handover adopts complete cold-page placement (TLV94), seeks
+    // current owner animation age, and keeps held stock on independent TLV95
+    // rather than losing it on visitor/page changes. Temple commit age (TLV93)
+    // retains blessing timing across first receipt/late join. Original native
+    // props/inscriptions ride observer-relative physical depth; gameplay callbacks
+    // remain local and observer copies inert. Additional shared actor lighting
+    // closes ambient/main-light divergence without changing each viewer's scene.
+    // Source-linked Unity tests include two-peer lifetimes, differing borrow order,
+    // and negative controls. Hardware picture/audio outcomes require a new run.
+    //
     // ModBuild 601 — Build 600's Frame hardware run showed that grass density
     // zero masked only 27 of 6,560 active renderers. Its first scan preceded
     // the completed procedural hierarchy, and its eligibility rules excluded

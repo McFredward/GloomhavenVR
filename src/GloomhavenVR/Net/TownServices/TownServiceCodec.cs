@@ -328,10 +328,15 @@ int tail = legacySize;
         if (packets.Count < 1 || packets.Count > MaxBundleFrames) throw new InvalidDataException("Invalid town bundle count.");
         using var body = new MemoryStream();
         body.WriteByte(3); body.WriteByte((byte)packets.Count);
+        TownServiceFrame? first = null;
         foreach (byte[] packet in packets)
         {
             if (!TryRead(packet, packet.Length, out TownServiceFrame? frame) || frame!.Module == TownServiceFrame.ManifestModule)
                 throw new InvalidDataException("Invalid town bundle member.");
+            if (first != null && (frame.Service != first.Service || frame.Session != first.Session
+                || frame.VisitorStock != first.VisitorStock || frame.PublicCatalog != first.PublicCatalog))
+                throw new InvalidDataException("Town bundle mixes independent presentation lanes.");
+            first ??= frame;
             body.WriteByte((byte)packet.Length); body.WriteByte((byte)(packet.Length >> 8));
             body.Write(packet, 0, packet.Length);
         }
@@ -361,15 +366,15 @@ int tail = legacySize;
         }
         byte[] raw=body.ToArray();
         if(raw.Length<2||raw[0]!=3||raw[1]<1||raw[1]>MaxBundleFrames)return false;
-        var result=new byte[raw[1]][];int position=2;byte service=0;uint session=0;
+        var result=new byte[raw[1]][];int position=2;byte service=0;uint session=0;bool visitorStock=false,publicCatalog=false;
         for(int i=0;i<result.Length;i++)
         {
             if(position+2>raw.Length)return false;int count=raw[position]|raw[position+1]<<8;position+=2;
             if(count<8||position+count>raw.Length)return false;
             var member=new byte[count];Buffer.BlockCopy(raw,position,member,0,count);position+=count;
             if(!TryRead(member,count,out TownServiceFrame? frame)||frame!.Module==TownServiceFrame.ManifestModule)return false;
-            if(i==0){service=frame.Service;session=frame.Session;}
-            else if(frame.Service!=service||frame.Session!=session)return false;
+            if(i==0){service=frame.Service;session=frame.Session;visitorStock=frame.VisitorStock;publicCatalog=frame.PublicCatalog;}
+            else if(frame.Service!=service||frame.Session!=session||frame.VisitorStock!=visitorStock||frame.PublicCatalog!=publicCatalog)return false;
             result[i]=member;
         }
         if(position!=raw.Length)return false;packets=result;return true;
