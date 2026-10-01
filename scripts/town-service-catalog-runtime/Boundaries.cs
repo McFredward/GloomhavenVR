@@ -60,12 +60,12 @@ public class NewPartyDisplayUI { public static NewPartyDisplayUI PartyDisplay=ne
 public class UIInfoTools {public static UIInfoTools Instance=new(); public Sprite GetItemSlotIcon(string key)=>null!;}
 public class Service : IShopItemService
 {
-    public readonly List<CItem> Buy=new(),Sell=new();public bool Affordable=true;public int Commits;
+    public readonly List<CItem> Buy=new(),Sell=new();public bool Affordable=true;public int Price=10;public int Commits;
     public List<CItem> GetItemsToBuy(CMapCharacter? c=null)=>new(Buy);
     public List<CItem> GetItemsToSell(CMapCharacter? c=null)=>new(Sell);
     public Dictionary<CItem,Tuple<CMapCharacter,bool>> GetBoundsItems(CMapCharacter? c)=>new();
     public bool IsAffordable(CItem item,CMapCharacter? c)=>Affordable;
-    public int DiscountedCost(CItem item)=>10;
+    public int DiscountedCost(CItem item)=>Price;
     public int GetBuyDiscount()=>0;
 }
 public class Tab:MonoBehaviour{public Action? Changed;private bool _on;public bool isOn{get=>_on;set{_on=value;if(value)Changed?.Invoke();}}}
@@ -92,10 +92,11 @@ public class UIShopItemInventory:MonoBehaviour
 public class UIShopItemSlot:MonoBehaviour
 {
     public CItem Item=null!;public CMapCharacter? Owner;public Button Selectable=null!;public bool IsAvailable=true;
+    public static int Initializations;public int LastPrice;public bool LastAffordable;
     public void Initialize(CItem item,int price,Action<UIShopItemSlot> selected,Action<UIShopItemSlot,bool> hovered,object? moved,
-        int amount,int total,bool affordable,bool n=false,bool n2=false,int discount=0,CMapCharacter? c=null){Item=item;IsAvailable=amount>0;}
+        int amount,int total,bool affordable,bool n=false,bool n2=false,int discount=0,CMapCharacter? c=null){Initializations++;Item=item;IsAvailable=amount>0;LastPrice=price;LastAffordable=affordable;}
     public void Initialize(CItem item,int price,Action<UIShopItemSlot> selected,Action<UIShopItemSlot,bool> hovered,object? moved,
-        CMapCharacter? owner,bool equipped=false,CMapCharacter? c=null){Item=item;IsAvailable=true;}
+        CMapCharacter? owner,bool equipped=false,CMapCharacter? c=null){Initializations++;Item=item;IsAvailable=true;LastPrice=price;LastAffordable=true;}
 }
 public class UIItemConfirmationBox:MonoBehaviour
 {

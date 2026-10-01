@@ -41,6 +41,7 @@ internal sealed class TownServiceCatalog : IDisposable
     private readonly TownServiceMerchantRows _backend;
     private readonly List<Entry> _entries = new();
     private readonly List<TownServiceToken> _samples = new();
+    private readonly HashSet<UIShopItemSlot> _warmSources = new();
     private readonly List<TownServiceMerchantDrawer> _drawers = new();
     private readonly List<TownServiceCatalogCategory> _categories = new();
     internal IReadOnlyList<TownServiceCatalogCategory> Categories => _categories;
@@ -55,6 +56,8 @@ internal sealed class TownServiceCatalog : IDisposable
     private readonly Transform _nativeHome;
     private readonly int _nativeSibling;
     private float _nextCensus;
+    private uint _lastWarmTurn;
+    private int _lastWarmPage = -1, _lastWarmPageCount = -1;
     private bool _disposed, _allowInput, _observerDirty = true;
     private bool _observer;
     private readonly List<Canvas> _observerCanvases = new();
@@ -162,8 +165,26 @@ internal sealed class TownServiceCatalog : IDisposable
                 drawer.SetPageCount(maximum/TownServiceMerchantDrawer.Capacity+1); drawer.Tick(_opening.alpha);
             }
         }
+        // The crank can admit a formerly cold page after the scheduled census,
+        // including on the shutter's swap frame. Bring its native source current
+        // before the card and row mirror sample that frame.
+        TownServiceMerchantDrawer currentRack = _drawers[0];
+        if (currentRack.TurnEpoch != _lastWarmTurn || currentRack.Page != _lastWarmPage
+            || currentRack.PageCount != _lastWarmPageCount)
+        {
+            _lastWarmTurn = currentRack.TurnEpoch;
+            _lastWarmPage = currentRack.Page;
+            _lastWarmPageCount = currentRack.PageCount;
+            if (_backend.HasPendingPresentation)
+                foreach (Entry entry in _entries)
+                    if (entry.Warm && _backend.NeedsPresentation(entry.RowSource))
+                    { using (PerfMonitor.Scope("TownPublicStock.Catalog.Census")) RefreshRows(); break; }
+        }
         using (PerfMonitor.Scope("TownPublicStock.Catalog.Cards"))
-            foreach(var entry in _entries)entry.Tick(scale);
+        {
+            Camera? camera = VRRigDriver.HeadCamera != null ? VRRigDriver.HeadCamera : Camera.main;
+            foreach(var entry in _entries)entry.Tick(scale, camera);
+        }
         using (PerfMonitor.Scope("TownPublicStock.Catalog.Controls"))
         {
             foreach(var category in _categories)category.Tick(_opening.alpha);
@@ -178,7 +199,9 @@ internal sealed class TownServiceCatalog : IDisposable
     private void RefreshRows()
     {
         object? context=_contextIdentity();
-        bool changed=_backend.Refresh();
+        _warmSources.Clear();
+        foreach (Entry entry in _entries) if (entry.Warm) _warmSources.Add(entry.RowSource);
+        bool changed=_backend.Refresh(_warmSources);
         if(!ReferenceEquals(context,_context)){if(!_persistent)ClearEntries();_context=context;changed=true;}
         if(!changed)return;
         _observerDirty = true;
@@ -300,7 +323,7 @@ internal sealed class TownServiceCatalog : IDisposable
         // bodies since the preceding observer pass. A stable cabinet formerly read
         // and compared every body renderer twice per frame for the same answer.
         if (observerChanged || observerCensus)
-            foreach (Entry entry in _entries) entry.SetBodyRendererVisibility(observer || !entry.Exposed);
+            foreach (Entry entry in _entries) entry.SetBodyRendererVisibility(observer || !entry.Exposed, true);
         _observer = observer;
         if (observer && !TownServicePublicMerchant.CanClaim)
             foreach (Entry entry in _entries) entry.Sample.PickCollider.enabled = false;
@@ -329,6 +352,7 @@ internal sealed class TownServiceCatalog : IDisposable
         private Vector3 _displayHome;
         private Transform? _body;
         private Renderer[]? _bodyRenderers;
+        private bool? _bodyHidden;
         internal Transform? BodyRoot => _body;
         internal void AddBodyRenderers(HashSet<Renderer> target)
         {
@@ -336,11 +360,16 @@ internal sealed class TownServiceCatalog : IDisposable
             foreach (Renderer renderer in _bodyRenderers ??= _body.GetComponentsInChildren<Renderer>(true))
                 if (renderer != null) target.Add(renderer);
         }
-        internal void SetBodyRendererVisibility(bool hidden)
+        internal void SetBodyRendererVisibility(bool hidden, bool recheck = false)
         {
-            if (_body == null) return;
+            // This renderer belongs solely to the physical cabinet card. Only page
+            // exposure and observer election write its forceRenderingOff state;
+            // changing either invalidates this answer. Avoid querying every body
+            // renderer on every frame of the large, fully occluded stock population.
+            if (_body == null || (!recheck && _bodyHidden == hidden)) return;
             foreach (Renderer renderer in _bodyRenderers ??= _body.GetComponentsInChildren<Renderer>(true))
                 if (renderer != null && renderer.forceRenderingOff != hidden) renderer.forceRenderingOff = hidden;
+            _bodyHidden = hidden;
         }
         private readonly RemoteWidgetMirror _row;
         private readonly List<KeyValuePair<Graphic, bool>> _raycastTargets = new();
@@ -478,11 +507,16 @@ internal sealed class TownServiceCatalog : IDisposable
             catch { Dispose(); throw; }
         }
 
-        internal void Tick(float scale)
+        internal void Tick(float scale, Camera? camera = null)
         {
             if (_disposed) return;
             if (!Current) { Sample.Dispose(); _root.SetActive(false); return; }
-            bool exposed = Exposed;
+            // Current is a Unity hierarchy/item-identity query. The large public
+            // cabinet used to repeat it in Exposed and Warm for every entry on
+            // every frame, even for the fully occluded pages.
+            bool moving = Sample.IsMoving;
+            bool exposed = moving || Page == Rack.Page;
+            bool warm = moving || Rack.RetainsPage(Page);
             float pageAlpha = exposed ? 1f : 0f;
             if (_pageGate.alpha != pageAlpha) _pageGate.alpha = pageAlpha;
             // Keep actual original content available for bounded hidden-page prewarming.
@@ -500,16 +534,16 @@ internal sealed class TownServiceCatalog : IDisposable
                 if (exposed) TownServiceCardBody.SetVisibility(_body.gameObject, _owner._opening.alpha);
                 SetBodyRendererVisibility(!exposed || _owner._observer);
             }
-            if (!Warm) { Sample.PickCollider.enabled = false; return; }
-            RefreshSoldOutMarker(!Sample.IsMoving);
-            if (!Sample.IsMoving)
+            if (!warm) { Sample.PickCollider.enabled = false; return; }
+            RefreshSoldOutMarker(!moving);
+            if (!moving)
             {
                 float t = Mathf.Clamp01((Time.unscaledTime - _presentedAt) / .24f);
                 float ease = t * t * (3f - 2f * t);
                 Vector3 displayPosition = _displayHome + new Vector3(0f, 0f, .045f * (1f - ease));
                 if (!_display.localPosition.Equals(displayPosition)) _display.localPosition = displayPosition;
             }
-            Camera camera = VRRigDriver.HeadCamera != null ? VRRigDriver.HeadCamera : Camera.main;
+            camera ??= VRRigDriver.HeadCamera != null ? VRRigDriver.HeadCamera : Camera.main;
             if (_canvas.worldCamera != camera) _canvas.worldCamera = camera;
             _artWatch.Poll("merchant cabinet item");
             if (Time.unscaledTime >= _nextRefresh)

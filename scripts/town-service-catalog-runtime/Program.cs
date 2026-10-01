@@ -458,7 +458,26 @@ public static class InteractionProgram
         float cabinetFace=anchor.transform.InverseTransformPoint(stable.CardRoot.position).z;
         Check(cabinetFace>.077f&&cabinetFace<.081f,
             "native face, body and pickup mount rest just ahead of the imported leather seat inside the carved cheek");
+        int initializedBefore=UIShopItemSlot.Initializations;
         Census(catalog);Check(catalog.Entries[0].CardRoot==stableRoot,"unchanged census retains physical identity");
+        Check(UIShopItemSlot.Initializations-initializedBefore==20,
+            "stable census initializes only the current and prewarmed native pages, not all 164 hidden rows");
+        var cold=catalog.Entries.FindEntry(0,false,2);
+        Check(cold.RowSource.LastPrice==10,"cold native price source keeps its previous hidden value");
+        inventory.service.Price=17;inventory.service.Affordable=false;Census(catalog);
+        Check(stable.RowSource.LastPrice==17&&!stable.RowSource.LastAffordable,
+            "visible original stock price and affordability retain the native census cadence");
+        Check(cold.RowSource.LastPrice==10,"cold source defers invisible price work");
+        var pageTestRack=catalog.Drawers[0];
+        WorldUIConfig.ImmersiveTownSoundEffects.Value=false;
+        Check(pageTestRack.Select(2,false),"category test starts a normal shutter transition");
+        Set(pageTestRack,"_clock",.45f);catalog.Tick(1f);
+        Check(cold.RowSource.LastPrice==17&&!cold.RowSource.LastAffordable&&cold.Exposed,
+            "cold original row receives current native price and affordability on its first exposed frame");
+        Set(pageTestRack,"_clock",.85f);catalog.Tick(1f);
+        Check(pageTestRack.Select(0,false),"price test restores the initial category");
+        Set(pageTestRack,"_clock",.85f);catalog.Tick(1f);
+        inventory.service.Price=10;inventory.service.Affordable=true;Census(catalog);
         var added=new CItem(999);added.YMLData.Slot=CItem.EItemSlot.Head;inventory.service.Buy.Add(added);Census(catalog);
         Check(catalog.Entries.Count==165,"late unlock adds card without dropping old stock");
         Check(catalog.Entries[0].CardRoot==stableRoot,"late unlock preserves existing card transforms");

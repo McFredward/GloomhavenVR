@@ -33,6 +33,12 @@ internal sealed class TownServiceMerchantRows : IDisposable
     private readonly IShopItemService? _publicService;
     private readonly GameObject _root;
     internal readonly List<Row> Rows = new();
+    // Cold rows keep their native item identity, but their invisible price strip need not
+    // run Initialize on every census. The catalog refreshes a row before it first joins
+    // the current or prewarmed page, so no stale native output reaches a visible frame.
+    private readonly HashSet<UIShopItemSlot> _pendingPresentation = new();
+    internal bool HasPendingPresentation => _pendingPresentation.Count != 0;
+    internal bool NeedsPresentation(UIShopItemSlot source) => _pendingPresentation.Contains(source);
     internal TownServiceMerchantRows(UIShopItemInventory inventory, Transform? publicParent = null)
     {
         _inventory = inventory;
@@ -41,7 +47,7 @@ internal sealed class TownServiceMerchantRows : IDisposable
         _root.transform.SetParent(publicParent != null ? publicParent : inventory.transform, false);
         CanvasGroup gate = _root.GetComponent<CanvasGroup>(); gate.alpha = 0f; gate.blocksRaycasts = false;
     }
-    internal bool Refresh()
+    internal bool Refresh(HashSet<UIShopItemSlot> warmSources)
     {
         var service = _publicService ?? _inventory.service;
         var character = _publicService != null ? NewPartyDisplayUI.PartyDisplay?.SelectedUISlot?.Data : _inventory.character;
@@ -103,6 +109,7 @@ internal sealed class TownServiceMerchantRows : IDisposable
         foreach (Row row in Rows) if (!reused.Contains(row))
         { row.Source.gameObject.SetActive(false); UnityEngine.Object.Destroy(row.Source.gameObject); }
         Rows.Clear();Rows.AddRange(next);
+        _pendingPresentation.Clear();
         var buyAmounts = new Dictionary<int, int>(buy.Count);
         foreach (CItem item in buy)
         { buyAmounts.TryGetValue(item.ID, out int amount); buyAmounts[item.ID] = amount + 1; }
@@ -113,15 +120,25 @@ internal sealed class TownServiceMerchantRows : IDisposable
             {
                 CItem item = group.First();
                 buyAmounts.TryGetValue(item.ID, out int amount);
-                Rows[index++].Source.Initialize(item, service.DiscountedCost(item), IgnoreSelect, IgnoreHover, null,
-                    amount, group.Count(), service.IsAffordable(item, character), false, false,
-                    service.GetBuyDiscount(), character);
+                UIShopItemSlot source = Rows[index++].Source;
+                // Always initialize a new or repurposed row: Entry.Current uses this
+                // exact item reference to retire old physical cards after stock changes.
+                // Warm rows keep the original half-second price, quantity and permission
+                // cadence. Hidden rows are brought current before page exposure.
+                if (!ReferenceEquals(source.Item, item) || warmSources.Contains(source))
+                    source.Initialize(item, service.DiscountedCost(item), IgnoreSelect, IgnoreHover, null,
+                        amount, group.Count(), service.IsAffordable(item, character), false, false,
+                        service.GetBuyDiscount(), character);
+                else _pendingPresentation.Add(source);
             }
             foreach (CItem item in owned)
             {
                 bool bound = bounds.TryGetValue(item, out var binding);
-                Rows[index++].Source.Initialize(item, item.SellPrice, IgnoreSelect, IgnoreHover, null,
-                    bound ? binding!.Item1 : null, bound && binding!.Item2, character);
+                UIShopItemSlot source = Rows[index++].Source;
+                if (!ReferenceEquals(source.Item, item) || warmSources.Contains(source))
+                    source.Initialize(item, item.SellPrice, IgnoreSelect, IgnoreHover, null,
+                        bound ? binding!.Item1 : null, bound && binding!.Item2, character);
+                else _pendingPresentation.Add(source);
             }
         }
         return changed;
@@ -141,7 +158,7 @@ internal sealed class TownServiceMerchantRows : IDisposable
     {
         foreach (Row row in Rows)
             if (row.Source != null) { row.Source.gameObject.SetActive(false); UnityEngine.Object.Destroy(row.Source.gameObject); }
-        Rows.Clear();
+        Rows.Clear(); _pendingPresentation.Clear();
     }
     public void Dispose() { Clear(); UnityEngine.Object.Destroy(_root); }
 }
