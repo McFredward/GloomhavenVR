@@ -358,7 +358,7 @@ internal static class PerfConfig
                 + "Scenario decoration (%) applies to grass; other decoration follows the general "
                 + "decoration setting. 100% permits all grass, 0% removes eligible grass rendering. "
                 + "Figures, gameplay obstacles, floors, structural walls, doors, cards and UI remain "
-                + "unchanged. Takes effect live; saved settings are retained on PC and Frame.",
+                + "unchanged. Takes effect live; saved settings are retained on PC VR and Frame.",
                 new AcceptableValueRange<int>(0, 100)));
         ScenarioDecorationDensityPercent = _file.Bind("Optimize", "ScenarioDecorationDensityPercent",
             FrameDefaults.Active ? FrameDefaults.ScenarioDecorationDensityPercent : Defaults.ScenarioDecorationDensityPercent,

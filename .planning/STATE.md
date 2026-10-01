@@ -1,6 +1,22 @@
 # State — where the project stands
 
-**Updated 2026-10-01: dev 1.1.0 / ModBuild 600, configurable scenery candidate.**
+**Updated 2026-10-01: dev 1.1.0 / ModBuild 601, essential decoration candidate.**
+The Build 600 hardware test confirms the previous grass scope was ineffective:
+zero density masked only 27 of 6,560 active renderers; the initial partial
+hierarchy scan masked none. Loaded windows remain about 120–125 ms/frame at
+changing views and settings, not a matched A/B. The maintainer requests massive
+decoration reduction down to essential scenery. Build 601 introduces a broader
+generated-decoration control (fresh Frame0%, PC100%) while retaining the old
+grass key as an additional cap. Settled loading, late placement and reveal must
+all reach discovery. Gameplay geometry, local/remote UI/cards, pickups and doors
+remain protected, and hidden decoration must not leave invisible laser blockers.
+The new local Unity suite executes the complete production classifier and driver;
+portable source/lifecycle checks remain in CI. Actual scene-wide mask counts,
+headset appearance and FPS gain are hardware-open. See
+[STEAM-FRAME-SCENERY-601.md](STEAM-FRAME-SCENERY-601.md) and
+[STEAM-FRAME-THIRTEENTH-HARDWARE.md](STEAM-FRAME-THIRTEENTH-HARDWARE.md).
+
+The preceding Build 600 integration and validation:
 The maintainer explicitly authorized visual compromises for large Frame scenarios,
 then clarified that all Frame optimizations must be settings available on PC too;
 Frame is a different defaults profile, not a forced runtime policy. Build 600

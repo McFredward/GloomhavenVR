@@ -229,7 +229,7 @@ internal static partial class Loc
                 + "der allgemeinen Dekorationseinstellung. 100% erlaubt alles Gras, 0% entfernt geeignetes "
                 + "Gras aus der Darstellung. Figuren, Spielhindernisse, Böden, tragende Wände, Türen, "
                 + "Karten und UI bleiben unverändert. Wirkt sofort; gespeicherte Einstellungen bleiben "
-                + "auf PC und Frame erhalten.",
+                + "auf PC-VR und Frame erhalten.",
             ["Optimize/ScenarioDecorationDensityPercent"] =
                 "Anteil der dekorativen Szenariodetails: Gras, dekorative Bäume, Büsche und generierte "
                 + "Ausschmückung. 0% entfernt geeignete Dekoration für eine sparsame Darstellung; "

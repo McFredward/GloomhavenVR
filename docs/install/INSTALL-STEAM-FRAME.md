@@ -119,9 +119,10 @@ backs it up as `GH_Data/boot.config.gloomhavenvr-backup`.
 
 ## Graphics settings
 
-In **VR Options → Graphics**, **Scenario grass (%)** trades decorative grass density
-for less rendering work. Standalone Frame defaults to 25%; 100% restores the original
-detail. These settings are also available on PC, and saved choices are retained.
+In **VR Options → Graphics**, **Scenario decoration (%)** controls decorative vegetation
+and scenery. Standalone Frame defaults to 0% for a sparse scene; PC defaults to 100%.
+**Scenario grass (%)** adds a separate grass limit. Set both to 100% for the original
+detail. All settings work on PC and Frame, and saved choices are retained.
 
 ## Updating
 

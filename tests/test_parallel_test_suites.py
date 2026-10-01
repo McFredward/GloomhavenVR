@@ -205,12 +205,13 @@ class ParallelSuitesTests(unittest.TestCase):
                               'announcement', 'dialog-surface', 'scenario-win-cheat'}
         frame600 = {'wall-read-facts', 'light-stabiliser-writes', 'scene-profile-gate',
                     'scenario-scenery-budget', 'frame-perf-report'}
-        self.assertEqual(local, LOCAL_INVENTORY | map_hotfix | story_continuation | {"town-service-setting", "town-service-warmup", "town-residents", "town-service-lighting", "town-face", "town-activity", "town-voice", "town-native-audio", "town-native-veil"} | physical_town | frame600)
+        frame601_local = {'scenario-scenery-runtime'}
+        self.assertEqual(local, LOCAL_INVENTORY | map_hotfix | story_continuation | {"town-service-setting", "town-service-warmup", "town-residents", "town-service-lighting", "town-face", "town-activity", "town-voice", "town-native-audio", "town-native-veil"} | physical_town | frame600 | frame601_local)
         self.assertEqual(ci, CI_INVENTORY | map_hotfix | story_continuation | {"town-service-setting", "town-service-warmup", "town-residents", "town-service-lighting", "town-activity-portable", "town-native-audio", "town-native-veil"} | frame600)
         self.assertEqual({s['id'] for s in runner.selected_suites(suites, 'source', (0, 1))}, SOURCE_INVENTORY)
-        self.assertEqual(len(local), 86)
+        self.assertEqual(len(local), 87)
         self.assertEqual(len(ci), 70)
-        self.assertEqual(local-ci, {'presentation-send', 'town-face', 'town-activity', 'town-voice'} | physical_town)
+        self.assertEqual(local-ci, {'presentation-send', 'town-face', 'town-activity', 'town-voice'} | physical_town | frame601_local)
         self.assertEqual(ci-local, {'self-update-dialog', 'banner-pose', 'quest-seat', 'town-activity-portable'})
         self.assertEqual(len(runner.selected_suites(suites, 'source', (0, 1))), 14)
         partition = [s['id'] for i in range(4) for s in runner.selected_suites(suites, 'ci', (i, 4))]

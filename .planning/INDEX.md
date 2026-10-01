@@ -1,6 +1,6 @@
 # Planning index
 
-Updated 2026-10-01 for the Build 600 configurable Steam Frame candidate. This directory holds internal
+Updated 2026-10-01 for the Build 601 essential scenario decoration candidate. This directory holds internal
 engineering evidence, historical decisions and current status; it is not the player manual.
 
 ## Current entry points
@@ -11,6 +11,8 @@ engineering evidence, historical decisions and current status; it is not the pla
 | [../CLAUDE.md](../CLAUDE.md) | Technical contracts retained across agent tools |
 | [TEST-PARALLELISM.md](TEST-PARALLELISM.md) | Parallel local/CI execution, coverage and measured timing |
 | [STATE.md](STATE.md) | Current build, validation and outstanding hardware checks |
+| [STEAM-FRAME-SCENERY-601.md](STEAM-FRAME-SCENERY-601.md) | Essential decoration profile, corrected discovery, production-classifier validation and reversible settings |
+| [STEAM-FRAME-THIRTEENTH-HARDWARE.md](STEAM-FRAME-THIRTEENTH-HARDWARE.md) | Build 600 hardware failure: 27 masked renderers, loaded foliage population and invisible-collider protections |
 | [STEAM-FRAME-SCENERY-600.md](STEAM-FRAME-SCENERY-600.md) | Authorized scenery trade, cross-platform settings, exact work removal and hardware comparison |
 | [STEAM-FRAME-TWELFTH-HARDWARE.md](STEAM-FRAME-TWELFTH-HARDWARE.md) | Build 599 large-scenario cost, cheap sampled callbacks, unavailable render counters and next attribution targets |
 | [STEAM-FRAME-LARGE-SCENE-PERF.md](STEAM-FRAME-LARGE-SCENE-PERF.md) | Corrected Build 598 direct-scenario evidence, bottleneck plan and controlled A/B criteria |

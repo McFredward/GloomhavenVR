@@ -36,6 +36,16 @@ The Build 594 forced Frame mirror and hidden toggle are superseded by this
 2026-10-01 instruction. See [STEAM-FRAME-SCENERY-600.md](STEAM-FRAME-SCENERY-600.md)
 for the scenery exclusions, evidence limits and next headset comparison.
 
+Build 601 supersedes the narrow scenery scope after the Build 600 test masked
+only 27 of 6,560 active renderers. The new `[Optimize]
+ScenarioDecorationDensityPercent` defaults to **0 on Frame** and **100 on PC**.
+It controls generated decorative vegetation and dressing; the existing grass
+key remains an additional cap (grass uses the lower of the two values). Setting
+both keys to 100 restores the original decorative detail. Existing keys are
+never rewritten; a previously configured Frame installation adopts the zero
+fallback only for this newly introduced key. Both controls appear in Graphics.
+See [STEAM-FRAME-SCENERY-601.md](STEAM-FRAME-SCENERY-601.md).
+
 The game already creates a fresh `GlobalData` with `QualityLevel = "Fastest"`
 (`GH.Runtime.dll`, `GlobalData()`), its lowest native graphics preset. A saved
 quality level or custom graphics profile is loaded by

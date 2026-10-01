@@ -1,5 +1,13 @@
 # Steam Frame: large-scenario performance program
 
+Build 600's test masked only 27 of 6,560 active renderers at zero grass density
+and did not produce the intended visible reduction. The latest evidence is in
+[STEAM-FRAME-THIRTEENTH-HARDWARE.md](STEAM-FRAME-THIRTEENTH-HARDWARE.md).
+Build 601 broadens the configurable budget to generated decoration with an
+essential-scene Frame default and settled-load discovery; see
+[STEAM-FRAME-SCENERY-601.md](STEAM-FRAME-SCENERY-601.md). Actual masking counts and
+matched headset timing must establish its scope and gain.
+
 Build 600 implements the first maintainer-approved reversible scenery compromise
 alongside exact work removal. See
 [STEAM-FRAME-SCENERY-600.md](STEAM-FRAME-SCENERY-600.md). The 2026-10-01 authorization
