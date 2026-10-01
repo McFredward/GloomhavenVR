@@ -28,6 +28,7 @@ def method(source: str, signature: str) -> str:
 
 HARNESS = r'''
 using UnityEngine;
+using GloomhavenVR.Core;
 
 namespace UnityEngine
 {
@@ -103,20 +104,39 @@ namespace GloomhavenVR.Rig
             Assert(Object.LightSearches == 4 && Object.FlickerSearches == 3 &&
                    CensusCalls == 3 && LogCalls == 3, "pin change refreshes diagnostic census");
 
+            NewLights = 0; PinChanges = 0;
+            PerfConfig.LightStabiliserWorkCacheOn = false;
+            Scan();
+            Assert(Object.LightSearches == 5 && Object.FlickerSearches == 4 &&
+                   CensusCalls == 4 && LogCalls == 3,
+                   "A/B off restores original diagnostic search on unchanged scan");
+            NewLights = 1;
+            Scan();
+            Assert(Object.LightSearches == 6 && Object.FlickerSearches == 5 &&
+                   CensusCalls == 5 && LogCalls == 4,
+                   "A/B off still reports a fresh census for new lights");
+
             var light = new Light();
             light.intensity = 1f; light.Writes = 0;
-            WriteIntensityIfChanged(light, 1f, 1f);
+            WriteIntensity(light, 1f, 1f, true);
             Assert(light.Writes == 0 && light.intensity == 1f, "static light setter skipped");
-            WriteIntensityIfChanged(light, 1f, 1.000001f);
+            WriteIntensity(light, 1f, 1.000001f, true);
             Assert(light.Writes == 1 && light.intensity == 1.000001f, "small intensity change retained");
+            light.Writes = 0;
+            WriteIntensity(light, 1f, 1f, false);
+            Assert(light.Writes == 1 && light.intensity == 1f,
+                   "A/B off restores original unconditional intensity setter");
 
             var transform = new Transform();
             transform.localPosition = new Vector3(1f, 2f, 3f); transform.Writes = 0;
-            WritePositionIfChanged(transform, transform.localPosition, new Vector3(1f, 2f, 3f));
+            WritePosition(transform, transform.localPosition, new Vector3(1f, 2f, 3f), true);
             Assert(transform.Writes == 0, "static position setter skipped");
-            WritePositionIfChanged(transform, transform.localPosition, new Vector3(1.000001f, 2f, 3f));
+            WritePosition(transform, transform.localPosition, new Vector3(1.000001f, 2f, 3f), true);
             Assert(transform.Writes == 1 && transform.localPosition.x == 1.000001f,
                    "sub-tolerance position change retained");
+            transform.Writes = 0;
+            WritePosition(transform, transform.localPosition, transform.localPosition, false);
+            Assert(transform.Writes == 1, "A/B off restores original unconditional position setter");
         }
         private static void Assert(bool condition, string message)
         {
@@ -128,6 +148,11 @@ namespace GloomhavenVR.Rig
         private static void Main() { LightStabiliser.Check(); System.Console.WriteLine("Light stabiliser scan/write gates passed"); }
     }
 }
+
+namespace GloomhavenVR.Core
+{
+    internal static class PerfConfig { internal static bool LightStabiliserWorkCacheOn = true; }
+}
 '''
 
 
@@ -138,15 +163,18 @@ def main() -> None:
     source = (args.source_root / "src/GloomhavenVR/Rig/LightStabiliser.cs").read_text()
     signatures = (
         "private static void Scan()",
-        "private static void WriteIntensityIfChanged(Light light, float raw, float output)",
-        "private static void WritePositionIfChanged(Transform transform, Vector3 raw, Vector3 output)",
+        "private static void WriteIntensity(Light light, float raw, float output, bool workCache)",
+        "private static void WritePosition(Transform transform, Vector3 raw, Vector3 output, bool workCache)",
     )
     methods = "\n".join(method(source, signature) for signature in signatures)
     variants = (
         ("production", methods, True),
-        ("unconditional intensity write", methods.replace("if (raw != output)", "if (true)"), False),
-        ("approximate position equality", methods.replace("if (!raw.Equals(output))", "if (raw != output)"), False),
+        ("unconditional intensity write", methods.replace("if (!workCache || raw != output)", "if (!workCache || output == raw || raw != output)"), False),
+        ("off path skips intensity write", methods.replace("if (!workCache || raw != output)", "if (raw != output)"), False),
+        ("approximate position equality", methods.replace("if (!workCache || !raw.Equals(output))", "if (!workCache || raw != output)"), False),
+        ("off path skips position write", methods.replace("if (!workCache || !raw.Equals(output))", "if (!raw.Equals(output))"), False),
         ("diagnostic search on every scan", methods.replace("if (newLights == 0 && pinned == 0 && _censusPrinted)", "if (newLights == -1 && pinned == 0 && _censusPrinted)"), False),
+        ("off path skips diagnostic search", methods.replace("if (!workCache)", "if (workCache)", 1), False),
     )
     dotnet = shutil.which("dotnet") or str(Path.home() / ".dotnet/dotnet")
     env = dict(os.environ, DOTNET_ROOT=str(Path(dotnet).resolve().parent))
@@ -171,7 +199,7 @@ def main() -> None:
                 print(run.stdout, end="")
             elif run.returncode == 0 or "error CS" in run.stdout:
                 raise SystemExit("Negative control did not fail at runtime: " + label + "\n" + run.stdout + run.stderr)
-        print("Light stabiliser: 3 compiled negative controls failed as expected")
+        print("Light stabiliser: 6 compiled negative controls failed as expected")
 
 
 if __name__ == "__main__":
