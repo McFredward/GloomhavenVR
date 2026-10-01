@@ -75,7 +75,8 @@ internal static class ScenarioSceneryBudget
     internal static void ContentPlaced(ProceduralBase entity)
     {
         if (entity != null)
-            _driver?.QueueTile(entity.GetComponentInParent<ProceduralMapTile>());
+            _driver?.QueueTile(entity is ProceduralMapTile tile
+                                   ? tile : entity.GetComponentInParent<ProceduralMapTile>());
     }
 
     internal static void ContentShown(GameObject root)

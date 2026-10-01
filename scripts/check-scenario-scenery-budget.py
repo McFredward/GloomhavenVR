@@ -305,7 +305,9 @@ def main() -> None:
     recheck = method(source, "private void RecheckOwned()")
     known = method(source, "private void RevalidateKnown(Record record, MeshRenderer renderer, ProceduralMapTile tile)")
     assert "RevalidateKnown(known, renderer, tile);" in method(source, "private void Examine(MeshRenderer renderer, ProceduralMapTile tile)")
-    assert "entity.GetComponentInParent<ProceduralMapTile>()" in method(source, "internal static void ContentPlaced(ProceduralBase entity)")
+    placement = method(source, "internal static void ContentPlaced(ProceduralBase entity)")
+    assert "entity is ProceduralMapTile tile" in placement
+    assert "entity.GetComponentInParent<ProceduralMapTile>()" in placement
     variants = (
         ("production", outer, queue, recheck, known, True),
         ("shader-only eligibility", outer.replace("if (!generator) return Verdict.Generator;", "if (!name) return Verdict.Generator;"), queue, recheck, known, False),
