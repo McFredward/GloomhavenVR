@@ -849,6 +849,7 @@ internal static class PerfMonitor
         if (PerfConfig.SceneCensus.Value)
             PerfFrameSplit.AppendSceneCensus(sb);
         VRLog.Info(Scope0, sb.ToString());
+        PerfNativeLoopProbe.LogSummary(PerfFrameSplit.NativeProbeCapturedFrames);
     }
 
     /// <summary>

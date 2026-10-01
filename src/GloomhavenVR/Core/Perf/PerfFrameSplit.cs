@@ -174,6 +174,7 @@ internal static partial class PerfFrameSplit
     private const int NativeProbeCapacity = 128;
     private static bool _probeSampling, _probeFrameOpen;
     private static int _probeFrames;
+    internal static int NativeProbeCapturedFrames => _probeFrames;
     private static double _probeManagementMs;
 
     // These Unity marker names are documented for 2021.3. A release player may expose none of
@@ -281,6 +282,7 @@ internal static partial class PerfFrameSplit
     {
         SetActive(false);
         SetNativeProbesActive(false);
+        PerfNativeLoopProbe.Shutdown();
         if (_tail != null)
         {
             UnityEngine.Object.Destroy(_tail);
@@ -525,6 +527,7 @@ internal static partial class PerfFrameSplit
     {
         _probeFrames = 0;
         _probeSampling = true;
+        PerfNativeLoopProbe.Start();
         if (_updateTail != null)
             _updateTail.enabled = true;
         if (_lateHead != null)
@@ -539,6 +542,7 @@ internal static partial class PerfFrameSplit
         long started = Stopwatch.GetTimestamp();
         _probeSampling = false;
         _probeFrameOpen = false;
+        PerfNativeLoopProbe.Stop(_probeFrames);
         if (_updateTail != null)
             _updateTail.enabled = false;
         if (_lateHead != null)
@@ -685,6 +689,10 @@ internal static partial class PerfFrameSplit
 
     internal static void ResetWindow()
     {
+        // A graphics-setting MARK can close a window before the 120-frame Debug capture ends.
+        // Finish that partial capture before resetting and starting the next state-specific one.
+        if (_probeSampling)
+            StopProbeSampling();
         _count = 0;
         _updateSum = 0d;
         _betweenSum = 0d;
