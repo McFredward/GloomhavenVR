@@ -18,6 +18,7 @@ internal sealed class TownServiceSessionInfo
     internal float SampleTime, ReceivedTime, LastSeenTime, SessionAge;
     internal bool Active;
     internal bool TempleDonationKnown, TempleDonationAvailable;
+    internal bool HasTempleDonationCommitAge;
     internal uint TempleDonationRevision;
     internal float TempleDonationChangedTime;
     internal bool TransactionActive;
@@ -33,10 +34,11 @@ internal readonly struct TownTempleDonationState
     internal readonly bool Known, Available;
     internal readonly uint Revision;
     internal readonly float TransitionAge;
+    internal readonly bool HasCommitAge;
     internal TownTempleDonationState(int peer, uint session, bool known, bool available,
-        uint revision, float transitionAge)
+        uint revision, float transitionAge, bool hasCommitAge = false)
     { Peer = peer; Session = session; Known = known; Available = available;
-      Revision = revision; TransitionAge = transitionAge; }
+      Revision = revision; TransitionAge = transitionAge; HasCommitAge = hasCommitAge; }
 }
 
 /// <summary>
@@ -358,7 +360,8 @@ internal static partial class TownServiceMirror
             destination.Add(new TownTempleDonationState(LocalPeer, PrivateLane.Session,
                 PrivateLane.TempleDonationKnown, PrivateLane.TempleDonationAvailable,
                 PrivateLane.TempleDonationRevision,
-                PrivateLane.TempleDonationRevision == 0 ? 0f : Mathf.Max(0f, now - PrivateLane.TempleDonationChangedTime)));
+                PrivateLane.TempleDonationRevision == 0 ? 0f : Mathf.Max(0f, now - PrivateLane.TempleDonationChangedTime),
+                hasCommitAge: true));
         foreach (var pair in VisitorSessions)
         {
             TownServiceSessionInfo visitor = pair.Value;
@@ -367,7 +370,8 @@ internal static partial class TownServiceMirror
             destination.Add(new TownTempleDonationState(pair.Key, visitor.Session,
                 visitor.TempleDonationKnown, visitor.TempleDonationAvailable,
                 visitor.TempleDonationRevision,
-                visitor.TempleDonationRevision == 0 ? 0f : Mathf.Max(0f, now - visitor.TempleDonationChangedTime)));
+                visitor.TempleDonationRevision == 0 ? 0f : Mathf.Max(0f, now - visitor.TempleDonationChangedTime),
+                hasCommitAge: visitor.HasTempleDonationCommitAge));
         }
     }
 
@@ -772,7 +776,10 @@ internal static partial class TownServiceMirror
                     Visible = _active, Modules = ids.ToArray(), Pose = _station != null ? ReadPose(_station, _sharedFrame) : IdentityPose() };
                 if (ReferenceEquals(_local, PrivateLane) && _service == 2 && _active && _local.TempleDonationKnown)
                 { manifest.TempleDonationKnown = true; manifest.TempleDonationAvailable = _local.TempleDonationAvailable;
-                  manifest.TempleDonationRevision = _local.TempleDonationRevision; }
+                  manifest.TempleDonationRevision = _local.TempleDonationRevision;
+                  manifest.HasTempleDonationCommitAge = true;
+                  manifest.TempleDonationCommitAge = _local.TempleDonationRevision == 0 ? 0f
+                    : Mathf.Clamp(now - _local.TempleDonationChangedTime, 0f, 30f); }
                 if (ReferenceEquals(_local, PrivateLane) && _active)
                     manifest.TransactionActive = _local.TransactionActive;
                 byte[] packet = TownServiceCodec.Write(manifest); send(packet, packet.Length, manifest);
@@ -803,7 +810,10 @@ internal static partial class TownServiceMirror
                 Sequence = frame.Sequence, SampleTime = frame.SampleTime, ReceivedTime = Time.unscaledTime, LastSeenTime = Time.unscaledTime, Active = frame.Visible,
                 SessionAge = frame.SessionAge, TempleDonationKnown = frame.TempleDonationKnown,
                 TempleDonationAvailable = frame.TempleDonationAvailable, TempleDonationRevision = frame.TempleDonationRevision,
-                TempleDonationChangedTime = donationAdvanced ? Time.unscaledTime : previous?.TempleDonationChangedTime ?? 0f,
+                HasTempleDonationCommitAge = frame.HasTempleDonationCommitAge,
+                TempleDonationChangedTime = frame.HasTempleDonationCommitAge
+                    ? Time.unscaledTime - frame.TempleDonationCommitAge
+                    : donationAdvanced ? Time.unscaledTime : previous?.TempleDonationChangedTime ?? 0f,
                 TransactionActive = frame.TransactionActive,
                 Modules = frame.Modules, Position = Position(frame.Pose), Rotation = Rotation(frame.Pose), Scale = Scale(frame.Pose) };
             if (peer > 0) VisitorSessions[peer] = Sessions[peer];
