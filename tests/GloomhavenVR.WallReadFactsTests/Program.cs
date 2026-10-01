@@ -46,6 +46,12 @@ internal sealed class CInteractableActor { }
 
 namespace GloomhavenVR.Core
 {
+    internal static class PerfConfig
+    {
+        internal static bool SharedWallReadCache = true;
+        internal static int Reads;
+        internal static bool SharedWallReadCacheOn { get { Reads++; return SharedWallReadCache; } }
+    }
     internal static partial class WallSegmentFade
     {
         internal static int Run() => FadeDriver.Run();
@@ -91,6 +97,7 @@ namespace GloomhavenVR.Core
                 var driver = new FadeDriver();
                 driver.MaterialAdmission();
                 driver.FigureRoots();
+                driver.DisabledReads();
                 return driver._assertions;
             }
             private void MaterialAdmission()
@@ -216,6 +223,46 @@ namespace GloomhavenVR.Core
                 BeginFigureMemo();
                 Check(FigurePropRootOf(new Transform()) == null, "Absent root must retain negative result");
                 EndFigureMemo();
+            }
+            private void DisabledReads()
+            {
+                PerfConfig.SharedWallReadCache = false;
+                int settingsReads = PerfConfig.Reads;
+                BeginWallCacheMaterialFacts();
+                Check(PerfConfig.Reads == settingsReads + 1, "Material cache setting must be sampled once per phase");
+                var material = Mat("Amp_Basic", 0.25f, WallFadeOnMatId);
+                Check(CollectWallFadeInfo(Renderer(material), new Segment()), "Disabled cache must retain native admission");
+                int properties = material.PropertyReads;
+                for (int i = 0; i < 8; i++)
+                    Check(CollectWallFadeInfo(Renderer(material), new Segment()), "Disabled material cache must remain usable");
+                Check(material.PropertyReads > properties && _wallCacheMaterialFacts.Count == 0,
+                    "Disabled material cache must use live probes without memo entries");
+                material.Floats[WallFadeOnMatId] = 0;
+                Check(!CollectWallFadeInfo(Renderer(material), new Segment()), "Disabled material cache cannot reuse stale authored gates");
+                Check(PerfConfig.Reads == settingsReads + 1, "Material consumers must not read the setting per renderer");
+                EndWallCacheMaterialFacts();
+                BeginFigureMemo();
+                Check(_figureMemoActive && !_figureRootMemoActive,
+                    "Disabled figure root cache must retain the existing figure ancestry window");
+                var root = new Transform(); root.Components.Add(typeof(Animator));
+                var leaf = new Transform { parent = root };
+                Check(FigurePropRootOf(leaf) == root, "Disabled figure cache must retain exact nearest root");
+                int queries = leaf.Queries + root.Queries;
+                for (int i = 0; i < 8; i++)
+                    Check(FigurePropRootOf(leaf) == root, "Disabled figure cache must remain usable");
+                Check(leaf.Queries + root.Queries > queries && FigureRootMemo.Count == 0,
+                    "Disabled figure root cache must use live ancestry queries without memo entries");
+                Check(PerfConfig.Reads == settingsReads + 2, "Figure root consumers must not read the setting per renderer");
+                PerfConfig.SharedWallReadCache = true;
+                Check(FigurePropRootOf(leaf) == root && FigureRootMemo.Count == 0,
+                    "A changed setting must take effect only at the next synchronous window");
+                EndFigureMemo();
+                BeginFigureMemo();
+                Check(_figureRootMemoActive && FigurePropRootOf(leaf) == root && FigureRootMemo.Count > 0,
+                    "Re-enabling the read cache must affect the next synchronous window");
+                EndFigureMemo();
+                Check(!_figureRootMemoActive && FigureRootMemo.Count == 0,
+                    "The figure root cache must close independently of its selected setting");
             }
         }
     }

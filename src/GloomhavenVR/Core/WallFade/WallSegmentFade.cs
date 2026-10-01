@@ -7760,6 +7760,7 @@ internal static partial class WallSegmentFade
         {
             FigureAncestryMemo.Clear();
             FigureRootMemo.Clear();
+            _figureRootMemoActive = PerfConfig.SharedWallReadCacheOn;
             GameLogicAncestryMemo.Clear();
             WallGeneratorAncestryMemo.Clear();
             _figureMemoActive = true;
@@ -7768,6 +7769,7 @@ internal static partial class WallSegmentFade
         private static void EndFigureMemo()
         {
             _figureMemoActive = false;
+            _figureRootMemoActive = false;
             FigureAncestryMemo.Clear(); // never hold transform references across frames
             FigureRootMemo.Clear();
             GameLogicAncestryMemo.Clear();

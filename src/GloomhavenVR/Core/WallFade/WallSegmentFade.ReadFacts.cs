@@ -46,7 +46,8 @@ internal static partial class WallSegmentFade
         private void BeginWallCacheMaterialFacts()
         {
             _wallCacheMaterialFacts.Clear();
-            _wallCacheMaterialFactsActive = true;
+            // Capture the switch once per synchronous phase, never per renderer.
+            _wallCacheMaterialFactsActive = PerfConfig.SharedWallReadCacheOn;
         }
 
         private void EndWallCacheMaterialFacts()
@@ -84,10 +85,11 @@ internal static partial class WallSegmentFade
         // synchronous figure memo window only. Prepare slices and commits each open/close
         // their own window, so reparenting and component changes between frames stay live.
         private static readonly Dictionary<Transform, Transform?> FigureRootMemo = new(1024);
+        private static bool _figureRootMemoActive;
 
         private static Transform? FigurePropRootOf(Transform? t)
         {
-            if (_figureMemoActive)
+            if (_figureRootMemoActive)
                 return FigurePropRootMemoized(t);
             while (t != null)
             {

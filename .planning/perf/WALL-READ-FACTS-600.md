@@ -32,6 +32,14 @@ those measurements.
    the window. The root check retains inactive-node semantics and all three
    component arms; the renderer guard's held-prop veto is untouched.
 
+Both new caches are controlled by `PerfConfig.SharedWallReadCacheOn` (the shared
+`[Optimize] SharedWallReadCache` setting, enabled by default on all platforms).
+The setting is sampled once at `BeginWallCacheMaterialFacts` / `BeginFigureMemo`,
+never per renderer. Disabled mode takes live material and nearest-root reads and
+keeps both new dictionaries empty. It does not disable or change the older
+`FigureAncestryMemo` window. A changed setting takes effect at the next synchronous
+window; no cache is kept across a frame while waiting for that change.
+
 Both dictionaries close in the production phase/pass lifecycle and drop their
 Unity object references. Material facts never span a prepare slice or a frame.
 The WallCache phase can change renderer material lists and property blocks, but
@@ -46,10 +54,13 @@ moved into a sliced builder.
 extracts the actual production material consumer, live-toggle predicate, shader
 name facts and figure-memo lifecycle. Counted Unity doubles make avoided native
 queries observable rather than asserting the new implementation's own cache
-count. The focused suite passes **4,497 assertions** and six negative controls:
+count. The focused suite passes **4,525 assertions** and eight negative controls:
 disabled material cache, retained material references, disabled figure cache,
 retained figure references, inverted native gate and missing production
-material-scope `finally`.
+material-scope `finally`, ignored material-cache bypass and ignored figure-root
+bypass. Disabled-mode coverage also verifies live authored-toggle changes, zero
+memo entries, one config read per window, and preservation of the old figure
+ancestry window.
 
 In the focused shared-material population, 4,000 subsequent renderer consumers
 repeat zero native shader/property probes, while every renderer still reads its

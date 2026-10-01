@@ -10,7 +10,7 @@ project="$repo_root/tests/GloomhavenVR.WallReadFactsTests/GloomhavenVR.WallReadF
 dotnet run --project "$project" --configuration Release
 mutation_dir="$(mktemp -d)"
 trap 'rm -rf "$mutation_dir"' EXIT
-for mutation in material-no-cache material-retained figure-no-cache figure-retained gate-inverted phase-unbounded; do
+for mutation in material-no-cache material-retained figure-no-cache figure-retained gate-inverted phase-unbounded material-bypass-ignored figure-bypass-ignored; do
     python3 - "$repo_root" "$mutation_dir" "$mutation" <<'PY'
 import pathlib
 import sys
@@ -22,14 +22,18 @@ changes = {
                           'if (bool.Parse("false")\n                && _wallCacheMaterialFacts.TryGetValue'),
     'material-retained': ('_wallCacheMaterialFactsActive = false;\n            _wallCacheMaterialFacts.Clear();',
                           '_wallCacheMaterialFactsActive = false;'),
-    'figure-no-cache': ('if (_figureMemoActive)\n                return FigurePropRootMemoized(t);',
+    'figure-no-cache': ('if (_figureRootMemoActive)\n                return FigurePropRootMemoized(t);',
                         'if (bool.Parse("false"))\n                return FigurePropRootMemoized(t);'),
     'figure-retained': ('FigureRootMemo.Clear();\n            GameLogicAncestryMemo.Clear();',
                         '// injected retained figure roots\n            GameLogicAncestryMemo.Clear();'),
     'gate-inverted': ('m.GetFloat(WallFadeOnMatId) != 0f', 'm.GetFloat(WallFadeOnMatId) == 0f'),
     'phase-unbounded': ('finally { EndWallCacheMaterialFacts(); }', '// injected missing finally close'),
+    'material-bypass-ignored': ('_wallCacheMaterialFactsActive = PerfConfig.SharedWallReadCacheOn;',
+                               '_wallCacheMaterialFactsActive = true;'),
+    'figure-bypass-ignored': ('_figureRootMemoActive = PerfConfig.SharedWallReadCacheOn;',
+                             '_figureRootMemoActive = true;'),
 }
-if mutation in ('figure-retained', 'gate-inverted', 'phase-unbounded'):
+if mutation in ('figure-retained', 'gate-inverted', 'phase-unbounded', 'figure-bypass-ignored'):
     source = root / 'src/GloomhavenVR/Core/WallFade/WallSegmentFade.cs'
 needle, replacement = changes[mutation]
 text = source.read_text()
@@ -52,6 +56,8 @@ PY
         figure-retained) property=DriverSource; expected='Figure root memo must release all transform references' ;;
         gate-inverted) property=DriverSource; expected='Native gate and shader admission must match authored state' ;;
         phase-unbounded) property=DriverSource; expected='Wall material memo must bracket the real synchronous WallCache phase with finally' ;;
+        material-bypass-ignored) expected='Material cache setting must be sampled once per phase' ;;
+        figure-bypass-ignored) property=DriverSource; expected='Disabled figure root cache must retain the existing figure ancestry window' ;;
     esac
     if [[ "$mutation" == phase-unbounded ]]; then
         if python3 "$repo_root/tests/GloomhavenVR.WallReadFactsTests/extract-driver.py" \
