@@ -547,7 +547,21 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 595;
+    public const ushort ModBuild = 596;
+
+    // ModBuild 596 — global interactive CPU candidate after the Build 594
+    // Frame trace. Dormant floated windows skip repeated conversion and
+    // grab-follow work until their same-frame wake; the physical merchant
+    // visits only exposed/moving catalog pages. Parked local map cards prepare
+    // their shared mip cache before reveal, and remote public map fans pin
+    // class artwork before their first face; scenario secrecy remains gated.
+    // The enchantress builds inactive native card-slot wrappers during map
+    // loading without entering her shop. Pure wall-dressing verdicts are
+    // reused within one commit, while full forensic scene censuses become
+    // opt-in on all platforms. A bounded Debug-only phase/Unity-marker probe
+    // attributes remaining scenario CPU. Existing Frame-specific graphics
+    // defaults remain separate; 2D and original-window paths retain their
+    // native behavior. No wire format or asset-bundle content changes.
 
     // ModBuild 595 — the WallFade visibility-check option now declares its
     // actual 0..0.25 s runtime range to BepInEx and the VR options catalog.

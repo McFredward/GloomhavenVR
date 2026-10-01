@@ -1,6 +1,6 @@
 # State — where the project stands
 
-**Updated 2026-10-01: dev 1.1.0 / ModBuild 595, Steam Frame interactive performance follow-up.**
+**Updated 2026-10-01: dev 1.1.0 / ModBuild 596, Steam Frame interactive performance candidate.**
 The release ZIP now exposes only `BepInEx/` and the English/German install
 texts at game-root level. The Steam Frame desktop starter, setup scripts and
 art are nested under the plugin. The in-game updater accepts and copies the
@@ -81,6 +81,17 @@ saved and effective range agree. The same trace retains 42 ms scenario medians,
 recurring merchant CPU work and interactive NPC/fan/wall hitches. See
 [STEAM-FRAME-EIGHTH-HARDWARE.md](STEAM-FRAME-EIGHTH-HARDWARE.md) for measured
 priorities and explicitly optional Frame compromises.
+Build 596 moves avoidable presentation work out of interactive frames on all
+platforms: dormant windows, merchant cold pages, parked card mip cache and
+inactive enhancement-slot wrappers. Remote public map fans now pin class art
+before their first face; scenario secrecy is unchanged. Pure wall provenance
+checks are reused within one atomic commit, and expensive forensic scene
+censuses default off everywhere. A capped Debug-only phase probe helps isolate
+remaining native scenario CPU. Fresh Frame graphics defaults already use
+MSAA 0, a smaller texture-streaming floor and slower wall rescans; existing
+settings are retained, and no further resolution/legibility reduction is
+applied without a matched hardware result. See
+[STEAM-FRAME-NINTH-HARDWARE.md](STEAM-FRAME-NINTH-HARDWARE.md).
 Build 589 addresses the Build 587 town multiplayer report: host self-grant
 timeout, original atlas capture, public cabinet input, town handoff focus and
 map character selection. Correct matching Build 587 peer logs then exposed a
@@ -107,6 +118,16 @@ change per build) → this file (where things stand and what is owed) → the bu
 ---
 
 ## 1. Position
+
+- **dev / 1.1.0 / ModBuild 596 (interactive CPU candidate):** global lossless
+  scheduling and prewarm target the measured merchant, window, map-hand and
+  enchantress costs. Original 2D/3D map windows keep their native paths;
+  multiplayer map fronts and remote privacy gates remain intact. Frame-only
+  quality compromises remain the previously chosen fresh defaults. The wall
+  commit still contains necessary atomic scene work; scenario residual CPU is
+  instrumented, not yet optimized away. Headset frame-time improvements and
+  1:1 visual behavior need a matched local/remote test. See
+  [STEAM-FRAME-NINTH-HARDWARE.md](STEAM-FRAME-NINTH-HARDWARE.md).
 
 - **dev / 1.1.0 / ModBuild 595 (Frame options correction):** the wall occlusion
   evaluation control is bounded to its already-enforced 0..0.25 s range in
