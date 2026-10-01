@@ -148,8 +148,11 @@ internal static class PerfConfig
     /// <summary>Override <see cref="QualitySettings.lodBias"/> in VR (0 = leave the quality level's own value).</summary>
     internal static ConfigEntry<float> LodBias = null!;
 
-    /// <summary>Percentage of standalone scenario floor decoration retained; 100 preserves all.</summary>
+    /// <summary>Additional grass density cap; the general decorative scenery budget also applies.</summary>
     internal static ConfigEntry<int> ScenarioSceneryDensityPercent = null!;
+
+    /// <summary>Percentage of generated scenario decoration retained; 100 preserves all.</summary>
+    internal static ConfigEntry<int> ScenarioDecorationDensityPercent = null!;
 
     internal static ConfigEntry<bool> SharedWallReadCache = null!;
     internal static ConfigEntry<bool> LightStabiliserWorkCache = null!;
@@ -239,6 +242,11 @@ internal static class PerfConfig
         ScenarioSceneryDensityPercent == null
             ? Defaults.ScenarioSceneryDensityPercent
             : Mathf.Clamp(ScenarioSceneryDensityPercent.Value, 0, 100);
+
+    internal static int ScenarioDecorationDensityPercentValue =>
+        ScenarioDecorationDensityPercent == null
+            ? Defaults.ScenarioDecorationDensityPercent
+            : Mathf.Clamp(ScenarioDecorationDensityPercent.Value, 0, 100);
 
     internal static bool SharedWallReadCacheOn =>
         SharedWallReadCache == null || SharedWallReadCache.Value;
@@ -346,13 +354,21 @@ internal static class PerfConfig
         ScenarioSceneryDensityPercent = _file.Bind("Optimize", "ScenarioSceneryDensityPercent",
             FrameDefaults.Active ? FrameDefaults.ScenarioSceneryDensityPercent : Defaults.ScenarioSceneryDensityPercent,
             new ConfigDescription(
-                "Amount of standalone decorative scenario grass retained. 100% keeps the "
-                + "original scene; lower values remove a stable subset of eligible decorative meshes "
-                + "from rendering. Only verified floor-grass generators are eligible. Figures, "
-                + "obstacles, floors, walls, doors, cards and UI remain "
-                + "unchanged. Takes effect during scene preparation and when this value changes. "
-                + "Frame standalone starts at 25%; PC VR starts at 100%. This trades decorative "
-                + "detail for less rendering work, not gameplay information. Saved settings are retained.",
+                "Additional cap on decorative scenario grass. The lower of this value and "
+                + "Scenario decoration (%) applies to grass; other decoration follows the general "
+                + "decoration setting. 100% permits all grass, 0% removes eligible grass rendering. "
+                + "Figures, gameplay obstacles, floors, structural walls, doors, cards and UI remain "
+                + "unchanged. Takes effect live; saved settings are retained on PC and Frame.",
+                new AcceptableValueRange<int>(0, 100)));
+        ScenarioDecorationDensityPercent = _file.Bind("Optimize", "ScenarioDecorationDensityPercent",
+            FrameDefaults.Active ? FrameDefaults.ScenarioDecorationDensityPercent : Defaults.ScenarioDecorationDensityPercent,
+            new ConfigDescription(
+                "Decorative scenario detail retained: grass, decorative trees, bushes and generated "
+                + "dressing. 0% removes eligible decoration for a sparse scene; 100% restores original "
+                + "detail, subject to the separate grass cap. Figures, gameplay obstacles, floors, "
+                + "structural walls, doors, cards and UI remain unchanged. Native colliders and reveal "
+                + "state are not changed. Works live on PC and Frame. Fresh standalone Frame defaults "
+                + "to 0%, PC to 100%; saved choices are retained.",
                 new AcceptableValueRange<int>(0, 100)));
 
         SharedWallReadCache = _file.Bind("Optimize", "SharedWallReadCache", Defaults.SharedWallReadCache,

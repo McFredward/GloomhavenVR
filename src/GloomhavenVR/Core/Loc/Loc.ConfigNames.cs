@@ -700,6 +700,7 @@ internal static partial class Loc
             ["Optimize/CacheTickDelegates"] = Pair("Cache tick delegates", "Tick-Delegates cachen"),
             ["Optimize/MapIconCache"] = Pair("Cache map icons", "Karten-Icons cachen"),
             ["Optimize/ScenarioSceneryDensityPercent"] = Pair("Scenario grass (%)", "Szenario-Gras (%)"),
+            ["Optimize/ScenarioDecorationDensityPercent"] = Pair("Scenario decoration (%)", "Szenario-Dekoration (%)"),
             ["Optimize/SharedWallReadCache"] = Pair("Cache wall preparation reads", "Wandvorbereitung cachen"),
             ["Optimize/LightStabiliserWorkCache"] = Pair("Skip redundant light work", "Doppelte Lichtarbeit sparen"),
             ["Optimize/FigureScanCache"] = Pair("Cache figure scans", "Figuren-Scan cachen"),

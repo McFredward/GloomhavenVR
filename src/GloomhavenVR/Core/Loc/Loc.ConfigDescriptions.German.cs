@@ -224,13 +224,20 @@ internal static partial class Loc
                 + "0.05 (20 Hz) nicht ändern, wo ein Porträt landet — er verzögert höchstens um dieses "
                 + "Intervall, wann ein NEU eingereihtes Porträt zum ersten Mal flachgelegt wird.",
             ["Optimize/ScenarioSceneryDensityPercent"] =
-                "Anteil des eigenständigen dekorativen Grases im Szenario. 100% erhält die ursprüngliche "
-                + "Darstellung; niedrigere Werte entfernen einen festen Anteil geeigneter Dekorations-Meshes "
-                + "aus der Darstellung. Nur geprüfte Bodengras-Generatoren sind betroffen. Figuren, "
-                + "Hindernisse, Böden, Wände, Türen, Karten und UI bleiben "
-                + "unverändert. Wirkt bei der Szenariovorbereitung und beim Ändern dieses Werts. "
-                + "Steam Frame standalone beginnt mit 25%, PC-VR mit 100%. Weniger Dekoration reduziert "
-                + "den Renderaufwand. Gespeicherte Einstellungen bleiben erhalten.",
+                "Zusätzliche Begrenzung des dekorativen Grases im Szenario. Für Gras gilt der niedrigere "
+                + "Wert dieser Einstellung und von Szenario-Dekoration (%); andere Dekoration folgt "
+                + "der allgemeinen Dekorationseinstellung. 100% erlaubt alles Gras, 0% entfernt geeignetes "
+                + "Gras aus der Darstellung. Figuren, Spielhindernisse, Böden, tragende Wände, Türen, "
+                + "Karten und UI bleiben unverändert. Wirkt sofort; gespeicherte Einstellungen bleiben "
+                + "auf PC und Frame erhalten.",
+            ["Optimize/ScenarioDecorationDensityPercent"] =
+                "Anteil der dekorativen Szenariodetails: Gras, dekorative Bäume, Büsche und generierte "
+                + "Ausschmückung. 0% entfernt geeignete Dekoration für eine sparsame Darstellung; "
+                + "100% stellt die ursprünglichen Details wieder her, zusätzlich gilt die separate "
+                + "Grasbegrenzung. Figuren, Spielhindernisse, Böden, tragende Wände, Türen, Karten "
+                + "und UI bleiben unverändert. Spielkollisionen und aufgedeckte Bereiche werden nicht "
+                + "verändert. Wirkt sofort auf PC und Frame. Steam Frame standalone beginnt mit 0%, "
+                + "PC mit 100%; gespeicherte Einstellungen bleiben erhalten.",
             ["Optimize/SharedWallReadCache"] =
                 "Verwendet gemeinsame Material- und Figuren-Vorfahren-Abfragen innerhalb der "
                 + "synchronen Wandvorbereitung erneut. Ein spart doppelte Engine-Abfragen bei gleicher "

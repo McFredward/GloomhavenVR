@@ -1457,6 +1457,7 @@ internal static class PerfSceneProfile
         // A/B values must be visible beside actual native quality, not inferred from a
         // platform marker. The same live settings can be used on PC and standalone Frame.
         sb.Append(" | scenarioGrass=").Append(PerfConfig.ScenarioSceneryDensityPercentValue).Append('%')
+          .Append(" scenarioDecoration=").Append(PerfConfig.ScenarioDecorationDensityPercentValue).Append('%')
           .Append(" sharedWallReadCache=").Append(PerfConfig.SharedWallReadCacheOn)
           .Append(" lightWorkCache=").Append(PerfConfig.LightStabiliserWorkCacheOn)
           .Append(" desktopMirror=").Append(WorldUI.WorldUIConfig.DesktopMirrorLeftEye?.Value ?? Defaults.DesktopMirrorLeftEye);

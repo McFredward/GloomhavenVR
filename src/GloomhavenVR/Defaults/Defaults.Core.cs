@@ -66,6 +66,7 @@ internal static partial class Defaults
     internal const bool CacheTickDelegates = true;           // => [Optimize] CacheTickDelegates
     internal const bool MapIconCache = true;                 // => [Optimize] MapIconCache
     internal const int ScenarioSceneryDensityPercent = 100; // => [Optimize] ScenarioSceneryDensityPercent
+    internal const int ScenarioDecorationDensityPercent = 100; // => [Optimize] ScenarioDecorationDensityPercent
     internal const bool SharedWallReadCache = true;         // => [Optimize] SharedWallReadCache
     internal const bool LightStabiliserWorkCache = true;     // => [Optimize] LightStabiliserWorkCache
     internal const bool FigureScanCache = true;              // => [Optimize] FigureScanCache

@@ -184,6 +184,7 @@ internal static class ConfigSteps
         ["RenderQuality/EyeResolutionScale"] = 0.05d, // 5 % per press — ~10 % pixel-work change
         ["RenderQuality/PixelLightCount"] = 1d,       // a light at a time (int; -1 = game's own)
         ["Optimize/ScenarioSceneryDensityPercent"] = 5d, // full detail to sparse cover in 20 presses
+        ["Optimize/ScenarioDecorationDensityPercent"] = 5d,
 
         // ---- Brett & Karten ---------------------------------------------------------------
         ["Cards/TrayScale"] = 0.05d,             // 5 % of the board size

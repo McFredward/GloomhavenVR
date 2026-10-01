@@ -547,7 +547,24 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 600;
+    public const ushort ModBuild = 601;
+
+    // ModBuild 601 — Build 600's Frame hardware run showed that grass density
+    // zero masked only 27 of 6,560 active renderers. Its first scan preceded
+    // the completed procedural hierarchy, and its eligibility rules excluded
+    // almost all wall-side vegetation and mixed floor dressing. The maintainer
+    // requests a much sparser, essential-scene profile (2026-10-01). A new
+    // reversible decoration-density control defaults to zero on standalone
+    // Frame and full detail on PC; saved settings remain authoritative. Grass
+    // retains its existing key as an additional cap. Generated decorative
+    // vegetation/dressing is classified at mesh level, while structural floor
+    // and wall geometry, actors, doors, gameplay props, pickups, cards and UI
+    // stay intact. Discovery follows settled loading, later placement and room
+    // reveal; renderer masks remain owned, bounded and reversible. Production
+    // classifier/lifecycle tests cover representative native hierarchies rather
+    // than only extracted verdict helpers. Actual eligible counts and Frame FPS
+    // need the next headset run; renderer/material estimates are not draw calls.
+    // No wire-format or asset-bundle change.
 
     // ModBuild 600 — the Build 599 Frame run confirms severe post-loading
     // large-scenario cost, with 1493–4341 visible-renderer estimates and

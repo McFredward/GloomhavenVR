@@ -898,7 +898,8 @@ internal static class ConfigCatalog
     private static ConfigTopic TopicOf(string module, string section, string key)
     {
         // This is a visible quality trade, unlike the perf module's diagnostic switches.
-        if (section == "Optimize" && key == "ScenarioSceneryDensityPercent")
+        if (section == "Optimize" && (key == "ScenarioSceneryDensityPercent"
+                                     || key == "ScenarioDecorationDensityPercent"))
             return ConfigTopic.Visual;
 
         // Per-board geometry, whatever module it comes from: keys carry the board name as a

@@ -30,6 +30,11 @@ internal static class FrameDefaults
     // strictly decorative floor-cover meshes. Gameplay geometry and UI keep full detail.
     internal const int ScenarioSceneryDensityPercent = 25;
 
+    // Build 600's narrow grass rule masked only 27 of 6,560 renderers in the measured scenario.
+    // The maintainer now requests essential scenery on standalone Frame (2026-10-01).
+    // This seeds only the new key; all platforms retain the same reversible live control.
+    internal const int ScenarioDecorationDensityPercent = 0;
+
     // A 4 s wall-rescan cadence was active in the tested Frame configuration. It reduces
     // rescan frequency, not the duration of an individual rescan.
     internal const float WallRescanIntervalSeconds = 4f;
