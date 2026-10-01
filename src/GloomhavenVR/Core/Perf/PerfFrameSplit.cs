@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using Unity.Profiling;
 using UnityEngine;
 
 namespace GloomhavenVR.Core;
@@ -158,6 +159,45 @@ internal static partial class PerfFrameSplit
     private static long _logicStart;      // set at the top of the frame (PerfMonitor's host)
     private static long _logicEnd;        // set by the tail component's LateUpdate
     private static bool _logicEndSeen;
+    private static long _updateEnd;       // last Update at order +30000
+    private static long _lateStart;       // first LateUpdate at order -30000
+    private static bool _updateEndSeen, _lateStartSeen;
+
+    // The seam is a fallback when the game's release player strips Unity's built-in profiler
+    // markers. It partitions the SAME Update→LateUpdate span as SPLIT, without touching the
+    // player loop or walking scene objects. Its components are disabled outside the brief Debug
+    // capture, so they do not live on Unity's ordinary per-frame behaviour lists.
+    private static double _updateSum, _betweenSum, _lateSum;
+    private static int _phaseCount;
+
+    private const int NativeProbeFrames = 120;
+    private const int NativeProbeCapacity = 128;
+    private static bool _probeSampling, _probeFrameOpen;
+    private static int _probeFrames;
+    private static double _probeManagementMs;
+
+    // These Unity marker names are documented for 2021.3. A release player may expose none of
+    // them; Valid/Count are checked separately so missing data never masquerades as zero work.
+    // ScriptRunBehaviourUpdate includes BehaviourUpdate and coroutines; never add those figures.
+    private sealed class NativeProbe
+    {
+        internal NativeProbe(string name) => Name = name;
+        internal readonly string Name;
+        internal ProfilerRecorder Recorder;
+        internal bool Created;
+        internal bool Valid;
+        internal string Fault = string.Empty;
+    }
+
+    private static readonly NativeProbe[] NativeProbes =
+    {
+        new("Update.ScriptRunBehaviourUpdate"),
+        new("BehaviourUpdate"),
+        new("CoroutinesDelayedCalls"),
+        new("PreLateUpdate.ScriptRunBehaviourLateUpdate"),
+        new("Director.PrepareFrame"),
+    };
+    private static bool _nativeProbesOn;
 
     private static long _renderFirst;     // first onPreCull of the frame
     private static long _renderLast;      // last onPostRender of the frame
@@ -207,6 +247,8 @@ internal static partial class PerfFrameSplit
     private static string _ftFault = string.Empty;
 
     private static PerfSplitTail? _tail;
+    private static PerfUpdateTail? _updateTail;
+    private static PerfLateHead? _lateHead;
     private static bool _hooked;
 
     /// <summary>Whether <see cref="OnPreRender"/> is currently subscribed (tracked apart from
@@ -226,16 +268,33 @@ internal static partial class PerfFrameSplit
     {
         if (_tail == null)
             _tail = root.AddComponent<PerfSplitTail>();
+        if (_updateTail == null)
+            _updateTail = root.AddComponent<PerfUpdateTail>();
+        _updateTail.enabled = false;
+        if (_lateHead == null)
+            _lateHead = root.AddComponent<PerfLateHead>();
+        _lateHead.enabled = false;
     }
 
     /// <summary>Drop the component, the hooks and every record (hot-reload teardown; never throws).</summary>
     internal static void Shutdown()
     {
         SetActive(false);
+        SetNativeProbesActive(false);
         if (_tail != null)
         {
             UnityEngine.Object.Destroy(_tail);
             _tail = null;
+        }
+        if (_updateTail != null)
+        {
+            UnityEngine.Object.Destroy(_updateTail);
+            _updateTail = null;
+        }
+        if (_lateHead != null)
+        {
+            UnityEngine.Object.Destroy(_lateHead);
+            _lateHead = null;
         }
         Cameras.Clear();
         CameraOrder.Clear();
@@ -306,6 +365,8 @@ internal static partial class PerfFrameSplit
     internal static void RollFrame(bool enabled, bool record, float frameMs)
     {
         SetActive(enabled);
+        SetNativeProbesActive(enabled && VRLog.WantsDebug);
+        bool sampledFrame = _probeFrameOpen;
         long now = Stopwatch.GetTimestamp();
 
         if (enabled && record && _logicStart != 0L)
@@ -333,6 +394,15 @@ internal static partial class PerfFrameSplit
                 _count++;
                 _logicSum += logicMs;
                 _renderSum += renderMs;
+                if (sampledFrame && _updateEndSeen && _lateStartSeen
+                    && _logicStart <= _updateEnd && _updateEnd <= _lateStart
+                    && _lateStart <= _logicEnd)
+                {
+                    _updateSum += (_updateEnd - _logicStart) / freq * 1000d;
+                    _betweenSum += (_lateStart - _updateEnd) / freq * 1000d;
+                    _lateSum += (_logicEnd - _lateStart) / freq * 1000d;
+                    _phaseCount++;
+                }
                 if (logicMs > _logicMax)
                     _logicMax = logicMs;
                 if (renderMs > _renderMax)
@@ -385,9 +455,14 @@ internal static partial class PerfFrameSplit
         _logicStart = now;
         _logicEnd = now;
         _logicEndSeen = false;
+        _updateEndSeen = false;
+        _lateStartSeen = false;
         _renderSeen = false;
         _camOpenId = 0;
         _camCullDone = 0L;
+        if (sampledFrame && record && _probeSampling && ++_probeFrames >= NativeProbeFrames)
+            StopProbeSampling();
+        _probeFrameOpen = _probeSampling;
     }
 
     /// <summary>Tail hook: the last main-thread instant before Unity's render loop.</summary>
@@ -397,6 +472,114 @@ internal static partial class PerfFrameSplit
             return;
         _logicEnd = Stopwatch.GetTimestamp();
         _logicEndSeen = true;
+    }
+
+    private static void MarkUpdateEnd()
+    {
+        if (!_active || !VRLog.WantsDebug)
+            return;
+        _updateEnd = Stopwatch.GetTimestamp();
+        _updateEndSeen = true;
+    }
+
+    private static void MarkLateStart()
+    {
+        if (!_active || !VRLog.WantsDebug)
+            return;
+        _lateStart = Stopwatch.GetTimestamp();
+        _lateStartSeen = true;
+    }
+
+    private static void SetNativeProbesActive(bool on)
+    {
+        if (on == _nativeProbesOn)
+            return;
+        _nativeProbesOn = on;
+        if (!on)
+            StopProbeSampling();
+        long started = Stopwatch.GetTimestamp();
+        for (int i = 0; i < NativeProbes.Length; i++)
+        {
+            NativeProbe p = NativeProbes[i];
+            if (!on)
+            {
+                if (p.Created)
+                {
+                    try { p.Recorder.Dispose(); }
+                    catch (Exception) { /* A failed diagnostic cleanup cannot break gameplay. */ }
+                }
+                p.Created = false;
+                p.Valid = false;
+                p.Fault = string.Empty;
+                continue;
+            }
+            StartNativeProbe(p);
+        }
+        if (on)
+            StartProbeSampling();
+        _probeManagementMs += (Stopwatch.GetTimestamp() - started)
+                              * 1000d / Stopwatch.Frequency;
+    }
+
+    private static void StartProbeSampling()
+    {
+        _probeFrames = 0;
+        _probeSampling = true;
+        if (_updateTail != null)
+            _updateTail.enabled = true;
+        if (_lateHead != null)
+            _lateHead.enabled = true;
+        _probeFrameOpen = true;
+    }
+
+    private static void StopProbeSampling()
+    {
+        if (!_probeSampling)
+            return;
+        long started = Stopwatch.GetTimestamp();
+        _probeSampling = false;
+        _probeFrameOpen = false;
+        if (_updateTail != null)
+            _updateTail.enabled = false;
+        if (_lateHead != null)
+            _lateHead.enabled = false;
+        for (int i = 0; i < NativeProbes.Length; i++)
+        {
+            NativeProbe p = NativeProbes[i];
+            if (!p.Valid)
+                continue;
+            try { p.Recorder.Stop(); }
+            catch (Exception e) { p.Fault = e.GetType().Name; p.Valid = false; }
+        }
+        _probeManagementMs += (Stopwatch.GetTimestamp() - started)
+                              * 1000d / Stopwatch.Frequency;
+    }
+
+    private static void StartNativeProbe(NativeProbe p)
+    {
+        if (p.Created)
+        {
+            try { p.Recorder.Dispose(); }
+            catch (Exception) { /* Try to recover this optional diagnostic next window. */ }
+        }
+        p.Created = false;
+        p.Valid = false;
+        p.Fault = string.Empty;
+        try
+        {
+            // Main-thread only, one summed timing per frame. The 128-sample buffer covers the
+            // 120-frame capture and does not wrap. Setup is never on the per-frame hot path.
+            p.Recorder = new ProfilerRecorder(p.Name, NativeProbeCapacity,
+                ProfilerRecorderOptions.SumAllSamplesInFrame
+                | ProfilerRecorderOptions.CollectOnlyOnCurrentThread
+                | ProfilerRecorderOptions.StartImmediately);
+            p.Created = true;
+            p.Valid = p.Recorder.Valid;
+        }
+        catch (Exception e)
+        {
+            p.Fault = e.GetType().Name;
+        }
     }
 
     private static void OnPreCull(Camera cam)
@@ -503,6 +686,42 @@ internal static partial class PerfFrameSplit
     internal static void ResetWindow()
     {
         _count = 0;
+        _updateSum = 0d;
+        _betweenSum = 0d;
+        _lateSum = 0d;
+        _phaseCount = 0;
+        _probeManagementMs = 0d;
+        if (_nativeProbesOn)
+        {
+            long started = Stopwatch.GetTimestamp();
+            for (int i = 0; i < NativeProbes.Length; i++)
+            {
+                NativeProbe p = NativeProbes[i];
+                if (!p.Valid)
+                {
+                    // A marker can register when a scenario activates. Retry only at a window
+                    // boundary so early menu availability cannot make every later window n/a.
+                    StartNativeProbe(p);
+                    continue;
+                }
+                try
+                {
+                    p.Recorder.Reset();
+                    p.Recorder.Start();
+                }
+                catch (Exception e)
+                {
+                    try { p.Recorder.Dispose(); }
+                    catch (Exception) { /* Preserve the original probe failure. */ }
+                    p.Created = false;
+                    p.Valid = false;
+                    p.Fault = e.GetType().Name;
+                }
+            }
+            StartProbeSampling();
+            _probeManagementMs += (Stopwatch.GetTimestamp() - started)
+                                  * 1000d / Stopwatch.Frequency;
+        }
         _viewPrepared = false;   // the distance ordering below belongs to the window that just closed
         _logicSum = 0d;
         _renderSum = 0d;
@@ -577,6 +796,69 @@ internal static partial class PerfFrameSplit
         AppendZoom(sb);
 
         sb.Append(" | VERDICT: ").Append(Verdict(logicMean, renderMean, blockedMean, frameMeanMs));
+        if (VRLog.WantsDebug)
+            AppendDebugLogic(sb);
+    }
+
+    /// <summary>
+    /// Debug-only phase clock fallback plus Unity's own selected markers. The phase clocks
+    /// partition our logic span; profiler figures are inclusive and overlap one another. Neither
+    /// instrument can name individual game methods without a development player or invasive
+    /// Harmony patches, so the output explicitly stops short of that claim.
+    /// </summary>
+    private static void AppendDebugLogic(System.Text.StringBuilder sb)
+    {
+        sb.Append(" | LOGIC PHASES (Debug, order -30000/+30000 seams, first ")
+          .Append(NativeProbeFrames).Append(" frames/window; ")
+          .Append(_phaseCount).Append('/').Append(_count).Append(" aligned frame(s)): ");
+        if (_phaseCount == 0)
+            sb.Append("n/a (a phase seam was not reached)");
+        else
+        {
+            sb.Append("Update ").Append((_updateSum / _phaseCount).ToString("F2"))
+              .Append("ms, native/interphase ")
+              .Append((_betweenSum / _phaseCount).ToString("F2"))
+              .Append("ms, LateUpdate ")
+              .Append((_lateSum / _phaseCount).ToString("F2"))
+              .Append("ms; these three sum to the logic span on the aligned frames");
+        }
+        sb.Append(" | PROBE management ").Append(_probeManagementMs.ToString("F2"))
+          .Append("ms/window (setup/stop only; native collection overhead is not isolated)")
+          .Append(" | UNITY MARKERS (Debug, inclusive; nested values must not be added):");
+        if (!_nativeProbesOn)
+        {
+            sb.Append(" off");
+            return;
+        }
+        for (int i = 0; i < NativeProbes.Length; i++)
+        {
+            NativeProbe p = NativeProbes[i];
+            sb.Append(i == 0 ? " " : ", ").Append(p.Name).Append(' ');
+            if (!p.Valid)
+            {
+                sb.Append("n/a (").Append(p.Fault.Length == 0 ? "unavailable in player" : p.Fault)
+                  .Append(')');
+                continue;
+            }
+            try
+            {
+                int n = p.Recorder.Count;
+                if (n == 0)
+                {
+                    sb.Append("n/a (no samples)");
+                    continue;
+                }
+                double ns = 0d;
+                for (int j = 0; j < n; j++)
+                    ns += p.Recorder.GetSample(j).Value;
+                sb.Append((ns / 1_000_000d / n).ToString("F2"))
+                  .Append("ms/sample (").Append(n).Append(" sample(s) in the capped capture)");
+            }
+            catch (Exception e)
+            {
+                sb.Append("n/a (").Append(e.GetType().Name).Append(')');
+            }
+        }
     }
 
     /// <summary>
@@ -888,6 +1170,42 @@ internal static partial class PerfFrameSplit
             {
                 _faulted = true;
                 VRLog.Error(Scope0, $"Frame-split tail threw and DISABLED ITSELF: {e}");
+            }
+        }
+    }
+
+    [DefaultExecutionOrder(30000)]
+    private sealed class PerfUpdateTail : MonoBehaviour
+    {
+        private bool _faulted;
+
+        private void Update()
+        {
+            if (_faulted)
+                return;
+            try { MarkUpdateEnd(); }
+            catch (Exception e)
+            {
+                _faulted = true;
+                VRLog.Error(Scope0, $"Frame-split Update seam threw and DISABLED ITSELF: {e}");
+            }
+        }
+    }
+
+    [DefaultExecutionOrder(-30000)]
+    private sealed class PerfLateHead : MonoBehaviour
+    {
+        private bool _faulted;
+
+        private void LateUpdate()
+        {
+            if (_faulted)
+                return;
+            try { MarkLateStart(); }
+            catch (Exception e)
+            {
+                _faulted = true;
+                VRLog.Error(Scope0, $"Frame-split LateUpdate seam threw and DISABLED ITSELF: {e}");
             }
         }
     }
