@@ -9,6 +9,54 @@ using UnityEngine.XR;
 
 namespace GloomhavenVR.Core;
 
+// This gate is deliberately independent of Unity: its loading/cooldown transitions can be
+// exercised in a small focused harness, while the scene identity and readiness come from the
+// game's SceneController at each summary boundary.
+internal enum CensusDecision { Deferred, Skipped, Sample, NewScene }
+
+internal struct CensusRationer
+{
+    private bool _sampled;
+    private int _sceneHandle;
+    private int _procGenHandle;
+    private int _skipWindows;
+
+    internal int SkipWindows => _skipWindows;
+
+    internal CensusDecision Decide(bool ready, int sceneHandle, int procGenHandle)
+    {
+        if (!ready)
+            return CensusDecision.Deferred;
+        bool newScene = _sampled && (sceneHandle != _sceneHandle
+                                     || procGenHandle != _procGenHandle);
+        if (_skipWindows > 0 && !newScene)
+        {
+            _skipWindows--;
+            return CensusDecision.Skipped;
+        }
+        return newScene ? CensusDecision.NewScene : CensusDecision.Sample;
+    }
+
+    internal void RecordSample(int sceneHandle, int procGenHandle, double costMs,
+        double targetMs, int maxSkippedWindows)
+    {
+        _sampled = true;
+        _sceneHandle = sceneHandle;
+        _procGenHandle = procGenHandle;
+        _skipWindows = costMs <= targetMs ? 0
+            : Math.Min((int)Math.Ceiling(costMs / targetMs) - 1, maxSkippedWindows);
+    }
+}
+
+internal static class CensusVisibility
+{
+    internal static bool CountVisible(bool unityVisible, bool forceRenderingOff)
+        => unityVisible && !forceRenderingOff;
+
+    internal static bool EstimateSubmitted(bool enabled, bool visible, bool inHeadMask)
+        => enabled && visible && inHeadMask;
+}
+
 /// <summary>
 /// WHAT THE RENDER LOOP IS ACTUALLY SUBMITTING — the per-object breakdown of the frame.
 ///
@@ -178,8 +226,8 @@ internal static class PerfSceneProfile
     /// <summary>The SIM line, built by the same walk and logged just before the SCENE line.</summary>
     private static readonly StringBuilder SimSb = new(4096);
 
-    /// <summary>Windows still to be skipped by the rationing described on <see cref="AmortiseTargetMs"/>.</summary>
-    private static int _skipWindows;
+    /// <summary>Cooldown for the sampled scene population.</summary>
+    private static CensusRationer _rationer;
 
     /// <summary>Last measured total walk cost, milliseconds — printed on both lines.</summary>
     private static double _lastWalkMs;
@@ -260,20 +308,46 @@ internal static class PerfSceneProfile
     /// </summary>
     internal static void AppendSceneLine(StringBuilder sb)
     {
+        // SceneManager.sceneLoaded fires before procgen completes. The game's loading flags are
+        // cleared only after WaitForProcGen and the loading screen handoff, so a census during
+        // that period would describe an incomplete scenario.
+        SceneController controller = SceneController.Instance;
+        Scene scene = controller != null ? controller.GetCurrentScene : default;
+        bool valid = scene.IsValid();
+        bool loaded = valid && scene.isLoaded;
+        bool loading = controller == null || controller.IsLoading;
+        bool scenarioLoading = controller != null && controller.ScenarioIsLoading;
+        int sceneHandle = valid ? scene.handle : 0;
+        Scene procGen = Choreographer.s_Choreographer != null
+            ? Choreographer.s_Choreographer.m_ProcGenScene : default;
+        int procGenHandle = procGen.IsValid() && procGen.isLoaded ? procGen.handle : 0;
+        string provenance = $" | scene '{(valid ? scene.name : "unavailable")}' handle "
+            + $"{sceneHandle} procgen {procGenHandle} loaded {loaded} loading {loading} "
+            + $"scenarioLoading {scenarioLoading}";
+        CensusDecision decision = _rationer.Decide(loaded && !loading && !scenarioLoading,
+            sceneHandle, procGenHandle);
+        if (decision == CensusDecision.Deferred)
+        {
+            sb.Append("SCENE — deferred: game scene has not finished loading");
+            sb.Append(provenance);
+            return;
+        }
+
+        bool newScene = decision == CensusDecision.NewScene;
         // ---- rationing (see AmortiseTargetMs) --------------------------------------------------
         // Checked BEFORE anything is walked, and it still emits a line: a window that silently
         // produced no output would be indistinguishable from the instrument having faulted, and
         // this project has already lost rounds to a remedy that never ran while looking like it had.
-        if (_skipWindows > 0)
+        if (decision == CensusDecision.Skipped)
         {
-            _skipWindows--;
             sb.Append("SCENE — skipped this window. The last walk measured ")
               .Append(_lastWalkMs.ToString("F1"))
               .Append("ms, so it is being rationed down to an amortised ")
               .Append(AmortiseTargetMs.ToString("F0")).Append("ms/window; ")
-              .Append(_skipWindows).Append(" more window(s) will be skipped before the next sample. "
+              .Append(_rationer.SkipWindows).Append(" more window(s) will be skipped before the next sample. "
                       + "This is the instrument refusing to become the thing it measures, not a "
                       + "fault. Set [Perf] SceneProfile = false to stop it entirely.");
+            sb.Append(provenance);
             return;
         }
 
@@ -284,11 +358,16 @@ internal static class PerfSceneProfile
         // the half that walks the largest population, so if the whole sample has to be cut short by
         // an exception, this is the half worth having.
         double simMs = BuildSimLine();
+        if (SimSb.Length > 0)
+            SimSb.Append(provenance);
 
-        sb.Append("SCENE — what the render loop is asked to submit (sampled ONCE this window; "
+        sb.Append("SCENE — renderer/material submission estimate (sampled ONCE this window; "
                   + "FindObjectsOfType sees ACTIVE GameObjects only, so anything hidden with "
                   + "SetActive(false) is absent from every number here, while anything hidden by "
-                  + "renderer.enabled/alpha/scale is present and still costs culling)");
+                  + "renderer.enabled/alpha/scale is present; actual draw calls are unmeasured)");
+        sb.Append(provenance);
+        if (newScene)
+            sb.Append(" | new loaded scene bypassed the prior scene's census cooldown once");
 
         Renderer[] all;
         try
@@ -298,7 +377,7 @@ internal static class PerfSceneProfile
         catch (Exception e)
         {
             sb.Append(" | n/a (renderer walk threw ").Append(e.GetType().Name).Append(')');
-            FinishWalk(sb, clock, simMs);
+            FinishWalk(sb, clock, simMs, sceneHandle, procGenHandle);
             return;
         }
 
@@ -313,7 +392,7 @@ internal static class PerfSceneProfile
         // the loop, printed by AppendGfxLine. See PerfTextureCensus for what it answers and why.
         PerfTextureCensus.Begin(head);
 
-        int enabled = 0, visible = 0, inMask = 0, submitted = 0;
+        int enabled = 0, visible = 0, inMask = 0, submitted = 0, forcedOff = 0;
         int materialsTotal = 0, materialsSubmitted = 0, instanced = 0;
         int staticBatched = 0, modOwned = 0, modOwnedEnabled = 0;
         int propertyBlocks = 0, propertyBlocksSubmitted = 0;
@@ -327,9 +406,13 @@ internal static class PerfSceneProfile
 
             int layer = r.gameObject.layer;
             bool on = r.enabled;
-            bool vis = r.isVisible;
+            bool forced = r.forceRenderingOff;
+            bool vis = CensusVisibility.CountVisible(r.isVisible, forced);
             bool masked = (headMask & (1 << layer)) != 0;
-            bool subm = on && vis && masked;
+            bool subm = CensusVisibility.EstimateSubmitted(on, vis, masked);
+
+            if (forced)
+                forcedOff++;
 
             LayerCounts[layer]++;
             if (vis)
@@ -411,14 +494,17 @@ internal static class PerfSceneProfile
         int passes = XRSettings.stereoRenderingMode == XRSettings.StereoRenderingMode.MultiPass ? 2 : 1;
 
         sb.Append(" | totals: ").Append(all.Length).Append(" active renderer(s), ")
-          .Append(enabled).Append(" enabled, ").Append(visible).Append(" visible, ")
+          .Append(enabled).Append(" enabled, ").Append(forcedOff)
+          .Append(" forceRenderingOff, ").Append(visible)
+          .Append(" visible (excluding forceRenderingOff), ")
           .Append(inMask).Append(" inside the head camera's culling mask, ")
-          .Append(submitted).Append(" enabled+visible+in-mask")
-          .Append(" | draw-call floor: ").Append(materialsSubmitted)
+          .Append(submitted).Append(" enabled+visible+in-mask candidates")
+          .Append(" | material-pass candidates: ").Append(materialsSubmitted)
           .Append(" material slot(s) on those, x").Append(passes)
           .Append(" pass(es) = ~").Append(materialsSubmitted * passes)
-          .Append(" draw calls/frame BEFORE batching, shadow passes and any depth prepass "
-                  + "(one submesh/material = at least one call; this is a floor, never a ceiling)")
+          .Append(" potential submissions before batching, shadow passes or depth prepasses "
+                  + "(isVisible can mean ANY camera; this is neither an actual draw-call count "
+                  + "nor a lower bound)")
           .Append(" | ").Append(materialsTotal).Append(" material slot(s) over all renderers");
 
         // ---- the batching verdict -------------------------------------------------------------
@@ -477,7 +563,7 @@ internal static class PerfSceneProfile
         AppendShaders(sb, passes);
         AppendLayers(sb, headMask, all.Length);
         AppendRoots(sb, passes);
-        FinishWalk(sb, clock, simMs);
+        FinishWalk(sb, clock, simMs, sceneHandle, procGenHandle);
     }
 
     /// <summary>
@@ -486,7 +572,8 @@ internal static class PerfSceneProfile
     /// <see cref="AppendSceneLine"/> — including the failure ones, because a walk that threw
     /// halfway still spent the time it spent.
     /// </summary>
-    private static void FinishWalk(StringBuilder sb, Stopwatch clock, double simMs)
+    private static void FinishWalk(StringBuilder sb, Stopwatch clock, double simMs,
+        int sceneHandle, int procGenHandle)
     {
         clock.Stop();
         _lastWalkMs = clock.Elapsed.TotalMilliseconds;
@@ -494,20 +581,19 @@ internal static class PerfSceneProfile
 
         // Rationing. Ceil(cost / target) - 1 is "how many windows this one sample has to be spread
         // over"; at or under the target it is 0 and every window is sampled.
-        _skipWindows = _lastWalkMs <= AmortiseTargetMs
-            ? 0
-            : Mathf.Clamp((int)Math.Ceiling(_lastWalkMs / AmortiseTargetMs) - 1, 0, MaxSkippedWindows);
+        _rationer.RecordSample(sceneHandle, procGenHandle, _lastWalkMs,
+            AmortiseTargetMs, MaxSkippedWindows);
 
         StringBuilder cost = new(320);
         cost.Append(" | INSTRUMENT COST, measured not asserted: this whole sample took ")
             .Append(_lastWalkMs.ToString("F1")).Append("ms (SIM half ").Append(simMs.ToString("F1"))
             .Append("ms, SCENE half ").Append(sceneMs.ToString("F1"))
             .Append("ms) in ONE frame of this window");
-        if (_skipWindows > 0)
+        if (_rationer.SkipWindows > 0)
         {
             cost.Append(" — above the ").Append(AmortiseTargetMs.ToString("F0"))
-                .Append("ms/window budget, so the next ").Append(_skipWindows)
-                .Append(" window(s) are skipped and the amortised cost stays under it");
+                .Append("ms/window budget, so the next ").Append(_rationer.SkipWindows)
+                .Append(" window(s) for this same scene are skipped (unless a new scene loads)");
         }
         else
         {
@@ -876,11 +962,10 @@ internal static class PerfSceneProfile
         Stopwatch clock = Stopwatch.StartNew();
         try
         {
-            SimSb.Append("SIM — what the game's MAIN-THREAD LOOP iterates over (sampled ONCE this "
-                         + "window, same walk as the SCENE line that follows). The SPLIT line puts "
-                         + "~half the frame in Update→LateUpdate and the mod at ~15% of the total, "
-                         + "so most of what is measured here is the GAME'S OWN per-frame work — "
-                         + "which no renderer count can see");
+            SimSb.Append("SIM — active component population eligible for Unity callbacks "
+                         + "(sampled ONCE this window, same walk as the SCENE line that follows). "
+                         + "Counts do not time these callbacks, Unity internal animation or waits; "
+                         + "compare the aligned NATIVE and SPLIT lines before assigning cost");
             AppendBehaviours(SimSb);
             AppendAnimators(SimSb);
             AppendParticles(SimSb);
@@ -972,13 +1057,12 @@ internal static class PerfSceneProfile
         sb.Append(" | behaviours: ").Append(total)
           .Append(" MonoBehaviour(s) on ACTIVE GameObjects, ").Append(enabled)
           .Append(" of them enabled")
-          .Append(" | UNITY'S PER-FRAME LISTS (not a proxy — Unity walks exactly the enabled "
-                  + "behaviours whose TYPE declares the method): Update ").Append(upd)
+          .Append(" | CALLBACK-ELIGIBLE ACTIVE COMPONENTS (enabled behaviours whose type "
+                  + "declares the method; counts do not measure time): Update ").Append(upd)
           .Append(", LateUpdate ").Append(late).Append(", FixedUpdate ").Append(fixedUpd)
           .Append(" — of which the mod's own are ").Append(modUpd).Append(" Update and ")
           .Append(modLate).Append(" LateUpdate (").Append(upd > 0 ? (100f * modUpd / upd).ToString("F1") : "0")
-          .Append("% of the Update list), so everything else on those lists is the game's and "
-                  + "cannot be removed, only stopped from existing")
+          .Append("% of the Update population); other components may be game or third-party code")
           .Append(" | ").Append(tickingTypes).Append(" distinct TICKING type(s)");
 
         BehaviourOrder.Sort(static (a, b) =>

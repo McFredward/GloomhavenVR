@@ -50,7 +50,8 @@ internal static class PerfNativeLoopProbe
 
     // These callbacks exist in the game's shipped assemblies. They are sampled because the
     // Build 598 SIM census lists their component families in a large scenario, or because their
-    // single scheduler callback can hide many coroutine/tween continuations. No target is skipped.
+    // single scheduler callback can hide many coroutine/tween continuations. The last six are
+    // small-count callback candidates omitted by Build 599; unavailable methods report n/a.
     private static readonly Target[] Targets =
     {
         new("MEC.Timing", "Update"),
@@ -62,6 +63,12 @@ internal static class PerfNativeLoopProbe
         new("ActorBehaviour", "LateUpdate"),
         new("ExtendedButton", "Update"),
         new("ThreadSyncService", "Update"),
+        new("Choreographer", "Update"),
+        new("PlatformLayer", "Update"),
+        new("WorldspaceUITools", "Update"),
+        new("ApparanceEngine", "Update"),
+        new("ApparanceResources", "Update"),
+        new("Updater", "Update"),
     };
 
     private static readonly Dictionary<MethodBase, Target> ByMethod = new(Targets.Length);
@@ -125,7 +132,7 @@ internal static class PerfNativeLoopProbe
             return;
         Sb.Length = 0;
         Sb.Append("NATIVE first ").Append(frames)
-          .Append(" frame(s) of this summary window, selected inclusive native callbacks "
+          .Append(" frame(s) of this summary window, selected inclusive game/third-party callbacks "
                   + "(Debug; mean per sampled "
                   + "frame, calls, worst single call; nested values must not be added)");
         foreach (Target target in Targets)
@@ -151,7 +158,10 @@ internal static class PerfNativeLoopProbe
           .Append(" | setup ").Append(_setupMs.ToString("F2"))
           .Append("ms once. Unnamed game/engine callbacks "
                   + "and all Unity internals remain in the SPLIT logic span.");
-        VRLog.Debug("Perf", Sb.ToString());
+        // The disk listener in the supplied Build 599 run omitted LogDebug even though the
+        // matching Unity Player.log retained it. Keep the Debug guard above, but use the same
+        // durable Info sink as FRAME/SPLIT for the maintainer's Debug capture.
+        VRLog.Info("Perf", Sb.ToString());
     }
 
     private static void Install()
@@ -175,7 +185,7 @@ internal static class PerfNativeLoopProbe
                     continue;
                 }
                 MethodInfo? method = type.GetMethod(target.MethodName,
-                    BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic
+                    BindingFlags.Instance | BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic
                     | BindingFlags.DeclaredOnly, null, Type.EmptyTypes, null);
                 if (method == null)
                 {
@@ -217,7 +227,7 @@ internal static class PerfNativeLoopProbe
 
     private static void Prefix(ref ProbeState __state)
     {
-        // This hook is installed only on the nine explicit target methods. Looking the method
+        // This hook is installed only on the explicit target methods. Looking the method
         // up here would add work to every call merely to confirm the registration we made once.
         if (!_sampling)
             return;
