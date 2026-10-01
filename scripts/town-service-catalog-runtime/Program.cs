@@ -398,6 +398,15 @@ public static class InteractionProgram
                 "all six category buttons start in their measured sculpt sockets");
         }
         catalog.SetVisibility(1f);Census(catalog);catalog.Tick(1f);
+        if(catalog.Entries.Count>12)
+        {
+            var coveredNextPage=catalog.Entries.FindEntry(12,false,0);
+            int pollsBeforeCoveredPage=GloomhavenVR.Cards.CardArtWatch.Polls;
+            coveredNextPage.Tick(1f);
+            Check(GloomhavenVR.Cards.CardArtWatch.Polls==pollsBeforeCoveredPage
+                &&coveredNextPage.PageGate.alpha==0f&&!coveredNextPage.Sample.PickCollider.enabled,
+                "prewarmed page behind the cassette does not poll art or admit grabs");
+        }
         TownServicePublicMerchant.ClaimAvailable=false;
         catalog.SetObserver(true);
         foreach(var entry in catalog.Entries)

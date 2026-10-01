@@ -594,12 +594,12 @@ internal sealed class TownServiceCatalog : IDisposable
             // every frame, even for the fully occluded pages.
             bool moving = Sample.IsMoving;
             bool exposed = moving || Page == Rack.Page;
-            bool warm = moving || Rack.RetainsPage(Page);
             float pageAlpha = exposed ? 1f : 0f;
             if (_pageGate.alpha != pageAlpha) _pageGate.alpha = pageAlpha;
             // Keep actual original content available for bounded hidden-page prewarming.
             // The page gate is explicit presentation state: it never suppresses native data,
             // changes a transaction, or uses a disabled ancestor Canvas invisible to capture.
+            bool newlyExposed = exposed && !_shown;
             if (_shown != exposed) { _shown = exposed; _row.SetShown(true); }
             if (_body != null)
             {
@@ -612,7 +612,14 @@ internal sealed class TownServiceCatalog : IDisposable
                 if (exposed) TownServiceCardBody.SetVisibility(_body.gameObject, _owner._opening.alpha);
                 SetBodyRendererVisibility(!exposed || _owner._observer);
             }
-            if (!warm) { Sample.PickCollider.enabled = false; return; }
+            // Build 596 stopped ticking cold pages, yet its Frame trace still spent
+            // 4.4-4.9 ms/frame in Catalog.Cards. The selected and next pages still
+            // reached the costly original-widget walk, art poll and mip rescan.
+            // The next page is behind the opaque cassette until the shutter swaps
+            // Page. Refresh it on that first exposed tick, before either the local
+            // render or the shared presentation publisher sees it. A held/returning
+            // card remains exposed and keeps every intermediate animation frame.
+            if (!exposed) { Sample.PickCollider.enabled = false; return; }
             RefreshSoldOutMarker(!moving);
             if (!moving)
             {
@@ -624,21 +631,21 @@ internal sealed class TownServiceCatalog : IDisposable
             camera ??= VRRigDriver.HeadCamera != null ? VRRigDriver.HeadCamera : Camera.main;
             if (_canvas.worldCamera != camera) _canvas.worldCamera = camera;
             _artWatch.Poll("merchant cabinet item");
-            if (Time.unscaledTime >= _nextRefresh)
+            bool refreshed = newlyExposed || Time.unscaledTime >= _nextRefresh;
+            if (refreshed)
             {
                 _nextRefresh = Time.unscaledTime + .25f;
                 _row.Refresh(RowSource.transform);
                 CardFaceMipBake.Rescan(CardUI);
                 _artWatch.Capture(CardUI);
             }
-            // Keep the native price/stock widget's intermediate animation on the
-            // visible page. A prewarmed next page is fully obscured by its page
-            // gate; its 27-node clone is refreshed on this same tick when it first
-            // becomes exposed, so it never presents a stale frame to either peer.
-            if (exposed) _row.TickLive();
+            // Refresh already calls Sync on the source. A second TickLive in that
+            // same frame repeats the entire widget walk with no intervening source
+            // mutation; all other visible frames retain their live animation sync.
+            if (!refreshed) _row.TickLive();
             // Preserve original stock/price/name glyphs but remove the flat list's backing.
             SuppressNativeBacking();
-            if (exposed) Sample.Tick(scale); else Sample.PickCollider.enabled = false;
+            Sample.Tick(scale);
         }
         internal void ParkHidden()
         {
