@@ -64,6 +64,7 @@ def sources(root):
 
 def mutations():
     return [
+        ("stale-native-party", "TownServiceMerchantRows.cs", "if (_publicService != null && !ReferenceEquals(_publicParty, AdventureState.MapState.MapParty))", "if (_publicService != null && ReferenceEquals(_publicParty, AdventureState.MapState.MapParty))", "replacement native MapParty rebinds owned stock instead of reading the captured old party"),
         ("foreign-stock-double", "TownServiceCatalog.cs", "if (_display.gameObject.activeSelf == foreignStock) _display.gameObject.SetActive(!foreignStock);", "", "another visitor's live stock sample vacates the complete original shelf face body price and input"),
         ("local-history-over-owner-layout", "TownServiceCatalog.cs", "entry.ApplyOrdinal(ordinal);", "entry.ApplyOrdinal(entry.Ordinal);", "public author handover adopts the original cold-page slot without moving a held card"),
         ("lost-cold-stock-slot", "TownServiceCatalog.cs", "foreach (ushort slot in _canonicalSlots.Values)", "foreach (ushort slot in Array.Empty<ushort>())", "unknown cold native item slots remain reserved while a new local unlock arrives"),

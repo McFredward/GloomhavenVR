@@ -30,7 +30,8 @@ internal sealed class TownServiceMerchantRows : IDisposable
         internal Row(UIShopItemSlot source, bool selling) { Source = source; Selling = selling; }
     }
     private readonly UIShopItemInventory _inventory;
-    private readonly IShopItemService? _publicService;
+    private IShopItemService? _publicService;
+    private object? _publicParty;
     private readonly GameObject _root;
     internal readonly List<Row> Rows = new();
     // Cold rows keep their native item identity, but their invisible price strip need not
@@ -42,13 +43,26 @@ internal sealed class TownServiceMerchantRows : IDisposable
     internal TownServiceMerchantRows(UIShopItemInventory inventory, Transform? publicParent = null)
     {
         _inventory = inventory;
-        if (publicParent != null) _publicService = new ShopService(AdventureState.MapState.MapParty, _ => { });
+        if (publicParent != null)
+        {
+            _publicParty = AdventureState.MapState.MapParty;
+            _publicService = new ShopService(AdventureState.MapState.MapParty, _ => { });
+        }
         _root = new GameObject("GloomhavenVR.Merchant.PresentationRows", typeof(RectTransform), typeof(CanvasGroup));
         _root.transform.SetParent(publicParent != null ? publicParent : inventory.transform, false);
         CanvasGroup gate = _root.GetComponent<CanvasGroup>(); gate.alpha = 0f; gate.blocksRaycasts = false;
     }
     internal bool Refresh(HashSet<UIShopItemSlot> warmSources)
     {
+        // Native ShopService retains its constructor party for owned items, while
+        // its public stock comes from the current adventure. A network/map update
+        // can replace that party without rebuilding our persistent presentation.
+        // Rebind only that native backend; preserve every unchanged original row.
+        if (_publicService != null && !ReferenceEquals(_publicParty, AdventureState.MapState.MapParty))
+        {
+            _publicParty = AdventureState.MapState.MapParty;
+            _publicService = new ShopService(AdventureState.MapState.MapParty, _ => { });
+        }
         var service = _publicService ?? _inventory.service;
         var character = _publicService != null ? NewPartyDisplayUI.PartyDisplay?.SelectedUISlot?.Data : _inventory.character;
         bool empty = _publicService == null && character == null && AdventureState.MapState.GoldMode == EGoldMode.CharacterGold;

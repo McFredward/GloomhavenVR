@@ -49,9 +49,12 @@ public interface IShopItemService {
  int DiscountedCost(CItem item); int GetBuyDiscount();
 }
 public sealed class ShopService : IShopItemService {
- public static Service Source=new(); public ShopService(object party,Action<object> callback){}
+ public static Service Source=new(); public static readonly Dictionary<object,Service> PartyOwned=new();
+ private readonly object _party; public ShopService(object party,Action<object> callback){_party=party;}
  public List<CItem> GetItemsToBuy(CMapCharacter? c=null)=>Source.GetItemsToBuy(c);
- public List<CItem> GetItemsToSell(CMapCharacter? c=null)=>Source.GetItemsToSell(c);
+ // Match the decompiled native service: stock uses the current adventure, owned
+ // items use the party captured by its constructor. This seam must not auto-rebind.
+ public List<CItem> GetItemsToSell(CMapCharacter? c=null)=>(PartyOwned.TryGetValue(_party,out var owner)?owner:Source).GetItemsToSell(c);
  public Dictionary<CItem,Tuple<CMapCharacter,bool>> GetBoundsItems(CMapCharacter? c)=>Source.GetBoundsItems(c);
  public bool IsAffordable(CItem item,CMapCharacter? c)=>Source.IsAffordable(item,c);
  public int DiscountedCost(CItem item)=>Source.DiscountedCost(item);public int GetBuyDiscount()=>Source.GetBuyDiscount();

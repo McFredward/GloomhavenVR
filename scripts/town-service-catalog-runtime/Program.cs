@@ -24,6 +24,41 @@ public static class InteractionProgram
         foreach (var entry in catalog.Entries) if (!entry.Selling && entry.ItemId == id) return entry;
         throw new Exception("Missing original item " + id);
     }
+    private static void PublicPartyReplacement(UIShopItemInventory inventory, Transform anchor)
+    {
+        object originalParty = MapRuleLibrary.Adventure.AdventureState.MapState.MapParty;
+        Service originalService = ShopService.Source;
+        object firstParty = new(), replacementParty = new();
+        var currentStock = new Service(); currentStock.Buy.Add(new CItem(4000));
+        var firstOwned = new Service(); firstOwned.Sell.Add(new CItem(4001));
+        var nextOwned = new Service(); nextOwned.Sell.Add(new CItem(4002));
+        ShopService.Source = currentStock;
+        ShopService.PartyOwned.Add(firstParty, firstOwned); ShopService.PartyOwned.Add(replacementParty, nextOwned);
+        MapRuleLibrary.Adventure.AdventureState.MapState.MapParty = firstParty;
+        int refreshes = inventory.Refreshes, commits = inventory.service.Commits;
+        try
+        {
+            using var catalog = new TownServiceCatalog(inventory, anchor, () => firstParty, () => true, anchor, persistent: true);
+            Census(catalog); Transform stable = Item(catalog, 4000).CardRoot;
+            Check(catalog.Entries.Count == 2 && Item(catalog, 4001) != null,
+                "public native stock initially uses the original party's owned item identities");
+            MapRuleLibrary.Adventure.AdventureState.MapState.MapParty = replacementParty;
+            Census(catalog);
+            Check(catalog.Entries.Count == 2 && System.Linq.Enumerable.Any(catalog.Entries, entry => entry.ItemId == 4002)
+                && !System.Linq.Enumerable.Any(catalog.Entries, entry => entry.ItemId == 4001),
+                "replacement native MapParty rebinds owned stock instead of reading the captured old party");
+            Check(Item(catalog, 4000).CardRoot == stable && inventory.Refreshes == refreshes
+                && inventory.service.Commits == commits,
+                "native party rebind preserves unchanged original cards and causes no flat UI or transaction work");
+        }
+        finally
+        {
+            MapRuleLibrary.Adventure.AdventureState.MapState.MapParty = originalParty;
+            ShopService.Source = originalService;
+            ShopService.PartyOwned.Remove(firstParty); ShopService.PartyOwned.Remove(replacementParty);
+        }
+    }
+
     private static void PublicLayoutOwnership(UIShopItemInventory inventory, Transform anchor)
     {
         Service prior = inventory.service;
@@ -740,6 +775,7 @@ public static class InteractionProgram
         }
         Check(ObjectPool.Alive==0&&VRInteractables.Registered.Count==0,"maximum native inventory releases every card and return");
         PublicLayoutOwnership(inventory, anchor.transform);
+        PublicPartyReplacement(inventory, anchor.transform);
         Check(ObjectPool.Alive == 0 && VRInteractables.Registered.Count == 0,
             "public layout and handover release every original native card and input collider");
         Check(GloomhavenVR.Cards.CardArtWatch.Captures>=161,"every merchant stock face captures the proven zero-aliased-frame art watcher");
