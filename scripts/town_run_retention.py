@@ -48,6 +48,7 @@ SUITE_ROOTS = {
     'town-visitor-motion': 'town-visitor-motion',
     'town-depth-order': 'town-depth-order',
     'town-visitor-stock': 'town-visitor-stock',
+    'town-merchant-badge': 'town-merchant-badge',
 }
 MARKER = '.suite-success.json'
 RUN_NAME = re.compile(r'run-[a-z0-9_]{8}\Z')

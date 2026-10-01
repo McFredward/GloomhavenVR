@@ -1257,6 +1257,17 @@
         "local"
       ],
       "weight": 15
+    },
+    {
+      "id": "town-merchant-badge",
+      "command": [
+        "python3",
+        "scripts/check-town-merchant-badge.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 12
     }
   ]
 }

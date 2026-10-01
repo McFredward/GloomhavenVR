@@ -1,6 +1,17 @@
 # State — where the project stands
 
-**Updated 2026-10-01: dev 1.1.0 / ModBuild 601, essential decoration candidate.**
+**Updated 2026-10-01: dev 1.1.0 / ModBuild 602, immersive multiplayer parity candidate.**
+The paired PCVR logs and supplied images identify Build 600. The review fixes
+rejected resident transitions, original font/effect dependency failures, first-use
+cabinet hierarchy mutation, held-stock loss, cold-page layout handover, movement
+pauses, donation timing, speech routing and native purse depth. Shared actor/stand
+lighting preserves original material animation and capture constraints. See
+[TOWN-MP-602.md](TOWN-MP-602.md) for the complete review and hardware limits.
+The town bundle and DLL both change. Final integrated validation is pending;
+no new headset result is claimed. Subsequent Frame work begins after this NPC
+checkpoint is completed and pushed to dev.
+
+The preceding essential-decoration checkpoint:
 The Build 600 hardware test confirms the previous grass scope was ineffective:
 zero density masked only 27 of 6,560 active renderers; the initial partial
 hierarchy scan masked none. Loaded windows remain about 120–125 ms/frame at
