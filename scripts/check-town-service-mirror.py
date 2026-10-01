@@ -132,7 +132,7 @@ def main():
             variants += [
                 ("publisher-rack", "PublisherTick.cs", 'Publish("merchant.rack", rack.HousingRoot);', '// rack omitted', "crank and revolving rack publish their actual moving roots"),
                 ("publisher-old-window", "PublisherTick.cs", 'if (service != 1 && catalog == null && TownServicePresentation.Ritual == null)', 'if (true)', "physical counter does not publish suppressed flat merchant window"),
-                ("publisher-stale-entry", "PublisherTick.cs", "if (!entry.Current || !entry.Warm) continue;", "// publish stale entry", "physical counter publishes only six current item cards"),
+                ("publisher-stale-entry", "PublisherTick.cs", "if (!entry.Current || !entry.Warm || entry.Sample.IsMoving) continue;", "if (entry.Sample.IsMoving) continue;", "physical counter publishes only six current item cards"),
                 ("publisher-cardbody", "PublisherTick.cs", 'Publish("merchant.cardbody", entry.BodyRoot, prewarm: true);', '// body omitted', "every original face retains its physical body remotely"),
                 ("publisher-held-duplicate", "PublisherTick.cs", 'if (sample.IsPhysical) continue;', '// physical guard omitted', "physical original is not duplicated by generic held publication"),
                 ("publisher-price-provenance", "PublisherTick.cs", "entry.RowSource.transform, entry.RowCloneOf", "null, null", "counter price clone retains original row provenance map"),
