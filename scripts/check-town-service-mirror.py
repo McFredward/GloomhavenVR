@@ -103,6 +103,7 @@ def main():
     parser.add_argument("--unity", type=Path, default=Path(os.environ.get("UNITY_PATH", "/home/claw/unity-2021.3.5/Editor/Unity")))
     parser.add_argument("--suite", choices=("basic", "full", "lifecycle", "counter-final", "relocation", "asset-identity", "rack-clock", "catalog-lifetime", "public-catalog", "voice-relay", "shared-interaction", "item-transfer"), default="full")
     parser.add_argument("--no-negative-controls", action="store_true")
+    parser.add_argument("--only-mutation", help="Run production plus one selected negative control after a focused fixture fix")
     args = parser.parse_args()
     args.source_root = args.source_root.resolve()
     args.output_dir.mkdir(parents=True, exist_ok=True)
@@ -192,7 +193,7 @@ def main():
                 ("rack-hidden-body", "TownServiceMirror.Racks.cs", "renderer.forceRenderingOff=!shown;", "renderer.forceRenderingOff=true;", "incoming physical body appears with its face"),
                 ("rack-idle-crank", "TownServiceMirror.Racks.cs", "out var crank)&&crank.Alive&&replaying)", "out var crank)&&crank.Alive&&state.Turn!=0)", "idle manual lead pull is not overwritten by the previous clock"),
                 ("rack-skipped-epochs", "TownServiceMirror.Racks.cs", "clock.DisplayPage=clock.Turning&&TownRackState.Progress(clock.Elapsed)<.5f?state.From:state.To;", "clock.DisplayPage=clock.Turning&&TownRackState.Progress(clock.Elapsed)<.5f?clock.DisplayPage:state.To;", "skipped owner epochs adopt the actual current original from-page and animation"),
-                ("rack-turn-queue", "TownServiceMirror.Racks.cs", "Start(next,now);", "return;", "newest completed owner clock replaces obsolete turns despite a reordered old packet"),
+                ("rack-turn-queue", "TownServiceMirror.Racks.cs", "Start(next,now);", "if (!Turning) Start(next,now);", "newest completed owner clock replaces obsolete turns despite a reordered old packet"),
             ]
     if args.suite == "public-catalog":
         variants = [("production", None, None, None, "")]
@@ -241,6 +242,11 @@ def main():
                 "|| reaction == TownVoiceReaction.EnchantressInspect", "",
                 "accepted enchantment card inspections use the private synchronized voice relay"))
     print(f"Production binding: {args.source_root.resolve()}; evidence: {run}", flush=True)
+    if args.only_mutation:
+        selected = [case for case in variants if case[0] == args.only_mutation]
+        if len(selected) != 1 or args.only_mutation == "production":
+            parser.error("--only-mutation must name an enabled negative control in this suite")
+        variants = variants[:1] + selected
     for name, filename, before, after, expected in variants:
         build = run / name; production = build / "production"; production.mkdir(parents=True)
         for path, text in bound.items():
