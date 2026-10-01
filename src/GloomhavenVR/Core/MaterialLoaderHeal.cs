@@ -513,6 +513,10 @@ internal static class MaterialLoaderHeal
         private float _nextPrune;
         private float _nextSeed;
         private int _seedBurst = SeedBurstScans;
+        private bool _scanActive;
+        private int _scanLoaderIndex;
+        private int _scanEntryIndex;
+        private int _scanNever, _scanNull, _scanPending, _scanDone, _scanHeldByWallFade;
         private System.Action? _tick;
 
         private void Awake() => _tick = Tick; // cached delegate — TickGuard hot-path contract
@@ -542,21 +546,15 @@ internal static class MaterialLoaderHeal
             // See the FastLaneSeconds header for why the 1 s clock was itself the defect.
             FastLane(now);
 
-            if (now < _nextScan)
-                return;
-            _nextScan = now + ScanInterval;
+            if (!_scanActive && now >= _nextScan)
+            {
+                _nextScan = now + ScanInterval;
+                BeginSlowScan(now);
+            }
+            if (_scanActive)
+                ContinueSlowScan(now);
 
-            // ROUND 6: scene-wide, includeInactive — the per-tile downward
-            // GetComponentsInChildren scan provably missed the stuck floor loaders (two
-            // hardware runs: the renderer-upward census said done-stuck while the heal
-            // loop never even classified those entries), so NO hierarchy assumption
-            // survives: every MaterialLoader in the scene is visited, wherever Apparance
-            // parented it and whatever its own GameObject's active state — the per-entry
-            // renderer filter (activeInHierarchy && !enabled) already scopes the work to
-            // live content on its own.
-            HealAllLoaders(now);
-
-            if (now >= _nextPrune)
+            if (!_scanActive && now >= _nextPrune)
             {
                 _nextPrune = now + TrackExpirySeconds;
                 PruneTracks(now);
@@ -701,7 +699,11 @@ internal static class MaterialLoaderHeal
                 + $"({_fastLogsLeft} more fast-lane lines this session.)");
         }
 
-        private void HealAllLoaders(float now)
+        /// <summary>Start one complete watchdog pass over the same registered loader set as
+        /// before. The snapshot is rebuilt once per pass, while renderer classification is
+        /// spread over frames. This removes the 15–22 ms one-frame scan spikes measured in the
+        /// large Frame scenario without changing which entries are examined or healed.</summary>
+        private void BeginSlowScan(float now)
         {
             // Seed/fallback FIRST (see SeedIntervalSeconds): anything it discovers is in the
             // registry before the scratch list is built, so a freshly seeded loader is healed
@@ -731,19 +733,37 @@ internal static class MaterialLoaderHeal
                 }
                 _loaderScratch.Add(reg);
             }
-            if (_loaderScratch.Count == 0)
-                return;
-
             _touchedLoaders.Clear();
             _doneIdsScratch.Clear();
-            int nNever = 0, nNull = 0, nPending = 0, nDone = 0, nHeldByWallFade = 0;
+            _scanNever = _scanNull = _scanPending = _scanDone = _scanHeldByWallFade = 0;
+            _scanLoaderIndex = _scanEntryIndex = 0;
+            _scanActive = _loaderScratch.Count > 0;
+        }
 
-            foreach (MaterialLoader loader in _loaderScratch)
+        /// <summary>At most this many entries are checked in one frame. The full registry is
+        /// still visited once per scan; no renderer is silently removed from supervision.</summary>
+        private const int SlowEntriesPerFrame = 256;
+
+        private void ContinueSlowScan(float now)
+        {
+            int nNever = _scanNever, nNull = _scanNull, nPending = _scanPending;
+            int nDone = _scanDone, nHeldByWallFade = _scanHeldByWallFade;
+            int visited = 0;
+
+            while (_scanLoaderIndex < _loaderScratch.Count && visited < SlowEntriesPerFrame)
             {
+                MaterialLoader loader = _loaderScratch[_scanLoaderIndex];
                 if (loader == null || loader.LoadersData == null)
-                    continue;
-                foreach (MaterialLoaderData data in loader.LoadersData)
                 {
+                    _scanLoaderIndex++;
+                    _scanEntryIndex = 0;
+                    continue;
+                }
+                List<MaterialLoaderData> entries = loader.LoadersData;
+                while (_scanEntryIndex < entries.Count && visited < SlowEntriesPerFrame)
+                {
+                    MaterialLoaderData data = entries[_scanEntryIndex++];
+                    visited++;
                     Renderer? r = data?.Renderer;
                     if (data == null || r == null)
                         continue;
@@ -905,7 +925,21 @@ internal static class MaterialLoaderHeal
                             break;
                     }
                 }
+                if (_scanEntryIndex >= entries.Count)
+                {
+                    _scanLoaderIndex++;
+                    _scanEntryIndex = 0;
+                }
             }
+
+            _scanNever = nNever;
+            _scanNull = nNull;
+            _scanPending = nPending;
+            _scanDone = nDone;
+            _scanHeldByWallFade = nHeldByWallFade;
+            if (_scanLoaderIndex < _loaderScratch.Count)
+                return;
+            _scanActive = false;
 
             int retriggered = nNever + nNull + nPending;
             if (retriggered > 0)
