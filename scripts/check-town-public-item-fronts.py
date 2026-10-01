@@ -33,6 +33,10 @@ def main():
     fixture = run / 'fixture'
     shutil.copytree(ROOT / 'scripts/town-service-mirror-runtime', fixture)
     shutil.copyfile(ROOT / 'scripts/town-public-item-fronts-runtime/Program.cs', fixture / 'OriginalPublicItemFronts.cs')
+    stock = args.source_root / 'src/GloomhavenVR/WorldUI/TownServices/TownServiceSync.Stock.cs'
+    if stock.is_file():
+        shutil.copyfile(ROOT / 'scripts/town-public-item-fronts-runtime/StockPublisher.cs', fixture / 'StockPublisher.cs')
+        bound['StockPublisher.cs'] = 'using System;\nusing System.Globalization;\nusing UnityEngine;\nnamespace GloomhavenVR.WorldUI;\ninternal sealed partial class TownServiceSync {\n' + loader.method(stock.read_text(), 'private void PublishStockEntries(TownServiceCatalog catalog)') + '\n}\n'
     program = fixture / 'Program.cs'
     text = program.read_text()
     anchor = '            if (variant == "production") PublisherNoCloth();'
@@ -45,6 +49,8 @@ def main():
 '''
     if anchor not in text:
         raise SystemExit('Fixture entry binding drift')
+    if stock.is_file():
+        branch = branch.replace('                var fronts', '                StockPublicationRouting();\n                var fronts')
     program.write_text(text.replace(anchor, branch + anchor, 1))
     # Older common harness revisions did not need template traversal. Bind the unchanged
     # production Append implementation in its inert NativeTemplates seam, not a guessed path.
@@ -69,6 +75,13 @@ def main():
              'original public item fronts capture even when native texture descriptors collide'),
             ('front-sprite-omitted', 'TownServiceBinding.cs', 'image.sprite = assets.Resolve<Sprite>(text[0]); image.overrideSprite = assets.Resolve<Sprite>(text[1]);',
              'image.sprite = null; image.overrideSprite = null;', 'public held item retains its complete original artwork sprite'),
+        ]
+    if not args.no_negative_controls and stock.is_file():
+        variants += [
+            ('stationary-stock-duplicated', 'StockPublisher.cs', '!entry.Current || !entry.Sample.IsMoving', '!entry.Current',
+             'independent stock publisher contains only current moving original samples'),
+            ('stock-public-mount', 'StockPublisher.cs', 'Publish("merchant.heldstock",', 'Publish("merchant.cardmount",',
+             'held stock uses its explicit visitor-owned original mount'),
         ]
     (run / 'source-hashes.json').write_text(json.dumps({name: hashlib.sha256(text.encode()).hexdigest() for name, text in bound.items()}, indent=2) + '\n')
     dotnet = shutil.which('dotnet') or str(Path.home() / '.dotnet/dotnet')

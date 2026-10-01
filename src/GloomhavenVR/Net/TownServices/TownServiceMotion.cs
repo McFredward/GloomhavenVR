@@ -44,6 +44,7 @@ internal sealed class TownServiceMotion
         // finished their motion early when town packets arrived less often,
         // leaving a stationary purse/card between successive hand samples.
         _continuousVisitorMotion = address == "ritual.purse.held|"
+            || address == "merchant.heldstock|"
             || address.StartsWith("inspectionbody.", StringComparison.Ordinal)
             || IsVisitorItem(address);
         _nodes = new Node[originalNodes.Length + 1]; _from = new State[_nodes.Length]; _to = new State[_nodes.Length];

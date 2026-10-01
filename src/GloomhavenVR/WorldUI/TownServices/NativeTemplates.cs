@@ -58,6 +58,7 @@ internal static class NativeTemplates
         Add("merchant", hud.shopWindow);
         Add("merchant.inventory", hud.shopWindow.ItemInventory);
         Add("merchant.row", hud.shopWindow.ItemInventory.slotPrefab);
+        Add("merchant.heldstock.row", hud.shopWindow.ItemInventory.slotPrefab);
         Add("merchant.tooltip", hud.shopWindow.ItemInventory.itemTooltip);
         UIShopItemInventory merchant = hud.shopWindow.ItemInventory;
         Add("merchant.buy", merchant.buyTab);
@@ -76,6 +77,7 @@ internal static class NativeTemplates
         AddPhysical("merchant.offering", TownServiceMerchantZone.CreateTemplate(physicalFont));
         AddPhysical("merchant.crank", TownServiceMerchantDrawer.CreateTemplate(physicalFont));
         AddPhysical("merchant.cardmount", new GameObject("PhysicalCardMount"));
+        AddPhysical("merchant.heldstock", new GameObject("PhysicalCardMount"));
         AddPhysical("merchant.rack", TownServiceMerchantDrawer.CreateHousingTemplate());
         for (int category = 0; category < 6; category++)
             AddPhysical("merchant.category." + category, TownServiceCatalogCategory.CreateTemplate(category));
@@ -84,6 +86,7 @@ internal static class NativeTemplates
         Add("enchant.counter", TownServiceWorkspace.FurnitureTemplate(3));
         _cardBody = TownServiceCardBody.Create(_bank.transform);
         Add("merchant.cardbody", _cardBody.transform);
+        Add("merchant.heldstock.body", _cardBody.transform);
         Add("map.cardbody", GloomhavenVR.Cards.CardsDriver.CardBackingPrefab?.transform);
         Add("temple", hud.templeWindow);
         Add("temple.inventory", hud.templeWindow.Shop);
@@ -182,7 +185,7 @@ internal static class NativeTemplates
         entry.Copy = Object.Instantiate(entry.Original.gameObject, _bank.transform, false);
         Prune(entry.Original, entry.Copy.transform);
         TownServiceNeutralize.Apply(entry.Copy);
-        TownServiceCardBody.RebindClone(key, entry.Copy);
+        TownServiceCardBody.RebindClone(key == "merchant.heldstock.body" ? "merchant.cardbody" : key, entry.Copy);
         entry.Copy.SetActive(false);
         Partition(entry.Copy.transform, string.Empty, entry.Parts);
     }
@@ -240,7 +243,8 @@ internal static class NativeTemplates
     }
     private static void PrepareInertGeometry(string key, GameObject clone)
     {
-        TownServiceCardBody.RebindClone(key, clone);
+        TownServiceCardBody.RebindClone(key == "merchant.heldstock.body|" || key == "merchant.heldstock.body"
+            ? "merchant.cardbody" : key, clone);
         TownServiceInspectionBody.RebindClone(key, clone);
         TownServiceWorkspacePractical.RebindClone(key, clone);
     }
