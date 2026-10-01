@@ -13,6 +13,8 @@ internal static class TownServiceCodec
     internal const byte TempleInteractionRecordId = NetProtocol.ExtIdTownInteraction;
     internal const byte TransactionRecordId = NetProtocol.ExtIdTownTransaction;
     internal const byte DonationClockRecordId = NetProtocol.ExtIdTownDonationClock;
+    internal const byte CatalogLayoutRecordId = NetProtocol.ExtIdTownCatalogLayout;
+    internal const byte VisitorStockRecordId = NetProtocol.ExtIdTownVisitorStock;
     private static readonly UTF8Encoding Utf8 = new(false, true);
 
     internal static byte[] Write(TownServiceFrame frame)
@@ -68,7 +70,10 @@ internal static class TownServiceCodec
         int clothBytes = frame.WorkspaceCloth == null ? 0 : frame.WorkspaceCloth.Length + 4;
         int interactionBytes = (frame.TempleDonationKnown ? 8 : 0) + (frame.TransactionActive ? 3 : 0)
             + (frame.HasTempleDonationCommitAge ? 7 : 0);
+        byte[] layout = frame.Rack?.Layout != null ? TownCatalogLayout.Write(frame.Rack.Layout) : Array.Empty<byte>();
         int size = rollerBytes + mechanismBytes + clothBytes + interactionBytes + 6 + raw.Length + 2 * ((raw.Length + 254) / 255) + rack.Length + 2 * ((rack.Length + 254) / 255);
+        int legacySize = size;
+        size += layout.Length + 2 * ((layout.Length + 254) / 255) + (frame.VisitorStock ? 3 : 0);
         if (size > TownServiceFrame.MaxBytes) throw new InvalidDataException("Town-service module exceeds the bounded snapshot size.");
         var packet = new byte[size];
         // NetProtocol.Magic (0x47565231) is written little endian by every existing lane.
@@ -125,12 +130,21 @@ internal static class TownServiceCodec
             Buffer.BlockCopy(age, 0, packet, at, 4);
         }
         if (mechanismBytes != 0)
-        { packet[size - rollerBytes - 8] = TownCassetteMotion.RecordId; packet[size - rollerBytes - 7] = 6; packet[size - rollerBytes - 6] = 1; packet[size - rollerBytes - 5] = (byte)((frame.Rack?.Cassette == true ? 1 : 0) | (frame.PublicCatalog ? 2 : 0));
-          for (int i = 0; i < 4; i++) packet[size - rollerBytes - 4 + i] = (byte)(frame.PublicClaim >> (8 * i)); }
+        { packet[legacySize - rollerBytes - 8] = TownCassetteMotion.RecordId; packet[legacySize - rollerBytes - 7] = 6; packet[legacySize - rollerBytes - 6] = 1; packet[legacySize - rollerBytes - 5] = (byte)((frame.Rack?.Cassette == true ? 1 : 0) | (frame.PublicCatalog ? 2 : 0));
+          for (int i = 0; i < 4; i++) packet[legacySize - rollerBytes - 4 + i] = (byte)(frame.PublicClaim >> (8 * i)); }
         if (rollerBytes != 0)
-        { packet[size - 6] = TownCassetteMotion.RollerRecordId; packet[size - 5] = 4; packet[size - 4] = 1;
-          packet[size - 3] = unchecked((byte)frame.Rack!.ScrollDirection);
-          packet[size - 2] = (byte)frame.Rack.PageCount; packet[size - 1] = (byte)(frame.Rack.PageCount >> 8); }
+        { packet[legacySize - 6] = TownCassetteMotion.RollerRecordId; packet[legacySize - 5] = 4; packet[legacySize - 4] = 1;
+          packet[legacySize - 3] = unchecked((byte)frame.Rack!.ScrollDirection);
+          packet[legacySize - 2] = (byte)frame.Rack.PageCount; packet[legacySize - 1] = (byte)(frame.Rack.PageCount >> 8); }
+int tail = legacySize;
+        for (int offset = 0; offset < layout.Length;)
+        {
+            int count = Math.Min(255, layout.Length - offset);
+            packet[tail++] = CatalogLayoutRecordId; packet[tail++] = (byte)count;
+            Buffer.BlockCopy(layout, offset, packet, tail, count); tail += count; offset += count;
+        }
+        if (frame.VisitorStock)
+        { packet[tail++] = VisitorStockRecordId; packet[tail++] = 1; packet[tail] = 1; }
         return packet;
     }
 
@@ -144,6 +158,8 @@ internal static class TownServiceCodec
         {
             using var body = new MemoryStream();
             using var rack = new MemoryStream();
+            using var layout = new MemoryStream();
+            bool visitorStock = false;
             byte[]? workspaceCloth = null;
             bool templeDonationKnown = false, templeDonationAvailable = false; uint templeDonationRevision = 0;
             bool transactionActive = false;
@@ -158,6 +174,16 @@ internal static class TownServiceCodec
                 if (record == RecordId) body.Write(packet, at, count);
                 if (record == TownRackState.RecordId)
                 { if (count == 0) return false; rack.Write(packet, at, count); }
+                if (record == CatalogLayoutRecordId)
+                {
+                    if (count == 0 || layout.Length + count > 3 + 6 * TownCatalogLayout.MaxLayout) return false;
+                    layout.Write(packet, at, count);
+                }
+                if (record == VisitorStockRecordId)
+                {
+                    if (visitorStock || count != 1 || packet[at] != 1) return false;
+                    visitorStock = true;
+                }
                 if (record == WorkspaceClothRecordId)
                 {
                     if (count >= 1 && packet[at] == 1)
@@ -278,6 +304,12 @@ internal static class TownServiceCodec
                 if (!cassette || result.Rack == null) return false;
                 result.Rack.ScrollDirection = scrollDirection; result.Rack.PageCount = pageCount;
             }
+            if (layout.Length != 0)
+            {
+                if (!publicCatalog || result.Rack?.Cassette != true) return false;
+                result.Rack.Layout = TownCatalogLayout.Read(layout.ToArray());
+            }
+            result.VisitorStock = visitorStock;
             result.PublicCatalog = publicCatalog; result.PublicClaim = publicClaim;
             Validate(result); frame = result; return true;
         }
@@ -358,6 +390,16 @@ internal static class TownServiceCodec
     }
     internal static void Validate(TownServiceFrame frame)
     {
+        if (frame.VisitorStock && (frame.Service != 1 || frame.PublicCatalog
+            || frame.Rack != null || frame.RackMember != null || frame.TransactionActive
+            || frame.TempleDonationKnown || frame.WorkspaceCloth != null || frame.Module == TownServiceFrame.VoiceModule))
+            throw new InvalidDataException("Invalid visitor stock presentation lane.");
+        if (frame.Rack?.Layout != null)
+        {
+            if (!frame.PublicCatalog || !frame.Rack.Cassette)
+                throw new InvalidDataException("Full cabinet placement belongs to a public cassette clock.");
+            TownCatalogLayout.Validate(frame.Rack.Layout);
+        }
         if (frame.PublicCatalog && frame.Service != 1 || !frame.PublicCatalog && frame.PublicClaim != 0)
             throw new InvalidDataException("Invalid public merchant lane");
         if (frame.RackMember != null)

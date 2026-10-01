@@ -60,7 +60,7 @@ internal static class TownServiceDelta
         }
         return true;
     }
-    private static bool HeaderMatches(TownServiceFrame a, TownServiceFrame b) => a.PublicCatalog == b.PublicCatalog && a.PublicClaim == b.PublicClaim && a.Service == b.Service
+    private static bool HeaderMatches(TownServiceFrame a, TownServiceFrame b) => a.VisitorStock == b.VisitorStock && a.PublicCatalog == b.PublicCatalog && a.PublicClaim == b.PublicClaim && a.Service == b.Service
         && a.Session == b.Session && a.Module == b.Module && a.Template == b.Template && a.TemplateAddress == b.TemplateAddress && a.Structure == b.Structure
         && a.HasWorkspaceCloth == b.HasWorkspaceCloth;
     internal static TownServiceFrame Copy(TownServiceFrame source)
@@ -80,7 +80,7 @@ internal static class TownServiceDelta
     { TownServiceFrame result = Header(source); result.Nodes = (TownServiceNode[])source.Nodes.Clone(); return result; }
     private static TownServiceFrame Header(TownServiceFrame f) => new()
     {
-        PublicCatalog = f.PublicCatalog, PublicClaim = f.PublicClaim, Rack = f.Rack?.Copy(), RackMember = f.RackMember?.Copy(), Service = f.Service, Session = f.Session, Sequence = f.Sequence, BaseSequence = f.BaseSequence,
+        VisitorStock = f.VisitorStock, PublicCatalog = f.PublicCatalog, PublicClaim = f.PublicClaim, Rack = f.Rack?.Copy(), RackMember = f.RackMember?.Copy(), Service = f.Service, Session = f.Session, Sequence = f.Sequence, BaseSequence = f.BaseSequence,
         WorkspaceCloth = f.WorkspaceCloth == null ? null : (byte[])f.WorkspaceCloth.Clone(),
         TempleDonationKnown = f.TempleDonationKnown, TempleDonationAvailable = f.TempleDonationAvailable,
         TempleDonationRevision = f.TempleDonationRevision, TransactionActive = f.TransactionActive,

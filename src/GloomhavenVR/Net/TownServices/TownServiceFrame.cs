@@ -14,6 +14,9 @@ internal sealed class TownServiceFrame
     // 254 entries permit 126 complete properties without changing its wire grammar.
     internal const int MaxBytes = 60000, MaxNodes = 256, MaxProperties = 254, MaxModules = 4096;
     internal bool PublicCatalog;
+    // Separate cosmetic lane: taking a sample must survive public page authorship
+    // changes and visiting another NPC without occupying its interaction lease.
+    internal bool VisitorStock;
     internal uint PublicClaim;
     internal byte Service;
     internal const ushort ManifestModule = ushort.MaxValue, BundleStream = ushort.MaxValue - 1,

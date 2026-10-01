@@ -83,6 +83,10 @@ internal static class NetProtocol
     public const byte ExtIdTownTransaction = 92;
     // Optional committed-donation age on private TLV78 manifests; older peers skip this record.
     public const byte ExtIdTownDonationClock = 93;
+    // Complete immutable cabinet placement and visitor-held stock use independent,
+    // additive records; no transaction command is encoded by either record.
+    public const byte ExtIdTownCatalogLayout = 94;
+    public const byte ExtIdTownVisitorStock = 95;
     public const byte ExtIdTownRack = 85;
     public const byte ExtIdTownCassette = 86;
     public const byte ExtIdTownResidents = 79;
