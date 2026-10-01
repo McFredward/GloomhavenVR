@@ -1,6 +1,17 @@
 # State — where the project stands
 
-**Updated 2026-10-01: dev 1.1.0 / ModBuild 599, large-scene bottleneck attribution.**
+**Updated 2026-10-01: dev 1.1.0 / ModBuild 599, hardware attribution reviewed.**
+The new Build 599 run confirms severe tracked scenario cost at 3408 pixels/eye:
+complete post-load windows average 82.85 and 117.64 ms/frame at different views.
+The nine selected native callbacks cost about 1.13 ms in the final sample and
+do not explain the CPU wall. Their Debug summaries exist in the matching
+`Player.log`, while `LogOutput.log` filters them. Unity draw counters expose only
+zeros, and the menu census cooldown suppresses the scenario's detailed census.
+No actual GPU busy time or matched Build 598/599 improvement is established.
+Wall-table commits still cause 254–292 ms gameplay hitches. This review changes
+documentation only and does not rerun unchanged runtime tests. See
+[STEAM-FRAME-TWELFTH-HARDWARE.md](STEAM-FRAME-TWELFTH-HARDWARE.md).
+
 The latest Build 598 Frame log is a direct `ProcGen` scenario run, with no 3D-map
 test. Its apparent ~36 ms interval had an untracked HMD and seven visible
 renderers. At stable 3408 pixels/eye the later scenario windows remain around

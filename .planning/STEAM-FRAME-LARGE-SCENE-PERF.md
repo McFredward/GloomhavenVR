@@ -1,5 +1,11 @@
 # Steam Frame: large-scenario performance program
 
+The subsequent Build 599 hardware review is in
+[STEAM-FRAME-TWELFTH-HARDWARE.md](STEAM-FRAME-TWELFTH-HARDWARE.md).
+It rules out the nine sampled native callbacks as the main CPU wall; actual
+Unity draw counters remain unavailable. The scope and limitations below still
+apply, including the need for a loaded-scenario inventory and matched views.
+
 ## Evidence and correction
 
 The 2026-10-01 ModBuild 598 log in `.planning/debug/steam_frame/LogOutput.log`

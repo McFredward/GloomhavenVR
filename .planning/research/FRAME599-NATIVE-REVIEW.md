@@ -1,7 +1,7 @@
 # Build 599 native-frame probe review
 
-Evidence is the paired, gitignored `debug/steam_frame/Player.log` and
-`debug/steam_frame/LogOutput.log`. Both identify ModBuild 599 and dev
+Evidence is the paired, gitignored `.planning/debug/steam_frame/Player.log` and
+`.planning/debug/steam_frame/LogOutput.log`. Both identify ModBuild 599 and dev
 `0035d7916` (`Player.log:40,153`; `LogOutput.log:17,70`). This run contains a
 large `ProcGen` scenario, not a 3D-map performance comparison.
 
