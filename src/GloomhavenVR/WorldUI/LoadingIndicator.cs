@@ -4,6 +4,7 @@ using System.Globalization;
 using System.IO;
 using BepInEx;
 using GloomhavenVR.Core;
+using GloomhavenVR.WorldUI.MapRoom;
 using HarmonyLib;
 using UnityEngine;
 using UnityEngine.UI;
@@ -307,6 +308,15 @@ internal sealed class LoadingIndicator
 
     private bool _shownLogged;
 
+    // An options toggle does not change SceneController's loading flags. Keep the existing
+    // spinner alive until the re-enabled stations are ready, with a bounded failure exit.
+    private bool _townModeObserved;
+    private bool _townWasEnabled;
+    private bool _townReloadActive;
+    private float _townReloadStartedAt;
+    private const float TownReloadMinimumSeconds = 0.5f;
+    private const float TownReloadMaximumSeconds = 12f;
+
     // Boot clause state.
     private BootCoverage _boot;
     private Bootstrap? _bootstrap;
@@ -316,9 +326,12 @@ internal sealed class LoadingIndicator
 
     public void Tick()
     {
-        // Short circuit, in this order on purpose: with VR off, or the feature off, NOTHING
-        // below runs — not the poll, not the boot latch, not its one-off object search.
-        bool want = VRSession.IsRunning && WorldUIConfig.LoadingIndicator.Value && IsGameLoading();
+        // Observe the town-mode edge only while VR is running. The indicator option still
+        // controls the visual; a disabled indicator does not stop town preparation.
+        bool townReload = VRSession.IsRunning && TickTownReload();
+        bool gameLoading = VRSession.IsRunning && IsGameLoading();
+        bool want = VRSession.IsRunning && WorldUIConfig.LoadingIndicator.Value
+            && (gameLoading || townReload);
 
         // Part 2 runs whenever the feature is on and a load is in flight — flipped and
         // restored on the edges only, one log line each (existing VRLog style).
@@ -329,7 +342,8 @@ internal sealed class LoadingIndicator
         // nothing there — the frames that stall are the game's own synchronous YML parse on
         // the main thread, not async integration, so a smaller slice cannot touch them. The
         // boot clause is a display decision and stays one; it must not sit on the load path.
-        TickLoadPriority(want && _boot != BootCoverage.Covering);
+        TickLoadPriority(gameLoading && WorldUIConfig.LoadingIndicator.Value
+            && _boot != BootCoverage.Covering);
 
         // The flat-screen gate keeps its shipped edge-exact semantics (the screen returns the
         // instant loading ends). The spinner's own fade-out then cross-fades over the screen
@@ -378,7 +392,8 @@ internal sealed class LoadingIndicator
         {
             _shownLogged = true;
             VRLog.Info("WorldUI", $"Loading indicator shown: {(_boot == BootCoverage.Covering ? "BOOT window (intro over, " +
-                                      "Gloomhaven_unified loading — the game shows nothing here)" : "game spinner")} " +
+                                      "Gloomhaven_unified loading — the game shows nothing here)" :
+                                      townReload && !gameLoading ? "immersive town services reloading" : "game spinner")} " +
                                   $"{DistanceMeters:0.0} m ahead of head '{head.name}' (step {_spinDegrees:0.#}° / " +
                                   $"{_stepSeconds:0.###}s, glow {_glowStep:0.###}, min alpha {_minAlpha:0.##}, " +
                                   $"fade {FadeSeconds:0.00}s) — flat screen suppressed for the load.");
@@ -501,6 +516,48 @@ internal sealed class LoadingIndicator
         // ordinary poll goes true, which is the tick it retires on.
         bool boot = TickBootCoverage(sc, ordinary);
         return ordinary || boot;
+    }
+
+    private bool TickTownReload()
+    {
+        bool enabled = WorldUIConfig.ImmersiveTownServices.Value;
+        if (!_townModeObserved)
+        {
+            _townModeObserved = true;
+            _townWasEnabled = enabled;
+            return false;
+        }
+        bool switchedOn = enabled && !_townWasEnabled;
+        _townWasEnabled = enabled;
+        if (!enabled || !MapRoomDriver.Active)
+        {
+            _townReloadActive = false;
+            return false;
+        }
+        if (switchedOn)
+        {
+            _townReloadActive = true;
+            _townReloadStartedAt = Time.unscaledTime;
+            VRLog.Info("WorldUI", "Immersive town services enabled: showing the loading indicator until unlocked residents are ready.");
+        }
+        if (!_townReloadActive) return false;
+
+        float elapsed = Time.unscaledTime - _townReloadStartedAt;
+        if (TownServiceAssets.IsUnavailable || elapsed >= TownReloadMaximumSeconds)
+        {
+            _townReloadActive = false;
+            VRLog.Warn("WorldUI", "Immersive town services reload ended without every resident ready; "
+                + "native service windows remain the fallback.");
+            return false;
+        }
+        if (elapsed < TownReloadMinimumSeconds || TownServiceAssets.IsLoading)
+            return true;
+        for (byte service = 1; service <= 3; service++)
+            if (TownServiceAvailability.NativeUnlocked(service) && !TownServicePopulation.Available(service))
+                return true;
+        _townReloadActive = false;
+        VRLog.Info("WorldUI", $"Immersive town services ready after {elapsed:0.00}s; loading indicator released.");
+        return false;
     }
 
     /// <summary>

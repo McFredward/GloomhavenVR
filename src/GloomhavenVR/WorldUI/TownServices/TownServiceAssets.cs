@@ -32,6 +32,7 @@ internal static class TownServiceAssets
     private static float _started;
 
     internal static bool IsLoading => _phase is LoadPhase.Bundle or LoadPhase.Assets;
+    internal static bool IsUnavailable => _phase == LoadPhase.Missing;
 
     /// <summary>Start while the player is still in the menu. The build-571 first map frame
     /// spent 4262.80 ms in TownServicePopulation; its first prefab query opened this
