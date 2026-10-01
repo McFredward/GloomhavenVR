@@ -33,6 +33,7 @@ namespace GloomhavenVR.WorldUI
     internal sealed class PanelFixture { internal Transform Target = null!; }
     internal sealed partial class TownServiceCatalog
     {
+        internal TownCatalogSlot[] StockLayout = Array.Empty<TownCatalogSlot>();
         internal static readonly Dictionary<Transform, Entry> CardMounts = new();
         internal sealed class Control { internal string Key = ""; internal TownServiceSurface Surface = new(); }
         internal sealed class Entry

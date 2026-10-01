@@ -41,6 +41,10 @@ internal sealed class TownServiceCatalog : IDisposable
     private readonly TownServiceMerchantRows _backend;
     private readonly List<Entry> _entries = new();
     private readonly Dictionary<int, List<Entry>> _pages = new();
+    private readonly Dictionary<int, ushort> _canonicalSlots = new();
+    private TownCatalogSlot[] _stockLayout = Array.Empty<TownCatalogSlot>();
+    private TownCatalogSlot[]? _adoptedLayout;
+    internal TownCatalogSlot[] StockLayout => _stockLayout;
     private readonly int[] _maximumOrdinal = new int[12];
     private readonly HashSet<Entry> _movingEntries = new();
     private readonly HashSet<Entry> _tickSet = new();
@@ -112,11 +116,10 @@ internal sealed class TownServiceCatalog : IDisposable
 
             _drawers.Add(new TownServiceMerchantDrawer(Root, 0, false, 0, "", font,
                 () => !_disposed && _alive() && _allowInput && TownServicePublicMerchant.CanClaim,
-                // A card parked in the merchant's palm is no longer on the rack. Keeping
-                // that sample's movement in this interlock disabled every category button
-                // and the crank throughout a buy decision, contrary to the physical scene.
-                () => !_entries.Exists(entry => entry.Sample.IsMoving
-                    && !TownServiceMerchantHandoff.IsParkedStock(entry.Sample)), drawer => ClearInspection()));
+                // A held, returning or parked card has left its physical holder and
+                // has a separate visitor presentation lane. Public browsing can
+                // continue without moving it or reserving the whole cabinet.
+                () => true, drawer => ClearInspection()));
             for(int category=0;category<6;category++)
                 _categories.Add(new TownServiceCatalogCategory(Root,category,_drawers[0],()=>_allowInput&&_alive()&&_drawers[0].Accessible&&TownServicePublicMerchant.CanClaim));
             if(!persistent&&inventory.itemTooltip!=null)_preview=new TownServiceCatalogPreview(inventory.itemTooltip,Root,()=>_inspected!=null&&_inspected.Current&&_inspected.Sample.IsHeld);
@@ -209,6 +212,56 @@ internal sealed class TownServiceCatalog : IDisposable
         }
         _movingEntries.RemoveWhere(entry => entry.Disposed);
     }
+    private void RebuildStockLayout()
+    {
+        var layout = new List<TownCatalogSlot>();
+        foreach (Entry entry in _entries)
+            if (!entry.Selling && !entry.Disposed)
+                layout.Add(new TownCatalogSlot(entry.ItemId, checked((ushort)(entry.Category
+                    * TownCatalogLayout.SlotsPerCategory + entry.Ordinal))));
+        layout.Sort((a, b) => a.ItemId.CompareTo(b.ItemId));
+        TownCatalogSlot[] next = layout.ToArray();
+        TownCatalogLayout.Validate(next);
+        if (!TownCatalogLayout.Same(_stockLayout, next)) _stockLayout = next;
+    }
+    internal void AdoptStockLayout(TownCatalogSlot[] layout)
+    {
+        if (TownCatalogLayout.Same(_adoptedLayout, layout)) return;
+        TownCatalogLayout.Validate(layout);
+        var slots = new Dictionary<int, ushort>(layout.Length);
+        var occupied = new HashSet<ushort>();
+        foreach (TownCatalogSlot slot in layout) { slots.Add(slot.ItemId, slot.Ordinal); occupied.Add(slot.Ordinal); }
+        // Validate native category identity before moving any original entry. Layout
+        // is cosmetic and can never redefine the native item or purchase permission.
+        foreach (Entry entry in _entries)
+            if (!entry.Selling && slots.TryGetValue(entry.ItemId, out ushort slot)
+                && slot / TownCatalogLayout.SlotsPerCategory != entry.Category)
+                throw new System.IO.InvalidDataException("Public cabinet category differs from its native item.");
+        _canonicalSlots.Clear();
+        foreach (var pair in slots) _canonicalSlots.Add(pair.Key, pair.Value);
+        foreach (Entry entry in _entries)
+        {
+            if (entry.Selling) continue;
+            int ordinal;
+            if (slots.TryGetValue(entry.ItemId, out ushort slot))
+                ordinal = slot % TownCatalogLayout.SlotsPerCategory;
+            else
+            {
+                // The native adventure can deliver a stock unlock before its next
+                // public snapshot. Reserve even the author's still-cold/unknown IDs
+                // and place this new native entry in a remaining real holder slot.
+                ordinal = 0;
+                int categoryStart = entry.Category * TownCatalogLayout.SlotsPerCategory;
+                while (occupied.Contains(checked((ushort)(categoryStart + ordinal)))) ordinal++;
+                if (ordinal >= TownCatalogLayout.SlotsPerCategory)
+                    throw new System.IO.InvalidDataException("Public cabinet category has no remaining native slots.");
+                occupied.Add(checked((ushort)(categoryStart + ordinal)));
+            }
+            entry.ApplyOrdinal(ordinal);
+        }
+        _adoptedLayout = (TownCatalogSlot[])layout.Clone();
+        RebuildPageIndex(); RebuildStockLayout(); _observerDirty = true;
+    }
     internal void Tick(float scale)
     {
         if(_disposed)return;
@@ -293,6 +346,8 @@ internal sealed class TownServiceCatalog : IDisposable
         }
         var indexed = new HashSet<UIShopItemSlot>();
         var occupied = new HashSet<(bool Selling, int Category, int Ordinal)>();
+        foreach (ushort slot in _canonicalSlots.Values)
+            occupied.Add((false, slot / TownCatalogLayout.SlotsPerCategory, slot % TownCatalogLayout.SlotsPerCategory));
         foreach (Entry entry in _entries)
         { indexed.Add(entry.RowSource); occupied.Add((entry.Selling, entry.Category, entry.Ordinal)); }
         foreach(var row in _backend.Rows)
@@ -301,8 +356,18 @@ internal sealed class TownServiceCatalog : IDisposable
             // Retain each surviving card's physical slot across native stock refreshes. An
             // unlock or another visitor's purchase must never rearrange the card in a hand.
             int category = CategoryOf(row.Item);
-            int position=0;
-            while(occupied.Contains((row.Selling,category,position)))position++;
+            int position;
+            if (!row.Selling && _canonicalSlots.TryGetValue(row.Item.ID, out ushort slot))
+            {
+                if (slot / TownCatalogLayout.SlotsPerCategory != category)
+                    throw new System.IO.InvalidDataException("Public cabinet category differs from its native item.");
+                position = slot % TownCatalogLayout.SlotsPerCategory;
+            }
+            else
+            {
+                position=0;
+                while(occupied.Contains((row.Selling,category,position)))position++;
+            }
             TownServiceMerchantDrawer rack = _drawers[0];
             Transform parent = rack.CardParent(position);
             Vector3 local = TownServiceMerchantLayout.StockPosition(position % TownServiceMerchantDrawer.Capacity);
@@ -311,7 +376,7 @@ internal sealed class TownServiceCatalog : IDisposable
             _entries.Add(added);_samples.Add(added.Sample);
             indexed.Add(row.Source); occupied.Add((row.Selling, category, position));
         }
-        RebuildPageIndex();
+        RebuildPageIndex(); RebuildStockLayout();
         foreach (TownServiceMerchantDrawer rack in _drawers)
         {
             int maximum = _maximumOrdinal[(rack.Selling ? 6 : 0) + rack.Category];
@@ -401,7 +466,12 @@ internal sealed class TownServiceCatalog : IDisposable
         // bodies since the preceding observer pass. A stable cabinet formerly read
         // and compared every body renderer twice per frame for the same answer.
         if (observerChanged || observerCensus)
-            foreach (Entry entry in _entries) entry.SetBodyRendererVisibility(observer || !entry.Exposed, true);
+            foreach (Entry entry in _entries)
+                entry.SetBodyRendererVisibility(observer && !entry.Sample.IsMoving || !entry.Exposed, true);
+        // Cached observers include canvases that have since left Root for a hand.
+        // The elected public cabinet must remain hidden, but that visitor still
+        // sees and publishes its exact detached original face, price and body.
+        foreach (Entry entry in _entries) entry.RestoreMovingCanvasVisibility();
         _observer = observer;
         if (observer && !TownServicePublicMerchant.CanClaim)
             foreach (Entry entry in _entries) entry.Sample.PickCollider.enabled = false;
@@ -467,11 +537,11 @@ internal sealed class TownServiceCatalog : IDisposable
         internal readonly UIShopItemSlot RowSource;
         internal readonly CItem Item;
         internal readonly bool Selling;
-        internal readonly int Ordinal;
+        internal int Ordinal { get; private set; }
         internal readonly int Category;
         private TownServiceMerchantDrawer Rack => _owner._drawers[0];
         internal bool Warm => Current && (Sample.IsMoving || Rack.RetainsPage(Page));
-        internal readonly int Page;
+        internal int Page { get; private set; }
         internal bool Exposed => Current && (Sample.IsMoving || Page == Rack.Page);
         internal readonly TownServiceToken Sample;
         internal ItemCardUI CardUI { get; private set; } = null!;
@@ -486,6 +556,28 @@ internal sealed class TownServiceCatalog : IDisposable
         internal bool Disposed => _disposed;
         internal bool Current => !_disposed && _owner._alive() && RowSource != null
             && RowSource.gameObject.activeInHierarchy && ReferenceEquals(Item, RowSource.Item);
+
+        internal void RestoreMovingCanvasVisibility()
+        {
+            if (!Sample.IsMoving) return;
+            foreach (var pair in _canvases)
+                if (pair.Key != null) pair.Key.enabled = pair.Value;
+            Canvas? price = _row.HostCanvas;
+            if (price != null) price.enabled = true;
+        }
+
+        internal void ApplyOrdinal(int ordinal)
+        {
+            if (Ordinal == ordinal) return;
+            Ordinal = ordinal;
+            Page = (Selling ? 2048 : 0) + Category * 256 + ordinal / TownServiceMerchantDrawer.Capacity;
+            // The physical mount may currently be parented to a visitor's hand or
+            // palm. Move its original home, never that detached original card; its
+            // normal release then returns to the author's exact cabinet position.
+            _root.transform.SetParent(Rack.CardParent(ordinal), false);
+            Vector3 local = TownServiceMerchantLayout.StockPosition(ordinal % TownServiceMerchantDrawer.Capacity);
+            local.y = 0f; _root.transform.localPosition = local;
+        }
 
         internal Entry(TownServiceCatalog owner, UIShopItemSlot source, int position, bool selling, Transform parent, Vector3 local)
         {
@@ -616,7 +708,7 @@ internal sealed class TownServiceCatalog : IDisposable
                 // fade and late native artwork on every visible item without
                 // polling two source materials on all hidden stock every frame.
                 if (exposed) TownServiceCardBody.SetVisibility(_body.gameObject, _owner._opening.alpha);
-                SetBodyRendererVisibility(!exposed || _owner._observer);
+                SetBodyRendererVisibility(!exposed || _owner._observer && !moving);
             }
             // Build 596 stopped ticking cold pages, yet its Frame trace still spent
             // 4.4-4.9 ms/frame in Catalog.Cards. The selected and next pages still

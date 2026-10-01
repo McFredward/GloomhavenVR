@@ -37,6 +37,14 @@ namespace GloomhavenVR.WorldUI
     }
     internal static class TownServicePopulation { internal static bool IsFaceAuthor = true; }
 
+    // The converted-window distance ladder has its own production harness. Here
+    // only its registration boundary is inert; remote construction remains real.
+    internal static class TownServiceDepthOrder
+    {
+        internal static readonly HashSet<Transform> Bound = new();
+        internal static void Bind(Transform root) => Bound.Add(root);
+    }
+
 }
 namespace GloomhavenVR.Net
 {

@@ -31,6 +31,7 @@ def sources(root):
     names = ["TownServiceCatalog.cs", "TownServiceCatalogCategory.cs", "TownServiceMerchantRows.cs", "TownServiceMerchantTransaction.cs", "TownServiceMerchantDrawer.cs", "TownServiceCabinetAudio.cs", "TownServiceMerchantCounter.cs", "TownServiceMerchantZone.cs", "TownServiceCatalogPreview.cs", "TownServiceWindowMask.cs", "TownServiceToken.cs", "TownServiceOfferingPose.cs"]
     bound = {name: (base / name).read_text() for name in names}
     bound["TownRackState.cs"] = (root / "src/GloomhavenVR/Net/TownServices/TownRackState.cs").read_text()
+    bound["TownCatalogLayout.cs"] = (root / "src/GloomhavenVR/Net/TownServices/TownCatalogLayout.cs").read_text()
     bound["TownCassetteMotion.cs"] = (root / "src/GloomhavenVR/Net/TownServices/TownCassetteMotion.cs").read_text()
     bound["ItemCardHold.cs"] = (root / "src/GloomhavenVR/Cards/ItemCardHold.cs").read_text()
     bound["UiScrollFocus.cs"] = (root / "src/GloomhavenVR/Hands/Interact/UiScrollFocus.cs").read_text()
@@ -63,6 +64,10 @@ def sources(root):
 
 def mutations():
     return [
+        ("local-history-over-owner-layout", "TownServiceCatalog.cs", "entry.ApplyOrdinal(ordinal);", "entry.ApplyOrdinal(entry.Ordinal);", "public author handover adopts the original cold-page slot without moving a held card"),
+        ("lost-cold-stock-slot", "TownServiceCatalog.cs", "foreach (ushort slot in _canonicalSlots.Values)", "foreach (ushort slot in Array.Empty<ushort>())", "unknown cold native item slots remain reserved while a new local unlock arrives"),
+        ("handover-reparents-held-card", "TownServiceCatalog.cs", "_root.transform.SetParent(Rack.CardParent(ordinal), false);", "_display.SetParent(Rack.CardParent(ordinal), false);", "public author handover adopts the original cold-page slot without moving a held card"),
+        ("layout-clock-copy-erasure", "TownRackState.cs", "Layout=Layout == null ? null : (TownCatalogSlot[])Layout.Clone()", "Layout=null", "cabinet authority clock copy preserves an independent complete original stock layout"),
         ("raised-category-wheel", "TownServiceCatalogCategory.cs", "}, -.048f, .118f); Root.localPosition", "}, -.034f, .118f); Root.localPosition", "all six category buttons start in their measured sculpt sockets"),
         ("offset-category-wheel", "TownServiceCatalogCategory.cs", "0 => -1.214f, 1 => -1.108f, 2 => -.999f", "0 => -1.25f, 1 => -1.13f, 2 => -1.01f", "all six category buttons start in their measured sculpt sockets"),
         ("observer-ghost-collider", "TownServiceCatalog.cs", "if (observer && !TownServicePublicMerchant.CanClaim)", "if (observer && TownServicePublicMerchant.CanClaim)", "observer has no invisible local card collider before the public author's rack arrives"),
@@ -93,8 +98,9 @@ def mutations():
         ("context-race", "TownServiceMerchantTransaction.cs", "if (!stillCurrent() || !Eligible(inventory, item, selling)\n            || !created", "if (!Eligible(inventory, item, selling)\n            || !created", "context race never confirms native callback"),
         ("confirmation-owner", "TownServiceMerchantTransaction.cs", "if (confirmation.IsActive || nativeWindow.IsOpen || nativeWindow.IsVisible) return false;", "if (confirmation == null) return false;", "unrelated pending confirmation retained"),
         ("sell-identity", "TownServiceMerchantTransaction.cs", "return inventory.service.GetItemsToSell(inventory.character).Contains(item)", "return true", "stale owned item is ineligible"),
-        ("held-rack", "TownServiceCatalog.cs", "() => !_entries.Exists(entry => entry.Sample.IsMoving\n                    && !TownServiceMerchantHandoff.IsParkedStock(entry.Sample))", "() => true", "held merchandise prevents rack motion"),
-        ("parked-rack-disabled", "TownServiceCatalog.cs", "&& !TownServiceMerchantHandoff.IsParkedStock(entry.Sample)", "&& true", "category button remains usable while the merchant holds stock"),
+        ("held-rack", "TownServiceCatalog.cs", "() => true, drawer => ClearInspection()));", "() => !_entries.Exists(entry => entry.Sample.IsMoving), drawer => ClearInspection()));", "category button remains usable while the merchant holds stock"),
+        ("detached-canvas-hidden", "TownServiceCatalog.cs", "foreach (Entry entry in _entries) entry.RestoreMovingCanvasVisibility();", "", "public author switch preserves the detached visitor's original face canvas and physical body"),
+        ("detached-body-hidden", "TownServiceCatalog.cs", "SetBodyRendererVisibility(!exposed || _owner._observer && !moving);", "SetBodyRendererVisibility(!exposed || _owner._observer);", "public author switch preserves the detached visitor's original face canvas and physical body"),
         ("proud-card-glass", "TownServiceCatalog.cs", "_displayHome = new Vector3(0f, 0f, .030f);", "_displayHome = new Vector3(0f, 0f, .015f);", "the whole roller and card face are recessed into the imported cabinet"),
         ("sold-out-hidden", "TownServiceCatalog.cs", "RefreshSoldOutMarker(!moving);", "RefreshSoldOutMarker(true);", "exhausted-stock banner remains absent for every held or offered frame"),
         ("sold-out-grab-frame", "TownServiceCatalog.cs", "entry.RefreshSoldOutMarker(false);", "entry.RefreshSoldOutMarker(true);", "exhausted-stock banner disappears in the same frame the original card leaves the rack"),

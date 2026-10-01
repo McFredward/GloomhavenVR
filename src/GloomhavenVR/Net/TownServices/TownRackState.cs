@@ -18,19 +18,22 @@ internal sealed class TownRackState
     internal float Elapsed, LeadAngle;
     internal ushort Crank, Page, From, To;
     internal TownRackMember[] Members = Array.Empty<TownRackMember>();
+    internal TownCatalogSlot[]? Layout; // Additive TLV94; null is an unknown legacy layout.
     internal TownRackState Copy() => new() { ScrollDirection=ScrollDirection,PageCount=PageCount,Cassette=Cassette,Turn=Turn,Elapsed=Elapsed,LeadAngle=LeadAngle,Crank=Crank,
-        Page=Page,From=From,To=To,Members=(TownRackMember[])Members.Clone() };
+        Page=Page,From=From,To=To,Members=(TownRackMember[])Members.Clone(),Layout=Layout == null ? null : (TownCatalogSlot[])Layout.Clone() };
     internal static float Progress(float elapsed)
     { float t=Math.Max(0f,Math.Min(1f,elapsed/TurnDuration));return t*t*(3f-2f*t); }
     internal bool Same(TownRackState? other)
     {
         if(other==null||ScrollDirection!=other.ScrollDirection||PageCount!=other.PageCount||Cassette!=other.Cassette||Turn!=other.Turn||Elapsed!=other.Elapsed||LeadAngle!=other.LeadAngle||Crank!=other.Crank
-            ||Page!=other.Page||From!=other.From||To!=other.To||Members.Length!=other.Members.Length)return false;
+            ||Page!=other.Page||From!=other.From||To!=other.To||Members.Length!=other.Members.Length
+            ||!TownCatalogLayout.Same(Layout,other.Layout))return false;
         for(int i=0;i<Members.Length;i++)if(!Members[i].Same(other.Members[i]))return false;
         return true;
     }
     internal void Validate(ushort rack)
     {
+        if (Layout != null) TownCatalogLayout.Validate(Layout);
         if(ScrollDirection < -1 || ScrollDirection > 1 || PageCount < 1 || PageCount > 256 || ScrollDirection != 0 && (!Cassette || From / 256 != To / 256)
             ||rack>=TownServiceFrame.BundleStream||Crank>=TownServiceFrame.BundleStream||Crank==rack
             ||Members==null||Members.Length>MaxMembers||!Finite(Elapsed)||Elapsed<0f||Elapsed>TurnDuration+.001f

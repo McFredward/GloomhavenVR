@@ -220,6 +220,7 @@ namespace GloomhavenVR.Net
         internal bool Refresh(Transform source){if(!_clones.ContainsKey(source)){var clone=new GameObject("Clone",typeof(RectTransform));clone.transform.SetParent(_mount,false);_clones.Add(source,clone.transform);RebuildStamp++;}return true;}
         internal Transform? CloneOf(Transform source)=>_clones.TryGetValue(source,out var clone)?clone:null;
         internal void SetShown(bool shown){}
+        internal Canvas? HostCanvas => null;
         internal void TickLive(){}internal void Destroy(){foreach(var clone in _clones.Values)if(clone!=null)UnityEngine.Object.DestroyImmediate(clone.gameObject);}
     }
     internal static class RemoteItemCardSource
@@ -229,7 +230,7 @@ namespace GloomhavenVR.WorldUI
 {
     internal static class TownServiceMerchantHandoff { internal static bool CanReclaim(TownServiceToken token) => false; internal static bool IsParkedStock(TownServiceToken token) => Parked == token;internal static TownServiceToken? Parked;internal static int InspectedCount;internal static bool LastAvailable;internal static void StockInspected(CItem item,bool available){InspectedCount++;LastAvailable=available;} }
 
-    internal static class TownServiceCardBody{internal static GameObject Create(Transform p){var g=new GameObject("Body");g.transform.SetParent(p,false);return g;}internal static void SetVisibility(GameObject g,float v){}internal static void Dispose(GameObject g){}}
+    internal static class TownServiceCardBody{internal static GameObject Create(Transform p){var g=new GameObject("Body",typeof(MeshRenderer));g.transform.SetParent(p,false);return g;}internal static void SetVisibility(GameObject g,float v){}internal static void Dispose(GameObject g){}}
     internal static class NativeTemplates{internal static UnityEngine.UI.UITooltip? Tooltip;}
     internal static class TownServiceNativeAssets{internal static void PrepareItem(ItemCardUI i){}}
     internal class TownServiceSurface{}

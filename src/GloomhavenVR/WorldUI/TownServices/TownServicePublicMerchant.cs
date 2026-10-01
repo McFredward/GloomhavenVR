@@ -23,6 +23,9 @@ internal static class TownServicePublicMerchant
     private static readonly HashSet<string> Failures = new(StringComparer.Ordinal);
     private static bool _failed;
     internal static TownServiceCatalog? Catalog => _catalog;
+    internal static Transform? StationRoot => _station?.Root;
+    internal static uint Session => _session;
+    internal static float SessionAge => Mathf.Max(0f, Time.unscaledTime - _opened);
     internal static bool CanClaim
     {
         get
@@ -40,7 +43,11 @@ internal static class TownServicePublicMerchant
     {
         if (_catalog == null || !CanClaim || !MapRoomDriver.Active || StoryComposite.PointOfNoReturn) return;
         TownRackState? state = TownServiceMirror.PublicRack;
-        if (!TownServiceMirror.IsPublicAuthor && state != null) _catalog.Drawers[0].Follow(state);
+        if (!TownServiceMirror.IsPublicAuthor && state != null)
+        {
+            if (state.Layout != null) _catalog.AdoptStockLayout(state.Layout);
+            _catalog.Drawers[0].Follow(state);
+        }
         TownServiceMirror.ClaimPublicCatalog(); _catalog.SetObserver(false);
     }
     private static object? Context()
@@ -84,7 +91,10 @@ internal static class TownServicePublicMerchant
             }
             if (_station == null || _station.Root == null) { Reset(); return; }
             if (!TownServiceMirror.IsPublicAuthor && TownServiceMirror.PublicRack is TownRackState remote)
+            {
+                if (remote.Layout != null) _catalog.AdoptStockLayout(remote.Layout);
                 _catalog.Drawers[0].Follow(remote);
+            }
             using (PerfMonitor.Scope("TownPublicStock.Catalog"))
             {
                 _catalog.SetVisibility(Mathf.Clamp01((Time.unscaledTime - _opened) / .22f),
@@ -97,7 +107,6 @@ internal static class TownServicePublicMerchant
             bool observer = !TownServiceMirror.IsPublicAuthor;
             using (PerfMonitor.Scope("TownPublicStock.Observer"))
             {
-                if (observer) foreach (TownServiceToken sample in _catalog.Samples) if (sample.IsMoving) sample.CancelInspection();
                 _catalog.SetObserver(observer);
             }
             TownServiceCatalogCategory.TickLaser();

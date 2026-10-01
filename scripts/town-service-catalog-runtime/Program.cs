@@ -19,6 +19,79 @@ public static class InteractionProgram
     private static RectTransform Rect(string name,Transform parent)
     {var go=new GameObject(name,typeof(RectTransform));go.transform.SetParent(parent,false);var r=(RectTransform)go.transform;r.sizeDelta=new Vector2(500,50);return r;}
     private static void Census(TownServiceCatalog c)=>typeof(TownServiceCatalog).GetMethod("RefreshRows",BindingFlags.Instance|BindingFlags.NonPublic)!.Invoke(c,null);
+    private static TownServiceCatalog.Entry Item(TownServiceCatalog catalog, int id)
+    {
+        foreach (var entry in catalog.Entries) if (!entry.Selling && entry.ItemId == id) return entry;
+        throw new Exception("Missing original item " + id);
+    }
+    private static void PublicLayoutOwnership(UIShopItemInventory inventory, Transform anchor)
+    {
+        Service prior = inventory.service;
+        var ownerService = new Service(); inventory.service = ownerService; ShopService.Source = ownerService;
+        for (int id = 3001; id <= 3016; id++)
+            if (id != 3002) ownerService.Buy.Add(new CItem(id) { YMLData = { Slot = CItem.EItemSlot.Head } });
+        object identity = new();
+        using (var owner = new TownServiceCatalog(inventory, anchor, () => identity, () => true, anchor, persistent: true))
+        {
+            owner.SetVisibility(1f); Census(owner); owner.Tick(1f);
+            Transform stable = Item(owner, 3003).CardRoot;
+            ownerService.Buy.Add(new CItem(3002) { YMLData = { Slot = CItem.EItemSlot.Head } }); Census(owner);
+            Check(Item(owner, 3002).Ordinal == 15 && Item(owner, 3002).Page == 1
+                && Item(owner, 3003).CardRoot == stable,
+                "original cabinet retains its physical slot history across an earlier-ID unlock");
+            TownCatalogSlot[] layout = TownCatalogLayout.Read(TownCatalogLayout.Write(owner.StockLayout));
+            Check(layout.Length == 16 && Array.Exists(layout, slot => slot.ItemId == 3002 && slot.Ordinal == 15),
+                "public layout includes original identities on cold pages outside the warm module group");
+            var lateInventory = Rect("late native inventory", anchor).gameObject.AddComponent<UIShopItemInventory>();
+            lateInventory.slotPrefab = inventory.slotPrefab;
+            foreach (CItem original in ownerService.Buy)
+                if (original.ID != 3007)
+                    lateInventory.service.Buy.Add(new CItem(original.ID) { YMLData = { Slot = CItem.EItemSlot.Head } });
+            ShopService.Source = lateInventory.service;
+            using (var late = new TownServiceCatalog(lateInventory, anchor, () => identity, () => true, anchor, persistent: true))
+            {
+                late.SetVisibility(1f); Census(late); late.Tick(1f);
+                var grabbed = Item(late, 3002);
+                Check(grabbed.Ordinal == 1 && grabbed.Sample.CanGrab,
+                    "late native pool starts with a different original stock slot history");
+                var hand = new VRHand(); hand.Rig.GrabAnchor.position = new Vector3(1f, 1.3f, -2f);
+                grabbed.Sample.OnGrab(hand); grabbed.Tick(1f);
+                Transform physical = grabbed.MountRoot;
+                Vector3 held = physical.position; Quaternion rotation = physical.rotation;
+                late.AdoptStockLayout(layout);
+                Check(grabbed.Ordinal == 15 && grabbed.Page == 1
+                    && physical.parent == hand.Rig.GrabAnchor
+                    && Vector3.Distance(physical.position, held) < .0001f
+                    && Quaternion.Angle(physical.rotation, rotation) < .001f,
+                    "public author handover adopts the original cold-page slot without moving a held card");
+                grabbed.Sample.OnGrabCancelled(hand); grabbed.Tick(1f);
+                Vector3 expected = TownServiceMerchantLayout.StockPosition(15 % TownServiceMerchantDrawer.Capacity); expected.y = 0f;
+                Check(physical.parent.parent == late.Drawers[0].CardParent(15)
+                    && Vector3.Distance(physical.parent.localPosition, expected) < .0001f,
+                    "held stock returns to the author's actual original cabinet slot after handover");
+                Census(late);
+                Check(Item(late, 3002).Ordinal == 15 && Item(late, 3003).Ordinal == 1,
+                    "subsequent native census preserves adopted stock placement rather than restoring sorted local order");
+                lateInventory.service.Buy.Add(new CItem(2999) { YMLData = { Slot = CItem.EItemSlot.Head } }); Census(late);
+                Check(Item(late, 2999).Ordinal == 16,
+                    "unknown cold native item slots remain reserved while a new local unlock arrives");
+                lateInventory.service.Buy.Add(new CItem(3007) { YMLData = { Slot = CItem.EItemSlot.Head } }); Census(late);
+                Check(Item(late, 3007).Ordinal == Item(owner, 3007).Ordinal,
+                    "a delayed native stock identity enters the exact slot already authored by its peer");
+                UnityEngine.Object.DestroyImmediate(hand.Rig.GrabAnchor.gameObject);
+            }
+            UnityEngine.Object.DestroyImmediate(lateInventory.gameObject);
+            ShopService.Source = ownerService;
+            bool rejected = false;
+            try { TownCatalogLayout.Write(new[] { new TownCatalogSlot(1, 0), new TownCatalogSlot(2, 0) }); }
+            catch (System.IO.InvalidDataException) { rejected = true; }
+            Check(rejected, "public stock layout rejects two original identities in the same physical slot");
+            var copied = new TownRackState { Layout = layout }.Copy();
+            Check(TownCatalogLayout.Same(copied.Layout, layout) && !ReferenceEquals(copied.Layout, layout),
+                "cabinet authority clock copy preserves an independent complete original stock layout");
+        }
+        inventory.service = prior; ShopService.Source = prior;
+    }
     private static void CardReach(TownServiceCatalog catalog)
     {
         var entries=new List<TownServiceCatalog.Entry>();
@@ -544,8 +617,20 @@ public static class InteractionProgram
         crank.Follow(RackState(crank,lateEpoch,TownRackState.TurnDuration));
         OfferedStock(catalog);
         stable.Tick(1f);var holder=new VRHand();stable.Sample.OnGrab(holder);stable.Tick(1f);
-        Check(!crank.RequestTurn(),"held merchandise prevents rack motion");
-        Check(stable.Exposed&&crank.Page==0,"held card cannot be swapped into a hidden tray");
+        for (int n = 0; n < 120; n++) stable.Tick(1f);
+        Vector3 heldPosition = stable.MountRoot.position; Quaternion heldRotation = stable.MountRoot.rotation;
+        Check(crank.RequestTurn(),"held stock does not reserve the public category buttons or crank");
+        Set(crank,"_clock",TownRackState.TurnDuration);catalog.Tick(1f);
+        Check(stable.Exposed && stable.Sample.IsHeld && stable.MountRoot.parent == holder.Rig.GrabAnchor
+            && Vector3.Distance(stable.MountRoot.position, heldPosition) < .0001f
+            && Quaternion.Angle(stable.MountRoot.rotation, heldRotation) < .001f,
+            "public page turn leaves the original inspection card in its holder's hand");
+        catalog.SetObserver(true);catalog.Tick(1f);catalog.SetObserver(true);
+        Check(stable.CardUI.GetComponentInParent<Canvas>().enabled
+            && !stable.BodyRoot!.GetComponent<Renderer>().forceRenderingOff,
+            "public author switch preserves the detached visitor's original face canvas and physical body");
+        Check(crank.RequestTurn(-1),"a visitor can restore the public page while another hand retains stock");
+        Set(crank,"_clock",TownRackState.TurnDuration);catalog.Tick(1f);catalog.SetObserver(false);
         stable.Sample.OnGrabCancelled(holder);UnityEngine.Object.DestroyImmediate(holder.Rig.GrabAnchor.gameObject);
         Turn(catalog,crank);Check(crank.Page==1,"one completed physical turn advances exactly one tray");
         for(int n=1;n<crank.PageCount;n++)Turn(catalog,crank);
@@ -641,6 +726,9 @@ public static class InteractionProgram
             }
         }
         Check(ObjectPool.Alive==0&&VRInteractables.Registered.Count==0,"maximum native inventory releases every card and return");
+        PublicLayoutOwnership(inventory, anchor.transform);
+        Check(ObjectPool.Alive == 0 && VRInteractables.Registered.Count == 0,
+            "public layout and handover release every original native card and input collider");
         Check(GloomhavenVR.Cards.CardArtWatch.Captures>=161,"every merchant stock face captures the proven zero-aliased-frame art watcher");
         Check(GloomhavenVR.Cards.CardArtWatch.Polls>=161,"merchant stock polls async art arrival before its first visible frame");
         Check(GloomhavenVR.Cards.CardArtWatch.Clears>=161,"merchant stock releases every art watcher at teardown");

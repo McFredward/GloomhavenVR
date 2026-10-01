@@ -147,6 +147,8 @@ public static partial class MirrorProgram
         Receive(2, packets); TownServiceMirror.TickRemote(_ => observer);
         Check(Remote(-2, 10) != null && Remote(-2, 10)!.Structure == initial.Structure,
             "first peer category press rebuilds the same public rack instead of an empty cabinet");
+        Check(GloomhavenVR.WorldUI.TownServiceDepthOrder.Bound.Contains(Remote(-2, 10)!.Root.parent),
+            "remote module host joins the converted-window distance ladder during construction");
         for (float until = Time.unscaledTime + TownRackState.TurnDuration + .05f; Time.unscaledTime < until;)
         { TownServiceMirror.TickRemote(_ => observer); yield return null; }
         Check(TownServiceMirror.PublicRack?.Elapsed == TownRackState.TurnDuration

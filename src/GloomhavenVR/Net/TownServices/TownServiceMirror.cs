@@ -1154,9 +1154,11 @@ internal static partial class TownServiceMirror
             foreach (Canvas originalCanvas in clone.GetComponentsInChildren<Canvas>(true))
                 originalCanvas.worldCamera = Rig.VRRigDriver.HeadCamera != null ? Rig.VRRigDriver.HeadCamera : Camera.main;
             var binding = new TownServiceBinding(clone.transform);
-            return new RemoteModule { Host = host, AddedCanvas = canvas, Binding = binding,
+            var module = new RemoteModule { Host = host, AddedCanvas = canvas, Binding = binding,
                 Motion = new TownServiceMotion(host.transform, binding.Nodes, frame.TemplateAddress), Session = frame.Session,
                 Template = frame.Template, Address = frame.TemplateAddress };
+            TownServiceDepthOrder.Bind(host.transform);
+            return module;
         }
         catch
         {
