@@ -1,5 +1,6 @@
 using System;
 using GloomhavenVR.Core;
+using GloomhavenVR.Net.TownServices;
 using UnityEngine;
 
 namespace GloomhavenVR.WorldUI;
@@ -13,6 +14,8 @@ internal sealed class TownServiceCabinetAudio : IDisposable
     private AudioClip? _clip;
     private uint _epoch;
     private float _resolveAt;
+    private float _startedAt;
+    private bool _pending;
     private bool _missingReported;
 
     internal TownServiceCabinetAudio(Transform anchor) => _anchor = anchor;
@@ -21,14 +24,25 @@ internal sealed class TownServiceCabinetAudio : IDisposable
     {
         if (epoch == 0 || epoch == _epoch) return;
         _epoch = epoch;
-        // A late observer adopts the visible mechanism phase without replaying a
-        // start that happened before it arrived. Ordinary transport cadence lands
-        // comfortably inside this small opening window.
-        if (elapsed > .2f || !WorldUIConfig.ImmersiveTownSoundEffects.Value) return;
+        _source?.Stop();
+        _startedAt = Time.unscaledTime - Mathf.Max(0f, elapsed);
+        _pending = WorldUIConfig.ImmersiveTownSoundEffects.Value;
+        if (_pending) StartPending();
+    }
+
+    private void StartPending()
+    {
         float now = Time.unscaledTime;
+        float elapsed = Mathf.Max(0f, now - _startedAt);
+        // An observer joins the sound at the same mechanism phase, including a
+        // delayed first sample. Never replay the attack of an already running clip.
+        // Likewise, an async audio load may finish during this one short event;
+        // preserve its epoch and seek the current phase instead of dropping it.
+        if (elapsed > (_clip != null ? _clip.length : TownRackState.TurnDuration + 1f))
+        { _pending = false; return; }
         if (_clip == null && now >= _resolveAt)
         {
-            _resolveAt = now + 5f;
+            _resolveAt = now + .1f;
             _clip = TownServiceAssets.Audio("cabinet-cycle");
             if (_clip != null && _clip.loadState == AudioDataLoadState.Unloaded) _clip.LoadAudioData();
         }
@@ -41,6 +55,7 @@ internal sealed class TownServiceCabinetAudio : IDisposable
             }
             return;
         }
+        if (elapsed >= _clip.length) { _pending = false; return; }
         AudioSource source = _source ??= Create();
         GlobalData? global = SaveData.Instance?.Global;
         float volume = global == null ? 1f
@@ -48,11 +63,16 @@ internal sealed class TownServiceCabinetAudio : IDisposable
         source.Stop(); source.clip = _clip;
         source.time = Mathf.Clamp(elapsed, 0f, Mathf.Max(0f, _clip.length - .001f));
         source.volume = volume * .55f;
-        source.Play();
+        source.Play(); _pending = false;
     }
 
     internal void Tick()
     {
+        if (_pending)
+        {
+            if (!WorldUIConfig.ImmersiveTownSoundEffects.Value) _pending = false;
+            else StartPending();
+        }
         if (_source == null) return;
         // The foley source is deliberately outside the captured cabinet hierarchy.
         // Keep its acoustic origin at the mechanism when the shared map frame moves.
@@ -95,6 +115,6 @@ internal sealed class TownServiceCabinetAudio : IDisposable
     public void Dispose()
     {
         if (_source != null) UnityEngine.Object.Destroy(_source.gameObject);
-        _source = null; _clip = null;
+        _source = null; _clip = null; _pending = false;
     }
 }

@@ -104,6 +104,7 @@ def mutations():
         ("early-tray-swap", "TownServiceMerchantDrawer.cs", "progress >= .5f", "progress >= .01f", "card identity is retained while outgoing front is visible"),
         ("silent-observer-cabinet", "TownServiceMerchantDrawer.cs", "_audio.Begin(state.Turn, state.Elapsed);", "", "observer cabinet state triggers the same spatial mechanism sound"),
         ("foley-corrupts-template", "TownServiceCabinetAudio.cs", "host.transform.SetParent(_anchor.parent, false);", "host.transform.SetParent(_anchor, false);", "cabinet sound never appends an unregistered node to the shared physical rack"),
+        ("late-cabinet-silence", "TownServiceCabinetAudio.cs", "_pending = WorldUIConfig.ImmersiveTownSoundEffects.Value;", "_pending = elapsed <= .2f && WorldUIConfig.ImmersiveTownSoundEffects.Value;", "late observer seeks the current cabinet phase without replaying its start"),
         ("automatic-confirm", "TownServiceMerchantTransaction.cs", "// The player makes the final purchase/sale decision", "ExecuteEvents.Execute(confirmation.confirmButton.gameObject, pointer, ExecuteEvents.pointerClickHandler);\n        // The player makes the final purchase/sale decision", "offering opens confirmation without spending"),
     ]
 

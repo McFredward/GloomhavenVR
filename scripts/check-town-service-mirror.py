@@ -66,6 +66,7 @@ def sources(root):
     hold = (base / "Cards/ItemCardHold.cs").read_text()
     bound["TransferCapability.cs"] = hold[:hold.index("\n/// <summary>", hold.index("internal interface IItemCardHold"))].replace("using GloomhavenVR.Rig;\n", "")
     templates = (base / "WorldUI/TownServices/NativeTemplates.cs").read_text()
+    bound["NativeTemplatePaths.cs"] = "using System;\nusing UnityEngine;\nnamespace GloomhavenVR.WorldUI;\ninternal static partial class NativeTemplates {\n" + method(templates, "internal static string Append(string path, Transform child)") + "\n}\n"
     definitions = templates[templates.index("    internal sealed class Part"):templates.index("    private static readonly Dictionary<string, Entry>")]
     template_methods = ("private static void EnsureNativeProp(string key)", "private static void Freeze(string key, Entry entry)",
         "private static void Prune(Transform source, Transform copy)", "private static void Partition(Transform root, string path, List<Part> parts)",
@@ -194,6 +195,8 @@ def main():
             variants += [
                 ("foley-mutates-rack", "TownServiceCabinetAudio.cs", "host.transform.SetParent(_anchor.parent, false);", "host.transform.SetParent(_anchor, false);", "first category sound does not change original rack topology"),
                 ("pending-rack-input-lock", "TownServiceMirror.cs", "if (clock.Waiting && clock.Latest != null)", "if (false && clock.Latest != null)", "missing observer artwork never permanently disables the local public input proxy"),
+                ("donation-received-clock", "TownServiceMirror.cs", "? Time.unscaledTime - frame.TempleDonationCommitAge", "? Time.unscaledTime", "remote donation keeps its owner's commit age instead of starting a new blessing on receipt"),
+                ("async-cabinet-epoch-spent", "TownServiceCabinetAudio.cs", "else StartPending();", "else _pending = false;", "late-loaded cabinet clip joins its pending owner epoch at the current sound phase"),
                 ("decision-step", "TownServiceMotion.cs", "? Mathf.Clamp(sampleInterval * 1.1f, 1f / 90f, .25f)",
                  "? Mathf.Clamp(sampleInterval, 1f / 90f, .1f)", "palm decision rotates continuously between 5 Hz owner samples"),
                 ("offering-priority", "PublisherTick.cs", "chip.Holder != null || chip.TownOffering", "chip.Holder != null", "floating owned offering has animation publication priority"),

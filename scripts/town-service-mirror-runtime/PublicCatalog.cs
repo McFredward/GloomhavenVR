@@ -84,6 +84,34 @@ public static partial class MirrorProgram
         RollerLateJoin();
         IEnumerator secondary = SecondaryMerchantInspection();
         while (secondary.MoveNext()) yield return secondary.Current;
+        IEnumerator donation = TempleCommitClock();
+        while (donation.MoveNext()) yield return donation.Current;
+    }
+
+    private static IEnumerator TempleCommitClock()
+    {
+        TownServiceMirror.Shutdown(); Baselines.Clear(); NetPlayerActors.Peer = 1;
+        Transform owner = Go("temple commit owner").transform;
+        TownServiceMirror.BeginSession(2, 906, owner, owner);
+        TownServiceMirror.SetLocalTempleDonationAvailable(true);
+        TownServiceMirror.MarkLocalTempleDonationCommitted();
+        for (float until = Time.unscaledTime + .2f; Time.unscaledTime < until;) yield return null;
+        var packets = Capture();
+        TownServiceFrame? manifest = null;
+        foreach (byte[] packet in packets)
+            if (TownServiceCodec.TryRead(packet, packet.Length, out var frame)
+                && frame!.Module == TownServiceFrame.ManifestModule) manifest = frame;
+        Check(manifest != null && manifest.HasTempleDonationCommitAge && manifest.TempleDonationCommitAge >= .18f,
+            "native committed donation publishes its original effect age in the manifest");
+        NetPlayerActors.Peer = 3; Receive(2, packets);
+        var states = new List<TownTempleDonationState>(); TownServiceMirror.CollectTempleDonationStates(states);
+        TownTempleDonationState remote = states.Single(state => state.Peer == 2);
+        Check(remote.HasCommitAge && remote.Revision == 1 && remote.TransitionAge >= .18f,
+            "remote donation keeps its owner's commit age instead of starting a new blessing on receipt");
+        Receive(2, packets); TownServiceMirror.CollectTempleDonationStates(states);
+        Check(states.Single(state => state.Peer == 2).TransitionAge >= remote.TransitionAge,
+            "repeated donation manifests never rewind the shared blessing clock");
+        TownServiceMirror.Shutdown(); NetPlayerActors.Peer = 1;
     }
 
     private static IEnumerator CabinetFirstPress()
@@ -124,6 +152,17 @@ public static partial class MirrorProgram
         Check(TownServiceMirror.PublicRack?.Elapsed == TownRackState.TurnDuration
             && TownServiceMirror.PublicRack?.Page == 256,
             "missing observer artwork never permanently disables the local public input proxy");
+        Transform warmRack = Go("late-loaded cabinet sound", owner).transform;
+        var warmAudio = new GloomhavenVR.WorldUI.TownServiceCabinetAudio(warmRack);
+        GloomhavenVR.WorldUI.TownServiceAssets.Cabinet = null;
+        warmAudio.Begin(2, .04f);
+        for (float until = Time.unscaledTime + .12f; Time.unscaledTime < until;) yield return null;
+        GloomhavenVR.WorldUI.TownServiceAssets.Cabinet = clip; warmAudio.Tick();
+        AudioSource warmSource = (AudioSource)typeof(GloomhavenVR.WorldUI.TownServiceCabinetAudio)
+            .GetField("_source", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(warmAudio)!;
+        Check(warmSource != null && warmSource.isPlaying && warmSource.time >= .15f,
+            "late-loaded cabinet clip joins its pending owner epoch at the current sound phase");
+        warmAudio.Dispose();
         audio.Dispose(); GloomhavenVR.WorldUI.TownServiceAssets.Cabinet = null;
         TownServiceMirror.Shutdown(); NetPlayerActors.Peer = 1;
         yield return null;

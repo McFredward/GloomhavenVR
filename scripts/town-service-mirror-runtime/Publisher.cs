@@ -116,7 +116,7 @@ namespace GloomhavenVR.WorldUI
     internal sealed class TownServiceTray { internal Transform Root = null!; }
     internal sealed class UITooltip : MonoBehaviour { internal Transform? m_AnchorToTarget; }
     internal static class TownServiceNativeAssets { internal static void PrepareRoot(Transform source) { } }
-    internal static class NativeTemplates
+    internal static partial class NativeTemplates
     {
         internal sealed class Part { internal string Path = ""; }
         private static readonly Part[] OnePart = { new() };

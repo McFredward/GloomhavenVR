@@ -537,7 +537,10 @@ public static class InteractionProgram
         WorldUIConfig.ImmersiveTownSoundEffects.Value=true;
         uint lateEpoch=observerEpoch+1;
         crank.Follow(RackState(crank,lateEpoch,.3f));
-        Check(!observerAudio.isPlaying,"late observer does not replay an old cabinet start");
+        Check(observerAudio.isPlaying&&observerAudio.time>=.299f,
+            "late observer seeks the current cabinet phase without replaying its start");
+        crank.Follow(RackState(crank,lateEpoch+1,TownServiceAssets.Cabinet!.length+.01f));
+        Check(!observerAudio.isPlaying,"completed cabinet events never replay on a late observer");
         crank.Follow(RackState(crank,lateEpoch,TownRackState.TurnDuration));
         OfferedStock(catalog);
         stable.Tick(1f);var holder=new VRHand();stable.Sample.OnGrab(holder);stable.Tick(1f);
