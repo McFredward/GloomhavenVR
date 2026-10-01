@@ -60,6 +60,48 @@ did not catch Build 600's near-empty eligible population. Restore/full detail,
 foreign rendering masks, late generation, room reveal, and actor/door/prop/collider
 exclusions need explicit cases and meaningful negative controls.
 
+## Source and engine validation
+
+The focused portable check compiles the production classifier and helper bodies,
+including the original figure guard, against an explicit component graph: **38
+assertions and six negative controls**. Hosted CI can run this fixture without
+the game engine; it does not establish pixels or Unity object lifetime.
+
+The separate local suite runs the **complete production classifier and Driver in
+Unity 2021.3.5**, with only native game/config/transport boundaries inert. It passes
+**50 assertions and eight negative controls**, including 1,200 late generated
+mesh renderers, the loading-complete edge, original/foreign mask restoration,
+scene-root scenario membership, shared collider composites and late native
+material assignment. Negative controls compile successfully and must fail at
+their intended runtime assertion; compilation errors cannot count as proof.
+Neither fixture measures headset FPS or simulates every authored game prefab.
+
+The final integrated local gate passed once on the complete Build 601 source:
+**14 source gates, 87 local suites, 286,621 wire/golden assertions and all three
+bundle checks**. A separate strict Release build reports zero warnings/errors.
+The compiled comparison against `7198477bf` has the expected 17 changed types and
+one added material-readiness patch; network changes outside the build declaration
+are inlined ModBuild values only. No config key, patch target or log marker was
+removed. Main-checkout evidence: `.planning/debug/test-runs/20261001-203447-d8d52493/`
+(source), `.planning/debug/test-runs/20261001-203503-c1180bb0/` (87 local suites),
+and `.planning/debug/scenario-scenery-runtime/run-21uyzqww/` (actual Unity).
+
+The native Addressables completion postfix only queues the assigned mesh. It
+does not load, rewrite or clone materials. Discovery uses deduplicated tile and
+leaf queues, a 96-node steady-state cap (2,048 during preparation), and a 4 ms
+slice deadline checked between groups of four nodes. Shared collider facts live
+only for that synchronous slice. An individual Unity subtree query can exceed
+the deadline; this is not a strict real-time guarantee. Ancestry watches and
+density retunes are separately capped at 64 and 96 records per frame.
+
+The budget masks renderer submission, retaining native objects and geometry.
+It does not claim to remove renderer components or eliminate native generation
+work. A separate read-only asset audit found that the game's Standalone Fastest
+preset still references the high Apparance generation profile. The prospective
+reversible generation lever, its floor/reveal risks and exact evidence are in
+[STEAM-FRAME-NATIVE-DETAIL-601.md](STEAM-FRAME-NATIVE-DETAIL-601.md); that profile is
+not modified by this checkpoint.
+
 ## Hardware acceptance
 
 After loading the same large scenario at 3408 pixels/eye, set grass to 100 and

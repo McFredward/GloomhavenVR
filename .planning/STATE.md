@@ -16,6 +16,22 @@ headset appearance and FPS gain are hardware-open. See
 [STEAM-FRAME-SCENERY-601.md](STEAM-FRAME-SCENERY-601.md) and
 [STEAM-FRAME-THIRTEENTH-HARDWARE.md](STEAM-FRAME-THIRTEENTH-HARDWARE.md).
 
+Build 601 final integrated validation passed: **14/14 source gates, 87/87 local
+suites, 286,621 wire/golden assertions, all three bundle-format checks**, and a
+strict Release build with zero warnings/errors. The complete local gate ran once
+after runtime integration. Production-classifier coverage includes 38 portable
+assertions/six negative controls and 50 actual Unity 2021.3.5 assertions/eight
+negative controls, including 1,200 late-generated meshes. The compiled comparison
+against `7198477bf` contains the intended 17 changed types and one added native
+material-readiness notification patch; the extra network types change only through
+the inlined ModBuild constant. No config key, patch target or log marker was
+removed. Native material completion is observed without changing materials.
+
+A separate read-only asset finding shows that the supplied Standalone Fastest
+profile references high Apparance generation. No native generation setting is
+changed in this checkpoint; the further reversible geometry lever and reveal
+risks are recorded in [STEAM-FRAME-NATIVE-DETAIL-601.md](STEAM-FRAME-NATIVE-DETAIL-601.md).
+
 The preceding Build 600 integration and validation:
 The maintainer explicitly authorized visual compromises for large Frame scenarios,
 then clarified that all Frame optimizations must be settings available on PC too;

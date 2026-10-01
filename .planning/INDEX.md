@@ -13,6 +13,7 @@ engineering evidence, historical decisions and current status; it is not the pla
 | [STATE.md](STATE.md) | Current build, validation and outstanding hardware checks |
 | [STEAM-FRAME-SCENERY-601.md](STEAM-FRAME-SCENERY-601.md) | Essential decoration profile, corrected discovery, production-classifier validation and reversible settings |
 | [STEAM-FRAME-THIRTEENTH-HARDWARE.md](STEAM-FRAME-THIRTEENTH-HARDWARE.md) | Build 600 hardware failure: 27 masked renderers, loaded foliage population and invisible-collider protections |
+| [STEAM-FRAME-NATIVE-DETAIL-601.md](STEAM-FRAME-NATIVE-DETAIL-601.md) | Read-only asset finding: Fastest still selects high procedural generation; audited options for the next configurable geometry lever |
 | [STEAM-FRAME-SCENERY-600.md](STEAM-FRAME-SCENERY-600.md) | Authorized scenery trade, cross-platform settings, exact work removal and hardware comparison |
 | [STEAM-FRAME-TWELFTH-HARDWARE.md](STEAM-FRAME-TWELFTH-HARDWARE.md) | Build 599 large-scenario cost, cheap sampled callbacks, unavailable render counters and next attribution targets |
 | [STEAM-FRAME-LARGE-SCENE-PERF.md](STEAM-FRAME-LARGE-SCENE-PERF.md) | Corrected Build 598 direct-scenario evidence, bottleneck plan and controlled A/B criteria |
