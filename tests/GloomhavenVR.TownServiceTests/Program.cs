@@ -12,6 +12,8 @@ internal static class Program
     {
         TownVoiceScheduleCases.Run();
         TownGrantCases.Run();
+        DonationCommitClock();
+        CatalogAndStockLanes();
         TownServiceFrame original = Make(256);
         byte[] bytes = TownServiceCodec.Write(original);
         Check(Convert.ToHexString(bytes, 0, 6) == "315256470313", "independent canonical GVR1 little-endian header");
@@ -68,6 +70,76 @@ internal static class Program
     private static void RejectWrite(TownServiceFrame frame, string message)
     { try { TownServiceCodec.Write(frame); } catch (InvalidDataException) { Check(true, message); return; } Check(false, message); }
     private static float[] Pose() => new[] { 0f, 0f, 0f, 0f, 0f, 0f, 1f, 1f, 1f, 1f };
+    private static void DonationCommitClock()
+    {
+        var frame = new TownServiceFrame { Service = 2, Session = 7, Sequence = 9,
+            Module = TownServiceFrame.ManifestModule, Visible = true, Pose = Pose(),
+            TempleDonationKnown = true, TempleDonationRevision = 1,
+            HasTempleDonationCommitAge = true, TempleDonationCommitAge = .5f };
+        byte[] bytes = TownServiceCodec.Write(frame);
+        Check(Convert.ToHexString(bytes, bytes.Length - 7, 7) == "5D05010000003F",
+            "donation clock has an independent additive little-endian vector");
+        Check(TownServiceCodec.TryRead(bytes, bytes.Length, out TownServiceFrame? read)
+            && read!.HasTempleDonationCommitAge && read.TempleDonationCommitAge == .5f,
+            "late observers retain the owner's committed blessing age");
+        Check(TownServiceDelta.Copy(frame).TempleDonationCommitAge == .5f,
+            "snapshot copying retains explicit donation timing");
+        byte[] malformed = new byte[bytes.Length + 7]; Array.Copy(bytes, malformed, bytes.Length);
+        Array.Copy(bytes, bytes.Length - 7, malformed, bytes.Length, 7);
+        Check(!TownServiceCodec.TryRead(malformed, malformed.Length, out _), "duplicate donation clocks are rejected");
+        foreach (float invalid in new[] { -1f, 31f, float.NaN, float.PositiveInfinity })
+        { frame.TempleDonationCommitAge = invalid; RejectWrite(frame, "invalid source donation age rejected"); }
+        frame.TempleDonationCommitAge = .5f; frame.TempleDonationKnown = false;
+        RejectWrite(frame, "clock alone cannot invent a donation");
+        frame.TempleDonationKnown = true; frame.TempleDonationCommitAge = 0f; frame.HasTempleDonationCommitAge = false;
+        bytes = TownServiceCodec.Write(frame);
+        Check(TownServiceCodec.TryRead(bytes, bytes.Length, out read) && !read!.HasTempleDonationCommitAge,
+            "legacy manifest remains a valid age-unknown baseline");
+    }
+    private static void CatalogAndStockLanes()
+    {
+        TownServiceFrame frame = Make(1);
+        frame.PublicCatalog = true; frame.TemplateAddress = "merchant.rack|original";
+        frame.Rack = new TownRackState { Cassette = true, Crank = 2,
+            Layout = new[] { new TownCatalogSlot(7, 12), new TownCatalogSlot(19, 3073) } };
+        byte[] bytes = TownServiceCodec.Write(frame);
+        Check(Convert.ToHexString(bytes, bytes.Length - 17, 17) == "5E0F010200070000000C0013000000010C",
+            "complete placement has an independent little-endian additive vector");
+        Check(TownServiceCodec.TryRead(bytes, bytes.Length, out TownServiceFrame? read)
+            && TownCatalogLayout.Same(frame.Rack.Layout, read!.Rack!.Layout),
+            "cold-page cabinet placement survives transport exactly");
+        Check(TownCatalogLayout.Same(frame.Rack.Layout, TownServiceDelta.Copy(frame).Rack!.Layout),
+            "copied cabinet clocks preserve exact future slot layout");
+        frame.Rack.Layout = new TownCatalogSlot[TownCatalogLayout.MaxLayout];
+        for (int i = 0; i < frame.Rack.Layout.Length; i++) frame.Rack.Layout[i] = new TownCatalogSlot(i + 1, (ushort)i);
+        bytes = TownServiceCodec.Write(frame);
+        Check(TownServiceCodec.TryRead(bytes, bytes.Length, out read)
+            && read!.Rack!.Layout!.Length == TownCatalogLayout.MaxLayout,
+            "late-game placement reassembles across multiple TLV records");
+        frame.Rack.Layout = Array.Empty<TownCatalogSlot>(); bytes = TownServiceCodec.Write(frame);
+        Check(TownServiceCodec.TryRead(bytes, bytes.Length, out read) && read!.Rack!.Layout!.Length == 0,
+            "known empty placement remains distinct from an unknown legacy layout");
+        frame.PublicCatalog = false; RejectWrite(frame, "private cabinet cannot inject shared placements");
+        frame = Make(1); frame.VisitorStock = true;
+        bytes = TownServiceCodec.Write(frame);
+        Check(Convert.ToHexString(bytes, bytes.Length - 3, 3) == "5F0101",
+            "visitor-held stock has an independent additive lane vector");
+        Check(TownServiceCodec.TryRead(bytes, bytes.Length, out read) && read!.VisitorStock,
+            "third stock lane remains separate from private interaction and public cabinet");
+        TownServiceFrame later = TownServiceDelta.Copy(frame); later.Sequence = 2;
+        Check(TownServiceDelta.Expand(frame, TownServiceDelta.Create(frame, later))!.VisitorStock,
+            "held-stock cumulative deltas retain their independent lane");
+        later.VisitorStock = false;
+        Check(!TownServiceDelta.Compatible(frame, later), "one lane's baseline cannot expand another lane's delta");
+        var duplicate = new byte[bytes.Length + 3]; Array.Copy(bytes, duplicate, bytes.Length);
+        Array.Copy(bytes, bytes.Length - 3, duplicate, bytes.Length, 3);
+        Check(!TownServiceCodec.TryRead(duplicate, duplicate.Length, out _), "duplicate visitor-stock markers rejected");
+        frame.PublicCatalog = true; RejectWrite(frame, "stock presentation cannot impersonate public authorship");
+        frame.PublicCatalog = false; frame.TransactionActive = true;
+        RejectWrite(frame, "stock presentation cannot claim an NPC transaction");
+        frame.TransactionActive = false; frame.Service = 2;
+        RejectWrite(frame, "merchant stock cannot enter temple gameplay or presentation scope");
+    }
     private static TownServiceFrame Make(int count)
     {
         var frame = new TownServiceFrame { Service = 1, Session = 4, Sequence = 1, Module = 62000, Template = 3,

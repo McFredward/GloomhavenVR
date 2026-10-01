@@ -1213,6 +1213,39 @@
         "ci"
       ],
       "weight": 1
+    },
+    {
+      "id": "town-public-item-fronts",
+      "command": [
+        "python3",
+        "scripts/check-town-public-item-fronts.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 15
+    },
+    {
+      "id": "town-visitor-motion",
+      "command": [
+        "python3",
+        "scripts/check-town-visitor-motion.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 12
+    },
+    {
+      "id": "town-depth-order",
+      "command": [
+        "python3",
+        "scripts/check-town-depth-order.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 12
     }
   ]
 }

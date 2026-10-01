@@ -14,6 +14,7 @@ internal static class TownServiceTransportVectors
         PrivateWorkspaceCloth(t);
         SharedTempleAvailability(t);
         PrivateTransactionReservations(t);
+        AdditiveReviewRecords(t);
         t.Case("Town service original widgets use the real wire header and loss-safe module lanes");
         var frame = Frame(62000, 1);
         byte[] raw = TownServiceCodec.Write(frame);
@@ -67,6 +68,43 @@ internal static class TownServiceTransportVectors
         ColdService(t, 8, false); ColdService(t, 24, false); ColdService(t, 24, true); ColdService(t, 64, true);
         LateGameCatalog(t, false, 191 * 3 + 64); LateGameCatalog(t, false); LateGameCatalog(t, true);
         BundleBounds(t); UrgentBundleDependency(t); DelayedFragmentCensus(t);
+    }
+    private static void AdditiveReviewRecords(Harness t)
+    {
+        t.Case("NPC review extensions retain independent timing, complete layout and held-stock lanes");
+        var donation = Frame(TownServiceFrame.ManifestModule, 9, 0);
+        donation.Service = 2; donation.Template = 0; donation.Structure = 0;
+        donation.TempleDonationKnown = true; donation.TempleDonationRevision = 1;
+        byte[] legacy = TownServiceCodec.Write(donation);
+        donation.HasTempleDonationCommitAge = true; donation.TempleDonationCommitAge = .5f;
+        byte[] timed = TownServiceCodec.Write(donation);
+        t.Wire(legacy, timed, legacy.Length, "commit timing leaves the prior manifest prefix unchanged");
+        t.Wire(Hex.Bytes("5D 05 01 00 00 00 3F"), Slice(timed, legacy.Length, 7), 7,
+            "independent93 commit-age little-endian vector");
+        t.True(TownServiceCodec.TryRead(timed, timed.Length, out var committed)
+            && committed!.TempleDonationCommitAge == .5f, "receiver retains prior donation age rather than restarting a blessing");
+        var rack = Frame(4, 2, 1); rack.PublicCatalog = true; rack.TemplateAddress = "merchant.rack|native";
+        rack.Rack = new TownRackState { Cassette = true, Crank = 5 };
+        legacy = TownServiceCodec.Write(rack);
+        rack.Rack.Layout = new[] { new TownCatalogSlot(7, 12), new TownCatalogSlot(19, 3073) };
+        byte[] mapped = TownServiceCodec.Write(rack);
+        t.Wire(legacy, mapped, legacy.Length, "full placement is additive after the prior rack and roller bytes");
+        t.Wire(Hex.Bytes("5E 0F 01 02 00 07 00 00 00 0C 00 13 00 00 00 01 0C"),
+            Slice(mapped, legacy.Length, 17), 17, "independent94 full placement vector includes cold pages");
+        t.True(TownServiceCodec.TryRead(mapped, mapped.Length, out var layout)
+            && TownCatalogLayout.Same(rack.Rack.Layout, layout!.Rack!.Layout), "native ordering differences cannot relocate the public stock");
+        var stock = Frame(4, 2, 1); legacy = TownServiceCodec.Write(stock); stock.VisitorStock = true;
+        byte[] held = TownServiceCodec.Write(stock);
+        t.Wire(legacy, held, legacy.Length, "stock lane retains all original private widget bytes");
+        t.Wire(Hex.Bytes("5F 01 01"), Slice(held, legacy.Length, 3), 3, "independent95 third cosmetic-lane vector");
+        t.True(TownServiceCodec.TryRead(held, held.Length, out var observed) && observed!.VisitorStock,
+            "held sample remains distinguishable from public pages and an NPC interaction");
+        foreach (byte[] badTail in new[] { Hex.Bytes("5F 01 00"), Hex.Bytes("5F 02 01 00"), Hex.Bytes("5F 00") })
+        {
+            var bad = new byte[legacy.Length + badTail.Length]; Array.Copy(legacy, bad, legacy.Length);
+            Array.Copy(badTail, 0, bad, legacy.Length, badTail.Length);
+            t.True(!TownServiceCodec.TryRead(bad, bad.Length, out _), "invalid third lane marker is inert");
+        }
     }
     private static void PrivateTransactionReservations(Harness t)
     {
