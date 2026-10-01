@@ -4763,7 +4763,7 @@ internal static partial class WallSegmentFade
                 // has paid for). The actor veto inside IsWallGeneratedDressing is what keeps
                 // this narrower than the guard, never wider: a real figure fails it twice over.
                 if (p.Renderer != null && IsFigureOrActorRenderer(p.Renderer)
-                    && !IsWallGeneratedDressing(p.Renderer))
+                    && !IsWallGeneratedDressingInCommit(p.Renderer))
                 {
                     _figurePurgeScratch.Add(p);
                 }
@@ -5703,7 +5703,10 @@ internal static partial class WallSegmentFade
               .Append($"{WorstCommitPhaseName} at {_cycleWorstCommitPhaseMillis:F2}ms; ")
               .Append($"{CommitPhaseCount} of {CommitPhaseCount} phase(s) still run ATOMICALLY; ")
               .Append($"the standing-prop scope was opened by the commit itself on ")
-              .Append($"{_cycleScopeSelfOpened} cycle(s) (>0 means the prepare stage did not run).");
+              .Append($"{_cycleScopeSelfOpened} cycle(s) (>0 means the prepare stage did not run). ")
+              .Append($"WALL-PROVENANCE MEMO: {_wallGeneratedDressingMemoHits} repeated ")
+              .Append($"query/queries reused, {_wallGeneratedDressingMemoMisses} first queries ")
+              .Append("answered during synchronous commits in this window.");
             AppendSkipClause(sb);
             AppendPrepareClause(sb);
             AppendCommitPhaseBreakdown(sb);
@@ -5731,6 +5734,8 @@ internal static partial class WallSegmentFade
             _cyclePrepRefusedBoard = 0;
             _cyclePrepDroppedAnchors = 0;
             _cycleScopeSelfOpened = 0;
+            _wallGeneratedDressingMemoHits = 0;
+            _wallGeneratedDressingMemoMisses = 0;
             _cycleSurveyFrames = 0;
             _cycleWorstSurveyMillis = 0f;
             _cycleSurveyTotalMillis = 0f;
@@ -5766,9 +5771,14 @@ internal static partial class WallSegmentFade
         {
             // PERF S1: one memo scope for the whole (synchronous) rescan — see
             // FigureAncestryMemo for why that cannot change a single figure verdict.
+            _wallGeneratedDressingCommitMemo.Clear();
             BeginFigureMemo();
             try { RescanCore(gen); }
-            finally { EndFigureMemo(); }
+            finally
+            {
+                EndFigureMemo();
+                _wallGeneratedDressingCommitMemo.Clear();
+            }
         }
 
         /// <summary>
@@ -7914,6 +7924,28 @@ internal static partial class WallSegmentFade
             // exactly the term this predicate exists to stop deciding on its own.
             return r.GetComponentInParent<ActorBehaviour>() == null
                 && r.GetComponentInParent<CInteractableActor>() == null;
+        }
+
+        // The restitution and mounted passes ask this same pure ancestry/actor question for
+        // one renderer several times in a single synchronous commit. Those passes neither
+        // reparent objects nor add/remove actor components, so the answer cannot change until
+        // the commit returns. Keep this separate from ClassifySlice: classification spans
+        // frames, and caching its answer into the commit would miss a late scene change.
+        private readonly Dictionary<Renderer, bool> _wallGeneratedDressingCommitMemo = new(256);
+        private int _wallGeneratedDressingMemoHits;
+        private int _wallGeneratedDressingMemoMisses;
+
+        private bool IsWallGeneratedDressingInCommit(Renderer r)
+        {
+            if (_wallGeneratedDressingCommitMemo.TryGetValue(r, out bool cached))
+            {
+                _wallGeneratedDressingMemoHits++;
+                return cached;
+            }
+            bool result = IsWallGeneratedDressing(r);
+            _wallGeneratedDressingCommitMemo[r] = result;
+            _wallGeneratedDressingMemoMisses++;
+            return result;
         }
 
         /// <summary>Any shared material on a foliage-family shader? (Cached per Shader.)</summary>

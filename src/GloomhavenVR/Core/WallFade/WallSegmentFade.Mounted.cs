@@ -2040,7 +2040,7 @@ internal static partial class WallSegmentFade
                         bool carriedWallBuilt = false;
                         if (IsFigureOrActorRenderer(p.Renderer))
                         {
-                            if (!IsWallGeneratedDressing(p.Renderer))
+                            if (!IsWallGeneratedDressingInCommit(p.Renderer))
                             {
                                 RestoreProp(p, seg, "FIGURE — never carried (round-7 ruling)");
                                 _mountedReleased.Add(p);
@@ -2274,7 +2274,7 @@ internal static partial class WallSegmentFade
                     bool wallBuilt = false;
                     if (!f.Mountable)
                     {
-                        if (!IsWallGeneratedDressing(c))
+                        if (!IsWallGeneratedDressingInCommit(c))
                         {
                             if (StructuralSkipArmed)
                             {
@@ -2783,7 +2783,7 @@ internal static partial class WallSegmentFade
                     // a figure is never a child of a wall's Generated Content.
                     if (IsFigureOrActorRenderer(c))
                     {
-                        if (!IsWallGeneratedDressing(c))
+                        if (!IsWallGeneratedDressingInCommit(c))
                         {
                             NoteMountedReject(c, anchorY, bestGap,
                                 "FIGURE (never touched — round-7 ruling, Lights-rule severity)");
@@ -2813,7 +2813,7 @@ internal static partial class WallSegmentFade
                         // protected for STANDING ON THE FLOOR. The 2026-08-19 skull keeps every
                         // renderer it has: its unit has no figure ancestry, so this arm reads
                         // false for it and the refusal below stands unchanged.
-                        if (!(IsStandingFigureOnlyProp(c) && IsWallGeneratedDressing(c)))
+                        if (!(IsStandingFigureOnlyProp(c) && IsWallGeneratedDressingInCommit(c)))
                         {
                             NoteStandingPropBlocked(c, null);
                             NoteMountedReject(c, anchorY, bestGap,
@@ -3356,7 +3356,7 @@ internal static partial class WallSegmentFade
         /// half of the conjunction failed instead of printing one sentence for both.</param>
         private bool IsWallBuiltUnitDressing(Renderer r, out bool provenance)
         {
-            provenance = IsWallGeneratedDressing(r);
+            provenance = IsWallGeneratedDressingInCommit(r);
             return provenance && StandingFloorUnitRootOf(r) != null;
         }
 
