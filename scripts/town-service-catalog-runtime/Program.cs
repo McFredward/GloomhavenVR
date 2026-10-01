@@ -49,7 +49,7 @@ public static class InteractionProgram
     {
         int previous=crank.Page;
         Check(crank.RequestTurn(),"unheld stocked rack accepts one mechanical turn");
-        var audio=crank.HousingRoot.Find("Town.MerchantCabinet.Foley").GetComponent<AudioSource>();
+        var audio=crank.HousingRoot.parent.Find("Town.MerchantCabinet.Foley").GetComponent<AudioSource>();
         Check(audio.isPlaying&&audio.clip==TownServiceAssets.Cabinet,"local cabinet turn starts one spatial mechanism sound");
         Check(audio.spatialBlend==1f&&audio.loop==false&&audio.rolloffMode==AudioRolloffMode.Linear,
             "cabinet mechanism remains a bounded spatial one-shot");
@@ -521,8 +521,12 @@ public static class InteractionProgram
         Check(crank.HousingRoot.Find("Town.MerchantCabinet.Foley")==null,"disabled cabinet effects do not create a playback source");
         WorldUIConfig.ImmersiveTownSoundEffects.Value=true;
         uint observerEpoch=mutedEpoch+1;
+        int beforeSoundNodes=crank.HousingRoot.GetComponentsInChildren<Transform>(true).Length;
         crank.Follow(RackState(crank,observerEpoch,.05f));
-        var observerAudio=crank.HousingRoot.Find("Town.MerchantCabinet.Foley")?.GetComponent<AudioSource>();
+        var observerAudio=crank.HousingRoot.parent.Find("Town.MerchantCabinet.Foley")?.GetComponent<AudioSource>();
+        Check(crank.HousingRoot.GetComponentsInChildren<Transform>(true).Length==beforeSoundNodes
+            &&crank.HousingRoot.Find("Town.MerchantCabinet.Foley")==null,
+            "cabinet sound never appends an unregistered node to the shared physical rack");
         Check(observerAudio!=null&&observerAudio.isPlaying&&observerAudio.time>=.04f,
             "observer cabinet state triggers the same spatial mechanism sound");
         float observedTime=observerAudio!.time;

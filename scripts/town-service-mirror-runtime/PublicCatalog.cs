@@ -12,6 +12,8 @@ public static partial class MirrorProgram
     private static IEnumerator PublicCatalogLanes()
     {
         DecisionFacingMotion();
+        IEnumerator cabinet = CabinetFirstPress();
+        while (cabinet.MoveNext()) yield return cabinet.Current;
         TownServiceMirror.Shutdown(); Baselines.Clear(); NetPlayerActors.Peer = 1;
         Transform owner = Go("dual lane owner").transform, observer = Go("dual lane observer").transform;
         Transform service = Go("private native service", owner).transform;
@@ -82,6 +84,50 @@ public static partial class MirrorProgram
         RollerLateJoin();
         IEnumerator secondary = SecondaryMerchantInspection();
         while (secondary.MoveNext()) yield return secondary.Current;
+    }
+
+    private static IEnumerator CabinetFirstPress()
+    {
+        TownServiceMirror.Shutdown(); Baselines.Clear(); NetPlayerActors.Peer = 1;
+        Transform owner = Go("first press owner").transform, observer = Go("first press observer").transform;
+        Transform rack = Go("public rack", owner).transform;
+        Go("Cassette", rack);
+        var clip = AudioClip.Create("native cabinet mechanism boundary", 88200, 1, 44100, false);
+        Assets.Add(clip); GloomhavenVR.WorldUI.TownServiceAssets.Cabinet = clip;
+        var audio = new GloomhavenVR.WorldUI.TownServiceCabinetAudio(rack);
+        using var initial = new TownServiceBinding(rack);
+        TownServiceMirror.RegisterTemplate(1, 1, rack, address: "merchant.rack|");
+        audio.Begin(1, .04f);
+        using var pressed = new TownServiceBinding(rack);
+        Check(pressed.Structure == initial.Structure && pressed.Nodes.Length == initial.Nodes.Length
+            && rack.Find("Town.MerchantCabinet.Foley") == null,
+            "first category sound does not change original rack topology");
+        AudioSource source = owner.Find("Town.MerchantCabinet.Foley").GetComponent<AudioSource>();
+        Check(source.isPlaying && source.time >= .039f,
+            "synchronized first category epoch starts the spatial mechanism at the authored phase");
+        owner.position = new Vector3(2f, 3f, 4f); audio.Tick();
+        Check(Vector3.Distance(source.transform.position, rack.position) < .0001f,
+            "uncaptured cabinet sound origin follows the shared map mechanism");
+        using (TownServiceMirror.UsePublicLane())
+        {
+            TownServiceMirror.BeginSession(1, 903, owner, rack);
+            TownServiceMirror.RegisterModule(10, 1, rack, address: "merchant.rack|");
+            TownServiceMirror.SetRack(10, new TownRackState { Cassette = true, Turn = 1, From = 0,
+                To = 256, Page = 0, Elapsed = .04f, Members = new[] { new TownRackMember(99, 256, false) } });
+        }
+        var packets = Capture(); NetPlayerActors.Peer = 3;
+        Receive(2, packets); TownServiceMirror.TickRemote(_ => observer);
+        Check(Remote(-2, 10) != null && Remote(-2, 10)!.Structure == initial.Structure,
+            "first peer category press rebuilds the same public rack instead of an empty cabinet");
+        for (float until = Time.unscaledTime + TownRackState.TurnDuration + .05f; Time.unscaledTime < until;)
+        { TownServiceMirror.TickRemote(_ => observer); yield return null; }
+        Check(TownServiceMirror.PublicRack?.Elapsed == TownRackState.TurnDuration
+            && TownServiceMirror.PublicRack?.Page == 256,
+            "missing observer artwork never permanently disables the local public input proxy");
+        audio.Dispose(); GloomhavenVR.WorldUI.TownServiceAssets.Cabinet = null;
+        TownServiceMirror.Shutdown(); NetPlayerActors.Peer = 1;
+        yield return null;
+        Check(source == null, "cabinet teardown destroys its external playback emitter");
     }
 
     private static void DecisionFacingMotion()

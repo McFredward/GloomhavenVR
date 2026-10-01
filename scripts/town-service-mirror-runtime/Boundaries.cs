@@ -11,6 +11,7 @@ namespace GloomhavenVR.Core
         internal static readonly List<string> Messages = new();
         internal static void Info(string channel, string message) { }
         internal static void Note(string channel, string message) => Messages.Add(channel + ": " + message);
+        internal static void Warn(string channel, string message) => Messages.Add(channel + ": " + message);
     }
 }
 namespace GloomhavenVR.Rig

@@ -5,6 +5,7 @@ using GloomhavenVR.Hands;
 using GloomhavenVR.Hands.Interact;
 using GloomhavenVR.Net.TownServices;
 using GloomhavenVR.WorldUI.MapRoom;
+using MapRuleLibrary.Adventure;
 using UnityEngine;
 
 namespace GloomhavenVR.WorldUI;
@@ -52,6 +53,10 @@ internal static class TownServicePublicMerchant
     internal static void Tick()
     {
         if (!MapRoomDriver.Active || !WorldUIConfig.ImmersiveTownServices.Value
+            // MapRoomDriver tears down after the native adventure. ShopService reads
+            // MapState again on every stock/discount lookup; do not run its census
+            // during that intervening exit frame (Build 601 remote Player.log 75793).
+            || AdventureState.MapState?.MapParty == null || AdventureState.MapState.HeadquartersState == null
             || !TownServiceGrantSync.CanUseImmersive
             || !TownServiceAvailability.NativeUnlocked(1)
             || TownServicePresentation.NativeFallbackFor(1))
@@ -105,7 +110,10 @@ internal static class TownServicePublicMerchant
             _failed = true;
             string failure = error.GetType().FullName + ": " + error.Message;
             if (Failures.Count < 8 && Failures.Add(failure))
+            {
                 VRLog.Note("TownServices", "Persistent merchant stock unavailable; native merchant remains usable: " + failure);
+                if (VRLog.WantsDebug) VRLog.Debug("TownServices", "Persistent merchant stock failure detail: " + error);
+            }
         }
     }
     private static void ProbeScrollHover(VRHand hand)

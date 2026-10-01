@@ -469,6 +469,21 @@ internal static partial class TownServiceMirror
                 foreach (RackPlayback clock in clocks.Values)
                     if (clock.State != null)
                     {
+                        // The displayed rack may wait for a native face/baseline, but that
+                        // cosmetic wait must never become the local input proxy's clock.
+                        // Build 601's mismatched first-press rack repeatedly returned
+                        // Elapsed=0 here; Follow then kept Accessible false forever on the
+                        // other player's real category buttons. A claiming visitor can
+                        // render the same native stock locally, so adopt the latest owner
+                        // mechanism age while its observer dependencies are pending.
+                        if (clock.Waiting && clock.Latest != null)
+                        {
+                            TownRackState ready = clock.Latest.Copy();
+                            ready.Elapsed = Mathf.Clamp(ready.Elapsed + Mathf.Max(0f,
+                                Time.unscaledTime - clock.ReceivedTime), 0f, TownRackState.TurnDuration);
+                            ready.Page = TownRackState.Progress(ready.Elapsed) < .5f ? ready.From : ready.To;
+                            return ready;
+                        }
                         if (!ReferenceEquals(clock.HandoffSource, clock.State))
                         { clock.HandoffSource = clock.State; clock.Handoff = clock.State.Copy(); }
                         TownRackState displayed = clock.Handoff!;

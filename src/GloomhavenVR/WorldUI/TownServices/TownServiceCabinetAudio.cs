@@ -54,6 +54,9 @@ internal sealed class TownServiceCabinetAudio : IDisposable
     internal void Tick()
     {
         if (_source == null) return;
+        // The foley source is deliberately outside the captured cabinet hierarchy.
+        // Keep its acoustic origin at the mechanism when the shared map frame moves.
+        _source.transform.position = _anchor.position;
         if (!WorldUIConfig.ImmersiveTownSoundEffects.Value)
         { _source.Stop(); return; }
         GlobalData? global = SaveData.Instance?.Global;
@@ -66,7 +69,16 @@ internal sealed class TownServiceCabinetAudio : IDisposable
     private AudioSource Create()
     {
         var host = new GameObject("Town.MerchantCabinet.Foley");
-        host.transform.SetParent(_anchor, false);
+        // Build 601's first category press appended this child below HousingRoot,
+        // after the immutable 34-node rack template had been registered. Its path
+        // hashes to 8D884334, exactly the extra sender binding in the hardware log.
+        // The resulting 35-node rack was rejected on every observer, hiding their
+        // stock and leaving the dependency clock (and public buttons) waiting forever.
+        // Audio is driven by the synchronized rack epoch; its playback-only component
+        // must not become another original visual node. A sibling follows the same
+        // shared frame without changing the source or observer template topology.
+        host.transform.SetParent(_anchor.parent, false);
+        host.transform.position = _anchor.position;
         AudioSource source = host.AddComponent<AudioSource>();
         source.playOnAwake = false; source.loop = false; source.spatialBlend = 1f;
         source.rolloffMode = AudioRolloffMode.Linear; source.dopplerLevel = 0f;

@@ -28,6 +28,10 @@ def sources(root):
     bound = {name + ".cs": (base / "Net/TownServices" / (name + ".cs")).read_text() for name in names}
     offering = base / "WorldUI/TownServices/TownServiceOfferingPose.cs"
     bound[offering.name] = offering.read_text()
+    cabinet_audio = base / "WorldUI/TownServices/TownServiceCabinetAudio.cs"
+    bound[cabinet_audio.name] = cabinet_audio.read_text()
+    template_assets = base / "WorldUI/TownServices/TownServiceTemplateAssets.cs"
+    if template_assets.exists(): bound[template_assets.name] = template_assets.read_text()
     backdrop = base / "WorldUI/TownServices/TownServiceBackdropAssets.cs"
     if backdrop.exists(): bound[backdrop.name] = backdrop.read_text()
     motion = base / "Net/TownServices/TownServiceMotion.cs"
@@ -188,13 +192,15 @@ def main():
         variants = [("production", None, None, None, "")]
         if not args.no_negative_controls:
             variants += [
+                ("foley-mutates-rack", "TownServiceCabinetAudio.cs", "host.transform.SetParent(_anchor.parent, false);", "host.transform.SetParent(_anchor, false);", "first category sound does not change original rack topology"),
+                ("pending-rack-input-lock", "TownServiceMirror.cs", "if (clock.Waiting && clock.Latest != null)", "if (false && clock.Latest != null)", "missing observer artwork never permanently disables the local public input proxy"),
                 ("decision-step", "TownServiceMotion.cs", "? Mathf.Clamp(sampleInterval * 1.1f, 1f / 90f, .25f)",
                  "? Mathf.Clamp(sampleInterval, 1f / 90f, .1f)", "palm decision rotates continuously between 5 Hz owner samples"),
                 ("offering-priority", "PublisherTick.cs", "chip.Holder != null || chip.TownOffering", "chip.Holder != null", "floating owned offering has animation publication priority"),
-                ("private-public-collision", "TownServiceMirror.cs", "if (frame!.PublicCatalog) { peer = -peer;", "if (frame!.PublicCatalog) { peer = Math.Abs(peer);", "one lowest live stock author is elected"),
+                ("private-public-collision", "TownServiceMirror.cs", "if (frame!.PublicCatalog) { peer = -peer;", "if (frame!.PublicCatalog) { peer = Math.Abs(peer);", "first peer category press rebuilds the same public rack instead of an empty cabinet"),
                 ("unfrozen-inspection-backing", "LazyNativeTemplates.cs", "Freeze(key, bodyEntry); Entries.Add(key, bodyEntry);", "Entries.Add(key, bodyEntry);", "lazy inspection backing has publication partitions on its first request"),
                 ("inspection-native-gate", "PublisherTick.cs", "if (!active && !inspection && returns.Count == 0)", "if (!active && returns.Count == 0)", "closed native shop publishes all 512 owned faces and original backings exactly once"),
-                ("stale-author-clock", "TownServiceMirror.cs", "if (RemoteRacks.TryGetValue(peer, out var clocks))", "if (peer > 0 && RemoteRacks.TryGetValue(peer, out var clocks))", "authority handoff retains completed observer clock instead of rewinding stale owner sample"),
+                ("stale-author-clock", "TownServiceMirror.cs", "if (RemoteRacks.TryGetValue(peer, out var clocks))", "if (peer > 0 && RemoteRacks.TryGetValue(peer, out var clocks))", "missing observer artwork never permanently disables the local public input proxy"),
                 ("public-visitor", "TownServiceMirror.cs", "if (peer > 0) VisitorSessions[peer] = Sessions[peer];", "VisitorSessions[peer] = Sessions[peer];", "remote public stock is excluded from visitor census"),
                 ("inactive-author", "TownServiceMirror.cs", "int author = PublicLane.Active ? LocalPeer : int.MaxValue;", "int author = LocalPeer;", "departed public owner leaves no stale invisible authority"),
                 ("roller-missing-direction", "TownServiceMirror.Racks.cs", "TownCassetteMotion.Apply(rack.Binding.Root, clock.Turning ? clock.Elapsed / TownRackState.TurnDuration : 1f, state.ScrollDirection);", "TownCassetteMotion.Apply(rack.Binding.Root, clock.Turning ? clock.Elapsed / TownRackState.TurnDuration : 1f, 0);", "late observer reconstructs exact owner holder translation and hinge angle in either scroll direction"),

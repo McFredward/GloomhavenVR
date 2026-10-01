@@ -16,7 +16,13 @@ namespace GloomhavenVR.WorldUI
     internal sealed class UIEnhancementButtonHighlight : MonoBehaviour { }
     internal sealed class ItemCardUI : MonoBehaviour { internal int CardID; }
     internal sealed class AbilityCardUI : MonoBehaviour { internal int CardID; internal Transform fullAbilityCard = null!; }
-    internal static class TownServiceAssets { internal static GameObject? Furniture; internal static GameObject? Prefab(string name) => Furniture; }
+    internal static class TownServiceAssets
+    {
+        internal static GameObject? Furniture;
+        internal static AudioClip? Cabinet;
+        internal static GameObject? Prefab(string name) => Furniture;
+        internal static AudioClip? Audio(string name) => name == "cabinet-cycle" ? Cabinet : null;
+    }
     internal sealed class TownServiceWorkspace { internal sealed class Prop { internal string Key = ""; internal Transform Root = null!; } }
     internal sealed class PublisherWindow : MonoBehaviour { }
     internal sealed class TownServiceSurface

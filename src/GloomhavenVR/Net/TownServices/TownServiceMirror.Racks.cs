@@ -44,7 +44,7 @@ internal static partial class TownServiceMirror
         internal ushort FromPage;
         internal readonly List<TownRackState> Queue = new();
         internal ulong Sequence;
-        internal float LastTick, WaitingSince, Elapsed;
+        internal float LastTick, WaitingSince, Elapsed, ReceivedTime;
         internal ushort DisplayPage;
         internal bool Turning, Waiting;
         internal int IndicatorPage = -1, IndicatorCount;
@@ -67,7 +67,7 @@ internal static partial class TownServiceMirror
             if(frame.Rack==null||frame.Sequence<=Sequence)return;
             TownRackState next=frame.Rack;
             if(Latest!=null&&next.Turn<Latest.Turn)return;
-            Latest=next;Sequence=frame.Sequence;
+            Latest=next;Sequence=frame.Sequence;ReceivedTime=now;
             if(State==null){Start(next,now,true);return;}
             if(next.Turn==State.Turn){State=next;return;}
             if(!Turning&&Queue.Count==0){Start(next,now);return;}
