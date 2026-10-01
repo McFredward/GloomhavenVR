@@ -8,36 +8,42 @@ using UnityEngine.SceneManagement;
 namespace GloomhavenVR.Core;
 
 /// <summary>
-/// Local render-density trade for the Steam Frame's large procedural scenarios, authorised by the
-/// maintainer on 2026-10-01. Only collider-free floor-cover grass foliage beneath the game's
-/// <c>PCG_FR_Floor_Grass_Hex_*</c> generator is eligible. Build 599 measured these generators with
-/// two or three renderers each: every member must be named grass before any foliage leaf is
-/// budgeted, and a non-foliage grass base stays visible. The same log proves that a Foliage
-/// shader alone is unsafe: a grabbable ThreeHexObstacle contains two
-/// <c>FR_Floor_Scatter_Grass_Medium_03</c> meshes on <c>Amp_Basic_Foliage</c>, and WallSegmentFade
-/// owns wall-side foliage on that same shader. No tree, wall, bush, prop unit, actor, collider,
-/// light, preview, door or UI is admitted by this rule. Cave crystals/stalagmites are intentionally
-/// excluded until an equally narrow native hierarchy and obstacle veto are evidenced.
+/// Reversible local scenario-detail compromise authorised by the maintainer on 2026-10-01.
+/// Build 600 hardware rejected nearly every real grass leaf and discovered the room before
+/// Apparance had populated it: its 0% setting masked only 27 of 6,560 active renderers. This
+/// revision classifies actual generated decorative mesh branches, including wall-side vegetation
+/// and LOD descendants, and repeats discovery on the native loading-complete edge. Structural
+/// floor plates, walls, pillars, doors, actors and native gameplay props retain their renderers.
+/// Incidental decoration colliders are not gameplay identity and remain untouched.
 ///
-/// Only <see cref="Renderer.forceRenderingOff"/> is written, and only if it was false when this
-/// driver took ownership. Every owned write is reversible on density 100, scene change and teardown.
-/// Native objects, colliders, scripts, materials and property blocks continue untouched. This is a
-/// local visual compromise, not a game-state or multiplayer-wire change. Hardware FPS improvement
-/// is a hypothesis until measured in a matching headset A/B.
+/// Only owned false-to-true Renderer.forceRenderingOff writes are restored. Native enabled state,
+/// colliders, components, materials, property blocks, room reveal and multiplayer state are never
+/// written. The configurable decoration budget also caps grass; the existing grass key is an
+/// additional grass-only cap. Both 100 restores the original rendering on PC and Steam Frame.
+/// Source and Unity hierarchy tests establish admission/restoration, not headset FPS improvement.
 /// </summary>
 internal static class ScenarioSceneryBudget
 {
     private const string Scope = "Perf";
-    private const string GeneratorPrefix = "PCG_FR_Floor_Grass_Hex_";
-    private const string GrassPrefix = "FR_Floor_Grass_";
-    private const string ScatterPrefix = "FR_Floor_Scatter_Grass_";
     private const string GrassShader = "Amp_Basic_Foliage";
     private const int NodesPerFrame = 96;
+    private const int LoadingNodesPerFrame = 2048;
+    private const float LoadingWorkSeconds = .004f;
     private const int RetunesPerFrame = 96;
     private const int AncestryChecksPerFrame = 64;
     private const int NamedDebugCap = 8;
 
     private static Driver? _driver;
+    private static bool _colliderFactsActive;
+    private static readonly Dictionary<Transform, ColliderFacts> ColliderReadFacts = new();
+
+    private readonly struct ColliderFacts
+    {
+        internal readonly Collider[] Colliders;
+        internal readonly bool Represented;
+        internal ColliderFacts(Collider[] colliders, bool represented)
+        { Colliders = colliders; Represented = represented; }
+    }
 
     internal static void Install(GameObject root)
     {
@@ -50,6 +56,7 @@ internal static class ScenarioSceneryBudget
             {
                 VRSession.Harmony.PatchAll(typeof(ProceduralBase_ContentPlaced_SceneryBudgetPatch));
                 VRSession.Harmony.PatchAll(typeof(ProceduralMapTile_ShowContent_SceneryBudgetPatch));
+                VRSession.Harmony.PatchAll(typeof(MaterialLoaderData_Ready_SceneryBudgetPatch));
             }
             else
                 VRLog.Note(Scope, "Scenario scenery budget: placement hooks unavailable; existing "
@@ -75,36 +82,43 @@ internal static class ScenarioSceneryBudget
     internal static void ContentPlaced(ProceduralBase entity)
     {
         if (entity != null)
-            _driver?.QueueTile(entity is ProceduralMapTile tile
-                                   ? tile : entity.GetComponentInParent<ProceduralMapTile>());
+            _driver?.QueueTile(entity is ProceduralMapTile tile ? tile : TileAncestor(entity.transform));
     }
 
     internal static void ContentShown(GameObject root)
     {
         if (root != null)
-            _driver?.QueueTile(root.GetComponentInParent<ProceduralMapTile>());
+            _driver?.QueueTile(TileAncestor(root.transform));
+    }
+
+    /// <summary>Addressables finishes after native placement and can replace placeholder shaders.
+    /// This notification enqueues only the assigned leaf; the native callback never walks content.
+    /// A newly ready structural base also queues its tile so previously unrepresented collider
+    /// composites can be reconsidered once their retained floor becomes visible.
+    /// </summary>
+    internal static void MaterialsReady(Renderer renderer)
+    {
+        if (renderer is MeshRenderer mesh && mesh.enabled)
+            _driver?.QueueRenderer(mesh);
+    }
+
+    private static ProceduralMapTile? TileAncestor(Transform leaf)
+    {
+        for (Transform? node = leaf; node != null; node = node.parent)
+        {
+            ProceduralMapTile tile = node.GetComponent<ProceduralMapTile>();
+            if (tile != null)
+                return tile;
+        }
+        return null;
     }
 
     private enum Verdict : byte
     {
-        Eligible, Name, Generator, Ancestry, Composite, ColliderOrEffect, Shader, Geometry,
+        Eligible, Name, Generator, Ancestry, Structural, Effect, Geometry,
     }
 
-    /// <summary>Pure final gate; keeping the terms together makes a broad shader-only edit fail
-    /// the focused runtime negative controls before it can ship.</summary>
-    private static Verdict Judge(
-        bool name, bool generator, bool ancestrySafe, bool grassOnlyUnit, bool noColliderOrEffect,
-        bool foliageShader, bool floorCoverBounds)
-    {
-        if (!name) return Verdict.Name;
-        if (!generator) return Verdict.Generator;
-        if (!ancestrySafe) return Verdict.Ancestry;
-        if (!grassOnlyUnit) return Verdict.Composite;
-        if (!noColliderOrEffect) return Verdict.ColliderOrEffect;
-        if (!foliageShader) return Verdict.Shader;
-        if (!floorCoverBounds) return Verdict.Geometry;
-        return Verdict.Eligible;
-    }
+    private enum Kind : byte { None, Grass, Vegetation, Dressing }
 
     private static bool ShouldHide(uint hash, int densityPercent) =>
         densityPercent < 100 && hash % 100u >= (uint)densityPercent;
@@ -117,6 +131,7 @@ internal static class ScenarioSceneryBudget
         internal uint Hash;
         internal bool Owned;
         internal bool Invalidated;
+        internal Kind Kind;
     }
 
     /// <summary>Own only false→true writes. Restoring an already-forced renderer would take an
@@ -163,24 +178,25 @@ internal static class ScenarioSceneryBudget
         return hash;
     }
 
-    /// <summary>Inspect only a named grass renderer. A PCG floor-grass unit may have several
-    /// leaves, but every renderer must be a named grass mesh. Only Foliage leaves are budgeted;
-    /// a differently shaded ground/base member is retained. All ancestor checks run on the
-    /// actual chain even when a room is inactive (GetComponentInParent would miss it).
+    /// <summary>Classify the real transform chain, not a shader-only proxy. Generated Content
+    /// proves scenario geometry; native prop/door/actor identity vetoes every descendant even if
+    /// it happens to be named grass. A leaf collider vetoes hiding; represented parent colliders stay.
+    /// LOD0/1/2 leaves inherit the nearest named mesh asset, not a whole mixed PCG wall generator.
+    /// Mesh-local geometry avoids world-scale-dependent admission when the user zooms the board.
     /// </summary>
     private static Verdict Classify(MeshRenderer renderer, ProceduralMapTile tile,
-                                    out Transform? unit)
+                                    out Transform? unit, out Kind kind)
     {
         unit = null;
-        string name = renderer.name;
-        bool named = IsGrassName(name);
-        if (!named)
-            return Verdict.Name;
-
-        bool generatedContent = false;
-        bool safeAncestry = !FigureRendererGuard.IsFigureOrActorRenderer(renderer);
+        kind = Kind.None;
+        if (renderer == null || tile == null)
+            return Verdict.Ancestry;
+        bool generated = false;
         bool reachedTile = false;
-        bool insideUnit = true;
+        bool structural = false;
+        bool blockingCollider = false;
+        bool ancestrySafe = !FigureRendererGuard.IsFigureOrActorRenderer(renderer)
+                            && !FigureRendererGuard.HeldByPlayer(renderer);
         for (Transform? t = renderer.transform; t != null; t = t.parent)
         {
             if (t == tile.transform)
@@ -188,57 +204,222 @@ internal static class ScenarioSceneryBudget
                 reachedTile = true;
                 break;
             }
-            // A procedural wall above Generated Content is a known parent of floor cover
-            // (Build 599: Walls/Wall 3/Generated Content/PCG_FR_Floor_Grass_Hex_Half_PR).
-            // A wall/door/prop component INSIDE that floor-cover unit is a different object.
-            if (t.GetComponent<ProceduralProp>() != null
+            CInteractable interactable = t.GetComponent<CInteractable>();
+            UnityGameEditorObject nativeObject = t.GetComponent<UnityGameEditorObject>();
+            if ((interactable != null && interactable is not CInteractableTile)
+                || (nativeObject != null && nativeObject.PropObject != null)
+                || t.GetComponent<ProceduralProp>() != null
                 || t.GetComponent<ProceduralDoorway>() != null
                 || t.GetComponent<UnityGameEditorDoorProp>() != null
-                || (insideUnit && t.GetComponent<ProceduralWall>() != null))
-                safeAncestry = false;
-            if (t.name == "Preview" || FigureRendererGuard.CarriesFigureComponent(t))
-                safeAncestry = false;
+                || FigureRendererGuard.CarriesFigureComponent(t)
+                || t.GetComponent<Canvas>() != null
+                || t.name == "Preview")
+                ancestrySafe = false;
+            if (!generated && HasUnrepresentedCollider(t, renderer))
+                blockingCollider = true;
             if (t.name == "Generated Content")
-                generatedContent = true;
-            if (t.name.StartsWith(GeneratorPrefix, StringComparison.Ordinal))
             {
-                unit = t;
-                insideUnit = false;
+                generated = true;
+                // Asset names above this boundary are containers, not this leaf's identity.
+                continue;
+            }
+            if (!generated && unit == null && !t.name.StartsWith("PCG_", StringComparison.Ordinal))
+            {
+                Kind named = NamedKind(t.name);
+                if (named != Kind.None)
+                {
+                    unit = t;
+                    kind = named;
+                }
+                else if (IsStructuralName(t.name))
+                    structural = true;
             }
         }
-        if (!reachedTile || unit == null || !generatedContent)
+        if (!reachedTile || !generated)
             return Verdict.Generator;
+        if (!ancestrySafe)
+            return Verdict.Ancestry;
+        if (blockingCollider)
+            return Verdict.Effect;
+        if (unit == null || kind == Kind.None)
+            return structural ? Verdict.Structural : Verdict.Name;
+        if (renderer.GetComponent<Animator>() != null
+            || renderer.GetComponent<ParticleSystem>() != null)
+            return Verdict.Effect;
+        Mesh? mesh = renderer.GetComponent<MeshFilter>()?.sharedMesh;
+        if (mesh == null)
+            return Verdict.Geometry;
+        Vector3 size = mesh.bounds.size;
+        if (float.IsNaN(size.x) || float.IsNaN(size.y) || float.IsNaN(size.z)
+            || float.IsInfinity(size.x) || float.IsInfinity(size.y) || float.IsInfinity(size.z)
+            || size.x < 0f || size.y < 0f || size.z < 0f
+            || Math.Max(size.x, Math.Max(size.y, size.z)) > 80f
+            || size.sqrMagnitude < .000001f)
+            return Verdict.Geometry;
 
-        bool grassOnly = IsGrassOnlyUnit(unit.GetComponentsInChildren<Renderer>(includeInactive: true));
-        bool noEffects = unit.GetComponentInChildren<Collider>(includeInactive: true) == null
-                         && unit.GetComponentInChildren<Light>(includeInactive: true) == null
-                         && unit.GetComponentInChildren<Animator>(includeInactive: true) == null
-                         && unit.GetComponentInChildren<ParticleSystem>(includeInactive: true) == null
-                         && unit.GetComponentInChildren<Canvas>(includeInactive: true) == null;
-        Material[] materials = renderer.sharedMaterials;
-        bool shader = materials.Length == 1 && materials[0] != null
-                      && materials[0].shader != null
-                      && materials[0].shader.name == GrassShader;
-        Vector3 size = renderer.bounds.size;
-        bool floorBounds = size.y > 0f && size.y <= 0.60f
-                           && size.x > 0f && size.x <= 3f
-                           && size.z > 0f && size.z <= 3f;
-        return Judge(named, true, safeAncestry, grassOnly, noEffects, shader, floorBounds);
+        bool foliage = UsesFoliage(renderer);
+        string assetName = unit.name;
+        // Vegetation textures attached to masonry are admitted only on foliage shader leaves.
+        // FR_Pillar_Tree_Trunk_01 and the rock support beneath a wall are structural even though
+        // they contain the word Tree or Floor. Ordinary FR_Tree_05 has separate foliage AND bark
+        // renderers, all of which belong to the decorative tree and must disappear together.
+        if (structural || IsHardStructuralName(assetName)
+            || (IsStructuralName(assetName) && !foliage))
+            return Verdict.Structural;
+        // The forest's floor-grass half/full plates also supply the playable floor. Their solid
+        // base remains; foliage/detail/scatter children disappear. This uses local mesh bounds,
+        // never world AABB size, so setting scene scale to 1:1 cannot change this decision.
+        if (kind == Kind.Grass && !foliage && IsGrassBase(assetName))
+            return Verdict.Structural;
+        return Verdict.Eligible;
     }
 
-    private static bool IsGrassName(string name) =>
-        name.StartsWith(GrassPrefix, StringComparison.Ordinal)
-        || name.StartsWith(ScatterPrefix, StringComparison.Ordinal);
-
-    private static bool IsGrassOnlyUnit(Renderer[] members)
+    /// <summary>A hidden leaf must not leave an invisible laser blocker behind. Decorative
+    /// meshes with their own enabled collider remain visible. Ancestor colliders are permitted
+    /// only on native walls/tiles or on a generated composite with an explicitly retained solid
+    /// floor/structural member. Gameplay colliders are never disabled to obtain scenery savings.
+    /// </summary>
+    private static bool HasUnrepresentedCollider(Transform node, MeshRenderer renderer)
     {
-        if (members.Length < 1 || members.Length > 8)
+        if (!_colliderFactsActive || !ColliderReadFacts.TryGetValue(node, out ColliderFacts facts))
+        {
+            facts = ReadColliderFacts(node);
+            if (_colliderFactsActive)
+                ColliderReadFacts[node] = facts;
+        }
+        for (int i = 0; i < facts.Colliders.Length; i++)
+        {
+            Collider collider = facts.Colliders[i];
+            if (collider == null || !collider.enabled)
+                continue;
+            if (node == renderer.transform)
+                return true;
+            Mesh? leafMesh = renderer.GetComponent<MeshFilter>()?.sharedMesh;
+            if (collider is MeshCollider meshCollider && meshCollider.sharedMesh == leafMesh)
+                return true;
+            if (!facts.Represented)
+                return true;
+        }
+        return false;
+    }
+
+    private static ColliderFacts ReadColliderFacts(Transform node)
+    {
+        Collider[] colliders = node.GetComponents<Collider>();
+        bool enabled = false;
+        for (int i = 0; i < colliders.Length; i++)
+            if (colliders[i] != null && colliders[i].enabled)
+                enabled = true;
+        if (!enabled)
+            return new ColliderFacts(colliders, true);
+        if (node.GetComponent<ProceduralWall>() != null
+            || node.GetComponent<ProceduralMapTile>() != null)
+            return new ColliderFacts(colliders, true);
+        MeshRenderer[] members = node.GetComponentsInChildren<MeshRenderer>(includeInactive: true);
+        for (int j = 0; j < members.Length; j++)
+        {
+            MeshRenderer member = members[j];
+            if (member == null || !member.enabled || member.forceRenderingOff
+                || !member.gameObject.activeInHierarchy || UsesFoliage(member))
+                continue;
+            if (IsStructuralName(member.name) || IsGrassBase(member.name))
+                return new ColliderFacts(colliders, true);
+        }
+        return new ColliderFacts(colliders, false);
+    }
+
+    private static bool UsesFoliage(MeshRenderer renderer)
+    {
+        Material[] materials = renderer.sharedMaterials;
+        for (int i = 0; i < materials.Length; i++)
+            if (materials[i] != null && materials[i].shader != null
+                && materials[i].shader.name == GrassShader)
+                return true;
+        return false;
+    }
+
+    private static Kind NamedKind(string name)
+    {
+        // These are original asset families observed in scenario census paths, not arbitrary
+        // names of containers. Generic floor/wall/prop shader matching would erase game geometry.
+        if (name.IndexOf("_Grass", StringComparison.OrdinalIgnoreCase) >= 0
+            || name.IndexOf("_Grassy", StringComparison.OrdinalIgnoreCase) >= 0)
+            return Kind.Grass;
+        if (name.IndexOf("_Tree_", StringComparison.OrdinalIgnoreCase) >= 0
+            || name.IndexOf("Bush", StringComparison.OrdinalIgnoreCase) >= 0
+            || name.IndexOf("Bushes", StringComparison.OrdinalIgnoreCase) >= 0
+            || name.IndexOf("_Plants", StringComparison.OrdinalIgnoreCase) >= 0
+            || name.IndexOf("_Vines", StringComparison.OrdinalIgnoreCase) >= 0
+            || name.IndexOf("_Ivy", StringComparison.OrdinalIgnoreCase) >= 0
+            || name.IndexOf("_Roots", StringComparison.OrdinalIgnoreCase) >= 0
+            || name.IndexOf("_Leaves", StringComparison.OrdinalIgnoreCase) >= 0)
+            return Kind.Vegetation;
+        if (name.IndexOf("_Floor_Scatter_", StringComparison.OrdinalIgnoreCase) >= 0
+            || name.IndexOf("_Floor_Detail_", StringComparison.OrdinalIgnoreCase) >= 0
+            || name.IndexOf("_Floor_Clutter_", StringComparison.OrdinalIgnoreCase) >= 0
+            || name.IndexOf("_Floor_Stalagmites_", StringComparison.OrdinalIgnoreCase) >= 0
+            || name.IndexOf("_Crystal_", StringComparison.OrdinalIgnoreCase) >= 0
+            || name.StartsWith("FR_Stones_", StringComparison.Ordinal)
+            || name.StartsWith("geranium ", StringComparison.Ordinal))
+            return Kind.Dressing;
+        return Kind.None;
+    }
+
+    private static bool IsStructuralName(string name) =>
+        name.IndexOf("_Wall_", StringComparison.OrdinalIgnoreCase) >= 0
+        || name.IndexOf("_UnderWall_", StringComparison.OrdinalIgnoreCase) >= 0
+        || name.IndexOf("_Pillar_", StringComparison.OrdinalIgnoreCase) >= 0
+        || name.IndexOf("_Door", StringComparison.OrdinalIgnoreCase) >= 0
+        || name.IndexOf("_Arch", StringComparison.OrdinalIgnoreCase) >= 0
+        || name.IndexOf("_Floor_Base", StringComparison.OrdinalIgnoreCase) >= 0
+        || name.IndexOf("_Floor_Basic", StringComparison.OrdinalIgnoreCase) >= 0
+        || name.IndexOf("_FloorTiles", StringComparison.OrdinalIgnoreCase) >= 0
+        || name.IndexOf("_Stone_Floor_", StringComparison.OrdinalIgnoreCase) >= 0
+        || name == "Simple Tile";
+
+    private static bool IsHardStructuralName(string name)
+    {
+        if (name.IndexOf("_Pillar_", StringComparison.OrdinalIgnoreCase) >= 0
+            || name.IndexOf("_Door", StringComparison.OrdinalIgnoreCase) >= 0
+            || name.IndexOf("_Arch", StringComparison.OrdinalIgnoreCase) >= 0
+            || name.IndexOf("_Floor_Base", StringComparison.OrdinalIgnoreCase) >= 0
+            || name.IndexOf("_Floor_Basic", StringComparison.OrdinalIgnoreCase) >= 0
+            || name.IndexOf("_FloorTiles", StringComparison.OrdinalIgnoreCase) >= 0
+            || name.IndexOf("_Stone_Floor_", StringComparison.OrdinalIgnoreCase) >= 0)
+            return true;
+        bool wall = name.IndexOf("_Wall_", StringComparison.OrdinalIgnoreCase) >= 0
+                    || name.IndexOf("_UnderWall_", StringComparison.OrdinalIgnoreCase) >= 0;
+        bool foliageDressing = name.IndexOf("Bush", StringComparison.OrdinalIgnoreCase) >= 0
+                    || name.IndexOf("_Ivy", StringComparison.OrdinalIgnoreCase) >= 0
+                    || name.IndexOf("_Grass_", StringComparison.OrdinalIgnoreCase) >= 0
+                    || name.EndsWith("_Grass", StringComparison.OrdinalIgnoreCase)
+                    || name.IndexOf("_Vines", StringComparison.OrdinalIgnoreCase) >= 0;
+        return wall && !foliageDressing;
+    }
+
+    private static bool IsGrassBase(string name) =>
+        name.StartsWith("FR_Floor_Grass_Half", StringComparison.Ordinal)
+        || name.StartsWith("FR_Floor_Grass_Full", StringComparison.Ordinal)
+        || name == "FR_Floor_Grass"
+        || (name.StartsWith("FR_Floor_Detail_", StringComparison.Ordinal)
+            && name.EndsWith("_Grass", StringComparison.Ordinal));
+
+    /// <summary>Native ProceduralBase.GetScenario supports a root in the same scene as a tile,
+    /// not just a parent. Mirror that proven hierarchy rule without calling an internal game API.
+    /// </summary>
+    private static bool IsScenarioTile(ProceduralMapTile tile)
+    {
+        for (Transform? t = tile.transform; t != null; t = t.parent)
+            if (t.GetComponent<ProceduralScenario>() != null)
+                return true;
+        Scene scene = tile.gameObject.scene;
+        if (!scene.IsValid() || !scene.isLoaded)
             return false;
-        for (int i = 0; i < members.Length; i++)
-            if (members[i] is not MeshRenderer m || !IsGrassName(m.name)
-                || m.GetComponent<MeshFilter>()?.sharedMesh == null)
-                return false;
-        return true;
+        GameObject[] roots = scene.GetRootGameObjects();
+        for (int i = 0; i < roots.Length; i++)
+            if (roots[i].GetComponent<ProceduralScenario>() != null)
+                return true;
+        return false;
     }
 
     private static Transform[] CaptureChain(Transform leaf, ProceduralMapTile tile)
@@ -286,14 +467,23 @@ internal static class ScenarioSceneryBudget
 
         private readonly Queue<ProceduralMapTile> _pending = new();
         private readonly HashSet<int> _pendingIds = new();
+        private readonly HashSet<int> _dirtyIds = new();
         private readonly Queue<Node> _nodes = new();
+        private readonly Queue<Node> _materialNodes = new();
+        private readonly HashSet<int> _materialNodeIds = new();
         private readonly List<ProceduralMapTile> _tiles = new(64);
         private readonly List<Record> _records = new(1024);
         private readonly Dictionary<int, Record> _byId = new(1024);
         private readonly HashSet<int> _tileIds = new();
-        private readonly int[] _rejected = new int[8];
+        private readonly int[] _rejected = new int[7];
+        private readonly HashSet<int> _visitedRendererIds = new();
         private int _sceneHandle = int.MinValue;
         private int _density = 100;
+        private int _decorationDensity = 100;
+        private ProceduralMapTile? _walkingTile;
+        private bool _wasLoading;
+        private bool _settlePending;
+        private float _settleDue;
         private int _retuneIndex = -1;
         private int _pruneIndex;
         private int _watchIndex;
@@ -307,92 +497,188 @@ internal static class ScenarioSceneryBudget
 
         internal void QueueTile(ProceduralMapTile? tile)
         {
-            if (!_inScenarioScene || _density >= 100 || tile == null)
-                return;
-            if (tile.GetComponentInParent<ProceduralScenario>() == null)
+            if (!_inScenarioScene || (_density >= 100 && _decorationDensity >= 100)
+                || tile == null || !IsScenarioTile(tile))
                 return;
             _actualScenario = true;
             int id = tile.GetInstanceID();
             if (_pendingIds.Add(id))
                 _pending.Enqueue(tile);
+            else if (_walkingTile == tile)
+                _dirtyIds.Add(id); // one catch-up pass, never a duplicate concurrent tile walk
             _summaryDue = Mathf.Max(_summaryDue, Time.unscaledTime + 1f);
+        }
+
+        internal void QueueRenderer(MeshRenderer renderer)
+        {
+            if (!_inScenarioScene || !BudgetActive)
+                return;
+            ProceduralMapTile? tile = TileAncestor(renderer.transform);
+            if (tile == null || !IsScenarioTile(tile))
+                return;
+            if (_materialNodeIds.Add(renderer.GetInstanceID()))
+                _materialNodes.Enqueue(new Node(renderer.transform, tile));
+            _actualScenario = true;
+            _summaryDue = Mathf.Max(_summaryDue, Time.unscaledTime + 1f);
+            if (IsGrassBase(renderer.name) || IsStructuralName(renderer.name))
+                QueueTile(tile);
         }
 
         private void Update()
         {
-            Scene scene = SceneManager.GetActiveScene();
-            if (_sceneHandle != scene.handle
-                || _inScenarioScene != (VRSession.IsRunning && scene.name == "ProcGen"))
+            Scene procedural = Choreographer.s_Choreographer != null
+                ? Choreographer.s_Choreographer.m_ProcGenScene : default;
+            Scene scene = procedural.IsValid() && procedural.isLoaded
+                ? procedural : SceneManager.GetActiveScene();
+            if (_sceneHandle != scene.handle || _inScenarioScene != VRSession.IsRunning)
                 EnterScene(scene);
 
-            int wanted = Mathf.Clamp(PerfConfig.ScenarioSceneryDensityPercentValue, 0, 100);
-            if (_density != wanted)
-                ChangeDensity(wanted);
-            if (!_inScenarioScene || (_density == 100 && _records.Count == 0))
+            int wantedGrass = Mathf.Clamp(PerfConfig.ScenarioSceneryDensityPercentValue, 0, 100);
+            int wantedDecoration = Mathf.Clamp(PerfConfig.ScenarioDecorationDensityPercentValue, 0, 100);
+            if (_density != wantedGrass || _decorationDensity != wantedDecoration)
+                ChangeDensity(wantedGrass, wantedDecoration);
+            if (!_inScenarioScene)
+                return;
+
+            SceneController controller = SceneController.Instance;
+            bool loading = controller != null && (controller.IsLoading || controller.ScenarioIsLoading);
+            if (_wasLoading && !loading && BudgetActive)
+            {
+                // Build 600 seeded 484 renderers before Apparance produced the real 6,560. The
+                // native loading flags, not sceneLoaded/active scene name, mark the usable room.
+                SeedTiles();
+                _settlePending = true;
+                _settleDue = Time.unscaledTime + 2f;
+                _summaryPrinted = false;
+                _summaryDue = Time.unscaledTime + 3f;
+            }
+            _wasLoading = loading;
+            if (_settlePending && !loading && Time.unscaledTime >= _settleDue)
+            {
+                // A bounded second completion pass covers delayed Apparance child registration.
+                // Subsequent rooms/regeneration use their native placement and ShowContent hooks.
+                _settlePending = false;
+                SeedTiles();
+            }
+            if (!BudgetActive && _records.Count == 0)
                 return;
 
             using var _perf = PerfMonitor.Scope("SceneryBudget.Update");
             RecheckOwned();
             PruneDead(16);
             Retune();
-            if (_density < 100)
-                WalkNodes();
-            MaybeReport();
+            if (BudgetActive)
+                WalkNodes(loading || _settlePending);
+            MaybeReport(loading);
         }
+
+        private bool BudgetActive => _density < 100 || _decorationDensity < 100;
 
         private void EnterScene(Scene scene)
         {
             RestoreAll();
             _sceneHandle = scene.handle;
-            _inScenarioScene = VRSession.IsRunning && scene.name == "ProcGen";
+            // Content is additive: the active scene in the supplied run is Game, not ProcGen.
+            // Real ProceduralScenario membership below gates each tile; menus/maps admit none.
+            _inScenarioScene = VRSession.IsRunning;
             _density = 100;
+            _decorationDensity = 100;
             _actualScenario = false;
+            _wasLoading = true;
+            _settlePending = false;
             _summaryPrinted = false;
             _summaryDue = Time.unscaledTime + 3f;
         }
 
-        private void ChangeDensity(int wanted)
+        private void ChangeDensity(int wantedGrass, int wantedDecoration)
         {
-            int previous = _density;
-            _density = wanted;
+            bool wasActive = BudgetActive;
+            _density = wantedGrass;
+            _decorationDensity = wantedDecoration;
+            PerfMonitor.MarkChange($"[Optimize] ScenarioSceneryDensityPercent={wantedGrass}; "
+                             + $"ScenarioDecorationDensityPercent={wantedDecoration}");
             _retuneIndex = 0;
             _summaryPrinted = false;
             _summaryDue = Time.unscaledTime + 2f;
-            if (wanted == 100)
+            if (!BudgetActive)
             {
                 _pending.Clear();
                 _pendingIds.Clear();
+                _dirtyIds.Clear();
                 _nodes.Clear();
+                _materialNodes.Clear();
+                _materialNodeIds.Clear();
+                _walkingTile = null;
+                _settlePending = false;
             }
-            else if (previous == 100 && _inScenarioScene)
+            else if (!wasActive && _inScenarioScene)
                 SeedTiles();
         }
 
         private void SeedTiles()
         {
-            // One registry read at scene entry or a 100→lower dial edge, never a per-frame scene
-            // search. The registry includes live tiles; ShowContent catches an inactive room later.
+            // Registry reads are scene/setting/loading edges, not full-heap per-frame sweeps.
             SceneRegistry.MapTiles.Collect(_tiles);
             for (int i = 0; i < _tiles.Count; i++)
                 QueueTile(_tiles[i]);
             _tiles.Clear();
         }
 
-        private void WalkNodes()
+        private void WalkNodes(bool loading)
         {
-            int budget = NodesPerFrame;
+            // Collider-unit reads are exact only within this synchronous discovery slice. No
+            // shared parent subtree is walked again for every grass leaf, and no facts survive
+            // native regeneration or a collider toggle between frames.
+            ColliderReadFacts.Clear();
+            _colliderFactsActive = true;
+            try { WalkNodesCore(loading); }
+            finally { _colliderFactsActive = false; ColliderReadFacts.Clear(); }
+        }
+
+        private void WalkNodesCore(bool loading)
+        {
+            int budget = loading ? LoadingNodesPerFrame : NodesPerFrame;
+            float deadline = Time.realtimeSinceStartup + LoadingWorkSeconds;
             while (budget-- > 0)
             {
+                if (_materialNodes.Count > 0)
+                {
+                    Node ready = _materialNodes.Dequeue();
+                    if (ready.Transform != null && ready.Tile != null)
+                    {
+                        MeshRenderer readyRenderer = ready.Transform.GetComponent<MeshRenderer>();
+                        if (readyRenderer != null)
+                        {
+                            _materialNodeIds.Remove(readyRenderer.GetInstanceID());
+                            if (_visitedRendererIds.Add(readyRenderer.GetInstanceID())) _meshRenderers++;
+                            Examine(readyRenderer, ready.Tile);
+                        }
+                    }
+                    if ((budget & 3) == 0 && Time.realtimeSinceStartup >= deadline)
+                        break;
+                    continue;
+                }
                 if (_nodes.Count == 0)
                 {
+                    if (_walkingTile != null)
+                    {
+                        int completedId = _walkingTile.GetInstanceID();
+                        _pendingIds.Remove(completedId);
+                        if (_dirtyIds.Remove(completedId))
+                            QueueTile(_walkingTile);
+                        _walkingTile = null;
+                    }
                     if (_pending.Count == 0)
                         break;
                     ProceduralMapTile tile = _pending.Dequeue();
                     if (tile == null)
                         continue;
-                    _pendingIds.Remove(tile.GetInstanceID());
-                    if (tile.GetComponentInParent<ProceduralScenario>() == null)
+                    if (!IsScenarioTile(tile))
+                    {
+                        _pendingIds.Remove(tile.GetInstanceID());
                         continue;
+                    }
+                    _walkingTile = tile;
                     _tileIds.Add(tile.GetInstanceID());
                     _nodes.Enqueue(new Node(tile.transform, tile));
                 }
@@ -405,11 +691,14 @@ internal static class ScenarioSceneryBudget
                 MeshRenderer? renderer = t.GetComponent<MeshRenderer>();
                 if (renderer != null)
                 {
-                    _meshRenderers++;
+                    if (_visitedRendererIds.Add(renderer.GetInstanceID()))
+                        _meshRenderers++;
                     Examine(renderer, node.Tile);
                 }
                 for (int child = 0; child < t.childCount; child++)
                     _nodes.Enqueue(new Node(t.GetChild(child), node.Tile));
+                if ((budget & 3) == 0 && Time.realtimeSinceStartup >= deadline)
+                    break;
             }
         }
 
@@ -429,7 +718,7 @@ internal static class ScenarioSceneryBudget
                     _retuneIndex = 0;
             }
 
-            Verdict verdict = Classify(renderer, tile, out Transform? unit);
+            Verdict verdict = Classify(renderer, tile, out Transform? unit, out Kind kind);
             _rejected[(int)verdict]++;
             if (verdict != Verdict.Eligible || unit == null)
                 return;
@@ -440,15 +729,16 @@ internal static class ScenarioSceneryBudget
                 Chain = CaptureChain(renderer.transform, tile),
                 Id = id,
                 Hash = StableHash(unit, tile),
+                Kind = kind,
             };
             _records.Add(record);
             _byId.Add(id, record);
-            SetHidden(record, ShouldHide(record.Hash, _density));
+            SetHidden(record, ShouldHide(record.Hash, DensityFor(record)));
             if (_debugNames < NamedDebugCap && VRLog.WantsDebug)
             {
                 _debugNames++;
                 VRLog.Debug(Scope, "Scenario scenery candidate " + PathOf(renderer.transform, tile.transform)
-                                   + $" hash={record.Hash} forceRenderingOff={renderer.forceRenderingOff}");
+                                   + $" kind={kind} hash={record.Hash} forceRenderingOff={renderer.forceRenderingOff}");
             }
         }
 
@@ -456,13 +746,26 @@ internal static class ScenarioSceneryBudget
         /// Re-run the full classifier before retaining our mask on a previously seen leaf.</summary>
         private void RevalidateKnown(Record record, MeshRenderer renderer, ProceduralMapTile tile)
         {
-            Verdict verdict = Classify(renderer, tile, out Transform? unit);
-            if (!record.Invalidated && verdict == Verdict.Eligible && unit != null
-                && StillOnOriginalChain(record) && !FigureRendererGuard.HeldByPlayer(renderer))
+            Verdict verdict = Classify(renderer, tile, out Transform? unit, out Kind kind);
+            if (verdict == Verdict.Eligible && unit != null)
+            {
+                record.Invalidated = false;
+                record.Kind = kind;
+                if (!StillOnOriginalChain(record))
+                {
+                    SetHidden(record, false);
+                    record.Chain = CaptureChain(renderer.transform, tile);
+                    record.Hash = StableHash(unit, tile);
+                }
+                SetHidden(record, ShouldHide(record.Hash, DensityFor(record)));
                 return;
+            }
             SetHidden(record, false);
             record.Invalidated = true;
         }
+
+        private int DensityFor(Record record) => record.Kind == Kind.Grass
+            ? Math.Min(_density, _decorationDensity) : _decorationDensity;
 
         private void Retune()
         {
@@ -473,12 +776,14 @@ internal static class ScenarioSceneryBudget
             {
                 Record record = _records[_retuneIndex];
                 if (!record.Invalidated)
-                    SetHidden(record, ShouldHide(record.Hash, _density));
+                    SetHidden(record, ShouldHide(record.Hash, DensityFor(record)));
             }
             if (_retuneIndex < _records.Count)
                 return;
             _retuneIndex = -1;
-            if (_density == 100)
+            PerfMonitor.MarkChange($"Scenario scenery budget retune complete: grass {_density}%, "
+                             + $"decoration {_decorationDensity}%");
+            if (!BudgetActive)
             {
                 _records.Clear();
                 _byId.Clear();
@@ -543,35 +848,47 @@ internal static class ScenarioSceneryBudget
             }
         }
 
-        private void MaybeReport()
+        private void MaybeReport(bool loading)
         {
-            if (_summaryPrinted || Time.unscaledTime < _summaryDue || _retuneIndex >= 0
-                || _pending.Count != 0 || _nodes.Count != 0 || !_actualScenario)
+            if (_summaryPrinted || loading || _settlePending || Time.unscaledTime < _summaryDue
+                || _retuneIndex >= 0 || _pending.Count != 0 || _nodes.Count != 0
+                || _walkingTile != null || _materialNodes.Count != 0 || !_actualScenario)
                 return;
             int actuallyForced = 0;
             int owned = 0;
+            int grass = 0;
+            int vegetation = 0;
+            int dressing = 0;
             for (int i = 0; i < _records.Count; i++)
             {
                 Record record = _records[i];
-                if (record.Renderer == null)
+                if (record.Renderer == null || record.Invalidated)
                     continue;
-                if (record.Renderer.forceRenderingOff)
-                    actuallyForced++;
-                if (record.Owned)
-                    owned++;
+                if (record.Renderer.forceRenderingOff) actuallyForced++;
+                if (record.Owned) owned++;
+                switch (record.Kind)
+                {
+                    case Kind.Grass: grass++; break;
+                    case Kind.Vegetation: vegetation++; break;
+                    case Kind.Dressing: dressing++; break;
+                }
             }
-            VRLog.Note(Scope, $"Scenario scenery budget: density {_density}% in ProcGen; "
-                              + $"{_tileIds.Count} tile(s), {_visitedNodes} node(s), "
-                              + $"{_meshRenderers} mesh renderer(s) visited, "
-                              + $"{_records.Count} eligible foliage leaf renderer(s), "
-                              + $"{owned} owned and {actuallyForced} actually forceRenderingOff. "
-                              + $"Rejected named candidates: no generator {_rejected[(int)Verdict.Generator]}, "
-                              + $"actor/preview {_rejected[(int)Verdict.Ancestry]}, "
-                              + $"composite {_rejected[(int)Verdict.Composite]}, "
-                              + $"collider/effect {_rejected[(int)Verdict.ColliderOrEffect]}, "
-                              + $"shader {_rejected[(int)Verdict.Shader]}, "
-                              + $"bounds {_rejected[(int)Verdict.Geometry]}. "
-                              + "Decorative rendering only; headset frame gain is unverified.");
+            PerfMonitor.MarkChange($"Scenario scenery preparation complete: {owned} owned renderer masks");
+            VRLog.Note(Scope, $"Scenario scenery budget: density {_density}%, decoration "
+                              + $"{_decorationDensity}%; {_tileIds.Count} tile(s), "
+                              + $"{_meshRenderers} unique mesh renderer(s) inspected, "
+                              + $"eligible grass {grass}, trees/bushes/vines {vegetation}, "
+                              + $"scatter/details {dressing}; {owned} owned and {actuallyForced} "
+                              + "actually forceRenderingOff. Native props, actors, floors and "
+                              + "structural walls preserved; actual frame gain is unverified.");
+            if (VRLog.WantsDebug)
+                VRLog.Debug(Scope, $"Scenario scenery rejection encounters (repeat walks included): "
+                                   + $"no generated ancestry {_rejected[(int)Verdict.Generator]}, "
+                                   + $"actor/prop/door/preview {_rejected[(int)Verdict.Ancestry]}, "
+                                   + $"structural {_rejected[(int)Verdict.Structural]}, "
+                                   + $"collider/effects {_rejected[(int)Verdict.Effect]}, "
+                                   + $"geometry {_rejected[(int)Verdict.Geometry]}; "
+                                   + $"{_visitedNodes} traversal node visits.");
             _summaryPrinted = true;
         }
 
@@ -583,8 +900,13 @@ internal static class ScenarioSceneryBudget
             _byId.Clear();
             _pending.Clear();
             _pendingIds.Clear();
+            _dirtyIds.Clear();
             _nodes.Clear();
+            _materialNodes.Clear();
+            _materialNodeIds.Clear();
+            _walkingTile = null;
             _tileIds.Clear();
+            _visitedRendererIds.Clear();
             Array.Clear(_rejected, 0, _rejected.Length);
             _visitedNodes = 0;
             _meshRenderers = 0;
@@ -624,5 +946,16 @@ internal static class ProceduralMapTile_ShowContent_SceneryBudgetPatch
     {
         try { ScenarioSceneryBudget.ContentShown(o); }
         catch { /* no render-budget fault may escape into room reveal */ }
+    }
+}
+
+/// <summary>Observe the final native material assignment; never load or alter game materials.</summary>
+[HarmonyPatch(typeof(MaterialLoaderData), "CheckAllMaterialLoaded")]
+internal static class MaterialLoaderData_Ready_SceneryBudgetPatch
+{
+    private static void Postfix(MaterialLoaderData __instance)
+    {
+        try { if (__instance.Renderer != null) ScenarioSceneryBudget.MaterialsReady(__instance.Renderer); }
+        catch { /* no presentation-budget fault may escape into Addressables completion */ }
     }
 }
