@@ -31,12 +31,21 @@ internal sealed class TownServiceMotion
     private readonly Node[] _nodes;
     private readonly State[] _from, _to;
     private readonly bool _continuousDecisionFacing;
+    private readonly bool _continuousVisitorMotion;
     private bool _active, _hasTarget;
     private float _started, _duration;
     internal TownServiceMotion(Transform host, Transform[] originalNodes, string address = "")
     {
         _continuousDecisionFacing = address.StartsWith("item.confirm.part.", StringComparison.Ordinal)
             || address.StartsWith("enhance.confirm.part.", StringComparison.Ordinal);
+        // A held temple purse and a merchant visitor's original item fan are
+        // public moving props. They use this native mirror, not RemoteAvatar's
+        // rig-pose interpolator. The 100 ms mechanical-control cap previously
+        // finished their motion early when town packets arrived less often,
+        // leaving a stationary purse/card between successive hand samples.
+        _continuousVisitorMotion = address == "ritual.purse.held|"
+            || address.StartsWith("inspectionbody.", StringComparison.Ordinal)
+            || IsVisitorItem(address);
         _nodes = new Node[originalNodes.Length + 1]; _from = new State[_nodes.Length]; _to = new State[_nodes.Length];
         for (int i = 0; i < _nodes.Length; i++)
         {
@@ -72,15 +81,22 @@ internal sealed class TownServiceMotion
             if (!_from[i].Active || !_to[i].Active || _from[i].Parent != _to[i].Parent) _from[i] = _to[i];
             if (!_from[i].Same(_to[i])) _active = true;
         }
-        // A shared palm decision's text/buttons face the active visitor. Their
-        // author sends at a slower town cadence than the headset frame rate;
-        // finishing each tween at 100 ms made that turn stop and jump between
-        // packets. Cover the actual sample interval, bounded at 250 ms. Keep the
-        // existing 100 ms response for rack/crank and other discrete controls.
-        _started = now; _duration = _continuousDecisionFacing
+        // Shared decisions and personal held props cover the actual owner
+        // interval, bounded at 250 ms. Keep the existing 100 ms response for
+        // rack/crank and other discrete controls. This class remains the only
+        // pose author; no hand attachment or second extrapolator fights it.
+        _started = now; _duration = _continuousDecisionFacing || _continuousVisitorMotion
             ? Mathf.Clamp(sampleInterval * 1.1f, 1f / 90f, .25f)
             : Mathf.Clamp(sampleInterval, 1f / 90f, .1f);
         if (_active) Tick(now);
+    }
+    private static bool IsVisitorItem(string address)
+    {
+        if (!address.StartsWith("item.", StringComparison.Ordinal)) return false;
+        int end = address.IndexOf('|');
+        if (end <= 5) return false;
+        for (int i = 5; i < end; i++) if (address[i] < '0' || address[i] > '9') return false;
+        return true;
     }
     internal void Tick(float now)
     {
