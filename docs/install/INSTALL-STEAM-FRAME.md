@@ -117,6 +117,12 @@ stand at the table. You can launch the original **Gloomhaven** entry for flat pl
 Your saves and campaign remain in place. Before changing `GH_Data/boot.config`, the setup
 backs it up as `GH_Data/boot.config.gloomhavenvr-backup`.
 
+## Graphics settings
+
+In **VR Options → Graphics**, **Scenario grass (%)** trades decorative grass density
+for less rendering work. Standalone Frame defaults to 25%; 100% restores the original
+detail. These settings are also available on PC, and saved choices are retained.
+
 ## Updating
 
 When a newer release is available, the VR main menu offers an update. You can also extract the

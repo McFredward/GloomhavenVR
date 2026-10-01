@@ -547,7 +547,31 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 599;
+    public const ushort ModBuild = 600;
+
+    // ModBuild 600 — the Build 599 Frame run confirms severe post-loading
+    // large-scenario cost, with 1493–4341 visible-renderer estimates and
+    // 83–118 ms mean frames. The maintainer explicitly authorized scenery
+    // quality compromises on 2026-10-01. A reversible decorative floor-cover
+    // density budget preserves full PC detail and seeds 25% on standalone
+    // Frame; figures, game obstacles, floors, walls, doors, cards and original
+    // widgets are excluded. It suppresses renderer submission only, without
+    // editing native object/reveal/material state, and discovers new content
+    // through procedural placement notifications. Wall-cache material facts
+    // and ancestor verdicts are reused only within synchronous preparation;
+    // unchanged light scans and Unity writes avoid redundant work everywhere.
+    // The Debug census now samples the actual loaded scenario despite a
+    // prior menu cooldown, excludes forceRenderingOff from its estimates,
+    // and adds six selected game/third-party callback probes. A subsequent
+    // ruling makes Frame a defaults profile: all new quality/work-removal
+    // settings are available on PC too, both new caches can be bypassed,
+    // and the existing desktop-mirror toggle is live on Frame instead of
+    // forced and hidden. Numeric timing spans remain unchanged, but their
+    // residual no longer claims GPU wait or CPU idle; old and new report
+    // text both parse. No wire or
+    // bundle changes. Headset picture and actual frame-rate gains need the
+    // next hardware run; counts and timing spans do not establish GPU busy
+    // time or actual per-eye draw calls.
 
     // ModBuild 599 — the Build 598 Steam Frame run entered ProcGen directly;
     // it did not test the 3D map. A low-load interval was mistakenly called

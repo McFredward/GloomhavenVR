@@ -56,11 +56,7 @@ internal sealed partial class FlatScreen
                                       ? "(runtime HONORED — the mirror carries the left eye only). "
                                       : "(runtime IGNORED — the OpenXR compositor's mirror is not controllable " +
                                         "from managed code here; the desktop-camera scrub keeps the monitor clean instead). ") +
-                                  "The end-of-frame 2D-menu composite blit is skipped." +
-                                  (_frameStandalone
-                                      ? " Steam Frame VR fixes this effective behavior on even " +
-                                        "when the saved [WorldUI] DesktopMirrorLeftEye value is off."
-                                      : string.Empty));
+                                  "The end-of-frame 2D-menu composite blit is skipped.");
         }
     }
 
@@ -99,11 +95,9 @@ internal sealed partial class FlatScreen
     /// the sink), so the WorldUI canvas conversion that consumes it in VR is unaffected —
     /// only its DESKTOP output is suppressed. Fully reversible (targetTexture → null) on
     /// VR stop / toggle off / hot reload / when the flat screen shows (CaptureStack owns
-    /// the cameras then). The PC preference [WorldUI] DesktopMirrorLeftEye stays live;
-    /// Frame VR always uses this route despite an older saved PC preference.
+    /// the cameras then). [WorldUI] DesktopMirrorLeftEye stays live on every platform.
     ///
-    /// On Steam Frame the already-shipped path is forced while VR runs, even if the
-    /// old PC preference was saved as off. The native 2D menu is still captured when
+    /// The native 2D menu is still captured when
     /// FlatScreen is visible; only its otherwise-unused desktop render is skipped.
     /// Instrumented: the full backbuffer inventory is logged once per scene so the next
     /// hardware log names exactly which cameras reached the desktop and what was scrubbed.

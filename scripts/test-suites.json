@@ -1142,6 +1142,66 @@
         "local"
       ],
       "weight": 20
+    },
+    {
+      "id": "wall-read-facts",
+      "command": [
+        "bash",
+        "scripts/wall-read-facts-tests.sh"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 14
+    },
+    {
+      "id": "light-stabiliser-writes",
+      "command": [
+        "python3",
+        "scripts/check-light-stabiliser-writes.py"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 6
+    },
+    {
+      "id": "scene-profile-gate",
+      "command": [
+        "python3",
+        "scripts/scene-profile-gate-tests.py"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 6
+    },
+    {
+      "id": "scenario-scenery-budget",
+      "command": [
+        "python3",
+        "scripts/check-scenario-scenery-budget.py"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 8
+    },
+    {
+      "id": "frame-perf-report",
+      "command": [
+        "python3",
+        "scripts/test-frame-perf-report.py"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 1
     }
   ]
 }

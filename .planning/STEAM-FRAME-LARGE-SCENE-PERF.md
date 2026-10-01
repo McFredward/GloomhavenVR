@@ -1,5 +1,12 @@
 # Steam Frame: large-scenario performance program
 
+Build 600 implements the first maintainer-approved reversible scenery compromise
+alongside exact work removal. See
+[STEAM-FRAME-SCENERY-600.md](STEAM-FRAME-SCENERY-600.md). The 2026-10-01 authorization
+means decorative quality reductions can proceed in parallel with structural CPU
+work; they no longer need to wait for all structural costs to fall. Card/window
+parity and gameplay visibility still remain mandatory.
+
 The subsequent Build 599 hardware review is in
 [STEAM-FRAME-TWELFTH-HARDWARE.md](STEAM-FRAME-TWELFTH-HARDWARE.md).
 It rules out the nine sampled native callbacks as the main CPU wall; actual
@@ -49,7 +56,7 @@ recorders return no samples in this release player.
 3. Target significant native CPU work identified by timing, especially work
    that can be prepared during loading or skipped when truly unchanged. Do
    not disable native controllers simply because their UI is not drawn.
-4. Once the structural costs fall, consider optional Frame-only visual
+4. Alongside structural work, implement explicitly adjustable visual
    compromises such as a conservative distance/size limit for decorative
    foliage. Never hide gameplay geometry, change interaction or reduce
    multiplayer presentation silently. Maintain PC behavior and offer a

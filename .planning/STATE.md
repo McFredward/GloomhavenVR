@@ -1,6 +1,24 @@
 # State — where the project stands
 
-**Updated 2026-10-01: dev 1.1.0 / ModBuild 599, hardware attribution reviewed.**
+**Updated 2026-10-01: dev 1.1.0 / ModBuild 600, configurable scenery candidate.**
+The maintainer explicitly authorized visual compromises for large Frame scenarios,
+then clarified that all Frame optimizations must be settings available on PC too;
+Frame is a different defaults profile, not a forced runtime policy. Build 600
+adds a reversible decorative floor-grass density control (PC100%, Frame25%),
+switchable shared wall-read and light-work caches, and restores the desktop mirror
+toggle on Frame instead of overriding a saved off choice. New-scene Debug census
+sampling bypasses an older menu cooldown; broader selected callback timings and
+honest residual-span labels support the next hardware comparison. Original game
+obstacles, walls, floors, cards, NPCs and local/remote widgets remain outside the
+grass budget. Actual qualifying counts, headset appearance and FPS improvement
+remain hardware-open. See [STEAM-FRAME-SCENERY-600.md](STEAM-FRAME-SCENERY-600.md).
+Final local validation passed: 14/14 source gates, 86/86 local suites, 286,620
+wire/golden assertions, all three bundle-format checks and a Release build with
+zero warnings/errors. The compiled-form review reports the intended 24 changed
+types and six added types; propagated network changes are only the Build 600
+constant. No config key, patch target or log marker was removed. Headset gains
+and the loaded scene's actual eligible grass population remain unverified.
+
 The new Build 599 run confirms severe tracked scenario cost at 3408 pixels/eye:
 complete post-load windows average 82.85 and 117.64 ms/frame at different views.
 The nine selected native callbacks cost about 1.13 ms in the final sample and
@@ -8,8 +26,9 @@ do not explain the CPU wall. Their Debug summaries exist in the matching
 `Player.log`, while `LogOutput.log` filters them. Unity draw counters expose only
 zeros, and the menu census cooldown suppresses the scenario's detailed census.
 No actual GPU busy time or matched Build 598/599 improvement is established.
-Wall-table commits still cause 254–292 ms gameplay hitches. This review changes
-documentation only and does not rerun unchanged runtime tests. See
+Wall-table commits still cause 254–292 ms gameplay hitches. That preceding
+Build 599 evidence review changed documentation only and did not rerun unchanged
+runtime tests. See
 [STEAM-FRAME-TWELFTH-HARDWARE.md](STEAM-FRAME-TWELFTH-HARDWARE.md).
 
 The latest Build 598 Frame log is a direct `ProcGen` scenario run, with no 3D-map
@@ -163,6 +182,14 @@ change per build) → this file (where things stand and what is owed) → the bu
 ---
 
 ## 1. Position
+
+- **dev / 1.1.0 / ModBuild 600 (configurable Frame candidate):** reduce verified
+  standalone floor-grass render submission by a stable user-selected density;
+  remove repeated shared wall/material and unchanged light work with explicit
+  bypass settings. Frame seeds defaults; PC can reproduce them, and Frame can
+  disable them. The former forced/hidden Frame mirror has a live setting again.
+  Debug census/probes cover the real loaded scenario with unchanged old-log
+  parser support. This is source-proven implementation, not hardware acceptance.
 
 - **dev / 1.1.0 / ModBuild 599 (large-scene attribution):** separate the
   native game loop, Unity render submissions and actual GPU time before

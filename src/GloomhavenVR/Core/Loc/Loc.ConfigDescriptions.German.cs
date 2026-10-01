@@ -2644,10 +2644,10 @@ internal static partial class Loc
                 "Der flache Monitor spiegelt NUR das LINKE Auge des HMD: setzt XRSettings.gameViewRenderMode "
                 + "fest auf LeftEye und überspringt den Composite-Blit des 2D-Menüs auf dem Desktop, sodass der "
                 + "Desktop in jedem Zustand ein sauberes Einzelaugen-Spiegelbild zeigt. Aus = altes Verhalten "
-                + "(2D-Menü-Composite in Menüs, sonst unkontrollierter XR-Standardspiegel). Auf Steam Frame "
-                + "Standalone-VR ist der linke Augenspiegel immer aktiv und verworfene Desktop-Kamerabilder "
-                + "werden unterdrückt, auch wenn die gespeicherte PC-Einstellung aus ist; der Schalter ist "
-                + "dort im VR-Menü ausgeblendet.",
+                + "(2D-Menü-Composite in Menüs, sonst unkontrollierter XR-Standardspiegel). Ein unterdrückt "
+                + "zusätzlich verworfene Desktop-Kamerabilder, wenn der schwebende 2D-Schirm unsichtbar ist. "
+                + "Diese Einstellung gilt auf PC und Steam Frame. Standalone Frame beginnt mit Ein; "
+                + "gespeicherte Einstellungen bleiben erhalten.",
             // [WorldUI] WristHud{Pitch..OffsetZ} had translations here until 2026-08-09. They are
             // retired ("LEGACY — no effect", WorldUIConfig.Bind) and a retired entry never reaches
             // the UI, so a translation for one is a promise the menu cannot keep. The live pose

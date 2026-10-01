@@ -125,6 +125,12 @@ Deine Spielstände und deine Kampagne bleiben erhalten. Vor der Änderung von
 `GH_Data/boot.config` sichert das Setup die Datei als
 `GH_Data/boot.config.gloomhavenvr-backup`.
 
+## Grafikeinstellungen
+
+Unter **VR-Optionen → Grafik** reduziert **Szenario-Gras (%)** die dekorative Grasdichte
+und damit den Renderaufwand. Standalone Frame beginnt mit 25%; 100% stellt die ursprünglichen
+Details wieder her. Diese Einstellungen gibt es auch auf PC; gespeicherte Werte bleiben erhalten.
+
 ## Updates
 
 Wenn ein neueres Release verfügbar ist, bietet das VR-Hauptmenü ein Update an. Du kannst auch

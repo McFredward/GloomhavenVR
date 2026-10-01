@@ -42,8 +42,10 @@ internal static class FrameLaunchVectors
                "PC VR keeps a saved desktop mirror off choice");
         t.True(FrameDesktopPolicy.MirrorLeftEye(true, false, true),
                "PC VR keeps a saved desktop mirror on choice");
-        t.True(FrameDesktopPolicy.MirrorLeftEye(false, true, true),
-               "Frame VR suppresses the unneeded flat spectator render despite an old saved choice");
+        t.True(!FrameDesktopPolicy.MirrorLeftEye(false, true, true),
+               "Frame VR honors a saved off choice; platform defaults must never force it on");
+        t.True(FrameDesktopPolicy.MirrorLeftEye(true, true, true),
+               "Frame VR can enable the exact same desktop work reduction as PC VR");
         t.True(!FrameDesktopPolicy.MirrorLeftEye(false, true, false),
                "Frame original flat launch does not force the VR mirror");
         t.True(FrameDesktopPolicy.ScrubGameCameras(true, true, false),

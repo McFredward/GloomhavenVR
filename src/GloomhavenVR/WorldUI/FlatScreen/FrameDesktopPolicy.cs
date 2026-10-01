@@ -1,16 +1,15 @@
 namespace GloomhavenVR.WorldUI;
 
 /// <summary>
-/// Steam Frame's VR-only library entry has no useful desktop spectator view. Even if an
-/// existing PC-style config disabled the left-eye mirror, its game cameras must not keep
-/// drawing a second flat scenario and native UI to the SteamVR theater backbuffer.
-/// The regular PC preference is unchanged, and the native 2D menu still renders into
-/// FlatScreen's captured texture for the in-headset menu.
+/// Desktop work follows the same live setting on every platform. The maintainer's
+/// 2026-10-01 ruling supersedes Build 594's forced Frame mirror: standalone Frame is
+/// a defaults profile, not a second runtime policy that ignores the player's choice.
+/// The native 2D menu still renders into FlatScreen's in-headset capture texture.
 /// </summary>
 internal static class FrameDesktopPolicy
 {
     internal static bool MirrorLeftEye(bool configured, bool frameStandalone, bool vrRunning) =>
-        configured || (frameStandalone && vrRunning);
+        configured;
 
     internal static bool ScrubGameCameras(bool mirrorLeftEye, bool vrRunning, bool flatScreenVisible) =>
         mirrorLeftEye && vrRunning && !flatScreenVisible;

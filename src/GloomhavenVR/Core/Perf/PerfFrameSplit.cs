@@ -980,7 +980,7 @@ internal static partial class PerfFrameSplit
                    + "include engine work and possible waits; scene material slots are candidates, "
                    + "not measured draw calls or GPU busy time. "
                    + (PerfConfig.CullSubmitSplitOn
-                       ? "Read the per-camera seam figures above as callback intervals."
+                       ? "Read the per-camera seam figures above for WHICH HALF has the longer callback interval."
                        : "Switch [Perf] CullSubmitSplit on for the per-camera seam intervals.");
         if (b >= 0.5f)
             return $"the BLOCKED-labelled unbracketed remainder is {b * 100f:F0}% of the frame. "

@@ -1057,7 +1057,7 @@ internal static class PerfSceneProfile
         sb.Append(" | behaviours: ").Append(total)
           .Append(" MonoBehaviour(s) on ACTIVE GameObjects, ").Append(enabled)
           .Append(" of them enabled")
-          .Append(" | CALLBACK-ELIGIBLE ACTIVE COMPONENTS (enabled behaviours whose type "
+          .Append(" | PER-FRAME LISTS (callback-eligible enabled behaviours whose type "
                   + "declares the method; counts do not measure time): Update ").Append(upd)
           .Append(", LateUpdate ").Append(late).Append(", FixedUpdate ").Append(fixedUpd)
           .Append(" — of which the mod's own are ").Append(modUpd).Append(" Update and ")
@@ -1453,6 +1453,13 @@ internal static class PerfSceneProfile
           .Append(" skinWeights=").Append(QualitySettings.skinWeights)
           .Append(" antiAliasing=").Append(QualitySettings.antiAliasing)
           .Append(" vSync=").Append(QualitySettings.vSyncCount);
+
+        // A/B values must be visible beside actual native quality, not inferred from a
+        // platform marker. The same live settings can be used on PC and standalone Frame.
+        sb.Append(" | scenarioGrass=").Append(PerfConfig.ScenarioSceneryDensityPercentValue).Append('%')
+          .Append(" sharedWallReadCache=").Append(PerfConfig.SharedWallReadCacheOn)
+          .Append(" lightWorkCache=").Append(PerfConfig.LightStabiliserWorkCacheOn)
+          .Append(" desktopMirror=").Append(WorldUI.WorldUIConfig.DesktopMirrorLeftEye?.Value ?? Defaults.DesktopMirrorLeftEye);
 
         // The two TEXTURE-side quality dials, added 2026-08-23 with the [Perf] TEX line. They are
         // duplicated onto this line deliberately: TEX can be rationed away with the SCENE walk it

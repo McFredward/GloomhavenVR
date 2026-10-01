@@ -223,18 +223,12 @@ internal sealed partial class FlatScreen
 
     // ---- ITEM 9: desktop (flat monitor) = clean LEFT-EYE mirror, nothing else --------------
     /// <summary>
-    /// On PC, [WorldUI] DesktopMirrorLeftEye remains the player's live preference.
-    /// The Frame-only VR library entry forces the same already-shipped sink/mirror path:
-    /// Build 593 Frame logs contain no ITEM9 line and show UI Camera and
-    /// ScenarioCamera drawing to BACKBUFFER during a scenario, consistent with an
-    /// older saved preference that disabled the mirror.
-    /// The Frame does not need this second flat scene and SteamVR displays its native
-    /// overlays in a theater panel the VR player cannot use. Cache the install marker
-    /// once; probing the file every rendered frame would undo the saved work.
+    /// [WorldUI] DesktopMirrorLeftEye is the player's live preference on every platform.
+    /// Build 594 forced it on Frame, but the maintainer now requires all Frame optimizations
+    /// to be settings that can be reproduced on PC or disabled on Frame (2026-10-01).
     /// </summary>
-    private readonly bool _frameStandalone = FrameDefaults.Active;
     private bool DesktopMirrorLeftEye => FrameDesktopPolicy.MirrorLeftEye(
-        WorldUIConfig.DesktopMirrorLeftEye.Value, _frameStandalone, VRSession.IsRunning);
+        WorldUIConfig.DesktopMirrorLeftEye.Value, false, VRSession.IsRunning);
     /// <summary>True while we currently hold <see cref="UnityEngine.XR.XRSettings.gameViewRenderMode"/> at LeftEye.</summary>
     private bool _mirrorModeApplied;
     /// <summary>Original mirror mode captured once so VR-off / hot-reload restores it.</summary>

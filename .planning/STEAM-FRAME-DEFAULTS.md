@@ -19,6 +19,23 @@ have no marker and keep the existing `Defaults.*` values.
 | `PixelLightCount` | 0 | 0 | 0 live pixel lights |
 | `[WallFade] RescanIntervalSeconds` | 4.0 | 2.0 | 4.0 s live cadence |
 
+Build 600 adds a maintainer-authorized scenery compromise and makes Frame a
+defaults profile throughout: no platform marker may override these live choices
+or hide their controls. All entries below can be changed on PC and Frame; saved
+values take precedence. The two work caches are lossless optimizations on both
+platforms, with off switches for comparison and restoration of the old work path.
+
+| Key | Fresh Frame | Fresh PC | Control and behavior |
+|---|---:|---:|---|
+| `[Optimize] ScenarioSceneryDensityPercent` | 25 | 100 | VR Options → Graphics → Scenario grass (%); 100 restores original decorative grass rendering |
+| `[Optimize] SharedWallReadCache` | true | true | Advanced options/config; false restores repeated material and ancestor queries |
+| `[Optimize] LightStabiliserWorkCache` | true | true | Advanced options/config; false restores original light lookup/write cadence |
+| `[WorldUI] DesktopMirrorLeftEye` | true | true | Existing live desktop-mirror toggle; a saved false is respected on Frame too |
+
+The Build 594 forced Frame mirror and hidden toggle are superseded by this
+2026-10-01 instruction. See [STEAM-FRAME-SCENERY-600.md](STEAM-FRAME-SCENERY-600.md)
+for the scenery exclusions, evidence limits and next headset comparison.
+
 The game already creates a fresh `GlobalData` with `QualityLevel = "Fastest"`
 (`GH.Runtime.dll`, `GlobalData()`), its lowest native graphics preset. A saved
 quality level or custom graphics profile is loaded by

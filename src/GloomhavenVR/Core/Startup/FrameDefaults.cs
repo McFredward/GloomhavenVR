@@ -19,6 +19,7 @@ internal static class FrameDefaults
     internal const bool ForceFullTextureResolution = true;
     internal const bool ForceTextureStreamingOff = false;
     internal const int PixelLightCount = 0;
+    internal const bool DesktopMirrorLeftEye = true;
 
     // The game's native Fantastic profile uses a 900 MB streaming budget. This minimum is
     // inert under the fresh native Fastest profile, which has streaming disabled; unlike the

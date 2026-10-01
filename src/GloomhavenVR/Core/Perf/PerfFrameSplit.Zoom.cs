@@ -494,6 +494,8 @@ internal static partial class PerfFrameSplit
         float farVis = Median(ViewVisible, b, v, true, out int farVisN);
 
         sb.Append(" | ZOOM — how frame time varies with VIEWING DISTANCE, from this window alone. "
+                  + "HEAD CAMERA DECLARES VISIBLE is a legacy label; visibility samples are "
+                  + "scene-wide and do not measure actual head-camera draws. "
                   + "Frames bucketed by the head's distance from the board centre (before this axis "
                   + "existed the same claim needed 10 s heartbeats matched against 30 s windows by "
                   + "hand): NEAR third (<=").Append(nearMax.ToString("F1")).Append("wu, n=").Append(a)
@@ -561,7 +563,9 @@ internal static partial class PerfFrameSplit
 
         float share = Mathf.Abs(dFrame) < 0.001f ? 0f : 100f * dLogic / dFrame;
         float renderShare = Mathf.Abs(dFrame) < 0.001f ? 0f : 100f * dRender / dFrame;
-        string direction = dFrame > 0f ? "FAR THIRD IS SLOWER BY" : "FAR THIRD IS FASTER BY";
+        string direction = dFrame > 0f
+            ? "PULLING BACK COSTS (observed far-third difference, not a causal claim)"
+            : "PULLING BACK SAVES (observed far-third difference, not a causal claim)";
         string where;
         if (share >= 50f)
         {
