@@ -598,8 +598,15 @@ internal sealed class TownServiceRitual : IDisposable
             return;
         }
         TownServiceRitualLayout.Placement placement = TownServiceRitualLayout.Folio(id);
+        // Capacity is a native label, not part of the discarded flat card chooser.
+        // Build 593's in-place veil zeros CardsDisplay.alpha after this label has
+        // been converted. Its original ancestor snapshot must ignore that one
+        // presentation gate or the points disappear above the immersive book.
+        Transform? detachedList = id == 13
+            ? _window.GetComponent<UINewEnhancementWindow>().CardsDisplay.transform
+            : null;
         _surfaces.Add(new TownServiceSurface(id, (RectTransform)source.transform, placement.Position,
-            placement.Size.x, Root, placement.Rotation, placement.Size.y));
+            placement.Size.x, Root, placement.Rotation, placement.Size.y, detachedList));
     }
 
     private void Add(Component source, string key, Selectable button, Func<object?> identity,

@@ -23,7 +23,8 @@ internal sealed class TownServiceSurface : IDisposable
     private float _visibility = 1f, _inheritedAlpha = 1f;
 
     internal TownServiceSurface(ushort id, RectTransform source, Vector3 offset, float width, Transform? counterAnchor = null,
-        Quaternion? anchorRotation = null, float maxHeight = 0f)
+        Quaternion? anchorRotation = null, float maxHeight = 0f,
+        Transform? detachedNativeList = null)
     {
         Id = id;
         _offset = offset;
@@ -36,9 +37,13 @@ internal sealed class TownServiceSurface : IDisposable
         {
             _nativeAncestors.Add(t);
             CanvasGroup? group = t.GetComponent<CanvasGroup>();
+            // The enhancement-point heading is detached into its own physical folio.
+            // The old CardsDisplay gate now hides only the unused flat card list; its
+            // zero alpha must not be inherited by the detached, still-live heading.
+            // Retain every other native ancestor so genuine window visibility wins.
             if (group != null && inheritGroups)
             {
-                _nativeGroups.Add(group);
+                if (t != detachedNativeList) _nativeGroups.Add(group);
                 if (group.ignoreParentGroups) inheritGroups = false;
             }
             // Follow the logical native window, not its old HUD root. Its world conversion
