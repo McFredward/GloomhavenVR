@@ -200,6 +200,7 @@ def main():
         if not args.no_negative_controls:
             variants += [
                 ("foley-mutates-rack", "TownServiceCabinetAudio.cs", "host.transform.SetParent(_anchor.parent, false);", "host.transform.SetParent(_anchor, false);", "first category sound does not change original rack topology"),
+                ("catalog-layout-wire-loss", "TownServiceCodec.cs", "byte[] layout = frame.Rack?.Layout != null ? TownCatalogLayout.Write(frame.Rack.Layout) : Array.Empty<byte>();", "byte[] layout = Array.Empty<byte>();", "full owner cabinet layout survives original public module capture and additive wire records"),
                 ("pending-rack-input-lock", "TownServiceMirror.cs", "if (clock.Waiting && clock.Latest != null)", "if (false && clock.Latest != null)", "missing observer artwork never permanently disables the local public input proxy"),
                 ("donation-received-clock", "TownServiceMirror.cs", "? Time.unscaledTime - frame.TempleDonationCommitAge", "? Time.unscaledTime", "remote donation keeps its owner's commit age instead of starting a new blessing on receipt"),
                 ("async-cabinet-epoch-spent", "TownServiceCabinetAudio.cs", "else StartPending();", "else _pending = false;", "late-loaded cabinet clip joins its pending owner epoch at the current sound phase"),

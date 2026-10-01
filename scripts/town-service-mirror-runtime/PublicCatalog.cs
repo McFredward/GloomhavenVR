@@ -136,15 +136,30 @@ public static partial class MirrorProgram
         owner.position = new Vector3(2f, 3f, 4f); audio.Tick();
         Check(Vector3.Distance(source.transform.position, rack.position) < .0001f,
             "uncaptured cabinet sound origin follows the shared map mechanism");
+        // Cold pages retain the owner's physical layout, even when another peer's
+        // native pool history used a different order. Exercise the full bounded
+        // layout in production capture, codec and the public receiver, not a model.
+        TownCatalogSlot[] layout = Enumerable.Range(0, TownCatalogLayout.MaxLayout)
+            .Select(i => new TownCatalogSlot(3000 + i,
+                (ushort)((i % TownCatalogLayout.Categories) * TownCatalogLayout.SlotsPerCategory
+                    + i / TownCatalogLayout.Categories))).ToArray();
+        var rackClock = new TownRackState { Cassette = true, Turn = 1, From = 0,
+            To = 256, Page = 0, Elapsed = .04f, Members = new[] { new TownRackMember(99, 256, false) },
+            Layout = layout };
         using (TownServiceMirror.UsePublicLane())
         {
             TownServiceMirror.BeginSession(1, 903, owner, rack);
             TownServiceMirror.RegisterModule(10, 1, rack, address: "merchant.rack|");
-            TownServiceMirror.SetRack(10, new TownRackState { Cassette = true, Turn = 1, From = 0,
-                To = 256, Page = 0, Elapsed = .04f, Members = new[] { new TownRackMember(99, 256, false) } });
+            TownServiceMirror.SetRack(10, rackClock);
         }
-        var packets = Capture(); NetPlayerActors.Peer = 3;
+        var packets = Capture();
+        Check(packets.Any(packet => TownServiceCodec.TryRead(packet, packet.Length, out var frame)
+            && frame!.Module == 10 && TownCatalogLayout.Same(frame.Rack?.Layout, layout)),
+            "full owner cabinet layout survives original public module capture and additive wire records");
+        NetPlayerActors.Peer = 3;
         Receive(2, packets); TownServiceMirror.TickRemote(_ => observer);
+        Check(TownCatalogLayout.Same(TownServiceMirror.PublicRack?.Layout, layout),
+            "late public author receives every cold-page physical slot instead of its local pool order");
         Check(Remote(-2, 10) != null && Remote(-2, 10)!.Structure == initial.Structure,
             "first peer category press rebuilds the same public rack instead of an empty cabinet");
         Check(GloomhavenVR.WorldUI.TownServiceDepthOrder.Bound.Contains(Remote(-2, 10)!.Root.parent),
