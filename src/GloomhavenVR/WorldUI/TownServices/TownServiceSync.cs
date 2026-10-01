@@ -13,7 +13,7 @@ namespace GloomhavenVR.WorldUI;
 
 /// <summary>Publishes owner-authored original native service widgets after their final VR layout.
 /// Gameplay controllers remain exclusively on their original local objects.</summary>
-internal sealed class TownServiceSync
+internal sealed partial class TownServiceSync
 {
     private static readonly TownServiceSync Private = new(), Public = new();
     internal static void Prepare() => Private.PrepareCore();
@@ -22,7 +22,7 @@ internal sealed class TownServiceSync
         Private._session == sourceSession && Private._service == service && Private._generation != 0
         && TownServiceMirror.LocalOwnsInteraction(service, Private._generation);
     internal static void Reset() => Private.ResetCore();
-    internal static void ResetPublic() { using (TownServiceMirror.UsePublicLane()) Public.ResetCore(); }
+    internal static void ResetPublic() { ResetStock(); using (TownServiceMirror.UsePublicLane()) Public.ResetCore(); }
     internal static void TickPublic(Transform frame, Transform station, TownServiceCatalog catalog, uint session, float age)
     { using (TownServiceMirror.UsePublicLane()) Public.TickCatalog(frame, station, catalog, session, age); }
     private sealed class Published
@@ -80,6 +80,7 @@ internal sealed class TownServiceSync
     {
         _sharedFrame = sharedFrame;
         TownServiceMirror.SharedFrameForRemote = ResolveFrame;
+        TickStock(sharedFrame);
         PrepareCore();
         IReadOnlyList<TownServiceEnhancementHandoff.ReturnPresentation> returns = TownServiceEnhancementHandoff.Returning;
         bool active = TownServicePresentation.Active && stationRoot != null;
@@ -295,14 +296,7 @@ internal sealed class TownServiceSync
 
                 foreach (TownServiceCatalog.Entry entry in catalog.Entries)
                 {
-                    if (!entry.Current || !entry.Warm) continue;
-                    if (entry.Sample.IsMoving)
-                    {
-                        PriorityRoots.Add(entry.MountRoot);
-                        PriorityRoots.Add(entry.CardRoot);
-                        if (entry.BodyRoot != null) PriorityRoots.Add(entry.BodyRoot);
-                        if (entry.RowContent != null) PriorityRoots.Add(entry.RowContent);
-                    }
+                    if (!entry.Current || !entry.Warm || entry.Sample.IsMoving) continue;
                     Publish("merchant.cardmount", entry.MountRoot, prewarm: true);
                     Publish("item." + entry.ItemId.ToString(System.Globalization.CultureInfo.InvariantCulture), entry.CardRoot, prewarm: true);
                     Publish("merchant.cardbody", entry.BodyRoot, prewarm: true);
@@ -433,7 +427,7 @@ internal sealed class TownServiceSync
             || !Sources.TryGetValue(rack.Root, out SourceEntry? crank) || housing.Parts.Count != 1 || crank.Parts.Count != 1) return;
         RackMembers.Clear(); ushort rackId = housing.Parts[0].Id;
         foreach (TownServiceCatalog.Entry entry in catalog.Entries)
-            if (entry.Warm)
+            if (entry.Warm && !entry.Sample.IsMoving)
             {
                 AddRackMembers(entry.MountRoot, entry, rack, rackId);
                 AddRackMembers(entry.CardRoot, entry, rack, rackId);
@@ -442,15 +436,17 @@ internal sealed class TownServiceSync
             }
         RackMembers.Sort(CompareRackMembers);
         TownRackState? previous = housing.RackClock;
+        TownCatalogSlot[] layout = catalog.StockLayout;
         bool sameMembers = previous != null && previous.Members.Length == RackMembers.Count;
         if (sameMembers) for (int i=0;i<RackMembers.Count;i++) if (!RackMembers[i].Same(previous!.Members[i])) {sameMembers=false;break;}
         if (sameMembers && previous!.Turn == rack.TurnEpoch && previous.Elapsed == rack.TurnElapsed
             && previous.ScrollDirection == rack.ScrollDirection && previous.PageCount == rack.PageCount
             && previous.LeadAngle == rack.LeadAngle && previous.Crank == crank.Parts[0].Id
-            && previous.Page == rack.Page && previous.From == rack.FromPage && previous.To == rack.ToPage) return;
+            && previous.Page == rack.Page && previous.From == rack.FromPage && previous.To == rack.ToPage
+            && TownCatalogLayout.Same(previous.Layout, layout)) return;
         var state = new TownRackState { Cassette = true, ScrollDirection = rack.ScrollDirection, PageCount = (ushort)rack.PageCount, Turn = rack.TurnEpoch, Elapsed = rack.TurnElapsed, LeadAngle = rack.LeadAngle,
             Crank = crank.Parts[0].Id, Page = (ushort)rack.Page, From = (ushort)rack.FromPage, To = (ushort)rack.ToPage,
-            Members = sameMembers ? previous!.Members : RackMembers.ToArray() };
+            Members = sameMembers ? previous!.Members : RackMembers.ToArray(), Layout = layout };
         housing.RackClock = state; TownServiceMirror.SetRack(rackId, state);
     }
     private int CompareRackMembers(TownRackMember a,TownRackMember b)

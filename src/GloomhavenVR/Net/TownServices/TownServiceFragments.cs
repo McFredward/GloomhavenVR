@@ -9,6 +9,7 @@ internal sealed class TownServiceFragments
     // One background snapshot is allowed to finish while held-card updates preempt it.
     // At the unchanged globally saturated event cap this needs more than 32 seconds.
     internal const double AssemblyLifetime = 120;
+    internal const ulong StockLaneMarker = 1UL << 63;
     private readonly Dictionary<long, ExtrasFragments> _streams = new();
     private readonly Dictionary<long, double> _lastActivity = new();
     private readonly List<long> _expired = new();
@@ -27,10 +28,10 @@ internal sealed class TownServiceFragments
         }
         int lane = Lane(packet, length);
         if (lane < 0) return null;
-        long key = ((long)sender << 17) | (uint)(stream | lane << 16);
+        long key = ((long)sender << 18) | (uint)(stream | lane << 16);
         if (!_streams.TryGetValue(key, out ExtrasFragments? assembler))
         {
-            if (_streams.Count >= 16 * (TownServiceFrame.MaxModules + 2)) return null;
+            if (_streams.Count >= 24 * (TownServiceFrame.MaxModules + 2)) return null;
             assembler = new ExtrasFragments(TownServiceCodec.MessageType, TownServiceCodec.FragmentType,
                 TownServiceFrame.MaxBytes, AssemblyLifetime);
             _streams.Add(key, assembler);
@@ -38,8 +39,21 @@ internal sealed class TownServiceFragments
         _lastActivity[key] = now;
         byte[]? result = assembler.Accept(sender, packet, length, now);
         if (result == null) return null;
-        if (stream == TownServiceFrame.BundleStream) return TownServiceCodec.TryReadBundle(result, result.Length, out _) ? result : null;
-        if (!TownServiceCodec.TryRead(result, result.Length, out TownServiceFrame? frame) || frame!.Module != stream) return null;
+        if (stream == TownServiceFrame.BundleStream)
+        {
+            if (!TownServiceCodec.TryReadBundle(result, result.Length, out byte[][]? bundle)) return null;
+            bool? publicCatalog = null;
+            foreach (byte[] member in bundle!)
+            {
+                if (!TownServiceCodec.TryRead(member, member.Length, out TownServiceFrame? decoded)
+                    || decoded!.VisitorStock != (lane == 2)) return null;
+                if (publicCatalog.HasValue && publicCatalog.Value != decoded.PublicCatalog) return null;
+                publicCatalog = decoded.PublicCatalog;
+            }
+            return result;
+        }
+        if (!TownServiceCodec.TryRead(result, result.Length, out TownServiceFrame? frame)
+            || frame!.Module != stream || frame.VisitorStock != (lane == 2)) return null;
         // A delayed census cannot identify the presentation sequence of an incomplete
         // module in another fragment lane. Never prune that assembly by membership;
         // idle expiration and the fixed pool bound reclaim retired lanes safely.
@@ -48,12 +62,13 @@ internal sealed class TownServiceFragments
     internal void Forget(int sender)
     {
         var keys = new List<long>();
-        foreach (long key in _streams.Keys) if (key >> 17 == sender) keys.Add(key);
+        foreach (long key in _streams.Keys) if (key >> 18 == sender) keys.Add(key);
         foreach (long key in keys) { _streams[key].Clear(); _streams.Remove(key); _lastActivity.Remove(key); }
     }
     internal void Clear() { foreach (ExtrasFragments assembler in _streams.Values) assembler.Clear(); _streams.Clear(); _lastActivity.Clear(); _expired.Clear(); _nextSweep = 0; }
-    // Bit 16 of the fragment sequence namespaces public stock independently from
-    // the same peer's private hand/service stream. The low module bits stay unchanged.
+    // Bit 16 retains the historical private/public prefix. The high sequence bit
+    // marks only the additive stock lane; old bit 17 remains a sequence counter.
+    // A stock+public combination is invalid, rather than a fourth cosmetic lane.
     private static int Lane(byte[] packet, int length)
     {
         bool compressed = NetPacket.PeekType(packet, length) == NetProtocol.MsgPresentationCompression;
@@ -67,6 +82,8 @@ internal sealed class TownServiceFragments
             {
                 if (count <= (compressed ? 15 : 12)) return -1;
                 int next = packet[at + 2] & 1;
+                if ((packet[at + 7] & 128) != 0)
+                { if (next != 0) return -1; next = 2; }
                 if (lane >= 0 && lane != next) return -1;
                 lane = next;
             }

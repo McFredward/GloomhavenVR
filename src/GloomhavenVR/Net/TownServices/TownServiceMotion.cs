@@ -45,6 +45,7 @@ internal sealed class TownServiceMotion
         // leaving a stationary purse/card between successive hand samples.
         _continuousVisitorMotion = address == "ritual.purse.held|"
             || address == "merchant.heldstock|"
+            || address.StartsWith("temple.row|", StringComparison.Ordinal)
             || address.StartsWith("inspectionbody.", StringComparison.Ordinal)
             || IsVisitorItem(address);
         _nodes = new Node[originalNodes.Length + 1]; _from = new State[_nodes.Length]; _to = new State[_nodes.Length];

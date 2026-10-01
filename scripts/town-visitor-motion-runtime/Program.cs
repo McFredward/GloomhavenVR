@@ -82,6 +82,7 @@ public static class InteractionProgram
         Response("item.41|QmFja2dyb3VuZA==:0", continuous: true);
         Response("inspectionbody.3dcccccd.3e99999a.p|", continuous: true);
         Response("merchant.heldstock|", continuous: true);
+        Response("temple.row|", continuous: true);
         Response("merchant.heldstock.invalid|", continuous: false);
         Response("merchant.crank|", continuous: false);
         Response("item.confirm|", continuous: false);
