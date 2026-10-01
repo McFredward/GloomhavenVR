@@ -44,6 +44,10 @@ SUITE_ROOTS = {
     'town-service-clearance': 'town-service-clearance',
     'town-merchant-handoff': 'town-merchant-handoff',
     'town-card-slots': 'town-card-slots',
+    'town-public-item-fronts': 'town-public-item-fronts',
+    'town-visitor-motion': 'town-visitor-motion',
+    'town-depth-order': 'town-depth-order',
+    'town-visitor-stock': 'town-visitor-stock',
 }
 MARKER = '.suite-success.json'
 RUN_NAME = re.compile(r'run-[a-z0-9_]{8}\Z')

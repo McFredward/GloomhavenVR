@@ -40,6 +40,7 @@ internal static class Program
             MapButtonTooltipVectors.Run(t);
             PresentationCompressionVectors.Run(t);
             TownServiceTransportVectors.Run(t);
+            TownVisitorStockTransportVectors.Run(t);
             TownResidentsVectors.Run(t);
             TownFaceVectors.Run(t);
             TownActivityVectors.Run(t);

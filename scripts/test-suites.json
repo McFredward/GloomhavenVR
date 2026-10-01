@@ -1246,6 +1246,17 @@
         "local"
       ],
       "weight": 12
+    },
+    {
+      "id": "town-visitor-stock",
+      "command": [
+        "python3",
+        "scripts/check-town-visitor-stock.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 15
     }
   ]
 }

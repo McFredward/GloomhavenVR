@@ -397,7 +397,8 @@ int tail = legacySize;
     {
         if (frame.VisitorStock && (frame.Service != 1 || frame.PublicCatalog
             || frame.Rack != null || frame.RackMember != null || frame.TransactionActive
-            || frame.TempleDonationKnown || frame.WorkspaceCloth != null || frame.Module == TownServiceFrame.VoiceModule))
+            || frame.TempleDonationKnown || frame.WorkspaceCloth != null
+            || frame.Module == TownServiceFrame.VoiceModule && !IsStockInspectionVoice(frame)))
             throw new InvalidDataException("Invalid visitor stock presentation lane.");
         if (frame.Rack?.Layout != null)
         {
@@ -509,6 +510,25 @@ int tail = legacySize;
                         throw new InvalidDataException("Invalid town-service text.");
             }
         }
+    }
+
+    // Public item inspection may outlive the visitor's private focus at another NPC.
+    // Its three cosmetic reactions have no transaction authority. Keep the exact
+    // unchanged voice envelope and refuse trade/donation commands on the stock lane.
+    private static bool IsStockInspectionVoice(TownServiceFrame frame)
+    {
+        if (frame.Structure != 0x564F0000u && frame.Structure != 0x564F0008u
+            && frame.Structure != 0x564F0009u) return false;
+        if (frame.Sequence > uint.MaxValue || frame.BaseSequence != 0 || frame.Template != 1
+            || frame.TemplateAddress != TownServiceFrame.VoiceAddress || !frame.Visible
+            || frame.ParentModule != TownServiceFrame.ManifestModule || frame.ParentBinding != 0
+            || frame.ParentAlpha != 1f || frame.HasCanvasFrame || frame.Modules == null
+            || frame.Modules.Length != 0 || frame.Nodes == null || frame.Nodes.Length != 1
+            || frame.Nodes[0] == null || frame.Nodes[0].Binding != 1 || frame.Nodes[0].Values.Count != 0
+            || frame.Pose == null || frame.Pose.Length != 10) return false;
+        for (int at = 0; at < 10; at++)
+            if (frame.Pose[at] != (at >= 6 ? 1f : 0f)) return false;
+        return true;
     }
     private static void Finite(float value)
     { if (float.IsNaN(value) || float.IsInfinity(value)) throw new InvalidDataException("Non-finite town-service geometry."); }

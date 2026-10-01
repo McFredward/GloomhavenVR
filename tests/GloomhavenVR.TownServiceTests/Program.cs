@@ -139,6 +139,22 @@ internal static class Program
         RejectWrite(frame, "stock presentation cannot claim an NPC transaction");
         frame.TransactionActive = false; frame.Service = 2;
         RejectWrite(frame, "merchant stock cannot enter temple gameplay or presentation scope");
+        foreach (uint cue in new[] { 0u, 8u, 9u })
+        {
+            frame = new TownServiceFrame { Service = 1, Session = 4, Sequence = 3,
+                VisitorStock = true, Module = TownServiceFrame.VoiceModule, Template = 1,
+                Structure = 0x564F0000u | cue, TemplateAddress = TownServiceFrame.VoiceAddress,
+                Visible = true, Pose = Pose(), Nodes = new[] { new TownServiceNode { Binding = 1 } } };
+            bytes = TownServiceCodec.Write(frame);
+            Check(TownServiceCodec.TryRead(bytes, bytes.Length, out read) && read!.VisitorStock,
+                "only authenticated stock inspection cosmetics may travel independently of private NPC focus");
+            frame.Structure = 0x564F0001u;
+            RejectWrite(frame, "stock cosmetics cannot relay a purchase confirmation");
+            frame.Structure = 0x564F0002u;
+            RejectWrite(frame, "stock cosmetics cannot relay a sale confirmation");
+            frame.Structure = 0x564F0000u | cue; frame.HasCanvasFrame = true;
+            RejectWrite(frame, "stock voice requests cannot inject a native presentation canvas");
+        }
     }
     private static TownServiceFrame Make(int count)
     {
