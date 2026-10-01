@@ -240,6 +240,7 @@ internal sealed class TownServiceStation : IDisposable
         TownServiceVoice.Tick(_service, clock, audible, in shown, lookingAtVisitor);
     }
     internal TownActivitySoundState PublishedFoley => _audio.Published;
+    internal void BindEnvironment(Transform frame, in TownActivityState state) => _lighting.BindEnvironment(Root, frame, in state);
 
     internal void SeedFace(TownFacePose pose, int author, float elapsed)
     {

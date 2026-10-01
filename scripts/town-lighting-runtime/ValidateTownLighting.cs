@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using GloomhavenVR.Core;
+using GloomhavenVR.Net;
 using GloomhavenVR.WorldUI;
 using UnityEditor;
 using UnityEngine;
@@ -107,6 +108,50 @@ public static class ValidateTownLighting
             var block = new MaterialPropertyBlock(); block.SetFloat("_TownVisibility", 1); block.SetFloat("_LightingUnrelated", .73f);
             skin.SetPropertyBlock(block);
             Vector3 centre = skin.bounds.center;
+            // Compare actual native shader output to the production owner's SH
+            // sampler/renderer binder before any competing practicals exist.
+            CameraPose(0, 1);
+            var ambientOwner=new SphericalHarmonicsL2();
+            ambientOwner.AddAmbientLight(new Color(.06f,.08f,.10f));
+            ambientOwner.AddDirectionalLight(new Vector3(.8f,.7f,-.2f).normalized,new Color(.12f,.09f,.06f),.6f);
+            RenderSettings.ambientMode=AmbientMode.Custom;RenderSettings.ambientIntensity=1;RenderSettings.ambientProbe=ambientOwner;
+            Color32[] nativeAmbient=Picture(npc+"-native-ambient");
+            using(var presentation=new TownServiceLighting(root.transform,1))
+            {
+                var authored=new TownActivityState{HasSharedPerformance=true,HasAuthoredFoley=true};
+                TownServiceLighting.SampleEnvironment(root.transform,ref authored);
+                var nativePacking=new MaterialPropertyBlock();nativePacking.CopySHCoefficientArraysFrom(new[]{ambientOwner});
+                presentation.BindEnvironment(root.transform,root.transform,in authored);
+                skin.GetPropertyBlock(block);
+                string[] originalNames={"unity_SHAr","unity_SHAg","unity_SHAb","unity_SHBr","unity_SHBg","unity_SHBb","unity_SHC"};
+                string[] sharedNames={"_TownAmbientAr","_TownAmbientAg","_TownAmbientAb","_TownAmbientBr","_TownAmbientBg","_TownAmbientBb","_TownAmbientC"};
+                for(int term=0;term<7;term++)
+                    Check(Vector4.Distance(nativePacking.GetVectorArray(originalNames[term])[0],block.GetVector(sharedNames[term]))<.00001f,
+                        npc+" authored probe packing matches Unity's actual native packing term "+term);
+                Color32[] ownerAmbient=Picture(npc+"-shared-owner-ambient");
+                Check(Difference(nativeAmbient,ownerAmbient)<.5f,npc+" shared probe preserves native owner pixels");
+                var ambientObserver=new SphericalHarmonicsL2();ambientObserver.AddAmbientLight(new Color(.6f,0,0));
+                RenderSettings.ambientProbe=ambientObserver;
+                presentation.BindEnvironment(root.transform,root.transform,in authored);
+                Color32[] observerAmbient=Picture(npc+"-shared-observer-ambient");
+                Check(Difference(ownerAmbient,observerAmbient)<.1f,npc+" observer room ambient cannot change shared skin or eye pixels");
+                // Negative control: same shaders and meshes, intentionally remove
+                // the author's per-renderer binding. The local red ambient must
+                // produce a visibly different result, proving this test observes it.
+                foreach(Renderer renderer in root.GetComponentsInChildren<Renderer>(true))
+                {
+                    var local=new MaterialPropertyBlock();renderer.GetPropertyBlock(local);
+                    local.SetFloat("_TownSharedAmbient",0);renderer.SetPropertyBlock(local);
+                }
+                Color32[] missingBinding=Picture(npc+"-negative-local-ambient");
+                Check(Difference(ownerAmbient,missingBinding)>.5f,npc+" negative control local ambient is visibly divergent");negatives++;
+                foreach(Renderer renderer in root.GetComponentsInChildren<Renderer>(true))
+                {
+                    var restored=new MaterialPropertyBlock();renderer.GetPropertyBlock(restored);
+                    restored.SetFloat("_TownSharedAmbient",0);restored.SetFloat("_TownSharedKey",0);renderer.SetPropertyBlock(restored);
+                }
+            }
+            TownLightingEditorLifetime.Flush();RenderSettings.ambientProbe=default;RenderSettings.ambientMode=AmbientMode.Flat;RenderSettings.ambientIntensity=0;
             var lamps = new List<Light>();
             for (int i = 0; i < 6; i++)
             {

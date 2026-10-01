@@ -14,6 +14,17 @@ Shader "GloomhavenVR/TownNpc"
         _GlossMapScale ("Mapped smoothness scale", Range(0,1)) = 1
         _EmissionColor ("Emission", Color) = (0,0,0,1)
         _TownVisibility ("Town visibility", Range(0,1)) = 1
+        _TownSharedKey ("Shared directional key", Float) = 0
+        _TownKeyDirection ("Shared key direction", Vector) = (0,0,1,0)
+        _TownKeyColour ("Shared key colour", Color) = (0,0,0,1)
+        _TownSharedAmbient ("Shared ambient probe", Float) = 0
+        _TownAmbientAr ("Shared ambient Ar", Vector) = (0,0,0,0)
+        _TownAmbientAg ("Shared ambient Ag", Vector) = (0,0,0,0)
+        _TownAmbientAb ("Shared ambient Ab", Vector) = (0,0,0,0)
+        _TownAmbientBr ("Shared ambient Br", Vector) = (0,0,0,0)
+        _TownAmbientBg ("Shared ambient Bg", Vector) = (0,0,0,0)
+        _TownAmbientBb ("Shared ambient Bb", Vector) = (0,0,0,0)
+        _TownAmbientC ("Shared ambient C", Vector) = (0,0,0,1)
     }
     SubShader
     {
@@ -40,6 +51,7 @@ Shader "GloomhavenVR/TownNpc"
             float4 _MainTex_ST;
             fixed4 _Color, _EmissionColor;
             half _BumpScale, _Metallic, _Glossiness, _GlossMapScale, _TownVisibility;
+            #include "TownSharedEnvironment.cginc"
             struct AppData
             {
                 float4 vertex : POSITION;
@@ -105,16 +117,17 @@ Shader "GloomhavenVR/TownNpc"
                     metallic = masks.r;
                     smoothness = masks.a * _GlossMapScale;
                 #endif
-                half3 key = normalize(UnityWorldSpaceLightDir(input.worldPosition));
+                half3 key = TownKeyDirection(input.worldPosition);
+                half3 keyColour = TownKeyColour();
                 half keyDiffuse = saturate(dot(normal, key));
-                half3 ambient = max(half3(0, 0, 0), ShadeSH9(half4(normal, 1)));
-                half3 illumination = ambient + input.vertexLight + _LightColor0.rgb * keyDiffuse;
+                half3 ambient = max(half3(0, 0, 0), TownAmbient(normal));
+                half3 illumination = ambient + input.vertexLight + keyColour * keyDiffuse;
                 half3 view = normalize(_WorldSpaceCameraPos.xyz - input.worldPosition);
                 half3 halfway = normalize(key + view);
                 half gloss = pow(saturate(dot(normal, halfway)), exp2(3 + smoothness * 6));
                 half3 specular = lerp(half3(0.04, 0.04, 0.04), albedo, metallic);
                 half3 colour = albedo * illumination + specular * gloss * keyDiffuse *
-                    _LightColor0.rgb * (0.15h + smoothness * 0.55h);
+                    keyColour * (0.15h + smoothness * 0.55h);
                 #if defined(_EMISSION)
                     colour += _EmissionColor.rgb;
                 #endif

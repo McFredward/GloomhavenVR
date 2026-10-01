@@ -18,6 +18,31 @@ internal struct TownActivitySoundState
     internal uint Generation;
     internal float StartedClock;
 }
+/// <summary>RGB coefficients of the author's actual L2 ambient probe.</summary>
+internal struct TownAmbientProbe
+{
+    internal Vector3 C0, C1, C2, C3, C4, C5, C6, C7, C8;
+    internal Vector3 At(int coefficient) => coefficient switch
+    { 0 => C0, 1 => C1, 2 => C2, 3 => C3, 4 => C4, 5 => C5, 6 => C6, 7 => C7, _ => C8 };
+    internal void Set(int coefficient, Vector3 value)
+    {
+        switch (coefficient)
+        {
+            case 0: C0 = value; break; case 1: C1 = value; break; case 2: C2 = value; break;
+            case 3: C3 = value; break; case 4: C4 = value; break; case 5: C5 = value; break;
+            case 6: C6 = value; break; case 7: C7 = value; break; default: C8 = value; break;
+        }
+    }
+    internal bool Same(in TownAmbientProbe other)
+    {
+        for (int n = 0; n < 9; n++)
+        {
+            Vector3 a = At(n), b = other.At(n);
+            if (a.x != b.x || a.y != b.y || a.z != b.z) return false;
+        }
+        return true;
+    }
+}
 internal struct TownActivityState
 {
     internal bool Active;
@@ -40,6 +65,11 @@ internal struct TownActivityState
     internal float EnvironmentLightIntensity;
     internal bool HasAuthoredFoley;
     internal TownActivitySoundState MerchantFoley, EnchantressFoley;
+    internal bool HasAmbientProbe;
+    internal TownAmbientProbe AmbientProbe;
+    internal bool HasAuthoredKey;
+    internal Vector3 KeyDirection, KeyColour;
+    internal float KeyIntensity;
     internal TownActivityPose At(int index) => index == 0 ? Merchant : index == 1 ? Temple : Enchantress;
     internal void Set(int index, TownActivityPose pose)
     { if (index == 0) Merchant = pose; else if (index == 1) Temple = pose; else Enchantress = pose; }
@@ -48,14 +78,17 @@ internal struct TownActivityState
 /// <summary>Additive81: active1/epoch4/sequence4/clock4, three13-byte occupation phases,
 /// then the author's quantized merchant offering blend (one byte). Optional tails
 /// carry the 13-byte shared performance, 28-byte owned environment light and
-/// two nine-byte authored physical sound contacts.
+/// two nine-byte authored physical sound contacts, the author's 27-float probe,
+/// and the actual authored main directional key. Each TLV stays below 255 bytes.
 /// Existing records79/80 and their dedicated packets remain byte-identical.</summary>
 internal static class TownActivityCodec
 {
     internal const int LegacyPayload = 53;
     internal const int SharedPayload = LegacyPayload + 13;
     internal const int LightPayload = SharedPayload + 28;
-    internal const int MaxPayload = LightPayload + 18;
+    internal const int FoleyPayload = LightPayload + 18;
+    internal const int AmbientPayload = FoleyPayload + 108;
+    internal const int MaxPayload = AmbientPayload + 28;
     internal const int PacketBytes = 6 + 2 + MaxPayload + 2 + TownFaceCodec.MaxPayload;
     private static bool Finite(float value) => !float.IsNaN(value) && !float.IsInfinity(value);
     internal static bool Valid(in TownActivityState state)
@@ -83,6 +116,23 @@ internal static class TownActivityCodec
         if (state.HasAuthoredFoley && (!state.HasEnvironmentLight
             || !ValidSound(in state.MerchantFoley, state.Clock, 1, 1)
             || !ValidSound(in state.EnchantressFoley, state.Clock, 2, 6))) return false;
+        if (state.HasAmbientProbe)
+        {
+            if (!state.HasAuthoredFoley) return false;
+            for (int n = 0; n < 9; n++)
+            {
+                Vector3 value = state.AmbientProbe.At(n);
+                if (!Finite(value.x) || !Finite(value.y) || !Finite(value.z)
+                    || Mathf.Abs(value.x) > 100f || Mathf.Abs(value.y) > 100f || Mathf.Abs(value.z) > 100f) return false;
+            }
+        }
+        if (state.HasAuthoredKey && (!state.HasAmbientProbe || !Finite(state.KeyDirection.x)
+            || !Finite(state.KeyDirection.y) || !Finite(state.KeyDirection.z)
+            || Mathf.Abs(state.KeyDirection.sqrMagnitude - 1f) > .01f
+            || !Finite(state.KeyColour.x) || !Finite(state.KeyColour.y) || !Finite(state.KeyColour.z)
+            || state.KeyColour.x < 0f || state.KeyColour.y < 0f || state.KeyColour.z < 0f
+            || state.KeyColour.x > 10f || state.KeyColour.y > 10f || state.KeyColour.z > 10f
+            || !Finite(state.KeyIntensity) || state.KeyIntensity < 0f || state.KeyIntensity > 100f)) return false;
         for (int n = 0; n < 3; n++)
         {
             TownActivityPose p = state.At(n);
@@ -133,17 +183,37 @@ internal static class TownActivityCodec
             WriteSound(buffer, ref offset, in state.MerchantFoley);
             WriteSound(buffer, ref offset, in state.EnchantressFoley);
         }
+        if (state.HasAmbientProbe)
+            for (int n = 0; n < 9; n++)
+            {
+                Vector3 value = state.AmbientProbe.At(n);
+                AvatarSerializer.WriteF32(buffer, ref offset, value.x);
+                AvatarSerializer.WriteF32(buffer, ref offset, value.y);
+                AvatarSerializer.WriteF32(buffer, ref offset, value.z);
+            }
+        if (state.HasAuthoredKey)
+        {
+            AvatarSerializer.WriteF32(buffer, ref offset, state.KeyDirection.x);
+            AvatarSerializer.WriteF32(buffer, ref offset, state.KeyDirection.y);
+            AvatarSerializer.WriteF32(buffer, ref offset, state.KeyDirection.z);
+            AvatarSerializer.WriteF32(buffer, ref offset, state.KeyColour.x);
+            AvatarSerializer.WriteF32(buffer, ref offset, state.KeyColour.y);
+            AvatarSerializer.WriteF32(buffer, ref offset, state.KeyColour.z);
+            AvatarSerializer.WriteF32(buffer, ref offset, state.KeyIntensity);
+        }
         return true;
     }
     internal static bool TryRead(byte[] buffer, int offset, int length, out TownActivityState state)
     {
         state = default;
         if (buffer == null || (length != 1 && length != LegacyPayload && length != SharedPayload
-            && length != LightPayload && length != MaxPayload) || offset < 0 || offset > buffer.Length - length) return false;
+            && length != LightPayload && length != FoleyPayload && length != AmbientPayload
+            && length != MaxPayload) || offset < 0 || offset > buffer.Length - length) return false;
         byte flag = buffer[offset++];
         if (flag > 1 || flag == 0 && length != 1 || flag == 1 && length == 1) return false;
         var read = new TownActivityState { Active = flag == 1, HasSharedPerformance = length >= SharedPayload,
-            HasEnvironmentLight = length >= LightPayload, HasAuthoredFoley = length == MaxPayload };
+            HasEnvironmentLight = length >= LightPayload, HasAuthoredFoley = length >= FoleyPayload,
+            HasAmbientProbe = length >= AmbientPayload, HasAuthoredKey = length == MaxPayload };
         if (!read.Active) return true;
         read.Epoch = AvatarSerializer.ReadU32(buffer, ref offset);
         read.Sequence = AvatarSerializer.ReadU32(buffer, ref offset);
@@ -180,6 +250,18 @@ internal static class TownActivityCodec
             read.MerchantFoley = ReadSound(buffer, ref offset);
             read.EnchantressFoley = ReadSound(buffer, ref offset);
         }
+        if (read.HasAmbientProbe)
+            for (int n = 0; n < 9; n++)
+                read.AmbientProbe.Set(n, new Vector3(AvatarSerializer.ReadF32(buffer, ref offset),
+                    AvatarSerializer.ReadF32(buffer, ref offset), AvatarSerializer.ReadF32(buffer, ref offset)));
+        if (read.HasAuthoredKey)
+        {
+            read.KeyDirection = new Vector3(AvatarSerializer.ReadF32(buffer, ref offset),
+                AvatarSerializer.ReadF32(buffer, ref offset), AvatarSerializer.ReadF32(buffer, ref offset));
+            read.KeyColour = new Vector3(AvatarSerializer.ReadF32(buffer, ref offset),
+                AvatarSerializer.ReadF32(buffer, ref offset), AvatarSerializer.ReadF32(buffer, ref offset));
+            read.KeyIntensity = AvatarSerializer.ReadF32(buffer, ref offset);
+        }
         if (!Valid(in read)) return false;
         state = read; return true;
     }
@@ -200,7 +282,9 @@ internal static class TownActivityCodec
         Cue = buffer[offset++], Generation = AvatarSerializer.ReadU32(buffer, ref offset),
         StartedClock = AvatarSerializer.ReadF32(buffer, ref offset)
     };
-    private static int Payload(in TownActivityState state) => state.HasAuthoredFoley ? MaxPayload
+    private static int Payload(in TownActivityState state) => state.HasAuthoredKey ? MaxPayload
+        : state.HasAmbientProbe ? AmbientPayload
+        : state.HasAuthoredFoley ? FoleyPayload
         : state.HasEnvironmentLight ? LightPayload
         : state.HasSharedPerformance ? SharedPayload : LegacyPayload;
     internal static int WritePacket(byte[] buffer, in TownActivityState state, in TownFaceState face)
@@ -219,6 +303,8 @@ internal static class TownActivityCodec
         const int activityHeader = 8 + TownFaceCodec.MaxPayload;
         if (bytes == null || (length != PacketBytes && length != PacketBytes - (MaxPayload - SharedPayload)
             && length != PacketBytes - (MaxPayload - LightPayload)
+            && length != PacketBytes - (MaxPayload - FoleyPayload)
+            && length != PacketBytes - (MaxPayload - AmbientPayload)
             && length != PacketBytes - (MaxPayload - LegacyPayload)) || length > bytes.Length || NetPacket.PeekType(bytes, length) != NetProtocol.MsgTownActivity
             || bytes[6] != NetProtocol.ExtIdTownFace || bytes[7] != TownFaceCodec.MaxPayload
             || bytes[activityHeader] != NetProtocol.ExtIdTownActivity || bytes[activityHeader + 1] != length - activityHeader - 2

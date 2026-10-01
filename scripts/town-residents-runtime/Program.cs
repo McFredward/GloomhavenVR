@@ -293,6 +293,9 @@ internal static class Program
         Check(replay.HasEnvironmentLight && replay.EnvironmentLightIntensity==.4f
             && replay.EnvironmentLightColour.y==.8f && replay.EnvironmentLightDirection.z==1f,
             "author fill sampler survives the actual atomic packet");
+        Check(replay.HasAmbientProbe && replay.AmbientProbe.C0.z==.4f
+            && replay.HasAuthoredKey && replay.KeyIntensity==.75f,
+            "actual sampler ambient and native directional key survive the atomic packet");
         var invalid=state;invalid.TempleUnavailableBlend=1.01f;
         Check(!TownActivityCodec.Valid(in invalid),"out-of-range author cover is rejected");
         invalid=state;invalid.TempleBlessingGeneration=1;invalid.TempleBlessingStartedClock=state.Clock+.01f;
@@ -304,24 +307,31 @@ internal static class Program
         Check(replay.HasAuthoredFoley,"author contact records survive the actual performance packet");
         invalid=state;invalid.MerchantFoley=new(){Cue=6,Generation=1,StartedClock=state.Clock};
         Check(!TownActivityCodec.Valid(in invalid),"merchant cannot author enchantress spell foley");
-        var light=state;light.HasAuthoredFoley=false;
+        invalid=state;invalid.AmbientProbe.C8.y=float.PositiveInfinity;
+        Check(!TownActivityCodec.Valid(in invalid),"non-finite ambient coefficient is rejected");
+        var ambient=state;ambient.HasAuthoredKey=false;
+        int ambientCount=TownActivityCodec.WritePacket(bytes,in ambient,in face);
+        Check(ambientCount==324 && TownActivityCodec.ReadPacket(bytes,ambientCount,out replay,out _)
+            && replay.HasAmbientProbe && !replay.HasAuthoredKey,
+            "ambient without explicit main-key tail remains readable");
+        var light=state;light.HasAuthoredKey=false;light.HasAmbientProbe=false;light.HasAuthoredFoley=false;
         int lightCount=TownActivityCodec.WritePacket(bytes,in light,in face);
         Check(lightCount==198 && TownActivityCodec.ReadPacket(bytes,lightCount,out replay,out _)
             && replay.HasEnvironmentLight && !replay.HasAuthoredFoley,
             "light performance without contact records remains readable");
-        var contacts=state;contacts.MerchantFoley=new(){Cue=1,Generation=4,StartedClock=state.Clock*.5f};
+        var contacts=state;contacts.HasAuthoredKey=false;contacts.HasAmbientProbe=false;contacts.MerchantFoley=new(){Cue=1,Generation=4,StartedClock=state.Clock*.5f};
         contacts.EnchantressFoley=new(){Cue=6,Generation=9,StartedClock=state.Clock*.75f};
         int contactCount=TownActivityCodec.WritePacket(bytes,in contacts,in face);
         Check(contactCount==216 && TownActivityCodec.ReadPacket(bytes,contactCount,out replay,out _)
             && replay.MerchantFoley.Generation==4 && replay.EnchantressFoley.Cue==6
             && replay.MerchantFoley.StartedClock==contacts.MerchantFoley.StartedClock,
             "authored sound cue, revision and onset survive wire round trip");
-        var shared=state;shared.HasAuthoredFoley=false;shared.HasEnvironmentLight=false;
+        var shared=state;shared.HasAuthoredKey=false;shared.HasAmbientProbe=false;shared.HasAuthoredFoley=false;shared.HasEnvironmentLight=false;
         int sharedCount=TownActivityCodec.WritePacket(bytes,in shared,in face);
         Check(sharedCount==170 && TownActivityCodec.ReadPacket(bytes,sharedCount,out replay,out _)
             && replay.HasSharedPerformance && !replay.HasEnvironmentLight,
             "shared performance without a lighting tail remains readable");
-        var legacy=state;legacy.HasAuthoredFoley=false;legacy.HasEnvironmentLight=false;legacy.HasSharedPerformance=false;
+        var legacy=state;legacy.HasAuthoredKey=false;legacy.HasAmbientProbe=false;legacy.HasAuthoredFoley=false;legacy.HasEnvironmentLight=false;legacy.HasSharedPerformance=false;
         int legacyCount=TownActivityCodec.WritePacket(bytes,in legacy,in face);
         Check(legacyCount==157 && TownActivityCodec.ReadPacket(bytes,legacyCount,out replay,out _)
             && !replay.HasSharedPerformance,"historical 53-byte activity packet remains readable");
@@ -336,6 +346,9 @@ internal static class Program
             HasTownActivity=true,TownActivity=state,HasTownFace=true,TownFace=face};
         RemoteTownResidents.Observe(2,in presence);Tick(.01f);
         Check(!TownServicePopulation.IsFaceAuthor,"the observer follows one lower-id resident author");
+        var diagnostic=TownServicePopulation.PublishedActivities;
+        Check(TownActivityCodec.Valid(in diagnostic) && !diagnostic.HasAuthoredFoley,
+            "follower diagnostic snapshot stays valid without authoring a second shared contact stream");
         Check(TownServiceLighting.Replays>0 && TownServiceLighting.LastReplay.EnvironmentLightIntensity==.25f
             && TownServiceLighting.LastReplay.EnvironmentLightDirection.y==1f,
             "follower applies the published light instead of resampling its own room");

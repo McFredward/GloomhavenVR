@@ -129,6 +129,7 @@ namespace GloomhavenVR.WorldUI
             bool authorPerformance,float performanceClock,GloomhavenVR.Net.TownActivitySoundState remote)
         { LastActivityAudioVisible=visible; }
         internal GloomhavenVR.Net.TownActivitySoundState PublishedFoley=>default;
+        internal void BindEnvironment(Transform frame,in GloomhavenVR.Net.TownActivityState state) { }
         internal int FaceSeeds;internal bool FaceAuthor,FaceReceived;internal GloomhavenVR.Net.TownFacePose FacePose;
         internal void SeedFace(GloomhavenVR.Net.TownFacePose pose,int author,float elapsed){FaceSeeds++;FacePose=pose;}
         internal GloomhavenVR.Net.TownFacePose SampleFace(bool author,bool received,int authorId,in GloomhavenVR.Net.TownFacePose remote,float elapsed,float clock){FaceAuthor=author;FaceReceived=received;if(received)FacePose=remote;return FacePose;}
@@ -153,6 +154,8 @@ namespace GloomhavenVR.WorldUI
         {
             Samples++;state.HasEnvironmentLight=true;state.EnvironmentLightDirection=new(0,0,1);
             state.EnvironmentLightColour=new(.7f,.8f,.9f);state.EnvironmentLightIntensity=.4f;
+            state.HasAmbientProbe=true;state.AmbientProbe.C0=new(.2f,.3f,.4f);
+            state.HasAuthoredKey=true;state.KeyDirection=new(0,1,0);state.KeyColour=new(.5f,.6f,.7f);state.KeyIntensity=.75f;
         }
         internal static void ApplyEnvironment(Transform frame,in GloomhavenVR.Net.TownActivityState state)
         { if(state.HasEnvironmentLight){Replays++;LastReplay=state;} }

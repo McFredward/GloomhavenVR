@@ -168,7 +168,10 @@ internal static class TownServicePopulation
             Sequence = unchecked(++_faceSequence), Clock = _faceClock };
         var activities = new TownActivityState { Active = enabled, Epoch = _faceEpoch, Sequence = _faceSequence, Clock = _faceClock,
             HasSharedPerformance = true, Interactive = interactive };
-        activities.HasAuthoredFoley = true;
+        // Only the elected author transmits physical contacts and environment
+        // tails. Keep a follower's diagnostic snapshot valid without inventing
+        // a second source of shared lighting or sound.
+        activities.HasAuthoredFoley = IsFaceAuthor;
         bool sharedInteractive = hasActivity && remoteActivity.HasSharedPerformance
             ? remoteActivity.Interactive : interactive;
         TownActivityState activitySeed = default;
@@ -459,6 +462,8 @@ internal static class TownServicePopulation
         if (missing && retry) _retryAt = now + 2f;
         if (IsFaceAuthor) TownServiceLighting.SampleEnvironment(_frame!.transform, ref activities);
         else if (hasActivity) TownServiceLighting.ApplyEnvironment(_frame!.transform, in remoteActivity);
+        TownActivityState surfaceLighting = IsFaceAuthor ? activities : remoteActivity;
+        foreach (Resident resident in Residents.Values) resident.Station.BindEnvironment(_frame!.transform, in surfaceLighting);
         // Keep TLV79's historical cloth tail readable, but no longer author it.
         published.HasCloth = false;
         Published = published;

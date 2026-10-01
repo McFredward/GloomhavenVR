@@ -26,6 +26,7 @@ namespace UnityEngine
         public readonly Transform transform;
         public readonly List<Light> Lights=new();
         public readonly List<MonoBehaviour> Scripts=new();
+        public readonly List<Renderer> Renderers=new();
         public GameObject(string name){this.name=name;transform=new Transform{gameObject=this};}
         public T AddComponent<T>() where T:Light,new(){var light=new T{gameObject=this};Lights.Add(light);Light.All.Add(light);return light;}
         public void GetComponents(List<MonoBehaviour> scripts){scripts.Clear();scripts.AddRange(Scripts);}
@@ -41,6 +42,7 @@ namespace UnityEngine
         public Vector3 TransformDirection(Vector3 direction)=>rotation.Transform(direction);
         public Vector3 InverseTransformDirection(Vector3 direction)=>rotation.InverseTransform(direction);
         public void SetParent(Transform root,bool world){parent=root;}
+        public void GetComponentsInChildren(bool inactive,List<Renderer> into){into.AddRange(gameObject.Renderers);}
     }
     public struct Vector3
     {
@@ -52,6 +54,29 @@ namespace UnityEngine
         public Vector3 normalized=>sqrMagnitude>.000001f?this*(1f/(float)Math.Sqrt(sqrMagnitude)):new(0,0,1);
         public static Vector3 operator -(Vector3 v)=>new(-v.x,-v.y,-v.z);
         public static Vector3 operator *(Vector3 v,float f)=>new(v.x*f,v.y*f,v.z*f);
+        public static bool operator ==(Vector3 a,Vector3 b)=>a.x==b.x&&a.y==b.y&&a.z==b.z;
+        public static bool operator !=(Vector3 a,Vector3 b)=>!(a==b);
+        public override bool Equals(object? value)=>value is Vector3 vector&&this==vector;
+        public override int GetHashCode()=>HashCode.Combine(x,y,z);
+    }
+    public struct Vector4{public float x,y,z,w;public Vector4(float x,float y,float z,float w){this.x=x;this.y=y;this.z=z;this.w=w;}}
+    public static class Shader
+    {private static readonly Dictionary<string,int> Ids=new();public static int PropertyToID(string name){if(!Ids.TryGetValue(name,out int id))Ids[name]=id=Ids.Count+1;return id;}}
+    public class MaterialPropertyBlock
+    {
+        public readonly Dictionary<int,object> Values=new();
+        public void SetFloat(int id,float value)=>Values[id]=value;
+        public void SetVector(int id,Vector4 value)=>Values[id]=value;
+        public float GetFloat(int id)=>Values.TryGetValue(id,out object? value)&&value is float number?number:0;
+        public Vector4 GetVector(int id)=>Values.TryGetValue(id,out object? value)&&value is Vector4 vector?vector:default;
+        public void CopyFrom(MaterialPropertyBlock source){Values.Clear();foreach(var pair in source.Values)Values.Add(pair.Key,pair.Value);}
+    }
+    public class Renderer:Object
+    {
+        public int Writes;
+        private readonly MaterialPropertyBlock _block=new();
+        public void GetPropertyBlock(MaterialPropertyBlock target)=>target.CopyFrom(_block);
+        public void SetPropertyBlock(MaterialPropertyBlock source){Writes++;_block.CopyFrom(source);}
     }
     public struct Quaternion
     {
@@ -68,7 +93,10 @@ namespace UnityEngine
             return new(){_value=System.Numerics.Quaternion.CreateFromYawPitchRoll(yaw,pitch,0),_set=true};
         }
     }
-    public struct Color{public float r,g,b;public Color(float r,float g,float b){this.r=r;this.g=g;this.b=b;}public static Color white=>new(1,1,1);}
+    public struct Color{public float r,g,b;public Color(float r,float g,float b){this.r=r;this.g=g;this.b=b;}public static Color white=>new(1,1,1);public static Color black=>new(0,0,0);public Color linear=>this;}
+    public enum ColorSpace{Gamma,Linear}
+    public static class QualitySettings{public static ColorSpace activeColorSpace=>ColorSpace.Gamma;}
+    public static class RenderSettings{public static Light? sun;public static UnityEngine.Rendering.SphericalHarmonicsL2 ambientProbe;}
     public class MonoBehaviour:Object{}
     public enum LightType{Point,Directional}
     public enum LightRenderMode{Auto,ForceVertex}
@@ -88,10 +116,20 @@ namespace UnityEngine
         public Color color;
         public float intensity,range;
         public bool enabled=true;
+        public bool isActiveAndEnabled=>this!=null&&enabled&&gameObject.activeInHierarchy;
+        public static Light[] GetLights(LightType type,int layer)=>All.FindAll(light=>light!=null&&light.type==type&&(light.cullingMask&(1<<layer))!=0).ToArray();
         public LightBakingOutput bakingOutput;
     }
     public static class Mathf{public static float Abs(float f)=>Math.Abs(f);}
     public static class Time{public static float unscaledTime=>100;}
+}
+namespace UnityEngine.Rendering
+{
+    public struct SphericalHarmonicsL2
+    {
+        private float[]? _values;
+        public float this[int colour,int coefficient]{get=>_values?[colour*9+coefficient]??0;set{_values??=new float[27];_values[colour*9+coefficient]=value;}}
+    }
 }
 namespace GloomhavenVR.Core
 {

@@ -31,6 +31,9 @@ for name in ('TownServiceLightList', 'TownServiceLighting'):
     source = source.replace('UnityEngine.Object.Destroy(', 'TownLightingEditorLifetime.Destroy(')
     source = source.replace('namespace GloomhavenVR.WorldUI;', 'namespace GloomhavenVR.WorldUI {') + '\n}\n'
     (editor / f'{name}.cs').write_text('#nullable enable\n' + source)
+types = (root / 'src/GloomhavenVR/Net/TownActivityState.cs').read_text().split('/// <summary>Additive81', 1)[0]
+types = types.replace('namespace GloomhavenVR.Net;', 'namespace GloomhavenVR.Net {') + '\n}\n'
+(editor / 'ActivityTypes.cs').write_text('#pragma warning disable CS0649\n' + types)
 shutil.copytree(root / 'unity/GloomhavenVR.Assets/Assets/Bundle/TownServices/Shaders', project / 'Assets/Shaders')
 shutil.copy(root / 'scripts/town-lighting-runtime/TownNpc548.shader', project / 'Assets/Shaders')
 (project / 'Packages').mkdir()
@@ -42,6 +45,7 @@ shutil.copy(root / 'scripts/town-lighting-runtime/TownNpc548.shader', project / 
 inputs = list((root / 'scripts/town-lighting-runtime').glob('*')) + list(
     (root / 'unity/GloomhavenVR.Assets/Assets/Bundle/TownServices/Shaders').glob('*')) + [
         root / f'src/GloomhavenVR/WorldUI/TownServices/{name}.cs' for name in ('TownServiceLightList', 'TownServiceLighting')]
+inputs.append(root / 'src/GloomhavenVR/Net/TownActivityState.cs')
 (project / 'source-hashes.json').write_text(json.dumps({str(path.relative_to(root)): hashlib.sha256(
     path.read_bytes()).hexdigest() for path in inputs if path.is_file()}, indent=2))
 result = subprocess.run(['xvfb-run', '-a', str(args.unity), '-batchmode', '-projectPath', str(project),

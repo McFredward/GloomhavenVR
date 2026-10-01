@@ -1,7 +1,9 @@
 using System;
 using System.Collections.Generic;
 using GloomhavenVR.Core;
+using GloomhavenVR.Net;
 using UnityEngine;
+using UnityEngine.Rendering;
 
 namespace GloomhavenVR.WorldUI;
 
@@ -20,10 +22,25 @@ internal sealed class TownServiceLighting : IDisposable
         : service == 2 ? new Color(1f, .82f, .60f) : new Color(1f, .74f, .48f);
     internal static bool Owns(Light light) => light != null && Owned.Contains(light);
     private static Light? _roomLight;
+    private static Light? _mainKey;
     private static int _users;
     private readonly Light _stand;
     private readonly Light? _second;
     private readonly float _power;
+    private readonly List<Renderer> _surfaces = new();
+    private readonly List<Renderer> _boundSurfaces = new();
+    private readonly MaterialPropertyBlock _surfaceProperties = new();
+    private TownAmbientProbe _boundProbe;
+    private bool _hasBoundProbe;
+    private Vector3 _boundKeyDirection, _boundKeyColour;
+    private bool _boundSharedKey, _boundLinear;
+    private static readonly int SharedAmbientId = Shader.PropertyToID("_TownSharedAmbient");
+    private static readonly int SharedKeyId = Shader.PropertyToID("_TownSharedKey");
+    private static readonly int KeyDirectionId = Shader.PropertyToID("_TownKeyDirection");
+    private static readonly int KeyColourId = Shader.PropertyToID("_TownKeyColour");
+    private static readonly int[] AmbientIds = { Shader.PropertyToID("_TownAmbientAr"), Shader.PropertyToID("_TownAmbientAg"),
+        Shader.PropertyToID("_TownAmbientAb"), Shader.PropertyToID("_TownAmbientBr"), Shader.PropertyToID("_TownAmbientBg"),
+        Shader.PropertyToID("_TownAmbientBb"), Shader.PropertyToID("_TownAmbientC") };
     private float _visibility;
     private bool _hasFlame, _hasSecond, _disposed;
 
@@ -64,6 +81,20 @@ internal sealed class TownServiceLighting : IDisposable
         else { _stand.transform.position = world; _hasFlame = true; }
         SetVisibility(_visibility);
     }
+
+    private static bool EligibleKey(Light? light) => light != null && light.isActiveAndEnabled
+        && light.type == LightType.Directional && light.intensity > 0f
+        && (light.cullingMask & (1 << VRLayers.ModLayer)) != 0;
+    private static void SelectKey()
+    {
+        Light? sun = RenderSettings.sun;
+        if (EligibleKey(sun)) { _mainKey = sun; return; }
+        _mainKey = EligibleKey(_roomLight) ? _roomLight : null;
+        // Environment changes are rare. Cache the eligible directional source;
+        // do not allocate a scene-light array on every presentation sample.
+        foreach (Light light in Light.GetLights(LightType.Directional, VRLayers.ModLayer))
+            if (EligibleKey(light) && (_mainKey == null || light.intensity > _mainKey.intensity)) _mainKey = light;
+    }
     internal void SetVisibility(float value)
     {
         _visibility = value;
@@ -102,9 +133,10 @@ internal sealed class TownServiceLighting : IDisposable
             _roomLight.enabled = false;
         }
         SetVisibility(_visibility);
+        if (authorEnvironment) SelectKey();
     }
 
-    /// <summary>Sample only the mod-owned fill, in the same frame as all resident poses.</summary>
+    /// <summary>Sample the owned fill, native ambient probe and eligible main key in the resident frame.</summary>
     internal static void SampleEnvironment(Transform frame, ref GloomhavenVR.Net.TownActivityState state)
     {
         state.HasEnvironmentLight = true;
@@ -113,6 +145,22 @@ internal sealed class TownServiceLighting : IDisposable
         Color colour = _roomLight != null ? _roomLight.color : Color.white;
         state.EnvironmentLightColour = new Vector3(colour.r, colour.g, colour.b);
         state.EnvironmentLightIntensity = _roomLight != null && _roomLight.enabled ? _roomLight.intensity : 0f;
+        // The canonical parchment frame is world-aligned (Population.Prepare), so
+        // these coefficients use the same normal basis on every peer. Scenery's
+        // RenderSettings and probes are never changed by this owned surface binding.
+        SphericalHarmonicsL2 ambient = RenderSettings.ambientProbe;
+        state.HasAmbientProbe = true;
+        for (int n = 0; n < 9; n++)
+            state.AmbientProbe.Set(n, new Vector3(ambient[0, n], ambient[1, n], ambient[2, n]));
+        // Unity prioritizes an explicitly selected eligible sun. Preserve native
+        // lighting rather than substituting only our owned room fill in the shader.
+        Light? key = EligibleKey(RenderSettings.sun) ? RenderSettings.sun
+            : EligibleKey(_mainKey) ? _mainKey : EligibleKey(_roomLight) ? _roomLight : null;
+        state.HasAuthoredKey = true;
+        state.KeyDirection = key != null ? frame.InverseTransformDirection(-key.transform.forward) : new Vector3(0f, 0f, 1f);
+        Color keyColour = key != null ? key.color : Color.black;
+        state.KeyColour = new Vector3(keyColour.r, keyColour.g, keyColour.b);
+        state.KeyIntensity = key != null ? key.intensity : 0f;
     }
 
     /// <summary>The observer's room can still have its own scenery; the shared NPC fill cannot.</summary>
@@ -124,6 +172,48 @@ internal sealed class TownServiceLighting : IDisposable
         _roomLight.color = new Color(colour.x, colour.y, colour.z);
         _roomLight.intensity = state.EnvironmentLightIntensity;
         _roomLight.enabled = state.EnvironmentLightIntensity > 0f;
+    }
+
+    internal void BindEnvironment(Transform root, Transform frame, in TownActivityState state)
+    {
+        if (!state.HasAmbientProbe) return;
+        // Native decorations finish asynchronously during station preparation. This
+        // non-allocating census also includes their new surfaces. An unchanged probe
+        // and renderer population require no property-block writes.
+        _surfaces.Clear(); root.GetComponentsInChildren(true, _surfaces);
+        Vector3 direction = frame.TransformDirection(state.KeyDirection);
+        Color keyColour = new(state.KeyColour.x, state.KeyColour.y, state.KeyColour.z);
+        bool linear = QualitySettings.activeColorSpace == ColorSpace.Linear;
+        if (linear) keyColour = keyColour.linear;
+        Vector3 colour = new(keyColour.r * state.KeyIntensity, keyColour.g * state.KeyIntensity, keyColour.b * state.KeyIntensity);
+        bool sameSurfaces = _boundSurfaces.Count == _surfaces.Count;
+        for (int n = 0; sameSurfaces && n < _surfaces.Count; n++) sameSurfaces &= ReferenceEquals(_boundSurfaces[n], _surfaces[n]);
+        if (_hasBoundProbe && sameSurfaces && _boundProbe.Same(in state.AmbientProbe)
+            && _boundKeyDirection == direction && _boundKeyColour == colour
+            && _boundSharedKey == state.HasAuthoredKey && _boundLinear == linear) return;
+        _boundProbe = state.AmbientProbe; _hasBoundProbe = true;
+        _boundKeyDirection = direction; _boundKeyColour = colour; _boundSharedKey = state.HasAuthoredKey; _boundLinear = linear;
+        _boundSurfaces.Clear(); _boundSurfaces.AddRange(_surfaces);
+        foreach (Renderer surface in _surfaces)
+        {
+            if (surface == null) continue;
+            surface.GetPropertyBlock(_surfaceProperties);
+            _surfaceProperties.SetFloat(SharedAmbientId, 1f);
+            _surfaceProperties.SetFloat(SharedKeyId, state.HasAuthoredKey ? 1f : 0f);
+            _surfaceProperties.SetVector(KeyDirectionId, new Vector4(direction.x, direction.y, direction.z, 0f));
+            _surfaceProperties.SetVector(KeyColourId, new Vector4(colour.x, colour.y, colour.z, 1f));
+            // Unity's native L2 coefficients already carry the polynomial factors.
+            // Preserve its L0/L1 and every L2 term, rather than inventing a flat fill.
+            TownAmbientProbe p = state.AmbientProbe;
+            _surfaceProperties.SetVector(AmbientIds[0], new Vector4(p.C3.x, p.C1.x, p.C2.x, p.C0.x - p.C6.x));
+            _surfaceProperties.SetVector(AmbientIds[1], new Vector4(p.C3.y, p.C1.y, p.C2.y, p.C0.y - p.C6.y));
+            _surfaceProperties.SetVector(AmbientIds[2], new Vector4(p.C3.z, p.C1.z, p.C2.z, p.C0.z - p.C6.z));
+            _surfaceProperties.SetVector(AmbientIds[3], new Vector4(p.C4.x, p.C5.x, p.C6.x * 3f, p.C7.x));
+            _surfaceProperties.SetVector(AmbientIds[4], new Vector4(p.C4.y, p.C5.y, p.C6.y * 3f, p.C7.y));
+            _surfaceProperties.SetVector(AmbientIds[5], new Vector4(p.C4.z, p.C5.z, p.C6.z * 3f, p.C7.z));
+            _surfaceProperties.SetVector(AmbientIds[6], new Vector4(p.C8.x, p.C8.y, p.C8.z, 1f));
+            surface.SetPropertyBlock(_surfaceProperties);
+        }
     }
 
     public void Dispose()
@@ -141,6 +231,7 @@ internal sealed class TownServiceLighting : IDisposable
             if (_roomLight is not null) Owned.Remove(_roomLight);
             if (_roomLight != null) UnityEngine.Object.Destroy(_roomLight.gameObject);
             _roomLight = null;
+            _mainKey = null;
         }
     }
 }

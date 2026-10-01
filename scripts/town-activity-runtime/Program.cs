@@ -67,6 +67,8 @@ public static class InteractionProgram
         var activity=new TownActivityState{Active=true,Epoch=9,Sequence=1,Clock=5,Merchant=pose,Temple=pose,Enchantress=pose,MerchantOfferingBlend=.4f,HasSharedPerformance=true,Interactive=true,
             HasEnvironmentLight=true,EnvironmentLightDirection=new Vector3(0,0,1),EnvironmentLightColour=new Vector3(1,1,1),EnvironmentLightIntensity=.4f,
             HasAuthoredFoley=true,MerchantFoley=new(){Cue=1,Generation=1,StartedClock=4f},EnchantressFoley=new(){Cue=2,Generation=2,StartedClock=3f},
+            HasAmbientProbe=true,AmbientProbe=new(){C0=new Vector3(.2f,.3f,.4f)},
+            HasAuthoredKey=true,KeyDirection=new Vector3(0,0,1),KeyColour=new Vector3(1,1,1),KeyIntensity=.4f,
             TempleUnavailableBlend=.27f,TempleBlessingGeneration=1,TempleBlessingStartedClock=3.5f};
         var expression=new TownFacePose{HeadYaw=0,Cue=0,Generation=0,SpeechAge=0,Jaw=0,Wide=0,Round=0};
         var face=new TownFaceState{Active=true,Epoch=9,Sequence=1,Clock=5,Merchant=expression,Temple=expression,Enchantress=expression};

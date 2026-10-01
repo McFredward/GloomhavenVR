@@ -5,6 +5,17 @@ Shader "GloomhavenVR/TownEye"
         _MainTex ("Eye atlas", 2D) = "white" {}
         _Color ("Tint", Color) = (1,1,1,1)
         _TownVisibility ("Town visibility", Range(0,1)) = 1
+        _TownSharedKey ("Shared directional key", Float) = 0
+        _TownKeyDirection ("Shared key direction", Vector) = (0,0,1,0)
+        _TownKeyColour ("Shared key colour", Color) = (0,0,0,1)
+        _TownSharedAmbient ("Shared ambient probe", Float) = 0
+        _TownAmbientAr ("Shared ambient Ar", Vector) = (0,0,0,0)
+        _TownAmbientAg ("Shared ambient Ag", Vector) = (0,0,0,0)
+        _TownAmbientAb ("Shared ambient Ab", Vector) = (0,0,0,0)
+        _TownAmbientBr ("Shared ambient Br", Vector) = (0,0,0,0)
+        _TownAmbientBg ("Shared ambient Bg", Vector) = (0,0,0,0)
+        _TownAmbientBb ("Shared ambient Bb", Vector) = (0,0,0,0)
+        _TownAmbientC ("Shared ambient C", Vector) = (0,0,0,1)
     }
     SubShader
     {

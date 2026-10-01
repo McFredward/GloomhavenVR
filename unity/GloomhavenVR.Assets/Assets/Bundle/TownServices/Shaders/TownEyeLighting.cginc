@@ -3,6 +3,7 @@
 #include "UnityCG.cginc"
 #include "Lighting.cginc"
 #include "TownPracticalLighting.cginc"
+#include "TownSharedEnvironment.cginc"
 struct EyeInput
 {
     float4 vertex : POSITION;
@@ -48,12 +49,12 @@ void EyeDissolve(float3 position)
 void EyeLighting(float3 position, half3 normal, half3 view, half exponent,
                  out half3 diffuse, out half3 specular)
 {
-    diffuse = max(0, ShadeSH9(half4(normal, 1)));
+    diffuse = max(0, TownAmbient(normal));
     specular = 0;
-    half3 light = normalize(UnityWorldSpaceLightDir(position));
+    half3 light = TownKeyDirection(position);
     half ndl = saturate(dot(normal, light));
-    diffuse += _LightColor0.rgb * ndl;
-    specular += _LightColor0.rgb * ndl * pow(saturate(dot(normal, normalize(light + view))), exponent);
+    diffuse += TownKeyColour() * ndl;
+    specular += TownKeyColour() * ndl * pow(saturate(dot(normal, normalize(light + view))), exponent);
     half3 practicalDiffuse, practicalSpecular;
     TownPracticals(position, normal, view, exponent, practicalDiffuse, practicalSpecular);
     diffuse += practicalDiffuse;

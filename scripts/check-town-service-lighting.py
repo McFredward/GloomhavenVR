@@ -43,6 +43,10 @@ def main():
         ("observer samples its own moon", {"Owner.cs": owner.replace("authorEnvironment && SkyAlternative.TryRoomMoonDirection", "SkyAlternative.TryRoomMoonDirection")}),
         ("observer fails to apply author colour", {"Owner.cs": owner.replace("_roomLight.color = new Color(colour.x, colour.y, colour.z);", "_roomLight.color = new Color(1f, 1f, 1f);")}),
         ("fill ignores shared map rotation", {"Owner.cs": owner.replace("frame.TransformDirection(state.EnvironmentLightDirection)", "state.EnvironmentLightDirection")}),
+        ("ambient sampling drops an L2 coefficient", {"Owner.cs": owner.replace("ambient[2, n]", "0f")}),
+        ("surface drops shared ambient binding", {"Owner.cs": owner.replace("_surfaceProperties.SetVector(AmbientIds[0], new Vector4(p.C3.x, p.C1.x, p.C2.x, p.C0.x - p.C6.x));", "_surfaceProperties.SetVector(AmbientIds[0], new Vector4(0f, 0f, 0f, 0f));")}),
+        ("eligible native sun removed", {"Owner.cs": owner.replace("Light? key = EligibleKey(RenderSettings.sun) ? RenderSettings.sun", "Light? key = false ? RenderSettings.sun")}),
+        ("same count hides replacement surface", {"Owner.cs": owner.replace("sameSurfaces &= ReferenceEquals(_boundSurfaces[n], _surfaces[n]);", "sameSurfaces &= true;")}),
     ]
     dotnet = shutil.which("dotnet") or str(Path.home() / ".dotnet/dotnet")
     env = dict(os.environ, DOTNET_ROOT=str(Path(dotnet).resolve().parent))
