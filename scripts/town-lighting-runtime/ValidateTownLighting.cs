@@ -50,6 +50,11 @@ public static class ValidateTownLighting
         return (float)(difference / Math.Max(1, count) / 3);
     }
     static float Brightness(Color32[] image) => image.Sum(p => (long)p.r + p.g + p.b) / (image.Length * 3f);
+    static float WholeDifference(Color32[] first, Color32[] second)
+    {
+        long delta=0;for(int n=0;n<first.Length;n++)delta+=Math.Abs(first[n].r-second[n].r)+Math.Abs(first[n].g-second[n].g)+Math.Abs(first[n].b-second[n].b);
+        return delta/(first.Length*3f);
+    }
     static void Save(string name, Color32[] image)
     { readback.SetPixels32(image); readback.Apply(); File.WriteAllBytes(Path.Combine(output, name + ".png"), readback.EncodeToPNG()); }
     static Light Lamp(Vector3 position)
@@ -82,6 +87,59 @@ public static class ValidateTownLighting
         var current = AssetDatabase.LoadAssetAtPath<Shader>("Assets/Shaders/TownNpc.shader");
         var old = AssetDatabase.LoadAssetAtPath<Shader>("Assets/Shaders/TownNpc548.shader");
         Check(current != null && current.isSupported && old != null && old.isSupported, "production and regression shaders compile");
+        var opaqueDefaults=new Material(current);
+        Check(opaqueDefaults.GetFloat("_TownTransparent")==0f
+            && opaqueDefaults.GetFloat("_SrcBlend")==1f
+            && opaqueDefaults.GetFloat("_DstBlend")==0f
+            && opaqueDefaults.GetFloat("_ZWrite")==1f,
+            "normal TownNpc shader retains opaque blend and solid depth defaults");
+        var guideRoot=new GameObject("Actual temple guide lighting probe");guideRoot.layer=VRLayers.ModLayer;
+        var guide=GameObject.CreatePrimitive(PrimitiveType.Cube);guide.transform.SetParent(guideRoot.transform,false);guide.layer=VRLayers.ModLayer;
+        guide.transform.localScale=new Vector3(.8f,.8f,.1f);
+        var guideMesh=guide.GetComponent<MeshRenderer>();
+        var originalGuide=opaqueDefaults;originalGuide.SetFloat("_TownVisibility",0);
+        var guideMaterial=ActualGuideMaterial.GhostMaterial(originalGuide);guideMesh.sharedMaterial=guideMaterial;
+        Check(guideMaterial.shader==current && guideMaterial.GetFloat("_TownTransparent")==1f
+            && guideMaterial.GetFloat("_ZWrite")==0 && guideMaterial.renderQueue==(int)RenderQueue.Transparent,
+            "actual guide material preserves owned shader, alpha transparency and non-solid depth");
+        Check(originalGuide.GetFloat("_TownTransparent")==0 && originalGuide.GetFloat("_ZWrite")==1,
+            "guide material never changes its source body shader state");
+        Check(guideMaterial.GetFloat("_TownVisibility")==1,
+            "guide alpha never inherits the hidden source template's dissolve");
+        camera.transform.position=new Vector3(0,0,-2);camera.transform.LookAt(Vector3.zero);camera.backgroundColor=new Color(.1f,.3f,.1f);
+        var guideAmbient=new SphericalHarmonicsL2();guideAmbient.AddAmbientLight(new Color(.3f,.3f,.3f));
+        RenderSettings.ambientMode=AmbientMode.Custom;RenderSettings.ambientIntensity=1;RenderSettings.ambientProbe=guideAmbient;
+        using(var presentation=new TownServiceLighting(guideRoot.transform,2))
+        {
+            var state=new TownActivityState{HasSharedPerformance=true,HasAuthoredFoley=true};TownServiceLighting.SampleEnvironment(guideRoot.transform,ref state);
+            presentation.BindEnvironment(guideRoot.transform,guideRoot.transform,in state);
+            Check(!guideMesh.HasPropertyBlock(),"shared lighting leaves original guide mesh publishable without undeclared property blocks");
+            var assets=new GloomhavenVR.Net.TownServices.TownServiceAssets();
+            var materialSnapshot=GloomhavenVR.Net.TownServices.ActualMeshCapture.Capture(guideMesh,assets);
+            GloomhavenVR.Net.TownServices.TownServiceMaterial.Validate(materialSnapshot,assets);
+            var ownerGuide=Picture("guide-shared-owner");
+            var observerAmbient=new SphericalHarmonicsL2();observerAmbient.AddAmbientLight(new Color(.8f,0,0));RenderSettings.ambientProbe=observerAmbient;
+            var remoteGuide=GloomhavenVR.Net.TownServices.TownServiceMaterial.Apply(materialSnapshot,assets,null);
+            guideMesh.sharedMaterial=remoteGuide;
+            var observerGuide=Picture("guide-shared-observer");
+            Check(WholeDifference(ownerGuide,observerGuide)<.1f,"actual guide mesh capture and material playback retain shared ambient pixels in another room");
+            remoteGuide.SetFloat("_TownSharedAmbient",0);var missingGuide=Picture("guide-negative-local-ambient");
+            Check(WholeDifference(ownerGuide,missingGuide)>.5f,"guide negative local ambient produces a visible parity gap");negatives++;
+            remoteGuide.SetFloat("_TownSharedAmbient",1);
+            remoteGuide.SetFloat("_TownTransparent",0);var opaqueGuide=Picture("guide-negative-opaque");
+            Check(WholeDifference(ownerGuide,opaqueGuide)>1f,"guide negative alpha removal is visibly opaque");negatives++;
+            remoteGuide.SetFloat("_TownTransparent",1);
+            var undeclared=new MaterialPropertyBlock();undeclared.SetFloat("_UnknownOutput",1);guideMesh.SetPropertyBlock(undeclared);
+            bool rejected=false;try{GloomhavenVR.Net.TownServices.ActualMeshCapture.Capture(guideMesh,assets);}catch(System.IO.InvalidDataException){rejected=true;}
+            Check(rejected,"actual mesh capture still rejects undeclared shader property blocks");negatives++;
+            guideMesh.SetPropertyBlock(null);
+            guideMesh.sharedMaterial=guideMaterial;
+            GloomhavenVR.Net.TownServices.TownServiceMaterial.Release(remoteGuide);
+            guideMaterial.SetFloat("_TownVisibility",.77f);presentation.BindEnvironment(guideRoot.transform,guideRoot.transform,in state);
+            Check(guideMaterial.GetFloat("_TownVisibility")==.77f,"shared mesh uniform binding preserves controller-owned dissolve updates");
+        }
+        TownLightingEditorLifetime.Flush();UnityEngine.Object.DestroyImmediate(guideRoot);UnityEngine.Object.DestroyImmediate(guideMaterial);UnityEngine.Object.DestroyImmediate(originalGuide);
+        camera.backgroundColor=Color.black;RenderSettings.ambientProbe=default;RenderSettings.ambientMode=AmbientMode.Flat;RenderSettings.ambientIntensity=0;
         var bundle = AssetBundle.LoadFromFile(File.ReadAllText(Path.Combine(output, "bundle-path.txt")).Trim());
         Debug.Log("Town lighting fixture loaded actual bundle");
         foreach (string npc in new[] { "merchant", "priestess", "enchantress" })

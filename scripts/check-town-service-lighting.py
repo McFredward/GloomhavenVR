@@ -47,6 +47,9 @@ def main():
         ("surface drops shared ambient binding", {"Owner.cs": owner.replace("_surfaceProperties.SetVector(AmbientIds[0], new Vector4(p.C3.x, p.C1.x, p.C2.x, p.C0.x - p.C6.x));", "_surfaceProperties.SetVector(AmbientIds[0], new Vector4(0f, 0f, 0f, 0f));")}),
         ("eligible native sun removed", {"Owner.cs": owner.replace("Light? key = EligibleKey(RenderSettings.sun) ? RenderSettings.sun", "Light? key = false ? RenderSettings.sun")}),
         ("same count hides replacement surface", {"Owner.cs": owner.replace("sameSurfaces &= ReferenceEquals(_boundSurfaces[n], _surfaces[n]);", "sameSurfaces &= true;")}),
+        ("mesh acquires undeclared property block", {"Owner.cs": owner.replace("if (!supported || surface is MeshRenderer) continue;", "if (!supported) continue;")}),
+        ("native material gets owned lighting", {"Owner.cs": owner.replace('if (!OwnedEnvironmentMaterial(material)) continue;', 'if (material == null) continue;')}),
+        ("same count hides replacement material", {"Owner.cs": owner.replace("sameSurfaces &= ReferenceEquals(_boundMaterials[n], _materials[n]);", "sameSurfaces &= true;")}),
     ]
     dotnet = shutil.which("dotnet") or str(Path.home() / ".dotnet/dotnet")
     env = dict(os.environ, DOTNET_ROOT=str(Path(dotnet).resolve().parent))

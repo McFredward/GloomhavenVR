@@ -60,8 +60,17 @@ namespace UnityEngine
         public override int GetHashCode()=>HashCode.Combine(x,y,z);
     }
     public struct Vector4{public float x,y,z,w;public Vector4(float x,float y,float z,float w){this.x=x;this.y=y;this.z=z;this.w=w;}}
-    public static class Shader
-    {private static readonly Dictionary<string,int> Ids=new();public static int PropertyToID(string name){if(!Ids.TryGetValue(name,out int id))Ids[name]=id=Ids.Count+1;return id;}}
+    public class Shader
+    {public string name="GloomhavenVR/TownNpc";private static readonly Dictionary<string,int> Ids=new();public static int PropertyToID(string name){if(!Ids.TryGetValue(name,out int id))Ids[name]=id=Ids.Count+1;return id;}}
+    public class Material
+    {
+        public Shader shader=new();public readonly Dictionary<int,object> Values=new();
+        public bool HasProperty(int id)=>shader.name.StartsWith("GloomhavenVR/Town",StringComparison.Ordinal);
+        public void SetFloat(int id,float value)=>Values[id]=value;
+        public void SetVector(int id,Vector4 value)=>Values[id]=value;
+        public float GetFloat(int id)=>Values.TryGetValue(id,out object? value)&&value is float number?number:0;
+        public Vector4 GetVector(int id)=>Values.TryGetValue(id,out object? value)&&value is Vector4 vector?vector:default;
+    }
     public class MaterialPropertyBlock
     {
         public readonly Dictionary<int,object> Values=new();
@@ -74,10 +83,13 @@ namespace UnityEngine
     public class Renderer:Object
     {
         public int Writes;
+        public readonly List<Material> Materials=new(){new Material()};
+        public void GetSharedMaterials(List<Material> target){target.Clear();target.AddRange(Materials);}
         private readonly MaterialPropertyBlock _block=new();
         public void GetPropertyBlock(MaterialPropertyBlock target)=>target.CopyFrom(_block);
         public void SetPropertyBlock(MaterialPropertyBlock source){Writes++;_block.CopyFrom(source);}
     }
+    public class MeshRenderer:Renderer{}
     public struct Quaternion
     {
         private System.Numerics.Quaternion _value;

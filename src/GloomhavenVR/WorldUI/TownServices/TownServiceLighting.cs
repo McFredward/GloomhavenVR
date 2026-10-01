@@ -29,6 +29,7 @@ internal sealed class TownServiceLighting : IDisposable
     private readonly float _power;
     private readonly List<Renderer> _surfaces = new();
     private readonly List<Renderer> _boundSurfaces = new();
+    private readonly List<Material> _materials = new(), _boundMaterials = new(), _surfaceMaterials = new();
     private readonly MaterialPropertyBlock _surfaceProperties = new();
     private TownAmbientProbe _boundProbe;
     private bool _hasBoundProbe;
@@ -181,6 +182,13 @@ internal sealed class TownServiceLighting : IDisposable
         // non-allocating census also includes their new surfaces. An unchanged probe
         // and renderer population require no property-block writes.
         _surfaces.Clear(); root.GetComponentsInChildren(true, _surfaces);
+        _materials.Clear();
+        foreach (Renderer surface in _surfaces)
+        {
+            if (surface == null) continue;
+            surface.GetSharedMaterials(_surfaceMaterials);
+            foreach (Material material in _surfaceMaterials) _materials.Add(material);
+        }
         Vector3 direction = frame.TransformDirection(state.KeyDirection);
         Color keyColour = new(state.KeyColour.x, state.KeyColour.y, state.KeyColour.z);
         bool linear = QualitySettings.activeColorSpace == ColorSpace.Linear;
@@ -188,15 +196,31 @@ internal sealed class TownServiceLighting : IDisposable
         Vector3 colour = new(keyColour.r * state.KeyIntensity, keyColour.g * state.KeyIntensity, keyColour.b * state.KeyIntensity);
         bool sameSurfaces = _boundSurfaces.Count == _surfaces.Count;
         for (int n = 0; sameSurfaces && n < _surfaces.Count; n++) sameSurfaces &= ReferenceEquals(_boundSurfaces[n], _surfaces[n]);
+        sameSurfaces &= _boundMaterials.Count == _materials.Count;
+        for (int n = 0; sameSurfaces && n < _materials.Count; n++) sameSurfaces &= ReferenceEquals(_boundMaterials[n], _materials[n]);
         if (_hasBoundProbe && sameSurfaces && _boundProbe.Same(in state.AmbientProbe)
             && _boundKeyDirection == direction && _boundKeyColour == colour
             && _boundSharedKey == state.HasAuthoredKey && _boundLinear == linear) return;
         _boundProbe = state.AmbientProbe; _hasBoundProbe = true;
         _boundKeyDirection = direction; _boundKeyColour = colour; _boundSharedKey = state.HasAuthoredKey; _boundLinear = linear;
         _boundSurfaces.Clear(); _boundSurfaces.AddRange(_surfaces);
+        _boundMaterials.Clear(); _boundMaterials.AddRange(_materials);
         foreach (Renderer surface in _surfaces)
         {
             if (surface == null) continue;
+            surface.GetSharedMaterials(_surfaceMaterials);
+            bool supported = false;
+            foreach (Material material in _surfaceMaterials)
+            {
+                if (!OwnedEnvironmentMaterial(material)) continue;
+                supported = true;
+                if (surface is MeshRenderer) BindMaterial(material, state.HasAuthoredKey, direction, colour, in state.AmbientProbe);
+            }
+            // Original mesh snapshots reject undeclared property blocks. Their
+            // owned shader uniforms travel through the existing exact material
+            // capture instead. Keep material references held by the cabinet and
+            // decoration controllers so visibility/feedback updates still apply.
+            if (!supported || surface is MeshRenderer) continue;
             surface.GetPropertyBlock(_surfaceProperties);
             _surfaceProperties.SetFloat(SharedAmbientId, 1f);
             _surfaceProperties.SetFloat(SharedKeyId, state.HasAuthoredKey ? 1f : 0f);
@@ -214,6 +238,25 @@ internal sealed class TownServiceLighting : IDisposable
             _surfaceProperties.SetVector(AmbientIds[6], new Vector4(p.C8.x, p.C8.y, p.C8.z, 1f));
             surface.SetPropertyBlock(_surfaceProperties);
         }
+    }
+
+    private static bool OwnedEnvironmentMaterial(Material? material) => material != null && material.shader != null
+        && (material.shader.name == "GloomhavenVR/TownNpc" || material.shader.name == "GloomhavenVR/TownEye"
+            || material.shader.name == "GloomhavenVR/TownCornea")
+        && material.HasProperty(SharedAmbientId) && material.HasProperty(SharedKeyId);
+
+    private static void BindMaterial(Material material, bool sharedKey, Vector3 direction, Vector3 colour, in TownAmbientProbe p)
+    {
+        material.SetFloat(SharedAmbientId, 1f); material.SetFloat(SharedKeyId, sharedKey ? 1f : 0f);
+        material.SetVector(KeyDirectionId, new Vector4(direction.x, direction.y, direction.z, 0f));
+        material.SetVector(KeyColourId, new Vector4(colour.x, colour.y, colour.z, 1f));
+        material.SetVector(AmbientIds[0], new Vector4(p.C3.x, p.C1.x, p.C2.x, p.C0.x - p.C6.x));
+        material.SetVector(AmbientIds[1], new Vector4(p.C3.y, p.C1.y, p.C2.y, p.C0.y - p.C6.y));
+        material.SetVector(AmbientIds[2], new Vector4(p.C3.z, p.C1.z, p.C2.z, p.C0.z - p.C6.z));
+        material.SetVector(AmbientIds[3], new Vector4(p.C4.x, p.C5.x, p.C6.x * 3f, p.C7.x));
+        material.SetVector(AmbientIds[4], new Vector4(p.C4.y, p.C5.y, p.C6.y * 3f, p.C7.y));
+        material.SetVector(AmbientIds[5], new Vector4(p.C4.z, p.C5.z, p.C6.z * 3f, p.C7.z));
+        material.SetVector(AmbientIds[6], new Vector4(p.C8.x, p.C8.y, p.C8.z, 1f));
     }
 
     public void Dispose()

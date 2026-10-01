@@ -102,9 +102,25 @@ internal static class Program
         RenderSettings.ambientProbe=default;nativeKey.color=new(1,0,0);
         first.BindEnvironment(survivorRoot,frame,in snapshot);surface.GetPropertyBlock(retained);
         Near(retained.GetVector(Shader.PropertyToID("_TownAmbientAr")).w,-.06f,"observer's local ambient cannot replace the shared probe");
-        var replacement=new Renderer();survivorRoot.gameObject.Renderers[0]=replacement;
+        var replacement=new Renderer();replacement.Materials[0]=surface.Materials[0];survivorRoot.gameObject.Renderers[0]=replacement;
         first.BindEnvironment(survivorRoot,frame,in snapshot);
         Check(replacement.Writes==1,"a replaced equal-count surface receives authored lighting");
+        var mesh=new MeshRenderer();survivorRoot.gameObject.Renderers.Add(mesh);
+        var ownedMeshMaterial=mesh.Materials[0];ownedMeshMaterial.SetFloat(Shader.PropertyToID("_TownVisibility"),.42f);
+        first.BindEnvironment(survivorRoot,frame,in snapshot);
+        Check(mesh.Writes==0,"original town meshes never acquire undeclared property blocks");
+        Near(ownedMeshMaterial.GetVector(Shader.PropertyToID("_TownAmbientAr")).w,-.06f,"owned mesh material publishes the authored native probe");
+        Near(ownedMeshMaterial.GetFloat(Shader.PropertyToID("_TownVisibility")),.42f,"owned controller material retains its dissolve state");
+        ownedMeshMaterial.SetFloat(Shader.PropertyToID("_TownVisibility"),.83f);
+        first.BindEnvironment(survivorRoot,frame,in snapshot);
+        Check(ReferenceEquals(mesh.Materials[0],ownedMeshMaterial)&&ownedMeshMaterial.GetFloat(Shader.PropertyToID("_TownVisibility"))==.83f,
+            "lighting never replaces material references retained by native presentation controllers");
+        var untouched=new Material{shader=new Shader{name="Native/Original"}};mesh.Materials[0]=untouched;
+        first.BindEnvironment(survivorRoot,frame,in snapshot);
+        Check(untouched.Values.Count==0,"native material outside the owned shader allowlist remains untouched");
+        var replacementMaterial=new Material();mesh.Materials[0]=replacementMaterial;
+        first.BindEnvironment(survivorRoot,frame,in snapshot);
+        Near(replacementMaterial.GetVector(Shader.PropertyToID("_TownAmbientAr")).w,-.06f,"equal-count replacement material receives authored shared lighting");
         RenderSettings.sun=null;UnityEngine.Object.ExternalDestroy(nativeKey.gameObject);
         var firstLamp=Living().First(l=>TownServiceLighting.Owns(l)&&l.type==LightType.Point);
         UnityEngine.Object.ExternalDestroy(firstLamp.gameObject);

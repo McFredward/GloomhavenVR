@@ -14,6 +14,12 @@ Shader "GloomhavenVR/TownNpc"
         _GlossMapScale ("Mapped smoothness scale", Range(0,1)) = 1
         _EmissionColor ("Emission", Color) = (0,0,0,1)
         _TownVisibility ("Town visibility", Range(0,1)) = 1
+        // Ordinary furniture and bodies remain opaque. Only the blue destination
+        // guide selects transparency on its own material copy.
+        _TownTransparent ("Transparent guide", Float) = 0
+        [Enum(UnityEngine.Rendering.BlendMode)] _SrcBlend ("Source blend", Float) = 1
+        [Enum(UnityEngine.Rendering.BlendMode)] _DstBlend ("Destination blend", Float) = 0
+        [Toggle] _ZWrite ("Depth writes", Float) = 1
         _TownSharedKey ("Shared directional key", Float) = 0
         _TownKeyDirection ("Shared key direction", Vector) = (0,0,1,0)
         _TownKeyColour ("Shared key colour", Color) = (0,0,0,1)
@@ -30,6 +36,8 @@ Shader "GloomhavenVR/TownNpc"
     {
         Tags { "RenderType"="Opaque" "Queue"="Geometry" }
         Cull Off
+        Blend [_SrcBlend] [_DstBlend]
+        ZWrite [_ZWrite]
         Pass
         {
             Tags { "LightMode"="ForwardBase" "PassFlags"="OnlyDirectional" }
@@ -50,7 +58,7 @@ Shader "GloomhavenVR/TownNpc"
             sampler2D _MainTex, _BumpMap, _MetallicGlossMap;
             float4 _MainTex_ST;
             fixed4 _Color, _EmissionColor;
-            half _BumpScale, _Metallic, _Glossiness, _GlossMapScale, _TownVisibility;
+            half _BumpScale, _Metallic, _Glossiness, _GlossMapScale, _TownVisibility, _TownTransparent;
             #include "TownSharedEnvironment.cginc"
             struct AppData
             {
@@ -109,7 +117,8 @@ Shader "GloomhavenVR/TownNpc"
                     normal = normalize(input.tangent * tangentNormal.x + input.bitangent * tangentNormal.y + normal * tangentNormal.z);
                 #endif
                 normal *= facing >= 0 ? 1 : -1;
-                half3 albedo = tex2D(_MainTex, input.uv).rgb * _Color.rgb;
+                half4 surface = tex2D(_MainTex, input.uv);
+                half3 albedo = surface.rgb * _Color.rgb;
                 half metallic = _Metallic;
                 half smoothness = _Glossiness;
                 #if defined(_METALLICGLOSSMAP)
@@ -131,7 +140,7 @@ Shader "GloomhavenVR/TownNpc"
                 #if defined(_EMISSION)
                     colour += _EmissionColor.rgb;
                 #endif
-                fixed4 result = fixed4(colour, 1);
+                fixed4 result = fixed4(colour, _TownTransparent > .5h ? surface.a * _Color.a : 1);
                 UNITY_APPLY_FOG(input.fogCoord, result);
                 return result;
             }

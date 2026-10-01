@@ -47,7 +47,9 @@ def inspect_particle_contract(marker):
         "ParticleSystemRenderMode.Billboard",
         "BuildParticleTexture()",
         "ParticleSystem[] phases = { _blessing, _halo, _falling, _outward };",
-        "phase.Simulate(age, true, false, true);",
+        "phase.Simulate(age, true, true, true);",
+        "_blessing.Simulate(delta, true, false, true);",
+        "_blessing.Pause(true);",
         "phase.randomSeed = 0x475652u + (uint)(i * 917);",
         "if (_ownsBlessing) BuildBlessing();",
         "effect.SetActive(false);",
@@ -62,6 +64,16 @@ def inspect_particle_contract(marker):
                            + ", ".join(missing))
 
 
+def inspect_guide_contract(marker, shader):
+    guide = method(marker, "private static Material GhostMaterial(Material source)")
+    required = ('TownServiceAssets.Shader("townnpc")', 'copy.SetFloat("_TownTransparent", 1f);',
+                'copy.SetFloat("_TownVisibility", 1f);', 'copy.SetInt("_ZWrite", 0);',
+                'renderQueue = (int)RenderQueue.Transparent')
+    if any(entry not in guide for entry in required) or 'Shader.Find("Standard")' in guide \
+            or 'Blend [_SrcBlend] [_DstBlend]' not in shader or 'ZWrite [_ZWrite]' not in shader:
+        raise RuntimeError("Temple guide must retain owned shared lighting and true non-solid alpha transparency")
+
+
 def inspect_shared_blessing_contract(root):
     town = root / "src/GloomhavenVR/WorldUI/TownServices"
     ritual = (town / "TownServiceRitual.cs").read_text()
@@ -69,6 +81,17 @@ def inspect_shared_blessing_contract(root):
     population = (town / "TownServicePopulation.cs").read_text()
     station = (town / "TownServiceStation.cs").read_text()
     marker = (town / "TownServiceTempleBowlMarker.cs").read_text()
+    shader = (root / "unity/GloomhavenVR.Assets/Assets/Bundle/TownServices/Shaders/TownNpc.shader").read_text()
+    inspect_guide_contract(marker, shader)
+    guide_controls = (
+        replace_once(marker, 'copy.SetInt("_ZWrite", 0);', 'copy.SetInt("_ZWrite", 1);'),
+        replace_once(marker, 'TownServiceAssets.Shader("townnpc")', 'Shader.Find("Standard")'),
+    )
+    for control in guide_controls:
+        try: inspect_guide_contract(control, shader)
+        except RuntimeError: pass
+        else: raise RuntimeError("Temple guide contract did not reject a source lighting/depth regression")
+    print("Temple guide: shared-lighting/alpha source contract and two negative controls passed", flush=True)
     motion = (town / "TownServiceActivityMotion.cs").read_text()
     donate = method(ritual, "private bool Donate(") + method(ritual, "private void CompleteTempleDonation(")
     if ".Bless(" in donate:
@@ -79,7 +102,7 @@ def inspect_shared_blessing_contract(root):
         "TownServiceMirror.SetLocalTempleDonationAvailable(_ritual.TempleDonationAvailable)",
         "resident.TempleBlessing.Observe(true, state.Peer, state.Session,",
         "TownServiceMirror.TryTemplePresentationState(out bool received, out bool anyCanDonate)",
-        "resident.Station.PlayTempleBlessing(transitionAge)",
+        "resident.Station.SampleTempleBlessing(sourceEpoch, resident.TempleBlessingGeneration,",
         "new TownServiceTempleBowlMarker(root.transform, stationSpace: true)",
     )
     joined = presentation + population + station
@@ -97,9 +120,10 @@ def inspect_shared_blessing_contract(root):
         "resident.TempleUnavailableBlend = 1f;",
         "committedAge / TownServiceActivityMotion.TransitionSeconds",
         "resident.TempleUnavailableBlend = Mathf.MoveTowards(resident.TempleUnavailableBlend,\n                        0f,",
-        "TownServiceActivityMotion.ApplyTempleAvailability(ref displayedActivity,\n                    !coverUnavailable, resident.TempleUnavailableBlend)",
+        "TownServiceActivityMotion.ApplyTempleAvailability(ref displayedActivity,\n                    resident.TempleUnavailableBlend <= 0f, resident.TempleUnavailableBlend)",
     )
-    missing_gate = [entry for entry in gate if entry not in population]
+    compact_population = " ".join(population.split())
+    missing_gate = [entry for entry in gate if " ".join(entry.split()) not in compact_population]
     if missing_gate or "resident.TempleUnavailableBlend = 0f" in population:
         raise RuntimeError("Temple blessing/cover continuity gate is incomplete: " + ", ".join(missing_gate))
     cover_controls = (
@@ -115,7 +139,7 @@ def inspect_shared_blessing_contract(root):
     )
     for snap_control in cover_controls:
         try:
-            missing_snap = [entry for entry in gate if entry not in snap_control]
+            missing_snap = [entry for entry in gate if " ".join(entry.split()) not in " ".join(snap_control.split())]
             if missing_snap or "resident.TempleUnavailableBlend = 0f" in snap_control:
                 raise RuntimeError("mutated cover snaps")
         except RuntimeError:

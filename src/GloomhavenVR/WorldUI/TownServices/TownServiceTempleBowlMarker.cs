@@ -190,21 +190,21 @@ internal sealed class TownServiceTempleBowlMarker : IDisposable
 
     private static Material GhostMaterial(Material source)
     {
-        // TownNpc is deliberately opaque and its visibility channel is a dissolve. A guide
-        // needs real perspective-correct transparency, so retain the original maps while
-        // moving this owned copy onto Unity's guaranteed transparent Standard pass.
-        Shader shader = Shader.Find("Standard")
-            ?? throw new InvalidOperationException("Standard shader unavailable for temple guide");
+        // Preserve the shared authored lighting and original maps. The guide alone
+        // selects alpha blending; its transparency must never force a solid depth
+        // write or change the opaque actor/furniture materials.
+        Shader shader = TownServiceAssets.Shader("townnpc")
+            ?? throw new InvalidOperationException("Town shader unavailable for temple guide");
         var copy = new Material(source) { shader = shader, renderQueue = (int)RenderQueue.Transparent };
+        copy.SetFloat("_TownTransparent", 1f);
+        copy.SetFloat("_TownVisibility", 1f);
         Color blue = new(.16f, .55f, 1f, .30f);
         copy.SetColor("_Color", blue);
         if (copy.HasProperty("_EmissionColor")) copy.SetColor("_EmissionColor", new Color(.035f, .13f, .28f, 1f));
-        if (copy.HasProperty("_Mode")) copy.SetFloat("_Mode", 3f);
         if (copy.HasProperty("_SrcBlend")) copy.SetInt("_SrcBlend", (int)BlendMode.SrcAlpha);
         if (copy.HasProperty("_DstBlend")) copy.SetInt("_DstBlend", (int)BlendMode.OneMinusSrcAlpha);
         if (copy.HasProperty("_ZWrite")) copy.SetInt("_ZWrite", 0);
-        copy.DisableKeyword("_ALPHATEST_ON"); copy.DisableKeyword("_ALPHAPREMULTIPLY_ON");
-        copy.EnableKeyword("_ALPHABLEND_ON"); copy.EnableKeyword("_EMISSION");
+        copy.EnableKeyword("_EMISSION");
         return copy;
     }
 
