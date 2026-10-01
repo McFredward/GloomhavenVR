@@ -547,7 +547,14 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 594;
+    public const ushort ModBuild = 595;
+
+    // ModBuild 595 — the WallFade visibility-check option now declares its
+    // actual 0..0.25 s runtime range to BepInEx and the VR options catalog.
+    // Build 594 Frame Debug logs proved that values around 1 s were saved and
+    // displayed while the wall driver kept evaluating at 0.25 s. Existing
+    // out-of-range configs normalize to their former effective value; no
+    // wall behavior, wire format or asset-bundle content changes.
 
     // ModBuild 594 — the enchantress's original enhancement-point heading
     // stays visible after its old native card-list ancestor is veiled. The

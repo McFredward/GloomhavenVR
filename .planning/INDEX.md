@@ -1,6 +1,6 @@
 # Planning index
 
-Updated 2026-10-01 for the Build 593 Steam Frame interactive trace. This directory holds internal
+Updated 2026-10-01 for the Build 594 Steam Frame interactive trace. This directory holds internal
 engineering evidence, historical decisions and current status; it is not the player manual.
 
 ## Current entry points
@@ -11,6 +11,7 @@ engineering evidence, historical decisions and current status; it is not the pla
 | [../CLAUDE.md](../CLAUDE.md) | Technical contracts retained across agent tools |
 | [TEST-PARALLELISM.md](TEST-PARALLELISM.md) | Parallel local/CI execution, coverage and measured timing |
 | [STATE.md](STATE.md) | Current build, validation and outstanding hardware checks |
+| [STEAM-FRAME-EIGHTH-HARDWARE.md](STEAM-FRAME-EIGHTH-HARDWARE.md) | Build 594 Frame measurements, wall-option defect and ranked CPU work |
 | [STEAM-FRAME-SEVENTH-HARDWARE.md](STEAM-FRAME-SEVENTH-HARDWARE.md) | Build 593 Frame interactive CPU trace, native desktop panel and remaining hitches |
 | [TOWN-591.md](TOWN-591.md) | Build-590 enchantress hitch and selection evidence, Build-591 changes and hardware limits |
 | [TOWN-MP-590.md](TOWN-MP-590.md) | Correct Build-587 peer evidence, remote rack recovery and handoff fixes; unresolved template mismatch |

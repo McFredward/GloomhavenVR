@@ -1,6 +1,6 @@
 # State — where the project stands
 
-**Updated 2026-10-01: dev 1.1.0 / ModBuild 594, Steam Frame interactive performance follow-up.**
+**Updated 2026-10-01: dev 1.1.0 / ModBuild 595, Steam Frame interactive performance follow-up.**
 The release ZIP now exposes only `BepInEx/` and the English/German install
 texts at game-root level. The Steam Frame desktop starter, setup scripts and
 art are nested under the plugin. The in-game updater accepts and copies the
@@ -74,6 +74,13 @@ desktop UI in SteamVR's application panel. The intended one-second wall setting
 is not effective in this trace (live rescan 4.00 s; visibility evaluation 0.250 s).
 See [STEAM-FRAME-DEFAULTS.md](STEAM-FRAME-DEFAULTS.md) and
 [STEAM-FRAME-SEVENTH-HARDWARE.md](STEAM-FRAME-SEVENTH-HARDWARE.md).
+The Build 594 Debug trace confirms that changing "Verdeckung prüfen alle" to
+about 1 s saved the value but never altered the 0.25 s effective cadence;
+the option omitted its actual BepInEx range. Build 595 makes the displayed,
+saved and effective range agree. The same trace retains 42 ms scenario medians,
+recurring merchant CPU work and interactive NPC/fan/wall hitches. See
+[STEAM-FRAME-EIGHTH-HARDWARE.md](STEAM-FRAME-EIGHTH-HARDWARE.md) for measured
+priorities and explicitly optional Frame compromises.
 Build 589 addresses the Build 587 town multiplayer report: host self-grant
 timeout, original atlas capture, public cabinet input, town handoff focus and
 map character selection. Correct matching Build 587 peer logs then exposed a
@@ -100,6 +107,15 @@ change per build) → this file (where things stand and what is owed) → the bu
 ---
 
 ## 1. Position
+
+- **dev / 1.1.0 / ModBuild 595 (Frame options correction):** the wall occlusion
+  evaluation control is bounded to its already-enforced 0..0.25 s range in
+  BepInEx and VR Options. Persisted values around 1 s now display their actual
+  effective value instead of implying the runtime changed. The 4.00 s wall
+  table rebuild is a different setting and remains unchanged. Build 594
+  performance findings and next candidates are documented in
+  [STEAM-FRAME-EIGHTH-HARDWARE.md](STEAM-FRAME-EIGHTH-HARDWARE.md). Headset
+  smoothness remains open.
 
 - **dev / 1.1.0 / ModBuild 594 (Frame hardware candidate):** restore the
   enchantress's original enhancement-point heading above its physical book
