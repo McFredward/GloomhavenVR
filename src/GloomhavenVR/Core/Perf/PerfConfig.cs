@@ -25,7 +25,8 @@ namespace GloomhavenVR.Core;
 /// one's DEFAULT is chosen so that nothing the player can see changes silently: pure
 /// work-removal (idempotence gates, cached delegates, change-gating) defaults ON because it is
 /// invisible by construction, while anything that trades quality or freshness for frames
-/// defaults to TODAY'S behaviour and has to be switched on deliberately.</item>
+/// defaults to TODAY'S behaviour on PC. The separately identified Steam Frame standalone
+/// profile may seed explicit scenery-quality compromises on a fresh configuration.</item>
 /// </list>
 ///
 /// <para>NOT IN THE VR SETTINGS ANY MORE (2026-07, user: the performance pane was "super
@@ -147,6 +148,12 @@ internal static class PerfConfig
     /// <summary>Override <see cref="QualitySettings.lodBias"/> in VR (0 = leave the quality level's own value).</summary>
     internal static ConfigEntry<float> LodBias = null!;
 
+    /// <summary>Percentage of standalone scenario floor decoration retained; 100 preserves all.</summary>
+    internal static ConfigEntry<int> ScenarioSceneryDensityPercent = null!;
+
+    internal static ConfigEntry<bool> SharedWallReadCache = null!;
+    internal static ConfigEntry<bool> LightStabiliserWorkCache = null!;
+
     // ---- safe accessors ---------------------------------------------------------------------
     // Optimization sites live in per-frame code that can run BEFORE (or entirely without) a
     // successful Bind — a module whose Init threw, a hot-reload mid-frame, the flat-screen path.
@@ -227,6 +234,17 @@ internal static class PerfConfig
     /// <summary>[Optimize] LodBias, 0 = leave QualitySettings.lodBias alone (today's behaviour).</summary>
     internal static float LodBiasOverride =>
         LodBias == null ? 0f : Mathf.Clamp(LodBias.Value, 0f, 8f);
+
+    internal static int ScenarioSceneryDensityPercentValue =>
+        ScenarioSceneryDensityPercent == null
+            ? Defaults.ScenarioSceneryDensityPercent
+            : Mathf.Clamp(ScenarioSceneryDensityPercent.Value, 0, 100);
+
+    internal static bool SharedWallReadCacheOn =>
+        SharedWallReadCache == null || SharedWallReadCache.Value;
+
+    internal static bool LightStabiliserWorkCacheOn =>
+        LightStabiliserWorkCache == null || LightStabiliserWorkCache.Value;
 
     // ---- [Optimize] HeadCullingMaskDrop: parsed once per distinct string, not per frame --------
     // The entry is human-written text ("Water, 14, TransparentFX") and it is read from the rig's
@@ -320,6 +338,31 @@ internal static class PerfConfig
         if (_file != null)
             return;
         _file = ModuleConfig.Create("perf");
+
+        // Maintainer ruling 2026-10-01: explicit reversible scenery compromises are needed
+        // for Frame standalone large scenarios. BepInEx retains existing saved values;
+        // desktop and streamed PC VR keep the full-density default. This is not a board,
+        // card or shared-widget setting and never changes native game/reveal state.
+        ScenarioSceneryDensityPercent = _file.Bind("Optimize", "ScenarioSceneryDensityPercent",
+            FrameDefaults.Active ? FrameDefaults.ScenarioSceneryDensityPercent : Defaults.ScenarioSceneryDensityPercent,
+            new ConfigDescription(
+                "Amount of standalone decorative scenario grass retained. 100% keeps the "
+                + "original scene; lower values remove a stable subset of eligible decorative meshes "
+                + "from rendering. Only verified floor-grass generators are eligible. Figures, "
+                + "obstacles, floors, walls, doors, cards and UI remain "
+                + "unchanged. Takes effect during scene preparation and when this value changes. "
+                + "Frame standalone starts at 25%; PC VR starts at 100%. This trades decorative "
+                + "detail for less rendering work, not gameplay information. Saved settings are retained.",
+                new AcceptableValueRange<int>(0, 100)));
+
+        SharedWallReadCache = _file.Bind("Optimize", "SharedWallReadCache", Defaults.SharedWallReadCache,
+            "Reuse shared-material and nearest-figure-ancestor reads within synchronous wall "
+            + "preparation only. ON removes duplicate engine queries without changing wall appearance "
+            + "or ownership. OFF restores uncached reads. Available on every platform; works live.");
+        LightStabiliserWorkCache = _file.Bind("Optimize", "LightStabiliserWorkCache", Defaults.LightStabiliserWorkCache,
+            "Skip an unused scene-wide light diagnostic scan and exact unchanged Unity setters. "
+            + "ON removes redundant work without changing stabilized light values. OFF restores the "
+            + "original scan and write cadence. Available on every platform; works live.");
 
         // ---- [Perf] -------------------------------------------------------------------------
         Enabled = _file.Bind("Perf", "Enabled", Defaults.Perf_Enabled,

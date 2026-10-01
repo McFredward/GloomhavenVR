@@ -65,6 +65,9 @@ internal static partial class Defaults
     internal const bool LodCensus = true;                    // => [Perf] LodCensus  (ON: pure measurement, one line per scene. The 227 SIM reading put 2560 of 2986 Update entries — 86% — in ONE third-party type, and the analysis that named it also asserted "the game has no LODGroup at all" while the GFX line in the same log read "LOD groups: 1277 active". This walk settles both, names which camera decides the level, prints the level distribution the scene is actually running at, and prints QualitySettings.masterTextureLimit — the competing mechanism for the separate "matschige Texturen" report, which no line in this log has ever carried)
     internal const bool CacheTickDelegates = true;           // => [Optimize] CacheTickDelegates
     internal const bool MapIconCache = true;                 // => [Optimize] MapIconCache
+    internal const int ScenarioSceneryDensityPercent = 100; // => [Optimize] ScenarioSceneryDensityPercent
+    internal const bool SharedWallReadCache = true;         // => [Optimize] SharedWallReadCache
+    internal const bool LightStabiliserWorkCache = true;     // => [Optimize] LightStabiliserWorkCache
     internal const bool FigureScanCache = true;              // => [Optimize] FigureScanCache
     internal const bool LeanLogStrings = true;               // => [Optimize] LeanLogStrings
     internal const bool TooltipScanGate = true;              // => [Optimize] TooltipScanGate

@@ -25,6 +25,10 @@ internal static class FrameDefaults
     // PC's 4096 MB floor, it does not reserve a desktop-sized budget if a user changes preset.
     internal const int TextureStreamingBudgetMB = 900;
 
+    // Maintainer-approved scenery compromise (2026-10-01): keep one quarter of the
+    // strictly decorative floor-cover meshes. Gameplay geometry and UI keep full detail.
+    internal const int ScenarioSceneryDensityPercent = 25;
+
     // A 4 s wall-rescan cadence was active in the tested Frame configuration. It reduces
     // rescan frequency, not the duration of an individual rescan.
     internal const float WallRescanIntervalSeconds = 4f;

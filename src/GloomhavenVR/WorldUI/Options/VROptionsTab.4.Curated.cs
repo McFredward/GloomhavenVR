@@ -499,6 +499,7 @@ internal static partial class VROptionsTab
                         new("RenderQuality", "EyeResolutionScale", "vr_o_eyeres"),
                         new("RenderQuality", "MsaaLevel", "vr_o_msaa"),
                         new("RenderQuality", "ForceAnisotropic", "vr_o_aniso"),
+                        new("Optimize", "ScenarioSceneryDensityPercent", ""),
                         // [RenderQuality] PixelLightCount STOOD HERE under ruling 19 ("the
                         // pixel-light cap is a visible look-vs-frames trade the game itself never
                         // exposes in VR"). IT IS OFF THE CURATED PAGE SINCE 2026-08-23, by a newer

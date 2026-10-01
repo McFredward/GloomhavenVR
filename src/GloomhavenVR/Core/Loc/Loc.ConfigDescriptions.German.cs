@@ -223,6 +223,24 @@ internal static partial class Loc
                 + "jedes Ziel erneut aus dem gespeicherten Original-z ab, deshalb kann ein Takt von z. B. "
                 + "0.05 (20 Hz) nicht ändern, wo ein Porträt landet — er verzögert höchstens um dieses "
                 + "Intervall, wann ein NEU eingereihtes Porträt zum ersten Mal flachgelegt wird.",
+            ["Optimize/ScenarioSceneryDensityPercent"] =
+                "Anteil des eigenständigen dekorativen Grases im Szenario. 100% erhält die ursprüngliche "
+                + "Darstellung; niedrigere Werte entfernen einen festen Anteil geeigneter Dekorations-Meshes "
+                + "aus der Darstellung. Nur geprüfte Bodengras-Generatoren sind betroffen. Figuren, "
+                + "Hindernisse, Böden, Wände, Türen, Karten und UI bleiben "
+                + "unverändert. Wirkt bei der Szenariovorbereitung und beim Ändern dieses Werts. "
+                + "Steam Frame standalone beginnt mit 25%, PC-VR mit 100%. Weniger Dekoration reduziert "
+                + "den Renderaufwand. Gespeicherte Einstellungen bleiben erhalten.",
+            ["Optimize/SharedWallReadCache"] =
+                "Verwendet gemeinsame Material- und Figuren-Vorfahren-Abfragen innerhalb der "
+                + "synchronen Wandvorbereitung erneut. Ein spart doppelte Engine-Abfragen bei gleicher "
+                + "Darstellung und Besitzzuordnung. Aus stellt die ungecachten Abfragen wieder her. "
+                + "Auf allen Plattformen verfügbar; wirkt sofort.",
+            ["Optimize/LightStabiliserWorkCache"] =
+                "Überspringt eine ungenutzte szenenweite Licht-Diagnosesuche und exakt unveränderte "
+                + "Unity-Schreibzugriffe. Ein spart doppelte Arbeit bei gleichen stabilisierten "
+                + "Lichtwerten. Aus stellt die ursprüngliche Such- und Schreibfrequenz wieder her. "
+                + "Auf allen Plattformen verfügbar; wirkt sofort.",
             ["Optimize/QuietDiagnostics"] =
                 "Unterdrückt die hochfrequenten DIAGNOSE-Logzeilen einzelner Subsysteme (den "
                 + "\"diag:\"-Durchlauf der Wandüberblendung, den \"Fan depth-curve:\"-Rekorder des "
