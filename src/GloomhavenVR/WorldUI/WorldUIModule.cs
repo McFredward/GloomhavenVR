@@ -71,6 +71,8 @@ internal sealed class WorldUIModule : IVRModule
         VRSession.Harmony?.PatchAll(typeof(PostQuestRewardSceneEndPatch));
         VRSession.Harmony?.PatchAll(typeof(InputManager_SetGamepadInputDevice_Patch));
         VRSession.Harmony?.PatchAll(typeof(InputManager_AssignGamepadBindings_Patch));
+        VRSession.Harmony?.PatchAll(typeof(VrGamepadConnectionActivateGuard));
+        VRSession.Harmony?.PatchAll(typeof(VrGamepadConnectionUpdateGuard));
         VRSession.Harmony?.PatchAll(typeof(UITextInfoPanel_Show_Patch)); // test #18 attribution diagnostic
         VRSession.Harmony?.PatchAll(typeof(TownServiceRitualConfirmationCapture)); // preserve offering ownership through native confirmation fade
         VRSession.Harmony?.PatchAll(typeof(TownServiceEnhancementGrantGuard)); // recheck host ownership at native enhancement confirmation

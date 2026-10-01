@@ -97,6 +97,7 @@
   <ItemGroup>
     <Compile Include="$(RepoRoot)src\GloomhavenVR.Preload\RelaunchCommand.cs" Link="preload\RelaunchCommand.cs" />
     <Compile Include="$(RepoRoot)src\GloomhavenVR.Preload\FrameLaunchOptIn.cs" Link="preload\FrameLaunchOptIn.cs" />
+    <Compile Include="$(RepoRoot)src\GloomhavenVR\WorldUI\FlatScreen\FrameDesktopPolicy.cs" Link="worldui\FrameDesktopPolicy.cs" />
   </ItemGroup>
 
   <!-- Not a wire file either, and here for the same reason as RelaunchCommand: it decides

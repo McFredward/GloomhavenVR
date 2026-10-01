@@ -912,7 +912,9 @@ internal static class WorldUIConfig
             "Flat monitor mirrors ONLY the HMD's LEFT eye: pins XRSettings.gameViewRenderMode to " +
             "LeftEye and skips the desktop 2D-menu composite blit, so the desktop is a clean " +
             "single-eye mirror in every state. Off = legacy (2D-menu composite during menus; " +
-            "uncontrolled default XR mirror otherwise).");
+            "uncontrolled default XR mirror otherwise). Steam Frame standalone VR always uses " +
+            "the left-eye mirror and suppresses discarded desktop game-camera draws, even if " +
+            "this saved PC preference is false; its VR options toggle is hidden there.");
         // ---- RETIRED 2026-08-09: the wrist HUD's SECOND set of pose dials -------------------
         ShowIntro = _file.Bind("WorldUI", "ShowIntro", Defaults.ShowIntro,
             "Show the game's intro (logos/video, pre-menu scenes) on the floating screen in VR " +

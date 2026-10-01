@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using GloomhavenVR.WorldUI;
 
 namespace GloomhavenVR.WireTests;
 
@@ -35,5 +36,23 @@ internal static class FrameLaunchVectors
             if (Directory.Exists(root))
                 Directory.Delete(root, recursive: true);
         }
+
+        t.Case("frame-launch/desktop-render-policy");
+        t.True(!FrameDesktopPolicy.MirrorLeftEye(false, false, true),
+               "PC VR keeps a saved desktop mirror off choice");
+        t.True(FrameDesktopPolicy.MirrorLeftEye(true, false, true),
+               "PC VR keeps a saved desktop mirror on choice");
+        t.True(FrameDesktopPolicy.MirrorLeftEye(false, true, true),
+               "Frame VR suppresses the unneeded flat spectator render despite an old saved choice");
+        t.True(!FrameDesktopPolicy.MirrorLeftEye(false, true, false),
+               "Frame original flat launch does not force the VR mirror");
+        t.True(FrameDesktopPolicy.ScrubGameCameras(true, true, false),
+               "hidden flat screen skips discarded game-camera draw during VR");
+        t.True(!FrameDesktopPolicy.ScrubGameCameras(true, true, true),
+               "visible in-headset menu retains its captured native 2D cameras");
+        t.True(!FrameDesktopPolicy.ScrubGameCameras(true, false, false),
+               "flat launch keeps native desktop cameras");
+        t.True(!FrameDesktopPolicy.ScrubGameCameras(false, true, false),
+               "PC VR desktop mirror off preserves the legacy path");
     }
 }

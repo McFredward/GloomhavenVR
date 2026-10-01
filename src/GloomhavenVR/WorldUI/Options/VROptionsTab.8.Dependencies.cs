@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using GloomhavenVR.Core;
 
 namespace GloomhavenVR.WorldUI;
 
@@ -425,7 +426,19 @@ internal static partial class VROptionsTab
     /// THE one row filter: the own-page hand-off, the per-variant fold and the dependency fold
     /// together. Every view — curated tabs, automatic topic pages, the hand-arranged trees — asks
     /// this and nothing else, so the three mechanisms can never disagree between pages.
+    /// Steam Frame VR also omits the desktop-mirror toggle: its effective value is fixed on
+    /// while VR runs, even if the persisted PC preference is false. The key remains bound for
+    /// existing PC configurations and for a flat launch; a false toggle here would lie.
     /// </summary>
     private static bool IsRowVisible(ConfigCatalog.ConfigItem item) =>
-        !HasItsOwnPage(item) && IsShownForCurrentVariant(item) && DependencyMet(item);
+        !IsFixedFrameDesktopMirror(item) && !HasItsOwnPage(item)
+        && IsShownForCurrentVariant(item) && DependencyMet(item);
+
+    // The setup marker is stable for one process. Avoid File.Exists during menu rebuilds;
+    // FlatScreen caches the same fact separately for its per-frame render path.
+    private static readonly bool FrameHasStandaloneMarker = FrameDefaults.Active;
+
+    private static bool IsFixedFrameDesktopMirror(ConfigCatalog.ConfigItem item) =>
+        item.Section == "WorldUI" && item.Key == "DesktopMirrorLeftEye"
+        && VRSession.IsRunning && FrameHasStandaloneMarker;
 }
