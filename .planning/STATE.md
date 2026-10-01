@@ -1,6 +1,17 @@
 # State — where the project stands
 
-**Updated 2026-10-01: dev 1.1.0 / ModBuild 598, large-scene Steam Frame candidate.**
+**Updated 2026-10-01: dev 1.1.0 / ModBuild 599, large-scene bottleneck attribution.**
+The latest Build 598 Frame log is a direct `ProcGen` scenario run, with no 3D-map
+test. Its apparent ~36 ms interval had an untracked HMD and seven visible
+renderers. At stable 3408 pixels/eye the later scenario windows remain around
+128–131 ms/frame. A wall-fade-off trial did not materially improve the owner's
+experience; the log's brief off interval supports lower named mod time but
+cannot yield a clean exact A/B because VR Options was open. Build 599 adds
+bounded Debug-only native callback and actual Unity render-counter probes
+(explicit `n/a` if the player exposes none), plus a scene/tracking/eye-aware
+log comparison script. No headset speedup is claimed. See
+[STEAM-FRAME-LARGE-SCENE-PERF.md](STEAM-FRAME-LARGE-SCENE-PERF.md).
+
 The release ZIP now exposes only `BepInEx/` and the English/German install
 texts at game-root level. The Steam Frame desktop starter, setup scripts and
 art are nested under the plugin. The in-game updater accepts and copies the
@@ -142,6 +153,12 @@ change per build) → this file (where things stand and what is owed) → the bu
 
 ## 1. Position
 
+- **dev / 1.1.0 / ModBuild 599 (large-scene attribution):** separate the
+  native game loop, Unity render submissions and actual GPU time before
+  changing procedurally revealed scene geometry. The Build 598 test contains
+  no 3D-map run; resolution-changing windows are not valid A/B comparisons.
+  Debug probes and the log report are bounded and read-only. The hardware
+  bottleneck and a playable Frame rate remain open.
 - **dev / 1.1.0 / ModBuild 598 (large-scene Frame candidate):** remove quadratic
   wall-refresh membership checks, use placement events for unchanged water tiles,
   bound material-watchdog work per frame, and reduce redundant hidden-icon,

@@ -547,7 +547,21 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 598;
+    public const ushort ModBuild = 599;
+
+    // ModBuild 599 — the Build 598 Steam Frame run entered ProcGen directly;
+    // it did not test the 3D map. A low-load interval was mistakenly called
+    // a map result while the HMD was untracked and only seven renderers were
+    // visible. The later large-scenario windows remain about 128–131 ms/frame
+    // at a stable 3408-pixel eye target. Disabling mod wall fade did not yield
+    // a meaningful subjective gain; one wall-off trace lowered named mod time
+    // while total frame time stayed around 125 ms. This build adds bounded
+    // Debug-only real Unity render counters (or explicit n/a in a stripped
+    // player), selected native Update/LateUpdate method timings, and an
+    // evidence-safe log comparison script. It does not change presentation,
+    // gameplay, multiplayer wire format or rendering policy. Hardware frame
+    // rate improvement is not claimed; this measures the base-game/render
+    // bottlenecks needed for the next structural optimization.
 
     // ModBuild 598 — the Build 597 Frame run opened a large scenario at
     // 3408 pixels/eye and exposed 282–385 ms wall-table commits, recurring
