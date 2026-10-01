@@ -5,6 +5,7 @@ using TMPro;
 using UnityEngine;
 using UnityEngine.Rendering;
 using UnityEngine.UI;
+using TownServiceAssets = GloomhavenVR.Net.TownServices.TownServiceAssets;
 
 namespace GloomhavenVR.WorldUI;
 
