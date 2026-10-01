@@ -29,7 +29,10 @@ HEARTBEAT = re.compile(r"\[Core\] Heartbeat #\d+:.*?\bhmd=(tracked|UNTRACKED|inv
 EYE = re.compile(r"\[Rig\] EYE-TARGET DIAG .*?eyeTextureDesc (\d+)x(\d+).*?resolutionScale=([\d.]+).*?stereo=([A-Za-z]+)")
 QUALITY = re.compile(r"\[Perf\] GFX .*?quality level \d+ '([^']+)'.*?shadows=([^ ]+).*?antiAliasing=(\d+)")
 FRAME = re.compile(r"\[Perf\] FRAME ([\d.]+)s n=(\d+).*?display ([\d.]+)Hz budget ([\d.]+)ms.*?frametime mean ([\d.]+) p50 ([\d.]+) p95 ([\d.]+) p99 ([\d.]+) max ([\d.]+)ms.*?mod ([\d.]+)ms/frame avg")
-SPLIT = re.compile(r"\[Perf\] SPLIT .*?logic \(Update→LateUpdate\) ([\d.]+).*?render loop \(cull\+submit\) ([\d.]+).*?blocked \(waiting on GPU/compositor\) ([\d.]+)ms")
+# Build 599 and earlier called the residual "waiting on GPU/compositor". Later builds
+# correctly name it unbracketed engine work/waits. Both have the same numeric field;
+# preserve historical log ingestion without endorsing the old causal label.
+SPLIT = re.compile(r"\[Perf\] SPLIT .*?logic \(Update→LateUpdate\) ([\d.]+).*?render loop \(cull\+submit\) ([\d.]+).*?blocked \((?:waiting on GPU/compositor|unbracketed engine work/waits)\) ([\d.]+)ms")
 POSE = re.compile(r"view height p50 ([\d.]+) \(([-\d.]+)\.\.([-\d.]+)\) dist p50 ([\d.]+) \(([-\d.]+)\.\.([-\d.]+)\)")
 VISIBLE = re.compile(r"visible p50 (\d+) renderer")
 
@@ -210,7 +213,8 @@ def main() -> None:
         parser.error("provide one or two logs; --compare requires exactly two")
     reports = [read_log(path) for path in args.logs]
     result = {"reports": reports, "comparison": None,
-              "note": "XR gpu is not GPU busy time; no per-line timestamps exist in LogOutput.log."}
+              "note": "XR gpu is not GPU busy time; blocked is the unbracketed frame remainder, "
+                      "not measured GPU wait; no per-line timestamps exist in LogOutput.log."}
     if args.compare:
         try:
             ai, bi = (int(value) - 1 for value in args.compare.split(":"))
@@ -226,7 +230,8 @@ def main() -> None:
         print("\n\n".join(_table(report) for report in reports))
         if result["comparison"]:
             print("\ncomparison: " + json.dumps(result["comparison"], ensure_ascii=False))
-        print("\nXR gpu is not GPU busy time; LogOutput.log has no per-line timestamps.")
+        print("\nXR gpu is not GPU busy time; blocked is unbracketed engine work/waits, "
+              "not measured GPU wait. LogOutput.log has no per-line timestamps.")
 
 
 if __name__ == "__main__":

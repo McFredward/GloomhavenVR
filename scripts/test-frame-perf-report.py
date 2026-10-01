@@ -26,6 +26,11 @@ SPLIT = ("[Info:GloomhavenVR] [Perf] SPLIT 30.0s n=300 — where the 40.00ms fra
          "on the MAIN THREAD | logic (Update→LateUpdate) 20.00 p50 18.00 | "
          "render loop (cull+submit) 8.00 p50 7.00 | "
          "blocked (waiting on GPU/compositor) 12.00ms\n")
+SPLIT_REVISED = SPLIT.replace("blocked (waiting on GPU/compositor)",
+                              "blocked (unbracketed engine work/waits)").replace(
+                                  "where the 40.00ms frame goes on the MAIN THREAD",
+                                  "clock-bracketed spans of the 40.00ms frame "
+                                  "(MAIN THREAD callbacks; residual is unbracketed)")
 
 
 def heartbeat(state):
@@ -68,6 +73,16 @@ class FrameReportTests(unittest.TestCase):
         self.assertEqual((window["logic_ms"], window["render_ms"], window["blocked_ms"]),
                          (20.0, 8.0, 12.0))
         self.assertIsNone(window["gpu_busy_ms"])
+
+    def test_old_and_revised_blocked_labels_preserve_the_same_measured_fields(self):
+        log = ("[Info:GloomhavenVR] [Rig] LIGHT STABILISER released — scene changed to 'ProcGen'.\n"
+               + eye() + frame() + SPLIT
+               + heartbeat("tracked") + frame() + SPLIT_REVISED)
+        old, revised = self.parse(log)["windows"]
+        for window in (old, revised):
+            self.assertEqual((window["logic_ms"], window["render_ms"], window["blocked_ms"]),
+                             (20.0, 8.0, 12.0))
+            self.assertIsNone(window["gpu_busy_ms"])
 
     def test_transition_and_tracking_samples_belong_to_completed_window(self):
         log = ("[Info:GloomhavenVR] [Rig] LIGHT STABILISER released — scene changed to 'MainMenu'.\n"

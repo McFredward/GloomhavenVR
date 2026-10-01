@@ -7,53 +7,46 @@ using UnityEngine;
 namespace GloomhavenVR.Core;
 
 /// <summary>
-/// WHERE THE FRAME ACTUALLY GOES — the measurement that decides the 2026-07 judder
-/// investigation, added after the pixel-budget hypothesis was refuted on hardware.
+/// Clock-bracketed main-thread frame spans, added after the 2026-07 pixel-budget test.
 ///
 /// <para>WHY THIS EXISTS. <see cref="PerfMonitor"/> measures the frame INTERVAL and the mod's own
-/// share of it. Both were unambiguous: the mod costs ~2 % of the frame, and the frame is ~23 ms
+/// share of it. In the original 2026-07 capture, the mod cost ~2 % of the frame, and it was ~23 ms
 /// against an 11.11 ms budget. What neither could answer is WHICH LAYER is spending the other
 /// 98 %. The one counter that looked like an answer — the XR runtime's <c>gpu</c> figure — read
 /// almost exactly the frame interval in every window, and a "GPU time" that equals total frame
 /// time and does not move when the pixel-sample budget is cut 11× is not reporting GPU busy time;
 /// it is reporting the interval or a wait. So a preset sweep on hardware moved it by 7 % and
-/// taught us nothing. This class replaces that guess with a decomposition that CANNOT be fooled,
-/// because it is built out of the mod's own clock reads at known points in Unity's frame.</para>
+/// taught us nothing. This class uses clock reads at known Unity callbacks to distinguish measured
+/// spans from the remaining interval; it cannot name work outside those callbacks.</para>
 ///
 /// <para>THE DECOMPOSITION. Unity's main thread runs a frame as
 /// <c>Update → LateUpdate → render loop (cull + submit, per camera) → present/wait → next
 /// Update</c>. Three timestamps bracket that:</para>
 /// <list type="number">
 /// <item><b>logic span</b> — from <see cref="PerfMonitor"/>'s host <c>Update</c> (execution order
-/// −30000, the first thing in the frame) to this class's tail <c>LateUpdate</c> (order +30000,
-/// the last). Everything the game and the mod COMPUTE lives in here.</item>
+/// −30000) to this class's tail <c>LateUpdate</c> (order +30000). It includes the callbacks and
+/// engine work between those seams, but not all main-thread work in a frame.</item>
 /// <item><b>render-loop span</b> — from the first <see cref="Camera.onPreCull"/> to the last
 /// <see cref="Camera.onPostRender"/> of the same frame. This is the main thread inside Unity's
-/// rendering: culling plus draw-call submission (and, when the render thread's queue is full,
-/// the main thread's own blocking inside those submits). It is also measured PER CAMERA, which
+/// rendering callbacks and any engine work or waits between them. It is also measured PER CAMERA, which
 /// is the number that prices the scenario camera's third full-scene render into a sink texture
 /// nothing reads — and each camera's figure is split again at <see cref="Camera.onPreRender"/>
-/// into CULL (visibility determination; scales with how many renderers exist and pass the culling
-/// mask) and SUBMIT (draw calls, including a forward camera's depth-texture prepass and every
-/// shadow map). "The render loop owns the frame" is true of both halves and their levers are
-/// different, so the split is measured rather than argued.</item>
-/// <item><b>blocked</b> — the remainder of the frame interval. The main thread is neither
-/// computing nor submitting: it is waiting for the GPU, for the compositor's next present slot,
-/// or for the XR runtime. A frame that is nearly all "blocked" is NOT a CPU problem, and no
-/// amount of draw-call or logic optimisation will move it.</item>
+/// into preCull→preRender and preRender→postRender spans. These bracket cull and submit phases but
+/// are not exclusive timers for either operation.</item>
+/// <item><b>blocked</b> — the unbracketed remainder of the frame interval. It can include native
+/// Unity work (such as canvas rebuilds), waits, and XR/compositor pacing. This instrument cannot
+/// identify those parts or establish GPU busy time.</item>
 /// </list>
 ///
-/// <para>READING IT. The verdict line states which of the three owns the frame, in words, so the
-/// next hardware log answers the question by itself:</para>
+/// <para>READING IT. The verdict line names the largest measured span or unbracketed remainder;
+/// it does not assign an exclusive CPU/GPU cause:</para>
 /// <list type="bullet">
-/// <item><c>logic ≈ frame</c> → the game's own <c>Update</c>/<c>LateUpdate</c> is the wall.</item>
-/// <item><c>render ≈ frame</c> → draw-call submission is the wall. MultiPass doubling the head
-/// camera's passes is then the direct cause, and the sink renders are pure waste on top.</item>
-/// <item><c>blocked ≈ frame</c> → the CPU is idle and we are waiting on the GPU or the
-/// compositor. Note that a runtime that has locked the app to half rate produces exactly this
-/// signature WITHOUT the GPU being full, which is why <see cref="PerfMonitor"/> now shouts when
-/// the display rate changes: below a rate lock every timing is quantised to the new interval and
-/// comparisons across the boundary are meaningless.</item>
+/// <item><c>logic ≈ frame</c> → the Update→LateUpdate bracket is large; named callbacks and mod
+/// steps are needed to identify work inside it.</item>
+/// <item><c>render ≈ frame</c> → the camera callback bracket is large; cull/submit seams and
+/// scene counts give context, not draw-call or GPU timers.</item>
+/// <item><c>blocked ≈ frame</c> → the unbracketed interval is large; engine work and waits remain
+/// possible. A runtime rate lock can also quantise the apparent frame interval.</item>
 /// </list>
 ///
 /// <para>FRAMETIMINGMANAGER. Unity's own <c>FrameTimingManager</c> is queried too, because when
@@ -65,7 +58,7 @@ namespace GloomhavenVR.Core;
 /// bind, every one of its figures prints <c>n/a</c> and the spans above still answer the
 /// question on their own. The call is latched behind its own try/catch so a struct-shape
 /// mismatch on some other Unity version degrades to n/a instead of taking the instrumentation
-/// down.</para>
+/// down. Clock-bracketed spans alone do not answer the GPU question.</para>
 ///
 /// <para>THE VIEWPOINT (see <c>PerfFrameSplit.Zoom.cs</c>). Every recorded frame also carries WHERE
 /// IT WAS SEEN FROM: the head's height above the board plane, its distance from the board centre,
@@ -112,19 +105,14 @@ internal static partial class PerfFrameSplit
         public double WindowSeconds;
 
         /// <summary>
-        /// Of <see cref="WindowSeconds"/>, the part spent CULLING — onPreCull → onPreRender, which
-        /// is exactly Unity's visibility determination for this camera/pass. Split out because the
-        /// two halves have DIFFERENT levers: culling scales with the number of renderers that
-        /// exist and pass the culling mask, submission with the number of draw calls the visible
-        /// ones produce. "The render loop owns the frame" does not say which, and picking the
-        /// wrong one is a wasted round on hardware.
+        /// Of <see cref="WindowSeconds"/>, the onPreCull→onPreRender callback interval. It
+        /// brackets culling-related engine work but is not an exclusive culling timer.
         /// </summary>
         public double WindowCullSeconds;
 
         /// <summary>
-        /// Of <see cref="WindowSeconds"/>, the part spent SUBMITTING — onPreRender → onPostRender.
-        /// Includes the built-in forward path's depth-texture prepass and any shadow-map passes,
-        /// because both happen inside this camera's render between those two callbacks.
+        /// Of <see cref="WindowSeconds"/>, the onPreRender→onPostRender callback interval.
+        /// Rendering, engine work and possible waits can all occur between those seams.
         /// </summary>
         public double WindowSubmitSeconds;
 
@@ -611,12 +599,8 @@ internal static partial class PerfFrameSplit
     }
 
     /// <summary>
-    /// Unity fires this AFTER culling and BEFORE the camera's rendering, so it is the one seam
-    /// that separates the render loop's two halves. Culling scales with how many renderers EXIST
-    /// and pass the culling mask; submission scales with how many DRAW CALLS the survivors
-    /// produce (and a forward camera's depth-texture prepass and every shadow map are on the
-    /// submission side). The SPLIT line's "render loop owns the frame" verdict cannot distinguish
-    /// them, and their levers are different, so the distinction is measured rather than guessed.
+    /// Unity's onPreRender callback gives a phase seam inside a camera render. The two intervals
+    /// on either side are useful context, but neither exclusively measures culling or draw calls.
     /// </summary>
     private static void OnPreRender(Camera cam)
     {
@@ -758,8 +742,8 @@ internal static partial class PerfFrameSplit
     internal static bool HasWindow => _count > 1;
 
     /// <summary>
-    /// Compose the <c>[Perf] SPLIT</c> line: the three spans, the per-camera render cost, and a
-    /// verdict in words naming which layer owns the frame. <paramref name="frameMeanMs"/> is
+    /// Compose the <c>[Perf] SPLIT</c> line: two callback spans, the unbracketed remainder,
+    /// per-camera intervals, and a bounded interpretation. <paramref name="frameMeanMs"/> is
     /// PerfMonitor's own mean frame interval for the same window, so the two lines are directly
     /// comparable.
     /// </summary>
@@ -776,12 +760,13 @@ internal static partial class PerfFrameSplit
         float renderP50 = Percentile(RenderMs, 0.50f);
         float logicP95 = Percentile(LogicMs, 0.95f);
         float renderP95 = Percentile(RenderMs, 0.95f);
-        // The render loop runs INSIDE neither span's overlap: logic ends before the first cull.
+        // These are callback brackets, not a full main-thread timeline. The remainder can hold
+        // Unity engine work outside both brackets as well as waits; it is not a GPU timer.
         float blockedMean = Mathf.Max(0f, frameMeanMs - logicMean - renderMean);
 
         sb.Append("SPLIT ").Append(windowSeconds.ToString("F1")).Append("s n=").Append(_count)
-          .Append(" — where the ").Append(frameMeanMs.ToString("F2"))
-          .Append("ms frame goes on the MAIN THREAD")
+          .Append(" — clock-bracketed spans of the ").Append(frameMeanMs.ToString("F2"))
+          .Append("ms frame (MAIN THREAD callbacks; residual is unbracketed)")
           .Append(" | logic (Update→LateUpdate) ").Append(logicMean.ToString("F2"))
           .Append(" p50 ").Append(logicP50.ToString("F2"))
           .Append(" p95 ").Append(logicP95.ToString("F2"))
@@ -792,7 +777,7 @@ internal static partial class PerfFrameSplit
           .Append(" p95 ").Append(renderP95.ToString("F2"))
           .Append(" max ").Append(_renderMax.ToString("F2")).Append("ms (")
           .Append(Share(renderMean, frameMeanMs)).Append(')')
-          .Append(" | blocked (waiting on GPU/compositor) ").Append(blockedMean.ToString("F2"))
+          .Append(" | blocked (unbracketed engine work/waits) ").Append(blockedMean.ToString("F2"))
           .Append("ms (").Append(Share(blockedMean, frameMeanMs)).Append(')');
 
         AppendStalls(sb, logicMean, logicP50, renderMean, renderP50);
@@ -977,8 +962,7 @@ internal static partial class PerfFrameSplit
     }
 
     /// <summary>
-    /// The whole point of the line: say, in words, which layer owns the frame — and say plainly
-    /// when the answer is "none of the ones the mod can move".
+    /// Name the largest observed bracket or residual without assigning an unmeasured cause.
     /// </summary>
     private static string Verdict(float logic, float render, float blocked, float frame)
     {
@@ -986,30 +970,26 @@ internal static partial class PerfFrameSplit
             return "no frame time to attribute";
         float l = logic / frame, r = render / frame, b = blocked / frame;
         if (l >= 0.5f)
-            return $"MAIN-THREAD LOGIC owns the frame ({l * 100f:F0}%). The game's own Update/LateUpdate "
-                   + "is the wall — draw calls and pixels are not. The mod's share of that is on the "
-                   + "STEPS line above; if it is small, this is the game's own code and the mod cannot "
-                   + "move it.";
+            return $"MAIN-THREAD LOGIC bracket spans {l * 100f:F0}% of the frame. It contains "
+                   + "Update→LateUpdate callbacks and engine work between those seams; the STEPS "
+                   + "and NATIVE lines identify only measured portions. This span alone does not "
+                   + "identify a specific game method or exclude other frame costs.";
         if (r >= 0.35f)
-            return $"the RENDER LOOP owns the frame ({r * 100f:F0}%). The main thread is inside culling "
-                   + "and draw-call submission, so the levers are the NUMBER of things submitted, not "
-                   + "their pixel cost: MultiPass renders the head camera twice, and every extra camera "
-                   + "listed above is a whole additional scene submission. WHICH HALF is the next question, "
-                   + "and the two have different levers — cull scales with how many renderers exist and "
-                   + "pass the culling mask (see the SCENE line's per-layer counts), submit with how many "
-                   + "draw calls the visible ones produce (materials, shadow passes, the forward depth "
-                   + "prepass; see the SCENE and GFX lines). "
+            return $"the RENDER LOOP callback bracket spans {r * 100f:F0}% of the frame. Per-camera "
+                   + "preCull→preRender and preRender→postRender spans locate the larger phase but "
+                   + "include engine work and possible waits; scene material slots are candidates, "
+                   + "not measured draw calls or GPU busy time. "
                    + (PerfConfig.CullSubmitSplitOn
-                       ? "The per-camera cull/submit figures above answer it."
-                       : "Switch [Perf] CullSubmitSplit on to have the per-camera figures above answer it.");
+                       ? "Read the per-camera seam figures above as callback intervals."
+                       : "Switch [Perf] CullSubmitSplit on for the per-camera seam intervals.");
         if (b >= 0.5f)
-            return $"the main thread is BLOCKED for {b * 100f:F0}% of the frame — it is neither computing "
-                   + "nor submitting, it is waiting. That is the GPU, the XR compositor, or a runtime "
-                   + "rate lock (check the display Hz on the FRAME line: a halved rate produces exactly "
-                   + "this signature with the GPU nowhere near full). CPU-side optimisation cannot move "
-                   + "a frame that looks like this.";
+            return $"the BLOCKED-labelled unbracketed remainder is {b * 100f:F0}% of the frame. "
+                   + "It can contain Unity main-thread work outside these callbacks (including canvas "
+                   + "rebuilds), engine waits, XR/compositor pacing or a rate lock. This span cannot "
+                   + "show whether the CPU or GPU is idle; check independent profiler markers or "
+                   + "hardware A/B evidence before choosing a lever.";
         return $"no single layer dominates (logic {l * 100f:F0}%, render {r * 100f:F0}%, blocked "
-               + $"{b * 100f:F0}%) — the frame is spread across all three.";
+               + $"{b * 100f:F0}% unbracketed); these are clock intervals, not exclusive causes.";
     }
 
     private static string Share(float part, float whole) =>
@@ -1027,10 +1007,8 @@ internal static partial class PerfFrameSplit
 
     /// <summary>
     /// HOW MUCH THERE IS TO DRAW. <c>UnityStats</c> (batches, draw calls, tris) is editor-only, so
-    /// the closest runtime proxy is a census of the renderers that COULD be submitted: total,
-    /// enabled, and how many the culling actually kept last frame. Together with the camera-pass
-    /// count above it prices a scene submission — an extra camera costs roughly "visible × its own
-    /// culling", which is exactly the question the sink-render experiment asks.
+    /// the available runtime context is a renderer census: total, enabled, and isVisible to any
+    /// camera at one instant. It cannot count actual head-camera draws or price a camera pass.
     ///
     /// <para>DELIBERATELY ONCE PER WINDOW, NEVER PER FRAME: <c>FindObjectsOfType</c> walks every
     /// loaded object and allocates the array, which is far too expensive for a frame budget and
@@ -1050,11 +1028,11 @@ internal static partial class PerfFrameSplit
     /// Unity rebuilds canvases in <c>PostLateUpdate.PlayerUpdateCanvases</c> — AFTER the tail
     /// LateUpdate that closes the logic span, and BEFORE the camera callbacks that open the render
     /// span. So <c>Canvas.SendWillRenderCanvases</c> and <c>BuildBatch</c> land in NEITHER measured
-    /// span: their whole cost falls into the "blocked (waiting on GPU/compositor)" remainder, whose
+    /// span: their whole cost falls into the "blocked (unbracketed engine work/waits)" remainder, whose
     /// name then actively misleads. That is exactly what the capture shows — logic flat, render
     /// loop flat at ~2.3 ms, camera passes flat at 4.0, renderers flat, and "blocked" climbing 5 ms
-    /// → 83 ms. A growing graphic count is the ONE number that separates "the compositor is
-    /// struggling" from "we are rebuilding an ever-larger canvas", and it is one line of census.</para>
+    /// → 83 ms. A growing graphic count reveals a possible canvas-work explanation, which must
+    /// still be checked against profiler evidence or a targeted intervention.</para>
     /// </summary>
     internal static void AppendSceneCensus(System.Text.StringBuilder sb)
     {

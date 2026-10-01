@@ -10,15 +10,15 @@ namespace GloomhavenVR.Core;
 //   and share the same _count, which is the whole reason this lives inside that class and not
 //   beside it. Two parallel populations with two different sample gates cannot be bucketed.)
 //
-//  WHY IT EXISTS. The 2026-08 analysis (.planning/perf-zoomed-out.md §1.1) had to PROVE that the
-//  frame rate is view-dependent by reading the 10-second [Core] Heartbeat lines — which print the
+//  WHY IT EXISTS. The 2026-08 analysis (.planning/perf-zoomed-out.md §1.1) suggested that the
+//  frame rate was view-dependent by reading the 10-second [Core] Heartbeat lines — which print the
 //  head pose — against the 30-second [Perf] SPLIT windows, and matching them up by hand. That is a
 //  correlation across two different cadences, made by eye, and it is the load-bearing claim of the
 //  whole document: "the only variable left is where the head is". Nothing in the instrument
-//  recorded the viewpoint, so the instrument could not make that claim itself.
+//  recorded the viewpoint, and game/scene state could also change, so that was not causal proof.
 //
-//  It also had to concede (§1.5) that the ONE number that is genuinely a zoom axis — how many
-//  renderers the head camera keeps after culling — was sampled once per 30 s window and therefore
+//  It also had to concede (§1.5) that a relevant view-population estimate — how many
+//  renderers report visibility to any camera — was sampled once per 30 s window and therefore
 //  showed no trend at all: 1925 renderers in an overview window against 2129 in a close-in one is
 //  noise, not signal, because each figure is a single instant.
 //
@@ -41,19 +41,15 @@ namespace GloomhavenVR.Core;
 //     is reused as a SEED: it records each renderer's visibility into a parallel bool array and the
 //     total into a running counter. From then on each frame re-reads a SLICE of the roster
 //     (RenderersPerFrame) round-robin and adjusts the running counter by the difference. The number
-//     is therefore a live estimate that is at most one sweep stale — 3050 renderers at 64/frame is
-//     48 frames, about half a second at 90 Hz — and it costs a fixed 64 iterations per frame no
+//     is therefore a rolling estimate that is at most one sweep stale — 3050 renderers at 64/frame
+//     is 48 frames, 0.5 s at 90 fps but longer at low throughput — and costs 64 reads per frame no
 //     matter how large the scene is. There is no ramp: the seed makes it correct from frame one of
 //     the window.
 //
-//     WHOSE VISIBILITY IS IT? Renderer.isVisible means "rendered by ANY camera last frame". In a
-//     SCENARIO that is the head camera alone: the game's own cameras are retargeted to a sink and
-//     have their culling mask zeroed for the duration of their own render
-//     (WorldUI/FlatScreen.3.Desktop.cs, OnScrubPreCull), so they contribute nothing. That is
-//     precisely why this count is the zoom axis that matters — the head camera carries a blanket
-//     mask and sees a far wider swathe of the board than the flat game ever rendered, and
-//     everything it declares visible keeps its animators and particle systems simulating inside the
-//     measured LOGIC span. Outside a scenario the number is "visible to any camera" and means less.
+//     WHOSE VISIBILITY IS IT? Renderer.isVisible refers to ANY camera, not specifically the head,
+//     and does not count actual draw calls. The game's camera scrub can narrow other cameras in a
+//     scenario, but this metric cannot prove which camera saw an object or whether an animator or
+//     particle system ticked. It is view-population context, not a simulation timer.
 //
 //  3. THE BUCKETING, which is the point. At the window close the frames are sorted by distance and
 //     split into thirds, and each third reports its own p50 frametime, p50 logic and p50 render.
@@ -87,8 +83,8 @@ internal static partial class PerfFrameSplit
 
     /// <summary>
     /// How far the head must travel (world units) inside a window before "nearest third" and
-    /// "farthest third" describe different views. Below this the thirds are three samples of ONE
-    /// viewpoint and the line says so instead of reporting a spread that is really just noise.
+    /// "farthest third" provide useful distance separation. Below this the axis cannot
+    /// distinguish distance from game-state or engine variation.
     /// </summary>
     private const float MeaningfulSpanUnits = 1.5f;
 
@@ -96,10 +92,9 @@ internal static partial class PerfFrameSplit
     private const int MinZoomFrames = 30;
 
     /// <summary>
-    /// Below this near→far frametime difference the line refuses to call the frame view-dependent.
-    /// One millisecond is a deliberately blunt floor and it is the right kind of blunt: this app is
-    /// compositor-quantised (the SPLIT line's own note), so frametime moves in whole 11.11 ms
-    /// budgets and a sub-millisecond difference between two thirds is neither felt nor trustworthy.
+    /// Below this near→far median frametime difference the line reports no resolved association
+    /// in this window. This is a diagnostic resolution threshold, not a claim about perception
+    /// or proof that distance has no effect.
     /// </summary>
     private const float ZoomNoiseFloorMs = 1f;
 
@@ -463,12 +458,10 @@ internal static partial class PerfFrameSplit
     /// distance", from ONE window, on ONE line.
     ///
     /// <para>Frames are sorted by the head's distance from the board centre and cut into thirds, and
-    /// each third reports its own p50 frametime, p50 logic span and p50 render-loop span. That last
-    /// part is what makes it a diagnosis rather than an observation: if pulling back costs 7 ms and
-    /// 6 of them land in LOGIC, the cost is view-scaled SIMULATION (animators, particle systems and
-    /// isVisible-gated scripts that stop being culled as the head rises), and no amount of
-    /// draw-call work will touch it. If it lands in RENDER, it is submission volume and the culling
-    /// mask and camera count are the levers. Same window, same frames, no correlation by hand.</para>
+    /// each third reports its own p50 frametime, p50 logic span and p50 render-loop span. The
+    /// comparisons locate an observed difference in callback brackets. They do not prove that
+    /// distance caused it: game state, newly revealed rooms and view population can change during
+    /// the same window. The residual can include engine work as well as waits.</para>
     /// </summary>
     private static void AppendZoom(StringBuilder sb)
     {
@@ -557,44 +550,41 @@ internal static partial class PerfFrameSplit
         if (span < MeaningfulSpanUnits)
             return $"the head barely moved in this window (it spanned {span:F1}wu), so 'near' and "
                    + "'far' are the SAME VIEW — the three thirds above are three samples of one "
-                   + "state, not a distance sweep, and any spread between them is noise. This line "
-                   + "only means something across a window in which the player actually moved "
-                   + "between an overview and a close-in view.";
+                   + "distance range, not a useful distance sweep. A spread may still reflect "
+                   + "changing game or engine work; this axis cannot attribute it.";
 
         if (Mathf.Abs(dFrame) < ZoomNoiseFloorMs)
-            return $"frame time does NOT track viewing distance here — {dFrame:+0.00;-0.00}ms across "
-                   + $"a {span:F1}wu span, which is inside the noise floor ({ZoomNoiseFloorMs:F1}ms; "
-                   + "a compositor-quantised frame steps in whole budgets, so anything smaller than "
-                   + "this cannot be felt anyway). Whatever owns this frame (see the layer verdict "
-                   + "below), it is not the zoom.";
+            return $"the NEAR/FAR median frame-time difference is {dFrame:+0.00;-0.00}ms across "
+                   + $"a {span:F1}wu span, below this report's {ZoomNoiseFloorMs:F1}ms threshold. "
+                   + "This window does not resolve a distance-associated difference; it cannot "
+                   + "rule out other view or game-state effects.";
 
         float share = Mathf.Abs(dFrame) < 0.001f ? 0f : 100f * dLogic / dFrame;
         float renderShare = Mathf.Abs(dFrame) < 0.001f ? 0f : 100f * dRender / dFrame;
-        string direction = dFrame > 0f ? "PULLING BACK COSTS" : "PULLING BACK SAVES";
+        string direction = dFrame > 0f ? "FAR THIRD IS SLOWER BY" : "FAR THIRD IS FASTER BY";
         string where;
         if (share >= 50f)
         {
-            where = $"and {share:F0}% of it lands in the LOGIC span, not in submission. That is "
-                    + "view-scaled SIMULATION — animators, particle systems and isVisible-gated "
-                    + "scripts that stop being culled as the head rises — so the lever is WHAT THE "
-                    + "HEAD CAMERA DECLARES VISIBLE (its culling mask, see the visible count above "
-                    + "and the [Perf] SCENE line's per-layer census), not draw calls and not pixels.";
+            where = $"the LOGIC median difference is {Signed(dLogic)}ms ({share:F0}% of the "
+                    + "frame-median difference arithmetically). This does not identify an animator, "
+                    + "script or camera cause; medians of separate spans are not additive.";
         }
         else if (renderShare >= 50f)
         {
-            where = $"and {renderShare:F0}% of it lands in the RENDER LOOP. That is submission "
-                    + "volume: more renderers survive culling from further out, and MultiPass pays "
-                    + "for each one twice. Switch [Perf] CullSubmitSplit on to see which half of the "
-                    + "render loop grew.";
+            where = $"the RENDER LOOP callback median difference is {Signed(dRender)}ms "
+                    + $"({renderShare:F0}% of the frame-median difference arithmetically). More "
+                    + "visible renderers are one possible explanation, not proof of actual draw "
+                    + "calls or GPU cost; the per-camera seam gives phase context only.";
         }
         else
         {
-            where = $"but only {share:F0}% of it is logic and {renderShare:F0}% is the render loop — "
-                    + "the rest is in BLOCKED, i.e. the GPU, the compositor, or a rate lock that "
-                    + "quantises the far frames to a different multiple of the budget. Check the "
-                    + "display Hz on the FRAME line before reading this as a CPU effect.";
+            where = $"the LOGIC and RENDER LOOP median differences are {Signed(dLogic)}ms and "
+                    + $"{Signed(dRender)}ms; their separate medians do not partition the frame "
+                    + "median difference. The BLOCKED-labelled unbracketed interval can include "
+                    + "Unity engine work, waits and XR pacing. This does not identify GPU busy "
+                    + "time or a causal zoom effect.";
         }
-        return $"{direction} {Mathf.Abs(dFrame):F2}ms/frame over {separation:F1}wu of pull-back "
+        return $"{direction} {Mathf.Abs(dFrame):F2}ms/frame across {separation:F1}wu of distance "
                + $"({100f * dFrame / Mathf.Max(0.01f, nearFrame):F0}% of the near-third frametime), "
                + where;
     }
