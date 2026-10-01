@@ -17,24 +17,30 @@ bindings = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(bindings)
 native = (base / "WorldUI/TownServices/NativeTemplates.cs").read_text()
 freeze = bindings.method(native, "private static void Freeze(string key, Entry entry)")
+frozen_registration = next(line.strip() for line in freeze.splitlines()
+    if line.strip().startswith("TownServiceCardBody.RebindClone("))
 scaffold = """using System; using System.Collections.Generic; using GloomhavenVR.Net.TownServices; using UnityEngine; using Object = UnityEngine.Object;
 namespace GloomhavenVR.WorldUI { internal static class TownServiceNativeAssets { internal static void PrepareRoot(Transform root) { } }
 internal static class NativeTemplates {
  private sealed class Entry { internal Transform Original = null!; internal GameObject Copy = null!; internal List<int> Parts = new(); }
  private static GameObject? _bank;
+ internal static bool IsBoundary(Transform node) => false; // Body fixture has no nested pooled game widgets.
  private static void Prune(Transform source, Transform clone) { }
  private static void Partition(Transform root, string address, List<int> parts) { }
  internal static Transform TestFreeze(Transform original) { _bank = new GameObject("bank"); _bank.SetActive(false); var entry = new Entry { Original = original }; Freeze("merchant.cardbody", entry); return entry.Copy.transform; }
  internal static void Clean() { if (_bank != null) Object.DestroyImmediate(_bank); }
-""" + freeze + "\n}}\n"
+""" + freeze + "\n" + bindings.method(native, "internal static string Append(string path, Transform child)") + "\n}}\n"
 source = {name + ".cs": (base / "Net/TownServices" / (name + ".cs")).read_text() for name in
           ("TownServiceAssets", "TownServiceBinding", "TownServiceCodec", "TownServiceDelta", "TownServiceFrame", "TownRackState", "TownCatalogLayout", "TownCassetteMotion", "TownServiceFlameClock", "TownServiceMirror.Racks", "TownServiceMirror.Offerings", "TownServiceMirror.Voice", "TownServiceMaterial", "TownServiceMirror", "TownServiceMotion", "TownServiceNeutralize")}
+stock = base / "Net/TownServices/TownServiceMirror.Stock.cs"
+if stock.exists(): source[stock.name] = stock.read_text()
+source["TownServiceTemplateAssets.cs"] = (base / "WorldUI/TownServices/TownServiceTemplateAssets.cs").read_text()
 source["TownServiceOfferingPose.cs"] = (base / "WorldUI/TownServices/TownServiceOfferingPose.cs").read_text()
 source["TownServiceCardBody.cs"] = (base / "WorldUI/TownServices/TownServiceCardBody.cs").read_text()
 source["Freeze.cs"] = scaffold
 variants = [("production", None, None, None, ""),
     ("no-body-fade", "TownServiceCardBody.cs", "color.a *= value;", "color.a *= 1f;", "body disappears with zero-opacity original face"),
-    ("no-frozen-registration", "Freeze.cs", "TownServiceCardBody.RebindClone(key, entry.Copy);", "", "native frozen body joins silhouette updates"),
+    ("no-frozen-registration", "Freeze.cs", frozen_registration, "", "native frozen body joins silhouette updates"),
     ("no-template-registration", "TownServiceMirror.cs", "PrepareInertGeometry?.Invoke(address, clone);", "", "transport template joins silhouette updates"),
     ("no-observer-registration", "TownServiceMirror.cs", "PrepareInertGeometry?.Invoke(frame.TemplateAddress, clone);", "", "every inert observer body joins silhouette updates")]
 manifest = {"result": str(out / "results.txt"), "cases": []}
