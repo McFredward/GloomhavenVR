@@ -5,6 +5,7 @@ using GloomhavenVR.Core;
 using GloomhavenVR.Hands;
 using GloomhavenVR.Hands.Interact;
 using GloomhavenVR.Net;
+using GloomhavenVR.Net.TownServices;
 using GloomhavenVR.Rig;
 using ScenarioRuleLibrary;
 using TMPro;
