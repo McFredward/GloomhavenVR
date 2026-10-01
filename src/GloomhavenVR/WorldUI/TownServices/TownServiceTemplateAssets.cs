@@ -5,7 +5,7 @@ using TMPro;
 using UnityEngine;
 using UnityEngine.Rendering;
 using UnityEngine.UI;
-using TownServiceAssets = GloomhavenVR.Net.TownServices.TownServiceAssets;
+using NativeAssetRegistry = GloomhavenVR.Net.TownServices.TownServiceAssets;
 
 namespace GloomhavenVR.WorldUI;
 
@@ -22,7 +22,7 @@ internal static class TownServiceTemplateAssets
         "merchant.counter", "temple.counter", "enchant.counter", "map.cardbody"
     };
 
-    internal static void Register(TownServiceAssets assets, Func<string, Transform?> original)
+    internal static void Register(NativeAssetRegistry assets, Func<string, Transform?> original)
     {
         foreach (string key in Templates)
         {
@@ -31,7 +31,7 @@ internal static class TownServiceTemplateAssets
         }
     }
 
-    internal static void Register(TownServiceAssets assets, string template, Transform root)
+    internal static void Register(NativeAssetRegistry assets, string template, Transform root)
     {
         // Lazy model faces can be borrowed in different orders on different clients. Their
         // artwork keeps the model-aware/native resource identities, not the first borrower's.
@@ -41,7 +41,7 @@ internal static class TownServiceTemplateAssets
         Visit(assets, root, "native-town|template|" + template, root);
     }
 
-    private static void Visit(TownServiceAssets assets, Transform node, string path, Transform root)
+    private static void Visit(NativeAssetRegistry assets, Transform node, string path, Transform root)
     {
         foreach (TMP_Text text in node.GetComponents<TMP_Text>())
         {
@@ -51,7 +51,7 @@ internal static class TownServiceTemplateAssets
                 Texture2D[] atlases = text.font.atlasTextures;
                 if (atlases != null)
                     for (int i = 0; i < atlases.Length; i++)
-                        if (atlases[i] != null && !TownServiceAssets.SameKnownNativeIdentity(atlases[i]))
+                        if (atlases[i] != null && !NativeAssetRegistry.SameKnownNativeIdentity(atlases[i]))
                             assets.RegisterOriginal(path + "|font-atlas|" + i, atlases[i]);
             }
             Material(assets, path + "|text", text.fontSharedMaterial);
@@ -89,24 +89,24 @@ internal static class TownServiceTemplateAssets
         }
     }
 
-    private static void Sprite(TownServiceAssets assets, string key, Sprite? sprite)
+    private static void Sprite(NativeAssetRegistry assets, string key, Sprite? sprite)
     {
         if (sprite == null) return;
         sprite = CardFaceMipBake.OriginalFor(sprite);
-        if (TownServiceAssets.SameKnownNativeIdentity(sprite.texture)) { assets.Key(sprite); return; }
+        if (NativeAssetRegistry.SameKnownNativeIdentity(sprite.texture)) { assets.Key(sprite); return; }
         Texture(assets, key + "|texture", sprite.texture);
         assets.RegisterOriginal(key + "|sprite", sprite);
     }
 
-    private static void Texture(TownServiceAssets assets, string key, Texture? texture)
+    private static void Texture(NativeAssetRegistry assets, string key, Texture? texture)
     {
         if (texture == null) return;
         texture = PanelMipBake.OriginalFor(texture);
-        if (texture is Texture2D known && TownServiceAssets.SameKnownNativeIdentity(known)) assets.Key(known);
+        if (texture is Texture2D known && NativeAssetRegistry.SameKnownNativeIdentity(known)) assets.Key(known);
         else assets.RegisterOriginal(key, texture);
     }
 
-    private static void Material(TownServiceAssets assets, string key, Material? material)
+    private static void Material(NativeAssetRegistry assets, string key, Material? material)
     {
         if (material == null || material.shader == null) return;
         Shader shader = material.shader;
