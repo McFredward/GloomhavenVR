@@ -499,6 +499,8 @@ internal sealed class MapButtonRail
     private bool _reported;
     private bool _emptyReported;
     private bool _fitWarned; // One significant missing-support warning per rail instance/session.
+    private int _offBarFailureCount;
+    private float _nextOffBarFailureReport;
     private Cap? _laserHover;
 
     /// <summary>Which of <see cref="Rescan"/>'s two scans produced the current set — log material
@@ -2619,13 +2621,21 @@ internal sealed class MapButtonRail
         }
         catch (System.Exception ex)
         {
-            // UIGuildmasterButton.RefreshSelected dereferences EventSystem.current and
-            // UIInfoTools.Instance (:190-203). Both exist on a live campaign map and neither is this
-            // mod's to guarantee, so a teardown mid-press must cost one press and not the room.
-            VRLog.Error(Scope, $"MAP TABLE BUTTON '{mode}' off-bar selection FAILED ({source}) — "
-                               + $"{ex.GetType().Name}: {ex.Message}. Nothing was written to the game "
-                               + "and the guildmaster mode is unchanged; the game's own bar is "
-                               + "off-screen, so the player sees no half-finished state.");
+            // Build 596's first enchantress visit threw inside the native toggle
+            // callback after changing the guildmaster mode but before opening its
+            // window. The old type/message-only report lost the throwing frame and
+            // incorrectly claimed that the mode was unchanged. Preserve the stack
+            // once per failed press, with a bound for automatic approach retries.
+            _offBarFailureCount++;
+            if (_offBarFailureCount <= 3 || UnityEngine.Time.unscaledTime >= _nextOffBarFailureReport)
+            {
+                _nextOffBarFailureReport = UnityEngine.Time.unscaledTime + 30f;
+                VRLog.Error(Scope, $"MAP TABLE BUTTON '{mode}' off-bar selection FAILED ({source}) "
+                                   + $"(occurrence {_offBarFailureCount}, further reports at most "
+                                   + $"once per 30 s): {ex}. Native callbacks may have changed "
+                                   + "the mode or selection before throwing; inspect the current "
+                                   + "window state and stack before another press.");
+            }
             return;
         }
 

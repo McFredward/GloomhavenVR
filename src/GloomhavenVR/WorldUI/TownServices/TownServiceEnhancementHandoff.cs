@@ -213,7 +213,13 @@ internal sealed class TownServiceEnhancementHandoff : IDisposable
 
     internal static void TickApproach()
     {
-        TownServiceEnhancementPoolWarmup.Tick();
+        // Build 596 prefilled the native enhancement slot pool during map loading.
+        // In the Frame run the first native EnterShop failed after selecting a
+        // character, with all 18 prefilled slots still in that pool. The exact
+        // throwing method was lost by the off-bar catch, so leave pool creation
+        // to HelperTools.NormalizePool on the game's own entry path. This also
+        // protects the original enhancement window when immersive town services
+        // are enabled but its physical handoff is not being used.
         if (!MapRoomDriver.Active || !WorldUIConfig.ImmersiveTownServices.Value || !Enabled
             || !TownServiceGrantSync.CanUseImmersive
             || !TownServicePopulation.Available(3))
@@ -337,7 +343,6 @@ internal sealed class TownServiceEnhancementHandoff : IDisposable
         // TownServicePresentation.Visit on some enchantress entries. That parent
         // includes both this native press and the subsequent original folio
         // conversion; keep their costs separate before attributing a residual hitch.
-        TownServiceEnhancementPoolWarmup.ReportAtOpen();
         using (PerfMonitor.Scope("TownEnhancement.NativeOpen"))
             opened = MapRoomDriver.PressGuildmasterMode(EGuildmasterMode.Enchantress,
                 cardEntered ? "owned card offered to enchantress" : "approached enchantress",

@@ -43,6 +43,24 @@ static class Program
         rail.Press(shop);
         Check(unrelated.Toggle.isOn && unrelated.ModeSelections == 0, "only declared rail siblings participate");
         Check(shop.ModeSelections == 1 && !map.Toggle.isOn, "merchant entry retains mode callback");
+
+        var failingRail = new MapButtonRail();
+        var failingButton = new UIGuildmasterButton(EGuildmasterMode.City);
+        failingRail.Add(failingButton);
+        failingButton.Toggle.onValueChanged += selected =>
+        { if (selected) throw new InvalidOperationException("native entry failed"); };
+        for (int i = 0; i < 4; i++) failingRail.Press(failingButton);
+        Check(failingButton.ModeSelections == 4 && failingButton.Toggle.isOn,
+            "a failed native callback can leave the mode partially selected");
+        Check(GloomhavenVR.Core.VRLog.Errors.Count == 3,
+            "automatic retries report the first three native failures only");
+        Check(GloomhavenVR.Core.VRLog.Errors[0].Contains("native entry failed")
+            && GloomhavenVR.Core.VRLog.Errors[0].Contains(" at "),
+            "native failure report retains the exception stack");
+        UnityEngine.Time.unscaledTime = 31f;
+        failingRail.Press(failingButton);
+        Check(GloomhavenVR.Core.VRLog.Errors.Count == 4,
+            "continuing native failures receive a bounded later report");
         Console.WriteLine($"Map button production press: {_assertions} assertions passed.");
     }
 }
@@ -56,6 +74,10 @@ namespace UnityEngine.UI
         internal bool isOn { get => _on; set { if (_on == value) return; _on = value; onValueChanged?.Invoke(value); } }
         internal void SetIsOnWithoutNotify(bool value) => _on = value;
     }
+}
+namespace UnityEngine
+{
+    internal static class Time { internal static float unscaledTime; }
 }
 internal enum EGuildmasterMode { WorldMap, Merchant, City }
 internal sealed class UIGuildmasterButton
@@ -77,8 +99,9 @@ namespace GloomhavenVR.Core
 {
     internal static class VRLog
     {
+        internal static readonly List<string> Errors = new();
         internal static void Note(string scope, string text) { }
-        internal static void Error(string scope, string text) => throw new Exception(text);
+        internal static void Error(string scope, string text) => Errors.Add(text);
     }
 }
 namespace GloomhavenVR.WorldUI.MapRoom
@@ -88,6 +111,8 @@ namespace GloomhavenVR.WorldUI.MapRoom
         private const string Scope = "MapRoom";
         private sealed class Cap { internal UIGuildmasterButton Button = null!; internal Toggle Toggle = null!; }
         private readonly List<Cap> _caps = new();
+        private int _offBarFailureCount;
+        private float _nextOffBarFailureReport;
         private static Toggle ToggleOf(UIGuildmasterButton button) => button.Toggle;
         internal void Add(UIGuildmasterButton button) => _caps.Add(new Cap { Button = button, Toggle = button.Toggle });
         internal void Press(UIGuildmasterButton button) => SelectThroughTheGamesOwnApi(button, "test", true);
