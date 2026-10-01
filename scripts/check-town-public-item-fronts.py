@@ -36,7 +36,8 @@ def main():
     stock = args.source_root / 'src/GloomhavenVR/WorldUI/TownServices/TownServiceSync.Stock.cs'
     if stock.is_file():
         shutil.copyfile(ROOT / 'scripts/town-public-item-fronts-runtime/StockPublisher.cs', fixture / 'StockPublisher.cs')
-        bound['StockPublisher.cs'] = 'using System;\nusing System.Globalization;\nusing UnityEngine;\nnamespace GloomhavenVR.WorldUI;\ninternal sealed partial class TownServiceSync {\n' + loader.method(stock.read_text(), 'private void PublishStockEntries(TownServiceCatalog catalog)') + '\n}\n'
+        if not any('private void PublishStockEntries(TownServiceCatalog catalog)' in text for text in bound.values()):
+            bound['StockPublisher.cs'] = 'using System;\nusing System.Globalization;\nusing UnityEngine;\nnamespace GloomhavenVR.WorldUI;\ninternal sealed partial class TownServiceSync {\n' + loader.method(stock.read_text(), 'private void PublishStockEntries(TownServiceCatalog catalog)') + '\n}\n'
     program = fixture / 'Program.cs'
     text = program.read_text()
     anchor = '            if (variant == "production") PublisherNoCloth();'
@@ -78,9 +79,9 @@ def main():
         ]
     if not args.no_negative_controls and stock.is_file():
         variants += [
-            ('stationary-stock-duplicated', 'StockPublisher.cs', '!entry.Current || !entry.Sample.IsMoving', '!entry.Current',
+            ('stationary-stock-duplicated', next(name for name, text in bound.items() if 'private void PublishStockEntries(TownServiceCatalog catalog)' in text), '!entry.Current || !entry.Sample.IsMoving', '!entry.Current',
              'independent stock publisher contains only current moving original samples'),
-            ('stock-public-mount', 'StockPublisher.cs', 'Publish("merchant.heldstock",', 'Publish("merchant.cardmount",',
+            ('stock-public-mount', next(name for name, text in bound.items() if 'private void PublishStockEntries(TownServiceCatalog catalog)' in text), 'Publish("merchant.heldstock",', 'Publish("merchant.cardmount",',
              'held stock uses its explicit visitor-owned original mount'),
         ]
     (run / 'source-hashes.json').write_text(json.dumps({name: hashlib.sha256(text.encode()).hexdigest() for name, text in bound.items()}, indent=2) + '\n')
