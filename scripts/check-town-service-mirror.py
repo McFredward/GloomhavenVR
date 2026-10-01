@@ -30,6 +30,8 @@ def sources(root):
     if stock.exists(): bound[stock.name] = stock.read_text()
     stock_publisher = base / "WorldUI/TownServices/TownServiceSync.Stock.cs"
     if stock_publisher.exists(): bound[stock_publisher.name] = stock_publisher.read_text()
+    face = base / "WorldUI/TownServices/TownServiceCardFace.cs"
+    if face.exists(): bound[face.name] = face.read_text()
     offering = base / "WorldUI/TownServices/TownServiceOfferingPose.cs"
     bound[offering.name] = offering.read_text()
     cabinet_audio = base / "WorldUI/TownServices/TownServiceCabinetAudio.cs"

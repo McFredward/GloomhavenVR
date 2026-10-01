@@ -48,8 +48,8 @@ namespace GloomhavenVR.WorldUI
             internal bool Current = true, Exposed = true; internal bool Warm => Current && Exposed; internal int Page; internal bool Selling;
             internal TownServiceToken Sample = new();
             internal int ItemId;
-            internal Transform CardRoot = null!; internal Transform MountRoot => CardRoot.parent; internal CanvasGroup? PageGate => CardRoot.parent.GetComponent<CanvasGroup>();
-            internal Transform? BodyRoot;
+            internal Transform CardRoot = null!; internal Transform MountRoot => PhysicalMount ?? CardRoot.parent; internal CanvasGroup? PageGate => CardRoot.parent.GetComponent<CanvasGroup>();
+            internal Transform? BodyRoot, FaceRoot, PhysicalMount;
             internal Transform? RowContent;
             internal Transform RowSource = null!;
             internal Transform? RowCloneOf(Transform source) => source == RowSource ? RowContent : null;

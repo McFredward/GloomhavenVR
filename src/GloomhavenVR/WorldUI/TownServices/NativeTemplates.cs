@@ -77,6 +77,8 @@ internal static class NativeTemplates
         AddPhysical("merchant.offering", TownServiceMerchantZone.CreateTemplate(physicalFont));
         AddPhysical("merchant.crank", TownServiceMerchantDrawer.CreateTemplate(physicalFont));
         AddPhysical("merchant.cardmount", new GameObject("PhysicalCardMount"));
+        AddPhysical("merchant.cardface", TownServiceCardFace.CreateTemplate(physicalFont,
+            GLOOM.LocalizationManager.GetTranslation("GUI_ITEM_SOLDOUT")));
         AddPhysical("merchant.heldstock", new GameObject("PhysicalCardMount"));
         AddPhysical("merchant.rack", TownServiceMerchantDrawer.CreateHousingTemplate());
         for (int category = 0; category < 6; category++)

@@ -298,6 +298,10 @@ internal sealed partial class TownServiceSync
                 {
                     if (!entry.Current || !entry.Warm || entry.Sample.IsMoving) continue;
                     Publish("merchant.cardmount", entry.MountRoot, prewarm: true);
+                    // The native item root does not contain its original Face canvas or
+                    // sold-out band. Capture that owner-authored shelf presentation too;
+                    // visitor-held stock intentionally has no shelf-only annotation.
+                    Publish("merchant.cardface", entry.FaceRoot, prewarm: true);
                     Publish("item." + entry.ItemId.ToString(System.Globalization.CultureInfo.InvariantCulture), entry.CardRoot, prewarm: true);
                     Publish("merchant.cardbody", entry.BodyRoot, prewarm: true);
                     if (entry.RowContent != null)
@@ -430,6 +434,7 @@ internal sealed partial class TownServiceSync
             if (entry.Warm && !entry.Sample.IsMoving)
             {
                 AddRackMembers(entry.MountRoot, entry, rack, rackId);
+                AddRackMembers(entry.FaceRoot, entry, rack, rackId);
                 AddRackMembers(entry.CardRoot, entry, rack, rackId);
                 AddRackMembers(entry.BodyRoot, entry, rack, rackId);
                 AddRackMembers(entry.RowContent, entry, rack, rackId);

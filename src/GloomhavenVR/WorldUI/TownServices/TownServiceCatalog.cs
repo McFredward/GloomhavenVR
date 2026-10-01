@@ -29,7 +29,7 @@ internal sealed class TownServiceCatalog : IDisposable
         for (Transform? node = source; node != null; node = node.parent)
             if (CardMounts.TryGetValue(node, out Entry? entry))
                 return source == entry.MountRoot || source == entry.CardRoot || source == entry.BodyRoot
-                    || source == entry.RowContent ? node : null;
+                    || source == entry.RowContent || source == entry.FaceRoot ? node : null;
         return null;
     }
     private readonly UIShopItemInventory _inventory;
@@ -548,6 +548,7 @@ internal sealed class TownServiceCatalog : IDisposable
         internal ItemCardUI CardUI { get; private set; } = null!;
         internal Transform CardRoot => CardUI.transform;
         internal Transform MountRoot => _display;
+        internal Transform FaceRoot => _canvas.transform;
         internal CanvasGroup PageGate => _pageGate;
         private readonly List<KeyValuePair<Canvas, bool>> _canvases = new();
         private bool _shown = true;
@@ -594,7 +595,7 @@ internal sealed class TownServiceCatalog : IDisposable
             _display.SetParent(_root.transform, false); CardMounts.Add(_display, this);
             _display.localRotation = Quaternion.Euler(TownServiceMerchantLayout.FacePitch, 0f, 0f);
             _presentedAt = Time.unscaledTime + Mathf.Min(position, 12) * .015f;
-            var face = new GameObject("Face", typeof(RectTransform), typeof(Canvas), typeof(GraphicRaycaster));
+            GameObject face = TownServiceCardFace.CreateCanvas();
             face.transform.SetParent(_display, false);
             _canvas = face.GetComponent<Canvas>(); _canvas.renderMode = RenderMode.WorldSpace;
             VRLayers.Apply(face);
@@ -624,29 +625,8 @@ internal sealed class TownServiceCatalog : IDisposable
                 host.sizeDelta = size;
                 host.localScale = Vector3.one * Mathf.Min(TownServiceMerchantLayout.CardWidth / size.x, TownServiceMerchantLayout.CardHeight / size.y);
                 host.localPosition = new Vector3(0f, 0f, -.0012f);
-                _soldOutBand = new GameObject("OriginalStockSoldOut", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image));
-                RectTransform soldOutRect = (RectTransform)_soldOutBand.transform;
-                soldOutRect.SetParent(face.transform, false);
-                soldOutRect.sizeDelta = new Vector2(size.x * .92f, size.y * .18f);
-                soldOutRect.localPosition = new Vector3(0f, 0f, -.003f);
-                Image soldOutInk = _soldOutBand.GetComponent<Image>();
-                soldOutInk.color = new Color(.19f, .035f, .055f, .94f);
-                soldOutInk.raycastTarget = false;
-                var soldOutLabel = new GameObject("Caption", typeof(RectTransform), typeof(TextMeshProUGUI)).GetComponent<TextMeshProUGUI>();
-                soldOutLabel.transform.SetParent(soldOutRect, false);
-                soldOutLabel.rectTransform.anchorMin = Vector2.zero;
-                soldOutLabel.rectTransform.anchorMax = Vector2.one;
-                soldOutLabel.rectTransform.offsetMin = soldOutLabel.rectTransform.offsetMax = Vector2.zero;
-                TMP_Text? priceFont = source.GetComponentInChildren<TMP_Text>(true);
-                if (priceFont != null) { soldOutLabel.font = priceFont.font; soldOutLabel.fontSharedMaterial = priceFont.fontSharedMaterial; }
-                soldOutLabel.text = GLOOM.LocalizationManager.GetTranslation("GUI_ITEM_SOLDOUT");
-                soldOutLabel.fontSize = 38f;
-                soldOutLabel.enableAutoSizing = true;
-                soldOutLabel.fontSizeMin = 22f;
-                soldOutLabel.fontSizeMax = 38f;
-                soldOutLabel.alignment = TextAlignmentOptions.Center;
-                soldOutLabel.color = new Color(1f, .9f, .72f, 1f);
-                soldOutLabel.raycastTarget = false;
+                _soldOutBand = TownServiceCardFace.AddStockBand(face.transform, size,
+                    source.GetComponentInChildren<TMP_Text>(true), GLOOM.LocalizationManager.GetTranslation("GUI_ITEM_SOLDOUT"));
                 RefreshSoldOutMarker(true);
                 Vector2 physicalSize = size * host.localScale.x;
                 // With the cassette inside the carved cheeks, seat the native face
