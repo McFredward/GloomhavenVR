@@ -579,6 +579,7 @@ public static partial class MirrorProgram
         Receive(1, Capture()); TownServiceMirror.TickRemote(_ => observer);
         for (float settle = Time.unscaledTime + .13f; Time.unscaledTime < settle;)
         { TownServiceMirror.TickRemote(_ => observer); yield return null; }
+        TownServiceMirror.TickRemote(_ => observer);
         Check(source.parent == oldParent && source.localPosition == oldPosition
             && source.localRotation == oldRotation && source.localScale == oldScale,
             "offering pose probe restores the independent image fixture exactly");
@@ -689,6 +690,7 @@ public static partial class MirrorProgram
         Receive(1, Capture()); TownServiceMirror.TickRemote(_ => observer);
         for (float settle = Time.unscaledTime + .13f; Time.unscaledTime < settle;)
         { TownServiceMirror.TickRemote(_ => observer); yield return null; }
+        TownServiceMirror.TickRemote(_ => observer);
         Check(copy.Root.Find("OrderBack").GetSiblingIndex() == source.Find("OrderBack").GetSiblingIndex(), "sibling reorder survives sampling");
         Check(copy.Root.Find("OrderFront").GetComponent<Shadow>() != null, "component addition invalidates sample cache");
         ComparePixels(source, copy.Root, "dynamic-order-component-mask");
@@ -699,6 +701,7 @@ public static partial class MirrorProgram
         Receive(1, Capture()); TownServiceMirror.TickRemote(_ => observer);
         for (float settle = Time.unscaledTime + .13f; Time.unscaledTime < settle;)
         { TownServiceMirror.TickRemote(_ => observer); yield return null; }
+        TownServiceMirror.TickRemote(_ => observer);
         Check(!copy.Root.GetComponent<Canvas>().enabled, "false Canvas remains disabled");
         ComparePixels(Render(source, 8, "disabled-owner"), Render(copy.Root, 9, "disabled-observer"), "disabled", true);
         source.GetComponent<Canvas>().enabled = true;
@@ -706,6 +709,7 @@ public static partial class MirrorProgram
         Receive(1, Capture()); TownServiceMirror.TickRemote(_ => observer);
         for (float settle = Time.unscaledTime + .13f; Time.unscaledTime < settle;)
         { TownServiceMirror.TickRemote(_ => observer); yield return null; }
+        TownServiceMirror.TickRemote(_ => observer);
 
         // Cumulative deltas must survive losing an intermediate update.
         _text.text = "LOST intermediate"; yield return null;
@@ -714,6 +718,7 @@ public static partial class MirrorProgram
         List<byte[]> afterLoss = Capture(); Receive(1, afterLoss); TownServiceMirror.TickRemote(_ => observer);
         for (float settle = Time.unscaledTime + .13f; Time.unscaledTime < settle;)
         { TownServiceMirror.TickRemote(_ => observer); yield return null; }
+        TownServiceMirror.TickRemote(_ => observer);
         Check(copy.Root.Find("Name").GetComponent<TMP_Text>().text == _text.text, "cumulative delta converges after packet loss");
         ComparePixels(source, copy.Root, "packet-loss");
         foreach (byte[] packet in afterLoss)
@@ -802,6 +807,7 @@ public static partial class MirrorProgram
             Receive(peer, packets); TownServiceMirror.InteractionOwner(1);
             for (float settle = Time.unscaledTime + .13f; Time.unscaledTime < settle;)
             { TownServiceMirror.TickRemote(id => frames[id]); yield return null; }
+            TownServiceMirror.TickRemote(id => frames[id]);
             var remote = Remote(peer)!;
             string observedText = remote != null ? remote.Root.Find("Name").GetComponent<TMP_Text>().text : "<missing>";
             Check(remote != null && observedText == texts[peer],
@@ -828,6 +834,7 @@ public static partial class MirrorProgram
         Receive(4, reopenedFour); TownServiceMirror.InteractionOwner(1);
         for (float settle = Time.unscaledTime + .13f; Time.unscaledTime < settle;)
         { TownServiceMirror.TickRemote(id => frames[id]); yield return null; }
+        TownServiceMirror.TickRemote(id => frames[id]);
         Check(!ReferenceEquals(oldFour, Remote(4)), "reopen retires previous session binding");
         Receive(4, ownerFour); TownServiceMirror.TickRemote(id => frames[id]);
         Check(Remote(4)!.Root.Find("Name").GetComponent<TMP_Text>().text == _text.text, "late old session cannot overwrite reopened owner");
@@ -853,6 +860,7 @@ public static partial class MirrorProgram
         Receive(1, Capture()); TownServiceMirror.TickRemote(_ => observer);
         for (float settle = Time.unscaledTime + .13f; Time.unscaledTime < settle;)
         { TownServiceMirror.TickRemote(_ => observer); yield return null; }
+        TownServiceMirror.TickRemote(_ => observer);
         Check(Remote(1, 11) != null, "nested row module is instantiated");
         Check(Remote(1, 11)!.Root.IsChildOf(Remote(1)!.Root), "nested row retains native parent module");
         ComparePixels(source, Remote(1)!.Root, "nested-row-module");
@@ -873,6 +881,7 @@ public static partial class MirrorProgram
         Receive(1, Capture()); TownServiceMirror.TickRemote(_ => observer);
         for (float settle = Time.unscaledTime + .13f; Time.unscaledTime < settle;)
         { TownServiceMirror.TickRemote(_ => observer); yield return null; }
+        TownServiceMirror.TickRemote(_ => observer);
         Check(Remote(1) != null, "standalone section without own Canvas mirrors");
         ComparePixels(source, Remote(1)!.Root, "outer-canvas-animated-scale");
 
@@ -1156,6 +1165,7 @@ public static partial class MirrorProgram
         Receive(3, Capture()); TownServiceMirror.InteractionOwner(1);
         for (float settle = Time.unscaledTime + .13f; Time.unscaledTime < settle;)
         { TownServiceMirror.TickRemote(_ => observer); yield return null; }
+        TownServiceMirror.TickRemote(_ => observer);
         for (int i = 0; i < 6; i++) Check(Remote(3, (ushort)(i + 1)) != null, "all six counter cards have observer modules");
         opening.alpha = .37f;
         yield return null;
@@ -1171,6 +1181,7 @@ public static partial class MirrorProgram
         Receive(3, packets); TownServiceMirror.TickRemote(_ => observer);
         for (float settle = Time.unscaledTime + .13f; Time.unscaledTime < settle;)
         { TownServiceMirror.TickRemote(_ => observer); yield return null; }
+        TownServiceMirror.TickRemote(_ => observer);
         for (int i = 0; i < 6; i++) ComparePixels(cards[i], Remote(3, (ushort)(i + 1))!.Root, "counter-partial-opening-" + i);
         for (ushort i = 2; i < 6; i++) { cards[i].gameObject.SetActive(false); TownServiceMirror.UnregisterModule((ushort)(i + 1)); }
         opening.alpha = 1f;
@@ -1179,6 +1190,7 @@ public static partial class MirrorProgram
         for (int i = 2; i < 6; i++) Check(Remote(3, (ushort)(i + 1)) == null, "page shrink removes retired remote cards");
         for (float settle = Time.unscaledTime + .13f; Time.unscaledTime < settle;)
         { TownServiceMirror.TickRemote(_ => observer); yield return null; }
+        TownServiceMirror.TickRemote(_ => observer);
         for (int i = 0; i < 2; i++) ComparePixels(cards[i], Remote(3, (ushort)(i + 1))!.Root, "counter-page-shrink-" + i);
         NetPlayerActors.Peer = 1;
     }
@@ -1223,6 +1235,7 @@ public static partial class MirrorProgram
             Receive(2, Capture()); TownServiceMirror.TickRemote(_ => observer);
             for (float settle = Time.unscaledTime + .13f; Time.unscaledTime < settle;)
             { TownServiceMirror.TickRemote(_ => observer); yield return null; }
+            TownServiceMirror.TickRemote(_ => observer);
             var renderer = two.Root.Find("counter-planks").GetComponent<MeshRenderer>();
             Check(Mathf.Abs(renderer.sharedMaterial.GetFloat("_TownVisibility") - visibility) < .0001f,
                 "remote furniture uses exact owned visibility material value");
@@ -1448,9 +1461,16 @@ public static partial class MirrorProgram
             yield return null;
             List<byte[]> change = Capture(); Check(change.Count > 0, "native UI changes emit another packet");
             Receive(1, change); TownServiceMirror.TickRemote(_ => observer);
-        for (float settle = Time.unscaledTime + .13f; Time.unscaledTime < settle;)
-        { TownServiceMirror.TickRemote(_ => observer); yield return null; }
+            for (float settle = Time.unscaledTime + .13f; Time.unscaledTime < settle;)
+            { TownServiceMirror.TickRemote(_ => observer); yield return null; }
+            // A headless frame may cross the deadline during yield. Apply the final
+            // presentation sample before comparing, as the game does on its next tick.
+            TownServiceMirror.TickRemote(_ => observer);
             Check(!copy.Root.Find("HandleMesh").GetComponent<MeshRenderer>().enabled, "handle mesh enabled state follows owner");
+            Check(copy.Root.GetComponent<CanvasGroup>().alpha == _group.alpha,
+                "settled observer alpha matches owner after changed packet");
+            Check(copy.Root.Find("Name").GetComponent<TMP_Text>().color == _text.color,
+                "settled observer text color matches owner after changed packet");
             ComparePixels(source, copy.Root, "changed");
             IEnumerator motionCheck = Motion(source, shared, observer, copy);
             while (motionCheck.MoveNext()) yield return motionCheck.Current;
