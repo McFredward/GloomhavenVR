@@ -157,6 +157,7 @@ internal sealed class TownServiceRitual : IDisposable
                     handAllowed: hand => owner._templeOffering?.AllowsHand(hand) ?? true);
                 VRLayers.Apply(root);
                 ApplyInscriptions(); SetVisibility(owner._visibility);
+                TownServiceDepthOrder.Bind(Root);
             }
             catch { Dispose(); throw; }
         }
