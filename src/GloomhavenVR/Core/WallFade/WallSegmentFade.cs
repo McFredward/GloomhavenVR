@@ -1129,6 +1129,10 @@ internal static partial class WallSegmentFade
         /// that left a still-faded segment gets its property block cleared instead of keeping a
         /// stale fade forever.</summary>
         public readonly List<MeshRenderer> PrevRenderers = new();
+        /// <summary>Lazy membership index of <see cref="PrevRenderers"/> for the standing-prop
+        /// restitution check during refresh. Both use Unity's object equality; the list keeps
+        /// the original restore order while the set avoids a scan per rejected child.</summary>
+        public readonly HashSet<MeshRenderer> PrevRendererSet = new();
         /// <summary>Foliage ATTACHMENTS (grass/vines/bushes dressing this wall — Foliage-family
         /// shaders, no fade path of their own): dissolved via an alpha-cutoff ramp while the wall
         /// fades and fully hidden in the held state, restored exactly when the wall returns.</summary>
@@ -1513,6 +1517,9 @@ internal static partial class WallSegmentFade
         // The wall-cache refresh owns this list for its whole synchronous pass. It must not
         // share _subtreeScratch: standing/prop-unit predicates called from that pass use it.
         private readonly List<MeshRenderer> _wallCacheRendererScratch = new(64);
+        /// <summary>Current renderer/foliage membership during FinishRefresh. Reused between
+        /// segments; the segment's own lists retain the order in which leavers are restored.</summary>
+        private readonly HashSet<MeshRenderer> _refreshMembership = new();
         /// <summary>An ancestor whose subtree holds more MeshRenderers than this is a CONTAINER
         /// (the 'L :' Apparance layer/section-root class), not a prefab-sized asset — the walk
         /// stops there and attaches nothing (fail-open: the ugly remnant stays visible, which
@@ -9886,6 +9893,7 @@ internal static partial class WallSegmentFade
         {
             seg.PrevRenderers.Clear();
             seg.PrevRenderers.AddRange(seg.Renderers);
+            seg.PrevRendererSet.Clear();
             seg.Renderers.Clear();
             seg.PrevFoliage.Clear();
             seg.PrevFoliage.AddRange(seg.Foliage);
@@ -9907,15 +9915,24 @@ internal static partial class WallSegmentFade
         /// ever touches them again), then derive the blocked-test epsilon from the new bounds.</summary>
         private void FinishRefresh(Segment seg)
         {
-            if (seg.HasBlock)
+            // A large room can place hundreds of children under one wall. Comparing each old
+            // renderer against the newly collected list with List.Contains made this leaver
+            // pass quadratic, including on a no-change commit. Keep the lists for their authored
+            // order; use a reusable set solely for the membership verdict.
+            _refreshMembership.Clear();
+            if (seg.HasBlock && seg.PrevRenderers.Count > 0)
             {
+                foreach (MeshRenderer renderer in seg.Renderers)
+                    _refreshMembership.Add(renderer);
                 foreach (MeshRenderer prev in seg.PrevRenderers)
                 {
-                    if (prev != null && !seg.Renderers.Contains(prev))
+                    if (prev != null && !_refreshMembership.Contains(prev))
                         prev.SetPropertyBlock(null);
                 }
             }
+            _refreshMembership.Clear();
             seg.PrevRenderers.Clear();
+            seg.PrevRendererSet.Clear();
             // Foliage that LEFT the segment is restored unconditionally — a hidden bush no
             // list points at any more would otherwise stay invisible forever. ModBuild 254:
             // foliage carries dissolve RECORDS now, so a leaver must also have its swapped
@@ -9924,9 +9941,14 @@ internal static partial class WallSegmentFade
             // scenario is the fastest leak in the subsystem. Unconditional on the record rather
             // than on FoliageState, because a piece can hold a swap while the segment reads
             // solid (the record survives one frame longer than the state).
+            if (seg.PrevFoliage.Count > 0)
+            {
+                foreach (MeshRenderer renderer in seg.Foliage)
+                    _refreshMembership.Add(renderer);
+            }
             foreach (MeshRenderer prev in seg.PrevFoliage)
             {
-                if (prev == null || seg.Foliage.Contains(prev))
+                if (prev == null || _refreshMembership.Contains(prev))
                     continue;
                 if (seg.FoliageProps.TryGetValue(prev, out MountedProp? gone))
                 {
@@ -9936,6 +9958,7 @@ internal static partial class WallSegmentFade
                 if (seg.FoliageState != 0)
                     RestoreFoliageRenderer(prev);
             }
+            _refreshMembership.Clear();
             seg.PrevFoliage.Clear();
             if (seg.HasBounds)
             {
@@ -9991,7 +10014,18 @@ internal static partial class WallSegmentFade
                 // our fade block right now. FinishRefresh only clears leavers while the
                 // segment HasBlock; clear it here unconditionally so a prop can never stay
                 // half-dissolved because its owner happened to be solid this frame.
-                if (seg.PrevRenderers.Contains(r))
+                if (seg.PrevRenderers.Count > 0)
+                {
+                    // Most wall children are not standing props. Build this index only after
+                    // the first refusal in this segment rather than for every wall on every
+                    // commit. An empty old list has nothing to restore.
+                    if (seg.PrevRendererSet.Count == 0)
+                    {
+                        foreach (MeshRenderer prev in seg.PrevRenderers)
+                            seg.PrevRendererSet.Add(prev);
+                    }
+                }
+                if (seg.PrevRendererSet.Contains(r))
                     r.SetPropertyBlock(null);
                 return false;
             }
