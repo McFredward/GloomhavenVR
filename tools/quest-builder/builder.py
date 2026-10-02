@@ -140,11 +140,21 @@ def inspect_inputs(args, repo: Path, output: Path, data: Path) -> dict:
     game_key = value_hash({"files": game_files})
     source_key = value_hash({"files": source_files})
     profile_key = value_hash(profile) if profile else None
+    probe = None
+    if args.probe_assets:
+        probe_files = inventory(args.probe_assets.resolve())
+        forbidden = [item["path"] for item in probe_files if Path(item["path"]).suffix.lower() in (
+            ".cs", ".dll", ".so", ".exe", ".asmdef", ".asmref", ".rsp", ".boo", ".js", ".env")]
+        if forbidden:
+            raise BuildError("Probe slices accept native assets only; executable/config input found: " + forbidden[0])
+        if not probe_files:
+            raise BuildError("The selected probe-asset slice is empty.")
+        probe = {"key": value_hash({"files": probe_files}), "files": probe_files}
     inputs = {"schema": 1, "recipe": RECIPE, "target": args.target,
               "game": {"key": game_key, "unityVersion": original_version(data), "files": game_files},
               "mod": {"key": source_key, "commit": commit, "dirty": dirty,
                       "modBuild": mod_build(repo), "files": source_files},
-              "profile": profile, "profileKey": profile_key}
+              "profile": profile, "profileKey": profile_key, "probeAssets": probe}
     inputs["inputKey"] = value_hash(inputs)
     manifest = output / "manifests" / (inputs["inputKey"] + ".json")
     write_json(manifest, inputs)
@@ -160,7 +170,8 @@ def inspect_inputs(args, repo: Path, output: Path, data: Path) -> dict:
     return inputs
 
 
-def snapshot_inputs(inputs: dict, output: Path, repo: Path, data: Path) -> tuple[Path, Path]:
+def snapshot_inputs(inputs: dict, output: Path, repo: Path, data: Path,
+                    probe_assets: Path | None = None) -> tuple[Path, Path]:
     source = output / "inputs/mod" / inputs["mod"]["key"]
     game = output / "inputs/game" / inputs["game"]["key"]
     print("snapshot: verifying/copying immutable game and selected source", flush=True)
@@ -174,6 +185,13 @@ def snapshot_inputs(inputs: dict, output: Path, repo: Path, data: Path) -> tuple
         raise BuildError("The original installation changed during snapshotting; finish its update and retry.")
     if mod_build(source) != inputs["mod"]["modBuild"]:
         raise BuildError("The input ModBuild disagrees with the captured source.")
+    if inputs.get("probeAssets"):
+        probe = inputs["probeAssets"]
+        if not probe_assets:
+            raise BuildError("The manifest has probe assets but no selected source directory.")
+        snapshot(probe_assets.resolve(), probe["files"], output / "inputs/probe" / probe["key"])
+        if inventory(probe_assets.resolve()) != probe["files"]:
+            raise BuildError("The recovered probe assets changed during snapshotting; finish export and retry.")
     return source, game
 
 
@@ -274,6 +292,10 @@ def prepare(args, inputs: dict, output: Path, source: Path, game: Path) -> Path:
             origin = template / directory
             if origin.is_dir():
                 shutil.copytree(origin, project / directory, dirs_exist_ok=True)
+        if inputs.get("probeAssets"):
+            probe_root = output / "inputs/probe" / inputs["probeAssets"]["key"]
+            shutil.copytree(probe_root, project / "Assets/Quest/Recovered", dirs_exist_ok=True,
+                            ignore=shutil.ignore_patterns(".snapshot.json"))
         localized = source / "src/GloomhavenVR/Core/Loc/QuestText.cs"
         if not localized.is_file():
             raise BuildError("The selected mod is missing its shared Quest platform localization source.")
@@ -295,6 +317,9 @@ def prepare(args, inputs: dict, output: Path, source: Path, game: Path) -> Path:
         contracts = [settings, manifest, resources / "quest-profile.json", resources / "quest-steam-logo.png"]
         contracts.extend(p for p in (project / "Assets/Quest").rglob("*")
                          if p.is_file() and p.suffix in (".cs", ".shader", ".asmdef", ".cginc"))
+        if inputs.get("probeAssets"):
+            contracts.extend(project / "Assets/Quest/Recovered" / item["path"]
+                             for item in inputs["probeAssets"]["files"])
         return sorted(set(contracts)), {
             "project": project.relative_to(output).as_posix(), "target": args.target,
             "isDiagnostic": args.target == "probe", "isDummy": bool(inputs["profile"].get("isDummy"))}
@@ -536,6 +561,7 @@ def parser() -> argparse.ArgumentParser:
     result.add_argument("--steam-id")
     result.add_argument("--steam-logo", type=Path)
     result.add_argument("--dummy-profile", action="store_true", help="Explicit maintainer-authorized development identity (ID 0, DUMMY).")
+    result.add_argument("--probe-assets", type=Path, help="Pure native recovered asset slice, only for the diagnostic probe.")
     result.add_argument("--unity-editor")
     result.add_argument("--android-sdk")
     result.add_argument("--android-ndk")
@@ -552,6 +578,8 @@ def main(argv: list[str] | None = None) -> int:
         repo = args.repo_root.resolve()
         if args.command in ("inspect", "prepare", "build") and not args.game_root:
             raise BuildError("Supply --game-root pointing to the legally acquired PC installation.")
+        if args.probe_assets and args.target != "probe":
+            raise BuildError("--probe-assets belongs only to the explicitly diagnostic --target probe.")
         data = game_data(args.game_root) if args.game_root else None
         output = ensure_output(args.output_root or repo / ".planning/quest3-local", repo, data)
         with output_lock(output):
@@ -562,7 +590,7 @@ def main(argv: list[str] | None = None) -> int:
             else:
                 inputs = inspect_inputs(args, repo, output, data)
                 if args.command != "inspect":
-                    source, game = snapshot_inputs(inputs, output, repo, data)
+                    source, game = snapshot_inputs(inputs, output, repo, data, args.probe_assets)
                     project = prepare(args, inputs, output, source, game)
                     print("prepare: " + str(project), flush=True)
                     if args.command == "build":
