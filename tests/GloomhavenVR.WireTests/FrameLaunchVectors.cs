@@ -45,7 +45,7 @@ internal static class FrameLaunchVectors
         t.True(!FrameDesktopPolicy.MirrorLeftEye(false, true, true),
                "Frame VR honors a saved off choice; platform defaults must never force it on");
         t.True(FrameDesktopPolicy.MirrorLeftEye(true, true, true),
-               "Frame VR can enable the exact same desktop work reduction as PC VR");
+               "Frame VR can enable the same spectator image as PC VR");
         t.True(!FrameDesktopPolicy.MirrorLeftEye(false, true, false),
                "Frame original flat launch does not force the VR mirror");
         t.True(FrameDesktopPolicy.ScrubGameCameras(true, true, false),
@@ -54,7 +54,11 @@ internal static class FrameLaunchVectors
                "visible in-headset menu retains its captured native 2D cameras");
         t.True(!FrameDesktopPolicy.ScrubGameCameras(true, false, false),
                "flat launch keeps native desktop cameras");
-        t.True(!FrameDesktopPolicy.ScrubGameCameras(false, true, false),
-               "PC VR desktop mirror off preserves the legacy path");
+        t.True(FrameDesktopPolicy.ScrubGameCameras(false, true, false),
+               "Desktop mirror off still suppresses unused native drawing during VR");
+        t.True(!FrameDesktopPolicy.ScrubGameCameras(false, true, true),
+               "Black desktop retains actual in-headset native menu capture");
+        t.True(!FrameDesktopPolicy.ScrubGameCameras(false, false, false),
+               "Black desktop preference never suppresses an ordinary flat launch");
     }
 }

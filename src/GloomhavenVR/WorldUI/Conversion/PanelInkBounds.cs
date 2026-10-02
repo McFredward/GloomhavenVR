@@ -798,11 +798,12 @@ internal static class PanelInkBounds
         if (local.width <= 0f && local.height <= 0f)
             return false;
         rt.GetWorldCorners(Corners);
-        Vector3 first = host.InverseTransformPoint(Corners[0]);
+        Matrix4x4 toHost = host.worldToLocalMatrix;
+        Vector3 first = toHost.MultiplyPoint3x4(Corners[0]);
         float minX = first.x, maxX = first.x, minY = first.y, maxY = first.y;
         for (int i = 1; i < 4; i++)
         {
-            Vector3 p = host.InverseTransformPoint(Corners[i]);
+            Vector3 p = toHost.MultiplyPoint3x4(Corners[i]);
             if (p.x < minX) minX = p.x;
             if (p.x > maxX) maxX = p.x;
             if (p.y < minY) minY = p.y;
@@ -978,17 +979,18 @@ internal static class PanelInkBounds
     }
 
     /// <summary>
-    /// Slots in the one-frame memo. EIGHT because that is more floated windows than the map room's
-    /// arc allocator will seat, so every open window keeps its entry for the whole frame — a single
-    /// slot would have been useless here, since the two callers run in DIFFERENT PHASES (the follow
-    /// tick in Update, the hit rect in LateUpdate) and walk the whole panel list in between.
+    /// Slots in the one-frame memo. Build 605's Frame trace services 21 converted panels,
+    /// including persistent/hidden native members, so the original eight slots could evict
+    /// the Update entries before the LateUpdate hit-rect pass and repeat the hierarchy walk.
+    /// Sixty-four fixed slots cover that observed population without changing the memo's
+    /// existing lifetime: it still never supplies an answer from an older frame.
     ///
     /// <para>FIXED INT ARRAYS AND NOT A DICTIONARY, deliberately: nothing is allocated after class
     /// load, nothing keyed on a Unity object can go fake-null and leak, and a full ring simply evicts
     /// its oldest entry into a re-walk. The memo can never change an answer — the worst a miss costs
     /// is the walk that would have happened anyway.</para>
     /// </summary>
-    private const int SigMemoSlots = 8;
+    private const int SigMemoSlots = 64;
     private static readonly int[] SigMemoKey = new int[SigMemoSlots];
     private static readonly int[] SigMemoFrame = CreateFrameSlots();
     private static readonly int[] SigMemoValue = new int[SigMemoSlots];

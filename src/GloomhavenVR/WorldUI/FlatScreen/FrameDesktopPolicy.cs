@@ -1,10 +1,10 @@
 namespace GloomhavenVR.WorldUI;
 
 /// <summary>
-/// Desktop work follows the same live setting on every platform. The maintainer's
-/// 2026-10-01 ruling supersedes Build 594's forced Frame mirror: standalone Frame is
-/// a defaults profile, not a second runtime policy that ignores the player's choice.
-/// The native 2D menu still renders into FlatScreen's in-headset capture texture.
+/// The desktop setting controls the spectator image only: left eye or black.
+/// The maintainer's 2026-10-02 clarification requires discarded native desktop
+/// drawing to be suppressed independently on every platform. Native 2D menus
+/// still render into FlatScreen's in-headset capture texture.
 /// </summary>
 internal static class FrameDesktopPolicy
 {
@@ -12,5 +12,5 @@ internal static class FrameDesktopPolicy
         configured;
 
     internal static bool ScrubGameCameras(bool mirrorLeftEye, bool vrRunning, bool flatScreenVisible) =>
-        mirrorLeftEye && vrRunning && !flatScreenVisible;
+        vrRunning && !flatScreenVisible;
 }

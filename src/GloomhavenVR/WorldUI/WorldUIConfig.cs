@@ -910,12 +910,10 @@ internal static class WorldUIConfig
                 new AcceptableValueRange<float>(0.3f, 1.5f)));
         DesktopMirrorLeftEye = _file.Bind("WorldUI", "DesktopMirrorLeftEye",
             FrameDefaults.Active ? FrameDefaults.DesktopMirrorLeftEye : Defaults.DesktopMirrorLeftEye,
-            "Flat monitor mirrors ONLY the HMD's LEFT eye: pins XRSettings.gameViewRenderMode to " +
-            "LeftEye and skips the desktop 2D-menu composite blit, so the desktop is a clean " +
-            "single-eye mirror in every state. Off = legacy (2D-menu composite during menus; " +
-            "uncontrolled default XR mirror otherwise). On also suppresses discarded desktop " +
-            "game-camera draws when the floating flat screen is hidden. This live choice applies " +
-            "on PC and Steam Frame; standalone Frame defaults to on, and saved choices are retained.");
+            "Show the HMD's left eye on the flat monitor. Off keeps the flat monitor black. " +
+            "Unused native desktop scene/UI drawing is always suppressed while VR runs, " +
+            "independently of this setting. Native menus and 2D-map captures remain visible " +
+            "inside the headset. This live choice applies on PC and Steam Frame; saved choices are retained.");
         // ---- RETIRED 2026-08-09: the wrist HUD's SECOND set of pose dials -------------------
         ShowIntro = _file.Bind("WorldUI", "ShowIntro", Defaults.ShowIntro,
             "Show the game's intro (logos/video, pre-menu scenes) on the floating screen in VR " +

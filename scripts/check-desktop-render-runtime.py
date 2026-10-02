@@ -1,0 +1,126 @@
+#!/usr/bin/env python3
+"""Exercise production desktop ownership with actual Unity 2021.3.5 cameras and callbacks.
+
+Provider mode dispatch is source/API-bound because this editor has no attached OpenXR
+headset. This proof does not claim final compositor pixels or headset acceptance.
+"""
+import argparse
+import hashlib
+import json
+import os
+from pathlib import Path
+import shutil
+import subprocess
+import tempfile
+
+ROOT = Path(__file__).resolve().parents[1]
+
+
+def method(source, signature):
+    assert source.count(signature) == 1, signature
+    start = source.index(signature)
+    end = source.index('\n    }\n', start) + len('\n    }\n')
+    return source[start:end]
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--source-root', type=Path, default=ROOT)
+    parser.add_argument('--output-dir', type=Path, default=ROOT / '.planning/debug/desktop-render-runtime')
+    parser.add_argument('--unity', type=Path, default=Path(os.environ.get('UNITY_PATH', '/home/claw/unity-2021.3.5/Editor/Unity')))
+    args = parser.parse_args()
+    args.output_dir.mkdir(parents=True, exist_ok=True)
+    run = Path(tempfile.mkdtemp(prefix='run-', dir=args.output_dir.resolve()))
+    flat = args.source_root / 'src/GloomhavenVR/WorldUI/FlatScreen'
+    desktop = (flat/'FlatScreen.3.Desktop.cs').read_text()
+    core = (flat/'FlatScreen.1.Core.cs').read_text()
+    lifecycle = (flat/'FlatScreen.4.Lifecycle.cs').read_text()
+    fields = core[core.index('    private bool DesktopMirrorLeftEye'):core.index('    // ---- ITEM 1: hands')]
+    end = method(lifecycle, '    public void OnEndOfFrame()\n')
+    show = method(lifecycle, '    private void Show()\n')
+    assert show.index('ReleaseDesktopScrub("flat screen capture begins");') < show.index('CaptureStack();'), 'Show must hand scrubbed cameras to capture in the same frame'
+    assert 'Graphics.Blit(_rt' not in end, 'Native menu must never composite to the spectator'
+    assert 'UnityEngine.XR.XRMirrorViewBlitMode.None' in desktop and 'display.SetPreferredMirrorBlitMode(desired)' in desktop, 'Off must address the shipped OpenXR provider API'
+    assert 'RenderPipelineManager.beginCameraRendering += OnScrubBeginCameraRendering' in desktop and 'RenderPipelineManager.endCameraRendering -= OnScrubEndCameraRendering' in desktop, 'SRP callback ownership must be paired and reversible'
+    sources = {
+        'Desktop.cs': desktop,
+        'Policy.cs': (flat/'FrameDesktopPolicy.cs').read_text(),
+        'Lifecycle.cs': 'using GloomhavenVR.Core;\nusing UnityEngine;\nnamespace GloomhavenVR.WorldUI;\ninternal sealed partial class FlatScreen\n{\n'+fields+end+'}\n',
+    }
+    fit = (args.source_root/'src/GloomhavenVR/WorldUI/Conversion/CanvasConversion.3.Fit.cs').read_text()
+    probe = """using System.Collections.Generic;
+using UnityEngine;
+using UnityEngine.UI;
+namespace GloomhavenVR.WorldUI;
+internal sealed class ConvertedPanel { internal RectTransform Target = null!, HostRect = null!; }
+internal static partial class CanvasConversion
+{
+private const float FitMinAlpha = .05f;
+private enum MeasureReject { None, Culled, Faint, Empty, ClippedOut }
+private static MeasureReject s_lastReject;
+internal static int Reject => (int)s_lastReject;
+private static readonly Vector3[] CornerScratch = new Vector3[4];
+private static readonly Dictionary<Transform, RectTransform?> ClipperMemo = new(64);
+private static readonly List<Transform> ClipperAncestorScratch = new(16);
+private static readonly Dictionary<RectTransform, Rect> ClipperRectMemo = new(8);
+private static readonly Dictionary<Transform, Vector2> AuthoredOffsetMemo = new(64);
+internal static RectTransform? Find(ConvertedPanel panel, RectTransform graphic) => FindEnclosingClipper(panel,graphic);
+internal static bool Measure(ConvertedPanel panel, Graphic graphic, out Vector2 min, out Vector2 max) => TryGetVisibleHostRect(panel,graphic,out min,out max,out _,out _);
+"""
+    for signature in ('    private static RectTransform? FindEnclosingClipper(', '    private static Vector2 AuthoredOffset(', '    private static void AuthoredHostRect(', '    internal static void BeginContentQuery()', '    private static bool TryGetVisibleHostRect(ConvertedPanel panel, Graphic g,\n        out Vector2 gMin, out Vector2 gMax, out Vector2 aMin, out Vector2 aMax,'):
+        probe += method(fit, signature) + '\n'
+    sources['Fit.cs'] = probe + '}\n'
+    variants = [
+        ('production', '', '', '', ''),
+        ('mirror-off-draw-leak', 'Policy.cs', 'vrRunning && !flatScreenVisible;', 'mirrorLeftEye && vrRunning && !flatScreenVisible;', 'mirror off still redirects discarded native rendering'),
+        ('native-skybox-draw-leak', 'Desktop.cs', 'if (_maskedSkybox)\n            cam.clearFlags = CameraClearFlags.SolidColor;', 'if (_maskedSkybox && false)\n            cam.clearFlags = CameraClearFlags.SolidColor;', 'unused native skybox draw is suppressed within the same real render callback pair'),
+        ('native-mask-left-zero', 'Desktop.cs', '_maskedCam.cullingMask = _maskedValue;', '_maskedCam.cullingMask = 0;', 'actual built-in Camera.Render skips draw and restores within its own callback pair'),
+        ('head-camera-scrubbed', 'Desktop.cs', 'Camera? head = Rig.VRRigDriver.HeadCamera;', 'Camera? head = null;', 'head eyes and native preview capture stay outside the scrub'),
+        ('foreign-target-scrubbed', 'Desktop.cs', 'if (cam.targetTexture != null)\n                continue;', 'if (cam.targetTexture != null && false)\n                continue;', 'head eyes and native preview capture stay outside the scrub'),
+        ('menu-draw-skipped', 'Policy.cs', 'vrRunning && !flatScreenVisible;', 'vrRunning;', 'visible headset menu restores scrub ownership before native capture'),
+        ('missing-pre-render-hook', 'Desktop.cs', 'Camera.onPreCull += OnScrubPreCull;', '/* injected: no native pre-cull registration */', 'actual built-in Camera.Render skips draw and restores within its own callback pair'),
+        ('clipper-memo-not-cleared', 'Fit.cs', '        ClipperMemo.Clear();', '        /* injected: stale ancestor memo */', 'next pass observes live disabled nearest mask'),
+        ('clipper-bounds-not-cleared', 'Fit.cs', '        ClipperRectMemo.Clear();', '        /* injected: stale clip bounds */', 'next pass observes animated viewport growth'),
+        ('host-projection-identity', 'Fit.cs', 'Matrix4x4 toHost = panel.HostRect.worldToLocalMatrix;', 'Matrix4x4 toHost = Matrix4x4.identity;', 'transformed host produces the same local graphic corners'),
+        ('black-target-not-restored', 'Lifecycle.cs', 'RenderTexture.active = previous;', 'RenderTexture.active = null;', 'black desktop clear restores the previous in-headset capture target'),
+    ]
+    fixture = ROOT/'scripts/desktop-render-runtime'
+    manifest = {'result': str(run/'results.txt'), 'cases': []}
+    (run/'source-hashes.json').write_text(json.dumps({'root':str(args.source_root.resolve()),'sha256':{key:hashlib.sha256(value.encode()).hexdigest() for key,value in sources.items()},'limits':['No OpenXR device is attached; provider presentation remains hardware-open.','Actual Camera.Render callbacks, ownership and current RenderTexture are executed.']},indent=2)+'\n')
+    dotnet = shutil.which('dotnet') or str(Path.home()/'.dotnet/dotnet')
+    for name, filename, before, after, expected in variants:
+        build = run/name; production = build/'production'; production.mkdir(parents=True)
+        for path, value in sources.items():
+            if path == filename:
+                assert value.count(before) == 1, 'mutation binding drift: '+name
+                value = value.replace(before, after, 1)
+            (production/path).write_text(value)
+        project = build/'Desktop.csproj'; shutil.copyfile(fixture/'Desktop.csproj',project)
+        assembly = 'DesktopRender_'+name.replace('-','_')
+        result = subprocess.run([dotnet,'build',str(project),'-c','Release','--nologo','--verbosity','quiet','-p:CaseName='+assembly,'-p:FixtureDir='+str(fixture),'-p:ProductionDir='+str(production),'-p:UnityManaged='+str(args.unity.parent/'Data/Managed'),'-p:UnityUi='+str(args.source_root/'ressources/GH_Data/Managed/UnityEngine.UI.dll')],capture_output=True,text=True)
+        (build/'build.log').write_text(result.stdout+result.stderr)
+        if result.returncode: raise SystemExit(result.stdout+result.stderr+'\nCompilation failure is not a passing negative control')
+        manifest['cases'].append({'name':name,'dll':str(build/'bin/Release/netstandard2.1'/(assembly+'.dll')),'expected':expected})
+    manifest_path=run/'manifest.json'; manifest_path.write_text(json.dumps(manifest,indent=2))
+    project=run/'unity'; (project/'Assets/Editor').mkdir(parents=True); (project/'Packages').mkdir(); (project/'ProjectSettings').mkdir()
+    shutil.copyfile(fixture/'Editor/InteractionRunner.cs', project/'Assets/Editor/InteractionRunner.cs')
+    (project/'Packages/manifest.json').write_text('{"dependencies":{"com.unity.ugui":"1.0.0"}}\n')
+    (project/'ProjectSettings/ProjectVersion.txt').write_text('m_EditorVersion: 2021.3.5f1\n')
+    # Camera.Render must use a real graphics device; a -nographics run never sends the
+    # rendering callbacks and therefore cannot establish the ownership contract.
+    command = [str(args.unity),'-batchmode','-force-glcore','-projectPath',str(project),'-executeMethod','InteractionRunner.Start','-interactionManifest',str(manifest_path),'-logFile',str(run/'unity.log')]
+    if not os.environ.get('DISPLAY'): command = ['xvfb-run','-a'] + command
+    try:
+        result=subprocess.run(command,stdout=subprocess.DEVNULL,stderr=subprocess.STDOUT,timeout=240)
+    finally:
+        # Keep generated source, assemblies, logs and the manifest as evidence;
+        # editor import caches are reproducible and otherwise dominate each run.
+        for cache in ('Library', 'Temp'):
+            shutil.rmtree(project/cache, ignore_errors=True)
+    report=Path(manifest['result'])
+    if report.is_file(): print(report.read_text(),end='')
+    (run/'unity-exit-code.txt').write_text(str(result.returncode)+'\n')
+    if result.returncode or not report.is_file(): raise SystemExit('FAIL: Unity run; see '+str(run/'unity.log'))
+    print('PASS: '+str(len(variants))+' complete production/negative variants; evidence: '+str(run))
+
+if __name__ == '__main__': main()

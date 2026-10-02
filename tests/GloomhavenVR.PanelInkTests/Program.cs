@@ -57,6 +57,34 @@ static partial class Program
             "unmarked native content outside owner remains placement content");
     }
 
+    private static void TestSignatureMemoPopulation()
+    {
+        var panels = new ConvertedPanel[21];
+        var children = new GameObject[panels.Length];
+        var signatures = new int[panels.Length];
+        Time.frameCount++;
+        for (int i = 0; i < panels.Length; i++)
+        {
+            var host = new GameObject("MemoHost" + i);
+            var target = new GameObject("MemoTarget" + i);
+            target.transform.SetParent(host.transform);
+            children[i] = new GameObject("NativeContent" + i);
+            children[i].transform.SetParent(target.transform);
+            panels[i] = new ConvertedPanel { HostRect = host.transform, Target = target.transform };
+            signatures[i] = PanelInkBounds.ActiveSetSignature(panels[i], out _);
+        }
+        // The existing contract shares one frame's signature across Update/LateUpdate.
+        // Twenty-one panels are the observed hardware population, not an arbitrary stress size.
+        for (int i = 0; i < children.Length; i++) children[i].activeSelf = false;
+        for (int i = 0; i < panels.Length; i++)
+            Check(PanelInkBounds.ActiveSetSignature(panels[i], out _) == signatures[i],
+                "signature memo retains all 21 current-frame panel answers without eviction");
+        Time.frameCount++;
+        for (int i = 0; i < panels.Length; i++)
+            Check(PanelInkBounds.ActiveSetSignature(panels[i], out _) != signatures[i],
+                "signature memo never supplies the previous frame's changed native hierarchy");
+    }
+
     static void Main()
     {
         var host = new GameObject("Host");
@@ -114,6 +142,7 @@ static partial class Program
         TestCaptureBacking();
         TestSampleWatch();
         TestReflowBounds();
+        TestSignatureMemoPopulation();
         Console.WriteLine($"Panel ink tests: {_assertions} assertions passed.");
     }
 }

@@ -83,6 +83,9 @@ for name, needle, replacement in [
 ]:
     assert source.count(needle) == 1, name
     (root / (name+'.fixture')).write_text(source.replace(needle, replacement))
+needle = 'private const int SigMemoSlots = 64;'
+assert source.count(needle) == 1
+(root / 'signature-capacity.fixture').write_text(source.replace(needle, 'private const int SigMemoSlots = 8;'))
 needle = 'RewardHeadingBounds.Expand(host, graphic, bounds)'
 capture = (repo / 'src/GloomhavenVR/WorldUI/Sharpness/PanelSupersample.4.Content.cs').read_text()
 measure = capture[capture.index('    private static void MeasureFrame('):]
@@ -126,7 +129,7 @@ assert 'out content, out contributors, out _, out _, includeParkedHint)' in code
 print('Placement binding negative control: inclusion of owner annotation rejected.')
 PY
 dotnet run --project "$project" --configuration Release --property:ReflowBoundsSource="$repo_root/src/GloomhavenVR/WorldUI/Modal/WindowReflowBounds.cs" --property:RootWatchSource="$watch_source" --property:DrawnUnionSource="$mutation_dir/union.fixture"
-for mutation in live-allocation missing broad hint-ink hint-union reward-heading mr-frame mr-hover mr-scope mr-scope-plate mr-scope-clip live-hidden live-alpha live-canvas live-clear paint-mask paint-alpha paint-transform paint-backdrop paint-layout trace-cap trace-steady trace-throw trace-binding live-own-alpha paint-own-alpha paint-original-alpha capture-clip capture-host; do
+for mutation in live-allocation missing broad hint-ink hint-union reward-heading mr-frame mr-hover mr-scope mr-scope-plate mr-scope-clip live-hidden live-alpha live-canvas live-clear paint-mask paint-alpha paint-transform paint-backdrop paint-layout trace-cap trace-steady trace-throw trace-binding live-own-alpha paint-own-alpha paint-original-alpha capture-clip capture-host signature-capacity; do
     ink_source="$mutation_dir/$mutation.fixture"
     capture_bounds_source="$repo_root/src/GloomhavenVR/WorldUI/Conversion/MrBackingCaptureBounds.cs"
     capture_accessor_source="$repo_root/src/GloomhavenVR/WorldUI/Sharpness/PanelSupersample.MrBacking.cs"
@@ -165,6 +168,7 @@ for mutation in live-allocation missing broad hint-ink hint-union reward-heading
         exit 1
     fi
     expected='full-frame movie remains measurable content'
+    if [[ "$mutation" == signature-capacity ]]; then expected='signature memo retains all 21 current-frame panel answers without eviction'; fi
     if [[ "$mutation" == live-allocation ]]; then expected='cached live visibility allocates nothing per frame'; fi
     if [[ "$mutation" == broad ]]; then expected='content exemption never admits a neighboring backdrop'; fi
     if [[ "$mutation" == hint-ink ]]; then expected='placement fallback excludes hint'; fi
@@ -198,4 +202,4 @@ for mutation in live-allocation missing broad hint-ink hint-union reward-heading
         exit 1
     fi
 done
-echo "Panel ink negative controls: twenty-eight runtime mutations and one placement binding mutation rejected."
+echo "Panel ink negative controls: thirty runtime mutations and one placement binding mutation rejected."

@@ -11,65 +11,125 @@ internal sealed partial class FlatScreen
 {
     // ---- ITEM 9: desktop (flat monitor) = clean LEFT-EYE mirror ---------------------------
 
+    private sealed class DesktopDisplayRecord
+    {
+        internal UnityEngine.XR.XRDisplaySubsystem Display = null!;
+        internal int Original;
+        internal int Applied;
+    }
+
     /// <summary>
-    /// ITEM 9 — force the flat monitor to mirror ONLY the HMD's LEFT eye. Unity/OpenXR's
-    /// default game-view mirror mode is uncontrolled (which eye — or both, side by side —
-    /// is build/driver dependent), so pin
-    /// <see cref="UnityEngine.XR.XRSettings.gameViewRenderMode"/> to
-    /// <c>GameViewRenderMode.LeftEye</c>. This is a real RUNTIME property (not an
-    /// editor-only field) — valid on a built OpenXR player — and controls the desktop
-    /// mirror-view blit Unity performs after every frame. It is re-asserted every tick
-    /// because a scene load or game code can rewrite it, and the original is captured
-    /// once so VR-off / hot-reload / the toggle restores it (<see cref="RestoreDesktopMirrorMode"/>).
-    /// Combined with the <see cref="OnEndOfFrame"/> composite gate, the desktop shows the
-    /// rig head camera's LEFT eye and nothing else — the left-eye mirror already carries
-    /// the in-VR flat-screen quad (which shows the 2D menu), so no separate 2D composite
-    /// is needed and the monitor never goes black.
+    /// User clarification 2026-10-02: Off means a black spectator backbuffer, never
+    /// restoration of native flat scenery/UI. The shipped built-in OpenXR player
+    /// consumes the display provider's mirror mode; the legacy XRSettings selector
+    /// has no None value. Own both selectors reversibly, and suppress provider blits
+    /// with XRMirrorViewBlitMode.None when no desktop image was requested. The same
+    /// provider preference is used by SRP; camera hooks below also cover that path.
+    /// A readback is evidence of the requested mode, not proof of compositor pixels.
     /// </summary>
     private void TickDesktopMirrorMode()
     {
-        if (!DesktopMirrorLeftEye || !VRSession.IsRunning)
+        if (!VRSession.IsRunning)
         {
             RestoreDesktopMirrorMode();
             return;
         }
+        bool leftEye = DesktopMirrorLeftEye;
         if (!_mirrorModeCaptured)
         {
             _originalMirrorMode = UnityEngine.XR.XRSettings.gameViewRenderMode;
             _mirrorModeCaptured = true;
         }
-        if (UnityEngine.XR.XRSettings.gameViewRenderMode != UnityEngine.XR.GameViewRenderMode.LeftEye)
-            UnityEngine.XR.XRSettings.gameViewRenderMode = UnityEngine.XR.GameViewRenderMode.LeftEye;
+        if (leftEye)
+        {
+            if (UnityEngine.XR.XRSettings.gameViewRenderMode != UnityEngine.XR.GameViewRenderMode.LeftEye)
+                UnityEngine.XR.XRSettings.gameViewRenderMode = UnityEngine.XR.GameViewRenderMode.LeftEye;
+            _legacyMirrorApplied = true;
+        }
         _mirrorModeApplied = true;
-        if (!_mirrorModeLogged)
+
+        UnityEngine.SubsystemManager.GetInstances(_desktopDisplays);
+        for (int i = _desktopDisplayRecords.Count - 1; i >= 0; i--)
+            if (!_desktopDisplays.Contains(_desktopDisplayRecords[i].Display))
+                _desktopDisplayRecords.RemoveAt(i); // provider teardown cannot retain a stale ownership record
+        int desired = leftEye ? UnityEngine.XR.XRMirrorViewBlitMode.LeftEye : UnityEngine.XR.XRMirrorViewBlitMode.None;
+        for (int i = 0; i < _desktopDisplays.Count; i++)
+        {
+            UnityEngine.XR.XRDisplaySubsystem display = _desktopDisplays[i];
+            if (!display.running)
+                continue;
+            try
+            {
+                DesktopDisplayRecord? record = null;
+                for (int r = 0; r < _desktopDisplayRecords.Count; r++)
+                    if (ReferenceEquals(_desktopDisplayRecords[r].Display, display))
+                    {
+                        record = _desktopDisplayRecords[r];
+                        break;
+                    }
+                int current = display.GetPreferredMirrorBlitMode();
+                if (record == null)
+                {
+                    record = new DesktopDisplayRecord { Display = display, Original = current, Applied = current };
+                    _desktopDisplayRecords.Add(record);
+                }
+                if (current != desired)
+                    display.SetPreferredMirrorBlitMode(desired);
+                record.Applied = desired;
+                if (display.GetPreferredMirrorBlitMode() != desired && !_desktopMirrorWarning)
+                {
+                    _desktopMirrorWarning = true;
+                    VRLog.Warn("WorldUI", "Desktop mirror provider did not retain the requested mode; " +
+                        "native desktop draws remain suppressed and the Off backbuffer is cleared black.");
+                }
+            }
+            catch (System.Exception e)
+            {
+                if (!_desktopMirrorWarning)
+                {
+                    _desktopMirrorWarning = true;
+                    VRLog.Warn("WorldUI", $"Desktop mirror provider mode unavailable: {e.Message}. " +
+                        "Native desktop draws remain suppressed; Off clears the backbuffer black.");
+                }
+            }
+        }
+        if (!_mirrorModeLogged || _mirrorModeLastLeftEye != leftEye)
         {
             _mirrorModeLogged = true;
-            // Read the value BACK: on some OpenXR runtimes gameViewRenderMode is a no-op
-            // (the compositor owns the mirror), so this line tells the next hardware log
-            // whether the managed set is honored — and, if not, that the desktop-camera
-            // scrub below is the only lever that keeps the monitor clean.
-            var readback = UnityEngine.XR.XRSettings.gameViewRenderMode;
-            bool honored = readback == UnityEngine.XR.GameViewRenderMode.LeftEye;
-            VRLog.Info("WorldUI", "ITEM9 desktop mirror mode = LEFT EYE: XRSettings.gameViewRenderMode " +
-                                  $"set to LeftEye (was {_originalMirrorMode}); readback={readback} " +
-                                  (honored
-                                      ? "(runtime HONORED — the mirror carries the left eye only). "
-                                      : "(runtime IGNORED — the OpenXR compositor's mirror is not controllable " +
-                                        "from managed code here; the desktop-camera scrub keeps the monitor clean instead). ") +
-                                  "The end-of-frame 2D-menu composite blit is skipped.");
+            _mirrorModeLastLeftEye = leftEye;
+            VRLog.Info("WorldUI", "ITEM9 desktop mirror mode = " + (leftEye ? "LEFT EYE" : "BLACK") +
+                $": provider request={desired}, XRSettings.gameViewRenderMode={UnityEngine.XR.XRSettings.gameViewRenderMode}; " +
+                "unused native desktop drawing is always suppressed; no desktop 2D-menu composite. " +
+                (leftEye ? "Requested HMD LEFT-eye spectator image." : "Requested black spectator image."));
         }
     }
 
-    /// <summary>Restore the original game-view mirror mode (VR off / toggle off / hot reload).</summary>
+    /// <summary>Restore captured spectator preferences on VR stop or hot reload only.</summary>
     private void RestoreDesktopMirrorMode()
     {
         if (!_mirrorModeApplied)
             return;
-        if (_mirrorModeCaptured)
+        for (int i = 0; i < _desktopDisplayRecords.Count; i++)
+        {
+            DesktopDisplayRecord record = _desktopDisplayRecords[i];
+            try
+            {
+                if (record.Display.GetPreferredMirrorBlitMode() == record.Applied)
+                    record.Display.SetPreferredMirrorBlitMode(record.Original);
+            }
+            catch (System.Exception) { /* A destroyed provider cannot be restored. */ }
+        }
+        _desktopDisplayRecords.Clear();
+        _desktopDisplays.Clear();
+        if (_mirrorModeCaptured && _legacyMirrorApplied
+            && UnityEngine.XR.XRSettings.gameViewRenderMode == UnityEngine.XR.GameViewRenderMode.LeftEye)
             UnityEngine.XR.XRSettings.gameViewRenderMode = _originalMirrorMode;
+        _legacyMirrorApplied = false;
         _mirrorModeApplied = false;
+        _mirrorModeCaptured = false;
         _mirrorModeLogged = false;
-        VRLog.Info("WorldUI", $"ITEM9 desktop mirror mode restored to {_originalMirrorMode} (VR off / toggle off / hot reload).");
+        _desktopMirrorWarning = false;
+        VRLog.Info("WorldUI", $"ITEM9 desktop mirror mode restored to {_originalMirrorMode} (VR off / hot reload).");
     }
 
     /// <summary>
@@ -91,11 +151,11 @@ internal sealed partial class FlatScreen
     /// throwaway offscreen sink RT (Screen-sized, so Camera pixel dimensions and
     /// screen-space raycasts are unchanged) so ONLY the XR mirror composites onto the
     /// monitor. The rig <see cref="Rig.VRRigDriver.HeadCamera"/> (the sole stereo renderer
-    /// → HMD) is excluded, so the in-VR view is untouched; the game UI still RENDERS (into
-    /// the sink), so the WorldUI canvas conversion that consumes it in VR is unaffected —
-    /// only its DESKTOP output is suppressed. Fully reversible (targetTexture → null) on
-    /// VR stop / toggle off / hot reload / when the flat screen shows (CaptureStack owns
-    /// the cameras then). [WorldUI] DesktopMirrorLeftEye stays live on every platform.
+    /// → HMD) is excluded, so the in-VR view is untouched. Native callbacks, camera identity
+    /// and projection remain live; draw skip below suppresses the discarded pixels. The
+    /// headset draws converted original widgets itself and never samples this sink. Fully reversible (targetTexture → null) on
+    /// VR stop / hot reload / when the flat screen shows (CaptureStack owns
+    /// the cameras then). [WorldUI] DesktopMirrorLeftEye controls only the spectator image.
     ///
     /// The native 2D menu is still captured when
     /// FlatScreen is visible; only its otherwise-unused desktop render is skipped.
@@ -110,7 +170,7 @@ internal sealed partial class FlatScreen
             DesktopMirrorLeftEye, VRSession.IsRunning, _visible);
         if (!want)
         {
-            ReleaseDesktopScrub(_visible ? "flat screen captures the cameras" : "toggle off / VR stopped");
+            ReleaseDesktopScrub(_visible ? "flat screen captures the cameras" : "VR stopped");
             return;
         }
 
@@ -151,7 +211,7 @@ internal sealed partial class FlatScreen
                 VRLog.Info("WorldUI", $"  '{cam.name}' tag={cam.tag} enabled={cam.enabled} depth={cam.depth:F1} " +
                                       $"clear={cam.clearFlags} rect=({r.x:F2},{r.y:F2},{r.width:F2},{r.height:F2}) " +
                                       $"mask=0x{cam.cullingMask:X8} stereo={cam.stereoTargetEye} target={dest}" +
-                                      (isHead ? " [VR head — KEPT: its XR mirror IS the desktop]"
+                                      (isHead ? " [VR head — KEPT: headset output, spectator image follows its setting]"
                                        : cam.targetTexture != null ? " [own RT — left alone]"
                                        : " [SCRUBBED → offscreen sink]"));
             }
@@ -169,8 +229,8 @@ internal sealed partial class FlatScreen
             if (!logInventory)
                 VRLog.Info("WorldUI", $"ITEM9 desktop scrub: '{cam.name}' (depth {cam.depth:F1}, " +
                                       $"mask 0x{cam.cullingMask:X8}, clear {cam.clearFlags}) retargeted off the " +
-                                      "backbuffer to the offscreen sink (kept off the monitor; still renders for " +
-                                      "the in-VR canvas conversion).");
+                                      "backbuffer to the offscreen sink (native callbacks/projection retained; " +
+                                      "discarded scene/UI drawing skipped).");
         }
 
         // Re-assert (game code may reset targetTexture to null) + compact dead / released.
@@ -249,9 +309,11 @@ internal sealed partial class FlatScreen
         {
             Camera.onPreCull += OnScrubPreCull;
             Camera.onPostRender += OnScrubPostRender;
+            UnityEngine.Rendering.RenderPipelineManager.beginCameraRendering += OnScrubBeginCameraRendering;
+            UnityEngine.Rendering.RenderPipelineManager.endCameraRendering += OnScrubEndCameraRendering;
             _scrubDrawSkipHooked = true;
             VRLog.Info("WorldUI", "ITEM9 desktop scrub: DRAW SKIP engaged — the redirected game cameras " +
-                                  "still clear and still run image effects, but their culling mask is zeroed " +
+                                  "still clear and still run image effects; unused skyboxes are skipped and their culling mask is zeroed " +
                                   "for the duration of their own render, so the full 3D scene is no longer " +
                                   "drawn into a sink nothing reads.");
         }
@@ -259,11 +321,25 @@ internal sealed partial class FlatScreen
         {
             Camera.onPreCull -= OnScrubPreCull;
             Camera.onPostRender -= OnScrubPostRender;
+            UnityEngine.Rendering.RenderPipelineManager.beginCameraRendering -= OnScrubBeginCameraRendering;
+            UnityEngine.Rendering.RenderPipelineManager.endCameraRendering -= OnScrubEndCameraRendering;
             _scrubDrawSkipHooked = false;
             RestoreScrubMask();
             VRLog.Info("WorldUI", "ITEM9 desktop scrub: draw skip released — the cameras are going back to " +
                                   "the backbuffer, so they render their full culling mask again.");
         }
+    }
+
+    private void OnScrubBeginCameraRendering(UnityEngine.Rendering.ScriptableRenderContext context, Camera cam)
+    {
+        if (UnityEngine.Rendering.GraphicsSettings.currentRenderPipeline != null)
+            OnScrubPreCull(cam);
+    }
+
+    private void OnScrubEndCameraRendering(UnityEngine.Rendering.ScriptableRenderContext context, Camera cam)
+    {
+        if (UnityEngine.Rendering.GraphicsSettings.currentRenderPipeline != null)
+            OnScrubPostRender(cam);
     }
 
     private void OnScrubPreCull(Camera cam)
@@ -273,6 +349,13 @@ internal sealed partial class FlatScreen
             return;
         _maskedCam = cam;
         _maskedValue = cam.cullingMask;
+        _maskedClearFlags = cam.clearFlags;
+        _maskedSkybox = _maskedClearFlags == CameraClearFlags.Skybox;
+        // A skybox is drawn outside the culling mask, so zero alone still pays
+        // for discarded background geometry. Own only this camera's render clear
+        // and restore it with the mask; native menus/previews are never admitted.
+        if (_maskedSkybox)
+            cam.clearFlags = CameraClearFlags.SolidColor;
         cam.cullingMask = 0;
     }
 
@@ -287,12 +370,15 @@ internal sealed partial class FlatScreen
         if (_maskedCam == null)
             return;
         _maskedCam.cullingMask = _maskedValue;
+        if (_maskedSkybox && _maskedCam.clearFlags == CameraClearFlags.SolidColor)
+            _maskedCam.clearFlags = _maskedClearFlags;
+        _maskedSkybox = false;
         _maskedCam = null;
     }
 
     /// <summary>
     /// Restore every scrubbed camera to the backbuffer and drop the sink RT
-    /// (VR off / toggle off / hot reload / the flat screen taking the cameras over).
+    /// (VR off / hot reload / the flat screen taking the cameras over).
     /// </summary>
     private void ReleaseDesktopScrub(string reason)
     {

@@ -224,18 +224,25 @@ internal sealed partial class FlatScreen
     // ---- ITEM 9: desktop (flat monitor) = clean LEFT-EYE mirror, nothing else --------------
     /// <summary>
     /// [WorldUI] DesktopMirrorLeftEye is the player's live preference on every platform.
-    /// Build 594 forced it on Frame, but the maintainer now requires all Frame optimizations
-    /// to be settings that can be reproduced on PC or disabled on Frame (2026-10-01).
+    /// On shows the left eye; Off shows black (maintainer clarification 2026-10-02).
+    /// Discarded native desktop drawing is always suppressed independently.
     /// </summary>
     private bool DesktopMirrorLeftEye => FrameDesktopPolicy.MirrorLeftEye(
         WorldUIConfig.DesktopMirrorLeftEye.Value, false, VRSession.IsRunning);
-    /// <summary>True while we currently hold <see cref="UnityEngine.XR.XRSettings.gameViewRenderMode"/> at LeftEye.</summary>
+    /// <summary>True while we own the desktop spectator mode (left eye or black).</summary>
     private bool _mirrorModeApplied;
     /// <summary>Original mirror mode captured once so VR-off / hot-reload restores it.</summary>
     private bool _mirrorModeCaptured;
     private UnityEngine.XR.GameViewRenderMode _originalMirrorMode;
     /// <summary>One-time log of the chosen mirror mode (confirms on the next hardware log).</summary>
     private bool _mirrorModeLogged;
+    private bool _mirrorModeLastLeftEye;
+    private bool _legacyMirrorApplied;
+    // Provider mirror ownership is separate from legacy XRSettings. OpenXR consumes
+    // XRDisplaySubsystem's mirror mode; XRSettings alone cannot request no mirror.
+    private readonly System.Collections.Generic.List<UnityEngine.XR.XRDisplaySubsystem> _desktopDisplays = new(2);
+    private readonly System.Collections.Generic.List<DesktopDisplayRecord> _desktopDisplayRecords = new(2);
+    private bool _desktopMirrorWarning;
 
     // ---- ITEM 9 (SCENARIO STATE): scrub game cameras off the desktop backbuffer -------------
     /// <summary>
@@ -262,6 +269,8 @@ internal sealed partial class FlatScreen
     /// </summary>
     private Camera? _maskedCam;
     private int _maskedValue;
+    private CameraClearFlags _maskedClearFlags;
+    private bool _maskedSkybox;
 
     // ---- ITEM 1: hands in front of the menu/intro screen -----------------------------------
     /// <summary>Shader-default render queue of <see cref="_screenMaterial"/> (captured on create).</summary>
