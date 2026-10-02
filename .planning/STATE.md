@@ -15,7 +15,24 @@ colliders. Town NPC rigs and cards/UI retain their presentation. Loaded windows
 remain 64.76–102.12 ms at 3408 per eye with changing views/settings, not a matched
 A/B or evidence of improvement. No new headset result is claimed.
 See [STEAM-FRAME-SCENERY-604.md](STEAM-FRAME-SCENERY-604.md).
-Final integrated validation is pending the completed focused worker checks.
+Final integrated validation passed on `aa003c6d`: **14/14 source gates, 96/96 local
+suites, 286,754 wire/golden assertions, all three bundle-format checks**, strict
+Release with zero warnings/errors and five bilingual document pairs. Complete
+local coverage took 605.4 s with eight jobs; report/log hashes were independently
+verified. Actual Unity proofs include scenery 111 assertions/19 negative controls,
+figures 53/10 and physical cloth 72/12. Cloth OFF showed no secondary deformation
+through 50 moving frames and recovered its simulation on ON. Portable scenery
+coverage is 75 assertions/15 negatives; native figure boundaries have 47 assertions.
+Compared with the preserved reviewed603 compiled snapshot: six intended behavior/
+config types plus eight types differing only in the inlined 603→604 build constant
+(including NetProtocol), no added/removed types. Exact source, logs, hashes and
+compiled evidence are retained at `.planning/debug/frame604-final-validation/`.
+The earlier complete gate was superseded after review identified real named vines
+in 17-renderer native tree units; the final gate covers their complete carrier and
+mixed-wall boundaries. No config key, patch target or log marker was removed.
+Bundles remain the Build602 banks; this checkpoint changes the DLL. Users coming
+from Build600 need those updated banks as well. Headset appearance and FPS remain
+unverified for 604.
 
 The preceding Build603 integration:
 

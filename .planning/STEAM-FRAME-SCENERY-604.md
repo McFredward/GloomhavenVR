@@ -71,7 +71,23 @@ plus original decorative tree collider, named plant assemblies and wall plant
 composites. Mutations must
 fail these causal cases; a passing config-value test is insufficient.
 
-Final integrated validation is recorded here once complete. The next headset run
+Final integrated validation on `aa003c6d` passed **14/14 source gates, 96/96 local
+suites, 286,754 wire/golden assertions and all three bundle-format checks**. Strict
+Release has zero warnings/errors; all five bilingual document pairs agree. The
+complete local gate took 605.4 s with eight jobs, with independent verification
+of its coverage and report/log hashes. Actual Unity runs passed scenery 111
+assertions/19 negative controls, figures 53/10 and physical cloth 72/12. Secondary
+cloth deformation was 0.251168 m with ON, 0.00000000 m with OFF over 50 moving
+frames, and 0.250944 m after restoring ON. Portable scenery passed 75 assertions/
+15 negatives; portable figure boundaries passed 47 assertions.
+
+The reviewed603 compiled comparison has six intended behavior/config types and
+eight constant-only types (including NetProtocol); no types were added/removed.
+No configuration key, patch target or existing log marker was removed. Exact
+evidence and the final compiled snapshot are retained under the gitignored
+`.planning/debug/frame604-final-validation/`. Town banks remain those of Build602.
+
+The next headset run
 must show nonzero actual actor/LOD/cloth counts for the eligible native models,
 complete decorative tree removal at vegetation 0%, restoration at 100%, and no
 secondary cloth reaction while held or on the board when OFF. Compare equivalent
