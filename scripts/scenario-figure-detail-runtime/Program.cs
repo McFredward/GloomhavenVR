@@ -324,7 +324,14 @@ public static class InteractionProgram
         mirrorBody.sharedMesh=exactBody.sharedMesh;
         HeldFigures.Held=hero.Actor;hero.Root.transform.SetParent(null);
         PerfConfig.PlayerFigureDetailPercent=0;PerfConfig.EnemyFigureDetailPercent=100;
-        PerfConfig.FigureClothSimulationEnabled=false;Tick();
+        PerfConfig.FigureClothSimulationEnabled=false;
+        FigureClock.Now+=2f;
+        driver.GetType().GetMethod("Update",BindingFlags.Instance|BindingFlags.NonPublic)!.Invoke(driver,null);
+        Check(!ScenarioFigureDetailBudget.MeasurementReady,
+            "new figure state cannot become measurement-ready before its late pass");
+        driver.GetType().GetMethod("LateUpdate",BindingFlags.Instance|BindingFlags.NonPublic)!.Invoke(driver,null);
+        Check(ScenarioFigureDetailBudget.MeasurementReady,
+            "completed native figure late pass publishes readiness without a renderer census");
         Check(Capped(hero,2)&&Original(enemy),"player detail controls only player native LODs");
         Check(AdmittedMesh(exactBody)&&!AdmittedMesh(exactWeapon)&&!AdmittedMesh(mirrorBody),
             "only original native body is admitted beside excluded weapon and pre-existing mirror");

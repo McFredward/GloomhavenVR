@@ -1236,6 +1236,12 @@
       "weight": 1
     },
     {
+      "id": "perf-figure-measurement",
+      "command": ["bash", "scripts/perf-figure-measurement-tests.sh"],
+      "groups": ["local", "ci"],
+      "weight": 1
+    },
+    {
       "id": "town-public-item-fronts",
       "command": [
         "python3",

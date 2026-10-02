@@ -1,6 +1,23 @@
 # State — where the project stands
 
-**Updated 2026-10-02: dev 1.1.0 / ModBuild 606, Frame605 follow-up implementation.**
+**Updated 2026-10-02: dev 1.1.0 / ModBuild 607, figure measurement boundaries and window materialization toggle.**
+
+Build607 separates player/enemy/figure-FX/cloth measurement windows at the early
+Update seam, retaining OLD settings on completed samples and discarding one mixed
+transition frame. Preparation and steady FRAME tags carry revisions; a completed
+native figure late pass, closed VR Options and a two-second quiet guard precede
+steady collection. Scalar readiness avoids a new per-frame renderer census.
+The offline report excludes known mixed/preparing windows and flags unknown legacy
+state; actual GPU busy remains unavailable. This does not retroactively establish
+the figure-only FPS benefit or justify the Build606 mesh package cost.
+
+The existing WindowMaterialise key is exposed under Graphics → Windows/panels.
+Fresh standalone Frame defaults OFF, PC remains ON, and saved choices are preserved.
+Live OFF restores active effects and pending native close continuation exactly once;
+cards, native window motion and NPC effects keep their separate behavior. This is
+a DLL-only update; the complete Build606 mesh banks remain required. Focused checks
+pass; the final integrated gate and Build607 hardware outcome are pending. See
+[Build607 measurements and test procedure](../docs/performance/FRAME-607-MEASUREMENTS.md).
 
 The maintainer approved the Frame605 optimization follow-up and clarified spectator
 semantics: unused native flat draws are always suppressed in VR; DesktopMirrorLeftEye

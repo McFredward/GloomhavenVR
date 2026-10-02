@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType><TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable><TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <PolicySource Condition="'$(PolicySource)' == ''">../../src/GloomhavenVR/Core/Perf/PerfFigureMeasurement.cs</PolicySource>
+    <AdapterSource Condition="'$(AdapterSource)' == ''">../../src/GloomhavenVR/Core/Perf/PerfMonitor.Figures.cs</AdapterSource>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="$(PolicySource)" Link="Production/PerfFigureMeasurement.cs" />
+    <Compile Include="$(AdapterSource)" Link="Production/PerfMonitor.Figures.cs" />
+  </ItemGroup>
+</Project>

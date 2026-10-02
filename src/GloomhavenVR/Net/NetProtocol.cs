@@ -553,7 +553,22 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 606;
+    public const ushort ModBuild = 607;
+
+    // ModBuild 607 — attributable figure-detail hardware measurements and optional window dust.
+    // Figure slider/effect/cloth changes close the completed previous interval with its
+    // latched OLD settings at the early Update seam. A mixed transition frame and its
+    // pending step/camera work are discarded; preparation and steady work use separate
+    // state/revision labels on FRAME. Stable collection starts only after a two-second
+    // quiet guard after the native figure driver's completed application pass and
+    // closed VR Options, including an unchanged-slider baseline. Bounded Debug
+    // change traces and explicit steady begin markers let offline readers distinguish
+    // preparation, known mixed legacy windows and the intended player/enemy A/B state.
+    // Missing GPU busy counters remain unavailable, never inferred from XR wait time.
+    // Reuse WindowMaterialise for a localized visible toggle; fresh standalone Frame
+    // profiles disable window/surface dust while saved choices and PC defaults remain.
+    // Live OFF completes restoration/native continuation once, including MR underlays;
+    // card burns/flights, native motion and NPC effects retain their separate behavior.
 
     // ModBuild 606 — Frame605 renderer/logic reduction and spectator semantics.
     // Discarded native desktop scene/UI/skybox draws are suppressed in VR regardless

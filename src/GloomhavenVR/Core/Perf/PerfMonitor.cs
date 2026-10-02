@@ -86,7 +86,7 @@ namespace GloomhavenVR.Core;
 /// multiplayer-safe and trivially reversible (<see cref="Shutdown"/> destroys the host and drops
 /// the records).</para>
 /// </summary>
-internal static class PerfMonitor
+internal static partial class PerfMonitor
 {
     private const string Scope0 = "Perf";
 
@@ -455,6 +455,8 @@ internal static class PerfMonitor
     internal static void Shutdown()
     {
         StepsActive = false;
+        FigureMeasurement.Clear();
+        _figureChangeLoggedAt = float.NegativeInfinity;
         if (_host != null)
         {
             UnityEngine.Object.Destroy(_host);
@@ -514,6 +516,7 @@ internal static class PerfMonitor
         // The very first sampled frame carries the whole load/init hitch and would poison every
         // percentile for the first window; skip it rather than explain it in every log.
         bool splitOn = PerfConfig.FrameSplit.Value;
+        if (ObserveFigureMeasurement(now, splitOn)) return;
         if (!_firstSampleDone)
         {
             _firstSampleDone = true;
@@ -828,6 +831,7 @@ internal static class PerfMonitor
             }
         }
 
+        AppendFigureMeasurement(sb);
         VRLog.Info(Scope0, sb.ToString());
         LogSteps(windowSeconds);
         LogCounters(windowSeconds);

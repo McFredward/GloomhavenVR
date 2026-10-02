@@ -32,6 +32,7 @@ def main():
     variants = [('production', '', '', '', '')]
     if not args.no_negative_controls:
         variants += [
+            ('report-unapplied-ready', 'Figures.cs', '&& _pending.Count == 0 && _measurementApplied', '&& _pending.Count == 0 && (_measurementApplied || !_measurementApplied)', 'cannot become measurement-ready before its late pass'),
             ('swap-native-cloth-topology', 'Figures.cs', '&& renderer.GetComponent<Cloth>() == null)', ')', 'large native Cloth topology is never admitted'),
             ('override-local-detail', 'Figures.cs', 'int wanted = restore ? 100 :', 'int wanted = restore || HeldFigures.Owns(Actor) ? 100 :', 'player detail controls only player'),
             ('revive-held-cloth', 'Figures.cs', 'bool cloth = restore || PerfConfig.FigureClothSimulationEnabled;', 'bool cloth = restore || NetHeldFigures.Owns(Actor) || PerfConfig.FigureClothSimulationEnabled;', 'remote hold keeps configured'),

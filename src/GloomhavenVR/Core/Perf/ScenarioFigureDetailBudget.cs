@@ -79,6 +79,10 @@ internal static class ScenarioFigureDetailBudget
         || PerfConfig.EnemyFigureDetailPercent < 100 || PerfConfig.FigureEffectsDensityPercent < 100
         || !PerfConfig.FigureClothSimulationEnabled;
 
+    // A scalar stamp from the completed late enforcement pass. The monitor must not
+    // census actors/meshes every frame merely to know when a quality change is applied.
+    internal static bool MeasurementReady => _driver == null || _driver.MeasurementReady;
+
     internal static void ActorReady(GameObject root)
     {
         if (VRSession.IsRunning && BudgetActive) _driver?.QueueRoot(root);
@@ -279,6 +283,13 @@ internal static class ScenarioFigureDetailBudget
         private float _reportAt;
         private bool _reportPending;
         private bool _faulted;
+        private bool _measurementApplied;
+        internal bool MeasurementReady => !_running || (!_faulted && !_wasLoading
+            && _pending.Count == 0 && _measurementApplied
+            && _players == PerfConfig.PlayerFigureDetailPercent
+            && _enemies == PerfConfig.EnemyFigureDetailPercent
+            && _effects == PerfConfig.FigureEffectsDensityPercent
+            && _cloth == PerfConfig.FigureClothSimulationEnabled);
         private int _rejectedScope, _nativeCandidates;
         private bool _scopeAnomalyReported;
 
@@ -371,6 +382,7 @@ internal static class ScenarioFigureDetailBudget
 
         private void UpdateCore()
         {
+            _measurementApplied = false;
             // Shipped PC/original settings cost config reads only. No scene snapshots,
             // actor discovery, per-frame reflection or LOD/cloth writes run on this path.
             if (!VRSession.IsRunning || !BudgetActive)
@@ -580,6 +592,7 @@ internal static class ScenarioFigureDetailBudget
             {
                 using var scope = PerfMonitor.Scope("FigureDetailBudget.Late");
                 foreach (ActorRecord record in _actors) record.Apply();
+                _measurementApplied = true;
             }
             catch (Exception error) { Fail(error); }
         }
