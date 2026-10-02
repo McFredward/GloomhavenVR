@@ -8,6 +8,9 @@ Usage:
 Window indices are one-based, in file order. A comparison is deliberately explicit:
 the operator selects a window from each of two logs. The report rejects mismatched
 scene, tracking, eye target, quality, or camera pose and flags sparse evidence.
+Build 607 figure tags describe the complete measured window; historical end-of-window
+GFX snapshots never establish its figure setting. Player/enemy changes are valid A/B
+variables, while effect/cloth changes and non-steady figure windows are confounds.
 LogOutput.log has no per-line timestamps. Line numbers and window durations are
 reported instead of invented wall-clock times. The XR ``gpu`` field is a frame
 interval/wait on this runtime and is never reported as GPU busy time.
@@ -35,6 +38,25 @@ FRAME = re.compile(r"\[Perf\] FRAME ([\d.]+)s n=(\d+).*?display ([\d.]+)Hz budge
 SPLIT = re.compile(r"\[Perf\] SPLIT .*?logic \(Update→LateUpdate\) ([\d.]+).*?render loop \(cull\+submit\) ([\d.]+).*?blocked \((?:waiting on GPU/compositor|unbracketed engine work/waits)\) ([\d.]+)ms")
 POSE = re.compile(r"view height p50 ([\d.]+) \(([-\d.]+)\.\.([-\d.]+)\) dist p50 ([\d.]+) \(([-\d.]+)\.\.([-\d.]+)\)")
 VISIBLE = re.compile(r"visible p50 (\d+) renderer")
+FIGURE_WINDOW = re.compile(
+    r"\| figure players=([\d.]+) enemies=([\d.]+) fx=([\d.]+) "
+    r"cloth=(True|False) state=([A-Za-z_]+) revision=(\d+)", re.IGNORECASE)
+FIGURE_BEGIN = re.compile(
+    r"\[Perf\] FIGURE-MEASURE begin revision=(\d+) players=([\d.]+) "
+    r"enemies=([\d.]+) fx=([\d.]+) cloth=(True|False) state=([A-Za-z_]+)", re.IGNORECASE)
+FIGURE_SNAPSHOT = re.compile(
+    r"Scenario figure detail: players=([\d.]+)% enemies=([\d.]+)% "
+    r"nativeCloth=(True|False);.*?Ambient FX density=([\d.]+)%", re.IGNORECASE)
+
+
+def _figure_settings(values: tuple, revision: int | None = None) -> dict:
+    return {"players": values[0], "enemies": values[1], "fx": values[2],
+            "cloth": values[3], "revision": revision}
+
+
+def _figure_snapshot(match: re.Match) -> tuple:
+    players, enemies, cloth, fx = match.groups()
+    return (float(players), float(enemies), float(fx), cloth.lower() == "true")
 
 
 def _state(values: list[str | tuple], unknown: str = "unknown") -> str | tuple:
@@ -61,6 +83,13 @@ def read_log(path: Path) -> dict:
     scene_events: list[dict] = []
     eye_events: list[dict] = []
     transitions: list[dict] = []
+    figure_state = None
+    # Unknown at the window's beginning remains part of its evidence even when a
+    # first snapshot occurs later. That late snapshot cannot establish earlier frames.
+    figure_values: list[tuple | str] = ["unknown"]
+    figure_events: list[dict] = []
+    figure_measurements: list[dict] = []
+    figure_begin_line = None
     windows: list[dict] = []
     current: dict | None = None
 
@@ -93,6 +122,28 @@ def read_log(path: Path) -> dict:
                 tracking_values.append(match.group(1).lower())
                 tracking_events.append({"line": line_no, "hmd": match.group(1).lower()})
 
+            if match := FIGURE_BEGIN.search(line):
+                revision, players, enemies, fx, cloth, state = match.groups()
+                figure_state = (float(players), float(enemies), float(fx), cloth.lower() == "true")
+                figure_begin_line = line_no
+                figure_measurements.append({"line": line_no, "state": state.lower(),
+                                            **_figure_settings(figure_state, int(revision))})
+                # The runtime discarded preparation samples and reset its accumulators.
+                # Do the same for evidence; events from the discarded interval cannot
+                # contaminate the first steady window. Known device/scene state remains.
+                scene_values = [scene_state] if scene_state else []
+                eye_values = [eye_state] if eye_state else []
+                quality_values = [quality_state] if quality_state else []
+                tracking_values, tracking_events, scene_events, eye_events = [], [], [], []
+                figure_values, figure_events = [figure_state], []
+                current = None
+                continue
+
+            if match := FIGURE_SNAPSHOT.search(line):
+                figure_state = _figure_snapshot(match)
+                figure_values.append(figure_state)
+                figure_events.append({"line": line_no, **_figure_settings(figure_state)})
+
             if match := FRAME.search(line):
                 seconds, count, hz, budget, mean, p50, p95, p99, maximum, mod = match.groups()
                 # The values accumulated since the preceding FRAME line describe this
@@ -108,6 +159,22 @@ def read_log(path: Path) -> dict:
                     pose = {"height_p50": h, "height_min": hmin, "height_max": hmax,
                             "distance_p50": d, "distance_min": dmin, "distance_max": dmax}
                 visible_match = VISIBLE.search(line)
+                if figure_match := FIGURE_WINDOW.search(line):
+                    players, enemies, fx, cloth, state, revision = figure_match.groups()
+                    figure = _figure_settings((float(players), float(enemies), float(fx),
+                                               cloth.lower() == "true"), int(revision))
+                    figure_status = state.lower()
+                    figure_evidence = "frame_window"
+                else:
+                    known_figures = {value for value in figure_values if value != "unknown"}
+                    if len(known_figures) > 1:
+                        figure, figure_status = None, "mixed"
+                    elif "unknown" in figure_values or not known_figures:
+                        figure, figure_status = None, "unknown"
+                    else:
+                        figure = _figure_settings(next(iter(known_figures)))
+                        figure_status = "observed"
+                    figure_evidence = "ordered_legacy_snapshots" if figure_events or figure_state else "absent"
                 current = {
                     "index": len(windows) + 1, "line": line_no, "duration_s": float(seconds),
                     "frames": int(count), "display_hz": float(hz), "budget_ms": float(budget),
@@ -125,6 +192,9 @@ def read_log(path: Path) -> dict:
                     "quality_status": quality if isinstance(quality, str) else "known",
                     "pose": pose, "visible_p50": int(visible_match.group(1)) if visible_match else None,
                     "gpu_busy_ms": None,
+                    "figure": figure, "figure_status": figure_status,
+                    "figure_evidence": figure_evidence, "figure_events": figure_events,
+                    "figure_measure_begin_line": figure_begin_line,
                 }
                 windows.append(current)
                 scene_values = [scene_state] if scene_state else []
@@ -134,6 +204,8 @@ def read_log(path: Path) -> dict:
                 tracking_events = []
                 scene_events = []
                 eye_events = []
+                figure_values = [figure_state] if figure_state is not None else ["unknown"]
+                figure_events = []
                 continue
 
             if current and (match := SPLIT.search(line)):
@@ -143,7 +215,7 @@ def read_log(path: Path) -> dict:
             # ran at that setting throughout.
 
     return {"path": str(path), "mod_build": build, "commit": commit,
-            "scene_transitions": transitions,
+            "scene_transitions": transitions, "figure_measurements": figure_measurements,
             "gpu_busy_available": False, "windows": windows}
 
 
@@ -178,28 +250,53 @@ def compare(a: dict, b: dict, same_file: bool = False) -> dict:
             if pose["height_max"] - pose["height_min"] > 5 or pose["distance_max"] - pose["distance_min"] > 5:
                 reject.append("pose_not_stable")
                 break
+    for window in (a, b):
+        status = window.get("figure_status", "unknown")
+        if (window.get("figure_evidence") == "frame_window" and status != "steady") or status == "mixed":
+            reject.append("figure_not_steady")
+        elif status != "steady":
+            flags.append("figure_state_unverified")
+    figure_changes = {}
+    if a.get("figure") is not None and b.get("figure") is not None:
+        for key in ("fx", "cloth"):
+            if a["figure"][key] != b["figure"][key]:
+                reject.append(f"figure_{key}_mismatch")
+        for key in ("players", "enemies"):
+            if a["figure"][key] != b["figure"][key]:
+                figure_changes[key] = {"baseline": a["figure"][key], "candidate": b["figure"][key]}
+        if len(figure_changes) > 1:
+            flags.append("multiple_figure_settings_changed")
     if a["display_hz"] != b["display_hz"]:
         reject.append("refresh_rate_differs")
     if a["logic_ms"] is None or b["logic_ms"] is None:
         flags.append("split_missing")
     return {"baseline_window": a["index"], "candidate_window": b["index"],
             "comparable": not reject, "reject": sorted(set(reject)), "flags": sorted(set(flags)),
+            "figure_changes": figure_changes,
+            "figure_settings_verified": all(w.get("figure_status") == "steady"
+                                              and w.get("figure_evidence") == "frame_window"
+                                              for w in (a, b)),
             "mean_delta_ms": round(b["mean_ms"] - a["mean_ms"], 2) if not reject else None,
             "p95_delta_ms": round(b["p95_ms"] - a["p95_ms"], 2) if not reject else None}
 
 
 def _table(report: dict) -> str:
     lines = [f"{report['path']}: ModBuild {report['mod_build'] or '?'} commit {report['commit'] or '?'}",
-             "# line scene tracking(n) eye scale stereo Hz mean p50 p95 mod logic render blocked visible"]
+             "# line scene tracking(n) eye scale stereo Hz mean p50 p95 mod logic render blocked visible figure(players/enemies/fx/cloth) state revision"]
     for w in report["windows"]:
         eye = w["eye"]
         eye_text = f"{eye['width']}x{eye['height']} {eye['scale']:.2f} {eye['stereo']}" if eye else w["eye_status"]
         number = lambda value: "?" if value is None else f"{value:.2f}"
+        figure = w["figure"]
+        figure_text = (f"{figure['players']:g}/{figure['enemies']:g}/{figure['fx']:g}/{figure['cloth']}"
+                       if figure else "?")
+        figure_revision = figure["revision"] if figure and figure["revision"] is not None else "?"
         lines.append(f"{w['index']} {w['line']} {w['scene']} {w['tracking']}({w['tracking_samples']}) "
                      f"{eye_text} {w['display_hz']:.0f} {w['mean_ms']:.2f} {w['p50_ms']:.2f} "
                      f"{w['p95_ms']:.2f} {w['mod_ms']:.2f} {number(w['logic_ms'])} "
                      f"{number(w['render_ms'])} {number(w['blocked_ms'])} "
-                     f"{w['visible_p50'] if w['visible_p50'] is not None else '?'}")
+                     f"{w['visible_p50'] if w['visible_p50'] is not None else '?'} "
+                     f"{figure_text} {w['figure_status']} {figure_revision}")
     return "\n".join(lines)
 
 
