@@ -594,7 +594,7 @@ internal sealed partial class FigureHighlight
             // (MaterialLoaderData.LoadMaterials), and a sheathed weapon is disabled outright. The
             // pre-ModBuild-294 code walked with includeInactive:TRUE and never checked `enabled`,
             // so every hidden prop on the figure got a visible amber ghost of itself in mid-air.
-            if (requireEnabled && !r.enabled)
+            if (requireEnabled && (!r.enabled || r.forceRenderingOff))
             {
                 f.Disabled++;
                 continue;
@@ -741,6 +741,8 @@ internal sealed partial class FigureHighlight
             // figure is not in. See FigureOverlay.CopyBlendShapeWeights.
             FigureOverlay.CopyBlendShapeWeights(smr, clone);
             clone.sharedMaterials = Fill(smr.sharedMesh.subMeshCount, overlayMat);
+            FigureOverlayMasks.Apply(smr, clone, smr.sharedMaterials);
+            FigureVisualMirror.BindHighlight(smr, clone);
             clone.shadowCastingMode = ShadowCastingMode.Off;
             clone.receiveShadows = false;
             return true;
@@ -750,8 +752,7 @@ internal sealed partial class FigureHighlight
         {
             // Static mesh part (a weapon, a shield, a prop). Parent under the container so the whole
             // overlay is torn down by destroying that one object, and match the part's current world
-            // transform. It rides the figure via the container; a bone-driven static part that moves
-            // during the hover is an accepted edge case (the hover is short and the part is small).
+            // transform. The evaluated-pose mirror also follows bone-driven static props during hover.
             var go = new GameObject("VROverlay");
             go.transform.SetParent(container, worldPositionStays: false);
             go.transform.SetPositionAndRotation(r.transform.position, r.transform.rotation);
@@ -765,6 +766,8 @@ internal sealed partial class FigureHighlight
             cf.sharedMesh = mf.sharedMesh;
             var cr = go.AddComponent<MeshRenderer>();
             cr.sharedMaterials = Fill(mf.sharedMesh.subMeshCount, overlayMat);
+            FigureOverlayMasks.Apply(r, cr, r.sharedMaterials);
+            FigureVisualMirror.BindHighlight(r, cr);
             cr.shadowCastingMode = ShadowCastingMode.Off;
             cr.receiveShadows = false;
             return true;

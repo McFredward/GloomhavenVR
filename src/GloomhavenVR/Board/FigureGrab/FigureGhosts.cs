@@ -7,9 +7,9 @@ namespace GloomhavenVR.Board.FigureGrab;
 
 /// <summary>
 /// TASK #3 (+ multiplayer) — a translucent GHOST silhouette left at a figure's HOME board pose the
-/// whole time it is held, so anyone can see where a picked-up mini belongs. The ghost ANIMATES
-/// (task #4: its Animator is kept, playing the idle in place with root motion off) and is VFX-free
-/// (task #3: particles/trails/distort-shader renderers are stripped, so no fog/mist at the cell).
+/// whole time it is held, so anyone can see where a picked-up mini belongs. The ghost mirrors
+/// the evaluated native idle/condition pose and phase without running a controller, and is VFX-free
+/// (particles/trails and non-surface effects are excluded, so no fog/mist at the cell).
 ///
 /// The ghost is driven off "is this figure held by ANYONE": <see cref="HeldFigures.Owns"/> (this
 /// client physically holds it) OR <see cref="NetHeldFigures.Owns"/> (a REMOTE player holds it). So a
@@ -36,9 +36,8 @@ internal static class FigureGhosts
     internal static readonly Color GhostTint = new Color(0.45f, 0.62f, 1.0f, 0.30f);
 
     /// <summary>A live ghost + its authoritative home pose. The pose is re-asserted every Tick:
-    /// the ghost keeps its Animator (task #4 — it plays the idle in place) but all game scripts
-    /// that normally pin animated roots are stripped, so this is the cheap insurance that no clip
-    /// quirk ever walks the ghost off its home cell.</summary>
+    /// the ghost mirrors evaluated local transforms, while this anchor ensures that a held root
+    /// or any native clip can never walk the home copy away from its board cell.</summary>
     private sealed class Ghost
     {
         public Ghost(GameObject go, Vector3 pos, Quaternion rot) { Go = go; Pos = pos; Rot = rot; }
@@ -75,8 +74,8 @@ internal static class FigureGhosts
     /// the subtree <c>ActorBars</c> and <c>FigureGrabDriver</c> already call "the figure", so all
     /// four now agree on what a figure is.</para>
     ///
-    /// <para>Cloning the root is safe because <c>FigureOverlay.BuildFrozenGhost</c> strips
-    /// colliders, rigidbodies, cloth, particle systems and EVERY MonoBehaviour from the clone, and
+    /// <para>Cloning the root is safe because <c>FigureOverlay.BuildFrozenGhost</c> never instantiates
+    /// native scripts, controllers, colliders, rigidbodies, cloth or particle systems, and excludes
     /// (since 335) any mod-owned <c>VR*</c> subtree — the highlight overlay hangs off this very
     /// root, and cloning it would ghost our own glow.</para>
     /// </summary>
@@ -169,8 +168,7 @@ internal static class FigureGhosts
                 _scratch.Add(actor!);
                 continue;
             }
-            // Task #4 — the ghost animates (Animator kept, root motion off); re-assert the home
-            // pose each frame so no clip can ever translate/rotate the ghost off its cell.
+            // Root pose has one owner. The visual mirror follows evaluated child poses only.
             kv.Value.Go.transform.SetPositionAndRotation(kv.Value.Pos, kv.Value.Rot);
         }
         for (int i = 0; i < _scratch.Count; i++)

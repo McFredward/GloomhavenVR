@@ -99,18 +99,10 @@ internal static class FigureOverlay
     }
 
     /// <summary>
-    /// TASK #3 helper: build a self-contained, translucent ghost of the figure's visual subtree at
-    /// world pose <paramref name="worldPos"/>/<paramref name="worldRot"/>/<paramref name="worldScale"/>.
-    /// The subtree is Instantiated and stripped of game logic (Cloth/Collider/Rigidbody and ALL
-    /// scripts) and of VFX (task #3: ParticleSystems, trails, and any renderer on a distort/FX
-    /// shader such as <c>Amp_CharDistort_Low</c> — these previously kept simulating and were
-    /// re-tinted into a fog/mist blob at the home cell); every remaining renderer is re-tinted with
-    /// <paramref name="ghostMat"/>. Task #4: the <c>Animator</c> is KEPT (root motion disabled,
-    /// events muted since their script receivers are stripped) so the ghost plays the same idle in
-    /// place at the home pose. <paramref name="preserveOriginal"/> (task #2, the actor's
-    /// <c>m_Hilight</c> selection ring): the matching subtree in the ghost keeps its ORIGINAL
-    /// materials so the ring at the home cell looks exactly like the game's own. Returns the ghost
-    /// root, or null if the subtree is missing. Caller owns the object and destroys it on release.
+    /// Build a translucent home silhouette from original visual components only. Native scripts,
+    /// Animator controllers, state-machine callbacks and physics are never instantiated. Evaluated
+    /// local transforms and blend shapes follow the source while the root remains at the home pose.
+    /// The matching selection-ring subtree retains original materials and home visibility.
     /// </summary>
     internal static GameObject? BuildFrozenGhost(GameObject animatedRoot, Vector3 worldPos, Quaternion worldRot,
         Vector3 worldScale, Material ghostMat, out string report, Transform? preserveOriginal = null)
@@ -131,31 +123,12 @@ internal static class FigureOverlay
         var solid = new List<Renderer>(8);
         var depthExcluded = new List<string>(4);
 
-        GameObject ghost = Object.Instantiate(animatedRoot);
-        ghost.name = "VRFigureGhost";
-        ghost.transform.SetParent(null, worldPositionStays: false);
-        ghost.transform.SetPositionAndRotation(worldPos, worldRot);
-        ghost.transform.localScale = worldScale;
-
-        // Task #2 — locate the ghost's twin of the live selection ring BEFORE any stripping (the
-        // mapping walks sibling-index chains, which Instantiate preserves exactly).
+        GameObject ghost = FigureVisualMirror.CloneVisual(animatedRoot, worldPos, worldRot,
+            worldScale, out FigureVisualMirror mirror);
         Transform? ringTwin = preserveOriginal != null
             ? FindTwin(animatedRoot.transform, preserveOriginal, ghost.transform)
             : null;
 
-        // TASK #4 — keep the Animator so the ghost plays the same idle clip in place. The game
-        // scripts that normally zero/drive the animated root are stripped below, so root motion is
-        // disabled (the pose must stay put at the home cell); animation events are muted because
-        // their MonoBehaviour receivers are gone; always-animate so an offscreen home cell never
-        // freezes the ghost mid-pose.
-        foreach (Animator a in ghost.GetComponentsInChildren<Animator>(true))
-        {
-            if (a == null)
-                continue;
-            a.applyRootMotion = false;
-            a.fireEvents = false;
-            a.cullingMode = AnimatorCullingMode.AlwaysAnimate;
-        }
         // MOD-OWNED SUBTREES GO FIRST (ModBuild 335). Since the ghost is cloned from the ACTOR
         // ROOT rather than m_AnimatedGameObject (see FigureGhosts.GhostSource), the walk can now
         // reach our OWN objects: the additive highlight overlay ("VRFigureHighlight") is parented
@@ -183,7 +156,7 @@ internal static class FigureOverlay
         }
         foreach (MonoBehaviour mb in ghost.GetComponentsInChildren<MonoBehaviour>(true))
         {
-            if (mb == null)
+            if (mb == null || mb is FigureVisualMirror)
                 continue;
             mb.enabled = false;       // stop it ticking before the deferred Destroy lands
             Object.Destroy(mb);
@@ -285,25 +258,13 @@ internal static class FigureOverlay
             }
             // Asked BEFORE the tint replaces the materials: it is the SOURCE art that decides
             // whether this mesh's geometry is its silhouette.
-            string renderType = SourceRenderType(r);
-            if (IsAlphaCutSilhouette(renderType))
-            {
-                if (depthExcluded.Count < 4)
-                    depthExcluded.Add($"'{r.name}' (RenderType '{renderType}' — the alpha carries "
-                                      + "the silhouette, not the geometry)");
-            }
-            else
-            {
-                solid.Add(r);
-            }
-            int subs = 1;
-            if (r is SkinnedMeshRenderer smr && smr.sharedMesh != null)
-                subs = smr.sharedMesh.subMeshCount;
-            else if (r.TryGetComponent(out MeshFilter mf) && mf.sharedMesh != null)
-                subs = mf.sharedMesh.subMeshCount;
-            else
-                subs = Mathf.Max(1, r.sharedMaterials.Length);
+            // Preserve alpha before replacement, including the depth twin. Native character
+            // shaders can draw their body and alpha cards with the same shader/material family.
+            Material[] originalMaterials = r.sharedMaterials;
+            int subs = Mathf.Max(1, SourceMesh(r)?.subMeshCount ?? originalMaterials.Length);
             r.sharedMaterials = FillMaterials(subs, ghostMat);
+            FigureOverlayMasks.Apply(r, r, originalMaterials);
+            solid.Add(r);
             r.shadowCastingMode = ShadowCastingMode.Off;
             r.receiveShadows = false;
             tint.Add(r);
@@ -341,6 +302,7 @@ internal static class FigureOverlay
         }
         // Own the ghost material's lifetime: Unity does NOT destroy materials with their GameObject,
         // so without this the tint material would leak every time a ghost is torn down.
+        mirror.Retain(tint, ringTwin);
         ghost.AddComponent<OverlayMaterialOwner>().Init(ghostMat);
 
         report = MeasureRenderers(tint, "GHOST", haveSource, sourceBounds, sourceRenderers)
@@ -360,6 +322,7 @@ internal static class FigureOverlay
                  // content: MeasureRenderers and OverlayVisibilityProbe both work off `tint`, and a
                  // colour-free depth stamp is not a thing anyone can see.
                  + ArmGhostDepthPrepass(ghost, solid, depthExcluded);
+        mirror.Sync();
         return ghost;
     }
 
@@ -375,10 +338,8 @@ internal static class FigureOverlay
     /// vanishes without any of the other measurements noticing (the reported bounds come from
     /// <c>localBounds</c>, which is copied, so the two boxes still "AGREE").</para>
     ///
-    /// <para>This is a ONE-SHOT copy taken when the overlay is built. If a clip animates a shape
-    /// DURING the hover the clone will drift; the count returned is reported so the log says
-    /// whether this figure has any animated shape at all before anybody writes a per-frame sync.
-    /// </para>
+    /// <para>This initializes the copy; FigureVisualMirror subsequently follows evaluated weights
+    /// each frame, including the ghost depth twin.</para>
     /// </summary>
     internal static int CopyBlendShapeWeights(SkinnedMeshRenderer source, SkinnedMeshRenderer clone)
     {
@@ -767,20 +728,16 @@ internal static class FigureOverlay
         }
     }
 
-    /// <summary>Task #3: true when any of the renderer's ORIGINAL materials uses a VFX-family
-    /// shader (distort/particle/fog — the figures carry e.g. <c>Amp_CharDistort_Low</c> for such
-    /// effects). Those must be destroyed, not re-tinted, or they render as a mist blob.</summary>
+    /// <summary>Only non-surface effect volumes are excluded by shader family. An opaque or
+    /// cutout body is never hidden merely because its shader name also contains an FX token.</summary>
     private static bool HasVfxShader(Renderer r)
     {
-        Material[] mats = r.sharedMaterials;
-        for (int i = 0; i < mats.Length; i++)
+        if (DrawsOwnSurface(r, out _)) return false;
+        foreach (Material material in r.sharedMaterials)
         {
-            Material m = mats[i];
-            if (m == null || m.shader == null)
-                continue;
-            string shaderName = m.shader.name;
-            if (shaderName.Contains("Distort") || shaderName.Contains("Particle")
-                || shaderName.Contains("Fog") || shaderName.Contains("FX"))
+            if (material == null || material.shader == null) continue;
+            string name = material.shader.name;
+            if (name.Contains("Distort") || name.Contains("Particle") || name.Contains("Fog") || name.Contains("FX"))
                 return true;
         }
         return false;
@@ -895,10 +852,8 @@ internal static class FigureOverlay
     /// <para><b>WHAT IS NOT ARMED.</b> Anything already excluded as VFX (destroyed upstream); the
     /// preserved selection RING, which keeps the game's own materials and is exactly the hollow,
     /// soft-falloff art <c>Cards/Art/CardGlow</c> refused a depth fix for — its ZWrite would stamp
-    /// a solid disc where the art is a thin glowing outline; and any renderer whose SOURCE material
-    /// declares a cutout <c>RenderType</c>, where the alpha channel carries the silhouette and the
-    /// geometry does not (hair cards, foliage planes). A solid character or prop mesh has none of
-    /// those problems, which is why <c>CardGlow</c>'s objection does not transfer to it.</para>
+    /// a solid disc where the art is a thin glowing outline. Native cutout bodies now retain their
+    /// own per-submesh alpha/UV mask in the depth twin, so only visible fragments stamp depth.</para>
     ///
     /// <para>Returns the census sentence for the caller's report — armed vs candidates, named, so
     /// "the prepass is on" is a number in the hardware log and not an assumption.</para>
@@ -962,6 +917,8 @@ internal static class FigureOverlay
             }
 
             twin.sharedMaterials = FillMaterials(subs, depth);
+            FigureOverlayMasks.Copy(r, twin, subs);
+            ghost.GetComponent<FigureVisualMirror>()?.BindDepth(r, twin);
             twin.shadowCastingMode = ShadowCastingMode.Off;
             twin.receiveShadows = false;
             // Sort with the renderer it stands in for: the prepass has to precede the PANEL, and
