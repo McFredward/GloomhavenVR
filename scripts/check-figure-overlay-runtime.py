@@ -11,6 +11,7 @@ import os
 from pathlib import Path
 import shutil
 import subprocess
+import sys
 import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -31,8 +32,21 @@ def main():
     fixture = ROOT / 'scripts/figure-overlay-runtime'
     base = args.source_root / 'src/GloomhavenVR/Board/FigureGrab'
     sources = {name: (base / name).read_text() for name in ('FigureOverlay.cs', 'FigureHighlight.cs', 'FigureGlowGrade.cs', 'FigureGhosts.cs', 'FigureVisualMirror.cs')}
+    wall = args.source_root / 'src/GloomhavenVR/Core/WallFade'
+    generated = run / 'WallOwnershipReads.cs'
+    subprocess.run([sys.executable, str(ROOT / 'tests/GloomhavenVR.WallReadFactsTests/extract-driver.py'),
+                    str(wall / 'WallSegmentFade.cs'), str(generated),
+                    str(wall / 'WallSegmentFade.Mounted.cs'), str(wall / 'WallSegmentFade.Prepare.cs'),
+                    '--ownership-only'], check=True)
+    sources.update({'WallOwnershipReads.cs': generated.read_text(),
+                    'WallSegmentFade.SelectionFacts.cs': (wall / 'WallSegmentFade.SelectionFacts.cs').read_text(),
+                    'WallSegmentFadeCulprits.cs': (wall / 'WallSegmentFadeCulprits.cs').read_text(),
+                    'ModVisualOwnership.cs': (args.source_root / 'src/GloomhavenVR/Core/ModVisualOwnership.cs').read_text()})
     shader = (args.source_root / 'unity/GloomhavenVR.Assets/Assets/Bundle/Table/Overlay.shader').read_text()
     proof = {'root': str(args.source_root.resolve()), 'native_drake': str(args.native_drake_bundle.resolve()), 'sha256': {key: hashlib.sha256(value.encode()).hexdigest() for key, value in sources.items()}}
+    for name in ('WallSegmentFade.cs', 'WallSegmentFade.CommitPhases.cs',
+                 'WallSegmentFade.Prepare.cs', 'WallSegmentFade.Water.cs'):
+        proof['sha256'][name] = hashlib.sha256((wall / name).read_bytes()).hexdigest()
     proof['sha256']['Overlay.shader'] = hashlib.sha256(shader.encode()).hexdigest()
     proof['sha256']['native_drake_bundle'] = hashlib.file_digest(args.native_drake_bundle.open('rb'), 'sha256').hexdigest()
     (run / 'source-hashes.json').write_text(json.dumps(proof, indent=2) + '\n')
@@ -51,6 +65,12 @@ def main():
             ('skip-material-ready', 'FigureVisualMirror.cs', 'if (pair.Masks && ready && !pair.Ready)', 'if (false && pair.Masks && ready && !pair.Ready)', 'first material-ready edge refreshes ghost and depth cutout masks'),
             ('skip-inactive-tint', 'FigureOverlay.cs', 'if (!r.gameObject.activeInHierarchy) inactiveSkipped++;', 'if (!r.gameObject.activeInHierarchy) { inactiveSkipped++; continue; }', 'inactive native surface is tinted before it can activate'),
             ('revive-excluded-subtree', 'FigureVisualMirror.cs', 'pair.Copy == null || ModOwned(pair.Copy, transform)', 'pair.Copy == null', 'excluded mod subtree stays inactive in same-frame sync'),
+            ('miss-mirror-wall-owner', 'WallSegmentFade.SelectionFacts.cs', 'renderer.GetComponentInParent<FigureVisualMirror>(true) != null', 'false', 'native-named ghost child keeps exact wall-census exemption'),
+            ('broaden-native-wall-owner', 'WallSegmentFade.SelectionFacts.cs', 'renderer.GetComponentInParent<FigureVisualMirror>(true) != null', 'renderer.GetComponentInParent<ActorBehaviour>(true) != null', 'original native actor remains outside mod wall ownership'),
+            ('exempt-wall-shader-mirror', 'WallOwnershipReads.cs', 'bool modExempt = f.Mod && !(f.Mesh != null && f.WallFadeShader);', 'bool modExempt = f.Mod;', 'real wall-shader mirror keeps conservative signature'),
+            ('fold-dead-native-named-ghost', 'WallOwnershipReads.cs', 'bool holeExempt = SceneRowWasExemptWhenAlive(i);', 'bool holeExempt = false;', 'destroyed native-named ghost row retains exact exemption'),
+            ('broaden-native-root-selection', 'WallSegmentFade.SelectionFacts.cs', 'renderer.GetComponent<HexSelect_Control>() != null', 'renderer.GetComponentInParent<HexSelect_Control>(true) != null', 'foreign emitter beneath native selector remains a conservative'),
+            ('miss-native-root-selection', 'WallSegmentFade.SelectionFacts.cs', 'renderer.GetComponent<HexSelect_Control>() != null', 'bool.Parse("false")', 'exact native root selector emitter keeps its wall-census exemption'),
         ]
     dotnet = shutil.which('dotnet') or str(Path.home() / '.dotnet/dotnet')
     manifest = {'result': str(run / 'results.txt'), 'cases': []}
@@ -91,6 +111,9 @@ def main():
     shutil.copyfile(fixture / 'Editor/OverlayRunner.cs', project / 'Assets/Editor/OverlayRunner.cs')
     for assembly, shader_code in case_shaders.items():
         (project / 'Assets' / ('Overlay_' + assembly + '.shader')).write_text(shader_code)
+    for family in ('WallFade', 'Water_Shd'):
+        (project / 'Assets' / ('Native' + family + '.shader')).write_text(
+            'Shader "Fixture/' + family + '" { SubShader { Pass { } } }')
     (project / 'Assets/NativeCutout.shader').write_text('''Shader "Fixture/NativeCutout" { Properties { _Diffuse ("Diffuse", 2D)="white" {} _Cutoff("Cutoff",Float)=0.5 } SubShader { Tags { "RenderType"="TransparentCutout" "Queue"="AlphaTest" } Pass { } } }''')
     (project / 'Packages/manifest.json').write_text(json.dumps({'dependencies': {'com.unity.modules.' + name: '1.0.0' for name in ('physics', 'cloth', 'animation', 'assetbundle', 'imageconversion', 'particlesystem')}}) + '\n')
     (project / 'ProjectSettings/ProjectVersion.txt').write_text('m_EditorVersion: 2021.3.5f1\n')

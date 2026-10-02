@@ -2,6 +2,7 @@ using System;
 using System.Linq;
 using System.Collections.Generic;
 using GloomhavenVR.Core;
+using GloomhavenVR.Board.FigureGrab;
 using UnityEngine;
 
 namespace UnityEngine
@@ -18,9 +19,16 @@ namespace UnityEngine
         internal float GetFloat(int id) { PropertyReads++; return Floats[id]; }
         internal bool IsKeywordEnabled(string _) { PropertyReads++; return Keyword; }
     }
+    internal readonly struct Vector3
+    {
+        internal readonly float x, y, z;
+        internal Vector3(float x, float y, float z) { this.x = x; this.y = y; this.z = z; }
+    }
+    internal sealed class Bounds { internal Vector3 center = default, min = default; }
     internal sealed class Transform
     {
         internal Transform? parent;
+        internal Vector3 position = default;
         internal readonly HashSet<Type> Components = new();
         internal string name = "Native unit";
         internal int Queries;
@@ -36,33 +44,49 @@ namespace UnityEngine
         { if (includeInactive) throw new Exception("Wall collection must retain active children only"); HierarchyReads++; destination.AddRange(Children); }
     }
     internal sealed class Animator { }
-    internal sealed class GameObject { internal bool activeInHierarchy = true; }
+    internal sealed class GameObject { internal bool activeInHierarchy = true; internal int layer = 0; }
     internal class Renderer
     {
         internal bool enabled = true, forceRenderingOff;
         internal readonly GameObject gameObject = new();
-        internal HexSelect_Control? Selector;
+        internal string name = "Native renderer";
+        internal readonly Transform transform = new();
+        internal readonly Bounds bounds = new();
+        internal readonly List<Material> Materials = new();
+        internal int MaterialListReads;
+        private static int _nextId;
+        private readonly int _id = ++_nextId;
+        internal int GetInstanceID() => _id;
+        internal void GetSharedMaterials(List<Material> list)
+        { MaterialListReads++; list.AddRange(Materials); }
+        internal FigureVisualMirror? Mirror;
+        internal int MirrorQueries;
+        internal bool ActorParent = false;
+        internal HexSelect_Control? Selector, OwnSelector;
         internal HexSelectControlParticles? SelectorParticles;
         internal ParticleSystem? System;
-        internal T? GetComponentInParent<T>(bool _) where T : class =>
-            typeof(T) == typeof(HexSelect_Control) ? Selector as T : SelectorParticles as T;
-        internal T? GetComponent<T>() where T : class => System as T;
+        internal T? GetComponentInParent<T>(bool includeInactive) where T : class
+        {
+            if (!includeInactive) throw new InvalidOperationException("Exact visual ownership must include inactive children");
+            if (typeof(T) == typeof(FigureVisualMirror)) { MirrorQueries++; return Mirror as T; }
+            if (typeof(T) == typeof(ActorBehaviour)) return ActorParent ? new ActorBehaviour() as T : null;
+            return typeof(T) == typeof(HexSelect_Control) ? Selector as T : SelectorParticles as T;
+        }
+        internal T? GetComponent<T>() where T : class => typeof(T) == typeof(HexSelect_Control) ? OwnSelector as T : System as T;
     }
     internal sealed class ParticleSystem { internal int particleCount; }
     internal sealed class ParticleSystemRenderer : Renderer { }
     internal sealed class MeshRenderer : Renderer
     {
-        internal readonly List<Material> Materials = new();
-        internal int MaterialListReads, Restores;
+        internal int Restores;
         internal bool StandingFloor, StandingFigure;
-        internal void GetSharedMaterials(List<Material> list)
-        { MaterialListReads++; list.AddRange(Materials); }
         internal void SetPropertyBlock(object? _) { Restores++; }
     }
     internal static class Mathf
     {
         internal static float Clamp(float value, float min, float max) => Math.Clamp(value, min, max);
         internal static float Abs(float value) => Math.Abs(value);
+        internal static int NextPowerOfTwo(int value) { int n = 1; while (n < value) n *= 2; return n; }
     }
 }
 internal sealed class HexSelect_Control { internal MeshRenderer? HexProjector; }
@@ -75,8 +99,12 @@ internal sealed class TilesOcclusionGenerator { internal readonly List<MeshRende
 internal sealed class ActorBehaviour { }
 internal sealed class CInteractableActor { }
 
+namespace GloomhavenVR.Board.FigureGrab { internal sealed class FigureVisualMirror { } }
 namespace GloomhavenVR.Core
 {
+    internal static class VRLayers
+    { internal const int ModLayer = 31; internal const string ModOwnedNamePrefix = "VR", ModOwnedQualifiedPrefix = "GloomhavenVR."; }
+
     internal static class ScenarioSceneryBudget
     {
         internal static readonly HashSet<Renderer> Hidden = new();
@@ -101,6 +129,19 @@ namespace GloomhavenVR.Core
                 GameLogicAncestryMemo = new(), WallGeneratorAncestryMemo = new();
             private readonly Dictionary<Shader, ShaderFadeName> _shaderFadeName = new();
             private readonly List<Material> _matScratch = new();
+            private readonly Dictionary<Shader, bool> _shaderVerdict = new(), _shaderFoliageVerdict = new(), _shaderWaterVerdict = new();
+            private Renderer?[] _snapshot = new Renderer?[1];
+            private readonly RendererFact[] _facts = new RendererFact[1];
+            private readonly List<int> _factWallFade = new(), _factWater = new();
+            private bool _classifyCold = true;
+            private ulong[] _sigRow = Array.Empty<ulong>();
+            private int[] _sigRowId = Array.Empty<int>();
+            private byte[] _sigRowFlags = Array.Empty<byte>();
+            private int _sceneExemptRows, _sceneFoldedRows;
+            private ulong _sceneFactSigSum, _sceneFactSigXor, _narrowSceneSigSum, _narrowSceneSigXor, _figureSetSigSum, _figureSetSigXor;
+            private static bool IsMountableRendererType(Renderer r) => r is MeshRenderer;
+            private static bool IsFigureOrActorRenderer(Renderer r) => r.ActorParent;
+            private static bool IsWallGeneratedDressing(Renderer _) => false;
             private readonly List<Material> _donors = new();
             private int _assertions;
             private bool _prepWarmArmed, _boardUnmoved;
@@ -145,6 +186,8 @@ namespace GloomhavenVR.Core
                 driver.MaterialAdmission();
                 driver.FigureRoots();
                 driver.DisabledReads();
+                driver.VisualCloneOwnership();
+                driver.VisualCloneOwnershipQueries();
                 driver.NativeSelectionVisuals();
                 driver.BudgetMasks();
                 driver.PreparedReadLifetime();
@@ -245,6 +288,81 @@ namespace GloomhavenVR.Core
                 Check(IsActuallyDrawing(particleRenderer), "A live emitter retains its original drawing classification");
                 ScenarioSceneryBudget.Hidden.Clear();
             }
+            private void VisualCloneOwnershipQueries()
+            {
+                var children = Enumerable.Range(0, 100).Select(_ => Renderer(Mat("Amp_Basic"))).ToArray();
+                for (int i = 0; i < children.Length; i++)
+                    if ((i & 1) == 0) children[i].Mirror = new FigureVisualMirror();
+                PerfConfig.SharedWallReadCache = true;
+                BeginFigureMemo();
+                for (int pass = 0; pass < 100; pass++)
+                    for (int i = 0; i < children.Length; i++)
+                        Check(IsModObject(children[i]) == ((i & 1) == 0), "Exact mirror ownership is consistent across adoption lanes");
+                Check(children.Sum(r => r.MirrorQueries) == 100,
+                    "Repeated live adoption lanes query each exact mirror ancestor once per synchronous scope");
+                EndFigureMemo();
+                Check(VisualMirrorOwnershipMemo.Count == 0, "Mirror ownership memo releases every renderer at the scope boundary");
+                children[0].Mirror = null;
+                BeginFigureMemo();
+                Check(!IsModObject(children[0]) && children[0].MirrorQueries == 2,
+                    "A new frame or scope observes native reparenting without stale mirror ownership");
+                EndFigureMemo();
+                PerfConfig.SharedWallReadCache = false;
+                BeginFigureMemo();
+                for (int pass = 0; pass < 100; pass++) IsModObject(children[1]);
+                Check(children[1].MirrorQueries == 101 && VisualMirrorOwnershipMemo.Count == 0,
+                    "Disabled shared-read cache preserves direct exact ownership probes");
+                EndFigureMemo();
+                PerfConfig.SharedWallReadCache = true;
+            }
+            private void SurveyOwned(Renderer? renderer)
+            {
+                _snapshot[0] = renderer;
+                _factWallFade.Clear(); _factWater.Clear();
+                _sceneExemptRows = _sceneFoldedRows = 0;
+                _sceneFactSigSum = _sceneFactSigXor = _narrowSceneSigSum = _narrowSceneSigXor = _figureSetSigSum = _figureSetSigXor = 0;
+                ClassifySlice(0, 1);
+                _classifyCold = false;
+            }
+            private void VisualCloneOwnership()
+            {
+                var native = Renderer(Mat("Amp_Basic")); native.name = "MO_Spitting_Drake_Mesh_LOD2";
+                native.ActorParent = true;
+                Check(!IsModObject(native), "Native actor ancestry alone never grants visual ownership");
+                SurveyOwned(native);
+                Check(!_facts[0].Mod && _sceneFoldedRows == 1 && _sceneExemptRows == 0,
+                    "An original native-named actor keeps its cold classifier and signature contribution");
+                var clone = Renderer(Mat("Amp_Basic")); clone.name = native.name;
+                clone.Mirror = new FigureVisualMirror(); clone.gameObject.activeInHierarchy = false;
+                Check(IsModObject(clone), "An inactive native-named mirror child is excluded from live wall adoption");
+                SurveyOwned(clone);
+                Check(_facts[0].Mod && _sceneExemptRows == 1 && _sceneFoldedRows == 0
+                    && _sceneFactSigSum == 0 && _narrowSceneSigSum == 0 && _figureSetSigSum == 0,
+                    "Exact mirror-owned children contribute nothing to all three wall signature halves");
+                int queries = clone.MirrorQueries;
+                SurveyOwned(clone);
+                Check(clone.MirrorQueries == queries, "Warm census retains clone ownership without new native ancestry queries");
+                int cloneId = clone.GetInstanceID();
+                SurveyOwned(null);
+                Check(SceneRowWasExemptWhenAlive(0) && _sigRowId[0] == cloneId
+                    && _sceneExemptRows == 1 && _sceneFoldedRows == 0
+                    && _sceneFactSigSum == 0 && _narrowSceneSigSum == 0 && _figureSetSigSum == 0,
+                    "A dead clone row retains its exact exemption without signature churn");
+                var wall = Renderer(Mat("Amp_Basic_WallFade")); wall.Mirror = clone.Mirror; wall.name = clone.name;
+                SurveyOwned(wall);
+                Check(_facts[0].Mod && _facts[0].WallFadeShader && _factWallFade.Count == 1
+                    && _sceneFoldedRows == 1 && _sceneExemptRows == 0 && _sceneFactSigSum != 0,
+                    "A mirror mesh with a real wall-fade shader retains its conservative signature");
+                SurveyOwned(null);
+                Check(!SceneRowWasExemptWhenAlive(0) && _sceneFoldedRows == 1 && _sceneFactSigSum != 0,
+                    "Death of a real wall-shader row remains a structural signature change");
+                var water = Renderer(Mat("Water_Shd")); water.name = "Fountain";
+                SurveyOwned(water);
+                Check(!_facts[0].Mod && _facts[0].WaterSurface && _factWater.Count == 1 && _sceneFoldedRows == 1,
+                    "Original native water keeps protection membership and signature contribution");
+                var sameName = Renderer(Mat("Amp_Basic")); sameName.name = clone.name;
+                Check(!IsModObject(sameName), "Matching a clone child name alone never exempts native scenery");
+            }
             private void NativeSelectionVisuals()
             {
                 var selector = new HexSelect_Control();
@@ -253,6 +371,16 @@ namespace GloomhavenVR.Core
                 Check(IsNativeHexSelectionVisual(projected), "Exact native published selection decal is never wall scenery");
                 var masonry = Renderer(Mat("Amp_Basic_WallFade")); masonry.Selector = selector;
                 Check(!IsNativeHexSelectionVisual(masonry), "Being near a selector never exempts a real wall mesh");
+                var rootEmitter = new ParticleSystemRenderer { Selector = selector, OwnSelector = selector, System = new ParticleSystem() };
+                Check(IsNativeHexSelectionVisual(rootEmitter), "Exact native root selection emitter is not wall scenery");
+                SurveyOwned(rootEmitter);
+                Check(_facts[0].Mod && _sceneExemptRows == 1 && _sceneFactSigSum == 0,
+                    "Native root selection emitter never moves the production wall signature");
+                SurveyOwned(null);
+                Check(SceneRowWasExemptWhenAlive(0) && _sceneFactSigSum == 0,
+                    "Destroyed native root selection emitter retains its exact exemption");
+                var foreignEmitter = new ParticleSystemRenderer { Selector = selector, System = new ParticleSystem() };
+                Check(!IsNativeHexSelectionVisual(foreignEmitter), "Parent proximity never exempts a foreign selection-root emitter");
                 var particles = new HexSelectControlParticles();
                 var emitter = new ParticleSystem();
                 var highlight = new ParticleSystemRenderer { System = emitter, SelectorParticles = particles };

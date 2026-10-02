@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using GloomhavenVR.Board.FigureGrab;
 using GloomhavenVR.Cards;
+using GloomhavenVR.Core;
 using UnityEditor;
 using UnityEditor.Animations;
 using UnityEngine;
@@ -137,6 +138,27 @@ public static class InteractionProgram
             var excludedChild=new GameObject("native-looking child");excludedChild.transform.SetParent(excluded.transform,false);
             FigureGhosts.NotifyHeld(actor,Vector3.zero,Quaternion.identity);GameObject ghost=FigureGhosts.GhostFor(actor)!;
             Check(ghost!=null,"local/remote held native sleeping ghost exists");
+            Renderer nativeBody=source.GetComponentsInChildren<SkinnedMeshRenderer>().First(r=>r.sharedMesh.vertexCount>1000);
+            Renderer ghostBody=ghost!.GetComponentsInChildren<SkinnedMeshRenderer>().First(r=>r.sharedMesh==((SkinnedMeshRenderer)nativeBody).sharedMesh);
+            Check(ghostBody.name==nativeBody.name&&!ModVisualOwnership.IsName(ghostBody.name)
+                &&ghostBody.gameObject.layer==nativeBody.gameObject.layer&&ghostBody.gameObject.layer!=VRLayers.ModLayer,
+                "genuine native-named/layer ghost child cannot rely on a prefix or mod layer");
+            Check(!WallSegmentFade.OwnershipProbe.LiveOwned(nativeBody),"original native actor remains outside mod wall ownership");
+            var ownership=new WallSegmentFade.OwnershipProbe();
+            var ghostRow=ownership.Survey(ghostBody);
+            Check(ghostRow.Mod&&ghostRow.Exempt&&ghostRow.ExemptRows==1&&ghostRow.Folded==0
+                &&ghostRow.Scene==0&&ghostRow.Narrow==0&&ghostRow.Figures==0,
+                "native-named ghost child keeps exact wall-census exemption");
+            Check(WallSegmentFade.OwnershipProbe.LiveOwned(ghostBody),"native-named ghost child is never a live wall attachment");
+            ghost.SetActive(false);
+            ghostRow=ownership.Survey(ghostBody);
+            Check(ghostRow.Mod&&ghostRow.Exempt&&ghostRow.Scene==0,
+                "inactive native LOD descendants retain their genuine mirror owner");
+            ghost.SetActive(true);
+            var nativeRow=new WallSegmentFade.OwnershipProbe().Survey(nativeBody);
+            Check(!nativeRow.Mod&&!nativeRow.Exempt&&nativeRow.Folded==1&&nativeRow.Scene!=0,
+                "original native actor preserves the complete wall signature contribution");
+
             var mirror=ghost!.GetComponent<FigureVisualMirror>();
             Check(ghost.GetComponentsInChildren<Animator>(true).Length==0,"ghost never owns native Animator/controller callbacks");
             Check(ghost.GetComponentsInChildren<NativeCallbackProbe>(true).Length==0,"ghost never instantiates native gameplay Awake");
@@ -185,8 +207,47 @@ public static class InteractionProgram
             Check(clone.forceRenderingOff,"source cosmetic/LOD forceRenderingOff survives ghost mirroring");src.forceRenderingOff=false;mirror.Sync();Check(!clone.forceRenderingOff,"source visibility restoration survives ghost mirroring");
             HeldFigures.Actors.Clear();NetHeldFigures.Actors.Clear();FigureGhosts.ReleaseIfUnheld(actor);
             Check(FigureGhosts.GhostFor(actor)==null&&!ghost.activeSelf,"action release disables ghost immediately before deferred destroy");
+            int ghostId=ghostBody.GetInstanceID();
+            ownership.Survey(ghostBody);
             yield return null;
+            var deadRow=ownership.Survey(ghostBody);
+            Check(ghostBody==null&&deadRow.Exempt&&deadRow.ExemptRows==1&&deadRow.Folded==0
+                &&deadRow.RowId==ghostId&&deadRow.Scene==0&&deadRow.Narrow==0&&deadRow.Figures==0,
+                "destroyed native-named ghost row retains exact exemption");
         }
+        var wallMaterial=new Material(AssetDatabase.LoadAssetAtPath<Shader>("Assets/NativeWallFade.shader"));
+        Renderer nativeWall=Surface("native original wall",quad,wallMaterial);nativeWall.transform.position=Vector3.right*40;
+        GameObject wallCopy=FigureVisualMirror.CloneVisual(nativeWall.gameObject,Vector3.right*40,Quaternion.identity,Vector3.one,out _);
+        Renderer wallRenderer=wallCopy.GetComponent<Renderer>();var wallOwnership=new WallSegmentFade.OwnershipProbe();
+        var wallRow=wallOwnership.Survey(wallRenderer);
+        Check(wallRow.Mod&&wallRow.WallFade&&wallRow.WallCount==1&&!wallRow.Exempt
+            &&wallRow.Folded==1&&wallRow.Scene!=0,"real wall-shader mirror keeps conservative signature");
+        Object.DestroyImmediate(wallCopy);wallRow=wallOwnership.Survey(wallRenderer);
+        Check(!wallRow.Exempt&&wallRow.Folded==1&&wallRow.Scene!=0,
+            "destroyed wall-shader mirror still changes structural signature");
+        var waterMaterial=new Material(AssetDatabase.LoadAssetAtPath<Shader>("Assets/NativeWater_Shd.shader"));
+        Renderer nativeWater=Surface("native original Fountain",quad,waterMaterial);nativeWater.transform.position=Vector3.right*40;
+        var waterRow=new WallSegmentFade.OwnershipProbe().Survey(nativeWater);
+        Check(!waterRow.Mod&&waterRow.WaterCount==1&&waterRow.Folded==1&&waterRow.Scene!=0,
+            "native water keeps protection and conservative signature");
+        Object.DestroyImmediate(nativeWater.gameObject);Object.DestroyImmediate(nativeWall.gameObject);
+        // resources.assets native HexHighlight pathID5746 has the selector and emitter
+        // on its root; a foreign emitter beneath the same root must retain native facts.
+        var selectorRoot=new GameObject("HexHighlight native root topology");selectorRoot.transform.position=Vector3.right*40;
+        selectorRoot.AddComponent<HexSelect_Control>();var rootSystem=selectorRoot.AddComponent<ParticleSystem>();
+        var rootSelection=rootSystem.GetComponent<ParticleSystemRenderer>();var selectionOwnership=new WallSegmentFade.OwnershipProbe();
+        var selectionRow=selectionOwnership.Survey(rootSelection);
+        Check(selectionRow.Mod&&selectionRow.Exempt&&selectionRow.Folded==0
+            &&selectionRow.Scene==0&&selectionRow.Narrow==0&&selectionRow.Figures==0,
+            "exact native root selector emitter keeps its wall-census exemption");
+        var foreignRoot=new GameObject("foreign child emitter");foreignRoot.transform.SetParent(selectorRoot.transform,false);
+        var foreignSystem=foreignRoot.AddComponent<ParticleSystem>();var foreignSelection=foreignSystem.GetComponent<ParticleSystemRenderer>();
+        var foreignRow=new WallSegmentFade.OwnershipProbe().Survey(foreignSelection);
+        Check(!foreignRow.Mod&&!foreignRow.Exempt&&foreignRow.Folded==1&&foreignRow.Scene!=0,
+            "foreign emitter beneath native selector remains a conservative wall-census input");
+        Object.DestroyImmediate(selectorRoot);selectionRow=selectionOwnership.Survey(rootSelection);
+        Check(selectionRow.Exempt&&selectionRow.Folded==0&&selectionRow.Scene==0,
+            "destroyed native root selector keeps its exact signature exemption");
         var dormantRoot=new GameObject("native actor with dormant surface");
         var dormant=Surface("dormant native surface",quad,ringMaterial);dormant.transform.SetParent(dormantRoot.transform,false);dormant.gameObject.SetActive(false);
         var visible=Surface("visible native surface",quad,plain);visible.transform.SetParent(dormantRoot.transform,false);

@@ -8,6 +8,9 @@ public sealed class ActorBehaviour : MonoBehaviour
 }
 public sealed class TestActor { public TestClass Class = new TestClass(); }
 public sealed class TestClass { public string ID = "NativeSpittingDrake"; }
+public sealed class HexSelect_Control : MonoBehaviour { public MeshRenderer? HexProjector; }
+public sealed class HexSelectControlParticles : MonoBehaviour
+{ public ParticleSystem[]? ParticleBits, ParticleHover; }
 public sealed class NativeCallbackProbe : MonoBehaviour
 {
     public static int Awakes, Events;
@@ -25,7 +28,7 @@ namespace GloomhavenVR.Cards
 }
 namespace GloomhavenVR.Core
 {
-    internal static class VRLayers { internal const string ModOwnedNamePrefix = "VR"; }
+    internal static class VRLayers { internal const int ModLayer = 26; internal const string ModOwnedNamePrefix = "VR", ModOwnedQualifiedPrefix = "GloomhavenVR."; }
     internal static class VRLog { internal static void Note(string area, string text) { } internal static void Alert(string area, string text) { } }
 }
 namespace GloomhavenVR.Rig { internal static class VRRigDriver { internal static Camera? HeadCamera => null; } }
@@ -33,4 +36,66 @@ namespace GloomhavenVR.Board.FigureGrab
 {
     internal static class HeldFigures { internal static readonly HashSet<ActorBehaviour> Actors = new(); internal static bool Owns(ActorBehaviour actor) => Actors.Contains(actor); }
     internal static class NetHeldFigures { internal static readonly HashSet<ActorBehaviour> Actors = new(); internal static bool Owns(ActorBehaviour actor) => Actors.Contains(actor); }
+}
+
+namespace GloomhavenVR.Core
+{
+    internal static class PerfConfig { internal static bool SharedWallReadCacheOn => true; }
+    internal static partial class WallSegmentFade
+    {
+        internal readonly struct OwnershipReading
+        {
+            internal readonly bool Mod, WallFade, Exempt;
+            internal readonly int Folded, ExemptRows, RowId, WaterCount, WallCount;
+            internal readonly ulong Scene, Narrow, Figures;
+            internal OwnershipReading(bool mod, bool wallFade, bool exempt, int folded, int exemptRows,
+                int rowId, int waterCount, int wallCount, ulong scene, ulong narrow, ulong figures)
+            { Mod=mod; WallFade=wallFade; Exempt=exempt; Folded=folded; ExemptRows=exemptRows;
+              RowId=rowId; WaterCount=waterCount; WallCount=wallCount; Scene=scene; Narrow=narrow; Figures=figures; }
+        }
+        internal sealed class OwnershipProbe
+        {
+            private readonly FadeDriver driver=new();
+            internal OwnershipReading Survey(Renderer? renderer) => driver.Survey(renderer);
+            internal static bool LiveOwned(Renderer renderer) => FadeDriver.LiveOwned(renderer);
+        }
+        private sealed partial class FadeDriver
+        {
+            private readonly Dictionary<Shader,bool> _shaderVerdict=new(),_shaderFoliageVerdict=new(),_shaderWaterVerdict=new();
+            private readonly List<Material> _matScratch=new();
+            private readonly Renderer?[] _snapshot=new Renderer?[1];
+            private readonly RendererFact[] _facts=new RendererFact[1];
+            private readonly List<int> _factWallFade=new(),_factWater=new();
+            private bool _classifyCold=true;
+            private ulong[] _sigRow=System.Array.Empty<ulong>();
+            private int[] _sigRowId=System.Array.Empty<int>();
+            private byte[] _sigRowFlags=System.Array.Empty<byte>();
+            private int _sceneExemptRows,_sceneFoldedRows;
+            private ulong _sceneFactSigSum,_sceneFactSigXor,_narrowSceneSigSum,_narrowSceneSigXor,_figureSetSigSum,_figureSetSigXor;
+            private static readonly Dictionary<Transform,bool> FigureAncestryMemo=new(),GameLogicAncestryMemo=new(),WallGeneratorAncestryMemo=new();
+            private static readonly Dictionary<Transform,Transform?> FigureRootMemo=new();
+            private static bool _figureMemoActive,_figureRootMemoActive;
+            private static bool IsMountableRendererType(Renderer renderer) => renderer is MeshRenderer;
+            private static bool IsFigureOrActorRenderer(Renderer renderer) => renderer.GetComponentInParent<ActorBehaviour>(true)!=null;
+            private static bool IsWallGeneratedDressing(Renderer renderer) => false;
+            internal static bool LiveOwned(Renderer renderer) => IsModObject(renderer);
+            internal OwnershipReading Survey(Renderer? renderer)
+            {
+                _snapshot[0]=renderer;_factWallFade.Clear();_factWater.Clear();
+                _sceneExemptRows=_sceneFoldedRows=0;
+                _sceneFactSigSum=_sceneFactSigXor=_narrowSceneSigSum=_narrowSceneSigXor=_figureSetSigSum=_figureSetSigXor=0;
+                BeginFigureMemo();
+                try
+                {
+                    if(!_figureMemoActive) throw new System.InvalidOperationException("Native memo scope must be active");
+                    ClassifySlice(0,1);
+                }
+                finally { EndFigureMemo(); }
+                _classifyCold=false;
+                return new OwnershipReading(_facts[0].Mod,_facts[0].WallFadeShader,SceneRowWasExemptWhenAlive(0),
+                    _sceneFoldedRows,_sceneExemptRows,_sigRowId[0],_factWater.Count,_factWallFade.Count,
+                    _sceneFactSigSum,_narrowSceneSigSum,_figureSetSigSum);
+            }
+        }
+    }
 }
