@@ -7,12 +7,14 @@ scenario DLCs as an optional extension. The local builder embeds the original
 Steam logo/name/ID; Quest supplies native passthrough. The original gameplay
 and existing VR experience remain the reference.
 
-**Status: planning only, 2026-10-02.** The maintainer explicitly deferred
-implementation until the game is running satisfactorily standalone on Steam
-Frame. This document authorizes no implementation, SDK installation, Android
-project generation, game export, service registration, account configuration or
-APK publication now. Resume implementation only on the maintainer's subsequent
-instruction after that milestone. All milestones below are future work.
+**Status: implementation authorized, 2026-10-03.** The maintainer subsequently
+requested a branch from current `dev` and implementation through the first
+hardware-testable state. Work proceeds in `feature/quest3-standalone`, based on
+`5344a550` (ModBuild 607), without changing the concurrent `dev` checkout.
+This instruction supersedes the earlier implementation deferral; it does not
+establish Steam Frame or Quest hardware acceptance. Actual evidence and the
+remaining full-game gates are recorded in
+[implementation evidence](QUEST3-IMPLEMENTATION.md). Proprietary artifacts stay local.
 
 **Profile/service decision revised on 2026-10-02:** embed Steam logo, name
 and ID during the local build. Exclude cloud and other store services on Quest.
@@ -27,7 +29,7 @@ service options. The imported ID is not a live authentication credential.
 
 Concrete solution paths, bounded feasibility experiments and fallback decisions
 are recorded in [Quest 3 critical solution paths](QUEST3-CRITICAL-SOLUTIONS.md).
-Those experiments are future work, subject to the same Frame prerequisite.
+The later implementation instruction also authorizes these feasibility experiments.
 The [preflight and builder maintenance assessment](QUEST3-PREFLIGHT-AND-BUILDER.md)
 adds explicit stop conditions and the requirement to keep ordinary mod changes
 automatically consumable by the builder.

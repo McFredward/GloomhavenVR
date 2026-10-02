@@ -553,7 +553,17 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 607;
+    public const ushort ModBuild = 608;
+
+    // ModBuild 608 — isolated Quest conversion and first hardware diagnostic checkpoint.
+    // The local builder snapshots owned PC content, selected mod/tool source and offline
+    // Steam identity; signed ARM64 IL2CPP diagnostic APKs use the game's exact Unity
+    // editor and one OpenXR session with native passthrough. The probe includes an
+    // original animated figure with explicitly approximate diagnostic materials; it
+    // does not run campaign, multiplayer or original saves. Full-game conversion
+    // remains gated by asset recovery, platform/startup adapters and AOT closure.
+    // Shared Quest labels are English/German. Desktop presentation and wire layout
+    // are unchanged; version-handshake equality continues to require matching builds.
 
     // ModBuild 607 — attributable figure-detail hardware measurements and optional window dust.
     // Figure slider/effect/cloth changes close the completed previous interval with its

@@ -1,10 +1,12 @@
 # Quest 3 critical solution paths
 
 This document turns the risks in the [Quest 3 port plan](QUEST3-PORT-PLAN.md)
-into concrete future work. Each path has an initial experiment, a deliverable,
-an acceptance condition and a response to failure. None of these experiments
-has been implemented or passed. Implementation remains deferred until Steam
-Frame acceptance and the maintainer's subsequent instruction.
+into concrete work. Each path has an initial experiment, a deliverable,
+an acceptance condition and a response to failure. The maintainer subsequently
+authorized implementation on 2026-10-03 in a branch from current `dev`.
+[Implementation evidence](QUEST3-IMPLEMENTATION.md) distinguishes actual results
+from the remaining full-game and hardware gates. The older Frame prerequisite
+is superseded by that explicit instruction, not by an inferred hardware pass.
 
 **Planning revision: 2026-10-02.** The latest maintainer decision is a locally
 built, sideloaded APK with Steam logo, name and ID embedded, without cloud or

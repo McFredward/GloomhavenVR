@@ -1,10 +1,11 @@
 # Quest 3 preflight blockers and builder maintenance
 
-**Planning only, revised 2026-10-02.** No Quest implementation, exporter run,
-SDK installation, reconstructed project or APK is created by this assessment.
-Steam Frame acceptance and the maintainer's subsequent instruction still come
-first. The experiments below are proposed feasibility work before investing
-in the complete port, not work authorized to run now.
+**Assessment revised 2026-10-02; implementation authorized 2026-10-03.**
+The maintainer has now requested a separate branch from current `dev` and work
+through a first hardware-testable state. These gates remain requirements for
+the complete port. Dated assessment statements below are not implementation
+results; see [implementation evidence](QUEST3-IMPLEMENTATION.md) for actual
+exports, builds and outstanding blockers. No hardware acceptance is inferred.
 
 This revision records the additional maintainer decisions:
 
