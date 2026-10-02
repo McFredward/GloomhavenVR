@@ -2,6 +2,18 @@
 
 **Updated 2026-10-02: dev 1.1.0 / ModBuild 605, Frame604 scenery and figure corrections.**
 
+The new Build605 headset run confirms deferred decorative creation (287 native
+instances / 1,234 renderers) and ambient figure-effect suppression. Loaded,
+tracked windows average 52.67 ms, still far from smooth standalone play. The
+enemy setting changes native caps, but the cached visible body aggregate remains
+unchanged and nine of 17 actors have no authored coarse body mesh. Saved
+DesktopMirrorLeftEye=false retains extra native desktop drawing; the existing
+true setting is the next isolated comparison. Remaining engineering priorities
+are wall preparation/commit hitches, unnecessary hidden-decoration/UI work,
+compatible static scene batching, optional simple environment shading and real
+coarse figure derivatives. See [Frame605 hardware analysis](../docs/performance/FRAME-605-ANALYSIS.md).
+This is analysis only; runtime and the validated Build605 source tree are unchanged.
+
 The supplied Frame604 / 253e89378 evidence confirms 17 admitted actors, 8/8 native
 LOD caps and 15 disabled cloth solvers. Only eight bodies have authored coarse
 meshes: lack of obvious visual change does not prove an inert slider. All 3,189
