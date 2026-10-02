@@ -399,8 +399,9 @@ internal static class PerfConfig
         ScenarioVegetationDensityPercent = _file.Bind("Optimize", "ScenarioVegetationDensityPercent",
             FrameDefaults.Active ? FrameDefaults.ScenarioVegetationDensityPercent : Defaults.ScenarioVegetationDensityPercent,
             new ConfigDescription(
-                "Decorative scenario trees, bushes, vines and leaves retained. 0% removes eligible "
-                + "vegetation, 100% restores it. Grass and other decoration have separate controls. "
+                "Decorative scenario trees, bushes, vines and leaves retained, including original tree "
+                + "trunks. 0% removes vegetation, 100% restores it. Grass and other decoration have "
+                + "separate controls. Picking surfaces belonging only to hidden trees disappear with them. "
                 + "Solid wall/floor cores, native obstacles, doors, actors, lights and UI are retained. "
                 + "Works live; fresh standalone Frame defaults to 0%, PC to 100%; saved choices stay.",
                 new AcceptableValueRange<int>(0, 100)));
@@ -410,7 +411,7 @@ internal static class PerfConfig
                 "Mesh detail of scenario player characters. 100% keeps automatic original detail; "
                 + "lower values limit it to coarser original game meshes where available. 0% uses the "
                 + "lowest nonempty native level. Distance culling, animation, silhouette and gameplay "
-                + "are retained. Figures held locally or by another player restore original detail. "
+                + "are retained. The selected detail also applies to figures held locally or by another player. "
                 + "Works live; fresh Frame defaults to 0%, PC to 100%; saved choices stay.",
                 new AcceptableValueRange<int>(0, 100)));
         ScenarioEnemyFigureDetailPercent = _file.Bind("Optimize", "ScenarioEnemyFigureDetailPercent",
@@ -419,13 +420,14 @@ internal static class PerfConfig
                 "Mesh detail of scenario monsters. 100% keeps automatic original detail; lower "
                 + "values limit it to coarser original game meshes where available. 0% uses the lowest "
                 + "nonempty native level. Distance culling, animation and gameplay are retained. "
-                + "Figures held locally or by another player restore original detail. Works live; "
+                + "The selected detail also applies to figures held locally or by another player. Works live; "
                 + "fresh Frame defaults to 0%, PC to 100%; saved choices stay.",
                 new AcceptableValueRange<int>(0, 100)));
         ScenarioFigureClothSimulation = _file.Bind("Optimize", "ScenarioFigureClothSimulation",
             FrameDefaults.Active ? FrameDefaults.ScenarioFigureClothSimulation : Defaults.ScenarioFigureClothSimulation,
             "Simulate cloth on scenario figures. OFF retains the animated figure but stops secondary "
-            + "cloth physics; original enabled cloth is restored on held figures and when ON. "
+            + "cloth physics, including on locally or remotely held figures. Hand collision and cloth "
+            + "rescale cooking are suspended while OFF; ON restores original enabled cloth. "
             + "NPCs, tabletop cloth, cards and gameplay colliders are untouched. Works live; fresh "
             + "Frame defaults to OFF, PC to ON; saved choices stay.");
         ReduceScenarioGenerationDetail = _file.Bind("Optimize", "ReduceScenarioGenerationDetail",

@@ -124,7 +124,8 @@ separate percentage controls. Fresh standalone Frame profiles start at 0%; PC st
 at 100%. Set all three to 100% for the original detail.
 
 **Player figure detail (%)** and **Enemy figure detail (%)** select coarser original
-meshes at lower values. **Simulate figure clothing** controls additional cloth physics.
+meshes at lower values, including while held. **Simulate figure clothing** controls
+additional cloth physics; off keeps clothing attached without flapping or hand interaction.
 **Reduced scenario generation** takes effect when you next load a scenario. Frame starts
 with lower figure detail, clothing simulation off and reduced generation on. All controls
 also work on PC; saved choices are retained.

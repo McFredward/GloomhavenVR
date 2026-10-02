@@ -132,8 +132,9 @@ eigene Prozentregler. Neue Frame-Profile beginnen mit 0%, PC mit 100%. Alle drei
 auf 100% stellen die ursprünglichen Details wieder her.
 
 **Detail der Spielfiguren (%)** und **Detail der Gegnerfiguren (%)** wählen bei kleineren
-Werten gröbere Original-Meshes. **Figurenkleidung simulieren** steuert zusätzliche
-Stoffphysik. **Sparsame Szenario-Erzeugung** wirkt ab dem nächsten Szenarioladen.
+Werten gröbere Original-Meshes, auch bei hochgehobenen Figuren.
+**Figurenkleidung simulieren** steuert zusätzliche Stoffphysik. Bei Aus bleibt die
+Kleidung an der Figur befestigt, ohne Flattern oder Handinteraktion. **Sparsame Szenario-Erzeugung** wirkt ab dem nächsten Szenarioladen.
 Frame beginnt mit weniger Figurendetails, ausgeschalteter Stoffsimulation und sparsamer
 Erzeugung. Alle Regler funktionieren auch auf PC; gespeicherte Werte bleiben erhalten.
 

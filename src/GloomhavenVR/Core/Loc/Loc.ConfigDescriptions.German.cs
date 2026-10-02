@@ -239,7 +239,8 @@ internal static partial class Loc
                 + "PC mit 100%; gespeicherte Einstellungen bleiben erhalten.",
             ["Optimize/ScenarioVegetationDensityPercent"] =
                 "Anteil der dekorativen Bäume, Büsche, Ranken und Blätter im Szenario. 0% entfernt "
-                + "geeignete Vegetation, 100% stellt sie wieder her. Gras und andere Dekoration haben "
+                + "Vegetation einschließlich Baumstämmen, 100% stellt sie wieder her. Unsichtbare Bäume "
+                + "behalten keine eigenen Zeigeflächen. Gras und andere Dekoration haben "
                 + "eigene Regler. Tragende Wände, Böden, Spielhindernisse, Türen, Figuren, Licht und UI "
                 + "bleiben erhalten. Wirkt sofort; neue Frame-Profile beginnen mit 0%, PC mit 100%; "
                 + "gespeicherte Werte bleiben erhalten.",
@@ -247,18 +248,19 @@ internal static partial class Loc
                 "Mesh-Details der Spielfiguren im Szenario. 100% erhält die ursprüngliche automatische "
                 + "Detailwahl; kleinere Werte begrenzen sie auf gröbere Original-Meshes, soweit vorhanden. "
                 + "0% nutzt die niedrigste nicht leere Spielvariante. Entfernungsausblendung, Animation "
-                + "und Spielregeln bleiben erhalten. Hochgehobene Figuren erhalten lokal und remote ihre "
-                + "ursprüngliche Detailwahl. Wirkt sofort; neue Frame-Profile 0%, PC 100%; gespeicherte Werte bleiben.",
+                + "und Spielregeln bleiben erhalten. Die gewählte Detailstufe gilt auch für lokal und remote "
+                + "hochgehobene Figuren. Wirkt sofort; neue Frame-Profile 0%, PC 100%; gespeicherte Werte bleiben.",
             ["Optimize/ScenarioEnemyFigureDetailPercent"] =
                 "Mesh-Details der Gegnerfiguren im Szenario. 100% erhält die ursprüngliche automatische "
                 + "Detailwahl; kleinere Werte begrenzen sie auf gröbere Original-Meshes, soweit vorhanden. "
                 + "0% nutzt die niedrigste nicht leere Spielvariante. Entfernungsausblendung, Animation "
-                + "und Spielregeln bleiben erhalten. Hochgehobene Figuren erhalten lokal und remote ihre "
-                + "ursprüngliche Detailwahl. Wirkt sofort; neue Frame-Profile 0%, PC 100%; gespeicherte Werte bleiben.",
+                + "und Spielregeln bleiben erhalten. Die gewählte Detailstufe gilt auch für lokal und remote "
+                + "hochgehobene Figuren. Wirkt sofort; neue Frame-Profile 0%, PC 100%; gespeicherte Werte bleiben.",
             ["Optimize/ScenarioFigureClothSimulation"] =
                 "Simuliert Kleidung an Szenariofiguren. Aus erhält die animierte Figur, stoppt aber "
-                + "zusätzliche Stoffphysik. Bei hochgehobenen Figuren sowie bei Ein kehrt die ursprüngliche "
-                + "aktive Stoffsimulation zurück. NPCs, Tischdecken, Karten und Spielkollisionen bleiben "
+                + "zusätzliche Stoffphysik auch an lokal und remote hochgehobenen Figuren. Handkollision und "
+                + "Neuberechnung beim Skalieren pausieren bei Aus. Ein stellt die ursprüngliche aktive "
+                + "Stoffsimulation wieder her. NPCs, Tischdecken, Karten und Spielkollisionen bleiben "
                 + "unverändert. Wirkt sofort; neue Frame-Profile Aus, PC Ein; gespeicherte Werte bleiben.",
             ["Optimize/ReduceScenarioGenerationDetail"] =
                 "Nutzt die sparsamere prozedurale Geometrie des Spiels ab dem nächsten Szenarioladen. "

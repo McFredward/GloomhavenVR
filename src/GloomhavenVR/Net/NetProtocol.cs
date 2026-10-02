@@ -553,7 +553,18 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 603;
+    public const ushort ModBuild = 604;
+
+    // ModBuild 604 — Frame603's real actor models live under the native gameplay board,
+    // outside additive ProcGen: the optional detail driver reported zero actors/cloth
+    // despite valid zero-detail settings. Native board/actor identity now admits those
+    // models without touching town NPCs or preview/UI objects. Detail and cloth choices
+    // also hold for local/remote grabs; OFF suspends solver, hand contacts and rescale
+    // cooking instead of reviving cloth while held. Native decorative tree trunks are
+    // included by vegetation density, with owned restoration of tree-only picking
+    // colliders; gameplay obstacles and solid mixed floor/masonry geometry stay intact.
+    // Production Unity fixtures reproduce the separate native scenes and policy edges.
+    // Hardware logs establish the previous defect, not acceptance or FPS of this build.
 
     // ModBuild 603 — Frame601 measured 3,457 decorative renderer masks but still
     // visible wall/edge foliage; grass retunes were capped by decoration zero.

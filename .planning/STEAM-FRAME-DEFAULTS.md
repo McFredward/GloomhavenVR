@@ -30,9 +30,9 @@ platforms, with off switches for comparison and restoration of the old work path
 | `[Optimize] ScenarioSceneryDensityPercent` | 0 | 100 | VR Options → Graphics → independent Scenario grass (%); saved earlier 25% remains intact |
 | `[Optimize] ScenarioVegetationDensityPercent` | 0 | 100 | Independent decorative trees/bushes/vines/leaves; live |
 | `[Optimize] ScenarioDecorationDensityPercent` | 0 | 100 | Loose generated decoration; live |
-| `[Optimize] ScenarioPlayerFigureDetailPercent` | 0 | 100 | Original native player/summon mesh detail cap; held figures retain original |
-| `[Optimize] ScenarioEnemyFigureDetailPercent` | 0 | 100 | Original native monster mesh detail cap; held figures retain original |
-| `[Optimize] ScenarioFigureClothSimulation` | false | true | Secondary scenario figure cloth; held figures retain native simulation |
+| `[Optimize] ScenarioPlayerFigureDetailPercent` | 0 | 100 | Original native player/summon mesh detail cap, including local/remote held figures |
+| `[Optimize] ScenarioEnemyFigureDetailPercent` | 0 | 100 | Original native monster mesh detail cap, including local/remote held figures |
+| `[Optimize] ScenarioFigureClothSimulation` | false | true | Secondary scenario figure cloth; OFF also suspends held contacts and scale cooking |
 | `[Optimize] ReduceScenarioGenerationDetail` | true | false | Native quality 0 for scenario tile/wall parameters at next load; underground retained |
 | `[Optimize] SharedWallReadCache` | true | true | Advanced options/config; false restores repeated material and ancestor queries |
 | `[Optimize] LightStabiliserWorkCache` | true | true | Advanced options/config; false restores original light lookup/write cadence |
@@ -54,7 +54,10 @@ See [STEAM-FRAME-SCENERY-601.md](STEAM-FRAME-SCENERY-601.md). **Build 603 supers
 that coupling:** grass, vegetation and loose decoration now have independent budgets,
 so a grass change can be compared while other decoration stays 0. The table above is the
 current fresh-profile state; see [STEAM-FRAME-SCENERY-603.md](STEAM-FRAME-SCENERY-603.md)
-for expanded classification, native figure/generation options and hardware limits.
+for the initial figure/generation options and hardware limits. Build 604 corrects the
+native cross-scene figure admission and includes decorative tree trunks at vegetation
+0%; see [STEAM-FRAME-SCENERY-604.md](STEAM-FRAME-SCENERY-604.md). The original held-figure
+quality/cloth exceptions are superseded: the selected settings also apply while held.
 
 The game already creates a fresh `GlobalData` with `QualityLevel = "Fastest"`
 (`GH.Runtime.dll`, `GlobalData()`), its lowest native graphics preset. A saved

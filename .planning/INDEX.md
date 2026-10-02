@@ -1,6 +1,6 @@
 # Planning index
 
-Updated 2026-10-02 for Build 603 after NPC Build 602 publication and storage cleanup. This directory holds internal
+Updated 2026-10-02 for Build 604 after the Frame603 hardware report. This directory holds internal
 engineering evidence, historical decisions and current status; it is not the player manual.
 
 ## Current entry points
@@ -12,6 +12,7 @@ engineering evidence, historical decisions and current status; it is not the pla
 | [TEST-PARALLELISM.md](TEST-PARALLELISM.md) | Parallel local/CI execution, coverage and measured timing |
 | [STATE.md](STATE.md) | Current build, validation and outstanding hardware checks |
 | [TOWN-MP-602.md](TOWN-MP-602.md) | Paired PCVR evidence, original-widget/clock/lifecycle review, independent held stock and final validation |
+| [STEAM-FRAME-SCENERY-604.md](STEAM-FRAME-SCENERY-604.md) | Frame603 zero-actor admission defect, static held cloth and decorative tree/collider coverage |
 | [STEAM-FRAME-SCENERY-603.md](STEAM-FRAME-SCENERY-603.md) | Frame601 evidence, independent scenery budgets, native figure/cloth/generation controls and storage maintenance |
 | [STEAM-FRAME-SCENERY-601.md](STEAM-FRAME-SCENERY-601.md) | Essential decoration profile, corrected discovery, production-classifier validation and reversible settings |
 | [STEAM-FRAME-THIRTEENTH-HARDWARE.md](STEAM-FRAME-THIRTEENTH-HARDWARE.md) | Build 600 hardware failure: 27 masked renderers, loaded foliage population and invisible-collider protections |
